@@ -19,6 +19,7 @@ import {
   AlocacaoManualDto,
   CancelarReservaDto,
   CreateReservaDiretaDto,
+  DataSorteioDto,
   EntrarSorteioDto,
   StatusTemporadaDto,
 } from './dto/colonia.dto';
@@ -81,9 +82,45 @@ export class ColoniaController {
 
   @ApiBearerAuth()
   @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Patch('admin/temporadas/:id/sorteio')
+  dataSorteio(
+    @Param('id') id: string,
+    @Body() dto: DataSorteioDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.definirDataSorteio(id, dto.dataSorteio, this.ctx(req, userId));
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
   @Get('admin/painel')
   painel(@Query('temporadaId') temporadaId?: string) {
     return this.service.painelAdmin(temporadaId);
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Patch('admin/reservas/:id/sincronizar-filiado')
+  sincronizarReserva(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('nome') autor: string,
+    @Req() req: Request,
+  ) {
+    return this.service.sincronizarFiliado('reserva', id, this.ctx(req, userId), autor);
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Patch('admin/inscricoes/:id/sincronizar-filiado')
+  sincronizarInscricao(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('nome') autor: string,
+    @Req() req: Request,
+  ) {
+    return this.service.sincronizarFiliado('inscricao', id, this.ctx(req, userId), autor);
   }
 
   @ApiBearerAuth()

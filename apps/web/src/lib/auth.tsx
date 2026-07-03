@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, tokenStore } from './api';
+import { api, tokenStore, persistentStore } from './api';
 
 export interface Usuario {
   id: string;
@@ -27,15 +27,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    const armazenado = typeof window !== 'undefined' ? localStorage.getItem(USER_KEY) : null;
-    if (armazenado && tokenStore.access) setUser(JSON.parse(armazenado));
+    const armazenado = persistentStore.get(USER_KEY);
+    // Restaura a sessão enquanto houver refresh token (credencial DURÁVEL). O
+    // access token expirado/ausente é renovado silenciosamente pelo interceptor
+    // do Axios no primeiro request — sem deslogar ao reabrir o PWA/navegador.
+    if (armazenado && (tokenStore.refresh || tokenStore.access)) {
+      try {
+        setUser(JSON.parse(armazenado));
+      } catch {
+        /* dado corrompido — ignora */
+      }
+    }
     setCarregando(false);
   }, []);
 
   async function login(email: string, senha: string, lembrar = false) {
     const { data } = await api.post('/auth/login', { email, senha, lembrar });
     tokenStore.set(data.accessToken, data.refreshToken);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    persistentStore.set(USER_KEY, JSON.stringify(data.user));
     setUser(data.user);
     router.push('/dashboard');
   }
@@ -47,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* ignora */
     }
     tokenStore.clear();
-    localStorage.removeItem(USER_KEY);
+    persistentStore.remove(USER_KEY);
     setUser(null);
     router.push('/login');
   }

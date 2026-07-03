@@ -1,12 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { FormacaoColonia, StatusTemporada } from '@prisma/client';
 import { IsCorenParaFormacao } from '../../../common/validators/coren.validator';
@@ -62,4 +64,15 @@ export class AlocacaoManualDto extends CheckoutDto {
 
 export class CancelarReservaDto {
   @ApiPropertyOptional() @IsOptional() @IsString() motivo?: string;
+}
+
+export class DataSorteioDto {
+  @ApiPropertyOptional({
+    description: 'Data/hora do sorteio público (ISO 8601). Envie null para limpar.',
+    example: '2026-07-07T19:30:00-03:00',
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.dataSorteio != null)
+  @IsDateString()
+  dataSorteio?: string | null;
 }

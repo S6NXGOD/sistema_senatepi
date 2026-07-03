@@ -689,14 +689,15 @@ enum StatusSorteioInscricao {
 /// Campanha/Temporada da colônia (ex.: "Colônia de Julho 2026").
 /// O `slug` é o identificador da URL pública; `status` controla o acesso.
 model ColoniaTemporada {
-  id        String          @id @default(uuid())
-  nome      String
-  slug      String          @unique // URL pública da campanha (ex.: "julho-2026")
-  ano       Int
-  status    StatusTemporada @default(INATIVA)
-  descricao String?
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  id          String          @id @default(uuid())
+  nome        String
+  slug        String          @unique // URL pública da campanha (ex.: "julho-2026")
+  ano         Int
+  status      StatusTemporada @default(INATIVA)
+  descricao   String?
+  dataSorteio DateTime?       @map("data_sorteio") // data/hora do sorteio público (ex.: terça 19:30)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
   lotes            ColoniaLote[]
   reservas         ColoniaReserva[]
@@ -806,6 +807,9 @@ model ColoniaSorteioInscricao {
   temporadaId String                 @map("temporada_id")
   loteId      String                 @map("lote_id")
   status      StatusSorteioInscricao @default(INSCRITO)
+  // Posição na FILA DE SUPLENTES definida no sorteio (1 = primeiro a ser
+  // promovido caso a reserva do contemplado seja cancelada). Nulo p/ INSCRITO.
+  posicaoSuplente Int?               @map("posicao_suplente")
 
   // ---- Dados de checkout (enriquecimento) ----
   nomeCompleto   String          @map("nome_completo")

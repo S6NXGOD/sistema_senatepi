@@ -23,7 +23,7 @@ export interface LoteDisp {
 }
 
 export interface Disponibilidade {
-  temporada: { id: string; nome: string; ano: number; slug: string };
+  temporada: { id: string; nome: string; ano: number; slug: string; dataSorteio?: string | null };
   lotes: LoteDisp[];
 }
 
@@ -51,6 +51,23 @@ export const FORMACAO_OPCOES: { value: FormacaoColonia; label: string }[] = [
 // Estrutura padrão de todos os quartos da Colônia (exibida na vitrine e no comprovante).
 export const ESTRUTURA_QUARTO =
   'Estrutura do Quarto: 2 camas de casal, 1 cama de solteiro e suportes para redes';
+
+// Aviso do prazo de cancelamento (Termo de No-Show) — exibido em TODAS as reservas.
+export const AVISO_NOSHOW_24H =
+  'Você tem no máximo 24h após a reserva para cancelá-la. Após esse prazo, as ' +
+  'penalidades do Termo de No-Show serão aplicadas.';
+
+/** Calcula o prazo-limite de cancelamento (createdAt + 24h) e se já expirou. */
+export function prazoCancelamento24h(createdAtIso: string) {
+  const limite = new Date(new Date(createdAtIso).getTime() + 24 * 60 * 60 * 1000);
+  return {
+    limite,
+    expirado: Date.now() > limite.getTime(),
+    texto: limite.toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    }),
+  };
+}
 
 // Aviso legal obrigatório no comprovante e na tela de sucesso.
 export const AVISO_LEGAL_RESERVA =
@@ -132,6 +149,7 @@ export interface TemporadaResumo {
   slug: string;
   ano: number;
   status: StatusTemporada;
+  dataSorteio?: string | null;
 }
 
 /** Resumo de campanha para o dashboard mestre (lista de campanhas/links). */
@@ -168,6 +186,8 @@ export interface Ocupante {
   cidade: string;
   estado: string;
   createdAt: string;
+  /** Cadastro de filiado correspondente (por CPF), se existir. */
+  filiadoId: string | null;
 }
 
 export interface InscritoSorteio {
@@ -177,6 +197,18 @@ export interface InscritoSorteio {
   coren: string | null;
   formacao: FormacaoColonia;
   createdAt: string;
+  filiadoId: string | null;
+}
+
+/** Suplente da fila de sorteio (ordem de promoção). */
+export interface Suplente {
+  id: string;
+  posicao: number | null;
+  nomeCompleto: string;
+  cpf: string;
+  coren: string | null;
+  formacao: FormacaoColonia;
+  filiadoId: string | null;
 }
 
 export interface LotePainel {
@@ -184,6 +216,7 @@ export interface LotePainel {
   quartos: (QuartoDisp & { ocupado: boolean })[];
   ocupacao: Ocupante[];
   inscritos: InscritoSorteio[];
+  suplentes: Suplente[];
   sorteioHabilitado: boolean;
   esgotado: boolean;
   quarto6AlocadoManualmente: boolean;
@@ -206,6 +239,27 @@ export async function getPainelAdmin(temporadaId?: string): Promise<PainelAdmin>
 
 export async function setStatusTemporada(id: string, status: StatusTemporada) {
   return (await api.patch(`/colonia/admin/temporadas/${id}/status`, { status })).data;
+}
+
+/** Define/limpa a data-hora do sorteio público da temporada (ISO ou null). */
+export async function definirDataSorteio(id: string, dataSorteio: string | null) {
+  return (await api.patch(`/colonia/admin/temporadas/${id}/sorteio`, { dataSorteio })).data;
+}
+
+export interface SyncFiliadoResposta {
+  filiadoId: string;
+  nome: string;
+  alterados: string[];
+}
+
+/** "Sobe" os dados de uma reserva para o cadastro do filiado (match por CPF). */
+export async function sincronizarFiliadoReserva(id: string): Promise<SyncFiliadoResposta> {
+  return (await api.patch(`/colonia/admin/reservas/${id}/sincronizar-filiado`)).data;
+}
+
+/** "Sobe" os dados de uma inscrição de sorteio para o cadastro do filiado. */
+export async function sincronizarFiliadoInscricao(id: string): Promise<SyncFiliadoResposta> {
+  return (await api.patch(`/colonia/admin/inscricoes/${id}/sincronizar-filiado`)).data;
 }
 
 export async function cancelarReserva(id: string, motivo?: string) {

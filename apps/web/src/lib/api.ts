@@ -7,20 +7,91 @@ export const api = axios.create({ baseURL: API_URL });
 const ACCESS_KEY = 'senatepi.accessToken';
 const REFRESH_KEY = 'senatepi.refreshToken';
 
+// ---------------------------------------------------------------------------
+// Persistência resiliente: localStorage + cookie de longa duração (fallback).
+// Em PWAs instalados o localStorage pode ser particionado/limpo pelo sistema;
+// o cookie persistente mantém a sessão viva ("login persistente") e reidrata o
+// localStorage quando disponível. NUNCA usar sessionStorage/memória volátil.
+// ---------------------------------------------------------------------------
+const COOKIE_DIAS = 180;
+
+function setCookie(nome: string, valor: string) {
+  if (typeof document === 'undefined') return;
+  const exp = new Date(Date.now() + COOKIE_DIAS * 864e5).toUTCString();
+  const secure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${nome}=${encodeURIComponent(valor)}; Expires=${exp}; Path=/; SameSite=Lax${secure}`;
+}
+
+function getCookie(nome: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const m = document.cookie.match(new RegExp('(?:^|; )' + nome.replace(/\./g, '\\.') + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function delCookie(nome: string) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${nome}=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; SameSite=Lax`;
+}
+
+function salvar(chave: string, valor: string) {
+  try {
+    localStorage.setItem(chave, valor);
+  } catch {
+    /* storage indisponível — segue apenas com cookie */
+  }
+  setCookie(chave, valor);
+}
+
+function ler(chave: string): string | null {
+  try {
+    const v = localStorage.getItem(chave);
+    if (v) return v;
+  } catch {
+    /* ignore */
+  }
+  const c = getCookie(chave);
+  if (c) {
+    // Reidrata o localStorage a partir do cookie quando possível.
+    try {
+      localStorage.setItem(chave, c);
+    } catch {
+      /* ignore */
+    }
+    return c;
+  }
+  return null;
+}
+
+function remover(chave: string) {
+  try {
+    localStorage.removeItem(chave);
+  } catch {
+    /* ignore */
+  }
+  delCookie(chave);
+}
+
+/** Storage persistente (localStorage + cookie fallback) para dados de sessão. */
+export const persistentStore = {
+  get: (chave: string) => (typeof window !== 'undefined' ? ler(chave) : null),
+  set: (chave: string, valor: string) => salvar(chave, valor),
+  remove: (chave: string) => remover(chave),
+};
+
 export const tokenStore = {
   get access() {
-    return typeof window !== 'undefined' ? localStorage.getItem(ACCESS_KEY) : null;
+    return typeof window !== 'undefined' ? ler(ACCESS_KEY) : null;
   },
   get refresh() {
-    return typeof window !== 'undefined' ? localStorage.getItem(REFRESH_KEY) : null;
+    return typeof window !== 'undefined' ? ler(REFRESH_KEY) : null;
   },
   set(access: string, refresh: string) {
-    localStorage.setItem(ACCESS_KEY, access);
-    localStorage.setItem(REFRESH_KEY, refresh);
+    salvar(ACCESS_KEY, access);
+    salvar(REFRESH_KEY, refresh);
   },
   clear() {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
+    remover(ACCESS_KEY);
+    remover(REFRESH_KEY);
   },
 };
 

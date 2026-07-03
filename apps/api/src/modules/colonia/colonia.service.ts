@@ -7,14 +7,17 @@ import {
 } from '@nestjs/common';
 import {
   AcaoAuditoria,
+  ColoniaReserva,
   ColoniaTemporada,
   FormacaoColonia,
+  FormacaoProfissional,
   OrigemReserva,
   Prisma,
   SituacaoFiliado,
   StatusReserva,
   StatusSorteioInscricao,
   StatusTemporada,
+  TipoHistoricoFiliado,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -218,7 +221,13 @@ export class ColoniaService {
     });
 
     return {
-      temporada: { id: temporada.id, nome: temporada.nome, ano: temporada.ano, slug: temporada.slug },
+      temporada: {
+        id: temporada.id,
+        nome: temporada.nome,
+        ano: temporada.ano,
+        slug: temporada.slug,
+        dataSorteio: temporada.dataSorteio,
+      },
       lotes: data,
     };
   }
@@ -408,26 +417,114 @@ export class ColoniaService {
     return reserva;
   }
 
-  /** Cancelamento pela diretoria: soft-delete que devolve a vaga ao público na hora. */
-  async cancelarReserva(id: string, motivo: string | undefined, ctx: Ctx) {
-    const reserva = await this.prisma.coloniaReserva.findUnique({ where: { id } });
-    if (!reserva) throw new NotFoundException('Reserva não encontrada.');
-    if (reserva.status === StatusReserva.CANCELADA_ADMIN)
-      throw new BadRequestException('Reserva já está cancelada.');
-
-    const atualizada = await this.prisma.coloniaReserva.update({
-      where: { id },
-      data: {
-        status: StatusReserva.CANCELADA_ADMIN,
-        canceladaEm: new Date(),
-        canceladaPor: ctx.userId,
-        motivoCancelamento: motivo,
+  /**
+   * Promove o próximo da FILA DE SUPLENTES para o quarto liberado (respeitando a
+   * ordem `posicaoSuplente`). Pula suplentes que já conseguiram uma reserva
+   * CONFIRMADA por outro meio. Retorna o suplente promovido ou null se a fila
+   * estiver vazia. Executado dentro da transação de cancelamento.
+   */
+  private async promoverProximoSuplente(tx: Tx, cancelada: ColoniaReserva, ctx: Ctx) {
+    const suplentes = await tx.coloniaSorteioInscricao.findMany({
+      where: {
+        loteId: cancelada.loteId,
+        status: StatusSorteioInscricao.NAO_SORTEADO,
+        posicaoSuplente: { not: null },
+        reservaId: null,
       },
+      orderBy: { posicaoSuplente: 'asc' },
     });
+
+    for (const s of suplentes) {
+      // Suplente já pode ter conseguido vaga por outro meio: pula, mantém a fila.
+      const jaTemReserva = await tx.coloniaReserva.findFirst({
+        where: { temporadaId: cancelada.temporadaId, cpf: s.cpf, status: StatusReserva.CONFIRMADA },
+        select: { id: true },
+      });
+      if (jaTemReserva) continue;
+
+      const nova = await tx.coloniaReserva.create({
+        data: {
+          temporadaId: cancelada.temporadaId,
+          loteId: cancelada.loteId,
+          quartoId: cancelada.quartoId,
+          origem: OrigemReserva.SORTEIO,
+          nomeCompleto: s.nomeCompleto,
+          cpf: s.cpf,
+          telefone: s.telefone,
+          coren: s.coren,
+          email: s.email,
+          formacao: s.formacao,
+          localTrabalho1: s.localTrabalho1,
+          localTrabalho2: s.localTrabalho2,
+          cidade: s.cidade,
+          estado: s.estado,
+          aceiteTermoNoShow: s.aceiteTermoNoShow,
+          consentimentoLgpd: s.consentimentoLgpd,
+          consentimentoEm: s.consentimentoEm,
+          ipConsentimento: s.ipInscricao,
+          criadaPor: ctx.userId,
+        },
+      });
+      await tx.coloniaSorteioInscricao.update({
+        where: { id: s.id },
+        data: { status: StatusSorteioInscricao.SORTEADO, reservaId: nova.id },
+      });
+      return {
+        reservaId: nova.id,
+        nomeCompleto: s.nomeCompleto,
+        cpf: s.cpf,
+        posicaoSuplente: s.posicaoSuplente,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Cancelamento pela diretoria: soft-delete que devolve a vaga ao público na
+   * hora. Se a reserva veio do SORTEIO, o próximo suplente da fila entra
+   * automaticamente no lugar (fila de suplentes respeitada).
+   */
+  async cancelarReserva(id: string, motivo: string | undefined, ctx: Ctx) {
+    const { atualizada, promovido } = await this.prisma
+      .$transaction(async (tx) => {
+        const reserva = await tx.coloniaReserva.findUnique({ where: { id } });
+        if (!reserva) throw new NotFoundException('Reserva não encontrada.');
+        if (reserva.status === StatusReserva.CANCELADA_ADMIN)
+          throw new BadRequestException('Reserva já está cancelada.');
+
+        const atualizada = await tx.coloniaReserva.update({
+          where: { id },
+          data: {
+            status: StatusReserva.CANCELADA_ADMIN,
+            canceladaEm: new Date(),
+            canceladaPor: ctx.userId,
+            motivoCancelamento: motivo,
+          },
+        });
+
+        const promovido =
+          reserva.origem === OrigemReserva.SORTEIO
+            ? await this.promoverProximoSuplente(tx, reserva, ctx)
+            : null;
+
+        return { atualizada, promovido };
+      })
+      .catch((e) => {
+        throw this.traduzir(e);
+      });
+
     await this.auditar(AcaoAuditoria.DELETE, `Reserva cancelada pela diretoria (vaga liberada)`, ctx, {
-      reservaId: id, motivo,
+      reservaId: id, motivo, suplentePromovido: promovido?.reservaId ?? null,
     });
-    return atualizada;
+    if (promovido)
+      await this.auditar(
+        AcaoAuditoria.CREATE,
+        `Suplente promovido automaticamente (posição ${promovido.posicaoSuplente})`,
+        ctx,
+        { reservaId: promovido.reservaId, cpf: promovido.cpf, origem: 'cancelamento-sorteio' },
+      );
+
+    return { ...atualizada, suplentePromovido: promovido };
   }
 
   /** Sorteio auditável do quarto 6 de um lote: sorteia um contemplado e lista os suplentes. */
@@ -485,10 +582,18 @@ export class ColoniaService {
         where: { id: escolhido.id },
         data: { status: StatusSorteioInscricao.SORTEADO, reservaId: novaReserva.id },
       });
-      await tx.coloniaSorteioInscricao.updateMany({
-        where: { loteId, status: StatusSorteioInscricao.INSCRITO },
-        data: { status: StatusSorteioInscricao.NAO_SORTEADO },
-      });
+      // Persiste a FILA DE SUPLENTES em ordem (posicaoSuplente 1..n): status
+      // NAO_SORTEADO, mas ordenados para promoção automática caso a reserva do
+      // contemplado seja cancelada. A ordem é a mesma exibida ao público.
+      for (let i = 0; i < restantes.length; i++) {
+        await tx.coloniaSorteioInscricao.update({
+          where: { id: restantes[i].id },
+          data: {
+            status: StatusSorteioInscricao.NAO_SORTEADO,
+            posicaoSuplente: i + 1,
+          },
+        });
+      }
       return { reserva: novaReserva, vencedor: escolhido, suplentes: restantes };
     }).catch((e) => { throw this.traduzir(e); });
 
@@ -562,6 +667,95 @@ export class ColoniaService {
     return atualizada;
   }
 
+  /** Define (ou limpa) a data/hora do sorteio público da temporada. */
+  async definirDataSorteio(id: string, dataSorteio: string | null | undefined, ctx: Ctx) {
+    const t = await this.prisma.coloniaTemporada.findUnique({ where: { id } });
+    if (!t) throw new NotFoundException('Temporada não encontrada.');
+    const atualizada = await this.prisma.coloniaTemporada.update({
+      where: { id },
+      data: { dataSorteio: dataSorteio ? new Date(dataSorteio) : null },
+    });
+    await this.audit.registrar({
+      userId: ctx.userId ?? null,
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'ColoniaTemporada',
+      entidadeId: id,
+      ip: ctx.ip,
+      descricao: `Data do sorteio público ${dataSorteio ? 'definida' : 'removida'} — "${t.nome}".`,
+    });
+    return atualizada;
+  }
+
+  /**
+   * "Sobe" os dados do checkout da Colônia (reserva ou inscrição) para o cadastro
+   * do Filiado correspondente (match por CPF), como uma ATUALIZAÇÃO de informações.
+   * A situação do filiado NÃO é alterada. Registra o histórico da alteração.
+   */
+  async sincronizarFiliado(
+    fonte: 'reserva' | 'inscricao',
+    id: string,
+    ctx: Ctx,
+    autor?: string,
+  ) {
+    const dados =
+      fonte === 'reserva'
+        ? await this.prisma.coloniaReserva.findUnique({ where: { id } })
+        : await this.prisma.coloniaSorteioInscricao.findUnique({ where: { id } });
+    if (!dados) throw new NotFoundException('Registro não encontrado.');
+
+    const cpf = dados.cpf.replace(/\D/g, '');
+    const filiado = await this.prisma.filiado.findUnique({ where: { cpf } });
+    if (!filiado)
+      throw new NotFoundException('Nenhum filiado com este CPF para atualizar o cadastro.');
+
+    // Formação da Colônia (ENF/TEC/AUX) → cadastro + sufixo do COREN.
+    const MAP: Record<FormacaoColonia, { formacao: FormacaoProfissional; suf: string }> = {
+      ENFERMEIRO: { formacao: FormacaoProfissional.ENFERMEIRO, suf: 'ENF' },
+      TECNICO: { formacao: FormacaoProfissional.TECNICO_ENFERMAGEM, suf: 'TEC' },
+      AUXILIAR: { formacao: FormacaoProfissional.AUXILIAR_ENFERMAGEM, suf: 'AUX' },
+    };
+    const m = MAP[dados.formacao];
+    const corenDigitos = (dados.coren ?? '').replace(/\D/g, '').slice(0, 6);
+    const numeroCoren = corenDigitos
+      ? `COREN-PI ${corenDigitos}-${m.suf}`
+      : filiado.numeroCoren ?? undefined;
+
+    const patch = {
+      nomeCompleto: dados.nomeCompleto,
+      telefonePrincipal: dados.telefone,
+      email: dados.email ?? filiado.email ?? undefined,
+      formacao: m.formacao,
+      numeroCoren,
+      cidade: dados.cidade,
+      estado: dados.estado,
+    };
+
+    // Campos efetivamente alterados (para o histórico/auditoria).
+    const alterados = Object.entries(patch)
+      .filter(([k, v]) => v != null && (filiado as unknown as Record<string, unknown>)[k] !== v)
+      .map(([k]) => k);
+
+    const atualizado = await this.prisma.filiado.update({
+      where: { id: filiado.id },
+      data: patch,
+    });
+    await this.prisma.filiadoHistorico.create({
+      data: {
+        filiadoId: filiado.id,
+        tipo: TipoHistoricoFiliado.ALTERACAO,
+        descricao: `Cadastro atualizado a partir da Colônia de Férias (${fonte}). Campos: ${alterados.join(', ') || 'nenhum'}.`,
+        autor,
+        metadata: { origem: 'colonia', fonte, alterados },
+      },
+    });
+
+    return {
+      filiadoId: atualizado.id,
+      nome: atualizado.nomeCompleto,
+      alterados,
+    };
+  }
+
   /** Painel completo por temporada: lotes, ocupantes (checkout), inscritos e flags. */
   async painelAdmin(temporadaId?: string) {
     const temporadas = await this.prisma.coloniaTemporada.findMany({ orderBy: { createdAt: 'desc' } });
@@ -570,7 +764,7 @@ export class ColoniaService {
       : temporadas.find((t) => t.status === StatusTemporada.ATIVA) ?? temporadas[0];
     if (!temporada) return { temporadas, temporada: null, lotes: [] };
 
-    const [lotes, reservas, inscritos] = await Promise.all([
+    const [lotes, reservas, inscritos, suplentes] = await Promise.all([
       this.prisma.coloniaLote.findMany({
         where: { temporadaId: temporada.id },
         orderBy: { numero: 'asc' },
@@ -584,7 +778,34 @@ export class ColoniaService {
         where: { temporadaId: temporada.id, status: StatusSorteioInscricao.INSCRITO },
         orderBy: { createdAt: 'asc' },
       }),
+      // Fila de suplentes já sorteada (aguardando promoção), em ordem.
+      this.prisma.coloniaSorteioInscricao.findMany({
+        where: {
+          temporadaId: temporada.id,
+          status: StatusSorteioInscricao.NAO_SORTEADO,
+          posicaoSuplente: { not: null },
+          reservaId: null,
+        },
+        orderBy: { posicaoSuplente: 'asc' },
+      }),
     ]);
+
+    // Cruzamento com o cadastro de Filiados por CPF: permite "subir" os dados do
+    // checkout para o cadastro (atualização de informações). Uma consulta só.
+    const cpfs = Array.from(
+      new Set([
+        ...reservas.map((r) => r.cpf),
+        ...inscritos.map((i) => i.cpf),
+        ...suplentes.map((s) => s.cpf),
+      ].filter(Boolean)),
+    );
+    const filiados = cpfs.length
+      ? await this.prisma.filiado.findMany({
+          where: { cpf: { in: cpfs } },
+          select: { id: true, cpf: true },
+        })
+      : [];
+    const filiadoPorCpf = new Map(filiados.map((f) => [f.cpf, f.id]));
 
     const data = lotes.map((lote) => {
       const rLote = reservas.filter((r) => r.loteId === lote.id);
@@ -618,10 +839,24 @@ export class ColoniaService {
             cidade: r.cidade,
             estado: r.estado,
             createdAt: r.createdAt,
+            // Cadastro de filiado correspondente (por CPF), se existir.
+            filiadoId: filiadoPorCpf.get(r.cpf) ?? null,
           })),
         inscritos: inscritos
           .filter((i) => i.loteId === lote.id)
-          .map((i) => ({ id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren, formacao: i.formacao, createdAt: i.createdAt })),
+          .map((i) => ({
+            id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren,
+            formacao: i.formacao, createdAt: i.createdAt,
+            filiadoId: filiadoPorCpf.get(i.cpf) ?? null,
+          })),
+        // Fila de suplentes (ordem de promoção), com match de filiado.
+        suplentes: suplentes
+          .filter((s) => s.loteId === lote.id)
+          .map((s) => ({
+            id: s.id, posicao: s.posicaoSuplente, nomeCompleto: s.nomeCompleto, cpf: s.cpf,
+            coren: s.coren, formacao: s.formacao,
+            filiadoId: filiadoPorCpf.get(s.cpf) ?? null,
+          })),
         sorteioHabilitado: diretasDisponiveis === 0 && !q6Ocupado,
         esgotado: diretasDisponiveis === 0 && q6Ocupado,
         quarto6AlocadoManualmente: q6Manual,
@@ -630,7 +865,10 @@ export class ColoniaService {
 
     return {
       temporadas: temporadas.map((t) => ({ id: t.id, nome: t.nome, slug: t.slug, ano: t.ano, status: t.status })),
-      temporada: { id: temporada.id, nome: temporada.nome, slug: temporada.slug, ano: temporada.ano, status: temporada.status },
+      temporada: {
+        id: temporada.id, nome: temporada.nome, slug: temporada.slug, ano: temporada.ano,
+        status: temporada.status, dataSorteio: temporada.dataSorteio,
+      },
       lotes: data,
     };
   }

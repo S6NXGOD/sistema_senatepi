@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import {
   Loader2, Download, Snowflake, Fan, Ban, UserPlus, Ticket,
   AlertTriangle, X, CheckCircle2, ArrowLeft, ExternalLink, Eye, FileText, FileDown,
-  ChevronDown, Mail, Phone, MapPin, Table2,
+  ChevronDown, Mail, Phone, MapPin, Table2, UserCog, CalendarClock, Save, Clock, Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,9 +17,13 @@ import { mascararCpf } from '@/lib/utils';
 import { baixarArquivo } from '@/lib/pdf';
 import {
   getPainelAdmin, setStatusTemporada, cancelarReserva, executarSorteio,
+  definirDataSorteio, sincronizarFiliadoReserva, sincronizarFiliadoInscricao,
   formatarPeriodoLote, formatarDataHoraLote, FORMACAO_LABEL, LABEL_CLIMATIZACAO, mascaraCpf,
-  LotePainel, Ocupante,
+  AVISO_NOSHOW_24H, prazoCancelamento24h,
+  LotePainel, Ocupante, TemporadaResumo,
 } from '@/lib/colonia';
+
+type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string };
 import { gerarComprovantePdf, ComprovanteInfo } from '@/lib/colonia-comprovante';
 import { gerarRelatorioCompletoPdf, gerarRelatorioLotePdf } from '@/lib/colonia-relatorio';
 import { AlocarManualModal } from '@/components/colonia/alocar-manual-modal';
@@ -56,9 +60,34 @@ export default function ColoniaGestaoPage() {
 
   const cancelar = useMutation({
     mutationFn: (reservaId: string) => cancelarReserva(reservaId, 'Cancelado pela diretoria'),
-    onSuccess: () => { toast.success('Reserva cancelada — vaga devolvida ao público'); setConfirmar(null); invalidar(); },
+    onSuccess: (r: any) => {
+      const prom = r?.suplentePromovido;
+      toast.success(
+        prom
+          ? `Reserva cancelada — suplente ${prom.nomeCompleto} (${prom.posicaoSuplente}º) assumiu a vaga.`
+          : 'Reserva cancelada — vaga devolvida ao público',
+      );
+      setConfirmar(null);
+      invalidar();
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Erro ao cancelar'),
   });
+
+  // "Sobe" os dados do checkout para o cadastro do filiado (match por CPF).
+  const sync = useMutation({
+    mutationFn: (arg: SyncArg) =>
+      arg.tipo === 'reserva' ? sincronizarFiliadoReserva(arg.id) : sincronizarFiliadoInscricao(arg.id),
+    onSuccess: (r) => {
+      toast.success(
+        r.alterados.length
+          ? `Cadastro de ${r.nome} atualizado (${r.alterados.length} campo(s)).`
+          : `Cadastro de ${r.nome} já estava atualizado.`,
+      );
+      invalidar();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível atualizar o cadastro.'),
+  });
+  const onSincronizar = (tipo: 'reserva' | 'inscricao', id: string) => sync.mutate({ tipo, id });
 
   return (
     <div className="space-y-6">
@@ -114,13 +143,24 @@ export default function ColoniaGestaoPage() {
             </CardContent>
           </Card>
 
+          {/* Agenda do sorteio público (data/hora anunciada aos inscritos) */}
+          <SorteioAgendaCard temporada={t} onSalvar={invalidar} />
+
+          {/* Aviso global: prazo de cancelamento (Termo de No-Show) */}
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+            <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span><strong>Prazo de cancelamento:</strong> {AVISO_NOSHOW_24H}</span>
+          </div>
+
           {/* Lotes */}
           {data!.lotes.map((l) => (
             <LoteAdmin key={l.lote.id} l={l}
+              sincronizando={sync.isPending}
               onCancelar={(oc) => setConfirmar(oc)}
               onDetalhes={(oc) => setDetalhe({ ocupante: oc, lote: l.lote, campanha: t.nome })}
               onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos })}
               onAbrirSorteio={() => setSorteioModal({ lote: l.lote, inscritos: l.inscritos })}
+              onSincronizar={onSincronizar}
             />
           ))}
         </>
@@ -172,6 +212,8 @@ export default function ColoniaGestaoPage() {
           ocupante={detalhe.ocupante}
           lote={detalhe.lote}
           campanha={detalhe.campanha}
+          sincronizando={sync.isPending}
+          onSincronizar={onSincronizar}
           onClose={() => setDetalhe(null)}
         />
       )}
@@ -179,12 +221,14 @@ export default function ColoniaGestaoPage() {
   );
 }
 
-function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
+function LoteAdmin({ l, sincronizando, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSincronizar }: {
   l: LotePainel;
+  sincronizando: boolean;
   onCancelar: (oc: Ocupante) => void;
   onDetalhes: (oc: Ocupante) => void;
   onAlocar: () => void;
   onAbrirSorteio: () => void;
+  onSincronizar: (tipo: 'reserva' | 'inscricao', id: string) => void;
 }) {
   const q6Ocupado = l.quartos.find((q) => q.numero === 6)?.ocupado;
   const temQuartoLivre = l.quartos.some((q) => !q.ocupado);
@@ -250,6 +294,13 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
                     </td>
                     <td className="sticky right-0 z-10 border-l bg-card px-3 py-2">
                       <div className="flex items-center justify-end gap-1.5">
+                        {o.filiadoId && (
+                          <Button variant="outline" size="sm" disabled={sincronizando}
+                            title="Atualizar o cadastro do filiado com estes dados"
+                            onClick={() => onSincronizar('reserva', o.reservaId)}>
+                            <UserCog className="h-4 w-4" /> Atualizar cadastro
+                          </Button>
+                        )}
                         <Button variant="outline" size="sm" onClick={() => onDetalhes(o)}>
                           <Eye className="h-4 w-4" /> Detalhes
                         </Button>
@@ -289,10 +340,40 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-semibold">{idx + 1}</span>
                     <span className="flex-1 truncate">{i.nomeCompleto}</span>
                     <span className="text-xs text-muted-foreground">{mascararCpf(i.cpf)}</span>
+                    {i.filiadoId && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" disabled={sincronizando}
+                        title="Atualizar cadastro do filiado" onClick={() => onSincronizar('inscricao', i.id)}>
+                        <UserCog className="h-4 w-4" />
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
+          </div>
+        )}
+
+        {/* Fila de suplentes (após o sorteio): entram automaticamente se uma reserva do sorteio for cancelada */}
+        {l.suplentes.length > 0 && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-900/40 dark:bg-sky-950/10">
+            <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-sky-800 dark:text-sky-300">
+              <Users className="h-4 w-4" /> Fila de suplentes — entram automaticamente ao cancelar a reserva do sorteio
+            </p>
+            <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {l.suplentes.map((s) => (
+                <li key={s.id} className="flex items-center gap-2 rounded-md border bg-card p-2 text-sm">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">{s.posicao}º</span>
+                  <span className="flex-1 truncate">{s.nomeCompleto}</span>
+                  <span className="text-xs text-muted-foreground">{mascararCpf(s.cpf)}</span>
+                  {s.filiadoId && (
+                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" disabled={sincronizando}
+                      title="Atualizar cadastro do filiado" onClick={() => onSincronizar('inscricao', s.id)}>
+                      <UserCog className="h-4 w-4" />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </CardContent>
@@ -391,14 +472,17 @@ function ExportarMenu({ temporadaId, campanha, lotes }: { temporadaId: string; c
 // Detalhes do hóspede + emissão do comprovante (mesmo PDF do fluxo público)
 // ---------------------------------------------------------------------------
 
-function DetalheModal({ ocupante: o, lote, campanha, onClose }: {
+function DetalheModal({ ocupante: o, lote, campanha, sincronizando, onSincronizar, onClose }: {
   ocupante: Ocupante;
   lote: LotePainel['lote'];
   campanha: string;
+  sincronizando: boolean;
+  onSincronizar: (tipo: 'reserva' | 'inscricao', id: string) => void;
   onClose: () => void;
 }) {
   const [gerando, setGerando] = useState(false);
   const ar = o.climatizacao === 'AR_CONDICIONADO';
+  const prazo = prazoCancelamento24h(o.createdAt);
 
   async function baixarComprovante() {
     setGerando(true);
@@ -454,6 +538,33 @@ function DetalheModal({ ocupante: o, lote, campanha, onClose }: {
             <p><span className="text-muted-foreground">Check-out:</span> <strong>{formatarDataHoraLote(lote.dataFim)}</strong></p>
           </div>
 
+          {/* Prazo de cancelamento (Termo de No-Show) */}
+          <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+            prazo.expirado
+              ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300'
+              : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'}`}>
+            <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {prazo.expirado
+                ? <><strong>Prazo de cancelamento expirado</strong> (era até {prazo.texto}). Aplicam-se as penalidades do Termo de No-Show.</>
+                : <>Prazo para cancelamento sem penalidade: <strong>até {prazo.texto}</strong> (24h após a reserva).</>}
+            </span>
+          </div>
+
+          {o.filiadoId && (
+            <div className="rounded-lg border border-senatepi-200 bg-senatepi-50/50 p-3 dark:border-senatepi-900/40 dark:bg-senatepi-900/10">
+              <p className="mb-2 text-sm text-muted-foreground">
+                Existe um <strong>cadastro de filiado</strong> com este CPF. Você pode subir os dados desta reserva como
+                atualização de informações.
+              </p>
+              <Button variant="outline" size="sm" disabled={sincronizando}
+                onClick={() => onSincronizar('reserva', o.reservaId)}>
+                {sincronizando ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />}
+                Atualizar cadastro do filiado
+              </Button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Campo rotulo="CPF" valor={mascaraCpf(o.cpf)} />
             <Campo rotulo="COREN" valor={o.coren} />
@@ -484,4 +595,64 @@ function DetalheModal({ ocupante: o, lote, campanha, onClose }: {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Agenda do sorteio público: data/hora anunciada aos inscritos (área pública)
+// ---------------------------------------------------------------------------
+
+function SorteioAgendaCard({ temporada, onSalvar }: { temporada: TemporadaResumo; onSalvar: () => void }) {
+  const [valor, setValor] = useState(() => paraInputLocal(temporada.dataSorteio));
+
+  const salvar = useMutation({
+    mutationFn: (iso: string | null) => definirDataSorteio(temporada.id, iso),
+    onSuccess: () => { toast.success('Data do sorteio atualizada.'); onSalvar(); },
+    onError: () => toast.error('Não foi possível salvar a data do sorteio.'),
+  });
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-amber-100 p-2 dark:bg-amber-950/40">
+            <CalendarClock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <p className="font-semibold">Sorteio público</p>
+            <p className="text-xs text-muted-foreground">
+              {temporada.dataSorteio
+                ? `Agendado para ${new Date(temporada.dataSorteio).toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })}`
+                : 'Sem data definida — anuncie a data do sorteio ao vivo na área pública'}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="datetime-local"
+            value={valor}
+            onChange={(e) => setValor(e.target.value)}
+            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+          />
+          <Button size="sm" disabled={salvar.isPending}
+            onClick={() => salvar.mutate(valor ? new Date(valor).toISOString() : null)}>
+            {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar
+          </Button>
+          {temporada.dataSorteio && (
+            <Button size="sm" variant="outline" disabled={salvar.isPending}
+              onClick={() => { setValor(''); salvar.mutate(null); }}>
+              Limpar
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Converte ISO → valor de <input type="datetime-local"> (horário local). */
+function paraInputLocal(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }

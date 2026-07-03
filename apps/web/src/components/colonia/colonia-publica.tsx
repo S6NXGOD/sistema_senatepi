@@ -12,7 +12,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getDisponibilidade, partesData, SECRETARIA, ESTRUTURA_QUARTO, LoteDisp, QuartoDisp } from '@/lib/colonia';
+import { getDisponibilidade, partesData, SECRETARIA, ESTRUTURA_QUARTO, AVISO_NOSHOW_24H, LoteDisp, QuartoDisp } from '@/lib/colonia';
 import { CheckoutModal, TipoCheckout } from '@/components/colonia/checkout-modal';
 
 const WHATSAPP_MSG = 'Olá! Gostaria de saber mais informações sobre como me filiar ao SENATEPI.';
@@ -138,6 +138,28 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                   <Badge className="bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">
                     Reservas abertas
                   </Badge>
+                </div>
+
+                {/* Anúncio do sorteio público (data/hora ao vivo) */}
+                {data.temporada.dataSorteio && (
+                  <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+                      <Ticket className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <div className="text-sm">
+                      <p className="font-semibold text-amber-800 dark:text-amber-200">Sorteio ao vivo do Quarto 6</p>
+                      <p className="text-amber-700 dark:text-amber-300">
+                        {new Date(data.temporada.dataSorteio).toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })}
+                        {' '}— aqui na área pública. Fique atento(a)!
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Aviso do prazo de cancelamento (Termo de No-Show) */}
+                <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span><strong>Importante:</strong> {AVISO_NOSHOW_24H}</span>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
