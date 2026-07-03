@@ -1,0 +1,14 @@
+{
+  "name": "SENATEPI — Gestão Sindical",
+  "short_name": "SENATEPI",
+  "description": "Sistema de gestão do Sindicato dos Enfermeiros, Auxiliares e Técnicos em Enfermagem do Piauí",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1B7F0A",
+  "icons": [
+    { "src": "/LOGO_PWA.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/LOGO_PWA.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
