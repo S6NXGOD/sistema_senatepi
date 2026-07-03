@@ -40,9 +40,11 @@ Thumbs.db
 coverage/
 .nyc_output/
 
-# Uploads / storage local
-uploads/
-storage/
+# Uploads / mídia local (NÃO ignorar código-fonte: use caminhos específicos!)
+# Antes havia "storage/" genérico, que ignorava apps/api/src/common/storage/ (código).
+/apps/api/uploads/
+/uploads/
+/storage_local/
 minio-data/
 postgres-data/
 
