@@ -174,6 +174,7 @@ export interface InscritoSorteio {
   id: string;
   nomeCompleto: string;
   cpf: string;
+  coren: string | null;
   formacao: FormacaoColonia;
   createdAt: string;
 }
@@ -195,8 +196,8 @@ export interface PainelAdmin {
 }
 
 export interface ResultadoSorteio {
-  vencedor: { nomeCompleto: string; cpf: string; formacao: FormacaoColonia; reservaId: string };
-  suplentes: { posicao: number; nomeCompleto: string; cpf: string; formacao: FormacaoColonia }[];
+  vencedor: { nomeCompleto: string; cpf: string; coren: string | null; formacao: FormacaoColonia; reservaId: string };
+  suplentes: { posicao: number; nomeCompleto: string; cpf: string; coren: string | null; formacao: FormacaoColonia }[];
 }
 
 export async function getPainelAdmin(temporadaId?: string): Promise<PainelAdmin> {
@@ -248,6 +249,33 @@ export function mascaraTelefone(v: string): string {
   return d
     .replace(/^(\d{2})(\d)/, '($1) $2')
     .replace(/^\((\d{2})\)\s(\d{5})(\d)/, '($1) $2-$3');
+}
+
+// ===========================================================================
+// Mascaramento LGPD (Lei 13.709/2018) — para o "Modo Apresentação" do sorteio.
+// ===========================================================================
+
+/** Nome: primeiro nome + meio ofuscado + último (ex.: "João *** Silva"). */
+export function mascararNomeLgpd(nome: string): string {
+  const partes = (nome ?? '').trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return '—';
+  if (partes.length === 1) return partes[0];
+  return `${partes[0]} *** ${partes[partes.length - 1]}`;
+}
+
+/** CPF: mostra apenas os 3 dígitos do meio (ex.: "***.456.***-**"). */
+export function mascararCpfLgpd(cpf: string): string {
+  const d = soDigitos(cpf);
+  if (d.length !== 11) return '***.***.***-**';
+  return `***.${d.slice(3, 6)}.***-**`;
+}
+
+/** COREN: mostra o final + sufixo da formação (ex.: "***456-ENF"). */
+export function mascararCorenLgpd(coren: string | null | undefined): string {
+  if (!coren) return '—';
+  const [num, sufixo] = coren.split('-');
+  const fim = (num ?? '').replace(/\D/g, '').slice(-3);
+  return `***${fim}${sufixo ? `-${sufixo}` : ''}`;
 }
 
 export function formatarPeriodoLote(inicio: string, fim: string): string {

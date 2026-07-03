@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Loader2, Download, Snowflake, Fan, Ban, UserPlus, Ticket, Trophy,
+  Loader2, Download, Snowflake, Fan, Ban, UserPlus, Ticket,
   AlertTriangle, X, CheckCircle2, ArrowLeft, ExternalLink, Eye, FileText, FileDown,
   ChevronDown, Mail, Phone, MapPin, Table2,
 } from 'lucide-react';
@@ -18,18 +18,19 @@ import { baixarArquivo } from '@/lib/pdf';
 import {
   getPainelAdmin, setStatusTemporada, cancelarReserva, executarSorteio,
   formatarPeriodoLote, formatarDataHoraLote, FORMACAO_LABEL, LABEL_CLIMATIZACAO, mascaraCpf,
-  LotePainel, Ocupante, ResultadoSorteio,
+  LotePainel, Ocupante,
 } from '@/lib/colonia';
 import { gerarComprovantePdf, ComprovanteInfo } from '@/lib/colonia-comprovante';
 import { gerarRelatorioCompletoPdf, gerarRelatorioLotePdf } from '@/lib/colonia-relatorio';
 import { AlocarManualModal } from '@/components/colonia/alocar-manual-modal';
+import { DrawModal } from '@/components/colonia/draw-modal';
 
 export default function ColoniaGestaoPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [alocar, setAlocar] = useState<{ loteId: string; numero: number; quartos: LotePainel['quartos'] } | null>(null);
   const [confirmar, setConfirmar] = useState<Ocupante | null>(null);
-  const [resultado, setResultado] = useState<ResultadoSorteio | null>(null);
+  const [sorteioModal, setSorteioModal] = useState<{ lote: LotePainel['lote']; inscritos: LotePainel['inscritos'] } | null>(null);
   const [detalhe, setDetalhe] = useState<{ ocupante: Ocupante; lote: LotePainel['lote']; campanha: string } | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -57,12 +58,6 @@ export default function ColoniaGestaoPage() {
     mutationFn: (reservaId: string) => cancelarReserva(reservaId, 'Cancelado pela diretoria'),
     onSuccess: () => { toast.success('Reserva cancelada — vaga devolvida ao público'); setConfirmar(null); invalidar(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Erro ao cancelar'),
-  });
-
-  const sortear = useMutation({
-    mutationFn: (loteId: string) => executarSorteio(loteId),
-    onSuccess: (r) => { setResultado(r); toast.success('Sorteio realizado!'); invalidar(); },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Erro no sorteio'),
   });
 
   return (
@@ -125,8 +120,7 @@ export default function ColoniaGestaoPage() {
               onCancelar={(oc) => setConfirmar(oc)}
               onDetalhes={(oc) => setDetalhe({ ocupante: oc, lote: l.lote, campanha: t.nome })}
               onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos })}
-              onSortear={() => sortear.mutate(l.lote.id)}
-              sorteando={sortear.isPending}
+              onAbrirSorteio={() => setSorteioModal({ lote: l.lote, inscritos: l.inscritos })}
             />
           ))}
         </>
@@ -161,35 +155,15 @@ export default function ColoniaGestaoPage() {
         </div>
       )}
 
-      {/* Resultado do sorteio */}
-      {resultado && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setResultado(null)}>
-          <div className="w-full max-w-md rounded-xl bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 font-bold"><Trophy className="h-5 w-5 text-amber-500" /> Resultado do Sorteio</h3>
-              <Button variant="ghost" size="icon" onClick={() => setResultado(null)}><X className="h-4 w-4" /></Button>
-            </div>
-            <div className="rounded-lg border border-senatepi-600 bg-senatepi-50 p-3 dark:bg-senatepi-900/20">
-              <p className="text-xs uppercase text-senatepi-700 dark:text-senatepi-400">Contemplado(a)</p>
-              <p className="font-semibold">{resultado.vencedor.nomeCompleto}</p>
-              <p className="text-sm text-muted-foreground">{mascararCpf(resultado.vencedor.cpf)} · {FORMACAO_LABEL[resultado.vencedor.formacao]}</p>
-            </div>
-            {resultado.suplentes.length > 0 && (
-              <div className="mt-4">
-                <p className="mb-2 text-sm font-medium text-muted-foreground">Suplentes (ordem de espera)</p>
-                <ol className="space-y-1">
-                  {resultado.suplentes.map((s) => (
-                    <li key={s.cpf} className="flex items-center gap-2 rounded-md border p-2 text-sm">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-semibold">{s.posicao}</span>
-                      <span className="flex-1">{s.nomeCompleto}</span>
-                      <span className="text-xs text-muted-foreground">{mascararCpf(s.cpf)}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Sorteio Auditável (modal com mascaramento LGPD + suspense + selo) */}
+      {sorteioModal && (
+        <DrawModal
+          lote={sorteioModal.lote}
+          inscritos={sorteioModal.inscritos}
+          onRealizar={() => executarSorteio(sorteioModal.lote.id)}
+          onClose={() => setSorteioModal(null)}
+          onSucesso={invalidar}
+        />
       )}
 
       {/* Detalhes do hóspede + emissão do comprovante */}
@@ -205,13 +179,12 @@ export default function ColoniaGestaoPage() {
   );
 }
 
-function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onSortear, sorteando }: {
+function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
   l: LotePainel;
   onCancelar: (oc: Ocupante) => void;
   onDetalhes: (oc: Ocupante) => void;
   onAlocar: () => void;
-  onSortear: () => void;
-  sorteando: boolean;
+  onAbrirSorteio: () => void;
 }) {
   const q6Ocupado = l.quartos.find((q) => q.numero === 6)?.ocupado;
   const temQuartoLivre = l.quartos.some((q) => !q.ocupado);
@@ -300,9 +273,9 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onSortear, sorteando }
           <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-900/40 dark:bg-amber-950/10">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300"><Ticket className="h-4 w-4" /> Sorteio — Quarto 6 (Ventilador)</p>
-              <Button size="sm" className="bg-amber-500 text-white hover:bg-amber-600" disabled={l.inscritos.length === 0 || sorteando || q6Ocupado}
-                onClick={onSortear}>
-                {sorteando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trophy className="h-4 w-4" />} Executar Sorteio Auditável
+              <Button size="sm" className="bg-amber-500 text-white hover:bg-amber-600" disabled={l.inscritos.length === 0 || q6Ocupado}
+                onClick={onAbrirSorteio}>
+                <Ticket className="h-4 w-4" /> Abrir Sorteio Auditável
               </Button>
             </div>
             {q6Ocupado ? (

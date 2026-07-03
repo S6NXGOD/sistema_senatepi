@@ -475,8 +475,8 @@ export class ColoniaService {
       ok: true, loteId, reservaId: reserva.id, cpfVencedor: vencedor.cpf, totalInscritos: suplentes.length + 1,
     });
     return {
-      vencedor: { nomeCompleto: vencedor.nomeCompleto, cpf: vencedor.cpf, formacao: vencedor.formacao, reservaId: reserva.id },
-      suplentes: suplentes.map((s, i) => ({ posicao: i + 1, nomeCompleto: s.nomeCompleto, cpf: s.cpf, formacao: s.formacao })),
+      vencedor: { nomeCompleto: vencedor.nomeCompleto, cpf: vencedor.cpf, coren: vencedor.coren, formacao: vencedor.formacao, reservaId: reserva.id },
+      suplentes: suplentes.map((s, i) => ({ posicao: i + 1, nomeCompleto: s.nomeCompleto, cpf: s.cpf, coren: s.coren, formacao: s.formacao })),
     };
   }
 
@@ -600,7 +600,7 @@ export class ColoniaService {
           })),
         inscritos: inscritos
           .filter((i) => i.loteId === lote.id)
-          .map((i) => ({ id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, formacao: i.formacao, createdAt: i.createdAt })),
+          .map((i) => ({ id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren, formacao: i.formacao, createdAt: i.createdAt })),
         sorteioHabilitado: diretasDisponiveis === 0 && !q6Ocupado,
         esgotado: diretasDisponiveis === 0 && q6Ocupado,
         quarto6AlocadoManualmente: q6Manual,
