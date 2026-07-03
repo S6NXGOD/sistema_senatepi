@@ -686,17 +686,17 @@ export class ColoniaService {
     return atualizada;
   }
 
-  /**
-   * "Sobe" os dados do checkout da Colônia (reserva ou inscrição) para o cadastro
-   * do Filiado correspondente (match por CPF), como uma ATUALIZAÇÃO de informações.
-   * A situação do filiado NÃO é alterada. Registra o histórico da alteração.
-   */
-  async sincronizarFiliado(
-    fonte: 'reserva' | 'inscricao',
-    id: string,
-    ctx: Ctx,
-    autor?: string,
-  ) {
+  // Formação da Colônia (ENF/TEC/AUX) → cadastro + sufixo do COREN + rótulo.
+  private mapFormacaoColonia(f: FormacaoColonia) {
+    const M: Record<FormacaoColonia, { formacao: FormacaoProfissional; suf: string; label: string }> = {
+      ENFERMEIRO: { formacao: FormacaoProfissional.ENFERMEIRO, suf: 'ENF', label: 'Enfermeiro(a)' },
+      TECNICO: { formacao: FormacaoProfissional.TECNICO_ENFERMAGEM, suf: 'TEC', label: 'Técnico(a) em Enfermagem' },
+      AUXILIAR: { formacao: FormacaoProfissional.AUXILIAR_ENFERMAGEM, suf: 'AUX', label: 'Auxiliar de Enfermagem' },
+    };
+    return M[f];
+  }
+
+  private async carregarParaSync(fonte: 'reserva' | 'inscricao', id: string) {
     const dados =
       fonte === 'reserva'
         ? await this.prisma.coloniaReserva.findUnique({ where: { id } })
@@ -704,56 +704,132 @@ export class ColoniaService {
     if (!dados) throw new NotFoundException('Registro não encontrado.');
 
     const cpf = dados.cpf.replace(/\D/g, '');
-    const filiado = await this.prisma.filiado.findUnique({ where: { cpf } });
+    const filiado = await this.prisma.filiado.findUnique({
+      where: { cpf },
+      include: { vinculos: { orderBy: { ordem: 'asc' } } },
+    });
     if (!filiado)
       throw new NotFoundException('Nenhum filiado com este CPF para atualizar o cadastro.');
+    return { dados, filiado, cpf };
+  }
 
-    // Formação da Colônia (ENF/TEC/AUX) → cadastro + sufixo do COREN.
-    const MAP: Record<FormacaoColonia, { formacao: FormacaoProfissional; suf: string }> = {
-      ENFERMEIRO: { formacao: FormacaoProfissional.ENFERMEIRO, suf: 'ENF' },
-      TECNICO: { formacao: FormacaoProfissional.TECNICO_ENFERMAGEM, suf: 'TEC' },
-      AUXILIAR: { formacao: FormacaoProfissional.AUXILIAR_ENFERMAGEM, suf: 'AUX' },
+  /**
+   * Monta a comparação campo a campo (valor ATUAL no cadastro × valor NOVO da
+   * Colônia). Só inclui campos em que a Colônia tem valor (evita sobrescrever
+   * com vazio). `diferente` pré-seleciona no front apenas o que mudou.
+   */
+  private construirCampos(
+    dados: {
+      nomeCompleto: string; telefone: string; email: string | null; coren: string | null;
+      formacao: FormacaoColonia; localTrabalho1: string; localTrabalho2: string | null;
+      cidade: string; estado: string;
+    },
+    filiado: { nomeCompleto: string; telefonePrincipal: string | null; email: string | null;
+      numeroCoren: string | null; formacao: FormacaoProfissional | null; cidade: string | null;
+      estado: string | null; vinculos: { empresa: string; ordem: number }[] },
+  ) {
+    const LABEL_FORM: Record<string, string> = {
+      ENFERMEIRO: 'Enfermeiro(a)', TECNICO_ENFERMAGEM: 'Técnico(a) em Enfermagem',
+      AUXILIAR_ENFERMAGEM: 'Auxiliar de Enfermagem', OUTRO: 'Outro',
     };
-    const m = MAP[dados.formacao];
+    const m = this.mapFormacaoColonia(dados.formacao);
     const corenDigitos = (dados.coren ?? '').replace(/\D/g, '').slice(0, 6);
-    const numeroCoren = corenDigitos
-      ? `COREN-PI ${corenDigitos}-${m.suf}`
-      : filiado.numeroCoren ?? undefined;
-
-    const patch = {
-      nomeCompleto: dados.nomeCompleto,
-      telefonePrincipal: dados.telefone,
-      email: dados.email ?? filiado.email ?? undefined,
-      formacao: m.formacao,
-      numeroCoren,
-      cidade: dados.cidade,
-      estado: dados.estado,
-    };
-
-    // Campos efetivamente alterados (para o histórico/auditoria).
-    const alterados = Object.entries(patch)
-      .filter(([k, v]) => v != null && (filiado as unknown as Record<string, unknown>)[k] !== v)
-      .map(([k]) => k);
-
-    const atualizado = await this.prisma.filiado.update({
-      where: { id: filiado.id },
-      data: patch,
-    });
-    await this.prisma.filiadoHistorico.create({
-      data: {
-        filiadoId: filiado.id,
-        tipo: TipoHistoricoFiliado.ALTERACAO,
-        descricao: `Cadastro atualizado a partir da Colônia de Férias (${fonte}). Campos: ${alterados.join(', ') || 'nenhum'}.`,
-        autor,
-        metadata: { origem: 'colonia', fonte, alterados },
-      },
+    const corenNovo = corenDigitos ? `COREN-PI ${corenDigitos}-${m.suf}` : null;
+    const v1 = filiado.vinculos[0];
+    const v2 = filiado.vinculos[1];
+    const norm = (v: unknown) => (v == null ? '' : String(v).trim());
+    const campo = (chave: string, label: string, atual?: string | null, novo?: string | null) => ({
+      campo: chave,
+      label,
+      atual: atual ?? null,
+      novo: novo ?? null,
+      diferente: norm(atual) !== norm(novo),
     });
 
+    const lista = [
+      campo('nomeCompleto', 'Nome completo', filiado.nomeCompleto, dados.nomeCompleto),
+      campo('telefonePrincipal', 'Telefone', filiado.telefonePrincipal, dados.telefone),
+      campo('email', 'E-mail', filiado.email, dados.email),
+      campo('numeroCoren', 'COREN', filiado.numeroCoren, corenNovo),
+      campo('formacao', 'Formação', filiado.formacao ? LABEL_FORM[filiado.formacao] ?? filiado.formacao : null, m.label),
+      campo('cidade', 'Cidade', filiado.cidade, dados.cidade),
+      campo('estado', 'UF', filiado.estado, dados.estado),
+      campo('localTrabalho1', 'Local de trabalho 1', v1?.empresa, dados.localTrabalho1),
+      campo('localTrabalho2', 'Local de trabalho 2', v2?.empresa, dados.localTrabalho2),
+    ];
+    // Só oferece campos em que a Colônia trouxe um valor.
+    return lista.filter((c) => norm(c.novo) !== '');
+  }
+
+  /** Prévia (antes/depois) do que a Colônia pode subir para o cadastro do filiado. */
+  async preverSincronizacao(fonte: 'reserva' | 'inscricao', id: string) {
+    const { dados, filiado, cpf } = await this.carregarParaSync(fonte, id);
     return {
-      filiadoId: atualizado.id,
-      nome: atualizado.nomeCompleto,
-      alterados,
+      filiadoId: filiado.id,
+      filiadoNome: filiado.nomeCompleto,
+      matricula: filiado.matricula,
+      cpf,
+      campos: this.construirCampos(dados, filiado),
     };
+  }
+
+  /**
+   * Aplica no cadastro do filiado APENAS os campos escolhidos pela diretoria
+   * (`campos`). Inclui os locais de trabalho (vínculos), preservando cargo e
+   * matrícula. A situação do filiado NÃO é alterada. Registra o histórico.
+   */
+  async sincronizarFiliado(
+    fonte: 'reserva' | 'inscricao',
+    id: string,
+    campos: string[],
+    ctx: Ctx,
+    autor?: string,
+  ) {
+    const { dados, filiado } = await this.carregarParaSync(fonte, id);
+    const disponiveis = this.construirCampos(dados, filiado);
+    const validos = new Set(disponiveis.map((c) => c.campo));
+    const sel = new Set((campos ?? []).filter((c) => validos.has(c)));
+    if (sel.size === 0)
+      throw new BadRequestException('Selecione ao menos um campo para atualizar.');
+
+    const m = this.mapFormacaoColonia(dados.formacao);
+    const corenDigitos = (dados.coren ?? '').replace(/\D/g, '').slice(0, 6);
+
+    const data: Prisma.FiliadoUpdateInput = {};
+    if (sel.has('nomeCompleto')) data.nomeCompleto = dados.nomeCompleto;
+    if (sel.has('telefonePrincipal')) data.telefonePrincipal = dados.telefone;
+    if (sel.has('email') && dados.email) data.email = dados.email;
+    if (sel.has('numeroCoren') && corenDigitos) data.numeroCoren = `COREN-PI ${corenDigitos}-${m.suf}`;
+    if (sel.has('formacao')) data.formacao = m.formacao;
+    if (sel.has('cidade')) data.cidade = dados.cidade;
+    if (sel.has('estado')) data.estado = dados.estado;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (Object.keys(data).length > 0)
+        await tx.filiado.update({ where: { id: filiado.id }, data });
+
+      // Locais de trabalho → vínculos (preserva cargo/matrícula do vínculo).
+      const aplicarVinculo = async (ordem: number, empresa: string) => {
+        const existente = filiado.vinculos.find((v) => v.ordem === ordem) ?? filiado.vinculos[ordem - 1];
+        if (existente)
+          await tx.vinculoProfissional.update({ where: { id: existente.id }, data: { empresa } });
+        else await tx.vinculoProfissional.create({ data: { filiadoId: filiado.id, empresa, ordem } });
+      };
+      if (sel.has('localTrabalho1') && dados.localTrabalho1) await aplicarVinculo(1, dados.localTrabalho1);
+      if (sel.has('localTrabalho2') && dados.localTrabalho2) await aplicarVinculo(2, dados.localTrabalho2);
+
+      await tx.filiadoHistorico.create({
+        data: {
+          filiadoId: filiado.id,
+          tipo: TipoHistoricoFiliado.ALTERACAO,
+          descricao: `Cadastro atualizado a partir da Colônia de Férias (${fonte}). Campos: ${[...sel].join(', ')}.`,
+          autor,
+          metadata: { origem: 'colonia', fonte, campos: [...sel] },
+        },
+      });
+    });
+
+    return { filiadoId: filiado.id, nome: filiado.nomeCompleto, alterados: [...sel] };
   }
 
   /** Painel completo por temporada: lotes, ocupantes (checkout), inscritos e flags. */

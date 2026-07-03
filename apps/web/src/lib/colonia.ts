@@ -252,14 +252,39 @@ export interface SyncFiliadoResposta {
   alterados: string[];
 }
 
-/** "Sobe" os dados de uma reserva para o cadastro do filiado (match por CPF). */
-export async function sincronizarFiliadoReserva(id: string): Promise<SyncFiliadoResposta> {
-  return (await api.patch(`/colonia/admin/reservas/${id}/sincronizar-filiado`)).data;
+/** Campo da comparação antes/depois (valor atual do cadastro × valor da Colônia). */
+export interface CampoDiff {
+  campo: string;
+  label: string;
+  atual: string | null;
+  novo: string | null;
+  diferente: boolean;
 }
 
-/** "Sobe" os dados de uma inscrição de sorteio para o cadastro do filiado. */
-export async function sincronizarFiliadoInscricao(id: string): Promise<SyncFiliadoResposta> {
-  return (await api.patch(`/colonia/admin/inscricoes/${id}/sincronizar-filiado`)).data;
+export interface ComparacaoFiliado {
+  filiadoId: string;
+  filiadoNome: string;
+  matricula: string;
+  cpf: string;
+  campos: CampoDiff[];
+}
+
+type FonteSync = 'reserva' | 'inscricao';
+const rotaSync = (fonte: FonteSync, id: string) =>
+  fonte === 'reserva' ? `/colonia/admin/reservas/${id}` : `/colonia/admin/inscricoes/${id}`;
+
+/** Prévia (antes/depois) da sincronização de uma reserva/inscrição com o cadastro. */
+export async function compararFiliado(fonte: FonteSync, id: string): Promise<ComparacaoFiliado> {
+  return (await api.get(`${rotaSync(fonte, id)}/comparar-filiado`)).data;
+}
+
+/** Aplica no cadastro do filiado apenas os campos escolhidos. */
+export async function sincronizarFiliado(
+  fonte: FonteSync,
+  id: string,
+  campos: string[],
+): Promise<SyncFiliadoResposta> {
+  return (await api.patch(`${rotaSync(fonte, id)}/sincronizar-filiado`, { campos })).data;
 }
 
 export async function cancelarReserva(id: string, motivo?: string) {

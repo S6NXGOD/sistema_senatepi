@@ -21,6 +21,7 @@ import {
   CreateReservaDiretaDto,
   DataSorteioDto,
   EntrarSorteioDto,
+  SincronizarFiliadoDto,
   StatusTemporadaDto,
 } from './dto/colonia.dto';
 import { Public } from '../../common/decorators/public.decorator';
@@ -99,16 +100,34 @@ export class ColoniaController {
     return this.service.painelAdmin(temporadaId);
   }
 
+  // ---- Sincronização de cadastro (Colônia → Filiado) ----
+  // Prévia (antes/depois) antes de aplicar.
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Get('admin/reservas/:id/comparar-filiado')
+  compararReserva(@Param('id') id: string) {
+    return this.service.preverSincronizacao('reserva', id);
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Get('admin/inscricoes/:id/comparar-filiado')
+  compararInscricao(@Param('id') id: string) {
+    return this.service.preverSincronizacao('inscricao', id);
+  }
+
+  // Aplica apenas os campos escolhidos.
   @ApiBearerAuth()
   @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
   @Patch('admin/reservas/:id/sincronizar-filiado')
   sincronizarReserva(
     @Param('id') id: string,
+    @Body() dto: SincronizarFiliadoDto,
     @CurrentUser('id') userId: string,
     @CurrentUser('nome') autor: string,
     @Req() req: Request,
   ) {
-    return this.service.sincronizarFiliado('reserva', id, this.ctx(req, userId), autor);
+    return this.service.sincronizarFiliado('reserva', id, dto.campos, this.ctx(req, userId), autor);
   }
 
   @ApiBearerAuth()
@@ -116,11 +135,12 @@ export class ColoniaController {
   @Patch('admin/inscricoes/:id/sincronizar-filiado')
   sincronizarInscricao(
     @Param('id') id: string,
+    @Body() dto: SincronizarFiliadoDto,
     @CurrentUser('id') userId: string,
     @CurrentUser('nome') autor: string,
     @Req() req: Request,
   ) {
-    return this.service.sincronizarFiliado('inscricao', id, this.ctx(req, userId), autor);
+    return this.service.sincronizarFiliado('inscricao', id, dto.campos, this.ctx(req, userId), autor);
   }
 
   @ApiBearerAuth()

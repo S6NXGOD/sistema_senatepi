@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEmail,
@@ -64,6 +66,17 @@ export class AlocacaoManualDto extends CheckoutDto {
 
 export class CancelarReservaDto {
   @ApiPropertyOptional() @IsOptional() @IsString() motivo?: string;
+}
+
+export class SincronizarFiliadoDto {
+  @ApiProperty({
+    type: [String],
+    description: 'Campos escolhidos para atualizar no cadastro (ex.: ["nomeCompleto","telefonePrincipal"]).',
+  })
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Selecione ao menos um campo para atualizar.' })
+  @IsString({ each: true })
+  campos: string[];
 }
 
 export class DataSorteioDto {

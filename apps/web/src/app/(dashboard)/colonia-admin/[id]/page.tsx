@@ -17,17 +17,18 @@ import { mascararCpf } from '@/lib/utils';
 import { baixarArquivo } from '@/lib/pdf';
 import {
   getPainelAdmin, setStatusTemporada, cancelarReserva, executarSorteio,
-  definirDataSorteio, sincronizarFiliadoReserva, sincronizarFiliadoInscricao,
+  definirDataSorteio,
   formatarPeriodoLote, formatarDataHoraLote, FORMACAO_LABEL, LABEL_CLIMATIZACAO, mascaraCpf,
   AVISO_NOSHOW_24H, prazoCancelamento24h,
   LotePainel, Ocupante, TemporadaResumo,
 } from '@/lib/colonia';
-
-type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string };
 import { gerarComprovantePdf, ComprovanteInfo } from '@/lib/colonia-comprovante';
 import { gerarRelatorioCompletoPdf, gerarRelatorioLotePdf } from '@/lib/colonia-relatorio';
 import { AlocarManualModal } from '@/components/colonia/alocar-manual-modal';
 import { DrawModal } from '@/components/colonia/draw-modal';
+import { SyncFiliadoModal } from '@/components/colonia/sync-filiado-modal';
+
+type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string };
 
 export default function ColoniaGestaoPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +37,7 @@ export default function ColoniaGestaoPage() {
   const [confirmar, setConfirmar] = useState<Ocupante | null>(null);
   const [sorteioModal, setSorteioModal] = useState<{ lote: LotePainel['lote']; inscritos: LotePainel['inscritos'] } | null>(null);
   const [detalhe, setDetalhe] = useState<{ ocupante: Ocupante; lote: LotePainel['lote']; campanha: string } | null>(null);
+  const [sincronizar, setSincronizar] = useState<SyncArg | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['colonia-painel', id],
@@ -73,21 +75,8 @@ export default function ColoniaGestaoPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Erro ao cancelar'),
   });
 
-  // "Sobe" os dados do checkout para o cadastro do filiado (match por CPF).
-  const sync = useMutation({
-    mutationFn: (arg: SyncArg) =>
-      arg.tipo === 'reserva' ? sincronizarFiliadoReserva(arg.id) : sincronizarFiliadoInscricao(arg.id),
-    onSuccess: (r) => {
-      toast.success(
-        r.alterados.length
-          ? `Cadastro de ${r.nome} atualizado (${r.alterados.length} campo(s)).`
-          : `Cadastro de ${r.nome} já estava atualizado.`,
-      );
-      invalidar();
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível atualizar o cadastro.'),
-  });
-  const onSincronizar = (tipo: 'reserva' | 'inscricao', id: string) => sync.mutate({ tipo, id });
+  // "Atualizar cadastro": abre o modal de comparação (antes/depois) e seleção.
+  const onSincronizar = (tipo: 'reserva' | 'inscricao', id: string) => setSincronizar({ tipo, id });
 
   return (
     <div className="space-y-6">
@@ -155,7 +144,7 @@ export default function ColoniaGestaoPage() {
           {/* Lotes */}
           {data!.lotes.map((l) => (
             <LoteAdmin key={l.lote.id} l={l}
-              sincronizando={sync.isPending}
+              sincronizando={false}
               onCancelar={(oc) => setConfirmar(oc)}
               onDetalhes={(oc) => setDetalhe({ ocupante: oc, lote: l.lote, campanha: t.nome })}
               onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos })}
@@ -212,9 +201,19 @@ export default function ColoniaGestaoPage() {
           ocupante={detalhe.ocupante}
           lote={detalhe.lote}
           campanha={detalhe.campanha}
-          sincronizando={sync.isPending}
+          sincronizando={false}
           onSincronizar={onSincronizar}
           onClose={() => setDetalhe(null)}
+        />
+      )}
+
+      {/* Atualizar cadastro do filiado (comparação antes/depois + seleção por campo) */}
+      {sincronizar && (
+        <SyncFiliadoModal
+          tipo={sincronizar.tipo}
+          id={sincronizar.id}
+          onClose={() => setSincronizar(null)}
+          onConcluido={invalidar}
         />
       )}
     </div>
