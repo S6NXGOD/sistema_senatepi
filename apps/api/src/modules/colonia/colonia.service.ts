@@ -11,6 +11,7 @@ import {
   FormacaoColonia,
   OrigemReserva,
   Prisma,
+  SituacaoFiliado,
   StatusReserva,
   StatusSorteioInscricao,
   StatusTemporada,
@@ -89,6 +90,23 @@ export class ColoniaService {
       select: { id: true },
     });
     if (inscricao) throw new ConflictException('Este CPF já está na fila de sorteio desta temporada.');
+  }
+
+  /**
+   * Regra de bloqueio: um filiado DESFILIADO não pode se inscrever na Colônia de
+   * Férias (benefício exclusivo de associados ativos). O checkout é público e
+   * aceita não-filiados normalmente; o bloqueio (403) só dispara quando o CPF
+   * pertence a um cadastro cuja situação é DESFILIADO.
+   */
+  private async garantirFiliadoNaoDesfiliado(tx: Tx, cpf: string): Promise<void> {
+    const filiado = await tx.filiado.findUnique({
+      where: { cpf },
+      select: { situacao: true },
+    });
+    if (filiado && filiado.situacao === SituacaoFiliado.DESFILIADO)
+      throw new ForbiddenException(
+        'Este CPF pertence a um filiado DESFILIADO e não pode se inscrever na Colônia de Férias.',
+      );
   }
 
   private validarConsentimento(dto: CheckoutDto): void {
@@ -229,6 +247,7 @@ export class ColoniaService {
           throw new BadRequestException('Este quarto só é liberado por sorteio ou alocação manual.');
 
         await this.garantirCpfLivre(tx, temporada.id, cpf);
+        await this.garantirFiliadoNaoDesfiliado(tx, cpf);
 
         const jaOcupado = await tx.coloniaReserva.findFirst({
           where: { loteId: dto.loteId, quartoId: dto.quartoId, status: StatusReserva.CONFIRMADA },
@@ -314,6 +333,7 @@ export class ColoniaService {
           );
 
         await this.garantirCpfLivre(tx, temporada.id, cpf);
+        await this.garantirFiliadoNaoDesfiliado(tx, cpf);
 
         return tx.coloniaSorteioInscricao.create({
           data: {
@@ -360,6 +380,7 @@ export class ColoniaService {
 
       await this.lock(tx, `reserva:${lote.id}:${quarto.id}`);
       await this.garantirCpfLivre(tx, lote.temporadaId, cpf);
+      await this.garantirFiliadoNaoDesfiliado(tx, cpf);
 
       const ocupado = await tx.coloniaReserva.findFirst({
         where: { loteId: lote.id, quartoId: quarto.id, status: StatusReserva.CONFIRMADA },

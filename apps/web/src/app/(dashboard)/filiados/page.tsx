@@ -2,18 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import {
-  Plus,
-  Search,
-  Filter,
-  Eye,
-  Pencil,
-  IdCard,
-  FileText,
-  RefreshCw,
-  Upload,
-} from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Search, Filter, Upload, Copy } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,8 +16,9 @@ import {
   SITUACAO_COR,
   SITUACAO_LABEL,
   SITUACOES,
+  buscarDuplicados,
 } from '@/lib/filiados';
-import { abrirPdf } from '@/lib/pdf';
+import { FiliadoRowActions } from '@/components/filiados/filiado-row-actions';
 
 export default function FiliadosPage() {
   const VAZIO = { busca: '', coren: '', cidade: '', situacao: '', dataInicio: '', dataFim: '' };
@@ -36,12 +27,26 @@ export default function FiliadosPage() {
   const [aplicado, setAplicado] = useState(VAZIO);
   const [page, setPage] = useState(1);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
+  const [mostrarDuplicados, setMostrarDuplicados] = useState(false);
+
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ['filiados', aplicado, page],
     queryFn: async () =>
       (await api.get('/filiados', { params: { ...limpar(aplicado), page, pageSize: 10 } })).data,
+    enabled: !mostrarDuplicados,
   });
+
+  // Duplicados: consumido apenas quando o toggle está ativo.
+  const dupQuery = useQuery({
+    queryKey: ['filiados-duplicados'],
+    queryFn: buscarDuplicados,
+    enabled: mostrarDuplicados,
+  });
+
+  const carregando = mostrarDuplicados ? dupQuery.isLoading : isLoading;
+  const linhas: Filiado[] | undefined = mostrarDuplicados ? dupQuery.data?.data : data?.data;
 
   function setR<K extends keyof typeof rascunho>(k: K, v: string) {
     setRascunho((f) => ({ ...f, [k]: v }));
@@ -50,13 +55,21 @@ export default function FiliadosPage() {
     setAplicado(rascunho);
     setPage(1);
   }
+  function revalidar() {
+    queryClient.invalidateQueries({ queryKey: ['filiados'] });
+    queryClient.invalidateQueries({ queryKey: ['filiados-duplicados'] });
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Filiados</h2>
-          <p className="text-sm text-muted-foreground">{data?.total ?? 0} associados</p>
+          <p className="text-sm text-muted-foreground">
+            {mostrarDuplicados
+              ? `${dupQuery.data?.total ?? 0} registros em ${dupQuery.data?.grupos ?? 0} CPFs duplicados`
+              : `${data?.total ?? 0} associados`}
+          </p>
         </div>
         <div className="flex gap-2">
           <Link href="/filiados/importar">
@@ -69,24 +82,32 @@ export default function FiliadosPage() {
       </div>
 
       <div className="space-y-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <div className="relative max-w-md flex-1">
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome, matrícula ou CPF..."
               className="pl-10"
               value={rascunho.busca}
+              disabled={mostrarDuplicados}
               onChange={(e) => setR('busca', e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }}
             />
           </div>
-          <Button onClick={aplicar}><Search className="h-4 w-4" /> Buscar</Button>
-          <Button variant="outline" onClick={() => setMostrarFiltros((v) => !v)}>
+          <Button onClick={aplicar} disabled={mostrarDuplicados}><Search className="h-4 w-4" /> Buscar</Button>
+          <Button variant="outline" onClick={() => setMostrarFiltros((v) => !v)} disabled={mostrarDuplicados}>
             <Filter className="h-4 w-4" /> Filtros
+          </Button>
+          <Button
+            variant={mostrarDuplicados ? 'default' : 'outline'}
+            onClick={() => { setMostrarDuplicados((v) => !v); setMostrarFiltros(false); }}
+            title="Exibe filiados que compartilham o mesmo CPF"
+          >
+            <Copy className="h-4 w-4" /> {mostrarDuplicados ? 'Ver todos' : 'Mostrar duplicados'}
           </Button>
         </div>
 
-        {mostrarFiltros && (
+        {mostrarFiltros && !mostrarDuplicados && (
           <Card>
             <CardContent className="space-y-3 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -112,6 +133,16 @@ export default function FiliadosPage() {
             </CardContent>
           </Card>
         )}
+
+        {mostrarDuplicados && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
+            <Copy className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Exibindo apenas filiados que <strong>compartilham o mesmo CPF</strong>, agrupados para
+              facilitar a conferência. Use as ações da linha para desfiliar ou excluir os registros duplicados.
+            </span>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -132,10 +163,10 @@ export default function FiliadosPage() {
                 </tr>
               </thead>
               <tbody>
-                {isLoading && (
+                {carregando && (
                   <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Carregando...</td></tr>
                 )}
-                {data?.data?.map((f: Filiado) => (
+                {!carregando && linhas?.map((f: Filiado) => (
                   <tr key={f.id} className="border-b transition-colors last:border-0 hover:bg-muted/40">
                     <td className="px-4 py-2">
                       {f.fotoUrl ? (
@@ -153,18 +184,14 @@ export default function FiliadosPage() {
                     <td className="px-4 py-3"><Badge className={SITUACAO_COR[f.situacao]}>{SITUACAO_LABEL[f.situacao]}</Badge></td>
                     <td className="px-4 py-3 text-muted-foreground">{formatarData(f.createdAt)}</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Link href={`/filiados/${f.id}`} title="Visualizar"><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
-                        <Link href={`/filiados/${f.id}/editar`} title="Editar"><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
-                        <Link href={`/filiados/${f.id}/recadastrar`} title="Recadastrar"><Button variant="ghost" size="icon"><RefreshCw className="h-4 w-4" /></Button></Link>
-                        <Button variant="ghost" size="icon" title="Carteirinha (com QR Code)" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" title="Termo de consentimento" onClick={() => abrirPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /></Button>
-                      </div>
+                      <FiliadoRowActions filiado={f} onChanged={revalidar} />
                     </td>
                   </tr>
                 ))}
-                {data && data.data.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Nenhum filiado encontrado</td></tr>
+                {!carregando && linhas && linhas.length === 0 && (
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                    {mostrarDuplicados ? 'Nenhum CPF duplicado encontrado' : 'Nenhum filiado encontrado'}
+                  </td></tr>
                 )}
               </tbody>
             </table>
@@ -172,7 +199,7 @@ export default function FiliadosPage() {
         </CardContent>
       </Card>
 
-      {data && data.totalPages > 1 && (
+      {!mostrarDuplicados && data && data.totalPages > 1 && (
         <div className="flex items-center justify-end gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
           <span className="text-sm text-muted-foreground">Página {page} de {data.totalPages}</span>

@@ -146,6 +146,42 @@ export class FiliadosService {
   }
 
   /**
+   * Filiados com CPF duplicado. Agrupa por CPF (`groupBy`) contando ocorrências
+   * e mantém apenas os grupos com mais de um registro (`_count.cpf > 1`); em
+   * seguida devolve os filiados desses grupos, ordenados por CPF para exibir os
+   * duplicados lado a lado na tabela.
+   */
+  async duplicados() {
+    const grupos = await this.prisma.filiado.groupBy({
+      by: ['cpf'],
+      where: { cpf: { not: null } },
+      _count: { cpf: true },
+      having: { cpf: { _count: { gt: 1 } } },
+    });
+
+    const cpfs = grupos.map((g) => g.cpf).filter((c): c is string => Boolean(c));
+    if (cpfs.length === 0) return { data: [], total: 0, grupos: 0 };
+
+    const registros = await this.prisma.filiado.findMany({
+      where: { cpf: { in: cpfs } },
+      orderBy: [{ cpf: 'asc' }, { createdAt: 'asc' }],
+      include: { _count: { select: { dependentes: true } } },
+    });
+
+    const data = await Promise.all(
+      registros.map(async (f) => ({
+        ...f,
+        fotoUrl: f.fotoThumbKey
+          ? await this.storage.getSignedUrl(f.fotoThumbKey).catch(() => null)
+          : null,
+      })),
+    );
+
+    // total = registros duplicados; grupos = quantidade de CPFs repetidos.
+    return { data, total: data.length, grupos: cpfs.length };
+  }
+
+  /**
    * Autocomplete do cadastro legado de Filiados para telas administrativas —
    * ex.: alocação manual da Colônia. Busca por nome (contém) ou CPF (prefixo, só
    * dígitos). Retorna o PERFIL COMPLETO (para preencher a reserva sem redigitação):
@@ -314,6 +350,30 @@ export class FiliadosService {
     return filiado;
   }
 
+  /**
+   * Desfiliação: marca a situação como DESFILIADO. O filiado deixa de ser aceito
+   * em eventos e na Colônia de Férias (validado nos respectivos serviços), mas o
+   * cadastro é preservado. Idempotente-seguro: bloqueia se já estiver desfiliado.
+   */
+  async desfiliar(id: string, autor?: string) {
+    const atual = await this.findOne(id);
+    if (atual.situacao === SituacaoFiliado.DESFILIADO)
+      throw new BadRequestException('Este filiado já está desfiliado.');
+
+    const filiado = await this.prisma.filiado.update({
+      where: { id },
+      data: { situacao: SituacaoFiliado.DESFILIADO },
+    });
+    await this.registrarHistorico(
+      id,
+      TipoHistoricoFiliado.MUDANCA_STATUS,
+      `Filiado desfiliado (situação alterada de ${atual.situacao} para DESFILIADO).`,
+      autor,
+    );
+    return filiado;
+  }
+
+  /** Exclusão permanente do cadastro (LGPD — Lei nº 13.709/2018). */
   async remove(id: string) {
     await this.findOne(id);
     await this.prisma.filiado.delete({ where: { id } });

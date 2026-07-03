@@ -44,6 +44,13 @@ export class FiliadosController {
     return this.service.findAll(query);
   }
 
+  // IMPORTANTE: declarar antes de ':id' para não ser capturada pela rota param.
+  @Get('duplicados')
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  duplicados() {
+    return this.service.duplicados();
+  }
+
   @Get(':id')
   perfil(@Param('id') id: string) {
     return this.service.perfil(id);
@@ -77,6 +84,12 @@ export class FiliadosController {
     @CurrentUser('nome') autor: string,
   ) {
     return this.service.changeSituacao(id, dto, autor);
+  }
+
+  @Patch(':id/desfiliar')
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  desfiliar(@Param('id') id: string, @CurrentUser('nome') autor: string) {
+    return this.service.desfiliar(id, autor);
   }
 
   @Post(':id/foto')

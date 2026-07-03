@@ -1,4 +1,11 @@
-export type SituacaoFiliado = 'ATIVO' | 'INATIVO' | 'SUSPENSO' | 'PENDENTE';
+import { api } from './api';
+
+export type SituacaoFiliado =
+  | 'ATIVO'
+  | 'INATIVO'
+  | 'SUSPENSO'
+  | 'PENDENTE'
+  | 'DESFILIADO';
 export type FormacaoProfissional =
   | 'ENFERMEIRO'
   | 'TECNICO_ENFERMAGEM'
@@ -49,6 +56,7 @@ export const SITUACAO_LABEL: Record<SituacaoFiliado, string> = {
   INATIVO: 'Inativo',
   SUSPENSO: 'Suspenso',
   PENDENTE: 'Pendente',
+  DESFILIADO: 'Desfiliado',
 };
 
 export const SITUACAO_COR: Record<SituacaoFiliado, string> = {
@@ -56,6 +64,7 @@ export const SITUACAO_COR: Record<SituacaoFiliado, string> = {
   INATIVO: 'bg-gray-100 text-gray-600',
   SUSPENSO: 'bg-amber-100 text-amber-700',
   PENDENTE: 'bg-blue-100 text-blue-700',
+  DESFILIADO: 'bg-red-100 text-red-700',
 };
 
 export const FORMACAO_LABEL: Record<FormacaoProfissional, string> = {
@@ -97,3 +106,31 @@ export const CATEGORIA_POR_FORMACAO: Record<string, string> = {
   TECNICO_ENFERMAGEM: 'TEC',
   AUXILIAR_ENFERMAGEM: 'AUX',
 };
+
+// ============================================================================
+// API — gestão de filiados
+// ============================================================================
+
+export interface DuplicadosResposta {
+  /** Filiados que compartilham CPF, ordenados por CPF (duplicados lado a lado). */
+  data: Filiado[];
+  /** Total de registros duplicados. */
+  total: number;
+  /** Quantidade de CPFs repetidos. */
+  grupos: number;
+}
+
+/** Lista os filiados com CPF duplicado (GET /filiados/duplicados). */
+export async function buscarDuplicados(): Promise<DuplicadosResposta> {
+  return (await api.get('/filiados/duplicados')).data;
+}
+
+/** Desfilia um associado (PATCH /filiados/:id/desfiliar). */
+export async function desfiliarFiliado(id: string): Promise<Filiado> {
+  return (await api.patch(`/filiados/${id}/desfiliar`)).data;
+}
+
+/** Exclui permanentemente um filiado (DELETE /filiados/:id). */
+export async function excluirFiliado(id: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/filiados/${id}`)).data;
+}

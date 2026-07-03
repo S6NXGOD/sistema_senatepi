@@ -43,6 +43,7 @@ enum SituacaoFiliado {
   INATIVO
   SUSPENSO
   PENDENTE
+  DESFILIADO // desligado do sindicato — perde acesso a eventos e benefícios (colônia)
 }
 
 enum StatusGenerico {

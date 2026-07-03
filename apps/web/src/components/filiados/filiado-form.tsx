@@ -49,7 +49,7 @@ const schema = z.object({
     .min(1, 'COREN obrigatório')
     .regex(COREN_REGEX, 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)'),
   dataAdmissao: z.string().optional(),
-  situacao: z.enum(['ATIVO', 'INATIVO', 'SUSPENSO', 'PENDENTE']).optional(),
+  situacao: z.enum(['ATIVO', 'INATIVO', 'SUSPENSO', 'PENDENTE', 'DESFILIADO']).optional(),
   v1Empresa: z.string().optional(),
   v1Cargo: z.string().optional(),
   v1Matricula: z.string().optional(),
