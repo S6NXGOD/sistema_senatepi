@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Snowflake, Fan, Ticket, Phone, AlertTriangle, Loader2, Sun, Waves,
   UserCheck, UserX, ArrowRight, ArrowLeft, CalendarCheck2, CalendarX2, Clock, Ban, Sparkles,
-  BedDouble, MapPin, Clock3,
+  BedDouble, MapPin, Clock3, Instagram, PhoneCall,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -140,21 +140,8 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                   </Badge>
                 </div>
 
-                {/* Anúncio do sorteio público (data/hora ao vivo) */}
-                {data.temporada.dataSorteio && (
-                  <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
-                      <Ticket className="h-6 w-6 text-amber-600 dark:text-amber-400" />
-                    </div>
-                    <div className="text-sm">
-                      <p className="font-semibold text-amber-800 dark:text-amber-200">Sorteio ao vivo do Quarto 6</p>
-                      <p className="text-amber-700 dark:text-amber-300">
-                        {new Date(data.temporada.dataSorteio).toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })}
-                        {' '}— aqui na área pública. Fique atento(a)!
-                      </p>
-                    </div>
-                  </div>
-                )}
+                {/* Sorteio do Quarto 6 — anúncio (data + live) e como funciona */}
+                <SorteioAviso dataSorteio={data.temporada.dataSorteio} />
 
                 {/* Aviso do prazo de cancelamento (Termo de No-Show) */}
                 <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
@@ -378,4 +365,68 @@ function StatusBadge({ l }: { l: LoteDisp }) {
   if (l.sorteioHabilitado)
     return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Sorteio aberto</Badge>;
   return <Badge className="bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">Disponível</Badge>;
+}
+
+// ---------------------------------------------------------------------------
+// Aviso do sorteio do Quarto 6: data + live no Instagram e "como funciona"
+// ---------------------------------------------------------------------------
+
+const INSTAGRAM_URL = 'https://instagram.com/senatepienfermagem';
+
+function SorteioAviso({ dataSorteio }: { dataSorteio?: string | null }) {
+  let dataFmt: string | null = null;
+  if (dataSorteio) {
+    const d = new Date(dataSorteio);
+    const semana = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const dia = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    dataFmt = `${semana.charAt(0).toUpperCase() + semana.slice(1)}, ${dia} às ${hora}h`;
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+      <div className="flex items-start gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+          <Ticket className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="min-w-0 flex-1 text-sm">
+          <p className="font-semibold text-amber-900 dark:text-amber-200">Sorteio do Quarto 6 (Ventilador)</p>
+          {dataFmt && (
+            <p className="text-amber-800 dark:text-amber-300">
+              <strong>{dataFmt}</strong> — transmitido <strong>AO VIVO</strong> no Instagram{' '}
+              <a
+                href={INSTAGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-semibold underline"
+              >
+                <Instagram className="h-3.5 w-3.5" /> @senatepienfermagem
+              </a>.
+            </p>
+          )}
+          <p className="mt-1 text-amber-800/90 dark:text-amber-300/90">
+            O sorteio é entre <strong>quem se inscreveu na fila do sorteio</strong> do lote. Quem for
+            sorteado será <strong>contatado pela nossa equipe</strong>. Se o contemplado não confirmar,
+            o <strong>próximo suplente</strong> da fila assume a vaga automaticamente.
+          </p>
+        </div>
+      </div>
+
+      {/* Como funciona (passos) */}
+      <div className="mt-3 grid gap-2 border-t border-amber-200 pt-3 dark:border-amber-900/40 sm:grid-cols-3">
+        <Passo Icon={Ticket} titulo="1. Entre na fila" texto="Quando as vagas diretas do lote esgotarem, inscreva-se no sorteio do Quarto 6." />
+        <Passo Icon={Instagram} titulo="2. Acompanhe a live" texto="O sorteio acontece ao vivo no Instagram @senatepienfermagem." />
+        <Passo Icon={PhoneCall} titulo="3. Contato / suplente" texto="Sorteado? Entramos em contato. Se não confirmar, o suplente assume." />
+      </div>
+    </div>
+  );
+}
+
+function Passo({ Icon, titulo, texto }: { Icon: any; titulo: string; texto: string }) {
+  return (
+    <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <span><strong>{titulo}</strong> {texto}</span>
+    </div>
+  );
 }

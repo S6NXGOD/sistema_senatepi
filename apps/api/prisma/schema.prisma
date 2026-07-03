@@ -186,7 +186,8 @@ model User {
   email         String    @unique
   username      String?   @unique // nome de usuário opcional
   senhaHash     String    @map("senha_hash")
-  avatarUrl     String?   @map("avatar_url") // foto de perfil (URL)
+  avatarUrl     String?   @map("avatar_url") // foto de perfil (URL informada manualmente)
+  avatarKey     String?   @map("avatar_key") // chave no storage quando a foto é enviada (upload)
   role          UserRole  @default(FUNCIONARIO)
   ativo         Boolean   @default(true)
   ultimoLoginEm DateTime? @map("ultimo_login_em")

@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { User, ShieldCheck, Loader2, Save, KeyRound } from 'lucide-react';
+import { User, ShieldCheck, Loader2, Save, KeyRound, Upload } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import {
   getMeuPerfil,
   atualizarPerfil,
   alterarSenha,
+  enviarAvatar,
   ROLE_LABEL,
   Perfil,
 } from '@/lib/profile';
@@ -75,12 +76,16 @@ type PerfilForm = z.infer<typeof perfilSchema>;
 
 function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void }) {
   const { atualizarUsuario } = useAuth();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [avatarAtual, setAvatarAtual] = useState<string | null>(perfil.avatarUrl);
+  const [enviandoFoto, setEnviandoFoto] = useState(false);
 
   const {
     register,
     handleSubmit,
     watch,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<PerfilForm>({
     resolver: zodResolver(perfilSchema),
@@ -88,32 +93,69 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
       nome: perfil.nome,
       email: perfil.email,
       username: perfil.username ?? '',
-      avatarUrl: perfil.avatarUrl ?? '',
+      avatarUrl: '',
     },
   });
 
   // Mantém o formulário em sincronia caso o perfil seja recarregado.
   useEffect(() => {
-    reset({
-      nome: perfil.nome,
-      email: perfil.email,
-      username: perfil.username ?? '',
-      avatarUrl: perfil.avatarUrl ?? '',
-    });
+    setAvatarAtual(perfil.avatarUrl);
+    reset({ nome: perfil.nome, email: perfil.email, username: perfil.username ?? '', avatarUrl: '' });
   }, [perfil, reset]);
 
-  const avatarUrl = watch('avatarUrl');
+  const urlDigitada = watch('avatarUrl');
   const nome = watch('nome');
+  const previewUrl = (urlDigitada && urlDigitada.trim()) || avatarAtual || '';
+
+  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Selecione um arquivo de imagem.');
+      return;
+    }
+    setEnviandoFoto(true);
+    try {
+      const p = await enviarAvatar(file);
+      setAvatarAtual(p.avatarUrl);
+      setValue('avatarUrl', ''); // a foto enviada tem precedência sobre a URL
+      atualizarUsuario({ avatarUrl: p.avatarUrl });
+      toast.success('Foto de perfil atualizada.');
+      onSalvo();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? 'Não foi possível enviar a foto.');
+    } finally {
+      setEnviandoFoto(false);
+    }
+  }
+
+  async function removerFoto() {
+    try {
+      const p = await atualizarPerfil({ avatarUrl: '' });
+      setAvatarAtual(p.avatarUrl);
+      setValue('avatarUrl', '');
+      atualizarUsuario({ avatarUrl: p.avatarUrl });
+      toast.success('Foto removida.');
+      onSalvo();
+    } catch {
+      toast.error('Não foi possível remover a foto.');
+    }
+  }
 
   async function onSubmit(d: PerfilForm) {
     try {
-      const atualizado = await atualizarPerfil({
+      const payload: { nome: string; email: string; username: string; avatarUrl?: string } = {
         nome: d.nome.trim(),
         email: d.email.trim(),
         username: d.username ?? '',
-        avatarUrl: d.avatarUrl ?? '',
-      });
-      // Reflete no contexto (Topbar) e no storage.
+      };
+      // Só envia avatarUrl se uma URL foi digitada (não sobrescreve a foto enviada).
+      if (d.avatarUrl && d.avatarUrl.trim()) payload.avatarUrl = d.avatarUrl.trim();
+
+      const atualizado = await atualizarPerfil(payload);
+      setAvatarAtual(atualizado.avatarUrl);
+      setValue('avatarUrl', '');
       atualizarUsuario({
         nome: atualizado.nome,
         email: atualizado.email,
@@ -134,32 +176,38 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {/* Foto de perfil (URL) + preview */}
-          <div className="flex items-center gap-4">
-            {avatarUrl ? (
+          {/* Foto de perfil: preview + upload */}
+          <div className="flex flex-col items-center gap-4 sm:flex-row">
+            {previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={avatarUrl}
+                src={previewUrl}
                 alt="Foto de perfil"
-                className="h-16 w-16 shrink-0 rounded-full border object-cover"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                className="h-20 w-20 shrink-0 rounded-full border object-cover"
               />
             ) : (
-              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-senatepi-100 text-xl font-bold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-senatepi-100 text-2xl font-bold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
                 {(nome || perfil.nome).charAt(0).toUpperCase()}
               </div>
             )}
-            <div className="min-w-0 flex-1">
-              <label className="text-sm font-medium">Foto de perfil (URL)</label>
-              <Input
-                type="url"
-                placeholder="https://…/foto.jpg"
-                className="mt-1"
-                {...register('avatarUrl')}
-              />
-              {errors.avatarUrl && <p className="mt-1 text-xs text-red-500">{errors.avatarUrl.message}</p>}
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+              <Button type="button" variant="outline" size="sm" disabled={enviandoFoto} onClick={() => fileRef.current?.click()}>
+                {enviandoFoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {enviandoFoto ? 'Enviando…' : 'Enviar foto'}
+              </Button>
+              {avatarAtual && (
+                <Button type="button" variant="ghost" size="sm" onClick={removerFoto}>
+                  Remover
+                </Button>
+              )}
             </div>
           </div>
+
+          {/* Alternativa: informar a foto por URL */}
+          <Campo label="… ou cole a URL de uma imagem" erro={errors.avatarUrl?.message}>
+            <Input type="url" placeholder="https://…/foto.jpg" {...register('avatarUrl')} />
+          </Campo>
 
           <Campo label="Nome de exibição" erro={errors.nome?.message}>
             <Input {...register('nome')} />

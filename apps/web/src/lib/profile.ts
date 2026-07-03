@@ -41,6 +41,13 @@ export async function alterarSenha(payload: ChangePasswordPayload): Promise<{ ok
   return (await api.patch('/profile/change-password', payload)).data;
 }
 
+/** Envia a foto de perfil por upload (POST /profile/avatar, multipart). */
+export async function enviarAvatar(file: File): Promise<Perfil> {
+  const fd = new FormData();
+  fd.append('avatar', file);
+  return (await api.post('/profile/avatar', fd)).data;
+}
+
 export const ROLE_LABEL: Record<Perfil['role'], string> = {
   ADMIN: 'Administrador',
   DIRETORIA: 'Diretoria',

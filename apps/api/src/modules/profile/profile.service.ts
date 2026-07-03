@@ -8,6 +8,8 @@ import * as bcrypt from 'bcryptjs';
 import { AcaoAuditoria, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { StorageService } from '../../common/storage/storage.service';
+import { ImageService } from '../../common/storage/image.service';
 import { ChangePasswordDto, UpdateProfileDto } from './dto/profile.dto';
 
 interface Ctx {
@@ -15,13 +17,14 @@ interface Ctx {
   userAgent?: string;
 }
 
-// Campos públicos do perfil (NUNCA expõe o hash da senha).
+// Campos do perfil (NUNCA expõe o hash da senha). avatarKey é interno.
 const PERFIL_SELECT = {
   id: true,
   nome: true,
   email: true,
   username: true,
   avatarUrl: true,
+  avatarKey: true,
   role: true,
   ativo: true,
   ultimoLoginEm: true,
@@ -29,12 +32,29 @@ const PERFIL_SELECT = {
   updatedAt: true,
 } satisfies Prisma.UserSelect;
 
+type UserRaw = Prisma.UserGetPayload<{ select: typeof PERFIL_SELECT }>;
+
 @Injectable()
 export class ProfileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
+    private readonly image: ImageService,
   ) {}
+
+  /**
+   * Monta a resposta pública: `avatarUrl` vira a URL da foto ENVIADA (via key no
+   * storage) quando houver; senão, usa a URL informada manualmente. `avatarKey`
+   * é interno e não é exposto.
+   */
+  private async apresentar(user: UserRaw) {
+    const { avatarKey, ...resto } = user;
+    const avatarUrl = avatarKey
+      ? await this.storage.getSignedUrl(avatarKey).catch(() => resto.avatarUrl)
+      : resto.avatarUrl;
+    return { ...resto, avatarUrl };
+  }
 
   /** Dados do usuário logado (sem a senha). */
   async me(userId: string) {
@@ -43,11 +63,11 @@ export class ProfileService {
       select: PERFIL_SELECT,
     });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
-    return user;
+    return this.apresentar(user);
   }
 
   /**
-   * Atualiza nome, e-mail, username e avatarUrl do próprio usuário.
+   * Atualiza nome, e-mail, username e avatarUrl (URL manual) do próprio usuário.
    * E-mail/username duplicados em OUTRO registro → 409 (Conflict).
    * Tratamento mínimo e transparente dos dados pessoais (LGPD - Lei 13.709/2018).
    */
@@ -73,10 +93,19 @@ export class ProfileService {
     const data: Prisma.UserUpdateInput = {
       nome: dto.nome?.trim(),
       email,
-      // string vazia limpa o campo (username/avatar são opcionais)
       username: dto.username !== undefined ? username || null : undefined,
-      avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl.trim() || null : undefined,
     };
+
+    // Informar uma URL manual substitui (e apaga) uma foto enviada por upload.
+    if (dto.avatarUrl !== undefined) {
+      const atual = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { avatarKey: true },
+      });
+      if (atual?.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
+      data.avatarUrl = dto.avatarUrl.trim() || null;
+      data.avatarKey = null;
+    }
 
     try {
       const user = await this.prisma.user.update({
@@ -94,15 +123,43 @@ export class ProfileService {
         descricao: 'Perfil atualizado pelo próprio usuário.',
         metadata: { campos: Object.keys(dto) },
       });
-      return user;
+      return this.apresentar(user);
     } catch (e) {
-      // Backstop caso a corrida bata no índice único.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const alvo = (e.meta?.target as string[])?.join(', ') ?? 'dado';
         throw new ConflictException(`Já existe outro usuário com este ${alvo}.`);
       }
       throw e;
     }
+  }
+
+  /** Envia/substitui a foto de perfil (upload). Processada em WebP 400×400. */
+  async atualizarAvatar(userId: string, arquivo: Buffer, ctx: Ctx) {
+    const atual = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarKey: true },
+    });
+    if (!atual) throw new NotFoundException('Usuário não encontrado.');
+
+    const avatarKey = await this.image.processarAvatar(arquivo, `usuarios/${userId}`);
+    if (atual.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      // A foto enviada tem precedência: limpa a URL manual.
+      data: { avatarKey, avatarUrl: null },
+      select: PERFIL_SELECT,
+    });
+    await this.audit.registrar({
+      userId,
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'User',
+      entidadeId: userId,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      descricao: 'Foto de perfil atualizada (upload).',
+    });
+    return this.apresentar(user);
   }
 
   /** Troca de senha: valida a senha atual (bcrypt) e grava o novo hash. */

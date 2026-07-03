@@ -3,17 +3,19 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Settings, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { Logo } from '@/components/logo';
 import { NAV_ITENS } from '@/components/nav-items';
+import { useAuth } from '@/lib/auth';
 
 /** Hamburger + Sheet lateral com a navegação — visível só no mobile (md:hidden). */
 export function MobileNav() {
   const [aberto, setAberto] = useState(false);
   const pathname = usePathname();
+  const { logout } = useAuth();
 
   return (
     <div className="md:hidden">
@@ -50,6 +52,24 @@ export function MobileNav() {
             );
           })}
         </nav>
+
+        {/* Rodapé: Meu Perfil + Sair do Sistema */}
+        <div className="space-y-1 border-t p-3">
+          <Link
+            href="/configuracoes"
+            onClick={() => setAberto(false)}
+            className="flex h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Settings className="h-5 w-5" /> Meu Perfil
+          </Link>
+          <button
+            type="button"
+            onClick={() => { setAberto(false); logout(); }}
+            className="flex h-12 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+          >
+            <LogOut className="h-5 w-5" /> Sair do Sistema
+          </button>
+        </div>
       </Sheet>
     </div>
   );

@@ -49,4 +49,20 @@ export class ImageService {
 
     return { fotoKey, fotoThumbKey };
   }
+
+  /**
+   * Avatar quadrado único (para foto de perfil). Recorta em 400×400, WebP.
+   * Retorna a chave no storage.
+   */
+  async processarAvatar(buffer: Buffer, prefix: string): Promise<string> {
+    const id = randomUUID();
+    const img = await sharp(buffer)
+      .rotate()
+      .resize({ width: 400, height: 400, fit: 'cover' })
+      .webp({ quality: 82 })
+      .toBuffer();
+    const key = `${prefix}/avatar-${id}.webp`;
+    await this.storage.upload(key, img, 'image/webp');
+    return key;
+  }
 }

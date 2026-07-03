@@ -27,6 +27,9 @@ const INVENTARIO_QUARTOS = [
 const CAMPANHA_ID = 'colonia-julho-2026';
 const CAMPANHA_SLUG = 'julho-2026';
 const CAMPANHA_NOME = 'Colônia de Julho 2026';
+// Sorteio ao vivo (Instagram) da temporada de julho — específico desta campanha
+// (NÃO é regra global). Teresina/UTC-3. A diretoria pode alterar no painel.
+const DATA_SORTEIO = '2026-07-07T19:30:00-03:00';
 
 // Horários exatos de check-in/check-out por lote (Teresina, UTC-3). Cada lote = 2 noites.
 const LOTES_HORARIOS: { inicio: string; fim: string }[] = [
@@ -63,6 +66,8 @@ export class ColoniaSeedService implements OnApplicationBootstrap {
         select: { id: true },
       });
       if (existe) {
+        // Backfill idempotente da data do sorteio (só quando ainda não definida).
+        await this.garantirDataSorteio();
         this.logger.log('Campanha da Colônia já existe — seed de primeira execução ignorado.');
         return;
       }
@@ -73,6 +78,25 @@ export class ColoniaSeedService implements OnApplicationBootstrap {
     } catch (e) {
       // Uma falha de seed não deve derrubar o boot da API.
       this.logger.error('Falha ao semear a campanha padrão da Colônia.', e as Error);
+    }
+  }
+
+  /**
+   * Define a data do sorteio da campanha de julho apenas quando ainda está nula
+   * (não sobrescreve um valor ajustado pela diretoria). Específico desta
+   * temporada — não é uma configuração global.
+   */
+  private async garantirDataSorteio() {
+    const t = await this.prisma.coloniaTemporada.findUnique({
+      where: { id: CAMPANHA_ID },
+      select: { dataSorteio: true },
+    });
+    if (t && t.dataSorteio == null) {
+      await this.prisma.coloniaTemporada.update({
+        where: { id: CAMPANHA_ID },
+        data: { dataSorteio: new Date(DATA_SORTEIO) },
+      });
+      this.logger.log('Data do sorteio da Colônia de Julho definida por seed (07/07 19:30).');
     }
   }
 
@@ -88,6 +112,7 @@ export class ColoniaSeedService implements OnApplicationBootstrap {
         ano: 2026,
         status: StatusTemporada.ATIVA,
         descricao: 'Temporada de férias de julho de 2026 na Colônia do SENATEPI.',
+        dataSorteio: new Date(DATA_SORTEIO),
       },
     });
 
