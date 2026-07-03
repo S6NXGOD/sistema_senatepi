@@ -215,6 +215,7 @@ export class FiliadosService {
         formacao: true,
         email: true,
         telefonePrincipal: true,
+        telefoneSecundario: true,
         cidade: true,
         estado: true,
         vinculos: {
@@ -236,7 +237,9 @@ export class FiliadosService {
       corenNumero: f.numeroCoren ? f.numeroCoren.replace(/\D/g, '').slice(0, 6) || null : null,
       formacao: f.formacao ? MAP_FORMACAO[f.formacao] ?? null : null,
       email: f.email,
-      telefone: f.telefonePrincipal,
+      // Puxa o telefone principal; se estiver vazio/nulo, cai para o secundário
+      // (evita "telefone não preenchido" na alocação quando só há o secundário).
+      telefone: f.telefonePrincipal || f.telefoneSecundario || null,
       cidade: f.cidade,
       estado: f.estado,
       // Locais de trabalho a partir dos vínculos (ordenados).

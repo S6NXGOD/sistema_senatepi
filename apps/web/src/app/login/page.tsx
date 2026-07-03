@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,13 +22,20 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, user, carregando } = useAuth();
+  const router = useRouter();
   const [enviando, setEnviando] = useState(false);
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<FormData>({ resolver: zodResolver(schema), defaultValues: { lembrar: true } });
+
+  // Guest route (fallback client-side): sessão restaurada do storage já loga →
+  // manda para o painel. O middleware cobre o caso via cookie no servidor.
+  useEffect(() => {
+    if (!carregando && user) router.replace('/dashboard');
+  }, [carregando, user, router]);
 
   async function onSubmit(data: FormData) {
     setEnviando(true);
