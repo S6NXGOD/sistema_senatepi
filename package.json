@@ -1,0 +1,31 @@
+{
+  "name": "senatepi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema de gestão sindical do SENATEPI",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:api": "npm run start:dev --workspace=@senatepi/api",
+    "dev:web": "npm run dev --workspace=@senatepi/web",
+    "build": "npm run build --workspace=@senatepi/api && npm run build --workspace=@senatepi/web",
+    "start": "npm run start --workspace=@senatepi/api",
+    "start:web": "npm run start --workspace=@senatepi/web",
+    "db:migrate": "npm run prisma:migrate --workspace=@senatepi/api",
+    "db:deploy": "npm run prisma:deploy --workspace=@senatepi/api",
+    "db:generate": "npm run prisma:generate --workspace=@senatepi/api",
+    "db:seed": "npm run prisma:seed --workspace=@senatepi/api",
+    "db:studio": "npm run prisma:studio --workspace=@senatepi/api",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

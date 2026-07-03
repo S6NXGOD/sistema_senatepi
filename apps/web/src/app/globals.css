@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 33% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 105 85% 27%; /* verde escuro SENATEPI */
+    --primary-foreground: 0 0% 100%;
+    --muted: 210 20% 95%;
+    --muted-foreground: 215 16% 47%;
+    --border: 214 20% 90%;
+    --input: 214 20% 90%;
+    --ring: 105 60% 35%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 30% 9%;
+    --foreground: 210 20% 96%;
+    --card: 222 25% 13%;
+    --card-foreground: 210 20% 96%;
+    --primary: 88 55% 51%; /* verde claro para dark */
+    --primary-foreground: 222 47% 11%;
+    --muted: 222 20% 18%;
+    --muted-foreground: 215 16% 65%;
+    --border: 222 20% 22%;
+    --input: 222 20% 22%;
+    --ring: 88 55% 51%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}

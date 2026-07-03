@@ -1,0 +1,838 @@
+// ============================================================================
+// SENATEPI — Schema Prisma
+// Sindicato dos Enfermeiros, Auxiliares e Técnicos em Enfermagem do Piauí
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  ADMIN // Administrador — acesso total
+  DIRETORIA // Acesso operacional
+  FUNCIONARIO // Acesso limitado
+  RECEPCAO // Recepção/Eventos — somente validação e consulta
+}
+
+enum Sexo {
+  MASCULINO
+  FEMININO
+  OUTRO
+}
+
+enum EstadoCivil {
+  SOLTEIRO
+  CASADO
+  DIVORCIADO
+  VIUVO
+  UNIAO_ESTAVEL
+  OUTRO
+}
+
+enum SituacaoFiliado {
+  ATIVO
+  INATIVO
+  SUSPENSO
+  PENDENTE
+}
+
+enum StatusGenerico {
+  ATIVO
+  INATIVO
+}
+
+enum TipoFuncionario {
+  FUNCIONARIO
+  PRESTADOR_SERVICO
+  ESTAGIARIO
+  TERCEIRIZADO
+}
+
+enum StatusFuncionario {
+  ATIVO
+  INATIVO
+  AFASTADO
+  FERIAS
+  DESLIGADO
+}
+
+enum TipoHistoricoFuncionario {
+  CADASTRO
+  ALTERACAO
+  MUDANCA_STATUS
+  UPLOAD_DOCUMENTO
+  GERACAO_CARTEIRINHA
+  GERACAO_QRCODE
+}
+
+enum TipoHistoricoFiliado {
+  FILIACAO
+  ALTERACAO
+  RECADASTRAMENTO
+  MUDANCA_STATUS
+  INCLUSAO_DEPENDENTE
+  EXCLUSAO_DEPENDENTE
+  UPLOAD_DOCUMENTO
+  GERACAO_CARTEIRINHA
+  GERACAO_TERMO
+}
+
+enum TipoDependente {
+  CONJUGE
+  FILHO
+}
+
+enum FormacaoProfissional {
+  ENFERMEIRO
+  TECNICO_ENFERMAGEM
+  AUXILIAR_ENFERMAGEM
+  OUTRO
+}
+
+enum TipoPessoa {
+  FILIADO
+  DEPENDENTE
+  FUNCIONARIO
+  PRESTADOR
+}
+
+enum TipoPrestador {
+  PESSOA_FISICA
+  PESSOA_JURIDICA
+}
+
+enum TipoEvento {
+  ASSEMBLEIA
+  CONGRESSO
+  REUNIAO
+  EVENTO_SOCIAL
+  EVENTO_ESPORTIVO
+  OUTRO
+}
+
+enum StatusEvento {
+  AGENDADO
+  EM_ANDAMENTO
+  REALIZADO
+  CANCELADO
+}
+
+enum StatusCarteirinha {
+  ATIVA
+  EXPIRADA
+  REVOGADA
+}
+
+enum TipoDocumento {
+  TERMO_CONSENTIMENTO
+  FICHA_FILIACAO
+  CONTRATO
+  DOCUMENTO_PESSOAL
+  OUTRO
+}
+
+enum AcaoAuditoria {
+  LOGIN
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  VALIDACAO_QR
+  EXPORT
+  IMPORT
+}
+
+enum StatusImportacao {
+  VALIDANDO
+  VALIDADO
+  IMPORTANDO
+  CONCLUIDO
+  ERRO
+}
+
+enum EstrategiaDuplicado {
+  IGNORAR
+  ATUALIZAR
+}
+
+enum EstrategiaMatricula {
+  REGENERAR // gera uma matrícula nova quando a do arquivo colide
+  DISPENSAR // não importa a pessoa quando a matrícula colide
+}
+
+enum StatusRecadastramento {
+  PENDENTE
+  APROVADO
+  REJEITADO
+}
+
+// ============================================================================
+// AUTENTICAÇÃO E USUÁRIOS
+// ============================================================================
+
+model User {
+  id            String    @id @default(uuid())
+  nome          String
+  email         String    @unique
+  senhaHash     String    @map("senha_hash")
+  role          UserRole  @default(FUNCIONARIO)
+  ativo         Boolean   @default(true)
+  ultimoLoginEm DateTime? @map("ultimo_login_em")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  refreshTokens    RefreshToken[]
+  auditorias       Auditoria[]
+  recadastramentos Recadastramento[] @relation("RecadastramentoRevisor")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  tokenHash String   @map("token_hash")
+  expiraEm  DateTime @map("expira_em")
+  revogado  Boolean  @default(false)
+  userAgent String?  @map("user_agent")
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  email     String
+  tokenHash String   @map("token_hash")
+  expiraEm  DateTime @map("expira_em")
+  usado     Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email])
+  @@map("password_resets")
+}
+
+// ============================================================================
+// FILIADOS
+// ============================================================================
+
+model Filiado {
+  id                 String                @id @default(uuid())
+  matricula          String                @unique // matrícula sindical
+  // Dados pessoais
+  nomeCompleto       String                @map("nome_completo")
+  cpf                String?               @unique
+  rg                 String?
+  ufRg               String?               @map("uf_rg")
+  dataNascimento     DateTime?             @map("data_nascimento")
+  sexo               Sexo?
+  estadoCivil        EstadoCivil?          @map("estado_civil")
+  naturalidade       String?
+  fotoKey            String?               @map("foto_key") // chave no storage (original webp)
+  fotoThumbKey       String?               @map("foto_thumb_key") // chave do thumbnail
+  // Contato
+  telefonePrincipal  String?               @map("telefone_principal")
+  telefoneSecundario String?               @map("telefone_secundario")
+  email              String?
+  // Endereço
+  cep                String?
+  endereco           String?
+  numero             String?
+  complemento        String?
+  bairro             String?
+  cidade             String?
+  estado             String?
+  // Dados profissionais
+  formacao           FormacaoProfissional?
+  formacaoOutro      String?               @map("formacao_outro") // texto livre quando formacao = OUTRO
+  numeroCoren        String?               @map("numero_coren")
+  dataAdmissao       DateTime?             @map("data_admissao")
+  // Situação
+  situacao           SituacaoFiliado       @default(PENDENTE)
+  aprovadoEm         DateTime?             @map("aprovado_em")
+  // Identificação para QR Code
+  qrToken            String                @unique @map("qr_token")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  vinculos         VinculoProfissional[]
+  dependentes      Dependente[]
+  carteirinha      Carteirinha?
+  documentos       Documento[]
+  presencas        Presenca[]
+  recadastramentos Recadastramento[]
+  historico        FiliadoHistorico[]
+
+  @@index([situacao])
+  @@index([cpf])
+  @@map("filiados")
+}
+
+model FiliadoHistorico {
+  id        String               @id @default(uuid())
+  filiadoId String               @map("filiado_id")
+  tipo      TipoHistoricoFiliado
+  descricao String
+  autor     String?
+  metadata  Json?
+  createdAt DateTime             @default(now()) @map("created_at")
+
+  filiado Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+
+  @@index([filiadoId])
+  @@map("filiado_historico")
+}
+
+model VinculoProfissional {
+  id        String   @id @default(uuid())
+  filiadoId String   @map("filiado_id")
+  empresa   String
+  cargo     String?
+  matricula String? // matrícula na instituição
+  ordem     Int      @default(1) // 1 = instituição 1, 2 = instituição 2
+  createdAt DateTime @default(now()) @map("created_at")
+
+  filiado Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+
+  @@index([filiadoId])
+  @@map("vinculos_profissionais")
+}
+
+// ============================================================================
+// DEPENDENTES
+// ============================================================================
+
+model Dependente {
+  id             String         @id @default(uuid())
+  filiadoId      String         @map("filiado_id")
+  tipo           TipoDependente
+  nome           String
+  cpf            String?
+  dataNascimento DateTime       @map("data_nascimento")
+  fotoKey        String?        @map("foto_key")
+  fotoThumbKey   String?        @map("foto_thumb_key")
+  qrToken        String         @unique @map("qr_token")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  filiado   Filiado    @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  presencas Presenca[]
+
+  @@index([filiadoId])
+  @@map("dependentes")
+}
+
+// ============================================================================
+// FUNCIONÁRIOS
+// ============================================================================
+
+model Funcionario {
+  id             String            @id @default(uuid())
+  matricula      String            @unique
+  nome           String
+  cpf            String            @unique
+  dataNascimento DateTime?         @map("data_nascimento")
+  dataAdmissao   DateTime?         @map("data_admissao")
+  telefone       String?
+  email          String?
+  cargo          String?
+  departamento   String?
+  tipo           TipoFuncionario   @default(FUNCIONARIO)
+  // Endereço
+  cep            String?
+  endereco       String?
+  numero         String?
+  complemento    String?
+  bairro         String?
+  cidade         String?
+  estado         String?
+  fotoKey        String?           @map("foto_key")
+  fotoThumbKey   String?           @map("foto_thumb_key")
+  status         StatusFuncionario @default(ATIVO)
+  qrToken        String            @unique @map("qr_token")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  documentos Documento[]
+  presencas  Presenca[]
+  historico  FuncionarioHistorico[]
+
+  @@index([status])
+  @@index([tipo])
+  @@map("funcionarios")
+}
+
+model FuncionarioHistorico {
+  id            String                   @id @default(uuid())
+  funcionarioId String                   @map("funcionario_id")
+  tipo          TipoHistoricoFuncionario
+  descricao     String
+  // Usuário que executou a ação (e-mail/nome para snapshot)
+  autor         String?
+  metadata      Json?
+  createdAt     DateTime                 @default(now()) @map("created_at")
+
+  funcionario Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+
+  @@index([funcionarioId])
+  @@map("funcionario_historico")
+}
+
+// ============================================================================
+// PRESTADORES DE SERVIÇO
+// ============================================================================
+
+model Prestador {
+  id             String         @id @default(uuid())
+  nome           String
+  tipoPessoa     TipoPrestador  @default(PESSOA_FISICA) @map("tipo_pessoa")
+  cpfCnpj        String         @unique @map("cpf_cnpj")
+  empresa        String?
+  telefone       String?
+  email          String?
+  contratoNumero String?        @map("contrato_numero")
+  vigenciaInicio DateTime?      @map("vigencia_inicio")
+  vigenciaFim    DateTime?      @map("vigencia_fim")
+  fotoKey        String?        @map("foto_key")
+  fotoThumbKey   String?        @map("foto_thumb_key")
+  status         StatusGenerico @default(ATIVO)
+  qrToken        String         @unique @map("qr_token")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  documentos Documento[]
+  presencas  Presenca[]
+
+  @@index([status])
+  @@map("prestadores")
+}
+
+// ============================================================================
+// EVENTOS E CONTROLE DE PRESENÇA
+// ============================================================================
+
+model Evento {
+  id               String       @id @default(uuid())
+  nome             String
+  descricao        String?
+  local            String?
+  dataInicio       DateTime     @map("data_inicio")
+  dataFim          DateTime?    @map("data_fim")
+  capacidadeMaxima Int?         @map("capacidade_maxima")
+  tipo             TipoEvento   @default(OUTRO)
+  status           StatusEvento @default(AGENDADO)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  presencas Presenca[]
+
+  @@index([status])
+  @@index([dataInicio])
+  @@map("eventos")
+}
+
+model Presenca {
+  id            String     @id @default(uuid())
+  eventoId      String     @map("evento_id")
+  tipoPessoa    TipoPessoa @map("tipo_pessoa")
+  // Apenas um destes FKs estará preenchido, conforme o tipo de pessoa
+  filiadoId     String?    @map("filiado_id")
+  dependenteId  String?    @map("dependente_id")
+  funcionarioId String?    @map("funcionario_id")
+  prestadorId   String?    @map("prestador_id")
+  registradoEm  DateTime   @default(now()) @map("registrado_em")
+  // Snapshot para histórico (mesmo se o cadastro for alterado/removido)
+  nomeSnapshot  String     @map("nome_snapshot")
+
+  evento      Evento       @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  dependente  Dependente?  @relation(fields: [dependenteId], references: [id], onDelete: SetNull)
+  funcionario Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  prestador   Prestador?   @relation(fields: [prestadorId], references: [id], onDelete: SetNull)
+
+  // Evita entrada duplicada da mesma pessoa no mesmo evento
+  @@unique([eventoId, filiadoId])
+  @@unique([eventoId, dependenteId])
+  @@unique([eventoId, funcionarioId])
+  @@unique([eventoId, prestadorId])
+  @@index([eventoId])
+  @@map("presencas")
+}
+
+// ============================================================================
+// CARTEIRINHA DIGITAL
+// ============================================================================
+
+model Carteirinha {
+  id        String            @id @default(uuid())
+  filiadoId String            @unique @map("filiado_id")
+  numero    String            @unique // número da carteirinha
+  emitidaEm DateTime          @default(now()) @map("emitida_em")
+  validaAte DateTime?         @map("valida_ate")
+  status    StatusCarteirinha @default(ATIVA)
+  pdfKey    String?           @map("pdf_key") // PDF gerado no storage
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  filiado Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+
+  @@map("carteirinhas")
+}
+
+// ============================================================================
+// DOCUMENTOS (termos, contratos, anexos)
+// ============================================================================
+
+model Documento {
+  id            String        @id @default(uuid())
+  tipo          TipoDocumento
+  titulo        String
+  storageKey    String        @map("storage_key")
+  mimeType      String?       @map("mime_type")
+  tamanhoBytes  Int?          @map("tamanho_bytes")
+  assinado      Boolean       @default(false)
+  assinaturaKey String?       @map("assinatura_key") // imagem da assinatura
+  // Vínculo polimórfico (apenas um preenchido)
+  filiadoId     String?       @map("filiado_id")
+  funcionarioId String?       @map("funcionario_id")
+  prestadorId   String?       @map("prestador_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  funcionario Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  prestador   Prestador?   @relation(fields: [prestadorId], references: [id], onDelete: Cascade)
+
+  @@index([filiadoId])
+  @@index([tipo])
+  @@map("documentos")
+}
+
+// ============================================================================
+// RECADASTRAMENTO (com histórico de alterações)
+// ============================================================================
+
+model Recadastramento {
+  id              String                @id @default(uuid())
+  filiadoId       String                @map("filiado_id")
+  status          StatusRecadastramento @default(PENDENTE)
+  // Snapshot dos dados antes e depois (JSON) para histórico/auditoria
+  dadosAnteriores Json?                 @map("dados_anteriores")
+  dadosNovos      Json                  @map("dados_novos")
+  observacao      String?
+  revisorId       String?               @map("revisor_id")
+  revisadoEm      DateTime?             @map("revisado_em")
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  filiado Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  revisor User?   @relation("RecadastramentoRevisor", fields: [revisorId], references: [id], onDelete: SetNull)
+
+  @@index([filiadoId])
+  @@index([status])
+  @@map("recadastramentos")
+}
+
+// ============================================================================
+// AUDITORIA / LOGS
+// ============================================================================
+
+model Auditoria {
+  id         String        @id @default(uuid())
+  userId     String?       @map("user_id")
+  acao       AcaoAuditoria
+  entidade   String? // ex: "Filiado", "Evento"
+  entidadeId String?       @map("entidade_id")
+  descricao  String?
+  ip         String?
+  userAgent  String?       @map("user_agent")
+  metadata   Json?
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([acao])
+  @@index([createdAt])
+  @@map("auditorias")
+}
+
+// ============================================================================
+// IMPORTAÇÃO DE FILIADOS (migração do sistema legado)
+// ============================================================================
+
+model Importacao {
+  id            String              @id @default(uuid())
+  nomeArquivo   String              @map("nome_arquivo")
+  tamanhoBytes  Int                 @map("tamanho_bytes")
+  status            StatusImportacao    @default(VALIDANDO)
+  estrategia        EstrategiaDuplicado @default(IGNORAR)
+  estrategiaMatricula EstrategiaMatricula @default(REGENERAR) @map("estrategia_matricula")
+  permitirCpfInvalido Boolean             @default(false) @map("permitir_cpf_invalido")
+  // Contadores
+  total         Int                 @default(0)
+  validos       Int                 @default(0)
+  comErro       Int                 @default(0)
+  duplicados    Int                 @default(0) // CPF já existe no sistema
+  processados   Int                 @default(0)
+  importados    Int                 @default(0)
+  atualizados   Int                 @default(0)
+  ignorados     Int                 @default(0)
+  dispensados   Int                 @default(0) // matrícula colidiu e a pessoa foi dispensada
+  // Mapeamento detectado (coluna do CSV -> campo do sistema)
+  mapeamento    Json?
+  // Execução
+  iniciadoEm    DateTime?           @map("iniciado_em")
+  finalizadoEm  DateTime?           @map("finalizado_em")
+  duracaoMs     Int?                @map("duracao_ms")
+  erroMensagem  String?             @map("erro_mensagem")
+  userId        String?             @map("user_id")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  linhas ImportacaoLinha[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("importacoes")
+}
+
+model ImportacaoLinha {
+  id           String  @id @default(uuid())
+  importacaoId String  @map("importacao_id")
+  linha        Int // número da linha no CSV (começando em 1)
+  // Dados normalizados, prontos para criação
+  dados        Json
+  // Denormalizado para busca/prévia
+  nome         String?
+  cpf          String?
+  matricula    String?
+  telefone     String?
+  empresa      String?
+  situacao     String?
+  // Validação
+  valido               Boolean  @default(true)
+  duplicadoNoSistema   Boolean  @default(false) @map("duplicado_no_sistema")
+  erros                Json? // string[] de mensagens bloqueantes
+  avisos               Json? // string[] de mensagens informativas
+  codigos              String[] @default([]) // códigos de problema (CPF_INVALIDO, etc.)
+  // Resultado da importação
+  resultado    String? // IMPORTADO | ATUALIZADO | IGNORADO | ERRO
+  filiadoId    String? @map("filiado_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  importacao Importacao @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
+
+  @@index([importacaoId])
+  @@index([importacaoId, valido])
+  @@index([cpf])
+  @@map("importacao_linhas")
+}
+
+// ============================================================================
+// COLÔNIA DE FÉRIAS — Reservas
+// Inventário fixo de 6 quartos; temporadas com 5 lotes de 48h.
+// Dados pessoais tratados conforme a LGPD (Lei nº 13.709/2018): consentimento
+// registrado (aceite + data + IP + versão do termo) e suporte a anonimização.
+// ============================================================================
+
+enum StatusTemporada {
+  ATIVA // pública / aceita reservas
+  INATIVA // oculta do público
+}
+
+enum ClimatizacaoQuarto {
+  AR_CONDICIONADO
+  VENTILADOR
+}
+
+enum ModoReservaQuarto {
+  RESERVA_DIRETA // quartos 1-5: reserva direta pelo associado
+  SORTEIO_OU_MANUAL // quarto 6: só por sorteio ou alocação manual da diretoria
+}
+
+enum FormacaoColonia {
+  ENFERMEIRO
+  TECNICO
+  AUXILIAR
+}
+
+enum OrigemReserva {
+  RESERVA_DIRETA
+  SORTEIO
+  ALOCACAO_MANUAL
+}
+
+enum StatusReserva {
+  CONFIRMADA
+  CANCELADA_ADMIN // soft-delete pela diretoria: devolve a vaga (lote+quarto) ao público
+}
+
+enum StatusSorteioInscricao {
+  INSCRITO // na fila
+  SORTEADO // ganhou o quarto 6
+  NAO_SORTEADO // fila encerrada sem ser sorteado
+  CANCELADO
+}
+
+/// Campanha/Temporada da colônia (ex.: "Colônia de Julho 2026").
+/// O `slug` é o identificador da URL pública; `status` controla o acesso.
+model ColoniaTemporada {
+  id        String          @id @default(uuid())
+  nome      String
+  slug      String          @unique // URL pública da campanha (ex.: "julho-2026")
+  ano       Int
+  status    StatusTemporada @default(INATIVA)
+  descricao String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  lotes            ColoniaLote[]
+  reservas         ColoniaReserva[]
+  inscricoesSorteio ColoniaSorteioInscricao[]
+
+  @@index([status])
+  @@map("colonia_temporadas")
+}
+
+/// Lote = período de 48h dentro de uma temporada (5 por temporada).
+model ColoniaLote {
+  id          String   @id @default(uuid())
+  temporadaId String   @map("temporada_id")
+  numero      Int // 1..5
+  dataInicio  DateTime @map("data_inicio")
+  dataFim     DateTime @map("data_fim")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  temporada ColoniaTemporada @relation(fields: [temporadaId], references: [id], onDelete: Cascade)
+  reservas  ColoniaReserva[]
+  inscricoesSorteio ColoniaSorteioInscricao[]
+  quartos   ColoniaQuarto[]
+
+  @@unique([temporadaId, numero])
+  @@index([temporadaId])
+  @@map("colonia_lotes")
+}
+
+/// Inventário fixo de 6 quartos POR LOTE.
+/// 1-3: Ar-condicionado / reserva direta · 4-5: Ventilador / reserva direta ·
+/// 6: Ventilador / exclusivo sorteio ou alocação manual.
+model ColoniaQuarto {
+  id           String             @id @default(uuid())
+  loteId       String             @map("lote_id")
+  numero       Int // 1..6
+  climatizacao ClimatizacaoQuarto
+  modoReserva  ModoReservaQuarto  @map("modo_reserva")
+  ativo        Boolean            @default(true)
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  lote     ColoniaLote      @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  reservas ColoniaReserva[]
+
+  @@unique([loteId, numero])
+  @@index([loteId])
+  @@map("colonia_quartos")
+}
+
+/// Reserva (ou vaga de sorteio) de um quarto em um lote de uma temporada.
+/// Guarda os dados de checkout enriquecidos + o consentimento LGPD.
+model ColoniaReserva {
+  id          String @id @default(uuid())
+  temporadaId String @map("temporada_id")
+  loteId      String @map("lote_id")
+  quartoId    String @map("quarto_id")
+
+  origem         OrigemReserva @default(RESERVA_DIRETA)
+  status         StatusReserva @default(CONFIRMADA)
+  // Flags administrativas
+  alocacaoManual Boolean       @default(false) @map("alocacao_manual_diretoria") // alocado manualmente pela diretoria
+
+  // ---- Dados de checkout (enriquecimento) ----
+  nomeCompleto   String          @map("nome_completo")
+  cpf            String // único por temporada entre reservas CONFIRMADAS (índice parcial na migração)
+  telefone       String
+  coren          String?
+  email          String?
+  formacao       FormacaoColonia
+  localTrabalho1 String          @map("local_trabalho_1") // obrigatório
+  localTrabalho2 String?         @map("local_trabalho_2") // opcional
+  cidade         String
+  estado         String
+
+  // ---- LGPD: consentimento e termo de No-Show ----
+  aceiteTermoNoShow Boolean   @default(false) @map("aceite_termo_no_show")
+  termoVersao       String?   @map("termo_versao")
+  consentimentoLgpd Boolean   @default(false) @map("consentimento_lgpd")
+  consentimentoEm   DateTime? @map("consentimento_em")
+  ipConsentimento   String?   @map("ip_consentimento")
+  anonimizadaEm     DateTime? @map("anonimizada_em") // dados pessoais anonimizados após retenção
+
+  // ---- Cancelamento (soft-delete) ----
+  canceladaEm        DateTime? @map("cancelada_em")
+  canceladaPor       String?   @map("cancelada_por") // usuário admin
+  motivoCancelamento String?   @map("motivo_cancelamento")
+
+  criadaPor String?  @map("criada_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  temporada ColoniaTemporada @relation(fields: [temporadaId], references: [id], onDelete: Cascade)
+  lote      ColoniaLote      @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  quarto    ColoniaQuarto    @relation(fields: [quartoId], references: [id])
+
+  @@index([temporadaId])
+  @@index([loteId])
+  @@index([quartoId])
+  @@index([status])
+  @@index([temporadaId, cpf])
+  @@map("colonia_reservas")
+}
+
+/// Fila de sorteio do quarto 6 de um lote. Guarda os mesmos dados de checkout
+/// para virar reserva ao ser sorteado. CPF único (ativo) por temporada.
+model ColoniaSorteioInscricao {
+  id          String                 @id @default(uuid())
+  temporadaId String                 @map("temporada_id")
+  loteId      String                 @map("lote_id")
+  status      StatusSorteioInscricao @default(INSCRITO)
+
+  // ---- Dados de checkout (enriquecimento) ----
+  nomeCompleto   String          @map("nome_completo")
+  cpf            String
+  telefone       String
+  coren          String?
+  email          String?
+  formacao       FormacaoColonia
+  localTrabalho1 String          @map("local_trabalho_1")
+  localTrabalho2 String?         @map("local_trabalho_2")
+  cidade         String
+  estado         String
+
+  // ---- LGPD / Marco Civil ----
+  aceiteTermoNoShow Boolean   @default(false) @map("aceite_termo_no_show")
+  consentimentoLgpd Boolean   @default(false) @map("consentimento_lgpd")
+  consentimentoEm   DateTime? @map("consentimento_em")
+  ipInscricao       String?   @map("ip_inscricao")
+
+  reservaId String?  @map("reserva_id") // preenchido quando vira reserva (sorteado)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  temporada ColoniaTemporada @relation(fields: [temporadaId], references: [id], onDelete: Cascade)
+  lote      ColoniaLote      @relation(fields: [loteId], references: [id], onDelete: Cascade)
+
+  @@index([temporadaId])
+  @@index([loteId])
+  @@index([status])
+  @@index([temporadaId, cpf])
+  @@map("colonia_sorteio_inscricoes")
+}
