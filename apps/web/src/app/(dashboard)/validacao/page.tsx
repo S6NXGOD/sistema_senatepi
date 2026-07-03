@@ -89,7 +89,7 @@ export default function ValidacaoPage() {
           <select
             value={eventoId}
             onChange={(e) => setEventoId(e.target.value)}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
           >
             <option value="">— Apenas consultar (sem registrar presença) —</option>
             {eventos?.map((e: any) => (
@@ -101,7 +101,7 @@ export default function ValidacaoPage() {
           <input
             autoFocus
             placeholder="Foque aqui e use o leitor USB, ou cole o conteúdo do QR..."
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 validarPayload((e.target as HTMLInputElement).value);

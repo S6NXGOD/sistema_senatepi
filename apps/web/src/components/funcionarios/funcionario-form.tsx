@@ -110,7 +110,7 @@ export function FuncionarioForm({ inicial }: { inicial?: Funcionario }) {
     }
   }
 
-  const inputCls = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
+  const inputCls = 'h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm';
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">

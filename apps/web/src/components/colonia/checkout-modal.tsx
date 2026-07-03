@@ -202,7 +202,7 @@ export function CheckoutModal({
 
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="Formação *" erro={errors.formacao?.message}>
-                  <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" {...register('formacao')}>
+                  <select className="h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm" {...register('formacao')}>
                     {FORMACAO_OPCOES.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
                   </select>
                 </Campo>

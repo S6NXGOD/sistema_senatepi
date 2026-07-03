@@ -73,7 +73,7 @@ export function EditarLinhaDialog({
           <Campo label="Empresa" k="empresa" />
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Situação</label>
-            <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.situacao} onChange={(e) => set('situacao', e.target.value)}>
+            <select className="h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm" value={form.situacao} onChange={(e) => set('situacao', e.target.value)}>
               {SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}
             </select>
           </div>

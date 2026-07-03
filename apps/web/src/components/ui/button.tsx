@@ -14,10 +14,12 @@ const buttonVariants = cva(
         secondary: 'bg-senatepi-400 text-senatepi-900 hover:bg-senatepi-600 hover:text-white',
       },
       size: {
-        default: 'h-10 px-4 py-2',
+        // Mobile-first: alvos de toque de 48px (h-12) / 44px (icon) no celular,
+        // mais densos no desktop (md:). 'sm' permanece compacto para toolbars.
+        default: 'h-12 px-4 py-2 md:h-10',
         sm: 'h-9 rounded-md px-3',
-        lg: 'h-11 rounded-md px-8',
-        icon: 'h-10 w-10',
+        lg: 'h-12 rounded-md px-8',
+        icon: 'h-11 w-11 md:h-10 md:w-10',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

@@ -75,7 +75,7 @@ export function DependentesSection({
         {aberto && (
           <div className="grid grid-cols-1 gap-3 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2 lg:grid-cols-5">
             <select
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="h-12 rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
               value={form.tipo}
               onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
             >

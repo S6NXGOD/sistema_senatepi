@@ -228,7 +228,7 @@ export default function PerfilFuncionarioPage() {
               <div>
                 <label className="text-xs uppercase text-muted-foreground">Alterar status</label>
                 <select
-                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="mt-1 h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
                   value={f.status}
                   disabled={mudarStatus.isPending}
                   onChange={(e) => { if (e.target.value !== f.status) mudarStatus.mutate(e.target.value); }}

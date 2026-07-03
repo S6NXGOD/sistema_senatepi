@@ -212,7 +212,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
     }
   }
 
-  const sel = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
+  const sel = 'h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm';
 
   return (
     <>

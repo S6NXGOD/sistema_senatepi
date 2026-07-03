@@ -87,11 +87,11 @@ export default function FuncionariosPage() {
               <Input placeholder="CPF" value={filtros.cpf} onChange={(e) => set('cpf', e.target.value)} />
               <Input placeholder="Cargo" value={filtros.cargo} onChange={(e) => set('cargo', e.target.value)} />
               <Input placeholder="Departamento" value={filtros.departamento} onChange={(e) => set('departamento', e.target.value)} />
-              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={filtros.tipo} onChange={(e) => set('tipo', e.target.value)}>
+              <select className="h-12 rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm" value={filtros.tipo} onChange={(e) => set('tipo', e.target.value)}>
                 <option value="">Todos os tipos</option>
                 {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t]}</option>)}
               </select>
-              <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={filtros.status} onChange={(e) => set('status', e.target.value)}>
+              <select className="h-12 rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm" value={filtros.status} onChange={(e) => set('status', e.target.value)}>
                 <option value="">Todos os status</option>
                 {STATUS.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
               </select>
@@ -102,7 +102,8 @@ export default function FuncionariosPage() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Desktop (>= md): tabela tradicional */}
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
@@ -163,6 +164,19 @@ export default function FuncionariosPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile (< md): cards empilhados com os mesmos registros */}
+          <div className="divide-y md:hidden">
+            {isLoading && (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">Carregando...</p>
+            )}
+            {data?.data?.map((f: Funcionario) => (
+              <FuncionarioCardMobile key={f.id} f={f} />
+            ))}
+            {data && data.data.length === 0 && (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum funcionário encontrado</p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -173,6 +187,60 @@ export default function FuncionariosPage() {
           <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage((p) => p + 1)}>Próxima</Button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Card de funcionário para o mobile (< md) — mesmo registro da tabela. */
+function FuncionarioCardMobile({ f }: { f: Funcionario }) {
+  return (
+    <div className="flex gap-3 p-4">
+      {f.fotoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={f.fotoUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
+      ) : (
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-senatepi-50 text-sm font-semibold text-senatepi-800">
+          {f.nome.charAt(0)}
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-semibold leading-tight">{f.nome}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {[f.cargo, f.departamento].filter(Boolean).join(' · ') || TIPO_LABEL[f.tipo]}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Link href={`/funcionarios/${f.id}`} title="Visualizar">
+              <Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button>
+            </Link>
+            <Link href={`/funcionarios/${f.id}/editar`} title="Editar">
+              <Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button>
+            </Link>
+            <Button variant="ghost" size="icon" title="Carteirinha (com QR Code)" onClick={() => abrirPdf(`/funcionarios/${f.id}/carteirinha/pdf`)}>
+              <IdCard className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="mt-1.5">
+          <Badge className={STATUS_COR[f.status]}>{STATUS_LABEL[f.status]}</Badge>
+        </div>
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
+          <FInfo label="CPF" valor={mascararCpf(f.cpf)} />
+          <FInfo label="Tipo" valor={TIPO_LABEL[f.tipo]} />
+          <FInfo label="Admissão" valor={formatarData(f.dataAdmissao)} />
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function FInfo({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="truncate">{valor}</dd>
     </div>
   );
 }

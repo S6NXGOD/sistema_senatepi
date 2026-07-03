@@ -631,7 +631,7 @@ function SorteioAgendaCard({ temporada, onSalvar }: { temporada: TemporadaResumo
             type="datetime-local"
             value={valor}
             onChange={(e) => setValor(e.target.value)}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            className="h-12 rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
           />
           <Button size="sm" disabled={salvar.isPending}
             onClick={() => salvar.mutate(valor ? new Date(valor).toISOString() : null)}>
