@@ -16,7 +16,7 @@ import {
   Climatizacao, formatarDataHoraLote, mascaraCpf, mascaraTelefone, montarCoren,
   postReservaDireta, postSorteio, soDigitos,
 } from '@/lib/colonia';
-import { gerarComprovantePdf, montarTextoCompartilhamento, ComprovanteInfo } from '@/lib/colonia-comprovante';
+import { gerarComprovantePdf, montarTextoCompartilhamento, AVISO_APRESENTAR, ComprovanteInfo } from '@/lib/colonia-comprovante';
 
 export type TipoCheckout = 'AR' | 'VENTILADOR' | 'SORTEIO';
 
@@ -320,6 +320,12 @@ function SucessoView({
           <p className="flex items-start gap-1.5 border-t pt-2 text-xs text-muted-foreground">
             <BedDouble className="mt-0.5 h-4 w-4 shrink-0" /> {ESTRUTURA_QUARTO}
           </p>
+        </div>
+
+        {/* Destaque: baixe e apresente na chegada */}
+        <div className="flex items-start gap-2 rounded-lg border border-senatepi-600/50 bg-senatepi-50 p-3 text-xs font-medium text-senatepi-900 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+          <FileDown className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{AVISO_APRESENTAR}</span>
         </div>
 
         {/* Aviso legal obrigatório em destaque */}

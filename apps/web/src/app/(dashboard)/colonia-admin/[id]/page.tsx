@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Download, Snowflake, Fan, Ban, UserPlus, Ticket, Trophy,
-  AlertTriangle, X, CheckCircle2, ArrowLeft, ExternalLink,
+  AlertTriangle, X, CheckCircle2, ArrowLeft, ExternalLink, Eye, FileText, FileDown,
+  ChevronDown, Mail, Phone, MapPin, Table2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,8 +17,11 @@ import { mascararCpf } from '@/lib/utils';
 import { baixarArquivo } from '@/lib/pdf';
 import {
   getPainelAdmin, setStatusTemporada, cancelarReserva, executarSorteio,
-  formatarPeriodoLote, FORMACAO_LABEL, LotePainel, Ocupante, ResultadoSorteio,
+  formatarPeriodoLote, formatarDataHoraLote, FORMACAO_LABEL, LABEL_CLIMATIZACAO, mascaraCpf,
+  LotePainel, Ocupante, ResultadoSorteio,
 } from '@/lib/colonia';
+import { gerarComprovantePdf, ComprovanteInfo } from '@/lib/colonia-comprovante';
+import { gerarRelatorioCompletoPdf, gerarRelatorioLotePdf } from '@/lib/colonia-relatorio';
 import { AlocarManualModal } from '@/components/colonia/alocar-manual-modal';
 
 export default function ColoniaGestaoPage() {
@@ -26,6 +30,7 @@ export default function ColoniaGestaoPage() {
   const [alocar, setAlocar] = useState<{ loteId: string; numero: number; quartos: LotePainel['quartos'] } | null>(null);
   const [confirmar, setConfirmar] = useState<Ocupante | null>(null);
   const [resultado, setResultado] = useState<ResultadoSorteio | null>(null);
+  const [detalhe, setDetalhe] = useState<{ ocupante: Ocupante; lote: LotePainel['lote']; campanha: string } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['colonia-painel', id],
@@ -110,9 +115,7 @@ export default function ColoniaGestaoPage() {
                   </a>
                 </div>
               </div>
-              <Button variant="outline" onClick={() => baixarArquivo(`/colonia/admin/relatorio.csv?temporadaId=${t.id}`, `colonia-${t.nome}.csv`)}>
-                <Download className="h-4 w-4" /> Exportar CSV
-              </Button>
+              <ExportarMenu temporadaId={t.id} campanha={t.nome} lotes={data!.lotes} />
             </CardContent>
           </Card>
 
@@ -120,6 +123,7 @@ export default function ColoniaGestaoPage() {
           {data!.lotes.map((l) => (
             <LoteAdmin key={l.lote.id} l={l}
               onCancelar={(oc) => setConfirmar(oc)}
+              onDetalhes={(oc) => setDetalhe({ ocupante: oc, lote: l.lote, campanha: t.nome })}
               onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos })}
               onSortear={() => sortear.mutate(l.lote.id)}
               sorteando={sortear.isPending}
@@ -187,13 +191,24 @@ export default function ColoniaGestaoPage() {
           </div>
         </div>
       )}
+
+      {/* Detalhes do hóspede + emissão do comprovante */}
+      {detalhe && (
+        <DetalheModal
+          ocupante={detalhe.ocupante}
+          lote={detalhe.lote}
+          campanha={detalhe.campanha}
+          onClose={() => setDetalhe(null)}
+        />
+      )}
     </div>
   );
 }
 
-function LoteAdmin({ l, onCancelar, onAlocar, onSortear, sorteando }: {
+function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onSortear, sorteando }: {
   l: LotePainel;
   onCancelar: (oc: Ocupante) => void;
+  onDetalhes: (oc: Ocupante) => void;
   onAlocar: () => void;
   onSortear: () => void;
   sorteando: boolean;
@@ -260,10 +275,15 @@ function LoteAdmin({ l, onCancelar, onAlocar, onSortear, sorteando }: {
                         {o.alocacaoManual ? 'Manual' : o.origem === 'SORTEIO' ? 'Sorteio' : 'Direta'}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <Button variant="destructive" size="sm" onClick={() => onCancelar(o)}>
-                        <Ban className="h-4 w-4" /> Cancelar
-                      </Button>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button variant="outline" size="sm" onClick={() => onDetalhes(o)}>
+                          <Eye className="h-4 w-4" /> Detalhes
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => onCancelar(o)}>
+                          <Ban className="h-4 w-4" /> Cancelar
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -304,5 +324,191 @@ function LoteAdmin({ l, onCancelar, onAlocar, onSortear, sorteando }: {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Menu de exportação: CSV + Relatório Completo (PDF) + Relatório por Lote (PDF)
+// ---------------------------------------------------------------------------
+
+function ExportarMenu({ temporadaId, campanha, lotes }: { temporadaId: string; campanha: string; lotes: LotePainel[] }) {
+  const [aberto, setAberto] = useState(false);
+  const [picker, setPicker] = useState(false);
+  const [gerando, setGerando] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setAberto(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  async function comGerando(fn: () => Promise<void>) {
+    setGerando(true);
+    try { await fn(); } catch { toast.error('Não foi possível gerar o documento.'); } finally { setGerando(false); }
+  }
+
+  const itemCls = 'flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted';
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button variant="outline" onClick={() => setAberto((v) => !v)} disabled={gerando}>
+        {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        Exportar <ChevronDown className="h-4 w-4" />
+      </Button>
+
+      {aberto && (
+        <div className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-lg border bg-card py-1 shadow-lg">
+          <button
+            className={itemCls}
+            onClick={() => {
+              setAberto(false);
+              baixarArquivo(`/colonia/admin/relatorio.csv?temporadaId=${temporadaId}`, `colonia-${campanha}.csv`)
+                .catch(() => toast.error('Falha ao exportar CSV.'));
+            }}
+          >
+            <Table2 className="h-4 w-4 text-muted-foreground" /> Exportar CSV (Dados Brutos)
+          </button>
+          <button
+            className={itemCls}
+            onClick={() => { setAberto(false); comGerando(() => gerarRelatorioCompletoPdf(campanha, lotes)); }}
+          >
+            <FileText className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Baixar Relatório Completo (PDF)
+          </button>
+          <button
+            className={itemCls}
+            onClick={() => { setAberto(false); setPicker(true); }}
+          >
+            <FileDown className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Baixar Relatório por Lote (PDF)
+          </button>
+        </div>
+      )}
+
+      {/* Seletor de lote para o relatório de conferência */}
+      {picker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPicker(false)}>
+          <div className="w-full max-w-sm rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-bold">Relatório por Lote</h3>
+              <Button variant="ghost" size="icon" onClick={() => setPicker(false)}><X className="h-4 w-4" /></Button>
+            </div>
+            <p className="mb-3 text-sm text-muted-foreground">Escolha o lote para imprimir a lista de conferência do check-in.</p>
+            <div className="space-y-2">
+              {lotes.map((l) => (
+                <button
+                  key={l.lote.id}
+                  className="flex w-full items-center justify-between rounded-lg border p-3 text-left text-sm transition-colors hover:border-senatepi-600 hover:bg-muted"
+                  onClick={() => { setPicker(false); comGerando(() => gerarRelatorioLotePdf(campanha, l)); }}
+                >
+                  <span className="font-medium">Lote {l.lote.numero}</span>
+                  <span className="text-xs text-muted-foreground">{l.ocupacao.length} hóspede(s)</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Detalhes do hóspede + emissão do comprovante (mesmo PDF do fluxo público)
+// ---------------------------------------------------------------------------
+
+function DetalheModal({ ocupante: o, lote, campanha, onClose }: {
+  ocupante: Ocupante;
+  lote: LotePainel['lote'];
+  campanha: string;
+  onClose: () => void;
+}) {
+  const [gerando, setGerando] = useState(false);
+  const ar = o.climatizacao === 'AR_CONDICIONADO';
+
+  async function baixarComprovante() {
+    setGerando(true);
+    try {
+      const info: ComprovanteInfo = {
+        protocolo: o.reservaId,
+        tipo: ar ? 'AR' : 'VENTILADOR',
+        campanha,
+        nome: o.nomeCompleto,
+        cpf: o.cpf,
+        loteNumero: lote.numero,
+        dataInicio: lote.dataInicio,
+        dataFim: lote.dataFim,
+        quartoNumero: o.quartoNumero,
+        climatizacao: o.climatizacao,
+      };
+      await gerarComprovantePdf(info);
+    } catch {
+      toast.error('Não foi possível gerar o comprovante.');
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  const Campo = ({ rotulo, valor, Icon }: { rotulo: string; valor: React.ReactNode; Icon?: any }) => (
+    <div className="min-w-0">
+      <p className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+        {Icon && <Icon className="h-3 w-3" />} {rotulo}
+      </p>
+      <p className="break-words text-sm font-medium">{valor || '—'}</p>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between border-b p-5">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-muted p-2">
+              {ar ? <Snowflake className="h-6 w-6 text-sky-600 dark:text-sky-400" /> : <Fan className="h-6 w-6 text-senatepi-600 dark:text-senatepi-400" />}
+            </div>
+            <div>
+              <h3 className="font-semibold leading-tight">{o.nomeCompleto}</h3>
+              <p className="text-xs text-muted-foreground">Lote {lote.numero} · Quarto {o.quartoNumero} — {LABEL_CLIMATIZACAO[o.climatizacao]}</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+            <p><span className="text-muted-foreground">Check-in:</span> <strong>{formatarDataHoraLote(lote.dataInicio)}</strong></p>
+            <p><span className="text-muted-foreground">Check-out:</span> <strong>{formatarDataHoraLote(lote.dataFim)}</strong></p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Campo rotulo="CPF" valor={mascaraCpf(o.cpf)} />
+            <Campo rotulo="COREN" valor={o.coren} />
+            <Campo rotulo="Formação" valor={FORMACAO_LABEL[o.formacao]} />
+            <Campo rotulo="Telefone" valor={o.telefone} Icon={Phone} />
+            <Campo rotulo="E-mail" valor={o.email} Icon={Mail} />
+            <Campo rotulo="Cidade / Estado" valor={`${o.cidade} / ${o.estado}`} Icon={MapPin} />
+            <Campo rotulo="Local de trabalho 1" valor={o.localTrabalho1} />
+            <Campo rotulo="Local de trabalho 2" valor={o.localTrabalho2} />
+          </div>
+
+          <div>
+            <Badge className={
+              o.alocacaoManual ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+                : o.origem === 'SORTEIO' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                : 'bg-muted text-muted-foreground'}>
+              Origem: {o.alocacaoManual ? 'Alocação manual' : o.origem === 'SORTEIO' ? 'Sorteio' : 'Reserva direta'}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="border-t p-4">
+          <Button className="w-full" onClick={baixarComprovante} disabled={gerando}>
+            {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+            Baixar Comprovante de Reserva (PDF)
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

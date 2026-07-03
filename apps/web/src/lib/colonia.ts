@@ -66,7 +66,7 @@ export const SECRETARIA = {
   telefoneHref: 'tel:+558633031426',
   whatsappNumero: '558633031426',
   endereco: 'R. Lucídio Freitas, 1070 - Centro (Norte), Teresina - PI, 64000-440',
-  horario: 'Horário de atendimento: Segunda a Sexta, horário comercial',
+  horario: 'Horário de atendimento: 7:30h às 13:30h',
 };
 
 export const LABEL_CLIMATIZACAO: Record<Climatizacao, string> = {
@@ -162,6 +162,7 @@ export interface Ocupante {
   coren: string | null;
   formacao: FormacaoColonia;
   telefone: string;
+  email: string | null;
   localTrabalho1: string;
   localTrabalho2: string | null;
   cidade: string;

@@ -7,6 +7,14 @@ import {
   formatarDataHoraLote,
   mascaraCpf,
 } from './colonia';
+import {
+  VERDE, CINZA, AMBAR_BG, AMBAR_BORDA, AMBAR_TXT, MARGEM, desenharCabecalho,
+} from './pdf-senatepi';
+
+/** Aviso de destaque exibido também na tela de sucesso. */
+export const AVISO_APRESENTAR =
+  'IMPORTANTE: Baixe e guarde este comprovante. Apresente-o (impresso ou no celular) na ' +
+  'recepção da Colônia de Férias no dia do check-in.';
 
 export interface ComprovanteInfo {
   protocolo: string;
@@ -20,9 +28,6 @@ export interface ComprovanteInfo {
   quartoNumero?: number;
   climatizacao?: Climatizacao;
 }
-
-const VERDE: [number, number, number] = [27, 127, 10]; // senatepi-800
-const CINZA: [number, number, number] = [90, 100, 110];
 
 /** Texto pronto para compartilhar no WhatsApp (usado pelo botão da tela de sucesso). */
 export function montarTextoCompartilhamento(info: ComprovanteInfo, linkPublico?: string): string {
@@ -53,21 +58,11 @@ export async function gerarComprovantePdf(info: ComprovanteInfo): Promise<void> 
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
-  const M = 16; // margem
+  const M = MARGEM;
   const contentW = pageW - M * 2;
-  let y = 0;
 
-  // ---- Cabeçalho ----
-  doc.setFillColor(...VERDE);
-  doc.rect(0, 0, pageW, 30, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('SENATEPI', M, 13);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.text('Colônia de Férias — Comprovante de Reserva', M, 21);
-  y = 40;
+  // ---- Cabeçalho institucional (logo SENATEPI) ----
+  let y = await desenharCabecalho(doc, 'Comprovante de Reserva');
 
   // ---- Protocolo / emissão ----
   doc.setTextColor(...CINZA);
@@ -119,6 +114,22 @@ export async function gerarComprovantePdf(info: ComprovanteInfo): Promise<void> 
   }
   y += 2;
 
+  // ---- Destaque: apresentar na chegada ----
+  {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    const linhas = doc.splitTextToSize(AVISO_APRESENTAR, contentW - 10) as string[];
+    const h = linhas.length * 4.6 + 8;
+    doc.setFillColor(241, 248, 233); // senatepi-50
+    doc.setDrawColor(...VERDE);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(M, y, contentW, h, 2, 2, 'FD');
+    doc.setTextColor(...VERDE);
+    let ny = y + 6;
+    linhas.forEach((l) => { doc.text(l, M + 5, ny); ny += 4.6; });
+    y += h + 8;
+  }
+
   // ---- Estrutura do quarto ----
   doc.setTextColor(...CINZA);
   doc.setFontSize(9);
@@ -133,11 +144,11 @@ export async function gerarComprovantePdf(info: ComprovanteInfo): Promise<void> 
   doc.setFontSize(9.5);
   const avisoLinhas = doc.splitTextToSize(AVISO_LEGAL_RESERVA, contentW - 10) as string[];
   const boxH = avisoLinhas.length * 4.6 + 12;
-  doc.setFillColor(255, 247, 237); // amber-50
-  doc.setDrawColor(245, 158, 11); // amber-500
+  doc.setFillColor(...AMBAR_BG);
+  doc.setDrawColor(...AMBAR_BORDA);
   doc.setLineWidth(0.5);
   doc.roundedRect(M, y, contentW, boxH, 2, 2, 'FD');
-  doc.setTextColor(146, 64, 14); // amber-900
+  doc.setTextColor(...AMBAR_TXT);
   doc.text('AVISO IMPORTANTE', M + 5, y + 7);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);

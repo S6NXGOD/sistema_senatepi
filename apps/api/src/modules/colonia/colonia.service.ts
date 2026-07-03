@@ -591,6 +591,7 @@ export class ColoniaService {
             coren: r.coren,
             formacao: r.formacao,
             telefone: r.telefone,
+            email: r.email,
             localTrabalho1: r.localTrabalho1,
             localTrabalho2: r.localTrabalho2,
             cidade: r.cidade,
