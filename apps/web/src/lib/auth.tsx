@@ -9,6 +9,8 @@ export interface Usuario {
   nome: string;
   email: string;
   role: 'ADMIN' | 'DIRETORIA' | 'FUNCIONARIO' | 'RECEPCAO';
+  username?: string | null;
+  avatarUrl?: string | null;
 }
 
 interface AuthContextValue {
@@ -16,6 +18,8 @@ interface AuthContextValue {
   carregando: boolean;
   login: (email: string, senha: string, lembrar?: boolean) => Promise<void>;
   logout: () => Promise<void>;
+  /** Atualiza o usuário no contexto + storage (ex.: após salvar o perfil). */
+  atualizarUsuario: (parcial: Partial<Usuario>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -61,8 +65,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   }
 
+  function atualizarUsuario(parcial: Partial<Usuario>) {
+    setUser((atual) => {
+      if (!atual) return atual;
+      const novo = { ...atual, ...parcial };
+      persistentStore.set(USER_KEY, JSON.stringify(novo));
+      return novo;
+    });
+  }
+
   return (
-    <AuthContext.Provider value={{ user, carregando, login, logout }}>
+    <AuthContext.Provider value={{ user, carregando, login, logout, atualizarUsuario }}>
       {children}
     </AuthContext.Provider>
   );

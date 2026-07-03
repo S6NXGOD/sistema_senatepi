@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, Briefcase, Handshake, CalendarDays,
-  ScanLine, CreditCard, ShieldCheck, Umbrella, type LucideIcon,
+  ScanLine, CreditCard, ShieldCheck, Umbrella, Settings, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -20,4 +20,5 @@ export const NAV_ITENS: NavItem[] = [
   { href: '/validacao', label: 'Validação (QR)', icon: ScanLine },
   { href: '/carteirinhas', label: 'Carteirinhas', icon: CreditCard },
   { href: '/auditoria', label: 'Auditoria', icon: ShieldCheck },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ];

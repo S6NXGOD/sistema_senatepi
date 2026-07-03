@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useTheme } from 'next-themes';
 import { Moon, Sun, LogOut } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -30,9 +31,16 @@ export function Topbar() {
           <p className="text-sm font-medium">{user?.nome}</p>
           <p className="text-xs text-muted-foreground">{user?.role}</p>
         </div>
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-senatepi-400 font-semibold text-senatepi-900">
-          {user?.nome?.charAt(0) ?? '?'}
-        </div>
+        <Link href="/configuracoes" title="Configurações" aria-label="Configurações" className="shrink-0">
+          {user?.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatarUrl} alt="" className="h-9 w-9 rounded-full border object-cover" />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-senatepi-400 font-semibold text-senatepi-900">
+              {user?.nome?.charAt(0) ?? '?'}
+            </div>
+          )}
+        </Link>
         <Button variant="ghost" size="icon" onClick={logout} aria-label="Sair">
           <LogOut className="h-5 w-5" />
         </Button>
