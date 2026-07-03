@@ -1,35 +1,11 @@
-'use client';
+import type { Metadata } from 'next';
+import { DashboardShell } from '@/components/dashboard-shell';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth';
-import { Sidebar } from '@/components/sidebar';
-import { Topbar } from '@/components/topbar';
-import { Loader2 } from 'lucide-react';
+// PWA exclusivo do administrativo: o manifest só é vinculado nas rotas internas.
+export const metadata: Metadata = {
+  manifest: '/manifest.webmanifest',
+};
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, carregando } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!carregando && !user) router.replace('/login');
-  }, [carregando, user, router]);
-
-  if (carregando || !user) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-senatepi-800" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-screen overflow-hidden bg-cinza-claro dark:bg-background">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
-    </div>
-  );
+  return <DashboardShell>{children}</DashboardShell>;
 }

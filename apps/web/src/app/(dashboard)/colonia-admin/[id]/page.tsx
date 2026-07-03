@@ -204,19 +204,19 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Ocupantes */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        {/* Ocupantes — no mobile a 1ª (Quarto) e a última (Ação) colunas ficam fixas */}
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Quarto</th>
+                <th className="sticky left-0 z-20 border-r bg-muted px-3 py-2 font-medium">Quarto</th>
                 <th className="px-3 py-2 font-medium">Nome</th>
                 <th className="px-3 py-2 font-medium">CPF</th>
                 <th className="px-3 py-2 font-medium">COREN</th>
                 <th className="px-3 py-2 font-medium">Profissão</th>
                 <th className="px-3 py-2 font-medium">Locais de trabalho</th>
                 <th className="px-3 py-2 font-medium">Origem</th>
-                <th className="px-3 py-2 text-right font-medium">Ação</th>
+                <th className="sticky right-0 z-20 border-l bg-muted px-3 py-2 text-right font-medium">Ação</th>
               </tr>
             </thead>
             <tbody>
@@ -224,7 +224,7 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
                 const ar = o.climatizacao === 'AR_CONDICIONADO';
                 return (
                   <tr key={o.reservaId} className="border-b align-top last:border-0">
-                    <td className="px-3 py-2">
+                    <td className="sticky left-0 z-10 border-r bg-card px-3 py-2">
                       <div className="flex items-center gap-2">
                         {ar
                           ? <Snowflake className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
@@ -248,7 +248,7 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio }: {
                         {o.alocacaoManual ? 'Manual' : o.origem === 'SORTEIO' ? 'Sorteio' : 'Direta'}
                       </Badge>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="sticky right-0 z-10 border-l bg-card px-3 py-2">
                       <div className="flex items-center justify-end gap-1.5">
                         <Button variant="outline" size="sm" onClick={() => onDetalhes(o)}>
                           <Eye className="h-4 w-4" /> Detalhes

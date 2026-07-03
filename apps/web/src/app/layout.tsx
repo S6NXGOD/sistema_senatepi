@@ -9,7 +9,8 @@ export const metadata: Metadata = {
   title: 'SENATEPI — Gestão Sindical',
   description:
     'Sistema de gestão do Sindicato dos Enfermeiros, Auxiliares e Técnicos em Enfermagem do Piauí',
-  manifest: '/manifest.webmanifest',
+  // NB: o `manifest` (PWA) NÃO é global — é vinculado só nas rotas administrativas
+  // (login + dashboard), mantendo o Portal do Filiado como web puro, sem instalação.
   icons: {
     icon: '/LOGO_PWA.png',
     shortcut: '/LOGO_PWA.png',

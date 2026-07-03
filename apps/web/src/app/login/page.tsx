@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Logo } from '@/components/logo';
+import { InstallHint } from '@/components/install-hint';
 
 const schema = z.object({
   email: z.string().email('E-mail inválido'),
@@ -120,11 +121,14 @@ export default function LoginPage() {
               </a>
             </div>
 
-            <Button type="submit" className="w-full" disabled={enviando}>
+            <Button type="submit" className="h-12 w-full text-base" disabled={enviando}>
               {enviando && <Loader2 className="h-4 w-4 animate-spin" />}
               Entrar
             </Button>
           </form>
+
+          {/* Instalação do app administrativo (condicional por dispositivo) */}
+          <InstallHint />
         </motion.div>
       </div>
     </div>

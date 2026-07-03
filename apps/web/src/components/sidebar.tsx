@@ -2,32 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import {
-  LayoutDashboard,
-  Users,
-  UserPlus,
-  Briefcase,
-  Handshake,
-  CalendarDays,
-  ScanLine,
-  CreditCard,
-  ShieldCheck,
-  Umbrella,
-} from 'lucide-react';
+import { UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Logo } from './logo';
-
-const itens = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/filiados', label: 'Filiados', icon: Users },
-  { href: '/funcionarios', label: 'Funcionários', icon: Briefcase },
-  { href: '/prestadores', label: 'Prestadores', icon: Handshake },
-  { href: '/eventos', label: 'Eventos', icon: CalendarDays },
-  { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella },
-  { href: '/validacao', label: 'Validação (QR)', icon: ScanLine },
-  { href: '/carteirinhas', label: 'Carteirinhas', icon: CreditCard },
-  { href: '/auditoria', label: 'Auditoria', icon: ShieldCheck },
-];
+import { NAV_ITENS } from './nav-items';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -37,7 +15,7 @@ export function Sidebar() {
         <Logo orientation="horizontal" variant="auto" className="h-9" />
       </div>
       <nav className="flex-1 space-y-1 p-3">
-        {itens.map((item) => {
+        {NAV_ITENS.map((item) => {
           const ativo = pathname === item.href || pathname.startsWith(item.href + '/');
           const Icon = item.icon;
           return (
