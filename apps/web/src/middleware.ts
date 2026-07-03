@@ -1,53 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // ---------------------------------------------------------------------------
-// Interceptador de rotas (Guest Routes + proteção de rotas privadas).
+// Interceptador de rotas — GUEST ROUTES.
 //
 // A sessão é persistida no cliente em localStorage + cookie (ver lib/api.ts).
 // Como o middleware roda no servidor, ele lê o TOKEN pelos COOKIES:
 //   - senatepi.refreshToken (credencial durável — preferida)
 //   - senatepi.accessToken  (fallback)
+//
+// Regra: usuário LOGADO que tenta abrir a tela de visitante (/login ou a raiz
+// "/") é redirecionado para o painel (/dashboard). Funciona em navegação direta
+// (digitar a URL / recarregar), que é justamente o cenário do problema.
+//
+// A PROTEÇÃO de rotas privadas permanece no cliente (DashboardShell). Fazê-la
+// aqui dependia de o cookie estar visível no servidor durante a navegação SPA
+// logo após o login — o que não é garantido e causava um "bounce" de volta ao
+// /login (login aparentemente sem efeito). Mantendo só o guest redirect, não há
+// como o /dashboard ser rejeitado por engano.
 // ---------------------------------------------------------------------------
 
 const ACCESS_COOKIE = 'senatepi.accessToken';
 const REFRESH_COOKIE = 'senatepi.refreshToken';
 
-// Rotas de VISITANTE (acessíveis sem sessão). Todo o resto é privado (painel).
-const ROTAS_PUBLICAS = new Set(['/login', '/recuperar-senha']);
-const PREFIXOS_PUBLICOS = ['/colonia']; // portal público da Colônia de Férias
-
-function ehPublica(pathname: string): boolean {
-  if (ROTAS_PUBLICAS.has(pathname)) return true;
-  return PREFIXOS_PUBLICOS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
-
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Token de sessão a partir do cookie (refresh preferido; access como fallback).
   const token =
     request.cookies.get(REFRESH_COOKIE)?.value || request.cookies.get(ACCESS_COOKIE)?.value;
   const logado = Boolean(token);
 
-  // Rota de visitante que um usuário logado NÃO deve ver (login e raiz).
-  const rotaVisitante = pathname === '/login' || pathname === '/';
-
-  // 1) GUEST ROUTE: logado tentando abrir /login (ou "/") → vai para o painel.
-  if (logado && rotaVisitante) {
+  // GUEST ROUTE: logado tentando abrir /login (ou "/") → painel.
+  if (logado && (pathname === '/login' || pathname === '/')) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
-  }
-
-  // 2) PROTEÇÃO PADRÃO: deslogado tentando abrir rota privada → vai para o login.
-  //    A raiz "/" já tem seu próprio redirect no servidor e fica de fora daqui,
-  //    evitando redirecionamentos duplicados/loops.
-  if (!logado && pathname !== '/' && !ehPublica(pathname)) {
-    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  // Ignora assets estáticos, imagens do Next, manifest/ícones e arquivos com extensão.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\..*).*)'],
+  // Executa apenas nas rotas de visitante — não interfere no restante da app.
+  matcher: ['/', '/login'],
 };
