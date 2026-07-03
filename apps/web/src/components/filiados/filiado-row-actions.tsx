@@ -113,7 +113,7 @@ export function FiliadoRowActions({
               Carteirinha (QR)
             </MenuItem>
             <MenuItem icon={<FileText className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/termo/pdf`))}>
-              Termo de consentimento
+              Gerar Termo (PDF)
             </MenuItem>
 
             <div className="my-1 border-t" />

@@ -26,7 +26,7 @@ import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 const schema = z.object({
   nomeCompleto: z.string().min(3, 'Informe o nome'),
   cpf: z.string().min(11, 'CPF inválido'),
-  rg: z.string().min(1, 'RG obrigatório'),
+  rg: z.string().optional(),
   ufRg: z.string().optional(),
   dataNascimento: z.string().min(1, 'Obrigatório'),
   sexo: z.string().optional(),
@@ -35,11 +35,11 @@ const schema = z.object({
   telefonePrincipal: z.string().min(8, 'Telefone obrigatório'),
   telefoneSecundario: z.string().optional(),
   email: z.string().email('E-mail inválido').optional().or(z.literal('')),
-  cep: z.string().min(1, 'CEP obrigatório'),
-  endereco: z.string().min(1, 'Endereço obrigatório'),
+  cep: z.string().optional(),
+  endereco: z.string().optional(),
   numero: z.string().optional(),
   complemento: z.string().optional(),
-  bairro: z.string().min(1, 'Bairro obrigatório'),
+  bairro: z.string().optional(),
   cidade: z.string().min(1, 'Cidade obrigatória'),
   estado: z.string().min(1, 'Estado obrigatório'),
   formacao: z.enum(['ENFERMEIRO', 'TECNICO_ENFERMAGEM', 'AUXILIAR_ENFERMAGEM', 'OUTRO']),
@@ -249,7 +249,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Campo label="Nome completo *" erro={errors.nomeCompleto?.message}><Input {...register('nomeCompleto')} /></Campo>
           <Campo label="CPF *" erro={errors.cpf?.message}><Input {...register('cpf')} /></Campo>
-          <Campo label="RG *" erro={errors.rg?.message}><Input {...register('rg')} /></Campo>
+          <Campo label="RG" erro={errors.rg?.message}><Input {...register('rg')} /></Campo>
           <Campo label="UF do RG"><Input maxLength={2} {...register('ufRg')} /></Campo>
           <Campo label="Data de nascimento *" erro={errors.dataNascimento?.message}><Input type="date" {...register('dataNascimento')} /></Campo>
           <Campo label="Sexo">
@@ -274,11 +274,11 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       <Card>
         <CardHeader><CardTitle>Endereço</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Campo label="CEP *" erro={errors.cep?.message}><Input {...register('cep')} /></Campo>
-          <Campo label="Endereço *" erro={errors.endereco?.message}><Input {...register('endereco')} /></Campo>
+          <Campo label="CEP" erro={errors.cep?.message}><Input {...register('cep')} /></Campo>
+          <Campo label="Endereço" erro={errors.endereco?.message}><Input {...register('endereco')} /></Campo>
           <Campo label="Número"><Input {...register('numero')} /></Campo>
           <Campo label="Complemento"><Input {...register('complemento')} /></Campo>
-          <Campo label="Bairro *" erro={errors.bairro?.message}><Input {...register('bairro')} /></Campo>
+          <Campo label="Bairro" erro={errors.bairro?.message}><Input {...register('bairro')} /></Campo>
           <Campo label="Cidade *" erro={errors.cidade?.message}><Input {...register('cidade')} /></Campo>
           <Campo label="Estado *" erro={errors.estado?.message}><Input maxLength={2} {...register('estado')} /></Campo>
         </CardContent>

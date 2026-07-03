@@ -16,7 +16,6 @@ import { ImageService } from '../../common/storage/image.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { QrCodeService } from '../../common/qrcode/qrcode.service';
 import { gerarMatricula, mascararCpf } from '../../common/utils/matricula.util';
-import { lerAsset } from '../../common/assets.util';
 import {
   calcularIdade,
   dependenteValidoParaEvento,
@@ -465,72 +464,174 @@ export class FiliadosService {
   async gerarTermoPdf(id: string, autor?: string): Promise<Buffer> {
     const f = await this.findOne(id);
 
+    // Textos legais fixos (inseridos exatamente como definidos pela diretoria).
+    const TEXTO_DESCONTO =
+      'O Enfermeiro, Auxiliar em enfermagem e Técnico em enfermagem, abaixo assinado, autoriza as ' +
+      'instituições públicas da administração direta, indireta, funcional e privada, ao qual tenha vínculo ' +
+      'como Servidor Público, Empregado Público e Empregado, respectivamente, a descontar em folha de ' +
+      'pagamento / contracheque, em favor do SENATEPI, na AG: 2004; OP: 003; C/C 1341-4 BANCO: CEF. A ' +
+      'contribuição associativa mensal no valor de 1% sobre o maior vencimento básico ao qual esteja ' +
+      'vinculado, em conformidade com os Art.: 57, §1º do estatuto do SENATEPI e Art.: 584, alínea b, da ' +
+      'CLT. Solicito que a Contribuição Sindical (Imposto Sindical) de que trata o Art.: 579 da CLT sejam ' +
+      'repassadas ao sindicato supra na referida conta da Entidade Sindical Representativa da Categoria ' +
+      'Base Territorial do Estado do Piauí Fundado em 30/11/2009 - Registro no Mtb/ sob nº ' +
+      '46214.0005793/2018-86; Código da Entidade Sindical nº 19020-7 - CNPJ 11.378.331/0001-86.';
+    const TEXTO_LGPD =
+      'Em observância à Lei nº. 13.709/18 - Lei Geral de Proteção de Dados Pessoais (Fonte: Diário Oficial ' +
+      'da União) e demais normativas aplicáveis sobre proteção de Dados Pessoais, manifesto-me de forma, ' +
+      'livre, expressa e consciente, no sentido de autorizar o SENATEPI a realizar o tratamento de meus ' +
+      'dados pessoais SEMPRE QUE FOR SOLICITADO. Consinto, ainda, com a utilização destes dados para as ' +
+      'finalidades de representação sindical, emissão de carteirinha, controle de eventos e acesso a benefícios.';
+    const RODAPE =
+      'DIRETORIA SENATEPI - RUA LUCÍDIO FREITAS, Nº.1070, CENTRO-NORTE, TERESINA-PI, CEP: 64000-440 | ' +
+      'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+
+    const SEXO_LABEL: Record<string, string> = {
+      MASCULINO: 'Masculino', FEMININO: 'Feminino', OUTRO: 'Outro',
+    };
+    const EC_LABEL: Record<string, string> = {
+      SOLTEIRO: 'Solteiro(a)', CASADO: 'Casado(a)', DIVORCIADO: 'Divorciado(a)',
+      VIUVO: 'Viúvo(a)', UNIAO_ESTAVEL: 'União estável', OUTRO: 'Outro',
+    };
+    const FORM_LABEL: Record<string, string> = {
+      ENFERMEIRO: 'Enfermeiro(a)', TECNICO_ENFERMAGEM: 'Técnico(a) em Enfermagem',
+      AUXILIAR_ENFERMAGEM: 'Auxiliar de Enfermagem', OUTRO: 'Outro',
+    };
+
     const pdf = await new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Cabeçalho
-      doc.rect(0, 0, doc.page.width, 70).fill(VERDE_ESCURO);
-      const logoTermo = lerAsset('senatepi-horizontal-branco.png');
-      if (logoTermo) {
-        try {
-          doc.image(logoTermo, 50, 16, { fit: [190, 26] });
-        } catch {
-          doc.fillColor('#FFFFFF').fontSize(18).text('SENATEPI', 50, 22);
-        }
-      } else {
-        doc.fillColor('#FFFFFF').fontSize(18).text('SENATEPI', 50, 22);
+      const X = doc.page.margins.left;
+      const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      const LINHA_VAZIA = '______________________';
+
+      // Campo vazio (null/undefined) vira linha para preenchimento manual impresso.
+      const ou = (v?: string | null) => {
+        const s = v == null ? '' : String(v).trim();
+        return s ? s : LINHA_VAZIA;
+      };
+      const fmt = (d?: Date | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : null);
+
+      // Linha com um ou mais pares Rótulo (negrito) + valor (normal).
+      const par = (pares: Array<[string, string]>) => {
+        doc.fontSize(10.5);
+        pares.forEach(([label, value], i) => {
+          const last = i === pares.length - 1;
+          doc.font('Times-Bold').fillColor('#111827').text(`${label}: `, { continued: true });
+          doc.font('Times-Roman').fillColor('#1f2937').text(value, { continued: !last });
+          if (!last) doc.font('Times-Roman').text('     ', { continued: true });
+        });
+        doc.moveDown(0.5);
+      };
+
+      // Título de seção com fundo cinza (aspecto de contrato).
+      const secao = (titulo: string) => {
+        doc.moveDown(0.7);
+        if (doc.y > doc.page.height - 140) doc.addPage();
+        const y = doc.y;
+        doc.save().rect(X, y, W, 20).fill('#e5e7eb').restore();
+        doc.fillColor('#111827').font('Times-Bold').fontSize(11).text(titulo, X + 8, y + 5.5, { width: W - 16 });
+        doc.x = X;
+        doc.y = y + 26;
+        doc.font('Times-Roman').fillColor('#1f2937');
+      };
+
+      const subBloco = (titulo: string) => {
+        doc.moveDown(0.15);
+        doc.font('Times-Bold').fontSize(10).fillColor('#374151').text(titulo, X, doc.y);
+        doc.moveDown(0.15);
+        doc.fillColor('#1f2937');
+      };
+
+      const paragrafo = (texto: string) => {
+        doc.font('Times-Roman').fontSize(10).fillColor('#1f2937')
+          .text(texto, X, doc.y, { align: 'justify', width: W, lineGap: 1.5 });
+        doc.moveDown(0.5);
+      };
+
+      // ---- Cabeçalho oficial (centralizado) ----
+      doc.font('Times-Bold').fontSize(9.5).fillColor('#111827').text(
+        'SENATEPI - SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ | CNPJ: 11.378.331/0001-86',
+        X, doc.page.margins.top, { align: 'center', width: W },
+      );
+      doc.moveDown(0.5);
+      doc.font('Times-Bold').fontSize(14).fillColor(VERDE_ESCURO)
+        .text('FICHA DE FILIAÇÃO E TERMO DE CONSENTIMENTO', { align: 'center', width: W });
+      doc.moveDown(0.2);
+      doc.font('Times-Roman').fontSize(8.5).fillColor('#6b7280')
+        .text(`Matrícula sindical: ${f.matricula}`, { align: 'center', width: W });
+      doc.moveDown(0.35);
+      const yh = doc.y;
+      doc.moveTo(X, yh).lineTo(X + W, yh).strokeColor(VERDE_ESCURO).lineWidth(1).stroke();
+      doc.moveDown(0.3);
+
+      // ---- SEÇÃO 1 — Informações pessoais e de contato ----
+      secao('SEÇÃO 1 - INFORMAÇÕES PESSOAIS E DE CONTATO');
+      par([['Nome', ou(f.nomeCompleto)]]);
+      par([
+        ['CPF', ou(f.cpf ? mascararCpf(f.cpf) : null)],
+        ['RG', ou(f.rg ? `${f.rg}${f.ufRg ? ' / ' + f.ufRg : ''}` : null)],
+        ['Data de Nascimento', ou(fmt(f.dataNascimento))],
+      ]);
+      par([
+        ['Sexo', ou(f.sexo ? SEXO_LABEL[f.sexo] ?? f.sexo : null)],
+        ['Estado Civil', ou(f.estadoCivil ? EC_LABEL[f.estadoCivil] ?? f.estadoCivil : null)],
+        ['Naturalidade/UF', ou(f.naturalidade)],
+      ]);
+      par([['Endereço', ou(f.endereco)], ['Nº', ou(f.numero)], ['Complemento', ou(f.complemento)]]);
+      par([['Bairro', ou(f.bairro)], ['Cidade', ou(f.cidade)], ['UF', ou(f.estado)], ['CEP', ou(f.cep)]]);
+      par([['Telefone', ou(f.telefonePrincipal)], ['Telefone 2', ou(f.telefoneSecundario)]]);
+      par([['E-mail', ou(f.email)]]);
+
+      // ---- SEÇÃO 2 — Informações profissionais ----
+      secao('SEÇÃO 2 - INFORMAÇÕES PROFISSIONAIS');
+      const formacaoTexto =
+        f.formacao === 'OUTRO'
+          ? f.formacaoOutro || 'Outro'
+          : f.formacao ? FORM_LABEL[f.formacao] ?? f.formacao : null;
+      par([['Formação Profissional', ou(formacaoTexto)], ['Nº COREN', ou(f.numeroCoren)]]);
+
+      const v1 = f.vinculos?.[0];
+      const v2 = f.vinculos?.[1];
+      subBloco('Instituição 1');
+      par([['Instituição', ou(v1?.empresa)], ['Cargo', ou(v1?.cargo)]]);
+      par([['Matrícula', ou(v1?.matricula)], ['Data de Admissão', ou(fmt(f.dataAdmissao))]]);
+      subBloco('Instituição 2');
+      par([['Instituição', ou(v2?.empresa)], ['Cargo', ou(v2?.cargo)]]);
+      par([['Matrícula', ou(v2?.matricula)], ['Data de Admissão', ou(null)]]);
+
+      // ---- SEÇÃO 3 — Autorização de desconto sindical ----
+      secao('SEÇÃO 3 - AUTORIZAÇÃO DE DESCONTO SINDICAL');
+      paragrafo(TEXTO_DESCONTO);
+
+      // ---- SEÇÃO 4 — Consentimento e tratamento de dados (LGPD) ----
+      secao('SEÇÃO 4 - CONSENTIMENTO E TRATAMENTO DE DADOS (LGPD)');
+      paragrafo(TEXTO_LGPD);
+
+      // ---- Data + assinatura ----
+      doc.moveDown(1.4);
+      const dataFmt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+      doc.font('Times-Roman').fontSize(10.5).fillColor('#1f2937')
+        .text(`Teresina/PI, ${dataFmt}.`, X, doc.y, { width: W });
+      doc.moveDown(2.4);
+      const ys = doc.y;
+      doc.moveTo(X + 110, ys).lineTo(X + W - 110, ys).strokeColor('#374151').lineWidth(0.8).stroke();
+      doc.font('Times-Roman').fontSize(10).fillColor('#111827')
+        .text('Assinatura do(a) Filiado(a)', X, ys + 6, { align: 'center', width: W });
+
+      // ---- Rodapé fixo (repetido em todas as páginas) ----
+      const range = doc.bufferedPageRange();
+      for (let i = range.start; i < range.start + range.count; i++) {
+        doc.switchToPage(i);
+        const fy = doc.page.height - 42;
+        doc.moveTo(X, fy - 8).lineTo(X + W, fy - 8).strokeColor('#9ca3af').lineWidth(0.5).stroke();
+        doc.font('Times-Roman').fontSize(7).fillColor('#4b5563')
+          .text(RODAPE, X, fy, { align: 'center', width: W });
       }
-      doc.fillColor('#FFFFFF').fontSize(9).text('Sindicato dos Enfermeiros, Auxiliares e Técnicos em Enfermagem do Piauí', 50, 48);
-      doc.moveDown(2);
-
-      doc.fillColor('#1f2937').fontSize(14).text('TERMO DE CONSENTIMENTO E FILIAÇÃO', 50, 95, {
-        align: 'center',
-        width: doc.page.width - 100,
-      });
-      doc.moveDown(1.5);
-
-      const linha = (label: string, valor?: string | null) =>
-        doc.fontSize(10).fillColor('#374151').text(`${label}: `, { continued: true }).fillColor('#111827').text(valor || '-');
-
-      doc.fillColor(VERDE_ESCURO).fontSize(12).text('1. Dados Pessoais');
-      doc.moveDown(0.3);
-      linha('Nome completo', f.nomeCompleto);
-      linha('CPF', mascararCpf(f.cpf));
-      linha('RG', `${f.rg ?? '-'} ${f.ufRg ? '/ ' + f.ufRg : ''}`);
-      linha('Data de nascimento', f.dataNascimento?.toLocaleDateString('pt-BR') ?? '-');
-      linha('Matrícula sindical', f.matricula);
-      doc.moveDown(0.8);
-
-      doc.fillColor(VERDE_ESCURO).fontSize(12).text('2. Dados Profissionais');
-      doc.moveDown(0.3);
-      linha('Formação', f.formacao ?? '-');
-      linha('Número COREN', f.numeroCoren);
-      doc.moveDown(0.8);
-
-      doc.fillColor(VERDE_ESCURO).fontSize(12).text('3. Autorização de Desconto Sindical');
-      doc.moveDown(0.3);
-      doc.fontSize(10).fillColor('#374151').text(
-        'Autorizo o desconto da contribuição sindical em folha de pagamento ou boleto, conforme estatuto e assembleia da categoria, em favor do SENATEPI.',
-        { align: 'justify' },
-      );
-      doc.moveDown(0.8);
-
-      doc.fillColor(VERDE_ESCURO).fontSize(12).text('4. Consentimento (LGPD - Lei nº 13.709/2018)');
-      doc.moveDown(0.3);
-      doc.fontSize(10).fillColor('#374151').text(
-        'Declaro estar ciente e consinto, de forma livre e informada, com o tratamento dos meus dados pessoais pelo SENATEPI para as finalidades de filiação, representação sindical, emissão de carteirinha, controle de eventos e benefícios, nos termos da Lei Geral de Proteção de Dados.',
-        { align: 'justify' },
-      );
-      doc.moveDown(2.5);
-
-      const y = doc.y;
-      doc.moveTo(80, y).lineTo(300, y).strokeColor('#9ca3af').stroke();
-      doc.fontSize(9).fillColor('#374151').text('Assinatura do(a) Filiado(a)', 80, y + 5);
-      doc.text(`Teresina/PI, ${new Date().toLocaleDateString('pt-BR')}`, 340, y + 5);
 
       doc.end();
     });

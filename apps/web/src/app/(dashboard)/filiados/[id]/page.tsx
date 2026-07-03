@@ -109,7 +109,7 @@ export default function PerfilFiliadoPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setQrAberto(true)}><QrIcon className="h-4 w-4" /> QR</Button>
-          <Button variant="outline" onClick={() => abrirPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Termo</Button>
+          <Button variant="outline" onClick={() => abrirPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Gerar Termo</Button>
           <Button variant="secondary" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Carteirinha</Button>
           <Link href={`/filiados/${f.id}/recadastrar`}><Button variant="outline"><RefreshCw className="h-4 w-4" /> Recadastrar</Button></Link>
           <Link href={`/filiados/${f.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
