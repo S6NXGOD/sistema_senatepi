@@ -28,7 +28,7 @@ import { AlocarManualModal } from '@/components/colonia/alocar-manual-modal';
 import { DrawModal } from '@/components/colonia/draw-modal';
 import { SyncFiliadoModal } from '@/components/colonia/sync-filiado-modal';
 
-type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string };
+type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string; filiadoId: string | null; jaSincronizado: boolean };
 
 export default function ColoniaGestaoPage() {
   const { id } = useParams<{ id: string }>();
@@ -76,7 +76,7 @@ export default function ColoniaGestaoPage() {
   });
 
   // "Atualizar cadastro": abre o modal de comparação (antes/depois) e seleção.
-  const onSincronizar = (tipo: 'reserva' | 'inscricao', id: string) => setSincronizar({ tipo, id });
+  const onSincronizar = (arg: SyncArg) => setSincronizar(arg);
 
   return (
     <div className="space-y-6">
@@ -210,6 +210,8 @@ export default function ColoniaGestaoPage() {
         <SyncFiliadoModal
           tipo={sincronizar.tipo}
           id={sincronizar.id}
+          filiadoId={sincronizar.filiadoId}
+          jaSincronizado={sincronizar.jaSincronizado}
           onClose={() => setSincronizar(null)}
           onConcluido={invalidar}
         />
@@ -222,20 +224,23 @@ export default function ColoniaGestaoPage() {
  * Controle de "Atualizar cadastro": botão quando ainda não sincronizado; após
  * sincronizar, vira badge "Atualizado" que só abre a CONSULTA (não re-atualiza).
  */
-function BotaoSync({ tipo, id, filiadoId, sincronizadoEm, onOpen, compact }: {
+function BotaoSync({ tipo, id, filiadoId, filiadoCandidatos, sincronizadoEm, onOpen, compact }: {
   tipo: 'reserva' | 'inscricao';
   id: string;
   filiadoId: string | null;
+  filiadoCandidatos: number;
   sincronizadoEm: string | null;
-  onOpen: (tipo: 'reserva' | 'inscricao', id: string) => void;
+  onOpen: (arg: SyncArg) => void;
   compact?: boolean;
 }) {
-  if (!filiadoId) return null;
+  const abrir = () => onOpen({ tipo, id, filiadoId, jaSincronizado: !!sincronizadoEm });
+  // Mostra quando há match (CPF/nome único), candidatos por nome (>1) ou já sincronizado.
+  if (!filiadoId && filiadoCandidatos <= 1 && !sincronizadoEm) return null;
   if (sincronizadoEm) {
     return (
       <button
         type="button"
-        onClick={() => onOpen(tipo, id)}
+        onClick={abrir}
         title="Ver o que foi atualizado"
         className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700 transition-colors hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 dark:hover:bg-green-900/60"
       >
@@ -245,13 +250,13 @@ function BotaoSync({ tipo, id, filiadoId, sincronizadoEm, onOpen, compact }: {
   }
   if (compact) {
     return (
-      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Atualizar cadastro do filiado" onClick={() => onOpen(tipo, id)}>
+      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Atualizar cadastro do filiado" onClick={abrir}>
         <UserCog className="h-4 w-4" />
       </Button>
     );
   }
   return (
-    <Button variant="outline" size="sm" title="Atualizar o cadastro do filiado com estes dados" onClick={() => onOpen(tipo, id)}>
+    <Button variant="outline" size="sm" title="Atualizar o cadastro do filiado com estes dados" onClick={abrir}>
       <UserCog className="h-4 w-4" /> Atualizar cadastro
     </Button>
   );
@@ -263,7 +268,7 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
   onDetalhes: (oc: Ocupante) => void;
   onAlocar: () => void;
   onAbrirSorteio: () => void;
-  onSincronizar: (tipo: 'reserva' | 'inscricao', id: string) => void;
+  onSincronizar: (arg: SyncArg) => void;
 }) {
   const q6Ocupado = l.quartos.find((q) => q.numero === 6)?.ocupado;
   const temQuartoLivre = l.quartos.some((q) => !q.ocupado);
@@ -329,7 +334,7 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
                     </td>
                     <td className="sticky right-0 z-10 border-l bg-card px-3 py-2">
                       <div className="flex items-center justify-end gap-1.5">
-                        <BotaoSync tipo="reserva" id={o.reservaId} filiadoId={o.filiadoId} sincronizadoEm={o.sincronizadoEm} onOpen={onSincronizar} />
+                        <BotaoSync tipo="reserva" id={o.reservaId} filiadoId={o.filiadoId} filiadoCandidatos={o.filiadoCandidatos} sincronizadoEm={o.sincronizadoEm} onOpen={onSincronizar} />
                         <Button variant="outline" size="sm" onClick={() => onDetalhes(o)}>
                           <Eye className="h-4 w-4" /> Detalhes
                         </Button>
@@ -369,7 +374,7 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-semibold">{idx + 1}</span>
                     <span className="flex-1 truncate">{i.nomeCompleto}</span>
                     <span className="text-xs text-muted-foreground">{mascararCpf(i.cpf)}</span>
-                    <BotaoSync tipo="inscricao" id={i.id} filiadoId={i.filiadoId} sincronizadoEm={i.sincronizadoEm} onOpen={onSincronizar} compact />
+                    <BotaoSync tipo="inscricao" id={i.id} filiadoId={i.filiadoId} filiadoCandidatos={i.filiadoCandidatos} sincronizadoEm={i.sincronizadoEm} onOpen={onSincronizar} compact />
                   </li>
                 ))}
               </ul>
@@ -389,7 +394,7 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">{s.posicao}º</span>
                   <span className="flex-1 truncate">{s.nomeCompleto}</span>
                   <span className="text-xs text-muted-foreground">{mascararCpf(s.cpf)}</span>
-                  <BotaoSync tipo="inscricao" id={s.id} filiadoId={s.filiadoId} sincronizadoEm={s.sincronizadoEm} onOpen={onSincronizar} compact />
+                  <BotaoSync tipo="inscricao" id={s.id} filiadoId={s.filiadoId} filiadoCandidatos={s.filiadoCandidatos} sincronizadoEm={s.sincronizadoEm} onOpen={onSincronizar} compact />
                 </li>
               ))}
             </ul>
@@ -495,7 +500,7 @@ function DetalheModal({ ocupante: o, lote, campanha, onSincronizar, onClose }: {
   ocupante: Ocupante;
   lote: LotePainel['lote'];
   campanha: string;
-  onSincronizar: (tipo: 'reserva' | 'inscricao', id: string) => void;
+  onSincronizar: (arg: SyncArg) => void;
   onClose: () => void;
 }) {
   const [gerando, setGerando] = useState(false);
@@ -576,7 +581,7 @@ function DetalheModal({ ocupante: o, lote, campanha, onSincronizar, onClose }: {
                   ? 'Os dados desta reserva já foram subidos para o cadastro do filiado. Consulte o que foi atualizado.'
                   : 'Existe um cadastro de filiado com este CPF. Você pode subir os dados desta reserva como atualização de informações.'}
               </p>
-              <BotaoSync tipo="reserva" id={o.reservaId} filiadoId={o.filiadoId} sincronizadoEm={o.sincronizadoEm} onOpen={onSincronizar} />
+              <BotaoSync tipo="reserva" id={o.reservaId} filiadoId={o.filiadoId} filiadoCandidatos={o.filiadoCandidatos} sincronizadoEm={o.sincronizadoEm} onOpen={onSincronizar} />
             </div>
           )}
 

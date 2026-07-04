@@ -188,6 +188,8 @@ export interface Ocupante {
   createdAt: string;
   /** Cadastro de filiado correspondente (por CPF), se existir. */
   filiadoId: string | null;
+  /** Quantos filiados têm exatamente este nome (usado quando não há match por CPF). */
+  filiadoCandidatos: number;
   /** Quando este registro já foi sincronizado com o cadastro (trava re-atualização). */
   sincronizadoEm: string | null;
 }
@@ -200,6 +202,7 @@ export interface InscritoSorteio {
   formacao: FormacaoColonia;
   createdAt: string;
   filiadoId: string | null;
+  filiadoCandidatos: number;
   sincronizadoEm: string | null;
 }
 
@@ -212,6 +215,7 @@ export interface Suplente {
   coren: string | null;
   formacao: FormacaoColonia;
   filiadoId: string | null;
+  filiadoCandidatos: number;
   sincronizadoEm: string | null;
 }
 
@@ -274,9 +278,9 @@ export interface SyncSnapshotItem {
 }
 
 export interface ComparacaoFiliado {
-  filiadoId: string;
-  filiadoNome: string;
-  matricula: string;
+  filiadoId: string | null;
+  filiadoNome: string | null;
+  matricula: string | null;
   cpf: string;
   /** Preenchido quando este registro JÁ foi sincronizado (então é só consulta). */
   sincronizadoEm: string | null;
@@ -284,13 +288,28 @@ export interface ComparacaoFiliado {
   campos: CampoDiff[];
 }
 
+/** Candidato (filiado com nome exatamente igual) para escolher na comparação. */
+export interface CandidatoFiliado {
+  id: string;
+  nome: string;
+  cpfMascarado: string | null;
+  matricula: string;
+  cidade: string | null;
+  estado: string | null;
+}
+
 type FonteSync = 'reserva' | 'inscricao';
 const rotaSync = (fonte: FonteSync, id: string) =>
   fonte === 'reserva' ? `/colonia/admin/reservas/${id}` : `/colonia/admin/inscricoes/${id}`;
 
-/** Prévia (antes/depois) da sincronização de uma reserva/inscrição com o cadastro. */
-export async function compararFiliado(fonte: FonteSync, id: string): Promise<ComparacaoFiliado> {
-  return (await api.get(`${rotaSync(fonte, id)}/comparar-filiado`)).data;
+/** Filiados com nome exatamente igual (para escolher quando há vários). */
+export async function getCandidatosFiliado(fonte: FonteSync, id: string): Promise<CandidatoFiliado[]> {
+  return (await api.get(`${rotaSync(fonte, id)}/candidatos-filiado`)).data;
+}
+
+/** Prévia (antes/depois). `filiadoId` opcional (candidato escolhido). */
+export async function compararFiliado(fonte: FonteSync, id: string, filiadoId?: string): Promise<ComparacaoFiliado> {
+  return (await api.get(`${rotaSync(fonte, id)}/comparar-filiado`, { params: filiadoId ? { filiadoId } : undefined })).data;
 }
 
 /** Aplica no cadastro do filiado apenas os campos escolhidos. */
@@ -298,8 +317,9 @@ export async function sincronizarFiliado(
   fonte: FonteSync,
   id: string,
   campos: string[],
+  filiadoId?: string,
 ): Promise<SyncFiliadoResposta> {
-  return (await api.patch(`${rotaSync(fonte, id)}/sincronizar-filiado`, { campos })).data;
+  return (await api.patch(`${rotaSync(fonte, id)}/sincronizar-filiado`, { campos, filiadoId })).data;
 }
 
 export async function cancelarReserva(id: string, motivo?: string) {

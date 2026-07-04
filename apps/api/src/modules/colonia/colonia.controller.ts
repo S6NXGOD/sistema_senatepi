@@ -101,19 +101,34 @@ export class ColoniaController {
   }
 
   // ---- Sincronização de cadastro (Colônia → Filiado) ----
-  // Prévia (antes/depois) antes de aplicar.
+  // Candidatos por nome exatamente igual (para escolher quando há vários).
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Get('admin/reservas/:id/candidatos-filiado')
+  candidatosReserva(@Param('id') id: string) {
+    return this.service.candidatosPorNome('reserva', id);
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Get('admin/inscricoes/:id/candidatos-filiado')
+  candidatosInscricao(@Param('id') id: string) {
+    return this.service.candidatosPorNome('inscricao', id);
+  }
+
+  // Prévia (antes/depois) antes de aplicar. `filiadoId` opcional (candidato escolhido).
   @ApiBearerAuth()
   @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
   @Get('admin/reservas/:id/comparar-filiado')
-  compararReserva(@Param('id') id: string) {
-    return this.service.preverSincronizacao('reserva', id);
+  compararReserva(@Param('id') id: string, @Query('filiadoId') filiadoId?: string) {
+    return this.service.preverSincronizacao('reserva', id, filiadoId);
   }
 
   @ApiBearerAuth()
   @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
   @Get('admin/inscricoes/:id/comparar-filiado')
-  compararInscricao(@Param('id') id: string) {
-    return this.service.preverSincronizacao('inscricao', id);
+  compararInscricao(@Param('id') id: string, @Query('filiadoId') filiadoId?: string) {
+    return this.service.preverSincronizacao('inscricao', id, filiadoId);
   }
 
   // Aplica apenas os campos escolhidos.
@@ -127,7 +142,7 @@ export class ColoniaController {
     @CurrentUser('nome') autor: string,
     @Req() req: Request,
   ) {
-    return this.service.sincronizarFiliado('reserva', id, dto.campos, this.ctx(req, userId), autor);
+    return this.service.sincronizarFiliado('reserva', id, dto.campos, this.ctx(req, userId), autor, dto.filiadoId);
   }
 
   @ApiBearerAuth()
@@ -140,7 +155,7 @@ export class ColoniaController {
     @CurrentUser('nome') autor: string,
     @Req() req: Request,
   ) {
-    return this.service.sincronizarFiliado('inscricao', id, dto.campos, this.ctx(req, userId), autor);
+    return this.service.sincronizarFiliado('inscricao', id, dto.campos, this.ctx(req, userId), autor, dto.filiadoId);
   }
 
   @ApiBearerAuth()

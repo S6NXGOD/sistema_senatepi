@@ -21,6 +21,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { mascararCpf } from '../../common/utils/matricula.util';
 import {
   AlocacaoManualDto,
   CheckoutDto,
@@ -696,7 +697,14 @@ export class ColoniaService {
     return M[f];
   }
 
-  private async carregarParaSync(fonte: 'reserva' | 'inscricao', id: string) {
+  /**
+   * Carrega o registro da Colônia e resolve o Filiado correspondente:
+   *  1) por `filiadoId` explícito (escolhido pela diretoria); senão
+   *  2) por CPF; senão
+   *  3) por NOME exatamente igual (case-insensitive) — só quando houver UM único.
+   * Retorna o filiado possivelmente nulo (o chamador decide se é obrigatório).
+   */
+  private async carregarParaSync(fonte: 'reserva' | 'inscricao', id: string, filiadoId?: string) {
     const dados =
       fonte === 'reserva'
         ? await this.prisma.coloniaReserva.findUnique({ where: { id } })
@@ -704,13 +712,45 @@ export class ColoniaService {
     if (!dados) throw new NotFoundException('Registro não encontrado.');
 
     const cpf = dados.cpf.replace(/\D/g, '');
-    const filiado = await this.prisma.filiado.findUnique({
-      where: { cpf },
-      include: { vinculos: { orderBy: { ordem: 'asc' } } },
-    });
-    if (!filiado)
-      throw new NotFoundException('Nenhum filiado com este CPF para atualizar o cadastro.');
+    const inc = { vinculos: { orderBy: { ordem: 'asc' as const } } };
+
+    let filiado = filiadoId
+      ? await this.prisma.filiado.findUnique({ where: { id: filiadoId }, include: inc })
+      : await this.prisma.filiado.findUnique({ where: { cpf }, include: inc });
+
+    // Fallback por nome exatamente igual (apenas quando há um único correspondente).
+    if (!filiado && !filiadoId) {
+      const porNome = await this.prisma.filiado.findMany({
+        where: { nomeCompleto: { equals: dados.nomeCompleto.trim(), mode: 'insensitive' } },
+        include: inc,
+        take: 2,
+      });
+      if (porNome.length === 1) filiado = porNome[0];
+    }
     return { dados, filiado, cpf };
+  }
+
+  /** Filiados com NOME exatamente igual ao do registro (para o seletor de comparação). */
+  async candidatosPorNome(fonte: 'reserva' | 'inscricao', id: string) {
+    const dados =
+      fonte === 'reserva'
+        ? await this.prisma.coloniaReserva.findUnique({ where: { id }, select: { nomeCompleto: true } })
+        : await this.prisma.coloniaSorteioInscricao.findUnique({ where: { id }, select: { nomeCompleto: true } });
+    if (!dados) throw new NotFoundException('Registro não encontrado.');
+    const filiados = await this.prisma.filiado.findMany({
+      where: { nomeCompleto: { equals: dados.nomeCompleto.trim(), mode: 'insensitive' } },
+      select: { id: true, nomeCompleto: true, cpf: true, matricula: true, cidade: true, estado: true },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+    });
+    return filiados.map((f) => ({
+      id: f.id,
+      nome: f.nomeCompleto,
+      cpfMascarado: f.cpf ? mascararCpf(f.cpf) : null,
+      matricula: f.matricula,
+      cidade: f.cidade,
+      estado: f.estado,
+    }));
   }
 
   /**
@@ -762,16 +802,39 @@ export class ColoniaService {
   }
 
   /** Prévia (antes/depois) do que a Colônia pode subir para o cadastro do filiado. */
-  async preverSincronizacao(fonte: 'reserva' | 'inscricao', id: string) {
-    const { dados, filiado, cpf } = await this.carregarParaSync(fonte, id);
+  async preverSincronizacao(fonte: 'reserva' | 'inscricao', id: string, filiadoId?: string) {
+    const { dados, filiado, cpf } = await this.carregarParaSync(fonte, id, filiadoId);
+
+    // Já sincronizado → apenas consulta (usa o filiado registrado; não recompara).
+    if (dados.filiadoSincronizadoEm) {
+      const alvo =
+        filiado ??
+        (dados.filiadoSincronizadoId
+          ? await this.prisma.filiado.findUnique({
+              where: { id: dados.filiadoSincronizadoId },
+              select: { id: true, nomeCompleto: true, matricula: true },
+            })
+          : null);
+      return {
+        filiadoId: alvo?.id ?? null,
+        filiadoNome: alvo?.nomeCompleto ?? null,
+        matricula: alvo?.matricula ?? null,
+        cpf,
+        sincronizadoEm: dados.filiadoSincronizadoEm,
+        sincronizacao: dados.filiadoSincronizacao,
+        campos: [],
+      };
+    }
+
+    if (!filiado)
+      throw new NotFoundException('Nenhum filiado correspondente para atualizar o cadastro.');
     return {
       filiadoId: filiado.id,
       filiadoNome: filiado.nomeCompleto,
       matricula: filiado.matricula,
       cpf,
-      // Já sincronizado? Então é só consulta (snapshot do que foi atualizado).
-      sincronizadoEm: dados.filiadoSincronizadoEm,
-      sincronizacao: dados.filiadoSincronizacao,
+      sincronizadoEm: null,
+      sincronizacao: null,
       campos: this.construirCampos(dados, filiado),
     };
   }
@@ -787,11 +850,14 @@ export class ColoniaService {
     campos: string[],
     ctx: Ctx,
     autor?: string,
+    filiadoId?: string,
   ) {
-    const { dados, filiado } = await this.carregarParaSync(fonte, id);
+    const { dados, filiado } = await this.carregarParaSync(fonte, id, filiadoId);
     // Trava: cada registro só sincroniza UMA vez (depois é apenas consulta).
     if (dados.filiadoSincronizadoEm)
       throw new ConflictException('Este cadastro já foi atualizado a partir deste registro.');
+    if (!filiado)
+      throw new NotFoundException('Nenhum filiado correspondente para atualizar o cadastro.');
 
     const disponiveis = this.construirCampos(dados, filiado);
     const validos = new Set(disponiveis.map((c) => c.campo));
@@ -844,6 +910,7 @@ export class ColoniaService {
       const marca = {
         filiadoSincronizadoEm: new Date(),
         filiadoSincronizacao: snapshot as Prisma.InputJsonValue,
+        filiadoSincronizadoId: filiado.id,
       };
       if (fonte === 'reserva') await tx.coloniaReserva.update({ where: { id }, data: marca });
       else await tx.coloniaSorteioInscricao.update({ where: { id }, data: marca });
@@ -903,6 +970,30 @@ export class ColoniaService {
       : [];
     const filiadoPorCpf = new Map(filiados.map((f) => [f.cpf, f.id]));
 
+    // Fallback por NOME exatamente igual, apenas para quem não casou por CPF.
+    const norm = (s: string) => s.trim().toLowerCase();
+    const semCpf = [...reservas, ...inscritos, ...suplentes].filter((x) => !filiadoPorCpf.has(x.cpf));
+    const nomes = Array.from(new Set(semCpf.map((x) => x.nomeCompleto.trim()).filter(Boolean)));
+    const porNome = nomes.length
+      ? await this.prisma.filiado.findMany({
+          where: { OR: nomes.map((n) => ({ nomeCompleto: { equals: n, mode: 'insensitive' as const } })) },
+          select: { id: true, nomeCompleto: true },
+        })
+      : [];
+    const filiadosPorNome = new Map<string, string[]>();
+    for (const f of porNome) {
+      const k = norm(f.nomeCompleto);
+      filiadosPorNome.set(k, [...(filiadosPorNome.get(k) ?? []), f.id]);
+    }
+    // Resolve o match de um registro: CPF > nome único > (vários) candidatos.
+    const resolver = (cpf: string, nome: string): { filiadoId: string | null; filiadoCandidatos: number } => {
+      const porCpf = filiadoPorCpf.get(cpf);
+      if (porCpf) return { filiadoId: porCpf, filiadoCandidatos: 0 };
+      const ids = filiadosPorNome.get(norm(nome)) ?? [];
+      if (ids.length === 1) return { filiadoId: ids[0], filiadoCandidatos: 1 };
+      return { filiadoId: null, filiadoCandidatos: ids.length };
+    };
+
     const data = lotes.map((lote) => {
       const rLote = reservas.filter((r) => r.loteId === lote.id);
       const ocupados = new Set(rLote.map((r) => r.quartoId));
@@ -935,8 +1026,8 @@ export class ColoniaService {
             cidade: r.cidade,
             estado: r.estado,
             createdAt: r.createdAt,
-            // Cadastro de filiado correspondente (por CPF), se existir.
-            filiadoId: filiadoPorCpf.get(r.cpf) ?? null,
+            // Cadastro de filiado correspondente (CPF > nome único > candidatos).
+            ...resolver(r.cpf, r.nomeCompleto),
             // Já sincronizou este registro com o cadastro? (trava re-atualização)
             sincronizadoEm: r.filiadoSincronizadoEm,
           })),
@@ -945,7 +1036,7 @@ export class ColoniaService {
           .map((i) => ({
             id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren,
             formacao: i.formacao, createdAt: i.createdAt,
-            filiadoId: filiadoPorCpf.get(i.cpf) ?? null,
+            ...resolver(i.cpf, i.nomeCompleto),
             sincronizadoEm: i.filiadoSincronizadoEm,
           })),
         // Fila de suplentes (ordem de promoção), com match de filiado.
@@ -954,7 +1045,7 @@ export class ColoniaService {
           .map((s) => ({
             id: s.id, posicao: s.posicaoSuplente, nomeCompleto: s.nomeCompleto, cpf: s.cpf,
             coren: s.coren, formacao: s.formacao,
-            filiadoId: filiadoPorCpf.get(s.cpf) ?? null,
+            ...resolver(s.cpf, s.nomeCompleto),
             sincronizadoEm: s.filiadoSincronizadoEm,
           })),
         sorteioHabilitado: diretasDisponiveis === 0 && !q6Ocupado,

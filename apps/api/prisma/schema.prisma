@@ -793,6 +793,7 @@ model ColoniaReserva {
   // Sincronização com o cadastro de Filiado (uma vez por registro).
   filiadoSincronizadoEm DateTime? @map("filiado_sincronizado_em")
   filiadoSincronizacao  Json?     @map("filiado_sincronizacao") // snapshot [{campo,label,de,para}]
+  filiadoSincronizadoId String?   @map("filiado_sincronizado_id") // filiado atualizado (para consulta)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -843,6 +844,7 @@ model ColoniaSorteioInscricao {
   // Sincronização com o cadastro de Filiado (uma vez por registro).
   filiadoSincronizadoEm DateTime? @map("filiado_sincronizado_em")
   filiadoSincronizacao  Json?     @map("filiado_sincronizacao") // snapshot [{campo,label,de,para}]
+  filiadoSincronizadoId String?   @map("filiado_sincronizado_id") // filiado atualizado (para consulta)
 
   createdAt DateTime @default(now()) @map("created_at")
 

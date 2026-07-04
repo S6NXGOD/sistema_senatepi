@@ -77,6 +77,9 @@ export class SincronizarFiliadoDto {
   @ArrayNotEmpty({ message: 'Selecione ao menos um campo para atualizar.' })
   @IsString({ each: true })
   campos: string[];
+
+  @ApiPropertyOptional({ description: 'Filiado escolhido para atualizar (quando há vários com o mesmo nome).' })
+  @IsOptional() @IsString() filiadoId?: string;
 }
 
 export class DataSorteioDto {

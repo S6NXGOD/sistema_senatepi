@@ -3,46 +3,70 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { X, Loader2, UserCog, ExternalLink, ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import { X, Loader2, UserCog, ExternalLink, ArrowRight, ArrowLeft, Check, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { mascararCpf } from '@/lib/utils';
-import { compararFiliado, sincronizarFiliado, CampoDiff } from '@/lib/colonia';
+import { compararFiliado, sincronizarFiliado, getCandidatosFiliado, CampoDiff } from '@/lib/colonia';
 
 /**
- * Fluxo de "Atualizar cadastro": compara os dados da Colônia com o cadastro do
- * filiado, deixa a diretoria ESCOLHER quais campos atualizar (o resto é mantido),
- * mostra o ANTES → DEPOIS e só aplica após a confirmação. Bottom sheet no mobile.
+ * Fluxo de "Atualizar cadastro": encontra o filiado (por CPF ou por NOME exato —
+ * escolhendo quando há vários), compara os dados, deixa a diretoria ESCOLHER
+ * quais campos atualizar, mostra o ANTES → DEPOIS e só aplica após confirmar.
  */
 export function SyncFiliadoModal({
   tipo,
   id,
+  filiadoId,
+  jaSincronizado = false,
   onClose,
   onConcluido,
 }: {
   tipo: 'reserva' | 'inscricao';
   id: string;
+  /** Match já resolvido (CPF ou nome único). Se ausente e não sincronizado, abre o seletor. */
+  filiadoId?: string | null;
+  jaSincronizado?: boolean;
   onClose: () => void;
   onConcluido: () => void;
 }) {
   const [etapa, setEtapa] = useState<'selecionar' | 'confirmar'>('selecionar');
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [aplicando, setAplicando] = useState(false);
+  const [escolhido, setEscolhido] = useState<string | null>(filiadoId ?? null);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['comparar-filiado', tipo, id],
-    queryFn: () => compararFiliado(tipo, id),
+  // Precisa escolher quando não há match e o registro ainda não foi sincronizado.
+  const precisaEscolher = !jaSincronizado && !escolhido;
+
+  const candidatosQuery = useQuery({
+    queryKey: ['candidatos-filiado', tipo, id],
+    queryFn: () => getCandidatosFiliado(tipo, id),
+    enabled: precisaEscolher,
     retry: false,
   });
 
-  // Já sincronizado? Então o modal é apenas de CONSULTA (read-only).
-  const jaSincronizado = !!data?.sincronizadoEm;
+  // Um único candidato por nome → seleciona automaticamente.
+  useEffect(() => {
+    const cs = candidatosQuery.data;
+    if (precisaEscolher && cs && cs.length === 1) setEscolhido(cs[0].id);
+  }, [candidatosQuery.data, precisaEscolher]);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['comparar-filiado', tipo, id, escolhido ?? 'auto'],
+    queryFn: () => compararFiliado(tipo, id, escolhido ?? undefined),
+    enabled: jaSincronizado || !!escolhido,
+    retry: false,
+  });
 
   // Pré-seleciona apenas os campos que DIFEREM do cadastro atual.
   useEffect(() => {
     if (data && !data.sincronizadoEm)
       setSelecionados(new Set(data.campos.filter((c) => c.diferente).map((c) => c.campo)));
   }, [data]);
+
+  const emConsulta = !!data?.sincronizadoEm;
+  const candidatos = candidatosQuery.data ?? [];
+  const mostrarSeletor = precisaEscolher && candidatos.length > 1;
 
   const toggle = (campo: string) =>
     setSelecionados((s) => {
@@ -57,7 +81,7 @@ export function SyncFiliadoModal({
   async function aplicar() {
     setAplicando(true);
     try {
-      const r = await sincronizarFiliado(tipo, id, [...selecionados]);
+      const r = await sincronizarFiliado(tipo, id, [...selecionados], escolhido ?? undefined);
       toast.success(`Cadastro de ${r.nome} atualizado (${r.alterados.length} campo(s)).`);
       onConcluido();
       onClose();
@@ -84,7 +108,7 @@ export function SyncFiliadoModal({
               <h3 className="font-semibold leading-tight">Atualizar cadastro do filiado</h3>
               {data && (
                 <p className="truncate text-xs text-muted-foreground">
-                  {data.filiadoNome} · {mascararCpf(data.cpf)} · {data.matricula}
+                  {[data.filiadoNome, data.cpf ? mascararCpf(data.cpf) : null, data.matricula].filter(Boolean).join(' · ')}
                 </p>
               )}
             </div>
@@ -93,7 +117,7 @@ export function SyncFiliadoModal({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
-          {isLoading && (
+          {((precisaEscolher && candidatosQuery.isLoading) || (!precisaEscolher && isLoading)) && (
             <div className="flex justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>
           )}
           {error && (
@@ -102,18 +126,45 @@ export function SyncFiliadoModal({
             </p>
           )}
 
+          {/* Seletor: vários filiados com o mesmo nome */}
+          {mostrarSeletor && (
+            <div className="space-y-2">
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Users className="h-4 w-4" /> Há vários cadastros com este nome. Escolha qual comparar:
+              </p>
+              {candidatos.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setEscolhido(c.id)}
+                  className="flex w-full flex-col items-start rounded-lg border p-3 text-left text-sm transition-colors hover:border-senatepi-600 hover:bg-muted"
+                >
+                  <span className="font-medium">{c.nome}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {[c.cpfMascarado, c.matricula, [c.cidade, c.estado].filter(Boolean).join('/')].filter(Boolean).join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {precisaEscolher && !candidatosQuery.isLoading && candidatos.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">Nenhum cadastro correspondente encontrado.</p>
+          )}
+
           {data && (
             <>
-              <a
-                href={`/filiados/${data.filiadoId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm font-medium text-senatepi-800 underline dark:text-senatepi-400"
-              >
-                Ver cadastro atual completo <ExternalLink className="h-3.5 w-3.5" />
-              </a>
+              {data.filiadoId && (
+                <a
+                  href={`/filiados/${data.filiadoId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm font-medium text-senatepi-800 underline dark:text-senatepi-400"
+                >
+                  Ver cadastro atual completo <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              )}
 
-              {jaSincronizado ? (
+              {emConsulta ? (
                 /* Consulta: o que já foi atualizado a partir deste registro. */
                 <>
                   <div className="flex items-start gap-2 rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-300">
@@ -180,12 +231,12 @@ export function SyncFiliadoModal({
           )}
         </div>
 
-        {data && jaSincronizado && (
+        {data && emConsulta && (
           <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
             <Button variant="outline" onClick={onClose}>Fechar</Button>
           </div>
         )}
-        {data && !jaSincronizado && data.campos.length > 0 && (
+        {data && !emConsulta && data.campos.length > 0 && (
           <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
             {etapa === 'selecionar' ? (
               <Button disabled={selecionados.size === 0} onClick={() => setEtapa('confirmar')}>
