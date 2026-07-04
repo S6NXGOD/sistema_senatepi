@@ -854,3 +854,97 @@ model ColoniaSorteioInscricao {
   @@index([temporadaId, cpf])
   @@map("colonia_sorteio_inscricoes")
 }
+
+// ============================================================================
+// COLABORADORES + CADASTROS BASE (parâmetros)
+// Tabelas de domínio específicas (integridade referencial) — sem tabela genérica.
+// ============================================================================
+
+enum TipoVinculo {
+  CLT
+  PJ
+  ESTAGIO
+  TERCEIRIZADO
+}
+
+enum StatusColaborador {
+  ATIVO
+  INATIVO
+  AFASTADO
+  FERIAS
+  DESLIGADO
+}
+
+model Departamento {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  colaboradores Colaborador[]
+
+  @@map("departamentos")
+}
+
+model Cargo {
+  id        String   @id @default(uuid())
+  nome      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  colaboradores Colaborador[]
+
+  @@map("cargos")
+}
+
+model Empresa {
+  id          String   @id @default(uuid())
+  razaoSocial String   @map("razao_social")
+  cnpj        String   @unique
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  colaboradores Colaborador[]
+
+  @@map("empresas")
+}
+
+model Colaborador {
+  id             String            @id @default(uuid())
+  // Dados universais
+  fotoUrl        String?           @map("foto_url")
+  nome           String
+  cpf            String            @unique // LGPD: dado mínimo necessário; mascarado na exibição
+  dataNascimento DateTime?         @map("data_nascimento")
+  telefone       String?
+  email          String?
+  dataAdmissao   DateTime?         @map("data_admissao")
+  status         StatusColaborador @default(ATIVO)
+  tipoVinculo    TipoVinculo       @map("tipo_vinculo")
+  // Endereço
+  cep            String?
+  logradouro     String?
+  numero         String?
+  bairro         String?
+  cidade         String?
+  uf             String?
+  // Campos dinâmicos (condicionais ao vínculo)
+  vencimentoContrato DateTime? @map("vencimento_contrato")
+  instituicaoEnsino  String?   @map("instituicao_ensino")
+  // Relacionamentos
+  cargoId        String  @map("cargo_id")
+  departamentoId String  @map("departamento_id")
+  empresaId      String? @map("empresa_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  cargo        Cargo        @relation(fields: [cargoId], references: [id])
+  departamento Departamento @relation(fields: [departamentoId], references: [id])
+  empresa      Empresa?     @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([cargoId])
+  @@index([departamentoId])
+  @@index([empresaId])
+  @@map("colaboradores")
+}

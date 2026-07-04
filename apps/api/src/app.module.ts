@@ -6,6 +6,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ProfileModule } from './modules/profile/profile.module';
+import { ColaboradoresModule } from './modules/colaboradores/colaboradores.module';
 import { FiliadosModule } from './modules/filiados/filiados.module';
 import { DependentesModule } from './modules/dependentes/dependentes.module';
 import { RecadastramentoModule } from './modules/recadastramento/recadastramento.module';
@@ -36,6 +37,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     AuditModule,
     AuthModule,
     ProfileModule,
+    ColaboradoresModule,
     FiliadosModule,
     DependentesModule,
     RecadastramentoModule,

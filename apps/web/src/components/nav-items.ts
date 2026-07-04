@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, Briefcase, Handshake, CalendarDays,
-  ScanLine, CreditCard, ShieldCheck, Umbrella, type LucideIcon,
+  ScanLine, CreditCard, ShieldCheck, Umbrella, Contact, SlidersHorizontal, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -13,6 +13,8 @@ export interface NavItem {
 export const NAV_ITENS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/filiados', label: 'Filiados', icon: Users },
+  { href: '/colaboradores', label: 'Colaboradores', icon: Contact },
+  { href: '/cadastros-base', label: 'Cadastros Base', icon: SlidersHorizontal },
   { href: '/funcionarios', label: 'Funcionários', icon: Briefcase },
   { href: '/prestadores', label: 'Prestadores', icon: Handshake },
   { href: '/eventos', label: 'Eventos', icon: CalendarDays },
