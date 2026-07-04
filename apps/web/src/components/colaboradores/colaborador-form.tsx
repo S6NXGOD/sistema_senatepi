@@ -22,10 +22,15 @@ import {
   listarCargos,
   listarDepartamentos,
   listarEmpresas,
+  criarCargo,
+  criarDepartamento,
+  criarEmpresa,
   criarColaborador,
   atualizarColaborador,
   enviarFotoColaborador,
+  mascararCnpj,
 } from '@/lib/colaboradores';
+import { QuickAdd } from '@/components/colaboradores/quick-add';
 
 const sel = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -85,6 +90,7 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
     control,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -210,26 +216,53 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
           </Campo>
           <div className="hidden lg:block" />
           <Campo label="Cargo *" erro={errors.cargoId?.message}>
-            <select className={sel} {...register('cargoId')}>
-              <option value="">Selecione…</option>
-              {cargos?.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
+            <div className="flex gap-2">
+              <select className={sel} {...register('cargoId')}>
+                <option value="">Selecione…</option>
+                {cargos?.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+              <QuickAdd
+                label="Cargo"
+                campos={[{ name: 'nome', label: 'Nome do cargo', placeholder: 'Ex.: Advogado(a)' }]}
+                onCriar={(v) => criarCargo(v.nome)}
+                onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cadastros-cargos'] }); setValue('cargoId', id, { shouldValidate: true }); }}
+              />
+            </div>
           </Campo>
           <Campo label="Departamento *" erro={errors.departamentoId?.message}>
-            <select className={sel} {...register('departamentoId')}>
-              <option value="">Selecione…</option>
-              {departamentos?.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
-            </select>
+            <div className="flex gap-2">
+              <select className={sel} {...register('departamentoId')}>
+                <option value="">Selecione…</option>
+                {departamentos?.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
+              </select>
+              <QuickAdd
+                label="Departamento"
+                campos={[{ name: 'nome', label: 'Nome do departamento', placeholder: 'Ex.: Jurídico' }]}
+                onCriar={(v) => criarDepartamento(v.nome)}
+                onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cadastros-departamentos'] }); setValue('departamentoId', id, { shouldValidate: true }); }}
+              />
+            </div>
           </Campo>
           <div className="hidden lg:block" />
 
           {/* Condicional: PJ / Terceirizado → Empresa */}
           {mostraEmpresa && (
             <Campo label="Empresa *" erro={errors.empresaId?.message}>
-              <select className={sel} {...register('empresaId')}>
-                <option value="">Selecione…</option>
-                {empresas?.map((e) => <option key={e.id} value={e.id}>{e.razaoSocial}</option>)}
-              </select>
+              <div className="flex gap-2">
+                <select className={sel} {...register('empresaId')}>
+                  <option value="">Selecione…</option>
+                  {empresas?.map((e) => <option key={e.id} value={e.id}>{e.razaoSocial}</option>)}
+                </select>
+                <QuickAdd
+                  label="Empresa"
+                  campos={[
+                    { name: 'razaoSocial', label: 'Razão social', placeholder: 'Ex.: ACME LTDA' },
+                    { name: 'cnpj', label: 'CNPJ', placeholder: '00.000.000/0000-00', mask: mascararCnpj },
+                  ]}
+                  onCriar={(v) => criarEmpresa({ razaoSocial: v.razaoSocial, cnpj: v.cnpj })}
+                  onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cadastros-empresas'] }); setValue('empresaId', id, { shouldValidate: true }); }}
+                />
+              </div>
             </Campo>
           )}
           {/* Condicional: Estágio → Instituição de ensino */}

@@ -53,8 +53,10 @@ export class AlterarStatusColaboradorDto {
   @IsOptional() @IsString() motivo?: string;
   @ApiPropertyOptional({ description: 'Obrigatório em DESLIGADO (YYYY-MM-DD)' })
   @IsOptional() @IsDateString() dataDesligamento?: string;
-  @ApiPropertyOptional({ description: 'Obrigatório em FERIAS — dias até o retorno automático' })
-  @IsOptional() diasFerias?: number;
+  @ApiPropertyOptional({ description: 'Obrigatório em FERIAS — início (YYYY-MM-DD)' })
+  @IsOptional() @IsDateString() feriasInicio?: string;
+  @ApiPropertyOptional({ description: 'Obrigatório em FERIAS — fim/retorno automático (YYYY-MM-DD)' })
+  @IsOptional() @IsDateString() feriasFim?: string;
 }
 
 export class ListColaboradoresQueryDto {

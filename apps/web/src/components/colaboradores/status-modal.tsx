@@ -32,17 +32,19 @@ export function StatusModal({
   const [status, setStatus] = useState<StatusColaborador>(colaborador.status);
   const [motivo, setMotivo] = useState('');
   const [dataDesligamento, setDataDesligamento] = useState('');
-  const [diasFerias, setDiasFerias] = useState('');
+  const [feriasInicio, setFeriasInicio] = useState('');
+  const [feriasFim, setFeriasFim] = useState('');
   const [salvando, setSalvando] = useState(false);
 
   const precisaMotivo = status === 'INATIVO' || status === 'AFASTADO';
   const precisaData = status === 'DESLIGADO';
-  const precisaDias = status === 'FERIAS';
+  const precisaFerias = status === 'FERIAS';
+  const feriasOk = precisaFerias && !!feriasInicio && !!feriasFim && new Date(feriasFim) > new Date(feriasInicio);
   const valido =
     (status === 'ATIVO') ||
     (precisaMotivo && motivo.trim().length > 0) ||
     (precisaData && !!dataDesligamento) ||
-    (precisaDias && Number(diasFerias) >= 1);
+    feriasOk;
 
   async function salvar() {
     setSalvando(true);
@@ -51,7 +53,8 @@ export function StatusModal({
         status,
         motivo: precisaMotivo || precisaData ? motivo.trim() || undefined : undefined,
         dataDesligamento: precisaData ? dataDesligamento : undefined,
-        diasFerias: precisaDias ? Number(diasFerias) : undefined,
+        feriasInicio: precisaFerias ? feriasInicio : undefined,
+        feriasFim: precisaFerias ? feriasFim : undefined,
       });
       toast.success('Status atualizado.');
       onConcluido();
@@ -103,11 +106,19 @@ export function StatusModal({
               </div>
             </>
           )}
-          {precisaDias && (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Dias de férias *</label>
-              <Input type="number" min={1} inputMode="numeric" placeholder="Ex.: 30" value={diasFerias} onChange={(e) => setDiasFerias(e.target.value)} />
-              <p className="text-xs text-muted-foreground">O colaborador volta automaticamente para <strong>Ativo</strong> após esse prazo.</p>
+          {precisaFerias && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Início das férias *</label>
+                <Input type="date" value={feriasInicio} onChange={(e) => setFeriasInicio(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Fim das férias *</label>
+                <Input type="date" value={feriasFim} onChange={(e) => setFeriasFim(e.target.value)} />
+              </div>
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                O colaborador volta automaticamente para <strong>Ativo</strong> na data de fim.
+              </p>
             </div>
           )}
         </div>

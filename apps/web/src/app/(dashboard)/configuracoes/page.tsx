@@ -65,11 +65,6 @@ export default function ConfiguracoesPage() {
 const perfilSchema = z.object({
   nome: z.string().min(2, 'Informe o nome de exibição'),
   email: z.string().email('E-mail inválido'),
-  username: z
-    .string()
-    .regex(/^$|^[a-zA-Z0-9_.]{3,40}$/, 'Usuário: 3 a 40 caracteres (letras, números, . ou _)')
-    .optional()
-    .or(z.literal('')),
   avatarUrl: z.string().url('Informe uma URL válida').optional().or(z.literal('')),
 });
 type PerfilForm = z.infer<typeof perfilSchema>;
@@ -92,7 +87,6 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
     defaultValues: {
       nome: perfil.nome,
       email: perfil.email,
-      username: perfil.username ?? '',
       avatarUrl: '',
     },
   });
@@ -100,7 +94,7 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
   // Mantém o formulário em sincronia caso o perfil seja recarregado.
   useEffect(() => {
     setAvatarAtual(perfil.avatarUrl);
-    reset({ nome: perfil.nome, email: perfil.email, username: perfil.username ?? '', avatarUrl: '' });
+    reset({ nome: perfil.nome, email: perfil.email, avatarUrl: '' });
   }, [perfil, reset]);
 
   const urlDigitada = watch('avatarUrl');
@@ -145,10 +139,9 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
 
   async function onSubmit(d: PerfilForm) {
     try {
-      const payload: { nome: string; email: string; username: string; avatarUrl?: string } = {
+      const payload: { nome: string; email: string; avatarUrl?: string } = {
         nome: d.nome.trim(),
         email: d.email.trim(),
-        username: d.username ?? '',
       };
       // Só envia avatarUrl se uma URL foi digitada (não sobrescreve a foto enviada).
       if (d.avatarUrl && d.avatarUrl.trim()) payload.avatarUrl = d.avatarUrl.trim();
@@ -159,7 +152,6 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
       atualizarUsuario({
         nome: atualizado.nome,
         email: atualizado.email,
-        username: atualizado.username,
         avatarUrl: atualizado.avatarUrl,
       });
       toast.success('Perfil atualizado com sucesso.');
@@ -215,10 +207,6 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
 
           <Campo label="E-mail" erro={errors.email?.message}>
             <Input type="email" {...register('email')} />
-          </Campo>
-
-          <Campo label="Nome de usuário" erro={errors.username?.message}>
-            <Input placeholder="opcional" {...register('username')} />
           </Campo>
 
           <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">

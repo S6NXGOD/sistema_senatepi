@@ -7,6 +7,7 @@ import {
 import {
   Prisma,
   StatusColaborador,
+  TipoDocumento,
   TipoHistoricoColaborador,
   TipoVinculo,
 } from '@prisma/client';
@@ -71,7 +72,7 @@ export class ColaboradoresService {
     for (const c of vencidas) {
       await this.prisma.colaborador.update({
         where: { id: c.id },
-        data: { status: StatusColaborador.ATIVO, feriasRetornoEm: null },
+        data: { status: StatusColaborador.ATIVO, feriasInicio: null, feriasRetornoEm: null },
       });
       await this.registrarHistorico(
         c.id,
@@ -185,10 +186,18 @@ export class ColaboradoresService {
     await this.reconciliarFerias();
     const c = await this.prisma.colaborador.findUnique({
       where: { id },
-      include: { ...INCLUDE, historico: { orderBy: { createdAt: 'desc' } } },
+      include: {
+        ...INCLUDE,
+        historico: { orderBy: { createdAt: 'desc' } },
+        documentos: { orderBy: { createdAt: 'desc' } },
+      },
     });
     if (!c) throw new NotFoundException('Colaborador não encontrado.');
-    return this.resolverFoto(c);
+    const comFoto = await this.resolverFoto(c);
+    const documentos = await Promise.all(
+      c.documentos.map(async (d) => ({ ...d, url: await this.storage.getSignedUrl(d.storageKey).catch(() => null) })),
+    );
+    return { ...comFoto, documentos };
   }
 
   async update(id: string, dto: UpdateColaboradorDto, autor?: string) {
@@ -272,6 +281,7 @@ export class ColaboradoresService {
       status: dto.status,
       statusMotivo: null,
       dataDesligamento: null,
+      feriasInicio: null,
       feriasRetornoEm: null,
     };
     let detalhe = '';
@@ -292,12 +302,14 @@ export class ColaboradoresService {
         break;
       }
       case StatusColaborador.FERIAS: {
-        const dias = Number(dto.diasFerias);
-        if (!dias || dias < 1) throw new BadRequestException('Informe a quantidade de dias de férias.');
-        const retorno = new Date();
-        retorno.setDate(retorno.getDate() + dias);
-        data.feriasRetornoEm = retorno;
-        detalhe = ` ${dias} dia(s) — retorno automático em ${retorno.toLocaleDateString('pt-BR')}.`;
+        if (!dto.feriasInicio || !dto.feriasFim)
+          throw new BadRequestException('Informe as datas de início e fim das férias.');
+        const inicio = new Date(dto.feriasInicio);
+        const fim = new Date(dto.feriasFim);
+        if (fim <= inicio) throw new BadRequestException('A data de fim deve ser posterior à de início.');
+        data.feriasInicio = inicio;
+        data.feriasRetornoEm = fim;
+        detalhe = ` De ${inicio.toLocaleDateString('pt-BR')} a ${fim.toLocaleDateString('pt-BR')} — retorno automático a ATIVO.`;
         break;
       }
       default:
@@ -323,5 +335,41 @@ export class ColaboradoresService {
       where: { colaboradorId: id },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  // ---- Documentos ----
+  async addDocumento(id: string, arquivo: Express.Multer.File, titulo: string, autor?: string) {
+    const c = await this.prisma.colaborador.findUnique({ where: { id }, select: { id: true } });
+    if (!c) throw new NotFoundException('Colaborador não encontrado.');
+
+    const ext = arquivo.originalname.split('.').pop() ?? 'bin';
+    const storageKey = `colaboradores/${id}/documentos/${Date.now()}.${ext}`;
+    await this.storage.upload(storageKey, arquivo.buffer, arquivo.mimetype);
+
+    const documento = await this.prisma.documento.create({
+      data: {
+        tipo: TipoDocumento.DOCUMENTO_PESSOAL,
+        titulo: titulo?.trim() || arquivo.originalname,
+        storageKey,
+        mimeType: arquivo.mimetype,
+        tamanhoBytes: arquivo.size,
+        colaboradorId: id,
+      },
+    });
+    await this.registrarHistorico(
+      id,
+      TipoHistoricoColaborador.ALTERACAO,
+      `Documento anexado: ${documento.titulo}.`,
+      autor,
+    );
+    return { ...documento, url: await this.storage.getSignedUrl(storageKey).catch(() => null) };
+  }
+
+  async removeDocumento(id: string, documentoId: string) {
+    const doc = await this.prisma.documento.findFirst({ where: { id: documentoId, colaboradorId: id } });
+    if (!doc) throw new NotFoundException('Documento não encontrado.');
+    void this.storage.delete(doc.storageKey).catch(() => undefined);
+    await this.prisma.documento.delete({ where: { id: documentoId } });
+    return { ok: true };
   }
 }

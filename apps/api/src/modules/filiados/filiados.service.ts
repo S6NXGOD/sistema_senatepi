@@ -145,42 +145,6 @@ export class FiliadosService {
   }
 
   /**
-   * Filiados com CPF duplicado. Agrupa por CPF (`groupBy`) contando ocorrências
-   * e mantém apenas os grupos com mais de um registro (`_count.cpf > 1`); em
-   * seguida devolve os filiados desses grupos, ordenados por CPF para exibir os
-   * duplicados lado a lado na tabela.
-   */
-  async duplicados() {
-    const grupos = await this.prisma.filiado.groupBy({
-      by: ['cpf'],
-      where: { cpf: { not: null } },
-      _count: { cpf: true },
-      having: { cpf: { _count: { gt: 1 } } },
-    });
-
-    const cpfs = grupos.map((g) => g.cpf).filter((c): c is string => Boolean(c));
-    if (cpfs.length === 0) return { data: [], total: 0, grupos: 0 };
-
-    const registros = await this.prisma.filiado.findMany({
-      where: { cpf: { in: cpfs } },
-      orderBy: [{ cpf: 'asc' }, { createdAt: 'asc' }],
-      include: { _count: { select: { dependentes: true } } },
-    });
-
-    const data = await Promise.all(
-      registros.map(async (f) => ({
-        ...f,
-        fotoUrl: f.fotoThumbKey
-          ? await this.storage.getSignedUrl(f.fotoThumbKey).catch(() => null)
-          : null,
-      })),
-    );
-
-    // total = registros duplicados; grupos = quantidade de CPFs repetidos.
-    return { data, total: data.length, grupos: cpfs.length };
-  }
-
-  /**
    * Autocomplete do cadastro legado de Filiados para telas administrativas —
    * ex.: alocação manual da Colônia. Busca por nome (contém) ou CPF (prefixo, só
    * dígitos). Retorna o PERFIL COMPLETO (para preencher a reserva sem redigitação):
@@ -357,11 +321,12 @@ export class FiliadosService {
    * em eventos e na Colônia de Férias (validado nos respectivos serviços), mas o
    * cadastro é preservado. Idempotente-seguro: bloqueia se já estiver desfiliado.
    */
-  async desfiliar(id: string, autor?: string) {
+  async desfiliar(id: string, motivo?: string, autor?: string) {
     const atual = await this.findOne(id);
     if (atual.situacao === SituacaoFiliado.DESFILIADO)
       throw new BadRequestException('Este filiado já está desfiliado.');
 
+    const motivoLimpo = motivo?.trim();
     const filiado = await this.prisma.filiado.update({
       where: { id },
       data: { situacao: SituacaoFiliado.DESFILIADO },
@@ -369,8 +334,9 @@ export class FiliadosService {
     await this.registrarHistorico(
       id,
       TipoHistoricoFiliado.MUDANCA_STATUS,
-      `Filiado desfiliado (situação alterada de ${atual.situacao} para DESFILIADO).`,
+      `Filiado desfiliado.${motivoLimpo ? ' Motivo: ' + motivoLimpo : ''}`,
       autor,
+      motivoLimpo ? { motivo: motivoLimpo } : undefined,
     );
     return filiado;
   }
@@ -645,6 +611,85 @@ export class FiliadosService {
       'Termo de Consentimento e Filiação gerado.',
       autor,
     );
+    return pdf;
+  }
+
+  // ---- Termo de Desfiliação (PDF) ----
+  async gerarTermoDesfiliacaoPdf(id: string, motivo?: string, autor?: string): Promise<Buffer> {
+    const f = await this.findOne(id);
+    const RODAPE =
+      'DIRETORIA SENATEPI - RUA LUCÍDIO FREITAS, Nº.1070, CENTRO-NORTE, TERESINA-PI, CEP: 64000-440 | ' +
+      'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+    const motivoLimpo = motivo?.trim();
+
+    const pdf = await new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const chunks: Buffer[] = [];
+      doc.on('data', (c) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const X = doc.page.margins.left;
+      const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      const ou = (v?: string | null) => (v && String(v).trim() ? String(v) : '______________________');
+
+      // Cabeçalho oficial
+      doc.font('Times-Bold').fontSize(9.5).fillColor('#111827').text(
+        'SENATEPI - SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ | CNPJ: 11.378.331/0001-86',
+        X, doc.page.margins.top, { align: 'center', width: W },
+      );
+      doc.moveDown(0.5);
+      doc.font('Times-Bold').fontSize(14).fillColor(VERDE_ESCURO)
+        .text('TERMO DE DESFILIAÇÃO', { align: 'center', width: W });
+      doc.moveDown(0.3);
+      const yh = doc.y;
+      doc.moveTo(X, yh).lineTo(X + W, yh).strokeColor(VERDE_ESCURO).lineWidth(1).stroke();
+      doc.moveDown(0.8);
+
+      const par = (label: string, valor: string) => {
+        doc.fontSize(10.5);
+        doc.font('Times-Bold').fillColor('#111827').text(`${label}: `, { continued: true });
+        doc.font('Times-Roman').fillColor('#1f2937').text(valor);
+        doc.moveDown(0.4);
+      };
+      par('Nome', ou(f.nomeCompleto));
+      par('CPF', ou(f.cpf ? mascararCpf(f.cpf) : null));
+      par('Matrícula sindical', ou(f.matricula));
+      doc.moveDown(0.6);
+
+      doc.font('Times-Roman').fontSize(11).fillColor('#1f2937').text(
+        'Pelo presente instrumento, o(a) filiado(a) acima identificado(a) formaliza a sua DESFILIAÇÃO do ' +
+          'quadro associativo do SENATEPI, deixando de contribuir e de usufruir dos benefícios e da ' +
+          'representação sindical a partir desta data, nos termos do estatuto da entidade.',
+        X, doc.y, { align: 'justify', width: W, lineGap: 2 },
+      );
+      doc.moveDown(0.8);
+      if (motivoLimpo) {
+        doc.font('Times-Bold').fontSize(10.5).fillColor('#111827').text('Motivo declarado: ', { continued: true });
+        doc.font('Times-Roman').fillColor('#1f2937').text(motivoLimpo, { align: 'justify', width: W });
+        doc.moveDown(0.8);
+      }
+
+      doc.moveDown(1.4);
+      const dataFmt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+      doc.font('Times-Roman').fontSize(10.5).fillColor('#1f2937').text(`Teresina/PI, ${dataFmt}.`, X, doc.y, { width: W });
+      doc.moveDown(2.6);
+      const ys = doc.y;
+      doc.moveTo(X + 110, ys).lineTo(X + W - 110, ys).strokeColor('#374151').lineWidth(0.8).stroke();
+      doc.font('Times-Roman').fontSize(10).fillColor('#111827')
+        .text('Assinatura do(a) Filiado(a)', X, ys + 6, { align: 'center', width: W });
+
+      const range = doc.bufferedPageRange();
+      for (let i = range.start; i < range.start + range.count; i++) {
+        doc.switchToPage(i);
+        const fy = doc.page.height - 42;
+        doc.moveTo(X, fy - 8).lineTo(X + W, fy - 8).strokeColor('#9ca3af').lineWidth(0.5).stroke();
+        doc.font('Times-Roman').fontSize(7).fillColor('#4b5563').text(RODAPE, X, fy, { align: 'center', width: W });
+      }
+      doc.end();
+    });
+
+    await this.registrarHistorico(id, TipoHistoricoFiliado.GERACAO_TERMO, 'Termo de Desfiliação gerado.', autor);
     return pdf;
   }
 }

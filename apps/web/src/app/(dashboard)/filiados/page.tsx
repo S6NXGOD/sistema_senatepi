@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, Filter, Upload, Copy } from 'lucide-react';
+import { Plus, Search, Filter, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,6 @@ import {
   SITUACAO_COR,
   SITUACAO_LABEL,
   SITUACOES,
-  buscarDuplicados,
 } from '@/lib/filiados';
 import { FiliadoRowActions } from '@/components/filiados/filiado-row-actions';
 
@@ -27,7 +26,6 @@ export default function FiliadosPage() {
   const [aplicado, setAplicado] = useState(VAZIO);
   const [page, setPage] = useState(1);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
-  const [mostrarDuplicados, setMostrarDuplicados] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -35,18 +33,10 @@ export default function FiliadosPage() {
     queryKey: ['filiados', aplicado, page],
     queryFn: async () =>
       (await api.get('/filiados', { params: { ...limpar(aplicado), page, pageSize: 10 } })).data,
-    enabled: !mostrarDuplicados,
   });
 
-  // Duplicados: consumido apenas quando o toggle está ativo.
-  const dupQuery = useQuery({
-    queryKey: ['filiados-duplicados'],
-    queryFn: buscarDuplicados,
-    enabled: mostrarDuplicados,
-  });
-
-  const carregando = mostrarDuplicados ? dupQuery.isLoading : isLoading;
-  const linhas: Filiado[] | undefined = mostrarDuplicados ? dupQuery.data?.data : data?.data;
+  const carregando = isLoading;
+  const linhas: Filiado[] | undefined = data?.data;
 
   function setR<K extends keyof typeof rascunho>(k: K, v: string) {
     setRascunho((f) => ({ ...f, [k]: v }));
@@ -57,7 +47,6 @@ export default function FiliadosPage() {
   }
   function revalidar() {
     queryClient.invalidateQueries({ queryKey: ['filiados'] });
-    queryClient.invalidateQueries({ queryKey: ['filiados-duplicados'] });
   }
 
   return (
@@ -65,11 +54,7 @@ export default function FiliadosPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Filiados</h2>
-          <p className="text-sm text-muted-foreground">
-            {mostrarDuplicados
-              ? `${dupQuery.data?.total ?? 0} registros em ${dupQuery.data?.grupos ?? 0} CPFs duplicados`
-              : `${data?.total ?? 0} associados`}
-          </p>
+          <p className="text-sm text-muted-foreground">{data?.total ?? 0} associados</p>
         </div>
         <div className="flex gap-2">
           <Link href="/filiados/importar">
@@ -89,25 +74,17 @@ export default function FiliadosPage() {
               placeholder="Buscar por nome, matrícula ou CPF..."
               className="pl-10"
               value={rascunho.busca}
-              disabled={mostrarDuplicados}
               onChange={(e) => setR('busca', e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }}
             />
           </div>
-          <Button onClick={aplicar} disabled={mostrarDuplicados}><Search className="h-4 w-4" /> Buscar</Button>
-          <Button variant="outline" onClick={() => setMostrarFiltros((v) => !v)} disabled={mostrarDuplicados}>
+          <Button onClick={aplicar}><Search className="h-4 w-4" /> Buscar</Button>
+          <Button variant="outline" onClick={() => setMostrarFiltros((v) => !v)}>
             <Filter className="h-4 w-4" /> Filtros
-          </Button>
-          <Button
-            variant={mostrarDuplicados ? 'default' : 'outline'}
-            onClick={() => { setMostrarDuplicados((v) => !v); setMostrarFiltros(false); }}
-            title="Exibe filiados que compartilham o mesmo CPF"
-          >
-            <Copy className="h-4 w-4" /> {mostrarDuplicados ? 'Ver todos' : 'Mostrar duplicados'}
           </Button>
         </div>
 
-        {mostrarFiltros && !mostrarDuplicados && (
+        {mostrarFiltros && (
           <Card>
             <CardContent className="space-y-3 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -132,16 +109,6 @@ export default function FiliadosPage() {
               </div>
             </CardContent>
           </Card>
-        )}
-
-        {mostrarDuplicados && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
-            <Copy className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Exibindo apenas filiados que <strong>compartilham o mesmo CPF</strong>, agrupados para
-              facilitar a conferência. Use as ações da linha para desfiliar ou excluir os registros duplicados.
-            </span>
-          </div>
         )}
       </div>
 
@@ -191,7 +158,7 @@ export default function FiliadosPage() {
                 ))}
                 {!carregando && linhas && linhas.length === 0 && (
                   <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
-                    {mostrarDuplicados ? 'Nenhum CPF duplicado encontrado' : 'Nenhum filiado encontrado'}
+                    Nenhum filiado encontrado
                   </td></tr>
                 )}
               </tbody>
@@ -208,14 +175,14 @@ export default function FiliadosPage() {
             ))}
             {!carregando && linhas && linhas.length === 0 && (
               <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                {mostrarDuplicados ? 'Nenhum CPF duplicado encontrado' : 'Nenhum filiado encontrado'}
+                Nenhum filiado encontrado
               </p>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {!mostrarDuplicados && data && data.totalPages > 1 && (
+      {data && data.totalPages > 1 && (
         <div className="flex items-center justify-end gap-2">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
           <span className="text-sm text-muted-foreground">Página {page} de {data.totalPages}</span>

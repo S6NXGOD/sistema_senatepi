@@ -81,6 +81,26 @@ export class ColaboradoresController {
     return this.service.atualizarFoto(id, file.buffer, autor);
   }
 
+  @Post(':id/documentos')
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('arquivo'))
+  addDocumento(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('titulo') titulo: string,
+    @CurrentUser('nome') autor: string,
+  ) {
+    if (!file) throw new BadRequestException('Arquivo "arquivo" é obrigatório.');
+    return this.service.addDocumento(id, file, titulo, autor);
+  }
+
+  @Delete(':id/documentos/:documentoId')
+  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  removeDocumento(@Param('id') id: string, @Param('documentoId') documentoId: string) {
+    return this.service.removeDocumento(id, documentoId);
+  }
+
   @Delete(':id')
   @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
   remove(@Param('id') id: string) {

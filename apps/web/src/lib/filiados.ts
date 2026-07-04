@@ -1,11 +1,6 @@
 import { api } from './api';
 
-export type SituacaoFiliado =
-  | 'ATIVO'
-  | 'INATIVO'
-  | 'SUSPENSO'
-  | 'PENDENTE'
-  | 'DESFILIADO';
+export type SituacaoFiliado = 'ATIVO' | 'INATIVO' | 'DESFILIADO';
 export type FormacaoProfissional =
   | 'ENFERMEIRO'
   | 'TECNICO_ENFERMAGEM'
@@ -54,16 +49,12 @@ export interface Filiado {
 export const SITUACAO_LABEL: Record<SituacaoFiliado, string> = {
   ATIVO: 'Ativo',
   INATIVO: 'Inativo',
-  SUSPENSO: 'Suspenso',
-  PENDENTE: 'Pendente',
   DESFILIADO: 'Desfiliado',
 };
 
 export const SITUACAO_COR: Record<SituacaoFiliado, string> = {
   ATIVO: 'bg-senatepi-50 text-senatepi-800',
   INATIVO: 'bg-gray-100 text-gray-600',
-  SUSPENSO: 'bg-amber-100 text-amber-700',
-  PENDENTE: 'bg-blue-100 text-blue-700',
   DESFILIADO: 'bg-red-100 text-red-700',
 };
 
@@ -111,23 +102,17 @@ export const CATEGORIA_POR_FORMACAO: Record<string, string> = {
 // API — gestão de filiados
 // ============================================================================
 
-export interface DuplicadosResposta {
-  /** Filiados que compartilham CPF, ordenados por CPF (duplicados lado a lado). */
-  data: Filiado[];
-  /** Total de registros duplicados. */
-  total: number;
-  /** Quantidade de CPFs repetidos. */
-  grupos: number;
+/** Desfilia um associado (PATCH /filiados/:id/desfiliar), com motivo opcional. */
+export async function desfiliarFiliado(id: string, motivo?: string): Promise<Filiado> {
+  return (await api.patch(`/filiados/${id}/desfiliar`, { motivo })).data;
 }
 
-/** Lista os filiados com CPF duplicado (GET /filiados/duplicados). */
-export async function buscarDuplicados(): Promise<DuplicadosResposta> {
-  return (await api.get('/filiados/duplicados')).data;
-}
-
-/** Desfilia um associado (PATCH /filiados/:id/desfiliar). */
-export async function desfiliarFiliado(id: string): Promise<Filiado> {
-  return (await api.patch(`/filiados/${id}/desfiliar`)).data;
+/** Anexa um documento (ex.: termo de desfiliação) ao filiado. */
+export async function anexarDocumentoFiliado(id: string, file: File, titulo: string) {
+  const fd = new FormData();
+  fd.append('arquivo', file);
+  fd.append('titulo', titulo);
+  return (await api.post(`/filiados/${id}/documentos`, fd)).data;
 }
 
 /** Exclui permanentemente um filiado (DELETE /filiados/:id). */

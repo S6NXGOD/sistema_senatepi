@@ -4,12 +4,13 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus, Search, Eye, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2, ShieldCheck } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { StatusModal } from '@/components/colaboradores/status-modal';
 import { mascararCpf } from '@/lib/utils';
 import {
   Colaborador,
@@ -28,6 +29,7 @@ export default function ColaboradoresPage() {
   const [page, setPage] = useState(1);
   const [excluir, setExcluir] = useState<Colaborador | null>(null);
   const [removendo, setRemovendo] = useState(false);
+  const [statusDe, setStatusDe] = useState<Colaborador | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['colaboradores', busca, status, page],
@@ -118,6 +120,7 @@ export default function ColaboradoresPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-0.5">
                         <Link href={`/colaboradores/${c.id}`} title="Detalhes"><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
+                        <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
                         <Link href={`/colaboradores/${c.id}/editar`} title="Editar"><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
                         <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" title="Excluir" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
                       </div>
@@ -141,6 +144,7 @@ export default function ColaboradoresPage() {
                   </Link>
                   <div className="flex shrink-0 items-center gap-0.5">
                     <Link href={`/colaboradores/${c.id}`}><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
+                    <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
                     <Link href={`/colaboradores/${c.id}/editar`}><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
                     <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
@@ -177,6 +181,14 @@ export default function ColaboradoresPage() {
         onClose={() => (removendo ? null : setExcluir(null))}
         description={<>Remove <strong>{excluir?.nome}</strong> permanentemente. Esta ação não pode ser desfeita.</>}
       />
+
+      {statusDe && (
+        <StatusModal
+          colaborador={{ id: statusDe.id, nome: statusDe.nome, status: statusDe.status }}
+          onClose={() => setStatusDe(null)}
+          onConcluido={() => qc.invalidateQueries({ queryKey: ['colaboradores'] })}
+        />
+      )}
     </div>
   );
 }

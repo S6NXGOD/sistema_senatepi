@@ -79,6 +79,11 @@ export class ChangeSituacaoDto {
   @ApiPropertyOptional() @IsOptional() @IsString() motivo?: string;
 }
 
+export class DesfiliarDto {
+  @ApiPropertyOptional({ description: 'Motivo da desfiliação (opcional)' })
+  @IsOptional() @IsString() motivo?: string;
+}
+
 export class ListFiliadosQueryDto {
   @ApiPropertyOptional({ description: 'Busca livre (nome, CPF ou matrícula)' })
   @IsOptional() @IsString() busca?: string;

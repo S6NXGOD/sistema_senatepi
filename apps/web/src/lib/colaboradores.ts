@@ -77,6 +77,7 @@ export interface Colaborador {
   tipoVinculo: TipoVinculo;
   statusMotivo: string | null;
   dataDesligamento: string | null;
+  feriasInicio: string | null;
   feriasRetornoEm: string | null;
   cep: string | null;
   logradouro: string | null;
@@ -92,6 +93,7 @@ export interface Colaborador {
   cargo: { id: string; nome: string };
   departamento: { id: string; nome: string };
   empresa: { id: string; razaoSocial: string; cnpj: string } | null;
+  documentos?: ColaboradorDocumento[];
   createdAt: string;
   updatedAt: string;
 }
@@ -154,9 +156,10 @@ export interface AlterarStatusPayload {
   status: StatusColaborador;
   motivo?: string;
   dataDesligamento?: string;
-  diasFerias?: number;
+  feriasInicio?: string;
+  feriasFim?: string;
 }
-/** Muda o status (dinâmico: motivo / data de desligamento / dias de férias). */
+/** Muda o status (dinâmico: motivo / data de desligamento / início e fim de férias). */
 export async function alterarStatusColaborador(id: string, payload: AlterarStatusPayload): Promise<Colaborador> {
   return (await api.patch(`/colaboradores/${id}/status`, payload)).data;
 }
@@ -170,6 +173,24 @@ export interface ColaboradorHistorico {
 }
 export async function getHistoricoColaborador(id: string): Promise<ColaboradorHistorico[]> {
   return (await api.get(`/colaboradores/${id}/historico`)).data;
+}
+
+export interface ColaboradorDocumento {
+  id: string;
+  titulo: string;
+  mimeType: string | null;
+  url: string | null;
+  createdAt: string;
+}
+/** Anexa um documento ao colaborador (multipart). */
+export async function anexarDocumentoColaborador(id: string, file: File, titulo: string) {
+  const fd = new FormData();
+  fd.append('arquivo', file);
+  fd.append('titulo', titulo);
+  return (await api.post(`/colaboradores/${id}/documentos`, fd)).data;
+}
+export async function removerDocumentoColaborador(id: string, documentoId: string) {
+  return (await api.delete(`/colaboradores/${id}/documentos/${documentoId}`)).data;
 }
 
 /** Máscara de CNPJ (00.000.000/0000-00). */

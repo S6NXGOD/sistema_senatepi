@@ -154,9 +154,9 @@ export function mapearFormacao(valor?: string | null): {
 
 export function mapearSituacao(valor?: string | null): SituacaoFiliado {
   const v = (valor ?? '').trim().toLowerCase();
-  if (['inativo', 'i', '0', 'desligado', 'cancelado'].includes(v)) return 'INATIVO';
-  if (['suspenso', 's'].includes(v)) return 'SUSPENSO';
-  if (['pendente', 'p'].includes(v)) return 'PENDENTE';
+  // Situações válidas: ATIVO, INATIVO, DESFILIADO.
+  if (['desfiliado', 'desligado', 'cancelado'].includes(v)) return 'DESFILIADO';
+  if (['inativo', 'i', '0', 'suspenso', 's', 'pendente', 'p'].includes(v)) return 'INATIVO';
   // Padrão para migração de base existente: ativo
   return 'ATIVO';
 }

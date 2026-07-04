@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import {
   Eye,
   FileText,
+  FileSignature,
   IdCard,
   MoreHorizontal,
   Pencil,
@@ -17,7 +18,8 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { abrirPdf } from '@/lib/pdf';
-import { desfiliarFiliado, excluirFiliado, Filiado } from '@/lib/filiados';
+import { excluirFiliado, Filiado } from '@/lib/filiados';
+import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
 
 /**
  * Menu de ações (dropdown) de cada linha da tabela de filiados. Concentra as
@@ -54,20 +56,6 @@ export function FiliadoRowActions({
   function run(fn: () => void) {
     setOpen(false);
     fn();
-  }
-
-  async function handleDesfiliar() {
-    setLoading(true);
-    try {
-      await desfiliarFiliado(filiado.id);
-      toast.success(`${filiado.nomeCompleto} foi desfiliado(a).`);
-      setModal(null);
-      onChanged();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Não foi possível desfiliar.');
-    } finally {
-      setLoading(false);
-    }
   }
 
   async function handleExcluir() {
@@ -115,6 +103,9 @@ export function FiliadoRowActions({
             <MenuItem icon={<FileText className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/termo/pdf`))}>
               Gerar Termo (PDF)
             </MenuItem>
+            <MenuItem icon={<FileSignature className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/desfiliacao/pdf`))}>
+              Termo de Desfiliação (PDF)
+            </MenuItem>
 
             <div className="my-1 border-t" />
 
@@ -137,24 +128,14 @@ export function FiliadoRowActions({
         </>
       )}
 
-      {/* Desfiliação — aviso (perde acesso a eventos) */}
-      <ConfirmDialog
-        open={modal === 'desfiliar'}
-        variant="default"
-        title="Desfiliar associado?"
-        confirmLabel="Desfiliar"
-        loading={loading}
-        icon={<UserX className="h-6 w-6" />}
-        onConfirm={handleDesfiliar}
-        onClose={() => (loading ? null : setModal(null))}
-        description={
-          <>
-            <strong>{filiado.nomeCompleto}</strong> será marcado como{' '}
-            <strong>DESFILIADO</strong> e perderá o acesso a eventos e à Colônia de
-            Férias. O cadastro é preservado e a situação pode ser revertida depois.
-          </>
-        }
-      />
+      {/* Desfiliação — motivo + anexo do termo + PDF */}
+      {modal === 'desfiliar' && (
+        <DesfiliarModal
+          filiado={{ id: filiado.id, nomeCompleto: filiado.nomeCompleto }}
+          onClose={() => setModal(null)}
+          onConfirmed={() => { setModal(null); onChanged(); }}
+        />
+      )}
 
       {/* Exclusão — destrutivo/permanente (LGPD) */}
       <ConfirmDialog

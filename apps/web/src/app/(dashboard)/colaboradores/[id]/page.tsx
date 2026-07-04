@@ -4,9 +4,10 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Loader2, ShieldCheck, UserPlus, RefreshCw, Camera,
-  CalendarClock, Clock, Ban,
+  CalendarClock, Clock, Ban, Upload, FileText, Trash2, ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,8 @@ import { formatarData, mascararCpf } from '@/lib/utils';
 import {
   getColaborador,
   getHistoricoColaborador,
+  anexarDocumentoColaborador,
+  removerDocumentoColaborador,
   ColaboradorHistorico,
   STATUS_COLAB_COR,
   STATUS_COLAB_LABEL,
@@ -33,6 +36,7 @@ export default function ColaboradorDetalhePage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [statusAberto, setStatusAberto] = useState(false);
+  const [enviandoDoc, setEnviandoDoc] = useState(false);
 
   const { data: c, isLoading } = useQuery({ queryKey: ['colaborador', id], queryFn: () => getColaborador(id) });
   const { data: historico } = useQuery({ queryKey: ['colaborador-historico', id], queryFn: () => getHistoricoColaborador(id) });
@@ -42,6 +46,32 @@ export default function ColaboradorDetalhePage() {
     qc.invalidateQueries({ queryKey: ['colaborador-historico', id] });
     qc.invalidateQueries({ queryKey: ['colaboradores'] });
   };
+
+  async function onDoc(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setEnviandoDoc(true);
+    try {
+      await anexarDocumentoColaborador(id, f, f.name);
+      toast.success('Documento anexado.');
+      invalidar();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? 'Não foi possível anexar.');
+    } finally {
+      setEnviandoDoc(false);
+    }
+  }
+
+  async function removerDoc(docId: string) {
+    try {
+      await removerDocumentoColaborador(id, docId);
+      toast.success('Documento removido.');
+      invalidar();
+    } catch {
+      toast.error('Não foi possível remover.');
+    }
+  }
 
   if (isLoading || !c) {
     return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>;
@@ -77,7 +107,7 @@ export default function ColaboradorDetalhePage() {
 
       {/* Aviso de situação (dinâmico conforme o status) */}
       {c.status === 'FERIAS' && c.feriasRetornoEm && (
-        <AvisoSituacao Icon={CalendarClock} cor="blue" texto={<>Em férias — retorno automático para <strong>Ativo</strong> em <strong>{formatarData(c.feriasRetornoEm)}</strong>.</>} />
+        <AvisoSituacao Icon={CalendarClock} cor="blue" texto={<>Em férias{c.feriasInicio ? <> de <strong>{formatarData(c.feriasInicio)}</strong></> : null} até <strong>{formatarData(c.feriasRetornoEm)}</strong> — retorno automático para Ativo.</>} />
       )}
       {c.status === 'DESLIGADO' && (
         <AvisoSituacao Icon={Ban} cor="red" texto={<>Desligado em <strong>{formatarData(c.dataDesligamento)}</strong>{c.statusMotivo ? <> · {c.statusMotivo}</> : null}.</>} />
@@ -120,6 +150,37 @@ export default function ColaboradorDetalhePage() {
               <Info label="Bairro" valor={c.bairro} />
               <Info label="Cidade" valor={c.cidade} />
               <Info label="UF" valor={c.uf} />
+            </CardContent>
+          </Card>
+
+          {/* Documentos */}
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle>Documentos</CardTitle>
+              <div>
+                <input type="file" id="doc-colab" className="hidden" onChange={onDoc} />
+                <Button variant="outline" size="sm" disabled={enviandoDoc} onClick={() => document.getElementById('doc-colab')?.click()}>
+                  {enviandoDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Anexar
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!c.documentos || c.documentos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum documento anexado.</p>
+              ) : (
+                <ul className="divide-y">
+                  {c.documentos.map((d) => (
+                    <li key={d.id} className="flex items-center gap-2 py-2">
+                      <FileText className="h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                      <a href={d.url ?? '#'} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-sm hover:underline">
+                        {d.titulo}
+                      </a>
+                      {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer"><Button variant="ghost" size="icon"><ExternalLink className="h-4 w-4" /></Button></a>}
+                      <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => removerDoc(d.id)}><Trash2 className="h-4 w-4" /></Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
         </div>

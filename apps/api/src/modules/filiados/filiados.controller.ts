@@ -21,6 +21,7 @@ import { FiliadosService } from './filiados.service';
 import {
   ChangeSituacaoDto,
   CreateFiliadoDto,
+  DesfiliarDto,
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
@@ -42,13 +43,6 @@ export class FiliadosController {
   @Get()
   findAll(@Query() query: ListFiliadosQueryDto) {
     return this.service.findAll(query);
-  }
-
-  // IMPORTANTE: declarar antes de ':id' para não ser capturada pela rota param.
-  @Get('duplicados')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
-  duplicados() {
-    return this.service.duplicados();
   }
 
   @Get(':id')
@@ -88,8 +82,25 @@ export class FiliadosController {
 
   @Patch(':id/desfiliar')
   @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
-  desfiliar(@Param('id') id: string, @CurrentUser('nome') autor: string) {
-    return this.service.desfiliar(id, autor);
+  desfiliar(
+    @Param('id') id: string,
+    @Body() dto: DesfiliarDto,
+    @CurrentUser('nome') autor: string,
+  ) {
+    return this.service.desfiliar(id, dto.motivo, autor);
+  }
+
+  @Get(':id/desfiliacao/pdf')
+  @Header('Content-Type', 'application/pdf')
+  async termoDesfiliacao(
+    @Param('id') id: string,
+    @Query('motivo') motivo: string,
+    @CurrentUser('nome') autor: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.service.gerarTermoDesfiliacaoPdf(id, motivo, autor);
+    res.setHeader('Content-Disposition', `inline; filename="desfiliacao-${id}.pdf"`);
+    res.send(buffer);
   }
 
   @Post(':id/foto')

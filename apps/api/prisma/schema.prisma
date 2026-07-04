@@ -41,8 +41,6 @@ enum EstadoCivil {
 enum SituacaoFiliado {
   ATIVO
   INATIVO
-  SUSPENSO
-  PENDENTE
   DESFILIADO // desligado do sindicato — perde acesso a eventos e benefícios (colônia)
 }
 
@@ -265,7 +263,7 @@ model Filiado {
   numeroCoren        String?               @map("numero_coren")
   dataAdmissao       DateTime?             @map("data_admissao")
   // Situação
-  situacao           SituacaoFiliado       @default(PENDENTE)
+  situacao           SituacaoFiliado       @default(ATIVO)
   aprovadoEm         DateTime?             @map("aprovado_em")
   // Identificação para QR Code
   qrToken            String                @unique @map("qr_token")
@@ -513,13 +511,16 @@ model Documento {
   filiadoId     String?       @map("filiado_id")
   funcionarioId String?       @map("funcionario_id")
   prestadorId   String?       @map("prestador_id")
+  colaboradorId String?       @map("colaborador_id")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
   funcionario Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
   prestador   Prestador?   @relation(fields: [prestadorId], references: [id], onDelete: Cascade)
+  colaborador Colaborador? @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
 
   @@index([filiadoId])
+  @@index([colaboradorId])
   @@index([tipo])
   @@map("documentos")
 }
@@ -925,7 +926,8 @@ model Colaborador {
   // Situação dinâmica (conforme o status)
   statusMotivo     String?   @map("status_motivo")     // obrigatório em INATIVO/AFASTADO
   dataDesligamento DateTime? @map("data_desligamento") // obrigatório em DESLIGADO
-  feriasRetornoEm  DateTime? @map("ferias_retorno_em") // retorno automático a ATIVO (FERIAS)
+  feriasInicio     DateTime? @map("ferias_inicio")     // início das férias
+  feriasRetornoEm  DateTime? @map("ferias_retorno_em") // fim/retorno automático a ATIVO (FERIAS)
   // Endereço
   cep            String?
   logradouro     String?
@@ -947,6 +949,7 @@ model Colaborador {
   departamento Departamento @relation(fields: [departamentoId], references: [id])
   empresa      Empresa?     @relation(fields: [empresaId], references: [id], onDelete: SetNull)
   historico    ColaboradorHistorico[]
+  documentos   Documento[]
 
   @@index([status])
   @@index([cargoId])
