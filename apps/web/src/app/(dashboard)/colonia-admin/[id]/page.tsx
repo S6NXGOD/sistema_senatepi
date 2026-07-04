@@ -106,8 +106,8 @@ export default function ColoniaGestaoPage() {
         <>
           {/* Controle da campanha: toggle do link público + Exportar CSV */}
           <Card>
-            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
-              <div className="flex items-center gap-4">
+            <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
                 <button
                   type="button"
                   aria-label="Ativar/desativar link público"
@@ -117,14 +117,14 @@ export default function ColoniaGestaoPage() {
                 >
                   <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${t.status === 'ATIVA' ? 'left-6' : 'left-1'}`} />
                 </button>
-                <div>
+                <div className="min-w-0">
                   <p className="font-semibold">
                     Link público {t.status === 'ATIVA' ? 'ATIVO' : 'DESATIVADO'}
                     {toggle.isPending && <Loader2 className="ml-2 inline h-3.5 w-3.5 animate-spin" />}
                   </p>
                   <a href={`/colonia/${t.slug}`} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground hover:underline">
-                    /colonia/{t.slug} <ExternalLink className="h-3 w-3" />
+                    className="inline-flex max-w-full items-center gap-1 break-all text-sm text-muted-foreground hover:text-foreground hover:underline">
+                    /colonia/{t.slug} <ExternalLink className="h-3 w-3 shrink-0" />
                   </a>
                 </div>
               </div>
@@ -288,70 +288,24 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Ocupantes — no mobile a 1ª (Quarto) e a última (Ação) colunas ficam fixas */}
-        <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                <th className="sticky left-0 z-20 border-r bg-muted px-3 py-2 font-medium">Quarto</th>
-                <th className="px-3 py-2 font-medium">Nome</th>
-                <th className="px-3 py-2 font-medium">CPF</th>
-                <th className="px-3 py-2 font-medium">COREN</th>
-                <th className="px-3 py-2 font-medium">Profissão</th>
-                <th className="px-3 py-2 font-medium">Locais de trabalho</th>
-                <th className="px-3 py-2 font-medium">Origem</th>
-                <th className="sticky right-0 z-20 border-l bg-muted px-3 py-2 text-right font-medium">Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {l.ocupacao.map((o) => {
-                const ar = o.climatizacao === 'AR_CONDICIONADO';
-                return (
-                  <tr key={o.reservaId} className="border-b align-top last:border-0">
-                    <td className="sticky left-0 z-10 border-r bg-card px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        {ar
-                          ? <Snowflake className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
-                          : <Fan className="h-4 w-4 shrink-0 text-senatepi-600 dark:text-senatepi-400" />}
-                        <div className="leading-tight">
-                          <div className="font-medium">Quarto {o.quartoNumero}</div>
-                          <div className="text-xs text-muted-foreground">{ar ? 'Quarto com Ar-condicionado' : 'Quarto com Ventilador'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 font-medium">{o.nomeCompleto}</td>
-                    <td className="px-3 py-2 tabular-nums">{mascararCpf(o.cpf)}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{o.coren ?? '—'}</td>
-                    <td className="px-3 py-2">{FORMACAO_LABEL[o.formacao]}</td>
-                    <td className="px-3 py-2 text-xs">{[o.localTrabalho1, o.localTrabalho2].filter(Boolean).join(' · ') || '—'}</td>
-                    <td className="px-3 py-2">
-                      <Badge className={
-                        o.alocacaoManual ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
-                          : o.origem === 'SORTEIO' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                          : 'bg-muted text-muted-foreground'}>
-                        {o.alocacaoManual ? 'Manual' : o.origem === 'SORTEIO' ? 'Sorteio' : 'Direta'}
-                      </Badge>
-                    </td>
-                    <td className="sticky right-0 z-10 border-l bg-card px-3 py-2">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <BotaoSync tipo="reserva" id={o.reservaId} filiadoId={o.filiadoId} filiadoCandidatos={o.filiadoCandidatos} sincronizadoEm={o.sincronizadoEm} onOpen={onSincronizar} />
-                        <Button variant="outline" size="sm" onClick={() => onDetalhes(o)}>
-                          <Eye className="h-4 w-4" /> Detalhes
-                        </Button>
-                        <Button variant="destructive" size="sm" onClick={() => onCancelar(o)}>
-                          <Ban className="h-4 w-4" /> Cancelar
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {l.ocupacao.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Nenhuma reserva neste lote ainda.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* Ocupantes — cards responsivos (mobile-first, sem scroll horizontal) */}
+        {l.ocupacao.length === 0 ? (
+          <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+            Nenhuma reserva neste lote ainda.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {l.ocupacao.map((o) => (
+              <OcupanteCard
+                key={o.reservaId}
+                o={o}
+                onCancelar={() => onCancelar(o)}
+                onDetalhes={() => onDetalhes(o)}
+                onSincronizar={onSincronizar}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Sorteio */}
         {(l.inscritos.length > 0 || l.sorteioHabilitado) && (
@@ -402,6 +356,70 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Card de um hóspede/ocupante do lote (substitui a antiga tabela horizontal). */
+function OcupanteCard({ o, onCancelar, onDetalhes, onSincronizar }: {
+  o: Ocupante;
+  onCancelar: () => void;
+  onDetalhes: () => void;
+  onSincronizar: (arg: SyncArg) => void;
+}) {
+  const ar = o.climatizacao === 'AR_CONDICIONADO';
+  const locais = [o.localTrabalho1, o.localTrabalho2].filter(Boolean).join(' · ') || '—';
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+      {/* Cabeçalho: quarto + origem */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {ar
+            ? <Snowflake className="h-5 w-5 shrink-0 text-sky-600 dark:text-sky-400" />
+            : <Fan className="h-5 w-5 shrink-0 text-senatepi-600 dark:text-senatepi-400" />}
+          <div className="min-w-0 leading-tight">
+            <div className="font-semibold">Quarto {o.quartoNumero}</div>
+            <div className="text-xs text-muted-foreground">{ar ? 'Ar-condicionado' : 'Ventilador'}</div>
+          </div>
+        </div>
+        <Badge className={
+          o.alocacaoManual ? 'shrink-0 bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+            : o.origem === 'SORTEIO' ? 'shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+            : 'shrink-0 bg-muted text-muted-foreground'}>
+          {o.alocacaoManual ? 'Manual' : o.origem === 'SORTEIO' ? 'Sorteio' : 'Direta'}
+        </Badge>
+      </div>
+
+      {/* Identificação */}
+      <div className="min-w-0">
+        <p className="break-words font-medium">{o.nomeCompleto}</p>
+        <p className="text-xs tabular-nums text-muted-foreground">{mascararCpf(o.cpf)}</p>
+      </div>
+
+      {/* Dados */}
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+        <InfoCampo rotulo="COREN" mono valor={o.coren ?? '—'} />
+        <InfoCampo rotulo="Profissão" valor={FORMACAO_LABEL[o.formacao]} />
+        <div className="col-span-2">
+          <InfoCampo rotulo="Locais de trabalho" valor={locais} />
+        </div>
+      </dl>
+
+      {/* Ações */}
+      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+        <BotaoSync tipo="reserva" id={o.reservaId} filiadoId={o.filiadoId} filiadoCandidatos={o.filiadoCandidatos} sincronizadoEm={o.sincronizadoEm} onOpen={onSincronizar} />
+        <Button variant="outline" size="sm" onClick={onDetalhes}><Eye className="h-4 w-4" /> Detalhes</Button>
+        <Button variant="destructive" size="sm" onClick={onCancelar}><Ban className="h-4 w-4" /> Cancelar</Button>
+      </div>
+    </div>
+  );
+}
+
+function InfoCampo({ rotulo, valor, mono }: { rotulo: string; valor: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{rotulo}</dt>
+      <dd className={`break-words font-medium ${mono ? 'font-mono' : ''}`}>{valor}</dd>
+    </div>
   );
 }
 
@@ -632,12 +650,12 @@ function SorteioAgendaCard({ temporada, onSalvar }: { temporada: TemporadaResumo
 
   return (
     <Card>
-      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
-        <div className="flex items-center gap-3">
+      <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="rounded-xl bg-amber-100 p-2 dark:bg-amber-950/40">
             <CalendarClock className="h-6 w-6 text-amber-600 dark:text-amber-400" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-semibold">Sorteio público</p>
             <p className="text-xs text-muted-foreground">
               {temporada.dataSorteio
@@ -646,19 +664,19 @@ function SorteioAgendaCard({ temporada, onSalvar }: { temporada: TemporadaResumo
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <input
             type="datetime-local"
             value={valor}
             onChange={(e) => setValor(e.target.value)}
-            className="h-12 rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
+            className="h-12 w-full rounded-md border border-input bg-background px-3 text-base sm:w-auto md:h-10 md:text-sm"
           />
-          <Button size="sm" disabled={salvar.isPending}
+          <Button size="sm" className="flex-1 sm:flex-none" disabled={salvar.isPending}
             onClick={() => salvar.mutate(valor ? new Date(valor).toISOString() : null)}>
             {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar
           </Button>
           {temporada.dataSorteio && (
-            <Button size="sm" variant="outline" disabled={salvar.isPending}
+            <Button size="sm" variant="outline" className="flex-1 sm:flex-none" disabled={salvar.isPending}
               onClick={() => { setValor(''); salvar.mutate(null); }}>
               Limpar
             </Button>

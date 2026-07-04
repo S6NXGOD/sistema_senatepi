@@ -87,85 +87,73 @@ export default function ColoniaCampanhasPage() {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
-            </div>
-          ) : campanhas.length === 0 ? (
-            <div className="py-20 text-center text-muted-foreground">
-              {data && data.length > 0 ? 'Nenhuma campanha encontrada com esses filtros.' : 'Nenhuma campanha cadastrada.'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                    <th className="px-4 py-3 font-medium">Campanha</th>
-                    <th className="px-4 py-3 font-medium">Link Público</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Vagas</th>
-                    <th className="px-4 py-3 text-right font-medium">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {campanhas.map((c) => (
-                    <LinhaCampanha key={c.id} c={c} onCopiar={() => copiarLink(c.slug)} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+        </div>
+      ) : campanhas.length === 0 ? (
+        <Card>
+          <CardContent className="py-20 text-center text-muted-foreground">
+            {data && data.length > 0 ? 'Nenhuma campanha encontrada com esses filtros.' : 'Nenhuma campanha cadastrada.'}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {campanhas.map((c) => (
+            <CardCampanha key={c.id} c={c} onCopiar={() => copiarLink(c.slug)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function LinhaCampanha({ c, onCopiar }: { c: CampanhaResumo; onCopiar: () => void }) {
+function CardCampanha({ c, onCopiar }: { c: CampanhaResumo; onCopiar: () => void }) {
   const ativa = c.status === 'ATIVA';
   const pct = c.totalVagas > 0 ? Math.round((c.ocupadas / c.totalVagas) * 100) : 0;
 
   return (
-    <tr className="border-b align-middle last:border-0 hover:bg-muted/30">
-      <td className="px-4 py-3">
-        <div className="font-semibold">{c.nome}</div>
-        <div className="text-xs text-muted-foreground">{c.totalLotes} lote(s) · {c.ano}</div>
-      </td>
-      <td className="px-4 py-3">
+    <Card className="flex flex-col">
+      <CardContent className="flex flex-1 flex-col gap-3 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="break-words font-semibold leading-tight">{c.nome}</h3>
+            <p className="text-xs text-muted-foreground">{c.totalLotes} lote(s) · {c.ano}</p>
+          </div>
+          {ativa ? (
+            <Badge className="shrink-0 bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">Aberta</Badge>
+          ) : (
+            <Badge className="shrink-0 bg-muted text-muted-foreground">Fechada</Badge>
+          )}
+        </div>
+
+        {/* Link público */}
         <div className="flex items-center gap-1.5">
-          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">/colonia/{c.slug}</code>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCopiar} title="Copiar link">
-            <Copy className="h-3.5 w-3.5" />
+          <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">/colonia/{c.slug}</code>
+          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onCopiar} title="Copiar link">
+            <Copy className="h-4 w-4" />
           </Button>
           <a href={`/colonia/${c.slug}`} target="_blank" rel="noopener noreferrer" title="Abrir link público"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
-            <ExternalLink className="h-3.5 w-3.5" />
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
+            <ExternalLink className="h-4 w-4" />
           </a>
         </div>
-      </td>
-      <td className="px-4 py-3">
-        {ativa ? (
-          <Badge className="bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">Aberta</Badge>
-        ) : (
-          <Badge className="bg-muted text-muted-foreground">Fechada</Badge>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium tabular-nums">{c.ocupadas}/{c.totalVagas}</span>
-          <div className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:block">
+
+        {/* Ocupação */}
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1 text-muted-foreground"><Users className="h-3.5 w-3.5" /> Ocupação</span>
+            <span className="font-medium tabular-nums">{c.ocupadas}/{c.totalVagas}</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full rounded-full bg-senatepi-600" style={{ width: `${pct}%` }} />
           </div>
         </div>
-      </td>
-      <td className="px-4 py-3 text-right">
-        <Link href={`/colonia-admin/${c.id}`}>
-          <Button size="sm"><Settings2 className="h-4 w-4" /> Gerenciar</Button>
+
+        <Link href={`/colonia-admin/${c.id}`} className="mt-auto pt-1">
+          <Button className="w-full"><Settings2 className="h-4 w-4" /> Gerenciar</Button>
         </Link>
-      </td>
-    </tr>
+      </CardContent>
+    </Card>
   );
 }
