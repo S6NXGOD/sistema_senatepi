@@ -389,6 +389,19 @@ export class ColoniaService {
         throw new BadRequestException('Este quarto não pertence ao lote informado.');
 
       await this.lock(tx, `reserva:${lote.id}:${quarto.id}`);
+
+      // Q6 é a vaga do SORTEIO público: se já há gente inscrita aguardando o
+      // sorteio, a alocação manual não pode "furar a fila". Realize o sorteio.
+      if (quarto.numero === 6) {
+        const inscritosSorteio = await tx.coloniaSorteioInscricao.count({
+          where: { loteId: lote.id, status: StatusSorteioInscricao.INSCRITO },
+        });
+        if (inscritosSorteio > 0)
+          throw new ConflictException(
+            'Há inscritos no sorteio público do Quarto 6 deste lote. Realize o sorteio para definir o ocupante — a alocação manual não pode furar a fila.',
+          );
+      }
+
       await this.garantirCpfLivre(tx, lote.temporadaId, cpf);
       await this.garantirFiliadoNaoDesfiliado(tx, cpf);
 
@@ -488,7 +501,7 @@ export class ColoniaService {
   async cancelarReserva(id: string, motivo: string | undefined, ctx: Ctx) {
     const { atualizada, promovido } = await this.prisma
       .$transaction(async (tx) => {
-        const reserva = await tx.coloniaReserva.findUnique({ where: { id } });
+        const reserva = await tx.coloniaReserva.findUnique({ where: { id }, include: { quarto: true } });
         if (!reserva) throw new NotFoundException('Reserva não encontrada.');
         if (reserva.status === StatusReserva.CANCELADA_ADMIN)
           throw new BadRequestException('Reserva já está cancelada.');
@@ -503,8 +516,12 @@ export class ColoniaService {
           },
         });
 
+        // Ao liberar o Quarto 6 (vaga do sorteio), o próximo da FILA DE
+        // SUPLENTES assume automaticamente — não importa se a reserva cancelada
+        // veio do sorteio ou de alocação manual. As demais vagas (reserva
+        // direta) simplesmente voltam a ficar disponíveis ao público.
         const promovido =
-          reserva.origem === OrigemReserva.SORTEIO
+          reserva.quarto.numero === 6
             ? await this.promoverProximoSuplente(tx, reserva, ctx)
             : null;
 
@@ -760,11 +777,11 @@ export class ColoniaService {
    */
   private construirCampos(
     dados: {
-      nomeCompleto: string; telefone: string; email: string | null; coren: string | null;
+      nomeCompleto: string; cpf: string; telefone: string; email: string | null; coren: string | null;
       formacao: FormacaoColonia; localTrabalho1: string; localTrabalho2: string | null;
       cidade: string; estado: string;
     },
-    filiado: { nomeCompleto: string; telefonePrincipal: string | null; email: string | null;
+    filiado: { nomeCompleto: string; cpf: string | null; telefonePrincipal: string | null; email: string | null;
       numeroCoren: string | null; formacao: FormacaoProfissional | null; cidade: string | null;
       estado: string | null; vinculos: { empresa: string; ordem: number }[] },
   ) {
@@ -775,6 +792,10 @@ export class ColoniaService {
     const m = this.mapFormacaoColonia(dados.formacao);
     const corenDigitos = (dados.coren ?? '').replace(/\D/g, '').slice(0, 6);
     const corenNovo = corenDigitos ? `COREN-PI ${corenDigitos}-${m.suf}` : null;
+    const fmtCpf = (v?: string | null) => {
+      const d = (v ?? '').replace(/\D/g, '');
+      return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : v ?? null;
+    };
     const v1 = filiado.vinculos[0];
     const v2 = filiado.vinculos[1];
     const norm = (v: unknown) => (v == null ? '' : String(v).trim());
@@ -788,6 +809,7 @@ export class ColoniaService {
 
     const lista = [
       campo('nomeCompleto', 'Nome completo', filiado.nomeCompleto, dados.nomeCompleto),
+      campo('cpf', 'CPF', fmtCpf(filiado.cpf), fmtCpf(dados.cpf)),
       campo('telefonePrincipal', 'Telefone', filiado.telefonePrincipal, dados.telefone),
       campo('email', 'E-mail', filiado.email, dados.email),
       campo('numeroCoren', 'COREN', filiado.numeroCoren, corenNovo),
@@ -873,8 +895,11 @@ export class ColoniaService {
     const m = this.mapFormacaoColonia(dados.formacao);
     const corenDigitos = (dados.coren ?? '').replace(/\D/g, '').slice(0, 6);
 
+    const cpfDigitos = (dados.cpf ?? '').replace(/\D/g, '');
+
     const data: Prisma.FiliadoUpdateInput = {};
     if (sel.has('nomeCompleto')) data.nomeCompleto = dados.nomeCompleto;
+    if (sel.has('cpf') && cpfDigitos) data.cpf = cpfDigitos;
     if (sel.has('telefonePrincipal')) data.telefonePrincipal = dados.telefone;
     if (sel.has('email') && dados.email) data.email = dados.email;
     if (sel.has('numeroCoren') && corenDigitos) data.numeroCoren = `COREN-PI ${corenDigitos}-${m.suf}`;
@@ -883,6 +908,17 @@ export class ColoniaService {
     if (sel.has('estado')) data.estado = dados.estado;
 
     await this.prisma.$transaction(async (tx) => {
+      // CPF é único: bloqueia (com mensagem clara) se já for de outro filiado.
+      if (data.cpf) {
+        const colisao = await tx.filiado.findFirst({
+          where: { cpf: cpfDigitos, id: { not: filiado.id } },
+          select: { nomeCompleto: true, matricula: true },
+        });
+        if (colisao)
+          throw new ConflictException(
+            `O CPF informado já pertence a outro filiado: ${colisao.nomeCompleto} (matrícula ${colisao.matricula}).`,
+          );
+      }
       if (Object.keys(data).length > 0)
         await tx.filiado.update({ where: { id: filiado.id }, data });
 

@@ -33,7 +33,7 @@ type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string; filiadoId: string | 
 export default function ColoniaGestaoPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const [alocar, setAlocar] = useState<{ loteId: string; numero: number; quartos: LotePainel['quartos'] } | null>(null);
+  const [alocar, setAlocar] = useState<{ loteId: string; numero: number; quartos: LotePainel['quartos']; sorteioInscritos: number } | null>(null);
   const [confirmar, setConfirmar] = useState<Ocupante | null>(null);
   const [sorteioModal, setSorteioModal] = useState<{ lote: LotePainel['lote']; inscritos: LotePainel['inscritos'] } | null>(null);
   const [detalhe, setDetalhe] = useState<{ ocupante: Ocupante; lote: LotePainel['lote']; campanha: string } | null>(null);
@@ -146,7 +146,7 @@ export default function ColoniaGestaoPage() {
             <LoteAdmin key={l.lote.id} l={l}
               onCancelar={(oc) => setConfirmar(oc)}
               onDetalhes={(oc) => setDetalhe({ ocupante: oc, lote: l.lote, campanha: t.nome })}
-              onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos })}
+              onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos, sorteioInscritos: l.inscritos.length })}
               onAbrirSorteio={() => setSorteioModal({ lote: l.lote, inscritos: l.inscritos })}
               onSincronizar={onSincronizar}
             />
@@ -156,7 +156,7 @@ export default function ColoniaGestaoPage() {
 
       {/* Modal alocação manual (autocomplete /api/admin/filiados/buscar) */}
       {alocar && (
-        <AlocarManualModal loteId={alocar.loteId} loteNumero={alocar.numero} quartos={alocar.quartos}
+        <AlocarManualModal loteId={alocar.loteId} loteNumero={alocar.numero} quartos={alocar.quartos} sorteioInscritos={alocar.sorteioInscritos}
           onClose={() => setAlocar(null)} onSuccess={() => { setAlocar(null); invalidar(); }} />
       )}
 

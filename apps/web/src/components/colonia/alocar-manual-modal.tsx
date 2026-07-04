@@ -46,12 +46,14 @@ export function AlocarManualModal({
   loteId,
   loteNumero,
   quartos,
+  sorteioInscritos,
   onClose,
   onSuccess,
 }: {
   loteId: string;
   loteNumero: number;
   quartos: QuartoPainel[];
+  sorteioInscritos: number;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -60,9 +62,13 @@ export function AlocarManualModal({
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
 
+  // Q6 é do sorteio: com inscritos aguardando, a alocação manual não pode furar a fila.
+  const q6Bloqueado = sorteioInscritos > 0;
   const quartosOrdenados = useMemo(() => [...quartos].sort((a, b) => a.numero - b.numero), [quartos]);
   const [quartoId, setQuartoId] = useState<string>(() => {
-    const livre = [...quartos].sort((a, b) => a.numero - b.numero).find((q) => !q.ocupado);
+    const livre = [...quartos]
+      .sort((a, b) => a.numero - b.numero)
+      .find((q) => !q.ocupado && !(q.numero === 6 && sorteioInscritos > 0));
     return livre?.id ?? '';
   });
   const quartoSel = quartos.find((q) => q.id === quartoId);
@@ -173,16 +179,18 @@ export function AlocarManualModal({
               {quartosOrdenados.map((q) => {
                 const ar = q.climatizacao === 'AR_CONDICIONADO';
                 const ativo = q.id === quartoId;
+                const q6Trava = q.numero === 6 && q6Bloqueado;
+                const desabilitado = q.ocupado || q6Trava;
                 return (
                   <button
                     key={q.id}
                     type="button"
-                    disabled={q.ocupado}
+                    disabled={desabilitado}
                     onClick={() => setQuartoId(q.id)}
-                    title={q.ocupado ? 'Ocupado' : ar ? 'Ar-condicionado' : 'Ventilador'}
+                    title={q.ocupado ? 'Ocupado' : q6Trava ? 'Sorteio público em andamento' : ar ? 'Ar-condicionado' : 'Ventilador'}
                     className={cn(
                       'flex flex-col items-center gap-1 rounded-lg border p-2 text-xs transition-colors',
-                      q.ocupado
+                      desabilitado
                         ? 'cursor-not-allowed border-input opacity-40'
                         : ativo
                           ? 'border-senatepi-600 bg-senatepi-50 dark:bg-senatepi-900/30'
@@ -193,15 +201,27 @@ export function AlocarManualModal({
                       ? <Snowflake className="h-4 w-4 text-sky-600 dark:text-sky-400" />
                       : <Fan className="h-4 w-4 text-senatepi-600 dark:text-senatepi-400" />}
                     <span className="font-bold">Q{q.numero}</span>
-                    <span className="text-[9px] text-muted-foreground">{q.ocupado ? 'ocupado' : ar ? 'Ar' : 'Vent.'}</span>
+                    <span className="text-[9px] text-muted-foreground">{q.ocupado ? 'ocupado' : q6Trava ? 'sorteio' : ar ? 'Ar' : 'Vent.'}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Aviso apenas para o Quarto 6 (bloqueia o sorteio público) */}
-          {isQ6 && (
+          {/* Q6 indisponível: já há inscritos no sorteio público (não pode furar a fila) */}
+          {q6Bloqueado && (
+            <div className="flex items-start gap-2 rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-800 dark:border-sky-900/40 dark:bg-sky-950/20 dark:text-sky-200">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <span>
+                O <strong>Quarto 6</strong> está indisponível para alocação manual: há{' '}
+                <strong>{sorteioInscritos}</strong> {sorteioInscritos === 1 ? 'inscrito' : 'inscritos'} no
+                sorteio público deste lote. Realize o sorteio para definir o ocupante.
+              </span>
+            </div>
+          )}
+
+          {/* Aviso apenas para o Quarto 6 quando ainda é permitido (encerra o sorteio) */}
+          {isQ6 && !q6Bloqueado && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/20 dark:text-amber-200">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
               <span><strong>Aviso:</strong> alocar no Quarto 6 bloqueia/encerra o Sorteio público deste lote.</span>
