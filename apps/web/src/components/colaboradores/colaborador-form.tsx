@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Save, Upload } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import {
   listarEmpresas,
   criarColaborador,
   atualizarColaborador,
+  enviarFotoColaborador,
 } from '@/lib/colaboradores';
 
 const sel = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
@@ -37,7 +38,6 @@ const schema = z
     cargoId: z.string().min(1, 'Selecione o cargo'),
     departamentoId: z.string().min(1, 'Selecione o departamento'),
     empresaId: z.string().optional(),
-    fotoUrl: z.string().url('URL inválida').optional().or(z.literal('')),
     dataNascimento: z.string().optional(),
     telefone: z.string().optional(),
     email: z.string().email('E-mail inválido').optional().or(z.literal('')),
@@ -63,6 +63,18 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
   const router = useRouter();
   const qc = useQueryClient();
   const [enviando, setEnviando] = useState(false);
+  const [foto, setFoto] = useState<File | null>(null);
+  const [fotoPreview, setFotoPreview] = useState<string | null>(inicial?.fotoUrl ?? null);
+
+  function onFoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) return;
+    setFoto(f);
+    if (fotoPreview?.startsWith('blob:')) URL.revokeObjectURL(fotoPreview);
+    setFotoPreview(URL.createObjectURL(f));
+  }
 
   const { data: cargos } = useQuery({ queryKey: ['cadastros-cargos'], queryFn: listarCargos });
   const { data: departamentos } = useQuery({ queryKey: ['cadastros-departamentos'], queryFn: listarDepartamentos });
@@ -85,7 +97,6 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
           cargoId: inicial.cargoId,
           departamentoId: inicial.departamentoId,
           empresaId: inicial.empresaId ?? '',
-          fotoUrl: inicial.fotoUrl ?? '',
           dataNascimento: inicial.dataNascimento?.slice(0, 10) ?? '',
           telefone: inicial.telefone ?? '',
           email: inicial.email ?? '',
@@ -118,7 +129,6 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
         cargoId: d.cargoId,
         departamentoId: d.departamentoId,
         empresaId: mostraEmpresa ? d.empresaId || undefined : undefined,
-        fotoUrl: d.fotoUrl || undefined,
         dataNascimento: d.dataNascimento || undefined,
         telefone: d.telefone || undefined,
         email: d.email || undefined,
@@ -132,9 +142,12 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
         vencimentoContrato: mostraVencimento ? d.vencimentoContrato || undefined : undefined,
         instituicaoEnsino: mostraEstagio ? d.instituicaoEnsino || undefined : undefined,
       };
-      if (inicial) await atualizarColaborador(inicial.id, payload);
-      else await criarColaborador(payload);
+      let id: string;
+      if (inicial) { await atualizarColaborador(inicial.id, payload); id = inicial.id; }
+      else { id = (await criarColaborador(payload)).id; }
+      if (foto) await enviarFotoColaborador(id, foto);
       await qc.invalidateQueries({ queryKey: ['colaboradores'] });
+      await qc.invalidateQueries({ queryKey: ['colaborador', id] });
       toast.success(inicial ? 'Colaborador atualizado.' : 'Colaborador cadastrado.');
       router.push('/colaboradores');
     } catch (e: any) {
@@ -150,10 +163,23 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
       <Card>
         <CardHeader><CardTitle>Dados pessoais</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="sm:col-span-2 lg:col-span-3">
-            <Campo label="Foto (URL)" erro={errors.fotoUrl?.message}>
-              <Input type="url" placeholder="https://…/foto.jpg" {...register('fotoUrl')} />
-            </Campo>
+          {/* Foto de perfil (upload) */}
+          <div className="flex flex-col items-center gap-4 sm:col-span-2 sm:flex-row lg:col-span-3">
+            {fotoPreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={fotoPreview} alt="" className="h-20 w-20 shrink-0 rounded-full border object-cover" />
+            ) : (
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <Upload className="h-7 w-7" />
+              </div>
+            )}
+            <div>
+              <input type="file" accept="image/*" id="foto-colab" className="hidden" onChange={onFoto} />
+              <Button type="button" variant="outline" onClick={() => document.getElementById('foto-colab')?.click()}>
+                <Upload className="h-4 w-4" /> Selecionar foto
+              </Button>
+              <p className="mt-1 text-xs text-muted-foreground">Enviada ao salvar. JPG ou PNG.</p>
+            </div>
           </div>
           <Campo label="Nome *" erro={errors.nome?.message}><Input {...register('nome')} /></Campo>
           <Campo label="CPF *" erro={errors.cpf?.message}>

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus, Search, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -117,6 +117,7 @@ export default function ColaboradoresPage() {
                     <td className="px-4 py-3"><Badge className={STATUS_COLAB_COR[c.status]}>{STATUS_COLAB_LABEL[c.status]}</Badge></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-0.5">
+                        <Link href={`/colaboradores/${c.id}`} title="Detalhes"><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
                         <Link href={`/colaboradores/${c.id}/editar`} title="Editar"><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
                         <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" title="Excluir" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
                       </div>
@@ -134,11 +135,12 @@ export default function ColaboradoresPage() {
             {!isLoading && linhas?.map((c) => (
               <div key={c.id} className="p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  <Link href={`/colaboradores/${c.id}`} className="min-w-0">
                     <p className="truncate font-semibold leading-tight">{c.nome}</p>
                     <p className="text-xs text-muted-foreground">{mascararCpf(c.cpf)}</p>
-                  </div>
+                  </Link>
                   <div className="flex shrink-0 items-center gap-0.5">
+                    <Link href={`/colaboradores/${c.id}`}><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
                     <Link href={`/colaboradores/${c.id}/editar`}><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
                     <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
                   </div>

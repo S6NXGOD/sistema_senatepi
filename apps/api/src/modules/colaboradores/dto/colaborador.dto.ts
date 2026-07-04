@@ -46,6 +46,17 @@ export class CreateColaboradorDto {
 
 export class UpdateColaboradorDto extends PartialType(CreateColaboradorDto) {}
 
+export class AlterarStatusColaboradorDto {
+  @ApiProperty({ enum: StatusColaborador })
+  @IsEnum(StatusColaborador) status: StatusColaborador;
+  @ApiPropertyOptional({ description: 'Obrigatório em INATIVO/AFASTADO' })
+  @IsOptional() @IsString() motivo?: string;
+  @ApiPropertyOptional({ description: 'Obrigatório em DESLIGADO (YYYY-MM-DD)' })
+  @IsOptional() @IsDateString() dataDesligamento?: string;
+  @ApiPropertyOptional({ description: 'Obrigatório em FERIAS — dias até o retorno automático' })
+  @IsOptional() diasFerias?: number;
+}
+
 export class ListColaboradoresQueryDto {
   @ApiPropertyOptional({ description: 'Busca por nome ou CPF' })
   @IsOptional() @IsString() busca?: string;

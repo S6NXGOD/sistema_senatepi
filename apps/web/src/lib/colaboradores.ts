@@ -75,6 +75,9 @@ export interface Colaborador {
   dataAdmissao: string | null;
   status: StatusColaborador;
   tipoVinculo: TipoVinculo;
+  statusMotivo: string | null;
+  dataDesligamento: string | null;
+  feriasRetornoEm: string | null;
   cep: string | null;
   logradouro: string | null;
   numero: string | null;
@@ -138,6 +141,35 @@ export async function atualizarColaborador(id: string, payload: Partial<Colabora
 }
 export async function excluirColaborador(id: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/colaboradores/${id}`)).data;
+}
+
+/** Envia a foto do colaborador por upload (multipart). */
+export async function enviarFotoColaborador(id: string, file: File): Promise<Colaborador> {
+  const fd = new FormData();
+  fd.append('foto', file);
+  return (await api.post(`/colaboradores/${id}/foto`, fd)).data;
+}
+
+export interface AlterarStatusPayload {
+  status: StatusColaborador;
+  motivo?: string;
+  dataDesligamento?: string;
+  diasFerias?: number;
+}
+/** Muda o status (dinâmico: motivo / data de desligamento / dias de férias). */
+export async function alterarStatusColaborador(id: string, payload: AlterarStatusPayload): Promise<Colaborador> {
+  return (await api.patch(`/colaboradores/${id}/status`, payload)).data;
+}
+
+export interface ColaboradorHistorico {
+  id: string;
+  tipo: 'CADASTRO' | 'ALTERACAO' | 'MUDANCA_STATUS' | 'UPLOAD_FOTO';
+  descricao: string;
+  autor: string | null;
+  createdAt: string;
+}
+export async function getHistoricoColaborador(id: string): Promise<ColaboradorHistorico[]> {
+  return (await api.get(`/colaboradores/${id}/historico`)).data;
 }
 
 /** Máscara de CNPJ (00.000.000/0000-00). */

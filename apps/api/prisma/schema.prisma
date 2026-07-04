@@ -912,7 +912,8 @@ model Empresa {
 model Colaborador {
   id             String            @id @default(uuid())
   // Dados universais
-  fotoUrl        String?           @map("foto_url")
+  fotoUrl        String?           @map("foto_url") // resolvido a partir de fotoKey (upload)
+  fotoKey        String?           @map("foto_key") // chave da foto enviada no storage
   nome           String
   cpf            String            @unique // LGPD: dado mínimo necessário; mascarado na exibição
   dataNascimento DateTime?         @map("data_nascimento")
@@ -921,6 +922,10 @@ model Colaborador {
   dataAdmissao   DateTime?         @map("data_admissao")
   status         StatusColaborador @default(ATIVO)
   tipoVinculo    TipoVinculo       @map("tipo_vinculo")
+  // Situação dinâmica (conforme o status)
+  statusMotivo     String?   @map("status_motivo")     // obrigatório em INATIVO/AFASTADO
+  dataDesligamento DateTime? @map("data_desligamento") // obrigatório em DESLIGADO
+  feriasRetornoEm  DateTime? @map("ferias_retorno_em") // retorno automático a ATIVO (FERIAS)
   // Endereço
   cep            String?
   logradouro     String?
@@ -941,10 +946,33 @@ model Colaborador {
   cargo        Cargo        @relation(fields: [cargoId], references: [id])
   departamento Departamento @relation(fields: [departamentoId], references: [id])
   empresa      Empresa?     @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  historico    ColaboradorHistorico[]
 
   @@index([status])
   @@index([cargoId])
   @@index([departamentoId])
   @@index([empresaId])
   @@map("colaboradores")
+}
+
+enum TipoHistoricoColaborador {
+  CADASTRO
+  ALTERACAO
+  MUDANCA_STATUS
+  UPLOAD_FOTO
+}
+
+model ColaboradorHistorico {
+  id            String                   @id @default(uuid())
+  colaboradorId String                   @map("colaborador_id")
+  tipo          TipoHistoricoColaborador
+  descricao     String
+  autor         String?
+  metadata      Json?
+  createdAt     DateTime                 @default(now()) @map("created_at")
+
+  colaborador Colaborador @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+
+  @@index([colaboradorId])
+  @@map("colaborador_historico")
 }
