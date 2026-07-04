@@ -1,6 +1,6 @@
 import {
-  LayoutDashboard, Users, Briefcase, Handshake, CalendarDays,
-  ScanLine, CreditCard, ShieldCheck, Umbrella, Contact, SlidersHorizontal, type LucideIcon,
+  LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
+  ScanLine, SlidersHorizontal, ShieldCheck, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -9,17 +9,41 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-/** Itens de navegação do administrativo (compartilhados entre Sidebar e MobileNav). */
-export const NAV_ITENS: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/filiados', label: 'Filiados', icon: Users },
-  { href: '/colaboradores', label: 'Colaboradores', icon: Contact },
-  { href: '/cadastros-base', label: 'Cadastros Base', icon: SlidersHorizontal },
-  { href: '/funcionarios', label: 'Funcionários', icon: Briefcase },
-  { href: '/prestadores', label: 'Prestadores', icon: Handshake },
-  { href: '/eventos', label: 'Eventos', icon: CalendarDays },
-  { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella },
-  { href: '/validacao', label: 'Validação (QR)', icon: ScanLine },
-  { href: '/carteirinhas', label: 'Carteirinhas', icon: CreditCard },
-  { href: '/auditoria', label: 'Auditoria', icon: ShieldCheck },
+export interface NavSecao {
+  titulo: string;
+  itens: NavItem[];
+}
+
+/**
+ * Navegação do administrativo, agrupada por área (compartilhada entre a Sidebar
+ * e o menu mobile). Funcionários/Prestadores foram unificados em Colaboradores;
+ * Carteirinhas é gerida dentro de Filiados.
+ */
+export const NAV_SECOES: NavSecao[] = [
+  {
+    titulo: 'Principal',
+    itens: [
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/filiados', label: 'Filiados', icon: Users },
+      { href: '/colaboradores', label: 'Colaboradores', icon: Contact },
+    ],
+  },
+  {
+    titulo: 'Operacional',
+    itens: [
+      { href: '/eventos', label: 'Eventos', icon: CalendarDays },
+      { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella },
+      { href: '/validacao', label: 'Validação (QR)', icon: ScanLine },
+    ],
+  },
+  {
+    titulo: 'Administração',
+    itens: [
+      { href: '/cadastros-base', label: 'Cadastros Base', icon: SlidersHorizontal },
+      { href: '/auditoria', label: 'Auditoria', icon: ShieldCheck },
+    ],
+  },
 ];
+
+/** Lista plana (compatibilidade). */
+export const NAV_ITENS: NavItem[] = NAV_SECOES.flatMap((s) => s.itens);

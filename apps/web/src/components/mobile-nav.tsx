@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { Logo } from '@/components/logo';
-import { NAV_ITENS } from '@/components/nav-items';
+import { NAV_SECOES } from '@/components/nav-items';
 import { useAuth } from '@/lib/auth';
 
 /** Hamburger + Sheet lateral com a navegação — visível só no mobile (md:hidden). */
@@ -30,27 +30,34 @@ export function MobileNav() {
             <X className="h-5 w-5" />
           </Button>
         </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {NAV_ITENS.map((item) => {
-            const ativo = pathname === item.href || pathname.startsWith(item.href + '/');
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setAberto(false)}
-                className={cn(
-                  'flex h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
-                  ativo
-                    ? 'bg-senatepi-800 text-white shadow-sm'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                <Icon className="h-5 w-5 shrink-0" />
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+          {NAV_SECOES.map((secao) => (
+            <div key={secao.titulo} className="space-y-1">
+              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {secao.titulo}
+              </p>
+              {secao.itens.map((item) => {
+                const ativo = pathname === item.href || pathname.startsWith(item.href + '/');
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setAberto(false)}
+                    className={cn(
+                      'flex h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
+                      ativo
+                        ? 'bg-senatepi-800 text-white shadow-sm'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Rodapé: Meu Perfil + Sair do Sistema */}

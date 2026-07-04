@@ -3,9 +3,10 @@ import { CadastrosController } from './cadastros.controller';
 import { CadastrosService } from './cadastros.service';
 import { ColaboradoresController } from './colaboradores.controller';
 import { ColaboradoresService } from './colaboradores.service';
+import { ColaboradoresMigracaoService } from './colaboradores-migracao.service';
 
 @Module({
   controllers: [CadastrosController, ColaboradoresController],
-  providers: [CadastrosService, ColaboradoresService],
+  providers: [CadastrosService, ColaboradoresService, ColaboradoresMigracaoService],
 })
 export class ColaboradoresModule {}
