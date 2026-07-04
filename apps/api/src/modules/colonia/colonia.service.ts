@@ -769,6 +769,9 @@ export class ColoniaService {
       filiadoNome: filiado.nomeCompleto,
       matricula: filiado.matricula,
       cpf,
+      // Já sincronizado? Então é só consulta (snapshot do que foi atualizado).
+      sincronizadoEm: dados.filiadoSincronizadoEm,
+      sincronizacao: dados.filiadoSincronizacao,
       campos: this.construirCampos(dados, filiado),
     };
   }
@@ -786,11 +789,20 @@ export class ColoniaService {
     autor?: string,
   ) {
     const { dados, filiado } = await this.carregarParaSync(fonte, id);
+    // Trava: cada registro só sincroniza UMA vez (depois é apenas consulta).
+    if (dados.filiadoSincronizadoEm)
+      throw new ConflictException('Este cadastro já foi atualizado a partir deste registro.');
+
     const disponiveis = this.construirCampos(dados, filiado);
     const validos = new Set(disponiveis.map((c) => c.campo));
     const sel = new Set((campos ?? []).filter((c) => validos.has(c)));
     if (sel.size === 0)
       throw new BadRequestException('Selecione ao menos um campo para atualizar.');
+
+    // Snapshot do que será atualizado (antes → depois), para consulta futura.
+    const snapshot = disponiveis
+      .filter((c) => sel.has(c.campo))
+      .map((c) => ({ campo: c.campo, label: c.label, de: c.atual, para: c.novo }));
 
     const m = this.mapFormacaoColonia(dados.formacao);
     const corenDigitos = (dados.coren ?? '').replace(/\D/g, '').slice(0, 6);
@@ -827,6 +839,14 @@ export class ColoniaService {
           metadata: { origem: 'colonia', fonte, campos: [...sel] },
         },
       });
+
+      // Marca o registro da Colônia como sincronizado (trava + snapshot p/ consulta).
+      const marca = {
+        filiadoSincronizadoEm: new Date(),
+        filiadoSincronizacao: snapshot as Prisma.InputJsonValue,
+      };
+      if (fonte === 'reserva') await tx.coloniaReserva.update({ where: { id }, data: marca });
+      else await tx.coloniaSorteioInscricao.update({ where: { id }, data: marca });
     });
 
     return { filiadoId: filiado.id, nome: filiado.nomeCompleto, alterados: [...sel] };
@@ -917,6 +937,8 @@ export class ColoniaService {
             createdAt: r.createdAt,
             // Cadastro de filiado correspondente (por CPF), se existir.
             filiadoId: filiadoPorCpf.get(r.cpf) ?? null,
+            // Já sincronizou este registro com o cadastro? (trava re-atualização)
+            sincronizadoEm: r.filiadoSincronizadoEm,
           })),
         inscritos: inscritos
           .filter((i) => i.loteId === lote.id)
@@ -924,6 +946,7 @@ export class ColoniaService {
             id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren,
             formacao: i.formacao, createdAt: i.createdAt,
             filiadoId: filiadoPorCpf.get(i.cpf) ?? null,
+            sincronizadoEm: i.filiadoSincronizadoEm,
           })),
         // Fila de suplentes (ordem de promoção), com match de filiado.
         suplentes: suplentes
@@ -932,6 +955,7 @@ export class ColoniaService {
             id: s.id, posicao: s.posicaoSuplente, nomeCompleto: s.nomeCompleto, cpf: s.cpf,
             coren: s.coren, formacao: s.formacao,
             filiadoId: filiadoPorCpf.get(s.cpf) ?? null,
+            sincronizadoEm: s.filiadoSincronizadoEm,
           })),
         sorteioHabilitado: diretasDisponiveis === 0 && !q6Ocupado,
         esgotado: diretasDisponiveis === 0 && q6Ocupado,

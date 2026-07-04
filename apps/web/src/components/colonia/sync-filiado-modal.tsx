@@ -35,9 +35,13 @@ export function SyncFiliadoModal({
     retry: false,
   });
 
+  // Já sincronizado? Então o modal é apenas de CONSULTA (read-only).
+  const jaSincronizado = !!data?.sincronizadoEm;
+
   // Pré-seleciona apenas os campos que DIFEREM do cadastro atual.
   useEffect(() => {
-    if (data) setSelecionados(new Set(data.campos.filter((c) => c.diferente).map((c) => c.campo)));
+    if (data && !data.sincronizadoEm)
+      setSelecionados(new Set(data.campos.filter((c) => c.diferente).map((c) => c.campo)));
   }, [data]);
 
   const toggle = (campo: string) =>
@@ -109,7 +113,35 @@ export function SyncFiliadoModal({
                 Ver cadastro atual completo <ExternalLink className="h-3.5 w-3.5" />
               </a>
 
-              {etapa === 'selecionar' ? (
+              {jaSincronizado ? (
+                /* Consulta: o que já foi atualizado a partir deste registro. */
+                <>
+                  <div className="flex items-start gap-2 rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/20 dark:text-green-300">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Cadastro já atualizado em{' '}
+                      <strong>{new Date(data.sincronizadoEm!).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</strong>.
+                      Este registro não pode ser sincronizado novamente.
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Alterações aplicadas:</p>
+                  <div className="space-y-2">
+                    {(data.sincronizacao ?? []).map((s) => (
+                      <div key={s.campo} className="rounded-lg border p-3 text-sm">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{s.label}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span className="text-muted-foreground line-through">{s.de || '— (vazio)'}</span>
+                          <ArrowRight className="h-4 w-4 shrink-0 text-green-600 dark:text-green-400" />
+                          <span className="font-semibold text-green-700 dark:text-green-300">{s.para}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {(!data.sincronizacao || data.sincronizacao.length === 0) && (
+                      <p className="text-sm text-muted-foreground">Nenhum detalhe registrado.</p>
+                    )}
+                  </div>
+                </>
+              ) : etapa === 'selecionar' ? (
                 <>
                   <p className="text-sm text-muted-foreground">
                     Marque os campos que deseja <strong>atualizar</strong>. Os desmarcados permanecem como estão.
@@ -148,7 +180,12 @@ export function SyncFiliadoModal({
           )}
         </div>
 
-        {data && data.campos.length > 0 && (
+        {data && jaSincronizado && (
+          <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
+            <Button variant="outline" onClick={onClose}>Fechar</Button>
+          </div>
+        )}
+        {data && !jaSincronizado && data.campos.length > 0 && (
           <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
             {etapa === 'selecionar' ? (
               <Button disabled={selecionados.size === 0} onClick={() => setEtapa('confirmar')}>

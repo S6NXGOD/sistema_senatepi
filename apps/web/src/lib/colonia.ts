@@ -188,6 +188,8 @@ export interface Ocupante {
   createdAt: string;
   /** Cadastro de filiado correspondente (por CPF), se existir. */
   filiadoId: string | null;
+  /** Quando este registro já foi sincronizado com o cadastro (trava re-atualização). */
+  sincronizadoEm: string | null;
 }
 
 export interface InscritoSorteio {
@@ -198,6 +200,7 @@ export interface InscritoSorteio {
   formacao: FormacaoColonia;
   createdAt: string;
   filiadoId: string | null;
+  sincronizadoEm: string | null;
 }
 
 /** Suplente da fila de sorteio (ordem de promoção). */
@@ -209,6 +212,7 @@ export interface Suplente {
   coren: string | null;
   formacao: FormacaoColonia;
   filiadoId: string | null;
+  sincronizadoEm: string | null;
 }
 
 export interface LotePainel {
@@ -261,11 +265,22 @@ export interface CampoDiff {
   diferente: boolean;
 }
 
+/** Snapshot do que foi atualizado (para consulta após sincronizar). */
+export interface SyncSnapshotItem {
+  campo: string;
+  label: string;
+  de: string | null;
+  para: string | null;
+}
+
 export interface ComparacaoFiliado {
   filiadoId: string;
   filiadoNome: string;
   matricula: string;
   cpf: string;
+  /** Preenchido quando este registro JÁ foi sincronizado (então é só consulta). */
+  sincronizadoEm: string | null;
+  sincronizacao: SyncSnapshotItem[] | null;
   campos: CampoDiff[];
 }
 

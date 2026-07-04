@@ -788,6 +788,11 @@ model ColoniaReserva {
   motivoCancelamento String?   @map("motivo_cancelamento")
 
   criadaPor String?  @map("criada_por")
+
+  // Sincronização com o cadastro de Filiado (uma vez por registro).
+  filiadoSincronizadoEm DateTime? @map("filiado_sincronizado_em")
+  filiadoSincronizacao  Json?     @map("filiado_sincronizacao") // snapshot [{campo,label,de,para}]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -833,6 +838,11 @@ model ColoniaSorteioInscricao {
   ipInscricao       String?   @map("ip_inscricao")
 
   reservaId String?  @map("reserva_id") // preenchido quando vira reserva (sorteado)
+
+  // Sincronização com o cadastro de Filiado (uma vez por registro).
+  filiadoSincronizadoEm DateTime? @map("filiado_sincronizado_em")
+  filiadoSincronizacao  Json?     @map("filiado_sincronizacao") // snapshot [{campo,label,de,para}]
+
   createdAt DateTime @default(now()) @map("created_at")
 
   temporada ColoniaTemporada @relation(fields: [temporadaId], references: [id], onDelete: Cascade)
