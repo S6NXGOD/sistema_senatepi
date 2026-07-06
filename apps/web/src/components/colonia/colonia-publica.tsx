@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Snowflake, Fan, Ticket, Phone, AlertTriangle, Loader2, Sun, Waves,
   UserCheck, UserX, ArrowRight, ArrowLeft, CalendarCheck2, CalendarX2, Clock, Ban, Sparkles,
-  BedDouble, MapPin, Clock3, Instagram, PhoneCall,
+  BedDouble, MapPin, Clock3, Instagram, X, Footprints, Navigation,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -101,7 +101,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
 
         {/* ETAPA 2 — VITRINE */}
         {etapa === 'vitrine' && (
-          <div className="animate-fade-in space-y-6">
+          <div className="animate-fade-in space-y-6 pb-28 sm:pb-6">
             {isLoading && (
               <div className="flex justify-center py-20">
                 <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
@@ -140,8 +140,8 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                   </Badge>
                 </div>
 
-                {/* Sorteio do Quarto 6 — anúncio (data + live) e como funciona */}
-                <SorteioAviso dataSorteio={data.temporada.dataSorteio} />
+                {/* Localização da colônia (foto + praias próximas + mapa) — topo */}
+                <LocalizacaoCard />
 
                 {/* Aviso do prazo de cancelamento (Termo de No-Show) */}
                 <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
@@ -158,6 +158,9 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                     />
                   ))}
                 </div>
+
+                {/* Sorteio do Quarto 6 — float fechável no rodapé (some após a data) */}
+                <SorteioFloat dataSorteio={data.temporada.dataSorteio} />
               </>
             )}
           </div>
@@ -368,12 +371,66 @@ function StatusBadge({ l }: { l: LoteDisp }) {
 }
 
 // ---------------------------------------------------------------------------
-// Aviso do sorteio do Quarto 6: data + live no Instagram e "como funciona"
+// Localização da colônia (topo): foto, praias próximas e link do mapa
+// ---------------------------------------------------------------------------
+
+const MAPS_URL = 'https://maps.app.goo.gl/qmtzkZSe9rb9ZmP78';
+
+function LocalizacaoCard() {
+  return (
+    <Card className="overflow-hidden">
+      <div className="grid sm:grid-cols-2">
+        <div className="relative min-h-[12rem] sm:min-h-full">
+          <img
+            src="/lc.png"
+            alt="Colônia de Férias do SENATEPI em Luís Correia (PI)"
+            className="h-full w-full object-cover"
+          />
+          <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
+            <MapPin className="h-3.5 w-3.5" /> Luís Correia · PI
+          </span>
+        </div>
+        <CardContent className="flex flex-col gap-3 p-5">
+          <div>
+            <h2 className="text-lg font-bold">Onde você vai ficar</h2>
+            <p className="text-sm text-muted-foreground">Colônia de Férias do SENATEPI — Luís Correia (PI)</p>
+          </div>
+          <ul className="space-y-2 text-sm">
+            <li className="flex items-start gap-2">
+              <Waves className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+              <span>A <strong>200 metros</strong> da <strong>Praia de Atalaia</strong> e da <strong>Praia do Coqueiro</strong>.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Footprints className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+              <span>Perto o suficiente para ir <strong>a pé</strong> até as praias.</span>
+            </li>
+          </ul>
+          <a
+            href={MAPS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-senatepi-800 font-semibold text-white transition-colors hover:bg-senatepi-700"
+          >
+            <Navigation className="h-4 w-4" /> Abrir no mapa
+          </a>
+        </CardContent>
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sorteio do Quarto 6: float fechável no rodapé (some após a data do sorteio)
 // ---------------------------------------------------------------------------
 
 const INSTAGRAM_URL = 'https://instagram.com/senatepienfermagem';
 
-function SorteioAviso({ dataSorteio }: { dataSorteio?: string | null }) {
+function SorteioFloat({ dataSorteio }: { dataSorteio?: string | null }) {
+  const [aberto, setAberto] = useState(true);
+
+  // Após a data anunciada, o sorteio já aconteceu → não exibir mais o aviso.
+  if (dataSorteio && new Date(dataSorteio).getTime() < Date.now()) return null;
+
   let dataFmt: string | null = null;
   if (dataSorteio) {
     const d = new Date(dataSorteio);
@@ -383,50 +440,53 @@ function SorteioAviso({ dataSorteio }: { dataSorteio?: string | null }) {
     dataFmt = `${semana.charAt(0).toUpperCase() + semana.slice(1)}, ${dia} às ${hora}h`;
   }
 
+  // Recolhido: botão flutuante para reabrir o aviso.
+  if (!aberto) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-amber-500 px-4 py-3 text-sm font-semibold text-white shadow-lg transition-transform hover:scale-105"
+      >
+        <Ticket className="h-4 w-4" /> Sorteio do Q6
+      </button>
+    );
+  }
+
   return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-      <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
-          <Ticket className="h-6 w-6 text-amber-600 dark:text-amber-400" />
-        </div>
-        <div className="min-w-0 flex-1 text-sm">
-          <p className="font-semibold text-amber-900 dark:text-amber-200">Sorteio do Quarto 6 (Ventilador)</p>
-          {dataFmt && (
-            <p className="text-amber-800 dark:text-amber-300">
-              <strong>{dataFmt}</strong> — transmitido <strong>AO VIVO</strong> no Instagram{' '}
-              <a
-                href={INSTAGRAM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 font-semibold underline"
+    <div className="fixed inset-x-0 bottom-0 z-40 p-3 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:p-0">
+      <div className="mx-auto max-w-md rounded-2xl border border-amber-300 bg-amber-50 shadow-2xl dark:border-amber-900/50 dark:bg-amber-950/40 sm:max-w-sm">
+        <div className="flex items-start gap-3 p-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/50">
+            <Ticket className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div className="min-w-0 flex-1 text-sm">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-semibold text-amber-900 dark:text-amber-200">Sorteio do Quarto 6 (Ventilador)</p>
+              <button
+                type="button"
+                onClick={() => setAberto(false)}
+                aria-label="Fechar aviso do sorteio"
+                className="-mr-1 -mt-1 rounded-md p-1 text-amber-700/70 hover:bg-amber-100 hover:text-amber-900 dark:text-amber-300/70 dark:hover:bg-amber-900/50"
               >
-                <Instagram className="h-3.5 w-3.5" /> @senatepienfermagem
-              </a>.
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {dataFmt && (
+              <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+                <strong>{dataFmt}</strong> — ao vivo no Instagram{' '}
+                <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold underline">
+                  <Instagram className="h-3.5 w-3.5" /> @senatepienfermagem
+                </a>.
+              </p>
+            )}
+            <p className="mt-1 text-amber-800/90 dark:text-amber-300/90">
+              Vagas diretas esgotadas? <strong>Entre na fila</strong> do sorteio do Quarto 6. Quem for sorteado é
+              contatado pela equipe — se não confirmar, o próximo suplente assume.
             </p>
-          )}
-          <p className="mt-1 text-amber-800/90 dark:text-amber-300/90">
-            O sorteio é entre <strong>quem se inscreveu na fila do sorteio</strong> do lote. Quem for
-            sorteado será <strong>contatado pela nossa equipe</strong>. Se o contemplado não confirmar,
-            o <strong>próximo suplente</strong> da fila assume a vaga automaticamente.
-          </p>
+          </div>
         </div>
       </div>
-
-      {/* Como funciona (passos) */}
-      <div className="mt-3 grid gap-2 border-t border-amber-200 pt-3 dark:border-amber-900/40 sm:grid-cols-3">
-        <Passo Icon={Ticket} titulo="1. Entre na fila" texto="Quando as vagas diretas do lote esgotarem, inscreva-se no sorteio do Quarto 6." />
-        <Passo Icon={Instagram} titulo="2. Acompanhe a live" texto="O sorteio acontece ao vivo no Instagram @senatepienfermagem." />
-        <Passo Icon={PhoneCall} titulo="3. Contato / suplente" texto="Sorteado? Entramos em contato. Se não confirmar, o suplente assume." />
-      </div>
-    </div>
-  );
-}
-
-function Passo({ Icon, titulo, texto }: { Icon: any; titulo: string; texto: string }) {
-  return (
-    <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-      <span><strong>{titulo}</strong> {texto}</span>
     </div>
   );
 }
