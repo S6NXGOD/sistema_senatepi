@@ -766,6 +766,7 @@ model ColoniaReserva {
   // ---- Dados de checkout (enriquecimento) ----
   nomeCompleto   String          @map("nome_completo")
   cpf            String // único por temporada entre reservas CONFIRMADAS (índice parcial na migração)
+  dataNascimento DateTime?       @map("data_nascimento")
   telefone       String
   coren          String?
   email          String?
@@ -824,6 +825,7 @@ model ColoniaSorteioInscricao {
   // ---- Dados de checkout (enriquecimento) ----
   nomeCompleto   String          @map("nome_completo")
   cpf            String
+  dataNascimento DateTime?       @map("data_nascimento")
   telefone       String
   coren          String?
   email          String?

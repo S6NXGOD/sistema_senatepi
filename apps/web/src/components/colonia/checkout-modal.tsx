@@ -23,6 +23,7 @@ export type TipoCheckout = 'AR' | 'VENTILADOR' | 'SORTEIO';
 const schema = z.object({
   nomeCompleto: z.string().min(3, 'Informe o nome completo'),
   cpf: z.string().refine((v) => soDigitos(v).length === 11, 'CPF inválido'),
+  dataNascimento: z.string().min(1, 'Informe a data de nascimento'),
   telefone: z.string().refine((v) => [10, 11].includes(soDigitos(v).length), 'Telefone inválido'),
   coren: z.string().refine((v) => {
     const d = soDigitos(v);
@@ -88,6 +89,7 @@ export function CheckoutModal({
       const payload = {
         nomeCompleto: d.nomeCompleto,
         cpf: soDigitos(d.cpf),
+        dataNascimento: d.dataNascimento,
         telefone: d.telefone,
         coren: montarCoren(d.coren, d.formacao),
         email: d.email || undefined,
@@ -199,6 +201,10 @@ export function CheckoutModal({
                   )} />
                 </Campo>
               </div>
+
+              <Campo label="Data de nascimento *" erro={errors.dataNascimento?.message}>
+                <Input type="date" {...register('dataNascimento')} />
+              </Campo>
 
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="Formação *" erro={errors.formacao?.message}>

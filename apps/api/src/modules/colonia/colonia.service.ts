@@ -120,10 +120,11 @@ export class ColoniaService {
       throw new BadRequestException('É necessário o consentimento de tratamento de dados (LGPD).');
   }
 
-  private dadosCheckout(dto: CheckoutDto, ctx: Ctx) {
+  private dadosCheckout(dto: CheckoutDto & { dataNascimento?: string }, ctx: Ctx) {
     return {
       nomeCompleto: dto.nomeCompleto.trim(),
       cpf: dto.cpf.replace(/\D/g, ''),
+      dataNascimento: dto.dataNascimento ? new Date(dto.dataNascimento) : null,
       telefone: dto.telefone,
       coren: dto.coren,
       email: dto.email,
@@ -464,6 +465,7 @@ export class ColoniaService {
           origem: OrigemReserva.SORTEIO,
           nomeCompleto: s.nomeCompleto,
           cpf: s.cpf,
+          dataNascimento: s.dataNascimento,
           telefone: s.telefone,
           coren: s.coren,
           email: s.email,
@@ -580,6 +582,7 @@ export class ColoniaService {
           origem: OrigemReserva.SORTEIO,
           nomeCompleto: escolhido.nomeCompleto,
           cpf: escolhido.cpf,
+          dataNascimento: escolhido.dataNascimento,
           telefone: escolhido.telefone,
           coren: escolhido.coren,
           email: escolhido.email,
@@ -777,11 +780,11 @@ export class ColoniaService {
    */
   private construirCampos(
     dados: {
-      nomeCompleto: string; cpf: string; telefone: string; email: string | null; coren: string | null;
+      nomeCompleto: string; cpf: string; dataNascimento: Date | null; telefone: string; email: string | null; coren: string | null;
       formacao: FormacaoColonia; localTrabalho1: string; localTrabalho2: string | null;
       cidade: string; estado: string;
     },
-    filiado: { nomeCompleto: string; cpf: string | null; telefonePrincipal: string | null; email: string | null;
+    filiado: { nomeCompleto: string; cpf: string | null; dataNascimento: Date | null; telefonePrincipal: string | null; email: string | null;
       numeroCoren: string | null; formacao: FormacaoProfissional | null; cidade: string | null;
       estado: string | null; vinculos: { empresa: string; ordem: number }[] },
   ) {
@@ -795,6 +798,13 @@ export class ColoniaService {
     const fmtCpf = (v?: string | null) => {
       const d = (v ?? '').replace(/\D/g, '');
       return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : v ?? null;
+    };
+    // Data de nascimento é gravada em UTC (meia-noite) — formata pelos componentes
+    // UTC p/ evitar deslocamento de fuso (ex.: virar o dia anterior em UTC-3).
+    const fmtData = (v?: Date | null) => {
+      if (!v) return null;
+      const d = new Date(v);
+      return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
     };
     const v1 = filiado.vinculos[0];
     const v2 = filiado.vinculos[1];
@@ -810,6 +820,7 @@ export class ColoniaService {
     const lista = [
       campo('nomeCompleto', 'Nome completo', filiado.nomeCompleto, dados.nomeCompleto),
       campo('cpf', 'CPF', fmtCpf(filiado.cpf), fmtCpf(dados.cpf)),
+      campo('dataNascimento', 'Data de nascimento', fmtData(filiado.dataNascimento), fmtData(dados.dataNascimento)),
       campo('telefonePrincipal', 'Telefone', filiado.telefonePrincipal, dados.telefone),
       campo('email', 'E-mail', filiado.email, dados.email),
       campo('numeroCoren', 'COREN', filiado.numeroCoren, corenNovo),
@@ -900,6 +911,7 @@ export class ColoniaService {
     const data: Prisma.FiliadoUpdateInput = {};
     if (sel.has('nomeCompleto')) data.nomeCompleto = dados.nomeCompleto;
     if (sel.has('cpf') && cpfDigitos) data.cpf = cpfDigitos;
+    if (sel.has('dataNascimento') && dados.dataNascimento) data.dataNascimento = dados.dataNascimento;
     if (sel.has('telefonePrincipal')) data.telefonePrincipal = dados.telefone;
     if (sel.has('email') && dados.email) data.email = dados.email;
     if (sel.has('numeroCoren') && corenDigitos) data.numeroCoren = `COREN-PI ${corenDigitos}-${m.suf}`;
@@ -1125,16 +1137,18 @@ export class ColoniaService {
       return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const cols = [
-      'Tipo', 'Lote', 'Quarto', 'Categoria', 'Origem', 'Status', 'Nome', 'CPF', 'COREN', 'Formacao',
+      'Tipo', 'Lote', 'Quarto', 'Categoria', 'Origem', 'Status', 'Nome', 'CPF', 'DataNascimento', 'COREN', 'Formacao',
       'Telefone', 'Email', 'LocalTrabalho1', 'LocalTrabalho2', 'Cidade', 'Estado',
       'AceiteTermoNoShow', 'ConsentimentoLGPD', 'ConsentimentoEm', 'IP', 'CriadoEm',
     ];
+    // Data de nascimento gravada em UTC (meia-noite) → exporta só a parte da data.
+    const fmtNasc = (v?: Date | null) => (v ? v.toISOString().slice(0, 10) : '');
     const linhas: string[] = [cols.join(';')];
 
     for (const r of reservas) {
       linhas.push([
         'RESERVA', r.lote.numero, r.quarto.numero, r.quarto.climatizacao, r.origem, r.status,
-        r.nomeCompleto, r.cpf, r.coren, r.formacao, r.telefone, r.email, r.localTrabalho1, r.localTrabalho2,
+        r.nomeCompleto, r.cpf, fmtNasc(r.dataNascimento), r.coren, r.formacao, r.telefone, r.email, r.localTrabalho1, r.localTrabalho2,
         r.cidade, r.estado, r.aceiteTermoNoShow ? 'Sim' : 'Nao', r.consentimentoLgpd ? 'Sim' : 'Nao',
         r.consentimentoEm?.toISOString() ?? '', r.ipConsentimento, r.createdAt.toISOString(),
       ].map(esc).join(';'));
@@ -1142,7 +1156,7 @@ export class ColoniaService {
     for (const i of inscritos) {
       linhas.push([
         'INSCRICAO_SORTEIO', i.lote.numero, '6', 'VENTILADOR', 'SORTEIO', i.status,
-        i.nomeCompleto, i.cpf, i.coren, i.formacao, i.telefone, i.email, i.localTrabalho1, i.localTrabalho2,
+        i.nomeCompleto, i.cpf, fmtNasc(i.dataNascimento), i.coren, i.formacao, i.telefone, i.email, i.localTrabalho1, i.localTrabalho2,
         i.cidade, i.estado, i.aceiteTermoNoShow ? 'Sim' : 'Nao', i.consentimentoLgpd ? 'Sim' : 'Nao',
         i.consentimentoEm?.toISOString() ?? '', i.ipInscricao, i.createdAt.toISOString(),
       ].map(esc).join(';'));

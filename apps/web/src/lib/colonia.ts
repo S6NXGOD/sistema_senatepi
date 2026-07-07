@@ -30,6 +30,8 @@ export interface Disponibilidade {
 export interface CheckoutPayload {
   nomeCompleto: string;
   cpf: string;
+  /** Data de nascimento (ISO AAAA-MM-DD). Obrigatória no checkout público; opcional na alocação manual. */
+  dataNascimento?: string;
   telefone: string;
   coren: string; // formato <número>-<ENF|TE|AE>, conforme a formação
   email?: string;
