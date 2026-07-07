@@ -20,7 +20,7 @@ import {
   definirDataSorteio,
   formatarPeriodoLote, formatarDataHoraLote, FORMACAO_LABEL, LABEL_CLIMATIZACAO, mascaraCpf,
   AVISO_NOSHOW_24H, prazoCancelamento24h,
-  LotePainel, Ocupante, TemporadaResumo,
+  LotePainel, Ocupante, TemporadaResumo, FormacaoColonia,
 } from '@/lib/colonia';
 import { gerarComprovantePdf, ComprovanteInfo } from '@/lib/colonia-comprovante';
 import { gerarRelatorioCompletoPdf, gerarRelatorioLotePdf } from '@/lib/colonia-relatorio';
@@ -30,6 +30,26 @@ import { SyncFiliadoModal } from '@/components/colonia/sync-filiado-modal';
 
 type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string; filiadoId: string | null; jaSincronizado: boolean };
 
+/** Detalhe de um participante do sorteio (inscrito ou suplente) para o modal do olhinho. */
+type ParticipanteDetalhe = {
+  id: string;
+  titulo: string;
+  nomeCompleto: string;
+  cpf: string;
+  coren: string | null;
+  formacao: FormacaoColonia;
+  telefone: string;
+  email: string | null;
+  localTrabalho1: string;
+  localTrabalho2: string | null;
+  cidade: string;
+  estado: string;
+  createdAt: string | null;
+  filiadoId: string | null;
+  filiadoCandidatos: number;
+  sincronizadoEm: string | null;
+};
+
 export default function ColoniaGestaoPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -37,6 +57,7 @@ export default function ColoniaGestaoPage() {
   const [confirmar, setConfirmar] = useState<Ocupante | null>(null);
   const [sorteioModal, setSorteioModal] = useState<{ lote: LotePainel['lote']; inscritos: LotePainel['inscritos'] } | null>(null);
   const [detalhe, setDetalhe] = useState<{ ocupante: Ocupante; lote: LotePainel['lote']; campanha: string } | null>(null);
+  const [participante, setParticipante] = useState<ParticipanteDetalhe | null>(null);
   const [sincronizar, setSincronizar] = useState<SyncArg | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -146,6 +167,7 @@ export default function ColoniaGestaoPage() {
             <LoteAdmin key={l.lote.id} l={l}
               onCancelar={(oc) => setConfirmar(oc)}
               onDetalhes={(oc) => setDetalhe({ ocupante: oc, lote: l.lote, campanha: t.nome })}
+              onDetalheParticipante={setParticipante}
               onAlocar={() => setAlocar({ loteId: l.lote.id, numero: l.lote.numero, quartos: l.quartos, sorteioInscritos: l.inscritos.length })}
               onAbrirSorteio={() => setSorteioModal({ lote: l.lote, inscritos: l.inscritos })}
               onSincronizar={onSincronizar}
@@ -202,6 +224,15 @@ export default function ColoniaGestaoPage() {
           campanha={detalhe.campanha}
           onSincronizar={onSincronizar}
           onClose={() => setDetalhe(null)}
+        />
+      )}
+
+      {/* Detalhes de um participante do sorteio (inscrito/suplente) */}
+      {participante && (
+        <ParticipanteModal
+          p={participante}
+          onSincronizar={onSincronizar}
+          onClose={() => setParticipante(null)}
         />
       )}
 
@@ -262,10 +293,11 @@ function BotaoSync({ tipo, id, filiadoId, filiadoCandidatos, sincronizadoEm, onO
   );
 }
 
-function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSincronizar }: {
+function LoteAdmin({ l, onCancelar, onDetalhes, onDetalheParticipante, onAlocar, onAbrirSorteio, onSincronizar }: {
   l: LotePainel;
   onCancelar: (oc: Ocupante) => void;
   onDetalhes: (oc: Ocupante) => void;
+  onDetalheParticipante: (p: ParticipanteDetalhe) => void;
   onAlocar: () => void;
   onAbrirSorteio: () => void;
   onSincronizar: (arg: SyncArg) => void;
@@ -329,6 +361,16 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
                     <span className="flex-1 truncate">{i.nomeCompleto}</span>
                     <span className="text-xs text-muted-foreground">{mascararCpf(i.cpf)}</span>
                     <BotaoSync tipo="inscricao" id={i.id} filiadoId={i.filiadoId} filiadoCandidatos={i.filiadoCandidatos} sincronizadoEm={i.sincronizadoEm} onOpen={onSincronizar} compact />
+                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Ver detalhes"
+                      onClick={() => onDetalheParticipante({
+                        id: i.id, titulo: 'Inscrito no sorteio — Quarto 6 (Ventilador)',
+                        nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren, formacao: i.formacao,
+                        telefone: i.telefone, email: i.email, localTrabalho1: i.localTrabalho1, localTrabalho2: i.localTrabalho2,
+                        cidade: i.cidade, estado: i.estado, createdAt: i.createdAt,
+                        filiadoId: i.filiadoId, filiadoCandidatos: i.filiadoCandidatos, sincronizadoEm: i.sincronizadoEm,
+                      })}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -349,6 +391,16 @@ function LoteAdmin({ l, onCancelar, onDetalhes, onAlocar, onAbrirSorteio, onSinc
                   <span className="flex-1 truncate">{s.nomeCompleto}</span>
                   <span className="text-xs text-muted-foreground">{mascararCpf(s.cpf)}</span>
                   <BotaoSync tipo="inscricao" id={s.id} filiadoId={s.filiadoId} filiadoCandidatos={s.filiadoCandidatos} sincronizadoEm={s.sincronizadoEm} onOpen={onSincronizar} compact />
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Ver detalhes"
+                    onClick={() => onDetalheParticipante({
+                      id: s.id, titulo: `Suplente ${s.posicao}º — fila do sorteio`,
+                      nomeCompleto: s.nomeCompleto, cpf: s.cpf, coren: s.coren, formacao: s.formacao,
+                      telefone: s.telefone, email: s.email, localTrabalho1: s.localTrabalho1, localTrabalho2: s.localTrabalho2,
+                      cidade: s.cidade, estado: s.estado, createdAt: s.createdAt,
+                      filiadoId: s.filiadoId, filiadoCandidatos: s.filiadoCandidatos, sincronizadoEm: s.sincronizadoEm,
+                    })}>
+                    <Eye className="h-4 w-4" />
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -419,6 +471,64 @@ function InfoCampo({ rotulo, valor, mono }: { rotulo: string; valor: React.React
     <div className="min-w-0">
       <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{rotulo}</dt>
       <dd className={`break-words font-medium ${mono ? 'font-mono' : ''}`}>{valor}</dd>
+    </div>
+  );
+}
+
+/** Detalhes de um participante do sorteio (inscrito ou suplente) — modal do olhinho. */
+function ParticipanteModal({ p, onSincronizar, onClose }: {
+  p: ParticipanteDetalhe;
+  onSincronizar: (arg: SyncArg) => void;
+  onClose: () => void;
+}) {
+  const inscritoEm = p.createdAt
+    ? new Date(p.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+    : null;
+  const locais = [p.localTrabalho1, p.localTrabalho2].filter(Boolean).join(' · ') || '—';
+  const mostrarSync = !!p.filiadoId || p.filiadoCandidatos > 1 || !!p.sincronizadoEm;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between border-b p-5">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-amber-100 p-2 dark:bg-amber-900/40">
+              <Ticket className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="break-words font-semibold leading-tight">{p.nomeCompleto}</h3>
+              <p className="text-xs text-muted-foreground">{p.titulo}</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {mostrarSync && (
+            <div className="rounded-lg border border-senatepi-200 bg-senatepi-50/50 p-3 dark:border-senatepi-900/40 dark:bg-senatepi-900/10">
+              <p className="mb-2 text-sm text-muted-foreground">
+                {p.sincronizadoEm
+                  ? 'Os dados desta inscrição já foram subidos para o cadastro do filiado. Consulte o que foi atualizado.'
+                  : 'Existe um cadastro de filiado correspondente. Você pode subir os dados desta inscrição como atualização.'}
+              </p>
+              <BotaoSync tipo="inscricao" id={p.id} filiadoId={p.filiadoId} filiadoCandidatos={p.filiadoCandidatos} sincronizadoEm={p.sincronizadoEm} onOpen={onSincronizar} />
+            </div>
+          )}
+
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <InfoCampo rotulo="CPF" valor={mascaraCpf(p.cpf)} />
+            <InfoCampo rotulo="COREN" mono valor={p.coren ?? '—'} />
+            <InfoCampo rotulo="Formação" valor={FORMACAO_LABEL[p.formacao]} />
+            <InfoCampo rotulo="Telefone" valor={p.telefone} />
+            <InfoCampo rotulo="E-mail" valor={p.email ?? '—'} />
+            <InfoCampo rotulo="Cidade / Estado" valor={`${p.cidade} / ${p.estado}`} />
+            <div className="sm:col-span-2">
+              <InfoCampo rotulo="Locais de trabalho" valor={locais} />
+            </div>
+            {inscritoEm && <InfoCampo rotulo="Inscrito em" valor={inscritoEm} />}
+          </dl>
+        </div>
+      </div>
     </div>
   );
 }

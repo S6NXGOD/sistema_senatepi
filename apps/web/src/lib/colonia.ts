@@ -202,6 +202,12 @@ export interface InscritoSorteio {
   cpf: string;
   coren: string | null;
   formacao: FormacaoColonia;
+  telefone: string;
+  email: string | null;
+  localTrabalho1: string;
+  localTrabalho2: string | null;
+  cidade: string;
+  estado: string;
   createdAt: string;
   filiadoId: string | null;
   filiadoCandidatos: number;
@@ -216,6 +222,13 @@ export interface Suplente {
   cpf: string;
   coren: string | null;
   formacao: FormacaoColonia;
+  telefone: string;
+  email: string | null;
+  localTrabalho1: string;
+  localTrabalho2: string | null;
+  cidade: string;
+  estado: string;
+  createdAt: string;
   filiadoId: string | null;
   filiadoCandidatos: number;
   sincronizadoEm: string | null;

@@ -1083,7 +1083,9 @@ export class ColoniaService {
           .filter((i) => i.loteId === lote.id)
           .map((i) => ({
             id: i.id, nomeCompleto: i.nomeCompleto, cpf: i.cpf, coren: i.coren,
-            formacao: i.formacao, createdAt: i.createdAt,
+            formacao: i.formacao, telefone: i.telefone, email: i.email,
+            localTrabalho1: i.localTrabalho1, localTrabalho2: i.localTrabalho2,
+            cidade: i.cidade, estado: i.estado, createdAt: i.createdAt,
             ...resolver(i.cpf, i.nomeCompleto),
             sincronizadoEm: i.filiadoSincronizadoEm,
           })),
@@ -1092,7 +1094,9 @@ export class ColoniaService {
           .filter((s) => s.loteId === lote.id)
           .map((s) => ({
             id: s.id, posicao: s.posicaoSuplente, nomeCompleto: s.nomeCompleto, cpf: s.cpf,
-            coren: s.coren, formacao: s.formacao,
+            coren: s.coren, formacao: s.formacao, telefone: s.telefone, email: s.email,
+            localTrabalho1: s.localTrabalho1, localTrabalho2: s.localTrabalho2,
+            cidade: s.cidade, estado: s.estado, createdAt: s.createdAt,
             ...resolver(s.cpf, s.nomeCompleto),
             sincronizadoEm: s.filiadoSincronizadoEm,
           })),
