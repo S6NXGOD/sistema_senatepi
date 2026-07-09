@@ -49,7 +49,7 @@ const schema = z.object({
     .min(1, 'COREN obrigatório')
     .regex(COREN_REGEX, 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)'),
   dataAdmissao: z.string().optional(),
-  situacao: z.enum(['ATIVO', 'INATIVO', 'SUSPENSO', 'PENDENTE', 'DESFILIADO']).optional(),
+  situacao: z.enum(['ATIVO', 'INATIVO', 'DESFILIADO']).optional(),
   v1Empresa: z.string().optional(),
   v1Cargo: z.string().optional(),
   v1Matricula: z.string().optional(),
@@ -128,7 +128,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           v2Cargo: v2?.cargo ?? '',
           v2Matricula: v2?.matricula ?? '',
         }
-      : { formacao: 'ENFERMEIRO', situacao: 'PENDENTE' },
+      : { formacao: 'ENFERMEIRO' },
   });
 
   function onFoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -176,7 +176,9 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         formacaoOutro: d.formacao === 'OUTRO' ? d.formacaoOutro?.trim() : null,
         numeroCoren: d.numeroCoren,
         dataAdmissao: d.dataAdmissao || undefined,
-        situacao: d.situacao,
+        // Situação NÃO é enviada no cadastro (novo filiado nasce ATIVO no back).
+        // Só acompanha edição; a troca "rica" (motivo/termo) tem fluxo próprio.
+        situacao: modo === 'criar' ? undefined : d.situacao,
         vinculos,
       };
 
@@ -311,9 +313,12 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
               />
             </Campo>
             <Campo label="Data de admissão"><Input type="date" {...register('dataAdmissao')} /></Campo>
-            <Campo label="Situação">
-              <select className={sel} {...register('situacao')}>{SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}</select>
-            </Campo>
+            {/* Situação só na edição — no cadastro o filiado nasce ATIVO. */}
+            {modo !== 'criar' && (
+              <Campo label="Situação">
+                <select className={sel} {...register('situacao')}>{SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}</select>
+              </Campo>
+            )}
           </div>
 
           <div>
