@@ -12,6 +12,7 @@ import { DependentesModule } from './modules/dependentes/dependentes.module';
 import { RecadastramentoModule } from './modules/recadastramento/recadastramento.module';
 import { ImportacaoModule } from './modules/importacao/importacao.module';
 import { ColoniaModule } from './modules/colonia/colonia.module';
+import { CobrancasModule } from './modules/cobrancas/cobrancas.module';
 import { FuncionariosModule } from './modules/funcionarios/funcionarios.module';
 import { PrestadoresModule } from './modules/prestadores/prestadores.module';
 import { EventosModule } from './modules/eventos/eventos.module';
@@ -43,6 +44,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     RecadastramentoModule,
     ImportacaoModule,
     ColoniaModule,
+    CobrancasModule,
     FuncionariosModule,
     PrestadoresModule,
     EventosModule,

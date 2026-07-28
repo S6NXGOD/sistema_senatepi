@@ -272,6 +272,7 @@ model Filiado {
 
   vinculos         VinculoProfissional[]
   dependentes      Dependente[]
+  cobrancas        Cobranca[]
   carteirinha      Carteirinha?
   documentos       Documento[]
   presencas        Presenca[]
@@ -982,4 +983,79 @@ model ColaboradorHistorico {
 
   @@index([colaboradorId])
   @@map("colaborador_historico")
+}
+
+// ===========================================================================
+// COBRANÇAS E CARNÊS (gestão financeira dos filiados)
+// ===========================================================================
+
+enum TipoCobranca {
+  MENSALIDADE
+  ANUIDADE
+  ACORDO
+  TAXA
+  CONTRIBUICAO
+  OUTRO
+}
+
+enum StatusParcela {
+  PENDENTE
+  PAGO
+  VENCIDO
+  CANCELADO
+}
+
+/// Configuração institucional para emissão de carnês/cobranças (registro único).
+/// LGPD: guarda apenas dados institucionais do sindicato — nada de dados pessoais.
+model ConfiguracaoSindicato {
+  id                      String   @id @default(uuid())
+  logoUrl                 String?  @map("logo_url")
+  assinaturaPresidenteUrl String?  @map("assinatura_presidente_url")
+  textoRodapeCarne        String?  @map("texto_rodape_carne")
+  // PIX estático (recebedor)
+  pixChave                String?  @map("pix_chave")
+  pixNomeRecebedor        String?  @map("pix_nome_recebedor")
+  pixCidade               String?  @map("pix_cidade")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracao_sindicato")
+}
+
+/// Cobrança "pai" (contrato) vinculada a um filiado — agrupa as parcelas do carnê.
+model Cobranca {
+  id         String       @id @default(uuid())
+  filiadoId  String       @map("filiado_id")
+  tipo       TipoCobranca @default(MENSALIDADE)
+  descricao  String?
+  valorTotal Decimal      @map("valor_total") @db.Decimal(10, 2)
+  criadaPor  String?      @map("criada_por") // usuário admin que gerou
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  filiado  Filiado           @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  parcelas ParcelaCobranca[]
+
+  @@index([filiadoId])
+  @@map("cobrancas")
+}
+
+/// Parcela de uma cobrança (linha do carnê).
+model ParcelaCobranca {
+  id              String        @id @default(uuid())
+  cobrancaId      String        @map("cobranca_id")
+  numero          Int // ordem no carnê (1..n)
+  dataCompetencia DateTime      @map("data_competencia") @db.Date
+  dataVencimento  DateTime      @map("data_vencimento") @db.Date
+  valor           Decimal       @db.Decimal(10, 2)
+  status          StatusParcela @default(PENDENTE)
+  dataPagamento   DateTime?     @map("data_pagamento")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  cobranca Cobranca @relation(fields: [cobrancaId], references: [id], onDelete: Cascade)
+
+  @@index([cobrancaId])
+  @@index([status])
+  @@map("parcelas_cobranca")
 }
