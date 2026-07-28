@@ -15,6 +15,7 @@ import { ImportacaoModule } from './modules/importacao/importacao.module';
 import { ColoniaModule } from './modules/colonia/colonia.module';
 import { CobrancasModule } from './modules/cobrancas/cobrancas.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
+import { AtendimentosModule } from './modules/atendimentos/atendimentos.module';
 import { FuncionariosModule } from './modules/funcionarios/funcionarios.module';
 import { PrestadoresModule } from './modules/prestadores/prestadores.module';
 import { EventosModule } from './modules/eventos/eventos.module';
@@ -49,6 +50,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     ColoniaModule,
     CobrancasModule,
     FinanceiroModule,
+    AtendimentosModule,
     FuncionariosModule,
     PrestadoresModule,
     EventosModule,

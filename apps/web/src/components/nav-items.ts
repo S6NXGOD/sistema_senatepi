@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
-  SlidersHorizontal, ShieldCheck, Receipt, type LucideIcon,
+  SlidersHorizontal, ShieldCheck, Receipt, Headset, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -24,6 +24,7 @@ export const NAV_SECOES: NavSecao[] = [
     titulo: 'Principal',
     itens: [
       { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/atendimentos', label: 'Atendimentos', icon: Headset },
       { href: '/filiados', label: 'Filiados', icon: Users },
       { href: '/colaboradores', label: 'Colaboradores', icon: Contact },
     ],

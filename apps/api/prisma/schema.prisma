@@ -195,6 +195,7 @@ model User {
   refreshTokens    RefreshToken[]
   auditorias       Auditoria[]
   recadastramentos Recadastramento[] @relation("RecadastramentoRevisor")
+  atendimentos     Atendimento[]
 
   @@map("users")
 }
@@ -273,6 +274,7 @@ model Filiado {
   vinculos         VinculoProfissional[]
   dependentes      Dependente[]
   cobrancas        Cobranca[]
+  atendimentos     Atendimento[]
   carteirinha      Carteirinha?
   documentos       Documento[]
   presencas        Presenca[]
@@ -1106,4 +1108,54 @@ model Movimentacao {
   @@index([tipo])
   @@index([data])
   @@map("movimentacoes")
+}
+
+// ===========================================================================
+// TRIAGEM E ATENDIMENTOS (funil de entrada das demandas dos filiados)
+// ===========================================================================
+
+enum CanalAtendimento {
+  PRESENCIAL
+  WHATSAPP
+  TELEFONE
+  EMAIL
+  SITE
+}
+
+enum DesfechoAtendimento {
+  RESOLVIDO_ATO // resolvido na hora — vira só histórico
+  ENCAMINHADO // demanda passada ao Jurídico/outro setor
+}
+
+enum SetorAtendimento {
+  JURIDICO
+  FINANCEIRO
+  SECRETARIA
+  DIRETORIA
+  COLONIA
+  OUTRO
+}
+
+/// Registro de atendimento/triagem — todo pedido do filiado começa aqui.
+model Atendimento {
+  id             String              @id @default(uuid())
+  filiadoId      String              @map("filiado_id")
+  atendentePorId String              @map("atendente_por_id") // usuário logado que registrou
+  canal          CanalAtendimento
+  descricao      String // demanda (texto rico)
+  desfecho       DesfechoAtendimento
+  // Preenchidos quando desfecho = ENCAMINHADO:
+  setor          SetorAtendimento?
+  responsavel    String? // advogado/pessoa que assume a demanda
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  filiado   Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  atendente User    @relation(fields: [atendentePorId], references: [id])
+
+  @@index([filiadoId])
+  @@index([desfecho])
+  @@index([canal])
+  @@index([createdAt])
+  @@map("atendimentos")
 }
