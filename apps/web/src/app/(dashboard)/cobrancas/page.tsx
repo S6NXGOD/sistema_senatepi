@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Search, Plus, Receipt, CalendarClock, User } from 'lucide-react';
+import { Loader2, Search, Plus, Receipt, CalendarClock, User, Settings2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,9 +68,14 @@ export default function CobrancasPage() {
             <p className="text-sm text-muted-foreground">Carnês e parcelas dos filiados</p>
           </div>
         </div>
-        <Link href="/cobrancas/nova">
-          <Button><Plus className="h-4 w-4" /> Nova cobrança</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/cobrancas/configuracao">
+            <Button variant="outline"><Settings2 className="h-4 w-4" /> Configuração</Button>
+          </Link>
+          <Link href="/cobrancas/nova">
+            <Button><Plus className="h-4 w-4" /> Nova cobrança</Button>
+          </Link>
+        </div>
       </div>
 
       {/* Resumo */}
