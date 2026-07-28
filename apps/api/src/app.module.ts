@@ -17,6 +17,7 @@ import { CobrancasModule } from './modules/cobrancas/cobrancas.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { AtendimentosModule } from './modules/atendimentos/atendimentos.module';
 import { AgendaModule } from './modules/agenda/agenda.module';
+import { ProcessosModule } from './modules/processos/processos.module';
 import { FuncionariosModule } from './modules/funcionarios/funcionarios.module';
 import { PrestadoresModule } from './modules/prestadores/prestadores.module';
 import { EventosModule } from './modules/eventos/eventos.module';
@@ -53,6 +54,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     FinanceiroModule,
     AtendimentosModule,
     AgendaModule,
+    ProcessosModule,
     FuncionariosModule,
     PrestadoresModule,
     EventosModule,

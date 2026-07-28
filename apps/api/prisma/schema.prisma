@@ -197,6 +197,7 @@ model User {
   recadastramentos Recadastramento[] @relation("RecadastramentoRevisor")
   atendimentos     Atendimento[]
   compromissos     Compromisso[]     @relation("CompromissoResponsavel")
+  processos        Processo[]        @relation("ProcessoAdvogado")
 
   @@map("users")
 }
@@ -277,6 +278,7 @@ model Filiado {
   cobrancas        Cobranca[]
   atendimentos     Atendimento[]
   compromissos     Compromisso[]
+  processos        Processo[]
   carteirinha      Carteirinha?
   documentos       Documento[]
   presencas        Presenca[]
@@ -1211,4 +1213,66 @@ model Compromisso {
   @@index([responsavelId])
   @@index([filiadoId])
   @@map("compromissos")
+}
+
+// ===========================================================================
+// PROCESSOS (cache local dos metadados públicos do DATAJUD/CNJ)
+// LGPD (Lei 13.709/2018): a API Pública do DATAJUD expõe apenas METADADOS
+// processuais públicos — não traz dados pessoais das partes. Ainda assim,
+// tratamos o vínculo interno (filiado/advogado) como dado sob acesso restrito.
+// ===========================================================================
+
+enum StatusProcesso {
+  ATIVO
+  ARQUIVADO
+  SUSPENSO
+}
+
+/// Processo judicial espelhado do DATAJUD (cache) + vínculos internos.
+model Processo {
+  id         String  @id @default(uuid())
+  numeroCNJ  String  @unique @map("numero_cnj") // NPU (20 dígitos), chave única
+  filiadoId  String? @map("filiado_id")
+  advogadoId String? @map("advogado_id")
+
+  // ---- Metadados públicos do DATAJUD ----
+  classeProcessual String?  @map("classe_processual")
+  assuntoPrincipal String?  @map("assunto_principal")
+  orgaoJulgador    String?  @map("orgao_julgador")
+  tribunal         String? // sigla: TJPI, TRT22, TRF1…
+  dataDistribuicao DateTime? @map("data_distribuicao")
+  valorCausa       Decimal?  @map("valor_causa") @db.Decimal(14, 2)
+  grau             String?
+
+  // ---- Dados internos do sindicato ----
+  statusInterno       StatusProcesso @default(ATIVO) @map("status_interno")
+  ultimaSincronizacao DateTime?      @map("ultima_sincronizacao")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  filiado       Filiado?                 @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  advogado      User?                    @relation("ProcessoAdvogado", fields: [advogadoId], references: [id], onDelete: SetNull)
+  movimentacoes MovimentacaoProcessual[]
+
+  @@index([filiadoId])
+  @@index([advogadoId])
+  @@index([statusInterno])
+  @@index([tribunal])
+  @@map("processos")
+}
+
+/// Movimentação processual (andamento) espelhada do DATAJUD.
+model MovimentacaoProcessual {
+  id              String   @id @default(uuid())
+  processoId      String   @map("processo_id")
+  dataMovimento   DateTime @map("data_movimento")
+  descricao       String
+  codigoMovimento Int?     @map("codigo_movimento")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
+
+  @@index([processoId])
+  @@index([dataMovimento])
+  @@map("movimentacoes_processuais")
 }
