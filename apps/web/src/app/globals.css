@@ -39,3 +39,44 @@
     @apply bg-background text-foreground antialiased;
   }
 }
+
+/* ===========================================================================
+   Impressão do carnê (@media print) — mostra apenas o carnê e oculta a
+   navegação (sidebar, topbar, botões de ação) e o overlay do modal.
+   =========================================================================== */
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+  /* Esconde toda a aplicação, exibindo somente o carnê (portal no body). */
+  body > *:not(#carne-print-root) {
+    display: none !important;
+  }
+  #carne-print-root {
+    position: static !important;
+  }
+  #carne-print-root .no-print {
+    display: none !important;
+  }
+  #carne-print-root .carne-overlay {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    padding: 0 !important;
+  }
+  #carne-print-root .carne-paper {
+    max-width: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+}

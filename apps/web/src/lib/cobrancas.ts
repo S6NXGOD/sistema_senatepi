@@ -251,3 +251,39 @@ export async function baixarParcela(parcelaId: string) {
 export async function excluirParcela(parcelaId: string) {
   return (await api.delete(`/cobrancas/parcela/${parcelaId}`)).data;
 }
+
+// ---------------------------------------------------------------------------
+// Dados agregados para impressão do carnê
+// ---------------------------------------------------------------------------
+
+export interface CarneData {
+  config: {
+    logoUrl: string | null;
+    assinaturaPresidenteUrl: string | null;
+    textoRodapeCarne: string | null;
+    pixNomeRecebedor: string | null;
+    pixChave: string | null;
+  } | null;
+  filiado: { nomeCompleto: string; cpf: string | null; matricula: string };
+  cobranca: { id: string; tipo: TipoCobranca; descricao: string | null; totalParcelas: number };
+  parcelas: {
+    id: string;
+    numero: number;
+    valor: number;
+    dataCompetencia: string;
+    dataVencimento: string;
+    status: StatusParcela;
+    copiaECola: string | null;
+  }[];
+}
+
+export async function getCarne(cobrancaId: string): Promise<CarneData> {
+  return (await api.get(`/cobrancas/${cobrancaId}/carne`)).data;
+}
+
+/** CPF em "000.000.000-00" (documento do próprio filiado no carnê). */
+export function formatCpf(cpf: string | null | undefined): string {
+  const d = (cpf ?? '').replace(/\D/g, '');
+  if (d.length !== 11) return cpf ?? '—';
+  return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}

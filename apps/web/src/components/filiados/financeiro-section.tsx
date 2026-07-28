@@ -33,7 +33,7 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
   };
 
   const parcelas = (data?.cobrancas ?? []).flatMap((c) =>
-    c.parcelas.map((p) => ({ ...p, tipo: c.tipo })),
+    c.parcelas.map((p) => ({ ...p, tipo: c.tipo, cobrancaId: c.id })),
   );
 
   return (
@@ -93,6 +93,7 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
                           dataVencimento: p.dataVencimento,
                           status: p.status,
                           tipo: p.tipo,
+                          cobrancaId: p.cobrancaId,
                           filiado: {
                             nomeCompleto: filiado.nomeCompleto,
                             matricula: filiado.matricula,

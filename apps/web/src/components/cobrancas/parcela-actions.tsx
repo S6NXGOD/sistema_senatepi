@@ -10,10 +10,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import {
   StatusParcela, TipoCobranca, Dinheiro,
-  baixarParcela, excluirParcela, pixParcela, getConfig,
+  baixarParcela, excluirParcela, pixParcela,
   linkWhatsApp, mensagemCobranca, formatBRL, statusExibicao,
 } from '@/lib/cobrancas';
-import { gerarCarnePdf } from '@/lib/carne-pdf';
+import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
 
 export interface ParcelaAcao {
   id: string;
@@ -23,6 +23,7 @@ export interface ParcelaAcao {
   dataVencimento: string;
   status: StatusParcela;
   tipo: TipoCobranca;
+  cobrancaId: string;
   filiado: { nomeCompleto: string; matricula: string; telefonePrincipal?: string | null };
 }
 
@@ -31,7 +32,8 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   const [aberto, setAberto] = useState(false);
   const [confirmPagar, setConfirmPagar] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
-  const [ocupado, setOcupado] = useState<null | 'carne' | 'whatsapp'>(null);
+  const [carneAberto, setCarneAberto] = useState(false);
+  const [ocupado, setOcupado] = useState<null | 'whatsapp'>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,25 +69,6 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível excluir a parcela.'),
   });
-
-  async function imprimirCarne() {
-    setAberto(false);
-    setOcupado('carne');
-    try {
-      const [pix, config] = await Promise.all([pixParcela(parcela.id), getConfig()]);
-      await gerarCarnePdf({
-        parcela,
-        filiado: parcela.filiado,
-        tipo: parcela.tipo,
-        pix,
-        config,
-      });
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Não foi possível gerar o carnê. Configure o PIX do sindicato.');
-    } finally {
-      setOcupado(null);
-    }
-  }
 
   async function cobrarWhatsApp() {
     setAberto(false);
@@ -144,7 +127,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
             </button>
           )}
           {podeImprimir && (
-            <button className={item} onClick={imprimirCarne}>
+            <button className={item} onClick={() => { setAberto(false); setCarneAberto(true); }}>
               <Printer className="h-4 w-4 text-muted-foreground" /> Imprimir carnê
             </button>
           )}
@@ -199,6 +182,10 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
         onConfirm={() => excluir.mutate()}
         onClose={() => setConfirmExcluir(false)}
       />
+
+      {carneAberto && (
+        <CarnePrintModal cobrancaId={parcela.cobrancaId} onClose={() => setCarneAberto(false)} />
+      )}
     </div>
   );
 }

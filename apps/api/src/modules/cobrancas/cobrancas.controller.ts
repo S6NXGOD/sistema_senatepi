@@ -83,6 +83,12 @@ export class CobrancasController {
     return this.service.gerarPixParcela(id);
   }
 
+  // ---- Dados agregados para impressão do carnê de uma cobrança ----
+  @Get(':id/carne')
+  carne(@Param('id') id: string) {
+    return this.service.dadosCarne(id);
+  }
+
   // ---- Baixa manual de parcela (marca como paga) ----
   @Patch('parcela/:id/baixar')
   baixar(

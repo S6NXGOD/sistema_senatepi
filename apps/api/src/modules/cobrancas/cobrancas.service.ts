@@ -391,6 +391,66 @@ export class CobrancasService {
   }
 
   // -------------------------------------------------------------------------
+  // Dados agregados para IMPRESSÃO do carnê (config + filiado + parcelas + PIX)
+  // -------------------------------------------------------------------------
+
+  async dadosCarne(cobrancaId: string) {
+    const cobranca = await this.prisma.cobranca.findUnique({
+      where: { id: cobrancaId },
+      include: {
+        filiado: { select: { nomeCompleto: true, cpf: true, matricula: true } },
+        parcelas: { orderBy: { numero: 'asc' } },
+      },
+    });
+    if (!cobranca) throw new NotFoundException('Cobrança não encontrada.');
+
+    const cfg = await this.obterConfig();
+    const totalParcelas = cobranca.parcelas.length;
+
+    const parcelas = cobranca.parcelas.map((p) => {
+      let copiaECola: string | null = null;
+      if (cfg?.pixChave) {
+        copiaECola = gerarPixCopiaECola({
+          chave: cfg.pixChave,
+          nome: cfg.pixNomeRecebedor ?? 'SENATEPI',
+          cidade: cfg.pixCidade ?? 'TERESINA',
+          valor: Number(p.valor),
+          identificador: `${cobranca.filiado.matricula ?? 'SEN'}-${p.numero}`,
+        });
+      }
+      return {
+        id: p.id,
+        numero: p.numero,
+        valor: Number(p.valor),
+        dataCompetencia: p.dataCompetencia,
+        dataVencimento: p.dataVencimento,
+        status: p.status,
+        copiaECola,
+      };
+    });
+
+    return {
+      config: cfg
+        ? {
+            logoUrl: cfg.logoUrl,
+            assinaturaPresidenteUrl: cfg.assinaturaPresidenteUrl,
+            textoRodapeCarne: cfg.textoRodapeCarne,
+            pixNomeRecebedor: cfg.pixNomeRecebedor,
+            pixChave: cfg.pixChave,
+          }
+        : null,
+      filiado: cobranca.filiado,
+      cobranca: {
+        id: cobranca.id,
+        tipo: cobranca.tipo,
+        descricao: cobranca.descricao,
+        totalParcelas,
+      },
+      parcelas,
+    };
+  }
+
+  // -------------------------------------------------------------------------
   // Configuração do sindicato (registro único)
   // -------------------------------------------------------------------------
 
