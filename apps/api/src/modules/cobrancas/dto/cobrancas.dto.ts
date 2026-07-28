@@ -96,6 +96,20 @@ export class ListarParcelasQueryDto {
   @IsOptional() @IsString() busca?: string;
 }
 
+export class ListarPorFiliadoQueryDto {
+  @ApiPropertyOptional({ description: 'Busca por nome, matrícula ou CPF do filiado.' })
+  @IsOptional() @IsString() busca?: string;
+
+  @ApiPropertyOptional({ description: 'Se "true", só filiados com valor vencido.' })
+  @IsOptional() @IsString() inadimplentes?: string;
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+
+  @ApiPropertyOptional({ default: 20 })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) pageSize?: number;
+}
+
 export class ConfiguracaoSindicatoDto {
   @ApiPropertyOptional() @IsOptional() @IsString() logoUrl?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() assinaturaPresidenteUrl?: string;

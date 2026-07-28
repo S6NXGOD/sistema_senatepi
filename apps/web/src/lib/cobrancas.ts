@@ -251,6 +251,48 @@ export async function baixarParcela(
   return (await api.patch(`/cobrancas/parcela/${parcelaId}/baixar`, dados)).data;
 }
 
+export interface FiliadoResumoFin {
+  filiadoId: string;
+  nomeCompleto: string;
+  matricula: string;
+  telefonePrincipal: string | null;
+  qtdParcelas: number;
+  qtdVencidas: number;
+  totalEmAberto: number;
+  totalVencido: number;
+  totalPago: number;
+  proximoVencimento: string | null;
+}
+
+export interface PaginaPorFiliado {
+  items: FiliadoResumoFin[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPaginas: number;
+}
+
+export interface FiltroPorFiliado {
+  busca?: string;
+  inadimplentes?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function listarPorFiliado(filtro: FiltroPorFiliado = {}): Promise<PaginaPorFiliado> {
+  const params: Record<string, string> = {};
+  if (filtro.busca) params.busca = filtro.busca;
+  if (filtro.inadimplentes) params.inadimplentes = 'true';
+  if (filtro.page) params.page = String(filtro.page);
+  if (filtro.pageSize) params.pageSize = String(filtro.pageSize);
+  return (await api.get('/cobrancas/por-filiado', { params })).data;
+}
+
+/** Exclui uma cobrança inteira (400 se houver parcela paga). */
+export async function excluirCobranca(cobrancaId: string) {
+  return (await api.delete(`/cobrancas/${cobrancaId}`)).data;
+}
+
 export interface DashboardCobrancas {
   mes: string;
   receitaPrevista: number;

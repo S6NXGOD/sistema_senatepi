@@ -13,6 +13,7 @@ import {
   ConfiguracaoSindicatoDto,
   GravarCobrancaDto,
   ListarParcelasQueryDto,
+  ListarPorFiliadoQueryDto,
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
 
@@ -297,6 +298,119 @@ export class CobrancasService {
       tipo: p.cobranca.tipo,
       filiado: p.cobranca.filiado,
     }));
+  }
+
+  // -------------------------------------------------------------------------
+  // Lista AGRUPADA POR FILIADO (paginada) — escala p/ milhares de filiados.
+  // Agrega em SQL (JOIN + GROUP BY) e devolve só os totais/contagens de cada
+  // filiado, ordenando os inadimplentes primeiro. LGPD: nome/matrícula/telefone
+  // (necessários à gestão/contato), sem demais dados pessoais.
+  // -------------------------------------------------------------------------
+
+  async listarPorFiliado(q: ListarPorFiliadoQueryDto) {
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
+    const offset = (page - 1) * pageSize;
+    const hoje = this.hojeUTC();
+    const busca = q.busca?.trim();
+
+    const buscaSql = busca
+      ? Prisma.sql`AND (f.nome_completo ILIKE ${`%${busca}%`} OR f.matricula ILIKE ${`%${busca}%`}${
+          busca.replace(/\D/g, '')
+            ? Prisma.sql` OR f.cpf ILIKE ${`%${busca.replace(/\D/g, '')}%`}`
+            : Prisma.empty
+        })`
+      : Prisma.empty;
+
+    // "Vencida" = VENCIDO ou PENDENTE já passado do vencimento.
+    const vencidoExpr = Prisma.sql`(p.status = 'VENCIDO' OR (p.status = 'PENDENTE' AND p.data_vencimento < ${hoje}))`;
+    const somenteInadimplentes = q.inadimplentes === 'true';
+    const havingSql = somenteInadimplentes
+      ? Prisma.sql`HAVING SUM(CASE WHEN ${vencidoExpr} THEN p.valor ELSE 0 END) > 0`
+      : Prisma.sql`HAVING COUNT(p.id) FILTER (WHERE p.status <> 'CANCELADO') > 0`;
+
+    const base = Prisma.sql`
+      FROM filiados f
+      JOIN cobrancas c ON c.filiado_id = f.id
+      JOIN parcelas_cobranca p ON p.cobranca_id = c.id
+      WHERE 1 = 1 ${buscaSql}
+      GROUP BY f.id
+      ${havingSql}
+    `;
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string; nome_completo: string; matricula: string; telefone_principal: string | null;
+        qtd: number; qtd_vencidas: number;
+        total_aberto: string; total_vencido: string; total_pago: string;
+        proximo_vencimento: Date | null;
+      }>
+    >(Prisma.sql`
+      SELECT f.id, f.nome_completo, f.matricula, f.telefone_principal,
+        COUNT(p.id) FILTER (WHERE p.status <> 'CANCELADO')::int AS qtd,
+        COUNT(p.id) FILTER (WHERE ${vencidoExpr})::int AS qtd_vencidas,
+        COALESCE(SUM(p.valor) FILTER (WHERE p.status = 'PENDENTE' AND p.data_vencimento >= ${hoje}), 0) AS total_aberto,
+        COALESCE(SUM(p.valor) FILTER (WHERE ${vencidoExpr}), 0) AS total_vencido,
+        COALESCE(SUM(COALESCE(p.valor_pago, p.valor)) FILTER (WHERE p.status = 'PAGO'), 0) AS total_pago,
+        MIN(p.data_vencimento) FILTER (WHERE p.status IN ('PENDENTE', 'VENCIDO')) AS proximo_vencimento
+      ${base}
+      ORDER BY total_vencido DESC, total_aberto DESC, f.nome_completo ASC
+      LIMIT ${pageSize} OFFSET ${offset}
+    `);
+
+    const totalRows = await this.prisma.$queryRaw<Array<{ total: number }>>(
+      Prisma.sql`SELECT COUNT(*)::int AS total FROM (SELECT f.id ${base}) sub`,
+    );
+    const total = Number(totalRows[0]?.total ?? 0);
+
+    return {
+      items: rows.map((r) => ({
+        filiadoId: r.id,
+        nomeCompleto: r.nome_completo,
+        matricula: r.matricula,
+        telefonePrincipal: r.telefone_principal,
+        qtdParcelas: Number(r.qtd),
+        qtdVencidas: Number(r.qtd_vencidas),
+        totalEmAberto: this.arred(Number(r.total_aberto)),
+        totalVencido: this.arred(Number(r.total_vencido)),
+        totalPago: this.arred(Number(r.total_pago)),
+        proximoVencimento: r.proximo_vencimento,
+      })),
+      total,
+      page,
+      pageSize,
+      totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Exclusão de uma COBRANÇA inteira (contrato + parcelas). Regra: não pode se
+  // houver parcela PAGA (existe lançamento financeiro atrelado).
+  // -------------------------------------------------------------------------
+
+  async excluirCobranca(id: string, ctx: Ctx) {
+    const cobranca = await this.prisma.cobranca.findUnique({
+      where: { id },
+      include: { parcelas: { select: { status: true } }, filiado: { select: { nomeCompleto: true } } },
+    });
+    if (!cobranca) throw new NotFoundException('Cobrança não encontrada.');
+    if (cobranca.parcelas.some((p) => p.status === StatusParcela.PAGO))
+      throw new BadRequestException(
+        'Esta cobrança possui parcela(s) já paga(s) e não pode ser excluída (há lançamento financeiro registrado).',
+      );
+
+    await this.prisma.cobranca.delete({ where: { id } }); // cascade remove as parcelas
+    await this.audit.registrar({
+      userId: ctx.userId ?? null,
+      acao: AcaoAuditoria.DELETE,
+      entidade: 'Cobranca',
+      entidadeId: id,
+      descricao: `Cobrança excluída (${cobranca.parcelas.length} parcela[s]) de ${cobranca.filiado.nomeCompleto}`,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { filiadoId: cobranca.filiadoId, parcelas: cobranca.parcelas.length },
+    });
+    return { ok: true, removidas: cobranca.parcelas.length };
   }
 
   // -------------------------------------------------------------------------

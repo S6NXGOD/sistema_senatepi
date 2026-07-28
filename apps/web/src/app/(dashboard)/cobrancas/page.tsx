@@ -4,54 +4,45 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Loader2, Search, Plus, Receipt, CalendarClock, User, Settings2,
-  TrendingUp, TrendingDown, AlertTriangle,
+  Loader2, Search, Plus, Receipt, Settings2, Users,
+  TrendingUp, TrendingDown, AlertTriangle, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { ParcelaAcoes } from '@/components/cobrancas/parcela-actions';
-import {
-  listarParcelas, getDashboard, StatusParcela, TIPO_LABEL, STATUS_LABEL, STATUS_COR,
-  formatBRL, formatData, statusExibicao,
-} from '@/lib/cobrancas';
+import { FiliadoCobrancasCard } from '@/components/cobrancas/filiado-cobrancas-card';
+import { listarPorFiliado, getDashboard, formatBRL } from '@/lib/cobrancas';
 
-const STATUS_FILTRO: { valor: '' | StatusParcela; label: string }[] = [
-  { valor: '', label: 'Todas' },
-  { valor: 'PENDENTE', label: 'A vencer' },
-  { valor: 'VENCIDO', label: 'Vencidas' },
-  { valor: 'PAGO', label: 'Pagas' },
-  { valor: 'CANCELADO', label: 'Canceladas' },
-];
+const PAGE_SIZE = 20;
 
 export default function CobrancasPage() {
   const qc = useQueryClient();
-  const [status, setStatus] = useState<'' | StatusParcela>('');
-  const [mes, setMes] = useState('');
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
+  const [inadimplentes, setInadimplentes] = useState(false);
+  const [page, setPage] = useState(1);
 
-  // debounce leve da busca
+  // debounce da busca + volta pra 1ª página quando muda o filtro
   useEffect(() => {
-    const t = setTimeout(() => setBuscaDeb(busca.trim()), 350);
+    const t = setTimeout(() => { setBuscaDeb(busca.trim()); setPage(1); }, 350);
     return () => clearTimeout(t);
   }, [busca]);
+  useEffect(() => { setPage(1); }, [inadimplentes]);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['cobrancas-parcelas', status, mes, buscaDeb],
-    queryFn: () => listarParcelas({ status: status || undefined, mes: mes || undefined, busca: buscaDeb || undefined }),
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ['cobrancas-por-filiado', buscaDeb, inadimplentes, page],
+    queryFn: () => listarPorFiliado({ busca: buscaDeb || undefined, inadimplentes, page, pageSize: PAGE_SIZE }),
   });
 
-  const parcelas = data ?? [];
-
-  // Mini-dashboard agregado (mês corrente) — vem do backend, só números (LGPD).
   const { data: dash } = useQuery({ queryKey: ['cobrancas-dashboard'], queryFn: getDashboard });
 
   const invalidar = () => {
-    qc.invalidateQueries({ queryKey: ['cobrancas-parcelas'] });
+    qc.invalidateQueries({ queryKey: ['cobrancas-por-filiado'] });
     qc.invalidateQueries({ queryKey: ['cobrancas-dashboard'] });
   };
+
+  const itens = data?.items ?? [];
+  const totalPaginas = data?.totalPaginas ?? 1;
 
   return (
     <div className="space-y-6">
@@ -63,7 +54,7 @@ export default function CobrancasPage() {
           </div>
           <div>
             <h2 className="text-2xl font-bold">Cobranças</h2>
-            <p className="text-sm text-muted-foreground">Carnês e parcelas dos filiados</p>
+            <p className="text-sm text-muted-foreground">Carnês e parcelas por filiado</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -78,135 +69,56 @@ export default function CobrancasPage() {
 
       {/* Mini-dashboard de inadimplência (mês corrente) */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <DashCard
-          Icon={TrendingUp}
-          rotulo="Receita prevista (mês)"
-          valor={formatBRL(dash?.receitaPrevista ?? 0)}
-          sub="Parcelas a vencer no mês"
-          cor="text-amber-600 dark:text-amber-400"
-          bg="bg-amber-100 dark:bg-amber-900/30"
-        />
-        <DashCard
-          Icon={TrendingDown}
-          rotulo="Receita realizada (mês)"
-          valor={formatBRL(dash?.receitaRealizada ?? 0)}
-          sub="Parcelas pagas no mês"
-          cor="text-senatepi-700 dark:text-senatepi-400"
-          bg="bg-senatepi-50 dark:bg-senatepi-900/30"
-        />
-        <DashCard
-          Icon={AlertTriangle}
-          rotulo="Inadimplência (mês)"
-          valor={`${(dash?.taxaInadimplencia ?? 0).toLocaleString('pt-BR')}%`}
-          sub={`${dash?.qtdVencido ?? 0} vencida(s) · ${formatBRL(dash?.totalVencido ?? 0)}`}
-          cor="text-red-600 dark:text-red-400"
-          bg="bg-red-100 dark:bg-red-900/30"
-        />
+        <DashCard Icon={TrendingUp} rotulo="Receita prevista (mês)" valor={formatBRL(dash?.receitaPrevista ?? 0)} sub="Parcelas a vencer no mês" cor="text-amber-600 dark:text-amber-400" bg="bg-amber-100 dark:bg-amber-900/30" />
+        <DashCard Icon={TrendingDown} rotulo="Receita realizada (mês)" valor={formatBRL(dash?.receitaRealizada ?? 0)} sub="Parcelas pagas no mês" cor="text-senatepi-700 dark:text-senatepi-400" bg="bg-senatepi-50 dark:bg-senatepi-900/30" />
+        <DashCard Icon={AlertTriangle} rotulo="Inadimplência (mês)" valor={`${(dash?.taxaInadimplencia ?? 0).toLocaleString('pt-BR')}%`} sub={`${dash?.qtdVencido ?? 0} vencida(s) · ${formatBRL(dash?.totalVencido ?? 0)}`} cor="text-red-600 dark:text-red-400" bg="bg-red-100 dark:bg-red-900/30" />
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="relative flex-1 sm:max-w-xs">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1 sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar por filiado (nome, matrícula, CPF)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Input className="pl-9" placeholder="Buscar filiado (nome, matrícula, CPF)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
         </div>
-        <input
-          type="month"
-          value={mes}
-          onChange={(e) => setMes(e.target.value)}
-          aria-label="Mês de vencimento"
-          className="h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:w-auto sm:text-sm"
-        />
-        <div className="flex flex-wrap gap-1 rounded-lg border border-input bg-card p-1">
-          {STATUS_FILTRO.map((f) => (
-            <button
-              key={f.label}
-              onClick={() => setStatus(f.valor)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                status === f.valor ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <label className="flex cursor-pointer select-none items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm">
+          <input type="checkbox" checked={inadimplentes} onChange={(e) => setInadimplentes(e.target.checked)} className="h-4 w-4 accent-senatepi-700" />
+          Somente inadimplentes
+        </label>
       </div>
 
-      {/* Lista */}
+      {/* Lista agrupada por filiado */}
       {isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
-      ) : parcelas.length === 0 ? (
-        <Card><CardContent className="py-20 text-center text-muted-foreground">Nenhuma parcela encontrada com esses filtros.</CardContent></Card>
+      ) : itens.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">
+            <Users className="h-8 w-8 opacity-40" />
+            {buscaDeb || inadimplentes ? 'Nenhum filiado encontrado com esses filtros.' : 'Nenhuma cobrança lançada ainda.'}
+          </CardContent>
+        </Card>
       ) : (
         <>
-          {/* Mobile: cards */}
-          <div className="space-y-3 sm:hidden">
-            {parcelas.map((p) => {
-              const st = statusExibicao(p);
-              return (
-                <div key={p.id} className="rounded-xl border bg-card p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="flex items-center gap-1.5 truncate font-semibold">
-                        <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> {p.filiado.nomeCompleto}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Matrícula {p.filiado.matricula} · {TIPO_LABEL[p.tipo]} · Parc. {p.numero}</p>
-                    </div>
-                    <ParcelaAcoes parcela={p} onMudou={invalidar} />
-                  </div>
-                  <div className="mt-3 flex items-end justify-between">
-                    <div>
-                      <p className="text-lg font-bold">{formatBRL(p.valor)}</p>
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <CalendarClock className="h-3.5 w-3.5" /> Vence {formatData(p.dataVencimento)}
-                      </p>
-                    </div>
-                    <Badge className={STATUS_COR[st]}>{STATUS_LABEL[st]}</Badge>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="space-y-3">
+            {itens.map((r) => (
+              <FiliadoCobrancasCard key={r.filiadoId} resumo={r} onMudou={invalidar} />
+            ))}
           </div>
 
-          {/* Desktop: tabela */}
-          <Card className="hidden sm:block">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                      <th className="px-4 py-3 font-medium">Filiado</th>
-                      <th className="px-4 py-3 font-medium">Tipo / Parcela</th>
-                      <th className="px-4 py-3 font-medium">Vencimento</th>
-                      <th className="px-4 py-3 font-medium">Valor</th>
-                      <th className="px-4 py-3 font-medium">Situação</th>
-                      <th className="px-4 py-3 text-right font-medium">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parcelas.map((p) => {
-                      const st = statusExibicao(p);
-                      return (
-                        <tr key={p.id} className="border-b last:border-0 hover:bg-muted/30">
-                          <td className="px-4 py-3">
-                            <div className="font-medium">{p.filiado.nomeCompleto}</div>
-                            <div className="text-xs text-muted-foreground">Matrícula {p.filiado.matricula}</div>
-                          </td>
-                          <td className="px-4 py-3">{TIPO_LABEL[p.tipo]} · {p.numero}</td>
-                          <td className="px-4 py-3 tabular-nums">{formatData(p.dataVencimento)}</td>
-                          <td className="px-4 py-3 font-semibold tabular-nums">{formatBRL(p.valor)}</td>
-                          <td className="px-4 py-3"><Badge className={STATUS_COR[st]}>{STATUS_LABEL[st]}</Badge></td>
-                          <td className="px-4 py-3">
-                            <div className="flex justify-end"><ParcelaAcoes parcela={p} onMudou={invalidar} /></div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Paginação */}
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <p className="text-sm text-muted-foreground">
+              {data?.total ?? 0} filiado(s) · página {data?.page ?? 1} de {totalPaginas}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                <ChevronLeft className="h-4 w-4" /> Anterior
+              </Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPaginas || isFetching} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>
+                Próxima <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </>
       )}
     </div>

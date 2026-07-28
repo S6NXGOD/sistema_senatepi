@@ -34,8 +34,11 @@ function WizardCobranca() {
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [tipo, setTipo] = useState<TipoCobranca>('MENSALIDADE');
-  const [valorTotal, setValorTotal] = useState('');
-  const [qtdParcelas, setQtdParcelas] = useState('1');
+  // 'PARCELA' = valor de cada parcela (ex.: mensalidade R$50 × 12 = R$600);
+  // 'TOTAL'   = valor total dividido nas parcelas.
+  const [modoValor, setModoValor] = useState<'PARCELA' | 'TOTAL'>('PARCELA');
+  const [valorCampo, setValorCampo] = useState('');
+  const [qtdParcelas, setQtdParcelas] = useState('12');
   const [competencia, setCompetencia] = useState('');
   const [vencimento, setVencimento] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -73,11 +76,14 @@ function WizardCobranca() {
 
   async function gerarSimulacao() {
     if (!filiadoId) return toast.error('Selecione o filiado.');
-    const total = Number(valorTotal);
+    const valor = Number(valorCampo);
     const qtd = Number(qtdParcelas);
-    if (!(total > 0)) return toast.error('Informe um valor total válido.');
+    if (!(valor > 0)) return toast.error('Informe um valor válido.');
     if (!(qtd >= 1)) return toast.error('Informe a quantidade de parcelas.');
     if (!competencia || !vencimento) return toast.error('Informe as datas base de competência e vencimento.');
+
+    // Por parcela: cada mês vale `valor` (total = valor × qtd). Total: divide.
+    const total = modoValor === 'PARCELA' ? valor * qtd : valor;
 
     setSimulando(true);
     try {
@@ -198,15 +204,30 @@ function WizardCobranca() {
                   {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t]}</option>)}
                 </select>
               </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="text-sm font-medium">Como informar o valor?</label>
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-input bg-card p-1">
+                  <ModoBtn ativo={modoValor === 'PARCELA'} onClick={() => setModoValor('PARCELA')} titulo="Valor por parcela" sub="cada mês (ex.: mensalidade)" />
+                  <ModoBtn ativo={modoValor === 'TOTAL'} onClick={() => setModoValor('TOTAL')} titulo="Valor total" sub="dividir nas parcelas" />
+                </div>
+              </div>
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Valor total (R$) *</label>
-                <Input type="number" inputMode="decimal" step="0.01" min="0" placeholder="0,00" value={valorTotal} onChange={(e) => setValorTotal(e.target.value)} />
+                <label className="text-sm font-medium">{modoValor === 'PARCELA' ? 'Valor de cada parcela (R$) *' : 'Valor total (R$) *'}</label>
+                <Input type="number" inputMode="decimal" step="0.01" min="0" placeholder="0,00" value={valorCampo} onChange={(e) => setValorCampo(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Quantidade de parcelas *</label>
                 <Input type="number" inputMode="numeric" min="1" value={qtdParcelas} onChange={(e) => setQtdParcelas(e.target.value)} />
               </div>
-              <div className="hidden sm:block" />
+              {Number(valorCampo) > 0 && Number(qtdParcelas) >= 1 && (
+                <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground sm:col-span-2">
+                  {modoValor === 'PARCELA' ? (
+                    <>{qtdParcelas}× de <strong>{formatBRL(Number(valorCampo))}</strong> = total de <strong className="text-foreground">{formatBRL(Number(valorCampo) * Number(qtdParcelas))}</strong></>
+                  ) : (
+                    <>Total de <strong>{formatBRL(Number(valorCampo))}</strong> dividido em {qtdParcelas}× de aprox. <strong className="text-foreground">{formatBRL(Number(valorCampo) / Math.max(1, Number(qtdParcelas)))}</strong></>
+                  )}
+                </p>
+              )}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Competência base *</label>
                 <Input type="date" value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
@@ -287,6 +308,21 @@ function WizardCobranca() {
         </>
       )}
     </div>
+  );
+}
+
+function ModoBtn({ ativo, onClick, titulo, sub }: { ativo: boolean; onClick: () => void; titulo: string; sub: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-3 py-2 text-left transition-colors ${
+        ativo ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'
+      }`}
+    >
+      <span className="block text-sm font-semibold">{titulo}</span>
+      <span className={`block text-[11px] ${ativo ? 'text-white/80' : 'text-muted-foreground'}`}>{sub}</span>
+    </button>
   );
 }
 

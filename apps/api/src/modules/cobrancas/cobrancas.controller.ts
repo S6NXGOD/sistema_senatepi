@@ -19,6 +19,7 @@ import {
   ConfiguracaoSindicatoDto,
   GravarCobrancaDto,
   ListarParcelasQueryDto,
+  ListarPorFiliadoQueryDto,
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -72,6 +73,12 @@ export class CobrancasController {
     return this.service.listarParcelas(query);
   }
 
+  // ---- Lista AGRUPADA por filiado (paginada) — escala p/ muitos filiados ----
+  @Get('por-filiado')
+  listarPorFiliado(@Query() query: ListarPorFiliadoQueryDto) {
+    return this.service.listarPorFiliado(query);
+  }
+
   // ---- Mini-dashboard de inadimplência do mês (agregado, sem dados pessoais) ----
   @Get('dashboard')
   dashboard() {
@@ -122,5 +129,15 @@ export class CobrancasController {
     @Req() req: Request,
   ) {
     return this.service.excluirParcela(id, this.ctx(req, userId));
+  }
+
+  // ---- Exclusão da cobrança inteira (400 se houver parcela PAGA) ----
+  @Delete(':id')
+  excluirCobranca(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.excluirCobranca(id, this.ctx(req, userId));
   }
 }
