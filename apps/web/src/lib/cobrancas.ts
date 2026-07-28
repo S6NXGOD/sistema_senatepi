@@ -244,8 +244,24 @@ export async function pixParcela(parcelaId: string): Promise<PixParcela> {
   return (await api.get(`/cobrancas/parcela/${parcelaId}/pix`)).data;
 }
 
-export async function baixarParcela(parcelaId: string) {
-  return (await api.patch(`/cobrancas/parcela/${parcelaId}/baixar`)).data;
+export async function baixarParcela(
+  parcelaId: string,
+  dados: { valorPago: number; contaBancariaId: string },
+) {
+  return (await api.patch(`/cobrancas/parcela/${parcelaId}/baixar`, dados)).data;
+}
+
+export interface DashboardCobrancas {
+  mes: string;
+  receitaPrevista: number;
+  receitaRealizada: number;
+  totalVencido: number;
+  qtdVencido: number;
+  qtdMes: number;
+  taxaInadimplencia: number;
+}
+export async function getDashboard(): Promise<DashboardCobrancas> {
+  return (await api.get('/cobrancas/dashboard')).data;
 }
 
 export async function excluirParcela(parcelaId: string) {

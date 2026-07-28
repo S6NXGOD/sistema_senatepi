@@ -10,10 +10,11 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import {
   StatusParcela, TipoCobranca, Dinheiro,
-  baixarParcela, excluirParcela, pixParcela,
+  excluirParcela, pixParcela,
   linkWhatsApp, mensagemCobranca, formatBRL, statusExibicao,
 } from '@/lib/cobrancas';
 import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
+import { RegistrarPagamentoModal } from '@/components/cobrancas/registrar-pagamento-modal';
 
 export interface ParcelaAcao {
   id: string;
@@ -30,7 +31,7 @@ export interface ParcelaAcao {
 /** Dropdown de ações de uma parcela: pagamento, carnê, WhatsApp e exclusão. */
 export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMudou?: () => void }) {
   const [aberto, setAberto] = useState(false);
-  const [confirmPagar, setConfirmPagar] = useState(false);
+  const [pagarAberto, setPagarAberto] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [carneAberto, setCarneAberto] = useState(false);
   const [ocupado, setOcupado] = useState<null | 'whatsapp'>(null);
@@ -49,16 +50,6 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   const podeCobrar = st !== 'PAGO' && st !== 'CANCELADO';
   const podeImprimir = st !== 'CANCELADO';
   const podeExcluir = st !== 'PAGO' && st !== 'CANCELADO';
-
-  const pagar = useMutation({
-    mutationFn: () => baixarParcela(parcela.id),
-    onSuccess: () => {
-      toast.success(`Pagamento registrado (parcela ${parcela.numero}).`);
-      setConfirmPagar(false);
-      onMudou?.();
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível registrar o pagamento.'),
-  });
 
   const excluir = useMutation({
     mutationFn: () => excluirParcela(parcela.id),
@@ -122,7 +113,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
       {aberto && (
         <div className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-lg border bg-card py-1 shadow-lg">
           {podePagar && (
-            <button className={item} onClick={() => { setAberto(false); setConfirmPagar(true); }}>
+            <button className={item} onClick={() => { setAberto(false); setPagarAberto(true); }}>
               <CheckCircle2 className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Registrar pagamento
             </button>
           )}
@@ -150,21 +141,13 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
         </div>
       )}
 
-      <ConfirmDialog
-        open={confirmPagar}
-        title="Registrar pagamento"
-        icon={<CheckCircle2 className="h-6 w-6" />}
-        description={
-          <>
-            Confirmar o pagamento da <strong>parcela {parcela.numero}</strong> de{' '}
-            <strong>{formatBRL(parcela.valor)}</strong>? A data de hoje será registrada como pagamento.
-          </>
-        }
-        confirmLabel="Registrar pagamento"
-        loading={pagar.isPending}
-        onConfirm={() => pagar.mutate()}
-        onClose={() => setConfirmPagar(false)}
-      />
+      {pagarAberto && (
+        <RegistrarPagamentoModal
+          parcela={{ id: parcela.id, numero: parcela.numero, valor: parcela.valor, filiado: { nomeCompleto: parcela.filiado.nomeCompleto } }}
+          onClose={() => setPagarAberto(false)}
+          onConcluido={onMudou}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmExcluir}

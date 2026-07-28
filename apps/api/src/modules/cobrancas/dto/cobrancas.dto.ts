@@ -75,6 +75,16 @@ export class GravarCobrancaDto {
   parcelas: ParcelaInputDto[];
 }
 
+export class BaixarParcelaDto {
+  @ApiProperty({ example: 150.0, description: 'Valor efetivamente recebido (permite juros/desconto).' })
+  @IsNumber({ maxDecimalPlaces: 2 }) @IsPositive()
+  valorPago: number;
+
+  @ApiProperty({ description: 'Conta bancária de destino da entrada (Módulo Financeiro).' })
+  @IsString() @IsNotEmpty()
+  contaBancariaId: string;
+}
+
 export class ListarParcelasQueryDto {
   @ApiPropertyOptional({ enum: StatusParcela, description: 'Filtra por situação (VENCIDO = pendente vencida).' })
   @IsOptional() @IsEnum(StatusParcela) status?: StatusParcela;

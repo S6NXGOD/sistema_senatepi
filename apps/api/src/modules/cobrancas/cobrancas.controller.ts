@@ -15,6 +15,7 @@ import { Request } from 'express';
 import { UserRole } from '@prisma/client';
 import { CobrancasService } from './cobrancas.service';
 import {
+  BaixarParcelaDto,
   ConfiguracaoSindicatoDto,
   GravarCobrancaDto,
   ListarParcelasQueryDto,
@@ -71,6 +72,19 @@ export class CobrancasController {
     return this.service.listarParcelas(query);
   }
 
+  // ---- Mini-dashboard de inadimplência do mês (agregado, sem dados pessoais) ----
+  @Get('dashboard')
+  dashboard() {
+    return this.service.dashboard();
+  }
+
+  // ---- Executa o robô de vencimentos sob demanda (mesma rotina do cron) ----
+  @Post('processar-vencimentos')
+  async processarVencimentos() {
+    const atualizadas = await this.service.marcarParcelasVencidas();
+    return { atualizadas };
+  }
+
   // ---- Histórico financeiro de um filiado (LGPD) ----
   @Get('filiado/:id')
   historicoFiliado(@Param('id') id: string) {
@@ -89,14 +103,15 @@ export class CobrancasController {
     return this.service.dadosCarne(id);
   }
 
-  // ---- Baixa manual de parcela (marca como paga) ----
+  // ---- Baixa realista: valor pago + conta bancária (gera Movimentação) ----
   @Patch('parcela/:id/baixar')
   baixar(
     @Param('id') id: string,
+    @Body() dto: BaixarParcelaDto,
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    return this.service.baixarParcela(id, this.ctx(req, userId));
+    return this.service.baixarParcela(id, dto, this.ctx(req, userId));
   }
 
   // ---- Exclusão/cancelamento de parcela (400 se PAGA) ----

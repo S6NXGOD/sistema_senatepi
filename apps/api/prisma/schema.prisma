@@ -1050,12 +1050,60 @@ model ParcelaCobranca {
   valor           Decimal       @db.Decimal(10, 2)
   status          StatusParcela @default(PENDENTE)
   dataPagamento   DateTime?     @map("data_pagamento")
+  valorPago       Decimal?      @map("valor_pago") @db.Decimal(10, 2) // valor efetivamente recebido (juros/desconto)
+  // Rastreio financeiro: movimentação de ENTRADA gerada na baixa desta parcela.
+  movimentacaoId  String?       @unique @map("movimentacao_id")
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
-  cobranca Cobranca @relation(fields: [cobrancaId], references: [id], onDelete: Cascade)
+  cobranca     Cobranca      @relation(fields: [cobrancaId], references: [id], onDelete: Cascade)
+  movimentacao Movimentacao? @relation(fields: [movimentacaoId], references: [id], onDelete: SetNull)
 
   @@index([cobrancaId])
   @@index([status])
   @@map("parcelas_cobranca")
+}
+
+// ===========================================================================
+// FINANCEIRO (contas bancárias e movimentações)
+// ===========================================================================
+
+enum TipoMovimentacao {
+  ENTRADA
+  SAIDA
+}
+
+/// Conta bancária / caixa do sindicato para onde entram/saem valores.
+model ContaBancaria {
+  id          String   @id @default(uuid())
+  nome        String // ex.: "Caixa do Sindicato", "Banco do Brasil CC"
+  instituicao String?  // banco/instituição
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  movimentacoes Movimentacao[]
+
+  @@map("contas_bancarias")
+}
+
+/// Lançamento financeiro (entrada/saída) vinculado a uma conta bancária.
+model Movimentacao {
+  id              String           @id @default(uuid())
+  contaBancariaId String           @map("conta_bancaria_id")
+  tipo            TipoMovimentacao
+  valor           Decimal          @db.Decimal(10, 2)
+  descricao       String
+  data            DateTime         @default(now())
+  origem          String?          // ex.: "COBRANCA"
+  criadaPor       String?          @map("criada_por")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  conta   ContaBancaria    @relation(fields: [contaBancariaId], references: [id], onDelete: Restrict)
+  parcela ParcelaCobranca? // preenchida quando a movimentação nasce da baixa de uma parcela
+
+  @@index([contaBancariaId])
+  @@index([tipo])
+  @@index([data])
+  @@map("movimentacoes")
 }

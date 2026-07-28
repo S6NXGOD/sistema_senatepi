@@ -3,12 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, Prisma, StatusParcela, TipoCobranca } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusParcela, TipoCobranca, TipoMovimentacao } from '@prisma/client';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { gerarPixCopiaECola } from '../../common/utils/pix.util';
 import {
+  BaixarParcelaDto,
   ConfiguracaoSindicatoDto,
   GravarCobrancaDto,
   ListarParcelasQueryDto,
@@ -299,31 +300,136 @@ export class CobrancasService {
   }
 
   // -------------------------------------------------------------------------
-  // 4) Baixa manual de parcela
+  // Robô de vencimentos: PENDENTE com vencimento < hoje vira VENCIDO (em lote).
   // -------------------------------------------------------------------------
 
-  async baixarParcela(id: string, ctx: Ctx) {
-    const parcela = await this.prisma.parcelaCobranca.findUnique({ where: { id } });
+  async marcarParcelasVencidas() {
+    const { count } = await this.prisma.parcelaCobranca.updateMany({
+      where: { status: StatusParcela.PENDENTE, dataVencimento: { lt: this.hojeUTC() } },
+      data: { status: StatusParcela.VENCIDO },
+    });
+    return count;
+  }
+
+  // -------------------------------------------------------------------------
+  // 4) Baixa REALISTA da parcela + integração financeira (transação)
+  //    - registra valor efetivamente pago (juros/desconto)
+  //    - cria a Movimentação de ENTRADA na conta escolhida e vincula à parcela
+  // -------------------------------------------------------------------------
+
+  async baixarParcela(id: string, dto: BaixarParcelaDto, ctx: Ctx) {
+    const parcela = await this.prisma.parcelaCobranca.findUnique({
+      where: { id },
+      include: {
+        cobranca: {
+          select: {
+            filiado: { select: { nomeCompleto: true } },
+            _count: { select: { parcelas: true } },
+          },
+        },
+      },
+    });
     if (!parcela) throw new NotFoundException('Parcela não encontrada.');
     if (parcela.status === StatusParcela.CANCELADO)
       throw new BadRequestException('Parcela cancelada não pode receber baixa.');
-    if (parcela.status === StatusParcela.PAGO) return parcela; // idempotente
+    if (parcela.status === StatusParcela.PAGO)
+      throw new BadRequestException('Parcela já está paga.');
 
-    const atualizada = await this.prisma.parcelaCobranca.update({
-      where: { id },
-      data: { status: StatusParcela.PAGO, dataPagamento: new Date() },
+    const conta = await this.prisma.contaBancaria.findUnique({ where: { id: dto.contaBancariaId } });
+    if (!conta || !conta.ativo)
+      throw new BadRequestException('Conta bancária de destino inválida ou inativa.');
+
+    const valorPago = Number(dto.valorPago);
+    const total = parcela.cobranca._count.parcelas;
+    const nome = parcela.cobranca.filiado.nomeCompleto;
+
+    const atualizada = await this.prisma.$transaction(async (tx) => {
+      // 1) Movimentação financeira de ENTRADA na conta escolhida.
+      const mov = await tx.movimentacao.create({
+        data: {
+          contaBancariaId: conta.id,
+          tipo: TipoMovimentacao.ENTRADA,
+          valor: valorPago,
+          descricao: `Recebimento Parcela ${parcela.numero}/${total} - ${nome}`,
+          origem: 'COBRANCA',
+          criadaPor: ctx.userId,
+        },
+      });
+      // 2) Baixa a parcela, guardando o valor real e o vínculo com a movimentação.
+      return tx.parcelaCobranca.update({
+        where: { id },
+        data: {
+          status: StatusParcela.PAGO,
+          dataPagamento: new Date(),
+          valorPago,
+          movimentacaoId: mov.id,
+        },
+      });
     });
+
     await this.audit.registrar({
       userId: ctx.userId ?? null,
       acao: AcaoAuditoria.UPDATE,
       entidade: 'ParcelaCobranca',
       entidadeId: id,
-      descricao: `Baixa manual da parcela ${parcela.numero} (R$ ${Number(parcela.valor).toFixed(2)})`,
+      descricao: `Baixa da parcela ${parcela.numero} (recebido R$ ${valorPago.toFixed(2)}) → conta ${conta.nome}`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { cobrancaId: parcela.cobrancaId },
+      metadata: { cobrancaId: parcela.cobrancaId, contaBancariaId: conta.id, movimentacaoId: atualizada.movimentacaoId },
     });
     return atualizada;
+  }
+
+  // -------------------------------------------------------------------------
+  // Mini-dashboard de inadimplência (mês corrente, por vencimento) — só agregados
+  // (LGPD: nenhum dado pessoal é retornado, apenas somatórios/contagens).
+  // -------------------------------------------------------------------------
+
+  async dashboard() {
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const ini = new Date(Date.UTC(y, m, 1));
+    const fim = new Date(Date.UTC(y, m + 1, 1));
+    const hoje = this.hojeUTC();
+
+    const parcelas = await this.prisma.parcelaCobranca.findMany({
+      where: { dataVencimento: { gte: ini, lt: fim }, status: { not: StatusParcela.CANCELADO } },
+      select: { valor: true, valorPago: true, status: true, dataVencimento: true },
+    });
+
+    let receitaPrevista = 0;
+    let receitaRealizada = 0;
+    let totalVencido = 0;
+    let qtdVencido = 0;
+
+    for (const p of parcelas) {
+      const v = Number(p.valor);
+      if (p.status === StatusParcela.PAGO) {
+        receitaRealizada += Number(p.valorPago ?? p.valor);
+      } else {
+        const venceu = p.status === StatusParcela.VENCIDO || new Date(p.dataVencimento) < hoje;
+        if (venceu) {
+          totalVencido += v;
+          qtdVencido++;
+        } else {
+          receitaPrevista += v;
+        }
+      }
+    }
+
+    const base = receitaPrevista + receitaRealizada + totalVencido;
+    const taxaInadimplencia = base > 0 ? Number(((totalVencido / base) * 100).toFixed(1)) : 0;
+
+    return {
+      mes: `${y}-${String(m + 1).padStart(2, '0')}`,
+      receitaPrevista: this.arred(receitaPrevista),
+      receitaRealizada: this.arred(receitaRealizada),
+      totalVencido: this.arred(totalVencido),
+      qtdVencido,
+      qtdMes: parcelas.length,
+      taxaInadimplencia,
+    };
   }
 
   // -------------------------------------------------------------------------

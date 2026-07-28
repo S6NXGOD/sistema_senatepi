@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
@@ -13,6 +14,7 @@ import { RecadastramentoModule } from './modules/recadastramento/recadastramento
 import { ImportacaoModule } from './modules/importacao/importacao.module';
 import { ColoniaModule } from './modules/colonia/colonia.module';
 import { CobrancasModule } from './modules/cobrancas/cobrancas.module';
+import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { FuncionariosModule } from './modules/funcionarios/funcionarios.module';
 import { PrestadoresModule } from './modules/prestadores/prestadores.module';
 import { EventosModule } from './modules/eventos/eventos.module';
@@ -31,6 +33,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     StorageModule,
@@ -45,6 +48,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     ImportacaoModule,
     ColoniaModule,
     CobrancasModule,
+    FinanceiroModule,
     FuncionariosModule,
     PrestadoresModule,
     EventosModule,

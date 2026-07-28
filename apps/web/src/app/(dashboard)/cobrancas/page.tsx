@@ -1,16 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Search, Plus, Receipt, CalendarClock, User, Settings2 } from 'lucide-react';
+import {
+  Loader2, Search, Plus, Receipt, CalendarClock, User, Settings2,
+  TrendingUp, TrendingDown, AlertTriangle,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ParcelaAcoes } from '@/components/cobrancas/parcela-actions';
 import {
-  listarParcelas, StatusParcela, TIPO_LABEL, STATUS_LABEL, STATUS_COR,
+  listarParcelas, getDashboard, StatusParcela, TIPO_LABEL, STATUS_LABEL, STATUS_COR,
   formatBRL, formatData, statusExibicao,
 } from '@/lib/cobrancas';
 
@@ -41,19 +44,14 @@ export default function CobrancasPage() {
   });
 
   const parcelas = data ?? [];
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['cobrancas-parcelas'] });
 
-  const resumo = useMemo(() => {
-    let aberto = 0, vencido = 0, pago = 0;
-    for (const p of parcelas) {
-      const st = statusExibicao(p);
-      const v = Number(p.valor);
-      if (st === 'PAGO') pago += v;
-      else if (st === 'VENCIDO') vencido += v;
-      else if (st === 'PENDENTE') aberto += v;
-    }
-    return { aberto, vencido, pago, total: parcelas.length };
-  }, [parcelas]);
+  // Mini-dashboard agregado (mês corrente) — vem do backend, só números (LGPD).
+  const { data: dash } = useQuery({ queryKey: ['cobrancas-dashboard'], queryFn: getDashboard });
+
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['cobrancas-parcelas'] });
+    qc.invalidateQueries({ queryKey: ['cobrancas-dashboard'] });
+  };
 
   return (
     <div className="space-y-6">
@@ -78,12 +76,32 @@ export default function CobrancasPage() {
         </div>
       </div>
 
-      {/* Resumo */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <ResumoTile rotulo="Parcelas" valor={String(resumo.total)} />
-        <ResumoTile rotulo="A vencer" valor={formatBRL(resumo.aberto)} cor="text-amber-600 dark:text-amber-400" />
-        <ResumoTile rotulo="Vencidas" valor={formatBRL(resumo.vencido)} cor="text-red-600 dark:text-red-400" />
-        <ResumoTile rotulo="Pagas" valor={formatBRL(resumo.pago)} cor="text-senatepi-700 dark:text-senatepi-400" />
+      {/* Mini-dashboard de inadimplência (mês corrente) */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <DashCard
+          Icon={TrendingUp}
+          rotulo="Receita prevista (mês)"
+          valor={formatBRL(dash?.receitaPrevista ?? 0)}
+          sub="Parcelas a vencer no mês"
+          cor="text-amber-600 dark:text-amber-400"
+          bg="bg-amber-100 dark:bg-amber-900/30"
+        />
+        <DashCard
+          Icon={TrendingDown}
+          rotulo="Receita realizada (mês)"
+          valor={formatBRL(dash?.receitaRealizada ?? 0)}
+          sub="Parcelas pagas no mês"
+          cor="text-senatepi-700 dark:text-senatepi-400"
+          bg="bg-senatepi-50 dark:bg-senatepi-900/30"
+        />
+        <DashCard
+          Icon={AlertTriangle}
+          rotulo="Inadimplência (mês)"
+          valor={`${(dash?.taxaInadimplencia ?? 0).toLocaleString('pt-BR')}%`}
+          sub={`${dash?.qtdVencido ?? 0} vencida(s) · ${formatBRL(dash?.totalVencido ?? 0)}`}
+          cor="text-red-600 dark:text-red-400"
+          bg="bg-red-100 dark:bg-red-900/30"
+        />
       </div>
 
       {/* Filtros */}
@@ -195,12 +213,25 @@ export default function CobrancasPage() {
   );
 }
 
-function ResumoTile({ rotulo, valor, cor }: { rotulo: string; valor: string; cor?: string }) {
+function DashCard({ Icon, rotulo, valor, sub, cor, bg }: {
+  Icon: React.ElementType;
+  rotulo: string;
+  valor: string;
+  sub?: string;
+  cor?: string;
+  bg?: string;
+}) {
   return (
     <Card>
-      <CardContent className="p-4">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">{rotulo}</p>
-        <p className={`mt-1 text-lg font-bold tabular-nums ${cor ?? ''}`}>{valor}</p>
+      <CardContent className="flex items-center gap-3 p-4">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${bg ?? 'bg-muted'}`}>
+          <Icon className={`h-5 w-5 ${cor ?? ''}`} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{rotulo}</p>
+          <p className={`text-xl font-bold tabular-nums ${cor ?? ''}`}>{valor}</p>
+          {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
+        </div>
       </CardContent>
     </Card>
   );
