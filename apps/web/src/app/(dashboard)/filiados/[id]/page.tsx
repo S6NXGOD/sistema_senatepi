@@ -17,6 +17,7 @@ import { formatarData, mascararCpf } from '@/lib/utils';
 import { FORMACAO_LABEL, SITUACAO_COR, SITUACAO_LABEL, SITUACOES } from '@/lib/filiados';
 import { QrCodeDialog } from '@/components/qrcode-dialog';
 import { DependentesSection } from '@/components/filiados/dependentes-section';
+import { FinanceiroSection } from '@/components/filiados/financeiro-section';
 import { abrirPdf } from '@/lib/pdf';
 
 const HIST_ICON: Record<string, any> = {
@@ -169,6 +170,8 @@ export default function PerfilFiliadoPage() {
           </Card>
 
           <DependentesSection filiadoId={f.id} dependentes={f.dependentes ?? []} />
+
+          <FinanceiroSection filiado={{ id: f.id, nomeCompleto: f.nomeCompleto, matricula: f.matricula, telefonePrincipal: f.telefonePrincipal }} />
 
           {/* Documentos */}
           <Card>

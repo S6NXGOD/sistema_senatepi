@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -16,6 +17,7 @@ import { CobrancasService } from './cobrancas.service';
 import {
   ConfiguracaoSindicatoDto,
   GravarCobrancaDto,
+  ListarParcelasQueryDto,
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -61,6 +63,12 @@ export class CobrancasController {
     @Req() req: Request,
   ) {
     return this.service.gravar(dto, this.ctx(req, userId));
+  }
+
+  // ---- Lista geral de parcelas (gestão) com filtros ----
+  @Get('parcelas')
+  listarParcelas(@Query() query: ListarParcelasQueryDto) {
+    return this.service.listarParcelas(query);
   }
 
   // ---- Histórico financeiro de um filiado (LGPD) ----

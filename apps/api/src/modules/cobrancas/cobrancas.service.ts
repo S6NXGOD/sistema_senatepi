@@ -3,13 +3,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, StatusParcela, TipoCobranca } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusParcela, TipoCobranca } from '@prisma/client';
+import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { gerarPixCopiaECola } from '../../common/utils/pix.util';
 import {
   ConfiguracaoSindicatoDto,
   GravarCobrancaDto,
+  ListarParcelasQueryDto,
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
 
@@ -217,6 +219,86 @@ export class CobrancasService {
   }
 
   // -------------------------------------------------------------------------
+  // Lista GERAL de parcelas (gestão) com filtros: status, mês, busca por filiado.
+  // LGPD: só campos necessários à gestão/cobrança (inclui telefone p/ WhatsApp).
+  // -------------------------------------------------------------------------
+
+  async listarParcelas(filtro: ListarParcelasQueryDto) {
+    const hoje = this.hojeUTC();
+    const and: Prisma.ParcelaCobrancaWhereInput[] = [];
+
+    // "Vencida" = pendente cujo vencimento já passou; "pendente" = a vencer.
+    if (filtro.status === StatusParcela.PAGO) and.push({ status: StatusParcela.PAGO });
+    else if (filtro.status === StatusParcela.CANCELADO) and.push({ status: StatusParcela.CANCELADO });
+    else if (filtro.status === StatusParcela.PENDENTE)
+      and.push({ status: StatusParcela.PENDENTE, dataVencimento: { gte: hoje } });
+    else if (filtro.status === StatusParcela.VENCIDO)
+      and.push({
+        status: { in: [StatusParcela.PENDENTE, StatusParcela.VENCIDO] },
+        dataVencimento: { lt: hoje },
+      });
+
+    if (filtro.mes && /^\d{4}-\d{2}$/.test(filtro.mes)) {
+      const [y, m] = filtro.mes.split('-').map(Number);
+      and.push({
+        dataVencimento: { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) },
+      });
+    }
+
+    const busca = filtro.busca?.trim();
+    if (busca) {
+      and.push({
+        cobranca: {
+          filiado: {
+            OR: [
+              { nomeCompleto: { contains: busca, mode: 'insensitive' } },
+              { matricula: { contains: busca, mode: 'insensitive' } },
+              { cpf: { contains: busca.replace(/\D/g, '') || busca } },
+            ],
+          },
+        },
+      });
+    }
+
+    const parcelas = await this.prisma.parcelaCobranca.findMany({
+      where: and.length ? { AND: and } : {},
+      orderBy: [{ dataVencimento: 'asc' }, { numero: 'asc' }],
+      take: 300,
+      select: {
+        id: true,
+        numero: true,
+        valor: true,
+        dataCompetencia: true,
+        dataVencimento: true,
+        status: true,
+        dataPagamento: true,
+        cobrancaId: true,
+        cobranca: {
+          select: {
+            tipo: true,
+            filiado: {
+              select: { id: true, nomeCompleto: true, matricula: true, telefonePrincipal: true },
+            },
+          },
+        },
+      },
+    });
+
+    return parcelas.map((p) => ({
+      id: p.id,
+      numero: p.numero,
+      valor: p.valor,
+      dataCompetencia: p.dataCompetencia,
+      dataVencimento: p.dataVencimento,
+      status: p.status,
+      dataPagamento: p.dataPagamento,
+      cobrancaId: p.cobrancaId,
+      tipo: p.cobranca.tipo,
+      filiado: p.cobranca.filiado,
+    }));
+  }
+
+  // -------------------------------------------------------------------------
   // 4) Baixa manual de parcela
   // -------------------------------------------------------------------------
 
@@ -296,12 +378,15 @@ export class CobrancasService {
       valor: Number(parcela.valor),
       identificador,
     });
+    // QR Code (PNG data URL) do próprio Copia e Cola — usado no carnê/impressão.
+    const qrDataUrl = await QRCode.toDataURL(copiaECola, { width: 280, margin: 1 });
     return {
       parcelaId: parcela.id,
       numero: parcela.numero,
       valor: Number(parcela.valor),
       identificador,
       copiaECola,
+      qrDataUrl,
     };
   }
 

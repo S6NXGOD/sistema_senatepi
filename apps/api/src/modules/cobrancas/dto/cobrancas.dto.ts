@@ -14,7 +14,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { TipoCobranca } from '@prisma/client';
+import { StatusParcela, TipoCobranca } from '@prisma/client';
 
 export class SimularCobrancaDto {
   @ApiProperty({ example: 1200.0, description: 'Valor total a ser dividido nas parcelas.' })
@@ -73,6 +73,17 @@ export class GravarCobrancaDto {
   @IsArray() @ArrayNotEmpty()
   @ValidateNested({ each: true }) @Type(() => ParcelaInputDto)
   parcelas: ParcelaInputDto[];
+}
+
+export class ListarParcelasQueryDto {
+  @ApiPropertyOptional({ enum: StatusParcela, description: 'Filtra por situação (VENCIDO = pendente vencida).' })
+  @IsOptional() @IsEnum(StatusParcela) status?: StatusParcela;
+
+  @ApiPropertyOptional({ example: '2026-08', description: 'Mês de vencimento (YYYY-MM).' })
+  @IsOptional() @IsString() mes?: string;
+
+  @ApiPropertyOptional({ description: 'Busca por nome, matrícula ou CPF do filiado.' })
+  @IsOptional() @IsString() busca?: string;
 }
 
 export class ConfiguracaoSindicatoDto {
