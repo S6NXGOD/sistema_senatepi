@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -35,15 +36,46 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [carneAberto, setCarneAberto] = useState(false);
   const [ocupado, setOcupado] = useState<null | 'whatsapp'>(null);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [montado, setMontado] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => setMontado(true), []);
+
+  // Abre o menu calculando a posição a partir do botão (portal fixo → não é
+  // cortado pelo overflow da tabela/card). Abre para cima se faltar espaço.
+  function toggleMenu() {
+    if (aberto) { setAberto(false); return; }
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const LARGURA = 224; // w-56
+    const ALTURA = 210; // estimativa p/ decidir abrir acima
+    const left = Math.max(8, Math.min(r.right - LARGURA, window.innerWidth - LARGURA - 8));
+    const abrirAcima = r.bottom + ALTURA > window.innerHeight;
+    const top = abrirAcima ? Math.max(8, r.top - ALTURA) : r.bottom + 4;
+    setPos({ top, left });
+    setAberto(true);
+  }
+
+  // Fecha ao clicar fora, rolar ou redimensionar (posição ficaria defasada).
   useEffect(() => {
+    if (!aberto) return;
     function onDoc(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setAberto(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setAberto(false);
     }
+    function fechar() { setAberto(false); }
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
+    window.addEventListener('scroll', fechar, true);
+    window.addEventListener('resize', fechar);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('scroll', fechar, true);
+      window.removeEventListener('resize', fechar);
+    };
+  }, [aberto]);
 
   const st = statusExibicao(parcela);
   const podePagar = st !== 'PAGO' && st !== 'CANCELADO';
@@ -99,10 +131,11 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
     'flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted disabled:opacity-50';
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="inline-flex">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setAberto((v) => !v)}
+        onClick={toggleMenu}
         disabled={!!ocupado}
         aria-label="Ações da parcela"
         className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -110,8 +143,12 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
         {ocupado ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
       </button>
 
-      {aberto && (
-        <div className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-lg border bg-card py-1 shadow-lg">
+      {aberto && pos && montado && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: 224 }}
+          className="z-[70] overflow-hidden rounded-lg border bg-card py-1 shadow-lg"
+        >
           {podePagar && (
             <button className={item} onClick={() => { setAberto(false); setPagarAberto(true); }}>
               <CheckCircle2 className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Registrar pagamento
@@ -138,7 +175,8 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
           {!podePagar && !podeImprimir && !podeCobrar && !podeExcluir && (
             <p className="px-4 py-2.5 text-sm text-muted-foreground">Sem ações disponíveis.</p>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
 
       {pagarAberto && (

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Save, KeyRound, FileText } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, KeyRound, FileText, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,10 +24,26 @@ const VAZIO: FormConfig = {
   textoRodapeCarne: '', logoUrl: '', assinaturaPresidenteUrl: '',
 };
 
+/**
+ * Campo de formulário. IMPORTANTE: definido em ESCOPO DE MÓDULO (fora do
+ * componente de página) — se ficasse dentro, seria recriado a cada render e
+ * os inputs perderiam o foco a cada tecla ("digita uma letra por vez").
+ */
+function Campo({ label, children, dica }: { label: string; children: React.ReactNode; dica?: string }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">{label}</label>
+      {children}
+      {dica && <p className="text-xs text-muted-foreground">{dica}</p>}
+    </div>
+  );
+}
+
 export default function ConfiguracaoCobrancasPage() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['cobrancas-config'], queryFn: getConfig });
   const [form, setForm] = useState<FormConfig>(VAZIO);
+  const [salvoOk, setSalvoOk] = useState(false);
 
   useEffect(() => {
     if (data) {
@@ -58,19 +74,17 @@ export default function ConfiguracaoCobrancasPage() {
       return salvarConfig(dto);
     },
     onSuccess: () => {
-      toast.success('Configuração do sindicato salva.');
+      toast.success('Configuração salva com sucesso!', {
+        description: form.pixChave.trim()
+          ? 'A chave PIX foi definida — já é possível gerar carnês.'
+          : 'Preencha a chave PIX para habilitar a geração de carnês.',
+      });
       qc.invalidateQueries({ queryKey: ['cobrancas-config'] });
+      setSalvoOk(true);
+      setTimeout(() => setSalvoOk(false), 4000);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível salvar.'),
+    onError: (e: any) => toast.error('Não foi possível salvar', { description: e?.response?.data?.message ?? 'Tente novamente em instantes.' }),
   });
-
-  const Campo = ({ label, children, dica }: { label: string; children: React.ReactNode; dica?: string }) => (
-    <div className="space-y-1.5">
-      <label className="text-sm font-medium">{label}</label>
-      {children}
-      {dica && <p className="text-xs text-muted-foreground">{dica}</p>}
-    </div>
-  );
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -143,7 +157,12 @@ export default function ConfiguracaoCobrancasPage() {
             </CardContent>
           </Card>
 
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {salvoOk && (
+              <span className="flex items-center gap-1.5 text-sm font-medium text-senatepi-700 dark:text-senatepi-400">
+                <CheckCircle2 className="h-4 w-4" /> Configuração salva
+              </span>
+            )}
             <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>
               {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar configuração
             </Button>
