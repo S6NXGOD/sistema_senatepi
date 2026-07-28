@@ -196,6 +196,7 @@ model User {
   auditorias       Auditoria[]
   recadastramentos Recadastramento[] @relation("RecadastramentoRevisor")
   atendimentos     Atendimento[]
+  compromissos     Compromisso[]     @relation("CompromissoResponsavel")
 
   @@map("users")
 }
@@ -275,6 +276,7 @@ model Filiado {
   dependentes      Dependente[]
   cobrancas        Cobranca[]
   atendimentos     Atendimento[]
+  compromissos     Compromisso[]
   carteirinha      Carteirinha?
   documentos       Documento[]
   presencas        Presenca[]
@@ -1150,12 +1152,63 @@ model Atendimento {
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
 
-  filiado   Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
-  atendente User    @relation(fields: [atendentePorId], references: [id])
+  filiado      Filiado       @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  atendente    User          @relation(fields: [atendentePorId], references: [id])
+  compromissos Compromisso[]
 
   @@index([filiadoId])
   @@index([desfecho])
   @@index([canal])
   @@index([createdAt])
   @@map("atendimentos")
+}
+
+// ===========================================================================
+// AGENDA E PRAZOS (compromissos dos advogados/colaboradores)
+// ===========================================================================
+
+enum TipoCompromisso {
+  CONSULTA_JURIDICA
+  AUDIENCIA
+  PRAZO
+  REUNIAO
+  DILIGENCIA
+}
+
+enum StatusCompromisso {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
+}
+
+/// Compromisso da agenda (audiência, prazo, reunião…). Rastreável ao filiado e
+/// ao atendimento de origem. Data original travada quando remarcado (auditoria).
+model Compromisso {
+  id            String            @id @default(uuid())
+  titulo        String
+  tipo          TipoCompromisso
+  status        StatusCompromisso @default(PENDENTE)
+  inicio        DateTime
+  fim           DateTime
+  descricao     String?
+  responsavelId String            @map("responsavel_id")
+  filiadoId     String?           @map("filiado_id")
+  atendimentoId String?           @map("atendimento_id")
+  // Trilha de auditoria: 1ª data agendada, gravada e TRAVADA na 1ª remarcação.
+  dataOriginal  DateTime?         @map("data_original")
+  criadoPor     String?           @map("criado_por") // usuário que registrou (nome/id em auditoria)
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  responsavel User         @relation("CompromissoResponsavel", fields: [responsavelId], references: [id])
+  filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([tipo])
+  @@index([inicio])
+  @@index([responsavelId])
+  @@index([filiadoId])
+  @@map("compromissos")
 }
