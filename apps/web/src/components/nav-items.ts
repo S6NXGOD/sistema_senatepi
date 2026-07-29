@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
-  SlidersHorizontal, ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, type LucideIcon,
+  SlidersHorizontal, ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, ClipboardList, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 
@@ -36,6 +36,7 @@ export const NAV_SECOES: NavSecao[] = [
     itens: [
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock, modulo: 'agenda' },
       { href: '/processos', label: 'Processos', icon: Gavel, modulo: 'processos' },
+      { href: '/escalas', label: 'Escalas dos Advogados', icon: ClipboardList, modulo: 'escalas' },
       { href: '/eventos', label: 'Eventos', icon: CalendarDays, modulo: 'eventos' },
       { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella, modulo: 'colonia' },
       { href: '/cobrancas', label: 'Cobranças', icon: Receipt, modulo: 'cobrancas' },

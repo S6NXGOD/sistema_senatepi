@@ -18,7 +18,7 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
-  | 'eventos' | 'colonia' | 'cobrancas' | 'cadastros' | 'auditoria' | 'usuarios';
+  | 'escalas' | 'eventos' | 'colonia' | 'cobrancas' | 'cadastros' | 'auditoria' | 'usuarios';
 
 export interface ModuloInfo {
   key: ModuloKey;
@@ -33,6 +33,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'agenda', label: 'Agenda e Prazos', grupo: 'Principal' },
   { key: 'filiados', label: 'Filiados', grupo: 'Principal' },
   { key: 'colaboradores', label: 'Colaboradores', grupo: 'Principal' },
+  { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
@@ -51,17 +52,17 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
   ADMINISTRADOR: todos('EDITAR'),
   COORDENACAO: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'EDITAR', agenda: 'EDITAR',
-    filiados: 'EDITAR', colaboradores: 'EDITAR', eventos: 'EDITAR', colonia: 'EDITAR',
+    filiados: 'EDITAR', colaboradores: 'EDITAR', escalas: 'EDITAR', eventos: 'EDITAR', colonia: 'EDITAR',
     cobrancas: 'EDITAR', cadastros: 'EDITAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
-    filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
+    filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO', cadastros: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
-    filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
+    filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO', cadastros: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
 };

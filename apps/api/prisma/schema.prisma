@@ -201,6 +201,7 @@ model User {
   atendimentos     Atendimento[]
   compromissos     Compromisso[]     @relation("CompromissoResponsavel")
   processos        Processo[]        @relation("ProcessoAdvogado")
+  escalas          EscalaAdvogado[]
 
   @@map("users")
 }
@@ -1227,6 +1228,24 @@ model Compromisso {
   @@index([filiadoId])
   @@index([processoId])
   @@map("compromissos")
+}
+
+/// Escala de plantão/expediente de um advogado (colaborador) numa data.
+model EscalaAdvogado {
+  id         String   @id @default(uuid())
+  advogadoId String   @map("advogado_id")
+  data       DateTime @db.Date
+  horaInicio String   @map("hora_inicio") // "HH:MM"
+  horaFim    String   @map("hora_fim") // "HH:MM"
+  observacao String?
+  criadoPor  String?  @map("criado_por")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  advogado User @relation(fields: [advogadoId], references: [id], onDelete: Cascade)
+
+  @@index([advogadoId])
+  @@index([data])
+  @@map("escalas_advogados")
 }
 
 // ===========================================================================

@@ -27,6 +27,7 @@ export type ModuloKey =
   | 'agenda'
   | 'filiados'
   | 'colaboradores'
+  | 'escalas'
   | 'eventos'
   | 'colonia'
   | 'cobrancas'
@@ -48,6 +49,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'agenda', label: 'Agenda e Prazos', grupo: 'Principal' },
   { key: 'filiados', label: 'Filiados', grupo: 'Principal' },
   { key: 'colaboradores', label: 'Colaboradores', grupo: 'Principal' },
+  { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
@@ -77,6 +79,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     agenda: 'EDITAR',
     filiados: 'EDITAR',
     colaboradores: 'EDITAR',
+    escalas: 'EDITAR',
     eventos: 'EDITAR',
     colonia: 'EDITAR',
     cobrancas: 'EDITAR',
@@ -92,6 +95,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     agenda: 'EDITAR',
     filiados: 'VISUALIZAR',
     colaboradores: 'SEM_ACESSO',
+    escalas: 'VISUALIZAR',
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
@@ -107,6 +111,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     agenda: 'VISUALIZAR',
     filiados: 'VISUALIZAR',
     colaboradores: 'SEM_ACESSO',
+    escalas: 'SEM_ACESSO',
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
