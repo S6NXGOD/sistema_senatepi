@@ -219,6 +219,11 @@ export async function mudarStatusAtendimento(id: string, status: StatusAtendimen
   return (await api.patch(`/atendimentos/${id}/status`, { status })).data;
 }
 
+/** Exclui o atendimento (hard delete) — só Administrador. */
+export async function excluirAtendimento(id: string) {
+  return (await api.delete(`/atendimentos/${id}`)).data as { ok: boolean };
+}
+
 export interface FiltroAtendimentos {
   busca?: string;
   desfecho?: DesfechoAtendimento;

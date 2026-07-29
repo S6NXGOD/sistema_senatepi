@@ -174,6 +174,28 @@ export class AtendimentosService {
     return this.detalhe(id);
   }
 
+  /**
+   * Exclui o atendimento — só Administrador (regra global de exclusão).
+   * Cascata: anexos são removidos; as consultas já criadas na Agenda são
+   * PRESERVADAS (apenas perdem o vínculo com a triagem de origem).
+   */
+  async remover(id: string, ctx: Ctx) {
+    const at = await this.prisma.atendimento.findUnique({
+      where: { id },
+      select: {
+        id: true, numero: true, filiado: { select: { nomeCompleto: true } },
+        _count: { select: { compromissos: true, anexos: true } },
+      },
+    });
+    if (!at) throw new NotFoundException('Atendimento não encontrado.');
+
+    await this.prisma.atendimento.delete({ where: { id } });
+    await this.auditar(AcaoAuditoria.DELETE, id, ctx,
+      `Atendimento #${at.numero} (${at.filiado.nomeCompleto}) excluído`,
+      { anexos: at._count.anexos, consultasNaAgenda: at._count.compromissos });
+    return { ok: true };
+  }
+
   // -------------------------------------------------------------------------
   // Listagem
   // -------------------------------------------------------------------------

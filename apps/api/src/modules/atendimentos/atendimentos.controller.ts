@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AtendimentosService } from './atendimentos.service';
@@ -45,5 +45,11 @@ export class AtendimentosController {
   @Patch(':id/status')
   mudarStatus(@Param('id') id: string, @Body() dto: MudarStatusAtendimentoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.mudarStatus(id, dto, this.ctx(req, userId));
+  }
+
+  /** Exclui o atendimento — só Administrador (regra global de exclusão). */
+  @Delete(':id')
+  remover(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.remover(id, this.ctx(req, userId));
   }
 }

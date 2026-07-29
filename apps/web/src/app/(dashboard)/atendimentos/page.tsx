@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Search, Plus, Headset, ChevronLeft, ChevronRight, Inbox, MoreVertical,
-  Eye, Gavel, CheckCircle2, XCircle, RotateCcw,
+  Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,11 +13,12 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { RegistrarDesfechoModal, AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
 import {
-  listarAtendimentos, mudarStatusAtendimento,
+  listarAtendimentos, mudarStatusAtendimento, excluirAtendimento,
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, formatDataHora,
 } from '@/lib/atendimentos';
@@ -27,6 +28,8 @@ const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-ba
 
 export default function AtendimentosPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = user?.role === 'ADMINISTRADOR';
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [status, setStatus] = useState<'' | StatusAtendimento>('');
@@ -41,6 +44,7 @@ export default function AtendimentosPage() {
   const [desfechoAlvo, setDesfechoAlvo] = useState<AtendimentoParaDesfecho | null>(null);
   const [promptConcluir, setPromptConcluir] = useState<{ id: string; resultado: DesfechoAtendimento } | null>(null);
   const [menu, setMenu] = useState<{ a: AtendimentoLista; top: number; left: number } | null>(null);
+  const [excluirAlvo, setExcluirAlvo] = useState<AtendimentoLista | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => { setBuscaDeb(busca.trim()); setPage(1); }, 350);
@@ -65,6 +69,11 @@ export default function AtendimentosPage() {
     mutationFn: ({ id, s }: { id: string; s: StatusAtendimento }) => mudarStatusAtendimento(id, s),
     onSuccess: () => { invalidar(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar o status.'),
+  });
+  const excluir = useMutation({
+    mutationFn: (id: string) => excluirAtendimento(id),
+    onSuccess: () => { toast.success('Atendimento excluído.'); setExcluirAlvo(null); invalidar(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível excluir.'),
   });
 
   function abrirDesfecho(a: AtendimentoLista) {
@@ -219,7 +228,10 @@ export default function AtendimentosPage() {
               <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'PENDENTE' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><RotateCcw className="h-4 w-4 text-muted-foreground" /> Reabrir</button>
             )}
             {menu.a.status !== 'CANCELADO' && (
-              <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CANCELADO' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><XCircle className="h-4 w-4" /> Cancelar atendimento</button>
+              <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CANCELADO' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20"><XCircle className="h-4 w-4" /> Cancelar atendimento</button>
+            )}
+            {ehAdmin && (
+              <button type="button" onClick={() => { setExcluirAlvo(menu.a); setMenu(null); }} className="flex w-full items-center gap-2.5 border-t px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 className="h-4 w-4" /> Excluir atendimento</button>
             )}
           </div>
         </>
@@ -257,6 +269,25 @@ export default function AtendimentosPage() {
         loading={mudarStatus.isPending}
         onConfirm={() => { if (promptConcluir) mudarStatus.mutate({ id: promptConcluir.id, s: 'CONCLUIDO' }); setPromptConcluir(null); }}
         onClose={() => setPromptConcluir(null)}
+      />
+
+      {/* Excluir atendimento (Administrador) */}
+      <ConfirmDialog
+        open={!!excluirAlvo}
+        variant="destructive"
+        title="Excluir atendimento"
+        icon={<Trash2 className="h-6 w-6" />}
+        description={
+          <>
+            Excluir o atendimento <strong>#{excluirAlvo?.numero}</strong> de <strong>{excluirAlvo?.filiado.nomeCompleto}</strong>?
+            Os <strong>anexos</strong> serão removidos; eventuais <strong>consultas já criadas na Agenda</strong> permanecem
+            (apenas perdem o vínculo com esta triagem). Esta ação é <strong>irreversível</strong>.
+          </>
+        }
+        confirmLabel="Excluir atendimento"
+        loading={excluir.isPending}
+        onConfirm={() => excluirAlvo && excluir.mutate(excluirAlvo.id)}
+        onClose={() => setExcluirAlvo(null)}
       />
     </div>
   );
