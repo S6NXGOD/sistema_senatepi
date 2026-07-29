@@ -4,11 +4,15 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { useRouter } from 'next/navigation';
 import { api, tokenStore, persistentStore } from './api';
 
+import type { MatrizPermissoes, PerfilUsuario } from './permissoes';
+
 export interface Usuario {
   id: string;
   nome: string;
+  nomeExibicao?: string | null;
   email: string;
-  role: 'ADMIN' | 'DIRETORIA' | 'FUNCIONARIO' | 'RECEPCAO';
+  role: PerfilUsuario;
+  permissoes?: MatrizPermissoes | null;
   username?: string | null;
   avatarUrl?: string | null;
 }

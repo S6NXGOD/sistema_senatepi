@@ -34,7 +34,7 @@ export class FuncionariosController {
   constructor(private readonly service: FuncionariosService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   create(@Body() dto: CreateFuncionarioDto, @CurrentUser('nome') autor: string) {
     return this.service.create(dto, autor);
   }
@@ -60,7 +60,7 @@ export class FuncionariosController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateFuncionarioDto,
@@ -70,7 +70,7 @@ export class FuncionariosController {
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   changeStatus(
     @Param('id') id: string,
     @Body() dto: ChangeStatusDto,
@@ -80,7 +80,7 @@ export class FuncionariosController {
   }
 
   @Post(':id/foto')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('foto'))
   foto(
@@ -93,7 +93,7 @@ export class FuncionariosController {
   }
 
   @Post(':id/documentos')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('arquivo'))
   addDocumento(
@@ -107,7 +107,7 @@ export class FuncionariosController {
   }
 
   @Delete(':id/documentos/:documentoId')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   removeDocumento(
     @Param('id') id: string,
     @Param('documentoId') documentoId: string,
@@ -128,7 +128,7 @@ export class FuncionariosController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }

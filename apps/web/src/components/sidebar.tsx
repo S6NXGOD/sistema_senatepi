@@ -5,13 +5,14 @@ import { usePathname } from 'next/navigation';
 import { Settings, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Logo } from './logo';
-import { NAV_SECOES } from './nav-items';
+import { filtrarNav } from './nav-items';
 import { useAuth } from '@/lib/auth';
 import { ROLE_LABEL } from '@/lib/profile';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const secoes = filtrarNav(user?.role, user?.permissoes);
 
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r bg-card md:flex">
@@ -44,7 +45,7 @@ export function Sidebar() {
       </Link>
 
       <nav className="flex-1 space-y-4 overflow-y-auto p-3">
-        {NAV_SECOES.map((secao) => (
+        {secoes.map((secao) => (
           <div key={secao.titulo} className="space-y-1">
             <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
               {secao.titulo}

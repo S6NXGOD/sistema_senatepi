@@ -35,7 +35,7 @@ export class FiliadosController {
   constructor(private readonly service: FiliadosService) {}
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   create(@Body() dto: CreateFiliadoDto, @CurrentUser('nome') autor: string) {
     return this.service.create(dto, autor);
   }
@@ -61,7 +61,7 @@ export class FiliadosController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateFiliadoDto,
@@ -71,7 +71,7 @@ export class FiliadosController {
   }
 
   @Patch(':id/situacao')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   changeSituacao(
     @Param('id') id: string,
     @Body() dto: ChangeSituacaoDto,
@@ -81,7 +81,7 @@ export class FiliadosController {
   }
 
   @Patch(':id/desfiliar')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   desfiliar(
     @Param('id') id: string,
     @Body() dto: DesfiliarDto,
@@ -104,7 +104,7 @@ export class FiliadosController {
   }
 
   @Post(':id/foto')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('foto'))
   foto(
@@ -117,7 +117,7 @@ export class FiliadosController {
   }
 
   @Post(':id/documentos')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('arquivo'))
   addDocumento(
@@ -131,7 +131,7 @@ export class FiliadosController {
   }
 
   @Delete(':id/documentos/:documentoId')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   removeDocumento(@Param('id') id: string, @Param('documentoId') documentoId: string) {
     return this.service.removeDocumento(id, documentoId);
   }
@@ -149,7 +149,7 @@ export class FiliadosController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }

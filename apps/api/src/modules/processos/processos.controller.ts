@@ -1,19 +1,18 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 import { ProcessosService } from './processos.service';
 import {
   AtualizarProcessoDto,
   ImportarProcessoDto,
   ListProcessosQueryDto,
 } from './dto/processos.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('processos')
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+@Modulo('processos')
 @Controller('processos')
 export class ProcessosController {
   constructor(private readonly service: ProcessosService) {}

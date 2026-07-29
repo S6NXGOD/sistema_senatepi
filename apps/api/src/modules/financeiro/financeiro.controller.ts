@@ -9,7 +9,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('financeiro')
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
 @Controller('financeiro')
 export class FinanceiroController {
   constructor(private readonly service: FinanceiroService) {}

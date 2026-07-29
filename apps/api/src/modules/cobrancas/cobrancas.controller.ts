@@ -27,7 +27,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('cobrancas')
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
 @Controller('cobrancas')
 export class CobrancasController {
   constructor(private readonly service: CobrancasService) {}

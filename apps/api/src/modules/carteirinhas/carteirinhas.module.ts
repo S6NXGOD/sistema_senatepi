@@ -221,7 +221,7 @@ export class CarteirinhasService {
 class CarteirinhasController {
   constructor(private readonly service: CarteirinhasService) {}
 
-  @Post('emitir') @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Post('emitir') @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   emitir(@Param('filiadoId') filiadoId: string) {
     return this.service.emitir(filiadoId);
   }

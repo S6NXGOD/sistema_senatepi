@@ -19,6 +19,7 @@ import { AtendimentosModule } from './modules/atendimentos/atendimentos.module';
 import { AgendaModule } from './modules/agenda/agenda.module';
 import { ProcessosModule } from './modules/processos/processos.module';
 import { AnexosModule } from './modules/anexos/anexos.module';
+import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { FuncionariosModule } from './modules/funcionarios/funcionarios.module';
 import { PrestadoresModule } from './modules/prestadores/prestadores.module';
 import { EventosModule } from './modules/eventos/eventos.module';
@@ -32,6 +33,7 @@ import { QrCodeModule } from './common/qrcode/qrcode.module';
 import { AuditModule } from './common/audit/audit.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
+import { PermissionsGuard } from './common/permissions/permissions.guard';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
 
 @Module({
@@ -57,6 +59,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     AgendaModule,
     ProcessosModule,
     AnexosModule,
+    UsuariosModule,
     FuncionariosModule,
     PrestadoresModule,
     EventosModule,
@@ -71,6 +74,8 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     // Autenticação global (rotas públicas usam @Public())
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Autorização por módulo + regra global "só o Administrador apaga".
+    { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })

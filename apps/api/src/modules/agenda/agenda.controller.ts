@@ -3,7 +3,6 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 import { AgendaService } from './agenda.service';
 import {
   CreateCompromissoDto,
@@ -11,12 +10,12 @@ import {
   MudarStatusDto,
   UpdateCompromissoDto,
 } from './dto/agenda.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('agenda')
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+@Modulo('agenda')
 @Controller('compromissos')
 export class AgendaController {
   constructor(private readonly service: AgendaService) {}

@@ -1,10 +1,14 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 
 export interface AuthUser {
   id: string;
   email: string;
-  role: string;
+  role: UserRole;
   nome: string;
+  nomeExibicao?: string | null;
+  /** Matriz de permissões por módulo (override do preset do perfil). */
+  permissoes?: unknown;
 }
 
 /** Injeta o usuário autenticado (preenchido pelo JwtStrategy). */

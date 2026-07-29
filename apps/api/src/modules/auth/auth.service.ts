@@ -103,7 +103,15 @@ export class AuthService {
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: { id: user.id, nome: user.nome, email: user.email, role: user.role },
+      user: {
+        id: user.id,
+        nome: user.nome,
+        nomeExibicao: user.nomeExibicao,
+        email: user.email,
+        role: user.role,
+        username: user.username,
+        permissoes: user.permissoes,
+      },
     };
   }
 

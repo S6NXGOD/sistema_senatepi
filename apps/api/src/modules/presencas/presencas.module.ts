@@ -207,7 +207,7 @@ class PresencasController {
 
   // Recepção/Eventos também pode validar
   @Post('validacao/qr')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO, UserRole.RECEPCAO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   validar(@Body() dto: ValidarQrDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.validar(dto, { userId, ip: req.ip });
   }

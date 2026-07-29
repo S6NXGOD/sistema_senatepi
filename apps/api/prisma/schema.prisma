@@ -17,10 +17,10 @@ datasource db {
 // ============================================================================
 
 enum UserRole {
-  ADMIN // Administrador — acesso total
-  DIRETORIA // Acesso operacional
-  FUNCIONARIO // Acesso limitado
-  RECEPCAO // Recepção/Eventos — somente validação e consulta
+  ADMINISTRADOR // Acesso completo a todos os módulos e configurações
+  COORDENACAO // Gestão de equipe, financeiro e relatórios gerenciais
+  ADVOGADO // Processos, agenda de prazos e acompanhamento jurídico
+  TRIAGEM // Atendimento inicial de filiados e registro de demandas
 }
 
 enum Sexo {
@@ -181,12 +181,15 @@ enum StatusRecadastramento {
 model User {
   id            String    @id @default(uuid())
   nome          String
+  nomeExibicao  String?   @map("nome_exibicao") // nome curto exibido na interface
   email         String    @unique
   username      String?   @unique // nome de usuário opcional
   senhaHash     String    @map("senha_hash")
   avatarUrl     String?   @map("avatar_url") // foto de perfil (URL informada manualmente)
   avatarKey     String?   @map("avatar_key") // chave no storage quando a foto é enviada (upload)
-  role          UserRole  @default(FUNCIONARIO)
+  role          UserRole  @default(TRIAGEM)
+  // Matriz de permissões por módulo (override do preset do perfil): { "processos": "EDITAR", ... }
+  permissoes    Json?
   ativo         Boolean   @default(true)
   ultimoLoginEm DateTime? @map("ultimo_login_em")
   createdAt     DateTime  @default(now()) @map("created_at")

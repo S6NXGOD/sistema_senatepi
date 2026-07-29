@@ -21,11 +21,13 @@ interface Ctx {
 const PERFIL_SELECT = {
   id: true,
   nome: true,
+  nomeExibicao: true,
   email: true,
   username: true,
   avatarUrl: true,
   avatarKey: true,
   role: true,
+  permissoes: true,
   ativo: true,
   ultimoLoginEm: true,
   createdAt: true,

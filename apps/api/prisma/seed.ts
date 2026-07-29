@@ -25,10 +25,10 @@ async function main() {
   // ---- Usuários (um por perfil) ----
   const senhaPadrao = await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD || 'senatepi@2026', 12);
   const usuarios = [
-    { nome: 'Administrador', email: 'admin@senatepi.org.br', role: UserRole.ADMIN },
-    { nome: 'Diretoria', email: 'diretoria@senatepi.org.br', role: UserRole.DIRETORIA },
-    { nome: 'Funcionário', email: 'funcionario@senatepi.org.br', role: UserRole.FUNCIONARIO },
-    { nome: 'Recepção', email: 'recepcao@senatepi.org.br', role: UserRole.RECEPCAO },
+    { nome: 'Administrador', email: 'admin@senatepi.org.br', role: UserRole.ADMINISTRADOR },
+    { nome: 'Coordenação', email: 'coordenacao@senatepi.org.br', role: UserRole.COORDENACAO },
+    { nome: 'Advogado(a)', email: 'advogado@senatepi.org.br', role: UserRole.ADVOGADO },
+    { nome: 'Triagem', email: 'triagem@senatepi.org.br', role: UserRole.TRIAGEM },
   ];
   for (const u of usuarios) {
     await prisma.user.upsert({

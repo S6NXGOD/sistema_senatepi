@@ -30,7 +30,7 @@ export class AdminSeedService implements OnApplicationBootstrap {
       const senhaHash = await bcrypt.hash(senha, 12);
 
       await this.prisma.user.create({
-        data: { nome: 'Administrador', email, senhaHash, role: UserRole.ADMIN },
+        data: { nome: 'Administrador', email, senhaHash, role: UserRole.ADMINISTRADOR },
       });
       this.logger.log(`Usuário administrador padrão criado no primeiro deploy (${email}).`);
       if (senha === senhaPadrao) {

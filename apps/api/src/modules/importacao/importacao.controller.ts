@@ -26,7 +26,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @ApiTags('importacao')
 @ApiBearerAuth()
 @Controller('importacoes')
-@Roles(UserRole.ADMIN) // importação de filiados: apenas administradores
+@Roles(UserRole.ADMINISTRADOR) // importação de filiados: apenas administradores
 export class ImportacaoController {
   constructor(
     private readonly service: ImportacaoService,

@@ -98,7 +98,7 @@ class RecadastramentoController {
   constructor(private readonly service: RecadastramentoService) {}
 
   @Post('recadastramento')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   submeter(
     @Param('id') id: string,
     @Body() dto: UpdateFiliadoDto,

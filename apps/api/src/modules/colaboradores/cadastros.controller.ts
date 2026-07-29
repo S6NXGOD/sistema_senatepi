@@ -22,17 +22,17 @@ export class CadastrosController {
     return this.service.listarDepartamentos();
   }
   @Post('departamentos')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   criarDepartamento(@Body() dto: DepartamentoDto) {
     return this.service.criarDepartamento(dto);
   }
   @Patch('departamentos/:id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   atualizarDepartamento(@Param('id') id: string, @Body() dto: DepartamentoDto) {
     return this.service.atualizarDepartamento(id, dto);
   }
   @Delete('departamentos/:id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   removerDepartamento(@Param('id') id: string) {
     return this.service.removerDepartamento(id);
   }
@@ -43,17 +43,17 @@ export class CadastrosController {
     return this.service.listarCargos();
   }
   @Post('cargos')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   criarCargo(@Body() dto: CargoDto) {
     return this.service.criarCargo(dto);
   }
   @Patch('cargos/:id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   atualizarCargo(@Param('id') id: string, @Body() dto: CargoDto) {
     return this.service.atualizarCargo(id, dto);
   }
   @Delete('cargos/:id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   removerCargo(@Param('id') id: string) {
     return this.service.removerCargo(id);
   }
@@ -64,17 +64,17 @@ export class CadastrosController {
     return this.service.listarEmpresas();
   }
   @Post('empresas')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   criarEmpresa(@Body() dto: EmpresaDto) {
     return this.service.criarEmpresa(dto);
   }
   @Patch('empresas/:id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   atualizarEmpresa(@Param('id') id: string, @Body() dto: EmpresaDto) {
     return this.service.atualizarEmpresa(id, dto);
   }
   @Delete('empresas/:id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   removerEmpresa(@Param('id') id: string) {
     return this.service.removerEmpresa(id);
   }

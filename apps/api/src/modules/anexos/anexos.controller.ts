@@ -12,7 +12,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('anexos')
 @ApiBearerAuth()
-@Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.ADVOGADO, UserRole.TRIAGEM)
 @Controller('anexos')
 export class AnexosController {
   constructor(private readonly service: AnexosService) {}

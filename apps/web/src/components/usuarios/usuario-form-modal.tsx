@@ -1,0 +1,278 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import {
+  X, Loader2, Save, UserRound, Scale, Users, ShieldCheck, Lock, Unlock, Briefcase,
+} from 'lucide-react';
+import { Sheet } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import {
+  MODULOS, PERFIS, PRESETS_PERFIL, NIVEL_LABEL, ModuloKey, NivelPermissao, PerfilUsuario,
+} from '@/lib/permissoes';
+import {
+  criarUsuario, atualizarUsuario, UsuarioSistema,
+} from '@/lib/usuarios';
+
+const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
+const NIVEIS: NivelPermissao[] = ['SEM_ACESSO', 'VISUALIZAR', 'EDITAR'];
+const ICONE_PERFIL: Record<PerfilUsuario, any> = {
+  TRIAGEM: UserRound, ADVOGADO: Scale, COORDENACAO: Users, ADMINISTRADOR: ShieldCheck,
+};
+
+/** Matriz completa (todos os módulos) a partir de um preset + overrides do usuário. */
+function matrizInicial(role: PerfilUsuario, permissoes?: Record<string, string> | null) {
+  const base = { ...PRESETS_PERFIL[role] };
+  if (permissoes) {
+    for (const m of MODULOS) {
+      const v = permissoes[m.key];
+      if (v && (NIVEIS as string[]).includes(v)) base[m.key] = v as NivelPermissao;
+    }
+  }
+  return base as Record<ModuloKey, NivelPermissao>;
+}
+
+export function UsuarioFormModal({
+  open, onClose, onSalvo, editar,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSalvo: () => void;
+  editar?: UsuarioSistema | null;
+}) {
+  const ehEdicao = !!editar;
+
+  const [nome, setNome] = useState('');
+  const [nomeExibicao, setNomeExibicao] = useState('');
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [ativo, setAtivo] = useState(true);
+  const [role, setRole] = useState<PerfilUsuario>('TRIAGEM');
+  const [matriz, setMatriz] = useState<Record<ModuloKey, NivelPermissao>>(() => matrizInicial('TRIAGEM'));
+
+  useEffect(() => {
+    if (!open) return;
+    if (editar) {
+      setNome(editar.nome);
+      setNomeExibicao(editar.nomeExibicao ?? '');
+      setUsername(editar.username ?? '');
+      setEmail(editar.email);
+      setSenha('');
+      setAtivo(editar.ativo);
+      setRole(editar.role);
+      setMatriz(matrizInicial(editar.role, editar.permissoes ?? undefined));
+    } else {
+      setNome(''); setNomeExibicao(''); setUsername(''); setEmail(''); setSenha('');
+      setAtivo(true); setRole('TRIAGEM'); setMatriz(matrizInicial('TRIAGEM'));
+    }
+  }, [open, editar]);
+
+  const adminLock = role === 'ADMINISTRADOR';
+  const secoes = useMemo(() => {
+    const grupos = ['Principal', 'Operacional', 'Administração'] as const;
+    return grupos.map((g) => ({ grupo: g, itens: MODULOS.filter((m) => m.grupo === g) }));
+  }, []);
+
+  function selecionarPerfil(p: PerfilUsuario) {
+    setRole(p);
+    setMatriz(matrizInicial(p)); // o preset preenche a matriz
+  }
+  function setNivel(mod: ModuloKey, nivel: NivelPermissao) {
+    setMatriz((m) => ({ ...m, [mod]: nivel }));
+  }
+
+  const salvar = useMutation({
+    mutationFn: () => {
+      const permissoes = adminLock ? undefined : matriz; // admin = acesso total
+      const base = {
+        nome: nome.trim(),
+        nomeExibicao: nomeExibicao.trim() || undefined,
+        username: username.trim(),
+        email: email.trim(),
+        role,
+        ativo,
+        permissoes,
+      };
+      if (ehEdicao) {
+        return atualizarUsuario(editar!.id, { ...base, ...(senha ? { senha } : {}) });
+      }
+      return criarUsuario({ ...base, senha });
+    },
+    onSuccess: () => {
+      toast.success(ehEdicao ? 'Usuário atualizado.' : 'Usuário criado.');
+      onSalvo();
+      onClose();
+    },
+    onError: (e: any) => {
+      const m = e?.response?.data?.message;
+      toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível salvar o usuário.');
+    },
+  });
+
+  function submeter() {
+    if (nome.trim().length < 2) return toast.error('Informe o nome completo.');
+    if (username.trim().length < 3) return toast.error('Informe o usuário (login).');
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) return toast.error('Informe um e-mail válido.');
+    if (!ehEdicao && senha.length < 6) return toast.error('A senha deve ter ao menos 6 caracteres.');
+    if (ehEdicao && senha && senha.length < 6) return toast.error('A nova senha deve ter ao menos 6 caracteres.');
+    salvar.mutate();
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} side="right" className="w-full max-w-xl">
+      <div className="flex items-center justify-between border-b p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
+            <ShieldCheck className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold">{ehEdicao ? 'Editar Usuário' : 'Novo Usuário'}</h3>
+            <p className="text-sm text-muted-foreground">Perfil de acesso e permissões</p>
+          </div>
+        </div>
+        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        {/* Dados */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Nome Completo *</label>
+            <Input placeholder="ex: João Silva" value={nome} onChange={(e) => setNome(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Nome de Exibição</label>
+            <Input placeholder="ex: Dr. João" value={nomeExibicao} onChange={(e) => setNomeExibicao(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Usuário (login) *</label>
+          <Input placeholder="ex: joaosilva" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">E-mail *</label>
+          <Input type="email" placeholder="email@sindicato.org" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">{ehEdicao ? 'Nova senha' : 'Senha *'}</label>
+            <Input
+              type="password"
+              placeholder={ehEdicao ? 'Deixe em branco para manter' : '••••••••'}
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Status</label>
+            <select className={inputCls} value={ativo ? 'ATIVO' : 'INATIVO'} onChange={(e) => setAtivo(e.target.value === 'ATIVO')}>
+              <option value="ATIVO">Ativo</option>
+              <option value="INATIVO">Inativo</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Função (perfil) */}
+        <div>
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Briefcase className="h-4 w-4 text-muted-foreground" /> Função
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {PERFIS.map((p) => {
+              const Icone = ICONE_PERFIL[p.key];
+              const ativoCard = role === p.key;
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => selecionarPerfil(p.key)}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition-colors',
+                    ativoCard
+                      ? 'border-senatepi-500 bg-senatepi-50 ring-1 ring-senatepi-300 dark:bg-senatepi-900/20'
+                      : 'border-input hover:border-senatepi-300 hover:bg-muted/40',
+                  )}
+                >
+                  <div className="mb-1 flex items-center justify-between">
+                    <Icone className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+                    {ativoCard ? (
+                      <Unlock className="h-4 w-4 text-senatepi-600" />
+                    ) : (
+                      <Lock className="h-4 w-4 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold">{p.label}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{p.descricao}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Permissões de módulos */}
+        <div>
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Lock className="h-4 w-4 text-muted-foreground" /> Permissões de módulos
+          </p>
+          {adminLock && (
+            <p className="mb-3 rounded-md bg-senatepi-50 px-3 py-2 text-xs text-senatepi-800 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+              O Administrador tem <strong>acesso total</strong> a todos os módulos e é o único que pode excluir registros.
+            </p>
+          )}
+          <div className="space-y-4">
+            {secoes.map((secao) => (
+              <div key={secao.grupo} className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {secao.grupo}
+                </p>
+                {secao.itens.map((mod) => (
+                  <div key={mod.key} className="rounded-lg border p-2.5">
+                    <p className="mb-2 text-sm font-medium">{mod.label}</p>
+                    <div className="grid grid-cols-3 gap-1">
+                      {NIVEIS.map((n) => {
+                        const sel = (adminLock ? 'EDITAR' : matriz[mod.key]) === n;
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            disabled={adminLock}
+                            onClick={() => setNivel(mod.key, n)}
+                            className={cn(
+                              'rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
+                              sel
+                                ? 'bg-senatepi-800 text-white shadow-sm'
+                                : 'bg-muted text-muted-foreground hover:bg-muted-foreground/10',
+                            )}
+                          >
+                            {NIVEL_LABEL[n]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
+        <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
+        <Button onClick={submeter} disabled={salvar.isPending}>
+          {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar
+        </Button>
+      </div>
+    </Sheet>
+  );
+}

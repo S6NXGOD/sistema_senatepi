@@ -84,7 +84,7 @@ export class EventosService {
 class EventosController {
   constructor(private readonly service: EventosService) {}
 
-  @Post() @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Post() @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   create(@Body() dto: CreateEventoDto) {
     return this.service.create(dto);
   }
@@ -94,11 +94,11 @@ class EventosController {
   @Get(':id') findOne(@Param('id') id: string) {
     return this.service.findOne(id);
   }
-  @Patch(':id') @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Patch(':id') @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   update(@Param('id') id: string, @Body() dto: Partial<CreateEventoDto>) {
     return this.service.update(id, dto);
   }
-  @Delete(':id') @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Delete(':id') @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }

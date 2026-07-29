@@ -36,7 +36,7 @@ class AuditoriaController {
   constructor(private readonly service: AuditoriaService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   listar(
     @Query('acao') acao?: AcaoAuditoria,
     @Query('userId') userId?: string,

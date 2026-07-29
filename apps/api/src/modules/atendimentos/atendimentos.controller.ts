@@ -1,19 +1,18 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 import { AtendimentosService } from './atendimentos.service';
 import {
   CreateAtendimentoDto,
   ListAtendimentosQueryDto,
 } from './dto/atendimentos.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('atendimentos')
 @ApiBearerAuth()
-// Funil de entrada — toda a equipe de atendimento registra demandas.
-@Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO, UserRole.RECEPCAO)
+// Funil de entrada — governado pela matriz de permissões do módulo.
+@Modulo('atendimentos')
 @Controller('atendimentos')
 export class AtendimentosController {
   constructor(private readonly service: AtendimentosService) {}

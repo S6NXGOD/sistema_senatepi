@@ -1,12 +1,15 @@
 import { api } from './api';
+import type { MatrizPermissoes, PerfilUsuario } from './permissoes';
 
 export interface Perfil {
   id: string;
   nome: string;
+  nomeExibicao?: string | null;
   email: string;
   username: string | null;
   avatarUrl: string | null;
-  role: 'ADMIN' | 'DIRETORIA' | 'FUNCIONARIO' | 'RECEPCAO';
+  role: PerfilUsuario;
+  permissoes?: MatrizPermissoes | null;
   ativo: boolean;
   ultimoLoginEm: string | null;
   createdAt: string;
@@ -49,8 +52,8 @@ export async function enviarAvatar(file: File): Promise<Perfil> {
 }
 
 export const ROLE_LABEL: Record<Perfil['role'], string> = {
-  ADMIN: 'Administrador',
-  DIRETORIA: 'Diretoria',
-  FUNCIONARIO: 'Funcionário',
-  RECEPCAO: 'Recepção',
+  ADMINISTRADOR: 'Administrador',
+  COORDENACAO: 'Coordenação',
+  ADVOGADO: 'Advogado(a)',
+  TRIAGEM: 'Triagem',
 };

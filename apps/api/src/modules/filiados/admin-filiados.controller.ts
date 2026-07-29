@@ -16,7 +16,7 @@ export class AdminFiliadosController {
 
   /** Autocomplete (Nome + CPF) para telas administrativas. */
   @Get('buscar')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   buscar(@Query('q') q?: string) {
     return this.service.buscarParaAutocomplete(q ?? '');
   }

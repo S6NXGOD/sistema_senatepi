@@ -46,19 +46,19 @@ export class ColaboradoresController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   create(@Body() dto: CreateColaboradorDto, @CurrentUser('nome') autor: string) {
     return this.service.create(dto, autor);
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   update(@Param('id') id: string, @Body() dto: UpdateColaboradorDto, @CurrentUser('nome') autor: string) {
     return this.service.update(id, dto, autor);
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   alterarStatus(
     @Param('id') id: string,
     @Body() dto: AlterarStatusColaboradorDto,
@@ -68,7 +68,7 @@ export class ColaboradoresController {
   }
 
   @Post(':id/foto')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('foto'))
   foto(
@@ -82,7 +82,7 @@ export class ColaboradoresController {
   }
 
   @Post(':id/documentos')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('arquivo'))
   addDocumento(
@@ -96,13 +96,13 @@ export class ColaboradoresController {
   }
 
   @Delete(':id/documentos/:documentoId')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA, UserRole.FUNCIONARIO)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   removeDocumento(@Param('id') id: string, @Param('documentoId') documentoId: string) {
     return this.service.removeDocumento(id, documentoId);
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.DIRETORIA)
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
