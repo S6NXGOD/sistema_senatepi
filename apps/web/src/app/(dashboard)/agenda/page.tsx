@@ -4,24 +4,35 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Loader2, Plus, Search, CalendarClock, Columns3, CalendarDays,
+  Loader2, Plus, Search, CalendarClock, Columns3, CalendarDays, SlidersHorizontal, Trash2, X,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 import { KanbanView } from '@/components/agenda/kanban-view';
 import { CalendarioView } from '@/components/agenda/calendario-view';
-import { CompromissoFormDrawer } from '@/components/agenda/compromisso-form-drawer';
+import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
+import { AlertasBar } from '@/components/agenda/alertas-bar';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import {
-  listarCompromissos, mudarStatusCompromisso, listarResponsaveis,
-  Compromisso, StatusCompromisso, TipoCompromisso, TIPOS, TIPO_LABEL,
+  listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis,
+  Compromisso, StatusCompromisso, TipoCompromisso, TIPOS, TIPO_LABEL, TIPO_COR,
 } from '@/lib/agenda';
 
 type Visao = 'kanban' | 'calendario';
+type Aba = 'todos' | 'aberto' | 'hoje' | '7dias' | 'urgentes';
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
 
-/** Intervalo (42 dias) da grade do mês, para buscar os eventos do calendário. */
+const ABAS: { key: Aba; label: string }[] = [
+  { key: 'todos', label: 'Todos' },
+  { key: 'aberto', label: 'Em aberto' },
+  { key: 'hoje', label: 'Hoje' },
+  { key: '7dias', label: '7 dias' },
+  { key: 'urgentes', label: 'Urgentes' },
+];
+
 function gradeDoMes(mes: Date) {
   const primeiro = new Date(mes.getFullYear(), mes.getMonth(), 1);
   const ini = new Date(primeiro);
@@ -31,18 +42,43 @@ function gradeDoMes(mes: Date) {
   return { dataInicio: ini.toISOString(), dataFim: fim.toISOString() };
 }
 
+/** Filtro por aba (client-side, sobre os compromissos carregados). */
+function aplicarAba(cs: Compromisso[], aba: Aba): Compromisso[] {
+  if (aba === 'todos') return cs;
+  const agora = new Date();
+  if (aba === 'aberto') return cs.filter((c) => c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO');
+  if (aba === 'urgentes') return cs.filter((c) => c.urgente);
+  if (aba === 'hoje') {
+    return cs.filter((c) => {
+      const d = new Date(c.inicio);
+      return d.getFullYear() === agora.getFullYear() && d.getMonth() === agora.getMonth() && d.getDate() === agora.getDate();
+    });
+  }
+  if (aba === '7dias') {
+    const lim = new Date(agora.getTime() + 7 * 86400_000);
+    return cs.filter((c) => { const d = new Date(c.inicio); return d >= new Date(agora.toDateString()) && d <= lim; });
+  }
+  return cs;
+}
+
 export default function AgendaPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = user?.role === 'ADMINISTRADOR';
+
   const [visao, setVisao] = useState<Visao>('kanban');
+  const [aba, setAba] = useState<Aba>('hoje');
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [tipo, setTipo] = useState<'' | TipoCompromisso>('');
   const [responsavelId, setResponsavelId] = useState('');
   const [mes, setMes] = useState(() => new Date());
+  const [tiposOpen, setTiposOpen] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editar, setEditar] = useState<Compromisso | null>(null);
   const [triagemId, setTriagemId] = useState<string | null>(null);
+  const [excluir, setExcluir] = useState<Compromisso | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setBuscaDeb(busca.trim()), 350);
@@ -60,25 +96,34 @@ export default function AgendaPage() {
     queryFn: () => listarCompromissos(filtro),
   });
   const compromissos = data ?? [];
+  const filtrados = visao === 'kanban' ? aplicarAba(compromissos, aba) : compromissos;
 
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['compromissos'] });
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['compromissos'] });
+    qc.invalidateQueries({ queryKey: ['agenda-alertas'] });
+  };
 
   const status = useMutation({
     mutationFn: ({ id, status }: { id: string; status: StatusCompromisso }) => mudarStatusCompromisso(id, status),
     onSuccess: () => invalidar(),
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar o status.'),
   });
+  const remover = useMutation({
+    mutationFn: (id: string) => excluirCompromisso(id),
+    onSuccess: () => { toast.success('Evento excluído.'); setExcluir(null); invalidar(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível excluir.'),
+  });
 
   const onEditar = (c: Compromisso) => { setEditar(c); setFormOpen(true); };
   const onNovo = () => { setEditar(null); setFormOpen(true); };
-  const onStatus = (id: string, s: StatusCompromisso) => status.mutate({ id, status: s });
+  const onAcao = (id: string, s: StatusCompromisso) => status.mutate({ id, status: s });
 
   function mudarMes(delta: number) {
     setMes((m) => (delta === 0 ? new Date() : new Date(m.getFullYear(), m.getMonth() + delta, 1)));
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -87,20 +132,41 @@ export default function AgendaPage() {
           </div>
           <div>
             <h2 className="text-2xl font-bold">Agenda e Prazos</h2>
-            <p className="text-sm text-muted-foreground">Audiências, prazos e compromissos</p>
+            <p className="text-sm text-muted-foreground">Audiências, prazos e compromissos jurídicos</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Toggle de visão */}
-          <div className="flex rounded-lg border border-input bg-card p-1">
-            <button onClick={() => setVisao('kanban')} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${visao === 'kanban' ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}>
-              <Columns3 className="h-4 w-4" /> Kanban
+          <Button variant="outline" onClick={() => setTiposOpen(true)}><SlidersHorizontal className="h-4 w-4" /> Tipos</Button>
+          <Button onClick={onNovo}><Plus className="h-4 w-4" /> Novo Evento</Button>
+        </div>
+      </div>
+
+      {/* Alertas */}
+      <AlertasBar onAbrir={onEditar} />
+
+      {/* Abas + toggle de visão */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1">
+          {ABAS.map((a) => (
+            <button
+              key={a.key}
+              onClick={() => setAba(a.key)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                aba === a.key ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
+              )}
+            >
+              {a.label}
             </button>
-            <button onClick={() => setVisao('calendario')} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${visao === 'calendario' ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}>
-              <CalendarDays className="h-4 w-4" /> Calendário
-            </button>
-          </div>
-          <Button onClick={onNovo}><Plus className="h-4 w-4" /> Novo</Button>
+          ))}
+        </div>
+        <div className="flex rounded-lg border border-input bg-card p-1">
+          <button onClick={() => setVisao('kanban')} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${visao === 'kanban' ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}>
+            <Columns3 className="h-4 w-4" /> Kanban
+          </button>
+          <button onClick={() => setVisao('calendario')} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${visao === 'calendario' ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}>
+            <CalendarDays className="h-4 w-4" /> Calendário
+          </button>
         </div>
       </div>
 
@@ -108,7 +174,7 @@ export default function AgendaPage() {
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="relative flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar por título ou filiado…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Input className="pl-9" placeholder="Buscar por nome…" value={busca} onChange={(e) => setBusca(e.target.value)} />
           {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
         </div>
         <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as any)} aria-label="Tipo">
@@ -125,20 +191,55 @@ export default function AgendaPage() {
       {isLoading ? (
         <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
       ) : visao === 'kanban' ? (
-        compromissos.length === 0 ? (
-          <Card><CardContent className="py-20 text-center text-muted-foreground">Nenhum compromisso encontrado.</CardContent></Card>
-        ) : (
-          <KanbanView compromissos={compromissos} onEditar={onEditar} onVerTriagem={setTriagemId} onStatus={onStatus} />
-        )
+        <KanbanView
+          compromissos={filtrados}
+          onEditar={onEditar}
+          onVerTriagem={setTriagemId}
+          onAcao={onAcao}
+          onExcluir={setExcluir}
+          podeExcluir={ehAdmin}
+        />
       ) : (
         <CalendarioView compromissos={compromissos} mes={mes} onMudarMes={mudarMes} onSelecionar={onEditar} />
       )}
 
-      {/* Gaveta de criar/editar */}
-      <CompromissoFormDrawer open={formOpen} onClose={() => setFormOpen(false)} onSalvo={invalidar} editar={editar} />
+      {/* Modal criar/editar */}
+      <CompromissoFormModal open={formOpen} onClose={() => setFormOpen(false)} onSalvo={invalidar} editar={editar} />
 
-      {/* Ponte com a triagem: mesma gaveta do módulo de atendimentos */}
+      {/* Legenda de tipos */}
+      {tiposOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setTiposOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold">Tipos de evento</h3>
+              <button type="button" onClick={() => setTiposOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <ul className="space-y-2">
+              {TIPOS.map((t) => (
+                <li key={t} className="flex items-center gap-2 text-sm">
+                  <span className={cn('h-3 w-3 rounded-full', TIPO_COR[t].ponto)} /> {TIPO_LABEL[t]}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Ponte com a triagem */}
       <AtendimentoDrawer atendimentoId={triagemId} open={!!triagemId} onClose={() => setTriagemId(null)} />
+
+      {/* Excluir */}
+      <ConfirmDialog
+        open={!!excluir}
+        variant="destructive"
+        title="Excluir evento"
+        icon={<Trash2 className="h-6 w-6" />}
+        description={<>Excluir o evento <strong>{excluir?.titulo}</strong> da agenda? Esta ação é irreversível.</>}
+        confirmLabel="Excluir evento"
+        loading={remover.isPending}
+        onConfirm={() => excluir && remover.mutate(excluir.id)}
+        onClose={() => setExcluir(null)}
+      />
     </div>
   );
 }

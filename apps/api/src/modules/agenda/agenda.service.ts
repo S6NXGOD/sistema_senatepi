@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AcaoAuditoria, Prisma } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusCompromisso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import {
@@ -17,7 +17,16 @@ interface Ctx {
 
 /** LGPD: nos cards da agenda expomos só o mínimo do filiado (nome/matrícula). */
 const filiadoCard = { select: { id: true, nomeCompleto: true, matricula: true } } as const;
-const responsavelSel = { select: { id: true, nome: true } } as const;
+const responsavelSel = { select: { id: true, nome: true, avatarUrl: true } } as const;
+const processoSel = { select: { id: true, numeroCNJ: true } } as const;
+
+/** Campos expostos nos cards (Kanban/Calendário/Alertas). */
+const cardSelect = {
+  id: true, titulo: true, tipo: true, status: true, inicio: true, fim: true,
+  local: true, descricao: true, urgente: true, iniciadoEm: true,
+  dataOriginal: true, atendimentoId: true,
+  filiado: filiadoCard, responsavel: responsavelSel, processo: processoSel,
+} as const;
 
 @Injectable()
 export class AgendaService {
@@ -40,7 +49,7 @@ export class AgendaService {
   // -------------------------------------------------------------------------
 
   async criar(dto: CreateCompromissoDto, ctx: Ctx) {
-    await this.validarVinculos(dto.responsavelId, dto.filiadoId, dto.atendimentoId);
+    await this.validarVinculos(dto.responsavelId, dto.filiadoId, dto.atendimentoId, dto.processoId);
     const inicio = new Date(dto.inicio);
     const fim = new Date(dto.fim);
     if (fim < inicio) throw new BadRequestException('O fim não pode ser antes do início.');
@@ -52,13 +61,17 @@ export class AgendaService {
         status: dto.status ?? undefined,
         inicio,
         fim,
+        local: dto.local?.trim() || null,
         descricao: dto.descricao?.trim() || null,
+        observacoesInternas: dto.observacoesInternas?.trim() || null,
+        urgente: dto.urgente ?? false,
         responsavelId: dto.responsavelId,
         filiadoId: dto.filiadoId || null,
         atendimentoId: dto.atendimentoId || null,
+        processoId: dto.processoId || null,
         criadoPor: ctx.userId,
       },
-      include: { filiado: filiadoCard, responsavel: responsavelSel, atendimento: { select: { id: true } } },
+      select: cardSelect,
     });
 
     await this.auditar(AcaoAuditoria.CREATE, compromisso.id, `Compromisso criado: ${compromisso.titulo}`, ctx, {
@@ -95,13 +108,38 @@ export class AgendaService {
       where: and.length ? { AND: and } : {},
       orderBy: { inicio: 'asc' },
       take: 500,
-      select: {
-        id: true, titulo: true, tipo: true, status: true, inicio: true, fim: true,
-        descricao: true, dataOriginal: true, atendimentoId: true,
-        filiado: filiadoCard,
-        responsavel: responsavelSel,
-      },
+      select: cardSelect,
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Alertas: "Aguardando interação" (venceu há +3h e ainda em aberto) e
+  //          "Próximas 24 horas" (agendados para o próximo dia).
+  // -------------------------------------------------------------------------
+
+  async alertas() {
+    const agora = new Date();
+    const menos3h = new Date(agora.getTime() - 3 * 3600 * 1000);
+    const mais24h = new Date(agora.getTime() + 24 * 3600 * 1000);
+    const abertos: Prisma.CompromissoWhereInput = {
+      status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+    };
+
+    const [aguardando, proximas24h] = await Promise.all([
+      this.prisma.compromisso.findMany({
+        where: { AND: [abertos, { inicio: { lt: menos3h } }] },
+        orderBy: { inicio: 'asc' },
+        take: 50,
+        select: cardSelect,
+      }),
+      this.prisma.compromisso.findMany({
+        where: { AND: [abertos, { inicio: { gte: agora, lte: mais24h } }] },
+        orderBy: { inicio: 'asc' },
+        take: 50,
+        select: cardSelect,
+      }),
+    ]);
+    return { aguardando, proximas24h };
   }
 
   async detalhe(id: string) {
@@ -110,6 +148,7 @@ export class AgendaService {
       include: {
         filiado: filiadoCard,
         responsavel: responsavelSel,
+        processo: processoSel,
         atendimento: { select: { id: true, canal: true, desfecho: true } },
       },
     });
@@ -125,11 +164,12 @@ export class AgendaService {
     const atual = await this.prisma.compromisso.findUnique({ where: { id } });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
 
-    if (dto.responsavelId || dto.filiadoId !== undefined || dto.atendimentoId !== undefined) {
+    if (dto.responsavelId || dto.filiadoId !== undefined || dto.atendimentoId !== undefined || dto.processoId !== undefined) {
       await this.validarVinculos(
         dto.responsavelId ?? atual.responsavelId,
         dto.filiadoId === undefined ? undefined : dto.filiadoId,
         dto.atendimentoId === undefined ? undefined : dto.atendimentoId,
+        dto.processoId === undefined ? undefined : dto.processoId,
       );
     }
 
@@ -149,13 +189,17 @@ export class AgendaService {
         status: dto.status,
         inicio: dto.inicio ? novoInicio : undefined,
         fim: dto.fim ? novoFim : undefined,
+        local: dto.local === undefined ? undefined : dto.local?.trim() || null,
         descricao: dto.descricao === undefined ? undefined : dto.descricao?.trim() || null,
+        observacoesInternas: dto.observacoesInternas === undefined ? undefined : dto.observacoesInternas?.trim() || null,
+        urgente: dto.urgente,
         responsavelId: dto.responsavelId,
         filiadoId: dto.filiadoId === undefined ? undefined : dto.filiadoId || null,
         atendimentoId: dto.atendimentoId === undefined ? undefined : dto.atendimentoId || null,
+        processoId: dto.processoId === undefined ? undefined : dto.processoId || null,
         ...(dataOriginal ? { dataOriginal } : {}),
       },
-      include: { filiado: filiadoCard, responsavel: responsavelSel, atendimento: { select: { id: true } } },
+      select: cardSelect,
     });
 
     if (remarcado) {
@@ -172,22 +216,40 @@ export class AgendaService {
   }
 
   async mudarStatus(id: string, dto: MudarStatusDto, ctx: Ctx) {
-    const atual = await this.prisma.compromisso.findUnique({ where: { id }, select: { id: true } });
+    const atual = await this.prisma.compromisso.findUnique({
+      where: { id },
+      select: { id: true, iniciadoEm: true },
+    });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
+
+    // Ao INICIAR (EM_ANDAMENTO), carimba o horário para o cronômetro/alertas —
+    // só na 1ª vez. Ao voltar para PENDENTE, zera o cronômetro.
+    let iniciadoEm: Date | null | undefined;
+    if (dto.status === 'EM_ANDAMENTO' && !atual.iniciadoEm) iniciadoEm = new Date();
+    else if (dto.status === 'PENDENTE') iniciadoEm = null;
+
     const compromisso = await this.prisma.compromisso.update({
       where: { id },
-      data: { status: dto.status },
-      include: { filiado: filiadoCard, responsavel: responsavelSel, atendimento: { select: { id: true } } },
+      data: { status: dto.status, ...(iniciadoEm !== undefined ? { iniciadoEm } : {}) },
+      select: cardSelect,
     });
     await this.auditar(AcaoAuditoria.UPDATE, id, `Status do compromisso → ${dto.status}`, ctx, { status: dto.status });
     return compromisso;
+  }
+
+  async remover(id: string, ctx: Ctx) {
+    const c = await this.prisma.compromisso.findUnique({ where: { id }, select: { id: true, titulo: true } });
+    if (!c) throw new NotFoundException('Compromisso não encontrado.');
+    await this.prisma.compromisso.delete({ where: { id } });
+    await this.auditar(AcaoAuditoria.DELETE, id, `Compromisso excluído: ${c.titulo}`, ctx, {});
+    return { ok: true };
   }
 
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 
-  private async validarVinculos(responsavelId?: string, filiadoId?: string, atendimentoId?: string) {
+  private async validarVinculos(responsavelId?: string, filiadoId?: string, atendimentoId?: string, processoId?: string) {
     if (responsavelId) {
       const u = await this.prisma.user.findUnique({ where: { id: responsavelId }, select: { id: true } });
       if (!u) throw new BadRequestException('Responsável inválido.');
@@ -199,6 +261,10 @@ export class AgendaService {
     if (atendimentoId) {
       const a = await this.prisma.atendimento.findUnique({ where: { id: atendimentoId }, select: { id: true } });
       if (!a) throw new BadRequestException('Atendimento inválido.');
+    }
+    if (processoId) {
+      const p = await this.prisma.processo.findUnique({ where: { id: processoId }, select: { id: true } });
+      if (!p) throw new BadRequestException('Processo inválido.');
     }
   }
 

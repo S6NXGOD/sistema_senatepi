@@ -2,7 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Compromisso, TIPO_COR, TIPO_LABEL, formatHora, estaAtrasado } from '@/lib/agenda';
+import { Compromisso, TIPO_COR, TIPO_LABEL, TIPOS, formatHora, estaAtrasado } from '@/lib/agenda';
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -84,6 +84,15 @@ export function CalendarioView({
             </div>
           );
         })}
+      </div>
+
+      {/* Legenda de tipos */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t p-3 text-xs text-muted-foreground">
+        {TIPOS.map((t) => (
+          <span key={t} className="inline-flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${TIPO_COR[t].ponto}`} /> {TIPO_LABEL[t]}
+          </span>
+        ))}
       </div>
     </div>
   );

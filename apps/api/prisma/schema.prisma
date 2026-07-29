@@ -1179,6 +1179,9 @@ enum TipoCompromisso {
   PRAZO
   REUNIAO
   DILIGENCIA
+  DESPACHO
+  PERICIA
+  COMPROMISSO
 }
 
 enum StatusCompromisso {
@@ -1197,10 +1200,15 @@ model Compromisso {
   status        StatusCompromisso @default(PENDENTE)
   inicio        DateTime
   fim           DateTime
+  local         String? // ex.: "1ª Vara do Trabalho de Teresina"
   descricao     String?
+  observacoesInternas String? @map("observacoes_internas") // notas internas — não visíveis ao filiado
+  urgente       Boolean           @default(false)
+  iniciadoEm    DateTime?         @map("iniciado_em") // quando entrou EM_ANDAMENTO (timer/alertas)
   responsavelId String            @map("responsavel_id")
   filiadoId     String?           @map("filiado_id")
   atendimentoId String?           @map("atendimento_id")
+  processoId    String?           @map("processo_id")
   // Trilha de auditoria: 1ª data agendada, gravada e TRAVADA na 1ª remarcação.
   dataOriginal  DateTime?         @map("data_original")
   criadoPor     String?           @map("criado_por") // usuário que registrou (nome/id em auditoria)
@@ -1210,12 +1218,14 @@ model Compromisso {
   responsavel User         @relation("CompromissoResponsavel", fields: [responsavelId], references: [id])
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+  processo    Processo?    @relation(fields: [processoId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([tipo])
   @@index([inicio])
   @@index([responsavelId])
   @@index([filiadoId])
+  @@index([processoId])
   @@map("compromissos")
 }
 
@@ -1258,6 +1268,7 @@ model Processo {
   advogado      User?                    @relation("ProcessoAdvogado", fields: [advogadoId], references: [id], onDelete: SetNull)
   movimentacoes MovimentacaoProcessual[]
   anexos        AnexoDocumento[]
+  compromissos  Compromisso[]
 
   @@index([filiadoId])
   @@index([advogadoId])

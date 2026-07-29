@@ -7,20 +7,22 @@ import {
 } from '@/lib/agenda';
 
 const COL_DOT: Record<StatusCompromisso, string> = {
-  PENDENTE: 'bg-slate-400',
+  PENDENTE: 'bg-amber-400',
   EM_ANDAMENTO: 'bg-sky-500',
-  CONCLUIDO: 'bg-senatepi-600',
+  CONCLUIDO: 'bg-emerald-500',
   CANCELADO: 'bg-muted-foreground',
 };
 
-/** Quadro Kanban por status — arraste os cards ou use o seletor de status. */
+/** Quadro Kanban por status — arraste os cards ou use as ações contextuais. */
 export function KanbanView({
-  compromissos, onEditar, onVerTriagem, onStatus,
+  compromissos, onEditar, onVerTriagem, onAcao, onExcluir, podeExcluir,
 }: {
   compromissos: Compromisso[];
   onEditar: (c: Compromisso) => void;
   onVerTriagem: (atendimentoId: string) => void;
-  onStatus: (id: string, status: StatusCompromisso) => void;
+  onAcao: (id: string, status: StatusCompromisso) => void;
+  onExcluir?: (c: Compromisso) => void;
+  podeExcluir?: boolean;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [sobre, setSobre] = useState<StatusCompromisso | null>(null);
@@ -36,7 +38,7 @@ export function KanbanView({
             key={s}
             onDragOver={(e) => { e.preventDefault(); setSobre(s); }}
             onDragLeave={() => setSobre((cur) => (cur === s ? null : cur))}
-            onDrop={() => { if (dragId) onStatus(dragId, s); setDragId(null); setSobre(null); }}
+            onDrop={() => { if (dragId) onAcao(dragId, s); setDragId(null); setSobre(null); }}
             className={`flex flex-col rounded-xl border bg-muted/30 p-2 transition-colors ${sobre === s ? 'border-senatepi-500 bg-senatepi-50/50 dark:bg-senatepi-900/20' : ''}`}
           >
             <div className="mb-2 flex items-center justify-between px-1">
@@ -54,10 +56,16 @@ export function KanbanView({
                   onDragStart={() => setDragId(c.id)}
                   onEditar={onEditar}
                   onVerTriagem={onVerTriagem}
-                  onStatus={onStatus}
+                  onAcao={onAcao}
+                  onExcluir={onExcluir}
+                  podeExcluir={podeExcluir}
                 />
               ))}
-              {itens.length === 0 && <p className="px-1 py-4 text-center text-xs text-muted-foreground">Vazio</p>}
+              {itens.length === 0 && (
+                <div className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
+                  Sem atividades
+                </div>
+              )}
             </div>
           </div>
         );

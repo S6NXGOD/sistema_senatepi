@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNotEmpty,
@@ -32,9 +33,21 @@ export class CreateCompromissoDto {
   @IsDateString()
   fim: string;
 
+  @ApiPropertyOptional({ description: 'Local (ex.: 1ª Vara do Trabalho de Teresina).' })
+  @IsOptional() @IsString()
+  local?: string;
+
   @ApiPropertyOptional()
   @IsOptional() @IsString()
   descricao?: string;
+
+  @ApiPropertyOptional({ description: 'Notas internas — não visíveis ao filiado.' })
+  @IsOptional() @IsString()
+  observacoesInternas?: string;
+
+  @ApiPropertyOptional({ description: 'Marca o compromisso como urgente.' })
+  @IsOptional() @IsBoolean()
+  urgente?: boolean;
 
   @ApiProperty({ description: 'Usuário responsável (advogado/colaborador).' })
   @IsString() @IsNotEmpty()
@@ -47,6 +60,10 @@ export class CreateCompromissoDto {
   @ApiPropertyOptional({ description: 'Atendimento/triagem de origem (rastreabilidade).' })
   @IsOptional() @IsString()
   atendimentoId?: string;
+
+  @ApiPropertyOptional({ description: 'Processo vinculado (DATAJUD).' })
+  @IsOptional() @IsString()
+  processoId?: string;
 }
 
 export class UpdateCompromissoDto extends PartialType(CreateCompromissoDto) {}

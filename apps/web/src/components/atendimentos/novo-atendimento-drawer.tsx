@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import {
   X, Search, Loader2, User, UserCog, Send, CheckCircle2, ArrowRight,
 } from 'lucide-react';
-import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
@@ -115,12 +114,19 @@ export function NovoAtendimentoDrawer({
     </button>
   );
 
+  if (!open) {
+    return cadastral ? (
+      <AtualizacaoCadastralModal filiado={cadastral} onClose={() => setCadastral(null)} onSaved={() => {}} />
+    ) : null;
+  }
+
   return (
     <>
-      <Sheet open={open} onClose={onClose} side="right" className="w-full max-w-md">
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={criar.isPending ? undefined : onClose}>
+        <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-5">
           <div>
-            <h3 className="text-lg font-bold">Novo atendimento</h3>
+            <h3 className="text-lg font-bold">Novo Atendimento</h3>
             <p className="text-sm text-muted-foreground">Registre a demanda do filiado</p>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
@@ -215,7 +221,8 @@ export function NovoAtendimentoDrawer({
             {criar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Registrar atendimento
           </Button>
         </div>
-      </Sheet>
+        </div>
+      </div>
 
       {cadastral && (
         <AtualizacaoCadastralModal filiado={cadastral} onClose={() => setCadastral(null)} onSaved={() => { /* dados já persistem no back */ }} />

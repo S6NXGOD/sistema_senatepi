@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Param, Patch, Post, Query, Req,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query, Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -29,6 +29,12 @@ export class AgendaController {
     return this.service.listarResponsaveis();
   }
 
+  /** Alertas: "Aguardando interação" (venceu há +3h) e "Próximas 24 horas". */
+  @Get('alertas')
+  alertas() {
+    return this.service.alertas();
+  }
+
   @Post()
   criar(@Body() dto: CreateCompromissoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.criar(dto, this.ctx(req, userId));
@@ -52,5 +58,11 @@ export class AgendaController {
   @Patch(':id')
   atualizar(@Param('id') id: string, @Body() dto: UpdateCompromissoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.atualizar(id, dto, this.ctx(req, userId));
+  }
+
+  /** Exclui um compromisso — só Administrador (regra global de exclusão). */
+  @Delete(':id')
+  remover(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.remover(id, this.ctx(req, userId));
   }
 }
