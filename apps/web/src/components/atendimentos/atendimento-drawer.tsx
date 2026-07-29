@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
+import { AnexosSection } from '@/components/anexos/anexos-section';
 import {
   getAtendimento, linkWhatsApp, mensagemSaudacao, formatDataHora,
   CANAL_LABEL, CANAL_COR, DESFECHO_LABEL, DESFECHO_COR, SETOR_LABEL,
@@ -125,6 +126,9 @@ export function AtendimentoDrawer({
                 </ul>
               )}
             </div>
+
+            {/* Anexos (documentos da triagem) */}
+            <AnexosSection atendimentoId={at.id} />
           </div>
         )}
       </Sheet>

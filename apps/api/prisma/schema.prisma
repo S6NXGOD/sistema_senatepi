@@ -1154,9 +1154,10 @@ model Atendimento {
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
 
-  filiado      Filiado       @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
-  atendente    User          @relation(fields: [atendentePorId], references: [id])
+  filiado      Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  atendente    User             @relation(fields: [atendentePorId], references: [id])
   compromissos Compromisso[]
+  anexos       AnexoDocumento[]
 
   @@index([filiadoId])
   @@index([desfecho])
@@ -1253,12 +1254,39 @@ model Processo {
   filiado       Filiado?                 @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   advogado      User?                    @relation("ProcessoAdvogado", fields: [advogadoId], references: [id], onDelete: SetNull)
   movimentacoes MovimentacaoProcessual[]
+  anexos        AnexoDocumento[]
 
   @@index([filiadoId])
   @@index([advogadoId])
   @@index([statusInterno])
   @@index([tribunal])
   @@map("processos")
+}
+
+/// Anexo (documento/laudo) vinculado a um Atendimento (triagem) OU a um Processo.
+/// LGPD (art. 6º, VII): o arquivo é guardado por chave opaca no storage e servido
+/// apenas por URL controlada pela API (local) ou assinada e temporária (S3),
+/// nunca por caminho público adivinhável.
+model AnexoDocumento {
+  id           String  @id @default(uuid())
+  storageKey   String  @map("storage_key") // chave opaca no bucket (fonte de verdade)
+  url          String // URL de acesso (pública controlada no local; assinada no S3)
+  nomeArquivo  String  @map("nome_arquivo")
+  tipoMime     String  @map("tipo_mime")
+  tamanhoBytes Int?    @map("tamanho_bytes")
+
+  // Vínculo polimórfico (exatamente um preenchido)
+  atendimentoId String? @map("atendimento_id")
+  processoId    String? @map("processo_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: Cascade)
+  processo    Processo?    @relation(fields: [processoId], references: [id], onDelete: Cascade)
+
+  @@index([atendimentoId])
+  @@index([processoId])
+  @@map("anexos_documentos")
 }
 
 /// Movimentação processual (andamento) espelhada do DATAJUD.

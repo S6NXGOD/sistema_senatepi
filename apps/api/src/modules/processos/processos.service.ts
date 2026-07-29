@@ -123,70 +123,47 @@ export class ProcessosService {
   // -------------------------------------------------------------------------
 
   async ressincronizar(id: string, ctx: Ctx) {
-    const proc = await this.prisma.processo.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        numeroCNJ: true,
-        tribunal: true,
-        filiadoId: true,
-        movimentacoes: { select: { dataMovimento: true, descricao: true, codigoMovimento: true } },
-      },
-    });
+    const proc = await this.carregarParaSync(id);
     if (!proc) throw new NotFoundException('Processo não encontrado.');
 
-    const sigla = proc.tribunal?.trim() || NpuUtils.siglaTribunal(proc.numeroCNJ);
-    if (!sigla) {
-      throw new BadRequestException('Tribunal do processo desconhecido; não é possível sincronizar.');
-    }
-
-    const dados = await this.datajud.buscarProcessoPorNPU(proc.numeroCNJ, sigla);
-
-    // Se o CNJ não devolveu nada agora, apenas registra a tentativa (sem apagar cache).
-    if (!dados) {
-      await this.prisma.processo.update({ where: { id }, data: { ultimaSincronizacao: new Date() } });
-      return { ...(await this.detalhe(id)), novasMovimentacoes: 0 };
-    }
-
-    // Deduplicação por (timestamp | código | descrição).
-    const chave = (dm: Date | string, cod: number | null | undefined, desc: string) =>
-      `${new Date(dm).getTime()}|${cod ?? ''}|${desc}`;
-    const existentes = new Set(
-      proc.movimentacoes.map((m) => chave(m.dataMovimento, m.codigoMovimento, m.descricao)),
-    );
-    const novas = dados.movimentacoes.filter(
-      (m) => !existentes.has(chave(m.dataMovimento, m.codigoMovimento, m.descricao)),
-    );
-
-    await this.prisma.$transaction(async (tx) => {
-      if (novas.length) {
-        await tx.movimentacaoProcessual.createMany({
-          data: novas.map((m) => ({
-            processoId: id,
-            dataMovimento: new Date(m.dataMovimento),
-            descricao: m.descricao,
-            codigoMovimento: m.codigoMovimento,
-          })),
-        });
-      }
-      // Refresca metadados públicos + marca a sincronização.
-      await tx.processo.update({ where: { id }, data: this.metadados(dados, sigla) });
-    });
+    const { dados, novas } = await this.mesclarDoDatajud(proc);
 
     await this.audit.registrar({
       userId: ctx.userId ?? null,
       acao: AcaoAuditoria.UPDATE,
       entidade: 'Processo',
       entidadeId: id,
-      descricao: `Processo ${proc.numeroCNJ} sincronizado: ${novas.length} nova(s) movimentação(ões)`,
+      descricao: `Processo ${proc.numeroCNJ} sincronizado: ${novas} nova(s) movimentação(ões)`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { numeroCNJ: proc.numeroCNJ, novasMovimentacoes: novas.length },
+      metadata: { numeroCNJ: proc.numeroCNJ, novasMovimentacoes: novas },
     });
 
     const detalhe = await this.detalhe(id);
-    const partes = await this.desmascararPartes(dados.partes, proc.filiadoId ?? undefined);
-    return { ...detalhe, novasMovimentacoes: novas.length, partes };
+    const partes = await this.desmascararPartes(dados?.partes ?? [], proc.filiadoId ?? undefined);
+    return { ...detalhe, novasMovimentacoes: novas, partes };
+  }
+
+  // -------------------------------------------------------------------------
+  // Sincronização silenciosa (usada pelo robô de madrugada). NÃO audita nem
+  // desmascara — apenas mescla as movimentações novas. Pode lançar (o cron trata).
+  // -------------------------------------------------------------------------
+
+  async ressincronizarSilencioso(id: string): Promise<{ novas: number }> {
+    const proc = await this.carregarParaSync(id);
+    if (!proc) return { novas: 0 };
+    const { novas } = await this.mesclarDoDatajud(proc);
+    return { novas };
+  }
+
+  /** IDs de todos os processos ATIVOS (varredura do robô). */
+  async idsAtivos(): Promise<string[]> {
+    const rows = await this.prisma.processo.findMany({
+      where: { statusInterno: 'ATIVO' },
+      select: { id: true },
+      orderBy: { ultimaSincronizacao: 'asc' }, // prioriza os mais desatualizados
+    });
+    return rows.map((r) => r.id);
   }
 
   // -------------------------------------------------------------------------
@@ -271,6 +248,74 @@ export class ProcessosService {
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /** Carrega o processo com as movimentações necessárias para deduplicar. */
+  private carregarParaSync(id: string) {
+    return this.prisma.processo.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        numeroCNJ: true,
+        tribunal: true,
+        filiadoId: true,
+        movimentacoes: { select: { dataMovimento: true, descricao: true, codigoMovimento: true } },
+      },
+    });
+  }
+
+  /**
+   * Núcleo do merge incremental (compartilhado pelo botão e pelo robô): rebusca
+   * no DATAJUD e insere APENAS as movimentações ausentes, sempre refrescando os
+   * metadados e o carimbo de `ultimaSincronizacao`.
+   */
+  private async mesclarDoDatajud(proc: {
+    id: string;
+    numeroCNJ: string;
+    tribunal: string | null;
+    movimentacoes: { dataMovimento: Date; descricao: string; codigoMovimento: number | null }[];
+  }): Promise<{ dados: ProcessoDatajud | null; novas: number }> {
+    const sigla = proc.tribunal?.trim() || NpuUtils.siglaTribunal(proc.numeroCNJ);
+    if (!sigla) {
+      throw new BadRequestException('Tribunal do processo desconhecido; não é possível sincronizar.');
+    }
+
+    const dados = await this.datajud.buscarProcessoPorNPU(proc.numeroCNJ, sigla);
+
+    // Sem retorno agora: apenas registra a tentativa (não apaga o cache).
+    if (!dados) {
+      await this.prisma.processo.update({
+        where: { id: proc.id },
+        data: { ultimaSincronizacao: new Date() },
+      });
+      return { dados: null, novas: 0 };
+    }
+
+    // Deduplicação por (timestamp | código | descrição).
+    const chave = (dm: Date | string, cod: number | null | undefined, desc: string) =>
+      `${new Date(dm).getTime()}|${cod ?? ''}|${desc}`;
+    const existentes = new Set(
+      proc.movimentacoes.map((m) => chave(m.dataMovimento, m.codigoMovimento, m.descricao)),
+    );
+    const novas = dados.movimentacoes.filter(
+      (m) => !existentes.has(chave(m.dataMovimento, m.codigoMovimento, m.descricao)),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      if (novas.length) {
+        await tx.movimentacaoProcessual.createMany({
+          data: novas.map((m) => ({
+            processoId: proc.id,
+            dataMovimento: new Date(m.dataMovimento),
+            descricao: m.descricao,
+            codigoMovimento: m.codigoMovimento,
+          })),
+        });
+      }
+      await tx.processo.update({ where: { id: proc.id }, data: this.metadados(dados, sigla) });
+    });
+
+    return { dados, novas: novas.length };
+  }
 
   /** Metadados públicos do DATAJUD prontos para gravar no Processo. */
   private metadados(dados: ProcessoDatajud, sigla: string) {

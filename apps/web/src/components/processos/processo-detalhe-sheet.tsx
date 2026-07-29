@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { TimelineMovimentacoes } from './timeline-movimentacoes';
+import { AnexosSection } from '@/components/anexos/anexos-section';
 import {
   getProcesso, sincronizarProcesso, formatNPU, formatData, formatDataHora,
   formatMoeda, ParteProcesso, STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL,
@@ -175,6 +176,9 @@ export function ProcessoDetalheSheet({
               </div>
               <TimelineMovimentacoes movimentacoes={processo.movimentacoes} />
             </section>
+
+            {/* Anexos (documentos do processo) */}
+            <AnexosSection processoId={processo.id} />
           </>
         )}
       </div>
