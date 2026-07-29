@@ -20,6 +20,15 @@ import { randomUUID } from 'node:crypto';
 const prisma = new PrismaClient();
 
 async function main() {
+  // Trava de segurança: este seed cria DADOS DE DEMONSTRAÇÃO e usuários com senha
+  // padrão. Nunca deve rodar contra a produção. Use ALLOW_PROD_SEED=true só se
+  // souber exatamente o que está fazendo (não recomendado).
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== 'true') {
+    throw new Error(
+      'Seed de demonstração BLOQUEADO: NODE_ENV=production. ' +
+        'Este seed cria dados/usuários de teste e não deve rodar em produção.',
+    );
+  }
   console.log('🌱 Iniciando seed do SENATEPI...');
 
   // ---- Usuários (um por perfil) ----

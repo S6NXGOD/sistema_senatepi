@@ -5,8 +5,12 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { StorageService } from './common/storage/storage.service';
+import { validarAmbiente } from './common/config/validar-ambiente';
 
 async function bootstrap() {
+  // Fail-fast: barra o boot em produção com segredos ausentes/inseguros.
+  validarAmbiente();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
 
@@ -53,4 +57,9 @@ async function bootstrap() {
   // eslint-disable-next-line no-console
   console.log(`🚀 SENATEPI API rodando na porta ${port} (prefixo /${prefix})`);
 }
-bootstrap();
+
+bootstrap().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('Falha ao iniciar a API:', err instanceof Error ? err.message : err);
+  process.exit(1);
+});

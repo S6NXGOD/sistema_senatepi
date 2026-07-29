@@ -21,21 +21,36 @@ export class AdminSeedService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     try {
-      const email = this.config.get<string>('SEED_ADMIN_EMAIL', 'admin@senatepi.org.br');
-      const existe = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
-      if (existe) return; // já existe — nada a fazer
+      // Seed de PRIMEIRA EXECUÇÃO: só cria o admin quando o banco NÃO tem nenhum
+      // usuário. Uma vez que exista qualquer usuário, nunca mais recria — evita
+      // criar um admin "backdoor" (com senha padrão) em ambientes já em uso, mesmo
+      // que o e-mail do administrador real seja diferente.
+      const totalUsuarios = await this.prisma.user.count();
+      if (totalUsuarios > 0) return;
 
-      const senhaPadrao = 'senatepi@2026';
-      const senha = this.config.get<string>('SEED_ADMIN_PASSWORD') || senhaPadrao;
+      const producao = this.config.get<string>('NODE_ENV') === 'production';
+      const senhaEnv = this.config.get<string>('SEED_ADMIN_PASSWORD');
+
+      // Em PRODUÇÃO nunca cria um admin com senha padrão: exige SEED_ADMIN_PASSWORD.
+      if (producao && !senhaEnv) {
+        this.logger.error(
+          'Banco vazio em produção, mas SEED_ADMIN_PASSWORD não está definido — ' +
+            'nenhum administrador foi criado. Defina SEED_ADMIN_PASSWORD (forte) e reinicie a API.',
+        );
+        return;
+      }
+
+      const email = this.config.get<string>('SEED_ADMIN_EMAIL', 'admin@senatepi.org.br');
+      const senha = senhaEnv || 'senatepi@2026';
       const senhaHash = await bcrypt.hash(senha, 12);
 
       await this.prisma.user.create({
         data: { nome: 'Administrador', email, senhaHash, role: UserRole.ADMINISTRADOR },
       });
-      this.logger.log(`Usuário administrador padrão criado no primeiro deploy (${email}).`);
-      if (senha === senhaPadrao) {
+      this.logger.log(`Usuário administrador padrão criado (banco vazio) — ${email}.`);
+      if (!senhaEnv) {
         this.logger.warn(
-          'SEED_ADMIN_PASSWORD não definido — usando senha padrão INSEGURA. Troque imediatamente em produção!',
+          'SEED_ADMIN_PASSWORD não definido — usando senha padrão INSEGURA (apenas dev). Troque imediatamente!',
         );
       }
     } catch (e) {
