@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
-  SlidersHorizontal, ShieldCheck, Receipt, Headset, CalendarClock, type LucideIcon,
+  SlidersHorizontal, ShieldCheck, Receipt, Headset, CalendarClock, Gavel, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -33,6 +33,7 @@ export const NAV_SECOES: NavSecao[] = [
     titulo: 'Operacional',
     itens: [
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock },
+      { href: '/processos', label: 'Processos', icon: Gavel },
       { href: '/eventos', label: 'Eventos', icon: CalendarDays },
       { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella },
       { href: '/cobrancas', label: 'Cobranças', icon: Receipt },
