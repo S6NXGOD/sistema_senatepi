@@ -36,10 +36,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const armazenado = persistentStore.get(USER_KEY);
+    const temToken = tokenStore.refresh || tokenStore.access;
     // Restaura a sessão enquanto houver refresh token (credencial DURÁVEL). O
     // access token expirado/ausente é renovado silenciosamente pelo interceptor
     // do Axios no primeiro request — sem deslogar ao reabrir o PWA/navegador.
-    if (armazenado && (tokenStore.refresh || tokenStore.access)) {
+    if (armazenado && temToken) {
       try {
         setUser(JSON.parse(armazenado));
       } catch {
@@ -47,6 +48,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     setCarregando(false);
+
+    // Revalida o usuário com o servidor (perfil/permissões/foto ATUAIS). Corrige
+    // caches antigos após deploys que mudem o modelo de acesso — sem exigir novo
+    // login. Falha de rede é ignorada (mantém o que estava em cache).
+    if (temToken) {
+      api
+        .get('/profile/me')
+        .then(({ data }) => {
+          const atual: Usuario = {
+            id: data.id,
+            nome: data.nome,
+            nomeExibicao: data.nomeExibicao ?? null,
+            email: data.email,
+            role: data.role,
+            permissoes: data.permissoes ?? null,
+            username: data.username ?? null,
+            avatarUrl: data.avatarUrl ?? null,
+          };
+          persistentStore.set(USER_KEY, JSON.stringify(atual));
+          setUser(atual);
+        })
+        .catch(() => {
+          /* offline/erro transitório — mantém o cache local */
+        });
+    }
   }, []);
 
   async function login(email: string, senha: string, lembrar = false) {
