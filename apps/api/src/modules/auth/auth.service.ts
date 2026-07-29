@@ -9,6 +9,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AcaoAuditoria } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { StorageService } from '../../common/storage/storage.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { LoginDto, ResetPasswordDto } from './dto/auth.dto';
 
@@ -24,7 +25,14 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
   ) {}
+
+  /** URL da foto: a enviada (via chave no storage) tem prioridade sobre a URL manual. */
+  private async resolverAvatar(avatarKey: string | null, avatarUrl: string | null): Promise<string | null> {
+    if (avatarKey) return this.storage.getSignedUrl(avatarKey).catch(() => avatarUrl);
+    return avatarUrl;
+  }
 
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
@@ -110,6 +118,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         username: user.username,
+        avatarUrl: await this.resolverAvatar(user.avatarKey, user.avatarUrl),
         permissoes: user.permissoes,
       },
     };
