@@ -289,8 +289,8 @@ export async function listarPorFiliado(filtro: FiltroPorFiliado = {}): Promise<P
 }
 
 /** Exclui uma cobrança inteira (400 se houver parcela paga). */
-export async function excluirCobranca(cobrancaId: string) {
-  return (await api.delete(`/cobrancas/${cobrancaId}`)).data;
+export async function excluirCobranca(cobrancaId: string, force = false) {
+  return (await api.delete(`/cobrancas/${cobrancaId}`, { params: force ? { force: 'true' } : {} })).data;
 }
 
 export interface DashboardCobrancas {
@@ -306,8 +306,8 @@ export async function getDashboard(): Promise<DashboardCobrancas> {
   return (await api.get('/cobrancas/dashboard')).data;
 }
 
-export async function excluirParcela(parcelaId: string) {
-  return (await api.delete(`/cobrancas/parcela/${parcelaId}`)).data;
+export async function excluirParcela(parcelaId: string, force = false) {
+  return (await api.delete(`/cobrancas/parcela/${parcelaId}`, { params: force ? { force: 'true' } : {} })).data;
 }
 
 // ---------------------------------------------------------------------------

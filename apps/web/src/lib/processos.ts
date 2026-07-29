@@ -187,3 +187,8 @@ export async function atualizarProcesso(
 ): Promise<ProcessoDetalhe> {
   return (await api.patch(`/processos/${id}`, dto)).data;
 }
+
+/** Exclui o processo e todo o histórico (movimentações + anexos) — só Administrador. */
+export async function excluirProcesso(id: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/processos/${id}`)).data;
+}

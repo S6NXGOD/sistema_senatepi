@@ -5,16 +5,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   X, RefreshCw, Loader2, Landmark, Scale, FileText, CalendarDays, Coins,
-  BadgeCheck, Users, ShieldCheck, Hash, Building2, User as UserIcon,
+  BadgeCheck, Users, ShieldCheck, Hash, Building2, User as UserIcon, Trash2,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 import { TimelineMovimentacoes } from './timeline-movimentacoes';
 import { AnexosSection } from '@/components/anexos/anexos-section';
 import {
-  getProcesso, sincronizarProcesso, formatNPU, formatData, formatDataHora,
+  getProcesso, sincronizarProcesso, excluirProcesso, formatNPU, formatData, formatDataHora,
   formatMoeda, ParteProcesso, STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL,
 } from '@/lib/processos';
 
@@ -45,7 +47,10 @@ export function ProcessoDetalheSheet({
   onChanged?: () => void;
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = user?.role === 'ADMINISTRADOR';
   const [partes, setPartes] = useState<ParteProcesso[]>([]);
+  const [confirmarExcluir, setConfirmarExcluir] = useState(false);
 
   const { data: processo, isLoading } = useQuery({
     queryKey: ['processo', processoId],
@@ -73,7 +78,20 @@ export function ProcessoDetalheSheet({
       toast.error(e?.response?.data?.message ?? 'Não foi possível sincronizar com o DATAJUD.'),
   });
 
+  const excluir = useMutation({
+    mutationFn: () => excluirProcesso(processoId as string),
+    onSuccess: () => {
+      toast.success('Processo excluído.');
+      setConfirmarExcluir(false);
+      onChanged?.();
+      onClose();
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível excluir o processo.'),
+  });
+
   return (
+    <>
     <Sheet open={open} onClose={onClose} side="right" className="w-full max-w-2xl">
       {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-3 border-b p-5">
@@ -103,6 +121,18 @@ export function ProcessoDetalheSheet({
             )}
             <span className="hidden sm:inline">Atualizar movimentações</span>
           </Button>
+          {ehAdmin && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmarExcluir(true)}
+              disabled={!processo}
+              title="Excluir processo"
+              className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-5 w-5" />
           </button>
@@ -192,5 +222,25 @@ export function ProcessoDetalheSheet({
         </p>
       </div>
     </Sheet>
+
+    <ConfirmDialog
+      open={confirmarExcluir}
+      variant="destructive"
+      title="Excluir processo"
+      icon={<Trash2 className="h-6 w-6" />}
+      description={
+        <>
+          Excluir o processo <strong>{processo ? formatNPU(processo.numeroCNJ) : ''}</strong>? Toda a{' '}
+          <strong>linha do tempo ({processo?.movimentacoes.length ?? 0} movimentação[ões])</strong> e os{' '}
+          <strong>anexos</strong> serão removidos do cache local. Esta ação é <strong>irreversível</strong>{' '}
+          (o processo pode ser reimportado do DATAJUD depois).
+        </>
+      }
+      confirmLabel="Excluir processo"
+      loading={excluir.isPending}
+      onConfirm={() => excluir.mutate()}
+      onClose={() => setConfirmarExcluir(false)}
+    />
+    </>
   );
 }

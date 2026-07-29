@@ -121,23 +121,25 @@ export class CobrancasController {
     return this.service.baixarParcela(id, dto, this.ctx(req, userId));
   }
 
-  // ---- Exclusão/cancelamento de parcela (400 se PAGA) ----
+  // ---- Exclusão/cancelamento de parcela (?force=true → Admin ignora o bloqueio de PAGA) ----
   @Delete('parcela/:id')
   excluir(
     @Param('id') id: string,
+    @Query('force') force: string,
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    return this.service.excluirParcela(id, this.ctx(req, userId));
+    return this.service.excluirParcela(id, this.ctx(req, userId), force === 'true');
   }
 
-  // ---- Exclusão da cobrança inteira (400 se houver parcela PAGA) ----
+  // ---- Exclusão da cobrança inteira (?force=true → Admin exclui mesmo com parcela PAGA) ----
   @Delete(':id')
   excluirCobranca(
     @Param('id') id: string,
+    @Query('force') force: string,
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    return this.service.excluirCobranca(id, this.ctx(req, userId));
+    return this.service.excluirCobranca(id, this.ctx(req, userId), force === 'true');
   }
 }

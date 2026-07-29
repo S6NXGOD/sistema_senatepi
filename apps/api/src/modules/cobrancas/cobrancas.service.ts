@@ -388,29 +388,56 @@ export class CobrancasService {
   // houver parcela PAGA (existe lançamento financeiro atrelado).
   // -------------------------------------------------------------------------
 
-  async excluirCobranca(id: string, ctx: Ctx) {
+  async excluirCobranca(id: string, ctx: Ctx, force = false) {
     const cobranca = await this.prisma.cobranca.findUnique({
       where: { id },
-      include: { parcelas: { select: { status: true } }, filiado: { select: { nomeCompleto: true } } },
+      include: {
+        parcelas: { select: { status: true, movimentacaoId: true } },
+        filiado: { select: { nomeCompleto: true } },
+      },
     });
     if (!cobranca) throw new NotFoundException('Cobrança não encontrada.');
-    if (cobranca.parcelas.some((p) => p.status === StatusParcela.PAGO))
+
+    const pagas = cobranca.parcelas.filter((p) => p.status === StatusParcela.PAGO);
+    // Sem force: mantém a trava. Com force (só o Administrador chega ao DELETE): exclui
+    // mesmo com parcela paga, removendo os lançamentos financeiros vinculados.
+    if (pagas.length && !force) {
       throw new BadRequestException(
         'Esta cobrança possui parcela(s) já paga(s) e não pode ser excluída (há lançamento financeiro registrado).',
       );
+    }
 
-    await this.prisma.cobranca.delete({ where: { id } }); // cascade remove as parcelas
+    const movIds = cobranca.parcelas
+      .map((p) => p.movimentacaoId)
+      .filter((x): x is string => !!x);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.cobranca.delete({ where: { id } }); // cascade remove as parcelas
+      if (movIds.length) {
+        // Remove as movimentações financeiras vinculadas (o saldo é recalculado).
+        await tx.movimentacao.deleteMany({ where: { id: { in: movIds } } });
+      }
+    });
+
+    const forcado = pagas.length > 0 && force;
     await this.audit.registrar({
       userId: ctx.userId ?? null,
       acao: AcaoAuditoria.DELETE,
       entidade: 'Cobranca',
       entidadeId: id,
-      descricao: `Cobrança excluída (${cobranca.parcelas.length} parcela[s]) de ${cobranca.filiado.nomeCompleto}`,
+      descricao: forcado
+        ? `Cobrança EXCLUÍDA À FORÇA (${cobranca.parcelas.length} parcela[s], ${pagas.length} paga[s], ${movIds.length} lançamento[s] financeiro[s] removido[s]) de ${cobranca.filiado.nomeCompleto}`
+        : `Cobrança excluída (${cobranca.parcelas.length} parcela[s]) de ${cobranca.filiado.nomeCompleto}`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { filiadoId: cobranca.filiadoId, parcelas: cobranca.parcelas.length },
+      metadata: {
+        filiadoId: cobranca.filiadoId,
+        parcelas: cobranca.parcelas.length,
+        forcado,
+        movimentacoesRemovidas: movIds.length,
+      },
     });
-    return { ok: true, removidas: cobranca.parcelas.length };
+    return { ok: true, removidas: cobranca.parcelas.length, movimentacoesRemovidas: movIds.length };
   }
 
   // -------------------------------------------------------------------------
@@ -550,27 +577,39 @@ export class CobrancasService {
   // 5) Exclusão/cancelamento de parcela (regra rígida: PAGO não pode)
   // -------------------------------------------------------------------------
 
-  async excluirParcela(id: string, ctx: Ctx) {
+  async excluirParcela(id: string, ctx: Ctx, force = false) {
     const parcela = await this.prisma.parcelaCobranca.findUnique({ where: { id } });
     if (!parcela) throw new NotFoundException('Parcela não encontrada.');
-    if (parcela.status === StatusParcela.PAGO)
+    // Sem force: mantém a trava. Com force (Administrador): cancela mesmo PAGA,
+    // removendo o lançamento financeiro vinculado.
+    if (parcela.status === StatusParcela.PAGO && !force)
       throw new BadRequestException('Parcela já PAGA não pode ser excluída ou cancelada.');
     if (parcela.status === StatusParcela.CANCELADO) return parcela;
 
-    // Cancelamento lógico (preserva o histórico financeiro para auditoria/LGPD).
-    const cancelada = await this.prisma.parcelaCobranca.update({
-      where: { id },
-      data: { status: StatusParcela.CANCELADO },
+    const forcado = parcela.status === StatusParcela.PAGO && force;
+    const cancelada = await this.prisma.$transaction(async (tx) => {
+      if (forcado && parcela.movimentacaoId) {
+        await tx.movimentacao.deleteMany({ where: { id: parcela.movimentacaoId } });
+      }
+      return tx.parcelaCobranca.update({
+        where: { id },
+        data: {
+          status: StatusParcela.CANCELADO,
+          ...(forcado ? { valorPago: null, dataPagamento: null, movimentacaoId: null } : {}),
+        },
+      });
     });
     await this.audit.registrar({
       userId: ctx.userId ?? null,
       acao: AcaoAuditoria.DELETE,
       entidade: 'ParcelaCobranca',
       entidadeId: id,
-      descricao: `Parcela ${parcela.numero} cancelada`,
+      descricao: forcado
+        ? `Parcela ${parcela.numero} CANCELADA À FORÇA (lançamento financeiro removido)`
+        : `Parcela ${parcela.numero} cancelada`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { cobrancaId: parcela.cobrancaId },
+      metadata: { cobrancaId: parcela.cobrancaId, forcado },
     });
     return cancelada;
   }

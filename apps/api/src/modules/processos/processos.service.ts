@@ -245,6 +245,32 @@ export class ProcessosService {
     return this.detalhe(id);
   }
 
+  /**
+   * Exclui o processo e tudo que depende dele (movimentações e anexos são
+   * removidos em cascata pelo banco). Restrito ao Administrador pela regra global.
+   */
+  async remover(id: string, ctx: Ctx) {
+    const proc = await this.prisma.processo.findUnique({
+      where: { id },
+      select: { id: true, numeroCNJ: true, _count: { select: { movimentacoes: true, anexos: true } } },
+    });
+    if (!proc) throw new NotFoundException('Processo não encontrado.');
+
+    await this.prisma.processo.delete({ where: { id } }); // cascade: movimentações + anexos
+
+    await this.audit.registrar({
+      userId: ctx.userId ?? null,
+      acao: AcaoAuditoria.DELETE,
+      entidade: 'Processo',
+      entidadeId: id,
+      descricao: `Processo ${proc.numeroCNJ} excluído (${proc._count.movimentacoes} movimentação[ões], ${proc._count.anexos} anexo[s])`,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { numeroCNJ: proc.numeroCNJ },
+    });
+    return { ok: true };
+  }
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ProcessosService } from './processos.service';
@@ -51,5 +51,12 @@ export class ProcessosController {
   @Patch(':id')
   atualizar(@Param('id') id: string, @Body() dto: AtualizarProcessoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.atualizar(id, dto, this.ctx(req, userId));
+  }
+
+  /** Exclui o processo e todo o histórico (movimentações + anexos) — só Administrador. */
+  @Delete(':id')
+  @ApiOperation({ summary: 'Exclui o processo e todo o seu histórico.' })
+  remover(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.remover(id, this.ctx(req, userId));
   }
 }

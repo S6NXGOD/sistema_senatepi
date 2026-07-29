@@ -20,7 +20,12 @@ import {
 export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResumoFin; onMudou: () => void }) {
   const qc = useQueryClient();
   const [aberto, setAberto] = useState(false);
-  const [confirmar, setConfirmar] = useState<{ id: string; label: string } | null>(null);
+  const [confirmar, setConfirmar] = useState<{
+    id: string;
+    label: string;
+    qtdPagas: number;
+    valorPago: number;
+  } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['cobrancas-filiado', resumo.filiadoId],
@@ -34,7 +39,7 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
   };
 
   const excluir = useMutation({
-    mutationFn: (id: string) => excluirCobranca(id),
+    mutationFn: ({ id, force }: { id: string; force: boolean }) => excluirCobranca(id, force),
     onSuccess: () => {
       toast.success('Cobrança excluída.');
       setConfirmar(null);
@@ -113,7 +118,15 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                       size="icon" variant="ghost"
                       className="h-8 w-8 shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                       title="Excluir cobrança"
-                      onClick={() => setConfirmar({ id: c.id, label: `${TIPO_LABEL[c.tipo]} (${c.parcelas.length}× · ${formatBRL(c.valorTotal)})` })}
+                      onClick={() => {
+                        const pagas = c.parcelas.filter((p) => p.status === 'PAGO');
+                        setConfirmar({
+                          id: c.id,
+                          label: `${TIPO_LABEL[c.tipo]} (${c.parcelas.length}× · ${formatBRL(c.valorTotal)})`,
+                          qtdPagas: pagas.length,
+                          valorPago: pagas.reduce((s, p) => s + Number(p.valor), 0),
+                        });
+                      }}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -159,14 +172,24 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
         title="Excluir cobrança"
         icon={<Trash2 className="h-6 w-6" />}
         description={
-          <>
-            Excluir a cobrança <strong>{confirmar?.label}</strong> e todas as suas parcelas? Não é possível
-            excluir cobranças que já tenham parcelas pagas.
-          </>
+          confirmar?.qtdPagas ? (
+            <>
+              A cobrança <strong>{confirmar.label}</strong> possui{' '}
+              <strong>{confirmar.qtdPagas} parcela(s) paga(s)</strong>. Excluir também vai{' '}
+              <strong>remover o(s) lançamento(s) financeiro(s)</strong> de{' '}
+              <strong>{formatBRL(confirmar.valorPago)}</strong>, reduzindo o saldo da conta. Esta
+              ação é <strong>irreversível</strong>.
+            </>
+          ) : (
+            <>
+              Excluir a cobrança <strong>{confirmar?.label}</strong> e todas as suas parcelas? Esta
+              ação é irreversível.
+            </>
+          )
         }
-        confirmLabel="Excluir cobrança"
+        confirmLabel={confirmar?.qtdPagas ? 'Excluir mesmo assim' : 'Excluir cobrança'}
         loading={excluir.isPending}
-        onConfirm={() => confirmar && excluir.mutate(confirmar.id)}
+        onConfirm={() => confirmar && excluir.mutate({ id: confirmar.id, force: confirmar.qtdPagas > 0 })}
         onClose={() => setConfirmar(null)}
       />
     </div>

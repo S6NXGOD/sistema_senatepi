@@ -16,6 +16,7 @@ import {
 } from '@/lib/cobrancas';
 import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
 import { RegistrarPagamentoModal } from '@/components/cobrancas/registrar-pagamento-modal';
+import { useAuth } from '@/lib/auth';
 
 export interface ParcelaAcao {
   id: string;
@@ -77,14 +78,19 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
     };
   }, [aberto]);
 
+  const { user } = useAuth();
+  const ehAdmin = user?.role === 'ADMINISTRADOR';
+
   const st = statusExibicao(parcela);
   const podePagar = st !== 'PAGO' && st !== 'CANCELADO';
   const podeCobrar = st !== 'PAGO' && st !== 'CANCELADO';
   const podeImprimir = st !== 'CANCELADO';
-  const podeExcluir = st !== 'PAGO' && st !== 'CANCELADO';
+  // Regra normal: PAGO/CANCELADO não exclui. Administrador pode forçar em PAGO.
+  const forcarPaga = st === 'PAGO' && ehAdmin;
+  const podeExcluir = (st !== 'PAGO' && st !== 'CANCELADO') || forcarPaga;
 
   const excluir = useMutation({
-    mutationFn: () => excluirParcela(parcela.id),
+    mutationFn: () => excluirParcela(parcela.id, forcarPaga),
     onSuccess: () => {
       toast.success(`Parcela ${parcela.numero} cancelada.`);
       setConfirmExcluir(false);
@@ -193,12 +199,19 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
         title="Excluir parcela"
         icon={<Trash2 className="h-6 w-6" />}
         description={
-          <>
-            Excluir/cancelar a <strong>parcela {parcela.numero}</strong> ({formatBRL(parcela.valor)})? Esta
-            ação não pode ser feita em parcelas já pagas.
-          </>
+          forcarPaga ? (
+            <>
+              A <strong>parcela {parcela.numero}</strong> ({formatBRL(parcela.valor)}) está{' '}
+              <strong>paga</strong>. Cancelá-la vai <strong>remover o lançamento financeiro</strong>{' '}
+              correspondente, reduzindo o saldo da conta. Esta ação é <strong>irreversível</strong>.
+            </>
+          ) : (
+            <>
+              Excluir/cancelar a <strong>parcela {parcela.numero}</strong> ({formatBRL(parcela.valor)})?
+            </>
+          )
         }
-        confirmLabel="Excluir parcela"
+        confirmLabel={forcarPaga ? 'Cancelar mesmo assim' : 'Excluir parcela'}
         loading={excluir.isPending}
         onConfirm={() => excluir.mutate()}
         onClose={() => setConfirmExcluir(false)}
