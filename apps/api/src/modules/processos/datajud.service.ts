@@ -25,6 +25,14 @@ export interface MovimentacaoDatajud {
   codigoMovimento: number | null;
 }
 
+export interface ParteDatajud {
+  nome: string | null;
+  /** CPF/CNPJ como veio do DATAJUD — normalmente MASCARADO (ex.: `***.123.456-**`). */
+  documento: string | null;
+  polo: string | null; // ATIVO / PASSIVO / ...
+  tipoPessoa: string | null;
+}
+
 export interface ProcessoDatajud {
   numeroCNJ: string; // 20 dígitos
   tribunal: string | null;
@@ -34,8 +42,12 @@ export interface ProcessoDatajud {
   grau: string | null;
   dataDistribuicao: string | null; // ISO
   valorCausa: number | null;
-  /** Público não traz nomes das partes (LGPD) — mantido por contrato, quase sempre vazio. */
-  partes: string[];
+  /**
+   * Partes do processo. A API PÚBLICA do DATAJUD, em regra, NÃO expõe as partes
+   * (LGPD) — então normalmente vem vazio. Quando presentes, os documentos vêm
+   * MASCARADOS; o desmascaramento (só do filiado vinculado) é feito no service.
+   */
+  partes: ParteDatajud[];
   movimentacoes: MovimentacaoDatajud[];
 }
 
@@ -54,9 +66,10 @@ export class DatajudService {
     );
   }
 
-  /** Alias/índice do tribunal no DATAJUD (ex.: TJPI → api_publica_tjpi). */
+  /** Alias/índice do tribunal no DATAJUD (ex.: TJPI → api_publica_tjpi, TRE-PI → api_publica_tre-pi). */
   private aliasTribunal(sigla: string): string {
-    const s = (sigla || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Preserva o hífen (usado por TREs), removendo apenas o restante da pontuação.
+    const s = (sigla || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
     if (!s) throw new BadRequestException('Informe a sigla do tribunal (ex.: TJPI, TRT22, TRF1).');
     return `api_publica_${s}`;
   }
@@ -145,8 +158,47 @@ export class DatajudService {
   }
 
   /**
+   * Extrai as partes do processo quando presentes na resposta, normalizando para
+   * `{ nome, documento (mascarado), polo, tipoPessoa }`. A API pública em regra
+   * não traz partes (LGPD) — então costuma retornar vazio. NÃO desmascara aqui.
+   */
+  private extrairPartes(src: Record<string, any>): ParteDatajud[] {
+    const out: ParteDatajud[] = [];
+    const add = (p: any, poloFallback?: string | null) => {
+      if (!p || typeof p !== 'object') return;
+      const doc =
+        p.documento ??
+        p.cpf ??
+        p.cpfCnpj ??
+        p.numeroDocumento ??
+        (Array.isArray(p.documentos)
+          ? p.documentos.find((d: any) => /cpf/i.test(String(d?.tipo)))?.numero ?? p.documentos[0]?.numero
+          : null) ??
+        null;
+      out.push({
+        nome: p.nome ?? p.nomeParte ?? null,
+        documento: doc != null ? String(doc) : null,
+        polo: p.polo ?? poloFallback ?? null,
+        tipoPessoa: p.tipoPessoa ?? p.pessoa ?? null,
+      });
+    };
+
+    if (Array.isArray(src.partes)) src.partes.forEach((p) => add(p));
+    if (Array.isArray(src.poloAtivo)) src.poloAtivo.forEach((p) => add(p, 'ATIVO'));
+    if (Array.isArray(src.poloPassivo)) src.poloPassivo.forEach((p) => add(p, 'PASSIVO'));
+    if (Array.isArray(src.polos)) {
+      src.polos.forEach((grp: any) => {
+        const polo = grp?.polo ?? null;
+        const membros = grp?.partes ?? grp?.membros ?? [];
+        if (Array.isArray(membros)) membros.forEach((p: any) => add(p, polo));
+      });
+    }
+    return out;
+  }
+
+  /**
    * Extrai apenas o essencial da resposta (gigante) do Elasticsearch.
-   * NÃO copia dados pessoais — só metadados processuais públicos.
+   * NÃO copia dados pessoais além do necessário — só metadados processuais.
    */
   private mapear(src: Record<string, any>, numeroFallback: string): ProcessoDatajud {
     const assuntos: any[] = Array.isArray(src.assuntos) ? src.assuntos : [];
@@ -162,8 +214,8 @@ export class DatajudService {
       grau: src.grau ?? null,
       dataDistribuicao: this.parseData(src.dataAjuizamento),
       valorCausa: typeof src.valorCausa === 'number' ? src.valorCausa : null,
-      // A API pública não traz nomes das partes (LGPD); mantemos vazio por padrão.
-      partes: [],
+      // Documentos vêm mascarados; o desmascaramento (só do filiado) é no service.
+      partes: this.extrairPartes(src),
       movimentacoes: movimentos
         .map((m) => ({
           dataMovimento: this.parseData(m?.dataHora),

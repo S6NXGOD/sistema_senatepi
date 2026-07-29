@@ -1,12 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { UserRole } from '@prisma/client';
 import { ProcessosService } from './processos.service';
 import {
   AtualizarProcessoDto,
+  ImportarProcessoDto,
   ListProcessosQueryDto,
-  SincronizarProcessoDto,
 } from './dto/processos.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -22,22 +22,33 @@ export class ProcessosController {
     return { ip: req.ip, userAgent: req.headers['user-agent'], userId };
   }
 
-  /** Consulta o DATAJUD e espelha (cache) o processo no banco local. */
-  @Post('sincronizar')
-  sincronizar(@Body() dto: SincronizarProcessoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
-    return this.service.sincronizar(dto, this.ctx(req, userId));
+  /** Gatilho de importação (On-Demand): consulta o DATAJUD e cria o cache local. */
+  @Post('importar')
+  @ApiOperation({ summary: 'Importa um processo do DATAJUD (409 se já existir localmente).' })
+  importar(@Body() dto: ImportarProcessoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.importar(dto, this.ctx(req, userId));
   }
 
+  /** Lista o cache local (leitura instantânea, sem consulta ao vivo). */
   @Get()
   listar(@Query() query: ListProcessosQueryDto) {
     return this.service.listar(query);
   }
 
+  /** Detalhe + movimentações lidos 100% do cache local. */
   @Get(':id')
   detalhe(@Param('id') id: string) {
     return this.service.detalhe(id);
   }
 
+  /** Botão "Sincronizar": rebusca o NPU e insere apenas as movimentações ausentes. */
+  @Patch(':id/sincronizar')
+  @ApiOperation({ summary: 'Re-sincroniza incrementalmente o processo com o DATAJUD.' })
+  sincronizar(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.ressincronizar(id, this.ctx(req, userId));
+  }
+
+  /** Atualiza dados INTERNOS (status/vínculos) — não consulta o DATAJUD. */
   @Patch(':id')
   atualizar(@Param('id') id: string, @Body() dto: AtualizarProcessoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.atualizar(id, dto, this.ctx(req, userId));

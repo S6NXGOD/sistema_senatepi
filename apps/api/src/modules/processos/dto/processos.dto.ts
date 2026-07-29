@@ -10,14 +10,17 @@ import {
 import { Type } from 'class-transformer';
 import { StatusProcesso } from '@prisma/client';
 
-export class SincronizarProcessoDto {
+export class ImportarProcessoDto {
   @ApiProperty({ description: 'Número único (NPU/CNJ) — com ou sem pontuação.' })
   @IsString() @IsNotEmpty()
   numeroCNJ: string;
 
-  @ApiProperty({ description: 'Sigla do tribunal (ex.: TJPI, TRT22, TRF1).' })
-  @IsString() @IsNotEmpty()
-  tribunal: string;
+  @ApiPropertyOptional({
+    description:
+      'Sigla do tribunal (ex.: TJPI, TRT22, TRF1). Opcional — quando omitida é derivada do próprio NPU.',
+  })
+  @IsOptional() @IsString()
+  tribunal?: string;
 
   @ApiPropertyOptional({ description: 'Filiado vinculado ao processo.' })
   @IsOptional() @IsString()
