@@ -23,6 +23,12 @@ export class EscalasController {
     return this.service.listarAdvogados();
   }
 
+  /** Advogados de plantão numa data (?data=YYYY-MM-DD). */
+  @Get('plantao')
+  plantao(@Query('data') data?: string) {
+    return this.service.listarPlantao(data);
+  }
+
   /** Escalas do mês (?mes=YYYY-MM&advogadoId=). */
   @Get()
   listar(@Query() query: ListEscalasQueryDto) {

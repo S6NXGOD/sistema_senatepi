@@ -30,6 +30,25 @@ export interface EscalaItemInput {
 export async function listarAdvogadosEscala(): Promise<AdvogadoEscala[]> {
   return (await api.get('/escalas/advogados')).data;
 }
+
+export interface PlantaoItem {
+  id: string;
+  data: string;
+  horaInicio: string;
+  horaFim: string;
+  advogado: AdvogadoEscala;
+}
+/** Advogados de plantão numa data (YYYY-MM-DD; padrão hoje). */
+export async function listarPlantao(data?: string): Promise<PlantaoItem[]> {
+  return (await api.get('/escalas/plantao', { params: data ? { data } : {} })).data;
+}
+
+/** "no horário": hora atual dentro do turno (só faz sentido p/ o dia de hoje). */
+export function estaNoHorario(p: { horaInicio: string; horaFim: string }): boolean {
+  const agora = new Date();
+  const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+  return hhmm >= p.horaInicio && hhmm <= p.horaFim;
+}
 export async function listarEscalas(mes: string, advogadoId?: string): Promise<Escala[]> {
   return (await api.get('/escalas', { params: { mes, ...(advogadoId ? { advogadoId } : {}) } })).data;
 }

@@ -1144,27 +1144,50 @@ enum SetorAtendimento {
   OUTRO
 }
 
+/// Natureza do encaminhamento jurídico de um atendimento.
+enum TipoEncaminhamento {
+  CONSULTA_NOVA // consulta jurídica de caso novo
+  ANDAMENTO_PROCESSO // sobre um processo já cadastrado
+}
+
+/// Situação da demanda de triagem (independe do desfecho/resultado).
+enum StatusAtendimento {
+  PENDENTE // aberta — aguardando conclusão
+  CONCLUIDO // demanda fechada
+  CANCELADO // atendimento cancelado
+}
+
 /// Registro de atendimento/triagem — todo pedido do filiado começa aqui.
 model Atendimento {
-  id             String              @id @default(uuid())
-  filiadoId      String              @map("filiado_id")
-  atendentePorId String              @map("atendente_por_id") // usuário logado que registrou
+  id             String               @id @default(uuid())
+  numero         Int                  @unique @default(autoincrement()) // nº sequencial (#393)
+  filiadoId      String               @map("filiado_id")
+  atendentePorId String               @map("atendente_por_id") // usuário logado que registrou
   canal          CanalAtendimento
   descricao      String // demanda (texto rico)
-  desfecho       DesfechoAtendimento
-  // Preenchidos quando desfecho = ENCAMINHADO:
+  // Situação da demanda (aberta até ser concluída/cancelada).
+  status         StatusAtendimento    @default(PENDENTE)
+  // Desfecho/resultado é registrado DEPOIS (null = ainda sem resultado).
+  desfecho       DesfechoAtendimento?
+  desfechoEm     DateTime?            @map("desfecho_em")
+  desfechoObs    String?              @map("desfecho_obs") // resolução (RESOLVIDO_ATO) ou nota
+  // Encaminhamento (desfecho = ENCAMINHADO — sempre ao Jurídico/advogado):
+  tipoEncaminhamento TipoEncaminhamento? @map("tipo_encaminhamento")
+  processoId     String?              @map("processo_id") // quando ANDAMENTO_PROCESSO
   setor          SetorAtendimento?
-  responsavel    String? // advogado/pessoa que assume a demanda
-  createdAt      DateTime            @default(now()) @map("created_at")
-  updatedAt      DateTime            @updatedAt @map("updated_at")
+  responsavel    String? // nome(s) do(s) advogado(s) — para exibição rápida
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
 
   filiado      Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
   atendente    User             @relation(fields: [atendentePorId], references: [id])
+  processo     Processo?        @relation(fields: [processoId], references: [id], onDelete: SetNull)
   compromissos Compromisso[]
   anexos       AnexoDocumento[]
 
   @@index([filiadoId])
   @@index([desfecho])
+  @@index([status])
   @@index([canal])
   @@index([createdAt])
   @@map("atendimentos")
@@ -1288,6 +1311,7 @@ model Processo {
   movimentacoes MovimentacaoProcessual[]
   anexos        AnexoDocumento[]
   compromissos  Compromisso[]
+  atendimentos  Atendimento[]
 
   @@index([filiadoId])
   @@index([advogadoId])

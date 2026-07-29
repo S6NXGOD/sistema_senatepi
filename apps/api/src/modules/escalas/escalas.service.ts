@@ -53,6 +53,19 @@ export class EscalasService {
     });
   }
 
+  /** Advogados de plantão numa data (YYYY-MM-DD; padrão: hoje). Usado na triagem. */
+  async listarPlantao(data?: string) {
+    const base = data && /^\d{4}-\d{2}-\d{2}$/.test(data) ? new Date(`${data}T00:00:00.000Z`) : new Date();
+    const gte = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+    const lt = new Date(gte);
+    lt.setUTCDate(lt.getUTCDate() + 1);
+    return this.prisma.escalaAdvogado.findMany({
+      where: { data: { gte, lt } },
+      orderBy: { horaInicio: 'asc' },
+      select: { id: true, data: true, horaInicio: true, horaFim: true, advogado: advogadoSel },
+    });
+  }
+
   async criar(dto: CriarEscalasDto, ctx: Ctx) {
     const adv = await this.prisma.user.findUnique({
       where: { id: dto.advogadoId },

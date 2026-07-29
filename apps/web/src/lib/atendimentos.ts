@@ -6,6 +6,8 @@ import { api } from './api';
 
 export type CanalAtendimento = 'PRESENCIAL' | 'WHATSAPP' | 'TELEFONE' | 'EMAIL' | 'SITE';
 export type DesfechoAtendimento = 'RESOLVIDO_ATO' | 'ENCAMINHADO';
+export type StatusAtendimento = 'PENDENTE' | 'CONCLUIDO' | 'CANCELADO';
+export type TipoEncaminhamento = 'CONSULTA_NOVA' | 'ANDAMENTO_PROCESSO';
 export type SetorAtendimento = 'JURIDICO' | 'FINANCEIRO' | 'SECRETARIA' | 'DIRETORIA' | 'COLONIA' | 'OUTRO';
 
 export interface FiliadoLista {
@@ -22,9 +24,11 @@ export interface Atendente {
 
 export interface AtendimentoLista {
   id: string;
+  numero: number;
   canal: CanalAtendimento;
-  desfecho: DesfechoAtendimento;
-  setor: SetorAtendimento | null;
+  desfecho: DesfechoAtendimento | null;
+  status: StatusAtendimento;
+  tipoEncaminhamento: TipoEncaminhamento | null;
   responsavel: string | null;
   descricao: string;
   createdAt: string;
@@ -59,23 +63,40 @@ export interface FiliadoDossie {
   estado: string | null;
 }
 
+export interface CompromissoResumo {
+  id: string;
+  titulo: string;
+  tipo: string;
+  status: string;
+  inicio: string;
+  responsavel: { id: string; nome: string };
+}
+
 export interface AtendimentoDossie {
   atendimento: {
     id: string;
+    numero: number;
     canal: CanalAtendimento;
-    desfecho: DesfechoAtendimento;
+    desfecho: DesfechoAtendimento | null;
+    status: StatusAtendimento;
+    tipoEncaminhamento: TipoEncaminhamento | null;
+    desfechoObs: string | null;
+    desfechoEm: string | null;
     setor: SetorAtendimento | null;
     responsavel: string | null;
     descricao: string;
     createdAt: string;
     atendente: Atendente;
     filiado: FiliadoDossie;
+    processo: { id: string; numeroCNJ: string; classeProcessual: string | null } | null;
+    compromissos: CompromissoResumo[];
   };
   historico: {
     id: string;
+    numero: number;
     canal: CanalAtendimento;
-    desfecho: DesfechoAtendimento;
-    setor: SetorAtendimento | null;
+    desfecho: DesfechoAtendimento | null;
+    status: StatusAtendimento;
     descricao: string;
     createdAt: string;
     atendente: { nome: string };
@@ -109,8 +130,24 @@ export const DESFECHO_LABEL: Record<DesfechoAtendimento, string> = {
 };
 
 export const DESFECHO_COR: Record<DesfechoAtendimento, string> = {
-  RESOLVIDO_ATO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
-  ENCAMINHADO: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  RESOLVIDO_ATO: 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900',
+  ENCAMINHADO: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+};
+
+export const STATUS_LABEL: Record<StatusAtendimento, string> = {
+  PENDENTE: 'Pendente',
+  CONCLUIDO: 'Concluído',
+  CANCELADO: 'Cancelado',
+};
+export const STATUS_COR: Record<StatusAtendimento, string> = {
+  PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  CONCLUIDO: 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900',
+  CANCELADO: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 line-through',
+};
+
+export const TIPO_ENC_LABEL: Record<TipoEncaminhamento, string> = {
+  CONSULTA_NOVA: 'Consulta Jurídica (caso novo)',
+  ANDAMENTO_PROCESSO: 'Andamento de Processo existente',
 };
 
 export const SETOR_LABEL: Record<SetorAtendimento, string> = {
@@ -159,17 +196,33 @@ export interface CriarAtendimentoInput {
   filiadoId: string;
   canal: CanalAtendimento;
   descricao: string;
-  desfecho: DesfechoAtendimento;
-  setor?: SetorAtendimento;
-  responsavel?: string;
 }
 export async function criarAtendimento(dto: CriarAtendimentoInput) {
   return (await api.post('/atendimentos', dto)).data;
 }
 
+/** Registra o desfecho (resultado) do atendimento. */
+export interface RegistrarDesfechoInput {
+  resultado: DesfechoAtendimento;
+  desfechoObs?: string;
+  advogadoIds?: string[];
+  tipoEncaminhamento?: TipoEncaminhamento;
+  processoId?: string;
+  dataConsulta?: string;
+}
+export async function registrarDesfecho(id: string, dto: RegistrarDesfechoInput) {
+  return (await api.patch(`/atendimentos/${id}/desfecho`, dto)).data;
+}
+
+/** Concluir / cancelar / reabrir a demanda. */
+export async function mudarStatusAtendimento(id: string, status: StatusAtendimento) {
+  return (await api.patch(`/atendimentos/${id}/status`, { status })).data;
+}
+
 export interface FiltroAtendimentos {
   busca?: string;
   desfecho?: DesfechoAtendimento;
+  status?: StatusAtendimento;
   canal?: CanalAtendimento;
   dataInicio?: string;
   dataFim?: string;
