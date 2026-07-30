@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  Compromisso, StatusCompromisso, TIPO_LABEL, TIPO_COR,
+  Compromisso, StatusCompromisso, rotuloTipo, corDeTipo,
   formatData, formatHora, estaAtrasado, cronometroHMS,
 } from '@/lib/agenda';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 /** Cronômetro ao vivo em HH:MM:SS (atualiza a cada segundo) desde `iniciadoEm`. */
 function Cronometro({ desde }: { desde: string }) {
@@ -62,7 +63,8 @@ export function CompromissoCard({
   draggable?: boolean;
   onDragStart?: () => void;
 }) {
-  const cor = TIPO_COR[c.tipo];
+  const { tipos } = useTiposEvento();
+  const cor = corDeTipo(c.tipo, tipos);
   const atrasado = estaAtrasado(c);
 
   return (
@@ -75,7 +77,7 @@ export function CompromissoCard({
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', cor.badge)}>
-            <Gavel className="h-3 w-3" /> {TIPO_LABEL[c.tipo]}
+            <Gavel className="h-3 w-3" /> {rotuloTipo(c.tipo, tipos)}
           </span>
           {c.urgente && (
             <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">

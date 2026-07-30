@@ -4,22 +4,25 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Loader2, Plus, Search, CalendarClock, Columns3, CalendarDays, SlidersHorizontal, Trash2, X,
+  Loader2, Plus, Search, CalendarClock, Columns3, CalendarDays, SlidersHorizontal, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { nivelEfetivo } from '@/lib/permissoes';
 import { KanbanView } from '@/components/agenda/kanban-view';
 import { CalendarioView } from '@/components/agenda/calendario-view';
 import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
 import { CompromissoDrawer } from '@/components/agenda/compromisso-drawer';
+import { TiposEventoModal } from '@/components/agenda/tipos-evento-modal';
 import { AlertasBar } from '@/components/agenda/alertas-bar';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 import {
   listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis,
-  Compromisso, StatusCompromisso, TipoCompromisso, TIPOS, TIPO_LABEL, TIPO_COR,
+  Compromisso, StatusCompromisso, TipoCompromisso,
 } from '@/lib/agenda';
 
 type Visao = 'kanban' | 'calendario';
@@ -66,6 +69,8 @@ export default function AgendaPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const ehAdmin = user?.role === 'ADMINISTRADOR';
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'agenda') === 'EDITAR';
+  const { tipos } = useTiposEvento();
 
   const [visao, setVisao] = useState<Visao>('kanban');
   const [aba, setAba] = useState<Aba>('hoje');
@@ -183,7 +188,7 @@ export default function AgendaPage() {
         </div>
         <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as any)} aria-label="Tipo">
           <option value="">Todos os tipos</option>
-          {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t]}</option>)}
+          {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
         </select>
         <select className={inputCls} value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} aria-label="Responsável">
           <option value="">Todos os responsáveis</option>
@@ -222,24 +227,14 @@ export default function AgendaPage() {
         podeExcluir={ehAdmin}
       />
 
-      {/* Legenda de tipos */}
-      {tiposOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setTiposOpen(false)}>
-          <div className="w-full max-w-sm rounded-2xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold">Tipos de evento</h3>
-              <button type="button" onClick={() => setTiposOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-            </div>
-            <ul className="space-y-2">
-              {TIPOS.map((t) => (
-                <li key={t} className="flex items-center gap-2 text-sm">
-                  <span className={cn('h-3 w-3 rounded-full', TIPO_COR[t].ponto)} /> {TIPO_LABEL[t]}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+      {/* Gerenciador de tipos de evento (CRUD) */}
+      <TiposEventoModal
+        open={tiposOpen}
+        onClose={() => setTiposOpen(false)}
+        podeEditar={podeEditar}
+        podeExcluir={ehAdmin}
+        onChanged={() => qc.invalidateQueries({ queryKey: ['compromissos'] })}
+      />
 
       {/* Ponte com a triagem */}
       <AtendimentoDrawer atendimentoId={triagemId} open={!!triagemId} onClose={() => setTriagemId(null)} />

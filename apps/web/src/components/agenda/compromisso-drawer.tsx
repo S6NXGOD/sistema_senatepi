@@ -15,8 +15,9 @@ import { AnexosSection } from '@/components/anexos/anexos-section';
 import { cn, mascararCpf } from '@/lib/utils';
 import {
   getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, cronometroHMS,
-  Compromisso, TIPO_LABEL, TIPO_COR, STATUS_LABEL, STATUS_COR,
+  Compromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
 } from '@/lib/agenda';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
 import { formatNPU } from '@/lib/processos';
@@ -59,6 +60,7 @@ export function CompromissoDrawer({
   onVerTriagem?: (atendimentoId: string) => void;
   podeExcluir?: boolean;
 }) {
+  const { tipos } = useTiposEvento();
   const { data: c, isLoading } = useQuery({
     queryKey: ['compromisso', compromissoId],
     queryFn: () => getCompromisso(compromissoId!),
@@ -98,7 +100,7 @@ export function CompromissoDrawer({
       <div className="flex items-start justify-between gap-2 border-b p-5">
         <div className="min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', TIPO_COR[c.tipo].badge)}>{TIPO_LABEL[c.tipo]}</span>}
+            {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', corDeTipo(c.tipo, tipos).badge)}>{rotuloTipo(c.tipo, tipos)}</span>}
             {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', STATUS_COR[c.status])}>{STATUS_LABEL[c.status]}</span>}
             {c?.urgente && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">

@@ -6,9 +6,8 @@ import type { CanalAtendimento, DesfechoAtendimento } from './atendimentos';
 // Tipos do payload consolidado de /dashboard/resumo
 // ---------------------------------------------------------------------------
 
-export type TipoCompromisso =
-  | 'CONSULTA_JURIDICA' | 'AUDIENCIA' | 'PRAZO' | 'REUNIAO'
-  | 'DILIGENCIA' | 'DESPACHO' | 'PERICIA' | 'COMPROMISSO';
+/** Slug de um tipo de evento cadastrável (ver lib/agenda). */
+export type TipoCompromisso = string;
 export type StatusCompromisso = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO';
 
 export interface PessoaResumo {

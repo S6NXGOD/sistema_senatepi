@@ -8,18 +8,15 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
-import {
-  StatusCompromisso,
-  TipoCompromisso,
-} from '@prisma/client';
+import { StatusCompromisso } from '@prisma/client';
 
 export class CreateCompromissoDto {
   @ApiProperty() @IsString() @MinLength(2, { message: 'Informe um título.' })
   titulo: string;
 
-  @ApiProperty({ enum: TipoCompromisso })
-  @IsEnum(TipoCompromisso)
-  tipo: TipoCompromisso;
+  @ApiProperty({ description: 'Slug do tipo de evento (cadastrável).' })
+  @IsString() @IsNotEmpty()
+  tipo: string;
 
   @ApiPropertyOptional({ enum: StatusCompromisso })
   @IsOptional() @IsEnum(StatusCompromisso)
@@ -78,8 +75,8 @@ export class ListCompromissosQueryDto {
   @ApiPropertyOptional({ enum: StatusCompromisso })
   @IsOptional() @IsEnum(StatusCompromisso) status?: StatusCompromisso;
 
-  @ApiPropertyOptional({ enum: TipoCompromisso })
-  @IsOptional() @IsEnum(TipoCompromisso) tipo?: TipoCompromisso;
+  @ApiPropertyOptional({ description: 'Slug do tipo de evento.' })
+  @IsOptional() @IsString() tipo?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() responsavelId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() filiadoId?: string;

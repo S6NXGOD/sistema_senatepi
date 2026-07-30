@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AcaoAuditoria, Prisma, StatusCompromisso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { TiposEventoService } from './tipos-evento.service';
 import {
   CreateCompromissoDto,
   ListCompromissosQueryDto,
@@ -33,6 +34,7 @@ export class AgendaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly tipos: TiposEventoService,
   ) {}
 
   /** Usuários ativos que podem ser responsáveis por um compromisso. */
@@ -49,6 +51,7 @@ export class AgendaService {
   // -------------------------------------------------------------------------
 
   async criar(dto: CreateCompromissoDto, ctx: Ctx) {
+    await this.tipos.garantirSlugValido(dto.tipo);
     await this.validarVinculos(dto.responsavelId, dto.filiadoId, dto.atendimentoId, dto.processoId);
     const inicio = new Date(dto.inicio);
     const fim = new Date(dto.fim);
@@ -185,6 +188,7 @@ export class AgendaService {
   async atualizar(id: string, dto: UpdateCompromissoDto, ctx: Ctx) {
     const atual = await this.prisma.compromisso.findUnique({ where: { id } });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
+    if (dto.tipo) await this.tipos.garantirSlugValido(dto.tipo);
 
     if (dto.responsavelId || dto.filiadoId !== undefined || dto.atendimentoId !== undefined || dto.processoId !== undefined) {
       await this.validarVinculos(

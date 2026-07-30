@@ -14,8 +14,9 @@ import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { listarProcessos, formatNPU } from '@/lib/processos';
 import {
   criarCompromisso, atualizarCompromisso, listarResponsaveis,
-  Compromisso, TipoCompromisso, TIPOS, TIPO_LABEL, formatData,
+  Compromisso, TipoCompromisso, formatData,
 } from '@/lib/agenda';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -63,6 +64,7 @@ export function CompromissoFormModal({
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
 
+  const { tipos } = useTiposEvento();
   const responsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis, enabled: open });
   const processos = useQuery({
     queryKey: ['processos-para-agenda', filiadoId],
@@ -174,7 +176,7 @@ export function CompromissoFormModal({
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Tipo *</label>
               <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as TipoCompromisso)}>
-                {TIPOS.map((t) => <option key={t} value={t}>{TIPO_LABEL[t]}</option>)}
+                {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">

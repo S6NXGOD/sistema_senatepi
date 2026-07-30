@@ -7,9 +7,12 @@ import {
   StatusFuncionario,
   StatusGenerico,
   StatusProcesso,
-  TipoCompromisso,
   TipoDependente,
 } from '@prisma/client';
+
+// Slugs dos tipos de evento usados nos KPIs (correspondem aos tipos "sistema").
+const TIPO_PRAZO = 'PRAZO';
+const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
@@ -111,7 +114,7 @@ export class DashboardService {
         where: {
           ...meu,
           status: ABERTOS,
-          tipo: { in: [TipoCompromisso.PRAZO, TipoCompromisso.AUDIENCIA] },
+          tipo: { in: [TIPO_PRAZO, TIPO_AUDIENCIA] },
           inicio: { gte: hojeIni, lt: em7dias },
         },
       }),
@@ -129,7 +132,7 @@ export class DashboardService {
       }),
       // Audiências da semana (próximos 7 dias)
       this.prisma.compromisso.findMany({
-        where: { ...meu, tipo: TipoCompromisso.AUDIENCIA, status: ABERTOS, inicio: { gte: hojeIni, lt: em7dias } },
+        where: { ...meu, tipo: TIPO_AUDIENCIA, status: ABERTOS, inicio: { gte: hojeIni, lt: em7dias } },
         orderBy: { inicio: 'asc' },
         take: 8,
         select: compSelect,
@@ -221,7 +224,7 @@ export class DashboardService {
             this.prisma.compromisso.count({
               where: {
                 responsavelId: user.id,
-                tipo: TipoCompromisso.AUDIENCIA,
+                tipo: TIPO_AUDIENCIA,
                 status: ABERTOS,
                 inicio: { gte: hojeIni, lt: em7dias },
               },

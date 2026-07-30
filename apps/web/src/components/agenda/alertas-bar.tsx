@@ -5,12 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Clock, Bell, ChevronDown, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  listarAlertas, Compromisso, TIPO_LABEL, TIPO_COR,
+  listarAlertas, Compromisso, rotuloTipo, corDeTipo,
   formatData, formatHora, tempoRelativo,
 } from '@/lib/agenda';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 function ItemAlerta({ c, onAbrir }: { c: Compromisso; onAbrir: (c: Compromisso) => void }) {
-  const cor = TIPO_COR[c.tipo];
+  const { tipos } = useTiposEvento();
+  const cor = corDeTipo(c.tipo, tipos);
   return (
     <button
       type="button"
@@ -25,7 +27,7 @@ function ItemAlerta({ c, onAbrir }: { c: Compromisso; onAbrir: (c: Compromisso) 
               <AlertTriangle className="h-2.5 w-2.5" /> Urgente
             </span>
           )}
-          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium', cor.badge)}>{TIPO_LABEL[c.tipo]}</span>
+          <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium', cor.badge)}>{rotuloTipo(c.tipo, tipos)}</span>
         </p>
         <p className="truncate text-xs text-muted-foreground">
           {formatData(c.inicio)}, {formatHora(c.inicio)}

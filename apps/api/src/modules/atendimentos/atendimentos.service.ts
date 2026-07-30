@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   AcaoAuditoria, DesfechoAtendimento, Prisma, StatusAtendimento,
-  TipoCompromisso, TipoEncaminhamento,
+  TipoEncaminhamento,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -134,7 +134,7 @@ export class AtendimentosService {
         await tx.compromisso.create({
           data: {
             titulo: tituloBase,
-            tipo: TipoCompromisso.CONSULTA_JURIDICA,
+            tipo: 'CONSULTA_JURIDICA', // slug do tipo (TipoCompromisso cadastrável)
             inicio,
             fim,
             descricao: dto.desfechoObs?.trim() || null,

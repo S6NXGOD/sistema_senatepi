@@ -2,7 +2,8 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Compromisso, TIPO_COR, TIPO_LABEL, TIPOS, formatHora, estaAtrasado } from '@/lib/agenda';
+import { Compromisso, rotuloTipo, corDeTipo, formatHora, estaAtrasado } from '@/lib/agenda';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -18,6 +19,7 @@ export function CalendarioView({
   onMudarMes: (delta: number) => void;
   onSelecionar: (c: Compromisso) => void;
 }) {
+  const { tipos } = useTiposEvento();
   const hoje = new Date();
   const primeiro = new Date(mes.getFullYear(), mes.getMonth(), 1);
   const inicioGrade = new Date(primeiro);
@@ -71,10 +73,10 @@ export function CalendarioView({
                       key={c.id}
                       type="button"
                       onClick={() => onSelecionar(c)}
-                      title={`${TIPO_LABEL[c.tipo]} · ${c.titulo}`}
+                      title={`${rotuloTipo(c.tipo, tipos)} · ${c.titulo}`}
                       className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted ${atrasado ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}
                     >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TIPO_COR[c.tipo].ponto}`} />
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${corDeTipo(c.tipo, tipos).ponto}`} />
                       <span className="truncate">{formatHora(c.inicio)} {c.titulo}</span>
                     </button>
                   );
@@ -88,9 +90,9 @@ export function CalendarioView({
 
       {/* Legenda de tipos */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t p-3 text-xs text-muted-foreground">
-        {TIPOS.map((t) => (
-          <span key={t} className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${TIPO_COR[t].ponto}`} /> {TIPO_LABEL[t]}
+        {tipos.map((t) => (
+          <span key={t.id} className="inline-flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${corDeTipo(t.slug, tipos).ponto}`} /> {t.nome}
           </span>
         ))}
       </div>

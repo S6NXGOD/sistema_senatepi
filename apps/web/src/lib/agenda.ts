@@ -4,10 +4,20 @@ import { api } from './api';
 // Tipos
 // ---------------------------------------------------------------------------
 
-export type TipoCompromisso =
-  | 'CONSULTA_JURIDICA' | 'AUDIENCIA' | 'PRAZO' | 'REUNIAO' | 'DILIGENCIA'
-  | 'DESPACHO' | 'PERICIA' | 'COMPROMISSO';
+/** O tipo é um slug de TipoEvento (cadastrável) — texto livre. */
+export type TipoCompromisso = string;
 export type StatusCompromisso = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO';
+
+/** Tipo de evento cadastrável (config da Agenda). */
+export interface TipoEventoItem {
+  id: string;
+  slug: string;
+  nome: string;
+  cor: string; // chave de paleta
+  ordem: number;
+  ativo: boolean;
+  sistema: boolean;
+}
 
 export interface FiliadoCard {
   id: string;
@@ -74,29 +84,54 @@ export interface AlertasAgenda {
 // Rótulos e cores
 // ---------------------------------------------------------------------------
 
-export const TIPO_LABEL: Record<TipoCompromisso, string> = {
-  AUDIENCIA: 'Audiência',
-  CONSULTA_JURIDICA: 'Consulta Jurídica',
-  DESPACHO: 'Despacho',
-  PERICIA: 'Perícia',
-  REUNIAO: 'Reunião',
-  COMPROMISSO: 'Compromisso',
-  DILIGENCIA: 'Diligência',
-  PRAZO: 'Prazo',
-};
-export const TIPOS = Object.keys(TIPO_LABEL) as TipoCompromisso[];
+export interface ClassesTipo { borda: string; ponto: string; badge: string }
 
-/** Cor de cada tipo — usada como borda/ponto do card, badge e no calendário. */
-export const TIPO_COR: Record<TipoCompromisso, { borda: string; ponto: string; badge: string }> = {
-  AUDIENCIA: { borda: 'border-l-sky-500', ponto: 'bg-sky-500', badge: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
-  CONSULTA_JURIDICA: { borda: 'border-l-purple-500', ponto: 'bg-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-  DESPACHO: { borda: 'border-l-slate-500', ponto: 'bg-slate-500', badge: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
-  PERICIA: { borda: 'border-l-pink-500', ponto: 'bg-pink-500', badge: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300' },
-  REUNIAO: { borda: 'border-l-emerald-500', ponto: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
-  COMPROMISSO: { borda: 'border-l-orange-500', ponto: 'bg-orange-500', badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
-  DILIGENCIA: { borda: 'border-l-teal-500', ponto: 'bg-teal-500', badge: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' },
-  PRAZO: { borda: 'border-l-red-500', ponto: 'bg-red-500', badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
+/** Chaves de paleta aceitas para a cor do tipo (espelham o backend). */
+export const CORES_TIPO = [
+  'slate', 'sky', 'blue', 'indigo', 'violet', 'purple', 'pink', 'rose',
+  'red', 'orange', 'amber', 'emerald', 'teal', 'cyan',
+] as const;
+export type CorTipo = (typeof CORES_TIPO)[number];
+
+/** Classes Tailwind por chave de cor (estáticas → geradas pelo Tailwind). */
+export const PALETA_TIPO: Record<string, ClassesTipo> = {
+  slate: { borda: 'border-l-slate-500', ponto: 'bg-slate-500', badge: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
+  sky: { borda: 'border-l-sky-500', ponto: 'bg-sky-500', badge: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
+  blue: { borda: 'border-l-blue-500', ponto: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
+  indigo: { borda: 'border-l-indigo-500', ponto: 'bg-indigo-500', badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' },
+  violet: { borda: 'border-l-violet-500', ponto: 'bg-violet-500', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
+  purple: { borda: 'border-l-purple-500', ponto: 'bg-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
+  pink: { borda: 'border-l-pink-500', ponto: 'bg-pink-500', badge: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300' },
+  rose: { borda: 'border-l-rose-500', ponto: 'bg-rose-500', badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
+  red: { borda: 'border-l-red-500', ponto: 'bg-red-500', badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
+  orange: { borda: 'border-l-orange-500', ponto: 'bg-orange-500', badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
+  amber: { borda: 'border-l-amber-500', ponto: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
+  emerald: { borda: 'border-l-emerald-500', ponto: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  teal: { borda: 'border-l-teal-500', ponto: 'bg-teal-500', badge: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' },
+  cyan: { borda: 'border-l-cyan-500', ponto: 'bg-cyan-500', badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300' },
 };
+
+/** Fallback dos 8 tipos "sistema" (quando a lista dinâmica ainda não carregou). */
+export const TIPO_PADRAO: Record<string, { nome: string; cor: CorTipo }> = {
+  AUDIENCIA: { nome: 'Audiência', cor: 'sky' },
+  PRAZO: { nome: 'Prazo', cor: 'red' },
+  CONSULTA_JURIDICA: { nome: 'Consulta Jurídica', cor: 'purple' },
+  REUNIAO: { nome: 'Reunião', cor: 'emerald' },
+  DILIGENCIA: { nome: 'Diligência', cor: 'teal' },
+  DESPACHO: { nome: 'Despacho', cor: 'slate' },
+  PERICIA: { nome: 'Perícia', cor: 'pink' },
+  COMPROMISSO: { nome: 'Compromisso', cor: 'orange' },
+};
+
+/** Rótulo de um tipo (lista dinâmica → fallback padrão → o próprio slug). */
+export function rotuloTipo(slug: string, tipos?: TipoEventoItem[]): string {
+  return tipos?.find((t) => t.slug === slug)?.nome ?? TIPO_PADRAO[slug]?.nome ?? slug;
+}
+/** Classes de cor de um tipo (lista dinâmica → fallback padrão → slate). */
+export function corDeTipo(slug: string, tipos?: TipoEventoItem[]): ClassesTipo {
+  const key = tipos?.find((t) => t.slug === slug)?.cor ?? TIPO_PADRAO[slug]?.cor ?? 'slate';
+  return PALETA_TIPO[key] ?? PALETA_TIPO.slate;
+}
 
 export const STATUS_LABEL: Record<StatusCompromisso, string> = {
   PENDENTE: 'Pendente',
@@ -241,4 +276,22 @@ export async function mudarStatusCompromisso(id: string, status: StatusCompromis
 
 export async function excluirCompromisso(id: string) {
   return (await api.delete(`/compromissos/${id}`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Tipos de evento (cadastráveis)
+// ---------------------------------------------------------------------------
+
+export async function listarTiposEvento(incluirInativos = false): Promise<TipoEventoItem[]> {
+  return (await api.get('/tipos-evento', { params: incluirInativos ? { incluirInativos: 'true' } : {} })).data;
+}
+export interface TipoEventoInput { nome: string; cor?: string; ordem?: number; ativo?: boolean }
+export async function criarTipoEvento(dto: TipoEventoInput): Promise<TipoEventoItem> {
+  return (await api.post('/tipos-evento', dto)).data;
+}
+export async function atualizarTipoEvento(id: string, dto: Partial<TipoEventoInput>): Promise<TipoEventoItem> {
+  return (await api.patch(`/tipos-evento/${id}`, dto)).data;
+}
+export async function excluirTipoEvento(id: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/tipos-evento/${id}`)).data;
 }

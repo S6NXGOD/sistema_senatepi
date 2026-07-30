@@ -9,13 +9,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   type CompromissoCard,
   type PessoaResumo,
-  TIPO_COMP_COR,
-  TIPO_COMP_LABEL,
   STATUS_COMP_COR,
   STATUS_COMP_LABEL,
   horaCurta,
   primeiroNome,
 } from '@/lib/dashboard';
+import { corDeTipo, rotuloTipo } from '@/lib/agenda';
+import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 // ---------------------------------------------------------------------------
 // Count-up: anima o número de 0 → valor (sensação de "tempo real")
@@ -181,6 +181,7 @@ export function EmptyState({ icon: Icon, children }: { icon: LucideIcon; childre
 // ---------------------------------------------------------------------------
 
 export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrarData?: boolean }) {
+  const { tipos } = useTiposEvento();
   const atrasada =
     (c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO') && new Date(c.inicio).getTime() < Date.now();
   const quando = mostrarData
@@ -191,7 +192,7 @@ export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrar
       href="/agenda"
       className="flex items-stretch gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60"
     >
-      <span className={cn('w-1 shrink-0 rounded-full', TIPO_COMP_COR[c.tipo])} />
+      <span className={cn('w-1 shrink-0 rounded-full', corDeTipo(c.tipo, tipos).ponto)} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-medium">{c.titulo}</p>
@@ -202,7 +203,7 @@ export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrar
           )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/70">{TIPO_COMP_LABEL[c.tipo]}</span>
+          <span className="font-medium text-foreground/70">{rotuloTipo(c.tipo, tipos)}</span>
           <span>· {quando}</span>
           {c.filiado && <span className="truncate">· {c.filiado.nomeCompleto}</span>}
           {c.local && <span className="truncate">· {c.local}</span>}

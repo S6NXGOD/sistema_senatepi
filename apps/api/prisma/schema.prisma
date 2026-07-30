@@ -1197,17 +1197,6 @@ model Atendimento {
 // AGENDA E PRAZOS (compromissos dos advogados/colaboradores)
 // ===========================================================================
 
-enum TipoCompromisso {
-  CONSULTA_JURIDICA
-  AUDIENCIA
-  PRAZO
-  REUNIAO
-  DILIGENCIA
-  DESPACHO
-  PERICIA
-  COMPROMISSO
-}
-
 enum StatusCompromisso {
   PENDENTE
   EM_ANDAMENTO
@@ -1215,12 +1204,31 @@ enum StatusCompromisso {
   CANCELADO
 }
 
+/// Tipo de evento da Agenda — CADASTRÁVEL. Os 8 tipos "sistema" são semeados na
+/// migração inicial e não podem ser excluídos (só renomeados/recoloridos/ocultados);
+/// tipos personalizados podem ser criados livremente. `slug` é o identificador
+/// estável guardado em Compromisso.tipo; `cor` é uma chave de paleta (sky, red…).
+/// (Nome "TipoCompromisso" para não colidir com o enum TipoEvento dos Eventos.)
+model TipoCompromisso {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  nome      String
+  cor       String   @default("slate")
+  ordem     Int      @default(0)
+  ativo     Boolean  @default(true)
+  sistema   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tipos_evento")
+}
+
 /// Compromisso da agenda (audiência, prazo, reunião…). Rastreável ao filiado e
 /// ao atendimento de origem. Data original travada quando remarcado (auditoria).
 model Compromisso {
   id            String            @id @default(uuid())
   titulo        String
-  tipo          TipoCompromisso
+  tipo          String            // slug de TipoEvento (cadastrável)
   status        StatusCompromisso @default(PENDENTE)
   inicio        DateTime
   fim           DateTime
@@ -1243,6 +1251,8 @@ model Compromisso {
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
   processo    Processo?    @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  /// Movimentações do DataJud que originaram este evento (radar de audiências).
+  origemMovimentacoes MovimentacaoProcessual[]
 
   @@index([status])
   @@index([tipo])
@@ -1347,6 +1357,12 @@ model AnexoDocumento {
 }
 
 /// Movimentação processual (andamento) espelhada do DATAJUD.
+///
+/// RADAR DE AUDIÊNCIAS: as colunas `eh_audiencia`/`audiencia_data` são gravadas
+/// na importação e na sincronização (classificador em utils/audiencia.util.ts).
+/// Elas alimentam o alerta "Audiências a Agendar" do dashboard — por isso o
+/// estado do alerta (dispensa / evento criado) mora AQUI, no banco local, e não
+/// na sessão do navegador: a varredura noturna precisa respeitá-lo.
 model MovimentacaoProcessual {
   id              String   @id @default(uuid())
   processoId      String   @map("processo_id")
@@ -1355,9 +1371,25 @@ model MovimentacaoProcessual {
   codigoMovimento Int?     @map("codigo_movimento")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  /// Movimentação é DESIGNAÇÃO/REDESIGNAÇÃO de audiência (código TPU + texto)?
+  ehAudiencia Boolean @default(false) @map("eh_audiencia")
+  /// Data/hora da audiência extraída do TEXTO da movimentação (null se não veio).
+  audienciaData DateTime? @map("audiencia_data")
+  /// Compromisso criado a partir do alerta. `SetNull` de propósito: se o evento
+  /// for excluído da agenda, a audiência volta a aparecer como pendente.
+  compromissoId String? @map("compromisso_id")
+  /// Dispensa do alerta ("não é audiência" / "já agendado fora do sistema").
+  dispensadoEm     DateTime? @map("dispensado_em")
+  dispensadoPor    String?   @map("dispensado_por") // id do usuário (ver Auditoria)
+  dispensadoMotivo String?   @map("dispensado_motivo")
+
+  processo    Processo     @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  compromisso Compromisso? @relation(fields: [compromissoId], references: [id], onDelete: SetNull)
 
   @@index([processoId])
   @@index([dataMovimento])
+  // Suporta a consulta do radar: pendentes = eh_audiencia AND dispensado IS NULL.
+  @@index([ehAudiencia, dispensadoEm])
+  @@index([compromissoId])
   @@map("movimentacoes_processuais")
 }
