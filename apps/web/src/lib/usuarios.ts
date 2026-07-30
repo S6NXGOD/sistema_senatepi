@@ -39,3 +39,15 @@ export async function atualizarUsuario(id: string, dto: AtualizarUsuarioInput): 
 export async function excluirUsuario(id: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/usuarios/${id}`)).data;
 }
+
+/** Envia a foto de perfil do usuário (POST /usuarios/:id/avatar, multipart). */
+export async function enviarAvatarUsuario(id: string, foto: Blob): Promise<UsuarioSistema> {
+  const fd = new FormData();
+  fd.append('avatar', foto, 'avatar.jpg');
+  return (await api.post(`/usuarios/${id}/avatar`, fd)).data;
+}
+
+/** Remove a foto de perfil do usuário. */
+export async function removerAvatarUsuario(id: string): Promise<UsuarioSistema> {
+  return (await api.delete(`/usuarios/${id}/avatar`)).data;
+}

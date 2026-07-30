@@ -8,10 +8,10 @@ import {
 import { cn } from '@/lib/utils';
 import {
   Compromisso, StatusCompromisso, TIPO_LABEL, TIPO_COR,
-  formatData, formatHora, estaAtrasado, duracaoDesde,
+  formatData, formatHora, estaAtrasado, cronometroHMS,
 } from '@/lib/agenda';
 
-/** Cronômetro ao vivo (atualiza a cada segundo) desde `iniciadoEm`. */
+/** Cronômetro ao vivo em HH:MM:SS (atualiza a cada segundo) desde `iniciadoEm`. */
 function Cronometro({ desde }: { desde: string }) {
   const [agora, setAgora] = useState(() => Date.now());
   useEffect(() => {
@@ -19,8 +19,8 @@ function Cronometro({ desde }: { desde: string }) {
     return () => clearInterval(t);
   }, []);
   return (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-      <Timer className="h-3.5 w-3.5" /> {duracaoDesde(desde, agora)}
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 font-mono text-xs font-semibold tabular-nums text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+      <Timer className="h-3.5 w-3.5 animate-pulse" /> {cronometroHMS(desde, agora)}
     </span>
   );
 }
@@ -50,9 +50,10 @@ function AcaoBtn({
 }
 
 export function CompromissoCard({
-  c, onEditar, onVerTriagem, onAcao, onExcluir, podeExcluir, draggable, onDragStart,
+  c, onAbrir, onEditar, onVerTriagem, onAcao, onExcluir, podeExcluir, draggable, onDragStart,
 }: {
   c: Compromisso;
+  onAbrir: (c: Compromisso) => void;
   onEditar: (c: Compromisso) => void;
   onVerTriagem: (atendimentoId: string) => void;
   onAcao: (id: string, status: StatusCompromisso) => void;
@@ -94,31 +95,41 @@ export function CompromissoCard({
         </div>
       </div>
 
-      <p className="line-clamp-2 text-sm font-semibold leading-tight">{c.titulo}</p>
+      {/* Corpo clicável — abre o detalhe do compromisso */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onAbrir(c)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrir(c); } }}
+        className="-mx-1 cursor-pointer rounded px-1 transition-colors hover:bg-muted/40"
+        title="Ver detalhes"
+      >
+        <p className="line-clamp-2 text-sm font-semibold leading-tight">{c.titulo}</p>
 
-      {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
-        <div className="mt-1"><Cronometro desde={c.iniciadoEm} /></div>
-      )}
-
-      <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-        <p className={cn('flex items-center gap-1', atrasado && 'font-medium text-red-600 dark:text-red-400')}>
-          <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
-        </p>
-        {c.local && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 shrink-0" /> {c.local}</p>}
-        {c.filiado && <p className="truncate">Filiado: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
-      </div>
-
-      {/* Responsável (avatar) */}
-      <div className="mt-2 flex items-center gap-1.5">
-        {c.responsavel.avatarUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={c.responsavel.avatarUrl} alt="" className="h-5 w-5 rounded-full border object-cover" />
-        ) : (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-senatepi-400 text-[10px] font-bold text-senatepi-900">
-            {c.responsavel.nome.charAt(0)}
-          </span>
+        {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
+          <div className="mt-1"><Cronometro desde={c.iniciadoEm} /></div>
         )}
-        <span className="truncate text-xs text-muted-foreground">{c.responsavel.nome}</span>
+
+        <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+          <p className={cn('flex items-center gap-1', atrasado && 'font-medium text-red-600 dark:text-red-400')}>
+            <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
+          </p>
+          {c.local && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 shrink-0" /> {c.local}</p>}
+          {c.filiado && <p className="truncate">Filiado: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
+        </div>
+
+        {/* Responsável (avatar) */}
+        <div className="mt-2 flex items-center gap-1.5">
+          {c.responsavel.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.responsavel.avatarUrl} alt="" className="h-5 w-5 rounded-full border object-cover" />
+          ) : (
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-senatepi-400 text-[10px] font-bold text-senatepi-900">
+              {c.responsavel.nome.charAt(0)}
+            </span>
+          )}
+          <span className="truncate text-xs text-muted-foreground">{c.responsavel.nome}</span>
+        </div>
       </div>
 
       {c.dataOriginal && (

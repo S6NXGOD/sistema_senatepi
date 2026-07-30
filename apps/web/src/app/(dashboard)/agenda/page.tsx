@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth';
 import { KanbanView } from '@/components/agenda/kanban-view';
 import { CalendarioView } from '@/components/agenda/calendario-view';
 import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
+import { CompromissoDrawer } from '@/components/agenda/compromisso-drawer';
 import { AlertasBar } from '@/components/agenda/alertas-bar';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import {
@@ -77,6 +78,7 @@ export default function AgendaPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editar, setEditar] = useState<Compromisso | null>(null);
+  const [detalheId, setDetalheId] = useState<string | null>(null);
   const [triagemId, setTriagemId] = useState<string | null>(null);
   const [excluir, setExcluir] = useState<Compromisso | null>(null);
 
@@ -100,6 +102,7 @@ export default function AgendaPage() {
 
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['compromissos'] });
+    qc.invalidateQueries({ queryKey: ['compromisso'] });
     qc.invalidateQueries({ queryKey: ['agenda-alertas'] });
   };
 
@@ -114,7 +117,8 @@ export default function AgendaPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível excluir.'),
   });
 
-  const onEditar = (c: Compromisso) => { setEditar(c); setFormOpen(true); };
+  const onEditar = (c: Compromisso) => { setDetalheId(null); setEditar(c); setFormOpen(true); };
+  const onAbrir = (c: Compromisso) => setDetalheId(c.id);
   const onNovo = () => { setEditar(null); setFormOpen(true); };
   const onAcao = (id: string, s: StatusCompromisso) => status.mutate({ id, status: s });
 
@@ -142,7 +146,7 @@ export default function AgendaPage() {
       </div>
 
       {/* Alertas */}
-      <AlertasBar onAbrir={onEditar} />
+      <AlertasBar onAbrir={onAbrir} />
 
       {/* Abas + toggle de visão */}
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -193,6 +197,7 @@ export default function AgendaPage() {
       ) : visao === 'kanban' ? (
         <KanbanView
           compromissos={filtrados}
+          onAbrir={onAbrir}
           onEditar={onEditar}
           onVerTriagem={setTriagemId}
           onAcao={onAcao}
@@ -200,11 +205,22 @@ export default function AgendaPage() {
           podeExcluir={ehAdmin}
         />
       ) : (
-        <CalendarioView compromissos={compromissos} mes={mes} onMudarMes={mudarMes} onSelecionar={onEditar} />
+        <CalendarioView compromissos={compromissos} mes={mes} onMudarMes={mudarMes} onSelecionar={onAbrir} />
       )}
 
       {/* Modal criar/editar */}
       <CompromissoFormModal open={formOpen} onClose={() => setFormOpen(false)} onSalvo={invalidar} editar={editar} />
+
+      {/* Drawer de DETALHE (clique no card) — lápis edita, lixeira exclui */}
+      <CompromissoDrawer
+        compromissoId={detalheId}
+        open={!!detalheId}
+        onClose={() => setDetalheId(null)}
+        onEditar={onEditar}
+        onExcluir={(c) => { setDetalheId(null); setExcluir(c); }}
+        onVerTriagem={(id) => { setDetalheId(null); setTriagemId(id); }}
+        podeExcluir={ehAdmin}
+      />
 
       {/* Legenda de tipos */}
       {tiposOpen && (

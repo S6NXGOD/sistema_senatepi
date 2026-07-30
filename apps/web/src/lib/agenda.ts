@@ -45,7 +45,24 @@ export interface Compromisso {
 
 export interface CompromissoDetalhe extends Compromisso {
   observacoesInternas: string | null;
-  atendimento: { id: string; canal: string; desfecho: string } | null;
+  criadoPorNome: string | null;
+  filiado: (FiliadoCard & {
+    cpf: string | null;
+    telefonePrincipal: string | null;
+    email: string | null;
+    formacao: string | null;
+  }) | null;
+  responsavel: Responsavel & { nomeExibicao?: string | null; role?: string };
+  processo: (ProcessoRef & { classeProcessual: string | null }) | null;
+  atendimento: {
+    id: string;
+    numero: number;
+    canal: string;
+    desfecho: string | null;
+    descricao: string;
+    createdAt: string;
+    atendente: { id: string; nome: string; nomeExibicao: string | null };
+  } | null;
 }
 
 export interface AlertasAgenda {
@@ -182,6 +199,17 @@ export function duracaoDesde(iso: string | null | undefined, agora: number = Dat
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
   return `${s}s`;
+}
+
+/** Cronômetro HH:MM:SS desde `iniciadoEm` — conta horas, minutos e segundos. */
+export function cronometroHMS(iso: string | null | undefined, agora: number = Date.now()): string {
+  if (!iso) return '00:00:00';
+  const seg = Math.max(0, Math.floor((agora - new Date(iso).getTime()) / 1000));
+  const h = Math.floor(seg / 3600);
+  const m = Math.floor((seg % 3600) / 60);
+  const s = seg % 60;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(h)}:${p(m)}:${p(s)}`;
 }
 
 export interface FiltroCompromissos {

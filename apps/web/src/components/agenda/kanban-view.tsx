@@ -15,9 +15,10 @@ const COL_DOT: Record<StatusCompromisso, string> = {
 
 /** Quadro Kanban por status — arraste os cards ou use as ações contextuais. */
 export function KanbanView({
-  compromissos, onEditar, onVerTriagem, onAcao, onExcluir, podeExcluir,
+  compromissos, onAbrir, onEditar, onVerTriagem, onAcao, onExcluir, podeExcluir,
 }: {
   compromissos: Compromisso[];
+  onAbrir: (c: Compromisso) => void;
   onEditar: (c: Compromisso) => void;
   onVerTriagem: (atendimentoId: string) => void;
   onAcao: (id: string, status: StatusCompromisso) => void;
@@ -54,6 +55,7 @@ export function KanbanView({
                   c={c}
                   draggable
                   onDragStart={() => setDragId(c.id)}
+                  onAbrir={onAbrir}
                   onEditar={onEditar}
                   onVerTriagem={onVerTriagem}
                   onAcao={onAcao}

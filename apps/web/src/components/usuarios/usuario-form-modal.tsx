@@ -1,20 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Loader2, Save, UserRound, Scale, Users, ShieldCheck, Lock, Unlock, Briefcase,
+  X, Loader2, Save, UserRound, Scale, Users, ShieldCheck, Lock, Unlock, Briefcase, Camera, Trash2,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import { cn } from '@/lib/utils';
 import {
   MODULOS, PERFIS, PRESETS_PERFIL, NIVEL_LABEL, ModuloKey, NivelPermissao, PerfilUsuario,
 } from '@/lib/permissoes';
 import {
-  criarUsuario, atualizarUsuario, UsuarioSistema,
+  criarUsuario, atualizarUsuario, enviarAvatarUsuario, removerAvatarUsuario, UsuarioSistema,
 } from '@/lib/usuarios';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
@@ -54,8 +55,16 @@ export function UsuarioFormModal({
   const [role, setRole] = useState<PerfilUsuario>('TRIAGEM');
   const [matriz, setMatriz] = useState<Record<ModuloKey, NivelPermissao>>(() => matrizInicial('TRIAGEM'));
 
+  // Foto de perfil (upload): preview atual + blob pendente + flag de remoção.
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [fotoBlob, setFotoBlob] = useState<Blob | null>(null);
+  const [removerFoto, setRemoverFoto] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+
   useEffect(() => {
     if (!open) return;
+    setFotoBlob(null); setRemoverFoto(false); setCropFile(null);
     if (editar) {
       setNome(editar.nome);
       setNomeExibicao(editar.nomeExibicao ?? '');
@@ -65,11 +74,30 @@ export function UsuarioFormModal({
       setAtivo(editar.ativo);
       setRole(editar.role);
       setMatriz(matrizInicial(editar.role, editar.permissoes ?? undefined));
+      setAvatarPreview(editar.avatarUrl ?? null);
     } else {
       setNome(''); setNomeExibicao(''); setUsername(''); setEmail(''); setSenha('');
       setAtivo(true); setRole('TRIAGEM'); setMatriz(matrizInicial('TRIAGEM'));
+      setAvatarPreview(null);
     }
   }, [open, editar]);
+
+  function aoSelecionarArquivo(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = ''; // permite reselecionar o mesmo arquivo
+    if (f) setCropFile(f);
+  }
+  function aoRecortar(blob: Blob) {
+    setAvatarPreview((prev) => { if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
+    setFotoBlob(blob);
+    setRemoverFoto(false);
+    setCropFile(null);
+  }
+  function removerFotoAgora() {
+    setAvatarPreview((prev) => { if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return null; });
+    setFotoBlob(null);
+    setRemoverFoto(true);
+  }
 
   const adminLock = role === 'ADMINISTRADOR';
   const secoes = useMemo(() => {
@@ -86,7 +114,7 @@ export function UsuarioFormModal({
   }
 
   const salvar = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const permissoes = adminLock ? undefined : matriz; // admin = acesso total
       const base = {
         nome: nome.trim(),
@@ -97,10 +125,13 @@ export function UsuarioFormModal({
         ativo,
         permissoes,
       };
-      if (ehEdicao) {
-        return atualizarUsuario(editar!.id, { ...base, ...(senha ? { senha } : {}) });
-      }
-      return criarUsuario({ ...base, senha });
+      const salvo = ehEdicao
+        ? await atualizarUsuario(editar!.id, { ...base, ...(senha ? { senha } : {}) })
+        : await criarUsuario({ ...base, senha });
+      // Foto: envia o recorte pendente ou remove a existente (após ter o id).
+      if (fotoBlob) await enviarAvatarUsuario(salvo.id, fotoBlob);
+      else if (ehEdicao && removerFoto) await removerAvatarUsuario(salvo.id);
+      return salvo;
     },
     onSuccess: () => {
       toast.success(ehEdicao ? 'Usuário atualizado.' : 'Usuário criado.');
@@ -123,6 +154,7 @@ export function UsuarioFormModal({
   }
 
   return (
+    <>
     <Sheet open={open} onClose={onClose} side="right" className="w-full max-w-xl">
       <div className="flex items-center justify-between border-b p-5">
         <div className="flex items-center gap-3">
@@ -140,6 +172,32 @@ export function UsuarioFormModal({
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        {/* Foto de perfil */}
+        <div className="flex items-center gap-4">
+          {avatarPreview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatarPreview} alt="" className="h-20 w-20 shrink-0 rounded-full border object-cover" />
+          ) : (
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-2xl font-bold text-senatepi-900">
+              {(nome.trim().charAt(0) || '?').toUpperCase()}
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={aoSelecionarArquivo} />
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+                <Camera className="h-4 w-4" /> {avatarPreview ? 'Trocar foto' : 'Enviar foto'}
+              </Button>
+              {avatarPreview && (
+                <Button type="button" variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={removerFotoAgora}>
+                  <Trash2 className="h-4 w-4" /> Remover
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">JPG ou PNG · recorte quadrado.</p>
+          </div>
+        </div>
+
         {/* Dados */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -274,5 +332,10 @@ export function UsuarioFormModal({
         </Button>
       </div>
     </Sheet>
+
+    {cropFile && (
+      <PhotoCropDialog arquivo={cropFile} aspect={1} onConfirm={aoRecortar} onClose={() => setCropFile(null)} />
+    )}
+    </>
   );
 }

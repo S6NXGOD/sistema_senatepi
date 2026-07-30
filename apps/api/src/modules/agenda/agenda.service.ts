@@ -146,14 +146,36 @@ export class AgendaService {
     const compromisso = await this.prisma.compromisso.findUnique({
       where: { id },
       include: {
-        filiado: filiadoCard,
-        responsavel: responsavelSel,
-        processo: processoSel,
-        atendimento: { select: { id: true, canal: true, desfecho: true } },
+        // Detalhe expõe mais do filiado (contato) — a tela é de trabalho interno.
+        filiado: {
+          select: {
+            id: true, nomeCompleto: true, matricula: true, cpf: true,
+            telefonePrincipal: true, email: true, formacao: true,
+          },
+        },
+        responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, role: true } },
+        processo: { select: { id: true, numeroCNJ: true, classeProcessual: true } },
+        // Triagem de origem: canal, demanda e QUEM registrou (atendente).
+        atendimento: {
+          select: {
+            id: true, numero: true, canal: true, desfecho: true, descricao: true, createdAt: true,
+            atendente: { select: { id: true, nome: true, nomeExibicao: true } },
+          },
+        },
       },
     });
     if (!compromisso) throw new NotFoundException('Compromisso não encontrado.');
-    return compromisso;
+
+    // "Criado por" — o campo guarda o id do usuário que registrou o evento.
+    let criadoPorNome: string | null = null;
+    if (compromisso.criadoPor) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: compromisso.criadoPor },
+        select: { nome: true, nomeExibicao: true },
+      });
+      criadoPorNome = u?.nomeExibicao || u?.nome || null;
+    }
+    return { ...compromisso, criadoPorNome };
   }
 
   // -------------------------------------------------------------------------

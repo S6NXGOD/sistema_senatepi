@@ -5,6 +5,8 @@ import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { StorageService } from '../../common/storage/storage.service';
+import { ImageService } from '../../common/storage/image.service';
 import { PRESETS_PERFIL, sanitizarPermissoes } from '../../common/permissions/permissoes.constants';
 import { CriarUsuarioDto, AtualizarUsuarioDto } from './dto/usuarios.dto';
 
@@ -14,19 +16,37 @@ interface Ctx {
   userAgent?: string;
 }
 
-/** Campos expostos de um usuário (NUNCA o hash da senha). */
+/** Campos expostos de um usuário (NUNCA o hash da senha). avatarKey é interno. */
 const USER_SELECT = {
   id: true, nome: true, nomeExibicao: true, email: true, username: true,
-  role: true, permissoes: true, ativo: true, avatarUrl: true,
+  role: true, permissoes: true, ativo: true, avatarUrl: true, avatarKey: true,
   ultimoLoginEm: true, createdAt: true,
 } satisfies Prisma.UserSelect;
+
+type UserRaw = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
 
 @Injectable()
 export class UsuariosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly storage: StorageService,
+    private readonly image: ImageService,
   ) {}
+
+  /**
+   * Monta a resposta pública: `avatarUrl` recebe a URL da foto ENVIADA (assinada,
+   * a partir da key no storage) quando houver; senão, a URL informada manualmente.
+   * `avatarKey` é interno e não é exposto. (Mesma regra do /profile/me — sem isso
+   * a foto de quem fez upload não aparecia na listagem de usuários.)
+   */
+  private async apresentar<T extends { avatarKey: string | null; avatarUrl: string | null }>(user: T) {
+    const { avatarKey, ...resto } = user;
+    const avatarUrl = avatarKey
+      ? await this.storage.getSignedUrl(avatarKey).catch(() => resto.avatarUrl)
+      : resto.avatarUrl;
+    return { ...resto, avatarUrl } as Omit<T, 'avatarKey'>;
+  }
 
   async listar(busca?: string) {
     const termo = busca?.trim();
@@ -39,13 +59,52 @@ export class UsuariosService {
           ],
         }
       : {};
-    return this.prisma.user.findMany({ where, orderBy: { nome: 'asc' }, select: USER_SELECT });
+    const users = await this.prisma.user.findMany({ where, orderBy: { nome: 'asc' }, select: USER_SELECT });
+    return Promise.all(users.map((u) => this.apresentar(u)));
   }
 
   async detalhe(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id }, select: USER_SELECT });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
-    return user;
+    return this.apresentar(user);
+  }
+
+  /** Envia/substitui a foto de perfil de um usuário (upload). Só Administrador. */
+  async atualizarAvatar(id: string, arquivo: Buffer, ctx: Ctx) {
+    const atual = await this.prisma.user.findUnique({ where: { id }, select: { avatarKey: true } });
+    if (!atual) throw new NotFoundException('Usuário não encontrado.');
+
+    const avatarKey = await this.image.processarAvatar(arquivo, `usuarios/${id}`);
+    if (atual.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
+
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { avatarKey, avatarUrl: null }, // a foto enviada tem precedência
+      select: USER_SELECT,
+    });
+    await this.audit.registrar({
+      userId: ctx.userId ?? null, acao: AcaoAuditoria.UPDATE, entidade: 'User', entidadeId: id,
+      descricao: `Foto de "${user.nome}" atualizada (upload)`, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {},
+    });
+    return this.apresentar(user);
+  }
+
+  /** Remove a foto de perfil de um usuário. Só Administrador. */
+  async removerAvatar(id: string, ctx: Ctx) {
+    const atual = await this.prisma.user.findUnique({ where: { id }, select: { avatarKey: true } });
+    if (!atual) throw new NotFoundException('Usuário não encontrado.');
+    if (atual.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
+
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { avatarKey: null, avatarUrl: null },
+      select: USER_SELECT,
+    });
+    await this.audit.registrar({
+      userId: ctx.userId ?? null, acao: AcaoAuditoria.UPDATE, entidade: 'User', entidadeId: id,
+      descricao: `Foto de "${user.nome}" removida`, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {},
+    });
+    return this.apresentar(user);
   }
 
   async criar(dto: CriarUsuarioDto, ctx: Ctx) {
@@ -77,7 +136,7 @@ export class UsuariosService {
       descricao: `Usuário "${user.nome}" (${user.role}) criado`, ip: ctx.ip, userAgent: ctx.userAgent,
       metadata: { role: user.role },
     });
-    return user;
+    return this.apresentar(user);
   }
 
   async atualizar(id: string, dto: AtualizarUsuarioDto, ctx: Ctx) {
@@ -123,7 +182,7 @@ export class UsuariosService {
       descricao: `Usuário "${user.nome}" atualizado`, ip: ctx.ip, userAgent: ctx.userAgent,
       metadata: { role: user.role, senhaRedefinida: !!dto.senha },
     });
-    return user;
+    return this.apresentar(user);
   }
 
   async excluir(id: string, ctx: Ctx) {

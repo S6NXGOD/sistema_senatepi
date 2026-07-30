@@ -1,0 +1,273 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import {
+  X, Loader2, Pencil, Trash2, Clock, MapPin, AlertTriangle, Timer, User, Phone, Mail,
+  GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, ArrowRight, Users,
+} from 'lucide-react';
+import { Sheet } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
+import { WhatsAppIcon } from '@/components/whatsapp-icon';
+import { AnexosSection } from '@/components/anexos/anexos-section';
+import { cn, mascararCpf } from '@/lib/utils';
+import {
+  getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, cronometroHMS,
+  Compromisso, TIPO_LABEL, TIPO_COR, STATUS_LABEL, STATUS_COR,
+} from '@/lib/agenda';
+import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
+import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
+import { formatNPU } from '@/lib/processos';
+
+/** Cronômetro ao vivo HH:MM:SS. */
+function Cronometro({ desde }: { desde: string }) {
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 font-mono text-sm font-semibold tabular-nums text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+      <Timer className="h-4 w-4 animate-pulse" /> {cronometroHMS(desde, agora)}
+    </span>
+  );
+}
+
+function Avatar({ nome, url }: { nome: string; url?: string | null }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt="" className="h-8 w-8 shrink-0 rounded-full border object-cover" />
+  ) : (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-xs font-bold text-senatepi-900">
+      {nome.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+const soData = (iso: string) => iso.slice(0, 10);
+
+export function CompromissoDrawer({
+  compromissoId, open, onClose, onEditar, onExcluir, onVerTriagem, podeExcluir,
+}: {
+  compromissoId: string | null;
+  open: boolean;
+  onClose: () => void;
+  onEditar: (c: Compromisso) => void;
+  onExcluir?: (c: Compromisso) => void;
+  onVerTriagem?: (atendimentoId: string) => void;
+  podeExcluir?: boolean;
+}) {
+  const { data: c, isLoading } = useQuery({
+    queryKey: ['compromisso', compromissoId],
+    queryFn: () => getCompromisso(compromissoId!),
+    enabled: open && !!compromissoId,
+  });
+
+  // Plantão do dia do compromisso (reaproveita a escala).
+  const dataPlantao = c ? soData(c.inicio) : undefined;
+  const { data: plantao = [] } = useQuery({
+    queryKey: ['plantao', dataPlantao],
+    queryFn: () => listarPlantao(dataPlantao),
+    enabled: open && !!dataPlantao,
+  });
+  const hoje = new Date().toISOString().slice(0, 10);
+
+  const filiado = c?.filiado;
+  const atrasado = c ? estaAtrasado(c) : false;
+
+  function abrirWhatsApp() {
+    if (!filiado || !c) return;
+    if (!filiado.telefonePrincipal) return toast.error('Filiado sem telefone cadastrado.');
+    const url = linkWhatsApp(filiado.telefonePrincipal, mensagemSaudacao({ nome: filiado.nomeCompleto, data: c.inicio }));
+    if (!url) return toast.error('Telefone inválido para WhatsApp.');
+    window.open(url, '_blank');
+  }
+
+  const Bloco = ({ titulo, children }: { titulo: string; children: React.ReactNode }) => (
+    <div>
+      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{titulo}</p>
+      {children}
+    </div>
+  );
+
+  return (
+    <Sheet open={open} onClose={onClose} side="right" className="w-full max-w-lg">
+      {/* Cabeçalho */}
+      <div className="flex items-start justify-between gap-2 border-b p-5">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+            {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', TIPO_COR[c.tipo].badge)}>{TIPO_LABEL[c.tipo]}</span>}
+            {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', STATUS_COR[c.status])}>{STATUS_LABEL[c.status]}</span>}
+            {c?.urgente && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                <AlertTriangle className="h-3 w-3" /> Urgente
+              </span>
+            )}
+          </div>
+          <h3 className="truncate text-lg font-bold">{c?.titulo ?? 'Carregando…'}</h3>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {c && (
+            <button type="button" onClick={() => { onEditar(c); }} title="Editar" className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Pencil className="h-4 w-4" />
+            </button>
+          )}
+          {c && podeExcluir && onExcluir && (
+            <button type="button" onClick={() => onExcluir(c)} title="Excluir" className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          <button type="button" onClick={onClose} title="Fechar" className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+
+      {isLoading || !c ? (
+        <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+      ) : (
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          {/* Quando / onde */}
+          <div className="space-y-1.5">
+            <p className={cn('flex items-center gap-2 text-sm', atrasado && 'font-medium text-red-600 dark:text-red-400')}>
+              <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {formatData(c.inicio)} · {formatHora(c.inicio)}{c.fim ? ` – ${formatHora(c.fim)}` : ''}
+              {atrasado && <span className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">Atrasada</span>}
+            </p>
+            {c.local && <p className="flex items-center gap-2 text-sm"><MapPin className="h-4 w-4 shrink-0 text-muted-foreground" /> {c.local}</p>}
+            {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
+              <p className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Em andamento há</span> <Cronometro desde={c.iniciadoEm} /></p>
+            )}
+            {c.dataOriginal && (
+              <p className="flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                <CalendarClock className="h-3.5 w-3.5" /> Remarcado. Data original: {formatDataHora(c.dataOriginal)}
+              </p>
+            )}
+          </div>
+
+          {/* Filiado */}
+          {filiado && (
+            <div className="rounded-xl border p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" /> Filiado</p>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Matrícula {filiado.matricula}</span>
+              </div>
+              <p className="text-sm font-medium">{filiado.nomeCompleto}</p>
+              <div className="mt-1.5 space-y-1 text-sm text-muted-foreground">
+                {filiado.cpf && <p className="flex items-center gap-2"><User className="h-3.5 w-3.5" /> {mascararCpf(filiado.cpf)}</p>}
+                <p className="flex items-center gap-2"><Phone className="h-3.5 w-3.5" /> {filiado.telefonePrincipal || 'sem telefone'}</p>
+                {filiado.email && <p className="flex items-center gap-2"><Mail className="h-3.5 w-3.5" /> {filiado.email}</p>}
+                {filiado.formacao && <p className="flex items-center gap-2"><GraduationCap className="h-3.5 w-3.5" /> {filiado.formacao}</p>}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" className="bg-[#25D366] text-white hover:bg-[#20bd5a]" onClick={abrirWhatsApp}>
+                  <WhatsAppIcon className="h-4 w-4" /> WhatsApp
+                </Button>
+                <Link href={`/filiados/${filiado.id}`}>
+                  <Button size="sm" variant="outline"><ExternalLink className="h-4 w-4" /> Ver cadastro</Button>
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Responsável + criação/triagem */}
+          <div className="grid grid-cols-1 gap-3">
+            <Bloco titulo="Advogado(a) responsável">
+              <div className="flex items-center gap-2">
+                <Avatar nome={c.responsavel.nomeExibicao || c.responsavel.nome} url={c.responsavel.avatarUrl} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{c.responsavel.nomeExibicao || c.responsavel.nome}</p>
+                  {c.responsavel.role && <p className="text-xs text-muted-foreground">{c.responsavel.role}</p>}
+                </div>
+              </div>
+            </Bloco>
+
+            {c.atendimento ? (
+              <Bloco titulo="Triagem de origem">
+                <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-900/40 dark:bg-sky-950/10">
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="font-medium text-muted-foreground">#{c.atendimento.numero}</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{CANAL_LABEL[c.atendimento.canal as CanalAtendimento] ?? c.atendimento.canal}</span>
+                  </div>
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <UserCog className="h-3.5 w-3.5" /> Triagem por <strong className="text-foreground">{c.atendimento.atendente.nomeExibicao || c.atendimento.atendente.nome}</strong> · {formatDataHora(c.atendimento.createdAt)}
+                  </p>
+                  {onVerTriagem && (
+                    <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-senatepi-800 hover:underline dark:text-senatepi-400">
+                      <FileSearch className="h-3.5 w-3.5" /> Abrir triagem completa
+                    </button>
+                  )}
+                </div>
+              </Bloco>
+            ) : c.criadoPorNome ? (
+              <Bloco titulo="Criado por">
+                <p className="text-sm">{c.criadoPorNome}</p>
+              </Bloco>
+            ) : null}
+
+            {c.processo && (
+              <Bloco titulo="Processo vinculado">
+                <Link href="/processos" className="flex items-center gap-1.5 text-sm text-senatepi-800 hover:underline dark:text-senatepi-400">
+                  <Gavel className="h-3.5 w-3.5" /> {formatNPU(c.processo.numeroCNJ)}
+                  {c.processo.classeProcessual ? ` · ${c.processo.classeProcessual}` : ''}
+                </Link>
+              </Bloco>
+            )}
+          </div>
+
+          {/* Descrição / observações */}
+          {(c.descricao || c.observacoesInternas) && (
+            <div className="space-y-3">
+              {c.descricao && (
+                <Bloco titulo="Descrição">
+                  <p className="whitespace-pre-wrap text-sm">{c.descricao}</p>
+                </Bloco>
+              )}
+              {c.observacoesInternas && (
+                <div className="rounded-lg border bg-muted/40 p-3">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Observações internas</p>
+                  <p className="whitespace-pre-wrap text-sm">{c.observacoesInternas}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Plantão do dia */}
+          <Bloco titulo={`Plantão do dia · ${formatData(c.inicio)}`}>
+            {plantao.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Ninguém de plantão nesta data.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {plantao.map((p) => {
+                  const noHorario = dataPlantao === hoje && estaNoHorario(p);
+                  return (
+                    <li key={p.id} className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5">
+                      <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate text-sm">{primeiroNome(p.advogado)}</span>
+                      <span className="text-xs text-muted-foreground">{p.horaInicio}–{p.horaFim}</span>
+                      {noHorario && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">no horário</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Bloco>
+
+          {/* Anexos — puxa os documentos da triagem de origem (ou do processo) */}
+          {c.atendimento ? (
+            <div>
+              <p className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <ArrowRight className="h-3.5 w-3.5" /> Documentos anexados na triagem
+              </p>
+              <AnexosSection atendimentoId={c.atendimento.id} />
+            </div>
+          ) : c.processo ? (
+            <AnexosSection processoId={c.processo.id} />
+          ) : null}
+        </div>
+      )}
+    </Sheet>
+  );
+}
