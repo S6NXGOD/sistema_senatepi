@@ -1,13 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import {
+  LIMITES_NASCIMENTO, LIMITES_DATA_PASSADA, nascimentoPlausivel, dataNaoFutura,
+  MSG_IDADE_IMPLAUSIVEL, MSG_DATA_FUTURA,
+} from '@/lib/datas-limite';
+import { UFS, mascararCep, buscarCep, municipiosDaUF } from '@/lib/endereco';
 import { toast } from 'sonner';
-import { Loader2, Upload } from 'lucide-react';
+import { Loader2, Upload, Plus, Trash2, Lock } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -20,15 +25,25 @@ import {
   SITUACAO_LABEL,
   COREN_REGEX,
   mascararCoren,
+  TIPOS_DEPENDENTE,
+  MODALIDADES_CONTRIBUICAO,
+  type DependenteFiliado,
 } from '@/lib/filiados';
+import { LocaisTrabalhoSection, type LocalTrabalho } from '@/components/filiados/locais-trabalho-section';
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
+import { travado, AVISO_TRAVADO, type CampoImutavel } from '@/lib/campos-imutaveis';
+
+// O local de trabalho e a sua edição vivem em locais-trabalho-section.tsx.
 
 const schema = z.object({
   nomeCompleto: z.string().min(3, 'Informe o nome'),
   cpf: z.string().min(11, 'CPF inválido'),
   rg: z.string().optional(),
   ufRg: z.string().optional(),
-  dataNascimento: z.string().min(1, 'Obrigatório'),
+  dataNascimento: z
+    .string()
+    .min(1, 'Obrigatório')
+    .refine(nascimentoPlausivel, MSG_IDADE_IMPLAUSIVEL),
   sexo: z.string().optional(),
   estadoCivil: z.string().optional(),
   naturalidade: z.string().optional(),
@@ -48,14 +63,9 @@ const schema = z.object({
     .string()
     .min(1, 'COREN obrigatório')
     .regex(COREN_REGEX, 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)'),
-  dataAdmissao: z.string().optional(),
+  dataAdmissao: z.string().optional().refine(dataNaoFutura, MSG_DATA_FUTURA),
   situacao: z.enum(['ATIVO', 'INATIVO', 'DESFILIADO']).optional(),
-  v1Empresa: z.string().optional(),
-  v1Cargo: z.string().optional(),
-  v1Matricula: z.string().optional(),
-  v2Empresa: z.string().optional(),
-  v2Cargo: z.string().optional(),
-  v2Matricula: z.string().optional(),
+  modalidadeContribuicao: z.enum(['DESCONTO_FOLHA', 'AVULSO', 'PENSIONISTA']).optional().or(z.literal('')),
 }).refine((d) => d.formacao !== 'OUTRO' || !!d.formacaoOutro?.trim(), {
   path: ['formacaoOutro'],
   message: 'Descreva a formação',
@@ -65,11 +75,21 @@ type FormData = z.infer<typeof schema>;
 const SEXOS = ['MASCULINO', 'FEMININO', 'OUTRO'];
 const ESTADOS_CIVIS = ['SOLTEIRO', 'CASADO', 'DIVORCIADO', 'VIUVO', 'UNIAO_ESTAVEL', 'OUTRO'];
 
-function Campo({ label, erro, children }: { label: string; erro?: string; children: React.ReactNode }) {
+function Campo({ label, erro, children, bloqueado }: {
+  label: string;
+  erro?: string;
+  children: React.ReactNode;
+  /** Dado que não muda e já está preenchido — só a edição direta altera. */
+  bloqueado?: boolean;
+}) {
   return (
     <div className="space-y-1.5">
-      <label className="text-sm font-medium">{label}</label>
+      <label className="flex items-center gap-1 text-sm font-medium">
+        {label}
+        {bloqueado && <Lock className="h-3.5 w-3.5 text-muted-foreground" />}
+      </label>
       {children}
+      {bloqueado && <p className="text-[11px] text-muted-foreground">{AVISO_TRAVADO}</p>}
       {erro && <p className="text-xs text-red-500">{erro}</p>}
     </div>
   );
@@ -85,14 +105,48 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
   const [foto, setFoto] = useState<Blob | null>(null);
   const [arquivoCrop, setArquivoCrop] = useState<File | null>(null);
 
-  const v1 = inicial?.vinculos?.[0];
-  const v2 = inicial?.vinculos?.[1];
+  // Endereço assistido: ViaCEP + municípios da UF (IBGE).
+  const [cepBuscando, setCepBuscando] = useState(false);
+  const [cepAviso, setCepAviso] = useState<string | null>(null);
+  const [municipios, setMunicipios] = useState<string[]>([]);
+
+  // Vínculos e dependentes ficam fora do react-hook-form: são listas de
+  // tamanho variável, e o zod aqui cuida só dos campos fixos.
+  const [vinculos, setVinculos] = useState<LocalTrabalho[]>(
+    () => inicial?.vinculos?.map((v) => ({
+      empresa: v.empresa ?? '',
+      parteExternaId: v.parteExternaId ?? undefined,
+      cargo: v.cargo ?? '',
+      matricula: v.matricula ?? '',
+      descontoEmFolha: v.descontoEmFolha ?? false,
+    })) ?? [],
+  );
+  const [dependentes, setDependentes] = useState<DependenteFiliado[]>(
+    () => inicial?.dependentes?.map((d) => ({
+      id: d.id,
+      tipo: d.tipo,
+      nome: d.nome,
+      cpf: d.cpf ?? '',
+      dataNascimento: d.dataNascimento?.slice(0, 10) ?? '',
+    })) ?? [],
+  );
+
+  /**
+   * No RECADASTRAMENTO os dados que não mudam ficam travados (a correção é
+   * feita na tela de Editar). Em 'criar' e 'editar' tudo segue liberado.
+   */
+  const bloq = (campo: CampoImutavel) =>
+    modo === 'recadastrar' && travado(campo, (inicial as never)?.[campo]);
+
+  const mudarDependente = (i: number, campo: keyof DependenteFiliado, valor: string) =>
+    setDependentes((l) => l.map((d, j) => (j === i ? { ...d, [campo]: valor } : d)));
 
   const {
     register,
     handleSubmit,
     control,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -121,15 +175,51 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           numeroCoren: inicial.numeroCoren ?? '',
           dataAdmissao: inicial.dataAdmissao?.slice(0, 10) ?? '',
           situacao: inicial.situacao,
-          v1Empresa: v1?.empresa ?? '',
-          v1Cargo: v1?.cargo ?? '',
-          v1Matricula: v1?.matricula ?? '',
-          v2Empresa: v2?.empresa ?? '',
-          v2Cargo: v2?.cargo ?? '',
-          v2Matricula: v2?.matricula ?? '',
+          modalidadeContribuicao: inicial.modalidadeContribuicao ?? '',
         }
       : { formacao: 'ENFERMEIRO' },
   });
+
+  // Municípios da UF escolhida alimentam o autocomplete da cidade. O resultado
+  // é cacheado em memória, então trocar de UF ida e volta não refaz a chamada.
+  const ufSelecionada = watch('estado');
+  useEffect(() => {
+    let vivo = true;
+    if (!ufSelecionada || ufSelecionada.length !== 2) { setMunicipios([]); return; }
+    municipiosDaUF(ufSelecionada).then((l) => { if (vivo) setMunicipios(l); });
+    return () => { vivo = false; };
+  }, [ufSelecionada]);
+
+  /**
+   * ViaCEP: preenche logradouro, bairro, cidade e UF assim que o CEP fica
+   * completo. Não bloqueia nada — CEP inexistente ou serviço fora do ar apenas
+   * deixa os campos para digitação manual.
+   */
+  async function preencherPorCep(valorMascarado: string) {
+    const digitos = valorMascarado.replace(/\D/g, '');
+    setCepAviso(null);
+    if (digitos.length !== 8) return;
+
+    setCepBuscando(true);
+    try {
+      const e = await buscarCep(digitos);
+      if (!e) {
+        setCepAviso('CEP não encontrado — preencha o endereço manualmente.');
+        return;
+      }
+      // `shouldDirty` para o formulário saber que mudou; sem `shouldValidate`
+      // porque o preenchimento automático não é erro do usuário.
+      if (e.logradouro) setValue('endereco', e.logradouro, { shouldDirty: true });
+      if (e.bairro) setValue('bairro', e.bairro, { shouldDirty: true });
+      if (e.cidade) setValue('cidade', e.cidade, { shouldDirty: true });
+      if (e.uf) setValue('estado', e.uf, { shouldDirty: true });
+      if (e.parcial) {
+        setCepAviso('CEP geral da cidade — informe a rua e o bairro.');
+      }
+    } finally {
+      setCepBuscando(false);
+    }
+  }
 
   function onFoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -148,10 +238,27 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
   async function onSubmit(d: FormData) {
     setEnviando(true);
     try {
-      const vinculos = [
-        d.v1Empresa ? { empresa: d.v1Empresa, cargo: d.v1Cargo, matricula: d.v1Matricula, ordem: 1 } : null,
-        d.v2Empresa ? { empresa: d.v2Empresa, cargo: d.v2Cargo, matricula: d.v2Matricula, ordem: 2 } : null,
-      ].filter(Boolean);
+      // Linhas em branco são descartadas; a lista enviada substitui a atual.
+      const vinculosPayload = vinculos
+        .filter((v) => v.empresa?.trim())
+        .map((v, i) => ({
+          empresa: v.empresa.trim(),
+          parteExternaId: v.parteExternaId || undefined,
+          cargo: v.cargo?.trim() || undefined,
+          matricula: v.matricula?.trim() || undefined,
+          descontoEmFolha: !!v.descontoEmFolha,
+          ordem: i + 1,
+        }));
+
+      const dependentesPayload = dependentes
+        .filter((x) => x.nome?.trim() && x.dataNascimento)
+        .map((x) => ({
+          id: x.id,
+          tipo: x.tipo,
+          nome: x.nome.trim(),
+          cpf: x.cpf?.replace(/\D/g, '') || undefined,
+          dataNascimento: x.dataNascimento.slice(0, 10),
+        }));
 
       const payload: any = {
         nomeCompleto: d.nomeCompleto,
@@ -176,10 +283,12 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         formacaoOutro: d.formacao === 'OUTRO' ? d.formacaoOutro?.trim() : null,
         numeroCoren: d.numeroCoren,
         dataAdmissao: d.dataAdmissao || undefined,
+        modalidadeContribuicao: d.modalidadeContribuicao || undefined,
         // Situação NÃO é enviada no cadastro (novo filiado nasce ATIVO no back).
         // Só acompanha edição; a troca "rica" (motivo/termo) tem fluxo próprio.
         situacao: modo === 'criar' ? undefined : d.situacao,
-        vinculos,
+        vinculos: vinculosPayload,
+        dependentes: dependentesPayload,
       };
 
       let id: string;
@@ -250,17 +359,27 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         <CardHeader><CardTitle>Informações pessoais</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Campo label="Nome completo *" erro={errors.nomeCompleto?.message}><Input {...register('nomeCompleto')} /></Campo>
-          <Campo label="CPF *" erro={errors.cpf?.message}><Input {...register('cpf')} /></Campo>
-          <Campo label="RG" erro={errors.rg?.message}><Input {...register('rg')} /></Campo>
-          <Campo label="UF do RG"><Input maxLength={2} {...register('ufRg')} /></Campo>
-          <Campo label="Data de nascimento *" erro={errors.dataNascimento?.message}><Input type="date" {...register('dataNascimento')} /></Campo>
+          <Campo label="CPF *" erro={errors.cpf?.message} bloqueado={bloq('cpf')}>
+            <Input readOnly={bloq('cpf')} className={bloq('cpf') ? 'bg-muted' : ''} {...register('cpf')} />
+          </Campo>
+          <Campo label="RG" erro={errors.rg?.message} bloqueado={bloq('rg')}>
+            <Input readOnly={bloq('rg')} className={bloq('rg') ? 'bg-muted' : ''} {...register('rg')} />
+          </Campo>
+          <Campo label="UF do RG" bloqueado={bloq('ufRg')}>
+            <Input readOnly={bloq('ufRg')} className={bloq('ufRg') ? 'bg-muted' : ''} maxLength={2} {...register('ufRg')} />
+          </Campo>
+          <Campo label="Data de nascimento *" erro={errors.dataNascimento?.message} bloqueado={bloq('dataNascimento')}>
+            <Input readOnly={bloq('dataNascimento')} className={bloq('dataNascimento') ? 'bg-muted' : ''} type="date" {...LIMITES_NASCIMENTO} {...register('dataNascimento')} />
+          </Campo>
           <Campo label="Sexo">
             <select className={sel} {...register('sexo')}><option value="">-</option>{SEXOS.map((s) => <option key={s} value={s}>{s}</option>)}</select>
           </Campo>
           <Campo label="Estado civil">
             <select className={sel} {...register('estadoCivil')}><option value="">-</option>{ESTADOS_CIVIS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
           </Campo>
-          <Campo label="Naturalidade"><Input {...register('naturalidade')} /></Campo>
+          <Campo label="Naturalidade" bloqueado={bloq('naturalidade')}>
+            <Input readOnly={bloq('naturalidade')} className={bloq('naturalidade') ? 'bg-muted' : ''} {...register('naturalidade')} />
+          </Campo>
         </CardContent>
       </Card>
 
@@ -276,13 +395,53 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       <Card>
         <CardHeader><CardTitle>Endereço</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Campo label="CEP" erro={errors.cep?.message}><Input {...register('cep')} /></Campo>
+          {/* CEP puxa o resto do endereço. Os campos preenchidos continuam
+              EDITÁVEIS de propósito: o ViaCEP erra e desatualiza, e travá-los
+              deixaria o operador sem saída num caso legítimo. */}
+          <Campo label="CEP" erro={errors.cep?.message}>
+            <div className="relative">
+              <Controller
+                name="cep"
+                control={control}
+                render={({ field }) => (
+                  <Input
+                    inputMode="numeric"
+                    placeholder="00000-000"
+                    value={field.value ?? ''}
+                    onChange={(e) => {
+                      const v = mascararCep(e.target.value);
+                      field.onChange(v);
+                      preencherPorCep(v);
+                    }}
+                  />
+                )}
+              />
+              {cepBuscando && (
+                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+              )}
+            </div>
+            {cepAviso && <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">{cepAviso}</p>}
+          </Campo>
           <Campo label="Endereço" erro={errors.endereco?.message}><Input {...register('endereco')} /></Campo>
           <Campo label="Número"><Input {...register('numero')} /></Campo>
           <Campo label="Complemento"><Input {...register('complemento')} /></Campo>
           <Campo label="Bairro" erro={errors.bairro?.message}><Input {...register('bairro')} /></Campo>
-          <Campo label="Cidade *" erro={errors.cidade?.message}><Input {...register('cidade')} /></Campo>
-          <Campo label="Estado *" erro={errors.estado?.message}><Input maxLength={2} {...register('estado')} /></Campo>
+          {/* Cidade com autocomplete dos municípios da UF (IBGE), mas em input
+              livre: se a API falhar, ainda dá para digitar. */}
+          <Campo label="Cidade *" erro={errors.cidade?.message}>
+            <Input list="municipios-uf" autoComplete="off" {...register('cidade')} />
+            <datalist id="municipios-uf">
+              {municipios.map((m) => <option key={m} value={m} />)}
+            </datalist>
+          </Campo>
+          <Campo label="Estado *" erro={errors.estado?.message}>
+            <select className={sel} {...register('estado')}>
+              <option value="">Selecione…</option>
+              {UFS.map((u) => (
+                <option key={u.sigla} value={u.sigla}>{u.sigla} — {u.nome}</option>
+              ))}
+            </select>
+          </Campo>
         </CardContent>
       </Card>
 
@@ -312,7 +471,19 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
                 )}
               />
             </Campo>
-            <Campo label="Data de admissão"><Input type="date" {...register('dataAdmissao')} /></Campo>
+            <Campo label="Data de admissão" erro={errors.dataAdmissao?.message}>
+              <Input type="date" {...LIMITES_DATA_PASSADA} {...register('dataAdmissao')} />
+            </Campo>
+            {/* Como este filiado contribui. "Desconto em folha" aponta para os
+                locais marcados abaixo — é lá que se sabe em QUAL folha. */}
+            <Campo label="Modalidade de contribuição">
+              <select className={sel} {...register('modalidadeContribuicao')}>
+                <option value="">Não informada</option>
+                {MODALIDADES_CONTRIBUICAO.map((m) => (
+                  <option key={m.valor} value={m.valor}>{m.label}</option>
+                ))}
+              </select>
+            </Campo>
             {/* Situação só na edição — no cadastro o filiado nasce ATIVO. */}
             {modo !== 'criar' && (
               <Campo label="Situação">
@@ -321,22 +492,92 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
             )}
           </div>
 
-          <div>
-            <p className="mb-2 text-sm font-semibold text-muted-foreground">Vínculo profissional 1</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Campo label="Instituição/Empresa"><Input {...register('v1Empresa')} /></Campo>
-              <Campo label="Cargo"><Input {...register('v1Cargo')} /></Campo>
-              <Campo label="Matrícula"><Input {...register('v1Matricula')} /></Campo>
+        </CardContent>
+      </Card>
+
+      {/* Locais de trabalho — sem limite: duplo vínculo é a regra na categoria. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Locais de trabalho</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LocaisTrabalhoSection
+            locais={vinculos}
+            onChange={setVinculos}
+            modalidade={watch('modalidadeContribuicao')}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Dependentes: entram junto com o cadastro, na mesma gravação. */}
+      <Card>
+        <CardHeader><CardTitle>Dependentes</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Cônjuge e filhos(as). Só um cônjuge por filiado.
+          </p>
+          {dependentes.length === 0 && (
+            <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+              Nenhum dependente cadastrado.
+            </p>
+          )}
+          {dependentes.map((d, i) => (
+            <div key={d.id ?? `novo-${i}`} className="space-y-4 rounded-xl border bg-muted/30 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Dependente {i + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDependentes((l) => l.filter((_, j) => j !== i))}
+                  className="flex items-center gap-1 text-xs text-red-600 hover:underline dark:text-red-400"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Remover
+                </button>
+              </div>
+              <Campo label="Nome completo">
+                <Input value={d.nome ?? ''} onChange={(e) => mudarDependente(i, 'nome', e.target.value)} />
+              </Campo>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Campo label="Parentesco">
+                  <select
+                    className={sel}
+                    value={d.tipo}
+                    onChange={(e) => mudarDependente(i, 'tipo', e.target.value)}
+                  >
+                    {TIPOS_DEPENDENTE.map((t) => (
+                      <option key={t.valor} value={t.valor}>{t.rotulo}</option>
+                    ))}
+                  </select>
+                </Campo>
+                <Campo label="Data de nascimento">
+                  <Input
+                    type="date"
+                    {...LIMITES_NASCIMENTO}
+                    value={d.dataNascimento?.slice(0, 10) ?? ''}
+                    onChange={(e) => mudarDependente(i, 'dataNascimento', e.target.value)}
+                  />
+                </Campo>
+                <Campo label="CPF">
+                  <Input
+                    value={d.cpf ?? ''}
+                    onChange={(e) => mudarDependente(i, 'cpf', e.target.value)}
+                    placeholder="000.000.000-00"
+                  />
+                </Campo>
+              </div>
             </div>
-          </div>
-          <div>
-            <p className="mb-2 text-sm font-semibold text-muted-foreground">Vínculo profissional 2</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Campo label="Instituição/Empresa"><Input {...register('v2Empresa')} /></Campo>
-              <Campo label="Cargo"><Input {...register('v2Cargo')} /></Campo>
-              <Campo label="Matrícula"><Input {...register('v2Matricula')} /></Campo>
-            </div>
-          </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() =>
+              setDependentes((l) => [...l, { tipo: 'FILHO', nome: '', cpf: '', dataNascimento: '' }])
+            }
+          >
+            <Plus className="h-4 w-4" /> Adicionar dependente
+          </Button>
         </CardContent>
       </Card>
 

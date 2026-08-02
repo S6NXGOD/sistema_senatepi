@@ -1,8 +1,11 @@
 'use client';
 
+import { LIMITES_NASCIMENTO, LIMITES_DATA_PASSADA } from '@/lib/datas-limite';
 import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import { Plus, Trash2, QrCode as QrIcon, Upload, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,6 +34,8 @@ export function DependentesSection({
   dependentes: Dependente[];
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
   const [aberto, setAberto] = useState(false);
   const [qrId, setQrId] = useState<string | null>(null);
   const fotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -84,7 +89,7 @@ export function DependentesSection({
             </select>
             <Input placeholder="Nome" value={form.nome} onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} />
             <Input placeholder="CPF" value={form.cpf} onChange={(e) => setForm((f) => ({ ...f, cpf: e.target.value }))} />
-            <Input type="date" value={form.dataNascimento} onChange={(e) => setForm((f) => ({ ...f, dataNascimento: e.target.value }))} />
+            <Input type="date" {...LIMITES_NASCIMENTO} value={form.dataNascimento} onChange={(e) => setForm((f) => ({ ...f, dataNascimento: e.target.value }))} />
             <Button onClick={() => criar.mutate()} disabled={!form.nome || !form.dataNascimento || criar.isPending}>
               {criar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
             </Button>
@@ -128,7 +133,12 @@ export function DependentesSection({
               />
               <Button variant="ghost" size="icon" title="Foto" onClick={() => fotoRefs.current[d.id]?.click()}><Upload className="h-4 w-4" /></Button>
               <Button variant="ghost" size="icon" title="QR Code" onClick={() => setQrId(d.id)}><QrIcon className="h-4 w-4" /></Button>
-              <Button variant="ghost" size="icon" title="Remover" onClick={() => remover.mutate(d.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+              {/* Só o Administrador apaga — regra global do sistema. */}
+              {ehAdmin && (
+                <Button variant="ghost" size="icon" title="Remover" onClick={() => remover.mutate(d.id)}>
+                  <Trash2 className="h-4 w-4 text-red-500" />
+                </Button>
+              )}
             </div>
           </div>
         ))}

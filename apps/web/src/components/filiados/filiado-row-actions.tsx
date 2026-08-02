@@ -6,11 +6,9 @@ import { toast } from 'sonner';
 import {
   Eye,
   FileText,
-  FileSignature,
   IdCard,
   MoreHorizontal,
   Pencil,
-  RefreshCw,
   Trash2,
   UserX,
 } from 'lucide-react';
@@ -19,6 +17,8 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { abrirPdf } from '@/lib/pdf';
 import { excluirFiliado, Filiado } from '@/lib/filiados';
+import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
 
 /**
@@ -34,6 +34,8 @@ export function FiliadoRowActions({
   onChanged: () => void;
 }) {
   const router = useRouter();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
@@ -88,47 +90,52 @@ export function FiliadoRowActions({
             className="fixed z-50 w-52 overflow-hidden rounded-md border bg-card py-1 text-sm shadow-lg"
             style={{ top: coords.top, right: coords.right }}
           >
+            {/* Só o essencial do dia a dia. Dossiê e Recadastrar saíram daqui —
+                ambos continuam na ficha do filiado, a um clique de "Visualizar",
+                e disputavam espaço com as ações realmente frequentes.
+                O "Termo de Desfiliação" avulso também saiu: emitir o termo fora
+                do fluxo de desfiliação gerava papel que nunca era registrado.
+                Agora ele vive dentro do modal de Desfiliar. */}
             <MenuItem icon={<Eye className="h-4 w-4" />} onClick={() => run(() => router.push(`/filiados/${filiado.id}`))}>
               Visualizar
             </MenuItem>
             <MenuItem icon={<Pencil className="h-4 w-4" />} onClick={() => run(() => router.push(`/filiados/${filiado.id}/editar`))}>
               Editar
             </MenuItem>
-            <MenuItem icon={<RefreshCw className="h-4 w-4" />} onClick={() => run(() => router.push(`/filiados/${filiado.id}/recadastrar`))}>
-              Recadastrar
-            </MenuItem>
             <MenuItem icon={<IdCard className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/carteirinha/pdf`))}>
               Carteirinha (QR)
             </MenuItem>
             <MenuItem icon={<FileText className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/termo/pdf`))}>
-              Gerar Termo (PDF)
-            </MenuItem>
-            <MenuItem icon={<FileSignature className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/desfiliacao/pdf`))}>
-              Termo de Desfiliação (PDF)
+              Ficha de Filiação (PDF)
             </MenuItem>
 
             <div className="my-1 border-t" />
 
+            {/* Destaque em âmbar: é ação de gestão, não de rotina. */}
             <MenuItem
               icon={<UserX className="h-4 w-4" />}
               disabled={jaDesfiliado}
-              className="text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
+              className="font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
               onClick={() => run(() => setModal('desfiliar'))}
             >
               {jaDesfiliado ? 'Já desfiliado' : 'Desfiliar'}
             </MenuItem>
-            <MenuItem
-              icon={<Trash2 className="h-4 w-4" />}
-              className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-              onClick={() => run(() => setModal('excluir'))}
-            >
-              Excluir
-            </MenuItem>
+            {/* Só o Administrador apaga — regra global do sistema. Sem este
+                gate a Coordenação via o item e levava 403 depois do clique. */}
+            {ehAdmin && (
+              <MenuItem
+                icon={<Trash2 className="h-4 w-4" />}
+                className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                onClick={() => run(() => setModal('excluir'))}
+              >
+                Excluir
+              </MenuItem>
+            )}
           </div>
         </>
       )}
 
-      {/* Desfiliação — motivo + anexo do termo + PDF */}
+      {/* Desfiliação — motivo, mês de corte, termo em PDF e anexo do assinado */}
       {modal === 'desfiliar' && (
         <DesfiliarModal
           filiado={{ id: filiado.id, nomeCompleto: filiado.nomeCompleto }}

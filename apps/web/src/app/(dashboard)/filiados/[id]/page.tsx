@@ -8,16 +8,24 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, RefreshCw, IdCard, QrCode as QrIcon, FileText, Upload,
   Trash2, Loader2, Clock, UserPlus, ShieldCheck, FileSignature, CreditCard, Baby,
+  History, Building2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { formatarData, mascararCpf } from '@/lib/utils';
-import { FORMACAO_LABEL, SITUACAO_COR, SITUACAO_LABEL, SITUACOES } from '@/lib/filiados';
+import { formatarData, mascararCpf, cn } from '@/lib/utils';
+import {
+  FORMACAO_LABEL, MODALIDADE_LABEL, SITUACAO_COR, SITUACAO_LABEL, SITUACOES,
+  type ModalidadeContribuicao,
+} from '@/lib/filiados';
+import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import { QrCodeDialog } from '@/components/qrcode-dialog';
+import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
 import { DependentesSection } from '@/components/filiados/dependentes-section';
 import { FinanceiroSection } from '@/components/filiados/financeiro-section';
+import { DossieDrawer } from '@/components/filiados/dossie-drawer';
 import { abrirPdf } from '@/lib/pdf';
 
 const HIST_ICON: Record<string, any> = {
@@ -44,7 +52,11 @@ function Info({ label, valor }: { label: string; valor?: string | null }) {
 export default function PerfilFiliadoPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
   const [qrAberto, setQrAberto] = useState(false);
+  const [recadastrarAberto, setRecadastrarAberto] = useState(false);
+  const [dossieAberto, setDossieAberto] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: f, isLoading } = useQuery({
@@ -109,10 +121,14 @@ export default function PerfilFiliadoPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setDossieAberto(true)}><History className="h-4 w-4" /> Dossiê</Button>
           <Button variant="outline" onClick={() => setQrAberto(true)}><QrIcon className="h-4 w-4" /> QR</Button>
           <Button variant="outline" onClick={() => abrirPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Gerar Termo</Button>
           <Button variant="secondary" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Carteirinha</Button>
-          <Link href={`/filiados/${f.id}/recadastrar`}><Button variant="outline"><RefreshCw className="h-4 w-4" /> Recadastrar</Button></Link>
+          {/* Abre a escolha: presencial (equipe) ou link de 24h para o filiado */}
+          <Button variant="outline" onClick={() => setRecadastrarAberto(true)}>
+            <RefreshCw className="h-4 w-4" /> Recadastrar
+          </Button>
           <Link href={`/filiados/${f.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
         </div>
       </div>
@@ -141,17 +157,67 @@ export default function PerfilFiliadoPage() {
                 <Info label="Formação" valor={f.formacao === 'OUTRO' ? (f.formacaoOutro || 'Outro') : (f.formacao ? FORMACAO_LABEL[f.formacao as keyof typeof FORMACAO_LABEL] : '-')} />
                 <Info label="COREN" valor={f.numeroCoren} />
                 <Info label="Admissão" valor={formatarData(f.dataAdmissao)} />
+                <Info
+                  label="Contribuição"
+                  valor={
+                    f.modalidadeContribuicao
+                      ? MODALIDADE_LABEL[f.modalidadeContribuicao as ModalidadeContribuicao]
+                      : null
+                  }
+                />
               </div>
-              {f.vinculos?.length > 0 && (
+
+              {/* Locais de trabalho. O selo de desconto em folha é destaque
+                  porque é a pergunta do financeiro: onde a mensalidade sai? */}
+              {f.vinculos?.length > 0 ? (
                 <div className="space-y-2">
-                  {f.vinculos.map((v: any, i: number) => (
-                    <div key={v.id} className="rounded-lg border p-3 text-sm">
-                      <p className="text-xs uppercase text-muted-foreground">Vínculo {i + 1}</p>
-                      <p className="font-medium">{v.empresa}</p>
-                      <p className="text-muted-foreground">{[v.cargo, v.matricula].filter(Boolean).join(' · ') || '-'}</p>
-                    </div>
-                  ))}
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Locais de trabalho ({f.vinculos.length})
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {f.vinculos.map((v: any) => (
+                      <div
+                        key={v.id}
+                        className={cn(
+                          'rounded-lg border p-3 text-sm',
+                          v.descontoEmFolha
+                            ? 'border-senatepi-400 bg-senatepi-50/50 dark:bg-senatepi-900/10'
+                            : 'bg-card',
+                        )}
+                      >
+                        <p className="flex items-start justify-between gap-2 font-medium">
+                          <span className="min-w-0 truncate">{v.empresa}</span>
+                          {v.parteExternaId && (
+                            <Building2
+                              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                              aria-label="Vinculado ao cadastro de organizações"
+                            />
+                          )}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {[v.cargo, v.matricula && `Matr. ${v.matricula}`].filter(Boolean).join(' · ') || '—'}
+                        </p>
+                        {v.descontoEmFolha && (
+                          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-senatepi-100 px-2 py-0.5 text-[10px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+                            💳 Desconto em Folha
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Incoerência que o financeiro sofreria calado. */}
+                  {f.modalidadeContribuicao === 'DESCONTO_FOLHA' &&
+                    !f.vinculos.some((v: any) => v.descontoEmFolha) && (
+                      <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
+                        Contribui por <strong>desconto em folha</strong>, mas nenhum local está
+                        marcado — edite o cadastro e indique em qual folha o desconto ocorre.
+                      </p>
+                    )}
                 </div>
+              ) : (
+                <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+                  Nenhum local de trabalho cadastrado.
+                </p>
               )}
             </CardContent>
           </Card>
@@ -194,7 +260,12 @@ export default function PerfilFiliadoPage() {
                   </a>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground">{formatarData(d.createdAt)}</span>
-                    <Button variant="ghost" size="icon" onClick={() => removeDoc.mutate(d.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                    {/* Só o Administrador apaga — regra global do sistema. */}
+                    {ehAdmin && (
+                      <Button variant="ghost" size="icon" onClick={() => removeDoc.mutate(d.id)}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -299,6 +370,20 @@ export default function PerfilFiliadoPage() {
       </div>
 
       {qrAberto && <QrCodeDialog endpoint={`/filiados/${f.id}/qrcode`} titulo="QR Code do filiado" onClose={() => setQrAberto(false)} />}
+
+      <RecadastrarModal
+        open={recadastrarAberto}
+        onClose={() => setRecadastrarAberto(false)}
+        filiadoId={f.id}
+        filiadoNome={f.nomeCompleto}
+      />
+
+      {/* Dossiê — o histórico consolidado (triagem, agenda, processos, financeiro) */}
+      <DossieDrawer
+        filiadoId={dossieAberto ? f.id : null}
+        open={dossieAberto}
+        onClose={() => setDossieAberto(false)}
+      />
     </div>
   );
 }

@@ -26,6 +26,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { QrCodeService } from '../../common/qrcode/qrcode.service';
 import { ImageService } from '../../common/storage/image.service';
 import { StorageService } from '../../common/storage/storage.service';
+import { dataCalendario } from '../../common/utils/datas.util';
 
 // ---- Regra de negócio compartilhável ----
 export function calcularIdade(dataNascimento: Date, referencia = new Date()): number {
@@ -79,7 +80,7 @@ export class DependentesService {
         tipo: dto.tipo,
         nome: dto.nome,
         cpf: dto.cpf?.replace(/\D/g, ''),
-        dataNascimento: new Date(dto.dataNascimento),
+        dataNascimento: dataCalendario(dto.dataNascimento),
         qrToken: this.qr.gerarToken(),
       },
     });

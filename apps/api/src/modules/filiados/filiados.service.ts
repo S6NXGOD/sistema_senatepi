@@ -4,6 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AcaoAuditoria,
+  MotivoDesfiliacao,
   Prisma,
   SituacaoFiliado,
   TipoDocumento,
@@ -12,17 +14,25 @@ import {
 } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
 import { ImageService } from '../../common/storage/image.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { QrCodeService } from '../../common/qrcode/qrcode.service';
+import { lerAsset } from '../../common/assets.util';
 import { gerarMatricula, mascararCpf } from '../../common/utils/matricula.util';
+import { dataCalendario } from '../../common/utils/datas.util';
 import {
   calcularIdade,
   dependenteValidoParaEvento,
 } from '../dependentes/dependentes.module';
 import {
+  montarCriacaoDependentes, montarSincronizacaoDependentes,
+} from '../dependentes/dependentes.sync';
+import { protegerImutaveis } from './campos-imutaveis';
+import {
   ChangeSituacaoDto,
   CreateFiliadoDto,
+  DesfiliarDto,
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
@@ -38,6 +48,29 @@ const MIME_PERMITIDOS: Record<string, true> = {
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
 
+/** Rótulos dos motivos de desfiliação — usados no PDF, no histórico e no log. */
+export const MOTIVO_DESFILIACAO_LABEL: Record<MotivoDesfiliacao, string> = {
+  APOSENTADORIA: 'Aposentadoria / Saída da Categoria',
+  MUDANCA_ESTADO: 'Mudança de Estado / Transferência',
+  MUDANCA_PROFISSAO: 'Mudança de Profissão',
+  SOLICITACAO_PESSOAL: 'Solicitação Pessoal',
+  INADIMPLENCIA: 'Inadimplência',
+  OUTROS: 'Outros',
+};
+
+const MESES_PT = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+
+/** 'AAAA-MM' → 'agosto/2026'. Devolve o próprio valor se vier fora do padrão. */
+export function formatarMesCorte(valor: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(valor);
+  if (!m) return valor;
+  const mes = Number(m[2]);
+  return mes >= 1 && mes <= 12 ? `${MESES_PT[mes - 1]}/${m[1]}` : valor;
+}
+
 @Injectable()
 export class FiliadosService {
   constructor(
@@ -45,6 +78,7 @@ export class FiliadosService {
     private readonly image: ImageService,
     private readonly storage: StorageService,
     private readonly qr: QrCodeService,
+    private readonly audit: AuditService,
   ) {}
 
   async registrarHistorico(
@@ -65,21 +99,26 @@ export class FiliadosService {
       throw new BadRequestException('Já existe filiado com este CPF');
 
     const total = await this.prisma.filiado.count();
-    const { vinculos, ...dados } = dto;
+    const { vinculos, dependentes, ...dados } = dto;
 
     const filiado = await this.prisma.filiado.create({
       data: {
         ...dados,
         cpf,
-        dataNascimento: new Date(dto.dataNascimento),
-        dataAdmissao: dto.dataAdmissao ? new Date(dto.dataAdmissao) : undefined,
+        dataNascimento: dataCalendario(dto.dataNascimento),
+        dataAdmissao: dataCalendario(dto.dataAdmissao),
+        // Filiação registrada AGORA. Campo próprio para o gráfico de crescimento
+        // não depender de `createdAt`, que a importação legada sobrescrevia.
+        dataFiliacao: new Date(),
         matricula: gerarMatricula('SEN', total + 1),
         qrToken: this.qr.gerarToken(),
         vinculos: vinculos
           ? { create: vinculos.map((v, i) => ({ ...v, ordem: v.ordem ?? i + 1 })) }
           : undefined,
+        // Dependentes já na filiação: sem dependente prévio, só há criação.
+        dependentes: montarCriacaoDependentes(dependentes),
       },
-      include: { vinculos: true },
+      include: { vinculos: true, dependentes: true },
     });
 
     await this.registrarHistorico(
@@ -263,17 +302,41 @@ export class FiliadosService {
     return { ...filiado, fotoUrl, dependentes, documentos, termos };
   }
 
-  async update(id: string, dto: UpdateFiliadoDto, autor?: string) {
+  /**
+   * ATUALIZAÇÃO CADASTRAL — usada no atendimento e no autoatendimento.
+   *
+   * Difere de `update` num ponto: CPF, RG, nascimento e naturalidade já
+   * preenchidos são protegidos. Corrigir esses dados é ato deliberado da
+   * equipe, feito na tela de Editar (que chama `update` e não passa por aqui).
+   */
+  async atualizacaoCadastral(id: string, dto: UpdateFiliadoDto, autor?: string) {
+    const atual = await this.prisma.filiado.findUnique({
+      where: { id },
+      select: { cpf: true, rg: true, ufRg: true, dataNascimento: true, naturalidade: true },
+    });
+    if (!atual) throw new NotFoundException('Filiado não encontrado');
+
+    const { dados, ignorados } = protegerImutaveis(atual, dto as Record<string, unknown>);
+    const filiado = await this.update(id, dados as UpdateFiliadoDto, autor, ignorados);
+    return { ...filiado, camposProtegidos: ignorados };
+  }
+
+  async update(id: string, dto: UpdateFiliadoDto, autor?: string, protegidos: string[] = []) {
     await this.findOne(id);
-    const { vinculos, ...dados } = dto;
+    const { vinculos, dependentes, ...dados } = dto;
+
+    const atuais = await this.prisma.dependente.findMany({
+      where: { filiadoId: id },
+      select: { id: true },
+    });
 
     const filiado = await this.prisma.filiado.update({
       where: { id },
       data: {
         ...dados,
         cpf: dto.cpf ? dto.cpf.replace(/\D/g, '') : undefined,
-        dataNascimento: dto.dataNascimento ? new Date(dto.dataNascimento) : undefined,
-        dataAdmissao: dto.dataAdmissao ? new Date(dto.dataAdmissao) : undefined,
+        dataNascimento: dataCalendario(dto.dataNascimento),
+        dataAdmissao: dataCalendario(dto.dataAdmissao),
         // Substitui os vínculos quando enviados
         vinculos: vinculos
           ? {
@@ -281,16 +344,19 @@ export class FiliadosService {
               create: vinculos.map((v, i) => ({ ...v, ordem: v.ordem ?? i + 1 })),
             }
           : undefined,
+        // Mesma regra dos recadastramentos: a lista enviada vira a verdade.
+        dependentes: montarSincronizacaoDependentes(dependentes, atuais),
       },
-      include: { vinculos: true },
+      include: { vinculos: true, dependentes: true },
     });
 
     await this.registrarHistorico(
       id,
       TipoHistoricoFiliado.ALTERACAO,
-      'Dados cadastrais atualizados.',
+      'Dados cadastrais atualizados.' +
+        (protegidos.length ? ` Campos protegidos ignorados: ${protegidos.join(', ')}.` : ''),
       autor,
-      { campos: Object.keys(dados) },
+      { campos: Object.keys(dados), protegidos },
     );
     return filiado;
   }
@@ -321,23 +387,61 @@ export class FiliadosService {
    * em eventos e na Colônia de Férias (validado nos respectivos serviços), mas o
    * cadastro é preservado. Idempotente-seguro: bloqueia se já estiver desfiliado.
    */
-  async desfiliar(id: string, motivo?: string, autor?: string) {
+  async desfiliar(id: string, dto: DesfiliarDto, autor?: string) {
     const atual = await this.findOne(id);
     if (atual.situacao === SituacaoFiliado.DESFILIADO)
       throw new BadRequestException('Este filiado já está desfiliado.');
 
-    const motivoLimpo = motivo?.trim();
+    const observacoes = dto.observacoes?.trim() || null;
+    const dataPedido = dto.dataPedido ? new Date(dto.dataPedido) : new Date();
+    const mesCorte = dto.mesCorte ?? null;
+    const rotulo = MOTIVO_DESFILIACAO_LABEL[dto.motivo];
+
     const filiado = await this.prisma.filiado.update({
       where: { id },
-      data: { situacao: SituacaoFiliado.DESFILIADO },
+      data: {
+        situacao: SituacaoFiliado.DESFILIADO,
+        motivoDesfiliacao: dto.motivo,
+        desfiliacaoObservacoes: observacoes,
+        desfiliadoEm: dataPedido,
+        desfiliadoPor: autor ?? null,
+        desfiliacaoMesCorte: mesCorte,
+      },
     });
+
+    // Linha do tempo do filiado (aba Documentos/Histórico do dossiê).
     await this.registrarHistorico(
       id,
       TipoHistoricoFiliado.MUDANCA_STATUS,
-      `Filiado desfiliado.${motivoLimpo ? ' Motivo: ' + motivoLimpo : ''}`,
+      `Desfiliado — ${rotulo}.` +
+        (mesCorte ? ` Última mensalidade: ${formatarMesCorte(mesCorte)}.` : '') +
+        (observacoes ? ` ${observacoes}` : ''),
       autor,
-      motivoLimpo ? { motivo: motivoLimpo } : undefined,
+      { motivo: dto.motivo, mesCorte, observacoes, dataPedido: dataPedido.toISOString() },
     );
+
+    // Auditoria global: é onde se responde "quem desfiliou, quando e por quê".
+    // Nunca derruba a operação — perder o log é ruim, perder a desfiliação é pior.
+    await this.audit
+      .registrar({
+        userId: null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'Filiado',
+        entidadeId: id,
+        descricao:
+          `Desfiliação de ${atual.nomeCompleto} — ${rotulo}` +
+          (mesCorte ? ` (corte: ${formatarMesCorte(mesCorte)})` : ''),
+        metadata: {
+          motivo: dto.motivo,
+          motivoLabel: rotulo,
+          mesCorte,
+          observacoes,
+          dataPedido: dataPedido.toISOString(),
+          autor: autor ?? null,
+        },
+      })
+      .catch(() => undefined);
+
     return filiado;
   }
 
@@ -375,6 +479,7 @@ export class FiliadosService {
     arquivo: Express.Multer.File,
     titulo: string,
     autor?: string,
+    tipo?: string,
   ) {
     await this.findOne(id);
     if (!MIME_PERMITIDOS[arquivo.mimetype])
@@ -384,9 +489,16 @@ export class FiliadosService {
     const storageKey = `filiados/${id}/documentos/${Date.now()}.${ext}`;
     await this.storage.upload(storageKey, arquivo.buffer, arquivo.mimetype);
 
+    // Tipo válido classifica o arquivo na aba Documentos; qualquer outra coisa
+    // cai no genérico, em vez de derrubar o upload por causa de um rótulo.
+    const tipoDoc =
+      tipo && tipo in TipoDocumento
+        ? (tipo as TipoDocumento)
+        : TipoDocumento.DOCUMENTO_PESSOAL;
+
     const documento = await this.prisma.documento.create({
       data: {
-        tipo: TipoDocumento.DOCUMENTO_PESSOAL,
+        tipo: tipoDoc,
         titulo: titulo || arquivo.originalname,
         storageKey,
         mimeType: arquivo.mimetype,
@@ -615,12 +727,38 @@ export class FiliadosService {
   }
 
   // ---- Termo de Desfiliação (PDF) ----
-  async gerarTermoDesfiliacaoPdf(id: string, motivo?: string, autor?: string): Promise<Buffer> {
+
+  /**
+   * Termo de Desfiliação pronto para assinatura.
+   *
+   * Redesenhado para parecer o que é: um documento oficial da entidade. Ganhou
+   * faixa institucional com o logotipo, blocos numerados (identificação, motivo,
+   * corte financeiro, declaração) e duas assinaturas — a do filiado e a da
+   * diretoria, porque o termo só se completa quando a entidade também o recebe.
+   *
+   * Os dados podem vir por parâmetro (o modal gera o termo ANTES de confirmar a
+   * saída, para o filiado assinar) ou do próprio cadastro, quando ele já está
+   * desfiliado. O parâmetro vence, para o papel refletir o que está na tela.
+   */
+  async gerarTermoDesfiliacaoPdf(
+    id: string,
+    dados?: { motivo?: string; observacoes?: string; mesCorte?: string },
+    autor?: string,
+  ): Promise<Buffer> {
     const f = await this.findOne(id);
+
+    // O motivo chega como slug do enum (vindo do modal) ou já como rótulo.
+    const slug = dados?.motivo?.trim();
+    const motivoLabel =
+      (slug && MOTIVO_DESFILIACAO_LABEL[slug as MotivoDesfiliacao]) ||
+      slug ||
+      (f.motivoDesfiliacao ? MOTIVO_DESFILIACAO_LABEL[f.motivoDesfiliacao] : null);
+    const observacoes = dados?.observacoes?.trim() || f.desfiliacaoObservacoes || null;
+    const mesCorte = dados?.mesCorte?.trim() || f.desfiliacaoMesCorte || null;
+
     const RODAPE =
       'DIRETORIA SENATEPI - RUA LUCÍDIO FREITAS, Nº.1070, CENTRO-NORTE, TERESINA-PI, CEP: 64000-440 | ' +
       'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
-    const motivoLimpo = motivo?.trim();
 
     const pdf = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
@@ -631,65 +769,230 @@ export class FiliadosService {
 
       const X = doc.page.margins.left;
       const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-      const ou = (v?: string | null) => (v && String(v).trim() ? String(v) : '______________________');
+      const VAZIO = '_________________________________';
+      const ou = (v?: string | null) => (v && String(v).trim() ? String(v) : VAZIO);
 
-      // Cabeçalho oficial
-      doc.font('Times-Bold').fontSize(9.5).fillColor('#111827').text(
-        'SENATEPI - SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ | CNPJ: 11.378.331/0001-86',
-        X, doc.page.margins.top, { align: 'center', width: W },
-      );
-      doc.moveDown(0.5);
-      doc.font('Times-Bold').fontSize(14).fillColor(VERDE_ESCURO)
-        .text('TERMO DE DESFILIAÇÃO', { align: 'center', width: W });
-      doc.moveDown(0.3);
-      const yh = doc.y;
-      doc.moveTo(X, yh).lineTo(X + W, yh).strokeColor(VERDE_ESCURO).lineWidth(1).stroke();
-      doc.moveDown(0.8);
+      // ---------------------------------------------------------------
+      // Faixa institucional. O logotipo do acervo é BRANCO, então precisa de
+      // fundo escuro — daí a faixa verde, a mesma da carteirinha e do crachá.
+      // ---------------------------------------------------------------
+      const ALT_FAIXA = 74;
+      doc.rect(0, 0, doc.page.width, ALT_FAIXA).fill(VERDE_ESCURO);
 
-      const par = (label: string, valor: string) => {
-        doc.fontSize(10.5);
-        doc.font('Times-Bold').fillColor('#111827').text(`${label}: `, { continued: true });
-        doc.font('Times-Roman').fillColor('#1f2937').text(valor);
-        doc.moveDown(0.4);
-      };
-      par('Nome', ou(f.nomeCompleto));
-      par('CPF', ou(f.cpf ? mascararCpf(f.cpf) : null));
-      par('Matrícula sindical', ou(f.matricula));
-      doc.moveDown(0.6);
-
-      doc.font('Times-Roman').fontSize(11).fillColor('#1f2937').text(
-        'Pelo presente instrumento, o(a) filiado(a) acima identificado(a) formaliza a sua DESFILIAÇÃO do ' +
-          'quadro associativo do SENATEPI, deixando de contribuir e de usufruir dos benefícios e da ' +
-          'representação sindical a partir desta data, nos termos do estatuto da entidade.',
-        X, doc.y, { align: 'justify', width: W, lineGap: 2 },
-      );
-      doc.moveDown(0.8);
-      if (motivoLimpo) {
-        doc.font('Times-Bold').fontSize(10.5).fillColor('#111827').text('Motivo declarado: ', { continued: true });
-        doc.font('Times-Roman').fillColor('#1f2937').text(motivoLimpo, { align: 'justify', width: W });
-        doc.moveDown(0.8);
+      const logo = lerAsset('senatepi-horizontal-branco.png');
+      if (logo) {
+        try {
+          doc.image(logo, X, 18, { fit: [150, 38] });
+        } catch {
+          doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text('SENATEPI', X, 26);
+        }
+      } else {
+        doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text('SENATEPI', X, 26);
       }
 
-      doc.moveDown(1.4);
-      const dataFmt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-      doc.font('Times-Roman').fontSize(10.5).fillColor('#1f2937').text(`Teresina/PI, ${dataFmt}.`, X, doc.y, { width: W });
-      doc.moveDown(2.6);
-      const ys = doc.y;
-      doc.moveTo(X + 110, ys).lineTo(X + W - 110, ys).strokeColor('#374151').lineWidth(0.8).stroke();
-      doc.font('Times-Roman').fontSize(10).fillColor('#111827')
-        .text('Assinatura do(a) Filiado(a)', X, ys + 6, { align: 'center', width: W });
+      doc.font('Helvetica').fontSize(7.5).fillColor('#E8F5E3').text(
+        'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS\nEM ENFERMAGEM DO ESTADO DO PIAUÍ\nCNPJ: 11.378.331/0001-86',
+        X + W - 230,
+        20,
+        { align: 'right', width: 230, lineGap: 1.5 },
+      );
 
+      // Filete de acento sob a faixa — assina visualmente o documento.
+      doc.rect(0, ALT_FAIXA, doc.page.width, 4).fill(VERDE_MEDIO);
+
+      // ---------------------------------------------------------------
+      // Título
+      // ---------------------------------------------------------------
+      doc.y = ALT_FAIXA + 26;
+      doc
+        .font('Times-Bold')
+        .fontSize(16)
+        .fillColor('#111827')
+        .text('TERMO DE DESFILIAÇÃO', X, doc.y, {
+          align: 'center',
+          width: W,
+          characterSpacing: 0.5,
+        });
+      doc.moveDown(0.25);
+      doc
+        .font('Times-Italic')
+        .fontSize(9)
+        .fillColor('#4b5563')
+        .text('Formalização da saída do quadro associativo', { align: 'center', width: W });
+      doc.moveDown(1.2);
+
+      /** Cabeçalho de seção: barrinha verde + rótulo, para o olho achar o bloco. */
+      const secao = (titulo: string) => {
+        const y = doc.y;
+        doc.rect(X, y, 3, 12).fill(VERDE_MEDIO);
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(9)
+          .fillColor(VERDE_ESCURO)
+          .text(titulo.toUpperCase(), X + 9, y + 1.5, { width: W - 9, characterSpacing: 0.6 });
+        doc.y = y + 20;
+      };
+
+      /** Par rótulo/valor em duas colunas — cabe mais informação em menos papel. */
+      const campo = (label: string, valor: string, col: 0 | 1, linha: number, base: number) => {
+        const larguraCol = (W - 16) / 2;
+        const px = X + col * (larguraCol + 16);
+        const py = base + linha * 30;
+        doc
+          .font('Helvetica')
+          .fontSize(7.5)
+          .fillColor('#6b7280')
+          .text(label.toUpperCase(), px, py, { width: larguraCol, characterSpacing: 0.4 });
+        doc
+          .font('Times-Roman')
+          .fontSize(11)
+          .fillColor('#111827')
+          .text(valor, px, py + 10, { width: larguraCol, ellipsis: true });
+      };
+
+      // ---------------------------------------------------------------
+      // 1. Identificação
+      // ---------------------------------------------------------------
+      secao('1. Identificação do(a) Filiado(a)');
+      const yIdent = doc.y;
+      campo('Nome completo', ou(f.nomeCompleto), 0, 0, yIdent);
+      campo('CPF', ou(f.cpf ? mascararCpf(f.cpf) : null), 1, 0, yIdent);
+      campo('Matrícula sindical', ou(f.matricula), 0, 1, yIdent);
+      campo('COREN', ou(f.numeroCoren), 1, 1, yIdent);
+      doc.y = yIdent + 64;
+
+      // ---------------------------------------------------------------
+      // 2. Motivo
+      // ---------------------------------------------------------------
+      secao('2. Motivo da Desfiliação');
+      doc
+        .font('Times-Roman')
+        .fontSize(11)
+        .fillColor('#111827')
+        .text(motivoLabel ?? VAZIO, X, doc.y, { width: W });
+      doc.moveDown(0.5);
+      if (observacoes) {
+        doc
+          .font('Helvetica')
+          .fontSize(7.5)
+          .fillColor('#6b7280')
+          .text('OBSERVAÇÕES', X, doc.y, { characterSpacing: 0.4 });
+        doc.moveDown(0.15);
+        doc
+          .font('Times-Roman')
+          .fontSize(10)
+          .fillColor('#1f2937')
+          .text(observacoes, X, doc.y, { width: W, align: 'justify', lineGap: 1.5 });
+      }
+      doc.moveDown(1);
+
+      // ---------------------------------------------------------------
+      // 3. Corte financeiro — o bloco que a folha de pagamento procura.
+      // ---------------------------------------------------------------
+      secao('3. Corte Financeiro');
+      const yCorte = doc.y;
+      doc.roundedRect(X, yCorte, W, 40, 4).fillAndStroke('#F4FAF2', VERDE_MEDIO);
+      doc
+        .font('Helvetica')
+        .fontSize(7.5)
+        .fillColor('#4b5563')
+        .text('ÚLTIMA MENSALIDADE A SER DESCONTADA', X + 12, yCorte + 9, { characterSpacing: 0.4 });
+      doc
+        .font('Times-Bold')
+        .fontSize(12)
+        .fillColor(VERDE_ESCURO)
+        .text(
+          mesCorte ? formatarMesCorte(mesCorte) : 'A definir pelo setor financeiro',
+          X + 12,
+          yCorte + 21,
+        );
+      doc.y = yCorte + 54;
+
+      // ---------------------------------------------------------------
+      // 4. Declaração
+      // ---------------------------------------------------------------
+      secao('4. Declaração');
+      doc
+        .font('Times-Roman')
+        .fontSize(10.5)
+        .fillColor('#1f2937')
+        .text(
+          'Pelo presente instrumento, o(a) filiado(a) acima identificado(a) formaliza a sua DESFILIAÇÃO ' +
+            'do quadro associativo do SENATEPI, deixando de contribuir e de usufruir dos benefícios e da ' +
+            'representação sindical a partir desta data, nos termos do estatuto da entidade. Declara estar ' +
+            'ciente de que o presente pedido não o exime de eventuais débitos anteriores ao mês de corte ' +
+            'acima indicado.',
+          X,
+          doc.y,
+          { align: 'justify', width: W, lineGap: 2.5 },
+        );
+      doc.moveDown(1.6);
+
+      const dataFmt = new Date().toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      });
+      doc
+        .font('Times-Roman')
+        .fontSize(10.5)
+        .fillColor('#1f2937')
+        .text(`Teresina/PI, ${dataFmt}.`, X, doc.y, { width: W });
+
+      // ---------------------------------------------------------------
+      // Assinaturas — duas: quem sai e quem recebe.
+      // ---------------------------------------------------------------
+      doc.moveDown(3.2);
+      const yAss = doc.y;
+      const larguraAss = (W - 40) / 2;
+      const assinatura = (rotulo: string, sub: string, col: 0 | 1) => {
+        const px = X + col * (larguraAss + 40);
+        doc
+          .moveTo(px, yAss)
+          .lineTo(px + larguraAss, yAss)
+          .strokeColor('#374151')
+          .lineWidth(0.8)
+          .stroke();
+        doc
+          .font('Times-Bold')
+          .fontSize(9.5)
+          .fillColor('#111827')
+          .text(rotulo, px, yAss + 6, { align: 'center', width: larguraAss });
+        doc
+          .font('Times-Roman')
+          .fontSize(8)
+          .fillColor('#6b7280')
+          .text(sub, px, yAss + 19, { align: 'center', width: larguraAss });
+      };
+      assinatura('Assinatura do(a) Filiado(a)', ou(f.nomeCompleto), 0);
+      assinatura('Diretoria / Secretaria', 'SENATEPI', 1);
+
+      // ---- Rodapé fixo (repetido em todas as páginas) ----
       const range = doc.bufferedPageRange();
       for (let i = range.start; i < range.start + range.count; i++) {
         doc.switchToPage(i);
         const fy = doc.page.height - 42;
-        doc.moveTo(X, fy - 8).lineTo(X + W, fy - 8).strokeColor('#9ca3af').lineWidth(0.5).stroke();
-        doc.font('Times-Roman').fontSize(7).fillColor('#4b5563').text(RODAPE, X, fy, { align: 'center', width: W });
+        doc
+          .moveTo(X, fy - 8)
+          .lineTo(X + W, fy - 8)
+          .strokeColor(VERDE_MEDIO)
+          .lineWidth(0.8)
+          .stroke();
+        doc
+          .font('Helvetica')
+          .fontSize(6.5)
+          .fillColor('#4b5563')
+          .text(RODAPE, X, fy, { align: 'center', width: W });
       }
       doc.end();
     });
 
-    await this.registrarHistorico(id, TipoHistoricoFiliado.GERACAO_TERMO, 'Termo de Desfiliação gerado.', autor);
+    await this.registrarHistorico(
+      id,
+      TipoHistoricoFiliado.GERACAO_TERMO,
+      'Termo de Desfiliação gerado.',
+      autor,
+    );
     return pdf;
   }
 }

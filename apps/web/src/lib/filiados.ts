@@ -7,13 +7,37 @@ export type FormacaoProfissional =
   | 'AUXILIAR_ENFERMAGEM'
   | 'OUTRO';
 
+/** LOCAL DE TRABALHO do filiado — duplo vínculo é a regra na enfermagem. */
 export interface Vinculo {
   id?: string;
+  /** Nome do empregador como consta no cadastro (snapshot). */
   empresa: string;
+  /** Id no cadastro de organizações, quando escolhido no combobox. */
+  parteExternaId?: string | null;
   cargo?: string | null;
   matricula?: string | null;
+  /** A mensalidade é descontada NA FOLHA deste local. */
+  descontoEmFolha?: boolean;
   ordem?: number;
 }
+
+/**
+ * Como o filiado contribui. `DESCONTO_FOLHA` aponta para os locais de trabalho
+ * marcados — é lá que se sabe em QUAL folha o desconto acontece.
+ */
+export type ModalidadeContribuicao = 'DESCONTO_FOLHA' | 'AVULSO' | 'PENSIONISTA';
+
+export const MODALIDADES_CONTRIBUICAO: { valor: ModalidadeContribuicao; label: string }[] = [
+  { valor: 'DESCONTO_FOLHA', label: 'Desconto em Folha' },
+  { valor: 'AVULSO', label: 'Avulso (PIX / Boleto)' },
+  { valor: 'PENSIONISTA', label: 'Pensionista' },
+];
+
+export const MODALIDADE_LABEL: Record<ModalidadeContribuicao, string> =
+  MODALIDADES_CONTRIBUICAO.reduce(
+    (acc, m) => ({ ...acc, [m.valor]: m.label }),
+    {} as Record<ModalidadeContribuicao, string>,
+  );
 
 export interface Filiado {
   id: string;
@@ -43,8 +67,28 @@ export interface Filiado {
   situacao: SituacaoFiliado;
   fotoUrl?: string | null;
   vinculos?: Vinculo[];
+  /** Como contribui. Nulo na base histórica — o dado nunca foi coletado. */
+  modalidadeContribuicao?: ModalidadeContribuicao | null;
+  /** Vem preenchido no detalhe do filiado (GET /filiados/:id). */
+  dependentes?: DependenteFiliado[];
   createdAt: string;
 }
+
+export type TipoDependente = 'CONJUGE' | 'FILHO';
+
+/** Dependente editável junto com o cadastro. Sem `id` = novo. */
+export interface DependenteFiliado {
+  id?: string;
+  tipo: TipoDependente;
+  nome: string;
+  cpf?: string | null;
+  dataNascimento: string;
+}
+
+export const TIPOS_DEPENDENTE: Array<{ valor: TipoDependente; rotulo: string }> = [
+  { valor: 'FILHO', rotulo: 'Filho(a)' },
+  { valor: 'CONJUGE', rotulo: 'Cônjuge' },
+];
 
 export const SITUACAO_LABEL: Record<SituacaoFiliado, string> = {
   ATIVO: 'Ativo',
@@ -103,19 +147,114 @@ export const CATEGORIA_POR_FORMACAO: Record<string, string> = {
 // ============================================================================
 
 /** Desfilia um associado (PATCH /filiados/:id/desfiliar), com motivo opcional. */
-export async function desfiliarFiliado(id: string, motivo?: string): Promise<Filiado> {
-  return (await api.patch(`/filiados/${id}/desfiliar`, { motivo })).data;
+/**
+ * Motivos de desfiliação. Lista fechada e espelhada do enum da API — é ela que
+ * permite responder "quantos saíram por inadimplência este ano?", pergunta que
+ * o motivo em texto livre nunca respondeu.
+ */
+export type MotivoDesfiliacao =
+  | 'APOSENTADORIA'
+  | 'MUDANCA_ESTADO'
+  | 'MUDANCA_PROFISSAO'
+  | 'SOLICITACAO_PESSOAL'
+  | 'INADIMPLENCIA'
+  | 'OUTROS';
+
+export const MOTIVOS_DESFILIACAO: { valor: MotivoDesfiliacao; label: string }[] = [
+  { valor: 'APOSENTADORIA', label: 'Aposentadoria / Saída da Categoria' },
+  { valor: 'MUDANCA_ESTADO', label: 'Mudança de Estado / Transferência' },
+  { valor: 'MUDANCA_PROFISSAO', label: 'Mudança de Profissão' },
+  { valor: 'SOLICITACAO_PESSOAL', label: 'Solicitação Pessoal' },
+  { valor: 'INADIMPLENCIA', label: 'Inadimplência' },
+  { valor: 'OUTROS', label: 'Outros' },
+];
+
+export const MOTIVO_DESFILIACAO_LABEL: Record<MotivoDesfiliacao, string> =
+  MOTIVOS_DESFILIACAO.reduce(
+    (acc, m) => ({ ...acc, [m.valor]: m.label }),
+    {} as Record<MotivoDesfiliacao, string>,
+  );
+
+export interface DesfiliarInput {
+  motivo: MotivoDesfiliacao;
+  observacoes?: string;
+  /** Data do pedido (AAAA-MM-DD). Omitida, a API usa hoje. */
+  dataPedido?: string;
+  /** Última mensalidade a cobrar (AAAA-MM) — o corte da folha. */
+  mesCorte?: string;
 }
 
-/** Anexa um documento (ex.: termo de desfiliação) ao filiado. */
-export async function anexarDocumentoFiliado(id: string, file: File, titulo: string) {
+export async function desfiliarFiliado(id: string, dto: DesfiliarInput): Promise<Filiado> {
+  return (await api.patch(`/filiados/${id}/desfiliar`, dto)).data;
+}
+
+/**
+ * Anexa um documento ao filiado. `tipo` faz o arquivo aparecer CATEGORIZADO na
+ * aba Documentos — sem ele, o termo assinado cairia no genérico "OUTRO", junto
+ * com RG e comprovante de residência.
+ */
+export async function anexarDocumentoFiliado(
+  id: string,
+  file: File,
+  titulo: string,
+  tipo?: 'TERMO_DESFILIACAO' | 'FICHA_FILIACAO' | 'TERMO_CONSENTIMENTO' | 'DOCUMENTO_PESSOAL' | 'CONTRATO' | 'OUTRO',
+) {
   const fd = new FormData();
   fd.append('arquivo', file);
   fd.append('titulo', titulo);
+  if (tipo) fd.append('tipo', tipo);
   return (await api.post(`/filiados/${id}/documentos`, fd)).data;
+}
+
+/**
+ * Atualização cadastral — mesmo alcance do recadastramento.
+ * A API descarta alteração em CPF, RG, nascimento e naturalidade já
+ * preenchidos e devolve em `camposProtegidos` o que foi ignorado.
+ */
+export async function atualizacaoCadastralFiliado(
+  id: string,
+  dados: Record<string, unknown>,
+): Promise<Filiado & { camposProtegidos?: string[] }> {
+  return (await api.patch(`/filiados/${id}/atualizacao-cadastral`, dados)).data;
 }
 
 /** Exclui permanentemente um filiado (DELETE /filiados/:id). */
 export async function excluirFiliado(id: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/filiados/${id}`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Link de recadastramento online (gerado pela equipe, usado pelo filiado)
+// ---------------------------------------------------------------------------
+
+export type DesafioLink = 'CPF_NASCIMENTO' | 'COREN' | 'NENHUM';
+
+export interface LinkRecadastramento {
+  id: string;
+  desafio: DesafioLink;
+  expiraEm: string;
+  usadoEm?: string | null;
+  revogadoEm?: string | null;
+  tentativas?: number;
+  createdAt?: string;
+  /** Só vem na CRIAÇÃO — depois o token é irrecuperável. */
+  url?: string;
+  token?: string;
+}
+
+/** Rótulo do que o filiado terá de confirmar para abrir o link. */
+export const DESAFIO_LABEL: Record<DesafioLink, string> = {
+  CPF_NASCIMENTO: 'Confirma CPF + data de nascimento',
+  COREN: 'Confirma o número do COREN',
+  NENHUM: 'Acesso direto (cadastro sem CPF/nascimento/COREN)',
+};
+
+export async function gerarLinkRecadastramento(filiadoId: string): Promise<LinkRecadastramento> {
+  return (await api.post(`/filiados/${filiadoId}/link-recadastramento`)).data;
+}
+export async function listarLinksRecadastramento(filiadoId: string): Promise<LinkRecadastramento[]> {
+  return (await api.get(`/filiados/${filiadoId}/link-recadastramento`)).data;
+}
+export async function revogarLinkRecadastramento(linkId: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/links-recadastramento/${linkId}`)).data;
 }
