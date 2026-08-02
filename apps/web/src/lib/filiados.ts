@@ -71,8 +71,28 @@ export interface Filiado {
   modalidadeContribuicao?: ModalidadeContribuicao | null;
   /** Vem preenchido no detalhe do filiado (GET /filiados/:id). */
   dependentes?: DependenteFiliado[];
+  /**
+   * Quando a pessoa se filiou. NULO quando a informação não veio na carga
+   * legada — 1.895 casos. Nulo é a resposta honesta: `createdAt` serve de
+   * substituto para ORDENAR (é carimbo de entrada no banco), mas não para
+   * AFIRMAR uma data de filiação que ninguém registrou.
+   */
+  dataFiliacao?: string | null;
+  /** Carimbo de quando o registro entrou no banco. */
   createdAt: string;
 }
+
+/** Ordenações aceitas por GET /filiados (o padrão é `recentes`). */
+export const ORDENACOES_FILIADO = [
+  { valor: 'recentes', label: 'Cadastro mais recente' },
+  { valor: 'antigos', label: 'Cadastro mais antigo' },
+  { valor: 'nome', label: 'Nome (A–Z)' },
+  { valor: 'nome_desc', label: 'Nome (Z–A)' },
+  { valor: 'filiacao_recente', label: 'Filiação mais recente' },
+  { valor: 'filiacao_antiga', label: 'Filiação mais antiga' },
+] as const;
+
+export type OrdenacaoFiliado = (typeof ORDENACOES_FILIADO)[number]['valor'];
 
 export type TipoDependente = 'CONJUGE' | 'FILHO';
 

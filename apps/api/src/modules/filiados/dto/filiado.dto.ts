@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -190,6 +191,21 @@ export class ListFiliadosQueryDto {
   @IsOptional() @IsString() dataInicio?: string;
   @ApiPropertyOptional({ description: 'Data de filiação final (YYYY-MM-DD)' })
   @IsOptional() @IsString() dataFim?: string;
+  /**
+   * Ordenação da lista. O padrão é `recentes` — o último cadastrado primeiro.
+   *
+   * `cadastro` e `filiacao` são critérios DIFERENTES e a distinção importa:
+   * a carga legada trouxe 1.895 filiados sem data de filiação conhecida, que
+   * têm data de cadastro mas não de filiação. Ordenar por filiação joga esses
+   * para o fim da lista (nulls last), nunca para o topo.
+   */
+  @ApiPropertyOptional({
+    enum: ['recentes', 'antigos', 'nome', 'nome_desc', 'filiacao_recente', 'filiacao_antiga'],
+    default: 'recentes',
+  })
+  @IsOptional()
+  @IsIn(['recentes', 'antigos', 'nome', 'nome_desc', 'filiacao_recente', 'filiacao_antiga'])
+  ordenar?: 'recentes' | 'antigos' | 'nome' | 'nome_desc' | 'filiacao_recente' | 'filiacao_antiga';
   @ApiPropertyOptional({ default: 1 }) @IsOptional() page?: number;
   @ApiPropertyOptional({ default: 20 }) @IsOptional() pageSize?: number;
 }

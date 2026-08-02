@@ -130,9 +130,54 @@ export class FiliadosService {
     return filiado;
   }
 
+  /**
+   * Ordenação da listagem — sempre com DESEMPATE por `id`.
+   *
+   * O desempate não é detalhe: 4.730 dos 7.180 filiados compartilham o
+   * `created_at` com pelo menos um outro (a carga legada gravou a data da
+   * planilha à meia-noite, e o maior empate tem 155 pessoas no mesmo
+   * instante). `ORDER BY created_at DESC` sozinho deixa esses 4.730 em ordem
+   * NÃO ESPECIFICADA — e o Postgres é livre para devolvê-los diferente a cada
+   * consulta, inclusive entre dois OFFSETs da mesma paginação.
+   *
+   * O sintoma visível era "a lista aparece embaralhada". O sintoma invisível,
+   * e pior, era a paginação furada: a mesma pessoa podia sair na página 2 e de
+   * novo na 5, enquanto outra não saía em nenhuma. `id` é único, então basta
+   * ele como último critério para a ordem virar total e estável.
+   *
+   * `filiacao_*` usa nulls:'last' de propósito — em DESC o Postgres traria os
+   * NULOS primeiro, e a lista abriria com os 1.895 sem data conhecida.
+   */
+  private ordenacao(
+    ordenar: ListFiliadosQueryDto['ordenar'],
+  ): Prisma.FiliadoOrderByWithRelationInput[] {
+    switch (ordenar) {
+      case 'antigos':
+        return [{ createdAt: 'asc' }, { id: 'asc' }];
+      case 'nome':
+        return [{ nomeCompleto: 'asc' }, { id: 'asc' }];
+      case 'nome_desc':
+        return [{ nomeCompleto: 'desc' }, { id: 'desc' }];
+      case 'filiacao_recente':
+        return [{ dataFiliacao: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }];
+      case 'filiacao_antiga':
+        return [{ dataFiliacao: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }];
+      case 'recentes':
+      default:
+        // Padrão: último cadastrado primeiro.
+        return [{ createdAt: 'desc' }, { id: 'desc' }];
+    }
+  }
+
   async findAll(query: ListFiliadosQueryDto) {
-    const page = Number(query.page ?? 1);
-    const pageSize = Number(query.pageSize ?? 20);
+    // Limites sãos, no mesmo padrão de ProcessosService.listar. `pageSize` não
+    // tinha teto: `?pageSize=999999` devolvia os 7 mil filiados numa resposta
+    // só — e, pior, o mapeamento abaixo gera uma URL assinada de foto POR
+    // registro, então o custo não era só o JSON gigante, eram milhares de
+    // chamadas ao storage numa requisição. Descoberto ao paginar de 1.000 em
+    // 1.000 durante o teste desta mudança, e a API aceitou sem piscar.
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(100, Math.max(5, Number(query.pageSize) || 20));
 
     // CPF sempre por prefixo (só dígitos), respeitando máscara ou não.
     const buscaDigitos = query.busca ? query.busca.replace(/\D/g, '') : '';
@@ -143,7 +188,14 @@ export class FiliadosService {
       cpf: query.cpf ? { startsWith: query.cpf.replace(/\D/g, '') } : undefined,
       numeroCoren: query.coren ? { contains: query.coren, mode: 'insensitive' } : undefined,
       cidade: query.cidade ? { contains: query.cidade, mode: 'insensitive' } : undefined,
-      createdAt:
+      // Intervalo por DATA DE FILIAÇÃO — o campo que carrega esse significado.
+      // Antes filtrava `createdAt`, que é carimbo de quando a linha entrou no
+      // banco: para os 5.285 vindos da planilha os dois coincidiam por acaso,
+      // mas para quem foi cadastrado pelo sistema o filtro "filiados de 2021"
+      // devolvia a data da digitação. Quem não tem data de filiação conhecida
+      // fica fora do intervalo — é a resposta honesta, não dá para afirmar que
+      // alguém se filiou num período que ninguém registrou.
+      dataFiliacao:
         query.dataInicio || query.dataFim
           ? {
               gte: query.dataInicio ? new Date(query.dataInicio) : undefined,
@@ -165,7 +217,7 @@ export class FiliadosService {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { createdAt: 'desc' },
+        orderBy: this.ordenacao(query.ordenar),
         include: { _count: { select: { dependentes: true } } },
       }),
       this.prisma.filiado.count({ where }),
