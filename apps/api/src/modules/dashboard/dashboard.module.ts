@@ -39,6 +39,24 @@ function dateOnlyBR(base: Date): Date {
 /** Compromissos abertos (pendentes ou em andamento). */
 const ABERTOS = { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] };
 
+/**
+ * Um processo que o CNJ recusou na última tentativa (ver `falhasDatajud24h`).
+ *
+ * `processoId` é nulo quando o processo foi excluído depois da falha — o log
+ * sobrevive com o NPU, que aí é a única identidade disponível. LGPD: só o
+ * metadado público (NPU, tribunal) e o nome do filiado principal, que a lista
+ * de processos já mostra.
+ */
+interface FalhaDatajud {
+  processoId: string | null;
+  numeroCNJ: string;
+  tribunal: string | null;
+  httpStatus: number | null;
+  mensagemErro: string | null;
+  createdAt: Date;
+  filiado: string | null;
+}
+
 /** Campos mínimos de um compromisso para os cards da home (LGPD: só o essencial). */
 const compSelect = {
   id: true,
@@ -115,7 +133,7 @@ export class DashboardService {
       saidasRaw,
       // Saúde do robô de sincronização
       ultimaSync,
-      falhasSync24h,
+      falhasSync,
       processosMonitorados,
       // Qualidade do dado e painéis por perfil
       filiadosSemDataFiliacao,
@@ -251,9 +269,7 @@ export class DashboardService {
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, sucesso: true },
       }),
-      this.prisma.logSincronizacaoDatajud.count({
-        where: { sucesso: false, createdAt: { gte: new Date(agora.getTime() - DIA_MS) } },
-      }),
+      this.falhasDatajud24h(new Date(agora.getTime() - DIA_MS)),
       // Quantos processos o robô de fato varre — MESMO critério de
       // `ProcessosService.idsParaSincronizar`. É o denominador que faltava:
       // sem ele, "nunca rodou" virava alarme numa base sem processo nenhum,
@@ -412,7 +428,7 @@ export class DashboardService {
        * sincronizar. Um estado não é um problema só por ser diferente do
        * ideal; virar alarme depende de haver trabalho pendente.
        */
-      robo: this.situacaoRobo(ultimaSync, falhasSync24h, processosMonitorados, agora),
+      robo: this.situacaoRobo(ultimaSync, falhasSync, processosMonitorados, agora),
       graficos: {
         atendimentosPorCanal: canalGroup.map((c) => ({ canal: c.canal, total: c._count._all })),
         atendimentos14dias: this.bucketDiario(atendimentos14Raw.map((a) => a.createdAt), 14),
@@ -518,7 +534,7 @@ export class DashboardService {
    */
   private situacaoRobo(
     ultimaSync: { createdAt: Date; sucesso: boolean } | null,
-    falhas24h: number,
+    falhas: FalhaDatajud[],
     processosMonitorados: number,
     agora: Date,
   ) {
@@ -534,14 +550,79 @@ export class DashboardService {
             : horasParadas! <= 72 ? 'ATRASADO'
               : 'PARADO';
 
+    // Falha só é notícia se houve varredura para falhar.
+    const lista = situacao === 'SEM_OBJETO' ? [] : falhas;
+
     return {
       situacao,
       processosMonitorados,
       ultimaSincronizacao: ultimaSync?.createdAt ?? null,
       ultimaComSucesso: ultimaSync?.sucesso ?? null,
-      // Falha só é notícia se houve varredura para falhar.
-      falhas24h: situacao === 'SEM_OBJETO' ? 0 : falhas24h,
+      falhas24h: lista.length,
+      /**
+       * QUAIS processos o CNJ recusou. O número sozinho não era acionável: a
+       * barra dizia "2 processos" e mandava para a lista inteira, onde nada
+       * distinguia os dois do resto. Com a lista, o aviso vira trabalho —
+       * cada item abre o processo que falhou.
+       */
+      falhasProcessos: lista,
     };
+  }
+
+  /**
+   * Processos JÁ CADASTRADOS cuja última tentativa de sincronização com o
+   * DataJud, nas últimas 24h, terminou em erro.
+   *
+   * Três decisões importam aqui:
+   *
+   * 1. `origem <> IMPORTACAO` — e esta é a correção principal. A contagem
+   *    antiga somava TODA linha de log com `sucesso = false`, inclusive a da
+   *    importação, que é outra coisa completamente: alguém digitou um NPU no
+   *    "Importar Processo" e o CNJ não achou. O processo NUNCA foi cadastrado.
+   *    O painel então anunciava "o CNJ recusou a consulta de 2 processos" e
+   *    mandava para a lista de processos — onde, evidentemente, não havia o
+   *    que ver, porque aqueles dois nunca entraram no sistema. O erro de
+   *    importação já é mostrado na hora, dentro do próprio diálogo; repeti-lo
+   *    na home 12 horas depois, fantasiado de falha do robô, era só ruído.
+   *    Sobram CRON (a varredura noturna) e MANUAL (o botão "Sincronizar" na
+   *    ficha): as duas falam de processos que existem e têm ficha para abrir.
+   *
+   * 2. É a última tentativa por processo, não toda falha. Contar linhas de log
+   *    inflava o aviso — o mesmo processo tentado três vezes virava "3
+   *    processos" — e mantinha no alerta quem já tinha sincronizado depois,
+   *    na re-sincronização manual. `DISTINCT ON` resolve os dois: pega a
+   *    tentativa mais recente de cada processo e só reporta as que falharam.
+   *
+   * 3. A chave é `COALESCE(processo_id, numero_cnj)`. O log sobrevive à
+   *    exclusão do processo (`onDelete: SetNull`), e nesse caso o NPU é a
+   *    única identidade que resta — sem o COALESCE, todos os órfãos
+   *    colapsariam num único NULL.
+   */
+  private falhasDatajud24h(desde: Date) {
+    return this.prisma.$queryRaw<FalhaDatajud[]>`
+      WITH ultima AS (
+        SELECT DISTINCT ON (COALESCE(l.processo_id, l.numero_cnj))
+               l.processo_id, l.numero_cnj, l.tribunal, l.sucesso,
+               l.http_status, l.mensagem_erro, l.created_at
+          FROM logs_sincronizacao_datajud l
+         WHERE l.created_at >= ${desde}
+           AND l.origem <> 'IMPORTACAO'::"OrigemSincronizacao"
+         ORDER BY COALESCE(l.processo_id, l.numero_cnj), l.created_at DESC
+      )
+      SELECT u.processo_id   AS "processoId",
+             u.numero_cnj    AS "numeroCNJ",
+             u.tribunal      AS "tribunal",
+             u.http_status   AS "httpStatus",
+             u.mensagem_erro AS "mensagemErro",
+             u.created_at    AS "createdAt",
+             f.nome_completo AS "filiado"
+        FROM ultima u
+        LEFT JOIN processos p ON p.id = u.processo_id
+        LEFT JOIN filiados  f ON f.id = p.filiado_id
+       WHERE u.sucesso = false
+       ORDER BY u.created_at DESC
+       LIMIT 25
+    `;
   }
 
   private seisMesesAtras(): Date {

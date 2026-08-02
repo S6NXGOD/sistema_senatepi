@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
@@ -31,8 +32,22 @@ function StatusBadge({ status }: { status: StatusProcesso }) {
   );
 }
 
+/**
+ * `useSearchParams` obriga a um limite de Suspense — sem ele o build do Next
+ * falha ao pré-renderizar a rota. Mesmo padrão do wizard de cobranças.
+ */
 export default function ProcessosPage() {
+  return (
+    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>}>
+      <ListaProcessos />
+    </Suspense>
+  );
+}
+
+function ListaProcessos() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   // O painel age nos dois módulos (resolve o alerta e cria o evento na agenda).
   const podeRadar =
@@ -51,6 +66,22 @@ export default function ProcessosPage() {
   const [detalheId, setDetalheId] = useState<string | null>(null);
   /** Rascunho escolhido para formalizar (vindo de um desfecho da agenda). */
   const [formalizar, setFormalizar] = useState<ProcessoLista | null>(null);
+
+  /**
+   * `?processo=<id>` abre a ficha direto.
+   *
+   * É o que faz um link de fora desta tela chegar em algum lugar: o aviso de
+   * recusa do CNJ, na home, apontava para `/processos` puro e o clique não
+   * mudava nada na tela — a pessoa caía na lista inteira e tinha que procurar
+   * o processo na mão. O parâmetro sai da URL assim que a ficha abre, para
+   * que fechar a ficha não deixe a URL mentindo sobre o que está aberto.
+   */
+  useEffect(() => {
+    const id = searchParams.get('processo');
+    if (!id) return;
+    setDetalheId(id);
+    router.replace('/processos', { scroll: false });
+  }, [searchParams, router]);
 
   useEffect(() => {
     const t = setTimeout(() => {

@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, Activity, RefreshCw, Cake, Timer,
-  CheckCircle2, ChevronRight, FolderKanban, TrendingUp, Info, AlertCircle,
+  CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -18,8 +18,10 @@ import { podeEditar, podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/per
 import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
-  primeiroNome, PALETA_CANAL, type ResumoDashboard,
+  primeiroNome, motivoFalhaDatajud, PALETA_CANAL,
+  type ResumoDashboard, type FalhaDatajud,
 } from '@/lib/dashboard';
+import { formatNPU } from '@/lib/processos';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   KpiCard, SectionCard, EmptyState, CompromissoRow, AvatarMini,
@@ -422,22 +424,16 @@ function AlertBar({
  *   ATRASADO    36h a 3 dias sem varrer  → atenção.
  *   PARADO      +3 dias sem varrer       → crítico. Aqui algo está errado.
  *
- * As falhas pontuais aparecem à parte: o robô pode estar em dia e mesmo assim
- * ter levado recusa do CNJ em alguns processos.
+ * As falhas pontuais aparecem à parte, em `FalhasCNJ`: o robô pode estar em
+ * dia e mesmo assim ter levado recusa do CNJ em alguns processos.
  */
 function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
-  const { situacao, processosMonitorados, ultimaSincronizacao, falhas24h } = robo;
+  const { situacao, processosMonitorados, ultimaSincronizacao, falhasProcessos } = robo;
   const desde = ultimaSincronizacao
     ? idadeDoDado(new Date(ultimaSincronizacao).getTime())
     : null;
 
-  const falhasBar = falhas24h > 0 && (
-    <AlertBar tom="atencao" href="/processos" acao="Ver processos">
-      O CNJ recusou a consulta de <strong>{falhas24h}</strong>{' '}
-      {falhas24h === 1 ? 'processo' : 'processos'} nas últimas 24h. Costuma ser
-      instabilidade passageira — a próxima varredura tenta de novo.
-    </AlertBar>
-  );
+  const falhasBar = falhasProcessos.length > 0 && <FalhasCNJ falhas={falhasProcessos} />;
 
   // Ocioso ou em dia: nenhuma barra sobre o robô. Só as falhas, se houver.
   if (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA') {
@@ -469,6 +465,121 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
     <div className="space-y-2">
       {aviso}
       {falhasBar}
+    </div>
+  );
+}
+
+/**
+ * As recusas do CNJ, com nome e sobrenome.
+ *
+ * Antes esta era uma AlertBar comum: dizia "2 processos" e levava para
+ * `/processos`, a lista inteira, sem filtro nem destaque — clicar não mudava
+ * nada na tela, e o aviso não tinha como virar trabalho. Um alerta que não
+ * diz QUAL é o problema é só ruído com aparência de zelo.
+ *
+ * Agora a barra abre no lugar. Fica fechada por padrão (a falha costuma ser
+ * passageira e não merece ocupar a home), e cada linha mostra o NPU, de quem
+ * é o processo, por que falhou e há quanto tempo — com um clique que abre o
+ * processo direto na ficha dele.
+ *
+ * O que entra aqui é só sincronização de processo JÁ CADASTRADO (ver
+ * `falhasDatajud24h` na API) — por isso todo item tem, de fato, para onde ir.
+ */
+function FalhasCNJ({ falhas }: { falhas: FalhaDatajud[] }) {
+  const [aberto, setAberto] = useState(false);
+  const n = falhas.length;
+  // Uma chave recusada ou um NPU que o CNJ não reconhece falham de novo
+  // amanhã: separá-los evita prometer que "a próxima varredura resolve"
+  // quando ela não resolve.
+  const persistentes = falhas.filter((f) => !motivoFalhaDatajud(f).passageiro).length;
+
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+      >
+        <span className="flex items-center gap-2.5">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            A varredura do DataJud não conseguiu atualizar <strong>{n}</strong>{' '}
+            {n === 1 ? 'processo' : 'processos'} nas últimas 24h.{' '}
+            {persistentes === 0 ? (
+              <>Costuma ser instabilidade passageira — a próxima varredura tenta de novo.</>
+            ) : persistentes === n ? (
+              <>
+                {n === 1 ? 'A falha não é passageira' : 'As falhas não são passageiras'}:
+                tentar de novo não resolve sem alguém verificar.
+              </>
+            ) : (
+              <>
+                <strong>{persistentes}</strong>{' '}
+                {persistentes === 1 ? 'não é passageira' : 'não são passageiras'} e
+                {persistentes === 1 ? ' pede' : ' pedem'} verificação.
+              </>
+            )}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+          {aberto ? 'Ocultar' : 'Ver quais'}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
+        </span>
+      </button>
+
+      {aberto && (
+        <ul className="border-t border-amber-300/70 dark:border-amber-900/50">
+          {falhas.map((f) => {
+            const motivo = motivoFalhaDatajud(f);
+            const npu = formatNPU(f.numeroCNJ);
+            const conteudo = (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-xs font-semibold">{npu}</span>
+                  <span className="block truncate text-xs opacity-80">
+                    {f.filiado ?? 'Sem filiado vinculado'}
+                    {f.tribunal ? ` · ${f.tribunal}` : ''}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-xs">
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 font-medium',
+                      motivo.passageiro
+                        ? 'bg-amber-200/70 dark:bg-amber-900/50'
+                        : 'bg-rose-200/80 text-rose-900 dark:bg-rose-900/50 dark:text-rose-200',
+                    )}
+                    // A mensagem técnica do CNJ, para quem for investigar.
+                    title={f.mensagemErro ?? undefined}
+                  >
+                    {motivo.texto}
+                  </span>
+                  <span className="hidden opacity-70 sm:inline">{tempoRelativo(f.createdAt)}</span>
+                  {f.processoId && <ChevronRight className="h-3.5 w-3.5 opacity-70" />}
+                </span>
+              </>
+            );
+
+            return (
+              <li key={f.processoId ?? f.numeroCNJ} className="border-t border-amber-300/40 first:border-t-0 dark:border-amber-900/30">
+                {/* Sem processoId o processo foi excluído depois da falha: o log
+                    sobrevive, mas não há ficha para abrir. */}
+                {f.processoId ? (
+                  <Link
+                    href={`/processos?processo=${f.processoId}`}
+                    className="flex items-center gap-3 px-4 py-2.5 transition hover:brightness-[0.97]"
+                  >
+                    {conteudo}
+                  </Link>
+                ) : (
+                  <span className="flex items-center gap-3 px-4 py-2.5 opacity-70">{conteudo}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

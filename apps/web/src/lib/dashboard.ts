@@ -56,6 +56,18 @@ export interface PlantaoItem {
   advogado: PessoaResumo;
 }
 
+/** Processo recusado pelo CNJ na última tentativa das 24h (ver `robo`). */
+export interface FalhaDatajud {
+  /** Nulo se o processo foi excluído depois da falha — resta o NPU. */
+  processoId: string | null;
+  numeroCNJ: string;
+  tribunal: string | null;
+  httpStatus: number | null;
+  mensagemErro: string | null;
+  createdAt: string;
+  filiado: string | null;
+}
+
 export interface ResumoDashboard {
   papel: PerfilUsuario;
   escopo: 'PESSOAL' | 'GLOBAL';
@@ -113,7 +125,10 @@ export interface ResumoDashboard {
     processosMonitorados: number;
     ultimaSincronizacao: string | null;
     ultimaComSucesso: boolean | null;
+    /** Processos distintos recusados — `falhasProcessos.length`. */
     falhas24h: number;
+    /** QUAIS processos falharam, para o aviso poder virar trabalho. */
+    falhasProcessos: FalhaDatajud[];
   };
   /**
    * Carga da equipe — quem está sobrecarregado e quem está atrasado.
@@ -239,4 +254,24 @@ export function horaCurta(iso: string): string {
 
 export function primeiroNome(p: PessoaResumo): string {
   return p.nomeExibicao || p.nome;
+}
+
+/**
+ * Traduz a recusa do CNJ em uma frase que diz o que fazer a respeito.
+ *
+ * `passageiro` separa o que a próxima varredura resolve sozinha (tribunal fora
+ * do ar, limite de consultas) do que vai falhar de novo amanhã se ninguém
+ * mexer (NPU inexistente, chave recusada). A barra dizia "costuma ser
+ * instabilidade passageira" para tudo — e para um 404 isso é falso: o robô
+ * tentaria indefinidamente um processo que o CNJ não tem.
+ */
+export function motivoFalhaDatajud(f: FalhaDatajud): { texto: string; passageiro: boolean } {
+  const s = f.httpStatus;
+  if (s === 404) return { texto: 'NPU não encontrado no CNJ', passageiro: false };
+  if (s === 401 || s === 403) return { texto: 'chave da API recusada', passageiro: false };
+  if (s === 400 || s === 422) return { texto: 'NPU recusado pelo CNJ', passageiro: false };
+  if (s === 429) return { texto: 'limite de consultas atingido', passageiro: true };
+  if (s && s >= 500) return { texto: 'tribunal fora do ar', passageiro: true };
+  // Sem status é erro de rede/timeout: a chamada nem chegou a ter resposta.
+  return { texto: s ? `erro ${s} no CNJ` : 'sem resposta do CNJ', passageiro: true };
 }
