@@ -44,34 +44,9 @@ enum SituacaoFiliado {
   DESFILIADO // desligado do sindicato — perde acesso a eventos e benefícios (colônia)
 }
 
-enum StatusGenerico {
-  ATIVO
-  INATIVO
-}
-
-enum TipoFuncionario {
-  FUNCIONARIO
-  PRESTADOR_SERVICO
-  ESTAGIARIO
-  TERCEIRIZADO
-}
-
-enum StatusFuncionario {
-  ATIVO
-  INATIVO
-  AFASTADO
-  FERIAS
-  DESLIGADO
-}
-
-enum TipoHistoricoFuncionario {
-  CADASTRO
-  ALTERACAO
-  MUDANCA_STATUS
-  UPLOAD_DOCUMENTO
-  GERACAO_CARTEIRINHA
-  GERACAO_QRCODE
-}
+// StatusGenerico, TipoFuncionario, StatusFuncionario e TipoHistoricoFuncionario
+// saíram com a unificação: quem descreve a equipe agora é StatusColaborador /
+// TipoVinculo / TipoHistoricoColaborador.
 
 enum TipoHistoricoFiliado {
   FILIACAO
@@ -97,16 +72,12 @@ enum FormacaoProfissional {
   OUTRO
 }
 
+/// Quem pode ter presença registrada num evento.
+/// FUNCIONARIO e PRESTADOR viraram COLABORADOR — cadastro único da equipe.
 enum TipoPessoa {
   FILIADO
   DEPENDENTE
-  FUNCIONARIO
-  PRESTADOR
-}
-
-enum TipoPrestador {
-  PESSOA_FISICA
-  PESSOA_JURIDICA
+  COLABORADOR
 }
 
 enum TipoEvento {
@@ -134,9 +105,36 @@ enum StatusCarteirinha {
 enum TipoDocumento {
   TERMO_CONSENTIMENTO
   FICHA_FILIACAO
+  /// Termo de desfiliação assinado pelo filiado — arquivado na aba Documentos.
+  TERMO_DESFILIACAO
   CONTRATO
   DOCUMENTO_PESSOAL
   OUTRO
+}
+
+/// Como o filiado contribui com o sindicato.
+///
+/// DESCONTO_FOLHA aponta para os locais de trabalho com `descontoEmFolha` — é lá
+/// que se sabe EM QUAL folha o desconto acontece (quem tem duplo vínculo
+/// costuma ter desconto em um só).
+enum ModalidadeContribuicao {
+  DESCONTO_FOLHA
+  AVULSO // PIX / boleto
+  PENSIONISTA
+}
+
+/// Por que o filiado saiu do quadro associativo.
+///
+/// Lista fechada de propósito: o motivo em texto livre não permitia responder
+/// "quantos saíram por inadimplência este ano?", que é a pergunta que a
+/// diretoria faz. A observação livre continua existindo ao lado.
+enum MotivoDesfiliacao {
+  APOSENTADORIA
+  MUDANCA_ESTADO
+  MUDANCA_PROFISSAO
+  SOLICITACAO_PESSOAL
+  INADIMPLENCIA
+  OUTROS
 }
 
 enum AcaoAuditoria {
@@ -174,6 +172,39 @@ enum StatusRecadastramento {
   REJEITADO
 }
 
+/// Como o filiado prova que é ele ao abrir o link de recadastramento.
+enum DesafioRecadastramento {
+  CPF_NASCIMENTO // padrão: confirma CPF + data de nascimento
+  COREN // quando não há CPF/nascimento no cadastro, mas há COREN
+  NENHUM // cadastro sem CPF, sem nascimento e sem COREN — link direto
+}
+
+/// Link de recadastramento ONLINE enviado ao filiado.
+///
+/// Segurança: o token NUNCA é guardado em claro — só o hash (mesmo padrão de
+/// RefreshToken/PasswordReset). O link vale 24h, é de USO ÚNICO e trava após
+/// algumas tentativas erradas no desafio (evita adivinhar CPF/nascimento).
+model LinkRecadastramento {
+  id             String                 @id @default(uuid())
+  filiadoId      String                 @map("filiado_id")
+  tokenHash      String                 @unique @map("token_hash")
+  desafio        DesafioRecadastramento
+  expiraEm       DateTime               @map("expira_em")
+  usadoEm        DateTime?              @map("usado_em")
+  revogadoEm     DateTime?              @map("revogado_em")
+  /// Tentativas erradas no desafio (trava em 5).
+  tentativas     Int                    @default(0)
+  criadoPor      String?                @map("criado_por")
+  ipUltimoAcesso String?                @map("ip_ultimo_acesso")
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  filiado Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+
+  @@index([filiadoId])
+  @@index([expiraEm])
+  @@map("links_recadastramento")
+}
+
 // ============================================================================
 // AUTENTICAÇÃO E USUÁRIOS
 // ============================================================================
@@ -187,6 +218,10 @@ model User {
   senhaHash     String    @map("senha_hash")
   avatarUrl     String?   @map("avatar_url") // foto de perfil (URL informada manualmente)
   avatarKey     String?   @map("avatar_key") // chave no storage quando a foto é enviada (upload)
+  /// Inscrição na OAB (só dígitos) — chave do cruzamento com os advogados que o
+  /// tribunal informa no processo, além de dado de perfil do próprio advogado.
+  oab           String?
+  oabUf         String?   @map("oab_uf") // UF da inscrição (ex.: PI)
   role          UserRole  @default(TRIAGEM)
   // Matriz de permissões por módulo (override do preset do perfil): { "processos": "EDITAR", ... }
   permissoes    Json?
@@ -200,8 +235,15 @@ model User {
   recadastramentos Recadastramento[] @relation("RecadastramentoRevisor")
   atendimentos     Atendimento[]
   compromissos     Compromisso[]     @relation("CompromissoResponsavel")
+  /// Eventos que este usuário REGISTROU (≠ dos que ele é responsável).
+  compromissosCriados Compromisso[]  @relation("CompromissoCriador")
   processos        Processo[]        @relation("ProcessoAdvogado")
+  /// Processos em que atua (N:N) — inclui os que responde como principal.
+  processosEquipe  ProcessoAdvogado[] @relation("ProcessoAdvogadoEquipe")
   escalas          EscalaAdvogado[]
+  movimentacoesInternas MovimentacaoInterna[] @relation("MovimentacaoAutor")
+  contribuicoesAnalisadas ContribuicaoPatronal[] @relation("ContribuicaoAnalista")
+  compromissosHistorico   CompromissoHistorico[] @relation("CompromissoHistoricoAutor")
 
   @@map("users")
 }
@@ -272,6 +314,40 @@ model Filiado {
   // Situação
   situacao           SituacaoFiliado       @default(ATIVO)
   aprovadoEm         DateTime?             @map("aprovado_em")
+
+  /// DATA DE FILIAÇÃO — quando a pessoa entrou no quadro associativo.
+  ///
+  /// Campo próprio porque `createdAt` acumulava dois significados: a importação
+  /// legada gravava nele a data de filiação da planilha, e o cadastro pelo
+  /// sistema gravava a data do registro. Quando a planilha vinha SEM a data,
+  /// 1.903 pessoas ficaram carimbadas com o dia da carga — e o gráfico de
+  /// crescimento mostrava um pico de 1.903 filiações num único mês.
+  ///
+  /// NULO = data desconhecida (veio da carga sem a informação). Nulo é a
+  /// resposta honesta; inventar uma data seria pior, e esses registros ficam
+  /// FORA da série temporal em vez de distorcê-la.
+  dataFiliacao       DateTime?             @map("data_filiacao")
+
+  /// Como este filiado contribui. Opcional: a base histórica não tem esse dado,
+  /// e exigi-lo retroativamente travaria a edição de 7 mil cadastros.
+  modalidadeContribuicao ModalidadeContribuicao? @map("modalidade_contribuicao")
+
+  // ---- Desfiliação -------------------------------------------------------
+  // Preenchidos ao desfiliar e PRESERVADOS na reativação: são o registro de que
+  // a saída aconteceu e por quê. Sem eles, reativar um filiado apagaria a
+  // história — e o financeiro perderia a referência do mês de corte.
+  /// Motivo padronizado (o que vira estatística).
+  motivoDesfiliacao      MotivoDesfiliacao? @map("motivo_desfiliacao")
+  /// Complemento livre do motivo, quando a categoria não basta.
+  desfiliacaoObservacoes String?            @map("desfiliacao_observacoes")
+  /// Data do pedido de desfiliação (o carimbo de quando a saída foi formalizada).
+  desfiliadoEm           DateTime?          @map("desfiliado_em")
+  /// Nome de quem executou a desfiliação — snapshot, sobrevive à exclusão do usuário.
+  desfiliadoPor          String?            @map("desfiliado_por")
+  /// Última mensalidade a cobrar, em 'AAAA-MM'. É o que a folha/financeiro usa
+  /// para saber até quando descontar. Texto e não data: o dado é o MÊS, e um
+  /// DateTime obrigaria a inventar um dia.
+  desfiliacaoMesCorte    String?            @map("desfiliacao_mes_corte")
   // Identificação para QR Code
   qrToken            String                @unique @map("qr_token")
   createdAt          DateTime              @default(now()) @map("created_at")
@@ -283,10 +359,14 @@ model Filiado {
   atendimentos     Atendimento[]
   compromissos     Compromisso[]
   processos        Processo[]
+  /// Processos em que o filiado figura como parte (N:N) — um processo pode ter
+  /// vários filiados (ação coletiva/plúrima) e um filiado, vários processos.
+  partesProcesso   ParteProcesso[]
   carteirinha      Carteirinha?
   documentos       Documento[]
   presencas        Presenca[]
   recadastramentos Recadastramento[]
+  linksRecadastramento LinkRecadastramento[]
   historico        FiliadoHistorico[]
 
   @@index([situacao])
@@ -309,18 +389,41 @@ model FiliadoHistorico {
   @@map("filiado_historico")
 }
 
+/// LOCAL DE TRABALHO do filiado. Um filiado pode ter vários — duplo vínculo é a
+/// regra na enfermagem, não a exceção.
 model VinculoProfissional {
   id        String   @id @default(uuid())
   filiadoId String   @map("filiado_id")
+
+  /// Nome do empregador COMO CONSTA no cadastro — snapshot sempre preenchido.
+  /// Continua texto de propósito: exigir que todo empregador exista previamente
+  /// no cadastro travaria o atendimento no balcão por causa de um hospital novo.
   empresa   String
+
+  /// Empregador no cadastro de organizações (`ParteExterna`), quando escolhido
+  /// pelo combobox. É o que permite perguntar "quantos filiados trabalham na
+  /// FMS?" — e cruzar com "quantos processos temos contra a FMS?", já que o
+  /// empregador e o réu costumam ser a MESMA entidade. Nulo = digitado à mão.
+  parteExternaId String? @map("parte_externa_id")
+
   cargo     String?
   matricula String? // matrícula na instituição
+
+  /// A mensalidade sindical é descontada NA FOLHA DESTE local.
+  /// Fica no vínculo, e não no filiado, porque quem tem dois empregos costuma
+  /// ter desconto em um só — e o financeiro precisa saber em qual.
+  descontoEmFolha Boolean @default(false) @map("desconto_em_folha")
+
   ordem     Int      @default(1) // 1 = instituição 1, 2 = instituição 2
   createdAt DateTime @default(now()) @map("created_at")
 
-  filiado Filiado @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  filiado      Filiado       @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  /// SetNull: apagar a organização não pode apagar o vínculo — `empresa`
+  /// (o snapshot) continua respondendo onde a pessoa trabalha.
+  parteExterna ParteExterna? @relation(fields: [parteExternaId], references: [id], onDelete: SetNull)
 
   @@index([filiadoId])
+  @@index([parteExternaId])
   @@map("vinculos_profissionais")
 }
 
@@ -348,90 +451,8 @@ model Dependente {
   @@map("dependentes")
 }
 
-// ============================================================================
-// FUNCIONÁRIOS
-// ============================================================================
-
-model Funcionario {
-  id             String            @id @default(uuid())
-  matricula      String            @unique
-  nome           String
-  cpf            String            @unique
-  dataNascimento DateTime?         @map("data_nascimento")
-  dataAdmissao   DateTime?         @map("data_admissao")
-  telefone       String?
-  email          String?
-  cargo          String?
-  departamento   String?
-  tipo           TipoFuncionario   @default(FUNCIONARIO)
-  // Endereço
-  cep            String?
-  endereco       String?
-  numero         String?
-  complemento    String?
-  bairro         String?
-  cidade         String?
-  estado         String?
-  fotoKey        String?           @map("foto_key")
-  fotoThumbKey   String?           @map("foto_thumb_key")
-  status         StatusFuncionario @default(ATIVO)
-  qrToken        String            @unique @map("qr_token")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-
-  documentos Documento[]
-  presencas  Presenca[]
-  historico  FuncionarioHistorico[]
-
-  @@index([status])
-  @@index([tipo])
-  @@map("funcionarios")
-}
-
-model FuncionarioHistorico {
-  id            String                   @id @default(uuid())
-  funcionarioId String                   @map("funcionario_id")
-  tipo          TipoHistoricoFuncionario
-  descricao     String
-  // Usuário que executou a ação (e-mail/nome para snapshot)
-  autor         String?
-  metadata      Json?
-  createdAt     DateTime                 @default(now()) @map("created_at")
-
-  funcionario Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
-
-  @@index([funcionarioId])
-  @@map("funcionario_historico")
-}
-
-// ============================================================================
-// PRESTADORES DE SERVIÇO
-// ============================================================================
-
-model Prestador {
-  id             String         @id @default(uuid())
-  nome           String
-  tipoPessoa     TipoPrestador  @default(PESSOA_FISICA) @map("tipo_pessoa")
-  cpfCnpj        String         @unique @map("cpf_cnpj")
-  empresa        String?
-  telefone       String?
-  email          String?
-  contratoNumero String?        @map("contrato_numero")
-  vigenciaInicio DateTime?      @map("vigencia_inicio")
-  vigenciaFim    DateTime?      @map("vigencia_fim")
-  fotoKey        String?        @map("foto_key")
-  fotoThumbKey   String?        @map("foto_thumb_key")
-  status         StatusGenerico @default(ATIVO)
-  qrToken        String         @unique @map("qr_token")
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-
-  documentos Documento[]
-  presencas  Presenca[]
-
-  @@index([status])
-  @@map("prestadores")
-}
+// (FUNCIONÁRIOS e PRESTADORES foram unificados em Colaborador — ver o modelo.
+//  Prestador pessoa jurídica virou Empresa, no módulo Patronal.)
 
 // ============================================================================
 // EVENTOS E CONTROLE DE PRESENÇA
@@ -461,26 +482,25 @@ model Presenca {
   id            String     @id @default(uuid())
   eventoId      String     @map("evento_id")
   tipoPessoa    TipoPessoa @map("tipo_pessoa")
-  // Apenas um destes FKs estará preenchido, conforme o tipo de pessoa
-  filiadoId     String?    @map("filiado_id")
-  dependenteId  String?    @map("dependente_id")
-  funcionarioId String?    @map("funcionario_id")
-  prestadorId   String?    @map("prestador_id")
-  registradoEm  DateTime   @default(now()) @map("registrado_em")
+  // Apenas um destes FKs estará preenchido, conforme o tipo de pessoa.
+  // `funcionario_id`/`prestador_id` saíram na unificação: a equipe do sindicato
+  // entra como COLABORADOR, cadastro único (ver [Colaborador]).
+  filiadoId      String?   @map("filiado_id")
+  dependenteId   String?   @map("dependente_id")
+  colaboradorId  String?   @map("colaborador_id")
+  registradoEm   DateTime  @default(now()) @map("registrado_em")
   // Snapshot para histórico (mesmo se o cadastro for alterado/removido)
   nomeSnapshot  String     @map("nome_snapshot")
 
   evento      Evento       @relation(fields: [eventoId], references: [id], onDelete: Cascade)
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   dependente  Dependente?  @relation(fields: [dependenteId], references: [id], onDelete: SetNull)
-  funcionario Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
-  prestador   Prestador?   @relation(fields: [prestadorId], references: [id], onDelete: SetNull)
+  colaborador Colaborador? @relation(fields: [colaboradorId], references: [id], onDelete: SetNull)
 
   // Evita entrada duplicada da mesma pessoa no mesmo evento
   @@unique([eventoId, filiadoId])
   @@unique([eventoId, dependenteId])
-  @@unique([eventoId, funcionarioId])
-  @@unique([eventoId, prestadorId])
+  @@unique([eventoId, colaboradorId])
   @@index([eventoId])
   @@map("presencas")
 }
@@ -518,17 +538,17 @@ model Documento {
   tamanhoBytes  Int?          @map("tamanho_bytes")
   assinado      Boolean       @default(false)
   assinaturaKey String?       @map("assinatura_key") // imagem da assinatura
-  // Vínculo polimórfico (apenas um preenchido)
+  // Vínculo polimórfico (apenas um preenchido). `funcionario_id`/`prestador_id`
+  // saíram na unificação — os documentos daquelas fichas foram remanejados para
+  // o colaborador de mesmo CPF, que antes os via partidos em duas telas.
   filiadoId     String?       @map("filiado_id")
-  funcionarioId String?       @map("funcionario_id")
-  prestadorId   String?       @map("prestador_id")
   colaboradorId String?       @map("colaborador_id")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
-  funcionario Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
-  prestador   Prestador?   @relation(fields: [prestadorId], references: [id], onDelete: Cascade)
   colaborador Colaborador? @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  /// Anexos que reaproveitaram este documento do cadastro (mesma storage_key).
+  anexosDerivados AnexoDocumento[]
 
   @@index([filiadoId])
   @@index([colaboradorId])
@@ -891,9 +911,19 @@ enum StatusColaborador {
   DESLIGADO
 }
 
+/// Departamento de um Colaborador.
+///
+/// Lista de apoio do módulo de Colaboradores — é o único que a usa. Vivia num
+/// "Cadastros Base" próprio, com menu e permissão só para isto; foi absorvida
+/// por Colaboradores, no mesmo padrão dos tipos de evento da Agenda.
+///
+/// `ativo` em vez de exclusão: a FK em Colaborador é OBRIGATÓRIA, então apagar
+/// um departamento em uso é impossível e mantê-lo na lista para sempre é ruim.
+/// Ocultar aposenta o registro sem quebrar o histórico de quem já o usa.
 model Departamento {
   id        String   @id @default(uuid())
   nome      String   @unique
+  ativo     Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -902,9 +932,11 @@ model Departamento {
   @@map("departamentos")
 }
 
+/// Cargo de um Colaborador. Mesma história de [Departamento].
 model Cargo {
   id        String   @id @default(uuid())
   nome      String   @unique
+  ativo     Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -913,23 +945,66 @@ model Cargo {
   @@map("cargos")
 }
 
+/// Empresa (pessoa jurídica).
+///
+/// Nasceu como empregadora de colaboradores PJ/terceirizados e agora é também
+/// a entidade do MÓDULO PATRONAL: as conveniadas acessam o portal com as
+/// credenciais abaixo. Uma empresa só de vínculo simplesmente não tem senha.
 model Empresa {
   id          String   @id @default(uuid())
-  razaoSocial String   @map("razao_social")
+  /// Somente dígitos (14), sem máscara — formatar é responsabilidade da tela.
   cnpj        String   @unique
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  razaoSocial String   @map("razao_social")
+  /// Muitas empresas não têm nome fantasia; a BrasilAPI devolve vazio nesses casos.
+  nomeFantasia String? @map("nome_fantasia")
 
-  colaboradores Colaborador[]
+  // Endereço — opcional porque a BrasilAPI pode estar fora do ar e o cadastro
+  // precisa poder ser concluído à mão.
+  cep        String?
+  logradouro String?
+  bairro     String?
+  cidade     String?
+  uf         String?
 
+  /// bcrypt do acesso ao portal patronal. NULO enquanto a empresa não foi
+  /// habilitada. NUNCA sai da API — os serviços selecionam campo a campo.
+  senhaHash      String?  @map("senha_hash")
+  /// A senha provisória definida pela secretaria ainda precisa ser trocada.
+  primeiroAcesso Boolean  @default(true) @map("primeiro_acesso")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  colaboradores  Colaborador[]
+  contribuicoes  ContribuicaoPatronal[]
+
+  @@index([razaoSocial])
   @@map("empresas")
 }
 
+/// Pessoa da equipe do sindicato — CLT, PJ, estagiário ou terceirizado.
+///
+/// É o cadastro ÚNICO. Substituiu de vez `Funcionario` e `Prestador` (pessoa
+/// física), que conviviam com ele guardando a mesma gente: a unificação tinha
+/// sido feita pela metade — o menu deixou de mostrar os antigos, mas os módulos
+/// seguiam ativos e os registros divergiam em silêncio (editar aqui não tocava
+/// lá, e o QR do check-in lia o registro que ninguém atualizava).
+///
+/// Por isso este modelo absorveu o que só existia no legado: `qrToken` (entrada
+/// em evento), `fotoThumbKey` (miniatura que a portaria vê) e `matricula` (o
+/// número do crachá). Prestador PJ virou Empresa, no módulo Patronal.
 model Colaborador {
   id             String            @id @default(uuid())
+  /// Número do crachá (FUNC-000001). Opcional: só quem precisa de identificação
+  /// física recebe — o cadastro não depende disso para existir.
+  matricula      String?           @unique
   // Dados universais
   fotoUrl        String?           @map("foto_url") // resolvido a partir de fotoKey (upload)
   fotoKey        String?           @map("foto_key") // chave da foto enviada no storage
+  /// Miniatura da foto — é o que a tela de check-in mostra ao ler o QR.
+  fotoThumbKey   String?           @map("foto_thumb_key")
+  /// Token do QR Code de entrada em eventos. Gerado no cadastro e nunca exposto:
+  /// o que circula é o payload assinado (HMAC de id+tipo+token).
+  qrToken        String            @unique @map("qr_token")
   nome           String
   cpf            String            @unique // LGPD: dado mínimo necessário; mascarado na exibição
   dataNascimento DateTime?         @map("data_nascimento")
@@ -965,6 +1040,7 @@ model Colaborador {
   empresa      Empresa?     @relation(fields: [empresaId], references: [id], onDelete: SetNull)
   historico    ColaboradorHistorico[]
   documentos   Documento[]
+  presencas    Presenca[]
 
   @@index([status])
   @@index([cargoId])
@@ -1111,6 +1187,7 @@ model Movimentacao {
 
   conta   ContaBancaria    @relation(fields: [contaBancariaId], references: [id], onDelete: Restrict)
   parcela ParcelaCobranca? // preenchida quando a movimentação nasce da baixa de uma parcela
+  contribuicaoPatronal ContribuicaoPatronal? // preenchida quando nasce da homologação patronal
 
   @@index([contaBancariaId])
   @@index([tipo])
@@ -1204,6 +1281,20 @@ enum StatusCompromisso {
   CANCELADO
 }
 
+/// COMO a atividade terminou — obrigatório ao concluir.
+///
+/// Antes, "Concluído" era um clique só: o evento sumia do quadro sem dizer o que
+/// aconteceu com a demanda do filiado. Estes valores existem para que a conclusão
+/// registre o RESULTADO, e não apenas o fim.
+enum DesfechoCompromisso {
+  DUVIDA_ESCLARECIDA // consulta resolvida na hora — a orientação vai na observação
+  REALIZADO // audiência/prazo/diligência cumprida conforme planejado
+  VINCULADO_PROCESSO // a demanda pertence a um processo que já existe
+  PROCESSO_CRIADO // virou processo novo, aberto como RASCUNHO para o advogado formalizar
+  NAO_COMPARECEU // o filiado não compareceu
+  OUTRO // qualquer outro fim — exige descrição
+}
+
 /// Tipo de evento da Agenda — CADASTRÁVEL. Os 8 tipos "sistema" são semeados na
 /// migração inicial e não podem ser excluídos (só renomeados/recoloridos/ocultados);
 /// tipos personalizados podem ser criados livremente. `slug` é o identificador
@@ -1243,16 +1334,56 @@ model Compromisso {
   processoId    String?           @map("processo_id")
   // Trilha de auditoria: 1ª data agendada, gravada e TRAVADA na 1ª remarcação.
   dataOriginal  DateTime?         @map("data_original")
-  criadoPor     String?           @map("criado_por") // usuário que registrou (nome/id em auditoria)
+  /// Quantas vezes já foi remarcado — um evento remarcado 4x é um sinal de gestão,
+  /// não um detalhe. Precomputado para a lista não ter de varrer a auditoria.
+  remarcacoes   Int               @default(0)
+  /// Motivo da ÚLTIMA remarcação (o histórico completo fica na Auditoria).
+  remarcadoMotivo String?         @map("remarcado_motivo")
+
+  // ---- Conclusão: o que aconteceu com a demanda ----
+  /// Slug do desfecho, definido pelo TIPO da atividade (ver desfechos.catalogo.ts).
+  /// Texto e não enum: os desfechos variam por tipo e mudam com o uso — um enum
+  /// exigiria migração a cada ajuste, como já aconteceu com `tipo`.
+  desfecho      String?
+  /// Comentário do desfecho (a orientação dada, o que foi decidido).
+  desfechoObs   String?           @map("desfecho_obs")
+  concluidoEm   DateTime?         @map("concluido_em")
+  concluidoPor  String?           @map("concluido_por")
+
+  // ---- Cancelamento: motivo é OBRIGATÓRIO (regra de negócio) ----
+  /// Por que foi cancelado. Sem isto, "Cancelado" no quadro não explica nada a
+  /// quem abre o evento semanas depois.
+  /// Categoria do cancelamento (NAO_COMPARECEU, DESISTENCIA…). "Não compareceu"
+  /// mora AQUI, e não no desfecho: quem não compareceu não realizou a atividade.
+  canceladoCategoria String?      @map("cancelado_categoria")
+  canceladoMotivo String?         @map("cancelado_motivo")
+  canceladoEm     DateTime?       @map("cancelado_em")
+  canceladoPor    String?         @map("cancelado_por")
+
+  /// Quem registrou o evento. Virou FK (era só o id solto em texto) para a tela
+  /// poder mostrar nome E FOTO de quem criou a demanda, sem consulta extra.
+  criadoPor     String?           @map("criado_por")
+  /// Gerado pelo robô de automação (a partir de uma movimentação do DataJud) —
+  /// a interface marca esses eventos com o selo "Criado pelo Sistema".
+  origemAutomatica Boolean        @default(false) @map("origem_automatica")
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
   responsavel User         @relation("CompromissoResponsavel", fields: [responsavelId], references: [id])
+  criador     User?        @relation("CompromissoCriador", fields: [criadoPor], references: [id], onDelete: SetNull)
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
   processo    Processo?    @relation(fields: [processoId], references: [id], onDelete: SetNull)
   /// Movimentações do DataJud que originaram este evento (radar de audiências).
   origemMovimentacoes MovimentacaoProcessual[]
+  historico   CompromissoHistorico[]
+  /// Documentos da própria atividade (enviados ou puxados do acervo do filiado).
+  /// Os anexos da triagem/processo de origem continuam visíveis por herança —
+  /// não são copiados para cá.
+  anexos      AnexoDocumento[]
+
+  /// Processo (rascunho) gerado a partir do desfecho desta atividade.
+  processoGerado Processo? @relation("ProcessoOrigemCompromisso")
 
   @@index([status])
   @@index([tipo])
@@ -1260,6 +1391,7 @@ model Compromisso {
   @@index([responsavelId])
   @@index([filiadoId])
   @@index([processoId])
+  @@index([criadoPor])
   @@map("compromissos")
 }
 
@@ -1289,28 +1421,117 @@ model EscalaAdvogado {
 // ===========================================================================
 
 enum StatusProcesso {
+  /// RASCUNHO: aberto a partir de uma consulta/atendimento, AINDA SEM NPU. O
+  /// advogado formaliza depois — informando o número e puxando do DataJud, ou
+  /// preenchendo à mão. É o único status em que `numeroCNJ` pode ser nulo, e
+  /// rascunhos NUNCA entram na varredura noturna do CNJ (não há o que consultar).
+  RASCUNHO
   ATIVO
   ARQUIVADO
   SUSPENSO
+  PENDENTE // distribuído, aguardando movimentação
+  ENCERRADO // baixado/transitado em julgado
+  GANHO_EXECUCAO // procedente, em fase de execução/cumprimento
+  IMPROCEDENTE // julgado improcedente
+}
+
+/// Polo em que a parte figura no processo.
+enum PoloProcesso {
+  ATIVO // quem PROPÔS a ação (autor / reclamante / exequente / impetrante)
+  PASSIVO // contra quem a ação foi proposta (réu / reclamada / executada)
+  TERCEIRO // assistente, litisconsorte facultativo, MP, perito, terceiro interessado
+}
+
+/// Natureza da parte externa (define quais campos a tela pede).
+enum TipoParteExterna {
+  FISICA // pessoa física (CPF)
+  JURIDICA // empresa (CNPJ) — ex.: PRONTOCARE
+  ORGAO_PUBLICO // município, estado, autarquia, fundação (CNPJ)
+}
+
+/// Natureza da atuação do sindicato no processo.
+///
+/// INSTITUCIONAL é a ação coletiva em que o SENATEPI figura no polo ativo em
+/// nome da categoria — não há um filiado "dono" do processo, e cobrar um
+/// vínculo de filiado ali seria forçar um dado que não existe.
+enum TipoAcaoProcesso {
+  INDIVIDUAL
+  INSTITUCIONAL
 }
 
 /// Processo judicial espelhado do DATAJUD (cache) + vínculos internos.
 model Processo {
-  id         String  @id @default(uuid())
-  numeroCNJ  String  @unique @map("numero_cnj") // NPU (20 dígitos), chave única
+  id String @id @default(uuid())
+
+  /// NPU (20 dígitos). NULO apenas em RASCUNHO — processo aberto a partir de uma
+  /// consulta e ainda não distribuído/formalizado. Continua ÚNICO quando
+  /// preenchido: no Postgres um índice único aceita vários NULLs, então dois
+  /// rascunhos coexistem sem colidir.
+  numeroCNJ String? @unique @map("numero_cnj")
+
+  /// Rótulo do processo enquanto ele não tem NPU nem classe do CNJ — sem isto o
+  /// rascunho apareceria como uma linha em branco na lista. Assim que o processo
+  /// é formalizado, a classe do DataJud assume o lugar na exibição.
+  titulo String?
+
+  /// De onde veio o rascunho: a atividade da agenda que o originou. Guarda a
+  /// rastreabilidade "esta consulta virou este processo".
+  origemCompromissoId String? @unique @map("origem_compromisso_id")
+
+  /// FILIADO PRINCIPAL e ADVOGADO RESPONSÁVEL.
+  ///
+  /// Desde a multivinculação (N:N em `partes_processo` e `processos_advogados`),
+  /// estas duas colunas são um ATALHO DENORMALIZADO: apontam para a linha marcada
+  /// como `principal` nas tabelas de vínculo. Existem por dois motivos concretos:
+  /// (1) telas e filtros de alto volume (lista, dashboard, "meus processos",
+  /// radar de audiências) fazem um WHERE indexado direto, sem join; (2) mantêm
+  /// compatível tudo que já lia `filiadoId`/`advogadoId`.
+  ///
+  /// REGRA: quem escreve nelas é APENAS o `PartesService.sincronizarAtalhos()`,
+  /// sempre na mesma transação da escrita na tabela N:N. Nunca atualize por fora —
+  /// o atalho sairia de sincronia com a fonte de verdade.
   filiadoId  String? @map("filiado_id")
   advogadoId String? @map("advogado_id")
 
   // ---- Metadados públicos do DATAJUD ----
   classeProcessual String?  @map("classe_processual")
+  classeCodigo     Int?     @map("classe_codigo") // código TPU da classe
   assuntoPrincipal String?  @map("assunto_principal")
+  /// Todos os assuntos [{codigo, nome, principal}] — o principal também fica acima.
+  assuntos         Json?
   orgaoJulgador    String?  @map("orgao_julgador")
+  orgaoJulgadorCodigo String? @map("orgao_julgador_codigo")
+  municipioIBGE    Int?     @map("municipio_ibge")
   tribunal         String? // sigla: TJPI, TRT22, TRF1…
   dataDistribuicao DateTime? @map("data_distribuicao")
   valorCausa       Decimal?  @map("valor_causa") @db.Decimal(14, 2)
   grau             String?
+  /// "Eletrônico" / "Físico" (formato.nome).
+  formato          String?
+  /// Sistema de origem no tribunal (ex.: PJe, eproc, Projudi).
+  sistema          String?
+  /// nivelSigilo do CNJ (0 = público). > 0 ⇒ segredo de justiça.
+  nivelSigilo      Int?     @map("nivel_sigilo")
+  segredoJustica   Boolean  @default(false) @map("segredo_justica")
+  /// Tags de prioridade legal (ex.: "Idoso", "Réu preso") quando o tribunal envia.
+  prioridades      Json?
+  /// Carimbo de última atualização informado pelo próprio CNJ.
+  atualizadoNoCnjEm DateTime? @map("atualizado_no_cnj_em")
+  /// PARTES BRUTAS do processo (nome/documento/polo/advogados) exatamente como
+  /// vieram do tribunal. Regra de negócio: quando o CPF não casa com nenhum
+  /// Filiado, NÃO criamos rascunho na tabela de filiados — o dado fica aqui, e a
+  /// tela oferece "Vincular a filiado existente" ou "Criar novo filiado".
+  partesBrutas     Json?    @map("partes_brutas")
 
   // ---- Dados internos do sindicato ----
+  /// INSTITUCIONAL = ação coletiva movida pelo SENATEPI em nome da categoria.
+  /// Escolhido na importação e usado para exibir a badge "Ação Institucional" e
+  /// para NÃO cobrar filiado vinculado — num processo coletivo não há um dono.
+  tipoAcao            TipoAcaoProcesso @default(INDIVIDUAL) @map("tipo_acao")
+  /// Etiquetas livres da equipe (Urgente, Fase de Execução, Coletiva…).
+  /// Texto puro de propósito: são rótulos operacionais que mudam com o tempo e
+  /// não valem uma tabela + join só para isso.
+  etiquetas           String[]       @default([])
   statusInterno       StatusProcesso @default(ATIVO) @map("status_interno")
   ultimaSincronizacao DateTime?      @map("ultima_sincronizacao")
   createdAt           DateTime       @default(now()) @map("created_at")
@@ -1319,9 +1540,18 @@ model Processo {
   filiado       Filiado?                 @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   advogado      User?                    @relation("ProcessoAdvogado", fields: [advogadoId], references: [id], onDelete: SetNull)
   movimentacoes MovimentacaoProcessual[]
+  movimentacoesInternas MovimentacaoInterna[]
   anexos        AnexoDocumento[]
   compromissos  Compromisso[]
   atendimentos  Atendimento[]
+  logsSincronizacao LogSincronizacaoDatajud[]
+  /// Partes do processo (polo ativo/passivo/terceiros) — fonte de verdade do
+  /// "quem processou quem" e também dos FILIADOS vinculados (N:N).
+  partes        ParteProcesso[]
+  /// Advogados da casa que atuam no processo (N:N). O `principal` é o responsável.
+  advogados     ProcessoAdvogado[]
+  /// Atividade da agenda que originou este processo (quando veio de um desfecho).
+  origemCompromisso Compromisso? @relation("ProcessoOrigemCompromisso", fields: [origemCompromissoId], references: [id], onDelete: SetNull)
 
   @@index([filiadoId])
   @@index([advogadoId])
@@ -1330,10 +1560,141 @@ model Processo {
   @@map("processos")
 }
 
-/// Anexo (documento/laudo) vinculado a um Atendimento (triagem) OU a um Processo.
+/// Cadastro de PARTE EXTERNA — quem não é filiado nem usuário do sistema: a
+/// empresa ré (PRONTOCARE), o município, uma autarquia, uma pessoa física, e
+/// também o PRÓPRIO SINDICATO quando é ele quem propõe a ação coletiva.
+///
+/// POR QUE UM CADASTRO, E NÃO TEXTO SOLTO NA PARTE: é o que permite responder
+/// perguntas institucionais que o sindicato faz o tempo todo — "quantas ações
+/// temos contra a PRONTOCARE?", "qual o valor total em causa contra o
+/// Município?". Com o nome digitado à mão em cada processo ("Prontocare",
+/// "PRONTO CARE LTDA", "Pronto-Care") isso é impossível.
+///
+/// POR QUE NÃO REAPROVEITAR `empresas`: aquela tabela tem outra semântica — é a
+/// EMPREGADORA dos colaboradores do sindicato (FK obrigatória em `colaboradores`).
+/// Uma empresa ré cairia no seletor de empresa do RH. São cadastros diferentes.
+///
+/// O cadastro é OPCIONAL: a parte pode ficar só com o nome digitado
+/// (`ParteProcesso.nome`) e ser promovida a cadastro depois, sem retrabalho.
+model ParteExterna {
+  id           String           @id @default(uuid())
+  tipo         TipoParteExterna
+  /// Razão social (PJ) ou nome completo (PF).
+  nome         String
+  nomeFantasia String?          @map("nome_fantasia")
+  /// CPF/CNPJ apenas com dígitos. Único quando informado (índice parcial no SQL),
+  /// nulo quando a parte é conhecida só pelo nome.
+  documento    String?
+  email        String?
+  telefone     String?
+  cidade       String?
+  uf           String?
+  observacoes  String?
+  ativo        Boolean          @default(true)
+  /// Marca a parte que É o próprio sindicato, usada como polo ativo das ações
+  /// institucionais. Existe uma só (índice único parcial na migração).
+  ///
+  /// Por que uma flag e não um id fixo no código: a secretaria pode corrigir
+  /// razão social e CNPJ pela tela de Partes sem que nada quebre — o back
+  /// procura por `institucional: true`, não por um UUID chumbado.
+  institucional Boolean         @default(false)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  participacoes ParteProcesso[]
+  /// Filiados que trabalham nesta organização. A mesma entidade serve de
+  /// EMPREGADOR e de PARTE em processo — no sindicato, o hospital que emprega
+  /// é com frequência o mesmo que é réu.
+  vinculos      VinculoProfissional[]
+
+  @@index([tipo])
+  @@index([ativo])
+  @@map("partes_externas")
+}
+
+/// PARTE DO PROCESSO — uma linha por parte, em um polo.
+///
+/// O DataJud NÃO resolve isso: a API Pública do CNJ devolve apenas metadados
+/// processuais (classe, assunto, órgão, movimentos). Verificado nos índices de
+/// TJPI, TRT22, TJSP e TRF1: o `_source` não tem `partes`, `poloAtivo` nem
+/// `advogados` — é uma decisão do CNJ por LGPD, não uma limitação do parser.
+/// Logo, as partes são um dado NOSSO, preenchido pela equipe.
+///
+/// IDENTIDADE EM CAMADAS: `nome` é SEMPRE gravado (snapshot de como a parte
+/// consta nos autos) e `filiadoId`/`parteExternaId` são enriquecimentos
+/// opcionais e MUTUAMENTE EXCLUSIVOS (CHECK no banco). Assim, apagar um filiado
+/// ou um cadastro de parte externa não apaga a história do processo: o vínculo
+/// vira nulo e o nome dos autos permanece.
+model ParteProcesso {
+  id         String       @id @default(uuid())
+  processoId String       @map("processo_id")
+  polo       PoloProcesso
+  /// Papel como consta nos autos (Reclamante, Reclamada, Autor, Réu, Exequente,
+  /// Substituído, Terceiro Interessado…). Texto livre porque a nomenclatura muda
+  /// conforme a justiça — o front sugere as opções mais comuns por polo.
+  papel      String?
+  /// Parte principal do polo: é o par que aparece como "Autor × Réu" na lista e
+  /// o que define o filiado principal do processo.
+  principal  Boolean      @default(false)
+
+  /// Nome como consta nos autos — obrigatório e sempre preenchido (snapshot).
+  nome       String
+  /// CPF/CNPJ como consta nos autos (só dígitos), quando conhecido.
+  documento  String?
+
+  /// Enriquecimentos opcionais e mutuamente exclusivos (ver CHECK na migração).
+  filiadoId      String? @map("filiado_id")
+  parteExternaId String? @map("parte_externa_id")
+
+  /// Advogados da parte adversa informados pela equipe ([{nome, oab}]).
+  advogados  Json?
+  observacao String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  processo     Processo      @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  filiado      Filiado?      @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  parteExterna ParteExterna? @relation(fields: [parteExternaId], references: [id], onDelete: SetNull)
+
+  @@index([processoId, polo])
+  @@index([filiadoId])
+  @@index([parteExternaId])
+  @@map("partes_processo")
+}
+
+/// Advogado da CASA que atua no processo (N:N com `users`).
+///
+/// Separado de `ParteProcesso` de propósito: advogado do sindicato não é parte —
+/// é responsável interno. É o que alimenta "meus processos", a distribuição de
+/// carteira e a escala. `principal` marca o responsável (no máximo um por
+/// processo, garantido por índice único parcial na migração).
+model ProcessoAdvogado {
+  processoId String   @map("processo_id")
+  advogadoId String   @map("advogado_id")
+  principal  Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  advogado User     @relation("ProcessoAdvogadoEquipe", fields: [advogadoId], references: [id], onDelete: Cascade)
+
+  @@id([processoId, advogadoId])
+  @@index([advogadoId])
+  @@map("processos_advogados")
+}
+
+/// Anexo (documento/laudo) vinculado a um Atendimento (triagem), a um Processo
+/// OU a uma atividade da Agenda.
 /// LGPD (art. 6º, VII): o arquivo é guardado por chave opaca no storage e servido
 /// apenas por URL controlada pela API (local) ou assinada e temporária (S3),
 /// nunca por caminho público adivinhável.
+///
+/// REAPROVEITAMENTO ("puxar documento"): o filiado entrega o mesmo laudo/RG várias
+/// vezes ao longo do ano. Em vez de exigir novo upload a cada atendimento, a
+/// equipe PUXA um documento já existente do acervo do filiado: cria-se uma nova
+/// linha aqui apontando para a MESMA `storage_key` (arquivo único no bucket) e
+/// registrando de onde veio (`origem_anexo_id` ou `origem_documento_id`).
+/// Consequência importante: a exclusão só apaga o arquivo do storage quando
+/// nenhuma outra linha (aqui ou em `documentos`) ainda usa aquela chave.
 model AnexoDocumento {
   id           String  @id @default(uuid())
   storageKey   String  @map("storage_key") // chave opaca no bucket (fonte de verdade)
@@ -1345,14 +1706,29 @@ model AnexoDocumento {
   // Vínculo polimórfico (exatamente um preenchido)
   atendimentoId String? @map("atendimento_id")
   processoId    String? @map("processo_id")
+  /// Atividade da agenda (audiência, diligência, consulta) dona do documento.
+  compromissoId String? @map("compromisso_id")
+
+  /// Procedência quando o anexo foi PUXADO do acervo do filiado (não houve
+  /// upload). SetNull: apagar a origem não apaga a cópia já vinculada aqui.
+  origemAnexoId     String? @map("origem_anexo_id")
+  origemDocumentoId String? @map("origem_documento_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
   atendimento Atendimento? @relation(fields: [atendimentoId], references: [id], onDelete: Cascade)
   processo    Processo?    @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  compromisso Compromisso? @relation(fields: [compromissoId], references: [id], onDelete: Cascade)
+  origemAnexo     AnexoDocumento?  @relation("AnexoReaproveitado", fields: [origemAnexoId], references: [id], onDelete: SetNull)
+  reaproveitados  AnexoDocumento[] @relation("AnexoReaproveitado")
+  origemDocumento Documento?       @relation(fields: [origemDocumentoId], references: [id], onDelete: SetNull)
+  /// Movimentações internas que citam este anexo (SetNull do outro lado).
+  movimentacoes MovimentacaoInterna[]
 
   @@index([atendimentoId])
   @@index([processoId])
+  @@index([compromissoId])
+  @@index([storageKey])
   @@map("anexos_documentos")
 }
 
@@ -1370,6 +1746,17 @@ model MovimentacaoProcessual {
   descricao       String
   codigoMovimento Int?     @map("codigo_movimento")
   createdAt       DateTime @default(now()) @map("created_at")
+
+  // ---- Detalhamento do ato (para o advogado não precisar abrir o PJe) ----
+  /// `complementosTabelados` cru: [{codigo, descricao, valor, nome}].
+  complementos    Json?
+  /// Rótulo derivado dos complementos — o "— Contestação" de
+  /// "Petição — Contestação". Precomputado na escrita para a leitura ser barata.
+  detalhe         String?
+  /// Síntese/teor do ato quando o tribunal envia (`conteudo`/`descricao`).
+  conteudo        String?
+  /// Órgão julgador que praticou o ato (pode diferir do órgão atual do processo).
+  orgaoJulgador   String?  @map("orgao_julgador")
 
   /// Movimentação é DESIGNAÇÃO/REDESIGNAÇÃO de audiência (código TPU + texto)?
   ehAudiencia Boolean @default(false) @map("eh_audiencia")
@@ -1392,4 +1779,184 @@ model MovimentacaoProcessual {
   @@index([ehAudiencia, dispensadoEm])
   @@index([compromissoId])
   @@map("movimentacoes_processuais")
+}
+
+/// De onde partiu a chamada ao DataJud (as ÚNICAS três permitidas).
+enum OrigemSincronizacao {
+  IMPORTACAO // cadastro do processo
+  MANUAL // botão "Sincronizar DataJud" no detalhe
+  CRON // varredura noturna
+}
+
+/// Log de cada chamada ao DataJud — dá visibilidade ao que o robô fez de
+/// madrugada e guarda o motivo das falhas (rate limit, tribunal fora do ar…).
+/// LGPD: registra só metadado público (NPU, tribunal) e a mensagem técnica.
+model LogSincronizacaoDatajud {
+  id                 String              @id @default(uuid())
+  processoId         String?             @map("processo_id")
+  numeroCNJ          String              @map("numero_cnj")
+  tribunal           String?
+  origem             OrigemSincronizacao
+  sucesso            Boolean
+  httpStatus         Int?                @map("http_status")
+  mensagemErro       String?             @map("mensagem_erro")
+  novasMovimentacoes Int                 @default(0) @map("novas_movimentacoes")
+  duracaoMs          Int?                @map("duracao_ms")
+  createdAt          DateTime            @default(now()) @map("created_at")
+
+  processo Processo? @relation(fields: [processoId], references: [id], onDelete: SetNull)
+
+  @@index([processoId])
+  @@index([createdAt])
+  @@index([sucesso, createdAt])
+  @@map("logs_sincronizacao_datajud")
+}
+
+/// Tipo de movimentação interna (andamento) — CADASTRÁVEL, mesma ideia dos tipos
+/// de evento da Agenda. Os tipos "sistema" são semeados na migração e não podem
+/// ser excluídos, só renomeados/recoloridos/ocultados.
+/// (Nome "TipoAndamento" para não colidir com o enum TipoMovimentacao do
+/// financeiro; a tabela continua sendo `tipos_movimentacao`.)
+model TipoAndamento {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  nome      String
+  cor       String   @default("slate")
+  ordem     Int      @default(0)
+  ativo     Boolean  @default(true)
+  sistema   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tipos_movimentacao")
+}
+
+/// Movimentação registrada MANUALMENTE pela equipe jurídica (andamento interno).
+///
+/// Fica em tabela SEPARADA de `MovimentacaoProcessual` de propósito: aquela é um
+/// espelho fiel do DataJud (recriável e sujeito à varredura noturna/radar), esta
+/// é conteúdo produzido pelo escritório — tem autor, anexo, nota interna e pode
+/// carimbar a mudança de status do processo. Misturar as duas tornaria o cache
+/// do CNJ dono de dados que não são dele. A "linha do tempo" da tela é a UNIÃO
+/// das duas fontes, ordenada por data.
+model MovimentacaoInterna {
+  id         String   @id @default(uuid())
+  processoId String   @map("processo_id")
+  /// Slug de TipoMovimentacao (cadastrável).
+  tipo       String
+  descricao  String
+  /// DATA DO FATO — quando o ato REALMENTE aconteceu, se diferente do registro.
+  ///
+  /// Sem isto, a audiência de quarta lançada na sexta apareceria na sexta e a
+  /// linha do tempo mentiria. A ordenação da timeline usa `dataFato ?? createdAt`;
+  /// `createdAt` continua intocado como carimbo de auditoria ("registrado em"),
+  /// e a tela mostra os dois quando divergem.
+  dataFato   DateTime? @map("data_fato")
+  /// Nota interna: não deve ser exibida ao filiado em relatórios/extratos.
+  notaInterna Boolean @default(false) @map("nota_interna")
+  /// Carimbo da mudança de status feita JUNTO com esta movimentação (auditoria).
+  statusAnterior StatusProcesso? @map("status_anterior")
+  statusNovo     StatusProcesso? @map("status_novo")
+  /// Documento anexado no ato do registro (também aparece na aba Documentos).
+  anexoId    String?  @map("anexo_id")
+  /// Autor do registro. SetNull: excluir o usuário não apaga o histórico.
+  autorId    String?  @map("autor_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  processo Processo        @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  autor    User?           @relation("MovimentacaoAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  anexo    AnexoDocumento? @relation(fields: [anexoId], references: [id], onDelete: SetNull)
+
+  @@index([processoId, createdAt])
+  // Ordenação da timeline pela data do FATO (quando informada).
+  @@index([processoId, dataFato])
+  @@index([tipo])
+  @@map("movimentacoes_internas")
+}
+
+/// Situação da contribuição patronal declarada pela empresa no portal.
+enum StatusContribuicaoPatronal {
+  /// Guia gerada; aguardando o PIX e o envio dos documentos.
+  AGUARDANDO
+  /// Documentos enviados; aguardando conferência do sindicato.
+  EM_ANALISE
+  /// Conferida e aceita.
+  HOMOLOGADA
+  /// Recusada — a empresa precisa corrigir e declarar de novo.
+  REJEITADA
+}
+
+/// Contribuição patronal declarada pela empresa no Portal.
+///
+/// O fluxo é: a empresa declara mês e valor (AGUARDANDO) → paga o PIX e anexa
+/// o comprovante mais a relação de trabalhadores (EM_ANALISE) → o sindicato
+/// confere (HOMOLOGADA ou REJEITADA).
+///
+/// LGPD: a relação de trabalhadores contém dados pessoais de terceiros. Por
+/// isso os arquivos NÃO ficam públicos — as colunas guardam a CHAVE no storage
+/// e a API devolve uma URL assinada de curta duração a cada leitura.
+model ContribuicaoPatronal {
+  id            String @id @default(uuid())
+  empresaId     String @map("empresa_id")
+  /// Competência no formato AAAA-MM (ex.: "2026-07") — ordena como texto.
+  mesReferencia String @map("mes_referencia")
+  /// Valor informado pela empresa; a conferência do sindicato é manual.
+  valorDeclarado Decimal @map("valor_declarado") @db.Decimal(12, 2)
+
+  status StatusContribuicaoPatronal @default(AGUARDANDO)
+
+  /// Chaves no storage (ver nota de LGPD acima).
+  urlComprovantePix        String? @map("url_comprovante_pix")
+  urlRelacaoTrabalhadores  String? @map("url_relacao_trabalhadores")
+
+  /// Momento em que os documentos entraram (início da análise).
+  enviadoEm DateTime? @map("enviado_em")
+
+  // --- Conferência pelo sindicato ---
+  /// Obrigatório na rejeição: é o que a empresa lê para saber o que corrigir.
+  motivoRejeicao String?   @map("motivo_rejeicao")
+  analisadoEm    DateTime? @map("analisado_em")
+  /// Quem homologou/rejeitou. SetNull: excluir o usuário não apaga a trilha.
+  analisadoPor   String?   @map("analisado_por")
+  /// Lançamento no fluxo de caixa gerado pela homologação.
+  /// @unique impede lançar o mesmo valor duas vezes.
+  movimentacaoId String?   @unique @map("movimentacao_id")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  empresa      Empresa       @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  analista     User?         @relation("ContribuicaoAnalista", fields: [analisadoPor], references: [id], onDelete: SetNull)
+  movimentacao Movimentacao? @relation(fields: [movimentacaoId], references: [id], onDelete: SetNull)
+
+  @@index([empresaId, mesReferencia])
+  @@index([status])
+  @@map("contribuicoes_patronais")
+}
+
+/// O que aconteceu com uma atividade, em ordem.
+///
+/// A Auditoria global registra tudo, mas é do sistema inteiro e não serve para
+/// mostrar ao usuário "o que houve com ESTE compromisso". Esta tabela é a linha
+/// do tempo exibida no detalhe da atividade.
+model CompromissoHistorico {
+  id            String   @id @default(uuid())
+  compromissoId String   @map("compromisso_id")
+  /// CRIADO | EDITADO | INICIADO | CONCLUIDO | CANCELADO | REMARCADO | REABERTO
+  acao          String
+  /// Frase pronta para a tela ("Concluída — Houve acordo").
+  descricao     String
+  /// Nome de quem fez, congelado: se o usuário for excluído, a linha continua legível.
+  autorNome     String?  @map("autor_nome")
+  autorId       String?  @map("autor_id")
+  /// Detalhes estruturados (status anterior, datas da remarcação, motivo…).
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  compromisso Compromisso @relation(fields: [compromissoId], references: [id], onDelete: Cascade)
+  autor       User?       @relation("CompromissoHistoricoAutor", fields: [autorId], references: [id], onDelete: SetNull)
+
+  @@index([compromissoId, createdAt])
+  @@map("compromissos_historico")
 }

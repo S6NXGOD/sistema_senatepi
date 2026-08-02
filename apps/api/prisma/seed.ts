@@ -6,10 +6,8 @@ import {
   FormacaoProfissional,
   SituacaoFiliado,
   TipoDependente,
-  StatusGenerico,
-  StatusFuncionario,
-  TipoFuncionario,
-  TipoPrestador,
+  StatusColaborador,
+  TipoVinculo,
   TipoEvento,
   StatusEvento,
 } from '@prisma/client';
@@ -112,42 +110,49 @@ async function main() {
   });
   console.log('✓ Filiado de exemplo + 2 dependentes + carteirinha');
 
-  // ---- Funcionário e prestador ----
-  await prisma.funcionario.upsert({
+  // ---- Colaborador de exemplo ----
+  // Funcionários e prestadores foram unificados em Colaborador; o prestador PJ
+  // do seed antigo virou Empresa, que é o lugar de pessoa jurídica.
+  const cargo = await prisma.cargo.upsert({
+    where: { nome: 'Assistente Administrativo' },
+    update: {},
+    create: { nome: 'Assistente Administrativo' },
+  });
+  const departamento = await prisma.departamento.upsert({
+    where: { nome: 'Administração' },
+    update: {},
+    create: { nome: 'Administração' },
+  });
+
+  await prisma.colaborador.upsert({
     where: { cpf: '11122233344' },
     update: {},
     create: {
-      matricula: 'FUNC-2026-000001',
+      matricula: 'FUNC-000001',
       nome: 'Carlos Pereira',
       cpf: '11122233344',
       dataNascimento: new Date('1990-03-10'),
       dataAdmissao: new Date('2020-05-01'),
       telefone: '(86) 99888-1122',
-      cargo: 'Assistente Administrativo',
-      departamento: 'Administração',
-      tipo: TipoFuncionario.FUNCIONARIO,
-      status: StatusFuncionario.ATIVO,
+      tipoVinculo: TipoVinculo.CLT,
+      status: StatusColaborador.ATIVO,
+      cargoId: cargo.id,
+      departamentoId: departamento.id,
       qrToken: randomUUID(),
     },
   });
 
-  await prisma.prestador.upsert({
-    where: { cpfCnpj: '12345678000199' },
+  await prisma.empresa.upsert({
+    where: { cnpj: '12345678000199' },
     update: {},
     create: {
-      nome: 'Limpeza Total LTDA',
-      tipoPessoa: TipoPrestador.PESSOA_JURIDICA,
-      cpfCnpj: '12345678000199',
-      empresa: 'Limpeza Total LTDA',
-      telefone: '(86) 3000-0000',
-      contratoNumero: 'CT-2026-01',
-      vigenciaInicio: new Date('2026-01-01'),
-      vigenciaFim: new Date('2026-12-31'),
-      status: StatusGenerico.ATIVO,
-      qrToken: randomUUID(),
+      cnpj: '12345678000199',
+      razaoSocial: 'Limpeza Total LTDA',
+      // Fornecedora, sem acesso ao portal patronal.
+      primeiroAcesso: false,
     },
   });
-  console.log('✓ Funcionário e prestador de exemplo');
+  console.log('✓ Colaborador e empresa de exemplo');
 
   // ---- Evento ----
   await prisma.evento.create({
