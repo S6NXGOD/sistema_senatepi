@@ -1,0 +1,313 @@
+import { api } from './api';
+
+/**
+ * Plenário Virtual — assembleias, cursos e sorteios.
+ *
+ * Há DUAS camadas aqui, de propósito:
+ *  - `admin*`  → exige login, é a mesa diretora conduzindo o evento
+ *  - `sala*`   → público, o filiado entra só com o link e o CPF
+ *
+ * A separação existe porque o participante não pode ter conta no sistema: são
+ * 7 mil filiados, e exigir senha afastaria justamente quem a assembleia
+ * precisa que participe.
+ */
+
+export type TipoEvento =
+  | 'ASSEMBLEIA' | 'CONGRESSO' | 'REUNIAO' | 'CURSO' | 'SORTEIO'
+  | 'NEGOCIACAO' | 'EVENTO_SOCIAL' | 'EVENTO_ESPORTIVO' | 'OUTRO';
+
+export type StatusEvento = 'AGENDADO' | 'EM_ANDAMENTO' | 'REALIZADO' | 'CANCELADO';
+export type ModoVotacao = 'SECRETA' | 'NOMINAL';
+export type StatusPauta = 'RASCUNHO' | 'ABERTA' | 'ENCERRADA';
+
+export const TIPO_EVENTO_LABEL: Record<TipoEvento, string> = {
+  ASSEMBLEIA: 'Assembleia',
+  CONGRESSO: 'Congresso',
+  REUNIAO: 'Reunião',
+  CURSO: 'Curso',
+  SORTEIO: 'Sorteio',
+  NEGOCIACAO: 'Negociação',
+  EVENTO_SOCIAL: 'Evento social',
+  EVENTO_ESPORTIVO: 'Evento esportivo',
+  OUTRO: 'Outro',
+};
+
+export const STATUS_EVENTO_LABEL: Record<StatusEvento, string> = {
+  AGENDADO: 'Agendado',
+  EM_ANDAMENTO: 'Em andamento',
+  REALIZADO: 'Realizado',
+  CANCELADO: 'Cancelado',
+};
+
+export const STATUS_EVENTO_COR: Record<StatusEvento, string> = {
+  AGENDADO: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  EM_ANDAMENTO: 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100',
+  REALIZADO: 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200',
+  CANCELADO: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-200',
+};
+
+/** Espelha `configuracoes-evento.ts` na API — o contrato do "camaleão". */
+export interface ConfiguracoesEvento {
+  exigeAdimplencia: boolean;
+  habilitarVotacao: boolean;
+  habilitarSorteio: boolean;
+  gerarCertificado: boolean;
+  cargaHoraria?: number;
+  permiteDependente: boolean;
+  checkinAbreMinutosAntes: number;
+  checkinFechaMinutosDepois: number;
+  avisoCheckin?: string;
+}
+
+/** Rótulo e explicação de cada chave, para o formulário não virar adivinhação. */
+export const CHAVES_CONFIG: {
+  chave: keyof ConfiguracoesEvento;
+  rotulo: string;
+  ajuda: string;
+}[] = [
+  {
+    chave: 'exigeAdimplencia',
+    rotulo: 'Exigir contribuição em dia',
+    ajuda: 'Barra quem tem parcela vencida. Use em assembleia deliberativa.',
+  },
+  {
+    chave: 'habilitarVotacao',
+    rotulo: 'Habilitar votação',
+    ajuda: 'Libera pautas e urna. Sem isto, a sala mostra só a lista de presença.',
+  },
+  {
+    chave: 'habilitarSorteio',
+    rotulo: 'Habilitar sorteio',
+    ajuda: 'Permite sortear brindes entre os presentes, com resultado conferível.',
+  },
+  {
+    chave: 'gerarCertificado',
+    rotulo: 'Emitir certificado',
+    ajuda: 'Para cursos: gera certificado por participante ao encerrar.',
+  },
+  {
+    chave: 'permiteDependente',
+    rotulo: 'Permitir dependentes',
+    ajuda: 'Dependente não vota nem conta para quórum. Faz sentido em evento social.',
+  },
+];
+
+export interface Evento {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  local: string | null;
+  dataInicio: string;
+  dataFim: string | null;
+  tipo: TipoEvento;
+  status: StatusEvento;
+  linkReuniao: string | null;
+  urlVideoDrive: string | null;
+  textoAta: string | null;
+  configuracoes: ConfiguracoesEvento;
+  _count?: { presencas: number; pautas?: number; sorteios?: number };
+}
+
+export interface OpcaoPauta {
+  id: string;
+  rotulo: string;
+}
+
+export interface Pauta {
+  id: string;
+  titulo: string;
+  descricao: string | null;
+  opcoes: OpcaoPauta[];
+  modo: ModoVotacao;
+  status: StatusPauta;
+  quorumMinimo: number | null;
+  totalVotantes?: number;
+}
+
+export interface Apuracao {
+  pautaId: string;
+  titulo: string;
+  modo: ModoVotacao;
+  status: StatusPauta;
+  totalVotantes: number;
+  quorumMinimo: number | null;
+  quorumAtingido: boolean;
+  presentes: number;
+  resultado: { opcaoId: string; rotulo: string; votos: number; percentual: number }[];
+  vencedora: { opcaoId: string; rotulo: string } | null;
+  empate: boolean;
+}
+
+export interface Sorteio {
+  id: string;
+  titulo: string;
+  premio: string | null;
+  seed: string;
+  resultado: { filiadoId: string; nome: string; matricula: string; posicao: number }[];
+  realizadoEm: string;
+}
+
+// ---------------------------------------------------------------------------
+// Administração (com login)
+// ---------------------------------------------------------------------------
+
+export async function listarEventos(): Promise<Evento[]> {
+  return (await api.get('/eventos')).data;
+}
+
+export async function obterEvento(id: string): Promise<Evento> {
+  return (await api.get(`/eventos/${id}`)).data;
+}
+
+export async function criarEvento(dto: Partial<Evento>): Promise<Evento> {
+  return (await api.post('/eventos', dto)).data;
+}
+
+export async function atualizarEvento(id: string, dto: Partial<Evento>): Promise<Evento> {
+  return (await api.patch(`/eventos/${id}`, dto)).data;
+}
+
+export async function listarPautas(eventoId: string): Promise<Pauta[]> {
+  return (await api.get(`/eventos/${eventoId}/plenario/pautas`)).data;
+}
+
+export async function criarPauta(
+  eventoId: string,
+  dto: { titulo: string; descricao?: string; opcoes: OpcaoPauta[]; modo: ModoVotacao; quorumMinimo?: number },
+): Promise<Pauta> {
+  return (await api.post(`/eventos/${eventoId}/plenario/pautas`, dto)).data;
+}
+
+export async function abrirPauta(eventoId: string, pautaId: string): Promise<Pauta> {
+  return (await api.post(`/eventos/${eventoId}/plenario/pautas/${pautaId}/abrir`, {})).data;
+}
+
+export async function encerrarPauta(eventoId: string, pautaId: string): Promise<Apuracao> {
+  return (await api.post(`/eventos/${eventoId}/plenario/pautas/${pautaId}/encerrar`, {})).data;
+}
+
+export async function apurarPauta(eventoId: string, pautaId: string): Promise<Apuracao> {
+  return (await api.get(`/eventos/${eventoId}/plenario/pautas/${pautaId}/apuracao`)).data;
+}
+
+export async function sortear(
+  eventoId: string,
+  dto: { titulo: string; premio?: string; quantidade?: number; somenteAdimplentes?: boolean },
+): Promise<Sorteio & { totalConcorrentes: number; ganhadores: Sorteio['resultado'] }> {
+  return (await api.post(`/eventos/${eventoId}/plenario/sorteios`, dto)).data;
+}
+
+export async function listarSorteios(eventoId: string): Promise<Sorteio[]> {
+  return (await api.get(`/eventos/${eventoId}/plenario/sorteios`)).data;
+}
+
+export async function conferirSorteio(eventoId: string, sorteioId: string) {
+  return (await api.get(`/eventos/${eventoId}/plenario/sorteios/${sorteioId}/conferir`)).data as {
+    confere: boolean;
+    explicacao: string;
+    seed: string;
+  };
+}
+
+export async function listarPresencas(eventoId: string) {
+  return (await api.get(`/eventos/${eventoId}/presencas`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Sala pública (sem login)
+// ---------------------------------------------------------------------------
+
+export interface SalaPublica {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  dataInicio: string;
+  tipo: TipoEvento;
+  status: StatusEvento;
+  checkinAberto: boolean;
+  motivo: string;
+  exigeAdimplencia: boolean;
+  avisoCheckin: string | null;
+  linkReuniao: null;
+}
+
+export interface ResultadoCheckin {
+  liberado: boolean;
+  motivo: string;
+  participante?: { nome: string; matricula: string; presencaId: string; jaEstava: boolean };
+}
+
+export interface Sessao {
+  evento: {
+    id: string;
+    nome: string;
+    status: StatusEvento;
+    linkReuniao: string | null;
+    urlVideoDrive: string | null;
+  };
+  participante: { presencaId: string; nome: string; filiadoId: string | null };
+  recursos: { votacao: boolean; sorteio: boolean };
+}
+
+export interface EstadoAoVivo {
+  pauta:
+    | (Pauta & { votantes: number | null; jaVotou: boolean; resultado: Apuracao | null })
+    | null;
+  ultimoSorteio: Sorteio | null;
+  /** Muda quando algo relevante muda — a tela só redesenha se a versão avançar. */
+  versao: string;
+}
+
+export async function abrirSala(eventoId: string): Promise<SalaPublica> {
+  return (await api.get(`/sala/${eventoId}`)).data;
+}
+
+export async function fazerCheckin(eventoId: string, cpf: string): Promise<ResultadoCheckin> {
+  return (await api.post(`/sala/${eventoId}/checkin`, { cpf })).data;
+}
+
+export async function obterSessao(eventoId: string, presencaId: string): Promise<Sessao> {
+  return (await api.get(`/sala/${eventoId}/sessao/${presencaId}`)).data;
+}
+
+export async function estadoAoVivo(eventoId: string, presencaId?: string): Promise<EstadoAoVivo> {
+  const q = presencaId ? `?presencaId=${encodeURIComponent(presencaId)}` : '';
+  return (await api.get(`/sala/${eventoId}/ao-vivo${q}`)).data;
+}
+
+export async function votar(eventoId: string, pautaId: string, presencaId: string, opcaoId: string) {
+  return (await api.post(`/sala/${eventoId}/votar/${pautaId}`, { presencaId, opcaoId })).data;
+}
+
+/**
+ * A credencial do participante fica no navegador dele.
+ *
+ * `sessionStorage`, e não `localStorage`: a sessão morre ao fechar a aba. Numa
+ * assembleia em computador compartilhado — recepção do sindicato, lan house —
+ * deixar o `presencaId` da pessoa anterior gravado permitiria a próxima votar
+ * no lugar dela.
+ */
+const CHAVE = (eventoId: string) => `senatepi:sala:${eventoId}`;
+
+export function guardarPresenca(eventoId: string, presencaId: string) {
+  try { sessionStorage.setItem(CHAVE(eventoId), presencaId); } catch { /* modo privado */ }
+}
+export function lerPresenca(eventoId: string): string | null {
+  try { return sessionStorage.getItem(CHAVE(eventoId)); } catch { return null; }
+}
+export function esquecerPresenca(eventoId: string) {
+  try { sessionStorage.removeItem(CHAVE(eventoId)); } catch { /* ignora */ }
+}
+
+/**
+ * Aviso de LGPD exibido ANTES de capturar CPF e IP.
+ *
+ * Avisar depois de coletar não é aviso. O texto fica aqui, num lugar só, para
+ * que a tela de check-in e o dossiê citem exatamente a mesma base legal.
+ */
+export const AVISO_LGPD =
+  'Ao confirmar sua presença, registramos seu CPF, endereço IP e data/hora, para ' +
+  'comprovar a participação e o quórum deste evento. O tratamento segue a Lei Geral ' +
+  'de Proteção de Dados Pessoais (LGPD), Lei nº 13.709, de 14 de agosto de 2018 ' +
+  '(Fonte: Diário Oficial da União). Os dados são usados exclusivamente para fins de ' +
+  'registro associativo e não são compartilhados com terceiros.';
