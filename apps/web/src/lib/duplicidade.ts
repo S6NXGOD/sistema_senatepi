@@ -85,6 +85,36 @@ export async function fundirDuplicados(manterId: string, descartarId: string) {
     .data;
 }
 
+export interface ItemLote {
+  manterId: string;
+  descartarId: string;
+  nome: string;
+  manterMatricula: string;
+  descartarMatricula: string;
+}
+
+/**
+ * Prévia do lote — só os grupos em que o cadastro descartado está
+ * COMPLETAMENTE vazio (nome e matrícula, nada mais). São 58% do total, e a
+ * fusão neles não copia nada porque não há nada a copiar.
+ */
+export async function previaLote(): Promise<{ total: number; amostra: ItemLote[] }> {
+  return (await api.get('/filiados/duplicidade/lote')).data;
+}
+
+/**
+ * Executa UMA FATIA do lote. Chamar em laço até `restantes` zerar: 704 fusões
+ * numa requisição só estourariam o tempo do proxy, e uma queda no meio
+ * deixaria o operador sem saber o que foi feito.
+ */
+export async function executarLote(limite = 25): Promise<{
+  fundidos: number;
+  restantes: number;
+  falhas: { nome: string; motivo: string }[];
+}> {
+  return (await api.delete('/filiados/duplicidade/lote', { data: { limite } })).data;
+}
+
 /** Campos comparados lado a lado no cartão, na ordem em que ajudam a decidir. */
 export const CAMPOS_COMPARADOS = [
   { chave: 'cpf', rotulo: 'CPF' },

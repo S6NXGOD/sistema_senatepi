@@ -1,12 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, HelpCircle, Loader2, Merge, Users, X,
+  AlertCircle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle,
+  Keyboard, List, Loader2, Merge, Users, X,
 } from 'lucide-react';
+import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +33,13 @@ export default function DuplicadosPage() {
   const [executando, setExecutando] = useState(false);
   /** Escolha do operador quando ele discorda do sugerido (ou não há sugestão). */
   const [escolha, setEscolha] = useState<Record<string, string>>({});
+  /**
+   * Foco: um grupo por vez, comandado pelo teclado. Rolar uma lista de 1.400
+   * cartões e mirar botões com o mouse é o que tornava a revisão exaustiva —
+   * aqui a mão não sai do teclado e cada decisão é uma tecla.
+   */
+  const [modo, setModo] = useState<'lista' | 'foco'>('lista');
+  const [indice, setIndice] = useState(0);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['duplicados'],
@@ -70,16 +79,64 @@ export default function DuplicadosPage() {
     }
   }
 
-  async function naoDuplicado(g: GrupoDuplicata) {
-    const [a, b] = g.candidatos;
-    try {
-      await marcarDistintos(a.id, b.id);
-      toast.success('Marcado como pessoas diferentes — não aparecerá de novo.');
-      qc.invalidateQueries({ queryKey: ['duplicados'] });
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Não foi possível registrar.');
+  const naoDuplicado = useCallback(
+    async (g: GrupoDuplicata) => {
+      const [a, b] = g.candidatos;
+      try {
+        await marcarDistintos(a.id, b.id);
+        toast.success('Marcado como pessoas diferentes — não aparecerá de novo.');
+        qc.invalidateQueries({ queryKey: ['duplicados'] });
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'Não foi possível registrar.');
+      }
+    },
+    [qc],
+  );
+
+  const atual = grupos[Math.min(indice, Math.max(0, grupos.length - 1))];
+  const escolhidoDoAtual = atual
+    ? escolha[atual.chave] ?? atual.candidatos.find((c) => c.sugerido)?.id ?? null
+    : null;
+
+  /**
+   * Atalhos do modo foco.
+   *
+   * Enter confirma o que está marcado, N descarta o par, setas navegam e 1/2
+   * trocam qual cadastro fica. Escrito com `useEffect` no window porque os
+   * botões não têm foco: a intenção é justamente não precisar clicar em nada.
+   */
+  useEffect(() => {
+    if (modo !== 'foco' || !atual) return;
+    function aoTeclar(e: KeyboardEvent) {
+      // Não sequestra o teclado enquanto se digita em algum campo.
+      const alvo = e.target as HTMLElement;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(alvo.tagName)) return;
+      const g = atual!;
+
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        setIndice((i) => Math.min(i + 1, grupos.length - 1));
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setIndice((i) => Math.max(i - 1, 0));
+      } else if (e.key === '1' || e.key === '2') {
+        const c = g.candidatos[Number(e.key) - 1];
+        if (c) setEscolha((x) => ({ ...x, [g.chave]: c.id }));
+      } else if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        void naoDuplicado(g);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const manter = g.candidatos.find((c) => c.id === escolhidoDoAtual);
+        if (ehAdmin && manter && g.candidatos.length === 2) setFundindo({ grupo: g, manter });
+      }
     }
-  }
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [modo, atual, grupos.length, escolhidoDoAtual, ehAdmin, naoDuplicado]);
+
+  // Trocar de aba recomeça a fila.
+  useEffect(() => { setIndice(0); }, [aba]);
 
   return (
     <div className="space-y-5">
@@ -97,8 +154,11 @@ export default function DuplicadosPage() {
         </div>
       </div>
 
+      {/* Consolidação em lote — só a fatia sem nada a perder. */}
+      {ehAdmin && <LoteDuplicados />}
+
       {/* Abas por confiança */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {NIVEIS.map((n) => (
           <button
             key={n}
@@ -113,6 +173,22 @@ export default function DuplicadosPage() {
             <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{porNivel[n].length}</span>
           </button>
         ))}
+        <div className="ml-auto flex gap-1 rounded-lg border p-0.5">
+          <button
+            type="button"
+            onClick={() => setModo('lista')}
+            className={cn('flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs', modo === 'lista' && 'bg-muted font-semibold')}
+          >
+            <List className="h-3.5 w-3.5" /> Lista
+          </button>
+          <button
+            type="button"
+            onClick={() => setModo('foco')}
+            className={cn('flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs', modo === 'foco' && 'bg-muted font-semibold')}
+          >
+            <Keyboard className="h-3.5 w-3.5" /> Foco
+          </button>
+        </div>
       </div>
       <p className="text-xs text-muted-foreground">{CONFIANCA_EXPLICACAO[aba]}</p>
 
@@ -138,19 +214,55 @@ export default function DuplicadosPage() {
         </CardContent></Card>
       )}
 
-      <div className="space-y-4">
-        {grupos.map((g) => (
+      {modo === 'foco' && atual && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <Button variant="outline" size="sm" disabled={indice === 0} onClick={() => setIndice((i) => i - 1)}>
+              <ChevronLeft className="h-4 w-4" /> Anterior
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {Math.min(indice + 1, grupos.length)} de {grupos.length}
+            </span>
+            <Button variant="outline" size="sm" disabled={indice >= grupos.length - 1} onClick={() => setIndice((i) => i + 1)}>
+              Pular <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
           <GrupoCard
-            key={g.chave}
-            grupo={g}
+            grupo={atual}
             ehAdmin={ehAdmin}
-            escolhidoId={escolha[g.chave] ?? g.candidatos.find((c) => c.sugerido)?.id ?? null}
-            onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
-            onFundir={(manter) => setFundindo({ grupo: g, manter })}
-            onNaoDuplicado={() => naoDuplicado(g)}
+            escolhidoId={escolhidoDoAtual}
+            onEscolher={(id) => setEscolha((e) => ({ ...e, [atual.chave]: id }))}
+            onFundir={(manter) => setFundindo({ grupo: atual, manter })}
+            onNaoDuplicado={() => naoDuplicado(atual)}
           />
-        ))}
-      </div>
+
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <span className="font-medium">Atalhos:</span>
+            <Atalho tecla="Enter" acao="consolidar" />
+            <Atalho tecla="N" acao="não é duplicado" />
+            <Atalho tecla="1 / 2" acao="escolher qual fica" />
+            <Atalho tecla="→ ou Espaço" acao="pular" />
+            <Atalho tecla="←" acao="voltar" />
+          </div>
+        </div>
+      )}
+
+      {modo === 'lista' && (
+        <div className="space-y-4">
+          {grupos.map((g) => (
+            <GrupoCard
+              key={g.chave}
+              grupo={g}
+              ehAdmin={ehAdmin}
+              escolhidoId={escolha[g.chave] ?? g.candidatos.find((c) => c.sugerido)?.id ?? null}
+              onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
+              onFundir={(manter) => setFundindo({ grupo: g, manter })}
+              onNaoDuplicado={() => naoDuplicado(g)}
+            />
+          ))}
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!fundindo}
@@ -170,6 +282,15 @@ export default function DuplicadosPage() {
         }
       />
     </div>
+  );
+}
+
+function Atalho({ tecla, acao }: { tecla: string; acao: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <kbd className="rounded border bg-background px-1.5 py-0.5 font-mono text-[10px] shadow-sm">{tecla}</kbd>
+      {acao}
+    </span>
   );
 }
 

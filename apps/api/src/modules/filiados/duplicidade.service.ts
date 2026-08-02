@@ -477,6 +477,79 @@ export class DuplicidadeService {
   }
 
   // =========================================================================
+  // Lote — só o caso em que não há absolutamente nada a perder
+  // =========================================================================
+
+  /**
+   * Grupos elegíveis à consolidação em lote.
+   *
+   * O critério é DELIBERADAMENTE estreito: exatamente dois cadastros, nenhum
+   * campo se contradizendo, e o que sai com pontuação ZERO — ou seja, só nome
+   * e matrícula, sem CPF, sem contato, sem endereço, sem local de trabalho.
+   *
+   * É o que torna o lote defensável. A fusão não copia NADA porque não há
+   * nada; e se por azar forem duas pessoas diferentes, o que se perde é um
+   * cadastro que não continha informação alguma — com a matrícula preservada
+   * no histórico do que ficou.
+   *
+   * São 704 dos 1.224 pares na base: 58% do trabalho, na fatia de menor risco.
+   * O resto continua exigindo olho humano, e é assim de propósito.
+   */
+  async elegiveisParaLote(): Promise<{ manterId: string; descartarId: string; nome: string; manterMatricula: string; descartarMatricula: string }[]> {
+    const grupos = await this.varrer();
+    return grupos
+      .filter((g) => g.candidatos.length === 2 && g.contradicoes.length === 0)
+      .map((g) => {
+        const cheio = g.candidatos.find((c) => c.pontuacao > 0);
+        const vazio = g.candidatos.find((c) => c.pontuacao === 0);
+        if (!cheio || !vazio) return null;
+        return {
+          manterId: cheio.id,
+          descartarId: vazio.id,
+          nome: cheio.nomeCompleto,
+          manterMatricula: cheio.matricula,
+          descartarMatricula: vazio.matricula,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }
+
+  /**
+   * Executa o lote em FATIAS, e não de uma vez.
+   *
+   * Cada fusão é uma transação com várias consultas; 704 delas numa única
+   * requisição levariam a um tempo em que o navegador, o proxy ou o Railway
+   * derrubam a conexão — e uma queda no meio deixaria o operador sem saber o
+   * que foi feito e o que não foi. Em fatias, cada resposta é rápida, o front
+   * mostra progresso real e uma interrupção só custa a fatia corrente.
+   *
+   * Uma falha isolada NÃO aborta o lote: é registrada e o processamento
+   * segue. Um par que ficou inválido entre a prévia e a execução não pode
+   * impedir os outros 703.
+   */
+  async executarLote(limite: number, autor?: string) {
+    const elegiveis = await this.elegiveisParaLote();
+    const fatia = elegiveis.slice(0, Math.max(1, Math.min(100, limite)));
+
+    let fundidos = 0;
+    const falhas: { nome: string; motivo: string }[] = [];
+
+    for (const item of fatia) {
+      try {
+        await this.fundir(item.manterId, item.descartarId, autor);
+        fundidos++;
+      } catch (e) {
+        falhas.push({
+          nome: `${item.nome} (${item.descartarMatricula})`,
+          motivo: e instanceof Error ? e.message : 'erro desconhecido',
+        });
+      }
+    }
+
+    return { fundidos, falhas, restantes: Math.max(0, elegiveis.length - fatia.length) };
+  }
+
+  // =========================================================================
   // Ações
   // =========================================================================
 

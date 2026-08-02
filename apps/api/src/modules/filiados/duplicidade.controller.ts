@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole } from '@prisma/client';
 import { DuplicidadeService } from './duplicidade.service';
 import { DuplicidadeAtivaGuard, duplicidadeAtiva } from './duplicidade.guard';
@@ -15,6 +16,11 @@ class ParFiliadosDto {
 class FundirDto {
   @IsString() manterId!: string;
   @IsString() descartarId!: string;
+}
+
+class LoteDto {
+  /** Teto de 100 por chamada — ver `executarLote`, sobre fatiar. */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limite?: number;
 }
 
 /**
@@ -53,6 +59,29 @@ export class DuplicidadeController {
   @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   listar() {
     return this.service.varrer();
+  }
+
+  /** Prévia do lote: o que seria consolidado, para conferência antes de agir. */
+  @Get('lote')
+  @UseGuards(DuplicidadeAtivaGuard)
+  @Roles(UserRole.ADMINISTRADOR)
+  async previaLote() {
+    const itens = await this.service.elegiveisParaLote();
+    return { total: itens.length, amostra: itens.slice(0, 25) };
+  }
+
+  /**
+   * Executa uma FATIA do lote. O front chama repetidamente até `restantes`
+   * zerar, o que dá progresso real e evita que 704 fusões numa requisição só
+   * estourem o tempo do proxy.
+   *
+   * DELETE porque apaga: herda a regra global de que só o ADMINISTRADOR exclui.
+   */
+  @Delete('lote')
+  @UseGuards(DuplicidadeAtivaGuard)
+  @Roles(UserRole.ADMINISTRADOR)
+  executarLote(@Body() dto: LoteDto, @CurrentUser('nome') autor: string) {
+    return this.service.executarLote(dto.limite ?? 25, autor);
   }
 
   @Post('distintos')
