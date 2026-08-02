@@ -1,6 +1,7 @@
 import { api } from './api';
 import type { PerfilUsuario } from './permissoes';
 import type { CanalAtendimento, DesfechoAtendimento } from './atendimentos';
+import type { AudienciaAAgendar } from './audiencias';
 
 // ---------------------------------------------------------------------------
 // Tipos do payload consolidado de /dashboard/resumo
@@ -65,6 +66,10 @@ export interface ResumoDashboard {
     filiadosAtivos: number;
     filiadosTotal: number;
     novosFiliadosMes: number;
+    /** Saídas do quadro no mês — o contrapeso das entradas. */
+    desfiliadosMes: number;
+    /** entradas − saídas. Negativo = o quadro encolheu no mês. */
+    saldoFiliadosMes: number;
   };
   minhaCarteira: {
     meusProcessos: number;
@@ -72,7 +77,15 @@ export interface ResumoDashboard {
     atrasadas: number;
     urgentes: number;
   } | null;
-  alertas: { atrasadas: number; semMovimentacao: number; urgentes: number };
+  alertas: {
+    atrasadas: number;
+    semMovimentacao: number;
+    urgentes: number;
+    /** Audiências designadas no DataJud e ainda fora da Agenda. */
+    audienciasAAgendar: number;
+  };
+  /** Amostra do radar de audiências (o total vem em `alertas`). */
+  audienciasAAgendar: AudienciaAAgendar[];
   atividadesHoje: CompromissoCard[];
   audienciasSemana: CompromissoCard[];
   pendenciasAtivas: CompromissoCard[];
@@ -82,10 +95,51 @@ export interface ResumoDashboard {
     plantaoHoje: PlantaoItem[];
     proximoPlantao: { data: string; advogados: PessoaResumo[] } | null;
   };
+  /**
+   * Saúde do robô de sincronização do DataJud. Sem isto, "0 audiências a
+   * agendar" era ambíguo: podia ser que não houvesse nada OU que a varredura
+   * noturna não tivesse rodado.
+   */
+  robo: {
+    ultimaSincronizacao: string | null;
+    ultimaComSucesso: boolean | null;
+    falhas24h: number;
+    /** Nunca rodou ou passou de 36h (o cron é diário). */
+    atrasado: boolean;
+  };
+  /**
+   * Carga da equipe — quem está sobrecarregado e quem está atrasado.
+   * NULO para o advogado: é instrumento de gestão, não ranking do time.
+   */
+  cargaEquipe: {
+    advogado: PessoaResumo;
+    abertas: number;
+    atrasadas: number;
+  }[] | null;
+  /** Tarefas de contato com o filiado — a fila própria da Triagem. */
+  contatosHoje: CompromissoCard[];
+  /** Aniversariantes de hoje: filiados e equipe, na mesma lista. */
+  aniversariantes: {
+    id: string;
+    nome: string;
+    telefone: string | null;
+    nascimento: string;
+    idade: number;
+    tipo: 'FILIADO' | 'COLABORADOR';
+  }[];
+  /**
+   * Tempo médio da triagem, da abertura ao desfecho (30 dias).
+   * `horas: null` = não houve resolução no período (amostra vazia).
+   */
+  tempoMedioTriagem: { horas: number | null; amostra: number };
   graficos: {
     atendimentosPorCanal: { canal: CanalAtendimento; total: number }[];
     atendimentos14dias: { dia: string; total: number }[];
     crescimentoFiliados: { mes: string; total: number }[];
+    /** Entradas × saídas × saldo por mês (6 meses, com meses zerados). */
+    movimentacaoQuadro: { mes: string; entradas: number; saidas: number; saldo: number }[];
+    /** Fora da série por não terem data de filiação (carga sem a informação). */
+    filiadosSemDataFiliacao: number;
   };
 }
 
@@ -106,6 +160,8 @@ export const TIPO_COMP_LABEL: Record<TipoCompromisso, string> = {
   DESPACHO: 'Despacho',
   PERICIA: 'Perícia',
   COMPROMISSO: 'Compromisso',
+  CONTATO: 'Contato',
+  ACOMPANHAMENTO: 'Acompanhamento',
 };
 
 /** Cor da barra lateral do card por tipo. */
@@ -118,6 +174,8 @@ export const TIPO_COMP_COR: Record<TipoCompromisso, string> = {
   DESPACHO: 'bg-indigo-500',
   PERICIA: 'bg-teal-500',
   COMPROMISSO: 'bg-slate-400',
+  CONTATO: 'bg-cyan-500',
+  ACOMPANHAMENTO: 'bg-blue-500',
 };
 
 export const STATUS_COMP_LABEL: Record<StatusCompromisso, string> = {

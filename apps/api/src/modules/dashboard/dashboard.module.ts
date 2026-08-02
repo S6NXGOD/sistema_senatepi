@@ -4,8 +4,7 @@ import {
   SituacaoFiliado,
   StatusCompromisso,
   StatusEvento,
-  StatusFuncionario,
-  StatusGenerico,
+  StatusColaborador,
   StatusProcesso,
   TipoDependente,
 } from '@prisma/client';
@@ -15,6 +14,8 @@ const TIPO_PRAZO = 'PRAZO';
 const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { AudienciasService } from '../processos/audiencias.service';
+import { ProcessosModule } from '../processos/processos.module';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -56,7 +57,10 @@ const compSelect = {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audiencias: AudienciasService,
+  ) {}
 
   // =========================================================================
   // HOME consolidada e ciente do perfil (1 request → tudo que a tela precisa)
@@ -104,12 +108,27 @@ export class DashboardService {
       canalGroup,
       atendimentos14Raw,
       crescimentoRaw,
+      // Radar de audiências (DataJud → Agenda)
+      audienciasAAgendar,
+      // Movimentação do quadro associativo
+      desfiliadosMes,
+      saidasRaw,
+      // Saúde do robô de sincronização
+      ultimaSync,
+      falhasSync24h,
+      // Qualidade do dado e painéis por perfil
+      filiadosSemDataFiliacao,
+      cargaPorAdvogadoRaw,
+      atrasadasPorAdvogadoRaw,
+      contatosHoje,
+      aniversariantes,
+      tempoMedioTriagem,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
       this.prisma.atendimento.count({ where: { status: 'PENDENTE' } }),
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
       this.prisma.filiado.count(),
-      this.prisma.filiado.count({ where: { createdAt: { gte: inicioMes, lte: agora } } }),
+      this.prisma.filiado.count({ where: { dataFiliacao: { gte: inicioMes, lte: agora } } }),
       this.prisma.compromisso.count({
         where: {
           ...meu,
@@ -201,12 +220,73 @@ export class DashboardService {
         where: { createdAt: { gte: new Date(agora.getTime() - 14 * DIA_MS), lte: agora } },
         select: { createdAt: true },
       }),
-      // Gráfico: crescimento de filiados (6 meses) — limite superior evita
-      // datas futuras vindas de importações com timestamp inválido.
+      // Gráfico: crescimento de filiados (6 meses).
+      // Usa `dataFiliacao` — e NÃO `createdAt`, que a importação legada
+      // sobrescrevia. Quem está sem data (carga sem a informação na planilha)
+      // fica fora da série em vez de virar um pico falso.
       this.prisma.filiado.findMany({
-        where: { createdAt: { gte: this.seisMesesAtras(), lte: agora } },
-        select: { createdAt: true },
+        where: { dataFiliacao: { gte: this.seisMesesAtras(), lte: agora } },
+        select: { dataFiliacao: true },
       }),
+      // Audiências designadas no DataJud que ainda não entraram na agenda.
+      // Mesmo escopo do resto do painel: o advogado vê só a própria carteira.
+      this.audiencias.listar({ advogadoId: souAdvogado ? user.id : undefined, limite: 6 }),
+
+      // Saídas do quadro no mês — o contrapeso das entradas. Sem isto, o painel
+      // só contava quem chega e a diretoria não via a evasão.
+      this.prisma.filiado.count({
+        where: { situacao: SituacaoFiliado.DESFILIADO, desfiliadoEm: { gte: inicioMes, lte: agora } },
+      }),
+      // Série de saídas (6 meses) para o comparativo do gráfico.
+      this.prisma.filiado.findMany({
+        where: { desfiliadoEm: { gte: this.seisMesesAtras(), lte: agora } },
+        select: { desfiliadoEm: true },
+      }),
+
+      // SAÚDE DO ROBÔ do DataJud. O cron roda de madrugada e, quando falha,
+      // falhava em silêncio: o painel mostrava "0 audiências a agendar" tanto
+      // quando não havia nada quanto quando a varredura nem tinha rodado.
+      this.prisma.logSincronizacaoDatajud.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true, sucesso: true },
+      }),
+      this.prisma.logSincronizacaoDatajud.count({
+        where: { sucesso: false, createdAt: { gte: new Date(agora.getTime() - DIA_MS) } },
+      }),
+
+      // Filiados sem data de filiação (vieram da carga sem a informação).
+      // A tela informa o número em vez de fingir que a série está completa.
+      this.prisma.filiado.count({ where: { dataFiliacao: null } }),
+
+      // CARGA POR ADVOGADO — atividades em aberto de cada responsável.
+      // É o que responde "quem está sobrecarregado?", pergunta da Coordenação
+      // que o painel não respondia: os alertas eram sempre o total da casa.
+      this.prisma.compromisso.groupBy({
+        by: ['responsavelId'],
+        where: { status: ABERTOS },
+        _count: { _all: true },
+      }),
+      // Recorte das atrasadas, para separar volume de problema.
+      this.prisma.compromisso.groupBy({
+        by: ['responsavelId'],
+        where: { status: ABERTOS, inicio: { lt: agora } },
+        _count: { _all: true },
+      }),
+
+      // FILA DA TRIAGEM — tarefas de contato do dia (as que o robô cria antes
+      // das audiências). Sem isto, a secretaria não tinha o próprio trabalho na
+      // home: via o painel do jurídico com buracos.
+      this.prisma.compromisso.findMany({
+        where: { tipo: 'CONTATO', status: ABERTOS, inicio: { lt: hojeFim } },
+        orderBy: { inicio: 'asc' },
+        take: 8,
+        select: compSelect,
+      }),
+
+      // Aniversariantes do dia — filiados e equipe na mesma lista.
+      this.aniversariantesDeHoje(agora),
+      // Tempo médio de resolução da triagem (30 dias).
+      this.tempoMedioTriagem(agora),
     ]);
 
     // "Próximo plantão": advogados da primeira data futura com escala.
@@ -216,6 +296,45 @@ export class DashboardService {
       const doDia = proximasEscalas.filter((e) => dateOnlyBR(e.data).getTime() === primeira);
       proximoPlantao = { data: doDia[0].data, advogados: doDia.map((e) => e.advogado) };
     }
+
+    /**
+     * Carga da equipe — só para quem GERE (Coordenação/Administrador).
+     *
+     * O corte é no BACKEND, não só na tela: a lista expõe nome e volume de
+     * trabalho de cada advogado, e esconder no front deixaria o dado viajando
+     * para quem não deve vê-lo. Advogado e Triagem recebem `null`.
+     */
+    const ehGestao = user.role === 'ADMINISTRADOR' || user.role === 'COORDENACAO';
+    const cargaEquipe = !ehGestao
+      ? null
+      : await (async () => {
+          const ids = [...new Set(cargaPorAdvogadoRaw.map((c) => c.responsavelId))].filter(Boolean);
+          if (!ids.length) return [];
+          const pessoas = await this.prisma.user.findMany({
+            where: { id: { in: ids as string[] }, ativo: true },
+            select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true },
+          });
+          const atrasoPorId = new Map(
+            atrasadasPorAdvogadoRaw.map((a) => [a.responsavelId, a._count._all]),
+          );
+          return cargaPorAdvogadoRaw
+            .map((c) => {
+              const p = pessoas.find((u) => u.id === c.responsavelId);
+              if (!p) return null; // usuário inativo/removido não entra no painel
+              return {
+                advogado: p,
+                abertas: c._count._all,
+                atrasadas: atrasoPorId.get(c.responsavelId) ?? 0,
+              };
+            })
+            .filter(Boolean)
+            // Mais atrasadas primeiro: é o gargalo, não o volume, que exige ação.
+            .sort((a, b) => b!.atrasadas - a!.atrasadas || b!.abertas - a!.abertas) as {
+            advogado: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null };
+            abertas: number;
+            atrasadas: number;
+          }[];
+        })();
 
     const minhaCarteira = souAdvogado
       ? await (async () => {
@@ -244,19 +363,65 @@ export class DashboardService {
         filiadosAtivos,
         filiadosTotal,
         novosFiliadosMes,
+        // Contrapeso das entradas: sem a saída, o cartão só contava boa notícia.
+        desfiliadosMes,
+        saldoFiliadosMes: novosFiliadosMes - desfiliadosMes,
       },
       minhaCarteira,
-      alertas: { atrasadas: atrasadasCount, semMovimentacao: semMovimentacaoCount, urgentes: urgentesSemanaCount },
+      alertas: {
+        atrasadas: atrasadasCount,
+        semMovimentacao: semMovimentacaoCount,
+        urgentes: urgentesSemanaCount,
+        audienciasAAgendar: audienciasAAgendar.total,
+      },
+      audienciasAAgendar: audienciasAAgendar.items,
+      /** Carga da equipe (nulo para o advogado — é instrumento de gestão). */
+      cargaEquipe,
+      /** Tarefas de contato com o filiado — a fila própria da Triagem. */
+      contatosHoje,
+      /** Aniversariantes de hoje: filiados e equipe, na mesma lista. */
+      aniversariantes,
+      /**
+       * Tempo médio da triagem (30 dias). `horas: null` quando não houve
+       * resolução no período — melhor que exibir "0h" sobre amostra vazia.
+       */
+      tempoMedioTriagem,
       atividadesHoje,
       audienciasSemana,
       pendenciasAtivas,
       atendimentosPendentes,
       movimentacoesRecentes,
       equipeHoje: { plantaoHoje, proximoPlantao },
+      /**
+       * Saúde do robô do DataJud. Existe porque a ausência de alerta era
+       * ambígua: "0 audiências a agendar" tanto podia significar que não havia
+       * nada quanto que a varredura noturna não rodou.
+       */
+      robo: {
+        ultimaSincronizacao: ultimaSync?.createdAt ?? null,
+        ultimaComSucesso: ultimaSync?.sucesso ?? null,
+        falhas24h: falhasSync24h,
+        /** Nunca rodou, ou a última varredura tem mais de 36h (o cron é diário). */
+        atrasado:
+          !ultimaSync ||
+          agora.getTime() - ultimaSync.createdAt.getTime() > 36 * 3_600_000,
+      },
       graficos: {
         atendimentosPorCanal: canalGroup.map((c) => ({ canal: c.canal, total: c._count._all })),
         atendimentos14dias: this.bucketDiario(atendimentos14Raw.map((a) => a.createdAt), 14),
-        crescimentoFiliados: this.agruparPorMes(crescimentoRaw.map((f) => f.createdAt)),
+        crescimentoFiliados: this.agruparPorMes(crescimentoRaw.map((f) => f.dataFiliacao!).filter(Boolean)),
+        /** Entradas × saídas × saldo, 6 meses — inclui meses zerados. */
+        movimentacaoQuadro: this.movimentacaoQuadro(
+          crescimentoRaw.map((f) => f.dataFiliacao!).filter(Boolean),
+          saidasRaw.map((f) => f.desfiliadoEm!).filter(Boolean),
+          6,
+        ),
+        /**
+         * Quantos ficaram de fora da série por não terem data de filiação
+         * (vieram da carga sem a informação). A tela mostra o número em vez de
+         * deixar o gráfico parecer completo quando não está.
+         */
+        filiadosSemDataFiliacao,
       },
     };
   }
@@ -277,8 +442,7 @@ export class DashboardService {
       filiadosNovosMes,
       conjuges,
       filhos,
-      funcionariosTotal,
-      prestadoresTotal,
+      colaboradoresTotal,
       eventosRealizados,
       eventosAgendados,
       totalPresencas,
@@ -289,8 +453,8 @@ export class DashboardService {
       this.prisma.filiado.count({ where: { createdAt: { gte: inicioMes } } }),
       this.prisma.dependente.count({ where: { tipo: TipoDependente.CONJUGE } }),
       this.prisma.dependente.count({ where: { tipo: TipoDependente.FILHO } }),
-      this.prisma.funcionario.count({ where: { status: StatusFuncionario.ATIVO } }),
-      this.prisma.prestador.count({ where: { status: StatusGenerico.ATIVO } }),
+      // Uma contagem só: funcionários e prestadores viraram Colaborador.
+      this.prisma.colaborador.count({ where: { status: StatusColaborador.ATIVO } }),
       this.prisma.evento.count({ where: { status: StatusEvento.REALIZADO } }),
       this.prisma.evento.count({ where: { status: StatusEvento.AGENDADO } }),
       this.prisma.presenca.count(),
@@ -304,8 +468,7 @@ export class DashboardService {
         novosNoMes: filiadosNovosMes,
       },
       dependentes: { total: conjuges + filhos, conjuges, filhos },
-      funcionarios: { total: funcionariosTotal },
-      prestadores: { total: prestadoresTotal },
+      colaboradores: { total: colaboradoresTotal },
       eventos: { realizados: eventosRealizados, agendados: eventosAgendados },
       presencas: { total: totalPresencas },
     };
@@ -350,6 +513,124 @@ export class DashboardService {
     return Array.from(mapa, ([mes, total]) => ({ mes, total })).sort((a, b) => a.mes.localeCompare(b.mes));
   }
 
+  /**
+   * ANIVERSARIANTES DE HOJE — filiados e colaboradores na mesma lista.
+   *
+   * Precisa de SQL cru: comparar mês/dia exige `EXTRACT`, e o Prisma não expõe
+   * função em `where`. As duas consultas são baratas (índice não ajuda numa
+   * comparação de função, mas o filtro é sobre uma coluna pequena e o resultado
+   * é de dezenas de linhas por dia).
+   *
+   * O dia é o de BRASÍLIA. As datas de nascimento são gravadas como meia-noite
+   * de Brasília (03:00Z) ou, no legado, meia-noite UTC — em ambos os casos o
+   * dia em UTC é o dia certo, então `EXTRACT` direto da coluna funciona para as
+   * duas convenções (ver common/utils/datas.util.ts).
+   */
+  private async aniversariantesDeHoje(agora: Date) {
+    const br = new Date(agora.getTime() - OFFSET_BR);
+    const mes = br.getUTCMonth() + 1;
+    const dia = br.getUTCDate();
+
+    const [filiados, colaboradores] = await Promise.all([
+      this.prisma.$queryRaw<
+        { id: string; nome: string; telefone: string | null; nascimento: Date }[]
+      >`
+        SELECT id, nome_completo AS nome, telefone_principal AS telefone, data_nascimento AS nascimento
+          FROM filiados
+         WHERE data_nascimento IS NOT NULL
+           AND EXTRACT(MONTH FROM data_nascimento) = ${mes}
+           AND EXTRACT(DAY   FROM data_nascimento) = ${dia}
+           AND situacao = 'ATIVO'
+         ORDER BY nome_completo
+         LIMIT 30
+      `,
+      this.prisma.$queryRaw<
+        { id: string; nome: string; telefone: string | null; nascimento: Date }[]
+      >`
+        SELECT id, nome, telefone, data_nascimento AS nascimento
+          FROM colaboradores
+         WHERE data_nascimento IS NOT NULL
+           AND EXTRACT(MONTH FROM data_nascimento) = ${mes}
+           AND EXTRACT(DAY   FROM data_nascimento) = ${dia}
+           AND status <> 'DESLIGADO'
+         ORDER BY nome
+         LIMIT 30
+      `,
+    ]);
+
+    /** Idade que a pessoa completa hoje. */
+    const idade = (n: Date) => br.getUTCFullYear() - new Date(n).getUTCFullYear();
+
+    return [
+      ...filiados.map((f) => ({ ...f, tipo: 'FILIADO' as const, idade: idade(f.nascimento) })),
+      ...colaboradores.map((c) => ({ ...c, tipo: 'COLABORADOR' as const, idade: idade(c.nascimento) })),
+    ].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }
+
+  /**
+   * TEMPO MÉDIO DE RESOLUÇÃO da triagem, nos últimos 30 dias.
+   *
+   * Mede da abertura (`createdAt`) até o registro do desfecho (`desfechoEm`).
+   * Só entra o que foi RESOLVIDO no período — incluir o que ainda está aberto
+   * puxaria a média para baixo e esconderia justamente a demanda que trava.
+   *
+   * Devolve `null` quando não houve resolução no período: exibir "0h" seria
+   * mentir sobre uma amostra que não existe.
+   */
+  private async tempoMedioTriagem(agora: Date) {
+    const desde = new Date(agora.getTime() - 30 * DIA_MS);
+    const resolvidos = await this.prisma.atendimento.findMany({
+      where: { desfechoEm: { gte: desde, lte: agora } },
+      select: { createdAt: true, desfechoEm: true },
+    });
+    if (!resolvidos.length) return { horas: null, amostra: 0 };
+
+    const somaMs = resolvidos.reduce(
+      (s, a) => s + (a.desfechoEm!.getTime() - a.createdAt.getTime()),
+      0,
+    );
+    return {
+      horas: Math.round((somaMs / resolvidos.length / 3_600_000) * 10) / 10,
+      amostra: resolvidos.length,
+    };
+  }
+
+  /**
+   * Movimentação do quadro associativo mês a mês: entradas × saídas × saldo.
+   *
+   * Os meses SEM movimento entram zerados de propósito — um gráfico que pula de
+   * março para junho dá a impressão de que nada aconteceu no meio, quando na
+   * verdade a resposta é "zero", que é uma informação diferente.
+   */
+  private movimentacaoQuadro(
+    entradas: Date[],
+    saidas: Date[],
+    meses: number,
+  ): { mes: string; entradas: number; saidas: number; saldo: number }[] {
+    const chave = (d: Date) => {
+      const br = new Date(d.getTime() - OFFSET_BR);
+      return `${br.getUTCFullYear()}-${String(br.getUTCMonth() + 1).padStart(2, '0')}`;
+    };
+    const contar = (l: Date[]) => {
+      const m = new Map<string, number>();
+      for (const d of l) m.set(chave(d), (m.get(chave(d)) ?? 0) + 1);
+      return m;
+    };
+    const mapaE = contar(entradas);
+    const mapaS = contar(saidas);
+
+    const hoje = new Date(Date.now() - OFFSET_BR);
+    const linhas: { mes: string; entradas: number; saidas: number; saldo: number }[] = [];
+    for (let i = meses - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - i, 1));
+      const k = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const e = mapaE.get(k) ?? 0;
+      const s = mapaS.get(k) ?? 0;
+      linhas.push({ mes: k, entradas: e, saidas: s, saldo: e - s });
+    }
+    return linhas;
+  }
+
   /** Volume diário dos últimos `dias`, rotulado dd/MM (fuso de Brasília). */
   private bucketDiario(datas: Date[], dias: number): { dia: string; total: number }[] {
     const hoje = dateOnlyBR(new Date()).getTime();
@@ -391,6 +672,9 @@ class DashboardController {
 }
 
 @Module({
+  // ProcessosModule exporta o AudienciasService (radar de audiências), usado
+  // no resumo da home.
+  imports: [ProcessosModule],
   controllers: [DashboardController],
   providers: [DashboardService],
 })

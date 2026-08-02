@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
-  Flame, AlertTriangle, Landmark, Inbox, UserCheck, Activity,
+  Flame, AlertTriangle, Landmark, Inbox, UserCheck, Activity, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, FolderKanban, TrendingUp,
 } from 'lucide-react';
 import {
@@ -14,7 +14,7 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts';
 import { useAuth } from '@/lib/auth';
-import { podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/permissoes';
+import { podeEditar, podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/permissoes';
 import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
@@ -24,6 +24,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   KpiCard, SectionCard, EmptyState, CompromissoRow, AvatarMini,
 } from '@/components/dashboard/widgets';
+import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { cn } from '@/lib/utils';
 
 const BADGE_ROLE: Record<PerfilUsuario, string> = {
@@ -38,7 +39,7 @@ export default function DashboardPage() {
   const role = user?.role as PerfilUsuario;
   const perms = user?.permissoes;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard-resumo'],
     queryFn: getResumoDashboard,
     refetchInterval: 60_000,
@@ -52,6 +53,10 @@ export default function DashboardPage() {
       agenda: podeVer(role, perms, 'agenda'),
       filiados: podeVer(role, perms, 'filiados'),
       escalas: podeVer(role, perms, 'escalas'),
+      // O radar de audiências grava nos dois módulos (resolve o alerta no
+      // Processo e cria o evento na Agenda) — sem os dois, as ações do painel
+      // seriam recusadas pela API.
+      radarAudiencias: podeEditar(role, perms, 'processos') && podeEditar(role, perms, 'agenda'),
     }),
     [role, perms],
   );
@@ -60,7 +65,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <HeroHeader nome={user.nomeExibicao || user.nome} role={role} escopo={data?.escopo} />
+      <HeroHeader
+        nome={user.nomeExibicao || user.nome}
+        role={role}
+        escopo={data?.escopo}
+        atualizadoEm={dataUpdatedAt || undefined}
+      />
 
       {isLoading || !data ? (
         <SkeletonHome />
@@ -75,7 +85,27 @@ export default function DashboardPage() {
 // Cabeçalho (saudação + data + badge de perfil)
 // ===========================================================================
 
-function HeroHeader({ nome, role, escopo }: { nome: string; role: PerfilUsuario; escopo?: string }) {
+/**
+ * Idade do dado do painel. Curto e honesto — o `tempoRelativo` da lib é para
+ * datas de negócio (ISO) e usa outra granularidade; aqui o que importa é
+ * distinguir "acabou de carregar" de "isso está velho".
+ */
+function idadeDoDado(quando: number): string {
+  const s = Math.max(0, Math.round((Date.now() - quando) / 1000));
+  if (s < 45) return 'agora há pouco';
+  if (s < 3600) return `há ${Math.round(s / 60)} min`;
+  return `há ${Math.round(s / 3600)} h`;
+}
+
+function HeroHeader({
+  nome, role, escopo, atualizadoEm,
+}: {
+  nome: string;
+  role: PerfilUsuario;
+  escopo?: string;
+  /** Timestamp da última busca bem-sucedida (react-query `dataUpdatedAt`). */
+  atualizadoEm?: number;
+}) {
   return (
     <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-senatepi-800 to-senatepi-600 p-5 text-white shadow-sm md:p-6">
       <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
@@ -93,12 +123,13 @@ function HeroHeader({ nome, role, escopo }: { nome: string; role: PerfilUsuario;
           <span className={cn('rounded-full px-3 py-1 text-xs font-semibold shadow-sm', BADGE_ROLE[role])}>
             {PERFIL_LABEL[role]}
           </span>
+          {/* "Tempo real" era propaganda: o painel recarrega a cada 60s. Dizer
+              QUANDO o dado foi buscado é a informação que o usuário usa para
+              decidir se atualiza a página antes de tomar uma decisão. */}
           <span className="flex items-center gap-1.5 text-[11px] text-white/70">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
-            </span>
-            {escopo === 'PESSOAL' ? 'Sua carteira · tempo real' : 'Tempo real'}
+            <RefreshCw className="h-3 w-3" />
+            {escopo === 'PESSOAL' && 'Sua carteira · '}
+            {atualizadoEm ? `atualizado ${idadeDoDado(atualizadoEm)}` : 'carregando…'}
           </span>
         </div>
       </div>
@@ -116,10 +147,19 @@ function Conteudo({
   role,
 }: {
   data: ResumoDashboard;
-  pode: Record<'processos' | 'atendimentos' | 'agenda' | 'filiados' | 'escalas', boolean>;
+  pode: Record<'processos' | 'atendimentos' | 'agenda' | 'filiados' | 'escalas' | 'radarAudiencias', boolean>;
   role: PerfilUsuario;
 }) {
   const { kpis, minhaCarteira, alertas } = data;
+
+  /** Perfis que coordenam a operação — os únicos que veem a carga da equipe. */
+  const ehGestao = role === 'ADMINISTRADOR' || role === 'COORDENACAO';
+  /**
+   * A Triagem é atendimento: a fila dela (contatos e atendimentos) vem PRIMEIRO,
+   * antes dos blocos do jurídico. Antes, ela via o painel do advogado com
+   * buracos onde faltava permissão — nunca o próprio trabalho em destaque.
+   */
+  const ehTriagem = role === 'TRIAGEM';
 
   // KPIs globais, filtrados pelo que o perfil pode ver.
   const kpiCards = [
@@ -140,7 +180,11 @@ function Conteudo({
     },
     pode.filiados && {
       label: 'Filiados ativos', valor: kpis.filiadosAtivos,
-      sub: `${kpis.filiadosTotal} no total · +${kpis.novosFiliadosMes} no mês`,
+      // Entrada E saída no mesmo cartão: mostrar só quem chega conta metade da
+      // história, e a metade que falta é justamente a que preocupa.
+      sub: `no mês: +${kpis.novosFiliadosMes} · −${kpis.desfiliadosMes} · saldo ${
+        kpis.saldoFiliadosMes >= 0 ? '+' : ''
+      }${kpis.saldoFiliadosMes}`,
       icon: Users, cor: 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400',
       href: '/filiados',
     },
@@ -174,6 +218,53 @@ function Conteudo({
             </motion.div>
           ))}
         </div>
+      )}
+
+      {/* FILA DA TRIAGEM. Vem logo após os KPIs porque É o trabalho dela —
+          antes, a secretaria abria a home e via o painel do jurídico com
+          buracos, sem a própria fila em lugar nenhum. */}
+      {ehTriagem && (
+        <section>
+          <SectionTitle icon={Inbox} texto="Sua fila de hoje" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <ContatosHoje data={data} />
+            {pode.atendimentos && <AtendimentosPendentes data={data} />}
+          </div>
+          {/* Aniversariantes logo abaixo da fila: é a secretaria quem faz o
+              contato, e o card só aparece quando há alguém. */}
+          {pode.filiados && (
+            <div className="mt-4">
+              <Aniversariantes data={data} />
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Robô parado. Vem ANTES do radar de propósito: se a varredura não
+          rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
+      {pode.processos && data.robo.atrasado && (
+        <AlertBar tom="rose" href="/processos" forte>
+          <strong>Sincronização do DataJud parada.</strong>{' '}
+          {data.robo.ultimaSincronizacao
+            ? `A última varredura foi ${idadeDoDado(new Date(data.robo.ultimaSincronizacao).getTime())}.`
+            : 'Nenhuma varredura registrada até agora.'}{' '}
+          Os alertas de audiência e prazo podem estar desatualizados.
+        </AlertBar>
+      )}
+      {pode.processos && !data.robo.atrasado && data.robo.falhas24h > 0 && (
+        <AlertBar tom="amber" href="/processos">
+          <strong>{data.robo.falhas24h}</strong>{' '}
+          {data.robo.falhas24h === 1 ? 'processo falhou' : 'processos falharam'} na sincronização das
+          últimas 24h — o CNJ pode ter recusado a consulta.
+        </AlertBar>
+      )}
+
+      {/* Audiências a agendar (DataJud → Agenda) — o alerta mais acionável da
+          home: vem antes das barras porque cada item tem um "próximo passo". */}
+      {pode.radarAudiencias && (
+        <AudienciasAgendarPanel
+          dados={{ items: data.audienciasAAgendar, total: alertas.audienciasAAgendar }}
+        />
       )}
 
       {/* Barras de alerta (agenda) */}
@@ -214,11 +305,28 @@ function Conteudo({
         {pode.atendimentos && <GraficoCanais data={data} />}
       </div>
 
-      {/* Pendências ativas + atendimentos pendentes */}
+      {/* Pendências ativas + atendimentos pendentes.
+          A Triagem já viu os atendimentos no topo — não repete aqui. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {pode.agenda && <PendenciasAtivas data={data} pessoal={data.escopo === 'PESSOAL'} />}
-        {pode.atendimentos && <AtendimentosPendentes data={data} />}
+        {pode.atendimentos && !ehTriagem && <AtendimentosPendentes data={data} />}
       </div>
+
+      {/* Carga da equipe — instrumento de GESTÃO, restrito a quem coordena.
+          O advogado não recebe o dado da API; a Triagem tem acesso à agenda,
+          mas a lista de quem está sobrecarregado não é trabalho dela. */}
+      {ehGestao && data.cargaEquipe && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <CargaEquipe data={data} />
+          {/* Ao lado: quem coordena precisa ver se o contato com o filiado está
+              andando ANTES das audiências — é o que evita ausência na pauta. */}
+          <ContatosHoje data={data} />
+        </div>
+      )}
+
+      {/* Aniversariantes para os demais perfis (a Triagem já viu no topo).
+          O card se esconde sozinho em dia sem aniversário. */}
+      {!ehTriagem && pode.filiados && <Aniversariantes data={data} />}
 
       {/* Movimentações DataJud */}
       {pode.processos && <MovimentacoesRecentes data={data} />}
@@ -381,10 +489,172 @@ function PendenciasAtivas({ data, pessoal }: { data: ResumoDashboard; pessoal: b
   );
 }
 
+/**
+ * CARGA DA EQUIPE — só para quem gere (Coordenação/Administrador).
+ *
+ * O painel respondia "quantas atividades estão atrasadas na casa?", mas não
+ * "de quem?". Sem esse recorte, a gestão via o número e não sabia onde agir.
+ * Ordenado por atrasadas: é o gargalo que exige ação, não o volume.
+ */
+function CargaEquipe({ data }: { data: ResumoDashboard }) {
+  const itens = data.cargaEquipe ?? [];
+  const maior = Math.max(1, ...itens.map((i) => i.abertas));
+
+  return (
+    <SectionCard title="Carga da equipe" icon={Users} count={itens.length} actionHref="/agenda" actionLabel="Agenda">
+      {itens.length === 0 ? (
+        <EmptyState icon={CheckCircle2}>Nenhuma atividade em aberto na equipe.</EmptyState>
+      ) : (
+        <ul className="space-y-2.5">
+          {itens.map(({ advogado, abertas, atrasadas }) => (
+            <li key={advogado.id} className="flex items-center gap-3">
+              {advogado.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={advogado.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+              ) : (
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-senatepi-100 text-xs font-bold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+                  {(advogado.nomeExibicao || advogado.nome).charAt(0)}
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center justify-between gap-2 text-sm font-medium">
+                  <span className="truncate">{advogado.nomeExibicao || advogado.nome}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {abertas} {abertas === 1 ? 'aberta' : 'abertas'}
+                    {atrasadas > 0 && (
+                      <span className="ml-1.5 font-semibold text-rose-600 dark:text-rose-400">
+                        · {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </span>
+                </p>
+                {/* Barra proporcional ao maior da equipe — a comparação é o dado */}
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn('h-full rounded-full', atrasadas > 0 ? 'bg-rose-500' : 'bg-senatepi-600')}
+                    style={{ width: `${Math.round((abertas / maior) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
+  );
+}
+
+/**
+ * FILA DA TRIAGEM — as tarefas de contato com o filiado (as que o robô cria
+ * antes de cada audiência). A secretaria via o painel do jurídico com buracos;
+ * este é o trabalho dela.
+ */
+function ContatosHoje({ data }: { data: ResumoDashboard }) {
+  const itens = data.contatosHoje ?? [];
+  return (
+    <SectionCard title="Contatos a fazer" icon={UserCheck} count={itens.length} actionHref="/agenda" actionLabel="Agenda">
+      {itens.length === 0 ? (
+        <EmptyState icon={CheckCircle2}>Nenhum contato pendente. Tudo em dia.</EmptyState>
+      ) : (
+        <ul className="divide-y divide-border/60">
+          {itens.map((c) => (
+            <li key={c.id}>
+              <Link href="/agenda" className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
+                <span className={cn('w-1 shrink-0 self-stretch rounded-full',
+                  new Date(c.inicio) < new Date() ? 'bg-rose-500' : 'bg-cyan-400')} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{c.titulo}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.filiado?.nomeCompleto ?? 'Sem filiado'} · {horaCurta(c.inicio)}
+                  </p>
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionCard>
+  );
+}
+
+/**
+ * ANIVERSARIANTES DO DIA — filiados e equipe na mesma lista.
+ *
+ * É a única ação do painel que gera relacionamento em vez de resolver
+ * pendência: um "parabéns" custa um clique e o filiado percebe o sindicato.
+ * O botão do WhatsApp já leva a mensagem pronta, porque o atrito de escrever
+ * é o que faz a intenção morrer.
+ */
+function Aniversariantes({ data }: { data: ResumoDashboard }) {
+  const itens = data.aniversariantes ?? [];
+  if (itens.length === 0) return null; // dia sem aniversário não vira card vazio
+
+  return (
+    <SectionCard title="Aniversariantes de hoje" icon={Cake} count={itens.length}>
+      <ul className="divide-y divide-border/60">
+        {itens.map((p) => {
+          const primeiroNome = p.nome.split(' ')[0];
+          const msg = `Olá, ${primeiroNome}! O SENATEPI deseja a você um feliz aniversário! 🎉`;
+          const zap = p.telefone
+            ? `https://wa.me/55${p.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`
+            : null;
+          return (
+            <li key={`${p.tipo}-${p.id}`} className="flex items-center gap-3 px-2 py-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-100 text-sm dark:bg-pink-950/40">
+                🎂
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{p.nome}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {p.idade > 0 && `${p.idade} anos · `}
+                  {p.tipo === 'FILIADO' ? 'Filiado(a)' : 'Equipe'}
+                </p>
+              </div>
+              {zap ? (
+                <a
+                  href={zap}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 rounded-lg bg-[#25D366] px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-[#20bd5a]"
+                >
+                  Parabenizar
+                </a>
+              ) : (
+                <span className="shrink-0 text-[11px] text-muted-foreground">sem telefone</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </SectionCard>
+  );
+}
+
+/** "8,3 h" ou "2 d 4 h" — hora crua acima de um dia não se lê. */
+function duracaoLegivel(horas: number): string {
+  if (horas < 1) return `${Math.round(horas * 60)} min`;
+  if (horas < 24) return `${horas.toString().replace('.', ',')} h`;
+  const d = Math.floor(horas / 24);
+  const h = Math.round(horas % 24);
+  return h ? `${d} d ${h} h` : `${d} d`;
+}
+
 function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
   const itens = data.atendimentosPendentes;
+  const tm = data.tempoMedioTriagem;
   return (
     <SectionCard title="Atendimentos pendentes" icon={Inbox} count={data.kpis.atendimentosPendentes} actionHref="/atendimentos" actionLabel="Triagem">
+      {/* Tempo médio de resolução: a régua da triagem. Fica no card dos
+          atendimentos porque é ali que ele significa alguma coisa — solto num
+          KPI, viraria número sem contexto. */}
+      {tm?.horas !== null && tm?.horas !== undefined && (
+        <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <Timer className="h-3.5 w-3.5 shrink-0" />
+          Tempo médio de resolução:{' '}
+          <strong className="text-foreground">{duracaoLegivel(tm.horas)}</strong>
+          <span className="opacity-70">· {tm.amostra} resolvidos em 30 dias</span>
+        </p>
+      )}
       {itens.length === 0 ? (
         <EmptyState icon={CheckCircle2}>Nenhum atendimento aguardando resolução.</EmptyState>
       ) : (
@@ -447,12 +717,28 @@ function MovimentacoesRecentes({ data }: { data: ResumoDashboard }) {
 function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard; podeAtend: boolean; podeFil: boolean }) {
   const abas = [
     podeAtend && { key: 'atendimentos' as const, label: 'Atendimentos (14 dias)' },
-    podeFil && { key: 'filiados' as const, label: 'Filiados (6 meses)' },
+    podeFil && { key: 'filiados' as const, label: 'Quadro associativo (6 meses)' },
   ].filter(Boolean) as { key: 'atendimentos' | 'filiados'; label: string }[];
   const [aba, setAba] = useState<'atendimentos' | 'filiados'>(abas[0]?.key ?? 'atendimentos');
 
-  const chartData = aba === 'atendimentos' ? data.graficos.atendimentos14dias : data.graficos.crescimentoFiliados;
-  const xKey = aba === 'atendimentos' ? 'dia' : 'mes';
+  /**
+   * No quadro associativo, as séries são alternáveis: comparar entrada e saída
+   * lado a lado é o ponto, mas isolar uma delas responde "quanto perdemos em
+   * março?" sem a outra curva atrapalhando a leitura da escala.
+   */
+  const [series, setSeries] = useState<{ entradas: boolean; saidas: boolean; saldo: boolean }>({
+    entradas: true, saidas: true, saldo: false,
+  });
+  const alternar = (k: keyof typeof series) =>
+    setSeries((s) => {
+      const proximo = { ...s, [k]: !s[k] };
+      // Nunca deixa o gráfico vazio: desligar a última série não faz sentido.
+      return Object.values(proximo).some(Boolean) ? proximo : s;
+    });
+
+  const ehFiliados = aba === 'filiados';
+  const chartData = ehFiliados ? data.graficos.movimentacaoQuadro : data.graficos.atendimentos14dias;
+  const xKey = ehFiliados ? 'mes' : 'dia';
 
   return (
     <Card className="h-full">
@@ -473,6 +759,40 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
           </div>
         )}
       </div>
+      {/* Transparência sobre a lacuna: parte da base veio da carga sem data de
+          filiação e fica FORA da série. Dizer o número é mais honesto do que
+          deixar o gráfico parecer completo. */}
+      {ehFiliados && data.graficos.filiadosSemDataFiliacao > 0 && (
+        <p className="border-b px-5 py-2 text-[11px] text-muted-foreground">
+          <strong>{data.graficos.filiadosSemDataFiliacao.toLocaleString('pt-BR')}</strong> filiados
+          da base importada estão sem data de filiação e não entram no gráfico.
+        </p>
+      )}
+
+      {/* Legenda interativa — só no quadro associativo, onde há o que comparar */}
+      {ehFiliados && (
+        <div className="flex flex-wrap gap-1.5 border-b px-5 py-2">
+          {([
+            ['entradas', 'Entradas', '#1B7F0A'],
+            ['saidas', 'Saídas', '#DC2626'],
+            ['saldo', 'Saldo', '#7C3AED'],
+          ] as const).map(([k, rotulo, cor]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => alternar(k)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition',
+                series[k] ? 'bg-muted' : 'opacity-45 hover:opacity-70',
+              )}
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: cor }} />
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+
       <CardContent className="h-64 p-4">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -480,6 +800,10 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
               <linearGradient id="grad-verde" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#4FA11B" stopOpacity={0.55} />
                 <stop offset="95%" stopColor="#4FA11B" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="grad-vermelho" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#DC2626" stopOpacity={0.4} />
+                <stop offset="95%" stopColor="#DC2626" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
@@ -489,7 +813,24 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
               contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', fontSize: 12 }}
               labelStyle={{ fontWeight: 600 }}
             />
-            <Area type="monotone" dataKey="total" name="Total" stroke="#1B7F0A" strokeWidth={2} fill="url(#grad-verde)" />
+            {ehFiliados ? (
+              <>
+                {series.entradas && (
+                  <Area type="monotone" dataKey="entradas" name="Entradas" stroke="#1B7F0A"
+                    strokeWidth={2} fill="url(#grad-verde)" />
+                )}
+                {series.saidas && (
+                  <Area type="monotone" dataKey="saidas" name="Saídas" stroke="#DC2626"
+                    strokeWidth={2} fill="url(#grad-vermelho)" />
+                )}
+                {series.saldo && (
+                  <Area type="monotone" dataKey="saldo" name="Saldo" stroke="#7C3AED"
+                    strokeWidth={2} strokeDasharray="4 3" fill="none" />
+                )}
+              </>
+            ) : (
+              <Area type="monotone" dataKey="total" name="Total" stroke="#1B7F0A" strokeWidth={2} fill="url(#grad-verde)" />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </CardContent>
