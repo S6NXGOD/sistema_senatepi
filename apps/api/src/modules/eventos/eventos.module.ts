@@ -20,6 +20,9 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CobrancasModule } from '../cobrancas/cobrancas.module';
 import { CheckinService } from './checkin.service';
 import { CheckinPublicoController } from './checkin.controller';
+import { VotacaoService } from './votacao.service';
+import { SorteioService } from './sorteio.service';
+import { PlenarioAdminController, PlenarioPublicoController } from './plenario.controller';
 import { lerConfiguracoes, normalizarConfiguracoes } from './configuracoes-evento';
 
 class CreateEventoDto {
@@ -144,8 +147,16 @@ class EventosController {
   // CobrancasModule entra para o check-in poder consultar a adimplência pela
   // regra do financeiro, em vez de reimplementá-la aqui.
   imports: [CobrancasModule],
-  controllers: [EventosController, CheckinPublicoController],
-  providers: [EventosService, CheckinService],
+  // PlenarioPublicoController vem ANTES de CheckinPublicoController: ambos
+  // servem sob `sala/`, e o `@Get(':eventoId')` do check-in casaria com
+  // "ao-vivo" se fosse registrado primeiro. O Nest resolve na ordem.
+  controllers: [
+    EventosController,
+    PlenarioAdminController,
+    PlenarioPublicoController,
+    CheckinPublicoController,
+  ],
+  providers: [EventosService, CheckinService, VotacaoService, SorteioService],
   exports: [EventosService],
 })
 export class EventosModule {}
