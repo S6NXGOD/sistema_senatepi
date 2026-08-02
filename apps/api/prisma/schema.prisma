@@ -80,10 +80,19 @@ enum TipoPessoa {
   COLABORADOR
 }
 
+/// Tipo do evento — é RÓTULO, não comportamento.
+///
+/// O que liga votação, certificado ou exigência de adimplência é
+/// `Evento.configuracoes`, não este enum. Um congresso pode ter votação e uma
+/// assembleia pode sortear um brinde; amarrar comportamento ao tipo obrigaria a
+/// um novo tipo a cada combinação.
 enum TipoEvento {
   ASSEMBLEIA
   CONGRESSO
   REUNIAO
+  CURSO
+  SORTEIO
+  NEGOCIACAO
   EVENTO_SOCIAL
   EVENTO_ESPORTIVO
   OUTRO
@@ -465,6 +474,14 @@ model Dependente {
 // EVENTOS E CONTROLE DE PRESENÇA
 // ============================================================================
 
+/// Evento — o "motor camaleão".
+///
+/// O MESMO model atende assembleia com votação, curso com certificado e sorteio
+/// ao vivo. O que muda o comportamento é `configuracoes`, não o tipo: um
+/// congresso pode ter votação, uma assembleia pode ter sorteio de brinde, e
+/// exigir adimplência é decisão de cada evento. Três models paralelos
+/// (Assembleia, Curso, Sorteio) duplicariam presença, check-in e dossiê — e
+/// divergiriam no primeiro ajuste feito só num deles.
 model Evento {
   id               String       @id @default(uuid())
   nome             String
@@ -475,10 +492,35 @@ model Evento {
   capacidadeMaxima Int?         @map("capacidade_maxima")
   tipo             TipoEvento   @default(OUTRO)
   status           StatusEvento @default(AGENDADO)
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  /// Chaves que ligam/desligam o comportamento — ver `configuracoes-evento.ts`,
+  /// que é o contrato tipado deste JSON. NUNCA leia este campo direto: passe
+  /// pelo parser de lá, senão uma chave escrita errada vira silêncio.
+  configuracoes Json @default("{}")
+
+  /// Link da videoconferência (Meet, Zoom, Teams). Colado à mão ou preenchido
+  /// pela integração com o Google Calendar, quando configurada.
+  linkReuniao   String? @map("link_reuniao")
+  /// Id do evento no Google Calendar — só existe quando foi criado por lá.
+  /// Guardado para poder atualizar/cancelar o mesmo evento em vez de duplicar.
+  googleEventId String? @map("google_event_id")
+
+  /// ---- Fechamento (o "cartório") ----
+  /// Gravação da reunião. Mora no Drive de propósito: vídeo de assembleia tem
+  /// gigabytes, e o disco do container é efêmero.
+  urlVideoDrive  String?   @map("url_video_drive")
+  /// Ata em texto. A transcrição é ligada pelo host DENTRO do Meet e cai no
+  /// Drive; o sistema não transcreve nada, apenas recebe e arquiva.
+  textoAta       String?   @map("texto_ata")
+  dossiePdfKey   String?   @map("dossie_pdf_key")
+  dossieGeradoEm DateTime? @map("dossie_gerado_em")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   presencas Presenca[]
+  pautas    PautaVotacao[]
+  sorteios  SorteioEvento[]
 
   @@index([status])
   @@index([dataInicio])
@@ -499,6 +541,21 @@ model Presenca {
   // Snapshot para histórico (mesmo se o cadastro for alterado/removido)
   nomeSnapshot  String     @map("nome_snapshot")
 
+  /// ---- Evidências de acesso (check-in remoto) ----
+  ///
+  /// NÃO é assinatura digital. Não há certificado ICP-Brasil nem chave privada
+  /// do signatário: isto prova que ALGUÉM, de posse daquele CPF, acessou
+  /// daquele IP naquele instante, com o vínculo associativo conferido na hora.
+  /// É evidência forte de participação — e chamar de "assinatura" atribuiria
+  /// ao dossiê um valor probatório que ele não tem.
+  ///
+  /// LGPD: IP é dado pessoal. A coleta é avisada ANTES, na tela de check-in.
+  origem       OrigemPresenca @default(QR_PRESENCIAL)
+  ip           String?
+  userAgent    String?        @map("user_agent")
+  /// CPF exatamente como digitado, para o dossiê registrar o que foi informado.
+  cpfInformado String?        @map("cpf_informado")
+
   evento      Evento       @relation(fields: [eventoId], references: [id], onDelete: Cascade)
   filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   dependente  Dependente?  @relation(fields: [dependenteId], references: [id], onDelete: SetNull)
@@ -510,6 +567,137 @@ model Presenca {
   @@unique([eventoId, colaboradorId])
   @@index([eventoId])
   @@map("presencas")
+}
+
+// ============================================================================
+// PLENÁRIO VIRTUAL — pautas, votação e sorteio
+// ============================================================================
+
+/// Pauta submetida à votação numa assembleia.
+model PautaVotacao {
+  id        String  @id @default(uuid())
+  eventoId  String  @map("evento_id")
+  ordem     Int     @default(0)
+  titulo    String
+  descricao String?
+
+  /// Opções da cédula: `[{ "id": "sim", "rotulo": "Aprovo" }, ...]`.
+  /// JSON porque a quantidade e o texto variam a cada pauta; o `id` é o que
+  /// `VotoUrna.opcaoId` referencia.
+  opcoes Json
+
+  modo   ModoVotacao @default(SECRETA)
+  status StatusPauta @default(RASCUNHO)
+
+  /// Mínimo de votantes para a deliberação valer. Nulo = sem exigência.
+  quorumMinimo Int?      @map("quorum_minimo")
+  abertaEm     DateTime? @map("aberta_em")
+  encerradaEm  DateTime? @map("encerrada_em")
+  /// Quem abriu/encerrou — snapshot, sobrevive à exclusão do usuário.
+  autor        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  evento       Evento            @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  habilitacoes VotoHabilitacao[]
+  votos        VotoUrna[]
+
+  @@index([eventoId, ordem])
+  @@map("pautas_votacao")
+}
+
+/// Registro de QUE o filiado votou — não DE QUE FORMA.
+///
+/// É esta tabela, e só ela, que impede o voto duplo: o índice único abaixo é a
+/// trava. Conferir com um SELECT antes de inserir perderia a corrida entre dois
+/// cliques simultâneos; deixar o banco recusar é o que torna a garantia real.
+///
+/// Serve também para apurar quórum e comparecimento sem tocar na urna.
+model VotoHabilitacao {
+  id        String   @id @default(uuid())
+  pautaId   String   @map("pauta_id")
+  filiadoId String   @map("filiado_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pauta PautaVotacao @relation(fields: [pautaId], references: [id], onDelete: Cascade)
+
+  @@unique([pautaId, filiadoId], map: "voto_habilitacao_unico")
+  @@index([pautaId])
+  @@map("votos_habilitacao")
+}
+
+/// A urna: O QUE foi votado.
+///
+/// SIGILO — a razão de existirem duas tabelas.
+/// Em pauta SECRETA, `filiadoId` fica NULO e NÃO HÁ `createdAt`. A ausência do
+/// carimbo de tempo é deliberada: com ele, bastaria ordenar esta tabela e
+/// `votos_habilitacao` por horário para parear voto e votante, e o sigilo seria
+/// decorativo. Sem timestamp e com id aleatório, não há como correlacionar as
+/// duas — nem com acesso direto ao banco.
+///
+/// Em pauta NOMINAL o `filiadoId` é gravado, porque a ata precisa registrar o
+/// voto de cada presente. É escolha por pauta, feita antes de abrir a votação.
+model VotoUrna {
+  id        String  @id @default(uuid())
+  pautaId   String  @map("pauta_id")
+  /// `id` da opção escolhida, conforme `PautaVotacao.opcoes`.
+  opcaoId   String  @map("opcao_id")
+  /// SOMENTE em pauta NOMINAL. Nulo é o que garante o sigilo.
+  filiadoId String? @map("filiado_id")
+
+  pauta PautaVotacao @relation(fields: [pautaId], references: [id], onDelete: Cascade)
+
+  @@index([pautaId])
+  @@map("votos_urna")
+}
+
+/// Sorteio realizado durante um evento.
+model SorteioEvento {
+  id       String  @id @default(uuid())
+  eventoId String  @map("evento_id")
+  titulo   String
+  premio   String?
+
+  /// Quem concorria: `{ "somentePresentes": true, "somenteAdimplentes": false }`.
+  criterio Json @default("{}")
+
+  /// Semente do sorteio, guardada para ele ser REEXECUTÁVEL e conferível.
+  /// Sorteio que ninguém pode auditar é sorteio que ninguém precisa acreditar.
+  seed String
+
+  /// Resultado: `[{ "filiadoId", "nome", "matricula", "posicao" }]`.
+  resultado Json
+
+  realizadoEm DateTime @default(now()) @map("realizado_em")
+  autor       String?
+
+  evento Evento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@index([eventoId])
+  @@map("sorteios_evento")
+}
+
+enum ModoVotacao {
+  /// Não há como saber quem votou o quê — nem com acesso ao banco.
+  SECRETA
+  /// O voto de cada presente fica registrado, para constar em ata.
+  NOMINAL
+}
+
+enum StatusPauta {
+  RASCUNHO
+  ABERTA
+  ENCERRADA
+}
+
+enum OrigemPresenca {
+  /// Leitura do QR Code na portaria (fluxo que já existia).
+  QR_PRESENCIAL
+  /// Autoatendimento do filiado na sala virtual, por CPF.
+  AUTOATENDIMENTO_VIRTUAL
+  /// Lançada à mão por alguém da equipe.
+  MANUAL
 }
 
 // ============================================================================
