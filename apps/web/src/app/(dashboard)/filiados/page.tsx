@@ -3,7 +3,10 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, SlidersHorizontal, Upload, X, ArrowUpDown, Users } from 'lucide-react';
+import {
+  Plus, Search, SlidersHorizontal, Upload, X, ArrowUpDown, Users, CopyCheck, ChevronRight,
+} from 'lucide-react';
+import { statusDuplicidade } from '@/lib/duplicidade';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -115,6 +118,8 @@ export default function FiliadosPage() {
           </Link>
         </div>
       </div>
+
+      <AvisoDuplicados />
 
       {/* ---- Busca, ordenação e filtros ---- */}
       <div className="space-y-3">
@@ -355,6 +360,49 @@ export default function FiliadosPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Porta de entrada do mutirão de duplicidade — e o seu desligamento.
+ *
+ * Fica AQUI, e não na navegação lateral, de propósito: é ferramenta temporária
+ * (higieniza a carga legada, em que 70% dos filiados vieram sem CPF e o índice
+ * único não teve como impedir repetição). Um item permanente de menu daria a
+ * entender que faz parte da operação do dia a dia, e sobraria órfão depois.
+ *
+ * Some sozinho em três situações, sem ninguém precisar lembrar de nada:
+ *   - `pendentes` chega a zero, ou seja, o trabalho acabou;
+ *   - a variável FILIADOS_DUPLICIDADE é desligada na API;
+ *   - o perfil não tem acesso (a chamada falha e o aviso não renderiza).
+ */
+function AvisoDuplicados() {
+  const { data } = useQuery({
+    queryKey: ['duplicados-status'],
+    queryFn: statusDuplicidade,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (!data?.ativo || data.pendentes === 0) return null;
+
+  return (
+    <Link
+      href="/filiados/duplicados"
+      className="flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 transition hover:brightness-[0.98] dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200"
+    >
+      <span className="flex items-center gap-2.5">
+        <CopyCheck className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <span>
+          <strong>{data.pendentes.toLocaleString('pt-BR')}</strong>{' '}
+          {data.pendentes === 1 ? 'grupo' : 'grupos'} de possíveis cadastros duplicados
+          {' '}aguardando revisão.
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+        Revisar <ChevronRight className="h-3.5 w-3.5" />
+      </span>
+    </Link>
   );
 }
 
