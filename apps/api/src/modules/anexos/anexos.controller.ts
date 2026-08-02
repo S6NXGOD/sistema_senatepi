@@ -6,7 +6,9 @@ import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { UserRole } from '@prisma/client';
 import { AnexosService, ANEXO_TAMANHO_MAX } from './anexos.service';
-import { CriarAnexoDto, ListarAnexosQueryDto } from './dto/anexos.dto';
+import {
+  AcervoQueryDto, CriarAnexoDto, ListarAnexosQueryDto, PuxarAnexosDto,
+} from './dto/anexos.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -34,10 +36,29 @@ export class AnexosController {
     return this.service.upload(file, dto, this.ctx(req, userId));
   }
 
-  /** Lista os anexos de um Atendimento (?atendimentoId=) ou Processo (?processoId=). */
+  /**
+   * Lista os anexos de um Atendimento (?atendimentoId=), Processo (?processoId=)
+   * ou atividade da Agenda (?compromissoId=).
+   */
   @Get()
   listar(@Query() query: ListarAnexosQueryDto) {
     return this.service.listar(query);
+  }
+
+  /**
+   * Acervo do filiado — todos os documentos que ele já entregou (atendimentos,
+   * processos, agenda e cadastro), para reaproveitar sem novo upload. Passando o
+   * alvo, cada item vem marcado com `jaVinculado`.
+   */
+  @Get('acervo')
+  acervo(@Query() query: AcervoQueryDto) {
+    return this.service.acervo(query);
+  }
+
+  /** "Puxa" documentos do acervo para o registro atual (sem novo upload). */
+  @Post('puxar')
+  puxar(@Body() dto: PuxarAnexosDto, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.puxar(dto, this.ctx(req, userId));
   }
 
   @Delete(':id')

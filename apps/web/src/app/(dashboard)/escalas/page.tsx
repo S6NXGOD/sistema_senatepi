@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import { NovaEscalaModal } from '@/components/escalas/nova-escala-modal';
 import { exportarEscalasPdf } from '@/lib/escalas-pdf';
 import {
@@ -28,7 +29,7 @@ function mesmaData(a: Date, b: Date) {
 export default function EscalasPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const ehAdmin = user?.role === 'ADMINISTRADOR';
+  const ehAdmin = podeExcluir(user?.role);
 
   const [mes, setMes] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [visao, setVisao] = useState<Visao>('calendario');

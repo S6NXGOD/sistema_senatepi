@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -11,13 +12,16 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { nivelEfetivo } from '@/lib/permissoes';
+import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { KanbanView } from '@/components/agenda/kanban-view';
 import { CalendarioView } from '@/components/agenda/calendario-view';
 import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
 import { CompromissoDrawer } from '@/components/agenda/compromisso-drawer';
 import { TiposEventoModal } from '@/components/agenda/tipos-evento-modal';
 import { AlertasBar } from '@/components/agenda/alertas-bar';
+import { ConcluirModal } from '@/components/agenda/concluir-modal';
+import { CancelarModal } from '@/components/agenda/cancelar-modal';
+import { RemarcarModal } from '@/components/agenda/remarcar-modal';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import {
@@ -67,8 +71,9 @@ function aplicarAba(cs: Compromisso[], aba: Aba): Compromisso[] {
 
 export default function AgendaPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const { user } = useAuth();
-  const ehAdmin = user?.role === 'ADMINISTRADOR';
+  const ehAdmin = podeExcluir(user?.role);
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'agenda') === 'EDITAR';
   const { tipos } = useTiposEvento();
 
@@ -86,6 +91,12 @@ export default function AgendaPage() {
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [triagemId, setTriagemId] = useState<string | null>(null);
   const [excluir, setExcluir] = useState<Compromisso | null>(null);
+  // Ações que exigem informação: cada uma tem o seu diálogo.
+  const [concluir, setConcluir] = useState<Compromisso | null>(null);
+  const [cancelar, setCancelar] = useState<Compromisso | null>(null);
+  /** Categoria pré-escolhida quando o cancelamento vem de um atalho. */
+  const [cancelarCategoria, setCancelarCategoria] = useState<string | undefined>();
+  const [remarcar, setRemarcar] = useState<Compromisso | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setBuscaDeb(busca.trim()), 350);
@@ -126,6 +137,10 @@ export default function AgendaPage() {
   const onAbrir = (c: Compromisso) => setDetalheId(c.id);
   const onNovo = () => { setEditar(null); setFormOpen(true); };
   const onAcao = (id: string, s: StatusCompromisso) => status.mutate({ id, status: s });
+  // Fecham o detalhe antes de abrir o diálogo — dois modais empilhados confundem.
+  const onConcluir = (c: Compromisso) => { setDetalheId(null); setConcluir(c); };
+  const onCancelar = (c: Compromisso) => { setDetalheId(null); setCancelar(c); };
+  const onRemarcar = (c: Compromisso) => { setDetalheId(null); setRemarcar(c); };
 
   function mudarMes(delta: number) {
     setMes((m) => (delta === 0 ? new Date() : new Date(m.getFullYear(), m.getMonth() + delta, 1)));
@@ -206,6 +221,9 @@ export default function AgendaPage() {
           onEditar={onEditar}
           onVerTriagem={setTriagemId}
           onAcao={onAcao}
+          onConcluir={onConcluir}
+          onCancelar={onCancelar}
+          onRemarcar={onRemarcar}
           onExcluir={setExcluir}
           podeExcluir={ehAdmin}
         />
@@ -222,9 +240,49 @@ export default function AgendaPage() {
         open={!!detalheId}
         onClose={() => setDetalheId(null)}
         onEditar={onEditar}
+        onConcluir={onConcluir}
+        onCancelar={onCancelar}
+        onRemarcar={onRemarcar}
+        onAcao={onAcao}
         onExcluir={(c) => { setDetalheId(null); setExcluir(c); }}
         onVerTriagem={(id) => { setDetalheId(null); setTriagemId(id); }}
         podeExcluir={ehAdmin}
+      />
+
+      {/* Concluir com desfecho — pode abrir um processo em rascunho */}
+      <ConcluirModal
+        compromisso={concluir}
+        open={!!concluir}
+        onClose={() => setConcluir(null)}
+        // Quem não compareceu não realizou a atividade: o atalho leva ao
+        // cancelamento, já com a categoria certa.
+        onNaoCompareceu={() => { setCancelarCategoria('NAO_COMPARECEU'); setCancelar(concluir); }}
+        onConcluido={(rascunho) => {
+          invalidar();
+          qc.invalidateQueries({ queryKey: ['processos'] });
+          if (rascunho) {
+            toast.success('Rascunho criado — formalize em Processos quando quiser.', {
+              action: { label: 'Abrir Processos', onClick: () => router.push('/processos?rascunhos=1') },
+            });
+          }
+        }}
+      />
+
+      {/* Cancelar — motivo obrigatório */}
+      <CancelarModal
+        compromisso={cancelar}
+        open={!!cancelar}
+        categoriaInicial={cancelarCategoria}
+        onClose={() => { setCancelar(null); setCancelarCategoria(undefined); }}
+        onCancelado={invalidar}
+      />
+
+      {/* Remarcar — só data/hora e o porquê */}
+      <RemarcarModal
+        compromisso={remarcar}
+        open={!!remarcar}
+        onClose={() => setRemarcar(null)}
+        onRemarcado={invalidar}
       />
 
       {/* Gerenciador de tipos de evento (CRUD) */}

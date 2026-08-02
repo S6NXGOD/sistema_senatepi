@@ -1,4 +1,5 @@
 import { api } from './api';
+import { CORES_PALETA, PALETA, type ClassesCor, type CorPaleta } from './paleta-cores';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -27,12 +28,55 @@ export interface FiliadoCard {
 export interface Responsavel {
   id: string;
   nome: string;
+  nomeExibicao?: string | null;
   role?: string;
   avatarUrl?: string | null;
 }
 export interface ProcessoRef {
   id: string;
-  numeroCNJ: string;
+  /** Nulo em processos RASCUNHO (ainda sem NPU). */
+  numeroCNJ: string | null;
+  statusInterno?: string;
+  titulo?: string | null;
+}
+
+/**
+ * Slug do desfecho. Deixou de ser união fechada: as opções dependem do TIPO da
+ * atividade e vêm de GET /compromissos/desfechos/:tipo.
+ */
+export type DesfechoCompromisso = string;
+
+/**
+ * Atividade de seguimento que o desfecho gera — a pendência declarada ("com
+ * encaminhamentos", "laudo pendente") vira tarefa com dono e data em vez de
+ * morrer num campo de texto.
+ */
+export interface SeguimentoSpec {
+  tipo: string;
+  titulo: string;
+  /** Prazo sugerido, em dias corridos a partir de hoje. */
+  emDias: number;
+  /** Quando true, a criação não pode ser desmarcada. */
+  obrigatorio?: boolean;
+}
+
+/** Opção de desfecho, como a API descreve. */
+export interface DesfechoOpcao {
+  slug: string;
+  label: string;
+  ajuda: string;
+  exigeObs?: boolean;
+  /** Resultado ruim (prazo perdido, diligência infrutífera) — destaque na tela. */
+  alerta?: boolean;
+  acao?: 'VINCULAR_PROCESSO' | 'CRIAR_PROCESSO' | 'CRIAR_ATIVIDADE';
+  /** Preenchido quando `acao` é CRIAR_ATIVIDADE. */
+  seguimento?: SeguimentoSpec;
+}
+
+export interface CategoriaCancelamento {
+  slug: string;
+  label: string;
+  ajuda: string;
 }
 
 export interface Compromisso {
@@ -46,15 +90,33 @@ export interface Compromisso {
   descricao: string | null;
   urgente: boolean;
   iniciadoEm: string | null;
+  /** Gerado pelo robô de prazos a partir de uma movimentação do DataJud. */
+  origemAutomatica?: boolean;
   dataOriginal: string | null;
+  /** Quantas vezes já foi remarcado — remarcar 4x é sinal de gestão. */
+  remarcacoes: number;
+  remarcadoMotivo: string | null;
+  // ---- Fechamento ----
+  desfecho: DesfechoCompromisso | null;
+  desfechoObs: string | null;
+  concluidoEm: string | null;
+  /** Explicação padronizada do cancelamento (o texto abaixo é complemento). */
+  canceladoCategoria: string | null;
+  canceladoMotivo: string | null;
+  canceladoEm: string | null;
   atendimentoId: string | null;
   filiado: FiliadoCard | null;
   responsavel: Responsavel;
+  /** Quem REGISTROU a demanda (com foto). Nulo em eventos do robô. */
+  criador: Responsavel | null;
   processo: ProcessoRef | null;
 }
 
 export interface CompromissoDetalhe extends Compromisso {
   observacoesInternas: string | null;
+  /** Quando o evento foi registrado no sistema (≠ da data agendada). */
+  createdAt: string;
+  /** Mantido por compatibilidade — a fonte agora é `criador` (que traz a foto). */
   criadoPorNome: string | null;
   filiado: (FiliadoCard & {
     cpf: string | null;
@@ -84,34 +146,15 @@ export interface AlertasAgenda {
 // Rótulos e cores
 // ---------------------------------------------------------------------------
 
-export interface ClassesTipo { borda: string; ponto: string; badge: string }
+// A paleta é COMPARTILHADA com os tipos de movimentação dos Processos.
+// Fonte única em lib/paleta-cores.ts (as classes precisam ser literais para o
+// Tailwind gerá-las). Reexportado aqui pelos consumidores já existentes.
+export type ClassesTipo = ClassesCor;
+export const CORES_TIPO = CORES_PALETA;
+export type CorTipo = CorPaleta;
+export const PALETA_TIPO = PALETA;
 
-/** Chaves de paleta aceitas para a cor do tipo (espelham o backend). */
-export const CORES_TIPO = [
-  'slate', 'sky', 'blue', 'indigo', 'violet', 'purple', 'pink', 'rose',
-  'red', 'orange', 'amber', 'emerald', 'teal', 'cyan',
-] as const;
-export type CorTipo = (typeof CORES_TIPO)[number];
-
-/** Classes Tailwind por chave de cor (estáticas → geradas pelo Tailwind). */
-export const PALETA_TIPO: Record<string, ClassesTipo> = {
-  slate: { borda: 'border-l-slate-500', ponto: 'bg-slate-500', badge: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
-  sky: { borda: 'border-l-sky-500', ponto: 'bg-sky-500', badge: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' },
-  blue: { borda: 'border-l-blue-500', ponto: 'bg-blue-500', badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
-  indigo: { borda: 'border-l-indigo-500', ponto: 'bg-indigo-500', badge: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' },
-  violet: { borda: 'border-l-violet-500', ponto: 'bg-violet-500', badge: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' },
-  purple: { borda: 'border-l-purple-500', ponto: 'bg-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' },
-  pink: { borda: 'border-l-pink-500', ponto: 'bg-pink-500', badge: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300' },
-  rose: { borda: 'border-l-rose-500', ponto: 'bg-rose-500', badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
-  red: { borda: 'border-l-red-500', ponto: 'bg-red-500', badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
-  orange: { borda: 'border-l-orange-500', ponto: 'bg-orange-500', badge: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
-  amber: { borda: 'border-l-amber-500', ponto: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
-  emerald: { borda: 'border-l-emerald-500', ponto: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
-  teal: { borda: 'border-l-teal-500', ponto: 'bg-teal-500', badge: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' },
-  cyan: { borda: 'border-l-cyan-500', ponto: 'bg-cyan-500', badge: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300' },
-};
-
-/** Fallback dos 8 tipos "sistema" (quando a lista dinâmica ainda não carregou). */
+/** Fallback dos tipos "sistema" (quando a lista dinâmica ainda não carregou). */
 export const TIPO_PADRAO: Record<string, { nome: string; cor: CorTipo }> = {
   AUDIENCIA: { nome: 'Audiência', cor: 'sky' },
   PRAZO: { nome: 'Prazo', cor: 'red' },
@@ -121,6 +164,8 @@ export const TIPO_PADRAO: Record<string, { nome: string; cor: CorTipo }> = {
   DESPACHO: { nome: 'Despacho', cor: 'slate' },
   PERICIA: { nome: 'Perícia', cor: 'pink' },
   COMPROMISSO: { nome: 'Compromisso', cor: 'orange' },
+  CONTATO: { nome: 'Contato', cor: 'cyan' },
+  ACOMPANHAMENTO: { nome: 'Acompanhamento', cor: 'indigo' },
 };
 
 /** Rótulo de um tipo (lista dinâmica → fallback padrão → o próprio slug). */
@@ -147,6 +192,123 @@ export const STATUS_COR: Record<StatusCompromisso, string> = {
   CONCLUIDO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
   CANCELADO: 'bg-muted text-muted-foreground line-through',
 };
+
+// ---------------------------------------------------------------------------
+// Desfecho
+// ---------------------------------------------------------------------------
+
+/**
+ * Rótulos conhecidos. A tela usa o label vindo da API; este mapa serve para
+ * exibir registros antigos (REALIZADO, OUTRO, NAO_COMPARECEU) e para os casos
+ * em que só temos o slug guardado no compromisso.
+ */
+export const DESFECHO_LABEL: Record<string, string> = {
+  // Encaminhamentos (valem para vários tipos)
+  DUVIDA_ESCLARECIDA: 'Dúvida esclarecida',
+  VINCULADO_PROCESSO: 'Vinculado a processo',
+  PROCESSO_CRIADO: 'Virou processo novo',
+  CONCLUIDA: 'Concluída',
+  // Audiência
+  AUDIENCIA_ACORDO: 'Houve acordo',
+  AUDIENCIA_SEM_ACORDO: 'Realizada, sem acordo',
+  AUDIENCIA_INSTRUCAO: 'Instrução encerrada',
+  // Prazo
+  PRAZO_CUMPRIDO: 'Peça protocolada',
+  PRAZO_PERDIDO: 'Prazo perdido',
+  // Reunião
+  REUNIAO_COM_ENCAMINHAMENTOS: 'Com encaminhamentos',
+  REUNIAO_SEM_DELIBERACAO: 'Sem deliberação',
+  // Diligência
+  DILIGENCIA_CUMPRIDA: 'Cumprida',
+  DILIGENCIA_INFRUTIFERA: 'Infrutífera',
+  // Despacho
+  DESPACHO_OBTIDO: 'Despacho obtido',
+  DESPACHO_NAO_ATENDIDO: 'Não atendido',
+  // Perícia
+  PERICIA_REALIZADA: 'Realizada — laudo pendente',
+  PERICIA_LAUDO_ENTREGUE: 'Laudo entregue',
+  // Contato com o filiado (tarefa de aviso da secretaria)
+  CONTATO_CONFIRMADO: 'Confirmou presença',
+  CONTATO_NAO_COMPARECERA: 'Avisou que não vai',
+  CONTATO_SEM_SUCESSO: 'Não conseguimos contato',
+  // Acompanhamento (a pendência que veio de outro desfecho)
+  ACOMPANHAMENTO_CUMPRIDO: 'Cumprido',
+  ACOMPANHAMENTO_PENDENTE: 'Ainda pendente',
+  ACOMPANHAMENTO_SEM_OBJETO: 'Perdeu o objeto',
+  // Legado (antes da conclusão por tipo)
+  REALIZADO: 'Realizado',
+  OUTRO: 'Outro',
+  NAO_COMPARECEU: 'Não compareceu',
+};
+
+/** Desfechos que sinalizam problema — pintados de vermelho na tela. */
+const DESFECHOS_ALERTA = new Set([
+  'PRAZO_PERDIDO', 'DILIGENCIA_INFRUTIFERA', 'DESPACHO_NAO_ATENDIDO',
+  'CONTATO_NAO_COMPARECERA', 'CONTATO_SEM_SUCESSO', 'ACOMPANHAMENTO_PENDENTE',
+]);
+
+export function corDesfecho(slug?: string | null): string {
+  if (!slug) return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+  if (DESFECHOS_ALERTA.has(slug)) return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+  if (slug === 'VINCULADO_PROCESSO') return 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300';
+  if (slug === 'PROCESSO_CRIADO') return 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300';
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+}
+
+export const rotuloDesfecho = (slug?: string | null): string =>
+  slug ? (DESFECHO_LABEL[slug] ?? slug) : '';
+
+export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> = {
+  NAO_COMPARECEU: 'Filiado não compareceu',
+  DESISTENCIA: 'Filiado desistiu',
+  ADIADA_JUIZO: 'Adiada pelo juízo/órgão',
+  INDISPONIBILIDADE: 'Indisponibilidade do sindicato',
+  DUPLICIDADE: 'Agendada por engano',
+  PERDEU_OBJETO: 'Perdeu o objeto',
+};
+
+/** Opções de desfecho do tipo da atividade. */
+export async function listarDesfechos(tipo: string): Promise<DesfechoOpcao[]> {
+  return (await api.get(`/compromissos/desfechos/${tipo}`)).data;
+}
+
+export async function listarCategoriasCancelamento(): Promise<CategoriaCancelamento[]> {
+  return (await api.get('/compromissos/categorias-cancelamento')).data;
+}
+
+/** Linha do tempo da atividade. */
+export interface MovimentacaoCompromisso {
+  id: string;
+  acao: string;
+  descricao: string;
+  autorNome: string | null;
+  autor?: { nome: string; nomeExibicao: string | null } | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export async function listarHistoricoCompromisso(id: string): Promise<MovimentacaoCompromisso[]> {
+  return (await api.get(`/compromissos/${id}/historico`)).data;
+}
+
+
+
+/**
+ * Transições permitidas — espelha a máquina de estados da API para a tela só
+ * oferecer o que o servidor aceita. Concluir e cancelar não estão aqui: são
+ * ações próprias, com dados obrigatórios (desfecho / motivo).
+ */
+export const TRANSICOES: Record<StatusCompromisso, StatusCompromisso[]> = {
+  PENDENTE: ['EM_ANDAMENTO'],
+  EM_ANDAMENTO: ['PENDENTE'],
+  CONCLUIDO: ['PENDENTE', 'EM_ANDAMENTO'],
+  CANCELADO: ['PENDENTE'],
+};
+
+/** Um evento fechado (concluído/cancelado) precisa ser reaberto para mudar. */
+export function estaFechado(status: StatusCompromisso): boolean {
+  return status === 'CONCLUIDO' || status === 'CANCELADO';
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -270,8 +432,64 @@ export async function atualizarCompromisso(id: string, dto: Partial<CriarComprom
   return (await api.patch(`/compromissos/${id}`, dto)).data;
 }
 
+/**
+ * Avanço simples: iniciar, voltar a pendente, reabrir. Concluir e cancelar têm
+ * funções próprias — a API recusa esses dois aqui, porque exigem desfecho/motivo.
+ */
 export async function mudarStatusCompromisso(id: string, status: StatusCompromisso) {
   return (await api.patch(`/compromissos/${id}/status`, { status })).data;
+}
+
+export interface ConcluirInput {
+  desfecho: DesfechoCompromisso;
+  desfechoObs?: string;
+  /** Obrigatório em VINCULADO_PROCESSO. */
+  processoId?: string;
+  /** Usado em PROCESSO_CRIADO — abre o rascunho no módulo de Processos. */
+  novoProcesso?: {
+    titulo?: string;
+    assunto?: string;
+    advogadoId?: string;
+    observacao?: string;
+  };
+  /** Usado em CRIAR_ATIVIDADE — o que difere dos padrões sugeridos pelo desfecho. */
+  seguimento?: {
+    titulo?: string;
+    responsavelId?: string;
+    inicio?: string;
+    descricao?: string;
+  };
+  /** `false` dispensa o seguimento SUGERIDO; o obrigatório ignora este campo. */
+  criarSeguimento?: boolean;
+}
+
+/** Resposta da conclusão — traz o que o desfecho criou junto. */
+export interface ConcluirResposta extends Compromisso {
+  rascunhoCriado: { id: string; titulo: string | null } | null;
+  seguimentoCriado: { id: string; titulo: string; inicio: string; tipo: string } | null;
+}
+
+export async function concluirCompromisso(id: string, dto: ConcluirInput): Promise<ConcluirResposta> {
+  return (await api.patch(`/compromissos/${id}/concluir`, dto)).data;
+}
+
+/**
+ * Cancelamento — a CATEGORIA é obrigatória (é ela que explica e que vira
+ * estatística); o texto livre é complemento, para o caso que ela não cobre.
+ */
+export async function cancelarCompromisso(id: string, categoria: string, motivo?: string) {
+  return (await api.patch(`/compromissos/${id}/cancelar`, { categoria, motivo: motivo || undefined })).data;
+}
+
+/**
+ * Remarcação — só data/hora e o porquê. Omitindo o fim, a API preserva a
+ * duração original do evento.
+ */
+export async function remarcarCompromisso(
+  id: string,
+  dto: { inicio: string; fim?: string; motivo?: string },
+) {
+  return (await api.patch(`/compromissos/${id}/remarcar`, dto)).data;
 }
 
 export async function excluirCompromisso(id: string) {

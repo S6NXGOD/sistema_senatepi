@@ -193,8 +193,8 @@ export function AtendimentoDrawer({
               )}
             </div>
 
-            {/* Anexos */}
-            <AnexosSection atendimentoId={at.id} />
+            {/* Anexos — com "Puxar do acervo" (o filiado não reenvia o que já entregou) */}
+            <AnexosSection atendimentoId={at.id} filiadoId={filiado.id} />
           </div>
         )}
       </Sheet>

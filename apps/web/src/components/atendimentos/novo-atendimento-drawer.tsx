@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { X, Search, Loader2, User, UserCog, Send } from 'lucide-react';
+import { X, Search, Loader2, User, UserCog, Send, FolderInput } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { criarAtendimento, CanalAtendimento, CANAIS, CANAL_LABEL } from '@/lib/atendimentos';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
+import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
+import { listarAcervo } from '@/lib/anexos';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -34,6 +36,8 @@ export function NovoAtendimentoDrawer({
   const [descricao, setDescricao] = useState('');
   const [cadastral, setCadastral] = useState<any | null>(null);
   const [carregandoContato, setCarregandoContato] = useState(false);
+  /** Atendimento recém-criado — abre o "puxar documentos" logo em seguida. */
+  const [criadoId, setCriadoId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -41,8 +45,20 @@ export function NovoAtendimentoDrawer({
       setFiliadoNome(filiadoPre?.nomeCompleto ?? '');
       setBusca(''); setResultados([]);
       setCanal('PRESENCIAL'); setDescricao('');
+      setCriadoId(null);
     }
   }, [open, filiadoPre]);
+
+  /**
+   * Acervo do filiado — quantos documentos ele já entregou. Consultado assim que
+   * o filiado é escolhido para que a triagem SAIBA, antes de pedir arquivo, que
+   * há o que reaproveitar.
+   */
+  const { data: acervo = [] } = useQuery({
+    queryKey: ['acervo', filiadoId, {}],
+    queryFn: () => listarAcervo(filiadoId),
+    enabled: open && !!filiadoId,
+  });
 
   useEffect(() => {
     const termo = busca.trim();
@@ -64,7 +80,14 @@ export function NovoAtendimentoDrawer({
 
   const criar = useMutation({
     mutationFn: () => criarAtendimento({ filiadoId, canal, descricao: descricao.trim() }),
-    onSuccess: () => { toast.success('Atendimento registrado!'); onCriado(); onClose(); },
+    onSuccess: (novo: any) => {
+      toast.success('Atendimento registrado!');
+      onCriado();
+      // Se o filiado já entregou documentos antes, o passo seguinte é escolher
+      // quais valem para esta demanda — em vez de pedir upload do que já existe.
+      if (acervo.length > 0 && novo?.id) setCriadoId(novo.id);
+      else onClose();
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível registrar o atendimento.'),
   });
 
@@ -78,6 +101,20 @@ export function NovoAtendimentoDrawer({
     return cadastral ? (
       <AtualizacaoCadastralModal filiado={cadastral} onClose={() => setCadastral(null)} onSaved={() => {}} />
     ) : null;
+  }
+
+  // Atendimento já registrado: o formulário sai de cena e entra a escolha dos
+  // documentos do acervo. Fechar aqui encerra o fluxo (puxar é opcional).
+  if (criadoId) {
+    return (
+      <PuxarDocumentosModal
+        open
+        onClose={() => { setCriadoId(null); onClose(); }}
+        filiadoId={filiadoId}
+        alvo={{ atendimentoId: criadoId }}
+        chaveCache={['anexos', criadoId]}
+      />
+    );
   }
 
   return (
@@ -110,6 +147,16 @@ export function NovoAtendimentoDrawer({
                   <Button variant="outline" size="sm" className="w-full" onClick={abrirCadastral} disabled={carregandoContato}>
                     {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
                   </Button>
+                  {acervo.length > 0 && (
+                    <p className="flex items-start gap-1.5 rounded-lg bg-senatepi-50 px-3 py-2 text-xs text-senatepi-800 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+                      <FolderInput className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Este filiado já tem <strong>{acervo.length} documento(s)</strong> no sistema.
+                        Ao registrar, você poderá puxá-los para este atendimento — sem pedir o
+                        arquivo de novo.
+                      </span>
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="relative">

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { RegistrarDesfechoModal, AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
@@ -29,7 +30,7 @@ const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-ba
 export default function AtendimentosPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const ehAdmin = user?.role === 'ADMINISTRADOR';
+  const ehAdmin = podeExcluir(user?.role);
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [status, setStatus] = useState<'' | StatusAtendimento>('');

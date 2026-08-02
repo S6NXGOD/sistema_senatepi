@@ -92,7 +92,8 @@ export class AtendimentosService {
     });
     if (advogados.length !== advogadoIds.length) throw new BadRequestException('Advogado(s) inválido(s).');
 
-    let processo: { id: string; numeroCNJ: string } | null = null;
+    // NPU é opcional (processo administrativo não tem número único do CNJ).
+    let processo: { id: string; numeroCNJ: string | null } | null = null;
     if (dto.tipoEncaminhamento === TipoEncaminhamento.ANDAMENTO_PROCESSO) {
       processo = await this.prisma.processo.findUnique({
         where: { id: dto.processoId },

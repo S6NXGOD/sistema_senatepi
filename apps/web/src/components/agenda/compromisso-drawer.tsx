@@ -6,7 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, AlertTriangle, Timer, User, Phone, Mail,
-  GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, ArrowRight, Users,
+  GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
+  Ban, CheckCircle2, Play, RotateCcw, PenLine,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -15,12 +16,15 @@ import { AnexosSection } from '@/components/anexos/anexos-section';
 import { cn, mascararCpf } from '@/lib/utils';
 import {
   getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, cronometroHMS,
-  Compromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
+  Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
+  DESFECHO_LABEL, corDesfecho,
+  rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
 import { formatNPU } from '@/lib/processos';
+import { HistoricoAtividade } from './historico-atividade';
 
 /** Cronômetro ao vivo HH:MM:SS. */
 function Cronometro({ desde }: { desde: string }) {
@@ -51,6 +55,7 @@ const soData = (iso: string) => iso.slice(0, 10);
 
 export function CompromissoDrawer({
   compromissoId, open, onClose, onEditar, onExcluir, onVerTriagem, podeExcluir,
+  onConcluir, onCancelar, onRemarcar, onAcao,
 }: {
   compromissoId: string | null;
   open: boolean;
@@ -59,6 +64,10 @@ export function CompromissoDrawer({
   onExcluir?: (c: Compromisso) => void;
   onVerTriagem?: (atendimentoId: string) => void;
   podeExcluir?: boolean;
+  onConcluir?: (c: Compromisso) => void;
+  onCancelar?: (c: Compromisso) => void;
+  onRemarcar?: (c: Compromisso) => void;
+  onAcao?: (id: string, status: StatusCompromisso) => void;
 }) {
   const { tipos } = useTiposEvento();
   const { data: c, isLoading } = useQuery({
@@ -143,11 +152,101 @@ export function CompromissoDrawer({
               <p className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Em andamento há</span> <Cronometro desde={c.iniciadoEm} /></p>
             )}
             {c.dataOriginal && (
-              <p className="flex items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                <CalendarClock className="h-3.5 w-3.5" /> Remarcado. Data original: {formatDataHora(c.dataOriginal)}
+              <p className="flex flex-wrap items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                <CalendarClock className="h-3.5 w-3.5" />
+                Remarcado {c.remarcacoes > 1 ? `${c.remarcacoes}×` : ''} · original: {formatDataHora(c.dataOriginal)}
+                {c.remarcadoMotivo && <span className="font-normal">— {c.remarcadoMotivo}</span>}
               </p>
             )}
           </div>
+
+          {/* Como terminou */}
+          {c.status === 'CONCLUIDO' && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/10">
+              <p className="mb-1 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Desfecho</span>
+                {c.desfecho ? (
+                  <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', corDesfecho(c.desfecho))}>
+                    {rotuloDesfecho(c.desfecho)}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    não informado
+                  </span>
+                )}
+                {c.concluidoEm && (
+                  <span className="text-xs text-muted-foreground">· {formatDataHora(c.concluidoEm)}</span>
+                )}
+              </p>
+              {c.desfechoObs ? (
+                <p className="whitespace-pre-wrap text-sm">{c.desfechoObs}</p>
+              ) : !c.desfecho ? (
+                <p className="text-xs text-muted-foreground">
+                  Concluída antes do registro de desfecho passar a ser exigido.
+                </p>
+              ) : null}
+            </div>
+          )}
+
+          {c.status === 'CANCELADO' && (
+            <div className="rounded-xl border border-red-200 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/10">
+              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <Ban className="h-3.5 w-3.5" /> Cancelada
+                {c.canceladoEm && <span className="font-normal normal-case">· {formatDataHora(c.canceladoEm)}</span>}
+              </p>
+              {c.canceladoCategoria ? (
+                <p className="text-sm font-semibold">
+                  {CATEGORIA_CANCELAMENTO_LABEL[c.canceladoCategoria] ?? c.canceladoCategoria}
+                </p>
+              ) : null}
+              {/* O texto é complemento: só aparece quando alguém escreveu algo.
+                  Sem categoria E sem texto = cancelamento anterior a esta regra. */}
+              {c.canceladoMotivo ? (
+                <p className="whitespace-pre-wrap text-sm">{c.canceladoMotivo}</p>
+              ) : !c.canceladoCategoria ? (
+                <p className="text-sm text-muted-foreground">Motivo não registrado (cancelamento antigo).</p>
+              ) : null}
+            </div>
+          )}
+
+          {/* Ações — mesmo fluxo do card, com espaço para rótulos completos */}
+          {(onConcluir || onCancelar || onRemarcar || onAcao) && (
+            <div className="flex flex-wrap gap-2">
+              {c.status === 'PENDENTE' && onAcao && (
+                <Button size="sm" onClick={() => onAcao(c.id, 'EM_ANDAMENTO')}>
+                  <Play className="h-4 w-4" /> Iniciar
+                </Button>
+              )}
+              {(c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO') && (
+                <>
+                  {onConcluir && (
+                    <Button
+                      size="sm"
+                      variant={c.status === 'EM_ANDAMENTO' ? 'default' : 'outline'}
+                      onClick={() => onConcluir(c)}
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Concluir
+                    </Button>
+                  )}
+                  {onRemarcar && (
+                    <Button size="sm" variant="outline" onClick={() => onRemarcar(c)}>
+                      <CalendarClock className="h-4 w-4" /> Remarcar
+                    </Button>
+                  )}
+                  {onCancelar && (
+                    <Button size="sm" variant="outline" onClick={() => onCancelar(c)}>
+                      <Ban className="h-4 w-4" /> Cancelar
+                    </Button>
+                  )}
+                </>
+              )}
+              {(c.status === 'CONCLUIDO' || c.status === 'CANCELADO') && onAcao && (
+                <Button size="sm" variant="outline" onClick={() => onAcao(c.id, 'PENDENTE')}>
+                  <RotateCcw className="h-4 w-4" /> Reabrir
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Filiado */}
           {filiado && (
@@ -186,7 +285,34 @@ export function CompromissoDrawer({
               </div>
             </Bloco>
 
-            {c.atendimento ? (
+            {/* QUEM REGISTROU A DEMANDA — com foto. Aparece sempre que houver
+                criador, inclusive quando o evento veio de uma triagem: são
+                perguntas diferentes ("quem atendeu" × "quem lançou na agenda"). */}
+            {c.criador ? (
+              <Bloco titulo="Registrado por">
+                <div className="flex items-center gap-2">
+                  <Avatar nome={c.criador.nomeExibicao || c.criador.nome} url={c.criador.avatarUrl} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {c.criador.nomeExibicao || c.criador.nome}
+                    </p>
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <PenLine className="h-3 w-3" /> {formatDataHora(c.createdAt)}
+                    </p>
+                  </div>
+                </div>
+              </Bloco>
+            ) : c.origemAutomatica ? (
+              <Bloco titulo="Registrado por">
+                <p className="text-sm text-muted-foreground">Robô de prazos (DataJud)</p>
+              </Bloco>
+            ) : c.criadoPorNome ? (
+              <Bloco titulo="Registrado por">
+                <p className="text-sm">{c.criadoPorNome}</p>
+              </Bloco>
+            ) : null}
+
+            {c.atendimento && (
               <Bloco titulo="Triagem de origem">
                 <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-900/40 dark:bg-sky-950/10">
                   <div className="flex flex-wrap items-center gap-1.5 text-sm">
@@ -203,18 +329,21 @@ export function CompromissoDrawer({
                   )}
                 </div>
               </Bloco>
-            ) : c.criadoPorNome ? (
-              <Bloco titulo="Criado por">
-                <p className="text-sm">{c.criadoPorNome}</p>
-              </Bloco>
-            ) : null}
+            )}
 
             {c.processo && (
               <Bloco titulo="Processo vinculado">
                 <Link href="/processos" className="flex items-center gap-1.5 text-sm text-senatepi-800 hover:underline dark:text-senatepi-400">
-                  <Gavel className="h-3.5 w-3.5" /> {formatNPU(c.processo.numeroCNJ)}
+                  <Gavel className="h-3.5 w-3.5" />
+                  {/* Rascunho ainda não tem NPU — mostra o rótulo do processo. */}
+                  {c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : (c.processo.titulo || 'Rascunho')}
                   {c.processo.classeProcessual ? ` · ${c.processo.classeProcessual}` : ''}
                 </Link>
+                {c.processo.statusInterno === 'RASCUNHO' && (
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                    Rascunho — falta formalizar
+                  </span>
+                )}
               </Bloco>
             )}
           </div>
@@ -235,6 +364,9 @@ export function CompromissoDrawer({
               )}
             </div>
           )}
+
+          {/* Linha do tempo: quem mexeu na atividade e o que fez. */}
+          <HistoricoAtividade compromissoId={c.id} />
 
           {/* Plantão do dia */}
           <Bloco titulo={`Plantão do dia · ${formatData(c.inicio)}`}>
@@ -257,17 +389,24 @@ export function CompromissoDrawer({
             )}
           </Bloco>
 
-          {/* Anexos — puxa os documentos da triagem de origem (ou do processo) */}
-          {c.atendimento ? (
-            <div>
-              <p className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ArrowRight className="h-3.5 w-3.5" /> Documentos anexados na triagem
-              </p>
-              <AnexosSection atendimentoId={c.atendimento.id} />
-            </div>
-          ) : c.processo ? (
-            <AnexosSection processoId={c.processo.id} />
-          ) : null}
+          {/* Documentos da atividade.
+              Os anexos da triagem/processo de origem aparecem HERDADOS, em bloco
+              separado: o que foi puxado lá não precisa ser puxado de novo aqui. */}
+          <AnexosSection
+            compromissoId={c.id}
+            filiadoId={c.filiado?.id}
+            titulo="Documentos da atividade"
+            heranca={
+              c.atendimento
+                ? {
+                    atendimentoId: c.atendimento.id,
+                    rotulo: `Documentos da triagem #${c.atendimento.numero}`,
+                  }
+                : c.processo
+                  ? { processoId: c.processo.id, rotulo: 'Documentos do processo' }
+                  : undefined
+            }
+          />
         </div>
       )}
     </Sheet>

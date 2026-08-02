@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsDataNascimento, IsDataPassada } from '../../../common/validators/data.validators';
 import {
   ArrayNotEmpty,
   IsArray,
@@ -48,7 +49,7 @@ export class CheckoutDto {
 export class CreateReservaDiretaDto extends CheckoutDto {
   // Data de nascimento é obrigatória no checkout público (formato ISO: AAAA-MM-DD).
   @ApiProperty({ example: '1990-05-20', description: 'Data de nascimento (ISO 8601).' })
-  @IsDateString() dataNascimento: string;
+  @IsDataNascimento() dataNascimento: string;
   @ApiProperty({ description: 'Slug (link público) da campanha — deve estar ATIVA.' })
   @IsString() @IsNotEmpty() slug: string;
   @ApiProperty() @IsString() loteId: string;
@@ -58,7 +59,7 @@ export class CreateReservaDiretaDto extends CheckoutDto {
 export class EntrarSorteioDto extends CheckoutDto {
   // Data de nascimento é obrigatória no checkout público (formato ISO: AAAA-MM-DD).
   @ApiProperty({ example: '1990-05-20', description: 'Data de nascimento (ISO 8601).' })
-  @IsDateString() dataNascimento: string;
+  @IsDataNascimento() dataNascimento: string;
   @ApiProperty({ description: 'Slug (link público) da campanha — deve estar ATIVA.' })
   @IsString() @IsNotEmpty() slug: string;
   @ApiProperty() @IsString() loteId: string;
@@ -67,7 +68,7 @@ export class EntrarSorteioDto extends CheckoutDto {
 export class AlocacaoManualDto extends CheckoutDto {
   // Ato administrativo: a data de nascimento é opcional na alocação manual.
   @ApiPropertyOptional({ example: '1990-05-20', description: 'Data de nascimento (ISO 8601).' })
-  @IsOptional() @IsDateString() dataNascimento?: string;
+  @IsOptional() @IsDataNascimento() dataNascimento?: string;
   @ApiProperty() @IsString() loteId: string;
   @ApiPropertyOptional({ description: 'Quarto a alocar (padrão: quarto 6)' })
   @IsOptional() @IsString() quartoId?: string;

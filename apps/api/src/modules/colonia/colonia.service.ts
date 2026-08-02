@@ -28,6 +28,7 @@ import {
   CreateReservaDiretaDto,
   EntrarSorteioDto,
 } from './dto/colonia.dto';
+import { dataCalendarioOuNulo } from '../../common/utils/datas.util';
 
 type Tx = Prisma.TransactionClient;
 
@@ -124,7 +125,7 @@ export class ColoniaService {
     return {
       nomeCompleto: dto.nomeCompleto.trim(),
       cpf: dto.cpf.replace(/\D/g, ''),
-      dataNascimento: dto.dataNascimento ? new Date(dto.dataNascimento) : null,
+      dataNascimento: dataCalendarioOuNulo(dto.dataNascimento) ?? null,
       telefone: dto.telefone,
       coren: dto.coren,
       email: dto.email,
