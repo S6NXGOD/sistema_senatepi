@@ -116,6 +116,7 @@ export class DashboardService {
       // Saúde do robô de sincronização
       ultimaSync,
       falhasSync24h,
+      processosMonitorados,
       // Qualidade do dado e painéis por perfil
       filiadosSemDataFiliacao,
       cargaPorAdvogadoRaw,
@@ -252,6 +253,13 @@ export class DashboardService {
       }),
       this.prisma.logSincronizacaoDatajud.count({
         where: { sucesso: false, createdAt: { gte: new Date(agora.getTime() - DIA_MS) } },
+      }),
+      // Quantos processos o robô de fato varre — MESMO critério de
+      // `ProcessosService.idsParaSincronizar`. É o denominador que faltava:
+      // sem ele, "nunca rodou" virava alarme numa base sem processo nenhum,
+      // acusando de parado um robô que simplesmente não tem o que fazer.
+      this.prisma.processo.count({
+        where: { statusInterno: { in: ['ATIVO', 'PENDENTE'] }, numeroCNJ: { not: null } },
       }),
 
       // Filiados sem data de filiação (vieram da carga sem a informação).
@@ -396,16 +404,15 @@ export class DashboardService {
        * Saúde do robô do DataJud. Existe porque a ausência de alerta era
        * ambígua: "0 audiências a agendar" tanto podia significar que não havia
        * nada quanto que a varredura noturna não rodou.
+       *
+       * `situacao` substituiu o booleano `atrasado`. O booleano só sabia
+       * responder "faz tempo que não roda?", e respondia SIM numa base sem
+       * processo nenhum — a home de produção abria com um alarme vermelho
+       * dizendo que a sincronização estava parada, quando não havia nada a
+       * sincronizar. Um estado não é um problema só por ser diferente do
+       * ideal; virar alarme depende de haver trabalho pendente.
        */
-      robo: {
-        ultimaSincronizacao: ultimaSync?.createdAt ?? null,
-        ultimaComSucesso: ultimaSync?.sucesso ?? null,
-        falhas24h: falhasSync24h,
-        /** Nunca rodou, ou a última varredura tem mais de 36h (o cron é diário). */
-        atrasado:
-          !ultimaSync ||
-          agora.getTime() - ultimaSync.createdAt.getTime() > 36 * 3_600_000,
-      },
+      robo: this.situacaoRobo(ultimaSync, falhasSync24h, processosMonitorados, agora),
       graficos: {
         atendimentosPorCanal: canalGroup.map((c) => ({ canal: c.canal, total: c._count._all })),
         atendimentos14dias: this.bucketDiario(atendimentos14Raw.map((a) => a.createdAt), 14),
@@ -494,6 +501,48 @@ export class DashboardService {
   // =========================================================================
   // Helpers
   // =========================================================================
+
+  /**
+   * Traduz o estado do robô do DataJud em UMA situação nomeada, para que a
+   * tela não precise deduzir gravidade a partir de datas soltas.
+   *
+   * A ordem das perguntas é o que importa aqui — a primeira é "existe
+   * trabalho?", não "faz quanto tempo que rodou?". Sem processo monitorado o
+   * robô está ocioso, não parado, e ocioso não merece alerta nenhum.
+   *
+   *   SEM_OBJETO   nada monitorado — o robô não tem o que varrer
+   *   PRIMEIRA     há processos, a primeira varredura ainda não aconteceu
+   *   EM_DIA       varreu nas últimas 36h (o cron é diário, às 2h)
+   *   ATRASADO     já varreu antes e parou — 36h a 3 dias
+   *   PARADO       parado há mais de 3 dias: aí sim algo está errado
+   */
+  private situacaoRobo(
+    ultimaSync: { createdAt: Date; sucesso: boolean } | null,
+    falhas24h: number,
+    processosMonitorados: number,
+    agora: Date,
+  ) {
+    const HORA = 3_600_000;
+    const horasParadas = ultimaSync
+      ? (agora.getTime() - ultimaSync.createdAt.getTime()) / HORA
+      : null;
+
+    const situacao =
+      processosMonitorados === 0 ? 'SEM_OBJETO'
+        : !ultimaSync ? 'PRIMEIRA'
+          : horasParadas! <= 36 ? 'EM_DIA'
+            : horasParadas! <= 72 ? 'ATRASADO'
+              : 'PARADO';
+
+    return {
+      situacao,
+      processosMonitorados,
+      ultimaSincronizacao: ultimaSync?.createdAt ?? null,
+      ultimaComSucesso: ultimaSync?.sucesso ?? null,
+      // Falha só é notícia se houve varredura para falhar.
+      falhas24h: situacao === 'SEM_OBJETO' ? 0 : falhas24h,
+    };
+  }
 
   private seisMesesAtras(): Date {
     const d = new Date();

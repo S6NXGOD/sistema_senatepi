@@ -101,11 +101,19 @@ export interface ResumoDashboard {
    * noturna não tivesse rodado.
    */
   robo: {
+    /**
+     * SEM_OBJETO  nada monitorado — o robô não tem o que varrer (sem alerta)
+     * PRIMEIRA    há processos, a primeira varredura ainda não aconteceu
+     * EM_DIA      varreu nas últimas 36h
+     * ATRASADO    parou entre 36h e 3 dias
+     * PARADO      parado há mais de 3 dias
+     */
+    situacao: 'SEM_OBJETO' | 'PRIMEIRA' | 'EM_DIA' | 'ATRASADO' | 'PARADO';
+    /** Denominador: quantos processos o robô de fato varre. */
+    processosMonitorados: number;
     ultimaSincronizacao: string | null;
     ultimaComSucesso: boolean | null;
     falhas24h: number;
-    /** Nunca rodou ou passou de 36h (o cron é diário). */
-    atrasado: boolean;
   };
   /**
    * Carga da equipe — quem está sobrecarregado e quem está atrasado.

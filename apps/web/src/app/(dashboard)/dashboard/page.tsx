@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, Activity, RefreshCw, Cake, Timer,
-  CheckCircle2, ChevronRight, FolderKanban, TrendingUp,
+  CheckCircle2, ChevronRight, FolderKanban, TrendingUp, Info, AlertCircle,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -240,24 +240,9 @@ function Conteudo({
         </section>
       )}
 
-      {/* Robô parado. Vem ANTES do radar de propósito: se a varredura não
+      {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
-      {pode.processos && data.robo.atrasado && (
-        <AlertBar tom="rose" href="/processos" forte>
-          <strong>Sincronização do DataJud parada.</strong>{' '}
-          {data.robo.ultimaSincronizacao
-            ? `A última varredura foi ${idadeDoDado(new Date(data.robo.ultimaSincronizacao).getTime())}.`
-            : 'Nenhuma varredura registrada até agora.'}{' '}
-          Os alertas de audiência e prazo podem estar desatualizados.
-        </AlertBar>
-      )}
-      {pode.processos && !data.robo.atrasado && data.robo.falhas24h > 0 && (
-        <AlertBar tom="amber" href="/processos">
-          <strong>{data.robo.falhas24h}</strong>{' '}
-          {data.robo.falhas24h === 1 ? 'processo falhou' : 'processos falharam'} na sincronização das
-          últimas 24h — o CNJ pode ter recusado a consulta.
-        </AlertBar>
-      )}
+      {pode.processos && <AvisoRobo robo={data.robo} />}
 
       {/* Audiências a agendar (DataJud → Agenda) — o alerta mais acionável da
           home: vem antes das barras porque cada item tem um "próximo passo". */}
@@ -271,14 +256,27 @@ function Conteudo({
       {pode.agenda && (alertas.atrasadas > 0 || alertas.semMovimentacao > 0) && (
         <div className="space-y-2">
           {alertas.atrasadas > 0 && (
-            <AlertBar tom="amber" href="/agenda">
+            <AlertBar tom="atencao" href="/agenda" acao="Abrir agenda">
               <strong>{alertas.atrasadas}</strong>{' '}
-              {alertas.atrasadas === 1 ? 'atividade atrasada' : 'atividades atrasadas'} — horário já passou e ainda está pendente
+              {alertas.atrasadas === 1
+                ? 'atividade com horário vencido'
+                : 'atividades com horário vencido'}{' '}
+              e ainda em aberto.
             </AlertBar>
           )}
+          {/* Passou de vermelho sólido para info, e ganhou o número.
+              "Atenção!" com fundo vermelho para uma atividade parada há uma
+              semana competia visualmente com falha de sistema — e a frase
+              seguinte ("manter atualizado é essencial para a qualidade do
+              atendimento") repreendia sem informar. O que a pessoa precisa
+              saber é QUANTAS são e onde estão. */}
           {alertas.semMovimentacao > 0 && (
-            <AlertBar tom="rose" href="/agenda" forte>
-              <strong>Atenção!</strong> Há atividades sem movimentação há mais de 7 dias. Mantê-las atualizadas é essencial para a qualidade do atendimento.
+            <AlertBar tom="info" href="/agenda" acao="Abrir agenda">
+              <strong>{alertas.semMovimentacao}</strong>{' '}
+              {alertas.semMovimentacao === 1
+                ? 'atividade está parada'
+                : 'atividades estão paradas'}{' '}
+              há mais de 7 dias.
             </AlertBar>
           )}
         </div>
@@ -347,27 +345,131 @@ function SectionTitle({ icon: Icon, texto }: { icon: typeof Briefcase; texto: st
   );
 }
 
+/**
+ * Barra de aviso da home, em TRÊS níveis.
+ *
+ * Antes eram dois tons e um modificador `forte` que pintava a barra de
+ * vermelho sólido — o mesmo peso visual de "sistema fora do ar". Ele estava
+ * sendo usado para coisas que não são emergência (o robô sem varredura, uma
+ * atividade parada há uma semana), e todos os avisos usavam o mesmo ícone de
+ * triângulo. O resultado era um painel que gritava por igual em tudo, e um
+ * painel que grita sempre é um painel que ninguém lê.
+ *
+ *   info     nada errado, só vale saber      → ícone Info, cinza-azulado
+ *   atencao  precisa de alguém em algum dia  → ícone Triângulo, âmbar
+ *   critico  algo está quebrado agora        → ícone Círculo, rosa
+ *
+ * `acao` nomeia o destino em vez do genérico "Ver": o rótulo já diz o que vem
+ * depois do clique.
+ */
 function AlertBar({
-  children, tom, href, forte,
+  children, tom, href, acao = 'Ver',
 }: {
-  children: React.ReactNode; tom: 'amber' | 'rose'; href: string; forte?: boolean;
+  children: React.ReactNode;
+  tom: 'info' | 'atencao' | 'critico';
+  href: string;
+  acao?: string;
 }) {
-  const base =
-    tom === 'amber'
-      ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200'
-      : forte
-        ? 'border-transparent bg-rose-600 text-white'
-        : 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-900/20 dark:text-rose-200';
+  const estilo = {
+    info: {
+      Icone: Info,
+      cor: 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-300',
+      icone: 'text-slate-500 dark:text-slate-400',
+    },
+    atencao: {
+      Icone: AlertTriangle,
+      cor: 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200',
+      icone: 'text-amber-600 dark:text-amber-400',
+    },
+    critico: {
+      Icone: AlertCircle,
+      cor: 'border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-900/50 dark:bg-rose-900/20 dark:text-rose-200',
+      icone: 'text-rose-600 dark:text-rose-400',
+    },
+  }[tom];
+  const { Icone } = estilo;
+
   return (
-    <Link href={href} className={cn('flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition hover:brightness-[0.98]', base)}>
-      <span className="flex items-center gap-2">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
+    <Link
+      href={href}
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition hover:brightness-[0.98]',
+        estilo.cor,
+      )}
+    >
+      <span className="flex items-center gap-2.5">
+        <Icone className={cn('h-4 w-4 shrink-0', estilo.icone)} />
         <span>{children}</span>
       </span>
-      <span className={cn('flex shrink-0 items-center gap-0.5 text-xs font-semibold', forte && 'underline')}>
-        Ver <ChevronRight className="h-3.5 w-3.5" />
+      <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+        {acao} <ChevronRight className="h-3.5 w-3.5" />
       </span>
     </Link>
+  );
+}
+
+/**
+ * Aviso sobre o robô do DataJud — ou silêncio, que é o caso mais comum.
+ *
+ * Cada situação tem um tom proporcional ao que de fato significa:
+ *
+ *   SEM_OBJETO  nada monitorado          → NADA. O robô está ocioso, não
+ *                                          parado; não há por que avisar.
+ *   EM_DIA      varreu nas últimas 36h   → NADA. Funcionar é o esperado.
+ *   PRIMEIRA    ainda não varreu         → info. É o estado normal de quem
+ *                                          acabou de cadastrar o primeiro
+ *                                          processo, não uma falha.
+ *   ATRASADO    36h a 3 dias sem varrer  → atenção.
+ *   PARADO      +3 dias sem varrer       → crítico. Aqui algo está errado.
+ *
+ * As falhas pontuais aparecem à parte: o robô pode estar em dia e mesmo assim
+ * ter levado recusa do CNJ em alguns processos.
+ */
+function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
+  const { situacao, processosMonitorados, ultimaSincronizacao, falhas24h } = robo;
+  const desde = ultimaSincronizacao
+    ? idadeDoDado(new Date(ultimaSincronizacao).getTime())
+    : null;
+
+  const falhasBar = falhas24h > 0 && (
+    <AlertBar tom="atencao" href="/processos" acao="Ver processos">
+      O CNJ recusou a consulta de <strong>{falhas24h}</strong>{' '}
+      {falhas24h === 1 ? 'processo' : 'processos'} nas últimas 24h. Costuma ser
+      instabilidade passageira — a próxima varredura tenta de novo.
+    </AlertBar>
+  );
+
+  // Ocioso ou em dia: nenhuma barra sobre o robô. Só as falhas, se houver.
+  if (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA') {
+    return falhasBar || null;
+  }
+
+  const aviso =
+    situacao === 'PRIMEIRA' ? (
+      <AlertBar tom="info" href="/processos" acao="Ver processos">
+        A primeira varredura do DataJud ainda não rodou. Ela acontece
+        automaticamente toda madrugada, e vai buscar os andamentos{' '}
+        {processosMonitorados === 1
+          ? 'do processo cadastrado'
+          : `dos ${processosMonitorados} processos cadastrados`}.
+      </AlertBar>
+    ) : situacao === 'ATRASADO' ? (
+      <AlertBar tom="atencao" href="/processos" acao="Ver processos">
+        A varredura do DataJud não roda desde {desde}. Audiências e prazos
+        podem estar desatualizados.
+      </AlertBar>
+    ) : (
+      <AlertBar tom="critico" href="/processos" acao="Ver processos">
+        A varredura do DataJud está sem rodar há mais de 3 dias — a última foi{' '}
+        {desde}. Vale conferir a integração antes de confiar nos prazos.
+      </AlertBar>
+    );
+
+  return (
+    <div className="space-y-2">
+      {aviso}
+      {falhasBar}
+    </div>
   );
 }
 
