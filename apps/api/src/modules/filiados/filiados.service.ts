@@ -20,6 +20,7 @@ import { StorageService } from '../../common/storage/storage.service';
 import { QrCodeService } from '../../common/qrcode/qrcode.service';
 import { lerAsset } from '../../common/assets.util';
 import { gerarMatricula, mascararCpf } from '../../common/utils/matricula.util';
+import { normalizarBusca, termosDeBusca } from '../../common/utils/busca.util';
 import { dataCalendario } from '../../common/utils/datas.util';
 import {
   calcularIdade,
@@ -179,15 +180,31 @@ export class FiliadosService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(query.pageSize) || 20));
 
-    // CPF sempre por prefixo (só dígitos), respeitando máscara ou não.
-    const buscaDigitos = query.busca ? query.busca.replace(/\D/g, '') : '';
+    // BUSCA LIVRE — cada palavra digitada é exigida separadamente, sobre a
+    // coluna já normalizada (minúscula, sem acento, pontuação virada espaço).
+    //
+    // Antes era um único ILIKE '%termo%' sobre o nome. Caixa e trecho parcial
+    // funcionavam, mas duas coisas não:
+    //   - acento: "ana celia" e "ana célia" devolviam conjuntos DIFERENTES
+    //     (6 e 16), porque a base tem as duas grafias da mesma pessoa;
+    //   - ordem: "mirela jesus" devolvia ZERO, mesmo existindo MIRELA
+    //     CARVALHO DE JESUS, porque procurava a sequência literal.
+    // Exigir cada palavra em separado resolve os dois de uma vez.
+    const termos = termosDeBusca(query.busca);
+    const termosNome = termosDeBusca(query.nome);
 
     const where: Prisma.FiliadoWhereInput = {
       situacao: query.situacao,
-      nomeCompleto: query.nome ? { contains: query.nome, mode: 'insensitive' } : undefined,
       cpf: query.cpf ? { startsWith: query.cpf.replace(/\D/g, '') } : undefined,
       numeroCoren: query.coren ? { contains: query.coren, mode: 'insensitive' } : undefined,
-      cidade: query.cidade ? { contains: query.cidade, mode: 'insensitive' } : undefined,
+      // Cidade também ignora acento: "sao raimundo" encontra "São Raimundo".
+      cidadeNormalizada: query.cidade
+        ? { contains: normalizarBusca(query.cidade) }
+        : undefined,
+      AND: [
+        ...termos.map((t) => ({ buscaNormalizada: { contains: t } })),
+        ...termosNome.map((t) => ({ buscaNormalizada: { contains: t } })),
+      ],
       // Intervalo por DATA DE FILIAÇÃO — o campo que carrega esse significado.
       // Antes filtrava `createdAt`, que é carimbo de quando a linha entrou no
       // banco: para os 5.285 vindos da planilha os dois coincidiam por acaso,
@@ -202,14 +219,6 @@ export class FiliadosService {
               lte: query.dataFim ? new Date(query.dataFim + 'T23:59:59') : undefined,
             }
           : undefined,
-      // Busca unificada: nome (contém), matrícula (contém) e CPF (começa com — só dígitos)
-      OR: query.busca
-        ? [
-            { nomeCompleto: { contains: query.busca, mode: 'insensitive' } },
-            { matricula: { contains: query.busca, mode: 'insensitive' } },
-            ...(buscaDigitos ? [{ cpf: { startsWith: buscaDigitos } }] : []),
-          ]
-        : undefined,
     };
 
     const [registros, total] = await this.prisma.$transaction([
@@ -245,7 +254,13 @@ export class FiliadosService {
   async buscarParaAutocomplete(q: string) {
     const termo = (q ?? '').trim();
     if (termo.length < 2) return [];
-    const digitos = termo.replace(/\D/g, '');
+    // Mesma normalização da listagem: quem digita "jose" precisa encontrar
+    // "JOSÉ", e "maria silva" precisa encontrar "MARIA DA SILVA". Este
+    // autocomplete alimenta a alocação da Colônia, onde errar a pessoa custa
+    // mais caro do que na lista — é a última tela que deveria ser exigente
+    // com acento.
+    const termos = termosDeBusca(termo);
+    if (termos.length === 0) return [];
 
     // Mapeia a formação do cadastro legado para o enum da Colônia (ENF/TEC/AUX).
     const MAP_FORMACAO: Record<string, 'ENFERMEIRO' | 'TECNICO' | 'AUXILIAR' | null> = {
@@ -256,12 +271,7 @@ export class FiliadosService {
     };
 
     const filiados = await this.prisma.filiado.findMany({
-      where: {
-        OR: [
-          { nomeCompleto: { contains: termo, mode: 'insensitive' } },
-          ...(digitos ? [{ cpf: { startsWith: digitos } }] : []),
-        ],
-      },
+      where: { AND: termos.map((t) => ({ buscaNormalizada: { contains: t } })) },
       select: {
         id: true,
         nomeCompleto: true,

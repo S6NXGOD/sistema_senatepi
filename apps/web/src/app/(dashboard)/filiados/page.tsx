@@ -122,7 +122,11 @@ export default function FiliadosPage() {
           <div className="relative min-w-[240px] flex-1">
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-muted-foreground" />
             <Input
-              placeholder="Buscar por nome, matrícula ou CPF..."
+              // A busca ignora acento, caixa e ordem das palavras, então o
+              // exemplo é escrito de propósito sem acento e com sobrenome
+              // solto: é o jeito que as pessoas realmente digitam, e mostrar
+              // que funciona vale mais do que uma instrução.
+              placeholder="Buscar por nome, CPF, matrícula ou COREN — ex.: maria silva"
               className="pl-10 pr-9"
               value={rascunho.busca}
               onChange={(e) => setR('busca', e.target.value)}

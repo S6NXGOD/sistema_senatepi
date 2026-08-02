@@ -310,6 +310,13 @@ model Filiado {
   formacao           FormacaoProfissional?
   formacaoOutro      String?               @map("formacao_outro") // texto livre quando formacao = OUTRO
   numeroCoren        String?               @map("numero_coren")
+  /// SOMENTE LEITURA — mantidas por gatilho no banco (trg_filiados_busca).
+  /// Guardam nome/matrícula/COREN/CPF e cidade já em minúsculo, sem acento e
+  /// com pontuação virada em espaço, para a busca ignorar acento e ordem das
+  /// palavras. NUNCA escreva nelas pela aplicação: o gatilho sobrescreve a
+  /// cada INSERT/UPDATE dos campos de origem.
+  buscaNormalizada   String?               @map("busca_normalizada")
+  cidadeNormalizada  String?               @map("cidade_normalizada")
   dataAdmissao       DateTime?             @map("data_admissao")
   // Situação
   situacao           SituacaoFiliado       @default(ATIVO)
