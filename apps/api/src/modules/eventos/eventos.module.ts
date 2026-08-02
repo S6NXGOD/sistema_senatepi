@@ -23,7 +23,10 @@ import { CheckinPublicoController } from './checkin.controller';
 import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
 import { DossieEventoService } from './dossie-evento.service';
-import { PlenarioAdminController, PlenarioPublicoController } from './plenario.controller';
+import { CertificadoService } from './certificado.service';
+import {
+  CertificadoPublicoController, PlenarioAdminController, PlenarioPublicoController,
+} from './plenario.controller';
 import { lerConfiguracoes, normalizarConfiguracoes } from './configuracoes-evento';
 
 class CreateEventoDto {
@@ -156,9 +159,11 @@ class EventosController {
     PlenarioAdminController,
     PlenarioPublicoController,
     CheckinPublicoController,
+    CertificadoPublicoController,
   ],
   providers: [
     EventosService, CheckinService, VotacaoService, SorteioService, DossieEventoService,
+    CertificadoService,
   ],
   exports: [EventosService],
 })

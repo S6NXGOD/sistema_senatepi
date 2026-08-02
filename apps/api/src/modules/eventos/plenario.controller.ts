@@ -8,6 +8,7 @@ import { ModoVotacao, UserRole } from '@prisma/client';
 import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
 import { DossieEventoService } from './dossie-evento.service';
+import { CertificadoService } from './certificado.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -49,6 +50,7 @@ export class PlenarioAdminController {
     private readonly votacao: VotacaoService,
     private readonly sorteio: SorteioService,
     private readonly dossie: DossieEventoService,
+    private readonly certificado: CertificadoService,
   ) {}
 
   @Get('pautas')
@@ -123,6 +125,49 @@ export class PlenarioAdminController {
     const pdf = await this.dossie.baixar(eventoId);
     res.setHeader('Content-Disposition', `inline; filename="dossie-${eventoId}.pdf"`);
     res.send(pdf);
+  }
+
+  /** Quem tem direito a certificado, já com o código de verificação. */
+  @Get('certificados')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  certificados(@Param('eventoId') eventoId: string) {
+    return this.certificado.elegiveis(eventoId);
+  }
+
+  @Get('certificados/:presencaId.pdf')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  @Header('Content-Type', 'application/pdf')
+  async baixarCertificado(
+    @Param('eventoId') eventoId: string,
+    @Param('presencaId') presencaId: string,
+    @Res() res: Response,
+  ) {
+    const pdf = await this.certificado.gerar(eventoId, presencaId);
+    res.setHeader('Content-Disposition', `inline; filename="certificado-${presencaId}.pdf"`);
+    res.send(pdf);
+  }
+}
+
+/**
+ * Conferência pública de certificado.
+ *
+ * Rota SEM login de propósito: quem recebe o documento — hospital,
+ * universidade, banca de concurso — precisa validar sem ter conta no sistema do
+ * sindicato. Certificado que só o emissor consegue conferir não vale como
+ * comprovante.
+ *
+ * Devolve apenas nome, evento, data e carga horária: o suficiente para
+ * confirmar o que o papel afirma, e nada além disso.
+ */
+@ApiTags('certificados')
+@Public()
+@Controller('certificados')
+export class CertificadoPublicoController {
+  constructor(private readonly certificado: CertificadoService) {}
+
+  @Get('verificar/:codigo')
+  verificar(@Param('codigo') codigo: string) {
+    return this.certificado.verificar(codigo);
   }
 }
 
