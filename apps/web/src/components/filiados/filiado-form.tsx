@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Combobox } from '@/components/ui/combobox';
 import {
   Filiado,
   FORMACOES,
@@ -335,7 +336,33 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         onClose={() => setArquivoCrop(null)}
       />
     )}
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      /**
+       * Enter em campo de texto NÃO envia o cadastro.
+       *
+       * O HTML manda um formulário quando se aperta Enter num input de linha
+       * única — é o "implicit submission". Num formulário curto isso ajuda;
+       * neste, que tem seis blocos e dependentes, atrapalha: ao digitar o CEP
+       * o gesto natural é apertar Enter para "buscar o endereço", e o que
+       * acontecia era o cadastro inteiro ser submetido pela metade,
+       * respondendo com "Telefone obrigatório", "Estado obrigatório" e o
+       * formulário pintado de vermelho antes da pessoa terminar.
+       *
+       * O envio continua acontecendo pelo botão "Salvar", e Enter segue
+       * funcionando onde faz sentido: dentro do combobox (escolhe a opção),
+       * em textarea (quebra linha) e sobre um botão em foco.
+       */
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return;
+        const alvo = e.target as HTMLElement;
+        const tag = alvo.tagName;
+        if (tag === 'TEXTAREA' || tag === 'BUTTON') return;
+        if (alvo.getAttribute('type') === 'submit') return;
+        e.preventDefault();
+      }}
+      className="space-y-6"
+    >
       <Card>
         <CardHeader><CardTitle>Foto do filiado</CardTitle></CardHeader>
         <CardContent className="flex items-center gap-6">
@@ -426,21 +453,50 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           <Campo label="Número"><Input {...register('numero')} /></Campo>
           <Campo label="Complemento"><Input {...register('complemento')} /></Campo>
           <Campo label="Bairro" erro={errors.bairro?.message}><Input {...register('bairro')} /></Campo>
-          {/* Cidade com autocomplete dos municípios da UF (IBGE), mas em input
-              livre: se a API falhar, ainda dá para digitar. */}
+          {/* Cidade: municípios da UF (IBGE) em combobox com filtro que ignora
+              acento. Aceita texto livre de propósito — se o IBGE não responder,
+              digitar à mão precisa continuar possível. */}
           <Campo label="Cidade *" erro={errors.cidade?.message}>
-            <Input list="municipios-uf" autoComplete="off" {...register('cidade')} />
-            <datalist id="municipios-uf">
-              {municipios.map((m) => <option key={m} value={m} />)}
-            </datalist>
+            <Controller
+              name="cidade"
+              control={control}
+              render={({ field }) => (
+                <Combobox
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  opcoes={municipios.map((m) => ({ valor: m, rotulo: m }))}
+                  placeholder={ufSelecionada ? 'Digite para filtrar…' : 'Escolha a UF primeiro'}
+                  aviso={
+                    ufSelecionada
+                      ? 'Não foi possível carregar os municípios — digite o nome.'
+                      : 'Escolha o estado para listar os municípios.'
+                  }
+                  permitirLivre
+                  aria-invalid={!!errors.cidade}
+                />
+              )}
+            />
           </Campo>
           <Campo label="Estado *" erro={errors.estado?.message}>
-            <select className={sel} {...register('estado')}>
-              <option value="">Selecione…</option>
-              {UFS.map((u) => (
-                <option key={u.sigla} value={u.sigla}>{u.sigla} — {u.nome}</option>
-              ))}
-            </select>
+            <Controller
+              name="estado"
+              control={control}
+              render={({ field }) => (
+                <Combobox
+                  value={field.value ?? ''}
+                  onChange={(uf) => {
+                    // Trocar de UF invalida a cidade: município de um estado não
+                    // existe no outro, e manter o antigo cria um endereço
+                    // impossível que ninguém percebe até a correspondência voltar.
+                    if (uf !== field.value) setValue('cidade', '', { shouldDirty: true });
+                    field.onChange(uf);
+                  }}
+                  opcoes={UFS.map((u) => ({ valor: u.sigla, rotulo: u.nome, detalhe: u.sigla }))}
+                  placeholder="Digite o estado ou a sigla…"
+                  aria-invalid={!!errors.estado}
+                />
+              )}
+            />
           </Campo>
         </CardContent>
       </Card>
