@@ -5,7 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, ModoVotacao, Prisma, StatusPauta } from '@prisma/client';
+import {
+  AcaoAuditoria, ModoVotacao, Prisma, StatusEvento, StatusPauta,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { lerConfiguracoes } from './configuracoes-evento';
@@ -150,6 +152,13 @@ export class VotacaoService {
     const atualizada = await this.prisma.pautaVotacao.update({
       where: { id: pautaId },
       data: { status: StatusPauta.ABERTA, abertaEm: new Date(), autor },
+    });
+
+    // Abrir votação é começar a assembleia — o status acompanha, em vez de
+    // depender de alguém lembrar de apertar 'Abrir evento'.
+    await this.prisma.evento.updateMany({
+      where: { id: pauta.eventoId, status: StatusEvento.AGENDADO },
+      data: { status: StatusEvento.EM_ANDAMENTO },
     });
 
     await this.audit.registrar({

@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, Check, Copy, Gift, Loader2, Play, Plus, Square, Users, Vote, X,
+  ArrowLeft, CalendarPlus, Check, Copy, ExternalLink, Gift, Loader2, Play,
+  Plus, Square, Users, Video, Vote, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,11 +17,14 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import { cn } from '@/lib/utils';
+import { ResultadoPauta } from '@/components/eventos/resultado-pauta';
+import { ListaPresenca } from '@/components/eventos/lista-presenca';
+import { BotaoEncerrar, ResumoEncerramento } from '@/components/eventos/encerramento';
 import {
   STATUS_EVENTO_COR, STATUS_EVENTO_LABEL, TIPO_EVENTO_LABEL,
-  abrirPauta, atualizarEvento, conferirSorteio, criarPauta, encerrarPauta,
-  listarPautas, listarSorteios, obterEvento, sortear,
-  type ModoVotacao, type Pauta,
+  abrirPauta, apurarPauta, atualizarEvento, conferirSorteio, criarPauta, encerrarPauta,
+  linkGoogleAgenda, listarPautas, listarSorteios, obterEvento, sortear,
+  type Apuracao, type ModoVotacao, type Pauta,
 } from '@/lib/eventos';
 
 export default function EventoAdminPage() {
@@ -34,18 +38,19 @@ export default function EventoAdminPage() {
     queryFn: () => obterEvento(id),
   });
 
+  const encerrada = evento?.status === 'REALIZADO';
+
   const { data: pautas } = useQuery({
     queryKey: ['evento-pautas', id],
     queryFn: () => listarPautas(id),
-    enabled: !!evento?.configuracoes?.habilitarVotacao,
-    // A mesa precisa ver a contagem subir enquanto a votação corre.
-    refetchInterval: 3000,
+    enabled: !!evento?.configuracoes?.habilitarVotacao && !encerrada,
+    refetchInterval: encerrada ? false : 3000,
   });
 
   const { data: sorteios } = useQuery({
     queryKey: ['evento-sorteios', id],
     queryFn: () => listarSorteios(id),
-    enabled: !!evento?.configuracoes?.habilitarSorteio,
+    enabled: !!evento?.configuracoes?.habilitarSorteio && !encerrada,
   });
 
   if (isLoading || !evento) {
@@ -64,6 +69,8 @@ export default function EventoAdminPage() {
     qc.invalidateQueries({ queryKey: ['evento', id] });
     qc.invalidateQueries({ queryKey: ['evento-pautas', id] });
     qc.invalidateQueries({ queryKey: ['evento-sorteios', id] });
+    qc.invalidateQueries({ queryKey: ['evento-resumo', id] });
+    qc.invalidateQueries({ queryKey: ['evento-presencas', id] });
   };
 
   return (
@@ -81,58 +88,159 @@ export default function EventoAdminPage() {
         </div>
       </div>
 
-      {/* Link da sala — o que a mesa divulga aos filiados. */}
-      <Card>
-        <CardContent className="space-y-3 p-4">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[240px] flex-1 space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">
-                Link da sala virtual — divulgue este endereço
-              </label>
-              <Input readOnly value={linkSala} className="font-mono text-xs" />
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                navigator.clipboard.writeText(linkSala);
-                toast.success('Link copiado.');
-              }}
-            >
-              <Copy className="h-4 w-4" /> Copiar
-            </Button>
-          </div>
+      <PainelLinks
+        eventoId={id}
+        evento={evento}
+        linkSala={linkSala}
+        pode={pode}
+        encerrada={encerrada}
+        onMudou={invalidar}
+      />
 
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="flex items-center gap-1.5">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <strong>{evento._count?.presencas ?? 0}</strong> presente(s)
-            </span>
-            {pode && evento.status !== 'REALIZADO' && (
-              <Button
-                size="sm"
-                variant={evento.status === 'EM_ANDAMENTO' ? 'outline' : 'default'}
-                onClick={async () => {
-                  const novo = evento.status === 'EM_ANDAMENTO' ? 'REALIZADO' : 'EM_ANDAMENTO';
-                  await atualizarEvento(id, { status: novo });
-                  toast.success(novo === 'EM_ANDAMENTO' ? 'Evento aberto.' : 'Evento encerrado.');
-                  invalidar();
-                }}
-              >
-                {evento.status === 'EM_ANDAMENTO' ? 'Encerrar evento' : 'Abrir evento'}
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {evento.configuracoes?.habilitarVotacao && (
-        <SecaoPautas eventoId={id} pautas={pautas ?? []} pode={pode} onMudou={invalidar} />
-      )}
-
-      {evento.configuracoes?.habilitarSorteio && (
-        <SecaoSorteios eventoId={id} sorteios={sorteios ?? []} pode={pode} onMudou={invalidar} />
+      {/* Depois de encerrada, os controles ao vivo dão lugar ao que a
+          assembleia PRODUZIU — que era exatamente o que faltava. */}
+      {encerrada ? (
+        <ResumoEncerramento eventoId={id} />
+      ) : (
+        <>
+          {evento.configuracoes?.habilitarVotacao && (
+            <SecaoPautas eventoId={id} pautas={pautas ?? []} pode={pode} onMudou={invalidar} />
+          )}
+          {evento.configuracoes?.habilitarSorteio && (
+            <SecaoSorteios eventoId={id} sorteios={sorteios ?? []} pode={pode} onMudou={invalidar} />
+          )}
+          <ListaPresenca eventoId={id} aoVivo />
+        </>
       )}
     </div>
+  );
+}
+
+/**
+ * Os dois links do evento, com rótulos que dizem qual é qual.
+ *
+ * Antes só existia o da sala, e o do Meet só podia ser definido na criação —
+ * se a reunião caísse e a mesa abrisse outra sala, não havia como avisar
+ * ninguém. Agora é editável durante a assembleia, e quem está na sala vê a
+ * troca em 3 segundos pelo polling que já existe.
+ */
+function PainelLinks({
+  eventoId, evento, linkSala, pode, encerrada, onMudou,
+}: {
+  eventoId: string;
+  evento: any;
+  linkSala: string;
+  pode: boolean;
+  encerrada: boolean;
+  onMudou: () => void;
+}) {
+  const [link, setLink] = useState(evento.linkReuniao ?? '');
+  const [salvando, setSalvando] = useState(false);
+
+  // Se outro membro da mesa trocar o link, a tela acompanha.
+  useEffect(() => { setLink(evento.linkReuniao ?? ''); }, [evento.linkReuniao]);
+
+  const mudou = link.trim() !== (evento.linkReuniao ?? '');
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Sala virtual — o que se divulga aos filiados */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Link da sala virtual — divulgue este aos filiados
+            </label>
+            <div className="flex gap-2">
+              <Input readOnly value={linkSala} className="font-mono text-xs" />
+              <Button
+                variant="outline"
+                onClick={() => {
+                  navigator.clipboard.writeText(linkSala);
+                  toast.success('Link copiado.');
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              É por aqui que o filiado faz check-in e vota.
+            </p>
+          </div>
+
+          {/* Videoconferência — editável a qualquer momento */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">
+              Link da videoconferência (Meet, Zoom, Teams)
+            </label>
+            <div className="flex gap-2">
+              <Input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://meet.google.com/..."
+                className="text-xs"
+                disabled={!pode || encerrada}
+              />
+              {pode && !encerrada && (
+                <Button
+                  variant={mudou ? 'default' : 'outline'}
+                  disabled={!mudou || salvando}
+                  onClick={async () => {
+                    setSalvando(true);
+                    try {
+                      await atualizarEvento(eventoId, { linkReuniao: link.trim() || undefined });
+                      toast.success('Link atualizado — quem está na sala vê em instantes.');
+                      onMudou();
+                    } catch (e: any) {
+                      toast.error(e?.response?.data?.message ?? 'Não foi possível salvar.');
+                    } finally {
+                      setSalvando(false);
+                    }
+                  }}
+                >
+                  {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+                </Button>
+              )}
+              {evento.linkReuniao && (
+                <a href={evento.linkReuniao} target="_blank" rel="noreferrer">
+                  <Button variant="outline" title="Abrir reunião"><ExternalLink className="h-4 w-4" /></Button>
+                </a>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Só aparece para quem já fez check-in. Pode ser trocado durante a assembleia.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+          <span className="flex items-center gap-1.5 text-sm">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <strong>{evento._count?.presencas ?? 0}</strong> presente(s)
+          </span>
+
+          {/* "Adicionar à minha agenda" é uma URL montada, não integração:
+              funciona com Gmail pessoal e não exige Workspace, projeto no
+              Cloud nem conta de serviço. */}
+          <a
+            href={linkGoogleAgenda({ ...evento, linkSala })}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex"
+          >
+            <Button variant="outline" size="sm">
+              <CalendarPlus className="h-4 w-4" /> Adicionar à minha agenda
+            </Button>
+          </a>
+
+          {pode && !encerrada && (
+            <div className="ml-auto">
+              <BotaoEncerrar eventoId={eventoId} onEncerrado={onMudou} />
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -173,61 +281,23 @@ function SecaoPautas({
       )}
 
       {pautas.map((p) => (
-        <Card key={p.id} className={cn(p.status === 'ABERTA' && 'border-senatepi-400')}>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div className="min-w-[200px] flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium">{p.titulo}</p>
-                <Badge className={
-                  p.status === 'ABERTA'
-                    ? 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100'
-                    : p.status === 'ENCERRADA'
-                      ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200'
-                      : 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200'
-                }>
-                  {p.status === 'ABERTA' ? 'Aberta' : p.status === 'ENCERRADA' ? 'Encerrada' : 'Rascunho'}
-                </Badge>
-                <span className="text-xs text-muted-foreground">
-                  {p.modo === 'SECRETA' ? 'secreta' : 'nominal'}
-                </span>
-              </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {p.opcoes.map((o) => o.rotulo).join(' · ')}
-                {p.status !== 'RASCUNHO' && ` — ${p.totalVotantes ?? 0} voto(s)`}
-              </p>
-            </div>
-
-            {pode && (
-              <div className="flex gap-2">
-                {p.status === 'RASCUNHO' && (
-                  <Button
-                    size="sm"
-                    // Uma pauta aberta por vez: a API recusa a segunda, e
-                    // desabilitar aqui evita o erro em vez de explicá-lo.
-                    disabled={!!aberta}
-                    title={aberta ? `Encerre "${aberta.titulo}" primeiro` : undefined}
-                    onClick={async () => {
-                      try {
-                        await abrirPauta(eventoId, p.id);
-                        toast.success('Votação aberta.');
-                        onMudou();
-                      } catch (e: any) {
-                        toast.error(e?.response?.data?.message ?? 'Não foi possível abrir.');
-                      }
-                    }}
-                  >
-                    <Play className="h-4 w-4" /> Abrir votação
-                  </Button>
-                )}
-                {p.status === 'ABERTA' && (
-                  <Button size="sm" variant="outline" onClick={() => setEncerrando(p)}>
-                    <Square className="h-4 w-4" /> Encerrar
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <CardPauta
+          key={p.id}
+          eventoId={eventoId}
+          pauta={p}
+          pode={pode}
+          bloqueadaPor={p.status === 'RASCUNHO' ? aberta : undefined}
+          onAbrir={async () => {
+            try {
+              await abrirPauta(eventoId, p.id);
+              toast.success('Votação aberta.');
+              onMudou();
+            } catch (e: any) {
+              toast.error(e?.response?.data?.message ?? 'Não foi possível abrir.');
+            }
+          }}
+          onEncerrar={() => setEncerrando(p)}
+        />
       ))}
 
       <ConfirmDialog
@@ -254,14 +324,119 @@ function SecaoPautas({
           }
         }}
         description={
-          <>
-            Depois de encerrada, <strong>a pauta não pode ser reaberta</strong> e o resultado
-            passa a aparecer para todos os participantes. Quem ainda não votou perde o direito
-            nesta pauta.
-          </>
+          <div className="space-y-2">
+            <p>
+              Depois de encerrada, <strong>a pauta não pode ser reaberta</strong>. Quem ainda
+              não votou perde o direito nesta pauta, e o resultado passa a aparecer para todos.
+            </p>
+            {/* Deliberação sem o quórum exigido é nula — o aviso precisa vir
+                ANTES do clique, não depois. */}
+            {encerrando?.quorumMinimo != null &&
+              (encerrando.totalVotantes ?? 0) < encerrando.quorumMinimo && (
+                <p className="rounded-lg bg-rose-50 p-2.5 text-xs font-medium text-rose-800 dark:bg-rose-900/20 dark:text-rose-200">
+                  Atenção: há {encerrando.totalVotantes ?? 0} voto(s) e o quórum mínimo é{' '}
+                  {encerrando.quorumMinimo}. Encerrar agora registra a deliberação SEM quórum.
+                </p>
+              )}
+          </div>
         }
       />
     </div>
+  );
+}
+
+function CardPauta({
+  eventoId, pauta, pode, bloqueadaPor, onAbrir, onEncerrar,
+}: {
+  eventoId: string;
+  pauta: Pauta;
+  pode: boolean;
+  bloqueadaPor?: Pauta;
+  onAbrir: () => void;
+  onEncerrar: () => void;
+}) {
+  // O resultado só existe depois de encerrada — buscar antes seria expor
+  // placar parcial, que influencia quem ainda não votou.
+  const { data: apuracao } = useQuery<Apuracao>({
+    queryKey: ['pauta-apuracao', pauta.id],
+    queryFn: () => apurarPauta(eventoId, pauta.id),
+    enabled: pauta.status === 'ENCERRADA',
+  });
+
+  const semQuorum =
+    pauta.status === 'ABERTA' &&
+    pauta.quorumMinimo != null &&
+    (pauta.totalVotantes ?? 0) < pauta.quorumMinimo;
+
+  return (
+    <Card className={cn(pauta.status === 'ABERTA' && 'border-senatepi-400')}>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-[200px] flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-medium">{pauta.titulo}</p>
+              <Badge className={
+                pauta.status === 'ABERTA'
+                  ? 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100'
+                  : pauta.status === 'ENCERRADA'
+                    ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200'
+                    : 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200'
+              }>
+                {pauta.status === 'ABERTA' ? 'Aberta' : pauta.status === 'ENCERRADA' ? 'Encerrada' : 'Rascunho'}
+              </Badge>
+              {/* A modalidade em destaque: a mesa precisa saber o que está
+                  conduzindo antes de alguém perguntar. */}
+              <Badge className={
+                pauta.modo === 'SECRETA'
+                  ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                  : 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100'
+              }>
+                {pauta.modo === 'SECRETA' ? 'Voto secreto' : 'Voto nominal'}
+              </Badge>
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {pauta.opcoes.map((o) => o.rotulo).join(' · ')}
+              {pauta.status !== 'RASCUNHO' && ` — ${pauta.totalVotantes ?? 0} voto(s)`}
+              {pauta.quorumMinimo != null && ` · quórum mínimo ${pauta.quorumMinimo}`}
+            </p>
+          </div>
+
+          {pode && (
+            <div className="flex gap-2">
+              {pauta.status === 'RASCUNHO' && (
+                <Button
+                  size="sm"
+                  disabled={!!bloqueadaPor}
+                  title={bloqueadaPor ? `Encerre "${bloqueadaPor.titulo}" primeiro` : undefined}
+                  onClick={onAbrir}
+                >
+                  <Play className="h-4 w-4" /> Abrir votação
+                </Button>
+              )}
+              {pauta.status === 'ABERTA' && (
+                <Button size="sm" variant="outline" onClick={onEncerrar}>
+                  <Square className="h-4 w-4" /> Encerrar
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {semQuorum && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+            Quórum mínimo ainda não atingido: {pauta.totalVotantes ?? 0} de {pauta.quorumMinimo}.
+          </p>
+        )}
+
+        {/* O resultado, ali mesmo. A mesa precisa anunciar em voz alta no
+            momento seguinte ao encerramento — ir procurar no dossiê não serve. */}
+        {pauta.status === 'ENCERRADA' && apuracao && (
+          <div className="border-t pt-3">
+            <ResultadoPauta apuracao={apuracao} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -281,8 +456,6 @@ function FormPauta({
         titulo,
         modo,
         quorumMinimo: quorum ? Number(quorum) : undefined,
-        // O id vem do rótulo normalizado: é o que a urna grava, e precisa ser
-        // estável e legível quando alguém abrir o dossiê daqui a anos.
         opcoes: opcoes
           .map((r) => r.trim())
           .filter(Boolean)
@@ -315,19 +488,37 @@ function FormPauta({
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Modo</label>
+            <label className="text-sm font-medium">Modalidade do voto</label>
             <select
               className="h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm"
               value={modo}
               onChange={(e) => setModo(e.target.value as ModoVotacao)}
             >
-              <option value="SECRETA">Secreta — ninguém saberá quem votou o quê</option>
-              <option value="NOMINAL">Nominal — o voto de cada um fica registrado</option>
+              <option value="SECRETA">Secreta</option>
+              <option value="NOMINAL">Nominal</option>
             </select>
-            <p className="text-xs text-muted-foreground">
-              {modo === 'SECRETA'
-                ? 'Uso típico: eleição de diretoria.'
-                : 'Uso típico: quando a ata precisa registrar o voto de cada presente.'}
+            {/* A escolha é irreversível depois de aberta, e define se será
+                possível saber quem votou o quê. A tela precisa dizer isso
+                ENQUANTO ainda dá para mudar. */}
+            <p className={cn(
+              'rounded-lg p-2.5 text-xs',
+              modo === 'SECRETA'
+                ? 'bg-slate-100 text-slate-700 dark:bg-slate-800/50 dark:text-slate-300'
+                : 'bg-sky-50 text-sky-900 dark:bg-sky-900/20 dark:text-sky-100',
+            )}>
+              {modo === 'SECRETA' ? (
+                <>
+                  <strong>Ninguém saberá quem votou o quê</strong> — nem a diretoria, nem
+                  com acesso ao banco de dados. Fica registrado apenas quem votou.
+                  Uso típico: eleição de diretoria.
+                </>
+              ) : (
+                <>
+                  <strong>O voto de cada participante fica registrado</strong> e consta da
+                  ata e da planilha de presença. Uso típico: quando o estatuto exige que a
+                  ata nomeie os votos.
+                </>
+              )}
             </p>
           </div>
           <div className="space-y-1.5">
@@ -339,6 +530,10 @@ function FormPauta({
               onChange={(e) => setQuorum(e.target.value)}
               placeholder="sem exigência"
             />
+            <p className="text-xs text-muted-foreground">
+              O sistema avisa antes de encerrar caso não seja atingido — deliberação
+              sem o quórum exigido pode ser anulada.
+            </p>
           </div>
         </div>
 
@@ -351,11 +546,7 @@ function FormPauta({
                 onChange={(e) => setOpcoes((l) => l.map((x, j) => (j === i ? e.target.value : x)))}
               />
               {opcoes.length > 2 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setOpcoes((l) => l.filter((_, j) => j !== i))}
-                >
+                <Button variant="ghost" size="icon" onClick={() => setOpcoes((l) => l.filter((_, j) => j !== i))}>
                   <X className="h-4 w-4" />
                 </Button>
               )}
@@ -385,6 +576,7 @@ function SecaoSorteios({
 }: { eventoId: string; sorteios: any[]; pode: boolean; onMudou: () => void }) {
   const [titulo, setTitulo] = useState('');
   const [sorteando, setSorteando] = useState(false);
+  const [detalhe, setDetalhe] = useState<{ explicacao: string; seed: string } | null>(null);
 
   return (
     <div className="space-y-3">
@@ -396,11 +588,7 @@ function SecaoSorteios({
         <Card><CardContent className="flex flex-wrap items-end gap-2 p-4">
           <div className="min-w-[200px] flex-1 space-y-1.5">
             <label className="text-sm font-medium">O que será sorteado</label>
-            <Input
-              value={titulo}
-              onChange={(e) => setTitulo(e.target.value)}
-              placeholder="Ex.: Brinde da assembleia"
-            />
+            <Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Brinde da assembleia" />
           </div>
           <Button
             disabled={sorteando || !titulo.trim()}
@@ -436,10 +624,18 @@ function SecaoSorteios({
             <Button
               size="sm"
               variant="ghost"
-              title="Reexecuta a semente e confirma que o resultado gravado é o que ela produz"
+              title="Confere se o resultado foi alterado depois de realizado"
               onClick={async () => {
                 const r = await conferirSorteio(eventoId, s.id);
-                (r.confere ? toast.success : toast.error)(r.explicacao);
+                // Em português de gente. A explicação técnica ("a ordem gravada
+                // é a que a semente produz") é verdadeira e não diz nada a quem
+                // preside uma assembleia — fica atrás do "ver detalhes".
+                if (r.confere) {
+                  toast.success('Sorteio conferido: o resultado não foi alterado.');
+                } else {
+                  toast.error('ATENÇÃO: o resultado gravado não confere com o sorteio original.');
+                }
+                setDetalhe({ explicacao: r.explicacao, seed: r.seed });
               }}
             >
               <Check className="h-4 w-4" /> Conferir
@@ -447,6 +643,31 @@ function SecaoSorteios({
           </CardContent>
         </Card>
       ))}
+
+      <ConfirmDialog
+        open={!!detalhe}
+        title="Como esta conferência funciona"
+        confirmLabel="Entendi"
+        onConfirm={() => setDetalhe(null)}
+        onClose={() => setDetalhe(null)}
+        description={
+          <div className="space-y-2 text-sm">
+            <p>
+              No momento do sorteio, o sistema gera uma <strong>semente</strong> aleatória e a
+              guarda. Os ganhadores saem de um cálculo que depende só dela e da lista de
+              presentes — ou seja, o mesmo sorteio pode ser refeito e conferido por qualquer
+              pessoa, mas ninguém consegue prevê-lo nem escolher o resultado.
+            </p>
+            <p className="text-muted-foreground">{detalhe?.explicacao}</p>
+            <p className="break-all font-mono text-[10px] text-muted-foreground">
+              Semente: {detalhe?.seed}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              A semente também é impressa no dossiê da assembleia.
+            </p>
+          </div>
+        }
+      />
     </div>
   );
 }

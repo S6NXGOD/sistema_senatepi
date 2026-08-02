@@ -24,6 +24,8 @@ import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
 import { DossieEventoService } from './dossie-evento.service';
 import { CertificadoService } from './certificado.service';
+import { EncerramentoService } from './encerramento.service';
+import { PresencaListaService } from './presenca-lista.service';
 import {
   CertificadoPublicoController, PlenarioAdminController, PlenarioPublicoController,
 } from './plenario.controller';
@@ -163,7 +165,7 @@ class EventosController {
   ],
   providers: [
     EventosService, CheckinService, VotacaoService, SorteioService, DossieEventoService,
-    CertificadoService,
+    CertificadoService, EncerramentoService, PresencaListaService,
   ],
   exports: [EventosService],
 })

@@ -209,8 +209,155 @@ export async function conferirSorteio(eventoId: string, sorteioId: string) {
   };
 }
 
-export async function listarPresencas(eventoId: string) {
-  return (await api.get(`/eventos/${eventoId}/presencas`)).data;
+export interface PresencaLista {
+  presencaId: string;
+  filiadoId: string | null;
+  nome: string;
+  matricula: string;
+  /** Sempre mascarado. O IP fica só no dossiê — ver `presenca-lista.service.ts`. */
+  cpf: string;
+  registradoEm: string;
+  origem: 'QR_PRESENCIAL' | 'AUTOATENDIMENTO_VIRTUAL' | 'MANUAL';
+}
+
+export async function listarPresencas(eventoId: string): Promise<PresencaLista[]> {
+  return (await api.get(`/eventos/${eventoId}/plenario/presencas`)).data;
+}
+
+export interface PreviaEncerramento {
+  jaEncerrado: boolean;
+  presentes: number;
+  pautasAbertas: {
+    id: string; titulo: string; votantes: number;
+    quorumMinimo: number | null; quorumAtingido: boolean;
+  }[];
+  pautasEncerradas: number;
+  pautasNaoVotadas: number;
+  /** O que a mesa PRECISA ler antes de confirmar (quórum, irreversibilidade). */
+  alertas: string[];
+}
+
+export interface ResumoEvento {
+  evento: Evento & { dossiePdfKey: string | null; dossieGeradoEm: string | null };
+  presentes: number;
+  primeiraPresenca: string | null;
+  ultimaPresenca: string | null;
+  deliberacoes: Apuracao[];
+  sorteios: Sorteio[];
+  dossieEmitido: boolean;
+}
+
+export async function previaEncerramento(eventoId: string): Promise<PreviaEncerramento> {
+  return (await api.get(`/eventos/${eventoId}/plenario/encerramento/previa`)).data;
+}
+
+export async function encerrarAssembleia(eventoId: string) {
+  return (await api.post(`/eventos/${eventoId}/plenario/encerrar`, {})).data as {
+    jaEstava: boolean;
+    apuracoes: Apuracao[];
+    dossie: { key: string; hash: string } | null;
+    erroDossie: string | null;
+  };
+}
+
+export async function obterResumo(eventoId: string): Promise<ResumoEvento> {
+  return (await api.get(`/eventos/${eventoId}/plenario/resumo`)).data;
+}
+
+export interface CertificadosEvento {
+  habilitado: boolean;
+  cargaHoraria?: number | null;
+  participantes: { presencaId: string; nome: string; matricula: string; codigo: string }[];
+}
+
+export async function listarCertificados(eventoId: string): Promise<CertificadosEvento> {
+  return (await api.get(`/eventos/${eventoId}/plenario/certificados`)).data;
+}
+
+/**
+ * Baixa um arquivo protegido (PDF, CSV).
+ *
+ * Busca o conteúdo pelo cliente autenticado e abre a partir da memória, em vez
+ * de mandar o navegador na URL direto. Dois motivos:
+ *
+ *  - a API só aceita o token no cabeçalho `Authorization`
+ *    (`ExtractJwt.fromAuthHeaderAsBearerToken`), e `window.open` não manda
+ *    cabeçalho nenhum;
+ *  - passar o token no query resolveria o primeiro ponto e criaria um pior:
+ *    credencial no histórico do navegador, nos logs do servidor e no cabeçalho
+ *    `Referer` de qualquer link que a página abrisse depois.
+ */
+async function baixarArquivo(caminho: string, nomeArquivo: string, novaAba = false) {
+  const resp = await api.get(caminho, { responseType: 'blob' });
+  const url = URL.createObjectURL(resp.data as Blob);
+  try {
+    if (novaAba) {
+      window.open(url, '_blank', 'noopener');
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nomeArquivo;
+      a.click();
+    }
+  } finally {
+    // Espera o navegador consumir a URL antes de liberar a memória.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+}
+
+export function baixarDossie(eventoId: string) {
+  return baixarArquivo(`/eventos/${eventoId}/plenario/dossie.pdf`, `dossie-${eventoId}.pdf`, true);
+}
+export function baixarPresencaCsv(eventoId: string) {
+  return baixarArquivo(`/eventos/${eventoId}/plenario/presencas.csv`, `presenca-${eventoId}.csv`);
+}
+export function baixarCertificado(eventoId: string, presencaId: string, nome: string) {
+  return baixarArquivo(
+    `/eventos/${eventoId}/plenario/certificados/${presencaId}.pdf`,
+    `certificado-${nome.replace(/[^\w]+/g, '-').toLowerCase()}.pdf`,
+    true,
+  );
+}
+
+/**
+ * "Adicionar à minha agenda" — uma URL, não uma integração.
+ *
+ * O que a pessoa quer é não esquecer da assembleia. Isso se resolve com um
+ * link que abre o Google Agenda já preenchido. A alternativa (criar o evento
+ * pela Calendar API e obter o link do Meet) exigiria Google Workspace pago,
+ * projeto no Cloud, conta de serviço com delegação em todo o domínio e um
+ * calendário institucional — quatro itens de infraestrutura para entregar uma
+ * conveniência que uma URL resolve.
+ *
+ * Funciona com Gmail pessoal, que é o que a maioria dos filiados tem.
+ */
+export function linkGoogleAgenda(evento: {
+  nome: string;
+  descricao?: string | null;
+  local?: string | null;
+  dataInicio: string;
+  dataFim?: string | null;
+  linkSala?: string;
+}): string {
+  // O Google exige AAAAMMDDTHHMMSSZ, em UTC.
+  const carimbo = (d: Date) => d.toISOString().replace(/[-:]|\.\d{3}/g, '');
+  const inicio = new Date(evento.dataInicio);
+  // Sem hora de término, assume 2h — assembleia não tem hora certa para
+  // acabar, e um bloco de 15 minutos na agenda de ninguém ajuda.
+  const fim = evento.dataFim ? new Date(evento.dataFim) : new Date(inicio.getTime() + 2 * 3600_000);
+
+  const detalhes = [evento.descricao, evento.linkSala && `Sala virtual: ${evento.linkSala}`]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const p = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: evento.nome,
+    dates: `${carimbo(inicio)}/${carimbo(fim)}`,
+    ...(detalhes ? { details: detalhes } : {}),
+    ...(evento.local ? { location: evento.local } : {}),
+  });
+  return `https://calendar.google.com/calendar/render?${p.toString()}`;
 }
 
 // ---------------------------------------------------------------------------

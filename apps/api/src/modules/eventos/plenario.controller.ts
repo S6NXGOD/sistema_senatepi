@@ -9,6 +9,8 @@ import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
 import { DossieEventoService } from './dossie-evento.service';
 import { CertificadoService } from './certificado.service';
+import { EncerramentoService } from './encerramento.service';
+import { PresencaListaService } from './presenca-lista.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -51,6 +53,8 @@ export class PlenarioAdminController {
     private readonly sorteio: SorteioService,
     private readonly dossie: DossieEventoService,
     private readonly certificado: CertificadoService,
+    private readonly encerramento: EncerramentoService,
+    private readonly presencaLista: PresencaListaService,
   ) {}
 
   @Get('pautas')
@@ -125,6 +129,68 @@ export class PlenarioAdminController {
     const pdf = await this.dossie.baixar(eventoId);
     res.setHeader('Content-Disposition', `inline; filename="dossie-${eventoId}.pdf"`);
     res.send(pdf);
+  }
+
+  // -------------------------------------------------------------------------
+  // Encerramento — o momento em que a assembleia vira registro
+  // -------------------------------------------------------------------------
+
+  /** O que vai acontecer se encerrar agora — alimenta a confirmação. */
+  @Get('encerramento/previa')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  previaEncerramento(@Param('eventoId') eventoId: string) {
+    return this.encerramento.previa(eventoId);
+  }
+
+  /**
+   * Encerra a assembleia: fecha votações abertas, trava o check-in e emite o
+   * dossiê. É POST, e não DELETE, porque não apaga nada — consolida.
+   */
+  @Post('encerrar')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  encerrarAssembleia(
+    @Param('eventoId') eventoId: string,
+    @CurrentUser('nome') autor: string,
+  ) {
+    return this.encerramento.encerrar(eventoId, autor);
+  }
+
+  /** Resumo do que aconteceu — a resposta para "e aí, o que eu tenho agora?". */
+  @Get('resumo')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  resumo(@Param('eventoId') eventoId: string) {
+    return this.encerramento.resumo(eventoId);
+  }
+
+  /**
+   * Lista de presença para a TELA.
+   *
+   * CPF mascarado e SEM IP. O IP tem finalidade probatória, não operacional:
+   * ele consta do dossiê, que é documento de circulação restrita, e não de uma
+   * tela que fica aberta no telão durante a assembleia (LGPD, art. 6º, III —
+   * necessidade).
+   */
+  @Get('presencas')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  presencas(@Param('eventoId') eventoId: string) {
+    return this.presencaLista.listar(eventoId);
+  }
+
+  /**
+   * A mesma lista em CSV.
+   *
+   * O dossiê é bom para arquivo e ruim para trabalhar. A secretaria vai querer
+   * cruzar presença com quem pagou, com quem faltou, com quem votou — e isso
+   * se faz numa planilha, não num PDF.
+   */
+  @Get('presencas.csv')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async presencasCsv(@Param('eventoId') eventoId: string, @Res() res: Response) {
+    const csv = await this.presencaLista.csv(eventoId);
+    res.setHeader('Content-Disposition', `attachment; filename="presenca-${eventoId}.csv"`);
+    // BOM UTF-8: sem ele o Excel em português abre "JOSÉ" como "JOSÃ‰".
+    res.send('﻿' + csv);
   }
 
   /** Quem tem direito a certificado, já com o código de verificação. */

@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, OrigemPresenca, SituacaoFiliado, TipoPessoa } from '@prisma/client';
+import {
+  AcaoAuditoria, OrigemPresenca, SituacaoFiliado, StatusEvento, TipoPessoa,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CobrancasService } from '../cobrancas/cobrancas.service';
@@ -178,6 +180,18 @@ export class CheckinService {
       },
       select: { id: true },
     });
+
+    // O primeiro check-in coloca o evento EM ANDAMENTO.
+    //
+    // Antes o status só mudava por ação manual, e o resultado era um rótulo que
+    // mentia: assembleias com votação já encerrada continuavam marcadas como
+    // "Agendado" na lista. Quem chega para conferir não deveria precisar abrir
+    // o evento para descobrir que ele já aconteceu.
+    if (evento.status === StatusEvento.AGENDADO) {
+      await this.prisma.evento
+        .update({ where: { id: evento.id }, data: { status: StatusEvento.EM_ANDAMENTO } })
+        .catch(() => undefined); // corrida entre dois check-ins simultâneos é inofensiva
+    }
 
     await this.audit.registrar({
       acao: AcaoAuditoria.CREATE,
