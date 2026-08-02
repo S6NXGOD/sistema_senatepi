@@ -94,6 +94,22 @@ describe('janelaCheckin', () => {
     expect(janelaCheckin(evento({ status: 'REALIZADO' }), cfg, agora).aberto).toBe(false);
   });
 
+  it('EM_ANDAMENTO vence o horário agendado', () => {
+    // Foi o bug relatado: a mesa abriu o evento, e a sala pública continuou
+    // dizendo "o check-in abre 60 minutos antes do início" porque a data
+    // agendada estava distante. Quem comanda a assembleia é a mesa.
+    const daquiATresDias = new Date('2026-08-13T19:00:00Z');
+    const e = { dataInicio: daquiATresDias, dataFim: null, status: 'EM_ANDAMENTO' };
+    const r = janelaCheckin(e, cfg, base);
+    expect(r.aberto).toBe(true);
+    expect(r.motivo).toMatch(/em andamento/i);
+  });
+
+  it('AGENDADO continua respeitando a janela', () => {
+    // A janela não sumiu — ela só deixa de valer quando alguém declara início.
+    expect(janelaCheckin(evento(), cfg, new Date('2026-08-10T17:00:00Z')).aberto).toBe(false);
+  });
+
   it('sempre explica o motivo — "fechado" sem razão gera ligação para a secretaria', () => {
     const r = janelaCheckin(evento({ status: 'CANCELADO' }), cfg, base);
     expect(r.motivo.length).toBeGreaterThan(10);

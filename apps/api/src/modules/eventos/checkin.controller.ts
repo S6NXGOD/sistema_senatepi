@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsString, Length } from 'class-validator';
+import { IsDateString, IsOptional, IsString, Length } from 'class-validator';
 import { Request } from 'express';
 import { CheckinService } from './checkin.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -8,6 +8,19 @@ import { Public } from '../../common/decorators/public.decorator';
 class EntrarDto {
   /** Aceita com ou sem máscara — o serviço normaliza. */
   @IsString() @Length(11, 14) cpf!: string;
+}
+
+/**
+ * Segunda etapa — quando o CPF não localizou ninguém.
+ *
+ * Só o nome é obrigatório. A data de nascimento entra como desempate quando a
+ * pessoa souber informar: ela existe em apenas 381 dos 7.173 cadastros ativos,
+ * então exigi-la deixaria quase todo mundo de fora.
+ */
+class EntrarComDadosDto {
+  @IsString() @Length(11, 14) cpf!: string;
+  @IsString() @Length(5, 200) nomeCompleto!: string;
+  @IsOptional() @IsDateString() dataNascimento?: string;
 }
 
 /**
@@ -44,6 +57,30 @@ export class CheckinPublicoController {
     return this.service.entrar({
       eventoId,
       cpf: dto.cpf,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+  }
+
+  /**
+   * Complementação dos dados — quando o CPF não localizou ninguém.
+   *
+   * Não é um "caminho alternativo para quem não é filiado": é o caminho normal
+   * para os 70% da base cujo cadastro veio da planilha sem CPF. Quando o nome
+   * bate com um único filiado sem CPF gravado, o vínculo é feito e o CPF
+   * informado passa a constar do cadastro.
+   */
+  @Post(':eventoId/checkin/dados')
+  entrarComDados(
+    @Param('eventoId') eventoId: string,
+    @Body() dto: EntrarComDadosDto,
+    @Req() req: Request,
+  ) {
+    return this.service.entrarComDados({
+      eventoId,
+      cpf: dto.cpf,
+      nomeCompleto: dto.nomeCompleto,
+      dataNascimento: dto.dataNascimento,
       ip: req.ip,
       userAgent: req.headers['user-agent'],
     });

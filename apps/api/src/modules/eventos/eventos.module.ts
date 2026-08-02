@@ -14,9 +14,11 @@ import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestj
 import {
   IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUrl,
 } from 'class-validator';
-import { Prisma, StatusEvento, TipoEvento, UserRole } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusEvento, TipoEvento, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuditService } from '../../common/audit/audit.service';
 import { CobrancasModule } from '../cobrancas/cobrancas.module';
 import { CheckinService } from './checkin.service';
 import { CheckinPublicoController } from './checkin.controller';
@@ -63,7 +65,10 @@ class CreateEventoDto {
 
 @Injectable()
 export class EventosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   create(dto: CreateEventoDto) {
     return this.prisma.evento.create({
@@ -116,10 +121,56 @@ export class EventosService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  /**
+   * O que será destruído junto com o evento.
+   *
+   * Todas as relações são `onDelete: Cascade`: apagar o evento leva presenças,
+   * pautas, votos, sorteios e a referência ao dossiê. A confirmação na tela usa
+   * estes números para que a exclusão seja um ato informado — apagar uma
+   * assembleia com deliberação registrada é destruir o registro de um ato
+   * jurídico, e isso não se faz por engano.
+   */
+  async impacto(id: string) {
+    const evento = await this.findOne(id);
+    const [presencas, pautas, votos, sorteios] = await Promise.all([
+      this.prisma.presenca.count({ where: { eventoId: id } }),
+      this.prisma.pautaVotacao.count({ where: { eventoId: id } }),
+      this.prisma.votoUrna.count({ where: { pauta: { eventoId: id } } }),
+      this.prisma.sorteioEvento.count({ where: { eventoId: id } }),
+    ]);
+    return {
+      nome: evento.nome,
+      status: evento.status,
+      presencas,
+      pautas,
+      votos,
+      sorteios,
+      dossieEmitido: !!evento.dossiePdfKey,
+      /** Há registro que se perde — a tela destaca em vermelho quando verdadeiro. */
+      temHistorico: presencas > 0 || pautas > 0 || sorteios > 0 || !!evento.dossiePdfKey,
+    };
+  }
+
+  async remove(id: string, autor?: string) {
+    const impacto = await this.impacto(id);
+
+    // A exclusão é permitida (decisão da diretoria), mas nunca silenciosa: fica
+    // na auditoria exatamente o que foi destruído, porque depois do CASCADE não
+    // resta nada de onde reconstituir.
     await this.prisma.evento.delete({ where: { id } });
-    return { ok: true };
+
+    await this.audit.registrar({
+      acao: AcaoAuditoria.DELETE,
+      entidade: 'Evento',
+      entidadeId: id,
+      descricao:
+        `Evento "${impacto.nome}" excluído. Destruídos: ${impacto.presencas} presença(s), ` +
+        `${impacto.pautas} pauta(s), ${impacto.votos} voto(s), ${impacto.sorteios} sorteio(s)` +
+        (impacto.dossieEmitido ? ' e o dossiê emitido.' : '.'),
+      metadata: { ...impacto },
+    });
+
+    return { ok: true, destruido: impacto };
   }
 }
 
@@ -143,9 +194,23 @@ class EventosController {
   update(@Param('id') id: string, @Body() dto: Partial<CreateEventoDto>) {
     return this.service.update(id, dto);
   }
-  @Delete(':id') @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  remove(@Param('id') id: string) {
-    return this.service.remove(id);
+  /** Quanto se perde ao apagar — alimenta a confirmação na tela. */
+  @Get(':id/impacto') @Roles(UserRole.ADMINISTRADOR)
+  impacto(@Param('id') id: string) {
+    return this.service.impacto(id);
+  }
+
+  /**
+   * SOMENTE ADMINISTRADOR.
+   *
+   * Listar COORDENACAO aqui era decorativo e enganoso: o PermissionsGuard já
+   * recusa todo DELETE de quem não é administrador, então o decorator prometia
+   * um acesso que a requisição nunca teria — e alguém lendo o código concluiria
+   * que a coordenação apaga eventos.
+   */
+  @Delete(':id') @Roles(UserRole.ADMINISTRADOR)
+  remove(@Param('id') id: string, @CurrentUser('nome') autor: string) {
+    return this.service.remove(id, autor);
   }
 }
 

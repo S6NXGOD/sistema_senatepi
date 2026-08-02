@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import {
-  AVISO_LGPD, abrirSala, esquecerPresenca, estadoAoVivo, fazerCheckin, guardarPresenca,
+  AVISO_LGPD, abrirSala, checkinComDados, esquecerPresenca, estadoAoVivo, fazerCheckin, guardarPresenca,
   lerPresenca, obterSessao, votar,
   type EstadoAoVivo, type Sessao,
 } from '@/lib/eventos';
@@ -97,6 +97,17 @@ function Checkin({ eventoId, onEntrou }: { eventoId: string; onEntrou: (id: stri
   const [cpf, setCpf] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  /**
+   * Segunda etapa — o CPF não localizou nenhum cadastro.
+   *
+   * A tela NÃO diz "você não está cadastrado": além de provavelmente falso
+   * (70% da base veio da planilha sem CPF), num link público isso revelaria a
+   * estranhos quem é ou não filiado. Pede a complementação como parte normal
+   * do fluxo, porque para o filiado é exatamente isso.
+   */
+  const [complementar, setComplementar] = useState(false);
+  const [nome, setNome] = useState('');
+  const [nascimento, setNascimento] = useState('');
 
   const { data: sala, isLoading } = useQuery({
     queryKey: ['sala', eventoId],
@@ -107,18 +118,50 @@ function Checkin({ eventoId, onEntrou }: { eventoId: string; onEntrou: (id: stri
     refetchInterval: (q) => (q.state.data?.checkinAberto ? false : 30_000),
   });
 
+  function concluir(r: Awaited<ReturnType<typeof fazerCheckin>>) {
+    if (!r.participante) return;
+    toast.success(r.participante.jaEstava ? 'Bem-vindo(a) de volta!' : 'Presença registrada!');
+    onEntrou(r.participante.presencaId);
+  }
+
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
     setErro(null);
     try {
       const r = await fazerCheckin(eventoId, cpf);
+      // CPF não localizado não é recusa — é a segunda etapa.
+      if (r.precisaComplementar) {
+        setComplementar(true);
+        return;
+      }
       if (!r.liberado || !r.participante) {
         setErro(r.motivo);
         return;
       }
-      toast.success(r.participante.jaEstava ? 'Bem-vindo(a) de volta!' : 'Presença registrada!');
-      onEntrou(r.participante.presencaId);
+      concluir(r);
+    } catch (e: any) {
+      setErro(e?.response?.data?.message ?? 'Não foi possível registrar sua presença.');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function enviarComplemento(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    setErro(null);
+    try {
+      const r = await checkinComDados(eventoId, {
+        cpf,
+        nomeCompleto: nome,
+        dataNascimento: nascimento || undefined,
+      });
+      if (!r.liberado || !r.participante) {
+        setErro(r.motivo);
+        return;
+      }
+      concluir(r);
     } catch (e: any) {
       setErro(e?.response?.data?.message ?? 'Não foi possível registrar sua presença.');
     } finally {
@@ -159,6 +202,67 @@ function Checkin({ eventoId, onEntrou }: { eventoId: string; onEntrou: (id: stri
               <Lock className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{sala.motivo}</span>
             </div>
+          ) : complementar ? (
+            /* Segunda etapa. O texto é neutro de propósito: "confirme seus
+               dados", não "você não foi encontrado". O cadastro é que está
+               incompleto, e dizer o contrário culpa a pessoa errada. */
+            <form onSubmit={enviarComplemento} className="space-y-3">
+              <div>
+                <p className="text-sm font-medium">Confirme seus dados</p>
+                <p className="text-xs text-muted-foreground">
+                  Precisamos de mais uma informação para registrar sua presença.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="nome">Nome completo</label>
+                <Input
+                  id="nome"
+                  autoComplete="off"
+                  placeholder="Como está no seu cadastro"
+                  value={nome}
+                  onChange={(e) => { setNome(e.target.value); setErro(null); }}
+                  className="text-lg"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="nasc">
+                  Data de nascimento <span className="font-normal text-muted-foreground">(opcional)</span>
+                </label>
+                <Input
+                  id="nasc"
+                  type="date"
+                  value={nascimento}
+                  onChange={(e) => setNascimento(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Ajuda a confirmar sua identidade caso haja outro associado com nome parecido.
+                </p>
+              </div>
+
+              {erro && (
+                <p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-900/20 dark:text-rose-200">
+                  {erro}
+                </p>
+              )}
+
+              <Button
+                type="submit"
+                className="h-12 w-full text-base"
+                disabled={enviando || nome.trim().length < 5}
+              >
+                {enviando && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirmar presença
+              </Button>
+              <button
+                type="button"
+                className="w-full text-xs text-muted-foreground underline underline-offset-2"
+                onClick={() => { setComplementar(false); setErro(null); }}
+              >
+                Corrigir o CPF informado
+              </button>
+            </form>
           ) : (
             <form onSubmit={enviar} className="space-y-3">
               <div className="space-y-1.5">

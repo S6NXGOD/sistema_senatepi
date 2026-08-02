@@ -218,6 +218,13 @@ export interface PresencaLista {
   cpf: string;
   registradoEm: string;
   origem: 'QR_PRESENCIAL' | 'AUTOATENDIMENTO_VIRTUAL' | 'MANUAL';
+  /**
+   * Falso quando a presença não pôde ser vinculada a um cadastro.
+   *
+   * Não vota e não conta para o quórum até a mesa confirmar de quem é —
+   * deliberação é de associados, e o sistema não adivinha entre homônimos.
+   */
+  identificado: boolean;
 }
 
 export async function listarPresencas(eventoId: string): Promise<PresencaLista[]> {
@@ -381,7 +388,18 @@ export interface SalaPublica {
 export interface ResultadoCheckin {
   liberado: boolean;
   motivo: string;
-  participante?: { nome: string; matricula: string; presencaId: string; jaEstava: boolean };
+  /**
+   * O CPF não localizou ninguém — a tela pede os demais dados.
+   *
+   * Não é recusa: 70% da base histórica veio da planilha sem CPF, e o cadastro
+   * é que está incompleto. A tela trata como etapa normal, porque é.
+   */
+  precisaComplementar?: boolean;
+  participante?: {
+    nome: string; matricula: string; presencaId: string; jaEstava: boolean;
+    /** Falso quando não deu para vincular a um cadastro — não vota nem conta quórum. */
+    identificado: boolean;
+  };
 }
 
 export interface Sessao {
@@ -411,6 +429,54 @@ export async function abrirSala(eventoId: string): Promise<SalaPublica> {
 
 export async function fazerCheckin(eventoId: string, cpf: string): Promise<ResultadoCheckin> {
   return (await api.post(`/sala/${eventoId}/checkin`, { cpf })).data;
+}
+
+/** Segunda etapa — quando o CPF não localizou nenhum cadastro. */
+export async function checkinComDados(
+  eventoId: string,
+  dados: { cpf: string; nomeCompleto: string; dataNascimento?: string },
+): Promise<ResultadoCheckin> {
+  return (await api.post(`/sala/${eventoId}/checkin/dados`, dados)).data;
+}
+
+export interface CandidatosPresenca {
+  nomeInformado: string;
+  cpfInformado: string | null;
+  candidatos: {
+    id: string; nome: string; matricula: string;
+    temCpf: boolean; cidade: string | null; nascimento: string | null;
+  }[];
+}
+
+export async function candidatosPresenca(
+  eventoId: string,
+  presencaId: string,
+): Promise<CandidatosPresenca> {
+  return (await api.get(`/eventos/${eventoId}/plenario/presencas/${presencaId}/candidatos`)).data;
+}
+
+export async function vincularPresenca(eventoId: string, presencaId: string, filiadoId: string) {
+  return (await api.post(`/eventos/${eventoId}/plenario/presencas/${presencaId}/vincular`, { filiadoId }))
+    .data as { ok: boolean; cpfGravado: boolean; filiado: { nome: string; matricula: string } };
+}
+
+export interface ImpactoExclusao {
+  nome: string;
+  status: StatusEvento;
+  presencas: number;
+  pautas: number;
+  votos: number;
+  sorteios: number;
+  dossieEmitido: boolean;
+  temHistorico: boolean;
+}
+
+export async function impactoExclusao(eventoId: string): Promise<ImpactoExclusao> {
+  return (await api.get(`/eventos/${eventoId}/impacto`)).data;
+}
+
+export async function excluirEvento(eventoId: string) {
+  return (await api.delete(`/eventos/${eventoId}`)).data;
 }
 
 export async function obterSessao(eventoId: string, presencaId: string): Promise<Sessao> {

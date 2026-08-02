@@ -164,6 +164,24 @@ export function janelaCheckin(
     return { aberto: false, motivo: 'Este evento já foi encerrado.' };
   }
 
+  /**
+   * EVENTO ABERTO PELA MESA VENCE O HORÁRIO AGENDADO.
+   *
+   * Antes esta função só olhava CANCELADO e REALIZADO e caía direto na janela
+   * de horário — então um evento que a mesa tinha explicitamente aberto
+   * continuava respondendo "o check-in abre 60 minutos antes do início" se a
+   * data agendada ainda estivesse longe. O sistema contrariava quem o
+   * comanda.
+   *
+   * A janela de horário existe para o caso comum: ninguém tocou em nada e o
+   * evento acontece no horário previsto. Assim que alguém da mesa declara que
+   * começou, a declaração é a verdade — assembleia atrasa, antecipa e é
+   * remarcada em cima da hora, e o horário no cadastro não acompanha.
+   */
+  if (evento.status === 'EM_ANDAMENTO') {
+    return { aberto: true, motivo: 'Check-in liberado — evento em andamento.' };
+  }
+
   const abre = new Date(evento.dataInicio.getTime() - cfg.checkinAbreMinutosAntes * 60_000);
   if (agora < abre) {
     return {

@@ -38,6 +38,10 @@ class VotarDto {
   @IsString() opcaoId!: string;
 }
 
+class VincularDto {
+  @IsString() filiadoId!: string;
+}
+
 /**
  * MESA DIRETORA — quem conduz a assembleia.
  *
@@ -191,6 +195,31 @@ export class PlenarioAdminController {
     res.setHeader('Content-Disposition', `attachment; filename="presenca-${eventoId}.csv"`);
     // BOM UTF-8: sem ele o Excel em português abre "JOSÉ" como "JOSÃ‰".
     res.send('﻿' + csv);
+  }
+
+  /**
+   * Filiados que podem ser a pessoa por trás de uma presença não identificada.
+   *
+   * O autoatendimento registra sem vínculo quando o nome bate com mais de um
+   * cadastro — há 1.309 grupos de nomes repetidos na base, e adivinhar seria
+   * dar o voto de alguém a outra pessoa. Aqui um humano decide.
+   */
+  @Get('presencas/:presencaId/candidatos')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  candidatos(@Param('eventoId') eventoId: string, @Param('presencaId') presencaId: string) {
+    return this.presencaLista.candidatos(eventoId, presencaId);
+  }
+
+  /** Confirma de quem é a presença — habilita voto e quórum. */
+  @Post('presencas/:presencaId/vincular')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  vincular(
+    @Param('eventoId') eventoId: string,
+    @Param('presencaId') presencaId: string,
+    @Body() dto: VincularDto,
+    @CurrentUser('nome') autor: string,
+  ) {
+    return this.presencaLista.vincular(eventoId, presencaId, dto.filiadoId, autor);
   }
 
   /** Quem tem direito a certificado, já com o código de verificação. */

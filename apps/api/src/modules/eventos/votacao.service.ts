@@ -229,8 +229,18 @@ export class VotacaoService {
       where: { id: dados.presencaId, eventoId: pauta.eventoId },
       select: { filiadoId: true },
     });
-    if (!presenca?.filiadoId) {
+    if (!presenca) {
       throw new ForbiddenException('Faça o check-in no evento para poder votar.');
+    }
+    // Presente, mas sem vínculo confirmado com o cadastro: quem vota é
+    // associado, e ninguém confirmou ainda que esta pessoa é. A mesa resolve
+    // pelo painel em segundos — a mensagem diz para onde ir, em vez de
+    // devolver um "não pode" sem saída.
+    if (!presenca.filiadoId) {
+      throw new ForbiddenException(
+        'Sua presença está registrada, mas ainda não foi vinculada ao cadastro de associado. ' +
+        'Procure a mesa para confirmar seus dados e liberar o voto.',
+      );
     }
     const filiadoId = presenca.filiadoId;
 
@@ -295,7 +305,13 @@ export class VotacaoService {
         _count: { _all: true },
       }),
       this.prisma.votoHabilitacao.count({ where: { pautaId } }),
-      this.prisma.presenca.count({ where: { eventoId: pauta.eventoId } }),
+      // Só quem tem vínculo confirmado entra no denominador do comparecimento.
+      // Presença sem identificação é visitante: contá-la faria "12 de 30"
+      // parecer baixa adesão quando 5 dos 30 nem podiam votar — e, pior,
+      // inflaria a base de cálculo de qualquer quórum proporcional.
+      this.prisma.presenca.count({
+        where: { eventoId: pauta.eventoId, filiadoId: { not: null } },
+      }),
     ]);
 
     const contagem = new Map(porOpcao.map((r) => [r.opcaoId, r._count._all]));

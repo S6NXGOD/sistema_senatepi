@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { ModoVotacao, StatusPauta } from '@prisma/client';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  AcaoAuditoria, ModoVotacao, SituacaoFiliado, StatusPauta, TipoHistoricoFiliado,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { mascararCpf } from '../../common/utils/matricula.util';
+import { termosDeBusca } from '../../common/utils/busca.util';
+import { AuditService } from '../../common/audit/audit.service';
 
 /**
  * Lista de presença para consumo em TELA (e planilha).
@@ -15,7 +19,147 @@ import { mascararCpf } from '../../common/utils/matricula.util';
  */
 @Injectable()
 export class PresencaListaService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  /**
+   * Vincula uma presença ao cadastro do filiado — a resolução pela mesa.
+   *
+   * Existe porque 70% da base histórica não tem CPF: quando o autoatendimento
+   * não consegue identificar com segurança (nome repetido, cadastro ausente),
+   * ele registra a presença SEM vínculo e deixa a decisão para um humano.
+   * Adivinhar entre homônimos seria dar o voto de uma pessoa a outra — e a
+   * base tem 1.309 grupos de nomes repetidos.
+   *
+   * Vincular é o que habilita a pessoa a votar e a contar para o quórum:
+   * enquanto ninguém confirmou que ela é associada, ela é visitante.
+   */
+  async vincular(
+    eventoId: string,
+    presencaId: string,
+    filiadoId: string,
+    autor?: string,
+  ) {
+    const [presenca, filiado] = await Promise.all([
+      this.prisma.presenca.findFirst({
+        where: { id: presencaId, eventoId },
+        select: { id: true, filiadoId: true, cpfInformado: true, nomeSnapshot: true },
+      }),
+      this.prisma.filiado.findUnique({
+        where: { id: filiadoId },
+        select: { id: true, nomeCompleto: true, matricula: true, cpf: true, situacao: true },
+      }),
+    ]);
+    if (!presenca) throw new NotFoundException('Presença não encontrada neste evento.');
+    if (!filiado) throw new NotFoundException('Filiado não encontrado.');
+    if (presenca.filiadoId) {
+      throw new ConflictException('Esta presença já está vinculada a um cadastro.');
+    }
+
+    // Uma presença por filiado no evento — é o mesmo unique que impede entrada
+    // duplicada. Vincular a quem já entrou criaria dois registros da mesma
+    // pessoa e inflaria o quórum.
+    const jaPresente = await this.prisma.presenca.findFirst({
+      where: { eventoId, filiadoId },
+      select: { id: true },
+    });
+    if (jaPresente) {
+      throw new ConflictException(
+        `${filiado.nomeCompleto} já consta como presente neste evento.`,
+      );
+    }
+
+    const cpf = presenca.cpfInformado;
+    // Aproveita para completar o cadastro, mas só se estiver vazio: sobrescrever
+    // um CPF existente com o que alguém digitou seria corromper o cadastro.
+    const podeGravarCpf = !!cpf && !filiado.cpf;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.presenca.update({
+        where: { id: presencaId },
+        data: { filiadoId, nomeSnapshot: filiado.nomeCompleto },
+      });
+
+      if (podeGravarCpf) {
+        await tx.filiado.update({ where: { id: filiadoId }, data: { cpf } });
+      }
+
+      await tx.filiadoHistorico.create({
+        data: {
+          filiadoId,
+          tipo: TipoHistoricoFiliado.ALTERACAO,
+          descricao:
+            `Presença em evento confirmada pela mesa (registro estava sem vínculo, ` +
+            `informado como "${presenca.nomeSnapshot}").` +
+            (podeGravarCpf ? ' O CPF informado foi gravado no cadastro, que estava vazio.' : ''),
+          autor,
+          metadata: { eventoId, presencaId, cpfGravado: podeGravarCpf },
+        },
+      });
+    });
+
+    await this.audit.registrar({
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'Presenca',
+      entidadeId: presencaId,
+      descricao:
+        `Presença vinculada a ${filiado.nomeCompleto} (${filiado.matricula}) pela mesa.` +
+        (podeGravarCpf ? ' CPF gravado no cadastro.' : ''),
+      metadata: { eventoId, filiadoId, cpfGravado: podeGravarCpf },
+    });
+
+    return {
+      ok: true,
+      cpfGravado: podeGravarCpf,
+      filiado: { nome: filiado.nomeCompleto, matricula: filiado.matricula },
+    };
+  }
+
+  /**
+   * Candidatos a vincular a uma presença — busca pelo nome informado.
+   *
+   * Reusa a busca normalizada da listagem de filiados (ignora acento, caixa e
+   * ordem das palavras), que é a mesma que a secretaria já usa no dia a dia.
+   */
+  async candidatos(eventoId: string, presencaId: string) {
+    const presenca = await this.prisma.presenca.findFirst({
+      where: { id: presencaId, eventoId },
+      select: { nomeSnapshot: true, cpfInformado: true },
+    });
+    if (!presenca) throw new NotFoundException('Presença não encontrada neste evento.');
+
+    const termos = termosDeBusca(presenca.nomeSnapshot);
+    if (termos.length === 0) return { nomeInformado: presenca.nomeSnapshot, candidatos: [] };
+
+    const candidatos = await this.prisma.filiado.findMany({
+      where: {
+        situacao: SituacaoFiliado.ATIVO,
+        AND: termos.map((t) => ({ buscaNormalizada: { contains: t } })),
+        // Quem já está presente não é candidato — evita o erro antes do clique.
+        NOT: { presencas: { some: { eventoId } } },
+      },
+      select: {
+        id: true, nomeCompleto: true, matricula: true, cpf: true,
+        cidade: true, dataNascimento: true,
+      },
+      take: 20,
+    });
+
+    return {
+      nomeInformado: presenca.nomeSnapshot,
+      cpfInformado: presenca.cpfInformado ? mascararCpf(presenca.cpfInformado) : null,
+      candidatos: candidatos.map((c) => ({
+        id: c.id,
+        nome: c.nomeCompleto,
+        matricula: c.matricula,
+        temCpf: !!c.cpf,
+        cidade: c.cidade,
+        nascimento: c.dataNascimento,
+      })),
+    };
+  }
 
   async listar(eventoId: string) {
     const evento = await this.prisma.evento.findUnique({
@@ -50,6 +194,8 @@ export class PresencaListaService {
       registradoEm: p.registradoEm,
       origem: p.origem,
       tipoPessoa: p.tipoPessoa,
+      // Sem vinculo = nao vota e nao conta para quorum ate a mesa confirmar.
+      identificado: !!p.filiadoId,
     }));
   }
 

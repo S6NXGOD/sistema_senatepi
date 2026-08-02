@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft, CalendarPlus, Check, Copy, ExternalLink, Gift, Loader2, Play,
-  Plus, Square, Users, Video, Vote, X,
+  Plus, Square, Trash2, Users, Vote, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
-import { podeEditar } from '@/lib/permissoes';
+import { podeEditar, podeExcluir } from '@/lib/permissoes';
 import { cn } from '@/lib/utils';
 import { ResultadoPauta } from '@/components/eventos/resultado-pauta';
 import { ListaPresenca } from '@/components/eventos/lista-presenca';
@@ -23,7 +23,8 @@ import { BotaoEncerrar, ResumoEncerramento } from '@/components/eventos/encerram
 import {
   STATUS_EVENTO_COR, STATUS_EVENTO_LABEL, TIPO_EVENTO_LABEL,
   abrirPauta, apurarPauta, atualizarEvento, conferirSorteio, criarPauta, encerrarPauta,
-  linkGoogleAgenda, listarPautas, listarSorteios, obterEvento, sortear,
+  excluirEvento, impactoExclusao, linkGoogleAgenda, listarPautas, listarSorteios,
+  obterEvento, sortear,
   type Apuracao, type ModoVotacao, type Pauta,
 } from '@/lib/eventos';
 
@@ -233,14 +234,108 @@ function PainelLinks({
             </Button>
           </a>
 
-          {pode && !encerrada && (
-            <div className="ml-auto">
+          <div className="ml-auto flex gap-2">
+            {pode && !encerrada && (
               <BotaoEncerrar eventoId={eventoId} onEncerrado={onMudou} />
-            </div>
-          )}
+            )}
+            <BotaoExcluir eventoId={eventoId} />
+          </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Excluir evento — SOMENTE ADMINISTRADOR.
+ *
+ * A regra global do sistema é que só o administrador apaga, e o botão nem
+ * aparece para os demais (o backend recusa de qualquer forma). A confirmação
+ * lista o que será destruído: todas as relações do evento são em cascata, e
+ * depois do clique não resta nada de onde reconstituir presenças, votos ou
+ * dossiê.
+ */
+function BotaoExcluir({ eventoId }: { eventoId: string }) {
+  const router = useRouter();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
+  const [aberto, setAberto] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+
+  const { data: impacto } = useQuery({
+    queryKey: ['evento-impacto', eventoId],
+    queryFn: () => impactoExclusao(eventoId),
+    enabled: aberto,
+  });
+
+  if (!ehAdmin) return null;
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-red-600 dark:text-red-400"
+        title="Excluir evento"
+        onClick={() => setAberto(true)}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+
+      <ConfirmDialog
+        open={aberto}
+        variant="destructive"
+        title="Excluir este evento?"
+        confirmLabel="Excluir definitivamente"
+        loading={excluindo}
+        onClose={() => (excluindo ? null : setAberto(false))}
+        onConfirm={async () => {
+          setExcluindo(true);
+          try {
+            await excluirEvento(eventoId);
+            toast.success('Evento excluído.');
+            router.push('/eventos');
+          } catch (e: any) {
+            toast.error(e?.response?.data?.message ?? 'Não foi possível excluir.');
+          } finally {
+            setExcluindo(false);
+          }
+        }}
+        description={
+          !impacto ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Conferindo…
+            </span>
+          ) : (
+            <div className="space-y-3 text-sm">
+              <p>Remove <strong>{impacto.nome}</strong> permanentemente.</p>
+
+              {impacto.temHistorico ? (
+                <div className="space-y-1.5 rounded-lg bg-rose-50 p-3 dark:bg-rose-900/20">
+                  <p className="text-xs font-semibold text-rose-900 dark:text-rose-200">
+                    Isto destrói o registro de uma assembleia que já aconteceu:
+                  </p>
+                  <ul className="space-y-0.5 text-xs text-rose-900 dark:text-rose-200">
+                    {impacto.presencas > 0 && <li>{impacto.presencas} presença(s) registrada(s)</li>}
+                    {impacto.pautas > 0 && <li>{impacto.pautas} pauta(s) e {impacto.votos} voto(s)</li>}
+                    {impacto.sorteios > 0 && <li>{impacto.sorteios} sorteio(s)</li>}
+                    {impacto.dossieEmitido && <li>o dossiê já emitido</li>}
+                  </ul>
+                  <p className="pt-1 text-xs text-rose-900 dark:text-rose-200">
+                    Não há como desfazer. Para apenas tirar da lista sem perder o registro,
+                    altere o status para <strong>Cancelado</strong>.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Este evento não tem presenças, votações nem dossiê — nada de histórico se perde.
+                </p>
+              )}
+            </div>
+          )
+        }
+      />
+    </>
   );
 }
 
