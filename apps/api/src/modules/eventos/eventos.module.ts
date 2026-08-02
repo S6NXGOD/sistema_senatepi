@@ -22,6 +22,7 @@ import { CheckinService } from './checkin.service';
 import { CheckinPublicoController } from './checkin.controller';
 import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
+import { DossieEventoService } from './dossie-evento.service';
 import { PlenarioAdminController, PlenarioPublicoController } from './plenario.controller';
 import { lerConfiguracoes, normalizarConfiguracoes } from './configuracoes-evento';
 
@@ -156,7 +157,9 @@ class EventosController {
     PlenarioPublicoController,
     CheckinPublicoController,
   ],
-  providers: [EventosService, CheckinService, VotacaoService, SorteioService],
+  providers: [
+    EventosService, CheckinService, VotacaoService, SorteioService, DossieEventoService,
+  ],
   exports: [EventosService],
 })
 export class EventosModule {}

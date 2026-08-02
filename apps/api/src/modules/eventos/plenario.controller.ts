@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
 import {
   IsArray, IsInt, IsOptional, IsString, IsBoolean, IsEnum, Max, Min, MaxLength,
 } from 'class-validator';
 import { ModoVotacao, UserRole } from '@prisma/client';
 import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
+import { DossieEventoService } from './dossie-evento.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -46,6 +48,7 @@ export class PlenarioAdminController {
   constructor(
     private readonly votacao: VotacaoService,
     private readonly sorteio: SorteioService,
+    private readonly dossie: DossieEventoService,
   ) {}
 
   @Get('pautas')
@@ -104,6 +107,22 @@ export class PlenarioAdminController {
   @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   conferir(@Param('sorteioId') sorteioId: string) {
     return this.sorteio.conferir(sorteioId);
+  }
+
+  /** Emite (ou reemite) o dossiê e o arquiva no storage. */
+  @Post('dossie')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  emitirDossie(@Param('eventoId') eventoId: string, @CurrentUser('nome') autor: string) {
+    return this.dossie.gerar(eventoId, autor);
+  }
+
+  @Get('dossie.pdf')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  @Header('Content-Type', 'application/pdf')
+  async baixarDossie(@Param('eventoId') eventoId: string, @Res() res: Response) {
+    const pdf = await this.dossie.baixar(eventoId);
+    res.setHeader('Content-Disposition', `inline; filename="dossie-${eventoId}.pdf"`);
+    res.send(pdf);
   }
 }
 

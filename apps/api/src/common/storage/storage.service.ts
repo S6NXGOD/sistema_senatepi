@@ -7,7 +7,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { promises as fs } from 'node:fs';
+import { promises as fs, constants as fsConstants } from 'node:fs';
 import * as path from 'node:path';
 
 /**
@@ -110,6 +110,53 @@ export class StorageService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * O armazenamento sobrevive a um deploy?
+   *
+   * Existe por causa dos documentos com valor de registro — dossiê de
+   * assembleia, termo de desfiliação, carteirinha. No Railway o disco do
+   * container é APAGADO a cada deploy: a chave do arquivo sobrevive no banco,
+   * o arquivo não, e a falha só aparece no dia em que alguém vai conferir o
+   * documento.
+   *
+   * `persistente` é HEURÍSTICA, não certificado: um diretório dentro da pasta
+   * da aplicação é quase sempre efêmero; um caminho absoluto fora dela é quase
+   * sempre ponto de montagem de volume. Serve para flagrar o esquecimento de
+   * apontar STORAGE_LOCAL_DIR para dentro do volume — não para atestar
+   * infraestrutura.
+   */
+  async diagnostico(): Promise<{
+    driver: string;
+    persistente: boolean;
+    gravavel: boolean;
+    aviso: string | null;
+  }> {
+    if (this.driver !== 'local') {
+      return { driver: this.driver, persistente: true, gravavel: true, aviso: null };
+    }
+
+    const dentroDaApp = this.localDir.startsWith(path.resolve(process.cwd()));
+    let gravavel = true;
+    try {
+      await fs.mkdir(this.localDir, { recursive: true });
+      await fs.access(this.localDir, fsConstants.W_OK);
+    } catch {
+      gravavel = false;
+    }
+
+    return {
+      driver: 'local',
+      persistente: !dentroDaApp,
+      gravavel,
+      aviso: !gravavel
+        ? 'O diretório de arquivos não é gravável — uploads e PDFs vão falhar.'
+        : dentroDaApp
+          ? 'STORAGE_LOCAL_DIR aponta para dentro da aplicação. Em contêiner, ' +
+            'este disco é apagado a cada deploy: aponte para dentro do volume montado.'
+          : null,
+    };
   }
 
   /** URL para leitura. Local: URL estática pública; S3: URL assinada temporária. */
