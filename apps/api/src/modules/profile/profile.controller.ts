@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Patch,
   Post,
@@ -15,13 +16,17 @@ import { Request } from 'express';
 import { ProfileService } from './profile.service';
 import { ChangePasswordDto, UpdateProfileDto } from './dto/profile.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { DadosProprios } from '../../common/permissions/dados-proprios.decorator';
 
 /**
  * Configurações do próprio usuário/administrador logado.
  * Prefixo global `api` → /api/profile/*. Exige autenticação (qualquer papel).
+ * @DadosProprios: todas as rotas agem só sobre o usuário do token — por isso
+ * remover a PRÓPRIA foto não esbarra na regra global de exclusão.
  */
 @ApiTags('profile')
 @ApiBearerAuth()
+@DadosProprios()
 @Controller('profile')
 export class ProfileController {
   constructor(private readonly service: ProfileService) {}
@@ -65,5 +70,11 @@ export class ProfileController {
     if (!file.mimetype.startsWith('image/'))
       throw new BadRequestException('Envie um arquivo de imagem.');
     return this.service.atualizarAvatar(userId, file.buffer, this.ctx(req));
+  }
+
+  /** Remove a própria foto de perfil. */
+  @Delete('avatar')
+  removerAvatar(@CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.removerAvatar(userId, this.ctx(req));
   }
 }

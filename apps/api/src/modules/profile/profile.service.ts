@@ -23,7 +23,6 @@ const PERFIL_SELECT = {
   nome: true,
   nomeExibicao: true,
   email: true,
-  username: true,
   avatarUrl: true,
   avatarKey: true,
   role: true,
@@ -69,13 +68,13 @@ export class ProfileService {
   }
 
   /**
-   * Atualiza nome, e-mail, username e avatarUrl (URL manual) do próprio usuário.
-   * E-mail/username duplicados em OUTRO registro → 409 (Conflict).
+   * Atualiza nome completo, nome de exibição e e-mail do próprio usuário.
+   * E-mail duplicado em OUTRO registro → 409 (Conflict).
+   * A foto é tratada só por upload/remoção (POST/DELETE /profile/avatar).
    * Tratamento mínimo e transparente dos dados pessoais (LGPD - Lei 13.709/2018).
    */
   async update(userId: string, dto: UpdateProfileDto, ctx: Ctx) {
     const email = dto.email?.trim().toLowerCase();
-    const username = dto.username?.trim();
 
     if (email) {
       const jaExiste = await this.prisma.user.findFirst({
@@ -84,30 +83,13 @@ export class ProfileService {
       });
       if (jaExiste) throw new ConflictException('Este e-mail já está em uso por outro usuário.');
     }
-    if (username) {
-      const jaExiste = await this.prisma.user.findFirst({
-        where: { username, id: { not: userId } },
-        select: { id: true },
-      });
-      if (jaExiste) throw new ConflictException('Este nome de usuário já está em uso.');
-    }
 
     const data: Prisma.UserUpdateInput = {
       nome: dto.nome?.trim(),
+      // Vazio remove o apelido (a interface volta a exibir o nome completo).
+      nomeExibicao: dto.nomeExibicao === undefined ? undefined : dto.nomeExibicao.trim() || null,
       email,
-      username: dto.username !== undefined ? username || null : undefined,
     };
-
-    // Informar uma URL manual substitui (e apaga) uma foto enviada por upload.
-    if (dto.avatarUrl !== undefined) {
-      const atual = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { avatarKey: true },
-      });
-      if (atual?.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
-      data.avatarUrl = dto.avatarUrl.trim() || null;
-      data.avatarKey = null;
-    }
 
     try {
       const user = await this.prisma.user.update({
@@ -160,6 +142,32 @@ export class ProfileService {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       descricao: 'Foto de perfil atualizada (upload).',
+    });
+    return this.apresentar(user);
+  }
+
+  /** Remove a foto de perfil do próprio usuário (apaga o arquivo no storage). */
+  async removerAvatar(userId: string, ctx: Ctx) {
+    const atual = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarKey: true },
+    });
+    if (!atual) throw new NotFoundException('Usuário não encontrado.');
+    if (atual.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
+
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarKey: null, avatarUrl: null },
+      select: PERFIL_SELECT,
+    });
+    await this.audit.registrar({
+      userId,
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'User',
+      entidadeId: userId,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      descricao: 'Foto de perfil removida.',
     });
     return this.apresentar(user);
   }

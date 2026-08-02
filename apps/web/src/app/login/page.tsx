@@ -119,14 +119,15 @@ export default function LoginPage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between text-sm">
+            {/* "Esqueci minha senha" saiu daqui. O link apontava para
+                /recuperar-senha, uma rota que nunca existiu — dava 404 em quem
+                clicasse. A redefinição é feita pelo Administrador, em
+                Usuários e Perfis, que é o fluxo que de fato funciona. */}
+            <div className="text-sm">
               <label className="flex items-center gap-2">
                 <input type="checkbox" className="accent-senatepi-800" {...register('lembrar')} />
                 Lembrar acesso
               </label>
-              <a href="/recuperar-senha" className="text-senatepi-800 hover:underline dark:text-senatepi-400">
-                Esqueci minha senha
-              </a>
             </div>
 
             <Button type="submit" className="h-12 w-full text-base" disabled={enviando}>

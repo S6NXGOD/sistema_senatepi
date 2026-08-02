@@ -17,6 +17,7 @@ import {
 import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
 import { RegistrarPagamentoModal } from '@/components/cobrancas/registrar-pagamento-modal';
 import { useAuth } from '@/lib/auth';
+import { podeExcluir as ehAdministrador } from '@/lib/permissoes';
 
 export interface ParcelaAcao {
   id: string;
@@ -79,7 +80,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   }, [aberto]);
 
   const { user } = useAuth();
-  const ehAdmin = user?.role === 'ADMINISTRADOR';
+  const ehAdmin = ehAdministrador(user?.role);
 
   const st = statusExibicao(parcela);
   const podePagar = st !== 'PAGO' && st !== 'CANCELADO';

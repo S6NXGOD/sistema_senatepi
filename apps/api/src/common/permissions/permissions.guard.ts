@@ -5,6 +5,7 @@ import { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { AuthUser } from '../decorators/current-user.decorator';
 import { MODULO_KEY } from './modulo.decorator';
+import { DADOS_PROPRIOS_KEY } from './dados-proprios.decorator';
 import { ModuloKey, NivelPermissao, RANK_NIVEL, nivelEfetivo } from './permissoes.constants';
 
 /**
@@ -14,7 +15,8 @@ import { ModuloKey, NivelPermissao, RANK_NIVEL, nivelEfetivo } from './permissoe
  *  1) Rotas @Public() passam.
  *  2) ADMINISTRADOR tem acesso total (inclusive apagar).
  *  3) DELETE só é permitido ao ADMINISTRADOR — "o Administrador geral (apenas ele)
- *     pode apagar qualquer coisa do sistema". Regra GLOBAL (todas as rotas).
+ *     pode apagar qualquer coisa do sistema". Regra GLOBAL, com uma única
+ *     exceção: rotas @DadosProprios (autoatendimento sobre a própria conta).
  *  4) Em controllers marcados com @Modulo, exige VISUALIZAR (GET/HEAD) ou EDITAR
  *     (POST/PATCH/PUT) conforme o método, resolvendo o nível pela matriz do
  *     usuário (com fallback no preset do perfil).
@@ -40,8 +42,14 @@ export class PermissionsGuard implements CanActivate {
     // (2) Administrador: acesso total.
     if (user.role === UserRole.ADMINISTRADOR) return true;
 
-    // (3) Regra global de exclusão: só o Administrador apaga.
-    if (req.method === 'DELETE') {
+    // (3) Regra global de exclusão: só o Administrador apaga REGISTROS do
+    // sistema. Rotas de autoatendimento (@DadosProprios) são exceção — ali o
+    // usuário só mexe nos próprios dados (ex.: remover a própria foto).
+    const dadosProprios = this.reflector.getAllAndOverride<boolean>(DADOS_PROPRIOS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (req.method === 'DELETE' && !dadosProprios) {
       throw new ForbiddenException('Apenas o Administrador pode excluir registros do sistema.');
     }
 

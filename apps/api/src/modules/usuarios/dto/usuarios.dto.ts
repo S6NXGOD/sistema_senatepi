@@ -12,12 +12,18 @@ export class CriarUsuarioDto {
   @IsOptional() @IsString()
   nomeExibicao?: string;
 
-  @ApiProperty({ description: 'Login do usuário.' })
-  @IsString() @IsNotEmpty()
-  username: string;
-
-  @ApiProperty() @IsEmail()
+  // O login é feito pelo E-MAIL — não existe "nome de usuário" no sistema.
+  @ApiProperty({ description: 'E-mail (usado como login).' })
+  @IsEmail()
   email: string;
+
+  @ApiPropertyOptional({ description: 'Inscrição na OAB (só o número).' })
+  @IsOptional() @IsString()
+  oab?: string;
+
+  @ApiPropertyOptional({ description: 'UF da OAB (ex.: PI).' })
+  @IsOptional() @IsString()
+  oabUf?: string;
 
   @ApiProperty({ minLength: 6 })
   @IsString() @MinLength(6)
@@ -43,11 +49,14 @@ export class AtualizarUsuarioDto {
   @ApiPropertyOptional() @IsOptional() @IsString()
   nomeExibicao?: string;
 
-  @ApiPropertyOptional() @IsOptional() @IsString() @IsNotEmpty()
-  username?: string;
-
   @ApiPropertyOptional() @IsOptional() @IsEmail()
   email?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  oab?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString()
+  oabUf?: string;
 
   @ApiPropertyOptional({ minLength: 6, description: 'Só informe para redefinir a senha.' })
   @IsOptional() @IsString() @MinLength(6)

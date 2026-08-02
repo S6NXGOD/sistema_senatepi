@@ -11,12 +11,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import { useAuth } from '@/lib/auth';
 import {
   getMeuPerfil,
   atualizarPerfil,
   alterarSenha,
   enviarAvatar,
+  removerAvatar,
   ROLE_LABEL,
   Perfil,
 } from '@/lib/profile';
@@ -63,9 +65,9 @@ export default function ConfiguracoesPage() {
 // ---------------------------------------------------------------------------
 
 const perfilSchema = z.object({
-  nome: z.string().min(2, 'Informe o nome de exibição'),
+  nome: z.string().min(2, 'Informe o nome completo'),
+  nomeExibicao: z.string().max(120).optional().or(z.literal('')),
   email: z.string().email('E-mail inválido'),
-  avatarUrl: z.string().url('Informe uma URL válida').optional().or(z.literal('')),
 });
 type PerfilForm = z.infer<typeof perfilSchema>;
 
@@ -74,46 +76,49 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
   const fileRef = useRef<HTMLInputElement>(null);
   const [avatarAtual, setAvatarAtual] = useState<string | null>(perfil.avatarUrl);
   const [enviandoFoto, setEnviandoFoto] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
 
   const {
     register,
     handleSubmit,
     watch,
     reset,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<PerfilForm>({
     resolver: zodResolver(perfilSchema),
     defaultValues: {
       nome: perfil.nome,
+      nomeExibicao: perfil.nomeExibicao ?? '',
       email: perfil.email,
-      avatarUrl: '',
     },
   });
 
   // Mantém o formulário em sincronia caso o perfil seja recarregado.
   useEffect(() => {
     setAvatarAtual(perfil.avatarUrl);
-    reset({ nome: perfil.nome, email: perfil.email, avatarUrl: '' });
+    reset({ nome: perfil.nome, nomeExibicao: perfil.nomeExibicao ?? '', email: perfil.email });
   }, [perfil, reset]);
 
-  const urlDigitada = watch('avatarUrl');
   const nome = watch('nome');
-  const previewUrl = (urlDigitada && urlDigitada.trim()) || avatarAtual || '';
+  const previewUrl = avatarAtual || '';
 
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function aoSelecionarArquivo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = '';
+    e.target.value = ''; // permite reselecionar o mesmo arquivo
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       toast.error('Selecione um arquivo de imagem.');
       return;
     }
+    setCropFile(file); // abre o recorte antes de enviar
+  }
+
+  async function enviarRecorte(blob: Blob) {
+    setCropFile(null);
     setEnviandoFoto(true);
     try {
-      const p = await enviarAvatar(file);
+      const p = await enviarAvatar(blob);
       setAvatarAtual(p.avatarUrl);
-      setValue('avatarUrl', ''); // a foto enviada tem precedência sobre a URL
       atualizarUsuario({ avatarUrl: p.avatarUrl });
       toast.success('Foto de perfil atualizada.');
       onSalvo();
@@ -126,9 +131,8 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
 
   async function removerFoto() {
     try {
-      const p = await atualizarPerfil({ avatarUrl: '' });
+      const p = await removerAvatar();
       setAvatarAtual(p.avatarUrl);
-      setValue('avatarUrl', '');
       atualizarUsuario({ avatarUrl: p.avatarUrl });
       toast.success('Foto removida.');
       onSalvo();
@@ -139,18 +143,14 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
 
   async function onSubmit(d: PerfilForm) {
     try {
-      const payload: { nome: string; email: string; avatarUrl?: string } = {
+      const atualizado = await atualizarPerfil({
         nome: d.nome.trim(),
+        nomeExibicao: (d.nomeExibicao ?? '').trim(), // vazio remove o apelido
         email: d.email.trim(),
-      };
-      // Só envia avatarUrl se uma URL foi digitada (não sobrescreve a foto enviada).
-      if (d.avatarUrl && d.avatarUrl.trim()) payload.avatarUrl = d.avatarUrl.trim();
-
-      const atualizado = await atualizarPerfil(payload);
-      setAvatarAtual(atualizado.avatarUrl);
-      setValue('avatarUrl', '');
+      });
       atualizarUsuario({
         nome: atualizado.nome,
+        nomeExibicao: atualizado.nomeExibicao ?? null,
         email: atualizado.email,
         avatarUrl: atualizado.avatarUrl,
       });
@@ -182,30 +182,32 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
                 {(nome || perfil.nome).charAt(0).toUpperCase()}
               </div>
             )}
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
-              <Button type="button" variant="outline" size="sm" disabled={enviandoFoto} onClick={() => fileRef.current?.click()}>
-                {enviandoFoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                {enviandoFoto ? 'Enviando…' : 'Enviar foto'}
-              </Button>
-              {avatarAtual && (
-                <Button type="button" variant="ghost" size="sm" onClick={removerFoto}>
-                  Remover
+            <div className="flex flex-col items-center gap-1.5 sm:items-start">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={aoSelecionarArquivo} />
+                <Button type="button" variant="outline" size="sm" disabled={enviandoFoto} onClick={() => fileRef.current?.click()}>
+                  {enviandoFoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  {enviandoFoto ? 'Enviando…' : avatarAtual ? 'Trocar foto' : 'Enviar foto'}
                 </Button>
-              )}
+                {avatarAtual && (
+                  <Button type="button" variant="ghost" size="sm" onClick={removerFoto}>
+                    Remover
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">JPG ou PNG · recorte quadrado.</p>
             </div>
           </div>
 
-          {/* Alternativa: informar a foto por URL */}
-          <Campo label="… ou cole a URL de uma imagem" erro={errors.avatarUrl?.message}>
-            <Input type="url" placeholder="https://…/foto.jpg" {...register('avatarUrl')} />
-          </Campo>
-
-          <Campo label="Nome de exibição" erro={errors.nome?.message}>
+          <Campo label="Nome completo" erro={errors.nome?.message}>
             <Input {...register('nome')} />
           </Campo>
 
-          <Campo label="E-mail" erro={errors.email?.message}>
+          <Campo label="Nome de exibição" erro={errors.nomeExibicao?.message}>
+            <Input placeholder="ex: Dr. João — deixe vazio para usar o nome completo" {...register('nomeExibicao')} />
+          </Campo>
+
+          <Campo label="E-mail (usado para entrar no sistema)" erro={errors.email?.message}>
             <Input type="email" {...register('email')} />
           </Campo>
 
@@ -221,6 +223,15 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
             </Button>
           </div>
         </form>
+
+        {cropFile && (
+          <PhotoCropDialog
+            arquivo={cropFile}
+            aspect={1}
+            onConfirm={enviarRecorte}
+            onClose={() => setCropFile(null)}
+          />
+        )}
       </CardContent>
     </Card>
   );

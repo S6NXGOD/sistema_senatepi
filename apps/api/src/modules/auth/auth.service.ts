@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -20,6 +21,8 @@ interface RequestContext {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -117,7 +120,6 @@ export class AuthService {
         nomeExibicao: user.nomeExibicao,
         email: user.email,
         role: user.role,
-        username: user.username,
         avatarUrl: await this.resolverAvatar(user.avatarKey, user.avatarUrl),
         permissoes: user.permissoes,
       },
@@ -199,7 +201,22 @@ export class AuthService {
           expiraEm: new Date(Date.now() + 60 * 60 * 1000), // 1h
         },
       });
-      // TODO: enviar `token` por e-mail (serviço de e-mail a configurar).
+      // SEGURANÇA: esta rota é PÚBLICA. Devolver o token na resposta permitiria
+      // que qualquer pessoa que saiba um e-mail (ex.: o admin padrão) redefinisse
+      // a senha daquela conta — tomada de conta total. O token só é devolvido
+      // fora de produção, para testes locais.
+      //
+      // Enquanto não houver serviço de e-mail, a recuperação em produção é feita
+      // pelo Administrador em "Usuários e Perfis" (campo "Nova senha").
+      // TODO: enviar `token` por e-mail e então voltar a expor o autoatendimento.
+      const producao = this.config.get<string>('NODE_ENV') === 'production';
+      if (producao) {
+        this.logger.warn(
+          `Redefinição de senha solicitada para ${email}, mas não há serviço de e-mail configurado — ` +
+            'o token NÃO é exposto. Redefina a senha pelo painel (Usuários e Perfis).',
+        );
+        return { ok: true };
+      }
       return { ok: true, devToken: token };
     }
     return { ok: true };

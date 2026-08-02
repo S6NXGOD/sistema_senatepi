@@ -21,8 +21,8 @@ import { ProcessosModule } from './modules/processos/processos.module';
 import { AnexosModule } from './modules/anexos/anexos.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { EscalasModule } from './modules/escalas/escalas.module';
-import { FuncionariosModule } from './modules/funcionarios/funcionarios.module';
-import { PrestadoresModule } from './modules/prestadores/prestadores.module';
+import { EmpresasModule } from './modules/empresas/empresas.module';
+import { PortalEmpresaModule } from './modules/portal-empresa/portal-empresa.module';
 import { EventosModule } from './modules/eventos/eventos.module';
 import { PresencasModule } from './modules/presencas/presencas.module';
 import { CarteirinhasModule } from './modules/carteirinhas/carteirinhas.module';
@@ -62,8 +62,8 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     AnexosModule,
     UsuariosModule,
     EscalasModule,
-    FuncionariosModule,
-    PrestadoresModule,
+    EmpresasModule,
+    PortalEmpresaModule,
     EventosModule,
     PresencasModule,
     CarteirinhasModule,

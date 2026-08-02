@@ -5,8 +5,8 @@ export interface Perfil {
   id: string;
   nome: string;
   nomeExibicao?: string | null;
+  /** O e-mail é o login do sistema. */
   email: string;
-  username: string | null;
   avatarUrl: string | null;
   role: PerfilUsuario;
   permissoes?: MatrizPermissoes | null;
@@ -18,9 +18,9 @@ export interface Perfil {
 
 export interface UpdateProfilePayload {
   nome?: string;
+  /** Apelido exibido na interface. Vazio remove (volta a exibir o nome completo). */
+  nomeExibicao?: string;
   email?: string;
-  username?: string;
-  avatarUrl?: string;
 }
 
 export interface ChangePasswordPayload {
@@ -34,7 +34,7 @@ export async function getMeuPerfil(): Promise<Perfil> {
   return (await api.get('/profile/me')).data;
 }
 
-/** Atualiza nome/e-mail/username/avatar (PATCH /profile/update). */
+/** Atualiza nome, nome de exibição e e-mail (PATCH /profile/update). */
 export async function atualizarPerfil(payload: UpdateProfilePayload): Promise<Perfil> {
   return (await api.patch('/profile/update', payload)).data;
 }
@@ -45,10 +45,15 @@ export async function alterarSenha(payload: ChangePasswordPayload): Promise<{ ok
 }
 
 /** Envia a foto de perfil por upload (POST /profile/avatar, multipart). */
-export async function enviarAvatar(file: File): Promise<Perfil> {
+export async function enviarAvatar(file: Blob): Promise<Perfil> {
   const fd = new FormData();
-  fd.append('avatar', file);
+  fd.append('avatar', file, 'avatar.jpg');
   return (await api.post('/profile/avatar', fd)).data;
+}
+
+/** Remove a própria foto de perfil (DELETE /profile/avatar). */
+export async function removerAvatar(): Promise<Perfil> {
+  return (await api.delete('/profile/avatar')).data;
 }
 
 export const ROLE_LABEL: Record<Perfil['role'], string> = {

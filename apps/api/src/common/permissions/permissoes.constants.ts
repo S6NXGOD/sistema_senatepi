@@ -31,7 +31,7 @@ export type ModuloKey =
   | 'eventos'
   | 'colonia'
   | 'cobrancas'
-  | 'cadastros'
+  | 'empresas'
   | 'auditoria'
   | 'usuarios';
 
@@ -53,7 +53,11 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
-  { key: 'cadastros', label: 'Cadastros Base', grupo: 'Administração' },
+  { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
+  // "Cadastros Base" saiu: cargos e departamentos são listas de apoio de
+  // Colaboradores e seguem a permissão DELE. Uma linha só para editar duas
+  // listas não se pagava — e não valia nada, porque o controller checava
+  // `@Roles` em vez do módulo.
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
   { key: 'usuarios', label: 'Usuários e Perfis', grupo: 'Administração' },
 ];
@@ -83,7 +87,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     eventos: 'EDITAR',
     colonia: 'EDITAR',
     cobrancas: 'EDITAR',
-    cadastros: 'EDITAR',
+    empresas: 'EDITAR',
     auditoria: 'VISUALIZAR',
     usuarios: 'SEM_ACESSO',
   },
@@ -99,7 +103,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
-    cadastros: 'SEM_ACESSO',
+    empresas: 'SEM_ACESSO',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
   },
@@ -115,7 +119,8 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
-    cadastros: 'SEM_ACESSO',
+    // A secretaria (Triagem) é quem cadastra a empresa e define a senha provisória.
+    empresas: 'EDITAR',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
   },

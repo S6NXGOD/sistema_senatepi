@@ -3,38 +3,31 @@ import {
   IsEmail,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
 
 export class UpdateProfileDto {
-  @ApiPropertyOptional({ description: 'Nome de exibição' })
+  @ApiPropertyOptional({ description: 'Nome completo (registro).' })
   @IsOptional()
   @IsString()
   @MinLength(2, { message: 'O nome deve ter ao menos 2 caracteres.' })
   @MaxLength(120)
   nome?: string;
 
+  @ApiPropertyOptional({ description: 'Nome curto exibido na interface. Envie vazio para remover.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  nomeExibicao?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsEmail({}, { message: 'E-mail inválido.' })
   email?: string;
 
-  @ApiPropertyOptional({ description: 'Nome de usuário (único). Envie vazio para remover.' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(40)
-  @Matches(/^$|^[a-zA-Z0-9_.]{3,40}$/, {
-    message: 'Usuário deve ter 3 a 40 caracteres (letras, números, ponto ou _).',
-  })
-  username?: string;
-
-  @ApiPropertyOptional({ description: 'URL da foto de perfil. Envie vazio para remover.' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2048)
-  avatarUrl?: string;
+  // A foto de perfil é definida APENAS por upload (POST /profile/avatar) e
+  // removida por DELETE /profile/avatar — não aceitamos URL informada à mão.
 }
 
 export class ChangePasswordDto {

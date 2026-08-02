@@ -129,7 +129,7 @@ export default function UsuariosPage() {
                 <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 font-medium">Nome</th>
-                    <th className="px-4 py-3 font-medium">Usuário</th>
+                    <th className="px-4 py-3 font-medium">Exibição</th>
                     <th className="px-4 py-3 font-medium">Perfil</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3" />
@@ -150,7 +150,7 @@ export default function UsuariosPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{u.username ?? '—'}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{u.nomeExibicao || '—'}</td>
                       <td className="px-4 py-3">
                         <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', PERFIL_COR[u.role])}>{PERFIL_LABEL[u.role]}</span>
                       </td>

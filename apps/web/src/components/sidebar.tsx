@@ -31,11 +31,12 @@ export function Sidebar() {
           <img src={user.avatarUrl} alt="" className="h-10 w-10 shrink-0 rounded-full border object-cover" />
         ) : (
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-sm font-bold text-senatepi-900">
-            {user?.nome?.charAt(0) ?? '?'}
+            {(user?.nomeExibicao || user?.nome)?.charAt(0) ?? '?'}
           </div>
         )}
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{user?.nome ?? '—'}</p>
+          {/* O apelido é o que a interface exibe; sem ele, o nome completo. */}
+          <p className="truncate text-sm font-semibold">{user?.nomeExibicao || user?.nome || '—'}</p>
           {user?.role && (
             <span className="mt-0.5 inline-block rounded bg-senatepi-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
               {ROLE_LABEL[user.role]}

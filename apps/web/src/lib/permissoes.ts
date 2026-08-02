@@ -18,7 +18,7 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
-  | 'escalas' | 'eventos' | 'colonia' | 'cobrancas' | 'cadastros' | 'auditoria' | 'usuarios';
+  | 'escalas' | 'eventos' | 'colonia' | 'cobrancas' | 'empresas' | 'auditoria' | 'usuarios';
 
 export interface ModuloInfo {
   key: ModuloKey;
@@ -37,7 +37,9 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
-  { key: 'cadastros', label: 'Cadastros Base', grupo: 'Administração' },
+  { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
+  // "Cadastros Base" saiu: cargos e departamentos passaram a viver dentro de
+  // Colaboradores e seguem a permissão dele.
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
   { key: 'usuarios', label: 'Usuários e Perfis', grupo: 'Administração' },
 ];
@@ -53,17 +55,18 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
   COORDENACAO: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'EDITAR', colaboradores: 'EDITAR', escalas: 'EDITAR', eventos: 'EDITAR', colonia: 'EDITAR',
-    cobrancas: 'EDITAR', cadastros: 'EDITAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
+    cobrancas: 'EDITAR', empresas: 'EDITAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
-    cobrancas: 'SEM_ACESSO', cadastros: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
-    cobrancas: 'SEM_ACESSO', cadastros: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    // A secretaria (Triagem) cadastra a empresa e define a senha provisória.
+    cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
 };
 
@@ -104,4 +107,29 @@ export function podeVer(
   modulo: ModuloKey,
 ): boolean {
   return RANK_NIVEL[nivelEfetivo(role, permissoes, modulo)] >= RANK_NIVEL.VISUALIZAR;
+}
+
+/** Pode gravar no módulo? (usado para não exibir ações que a API vai recusar) */
+export function podeEditar(
+  role: PerfilUsuario | string | null | undefined,
+  permissoes: unknown,
+  modulo: ModuloKey,
+): boolean {
+  return RANK_NIVEL[nivelEfetivo(role, permissoes, modulo)] >= RANK_NIVEL.EDITAR;
+}
+
+/**
+ * Pode EXCLUIR registros do sistema?
+ *
+ * Regra global e sem exceção por módulo: **apenas o ADMINISTRADOR apaga**. O
+ * `PermissionsGuard` já barra todo DELETE no backend (a única exceção são as
+ * rotas de autoatendimento do próprio perfil), então esta função existe para a
+ * TELA não oferecer um botão que a API vai recusar com 403.
+ *
+ * Use sempre esta função em vez de comparar a role à mão: era a comparação
+ * espalhada que fazia alguns componentes esquecerem a regra — a Coordenação
+ * chegou a ver "Excluir filiado", que só falhava depois do clique.
+ */
+export function podeExcluir(role: PerfilUsuario | string | null | undefined): boolean {
+  return role === 'ADMINISTRADOR';
 }

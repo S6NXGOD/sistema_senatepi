@@ -4,6 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import {
   ChevronDown, ChevronRight, User, Plus, CalendarClock, Trash2, Loader2,
 } from 'lucide-react';
@@ -19,6 +21,8 @@ import {
 /** Linha/card de um filiado na listagem agrupada — expande para ver as cobranças. */
 export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResumoFin; onMudou: () => void }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
   const [aberto, setAberto] = useState(false);
   const [confirmar, setConfirmar] = useState<{
     id: string;
@@ -114,6 +118,8 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                       <span className="font-semibold">{TIPO_LABEL[c.tipo]}</span> · {c.parcelas.length}× · {formatBRL(c.valorTotal)}
                       <span className="text-xs text-muted-foreground"> · {formatData(c.createdAt)}</span>
                     </p>
+                    {/* Só o Administrador apaga — regra global do sistema. */}
+                    {ehAdmin && (
                     <Button
                       size="icon" variant="ghost"
                       className="h-8 w-8 shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
@@ -130,6 +136,7 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    )}
                   </div>
                   <ul className="divide-y">
                     {c.parcelas.map((p) => {

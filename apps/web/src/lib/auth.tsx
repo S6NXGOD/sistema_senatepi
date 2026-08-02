@@ -13,7 +13,6 @@ export interface Usuario {
   email: string;
   role: PerfilUsuario;
   permissoes?: MatrizPermissoes | null;
-  username?: string | null;
   avatarUrl?: string | null;
 }
 
@@ -63,7 +62,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: data.email,
             role: data.role,
             permissoes: data.permissoes ?? null,
-            username: data.username ?? null,
             avatarUrl: data.avatarUrl ?? null,
           };
           persistentStore.set(USER_KEY, JSON.stringify(atual));

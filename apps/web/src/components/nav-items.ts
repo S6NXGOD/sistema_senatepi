@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
-  SlidersHorizontal, ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange, type LucideIcon,
+  ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
+  Building2, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 
@@ -47,6 +48,12 @@ export const NAV_SECOES: NavSecao[] = [
     ],
   },
   {
+    titulo: 'Patronal',
+    itens: [
+      { href: '/empresas', label: 'Empresas', icon: Building2, modulo: 'empresas' },
+    ],
+  },
+  {
     titulo: 'Financeiro',
     itens: [
       { href: '/cobrancas', label: 'Cobranças', icon: Receipt, modulo: 'cobrancas' },
@@ -63,7 +70,8 @@ export const NAV_SECOES: NavSecao[] = [
     titulo: 'Administração',
     itens: [
       { href: '/usuarios', label: 'Usuários e Perfis', icon: UserCog, modulo: 'usuarios' },
-      { href: '/cadastros-base', label: 'Cadastros Base', icon: SlidersHorizontal, modulo: 'cadastros' },
+      // "Cadastros Base" saiu daqui: cargos e departamentos são listas de apoio
+      // de Colaboradores e agora se editam de dentro daquela tela.
       { href: '/auditoria', label: 'Auditoria', icon: ShieldCheck, modulo: 'auditoria' },
     ],
   },

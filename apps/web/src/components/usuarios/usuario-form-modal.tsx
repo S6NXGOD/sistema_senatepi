@@ -10,6 +10,7 @@ import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
+import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import {
   MODULOS, PERFIS, PRESETS_PERFIL, NIVEL_LABEL, ModuloKey, NivelPermissao, PerfilUsuario,
@@ -44,15 +45,24 @@ export function UsuarioFormModal({
   onSalvo: () => void;
   editar?: UsuarioSistema | null;
 }) {
+  const { user } = useAuth();
   const ehEdicao = !!editar;
+  /** Editando a si mesmo: não pode desativar a própria conta (anti-lockout). */
+  const ehProprio = !!editar && editar.id === user?.id;
 
   const [nome, setNome] = useState('');
   const [nomeExibicao, setNomeExibicao] = useState('');
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [oab, setOab] = useState('');
+  const [oabUf, setOabUf] = useState('');
   const [senha, setSenha] = useState('');
   const [ativo, setAtivo] = useState(true);
-  const [role, setRole] = useState<PerfilUsuario>('TRIAGEM');
+  /**
+   * Em um usuário NOVO a função vem vazia de propósito: ela define as permissões
+   * e quais campos fazem sentido (OAB, por ex.). Escolher primeiro evita criar
+   * alguém com o perfil errado por descuido. Na edição já existe uma função.
+   */
+  const [role, setRole] = useState<PerfilUsuario | ''>('');
   const [matriz, setMatriz] = useState<Record<ModuloKey, NivelPermissao>>(() => matrizInicial('TRIAGEM'));
 
   // Foto de perfil (upload): preview atual + blob pendente + flag de remoção.
@@ -68,16 +78,17 @@ export function UsuarioFormModal({
     if (editar) {
       setNome(editar.nome);
       setNomeExibicao(editar.nomeExibicao ?? '');
-      setUsername(editar.username ?? '');
       setEmail(editar.email);
+      setOab(editar.oab ?? '');
+      setOabUf(editar.oabUf ?? '');
       setSenha('');
       setAtivo(editar.ativo);
       setRole(editar.role);
       setMatriz(matrizInicial(editar.role, editar.permissoes ?? undefined));
       setAvatarPreview(editar.avatarUrl ?? null);
     } else {
-      setNome(''); setNomeExibicao(''); setUsername(''); setEmail(''); setSenha('');
-      setAtivo(true); setRole('TRIAGEM'); setMatriz(matrizInicial('TRIAGEM'));
+      setNome(''); setNomeExibicao(''); setEmail(''); setSenha(''); setOab(''); setOabUf('');
+      setAtivo(true); setRole(''); setMatriz(matrizInicial('TRIAGEM'));
       setAvatarPreview(null);
     }
   }, [open, editar]);
@@ -115,14 +126,20 @@ export function UsuarioFormModal({
 
   const salvar = useMutation({
     mutationFn: async () => {
+      // O botão fica bloqueado sem função; a checagem aqui é a rede de segurança
+      // que também estreita o tipo para o payload da API.
+      if (!role) throw new Error('Selecione a função do usuário.');
       const permissoes = adminLock ? undefined : matriz; // admin = acesso total
       const base = {
         nome: nome.trim(),
         nomeExibicao: nomeExibicao.trim() || undefined,
-        username: username.trim(),
         email: email.trim(),
+        // OAB só é enviada para o perfil de advogado (limpa ao trocar de perfil).
+        oab: role === 'ADVOGADO' ? oab.trim() : '',
+        oabUf: role === 'ADVOGADO' ? oabUf.trim() : '',
         role,
-        ativo,
+        // Trava anti-lockout: ninguém desativa a própria conta (o backend também barra).
+        ativo: ehProprio ? true : ativo,
         permissoes,
       };
       const salvo = ehEdicao
@@ -145,8 +162,8 @@ export function UsuarioFormModal({
   });
 
   function submeter() {
+    if (!role) return toast.error('Selecione a função do usuário para continuar.');
     if (nome.trim().length < 2) return toast.error('Informe o nome completo.');
-    if (username.trim().length < 3) return toast.error('Informe o usuário (login).');
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) return toast.error('Informe um e-mail válido.');
     if (!ehEdicao && senha.length < 6) return toast.error('A senha deve ter ao menos 6 caracteres.');
     if (ehEdicao && senha && senha.length < 6) return toast.error('A nova senha deve ter ao menos 6 caracteres.');
@@ -172,6 +189,52 @@ export function UsuarioFormModal({
       </div>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        {/* PASSO 1 — Função. Sem ela, o resto do formulário nem aparece. */}
+        <div>
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+            Função {!ehEdicao && <span className="text-red-600">*</span>}
+          </p>
+          {!role && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              Comece escolhendo a função — ela define as permissões e os campos do cadastro.
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {PERFIS.map((p) => {
+              const Icone = ICONE_PERFIL[p.key];
+              const ativoCard = role === p.key;
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => selecionarPerfil(p.key)}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition-colors',
+                    ativoCard
+                      ? 'border-senatepi-500 bg-senatepi-50 ring-1 ring-senatepi-300 dark:bg-senatepi-900/20'
+                      : 'border-input hover:border-senatepi-300 hover:bg-muted/40',
+                  )}
+                >
+                  <div className="mb-1 flex items-center justify-between">
+                    <Icone className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+                    {ativoCard ? (
+                      <Unlock className="h-4 w-4 text-senatepi-600" />
+                    ) : (
+                      <Lock className="h-4 w-4 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  <p className="text-sm font-semibold">{p.label}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{p.descricao}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* PASSO 2 em diante — liberado após escolher a função */}
+        {!role ? null : (
+        <>
         {/* Foto de perfil */}
         <div className="flex items-center gap-4">
           {avatarPreview ? (
@@ -211,14 +274,27 @@ export function UsuarioFormModal({
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Usuário (login) *</label>
-          <Input placeholder="ex: joaosilva" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+          <label className="text-sm font-medium">E-mail (login) *</label>
+          <Input type="email" placeholder="email@sindicato.org" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          <p className="text-xs text-muted-foreground">É com este e-mail que a pessoa entra no sistema.</p>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">E-mail *</label>
-          <Input type="email" placeholder="email@sindicato.org" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
-        </div>
+        {/* OAB — só faz sentido para quem atua como advogado */}
+        {role === 'ADVOGADO' && (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-2 space-y-1.5">
+              <label className="text-sm font-medium">Inscrição na OAB</label>
+              <Input placeholder="ex: 12345" value={oab} onChange={(e) => setOab(e.target.value.replace(/\D/g, ''))} inputMode="numeric" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">UF</label>
+              <Input placeholder="PI" maxLength={2} className="uppercase" value={oabUf} onChange={(e) => setOabUf(e.target.value.toUpperCase())} />
+            </div>
+            <p className="col-span-3 -mt-0.5 text-xs text-muted-foreground">
+              Usada para reconhecer automaticamente este advogado nos processos e sugeri-lo como responsável.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -233,47 +309,20 @@ export function UsuarioFormModal({
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Status</label>
-            <select className={inputCls} value={ativo ? 'ATIVO' : 'INATIVO'} onChange={(e) => setAtivo(e.target.value === 'ATIVO')}>
+            <select
+              className={cn(inputCls, ehProprio && 'cursor-not-allowed opacity-60')}
+              value={ativo ? 'ATIVO' : 'INATIVO'}
+              onChange={(e) => setAtivo(e.target.value === 'ATIVO')}
+              disabled={ehProprio}
+            >
               <option value="ATIVO">Ativo</option>
               <option value="INATIVO">Inativo</option>
             </select>
-          </div>
-        </div>
-
-        {/* Função (perfil) */}
-        <div>
-          <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <Briefcase className="h-4 w-4 text-muted-foreground" /> Função
-          </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {PERFIS.map((p) => {
-              const Icone = ICONE_PERFIL[p.key];
-              const ativoCard = role === p.key;
-              return (
-                <button
-                  key={p.key}
-                  type="button"
-                  onClick={() => selecionarPerfil(p.key)}
-                  className={cn(
-                    'rounded-xl border p-3 text-left transition-colors',
-                    ativoCard
-                      ? 'border-senatepi-500 bg-senatepi-50 ring-1 ring-senatepi-300 dark:bg-senatepi-900/20'
-                      : 'border-input hover:border-senatepi-300 hover:bg-muted/40',
-                  )}
-                >
-                  <div className="mb-1 flex items-center justify-between">
-                    <Icone className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
-                    {ativoCard ? (
-                      <Unlock className="h-4 w-4 text-senatepi-600" />
-                    ) : (
-                      <Lock className="h-4 w-4 text-muted-foreground/50" />
-                    )}
-                  </div>
-                  <p className="text-sm font-semibold">{p.label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{p.descricao}</p>
-                </button>
-              );
-            })}
+            {ehProprio && (
+              <p className="text-xs text-muted-foreground">
+                Você não pode desativar a própria conta — peça a outro administrador.
+              </p>
+            )}
           </div>
         </div>
 
@@ -323,11 +372,13 @@ export function UsuarioFormModal({
             ))}
           </div>
         </div>
+        </>
+        )}
       </div>
 
       <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
         <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
-        <Button onClick={submeter} disabled={salvar.isPending}>
+        <Button onClick={submeter} disabled={salvar.isPending || !role} title={!role ? 'Escolha a função primeiro' : undefined}>
           {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar
         </Button>
       </div>

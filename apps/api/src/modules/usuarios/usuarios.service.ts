@@ -18,8 +18,9 @@ interface Ctx {
 
 /** Campos expostos de um usuário (NUNCA o hash da senha). avatarKey é interno. */
 const USER_SELECT = {
-  id: true, nome: true, nomeExibicao: true, email: true, username: true,
+  id: true, nome: true, nomeExibicao: true, email: true,
   role: true, permissoes: true, ativo: true, avatarUrl: true, avatarKey: true,
+  oab: true, oabUf: true,
   ultimoLoginEm: true, createdAt: true,
 } satisfies Prisma.UserSelect;
 
@@ -54,8 +55,8 @@ export class UsuariosService {
       ? {
           OR: [
             { nome: { contains: termo, mode: 'insensitive' } },
+            { nomeExibicao: { contains: termo, mode: 'insensitive' } },
             { email: { contains: termo, mode: 'insensitive' } },
-            { username: { contains: termo, mode: 'insensitive' } },
           ],
         }
       : {};
@@ -109,8 +110,7 @@ export class UsuariosService {
 
   async criar(dto: CriarUsuarioDto, ctx: Ctx) {
     const email = dto.email.trim().toLowerCase();
-    const username = dto.username.trim();
-    await this.garantirUnico(email, username);
+    await this.garantirEmailUnico(email);
 
     // Sem matriz explícita → usa o preset do perfil.
     const permissoes = dto.permissoes
@@ -122,7 +122,9 @@ export class UsuariosService {
         nome: dto.nome.trim(),
         nomeExibicao: dto.nomeExibicao?.trim() || null,
         email,
-        username,
+        // OAB só faz sentido guardada em dígitos (é a chave do cruzamento).
+        oab: dto.oab?.replace(/\D/g, '') || null,
+        oabUf: dto.oabUf?.trim().toUpperCase() || null,
         senhaHash: await bcrypt.hash(dto.senha, 12),
         role: dto.role,
         ativo: dto.ativo ?? true,
@@ -160,14 +162,14 @@ export class UsuariosService {
     }
 
     const email = dto.email?.trim().toLowerCase();
-    const username = dto.username?.trim();
-    if (email || username) await this.garantirUnico(email, username, id);
+    if (email) await this.garantirEmailUnico(email, id);
 
     const data: Prisma.UserUpdateInput = {
       nome: dto.nome?.trim(),
       nomeExibicao: dto.nomeExibicao === undefined ? undefined : dto.nomeExibicao.trim() || null,
       email,
-      username,
+      oab: dto.oab === undefined ? undefined : dto.oab.replace(/\D/g, '') || null,
+      oabUf: dto.oabUf === undefined ? undefined : dto.oabUf.trim().toUpperCase() || null,
       role: dto.role,
       ativo: dto.ativo,
     };
@@ -203,21 +205,13 @@ export class UsuariosService {
 
   // -------------------------------------------------------------------------
 
-  private async garantirUnico(email?: string, username?: string, ignorarId?: string) {
-    if (email) {
-      const existe = await this.prisma.user.findFirst({
-        where: { email, id: ignorarId ? { not: ignorarId } : undefined },
-        select: { id: true },
-      });
-      if (existe) throw new ConflictException('Já existe um usuário com este e-mail.');
-    }
-    if (username) {
-      const existe = await this.prisma.user.findFirst({
-        where: { username, id: ignorarId ? { not: ignorarId } : undefined },
-        select: { id: true },
-      });
-      if (existe) throw new ConflictException('Já existe um usuário com este login.');
-    }
+  /** O e-mail é o login: precisa ser único no sistema. */
+  private async garantirEmailUnico(email: string, ignorarId?: string) {
+    const existe = await this.prisma.user.findFirst({
+      where: { email, id: ignorarId ? { not: ignorarId } : undefined },
+      select: { id: true },
+    });
+    if (existe) throw new ConflictException('Já existe um usuário com este e-mail.');
   }
 
   private async garantirNaoEUltimoAdmin(id: string) {

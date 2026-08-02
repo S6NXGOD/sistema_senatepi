@@ -5,8 +5,11 @@ export interface UsuarioSistema {
   id: string;
   nome: string;
   nomeExibicao: string | null;
+  /** O e-mail é o login do sistema (não existe "nome de usuário"). */
   email: string;
-  username: string | null;
+  /** Inscrição na OAB (só dígitos) — usada na sugestão de responsável. */
+  oab?: string | null;
+  oabUf?: string | null;
   role: PerfilUsuario;
   permissoes: MatrizPermissoes | null;
   ativo: boolean;
@@ -18,8 +21,9 @@ export interface UsuarioSistema {
 export interface CriarUsuarioInput {
   nome: string;
   nomeExibicao?: string;
-  username: string;
   email: string;
+  oab?: string;
+  oabUf?: string;
   senha: string;
   role: PerfilUsuario;
   ativo?: boolean;
