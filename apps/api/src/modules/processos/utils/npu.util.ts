@@ -54,12 +54,22 @@ export class NpuUtils {
         return tr === '00' ? 'TST' : trNum >= 1 && trNum <= 24 ? `TRT${trNum}` : null;
       case '7': // Justiça Militar da União
         return 'STM';
+      case '6': { // Justiça Eleitoral → TSE (00) ou TRE-<UF>
+        if (tr === '00') return 'TSE';
+        const uf = this.UF_ESTADUAL[tr];
+        // O índice do DATAJUD usa hífen nos TREs (api_publica_tre-pi).
+        return uf && uf !== 'DFT' ? `TRE-${uf}` : tr === '07' ? 'TRE-DF' : null;
+      }
       case '8': { // Justiça Estadual → TJ<UF>
         const uf = this.UF_ESTADUAL[tr];
         return uf ? `TJ${uf}` : null;
       }
+      case '9': { // Justiça Militar Estadual → TJM<UF> (só MG, RS e SP têm)
+        const uf = this.UF_ESTADUAL[tr];
+        return uf && ['MG', 'RS', 'SP'].includes(uf) ? `TJM${uf}` : null;
+      }
       default:
-        // STF, Justiça Eleitoral e Justiça Militar Estadual: exigir sigla explícita.
+        // STF (1) e CNJ (2): não há índice por NPU — exigir sigla explícita.
         return null;
     }
   }

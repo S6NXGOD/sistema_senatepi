@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
+  AlertTriangle, Swords, FileCheck2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,8 +12,12 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { ImportarProcessoDialog } from '@/components/processos/importar-processo-dialog';
 import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sheet';
+import { FormalizarRascunhoModal } from '@/components/processos/formalizar-rascunho-modal';
+import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
+import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
 import {
-  listarProcessos, formatNPU, ProcessoLista, ParteProcesso, StatusProcesso,
+  listarProcessos, formatNPU, ProcessoLista, StatusProcesso,
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM,
 } from '@/lib/processos';
 
@@ -28,14 +33,24 @@ function StatusBadge({ status }: { status: StatusProcesso }) {
 
 export default function ProcessosPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  // O painel age nos dois módulos (resolve o alerta e cria o evento na agenda).
+  const podeRadar =
+    podeEditar(user?.role, user?.permissoes, 'processos') &&
+    podeEditar(user?.role, user?.permissoes, 'agenda');
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [status, setStatus] = useState<'' | StatusProcesso>('');
+  /** Filtro rápido da tabela (chips). */
+  const [rapido, setRapido] = useState<
+    'todos' | 'meus' | 'rascunhos' | 'semFiliado' | 'semReu' | 'recentes'
+  >('todos');
   const [page, setPage] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
-  const [partesIniciais, setPartesIniciais] = useState<ParteProcesso[] | undefined>();
+  /** Rascunho escolhido para formalizar (vindo de um desfecho da agenda). */
+  const [formalizar, setFormalizar] = useState<ProcessoLista | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -46,12 +61,23 @@ export default function ProcessosPage() {
   }, [busca]);
 
   const filtro = useMemo(
-    () => ({ busca: buscaDeb || undefined, statusInterno: status || undefined, page, pageSize: 20 }),
-    [buscaDeb, status, page],
+    () => ({
+      busca: buscaDeb || undefined,
+      statusInterno: status || undefined,
+      // Filtros rápidos (mutuamente exclusivos).
+      ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
+      ...(rapido === 'rascunhos' ? { statusInterno: 'RASCUNHO' as const } : {}),
+      ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
+      ...(rapido === 'semReu' ? { semParteContraria: 'true' as const } : {}),
+      ...(rapido === 'recentes' ? { movimentacaoRecente: '7' } : {}),
+      page,
+      pageSize: 20,
+    }),
+    [buscaDeb, status, rapido, page],
   );
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['processos', buscaDeb, status, page],
+    queryKey: ['processos', buscaDeb, status, rapido, page],
     queryFn: () => listarProcessos(filtro),
   });
   const items = data?.items ?? [];
@@ -60,8 +86,7 @@ export default function ProcessosPage() {
 
   const invalidar = () => qc.invalidateQueries({ queryKey: ['processos'] });
 
-  function abrirDetalhe(id: string, partes?: ParteProcesso[]) {
-    setPartesIniciais(partes);
+  function abrirDetalhe(id: string) {
     setDetalheId(id);
   }
 
@@ -81,6 +106,38 @@ export default function ProcessosPage() {
         <Button onClick={() => setImportOpen(true)}>
           <Plus className="h-4 w-4" /> Importar Processo
         </Button>
+      </div>
+
+      {/* Audiências detectadas no DataJud que ainda não estão na agenda */}
+      {podeRadar && <AudienciasAgendarPanel onVerProcesso={(id) => abrirDetalhe(id)} />}
+
+      {/* Filtros rápidos */}
+      <div className="flex flex-wrap gap-1.5">
+        {([
+          { k: 'todos', label: 'Todos' },
+          { k: 'meus', label: 'Meus processos' },
+          // Fila de formalização: os rascunhos abertos por desfechos da agenda.
+          { k: 'rascunhos', label: 'Rascunhos a formalizar' },
+          { k: 'semFiliado', label: 'Sem filiado vinculado' },
+          // Fila de trabalho: o DataJud nunca preenche o réu, então esta lista
+          // é a única forma de fechar o cadastro das partes.
+          { k: 'semReu', label: 'Sem réu cadastrado' },
+          { k: 'recentes', label: 'Com movimentação recente' },
+        ] as const).map((f) => (
+          <button
+            key={f.k}
+            type="button"
+            onClick={() => { setRapido(f.k); setPage(1); }}
+            className={cn(
+              'rounded-full px-3 py-1.5 text-sm font-medium transition',
+              rapido === f.k
+                ? 'bg-senatepi-800 text-white shadow-sm'
+                : 'bg-muted text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {/* Filtros */}
@@ -148,7 +205,8 @@ export default function ProcessosPage() {
                 <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 font-medium">Processo (NPU)</th>
-                    <th className="px-4 py-3 font-medium">Filiado</th>
+                    {/* Quem processou quem — a informação que se procura primeiro */}
+                    <th className="px-4 py-3 font-medium">Partes</th>
                     <th className="px-4 py-3 font-medium">Classe</th>
                     <th className="px-4 py-3 font-medium">Tribunal</th>
                     <th className="px-4 py-3 font-medium">Mov.</th>
@@ -162,8 +220,26 @@ export default function ProcessosPage() {
                       onClick={() => abrirDetalhe(p.id)}
                       className="cursor-pointer transition-colors hover:bg-muted/40"
                     >
-                      <td className="px-4 py-3 font-mono text-[13px] font-medium">{formatNPU(p.numeroCNJ)}</td>
-                      <td className="px-4 py-3">{p.filiado?.nomeCompleto ?? <span className="text-muted-foreground">—</span>}</td>
+                      <td className="px-4 py-3">
+                        {p.numeroCNJ ? (
+                          <span className="font-mono text-[13px] font-medium">{formatNPU(p.numeroCNJ)}</span>
+                        ) : (
+                          // Rascunho ainda não tem número: mostra o rótulo e o
+                          // convite para formalizar, em vez de uma linha vazia.
+                          <span className="flex flex-col gap-1">
+                            <span className="text-[13px] font-medium">{p.titulo || 'Rascunho sem título'}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setFormalizar(p); }}
+                              className="inline-flex w-fit items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 transition hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300"
+                            >
+                              <FileCheck2 className="h-3 w-3" /> Formalizar
+                            </button>
+                          </span>
+                        )}
+                        <Etiquetas lista={p.etiquetas} />
+                      </td>
+                      <td className="max-w-[280px] px-4 py-3"><CelulaPartes p={p} /></td>
                       <td className="max-w-[220px] truncate px-4 py-3" title={p.classeProcessual ?? ''}>
                         {p.classeProcessual ?? '—'}
                       </td>
@@ -210,7 +286,7 @@ export default function ProcessosPage() {
         onClose={() => setImportOpen(false)}
         onImported={(p) => {
           invalidar();
-          abrirDetalhe(p.id, p.partes);
+          abrirDetalhe(p.id);
         }}
       />
 
@@ -219,9 +295,79 @@ export default function ProcessosPage() {
         processoId={detalheId}
         open={!!detalheId}
         onClose={() => setDetalheId(null)}
-        partesIniciais={partesIniciais}
         onChanged={invalidar}
       />
+
+      {/* Formalizar rascunho: informa o NPU e (opcionalmente) puxa do DataJud */}
+      <FormalizarRascunhoModal
+        processo={formalizar}
+        open={!!formalizar}
+        onClose={() => setFormalizar(null)}
+        onFormalizado={invalidar}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Partes na listagem
+// ---------------------------------------------------------------------------
+
+/**
+ * "Autor × Réu" numa célula. É a pergunta que se faz primeiro ao bater o olho
+ * numa lista de processos — e a que o DataJud nunca responde, porque a API
+ * Pública do CNJ não devolve as partes.
+ */
+/**
+ * Selo da ação coletiva. Fica junto das partes de propósito: é ali que o olho
+ * procura "quem move a ação", e num processo institucional a resposta é o
+ * próprio sindicato — não a ausência de um filiado.
+ */
+function BadgeInstitucional({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex w-fit items-center gap-1 rounded-full bg-senatepi-50 px-2 py-0.5 text-[10px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300',
+        className,
+      )}
+      title="Ação coletiva movida pelo SENATEPI em nome da categoria"
+    >
+      🏛️ Ação Institucional (SENATEPI)
+    </span>
+  );
+}
+
+function CelulaPartes({ p }: { p: ProcessoLista }) {
+  const { autor, reu, outrosAtivo, outrosPassivo } = p.confronto;
+  const institucional = p.tipoAcao === 'INSTITUCIONAL';
+
+  if (!autor && !reu) {
+    return institucional ? (
+      <BadgeInstitucional />
+    ) : (
+      <span className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+        <AlertTriangle className="h-3.5 w-3.5" /> Partes não cadastradas
+      </span>
+    );
+  }
+  return (
+    <div className="min-w-0 text-sm leading-snug">
+      {institucional && <BadgeInstitucional className="mb-0.5" />}
+      <p className="truncate font-medium" title={autor?.nome}>
+        {autor?.nome ?? <span className="font-normal text-muted-foreground">Autor não informado</span>}
+        {outrosAtivo > 0 && <span className="text-xs font-normal text-muted-foreground"> +{outrosAtivo}</span>}
+      </p>
+      <p className="truncate text-xs text-muted-foreground" title={reu?.nome}>
+        <span className="font-semibold uppercase tracking-wider">×</span>{' '}
+        {reu ? (
+          <>
+            <span className="text-foreground">{reu.nome}</span>
+            {outrosPassivo > 0 && ` +${outrosPassivo}`}
+          </>
+        ) : (
+          <span className="text-amber-700 dark:text-amber-400">réu não cadastrado</span>
+        )}
+      </p>
     </div>
   );
 }
@@ -234,14 +380,23 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
   return (
     <Card className="cursor-pointer p-4" onClick={onClick}>
       <div className="flex items-start justify-between gap-2">
-        <p className="font-mono text-sm font-semibold">{formatNPU(p.numeroCNJ)}</p>
+        <p className={cn('text-sm font-semibold', p.numeroCNJ && 'font-mono')}>
+          {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho sem título'}
+        </p>
+        <Etiquetas lista={p.etiquetas} />
         <StatusBadge status={p.statusInterno} />
       </div>
       <div className="mt-2 space-y-1 text-sm">
-        <p className="flex items-center gap-1.5 text-muted-foreground">
-          <User className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate text-foreground">{p.filiado?.nomeCompleto ?? 'Sem filiado vinculado'}</span>
-        </p>
+        <div className="flex items-start gap-1.5 text-muted-foreground">
+          <Swords className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <CelulaPartes p={p} />
+        </div>
+        {p.filiado && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <User className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{p.filiado.nomeCompleto}</span>
+          </p>
+        )}
         {p.classeProcessual && <p className="truncate text-muted-foreground">{p.classeProcessual}</p>}
         <p className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -251,5 +406,25 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
         </p>
       </div>
     </Card>
+  );
+}
+
+/** Etiquetas internas do processo, compactas na listagem. */
+function Etiquetas({ lista }: { lista?: string[] }) {
+  if (!lista?.length) return null;
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {lista.slice(0, 3).map((e) => (
+        <span
+          key={e}
+          className="rounded-full bg-senatepi-50 px-1.5 py-0.5 text-[10px] font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400"
+        >
+          {e}
+        </span>
+      ))}
+      {lista.length > 3 && (
+        <span className="text-[10px] text-muted-foreground">+{lista.length - 3}</span>
+      )}
+    </span>
   );
 }

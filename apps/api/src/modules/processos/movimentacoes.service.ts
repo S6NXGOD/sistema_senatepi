@@ -1,0 +1,393 @@
+import {
+  BadRequestException, ConflictException, Injectable, NotFoundException,
+} from '@nestjs/common';
+import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
+import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
+import {
+  CORES_ANDAMENTO, CriarTipoAndamentoDto, AtualizarTipoAndamentoDto, RegistrarMovimentacaoDto,
+} from './dto/movimentacoes.dto';
+
+interface Ctx {
+  userId?: string;
+  role?: UserRole;
+  ip?: string;
+  userAgent?: string;
+}
+
+const TIPO_SELECT = {
+  id: true, slug: true, nome: true, cor: true, ordem: true, ativo: true, sistema: true,
+} satisfies Prisma.TipoAndamentoSelect;
+
+const autorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } } as const;
+
+/**
+ * Nome -> slug estavel (MAIUSCULAS, sem acento, so A-Z/0-9/_).
+ * NFD separa a letra-base do acento; removemos o que nao for ASCII basico.
+ */
+function slugificar(nome: string): string {
+  const semAcento = nome.normalize('NFD').replace(/[^\x00-\x7F]/g, '');
+  const base = semAcento
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+  return base || 'TIPO';
+}
+
+@Injectable()
+export class MovimentacoesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly partes: PartesService,
+  ) {}
+
+  // =========================================================================
+  // Tipos de movimentação (cadastráveis)
+  // =========================================================================
+
+  listarTipos(incluirInativos = false) {
+    return this.prisma.tipoAndamento.findMany({
+      where: incluirInativos ? {} : { ativo: true },
+      orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
+      select: TIPO_SELECT,
+    });
+  }
+
+  async criarTipo(dto: CriarTipoAndamentoDto, ctx: Ctx) {
+    const cor = this.validarCor(dto.cor);
+    const slug = await this.slugUnico(slugificar(dto.nome));
+    const ordem = dto.ordem ?? (await this.proximaOrdem());
+
+    const tipo = await this.prisma.tipoAndamento.create({
+      data: { slug, nome: dto.nome.trim(), cor, ordem, sistema: false },
+      select: TIPO_SELECT,
+    });
+    await this.auditar(AcaoAuditoria.CREATE, 'TipoAndamento', tipo.id, ctx,
+      `Tipo de movimentação "${tipo.nome}" criado`);
+    return tipo;
+  }
+
+  async atualizarTipo(id: string, dto: AtualizarTipoAndamentoDto, ctx: Ctx) {
+    const atual = await this.prisma.tipoAndamento.findUnique({ where: { id }, select: TIPO_SELECT });
+    if (!atual) throw new NotFoundException('Tipo de movimentação não encontrado.');
+
+    const tipo = await this.prisma.tipoAndamento.update({
+      where: { id },
+      data: {
+        nome: dto.nome?.trim(),
+        cor: dto.cor !== undefined ? this.validarCor(dto.cor) : undefined,
+        ordem: dto.ordem,
+        ativo: dto.ativo,
+      },
+      select: TIPO_SELECT,
+    });
+    await this.auditar(AcaoAuditoria.UPDATE, 'TipoAndamento', id, ctx,
+      `Tipo de movimentação "${tipo.nome}" atualizado`);
+    return tipo;
+  }
+
+  async removerTipo(id: string, ctx: Ctx) {
+    const tipo = await this.prisma.tipoAndamento.findUnique({ where: { id }, select: TIPO_SELECT });
+    if (!tipo) throw new NotFoundException('Tipo de movimentação não encontrado.');
+    if (tipo.sistema) {
+      throw new BadRequestException('Tipos padrão do sistema não podem ser excluídos — você pode ocultá-los (desativar).');
+    }
+    const emUso = await this.prisma.movimentacaoInterna.count({ where: { tipo: tipo.slug } });
+    if (emUso > 0) {
+      throw new ConflictException(
+        `Este tipo está em uso por ${emUso} movimentação(ões). Desative-o em vez de excluir para preservar o histórico.`,
+      );
+    }
+    await this.prisma.tipoAndamento.delete({ where: { id } });
+    await this.auditar(AcaoAuditoria.DELETE, 'TipoAndamento', id, ctx,
+      `Tipo de movimentação "${tipo.nome}" excluído`);
+    return { ok: true };
+  }
+
+  // =========================================================================
+  // Movimentações internas (andamentos registrados pela equipe)
+  // =========================================================================
+
+  /**
+   * Registra um andamento no processo. Opcionalmente muda o status (carimbando
+   * de/para na própria movimentação, para a linha do tempo contar a história) e
+   * vincula um anexo já enviado.
+   */
+  async registrar(processoId: string, dto: RegistrarMovimentacaoDto, ctx: Ctx) {
+    const processo = await this.prisma.processo.findUnique({
+      where: { id: processoId },
+      select: { id: true, numeroCNJ: true, statusInterno: true },
+    });
+    if (!processo) throw new NotFoundException('Processo não encontrado.');
+
+    const tipo = await this.prisma.tipoAndamento.findUnique({
+      where: { slug: dto.tipo },
+      select: { slug: true, nome: true, ativo: true },
+    });
+    if (!tipo) throw new BadRequestException('Tipo de movimentação inválido.');
+    if (!tipo.ativo) throw new BadRequestException('Este tipo de movimentação está desativado.');
+
+    // O anexo precisa pertencer a ESTE processo (evita vincular arquivo alheio).
+    if (dto.anexoId) {
+      const anexo = await this.prisma.anexoDocumento.findUnique({
+        where: { id: dto.anexoId },
+        select: { processoId: true },
+      });
+      if (!anexo || anexo.processoId !== processoId) {
+        throw new BadRequestException('Anexo inválido para este processo.');
+      }
+    }
+
+    const mudaStatus = !!dto.novoStatus && dto.novoStatus !== processo.statusInterno;
+    const dataFato = this.validarDataFato(dto.dataFato);
+
+    const mov = await this.prisma.$transaction(async (tx) => {
+      const criada = await tx.movimentacaoInterna.create({
+        data: {
+          processoId,
+          tipo: tipo.slug,
+          descricao: dto.descricao.trim(),
+          dataFato,
+          notaInterna: dto.notaInterna ?? false,
+          anexoId: dto.anexoId || null,
+          autorId: ctx.userId ?? null,
+          statusAnterior: mudaStatus ? processo.statusInterno : null,
+          statusNovo: mudaStatus ? dto.novoStatus : null,
+        },
+      });
+      if (mudaStatus) {
+        await tx.processo.update({
+          where: { id: processoId },
+          data: { statusInterno: dto.novoStatus },
+        });
+      }
+      return criada;
+    });
+
+    await this.auditar(AcaoAuditoria.CREATE, 'MovimentacaoInterna', mov.id, ctx,
+      `Movimentação "${tipo.nome}" registrada no processo ${processo.numeroCNJ}` +
+        (dataFato ? ` (fato em ${dataFato.toLocaleDateString('pt-BR')})` : '') +
+        (mudaStatus ? ` (status ${processo.statusInterno} → ${dto.novoStatus})` : ''),
+      {
+        processoId, tipo: tipo.slug, notaInterna: mov.notaInterna, mudouStatus: mudaStatus,
+        dataFato: dataFato?.toISOString() ?? null,
+      });
+    return mov;
+  }
+
+  /**
+   * Data do fato: aceita só o passado (com 1 dia de folga para fuso). Registrar
+   * um ato "que aconteceu semana que vem" seria um erro de digitação, não uma
+   * intenção — e furaria a ordenação da linha do tempo. Compromisso futuro é
+   * papel da Agenda, não do histórico.
+   */
+  private validarDataFato(iso?: string): Date | null {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) throw new BadRequestException('Data do fato inválida.');
+    const limite = new Date(Date.now() + 24 * 3600 * 1000);
+    if (d > limite) {
+      throw new BadRequestException(
+        'A data do fato não pode ser no futuro — para algo que ainda vai acontecer, use a Agenda.',
+      );
+    }
+    return d;
+  }
+
+  /**
+   * Exclui um andamento. Só o Administrador (regra global) — mas se a
+   * movimentação tinha carimbado uma mudança de status, o status NÃO é revertido
+   * automaticamente: reverter às cegas poderia contradizer andamentos posteriores.
+   */
+  async remover(id: string, ctx: Ctx) {
+    const mov = await this.prisma.movimentacaoInterna.findUnique({
+      where: { id },
+      select: { id: true, tipo: true, processo: { select: { numeroCNJ: true } } },
+    });
+    if (!mov) throw new NotFoundException('Movimentação não encontrada.');
+
+    await this.prisma.movimentacaoInterna.delete({ where: { id } });
+    await this.auditar(AcaoAuditoria.DELETE, 'MovimentacaoInterna', id, ctx,
+      `Movimentação removida do processo ${mov.processo.numeroCNJ}`, { tipo: mov.tipo });
+    return { ok: true };
+  }
+
+  // =========================================================================
+  // DOSSIÊ consolidado do processo (uma chamada → a tela inteira)
+  // =========================================================================
+
+  async dossie(processoId: string, ctx: Ctx) {
+    const processo = await this.prisma.processo.findUnique({
+      where: { id: processoId },
+      include: {
+        filiado: {
+          select: {
+            id: true, nomeCompleto: true, matricula: true, cpf: true, situacao: true,
+            telefonePrincipal: true, email: true, formacao: true,
+          },
+        },
+        advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+        // Partes (polo ativo × passivo) e a equipe que atua no processo.
+        partes: { orderBy: PARTE_ORDER, include: PARTE_INCLUDE },
+        advogados: {
+          orderBy: [{ principal: 'desc' }, { createdAt: 'asc' }],
+          include: ADVOGADO_INCLUDE,
+        },
+        movimentacoes: { orderBy: { dataMovimento: 'desc' } },
+        movimentacoesInternas: {
+          // Pela data do FATO quando informada; senão pela do registro.
+          orderBy: [{ dataFato: 'desc' }, { createdAt: 'desc' }],
+          include: {
+            autor: autorSel,
+            anexo: { select: { id: true, nomeArquivo: true, url: true, tipoMime: true, tamanhoBytes: true } },
+          },
+        },
+        // Triagem(ns) que originaram/citam este processo.
+        atendimentos: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true, numero: true, canal: true, desfecho: true, createdAt: true,
+            atendente: { select: { id: true, nome: true, nomeExibicao: true } },
+          },
+        },
+        // Agenda vinculada (audiências, prazos, consultas). O DESFECHO vem
+        // junto: "CONCLUIDO" sozinho não diz se houve acordo ou se o prazo foi
+        // perdido, que é exatamente o que se procura aqui.
+        compromissos: {
+          orderBy: { inicio: 'desc' },
+          select: {
+            id: true, titulo: true, tipo: true, status: true, inicio: true, fim: true,
+            local: true, urgente: true, origemAutomatica: true, descricao: true,
+            desfecho: true, desfechoObs: true, concluidoEm: true,
+            canceladoCategoria: true, canceladoMotivo: true,
+            responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+          },
+        },
+        anexos: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+    if (!processo) throw new NotFoundException('Processo não encontrado.');
+    const polos = this.partes.agruparPorPolo(processo.partes);
+
+    // Notas internas não vão para quem só pode VISUALIZAR o módulo? Aqui a regra
+    // é mais simples e explícita: nota interna é da equipe — todos os perfis com
+    // acesso ao módulo veem, mas o front a marca visualmente para não vazar em
+    // impressões/extratos entregues ao filiado.
+    const { movimentacoesInternas, movimentacoes, ...resto } = processo;
+
+    // Linha do tempo UNIFICADA (DataJud + interna), mais recente primeiro.
+    const linhaDoTempo = [
+      ...movimentacoes.map((m) => ({
+        id: m.id,
+        origem: 'DATAJUD' as const,
+        data: m.dataMovimento,
+        descricao: m.descricao,
+        codigoMovimento: m.codigoMovimento,
+        // Detalhamento do ato: é o que evita o advogado abrir o PJe.
+        detalhe: m.detalhe,
+        conteudo: m.conteudo,
+        complementos: m.complementos,
+        orgaoJulgador: m.orgaoJulgador,
+        ehAudiencia: m.ehAudiencia,
+        audienciaData: m.audienciaData,
+      })),
+      ...movimentacoesInternas.map((m) => ({
+        id: m.id,
+        origem: 'INTERNA' as const,
+        // `data` é o que a timeline ordena e exibe: a data do FATO quando
+        // informada. Assim a audiência de quarta lançada na sexta aparece na
+        // quarta, ao lado das movimentações do CNJ do mesmo dia.
+        data: m.dataFato ?? m.createdAt,
+        /** Data do fato explícita (null = a movimentação vale pelo registro). */
+        dataFato: m.dataFato,
+        /** Carimbo de auditoria — a tela mostra "registrado em" quando difere. */
+        registradoEm: m.createdAt,
+        descricao: m.descricao,
+        tipo: m.tipo,
+        notaInterna: m.notaInterna,
+        statusAnterior: m.statusAnterior,
+        statusNovo: m.statusNovo,
+        autor: m.autor,
+        anexo: m.anexo,
+      })),
+    ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+
+    // Trilha de auditoria do processo e dos seus andamentos.
+    const idsAndamentos = movimentacoesInternas.map((m) => m.id);
+    const auditoria = await this.prisma.auditoria.findMany({
+      where: {
+        OR: [
+          { entidade: 'Processo', entidadeId: processoId },
+          ...(idsAndamentos.length ? [{ entidade: 'MovimentacaoInterna', entidadeId: { in: idsAndamentos } }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true, acao: true, entidade: true, descricao: true, createdAt: true, metadata: true,
+        user: { select: { id: true, nome: true, nomeExibicao: true } },
+      },
+    });
+
+    return {
+      ...resto,
+      movimentacoes, // cru do DataJud (compatibilidade)
+      movimentacoesInternas,
+      linhaDoTempo,
+      /** Partes agrupadas + o confronto "Autor × Réu" pronto para o cabeçalho. */
+      polos,
+      auditoria,
+      totais: {
+        datajud: movimentacoes.length,
+        internas: movimentacoesInternas.length,
+        anexos: processo.anexos.length,
+        compromissos: processo.compromissos.length,
+        partes: processo.partes.length,
+        advogados: processo.advogados.length,
+        // Filiados vinculados: um processo coletivo tem vários.
+        filiados: processo.partes.filter((p) => p.filiadoId).length,
+      },
+    };
+  }
+
+  // =========================================================================
+  // Helpers
+  // =========================================================================
+
+  private validarCor(cor?: string): string {
+    if (!cor) return 'slate';
+    return (CORES_ANDAMENTO as readonly string[]).includes(cor) ? cor : 'slate';
+  }
+
+  private async proximaOrdem(): Promise<number> {
+    const ultimo = await this.prisma.tipoAndamento.aggregate({ _max: { ordem: true } });
+    return (ultimo._max.ordem ?? 0) + 1;
+  }
+
+  private async slugUnico(base: string): Promise<string> {
+    let slug = base;
+    let n = 1;
+    while (await this.prisma.tipoAndamento.findUnique({ where: { slug }, select: { id: true } })) {
+      n += 1;
+      slug = `${base}_${n}`.slice(0, 40);
+    }
+    return slug;
+  }
+
+  private auditar(
+    acao: AcaoAuditoria,
+    entidade: string,
+    entidadeId: string,
+    ctx: Ctx,
+    descricao: string,
+    metadata: Prisma.InputJsonValue = {},
+  ) {
+    return this.audit.registrar({
+      userId: ctx.userId ?? null, acao, entidade, entidadeId, descricao,
+      ip: ctx.ip, userAgent: ctx.userAgent, metadata,
+    });
+  }
+}

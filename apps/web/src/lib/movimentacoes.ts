@@ -1,0 +1,371 @@
+import { api } from './api';
+import { classesCor, type ClassesCor } from './paleta-cores';
+import type { StatusProcesso, TipoAcaoProcesso } from './processos';
+import type { AdvogadoDoProcesso, ParteDoProcesso, PolosProcesso } from './partes';
+
+// ---------------------------------------------------------------------------
+// Tipos de movimentação (cadastráveis)
+// ---------------------------------------------------------------------------
+
+export interface TipoAndamento {
+  id: string;
+  slug: string;
+  nome: string;
+  cor: string;
+  ordem: number;
+  ativo: boolean;
+  sistema: boolean;
+}
+
+/** Fallback dos tipos "sistema" enquanto a lista dinâmica não carregou. */
+export const TIPO_MOV_PADRAO: Record<string, { nome: string; cor: string }> = {
+  ATUALIZACAO: { nome: 'Atualização', cor: 'slate' },
+  AUDIENCIA: { nome: 'Audiência', cor: 'purple' },
+  DECISAO: { nome: 'Decisão', cor: 'emerald' },
+  DESPACHO: { nome: 'Despacho', cor: 'teal' },
+  PRAZO: { nome: 'Prazo', cor: 'amber' },
+  PROTOCOLO: { nome: 'Protocolo', cor: 'blue' },
+  RECURSO: { nome: 'Recurso', cor: 'orange' },
+  URGENTE: { nome: 'Urgente!', cor: 'red' },
+};
+
+export function rotuloTipoMov(slug: string, tipos?: TipoAndamento[]): string {
+  return tipos?.find((t) => t.slug === slug)?.nome ?? TIPO_MOV_PADRAO[slug]?.nome ?? slug;
+}
+export function corTipoMov(slug: string, tipos?: TipoAndamento[]): ClassesCor {
+  const cor = tipos?.find((t) => t.slug === slug)?.cor ?? TIPO_MOV_PADRAO[slug]?.cor;
+  return classesCor(cor);
+}
+
+export async function listarTiposMovimentacao(incluirInativos = false): Promise<TipoAndamento[]> {
+  return (
+    await api.get('/tipos-movimentacao', {
+      params: incluirInativos ? { incluirInativos: 'true' } : {},
+    })
+  ).data;
+}
+export interface TipoMovInput { nome: string; cor?: string; ordem?: number; ativo?: boolean }
+export async function criarTipoMovimentacao(dto: TipoMovInput): Promise<TipoAndamento> {
+  return (await api.post('/tipos-movimentacao', dto)).data;
+}
+export async function atualizarTipoMovimentacao(id: string, dto: Partial<TipoMovInput>): Promise<TipoAndamento> {
+  return (await api.patch(`/tipos-movimentacao/${id}`, dto)).data;
+}
+export async function excluirTipoMovimentacao(id: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/tipos-movimentacao/${id}`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Dossiê do processo
+// ---------------------------------------------------------------------------
+
+export interface PessoaRef {
+  id: string;
+  nome: string;
+  nomeExibicao?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface AnexoRef {
+  id: string;
+  nomeArquivo: string;
+  url: string;
+  tipoMime: string;
+  tamanhoBytes: number | null;
+}
+
+/** Item da linha do tempo unificada (cache do DataJud + andamentos internos). */
+export type ItemTimeline =
+  | {
+      id: string;
+      origem: 'DATAJUD';
+      data: string;
+      descricao: string;
+      codigoMovimento: number | null;
+      /** Tipo exato do ato, vindo dos complementos tabelados do CNJ. */
+      detalhe?: string | null;
+      /** Teor/síntese do despacho ou decisão, quando o tribunal envia. */
+      conteudo?: string | null;
+      complementos?: { codigo: number | null; descricao: string | null; valor: number | null; nome: string | null }[] | null;
+      orgaoJulgador?: string | null;
+      ehAudiencia?: boolean;
+      audienciaData?: string | null;
+    }
+  | {
+      id: string;
+      origem: 'INTERNA';
+      /** Data que vale na timeline: a do FATO quando informada, senão a do registro. */
+      data: string;
+      /** Data do fato explícita (null = a movimentação vale pela data do registro). */
+      dataFato: string | null;
+      /** Carimbo de auditoria — exibido como "registrado em" quando difere do fato. */
+      registradoEm: string;
+      descricao: string;
+      tipo: string;
+      notaInterna: boolean;
+      statusAnterior: StatusProcesso | null;
+      statusNovo: StatusProcesso | null;
+      autor: PessoaRef | null;
+      anexo: AnexoRef | null;
+    };
+
+export interface AtendimentoOrigem {
+  id: string;
+  numero: number;
+  canal: string;
+  desfecho: string | null;
+  createdAt: string;
+  atendente: { id: string; nome: string; nomeExibicao: string | null };
+}
+
+export interface CompromissoDoProcesso {
+  id: string;
+  titulo: string;
+  tipo: string;
+  status: string;
+  inicio: string;
+  fim: string;
+  local: string | null;
+  urgente: boolean;
+  descricao?: string | null;
+  /** Gerado pelo robô de prazos (badge "Criado pelo Sistema"). */
+  origemAutomatica?: boolean;
+  /** O que aconteceu de fato — "CONCLUIDO" sozinho não informa nada. */
+  desfecho?: string | null;
+  desfechoObs?: string | null;
+  concluidoEm?: string | null;
+  canceladoCategoria?: string | null;
+  canceladoMotivo?: string | null;
+  responsavel: PessoaRef;
+}
+
+export interface RegistroAuditoria {
+  id: string;
+  acao: string;
+  entidade: string | null;
+  descricao: string | null;
+  createdAt: string;
+  metadata: unknown;
+  user: { id: string; nome: string; nomeExibicao: string | null } | null;
+}
+
+export interface FiliadoDoProcesso {
+  id: string;
+  nomeCompleto: string;
+  matricula: string;
+  cpf: string | null;
+  situacao: string;
+  telefonePrincipal: string | null;
+  email: string | null;
+  formacao: string | null;
+}
+
+export interface DossieProcesso {
+  id: string;
+  numeroCNJ: string;
+  classeProcessual: string | null;
+  assuntoPrincipal: string | null;
+  orgaoJulgador: string | null;
+  tribunal: string | null;
+  grau: string | null;
+  dataDistribuicao: string | null;
+  valorCausa: string | number | null;
+  statusInterno: StatusProcesso;
+  /** INSTITUCIONAL = ação coletiva do SENATEPI (badge no cabeçalho). */
+  tipoAcao?: TipoAcaoProcesso;
+  ultimaSincronizacao: string | null;
+  createdAt: string;
+  /** Etiquetas internas da equipe (Urgente, Fase de Execução…). */
+  etiquetas: string[];
+  // ---- Metadados ricos do DataJud ----
+  classeCodigo: number | null;
+  assuntos: { codigo: number | null; nome: string | null; principal: boolean }[] | null;
+  orgaoJulgadorCodigo: string | null;
+  municipioIBGE: number | null;
+  formato: string | null;
+  sistema: string | null;
+  nivelSigilo: number | null;
+  segredoJustica: boolean;
+  prioridades: string[] | null;
+  atualizadoNoCnjEm: string | null;
+  /** Partes como vieram do tribunal (sem criar rascunho de filiado). */
+  partesBrutas: {
+    nome: string | null;
+    documento: string | null;
+    polo: string | null;
+    tipoPessoa: string | null;
+    advogados?: { nome: string | null; oab: string | null }[];
+  }[] | null;
+  /** Filiado principal e advogado responsável (atalhos dos vínculos N:N). */
+  filiado: FiliadoDoProcesso | null;
+  advogado: PessoaRef | null;
+  /** Partes do processo (fonte de verdade de quem processou quem). */
+  partes: ParteDoProcesso[];
+  /** Partes agrupadas por polo + o "Autor × Réu" pronto. */
+  polos: PolosProcesso;
+  /** Toda a equipe do processo. */
+  advogados: AdvogadoDoProcesso[];
+  linhaDoTempo: ItemTimeline[];
+  atendimentos: AtendimentoOrigem[];
+  compromissos: CompromissoDoProcesso[];
+  anexos: { id: string; nomeArquivo: string; url: string; tipoMime: string; tamanhoBytes: number | null; createdAt: string }[];
+  auditoria: RegistroAuditoria[];
+  totais: {
+    datajud: number; internas: number; anexos: number; compromissos: number;
+    partes: number; advogados: number; filiados: number;
+  };
+}
+
+export async function getDossie(processoId: string): Promise<DossieProcesso> {
+  return (await api.get(`/processos/${processoId}/dossie`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Leitura dos complementos tabelados do CNJ
+// ---------------------------------------------------------------------------
+
+/**
+ * O CNJ manda a chave do complemento em snake_case e sem acento
+ * (`tipo_de_peticao`). Traduzimos as mais comuns e caímos num tratamento
+ * genérico para as demais — assim nenhum complemento fica sem rótulo.
+ */
+const ROTULO_COMPLEMENTO: Record<string, string> = {
+  tipo_de_peticao: 'Tipo de petição',
+  tipo_de_documento: 'Tipo de documento',
+  tipo_de_distribuicao_redistribuicao: 'Tipo de distribuição',
+  motivo_da_remessa: 'Motivo da remessa',
+  tipo_de_audiencia: 'Tipo de audiência',
+  motivo_do_cancelamento: 'Motivo do cancelamento',
+  tipo_de_decisao: 'Tipo de decisão',
+  tipo_de_despacho: 'Tipo de despacho',
+  natureza_da_conclusao: 'Natureza da conclusão',
+  tipo_de_conclusao: 'Tipo de conclusão',
+  motivo_da_suspensao: 'Motivo da suspensão',
+  tipo_de_publicacao: 'Tipo de publicação',
+  prazo: 'Prazo',
+};
+
+/**
+ * Títulos que, sozinhos, não dizem nada ao advogado. Quando o movimento é um
+ * destes, o complemento vira a informação principal (o "Acórdão" de
+ * "Documento — Acórdão") em vez de ficar só como subtítulo.
+ */
+const TITULOS_GENERICOS = new Set([
+  'documento', 'documentos', 'peticao', 'peticoes', 'expedicao de documento',
+  'juntada', 'juntada de peticao', 'ato ordinatorio', 'andamento', 'outros',
+  'outras decisoes', 'movimento', 'remessa', 'recebimento', 'ato',
+]);
+
+function semAcento(v: string): string {
+  return v.normalize('NFD').replace(/[^\x00-\x7F]/g, '').toLowerCase().trim();
+}
+
+export function ehTituloGenerico(descricao: string | null | undefined): boolean {
+  return TITULOS_GENERICOS.has(semAcento(descricao ?? ''));
+}
+
+/**
+ * Escolhe o complemento que melhor qualifica o ato — prioriza as chaves
+ * `tipo_de_*` (tipo de documento/petição/audiência), que são as que respondem
+ * "que documento é esse?".
+ */
+export function complementoPrincipal(
+  complementos: { descricao: string | null; nome: string | null }[] | null | undefined,
+): { descricao: string | null; nome: string | null } | null {
+  const lista = (complementos ?? []).filter((c) => c?.nome);
+  if (!lista.length) return null;
+  return lista.find((c) => (c.descricao ?? '').startsWith('tipo_de')) ?? lista[0];
+}
+
+export function rotuloComplemento(chave: string | null | undefined): string {
+  if (!chave) return 'Detalhe';
+  const conhecido = ROTULO_COMPLEMENTO[chave];
+  if (conhecido) return conhecido;
+  const texto = chave.replace(/_/g, ' ').trim();
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+/**
+ * Categoria semântica da movimentação a partir do código TPU do CNJ.
+ * Serve para colorir e permitir bater o olho na linha do tempo — o CNJ não
+ * manda categoria, só o código.
+ */
+export type CategoriaMovimento =
+  | 'AUDIENCIA' | 'PUBLICACAO' | 'DECISAO' | 'DESPACHO' | 'PRAZO'
+  | 'PROTOCOLO' | 'JULGAMENTO' | 'ANDAMENTO';
+
+const CATEGORIA_POR_CODIGO: Record<number, CategoriaMovimento> = {
+  // Audiências e sessões
+  11025: 'AUDIENCIA', 12173: 'AUDIENCIA', 1061: 'AUDIENCIA', 970: 'AUDIENCIA',
+  // Publicação / intimação / comunicação
+  92: 'PUBLICACAO', 60: 'PUBLICACAO', 12265: 'PUBLICACAO', 581: 'PUBLICACAO',
+  // Decisões e sentenças
+  193: 'DECISAO', 219: 'DECISAO', 385: 'DECISAO', 11009: 'DECISAO',
+  455: 'JULGAMENTO', 848: 'JULGAMENTO', 246: 'JULGAMENTO', 22: 'JULGAMENTO',
+  // Despachos
+  11010: 'DESPACHO', 51: 'DESPACHO',
+  // Prazos
+  1051: 'PRAZO', 861: 'PRAZO',
+  // Protocolo / distribuição / petição
+  26: 'PROTOCOLO', 85: 'PROTOCOLO', 118: 'PROTOCOLO',
+};
+
+export const CATEGORIA_LABEL: Record<CategoriaMovimento, string> = {
+  AUDIENCIA: 'Audiência',
+  PUBLICACAO: 'Publicação / Intimação',
+  DECISAO: 'Decisão',
+  DESPACHO: 'Despacho',
+  PRAZO: 'Prazo',
+  PROTOCOLO: 'Protocolo',
+  JULGAMENTO: 'Julgamento',
+  ANDAMENTO: 'Andamento',
+};
+
+/** Chave de cor da categoria (usa a paleta compartilhada). */
+export const CATEGORIA_COR: Record<CategoriaMovimento, string> = {
+  AUDIENCIA: 'purple',
+  PUBLICACAO: 'sky',
+  DECISAO: 'emerald',
+  DESPACHO: 'teal',
+  PRAZO: 'amber',
+  PROTOCOLO: 'blue',
+  JULGAMENTO: 'indigo',
+  ANDAMENTO: 'slate',
+};
+
+export function categoriaMovimento(
+  codigo: number | null | undefined,
+  descricao?: string | null,
+): CategoriaMovimento {
+  if (codigo != null && CATEGORIA_POR_CODIGO[codigo]) return CATEGORIA_POR_CODIGO[codigo];
+  // Sem código conhecido, cai no texto (cobre tribunais que variam os códigos).
+  const t = (descricao ?? '').toLowerCase();
+  if (/audi[êe]ncia|sess[ãa]o/.test(t)) return 'AUDIENCIA';
+  if (/public|intima|diário|diario|comunica/.test(t)) return 'PUBLICACAO';
+  if (/senten[çc]a|decis[ãa]o|ac[óo]rd[ãa]o/.test(t)) return 'DECISAO';
+  if (/despacho/.test(t)) return 'DESPACHO';
+  if (/prazo/.test(t)) return 'PRAZO';
+  if (/peti[çc][ãa]o|protocol|distribu/.test(t)) return 'PROTOCOLO';
+  if (/julgamento|tr[âa]nsito|baixa/.test(t)) return 'JULGAMENTO';
+  return 'ANDAMENTO';
+}
+
+// ---------------------------------------------------------------------------
+// Movimentações internas
+// ---------------------------------------------------------------------------
+
+export interface RegistrarMovimentacaoInput {
+  tipo: string;
+  descricao: string;
+  /** ISO. Quando o ato aconteceu, se diferente de hoje. */
+  dataFato?: string;
+  notaInterna?: boolean;
+  novoStatus?: StatusProcesso;
+  anexoId?: string;
+}
+export async function registrarMovimentacao(processoId: string, dto: RegistrarMovimentacaoInput) {
+  return (await api.post(`/processos/${processoId}/movimentacoes`, dto)).data;
+}
+export async function excluirMovimentacao(movId: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/processos/movimentacoes/${movId}`)).data;
+}

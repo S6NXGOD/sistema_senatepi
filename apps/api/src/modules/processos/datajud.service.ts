@@ -19,10 +19,47 @@ import { ConfigService } from '@nestjs/config';
  *    pessoal, guardando apenas metadados de interesse jurídico.
  */
 
+/**
+ * Falha vinda do próprio CNJ. Carrega o status HTTP de ORIGEM (não o nosso 503)
+ * para alimentar a tabela `logs_sincronizacao_datajud` — é o que permite
+ * distinguir rate limit (429) de indisponibilidade (5xx) na manhã seguinte.
+ */
+export class DatajudIndisponivelError extends ServiceUnavailableException {
+  constructor(
+    mensagem: string,
+    readonly statusUpstream: number,
+  ) {
+    super(mensagem);
+  }
+}
+
+/** Complemento tabelado do CNJ: detalha o ato (tipo de documento, de petição…). */
+export interface ComplementoDatajud {
+  codigo: number | null;
+  /** Chave técnica do complemento (ex.: `tipo_de_documento`). */
+  descricao: string | null;
+  valor: number | null;
+  /** Valor legível (ex.: `Mandado de Citação`, `sorteio`). */
+  nome: string | null;
+}
+
 export interface MovimentacaoDatajud {
   dataMovimento: string; // ISO
   descricao: string;
   codigoMovimento: number | null;
+  /** Complementos crus, guardados para auditoria/uso futuro. */
+  complementos: ComplementoDatajud[];
+  /** Rótulo derivado: o "Contestação" de "Petição — Contestação". */
+  detalhe: string | null;
+  /** Teor/síntese do ato, quando o tribunal envia. */
+  conteudo: string | null;
+  /** Órgão que praticou o ato. */
+  orgaoJulgador: string | null;
+}
+
+export interface AdvogadoDatajud {
+  nome: string | null;
+  oab: string | null;
 }
 
 export interface ParteDatajud {
@@ -31,21 +68,40 @@ export interface ParteDatajud {
   documento: string | null;
   polo: string | null; // ATIVO / PASSIVO / ...
   tipoPessoa: string | null;
+  advogados: AdvogadoDatajud[];
 }
 
 export interface ProcessoDatajud {
   numeroCNJ: string; // 20 dígitos
   tribunal: string | null;
   classeProcessual: string | null;
+  classeCodigo: number | null;
   assuntoPrincipal: string | null;
+  /** Todos os assuntos, com o principal sinalizado. */
+  assuntos: { codigo: number | null; nome: string | null; principal: boolean }[];
   orgaoJulgador: string | null;
+  orgaoJulgadorCodigo: string | null;
+  municipioIBGE: number | null;
   grau: string | null;
   dataDistribuicao: string | null; // ISO
   valorCausa: number | null;
+  /** "Eletrônico" / "Físico". */
+  formato: string | null;
+  /** Sistema de origem (PJe, eproc, Projudi…). */
+  sistema: string | null;
+  /** 0 = público; > 0 ⇒ segredo de justiça. */
+  nivelSigilo: number | null;
+  segredoJustica: boolean;
+  /** Prioridades legais (Idoso, Réu preso…) quando o tribunal envia. */
+  prioridades: string[];
+  /** Carimbo de atualização informado pelo próprio CNJ. */
+  atualizadoNoCnjEm: string | null;
   /**
    * Partes do processo. A API PÚBLICA do DATAJUD, em regra, NÃO expõe as partes
-   * (LGPD) — então normalmente vem vazio. Quando presentes, os documentos vêm
-   * MASCARADOS; o desmascaramento (só do filiado vinculado) é feito no service.
+   * (confirmado em consulta real: o `_source` não traz `partes`/`poloAtivo`).
+   * O parser é defensivo para aproveitar tribunais/campos que venham a expor.
+   * Quando presentes, os documentos vêm MASCARADOS; o desmascaramento (só do
+   * filiado vinculado) é feito no service.
    */
   partes: ParteDatajud[];
   movimentacoes: MovimentacaoDatajud[];
@@ -56,7 +112,13 @@ export class DatajudService {
   private readonly logger = new Logger(DatajudService.name);
   private readonly baseUrl = 'https://api-publica.datajud.cnj.jus.br';
   private readonly apiKey: string;
-  private readonly timeoutMs = 15_000;
+  /**
+   * A API Pública do CNJ é LENTA: medições reais no TJPI deram 10s, 17s e 24s
+   * para o MESMO processo. Com o timeout antigo (15s) boa parte das
+   * sincronizações morria por engano e era registrada como falha. 45s dá folga
+   * sem prender o robô indefinidamente. Ajustável por ambiente.
+   */
+  private readonly timeoutMs: number;
 
   constructor(private readonly config: ConfigService) {
     // Header exata da API Pública do DATAJUD (configurável por ambiente).
@@ -64,6 +126,7 @@ export class DatajudService {
       'DATAJUD_API_KEY',
       'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==',
     );
+    this.timeoutMs = Number(this.config.get('DATAJUD_TIMEOUT_MS')) || 45_000;
   }
 
   /** Alias/índice do tribunal no DATAJUD (ex.: TJPI → api_publica_tjpi, TRE-PI → api_publica_tre-pi). */
@@ -105,8 +168,9 @@ export class DatajudService {
 
       if (!res.ok) {
         this.logger.warn(`[DATAJUD] HTTP ${res.status} ao consultar ${alias} (NPU ${numero})`);
-        throw new ServiceUnavailableException(
+        throw new DatajudIndisponivelError(
           `O DATAJUD retornou HTTP ${res.status}. Tente novamente em instantes.`,
+          res.status,
         );
       }
 
@@ -164,6 +228,21 @@ export class DatajudService {
    */
   private extrairPartes(src: Record<string, any>): ParteDatajud[] {
     const out: ParteDatajud[] = [];
+    const advogadosDe = (p: any): AdvogadoDatajud[] => {
+      const lista = p?.advogados ?? p?.advogado ?? p?.representantes ?? [];
+      if (!Array.isArray(lista)) return [];
+      return lista
+        .map((a: any) => ({
+          nome: a?.nome ?? a?.nomeAdvogado ?? null,
+          oab:
+            a?.oab ??
+            a?.numeroOAB ??
+            (a?.inscricao && a?.ufOab ? `${a.inscricao}/${a.ufOab}` : null) ??
+            null,
+        }))
+        .filter((a: AdvogadoDatajud) => a.nome || a.oab);
+    };
+
     const add = (p: any, poloFallback?: string | null) => {
       if (!p || typeof p !== 'object') return;
       const doc =
@@ -172,14 +251,15 @@ export class DatajudService {
         p.cpfCnpj ??
         p.numeroDocumento ??
         (Array.isArray(p.documentos)
-          ? p.documentos.find((d: any) => /cpf/i.test(String(d?.tipo)))?.numero ?? p.documentos[0]?.numero
+          ? p.documentos.find((d: any) => /cpf|cnpj/i.test(String(d?.tipo)))?.numero ?? p.documentos[0]?.numero
           : null) ??
         null;
       out.push({
         nome: p.nome ?? p.nomeParte ?? null,
         documento: doc != null ? String(doc) : null,
-        polo: p.polo ?? poloFallback ?? null,
+        polo: this.normalizarPolo(p.polo ?? poloFallback),
         tipoPessoa: p.tipoPessoa ?? p.pessoa ?? null,
+        advogados: advogadosDe(p),
       });
     };
 
@@ -196,32 +276,145 @@ export class DatajudService {
     return out;
   }
 
+  /** "AT"/"ativo"/"POLO ATIVO" → ATIVO; "PA"/"passivo" → PASSIVO. */
+  private normalizarPolo(v: unknown): string | null {
+    const s = String(v ?? '').trim().toUpperCase();
+    if (!s) return null;
+    if (s === 'AT' || s.includes('ATIVO')) return 'ATIVO';
+    if (s === 'PA' || s.includes('PASSIVO')) return 'PASSIVO';
+    return s;
+  }
+
+  /**
+   * Complementos tabelados → rótulo legível do ato.
+   *
+   * O CNJ manda, por exemplo, `{descricao: "tipo_de_documento", nome: "Mandado
+   * de Citação"}`. Concatenamos os `nome` para virar o "— Mandado de Citação" de
+   * "Expedição de documento — Mandado de Citação". Fazemos isso na ESCRITA para
+   * a linha do tempo ser uma leitura barata (sem processar JSON a cada abertura).
+   */
+  private montarDetalhe(complementos: ComplementoDatajud[]): string | null {
+    const nomes = complementos
+      .map((c) => (c.nome ?? '').trim())
+      .filter((n) => n.length > 0)
+      // Evita repetir o mesmo rótulo quando o tribunal duplica complementos.
+      .filter((n, i, arr) => arr.indexOf(n) === i);
+    if (!nomes.length) return null;
+    // Deixa a primeira letra maiúscula (o CNJ manda coisas como "sorteio").
+    const texto = nomes.join(' · ');
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+  }
+
+  /**
+   * Complementos do movimento, com FALLBACK entre os formatos que os tribunais
+   * usam. Nem todo tribunal manda tudo — e, no mesmo processo, um movimento pode
+   * vir completo e o seguinte sem nada.
+   *
+   *  1. `complementosTabelados` — formato atual: objetos {codigo, descricao, valor, nome}
+   *  2. `complementos` / `complemento` — mesma ideia, nomes alternativos
+   *  3. `complemento` como STRING (legado): "tipo_de_documento:80:Outros documentos"
+   *     ou uma lista dessas strings.
+   */
+  private extrairComplementos(m: any): ComplementoDatajud[] {
+    const brutos = m?.complementosTabelados ?? m?.complementos ?? m?.complemento ?? [];
+    const lista = Array.isArray(brutos) ? brutos : [brutos];
+    const out: ComplementoDatajud[] = [];
+
+    for (const c of lista) {
+      if (!c) continue;
+
+      // Formato legado em texto: "chave:valor:nome" (às vezes só "nome").
+      if (typeof c === 'string') {
+        const partes = c.split(':').map((p) => p.trim());
+        if (partes.length >= 3) {
+          out.push({
+            codigo: null,
+            descricao: partes[0] || null,
+            valor: Number.isFinite(Number(partes[1])) ? Number(partes[1]) : null,
+            nome: partes.slice(2).join(':') || null,
+          });
+        } else if (c.trim()) {
+          out.push({ codigo: null, descricao: null, valor: null, nome: c.trim() });
+        }
+        continue;
+      }
+
+      if (typeof c === 'object') {
+        out.push({
+          codigo: typeof c.codigo === 'number' ? c.codigo : null,
+          descricao: c.descricao ?? c.chave ?? null,
+          valor: typeof c.valor === 'number' ? c.valor : null,
+          // Alguns tribunais chamam o rótulo legível de `descricaoComplemento`.
+          nome: c.nome ?? c.descricaoComplemento ?? c.valorLiteral ?? null,
+        });
+      }
+    }
+    return out.filter((c) => c.nome || c.descricao);
+  }
+
+  /** Prioridades legais (Idoso, Réu preso…) — formatos variam por tribunal. */
+  private extrairPrioridades(src: Record<string, any>): string[] {
+    const brutas = src.prioridades ?? src.prioridade ?? src.tagsProcessuais ?? [];
+    const lista = Array.isArray(brutas) ? brutas : [brutas];
+    return lista
+      .map((p: any) => (typeof p === 'string' ? p : p?.nome ?? p?.descricao ?? null))
+      .filter((p: unknown): p is string => typeof p === 'string' && p.trim().length > 0)
+      .map((p) => p.trim());
+  }
+
   /**
    * Extrai apenas o essencial da resposta (gigante) do Elasticsearch.
    * NÃO copia dados pessoais além do necessário — só metadados processuais.
    */
   private mapear(src: Record<string, any>, numeroFallback: string): ProcessoDatajud {
-    const assuntos: any[] = Array.isArray(src.assuntos) ? src.assuntos : [];
-    const principal = assuntos.find((a) => a?.principal) ?? assuntos[0];
+    const assuntosBrutos: any[] = Array.isArray(src.assuntos) ? src.assuntos : [];
+    const principal = assuntosBrutos.find((a) => a?.principal) ?? assuntosBrutos[0];
     const movimentos: any[] = Array.isArray(src.movimentos) ? src.movimentos : [];
+    const nivelSigilo = typeof src.nivelSigilo === 'number' ? src.nivelSigilo : null;
 
     return {
       numeroCNJ: src.numeroProcesso ? String(src.numeroProcesso).replace(/\D/g, '') : numeroFallback,
       tribunal: src.tribunal ?? null,
       classeProcessual: src.classe?.nome ?? null,
+      classeCodigo: typeof src.classe?.codigo === 'number' ? src.classe.codigo : null,
       assuntoPrincipal: principal?.nome ?? null,
+      assuntos: assuntosBrutos.map((a) => ({
+        codigo: typeof a?.codigo === 'number' ? a.codigo : null,
+        nome: a?.nome ?? null,
+        principal: !!a?.principal || a === principal,
+      })),
       orgaoJulgador: src.orgaoJulgador?.nome ?? null,
+      orgaoJulgadorCodigo: src.orgaoJulgador?.codigo != null ? String(src.orgaoJulgador.codigo) : null,
+      municipioIBGE:
+        typeof src.orgaoJulgador?.codigoMunicipioIBGE === 'number'
+          ? src.orgaoJulgador.codigoMunicipioIBGE
+          : null,
       grau: src.grau ?? null,
       dataDistribuicao: this.parseData(src.dataAjuizamento),
       valorCausa: typeof src.valorCausa === 'number' ? src.valorCausa : null,
+      formato: src.formato?.nome ?? null,
+      sistema: src.sistema?.nome ?? null,
+      nivelSigilo,
+      // Segredo de justiça: qualquer nível acima de 0 restringe o acesso.
+      segredoJustica: (nivelSigilo ?? 0) > 0,
+      prioridades: this.extrairPrioridades(src),
+      atualizadoNoCnjEm: this.parseData(src.dataHoraUltimaAtualizacao),
       // Documentos vêm mascarados; o desmascaramento (só do filiado) é no service.
       partes: this.extrairPartes(src),
       movimentacoes: movimentos
-        .map((m) => ({
-          dataMovimento: this.parseData(m?.dataHora),
-          descricao: m?.nome ?? null,
-          codigoMovimento: typeof m?.codigo === 'number' ? m.codigo : null,
-        }))
+        .map((m) => {
+          const complementos = this.extrairComplementos(m);
+          return {
+            dataMovimento: this.parseData(m?.dataHora),
+            descricao: m?.nome ?? null,
+            codigoMovimento: typeof m?.codigo === 'number' ? m.codigo : null,
+            complementos,
+            detalhe: this.montarDetalhe(complementos),
+            // Teor do ato: nomes variam entre tribunais.
+            conteudo: m?.conteudo ?? m?.descricao ?? m?.texto ?? null,
+            orgaoJulgador: m?.orgaoJulgador?.nome ?? null,
+          };
+        })
         .filter((m): m is MovimentacaoDatajud => !!m.dataMovimento && !!m.descricao)
         .sort((a, b) => new Date(b.dataMovimento).getTime() - new Date(a.dataMovimento).getTime()),
     };

@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { ProcessosService } from './processos.service';
 import {
   AtualizarProcessoDto,
+  FormalizarProcessoDto,
   ImportarProcessoDto,
   ListProcessosQueryDto,
 } from './dto/processos.dto';
@@ -30,8 +31,9 @@ export class ProcessosController {
 
   /** Lista o cache local (leitura instantânea, sem consulta ao vivo). */
   @Get()
-  listar(@Query() query: ListProcessosQueryDto) {
-    return this.service.listar(query);
+  listar(@Query() query: ListProcessosQueryDto, @CurrentUser('id') userId: string) {
+    // userId alimenta o filtro rápido "Meus processos".
+    return this.service.listar(query, userId);
   }
 
   /** Detalhe + movimentações lidos 100% do cache local. */
@@ -45,6 +47,13 @@ export class ProcessosController {
   @ApiOperation({ summary: 'Re-sincroniza incrementalmente o processo com o DATAJUD.' })
   sincronizar(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.ressincronizar(id, this.ctx(req, userId));
+  }
+
+  /** Formaliza um RASCUNHO: recebe o NPU e, opcionalmente, busca no DataJud. */
+  @Patch(':id/formalizar')
+  @ApiOperation({ summary: 'Formaliza um processo em rascunho (informa o NPU; DataJud opcional).' })
+  formalizar(@Param('id') id: string, @Body() dto: FormalizarProcessoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.formalizar(id, dto, this.ctx(req, userId));
   }
 
   /** Atualiza dados INTERNOS (status/vínculos) — não consulta o DATAJUD. */

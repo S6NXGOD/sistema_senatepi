@@ -1,10 +1,23 @@
 import { api } from './api';
+import type { Confronto, ParteResumo } from './partes';
 
 // ---------------------------------------------------------------------------
 // Tipos (espelham a API — módulo de Processos / DATAJUD)
 // ---------------------------------------------------------------------------
 
-export type StatusProcesso = 'ATIVO' | 'ARQUIVADO' | 'SUSPENSO';
+export type StatusProcesso =
+  | 'RASCUNHO' | 'PENDENTE' | 'ATIVO' | 'SUSPENSO' | 'GANHO_EXECUCAO'
+  | 'IMPROCEDENTE' | 'ENCERRADO' | 'ARQUIVADO';
+
+/**
+ * Natureza da atuação. INSTITUCIONAL é a ação coletiva movida pelo SENATEPI em
+ * nome da categoria — nela não existe filiado "dono", e a tela para de cobrar o
+ * vínculo que num processo coletivo não faria sentido.
+ */
+export type TipoAcaoProcesso = 'INDIVIDUAL' | 'INSTITUCIONAL';
+
+/** Selo da ação institucional, usado na lista e no detalhe. */
+export const BADGE_INSTITUCIONAL = '🏛️ Ação Institucional (SENATEPI)';
 
 export interface FiliadoRef {
   id: string;
@@ -36,7 +49,10 @@ export interface ParteProcesso {
 
 export interface ProcessoLista {
   id: string;
-  numeroCNJ: string;
+  /** Nulo em RASCUNHO — processo aberto por um desfecho, ainda sem NPU. */
+  numeroCNJ: string | null;
+  /** Rótulo do rascunho enquanto não há número/classe. */
+  titulo?: string | null;
   classeProcessual: string | null;
   assuntoPrincipal: string | null;
   orgaoJulgador: string | null;
@@ -46,14 +62,32 @@ export interface ProcessoLista {
   valorCausa: string | number | null;
   statusInterno: StatusProcesso;
   ultimaSincronizacao: string | null;
+  etiquetas?: string[];
+  segredoJustica?: boolean;
+  /** INSTITUCIONAL = ação coletiva movida pelo SENATEPI (badge própria). */
+  tipoAcao?: TipoAcaoProcesso;
+  /** Filiado principal e advogado responsável (atalhos dos vínculos N:N). */
   filiado: FiliadoRef | null;
   advogado: AdvogadoRef | null;
-  _count: { movimentacoes: number };
+  /** Todas as partes, para o resumo do polo na linha da tabela. */
+  partes: ParteResumo[];
+  /** Toda a equipe do processo (o `principal` é o responsável). */
+  advogados: { principal: boolean; advogado: AdvogadoRef }[];
+  /** "Autor × Réu" já calculado pela API — a tela não reimplementa a regra. */
+  confronto: Confronto;
+  _count: { movimentacoes: number; partes: number; advogados: number };
 }
+
+/** Etiquetas sugeridas no seletor (o campo aceita qualquer texto). */
+export const ETIQUETAS_SUGERIDAS = [
+  'Urgente', 'Fase de Execução', 'Coletiva', 'Recurso', 'Perícia',
+  'Acordo', 'Aguardando Cliente', 'Prioridade Idoso',
+];
 
 export interface ProcessoDetalhe {
   id: string;
-  numeroCNJ: string;
+  numeroCNJ: string | null;
+  titulo?: string | null;
   classeProcessual: string | null;
   assuntoPrincipal: string | null;
   orgaoJulgador: string | null;
@@ -63,6 +97,7 @@ export interface ProcessoDetalhe {
   valorCausa: string | number | null;
   statusInterno: StatusProcesso;
   ultimaSincronizacao: string | null;
+  tipoAcao?: TipoAcaoProcesso;
   filiadoId: string | null;
   advogadoId: string | null;
   createdAt: string;
@@ -89,14 +124,27 @@ export interface ListaProcessosResp {
 // ---------------------------------------------------------------------------
 
 export const STATUS_PROCESSO_LABEL: Record<StatusProcesso, string> = {
+  RASCUNHO: 'Rascunho',
+  PENDENTE: 'Pendente',
   ATIVO: 'Ativo',
   SUSPENSO: 'Suspenso',
+  GANHO_EXECUCAO: 'Ganho — Execução',
+  IMPROCEDENTE: 'Improcedente',
+  ENCERRADO: 'Encerrado',
   ARQUIVADO: 'Arquivado',
 };
-export const STATUS_PROCESSO_ORDEM: StatusProcesso[] = ['ATIVO', 'SUSPENSO', 'ARQUIVADO'];
+/** Ordem do ciclo de vida (usada nos filtros e no seletor). */
+export const STATUS_PROCESSO_ORDEM: StatusProcesso[] = [
+  'RASCUNHO', 'PENDENTE', 'ATIVO', 'SUSPENSO', 'GANHO_EXECUCAO', 'IMPROCEDENTE', 'ENCERRADO', 'ARQUIVADO',
+];
 export const STATUS_PROCESSO_COR: Record<StatusProcesso, string> = {
+  RASCUNHO: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   ATIVO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
-  SUSPENSO: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  SUSPENSO: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+  GANHO_EXECUCAO: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  IMPROCEDENTE: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  ENCERRADO: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   ARQUIVADO: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
 };
 
@@ -119,8 +167,68 @@ export function mascararNPU(v: string): string {
   return out;
 }
 
-/** Formata um NPU já armazenado (20 dígitos) para exibição. */
-export const formatNPU = (numeroCNJ: string) => mascararNPU(numeroCNJ);
+/** Justiça Estadual (J=8): código do tribunal → UF. */
+const UF_ESTADUAL: Record<string, string> = {
+  '01': 'AC', '02': 'AL', '03': 'AP', '04': 'AM', '05': 'BA', '06': 'CE',
+  '07': 'DFT', '08': 'ES', '09': 'GO', '10': 'MA', '11': 'MT', '12': 'MS',
+  '13': 'MG', '14': 'PA', '15': 'PB', '16': 'PR', '17': 'PE', '18': 'PI',
+  '19': 'RJ', '20': 'RN', '21': 'RS', '22': 'RO', '23': 'RR', '24': 'SC',
+  '25': 'SE', '26': 'SP', '27': 'TO',
+};
+
+/**
+ * Alias do tribunal derivado do próprio NPU — o mesmo cálculo do back
+ * (`NpuUtils.siglaTribunal`), refeito aqui só para dar retorno IMEDIATO
+ * enquanto se digita, sem depender de ida ao servidor.
+ *
+ * Funciona parcialmente: os dígitos J e TR ficam nas posições 14–16, então o
+ * alias aparece antes de o número estar completo. `null` = ainda não dá para
+ * saber (ou é um segmento sem índice por NPU, como STF/CNJ).
+ */
+export function aliasTribunalDoNPU(npu: string): string | null {
+  const d = (npu || '').replace(/\D/g, '');
+  if (d.length < 16) return null;
+
+  const j = d[13];
+  const tr = d.slice(14, 16);
+  const n = Number.parseInt(tr, 10);
+
+  switch (j) {
+    case '3': return 'STJ';
+    case '4': return n >= 1 && n <= 6 ? `TRF${n}` : null;
+    case '5': return tr === '00' ? 'TST' : n >= 1 && n <= 24 ? `TRT${n}` : null;
+    case '7': return 'STM';
+    case '6': {
+      if (tr === '00') return 'TSE';
+      const uf = UF_ESTADUAL[tr];
+      return uf && uf !== 'DFT' ? `TRE-${uf}` : tr === '07' ? 'TRE-DF' : null;
+    }
+    case '8': return UF_ESTADUAL[tr] ? `TJ${UF_ESTADUAL[tr]}` : null;
+    case '9': {
+      const uf = UF_ESTADUAL[tr];
+      return uf && ['MG', 'RS', 'SP'].includes(uf) ? `TJM${uf}` : null;
+    }
+    default: return null; // STF e CNJ não têm índice por NPU
+  }
+}
+
+/**
+ * Formata um NPU já armazenado (20 dígitos) para exibição.
+ * Aceita nulo porque processos em RASCUNHO ainda não têm número — nesses casos
+ * a tela deve mostrar o título do rascunho, e este travessão é o último recurso.
+ */
+export const formatNPU = (numeroCNJ: string | null | undefined) =>
+  numeroCNJ ? mascararNPU(numeroCNJ) : '—';
+
+/** Rótulo do processo na lista: NPU quando existe, senão o título do rascunho. */
+export function rotuloProcesso(p: {
+  numeroCNJ: string | null;
+  titulo?: string | null;
+  classeProcessual?: string | null;
+}): string {
+  if (p.numeroCNJ) return mascararNPU(p.numeroCNJ);
+  return p.titulo || p.classeProcessual || 'Rascunho sem título';
+}
 
 export function formatData(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -147,8 +255,18 @@ export interface FiltroProcessos {
   busca?: string;
   statusInterno?: StatusProcesso;
   tribunal?: string;
+  /** Casam com QUALQUER vínculo do processo, não só o principal. */
   filiadoId?: string;
   advogadoId?: string;
+  /** Todos os processos de uma parte cadastrada (ex.: uma empresa ré). */
+  parteExternaId?: string;
+  /** Filtros rápidos da tabela. */
+  meus?: 'true';
+  semFiliado?: 'true';
+  semParteContraria?: 'true';
+  /** Movimentação nos últimos N dias (string por ser query param). */
+  movimentacaoRecente?: string;
+  etiqueta?: string;
   page?: number;
   pageSize?: number;
 }
@@ -165,11 +283,119 @@ export async function getProcesso(id: string): Promise<ProcessoDetalhe> {
   return (await api.get(`/processos/${id}`)).data;
 }
 
+// ---------------------------------------------------------------------------
+// Consulta prévia ao DataJud (auto-preenchimento do modal "Novo Processo")
+// ---------------------------------------------------------------------------
+
+export interface ParteConferida {
+  nome: string | null;
+  documento: string | null;
+  polo: string | null;
+  tipoPessoa: string | null;
+  advogados: { nome: string | null; oab: string | null }[];
+  /** Filiado encontrado pelo CPF/CNPJ (null quando não há correspondência). */
+  filiado: { id: string; nomeCompleto: string; matricula: string } | null;
+}
+
+export interface ConsultaDatajud {
+  encontrado: boolean;
+  jaImportado: boolean;
+  processoExistenteId: string | null;
+  tribunalDerivado: string;
+  preenchimento?: {
+    classeProcessual: string | null;
+    assuntoPrincipal: string | null;
+    orgaoJulgador: string | null;
+    tribunal: string;
+    grau: string | null;
+    dataDistribuicao: string | null;
+    valorCausa: number | null;
+    formato: string | null;
+    sistema: string | null;
+    segredoJustica: boolean;
+    nivelSigilo: number | null;
+    prioridades: string[];
+    totalMovimentacoes: number;
+    ultimaMovimentacao: { data: string; descricao: string; detalhe: string | null } | null;
+    descricaoSugerida: string;
+  };
+  partes?: ParteConferida[];
+  /** Partes separadas por polo, prontas para o card de prévia. */
+  polos?: { ativo: ParteConferida[]; passivo: ParteConferida[]; outros: ParteConferida[] };
+  advogadosDatajud?: { nome: string | null; oab: string | null }[];
+  sugestoesAdvogado?: SugestaoAdvogado[];
+  filiadoSugerido?: { id: string; nomeCompleto: string; matricula: string } | null;
+  semFiliadoVinculado?: boolean;
+  /** true quando o tribunal não expõe partes (caso normal da API pública). */
+  tribunalNaoExpoePartes?: boolean;
+}
+
+export type OrigemSugestao = 'DATAJUD_OAB' | 'DATAJUD_NOME' | 'CARTEIRA_FILIADO' | 'TRIAGEM';
+
+/** Sugestão de advogado responsável — sempre facultativa. */
+export interface SugestaoAdvogado {
+  advogado: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null };
+  origem: OrigemSugestao;
+  motivo: string;
+  confianca: number;
+}
+
+/** Rótulo curto da origem, para o badge. */
+export const ORIGEM_SUGESTAO_LABEL: Record<OrigemSugestao, string> = {
+  DATAJUD_OAB: 'Sugerido pelo DataJud',
+  DATAJUD_NOME: 'Sugerido pelo DataJud',
+  CARTEIRA_FILIADO: 'Sugerido pelo histórico',
+  TRIAGEM: 'Sugerido pela triagem',
+};
+
+/**
+ * Sugestões de advogado a partir do histórico local do filiado.
+ * 100% local — não consulta o CNJ.
+ */
+export async function sugerirAdvogado(filiadoId: string): Promise<SugestaoAdvogado[]> {
+  return (await api.get('/datajud/sugerir-advogado', { params: { filiadoId } })).data;
+}
+
+/**
+ * Consulta o DataJud SEM persistir — usada enquanto o usuário digita o NPU.
+ * Nenhum registro (nem de filiado) é criado no banco.
+ */
+export async function consultarDatajud(numeroCNJ: string, tribunal?: string): Promise<ConsultaDatajud> {
+  return (
+    await api.get('/datajud/consultar', {
+      params: { numeroCNJ: numeroCNJ.replace(/\D/g, ''), ...(tribunal ? { tribunal } : {}) },
+    })
+  ).data;
+}
+
+/**
+ * Quem move a ação. As três opções do modal, e nenhuma delas cria cadastro
+ * provisório de filiado.
+ */
+export type PoloAtivoInput =
+  /** Ação coletiva: o polo ativo é o próprio SENATEPI. */
+  | { tipo: 'INSTITUCIONAL' }
+  /** Um ou mais filiados (o primeiro é o principal). */
+  | { tipo: 'FILIADOS'; filiadoIds: string[] }
+  /** Parte conhecida só pelo nome — ou nada, para definir depois. */
+  | { tipo: 'OUTRA'; nome?: string; documento?: string };
+
 export interface ImportarProcessoInput {
   numeroCNJ: string;
   tribunal?: string;
+  /** @deprecated Use `poloAtivo`. Mantido para chamadas antigas. */
   filiadoId?: string;
+  poloAtivo?: PoloAtivoInput;
+  /** Advogado RESPONSÁVEL (principal). */
   advogadoId?: string;
+  /** Equipe completa — o responsável entra nela mesmo se não vier listado. */
+  advogadosIds?: string[];
+  etiquetas?: string[];
+  /**
+   * Réu informado já na importação — o DataJud não devolve as partes, e este é o
+   * momento em que o operador tem o nome em mãos.
+   */
+  parteContraria?: { parteExternaId?: string; nome?: string; documento?: string };
 }
 /** Gatilho On-Demand: consulta o DATAJUD e cria o cache local (409 se já existir). */
 export async function importarProcesso(dto: ImportarProcessoInput): Promise<ProcessoDetalhe> {
@@ -183,9 +409,41 @@ export async function sincronizarProcesso(id: string): Promise<ProcessoDetalhe> 
 
 export async function atualizarProcesso(
   id: string,
-  dto: { statusInterno?: StatusProcesso; filiadoId?: string | null; advogadoId?: string | null },
+  dto: {
+    statusInterno?: StatusProcesso;
+    filiadoId?: string | null;
+    advogadoId?: string | null;
+    etiquetas?: string[];
+  },
 ): Promise<ProcessoDetalhe> {
   return (await api.patch(`/processos/${id}`, dto)).data;
+}
+
+export interface FormalizarProcessoInput {
+  numeroCNJ: string;
+  tribunal?: string;
+  /** Buscar os dados no DataJud logo após formalizar. */
+  sincronizar?: boolean;
+  // Preenchimento manual (para quando o CNJ ainda não indexou o processo).
+  classeProcessual?: string;
+  assuntoPrincipal?: string;
+  orgaoJulgador?: string;
+  dataDistribuicao?: string;
+  valorCausa?: number;
+  statusInterno?: StatusProcesso;
+}
+
+/**
+ * Formaliza um RASCUNHO: informa o NPU e, se quiser, puxa tudo do DataJud.
+ * A busca é opcional de propósito — nos primeiros dias após a distribuição o
+ * tribunal ainda não indexou o processo no CNJ, e o preenchimento manual é o
+ * único caminho possível.
+ */
+export async function formalizarProcesso(
+  id: string,
+  dto: FormalizarProcessoInput,
+): Promise<ProcessoDetalhe & { avisoSincronizacao?: string }> {
+  return (await api.patch(`/processos/${id}/formalizar`, dto)).data;
 }
 
 /** Exclui o processo e todo o histórico (movimentações + anexos) — só Administrador. */
