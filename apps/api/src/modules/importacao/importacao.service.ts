@@ -708,6 +708,10 @@ export class ImportacaoService {
         qrToken: this.qr.gerarToken(),
         aprovadoEm: ativo ? (dataFiliacao ?? new Date()) : undefined,
         createdAt: dataFiliacao, // preserva a data de filiação legada
+        // Campo próprio: fica NULO quando a planilha não trouxe a data. É o que
+        // impede a carga em massa de virar um pico falso no gráfico de
+        // crescimento — sem data, o registro fica fora da série temporal.
+        dataFiliacao,
         vinculos: d.empresa ? { create: [{ empresa: d.empresa, ordem: 1 }] } : undefined,
         // Carteirinha automática para filiados ativos
         carteirinha: ativo

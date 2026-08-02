@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Loader2, ShieldCheck, UserPlus, RefreshCw, Camera,
-  CalendarClock, Clock, Ban, Upload, FileText, Trash2, ExternalLink,
+  CalendarClock, Clock, Ban, Upload, FileText, Trash2, ExternalLink, QrCode,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,10 @@ import {
   STATUS_COLAB_LABEL,
   TIPO_VINCULO_LABEL,
 } from '@/lib/colaboradores';
+import { useAuth } from '@/lib/auth';
+import { podeExcluir } from '@/lib/permissoes';
 import { StatusModal } from '@/components/colaboradores/status-modal';
+import { CrachaDialog } from '@/components/colaboradores/cracha-dialog';
 
 const HIST_ICON: Record<string, any> = {
   CADASTRO: UserPlus,
@@ -35,7 +38,10 @@ const HIST_ICON: Record<string, any> = {
 export default function ColaboradorDetalhePage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
   const [statusAberto, setStatusAberto] = useState(false);
+  const [crachaAberto, setCrachaAberto] = useState(false);
   const [enviandoDoc, setEnviandoDoc] = useState(false);
 
   const { data: c, isLoading } = useQuery({ queryKey: ['colaborador', id], queryFn: () => getColaborador(id) });
@@ -100,6 +106,7 @@ export default function ColaboradorDetalhePage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setCrachaAberto(true)}><QrCode className="h-4 w-4" /> Crachá e QR</Button>
           <Button variant="outline" onClick={() => setStatusAberto(true)}><ShieldCheck className="h-4 w-4" /> Alterar status</Button>
           <Link href={`/colaboradores/${c.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
         </div>
@@ -132,6 +139,7 @@ export default function ColaboradorDetalhePage() {
           <Card>
             <CardHeader><CardTitle>Vínculo e lotação</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <Info label="Matrícula" valor={c.matricula} />
               <Info label="Tipo de vínculo" valor={TIPO_VINCULO_LABEL[c.tipoVinculo]} />
               <Info label="Cargo" valor={c.cargo.nome} />
               <Info label="Departamento" valor={c.departamento.nome} />
@@ -176,7 +184,12 @@ export default function ColaboradorDetalhePage() {
                         {d.titulo}
                       </a>
                       {d.url && <a href={d.url} target="_blank" rel="noopener noreferrer"><Button variant="ghost" size="icon"><ExternalLink className="h-4 w-4" /></Button></a>}
-                      <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => removerDoc(d.id)}><Trash2 className="h-4 w-4" /></Button>
+                      {/* Só o Administrador apaga — regra global do sistema. */}
+                      {ehAdmin && (
+                        <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => removerDoc(d.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -225,6 +238,13 @@ export default function ColaboradorDetalhePage() {
           onConcluido={invalidar}
         />
       )}
+
+      <CrachaDialog
+        colaboradorId={c.id}
+        nome={c.nome}
+        open={crachaAberto}
+        onClose={() => setCrachaAberto(false)}
+      />
     </div>
   );
 }

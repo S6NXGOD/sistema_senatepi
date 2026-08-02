@@ -1,38 +1,39 @@
 import { api } from './api';
 
 // ---------------------------------------------------------------------------
-// Cadastros Base (domínios)
+// Listas de apoio (cargos e departamentos)
+//
+// Já foram um módulo "Cadastros Base", com menu próprio. Hoje se editam dentro
+// da tela de Colaboradores, que é quem as usa — e seguem a permissão dela.
+//
+// EMPRESA não está aqui: é entidade do módulo Patronal (lib/empresas.ts).
 // ---------------------------------------------------------------------------
-export interface Departamento { id: string; nome: string }
-export interface Cargo { id: string; nome: string }
-export interface Empresa { id: string; razaoSocial: string; cnpj: string }
+export interface ItemLista { id: string; nome: string; ativo: boolean }
+export type Departamento = ItemLista;
+export type Cargo = ItemLista;
 
-export const listarDepartamentos = async (): Promise<Departamento[]> =>
-  (await api.get('/cadastros/departamentos')).data;
-export const criarDepartamento = async (nome: string) =>
+/** Por padrão só os ATIVOS (é o que os formulários devem oferecer). */
+export const listarDepartamentos = async (incluirInativos = false): Promise<Departamento[]> =>
+  (await api.get('/cadastros/departamentos', {
+    params: incluirInativos ? { incluirInativos: 'true' } : {},
+  })).data;
+export const criarDepartamento = async (nome: string): Promise<Departamento> =>
   (await api.post('/cadastros/departamentos', { nome })).data;
-export const atualizarDepartamento = async (id: string, nome: string) =>
-  (await api.patch(`/cadastros/departamentos/${id}`, { nome })).data;
+export const atualizarDepartamento = async (id: string, dto: { nome?: string; ativo?: boolean }) =>
+  (await api.patch(`/cadastros/departamentos/${id}`, dto)).data;
 export const removerDepartamento = async (id: string) =>
   (await api.delete(`/cadastros/departamentos/${id}`)).data;
 
-export const listarCargos = async (): Promise<Cargo[]> =>
-  (await api.get('/cadastros/cargos')).data;
-export const criarCargo = async (nome: string) =>
+export const listarCargos = async (incluirInativos = false): Promise<Cargo[]> =>
+  (await api.get('/cadastros/cargos', {
+    params: incluirInativos ? { incluirInativos: 'true' } : {},
+  })).data;
+export const criarCargo = async (nome: string): Promise<Cargo> =>
   (await api.post('/cadastros/cargos', { nome })).data;
-export const atualizarCargo = async (id: string, nome: string) =>
-  (await api.patch(`/cadastros/cargos/${id}`, { nome })).data;
+export const atualizarCargo = async (id: string, dto: { nome?: string; ativo?: boolean }) =>
+  (await api.patch(`/cadastros/cargos/${id}`, dto)).data;
 export const removerCargo = async (id: string) =>
   (await api.delete(`/cadastros/cargos/${id}`)).data;
-
-export const listarEmpresas = async (): Promise<Empresa[]> =>
-  (await api.get('/cadastros/empresas')).data;
-export const criarEmpresa = async (dados: { razaoSocial: string; cnpj: string }) =>
-  (await api.post('/cadastros/empresas', dados)).data;
-export const atualizarEmpresa = async (id: string, dados: { razaoSocial: string; cnpj: string }) =>
-  (await api.patch(`/cadastros/empresas/${id}`, dados)).data;
-export const removerEmpresa = async (id: string) =>
-  (await api.delete(`/cadastros/empresas/${id}`)).data;
 
 // ---------------------------------------------------------------------------
 // Colaboradores
@@ -66,6 +67,8 @@ export const STATUS_COLAB = Object.keys(STATUS_COLAB_LABEL) as StatusColaborador
 
 export interface Colaborador {
   id: string;
+  /** Número do crachá (FUNC-000001). Nulo em cadastros anteriores à unificação. */
+  matricula: string | null;
   fotoUrl: string | null;
   nome: string;
   cpf: string;
@@ -174,6 +177,25 @@ export interface ColaboradorHistorico {
 export async function getHistoricoColaborador(id: string): Promise<ColaboradorHistorico[]> {
   return (await api.get(`/colaboradores/${id}/historico`)).data;
 }
+
+// ---------------------------------------------------------------------------
+// Identificação física — QR de entrada e crachá
+//
+// Vieram do cadastro de Funcionários, unificado em Colaborador.
+// ---------------------------------------------------------------------------
+
+export interface QrCodeColaborador {
+  payload: { id: string; tipo: string; validacao: string };
+  /** Imagem PNG do QR em data URL, pronta para <img src>. */
+  imagem: string;
+}
+
+export async function getQrCodeColaborador(id: string): Promise<QrCodeColaborador> {
+  return (await api.get(`/colaboradores/${id}/qrcode`)).data;
+}
+
+/** Caminho do PDF do crachá — baixe pelo cliente HTTP, que envia o Bearer. */
+export const urlCrachaColaborador = (id: string) => `/colaboradores/${id}/cracha/pdf`;
 
 export interface ColaboradorDocumento {
   id: string;

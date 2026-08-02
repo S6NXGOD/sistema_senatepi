@@ -4,22 +4,28 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import PDFDocument from 'pdfkit';
 import {
   Prisma,
   StatusColaborador,
   TipoDocumento,
   TipoHistoricoColaborador,
+  TipoPessoa,
   TipoVinculo,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { ImageService } from '../../common/storage/image.service';
+import { QrCodeService } from '../../common/qrcode/qrcode.service';
+import { gerarMatricula } from '../../common/utils/matricula.util';
+import { lerAsset } from '../../common/assets.util';
 import {
   AlterarStatusColaboradorDto,
   CreateColaboradorDto,
   ListColaboradoresQueryDto,
   UpdateColaboradorDto,
 } from './dto/colaborador.dto';
+import { dataCalendario, dataCalendarioOuNulo } from '../../common/utils/datas.util';
 
 const INCLUDE = {
   cargo: { select: { id: true, nome: true } },
@@ -35,12 +41,17 @@ const STATUS_LABEL: Record<StatusColaborador, string> = {
   DESLIGADO: 'Desligado',
 };
 
+/** Cores do crachá (as mesmas da carteirinha do filiado). */
+const VERDE_ESCURO = '#1B7F0A';
+const VERDE_MEDIO = '#4FA11B';
+
 @Injectable()
 export class ColaboradoresService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly image: ImageService,
+    private readonly qr: QrCodeService,
   ) {}
 
   // ---- Helpers ----
@@ -126,10 +137,10 @@ export class ColaboradoresService {
           cpf,
           tipoVinculo: dto.tipoVinculo,
           status: dto.status,
-          dataNascimento: dto.dataNascimento ? new Date(dto.dataNascimento) : null,
+          dataNascimento: dataCalendarioOuNulo(dto.dataNascimento) ?? null,
           telefone: dto.telefone || null,
           email: dto.email || null,
-          dataAdmissao: dto.dataAdmissao ? new Date(dto.dataAdmissao) : null,
+          dataAdmissao: dataCalendarioOuNulo(dto.dataAdmissao) ?? null,
           cep: dto.cep || null,
           logradouro: dto.logradouro || null,
           numero: dto.numero || null,
@@ -141,6 +152,12 @@ export class ColaboradoresService {
           empresaId: cond.empresaId,
           vencimentoContrato: cond.vencimentoContrato,
           instituicaoEnsino: cond.instituicaoEnsino,
+          // Identificação física: matrícula sequencial e token do QR de entrada.
+          // Nascem com o cadastro para que emitir o crachá seja um clique, e não
+          // um segundo cadastro noutra tela — que foi exatamente o que criou as
+          // fichas duplicadas de Funcionário.
+          matricula: await this.proximaMatricula(),
+          qrToken: this.qr.gerarToken(),
         },
         include: INCLUDE,
       });
@@ -224,10 +241,10 @@ export class ColaboradoresService {
           nome: dto.nome?.trim(),
           cpf,
           tipoVinculo,
-          dataNascimento: dto.dataNascimento !== undefined ? (dto.dataNascimento ? new Date(dto.dataNascimento) : null) : undefined,
+          dataNascimento: dataCalendarioOuNulo(dto.dataNascimento),
           telefone: dto.telefone !== undefined ? dto.telefone || null : undefined,
           email: dto.email !== undefined ? dto.email || null : undefined,
-          dataAdmissao: dto.dataAdmissao !== undefined ? (dto.dataAdmissao ? new Date(dto.dataAdmissao) : null) : undefined,
+          dataAdmissao: dataCalendarioOuNulo(dto.dataAdmissao),
           cep: dto.cep !== undefined ? dto.cep || null : undefined,
           logradouro: dto.logradouro !== undefined ? dto.logradouro || null : undefined,
           numero: dto.numero !== undefined ? dto.numero || null : undefined,
@@ -259,13 +276,19 @@ export class ColaboradoresService {
 
   // ---- Foto (upload) ----
   async atualizarFoto(id: string, arquivo: Buffer, autor?: string) {
-    const atual = await this.prisma.colaborador.findUnique({ where: { id }, select: { fotoKey: true } });
+    const atual = await this.prisma.colaborador.findUnique({
+      where: { id },
+      select: { fotoKey: true, fotoThumbKey: true },
+    });
     if (!atual) throw new NotFoundException('Colaborador não encontrado.');
-    const fotoKey = await this.image.processarAvatar(arquivo, `colaboradores/${id}`);
+    // Miniatura junto: é ela que a portaria vê ao ler o QR, para conferir a
+    // pessoa antes de liberar. Sem thumb, o check-in mostraria só o nome.
+    const { fotoKey, fotoThumbKey } = await this.image.processarFoto(arquivo, `colaboradores/${id}`);
     if (atual.fotoKey) void this.storage.delete(atual.fotoKey).catch(() => undefined);
+    if (atual.fotoThumbKey) void this.storage.delete(atual.fotoThumbKey).catch(() => undefined);
     const c = await this.prisma.colaborador.update({
       where: { id },
-      data: { fotoKey, fotoUrl: null },
+      data: { fotoKey, fotoThumbKey, fotoUrl: null },
       include: INCLUDE,
     });
     await this.registrarHistorico(id, TipoHistoricoColaborador.UPLOAD_FOTO, 'Foto do colaborador atualizada.', autor);
@@ -296,7 +319,7 @@ export class ColaboradoresService {
       }
       case StatusColaborador.DESLIGADO: {
         if (!dto.dataDesligamento) throw new BadRequestException('Informe a data do desligamento.');
-        data.dataDesligamento = new Date(dto.dataDesligamento);
+        data.dataDesligamento = dataCalendario(dto.dataDesligamento);
         if (dto.motivo?.trim()) data.statusMotivo = dto.motivo.trim();
         detalhe = ` Desligado em ${new Date(dto.dataDesligamento).toLocaleDateString('pt-BR')}.`;
         break;
@@ -371,5 +394,111 @@ export class ColaboradoresService {
     void this.storage.delete(doc.storageKey).catch(() => undefined);
     await this.prisma.documento.delete({ where: { id: documentoId } });
     return { ok: true };
+  }
+
+  // =========================================================================
+  // Identificação física — QR de entrada e crachá
+  //
+  // Vieram do módulo de Funcionários, que era o único lugar onde existiam. Como
+  // aquele cadastro saiu do menu na unificação, na prática só se conseguia
+  // emitir crachá pela URL escondida — e o QR apontava para um registro que
+  // divergia do colaborador.
+  // =========================================================================
+
+  /** Payload assinado + imagem do QR de entrada em eventos. */
+  async qrCode(id: string) {
+    const c = await this.prisma.colaborador.findUnique({
+      where: { id },
+      select: { id: true, qrToken: true },
+    });
+    if (!c) throw new NotFoundException('Colaborador não encontrado.');
+    const payload = this.qr.montarPayload(c.id, TipoPessoa.COLABORADOR, c.qrToken);
+    return { payload, imagem: await this.qr.gerarImagemDataUrl(payload) };
+  }
+
+  /** Crachá em PDF (85×54mm), com foto, dados do vínculo e o QR de entrada. */
+  async gerarCrachaPdf(id: string, autor?: string): Promise<Buffer> {
+    const c = await this.prisma.colaborador.findUnique({ where: { id }, include: INCLUDE });
+    if (!c) throw new NotFoundException('Colaborador não encontrado.');
+
+    const payload = this.qr.montarPayload(c.id, TipoPessoa.COLABORADOR, c.qrToken);
+    const qrImagem = await this.qr.gerarImagemDataUrl(payload);
+    const fotoBuffer = c.fotoKey ? await this.baixarFoto(c.fotoKey) : null;
+
+    const pdf = await new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({ size: [340, 215], margin: 0 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (p) => chunks.push(p));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      doc.rect(0, 0, 340, 50).fill(VERDE_ESCURO);
+      const logo = lerAsset('senatepi-horizontal-branco.png');
+      if (logo) {
+        try {
+          doc.image(logo, 16, 9, { fit: [130, 24] });
+        } catch {
+          doc.fillColor('#FFFFFF').fontSize(14).text('SENATEPI', 16, 12);
+        }
+      } else {
+        doc.fillColor('#FFFFFF').fontSize(14).text('SENATEPI', 16, 12);
+      }
+      doc.fillColor('#FFFFFF').fontSize(7).text('Crachá de Identificação Interna', 16, 36);
+
+      if (fotoBuffer) {
+        try {
+          doc.image(fotoBuffer, 16, 62, { width: 70, height: 70 });
+        } catch {
+          /* foto inválida não pode impedir a emissão do crachá */
+        }
+      }
+
+      const x = fotoBuffer ? 98 : 16;
+      doc.fillColor('#1f2937').fontSize(11).text(c.nome, x, 64, { width: 150 });
+      doc.fontSize(8).fillColor('#4b5563');
+      doc.text(`Cargo: ${c.cargo?.nome ?? '-'}`, x, 88);
+      doc.text(`Depto: ${c.departamento?.nome ?? '-'}`, x, 102);
+      doc.text(`Matrícula: ${c.matricula ?? '-'}`, x, 116);
+      doc.text(`Vínculo: ${c.tipoVinculo}`, x, 130);
+      doc.text(`Status: ${STATUS_LABEL[c.status]}`, x, 144);
+
+      doc.image(Buffer.from(qrImagem.split(',')[1], 'base64'), 254, 70, { width: 70, height: 70 });
+
+      doc.rect(0, 200, 340, 15).fill(VERDE_MEDIO);
+      doc.fillColor('#FFFFFF').fontSize(6).text('SENATEPI — Uso interno', 16, 204);
+      doc.end();
+    });
+
+    await this.registrarHistorico(
+      id,
+      TipoHistoricoColaborador.ALTERACAO,
+      'Crachá digital gerado.',
+      autor,
+    );
+    return pdf;
+  }
+
+  /**
+   * Próxima matrícula (FUNC-000001…).
+   *
+   * Conta os registros existentes, como o cadastro antigo fazia. É sequencial e
+   * não à prova de corrida — dois cadastros simultâneos podem disputar o mesmo
+   * número. O índice único recusa o segundo, então o pior caso é um erro visível
+   * na tela, e não uma matrícula repetida circulando em dois crachás.
+   */
+  private async proximaMatricula(): Promise<string> {
+    const total = await this.prisma.colaborador.count();
+    return gerarMatricula('FUNC', total + 1);
+  }
+
+  private async baixarFoto(key: string): Promise<Buffer | null> {
+    try {
+      const url = await this.storage.getSignedUrl(key);
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return Buffer.from(await res.arrayBuffer());
+    } catch {
+      return null;
+    }
   }
 }

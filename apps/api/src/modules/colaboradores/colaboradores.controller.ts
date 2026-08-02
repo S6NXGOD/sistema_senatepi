@@ -4,15 +4,18 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Patch,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
 import { UserRole } from '@prisma/client';
 import { ColaboradoresService } from './colaboradores.service';
 import {
@@ -43,6 +46,25 @@ export class ColaboradoresController {
   @Get(':id/historico')
   historico(@Param('id') id: string) {
     return this.service.historico(id);
+  }
+
+  /** QR de entrada em eventos (payload assinado + imagem). */
+  @Get(':id/qrcode')
+  qrCode(@Param('id') id: string) {
+    return this.service.qrCode(id);
+  }
+
+  /** Crachá em PDF, com foto e o QR de entrada. */
+  @Get(':id/cracha/pdf')
+  @Header('Content-Type', 'application/pdf')
+  async cracha(
+    @Param('id') id: string,
+    @CurrentUser('nome') autor: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.service.gerarCrachaPdf(id, autor);
+    res.setHeader('Content-Disposition', `inline; filename="cracha-${id}.pdf"`);
+    res.send(buffer);
   }
 
   @Post()

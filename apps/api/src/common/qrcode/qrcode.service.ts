@@ -6,7 +6,7 @@ import { TipoPessoa } from '@prisma/client';
 
 export interface QrPayload {
   id: string;
-  tipo: string; // filiado | dependente | funcionario | prestador
+  tipo: string; // filiado | dependente | colaborador
   validacao: string; // token único assinado (HMAC)
 }
 

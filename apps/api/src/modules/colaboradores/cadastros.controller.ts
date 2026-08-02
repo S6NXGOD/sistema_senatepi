@@ -1,81 +1,93 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { CadastrosService } from './cadastros.service';
-import { CargoDto, DepartamentoDto, EmpresaDto } from './dto/cadastros.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { AtualizarCargoDto, AtualizarDepartamentoDto, CargoDto, DepartamentoDto } from './dto/cadastros.dto';
+import { Modulo } from '../../common/permissions/modulo.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 /**
- * Cadastros Base / Parâmetros. Leitura para qualquer autenticado (alimenta os
- * selects dos formulários); escrita restrita à diretoria.
- * Prefixo global `api` → /api/cadastros/*.
+ * Listas de apoio de COLABORADORES: cargos e departamentos.
+ *
+ * Já foi um módulo à parte ("Cadastros Base"), com menu e permissão próprios.
+ * Não se sustentava: as duas listas alimentam um único formulário, e quem edita
+ * colaborador é exatamente quem precisa editá-las. Agora a autorização é
+ * `@Modulo('colaboradores')` — VISUALIZAR lê, EDITAR escreve —, o que também
+ * corrige uma incoerência antiga: o controller checava `@Roles`, então a linha
+ * "Cadastros Base" da matriz de permissões não tinha efeito nenhum.
+ *
+ * EMPRESAS saiu daqui de vez. É a entidade do módulo Patronal (portal,
+ * contribuições) e o CRUD simplificado apagava em cascata as contribuições da
+ * empresa. O dono é `/empresas`.
+ *
+ * Prefixo mantido em /cadastros/* de propósito: pendurar em /colaboradores/*
+ * colidiria com `@Get(':id')` do ColaboradoresController, e no Nest a primeira
+ * rota que casa vence.
  */
-@ApiTags('cadastros-base')
+@ApiTags('colaboradores-listas')
 @ApiBearerAuth()
+@Modulo('colaboradores')
 @Controller('cadastros')
 export class CadastrosController {
   constructor(private readonly service: CadastrosService) {}
 
+  private ctx(req: Request, userId?: string) {
+    return { userId, ip: req.ip, userAgent: req.headers['user-agent'] };
+  }
+
   // ---- Departamentos ----
   @Get('departamentos')
-  listarDepartamentos() {
-    return this.service.listarDepartamentos();
+  @ApiOperation({ summary: 'Departamentos ativos (use incluirInativos=true na tela de gestão).' })
+  listarDepartamentos(@Query('incluirInativos') incluirInativos?: string) {
+    return this.service.listarDepartamentos(incluirInativos === 'true');
   }
+
   @Post('departamentos')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  criarDepartamento(@Body() dto: DepartamentoDto) {
-    return this.service.criarDepartamento(dto);
+  criarDepartamento(@Body() dto: DepartamentoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.criarDepartamento(dto, this.ctx(req, userId));
   }
+
   @Patch('departamentos/:id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  atualizarDepartamento(@Param('id') id: string, @Body() dto: DepartamentoDto) {
-    return this.service.atualizarDepartamento(id, dto);
+  atualizarDepartamento(
+    @Param('id') id: string,
+    @Body() dto: AtualizarDepartamentoDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.atualizarDepartamento(id, dto, this.ctx(req, userId));
   }
+
+  /** Exclusão — só Administrador (regra global). Recusada se estiver em uso. */
   @Delete('departamentos/:id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  removerDepartamento(@Param('id') id: string) {
-    return this.service.removerDepartamento(id);
+  removerDepartamento(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.removerDepartamento(id, this.ctx(req, userId));
   }
 
   // ---- Cargos ----
   @Get('cargos')
-  listarCargos() {
-    return this.service.listarCargos();
-  }
-  @Post('cargos')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  criarCargo(@Body() dto: CargoDto) {
-    return this.service.criarCargo(dto);
-  }
-  @Patch('cargos/:id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  atualizarCargo(@Param('id') id: string, @Body() dto: CargoDto) {
-    return this.service.atualizarCargo(id, dto);
-  }
-  @Delete('cargos/:id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  removerCargo(@Param('id') id: string) {
-    return this.service.removerCargo(id);
+  @ApiOperation({ summary: 'Cargos ativos (use incluirInativos=true na tela de gestão).' })
+  listarCargos(@Query('incluirInativos') incluirInativos?: string) {
+    return this.service.listarCargos(incluirInativos === 'true');
   }
 
-  // ---- Empresas ----
-  @Get('empresas')
-  listarEmpresas() {
-    return this.service.listarEmpresas();
+  @Post('cargos')
+  criarCargo(@Body() dto: CargoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.criarCargo(dto, this.ctx(req, userId));
   }
-  @Post('empresas')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  criarEmpresa(@Body() dto: EmpresaDto) {
-    return this.service.criarEmpresa(dto);
+
+  @Patch('cargos/:id')
+  atualizarCargo(
+    @Param('id') id: string,
+    @Body() dto: AtualizarCargoDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.atualizarCargo(id, dto, this.ctx(req, userId));
   }
-  @Patch('empresas/:id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  atualizarEmpresa(@Param('id') id: string, @Body() dto: EmpresaDto) {
-    return this.service.atualizarEmpresa(id, dto);
-  }
-  @Delete('empresas/:id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
-  removerEmpresa(@Param('id') id: string) {
-    return this.service.removerEmpresa(id);
+
+  /** Exclusão — só Administrador (regra global). Recusada se estiver em uso. */
+  @Delete('cargos/:id')
+  removerCargo(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.removerCargo(id, this.ctx(req, userId));
   }
 }

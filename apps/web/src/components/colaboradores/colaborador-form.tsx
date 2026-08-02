@@ -13,6 +13,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { mascararCpf } from '@/lib/utils';
 import {
+  LIMITES_NASCIMENTO, LIMITES_DATA_PASSADA, nascimentoPlausivel, dataNaoFutura,
+  MSG_IDADE_IMPLAUSIVEL, MSG_DATA_FUTURA,
+} from '@/lib/datas-limite';
+import {
   Colaborador,
   ColaboradorPayload,
   TIPOS_VINCULO,
@@ -21,15 +25,18 @@ import {
   STATUS_COLAB_LABEL,
   listarCargos,
   listarDepartamentos,
-  listarEmpresas,
   criarCargo,
   criarDepartamento,
-  criarEmpresa,
   criarColaborador,
   atualizarColaborador,
   enviarFotoColaborador,
   mascararCnpj,
+  type ItemLista,
 } from '@/lib/colaboradores';
+// Empresa é entidade do módulo PATRONAL — a mesma tabela, com CNPJ validado e
+// consulta à Receita. O cadastro paralelo que existia em "Cadastros Base"
+// contornava tudo isso e permitia apagar em cascata as contribuições.
+import { listarEmpresas, criarEmpresa } from '@/lib/empresas';
 import { QuickAdd } from '@/components/colaboradores/quick-add';
 
 const sel = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
@@ -43,10 +50,10 @@ const schema = z
     cargoId: z.string().min(1, 'Selecione o cargo'),
     departamentoId: z.string().min(1, 'Selecione o departamento'),
     empresaId: z.string().optional(),
-    dataNascimento: z.string().optional(),
+    dataNascimento: z.string().optional().refine(nascimentoPlausivel, MSG_IDADE_IMPLAUSIVEL),
     telefone: z.string().optional(),
     email: z.string().email('E-mail inválido').optional().or(z.literal('')),
-    dataAdmissao: z.string().optional(),
+    dataAdmissao: z.string().optional().refine(dataNaoFutura, MSG_DATA_FUTURA),
     cep: z.string().optional(),
     logradouro: z.string().optional(),
     numero: z.string().optional(),
@@ -81,9 +88,14 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
     setFotoPreview(URL.createObjectURL(f));
   }
 
-  const { data: cargos } = useQuery({ queryKey: ['cadastros-cargos'], queryFn: listarCargos });
-  const { data: departamentos } = useQuery({ queryKey: ['cadastros-departamentos'], queryFn: listarDepartamentos });
-  const { data: empresas } = useQuery({ queryKey: ['cadastros-empresas'], queryFn: listarEmpresas });
+  // Só os ATIVOS: cargo aposentado não deve ser oferecido em cadastro novo.
+  const { data: cargos } = useQuery({ queryKey: ['cargos'], queryFn: () => listarCargos() });
+  const { data: departamentos } = useQuery({ queryKey: ['departamentos'], queryFn: () => listarDepartamentos() });
+  // Lista do Patronal (paginada) — pageSize alto porque aqui é um <select>.
+  const { data: empresas } = useQuery({
+    queryKey: ['empresas-select'],
+    queryFn: () => listarEmpresas({ pageSize: 100 }),
+  });
 
   const {
     register,
@@ -118,6 +130,20 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
         }
       : { tipoVinculo: 'CLT', status: 'ATIVO' },
   });
+
+  /**
+   * Opções do select, garantindo a que JÁ está gravada.
+   *
+   * Editar um colaborador cujo cargo foi ocultado depois não pode mostrar o
+   * campo vazio (e trocar o cargo dele sem ninguém pedir). O item atual entra
+   * na lista mesmo inativo, marcado — a lista curta continua valendo para
+   * cadastros novos.
+   */
+  function opcoes(ativos: ItemLista[] | undefined, atual?: { id: string; nome: string } | null) {
+    const lista = ativos ?? [];
+    if (!atual || lista.some((i) => i.id === atual.id)) return lista;
+    return [...lista, { id: atual.id, nome: `${atual.nome} (inativo)`, ativo: false }];
+  }
 
   const tipoVinculo = watch('tipoVinculo');
   const mostraEmpresa = tipoVinculo === 'PJ' || tipoVinculo === 'TERCEIRIZADO';
@@ -193,10 +219,10 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
               <Input inputMode="numeric" placeholder="000.000.000-00" value={field.value ?? ''} onChange={(e) => field.onChange(mascararCpf(e.target.value))} />
             )} />
           </Campo>
-          <Campo label="Data de nascimento"><Input type="date" {...register('dataNascimento')} /></Campo>
+          <Campo label="Data de nascimento" erro={errors.dataNascimento?.message}><Input type="date" {...LIMITES_NASCIMENTO} {...register("dataNascimento")} /></Campo>
           <Campo label="Telefone"><Input {...register('telefone')} /></Campo>
           <Campo label="E-mail" erro={errors.email?.message}><Input type="email" {...register('email')} /></Campo>
-          <Campo label="Data de admissão"><Input type="date" {...register('dataAdmissao')} /></Campo>
+          <Campo label="Data de admissão" erro={errors.dataAdmissao?.message}><Input type="date" {...LIMITES_DATA_PASSADA} {...register("dataAdmissao")} /></Campo>
         </CardContent>
       </Card>
 
@@ -219,13 +245,15 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
             <div className="flex gap-2">
               <select className={sel} {...register('cargoId')}>
                 <option value="">Selecione…</option>
-                {cargos?.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                {opcoes(cargos, inicial?.cargo).map((c) => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
               </select>
               <QuickAdd
                 label="Cargo"
                 campos={[{ name: 'nome', label: 'Nome do cargo', placeholder: 'Ex.: Advogado(a)' }]}
                 onCriar={(v) => criarCargo(v.nome)}
-                onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cadastros-cargos'] }); setValue('cargoId', id, { shouldValidate: true }); }}
+                onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cargos'] }); setValue('cargoId', id, { shouldValidate: true }); }}
               />
             </div>
           </Campo>
@@ -233,13 +261,15 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
             <div className="flex gap-2">
               <select className={sel} {...register('departamentoId')}>
                 <option value="">Selecione…</option>
-                {departamentos?.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                {opcoes(departamentos, inicial?.departamento).map((d) => (
+                  <option key={d.id} value={d.id}>{d.nome}</option>
+                ))}
               </select>
               <QuickAdd
                 label="Departamento"
                 campos={[{ name: 'nome', label: 'Nome do departamento', placeholder: 'Ex.: Jurídico' }]}
                 onCriar={(v) => criarDepartamento(v.nome)}
-                onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cadastros-departamentos'] }); setValue('departamentoId', id, { shouldValidate: true }); }}
+                onCriado={(id) => { qc.invalidateQueries({ queryKey: ['departamentos'] }); setValue('departamentoId', id, { shouldValidate: true }); }}
               />
             </div>
           </Campo>
@@ -251,7 +281,9 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
               <div className="flex gap-2">
                 <select className={sel} {...register('empresaId')}>
                   <option value="">Selecione…</option>
-                  {empresas?.map((e) => <option key={e.id} value={e.id}>{e.razaoSocial}</option>)}
+                  {empresas?.data.map((e) => (
+                    <option key={e.id} value={e.id}>{e.razaoSocial}</option>
+                  ))}
                 </select>
                 <QuickAdd
                   label="Empresa"
@@ -259,8 +291,11 @@ export function ColaboradorForm({ inicial }: { inicial?: Colaborador }) {
                     { name: 'razaoSocial', label: 'Razão social', placeholder: 'Ex.: ACME LTDA' },
                     { name: 'cnpj', label: 'CNPJ', placeholder: '00.000.000/0000-00', mask: mascararCnpj },
                   ]}
+                  // Sem senha provisória: esta empresa entra só como empregadora
+                  // do colaborador. Se depois virar conveniada, a senha é
+                  // definida no módulo Patronal.
                   onCriar={(v) => criarEmpresa({ razaoSocial: v.razaoSocial, cnpj: v.cnpj })}
-                  onCriado={(id) => { qc.invalidateQueries({ queryKey: ['cadastros-empresas'] }); setValue('empresaId', id, { shouldValidate: true }); }}
+                  onCriado={(id) => { qc.invalidateQueries({ queryKey: ['empresas-select'] }); setValue('empresaId', id, { shouldValidate: true }); }}
                 />
               </div>
             </Campo>

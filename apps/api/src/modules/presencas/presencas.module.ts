@@ -16,8 +16,7 @@ import { Request } from 'express';
 import {
   AcaoAuditoria,
   SituacaoFiliado,
-  StatusFuncionario,
-  StatusGenerico,
+  StatusColaborador,
   TipoDependente,
   TipoPessoa,
   UserRole,
@@ -49,8 +48,17 @@ interface PessoaResolvida {
   motivo: string;
   qrToken: string;
   // chaves para registrar presença
-  fk: Partial<Record<'filiadoId' | 'dependenteId' | 'funcionarioId' | 'prestadorId', string>>;
+  fk: Partial<Record<'filiadoId' | 'dependenteId' | 'colaboradorId', string>>;
 }
+
+/** Motivo legível quando o colaborador não está apto a entrar. */
+const STATUS_COLAB: Record<StatusColaborador, string> = {
+  ATIVO: 'ativo',
+  INATIVO: 'inativo',
+  AFASTADO: 'afastado',
+  FERIAS: 'de férias',
+  DESLIGADO: 'desligado',
+};
 
 @Injectable()
 export class PresencasService {
@@ -105,38 +113,41 @@ export class PresencasService {
       };
     }
 
-    if (tipo === 'funcionario') {
-      const f = await this.prisma.funcionario.findUnique({ where: { id: payload.id } });
-      if (!f) throw new NotFoundException('Funcionário não encontrado');
-      const valido = this.qr.validarAssinatura(payload, f.qrToken);
-      const ativo = f.status === StatusFuncionario.ATIVO;
-      return {
-        tipo: TipoPessoa.FUNCIONARIO,
-        id: f.id,
-        nome: f.nome,
-        fotoThumbKey: f.fotoThumbKey,
-        liberado: valido && ativo,
-        motivo: !valido ? 'QR Code inválido' : ativo ? 'Entrada liberada' : 'Funcionário inativo',
-        qrToken: f.qrToken,
-        fk: { funcionarioId: f.id },
-      };
-    }
+    /**
+     * COLABORADOR — a equipe do sindicato, cadastro único.
+     *
+     * Substitui os antigos 'funcionario' e 'prestador', que liam tabelas
+     * separadas: o crachá trazia dados que ninguém atualizava, porque a edição
+     * acontecia em Colaboradores e o QR apontava para outro registro.
+     *
+     * Só ATIVO entra. Afastado, de férias, inativo e desligado são recusados
+     * com o motivo na tela — a portaria precisa saber POR QUE negou, e não
+     * apenas que negou. Contrato vencido (PJ/terceirizado) também barra.
+     */
+    if (tipo === 'colaborador') {
+      const c = await this.prisma.colaborador.findUnique({ where: { id: payload.id } });
+      if (!c) throw new NotFoundException('Colaborador não encontrado');
+      const valido = this.qr.validarAssinatura(payload, c.qrToken);
+      const ativo = c.status === StatusColaborador.ATIVO;
+      const vigente = !c.vencimentoContrato || c.vencimentoContrato >= new Date();
 
-    if (tipo === 'prestador') {
-      const p = await this.prisma.prestador.findUnique({ where: { id: payload.id } });
-      if (!p) throw new NotFoundException('Prestador não encontrado');
-      const valido = this.qr.validarAssinatura(payload, p.qrToken);
-      const ativo = p.status === StatusGenerico.ATIVO;
-      const vigente = !p.vigenciaFim || p.vigenciaFim >= new Date();
+      const motivo = !valido
+        ? 'QR Code inválido'
+        : !ativo
+          ? `Colaborador ${STATUS_COLAB[c.status]}`
+          : !vigente
+            ? 'Contrato fora de vigência'
+            : 'Entrada liberada';
+
       return {
-        tipo: TipoPessoa.PRESTADOR,
-        id: p.id,
-        nome: p.nome,
-        fotoThumbKey: p.fotoThumbKey,
+        tipo: TipoPessoa.COLABORADOR,
+        id: c.id,
+        nome: c.nome,
+        fotoThumbKey: c.fotoThumbKey,
         liberado: valido && ativo && vigente,
-        motivo: !valido ? 'QR Code inválido' : !ativo ? 'Prestador inativo' : !vigente ? 'Contrato fora de vigência' : 'Entrada liberada',
-        qrToken: p.qrToken,
-        fk: { prestadorId: p.id },
+        motivo,
+        qrToken: c.qrToken,
+        fk: { colaboradorId: c.id },
       };
     }
 

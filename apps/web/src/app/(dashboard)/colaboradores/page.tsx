@@ -4,14 +4,17 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus, Search, Eye, Pencil, Trash2, ShieldCheck } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { StatusModal } from '@/components/colaboradores/status-modal';
+import { ListasApoioModal } from '@/components/colaboradores/listas-apoio-modal';
 import { mascararCpf } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
+import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import {
   Colaborador,
   listarColaboradores,
@@ -24,12 +27,19 @@ import {
 
 export default function ColaboradoresPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const ehAdmin = podeExcluir(user?.role);
+  // Cargos e departamentos seguem a permissão de Colaboradores: quem edita o
+  // cadastro é quem precisa manter as listas que o alimentam.
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'colaboradores') === 'EDITAR';
+
   const [busca, setBusca] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [excluir, setExcluir] = useState<Colaborador | null>(null);
   const [removendo, setRemovendo] = useState(false);
   const [statusDe, setStatusDe] = useState<Colaborador | null>(null);
+  const [listasOpen, setListasOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['colaboradores', busca, status, page],
@@ -66,9 +76,16 @@ export default function ColaboradoresPage() {
           <h2 className="text-2xl font-bold">Colaboradores</h2>
           <p className="text-sm text-muted-foreground">{data?.total ?? 0} cadastrados</p>
         </div>
-        <Link href="/colaboradores/novo">
-          <Button><Plus className="h-4 w-4" /> Novo colaborador</Button>
-        </Link>
+        <div className="flex gap-2">
+          {podeEditar && (
+            <Button variant="outline" onClick={() => setListasOpen(true)}>
+              <SlidersHorizontal className="h-4 w-4" /> Cargos e Departamentos
+            </Button>
+          )}
+          <Link href="/colaboradores/novo">
+            <Button><Plus className="h-4 w-4" /> Novo colaborador</Button>
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -122,7 +139,10 @@ export default function ColaboradoresPage() {
                         <Link href={`/colaboradores/${c.id}`} title="Detalhes"><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
                         <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
                         <Link href={`/colaboradores/${c.id}/editar`} title="Editar"><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
-                        <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" title="Excluir" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
+                        {/* Só o Administrador apaga — regra global do sistema. */}
+                        {ehAdmin && (
+                          <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" title="Excluir" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -146,7 +166,10 @@ export default function ColaboradoresPage() {
                     <Link href={`/colaboradores/${c.id}`}><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
                     <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
                     <Link href={`/colaboradores/${c.id}/editar`}><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
-                    <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
+                    {/* Só o Administrador apaga — regra global do sistema. */}
+                    {ehAdmin && (
+                      <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
+                    )}
                   </div>
                 </div>
                 <div className="mt-1.5"><Badge className={STATUS_COLAB_COR[c.status]}>{STATUS_COLAB_LABEL[c.status]}</Badge></div>
@@ -189,6 +212,13 @@ export default function ColaboradoresPage() {
           onConcluido={() => qc.invalidateQueries({ queryKey: ['colaboradores'] })}
         />
       )}
+
+      <ListasApoioModal
+        open={listasOpen}
+        onClose={() => setListasOpen(false)}
+        podeEditar={podeEditar}
+        podeExcluir={ehAdmin}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { IsDataNascimento, IsDataPassada } from '../../../common/validators/data.validators';
 import {
   IsDateString,
   IsEmail,
@@ -20,10 +21,10 @@ export class CreateColaboradorDto {
   @IsOptional() @IsEnum(StatusColaborador) status?: StatusColaborador;
 
   @ApiPropertyOptional() @IsOptional() @IsString() fotoUrl?: string;
-  @ApiPropertyOptional() @IsOptional() @IsDateString() dataNascimento?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDataNascimento() dataNascimento?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() telefone?: string;
   @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
-  @ApiPropertyOptional() @IsOptional() @IsDateString() dataAdmissao?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDataPassada() dataAdmissao?: string;
 
   // Endereço
   @ApiPropertyOptional() @IsOptional() @IsString() cep?: string;
