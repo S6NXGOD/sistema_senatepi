@@ -176,6 +176,38 @@ export class CobrancasService {
     return { filiado, cobrancas, resumo };
   }
 
+  /**
+   * O filiado está em dia com a contribuição?
+   *
+   * Existe para que OUTROS módulos (hoje o check-in do Plenário Virtual)
+   * consultem a adimplência sem reimplementar o critério. A definição de
+   * "vencida" vive num lugar só — `resumoFinanceiro`, logo abaixo — e é
+   * `status = VENCIDO` OU `pendente com vencimento já passado`.
+   *
+   * Uma segunda implementação em outro módulo divergiria com o tempo, e no dia
+   * em que divergisse alguém seria barrado numa assembleia por um critério que
+   * o financeiro não reconhece. Por isso este método é público e aquele
+   * continua privado.
+   *
+   * Quem não tem cobrança nenhuma é considerado ADIMPLENTE: a ausência de
+   * carnê é o caso da maioria da base histórica, e tratá-la como dívida
+   * barraria da assembleia justamente quem nunca deveu nada.
+   */
+  async situacaoFinanceira(filiadoId: string) {
+    const parcelas = await this.prisma.parcelaCobranca.findMany({
+      where: { cobranca: { filiadoId } },
+      select: { valor: true, status: true, dataVencimento: true },
+    });
+
+    const resumo = this.resumoFinanceiro(parcelas, this.hojeUTC());
+    return {
+      adimplente: resumo.qtdVencido === 0,
+      parcelasVencidas: resumo.qtdVencido,
+      totalVencido: resumo.totalVencido,
+      temCobrancas: parcelas.length > 0,
+    };
+  }
+
   /** Consolida totais por situação (vencido = em aberto além do vencimento). */
   private resumoFinanceiro(
     parcelas: { valor: unknown; status: StatusParcela; dataVencimento: Date }[],

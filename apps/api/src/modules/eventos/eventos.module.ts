@@ -11,10 +11,16 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
-import { StatusEvento, TipoEvento, UserRole } from '@prisma/client';
+import {
+  IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUrl,
+} from 'class-validator';
+import { Prisma, StatusEvento, TipoEvento, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CobrancasModule } from '../cobrancas/cobrancas.module';
+import { CheckinService } from './checkin.service';
+import { CheckinPublicoController } from './checkin.controller';
+import { lerConfiguracoes, normalizarConfiguracoes } from './configuracoes-evento';
 
 class CreateEventoDto {
   @ApiProperty() @IsString() nome: string;
@@ -27,6 +33,23 @@ class CreateEventoDto {
   @IsOptional() @IsEnum(TipoEvento) tipo?: TipoEvento;
   @ApiPropertyOptional({ enum: StatusEvento })
   @IsOptional() @IsEnum(StatusEvento) status?: StatusEvento;
+
+  /**
+   * Link da videoconferência. Colado à mão — Meet, Zoom ou Teams.
+   * A geração automática pelo Google Calendar entra depois, como opção.
+   */
+  @ApiPropertyOptional() @IsOptional() @IsUrl() linkReuniao?: string;
+  @ApiPropertyOptional() @IsOptional() @IsUrl() urlVideoDrive?: string;
+  /** Ata em texto — a transcrição vem do Meet, ligada pelo próprio host. */
+  @ApiPropertyOptional() @IsOptional() @IsString() textoAta?: string;
+
+  /**
+   * Chaves do "camaleão". Aceita objeto solto de propósito: quem valida é
+   * `normalizarConfiguracoes`, que descarta o que não reconhece. Um DTO
+   * espelhando cada chave duplicaria o contrato e os dois divergiriam.
+   */
+  @ApiPropertyOptional({ type: Object })
+  @IsOptional() @IsObject() configuracoes?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -39,6 +62,10 @@ export class EventosService {
         ...dto,
         dataInicio: new Date(dto.dataInicio),
         dataFim: dto.dataFim ? new Date(dto.dataFim) : undefined,
+        // Normaliza ANTES de gravar: assim o banco nunca acumula chave
+        // desconhecida nem `"habilitarVotacao": "sim"`, e quem abrir o
+        // registro daqui a um ano entende o que está lá.
+        configuracoes: normalizarConfiguracoes(dto.configuracoes) as unknown as Prisma.InputJsonValue,
       },
     });
   }
@@ -53,10 +80,14 @@ export class EventosService {
   async findOne(id: string) {
     const e = await this.prisma.evento.findUnique({
       where: { id },
-      include: { _count: { select: { presencas: true } } },
+      include: { _count: { select: { presencas: true, pautas: true, sorteios: true } } },
     });
     if (!e) throw new NotFoundException('Evento não encontrado');
-    return e;
+    // Devolve as configurações COM os padrões já aplicados. A tela precisa
+    // saber o valor efetivo — um JSON `{}` no banco significa "tudo no padrão",
+    // e mandar o objeto vazio faria a interface desenhar todas as chaves como
+    // desligadas, inclusive as que têm padrão diferente disso.
+    return { ...e, configuracoes: lerConfiguracoes(e.configuracoes) };
   }
 
   async update(id: string, dto: Partial<CreateEventoDto>) {
@@ -67,6 +98,11 @@ export class EventosService {
         ...dto,
         dataInicio: dto.dataInicio ? new Date(dto.dataInicio) : undefined,
         dataFim: dto.dataFim ? new Date(dto.dataFim) : undefined,
+        // Só toca nas configurações se vierem no payload: um PATCH de nome não
+        // pode zerar as chaves do evento de volta ao padrão.
+        configuracoes: dto.configuracoes
+          ? (normalizarConfiguracoes(dto.configuracoes) as unknown as Prisma.InputJsonValue)
+          : undefined,
       },
     });
   }
@@ -105,8 +141,11 @@ class EventosController {
 }
 
 @Module({
-  controllers: [EventosController],
-  providers: [EventosService],
+  // CobrancasModule entra para o check-in poder consultar a adimplência pela
+  // regra do financeiro, em vez de reimplementá-la aqui.
+  imports: [CobrancasModule],
+  controllers: [EventosController, CheckinPublicoController],
+  providers: [EventosService, CheckinService],
   exports: [EventosService],
 })
 export class EventosModule {}
