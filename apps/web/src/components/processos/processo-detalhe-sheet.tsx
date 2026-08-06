@@ -82,6 +82,8 @@ export function ProcessoDetalheSheet({
   const [aba, setAba] = useState<Aba>('timeline');
   const [busca, setBusca] = useState('');
   const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'INTERNA' | 'DATAJUD'>('todas');
+  /** Instância escolhida na linha do tempo; null = todas. */
+  const [filtroInstancia, setFiltroInstancia] = useState<string | null>(null);
   const [confirmarExcluir, setConfirmarExcluir] = useState(false);
   const [movParaExcluir, setMovParaExcluir] = useState<string | null>(null);
   const [registrando, setRegistrando] = useState(false);
@@ -138,7 +140,7 @@ export function ProcessoDetalheSheet({
   });
 
   useEffect(() => {
-    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); }
+    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancia(null); }
   }, [open, processoId]);
 
   const recarregar = () => {
@@ -174,16 +176,22 @@ export function ProcessoDetalheSheet({
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível remover.'),
   });
 
-  // Filtro da linha do tempo (busca textual + origem).
+  // Filtro da linha do tempo (busca textual + origem + instância).
   const timeline = useMemo(() => {
     const itens = p?.linhaDoTempo ?? [];
     const termo = busca.trim().toLowerCase();
     return itens.filter((i) => {
       if (filtroOrigem !== 'todas' && i.origem !== filtroOrigem) return false;
+      // Filtro por grau só se aplica ao que VEIO do tribunal: andamento interno
+      // da equipe é do processo, não de uma instância. Escondê-lo ao filtrar um
+      // grau apagaria da tela justamente as anotações da própria casa.
+      if (filtroInstancia && i.origem === 'DATAJUD' && i.instanciaId !== filtroInstancia) {
+        return false;
+      }
       if (!termo) return true;
       return i.descricao.toLowerCase().includes(termo);
     });
-  }, [p?.linhaDoTempo, busca, filtroOrigem]);
+  }, [p?.linhaDoTempo, busca, filtroOrigem, filtroInstancia]);
 
   const origem = p?.atendimentos?.[0];
 
@@ -288,12 +296,30 @@ export function ProcessoDetalheSheet({
 
                 {p && (
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    {p.advogado && (
-                      <span>
-                        Responsável: <strong className="text-foreground">{p.advogado.nomeExibicao || p.advogado.nome}</strong>
-                        {p.totais.advogados > 1 && ` +${p.totais.advogados - 1}`}
-                      </span>
-                    )}
+                    {/* Atalho para a equipe. "Gerenciar equipe" existe desde
+                        sempre, mas dentro da aba Partes — longe de onde o nome
+                        do responsável aparece, que é onde se pensa nele. */}
+                    <button
+                      type="button"
+                      onClick={() => setAba('partes')}
+                      className="group inline-flex items-center gap-1 hover:text-foreground"
+                      title="Ver e gerenciar os advogados do processo"
+                    >
+                      {p.advogado ? (
+                        <>
+                          Responsável:{' '}
+                          <strong className="text-foreground group-hover:underline">
+                            {p.advogado.nomeExibicao || p.advogado.nome}
+                          </strong>
+                          {p.totais.advogados > 1 && ` +${p.totais.advogados - 1}`}
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                          <AlertTriangle className="h-3 w-3" /> Sem advogado
+                        </span>
+                      )}
+                      <Users className="h-3 w-3 opacity-0 transition group-hover:opacity-60" />
+                    </button>
                     {/* A linha do filiado NUNCA some — sem vínculo vira alerta acionável. */}
                     {p.filiado ? (
                       <span>
@@ -508,6 +534,59 @@ export function ProcessoDetalheSheet({
                       DataJud não as devolve (verificado em TJPI, TRT22, TJSP e
                       TRF1). Elas são cadastradas pela equipe e vivem na aba
                       "Partes" — que é a fonte única de quem processou quem. */}
+
+                  {/* SELETOR DE INSTÂNCIA — só quando o processo corre em mais
+                      de um grau. Com uma instância só, um seletor de um item é
+                      ruído. É o filtro que o advogado usa para ler o 1º grau sem
+                      o recurso no meio, e vice-versa. */}
+                  {(p.instancias?.length ?? 0) > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Instância
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFiltroInstancia(null)}
+                        className={cn(
+                          'rounded-full px-3 py-1 text-xs font-medium transition',
+                          !filtroInstancia
+                            ? 'bg-senatepi-800 text-white shadow-sm'
+                            : 'bg-muted text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        Todas
+                      </button>
+                      {p.instancias.map((i) => (
+                        <button
+                          key={i.id}
+                          type="button"
+                          onClick={() => setFiltroInstancia(i.id)}
+                          title={[i.orgaoJulgador, i.baixada ? 'baixado' : 'ativo'].filter(Boolean).join(' · ')}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
+                            filtroInstancia === i.id
+                              ? 'bg-senatepi-800 text-white shadow-sm'
+                              : 'bg-muted text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {rotuloGrau(i.grau)}
+                          <span className={cn('opacity-70', filtroInstancia === i.id && 'opacity-90')}>
+                            {i._count?.movimentacoes ?? 0}
+                          </span>
+                          {/* Grau baixado continua visível: o histórico dele é o
+                              que explica de onde o processo veio. */}
+                          {i.baixada && (
+                            <span
+                              className={cn(
+                                'h-1.5 w-1.5 rounded-full',
+                                filtroInstancia === i.id ? 'bg-white/70' : 'bg-muted-foreground/50',
+                              )}
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Busca + filtro */}
                   <div className="flex flex-col gap-2 sm:flex-row">

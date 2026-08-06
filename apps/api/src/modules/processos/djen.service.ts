@@ -99,6 +99,29 @@ interface ItemBruto {
 const MAX_PAGINAS = 20;
 const ITENS_POR_PAGINA = 100;
 
+/**
+ * LIMITE DE REQUISIÇÕES DO DJEN — medido, não estimado.
+ *
+ * A API responde com `X-RateLimit-Limit: 20` e `X-RateLimit-Remaining`, e a
+ * janela repõe o saldo em ~60 s (verificado: seis chamadas seguidas levaram o
+ * saldo de 19 a 14, e um minuto depois ele voltou a 19).
+ *
+ * Estourar não devolve 429: o CloudFront à frente da API corta com **403**. Foi
+ * o que apareceu como "O DJEN retornou HTTP 403" ao clicar em "Buscar no DJEN" —
+ * a paginação disparava até 20 chamadas em rajada e consumia a cota inteira
+ * numa tacada.
+ *
+ * O teto local fica ABAIXO do limite real de propósito: o saldo é por IP, e a
+ * varredura noturna, o botão da tela e uma segunda réplica da API dividem a
+ * mesma cota sem saber uma da outra.
+ */
+const LIMITE_PADRAO_POR_MINUTO = 14;
+const JANELA_MS = 60_000;
+/** Abaixo disto, espera a janela virar em vez de gastar o resto do saldo. */
+const RESERVA_MINIMA = 2;
+/** Tentativas extras quando o CNJ corta por excesso (403/429). */
+const MAX_TENTATIVAS = 3;
+
 @Injectable()
 export class DjenService {
   private readonly logger = new Logger(DjenService.name);
@@ -108,11 +131,28 @@ export class DjenService {
   /** Janela de dias que cada varredura cobre para trás. */
   readonly janelaDias: number;
 
+  /** Teto local de requisições por minuto (fica abaixo do limite real do CNJ). */
+  private readonly limitePorMinuto: number;
+  /** Instantes das requisições feitas na janela corrente. */
+  private readonly historico: number[] = [];
+  /**
+   * Fila de um: TODA chamada ao DJEN passa por aqui, em série.
+   *
+   * Sem isto, duas varreduras simultâneas (o robô e alguém clicando no botão)
+   * consultariam o mesmo contador ao mesmo tempo, cada uma achando que tem saldo
+   * — e as duas estourariam junto.
+   */
+  private fila: Promise<unknown> = Promise.resolve();
+  /** Último saldo informado pelo próprio CNJ (`X-RateLimit-Remaining`). */
+  private saldoInformado: number | null = null;
+
   constructor(private readonly config: ConfigService) {
     this.baseUrl =
       this.config.get<string>('DJEN_BASE_URL') || 'https://comunicaapi.pje.jus.br/api/v1';
     this.timeoutMs = Number(this.config.get('DJEN_TIMEOUT_MS')) || 30_000;
     this.janelaDias = Number(this.config.get('DJEN_JANELA_DIAS')) || 3;
+    this.limitePorMinuto =
+      Number(this.config.get('DJEN_REQ_POR_MINUTO')) || LIMITE_PADRAO_POR_MINUTO;
     this.ativa = flagLigada(this.config.get<string>('DJEN_INTEGRACAO'));
   }
 
@@ -202,20 +242,63 @@ export class DjenService {
     return acumulado;
   }
 
-  private async consultar(params: Record<string, string>): Promise<ComunicacaoDjenDto[]> {
+  /**
+   * Enfileira a consulta e respeita a cota antes de disparar.
+   *
+   * Todas as chamadas passam por aqui em SÉRIE. Paralelismo aqui não traria
+   * ganho — a cota é por minuto, não por conexão — e traria o 403.
+   */
+  private consultar(params: Record<string, string>): Promise<ComunicacaoDjenDto[]> {
+    const proxima = this.fila.then(() => this.consultarAgora(params));
+    // A fila não pode morrer por causa de uma consulta que falhou: o `catch`
+    // aqui só a mantém encadeada; o erro segue para quem chamou.
+    this.fila = proxima.catch(() => undefined);
+    return proxima;
+  }
+
+  private async consultarAgora(
+    params: Record<string, string>,
+    tentativa = 1,
+  ): Promise<ComunicacaoDjenDto[]> {
+    await this.aguardarCota();
+
     const url = `${this.baseUrl}/comunicacao?${new URLSearchParams(params).toString()}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
+      this.historico.push(Date.now());
       const res = await fetch(url, {
         headers: { Accept: 'application/json' },
         signal: controller.signal,
       });
 
+      // O CNJ informa o saldo restante a cada resposta — usar o número dele é
+      // melhor que confiar só na nossa contagem, que não enxerga outra réplica
+      // da API consumindo a mesma cota do mesmo IP.
+      const restante = Number(res.headers.get('x-ratelimit-remaining'));
+      this.saldoInformado = Number.isFinite(restante) ? restante : null;
+
+      // 403 é como o CloudFront do CNJ corta excesso de requisições — não é
+      // falta de permissão. 429 aparece em alguns pontos. Ambos merecem espera
+      // e nova tentativa, não uma mensagem de erro para o usuário.
+      if ((res.status === 403 || res.status === 429) && tentativa < MAX_TENTATIVAS) {
+        clearTimeout(timer);
+        const espera = this.esperaAteJanelaVirar();
+        this.logger.warn(
+          `[DJEN] HTTP ${res.status} (cota excedida) — aguardando ${Math.ceil(espera / 1000)}s ` +
+            `e tentando de novo (${tentativa + 1}/${MAX_TENTATIVAS}).`,
+        );
+        this.historico.length = 0; // a janela vai virar; a contagem antiga não vale mais
+        await dormir(espera);
+        return this.consultarAgora(params, tentativa + 1);
+      }
+
       if (!res.ok) {
         throw new DjenIndisponivelError(
-          `O DJEN retornou HTTP ${res.status}. Tente novamente em instantes.`,
+          res.status === 403 || res.status === 429
+            ? 'O DJEN está limitando as consultas no momento (cota por minuto). Tente de novo em um minuto.'
+            : `O DJEN retornou HTTP ${res.status}. Tente novamente em instantes.`,
           res.status,
         );
       }
@@ -237,6 +320,39 @@ export class DjenService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Segura a próxima chamada até haver saldo na janela de um minuto. */
+  private async aguardarCota(): Promise<void> {
+    const agora = Date.now();
+    // Descarta o que saiu da janela.
+    while (this.historico.length && agora - this.historico[0] >= JANELA_MS) {
+      this.historico.shift();
+    }
+
+    // O CNJ disse que está no fim — respeita o número dele, não o nosso.
+    if (this.saldoInformado !== null && this.saldoInformado <= RESERVA_MINIMA) {
+      const espera = this.esperaAteJanelaVirar();
+      this.logger.log(`[DJEN] Saldo do CNJ em ${this.saldoInformado} — pausando ${Math.ceil(espera / 1000)}s.`);
+      this.saldoInformado = null;
+      this.historico.length = 0;
+      await dormir(espera);
+      return;
+    }
+
+    if (this.historico.length < this.limitePorMinuto) return;
+
+    const espera = this.esperaAteJanelaVirar();
+    this.logger.log(`[DJEN] Cota local atingida — pausando ${Math.ceil(espera / 1000)}s.`);
+    await dormir(espera);
+    return this.aguardarCota();
+  }
+
+  /** Quanto falta para a requisição mais antiga sair da janela (+1s de folga). */
+  private esperaAteJanelaVirar(): number {
+    const maisAntiga = this.historico[0];
+    if (!maisAntiga) return JANELA_MS;
+    return Math.max(1_000, JANELA_MS - (Date.now() - maisAntiga) + 1_000);
   }
 
   /**
@@ -300,4 +416,9 @@ function texto(v: unknown): string | null {
 /** Data no formato que a API espera (yyyy-mm-dd). */
 function dataIso(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+/** Pausa simples — usada só para respeitar a cota do CNJ. */
+function dormir(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

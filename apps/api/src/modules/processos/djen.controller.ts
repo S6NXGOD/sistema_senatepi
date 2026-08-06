@@ -103,9 +103,9 @@ export class DjenController {
    * Dispara a varredura completa fora do horário do robô.
    *
    * Restrita a ADMINISTRADOR: percorre a OAB de todos os advogados e consulta o
-   * CNJ dezenas de vezes. Roda SEM espera entre chamadas de propósito — quem
-   * clicou está olhando para a tela; a cadência conservadora existe para o robô
-   * das 05:00, que tem a noite inteira.
+   * CNJ dezenas de vezes. A cadência é imposta pelo próprio `DjenService`, que
+   * respeita a cota de 20 requisições por minuto do CNJ — por isso a varredura
+   * completa pode demorar minutos, e é melhor assim que levar 403 no meio.
    */
   @Post('sincronizar')
   @Roles(UserRole.ADMINISTRADOR)
