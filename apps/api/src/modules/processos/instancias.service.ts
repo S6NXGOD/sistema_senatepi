@@ -46,6 +46,8 @@ export class InstanciasService {
   ): Promise<{ novas: number; enriquecidas: number }> {
     if (!instanciasDoCnj.length) return { novas: 0, enriquecidas: 0 };
 
+    await this.reconciliarInstanciaHerdada(tx, processoId, instanciasDoCnj);
+
     let novas = 0;
     let enriquecidas = 0;
 
@@ -65,6 +67,54 @@ export class InstanciasService {
 
     await this.definirPrincipal(tx, processoId);
     return { novas, enriquecidas };
+  }
+
+  /**
+   * Adota a instância criada pelo BACKFILL, em vez de criar uma segunda ao lado.
+   *
+   * O PROBLEMA QUE ISTO EVITA
+   * A migração deu a cada processo já existente uma instância, com o `docId`
+   * REMONTADO a partir do que estava gravado: `<TRIBUNAL>_<GRAU>_<NPU>`. Isso
+   * casa com o `_id` real do CNJ na esmagadora maioria dos casos — mas não em
+   * todos: se o processo foi importado sem `grau` (o CNJ pode omitir o campo), o
+   * backfill chutou "G1". Sendo o processo, na verdade, de 2º grau, o `docId`
+   * remontado não casaria com nada, e a primeira sincronização criaria uma
+   * SEGUNDA instância — trazendo os mesmos andamentos de novo, agora sob outra
+   * instância. O processo passaria a exibir o histórico em dobro.
+   *
+   * A REGRA: um processo com UMA instância gravada, e o CNJ devolvendo UMA
+   * instância, são necessariamente a mesma coisa — não existe ambiguidade
+   * possível. Então o `docId` (e o grau) da linha existente são corrigidos para
+   * os verdadeiros, e o histórico dela é preservado no lugar.
+   *
+   * Só age nesse caso exato. Com duas ou mais instâncias de qualquer lado, o
+   * casamento por `docId` já é confiável e mexer seria adivinhação.
+   */
+  private async reconciliarInstanciaHerdada(
+    tx: Prisma.TransactionClient,
+    processoId: string,
+    instanciasDoCnj: InstanciaDatajud[],
+  ): Promise<void> {
+    if (instanciasDoCnj.length !== 1) return;
+
+    const gravadas = await tx.processoInstancia.findMany({
+      where: { processoId },
+      select: { id: true, docId: true, grau: true },
+    });
+    if (gravadas.length !== 1) return;
+
+    const gravada = gravadas[0];
+    const doCnj = instanciasDoCnj[0];
+    if (gravada.docId === doCnj.docId) return; // já é a mesma linha
+
+    await tx.processoInstancia.update({
+      where: { id: gravada.id },
+      data: { docId: doCnj.docId, grau: (doCnj.grau ?? gravada.grau).toUpperCase() },
+    });
+    this.logger.log(
+      `[INSTANCIAS] Processo ${processoId}: instância herdada "${gravada.docId}" ` +
+        `reconhecida como "${doCnj.docId}" — histórico preservado.`,
+    );
   }
 
   /**

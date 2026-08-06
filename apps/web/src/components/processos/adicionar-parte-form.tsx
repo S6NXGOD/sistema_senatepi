@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Building2, Landmark, Loader2, Plus, Search, User as UserIcon, X } from 'lucide-react';
+import { AlertTriangle, Building2, Landmark, Loader2, Plus, Search, User as UserIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -67,6 +67,8 @@ export function AdicionarParteForm({
   const [nome, setNome] = useState('');
   const [documento, setDocumento] = useState('');
   const [salvarNoCadastro, setSalvarNoCadastro] = useState(true);
+  /** Cadastros parecidos com o nome digitado — evita criar o mesmo réu de novo. */
+  const [semelhantes, setSemelhantes] = useState<ParteExterna[]>([]);
 
   useEffect(() => {
     const termo = buscaCadastro.trim();
@@ -80,6 +82,26 @@ export function AdicionarParteForm({
     }, 300);
     return () => clearTimeout(t);
   }, [buscaCadastro, fonte]);
+
+  /**
+   * Enquanto se digita o nome de uma parte NOVA, procura semelhantes no cadastro.
+   *
+   * É a rede que faltava. O cadastro só recusa duplicata quando há CNPJ/CPF
+   * informado — sem documento, nada impede "PRONTOCARE" nascer ao lado de
+   * "PRONTOCARE CLINICA E ATENDIMENTOS LTDA". Cada nome novo quebra a conta de
+   * "quantos processos temos contra esta empresa", que é a razão de o cadastro
+   * existir. Aqui os candidatos aparecem ANTES de salvar, para que a escolha
+   * seja reaproveitar em vez de recriar.
+   */
+  useEffect(() => {
+    const termo = nome.trim();
+    if (fonte !== 'NOVO' || termo.length < 3) { setSemelhantes([]); return; }
+    const t = setTimeout(async () => {
+      try { setSemelhantes((await listarPartesExternas({ busca: termo, pageSize: 5 })).items); }
+      catch { setSemelhantes([]); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [nome, fonte]);
 
   useEffect(() => {
     const termo = buscaFiliado.trim();
@@ -303,6 +325,43 @@ export function AdicionarParteForm({
             inputMode="numeric"
             className="font-mono"
           />
+
+          {/* Semelhantes já cadastrados. O cadastro só barra duplicata quando há
+              CNPJ informado — sem documento, "PRONTOCARE" e "PRONTOCARE CLINICA
+              E ATENDIMENTOS LTDA" convivem, e a contagem de processos por
+              empresa se divide entre os dois. Mostrar antes de salvar é o que
+              transforma "criar de novo" em "usar o que existe". */}
+          {semelhantes.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                Já existe no cadastro — use, em vez de criar outro
+              </p>
+              <ul className="space-y-1">
+                {semelhantes.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => { setFonte('CADASTRO'); setSelecionada(c); setNome(''); setDocumento(''); }}
+                      className="flex w-full items-center gap-2 rounded bg-card px-2 py-1.5 text-left transition hover:bg-muted"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">{c.nome}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {TIPO_PARTE_LABEL[c.tipo]}
+                          {c.documento ? ` · ${formatDocumento(c.documento)}` : ' · sem CNPJ'}
+                          {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[11px] font-medium text-senatepi-800 dark:text-senatepi-400">
+                        usar esta
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <label className="flex cursor-pointer select-none items-start gap-2 text-xs">
             <input
               type="checkbox"
