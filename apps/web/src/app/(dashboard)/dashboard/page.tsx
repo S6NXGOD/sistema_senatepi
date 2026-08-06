@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, Activity, RefreshCw, Cake, Timer,
-  CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle,
+  CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -22,6 +22,7 @@ import {
   type ResumoDashboard, type FalhaDatajud,
 } from '@/lib/dashboard';
 import { formatNPU } from '@/lib/processos';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   KpiCard, SectionCard, EmptyState, CompromissoRow, AvatarMini,
@@ -41,7 +42,7 @@ export default function DashboardPage() {
   const role = user?.role as PerfilUsuario;
   const perms = user?.permissoes;
 
-  const { data, isLoading, dataUpdatedAt } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard-resumo'],
     queryFn: getResumoDashboard,
     refetchInterval: 60_000,
@@ -74,11 +75,59 @@ export default function DashboardPage() {
         atualizadoEm={dataUpdatedAt || undefined}
       />
 
-      {isLoading || !data ? (
+      {/* ORDEM IMPORTA: o erro vem ANTES do esqueleto.
+          A condição antiga era `isLoading || !data`, e ela mentia quando a
+          consulta FALHAVA: `isLoading` volta a false, mas `data` continua
+          indefinido — então a tela ficava em esqueleto para sempre, sem dizer
+          que algo deu errado. Era o "carregando infinito" relatado no celular e
+          no computador. */}
+      {isError ? (
+        <PainelIndisponivel erro={error} onTentar={() => refetch()} tentando={isFetching} />
+      ) : isLoading || !data ? (
         <SkeletonHome />
       ) : (
         <Conteudo data={data} pode={pode} role={role} />
       )}
+    </div>
+  );
+}
+
+/**
+ * O painel não carregou — e diz por quê.
+ *
+ * Uma tela que falha em silêncio custa mais que uma que erra: quem usa fica
+ * esperando, recarrega, reinstala o app e abre chamado. A mensagem técnica
+ * aparece porque é ela que permite dizer ao suporte o que aconteceu.
+ */
+function PainelIndisponivel({
+  erro, onTentar, tentando,
+}: {
+  erro: unknown;
+  onTentar: () => void;
+  tentando: boolean;
+}) {
+  const status = (erro as any)?.response?.status;
+  const detalhe = (erro as any)?.response?.data?.message ?? (erro as Error)?.message;
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-center dark:border-amber-900/50 dark:bg-amber-950/20">
+      <AlertTriangle className="mx-auto mb-2 h-7 w-7 text-amber-600 dark:text-amber-400" />
+      <p className="font-semibold text-amber-900 dark:text-amber-200">
+        Não foi possível carregar o painel
+      </p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-amber-800/90 dark:text-amber-300/90">
+        {status === 401 || status === 403
+          ? 'Sua sessão pode ter expirado. Saia e entre novamente.'
+          : 'O restante do sistema continua funcionando — use o menu para acessar os módulos.'}
+      </p>
+      {detalhe && (
+        <p className="mt-2 break-words font-mono text-[11px] text-amber-700/80 dark:text-amber-400/70">
+          {status ? `HTTP ${status} · ` : ''}{String(detalhe).slice(0, 200)}
+        </p>
+      )}
+      <Button variant="outline" className="mt-3" onClick={onTentar} disabled={tentando}>
+        {tentando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+        Tentar novamente
+      </Button>
     </div>
   );
 }

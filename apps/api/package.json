@@ -18,7 +18,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "prisma:seed:colonia": "ts-node prisma/seed-colonia.ts"
+    "prisma:seed:colonia": "ts-node prisma/seed-colonia.ts",
+    "forcar-logout": "ts-node prisma/scripts/forcar-logout.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

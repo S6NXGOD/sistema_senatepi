@@ -10,6 +10,8 @@ export interface JwtPayload {
   email: string;
   role: string;
   nome: string;
+  /** Emitido em (segundos). Preenchido pelo próprio `@nestjs/jwt`. */
+  iat?: number;
 }
 
 @Injectable()
@@ -35,11 +37,26 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
       select: {
         id: true, email: true, nome: true, nomeExibicao: true,
-        role: true, ativo: true, permissoes: true,
+        role: true, ativo: true, permissoes: true, sessoesValidasApos: true,
       },
     });
     if (!user || !user.ativo) {
       throw new UnauthorizedException('Sessão inválida ou usuário inativo.');
+    }
+
+    // CORTE DE SESSÃO. O token de acesso é um JWT autocontido e válido por 30
+    // dias: apagar refresh tokens não tira ninguém de dentro do sistema, porque
+    // nenhuma requisição chega a precisar de refresh. Comparar o `iat` com o
+    // corte é o que torna o logout forçado imediato.
+    //
+    // Um segundo de tolerância evita derrubar quem acabou de logar no mesmo
+    // instante do corte — `iat` tem resolução de segundos e arredonda para
+    // baixo.
+    if (user.sessoesValidasApos && payload.iat) {
+      const emitidoEm = payload.iat * 1000;
+      if (emitidoEm + 1000 < user.sessoesValidasApos.getTime()) {
+        throw new UnauthorizedException('Sessão encerrada. Entre novamente.');
+      }
     }
     return {
       id: user.id,

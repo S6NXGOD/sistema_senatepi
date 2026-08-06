@@ -156,3 +156,31 @@ npm run dev
 
 **apps/web**
 - `build: next build` · `start: next start` (respeita a `PORT` do Railway)
+
+---
+
+## 9. Forçar logout de todos (ferramenta pontual)
+
+**Não faz parte de nenhuma rotina.** Roda à mão, quando alguém precisa sair de
+um aparelho — conta administrativa usada em demonstração, usuários novos que
+devem passar a entrar com a própria conta, suspeita de senha exposta.
+
+```bash
+# No shell do serviço da API no Railway (a DATABASE_URL já está no ambiente):
+npm run forcar-logout -w @senatepi/api          # pede confirmação (digite SIM)
+npm run forcar-logout -w @senatepi/api -- --sim # sem perguntar
+```
+
+**Por que não basta apagar as sessões.** O token de acesso é um JWT autocontido
+e válido por 30 dias: enquanto ele não expira, o aplicativo nunca pede refresh e
+a sessão continua de pé. O script faz as duas coisas que, juntas, resolvem —
+grava um corte por usuário (`users.sessoes_validas_apos`, conferido no
+`JwtStrategy` contra o `iat` do token) e apaga os refresh tokens, para que
+ninguém receba um token novo logo em seguida.
+
+**Efeito colateral útil:** ao ser desconectado, o aplicativo faz uma navegação
+completa para `/login` — o que também traz a versão nova do front para quem
+estava com o app instalado no celular segurando uma tela antiga.
+
+**O que NÃO acontece:** nenhum dado é apagado, desativado ou alterado. Todos
+voltam a entrar normalmente com a própria senha.
