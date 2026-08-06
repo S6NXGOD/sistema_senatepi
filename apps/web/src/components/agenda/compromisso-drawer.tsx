@@ -333,7 +333,15 @@ export function CompromissoDrawer({
 
             {c.processo && (
               <Bloco titulo="Processo vinculado">
-                <Link href="/processos" className="flex items-center gap-1.5 text-sm text-senatepi-800 hover:underline dark:text-senatepi-400">
+                {/* `?processo=<id>` abre a FICHA daquele processo, não a lista.
+                    Antes o link levava a `/processos` puro: quem clicava caía
+                    na lista inteira e tinha de procurar o processo na mão —
+                    justamente o que o link deveria evitar. A página consome o
+                    parâmetro e o remove da URL ao abrir a ficha. */}
+                <Link
+                  href={`/processos?processo=${c.processo.id}`}
+                  className="flex items-center gap-1.5 text-sm text-senatepi-800 hover:underline dark:text-senatepi-400"
+                >
                   <Gavel className="h-3.5 w-3.5" />
                   {/* Rascunho ainda não tem NPU — mostra o rótulo do processo. */}
                   {c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : (c.processo.titulo || 'Rascunho')}

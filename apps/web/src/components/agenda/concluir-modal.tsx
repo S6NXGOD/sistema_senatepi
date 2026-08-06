@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { listarProcessos, formatNPU } from '@/lib/processos';
+import { SeletorProcesso } from '@/components/processos/seletor-processo';
 import {
   concluirCompromisso, listarResponsaveis, listarDesfechos,
   type Compromisso, type DesfechoOpcao,
@@ -114,12 +114,6 @@ export function ConcluirModal({
     setSegData(diaLocal(data));
   }, [spec, compromisso]);
 
-  // Processos do filiado — é a lista certa para "vincular a existente".
-  const processos = useQuery({
-    queryKey: ['processos-desfecho-agenda', compromisso?.filiado?.id],
-    queryFn: () => listarProcessos({ filiadoId: compromisso?.filiado?.id, pageSize: 50 }),
-    enabled: open && escolhido?.acao === 'VINCULAR_PROCESSO' && !!compromisso?.filiado?.id,
-  });
   const advogados = useQuery({
     queryKey: ['compromissos-responsaveis'],
     queryFn: listarResponsaveis,
@@ -176,7 +170,6 @@ export function ConcluirModal({
     },
   });
 
-  const itensProcesso = processos.data?.items ?? [];
   const exigeObs = !!escolhido?.exigeObs;
   const valido = useMemo(() => {
     if (!escolhido) return false;
@@ -290,29 +283,26 @@ export function ConcluirModal({
           {escolhido?.acao === 'VINCULAR_PROCESSO' && (
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Processo *</label>
+              <SeletorProcesso
+                valor={processoId}
+                onChange={setProcessoId}
+                filiadoId={compromisso.filiado?.id}
+                filiadoNome={compromisso.filiado?.nomeCompleto}
+              />
               {semFiliado ? (
-                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
-                  Esta atividade não tem filiado vinculado — sem ele não dá para listar os processos
-                  dele. Vincule o filiado ao evento antes de usar este desfecho.
+                // Antes esta situação era um beco sem saída: sem filiado, a lista
+                // ficava vazia e o desfecho, impossível de concluir. Agora a busca
+                // continua disponível — o aviso só explica por que não há
+                // sugestão pronta.
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Esta atividade não tem filiado vinculado, então não há processos sugeridos —
+                  use a busca acima para encontrar o processo.
                 </p>
               ) : (
-                <>
-                  <select className={inputCls} value={processoId} onChange={(e) => setProcessoId(e.target.value)}>
-                    <option value="">Selecionar processo…</option>
-                    {itensProcesso.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho'}
-                        {p.classeProcessual ? ` — ${p.classeProcessual}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {!processos.isLoading && itensProcesso.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Este filiado ainda não tem processos. Use <strong>Processo criado</strong> para
-                      abrir um rascunho.
-                    </p>
-                  )}
-                </>
+                <p className="text-[11px] leading-snug text-muted-foreground">
+                  Os processos do filiado aparecem primeiro. Digite para procurar em todo o
+                  acervo, ou use <strong>Virou processo novo</strong> se ele ainda não existe.
+                </p>
               )}
             </div>
           )}

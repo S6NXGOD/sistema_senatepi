@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Compromisso, rotuloTipo, corDeTipo, formatHora, estaAtrasado } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 
@@ -11,13 +12,28 @@ function mesmaData(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+/**
+ * Calendário do mês — bloco FIXO acima do quadro, não uma visão alternativa.
+ *
+ * POR QUE MUDOU DE LUGAR
+ * Antes era uma das duas visões: ou se via o calendário, ou se via o quadro.
+ * Isso obrigava a alternar o tempo todo — o calendário responde "o que tem no
+ * dia 14?" e o quadro responde "o que eu faço agora?", e as duas perguntas
+ * andam juntas. Com ele fixo no topo, clicar num dia passa a FILTRAR o quadro
+ * logo abaixo, que é o uso real.
+ *
+ * `onSelecionarDia` recebe `null` quando o mesmo dia é clicado de novo — clicar
+ * de volta é como se sai do filtro, sem precisar procurar um botão "limpar".
+ */
 export function CalendarioView({
-  compromissos, mes, onMudarMes, onSelecionar,
+  compromissos, mes, onMudarMes, onSelecionar, diaSelecionado, onSelecionarDia,
 }: {
   compromissos: Compromisso[];
   mes: Date;
   onMudarMes: (delta: number) => void;
   onSelecionar: (c: Compromisso) => void;
+  diaSelecionado?: Date | null;
+  onSelecionarDia?: (d: Date | null) => void;
 }) {
   const { tipos } = useTiposEvento();
   const hoje = new Date();
@@ -59,9 +75,22 @@ export function CalendarioView({
         {celulas.map((dia, i) => {
           const foraDoMes = dia.getMonth() !== mes.getMonth();
           const ehHoje = mesmaData(dia, hoje);
+          const selecionado = !!diaSelecionado && mesmaData(dia, diaSelecionado);
           const eventos = eventosDoDia(dia);
           return (
-            <div key={i} className={`min-h-[92px] border-b border-r p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0 ${foraDoMes ? 'bg-muted/20' : ''}`}>
+            <div
+              key={i}
+              // A célula inteira é a área de clique para selecionar o dia; os
+              // botões de evento dentro dela param a propagação, para que clicar
+              // num evento abra o evento em vez de só filtrar o dia.
+              onClick={() => onSelecionarDia?.(selecionado ? null : dia)}
+              className={cn(
+                'min-h-[92px] border-b border-r p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0',
+                onSelecionarDia && 'cursor-pointer transition-colors hover:bg-muted/40',
+                foraDoMes && 'bg-muted/20',
+                selecionado && 'bg-senatepi-50 ring-1 ring-inset ring-senatepi-400 dark:bg-senatepi-900/20',
+              )}
+            >
               <div className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs ${ehHoje ? 'bg-senatepi-700 font-bold text-white' : foraDoMes ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
                 {dia.getDate()}
               </div>
@@ -72,7 +101,7 @@ export function CalendarioView({
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => onSelecionar(c)}
+                      onClick={(e) => { e.stopPropagation(); onSelecionar(c); }}
                       title={`${rotuloTipo(c.tipo, tipos)} · ${c.titulo}`}
                       className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted ${atrasado ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}
                     >

@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
-import { listarProcessos, formatNPU } from '@/lib/processos';
+import { SeletorProcesso } from '@/components/processos/seletor-processo';
 import {
   criarCompromisso, atualizarCompromisso, listarResponsaveis,
   Compromisso, TipoCompromisso, formatData,
@@ -66,11 +66,6 @@ export function CompromissoFormModal({
 
   const { tipos } = useTiposEvento();
   const responsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis, enabled: open });
-  const processos = useQuery({
-    queryKey: ['processos-para-agenda', filiadoId],
-    queryFn: () => listarProcessos({ filiadoId: filiadoId || undefined, pageSize: 50 }),
-    enabled: open,
-  });
 
   useEffect(() => {
     if (!open) return;
@@ -252,14 +247,15 @@ export function CompromissoFormModal({
           {/* Processo vinculado */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm font-medium"><Gavel className="h-4 w-4 text-muted-foreground" /> Processo Vinculado</label>
-            <select className={inputCls} value={processoId} onChange={(e) => setProcessoId(e.target.value)}>
-              <option value="">Selecionar processo…</option>
-              {(processos.data?.items ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {formatNPU(p.numeroCNJ)}{p.classeProcessual ? ` · ${p.classeProcessual}` : ''}
-                </option>
-              ))}
-            </select>
+            {/* Mesmo seletor da conclusão: os processos do filiado escolhido
+                vêm primeiro, e a busca alcança o acervo inteiro. O `<select>`
+                anterior listava no máximo 50 e não tinha como procurar. */}
+            <SeletorProcesso
+              valor={processoId}
+              onChange={setProcessoId}
+              filiadoId={filiadoId || undefined}
+              filiadoNome={filiadoNome || undefined}
+            />
           </div>
 
           {/* Descrição + Obs internas */}
