@@ -24,11 +24,18 @@ export class DjenCronService {
   private readonly DELAY_MIN = 2000;
   private readonly DELAY_MAX = 3000;
   /**
-   * A varredura é bem mais curta que a do DataJud (uma chamada por advogado,
-   * não por processo), mas o complemento por NPU cresce com o acervo. 2h dão
-   * folga larga e ficam muito abaixo do intervalo de 24h entre execuções.
+   * Prazo da trava.
+   *
+   * A duração da rodada é LIMITADA por construção: a cota do CNJ é de 20
+   * requisições por minuto, o serviço se segura em 14, e o complemento por NPU
+   * tem teto de processos por noite (DJEN_MAX_PROCESSOS_POR_RODADA, padrão
+   * 300). No pior caso são ~300 consultas + uma por advogado, ou seja ~25
+   * minutos. Três horas dão folga larga sobre isso e continuam muito abaixo do
+   * intervalo de 24h entre execuções — o que importa é que a trava JAMAIS
+   * expire com a rodada ainda correndo, porque aí duas passariam a disputar a
+   * mesma cota.
    */
-  private readonly TRAVA_TTL_MIN = 120;
+  private readonly TRAVA_TTL_MIN = 180;
 
   constructor(
     private readonly prisma: PrismaService,

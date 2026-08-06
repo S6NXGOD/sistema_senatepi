@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OrigemSincronizacao, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CorrelacaoService } from './correlacao.service';
@@ -52,12 +53,29 @@ export class DjenSyncService {
    */
   private readonly DIAS_SEM_PUBLICACAO = 30;
 
+  /**
+   * Teto de processos consultados um a um por rodada.
+   *
+   * A cota do CNJ é de 20 requisições por minuto, e o serviço se segura em 14.
+   * Sem teto, a lista cresceria com o acervo até a rodada passar do prazo da
+   * trava do job — e duas execuções começariam a se sobrepor.
+   *
+   * 300 por noite ≈ 22 minutos de consultas. Como a ordem é "quem foi
+   * consultado há mais tempo primeiro", o acervo inteiro é coberto em poucas
+   * noites, sem nunca deixar uma fatia esquecida. Ajustável por ambiente.
+   */
+  private readonly maxProcessosPorRodada: number;
+
   constructor(
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
     private readonly djen: DjenService,
     private readonly logSync: SincronizacaoLogService,
     private readonly correlacao: CorrelacaoService,
-  ) {}
+  ) {
+    this.maxProcessosPorRodada =
+      Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
+  }
 
   /**
    * Varredura completa: OAB de cada advogado ativo + complemento por NPU.
@@ -113,6 +131,13 @@ export class DjenSyncService {
         const r = await this.ingerir(recebidas, OrigemSincronizacao.CRON);
         resumo.ingeridas += r.ingeridas;
         resumo.descartadas += r.descartadas;
+        // Carimba mesmo quando não veio nada: o rodízio mede QUANDO olhamos,
+        // não se achamos. Sem isto, um processo silencioso seria reconsultado
+        // toda noite e empurraria os outros para fora da rodada.
+        await this.prisma.processo.update({
+          where: { id: proc.id },
+          data: { ultimaConsultaDjen: new Date() },
+        });
       } catch (err) {
         resumo.falhas++;
         this.logger.warn(`[DJEN-SYNC] Falha no NPU ${proc.numeroCNJ}: ${(err as Error).message}`);
@@ -309,6 +334,11 @@ export class DjenSyncService {
    *
    * Encerrados com instância viva entram também — mesma regra da varredura do
    * DataJud: a baixa é de um grau, não do processo.
+   *
+   * RODÍZIO: ordena por `ultimaConsultaDjen` com os NUNCA consultados primeiro,
+   * e corta no teto da rodada. É o que mantém a duração previsível num acervo
+   * que cresce — e o que garante que a fatia deixada para trás hoje seja a
+   * primeira de amanhã, em vez de ficar no escuro para sempre.
    */
   private processosSemPublicacaoRecente() {
     const desde = new Date(Date.now() - this.DIAS_SEM_PUBLICACAO * 24 * 3_600_000);
@@ -322,7 +352,8 @@ export class DjenSyncService {
         comunicacoes: { none: { createdAt: { gte: desde } } },
       },
       select: { id: true, numeroCNJ: true },
-      orderBy: { ultimaSincronizacao: 'asc' },
+      orderBy: { ultimaConsultaDjen: { sort: 'asc', nulls: 'first' } },
+      take: this.maxProcessosPorRodada,
     });
   }
 }

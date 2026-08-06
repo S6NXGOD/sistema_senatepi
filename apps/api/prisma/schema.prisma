@@ -1743,6 +1743,15 @@ model Processo {
   etiquetas           String[]         @default([])
   statusInterno       StatusProcesso   @default(ATIVO) @map("status_interno")
   ultimaSincronizacao DateTime?        @map("ultima_sincronizacao")
+  /// Última vez que ESTE processo foi consultado no DJEN, um a um.
+  ///
+  /// Existe para dar rodízio à varredura complementar. A consulta por OAB cobre
+  /// o caso comum; a consulta processo a processo cobre a exceção (processo em
+  /// que a OAB do sindicato não consta do polo) e custa uma requisição por
+  /// processo — contra uma cota de 20 por minuto no CNJ. Sem este carimbo, o
+  /// robô não teria como saber quem já foi visto e varreria sempre a mesma
+  /// fatia, deixando o resto no escuro para sempre.
+  ultimaConsultaDjen  DateTime?        @map("ultima_consulta_djen")
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
 

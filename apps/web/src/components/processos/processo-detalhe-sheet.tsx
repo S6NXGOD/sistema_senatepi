@@ -8,7 +8,7 @@ import {
   X, RefreshCw, Loader2, Landmark, FileText, CalendarDays, ShieldCheck, Trash2,
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
-  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox,
+  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -82,8 +82,15 @@ export function ProcessoDetalheSheet({
   const [aba, setAba] = useState<Aba>('timeline');
   const [busca, setBusca] = useState('');
   const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'INTERNA' | 'DATAJUD'>('todas');
-  /** Instância escolhida na linha do tempo; null = todas. */
-  const [filtroInstancia, setFiltroInstancia] = useState<string | null>(null);
+  /**
+   * Instâncias escolhidas na linha do tempo. Conjunto VAZIO = todas.
+   *
+   * Multi-seleção porque a pergunta real do advogado raramente é "só um grau":
+   * é "1º e 2º juntos, sem o juizado", ou "só a turma recursal". O filtro é
+   * client-side sobre dados já carregados — marcar e desmarcar não custa nada
+   * ao servidor.
+   */
+  const [filtroInstancias, setFiltroInstancias] = useState<Set<string>>(new Set());
   const [confirmarExcluir, setConfirmarExcluir] = useState(false);
   const [movParaExcluir, setMovParaExcluir] = useState<string | null>(null);
   const [registrando, setRegistrando] = useState(false);
@@ -140,7 +147,7 @@ export function ProcessoDetalheSheet({
   });
 
   useEffect(() => {
-    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancia(null); }
+    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancias(new Set()); }
   }, [open, processoId]);
 
   const recarregar = () => {
@@ -185,13 +192,17 @@ export function ProcessoDetalheSheet({
       // Filtro por grau só se aplica ao que VEIO do tribunal: andamento interno
       // da equipe é do processo, não de uma instância. Escondê-lo ao filtrar um
       // grau apagaria da tela justamente as anotações da própria casa.
-      if (filtroInstancia && i.origem === 'DATAJUD' && i.instanciaId !== filtroInstancia) {
+      if (
+        filtroInstancias.size > 0 &&
+        i.origem === 'DATAJUD' &&
+        (!i.instanciaId || !filtroInstancias.has(i.instanciaId))
+      ) {
         return false;
       }
       if (!termo) return true;
       return i.descricao.toLowerCase().includes(termo);
     });
-  }, [p?.linhaDoTempo, busca, filtroOrigem, filtroInstancia]);
+  }, [p?.linhaDoTempo, busca, filtroOrigem, filtroInstancias]);
 
   const origem = p?.atendimentos?.[0];
 
@@ -546,45 +557,65 @@ export function ProcessoDetalheSheet({
                       </span>
                       <button
                         type="button"
-                        onClick={() => setFiltroInstancia(null)}
+                        onClick={() => setFiltroInstancias(new Set())}
                         className={cn(
                           'rounded-full px-3 py-1 text-xs font-medium transition',
-                          !filtroInstancia
+                          filtroInstancias.size === 0
                             ? 'bg-senatepi-800 text-white shadow-sm'
                             : 'bg-muted text-muted-foreground hover:text-foreground',
                         )}
                       >
                         Todas
                       </button>
-                      {p.instancias.map((i) => (
-                        <button
-                          key={i.id}
-                          type="button"
-                          onClick={() => setFiltroInstancia(i.id)}
-                          title={[i.orgaoJulgador, i.baixada ? 'baixado' : 'ativo'].filter(Boolean).join(' · ')}
-                          className={cn(
-                            'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
-                            filtroInstancia === i.id
-                              ? 'bg-senatepi-800 text-white shadow-sm'
-                              : 'bg-muted text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          {rotuloGrau(i.grau)}
-                          <span className={cn('opacity-70', filtroInstancia === i.id && 'opacity-90')}>
-                            {i._count?.movimentacoes ?? 0}
-                          </span>
-                          {/* Grau baixado continua visível: o histórico dele é o
-                              que explica de onde o processo veio. */}
-                          {i.baixada && (
-                            <span
-                              className={cn(
-                                'h-1.5 w-1.5 rounded-full',
-                                filtroInstancia === i.id ? 'bg-white/70' : 'bg-muted-foreground/50',
-                              )}
-                            />
-                          )}
-                        </button>
-                      ))}
+                      {p.instancias.map((i) => {
+                        const marcada = filtroInstancias.has(i.id);
+                        return (
+                          <button
+                            key={i.id}
+                            type="button"
+                            // Alterna: dá para ver 1º+2º juntos, só o 2º, ou
+                            // qualquer combinação. Desmarcar a última volta a
+                            // "Todas" — nunca se chega a uma tela vazia por
+                            // acidente de clique.
+                            onClick={() =>
+                              setFiltroInstancias((atual) => {
+                                const proximo = new Set(atual);
+                                if (proximo.has(i.id)) proximo.delete(i.id);
+                                else proximo.add(i.id);
+                                return proximo;
+                              })
+                            }
+                            title={[i.orgaoJulgador, i.baixada ? 'baixado' : 'ativo'].filter(Boolean).join(' · ')}
+                            className={cn(
+                              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
+                              marcada
+                                ? 'bg-senatepi-800 text-white shadow-sm'
+                                : 'bg-muted text-muted-foreground hover:text-foreground',
+                            )}
+                          >
+                            {marcada && <Check className="h-3 w-3" />}
+                            {rotuloGrau(i.grau)}
+                            <span className={cn('opacity-70', marcada && 'opacity-90')}>
+                              {i._count?.movimentacoes ?? 0}
+                            </span>
+                            {/* Grau baixado continua visível: o histórico dele é o
+                                que explica de onde o processo veio. */}
+                            {i.baixada && (
+                              <span
+                                className={cn(
+                                  'h-1.5 w-1.5 rounded-full',
+                                  marcada ? 'bg-white/70' : 'bg-muted-foreground/50',
+                                )}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                      {filtroInstancias.size > 0 && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {filtroInstancias.size === 1 ? '1 grau selecionado' : `${filtroInstancias.size} graus selecionados`}
+                        </span>
+                      )}
                     </div>
                   )}
 
