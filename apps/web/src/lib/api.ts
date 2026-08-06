@@ -124,8 +124,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Cliente SEM interceptor, usado só para renovar o token.
+ *
+ * ISTO É O QUE IMPEDE UM TRAVAMENTO TOTAL DA APLICAÇÃO.
+ *
+ * Antes, o `/auth/refresh` era chamado pelo MESMO `api` que tem o interceptor
+ * de 401. Quando o refresh token era inválido — sessão encerrada, token
+ * expirado, logout forçado —, o refresh respondia 401 e caía no próprio
+ * interceptor, que então executava `await refreshing`: a promessa que estava
+ * sendo resolvida naquele exato momento. Ela passava a esperar por si mesma e
+ * nunca se resolvia.
+ *
+ * O efeito era o pior possível: NENHUMA requisição terminava, nem com erro. A
+ * tela ficava carregando para sempre, o redirecionamento para o login nunca
+ * acontecia, e o sistema inteiro parecia fora do ar — com a API perfeitamente
+ * saudável do outro lado.
+ *
+ * Chamar o refresh por um cliente sem interceptor quebra o ciclo na raiz: a
+ * resposta 401 dele volta como erro comum, o `catch` abaixo limpa a sessão e
+ * leva ao login.
+ */
+const apiAuth = axios.create({ baseURL: API_URL, timeout: TIMEOUT_PADRAO_MS });
+
 // Renova o access token automaticamente quando expira (401).
 let refreshing: Promise<string | null> | null = null;
+
+function encerrarSessao() {
+  tokenStore.clear();
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login';
+  }
+}
 
 api.interceptors.response.use(
   (res) => res,
@@ -133,7 +163,7 @@ api.interceptors.response.use(
     const original = error.config as typeof error.config & { _retry?: boolean };
     if (error.response?.status === 401 && original && !original._retry && tokenStore.refresh) {
       original._retry = true;
-      refreshing ??= api
+      refreshing ??= apiAuth
         .post('/auth/refresh', { refreshToken: tokenStore.refresh })
         .then((r) => {
           tokenStore.set(r.data.accessToken, r.data.refreshToken);
@@ -143,10 +173,7 @@ api.interceptors.response.use(
           // Só encerra a sessão se o refresh token for realmente inválido/expirado.
           // Erros transitórios (rede/servidor) NÃO deslogam — mantém o login persistente.
           const status = err.response?.status;
-          if (status === 401 || status === 403) {
-            tokenStore.clear();
-            if (typeof window !== 'undefined') window.location.href = '/login';
-          }
+          if (status === 401 || status === 403) encerrarSessao();
           return null;
         })
         .finally(() => {
