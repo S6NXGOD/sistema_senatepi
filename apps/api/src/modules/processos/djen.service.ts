@@ -97,6 +97,16 @@ interface ItemBruto {
  * que um comportamento inesperado do CNJ não prenda o robô num laço infinito.
  */
 const MAX_PAGINAS = 20;
+/**
+ * Teto para a consulta de UM processo.
+ *
+ * A busca por OAB pode render centenas de publicações e precisa das 20 páginas.
+ * Um processo isolado, não: mesmo um caso de anos raramente passa de 100
+ * publicações, e cada página custa uma requisição de uma cota de 20 por minuto.
+ * Com o teto anterior, um clique em "Buscar no DJEN" podia gastar a cota inteira
+ * e deixar o usuário esperando um minuto pela janela virar.
+ */
+const MAX_PAGINAS_PROCESSO = 3;
 const ITENS_POR_PAGINA = 100;
 
 /**
@@ -204,7 +214,7 @@ export class DjenService {
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
     }
-    return this.paginar({ numeroProcesso: numero }, `NPU ${numero}`);
+    return this.paginar({ numeroProcesso: numero }, `NPU ${numero}`, MAX_PAGINAS_PROCESSO);
   }
 
   // -------------------------------------------------------------------------
@@ -218,10 +228,11 @@ export class DjenService {
   private async paginar(
     filtros: Record<string, string>,
     rotulo: string,
+    maxPaginas = MAX_PAGINAS,
   ): Promise<ComunicacaoDjenDto[]> {
     const acumulado: ComunicacaoDjenDto[] = [];
 
-    for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    for (let pagina = 1; pagina <= maxPaginas; pagina++) {
       const itens = await this.consultar({
         ...filtros,
         pagina: String(pagina),
@@ -230,9 +241,9 @@ export class DjenService {
       acumulado.push(...itens);
       if (itens.length < ITENS_POR_PAGINA) break;
 
-      if (pagina === MAX_PAGINAS) {
+      if (pagina === maxPaginas) {
         this.logger.warn(
-          `[DJEN] ${rotulo}: teto de ${MAX_PAGINAS} páginas atingido — pode haver publicação não lida.`,
+          `[DJEN] ${rotulo}: teto de ${maxPaginas} páginas atingido — pode haver publicação não lida.`,
         );
       }
     }
@@ -295,6 +306,12 @@ export class DjenService {
       }
 
       if (!res.ok) {
+        // O corpo diz o que a mensagem genérica esconde (bloqueio do CDN, erro
+        // de parâmetro, manutenção). LGPD: resposta de erro não traz teor.
+        const corpo = await res.text().catch(() => '');
+        this.logger.error(
+          `[DJEN] HTTP ${res.status} — ${corpo.slice(0, 300) || '(sem corpo)'}`,
+        );
         throw new DjenIndisponivelError(
           res.status === 403 || res.status === 429
             ? 'O DJEN está limitando as consultas no momento (cota por minuto). Tente de novo em um minuto.'
@@ -314,8 +331,12 @@ export class DjenService {
       this.logger.error(
         `[DJEN] Falha na consulta: ${isTimeout ? 'timeout' : (err as Error).message}`,
       );
+      // A mensagem diz O QUE aconteceu: "não foi possível" sozinho não permite
+      // nem decidir se vale tentar de novo.
       throw new ServiceUnavailableException(
-        'Não foi possível consultar as publicações do DJEN no momento.',
+        isTimeout
+          ? `O DJEN não respondeu em ${Math.round(this.timeoutMs / 1000)}s. Tente de novo em instantes.`
+          : 'Não foi possível alcançar o DJEN (falha de rede). Tente de novo em instantes.',
       );
     } finally {
       clearTimeout(timer);

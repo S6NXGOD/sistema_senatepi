@@ -204,6 +204,24 @@ export function ProcessoDetalheSheet({
     });
   }, [p?.linhaDoTempo, busca, filtroOrigem, filtroInstancias]);
 
+  /**
+   * Instância cujos dados o dossiê mostra.
+   *
+   * Com um grau selecionado, é ele — o bloco acompanha o que se está lendo.
+   * Sem seleção (ou com vários), é a principal, e o bloco diz qual. O que não
+   * pode é mostrar campos de um grau sem dizer de qual, que era o comportamento
+   * anterior.
+   */
+  const instanciaExibida = useMemo(() => {
+    const lista = p?.instancias ?? [];
+    if (!lista.length) return null;
+    if (filtroInstancias.size === 1) {
+      const [id] = [...filtroInstancias];
+      return lista.find((i) => i.id === id) ?? null;
+    }
+    return lista.find((i) => i.principal) ?? lista[0];
+  }, [p?.instancias, filtroInstancias]);
+
   const origem = p?.atendimentos?.[0];
 
   /** Notas internas: as movimentações da equipe marcadas como internas. */
@@ -226,7 +244,11 @@ export function ProcessoDetalheSheet({
         onClick={onClose}
       >
       <div
-        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-card shadow-2xl"
+        // 3xl (768px) apertava: sete abas não cabiam numa linha e o dossiê
+        // ficava em duas colunas espremidas. 5xl usa a tela que já existe no
+        // desktop sem virar uma página inteira; no celular continua ocupando a
+        // largura toda, como antes.
+        className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho rico */}
@@ -438,7 +460,11 @@ export function ProcessoDetalheSheet({
           <ResumoInstancias instancias={p?.instancias ?? []} />
 
           {/* Abas */}
-          <div className="mt-3 flex gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-1">
+          {/* `flex-1` só a partir de sm: no celular as abas rolam na
+              horizontal (é o certo com sete delas); no desktop elas se dividem
+              e a barra de rolagem desaparece, que era o que dava a sensação de
+              aperto mesmo sobrando espaço. */}
+          <div className="mt-3 flex gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-1 [scrollbar-width:thin]">
             {ABAS.map((a) => {
               const Icon = a.icon;
               const n =
@@ -453,7 +479,10 @@ export function ProcessoDetalheSheet({
                   key={a.key}
                   onClick={() => setAba(a.key)}
                   className={cn(
-                    'flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition',
+                    // `shrink-0` no celular impede o texto de ser espremido a
+                    // ponto de virar reticências; `sm:flex-1` no desktop faz as
+                    // abas dividirem a largura e sumirem com a rolagem.
+                    'flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-1',
                     aba === a.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -500,25 +529,47 @@ export function ProcessoDetalheSheet({
                     />
                   )}
 
-                  {/* Dossiê DataJud */}
+                  {/* Dossiê DataJud — dos dados DA INSTÂNCIA exibida.
+                      Tribunal, órgão, grau, classe e distribuição são de UM
+                      grau, não do processo: numa ação que subiu em recurso, a
+                      classe muda ("Ação Trabalhista" vira "Recurso Ordinário")
+                      e o órgão também. Mostrar um número só, sem dizer de qual
+                      instância, fazia o bloco parecer errado — era a pergunta
+                      "por que diz G1 se tem dois graus?". */}
                   <section className="rounded-xl border bg-card p-4">
-                    <div className="mb-3 flex items-center justify-between">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <h4 className="flex items-center gap-2 text-sm font-semibold">
-                        <Landmark className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" /> Dossiê DataJud
+                        <Landmark className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+                        Dossiê DataJud
+                        {instanciaExibida && (p.instancias?.length ?? 0) > 1 && (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {rotuloGrau(instanciaExibida.grau)}
+                            {instanciaExibida.principal && filtroInstancias.size === 0 ? ' · principal' : ''}
+                          </span>
+                        )}
                       </h4>
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Dados oficiais do CNJ</span>
                     </div>
+                    {(p.instancias?.length ?? 0) > 1 && filtroInstancias.size === 0 && (
+                      <p className="mb-3 rounded-md bg-muted/50 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                        Este processo corre em {p.instancias!.length} instâncias. Os campos abaixo são
+                        da instância <strong>{rotuloGrau(instanciaExibida?.grau)}</strong> — use o
+                        seletor acima para ver os dados de outro grau.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-                      <CampoDossie label="Tribunal">{p.tribunal ?? '—'}</CampoDossie>
-                      <CampoDossie label="Órgão Julgador">{p.orgaoJulgador ?? '—'}</CampoDossie>
-                      <CampoDossie label="Grau">{p.grau ?? '—'}</CampoDossie>
-                      <CampoDossie label="Classe">{p.classeProcessual ?? '—'}</CampoDossie>
-                      <CampoDossie label="Distribuição">{formatData(p.dataDistribuicao)}</CampoDossie>
+                      <CampoDossie label="Tribunal">{instanciaExibida?.tribunal ?? p.tribunal ?? '—'}</CampoDossie>
+                      <CampoDossie label="Órgão Julgador">{instanciaExibida?.orgaoJulgador ?? p.orgaoJulgador ?? '—'}</CampoDossie>
+                      <CampoDossie label="Grau">{rotuloGrau(instanciaExibida?.grau ?? p.grau) || '—'}</CampoDossie>
+                      <CampoDossie label="Classe">{instanciaExibida?.classeProcessual ?? p.classeProcessual ?? '—'}</CampoDossie>
+                      <CampoDossie label="Distribuição">{formatData(instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)}</CampoDossie>
                       <CampoDossie label="Valor da causa">{formatMoeda(p.valorCausa)}</CampoDossie>
                       <CampoDossie label="Formato">{p.formato ?? '—'}</CampoDossie>
                       <CampoDossie label="Sistema">{p.sistema ?? '—'}</CampoDossie>
                       <CampoDossie label="Movimentações">
-                        {p.totais.datajud} <span className="font-normal text-muted-foreground">do CNJ · {p.totais.internas} internas</span>
+                        {instanciaExibida && (p.instancias?.length ?? 0) > 1
+                          ? <>{instanciaExibida._count?.movimentacoes ?? 0} <span className="font-normal text-muted-foreground">nesta instância · {p.totais.datajud} no total</span></>
+                          : <>{p.totais.datajud} <span className="font-normal text-muted-foreground">do CNJ · {p.totais.internas} internas</span></>}
                       </CampoDossie>
                     </div>
                     {/* Assuntos completos (o principal em destaque) */}
