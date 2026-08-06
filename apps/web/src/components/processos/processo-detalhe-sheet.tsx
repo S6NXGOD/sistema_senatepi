@@ -716,6 +716,7 @@ export function ProcessoDetalheSheet({
               {aba === 'publicacoes' && (
                 <AbaPublicacoes
                   ativo={!!djen?.ativo}
+                  bloqueadoNaOrigem={!!djen?.bloqueadoNaOrigem}
                   carregando={carregandoPublicacoes}
                   publicacoes={publicacoes}
                   buscando={buscarPublicacoes.isPending}
@@ -1078,14 +1079,39 @@ function TextoExpansivel({ texto, limite = 180, nu }: { texto: string; limite?: 
  * OAB do sindicato no polo), e com publicações.
  */
 function AbaPublicacoes({
-  ativo, carregando, publicacoes, buscando, onBuscar,
+  ativo, bloqueadoNaOrigem, carregando, publicacoes, buscando, onBuscar,
 }: {
   ativo: boolean;
+  bloqueadoNaOrigem: boolean;
   carregando: boolean;
   publicacoes: PublicacaoDjen[];
   buscando: boolean;
   onBuscar: () => void;
 }) {
+  /**
+   * Bloqueio de origem tem aviso próprio, e não o genérico de erro.
+   *
+   * O CNJ recusa as consultas vindas do servidor antes de elas chegarem à API
+   * dele. Mostrar "erro ao consultar" faria a equipe tentar de novo
+   * indefinidamente achando ser instabilidade — quando nenhuma tentativa
+   * resolve. Dizer o que é poupa o tempo de todo mundo.
+   */
+  if (ativo && bloqueadoNaOrigem) {
+    return (
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-5 text-center dark:border-amber-900/50 dark:bg-amber-950/20">
+        <AlertTriangle className="mx-auto mb-2 h-6 w-6 text-amber-600 dark:text-amber-400" />
+        <p className="font-semibold text-amber-900 dark:text-amber-200">
+          O CNJ está recusando consultas vindas deste servidor
+        </p>
+        <p className="mx-auto mt-1 max-w-lg text-xs leading-snug text-amber-800/90 dark:text-amber-300/90">
+          O bloqueio é do CDN do CNJ e acontece pela origem da requisição, antes de ela chegar
+          à API do DJEN — não é limite de uso nem falha do sistema, e tentar de novo não
+          resolve. O acompanhamento pelo DataJud continua funcionando normalmente.
+        </p>
+      </div>
+    );
+  }
+
   if (!ativo) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">

@@ -61,6 +61,8 @@ export class DjenController {
     const ativo = this.djen.integracaoAtiva;
     return {
       ativo,
+      /** O CDN do CNJ está recusando consultas vindas deste servidor. */
+      bloqueadoNaOrigem: this.djen.bloqueadoNaOrigem,
       janelaDias: this.djen.janelaDias,
       publicacoes: ativo ? await this.prisma.comunicacaoDjen.count() : 0,
       /** Advogados que a varredura por OAB alcança — zero aqui explica silêncio. */

@@ -41,6 +41,29 @@ export class CotaEsgotadaError extends HttpException {
   }
 }
 
+/**
+ * O CDN do CNJ recusou a requisição ANTES de ela chegar à API.
+ *
+ * COMO SE RECONHECE: 403 com `x-cache: Error from cloudfront`, corpo em HTML e
+ * — o sinal decisivo — SEM os cabeçalhos `X-RateLimit-*`. Quando é cota, o CNJ
+ * responde com eles; quando o bloqueio é do CloudFront, a requisição não chega
+ * a ser contada, porque nem chegou lá.
+ *
+ * Medido lado a lado com a MESMA URL: do Brasil devolve 200, JSON e
+ * `x-amz-cf-pop: GIG52` (Rio); do servidor em produção devolve 403, HTML e
+ * `x-amz-cf-pop: SFO53` (San Francisco). É restrição por origem da requisição,
+ * não por volume — nenhum ajuste de ritmo ou de cabeçalho contorna isso.
+ */
+export class DjenBloqueadoError extends HttpException {
+  constructor() {
+    super(
+      'O CNJ está recusando as consultas ao DJEN vindas deste servidor (bloqueio do ' +
+        'CDN por origem da requisição). Não é limite de uso nem falha do sistema.',
+      403,
+    );
+  }
+}
+
 /** Falha vinda do próprio DJEN, carregando o status HTTP de ORIGEM. */
 export class DjenIndisponivelError extends ServiceUnavailableException {
   constructor(
@@ -146,6 +169,10 @@ const JANELA_MS = 60_000;
 const RESERVA_MINIMA = 2;
 /** Tentativas extras quando o CNJ corta por excesso (403/429). */
 const MAX_TENTATIVAS = 3;
+/** Recusas de origem seguidas antes de suspender as tentativas. */
+const BLOQUEIOS_PARA_ABRIR = 3;
+/** Quanto tempo o serviço para de tentar depois de confirmar o bloqueio. */
+const PAUSA_APOS_BLOQUEIO_MS = 60 * 60_000;
 
 @Injectable()
 export class DjenService {
@@ -171,6 +198,17 @@ export class DjenService {
   /** Último saldo informado pelo próprio CNJ (`X-RateLimit-Remaining`). */
   private saldoInformado: number | null = null;
 
+  /**
+   * DISJUNTOR do bloqueio de origem.
+   *
+   * Quando o CDN recusa por origem, ele vai recusar TODAS — insistir só produz
+   * centenas de falhas por noite no log e prende o robô por horas. Depois de
+   * algumas recusas seguidas, o serviço para de tentar por um tempo e responde
+   * na hora, dizendo o motivo.
+   */
+  private bloqueiosSeguidos = 0;
+  private bloqueadoAte = 0;
+
   constructor(private readonly config: ConfigService) {
     this.baseUrl =
       this.config.get<string>('DJEN_BASE_URL') || 'https://comunicaapi.pje.jus.br/api/v1';
@@ -184,6 +222,17 @@ export class DjenService {
   /** A integração está ligada? (o Guard das rotas e o cron leem daqui) */
   get integracaoAtiva(): boolean {
     return this.ativa;
+  }
+
+  /**
+   * O CDN do CNJ está recusando as consultas vindas deste servidor?
+   *
+   * A tela precisa saber para dizer a verdade a quem clica: sem isto, um
+   * bloqueio de origem apareceria como "erro ao consultar", e a equipe tentaria
+   * de novo indefinidamente achando ser instabilidade.
+   */
+  get bloqueadoNaOrigem(): boolean {
+    return Date.now() < this.bloqueadoAte;
   }
 
   /**
@@ -290,6 +339,9 @@ export class DjenService {
     tentativa = 1,
     esperarCota = true,
   ): Promise<ComunicacaoDjenDto[]> {
+    // Disjuntor aberto: responde na hora, sem tocar na rede.
+    if (Date.now() < this.bloqueadoAte) throw new DjenBloqueadoError();
+
     await this.aguardarCota(esperarCota);
 
     const url = `${this.baseUrl}/comunicacao?${new URLSearchParams(params).toString()}`;
@@ -309,9 +361,25 @@ export class DjenService {
       const restante = Number(res.headers.get('x-ratelimit-remaining'));
       this.saldoInformado = Number.isFinite(restante) ? restante : null;
 
-      // 403 é como o CloudFront do CNJ corta excesso de requisições — não é
-      // falta de permissão. 429 aparece em alguns pontos. Ambos merecem espera
-      // e nova tentativa, não uma mensagem de erro para o usuário.
+      // BLOQUEIO DE ORIGEM x COTA — a diferença está no cabeçalho.
+      // Com `X-RateLimit-*`, a requisição chegou ao CNJ e foi barrada por
+      // volume: vale esperar a janela e repetir. SEM eles, quem recusou foi o
+      // CDN, antes da API — repetir não muda nada e só gasta tempo.
+      if (res.status === 403 && this.saldoInformado === null) {
+        clearTimeout(timer);
+        this.bloqueiosSeguidos++;
+        if (this.bloqueiosSeguidos >= BLOQUEIOS_PARA_ABRIR) {
+          this.bloqueadoAte = Date.now() + PAUSA_APOS_BLOQUEIO_MS;
+          this.logger.error(
+            `[DJEN] Bloqueio de origem confirmado (${this.bloqueiosSeguidos}x) — ` +
+              `suspendendo consultas por ${PAUSA_APOS_BLOQUEIO_MS / 60_000} min. ` +
+              'O CDN do CNJ recusa requisições vindas deste servidor.',
+          );
+        }
+        throw new DjenBloqueadoError();
+      }
+
+      // Cota: espera a janela e tenta de novo, sem incomodar o usuário.
       if ((res.status === 403 || res.status === 429) && tentativa < MAX_TENTATIVAS) {
         clearTimeout(timer);
         const espera = this.esperaAteJanelaVirar();
@@ -339,6 +407,7 @@ export class DjenService {
         );
       }
 
+      this.bloqueiosSeguidos = 0;
       const json = (await res.json()) as { items?: unknown };
       const itens = Array.isArray(json?.items) ? json.items : [];
       return itens

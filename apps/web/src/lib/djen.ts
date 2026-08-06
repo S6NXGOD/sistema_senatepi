@@ -37,6 +37,12 @@ export interface PublicacaoDjen {
 
 export interface StatusDjen {
   ativo: boolean;
+  /**
+   * O CNJ está recusando as consultas vindas do servidor (bloqueio do CDN por
+   * origem da requisição). Não é limite de uso nem falha do sistema — nenhuma
+   * tentativa a mais resolve.
+   */
+  bloqueadoNaOrigem?: boolean;
   janelaDias: number;
   publicacoes: number;
   /** Advogados que a varredura por OAB alcança. Zero aqui explica silêncio. */
