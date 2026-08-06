@@ -26,6 +26,21 @@ import { limparTextoPublicacao } from './utils/providencia.util';
  * já adotada em `DatajudService`.
  */
 
+/**
+ * Cota da janela esgotada e quem pediu não pode esperar (clique na tela).
+ *
+ * 429 é o status honesto aqui: não é falha do CNJ nem do sistema, é ritmo.
+ */
+export class CotaEsgotadaError extends HttpException {
+  constructor(readonly esperaMs: number) {
+    super(
+      `O CNJ limita as consultas ao DJEN a 20 por minuto e a cota do momento acabou. ` +
+        `Tente de novo em ${Math.ceil(esperaMs / 1000)} segundos.`,
+      429,
+    );
+  }
+}
+
 /** Falha vinda do próprio DJEN, carregando o status HTTP de ORIGEM. */
 export class DjenIndisponivelError extends ServiceUnavailableException {
   constructor(
@@ -209,12 +224,12 @@ export class DjenService {
    * não consta do polo — herdado de outro escritório, substabelecimento não
    * lançado no tribunal — e que por isso nunca apareceria na consulta acima.
    */
-  async buscarPorProcesso(npu: string): Promise<ComunicacaoDjenDto[]> {
+  async buscarPorProcesso(npu: string, esperarCota = true): Promise<ComunicacaoDjenDto[]> {
     const numero = (npu || '').replace(/\D/g, '');
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
     }
-    return this.paginar({ numeroProcesso: numero }, `NPU ${numero}`, MAX_PAGINAS_PROCESSO);
+    return this.paginar({ numeroProcesso: numero }, `NPU ${numero}`, MAX_PAGINAS_PROCESSO, esperarCota);
   }
 
   // -------------------------------------------------------------------------
@@ -229,15 +244,15 @@ export class DjenService {
     filtros: Record<string, string>,
     rotulo: string,
     maxPaginas = MAX_PAGINAS,
+    esperarCota = true,
   ): Promise<ComunicacaoDjenDto[]> {
     const acumulado: ComunicacaoDjenDto[] = [];
 
     for (let pagina = 1; pagina <= maxPaginas; pagina++) {
-      const itens = await this.consultar({
-        ...filtros,
-        pagina: String(pagina),
-        itensPorPagina: String(ITENS_POR_PAGINA),
-      });
+      const itens = await this.consultar(
+        { ...filtros, pagina: String(pagina), itensPorPagina: String(ITENS_POR_PAGINA) },
+        esperarCota,
+      );
       acumulado.push(...itens);
       if (itens.length < ITENS_POR_PAGINA) break;
 
@@ -259,8 +274,11 @@ export class DjenService {
    * Todas as chamadas passam por aqui em SÉRIE. Paralelismo aqui não traria
    * ganho — a cota é por minuto, não por conexão — e traria o 403.
    */
-  private consultar(params: Record<string, string>): Promise<ComunicacaoDjenDto[]> {
-    const proxima = this.fila.then(() => this.consultarAgora(params));
+  private consultar(
+    params: Record<string, string>,
+    esperarCota = true,
+  ): Promise<ComunicacaoDjenDto[]> {
+    const proxima = this.fila.then(() => this.consultarAgora(params, 1, esperarCota));
     // A fila não pode morrer por causa de uma consulta que falhou: o `catch`
     // aqui só a mantém encadeada; o erro segue para quem chamou.
     this.fila = proxima.catch(() => undefined);
@@ -270,8 +288,9 @@ export class DjenService {
   private async consultarAgora(
     params: Record<string, string>,
     tentativa = 1,
+    esperarCota = true,
   ): Promise<ComunicacaoDjenDto[]> {
-    await this.aguardarCota();
+    await this.aguardarCota(esperarCota);
 
     const url = `${this.baseUrl}/comunicacao?${new URLSearchParams(params).toString()}`;
     const controller = new AbortController();
@@ -302,7 +321,7 @@ export class DjenService {
         );
         this.historico.length = 0; // a janela vai virar; a contagem antiga não vale mais
         await dormir(espera);
-        return this.consultarAgora(params, tentativa + 1);
+        return this.consultarAgora(params, tentativa + 1, esperarCota);
       }
 
       if (!res.ok) {
@@ -343,8 +362,15 @@ export class DjenService {
     }
   }
 
-  /** Segura a próxima chamada até haver saldo na janela de um minuto. */
-  private async aguardarCota(): Promise<void> {
+  /**
+   * Segura a próxima chamada até haver saldo na janela de um minuto.
+   *
+   * `esperarCota = false` é o modo de quem está OLHANDO A TELA: em vez de
+   * prender o botão por até um minuto — que foi exatamente o "carregamento
+   * demorado" relatado —, desiste na hora e diz quanto falta. O robô da
+   * madrugada continua esperando, porque lá o tempo não custa nada a ninguém.
+   */
+  private async aguardarCota(esperar = true): Promise<void> {
     const agora = Date.now();
     // Descarta o que saiu da janela.
     while (this.historico.length && agora - this.historico[0] >= JANELA_MS) {
@@ -354,6 +380,7 @@ export class DjenService {
     // O CNJ disse que está no fim — respeita o número dele, não o nosso.
     if (this.saldoInformado !== null && this.saldoInformado <= RESERVA_MINIMA) {
       const espera = this.esperaAteJanelaVirar();
+      if (!esperar) throw new CotaEsgotadaError(espera);
       this.logger.log(`[DJEN] Saldo do CNJ em ${this.saldoInformado} — pausando ${Math.ceil(espera / 1000)}s.`);
       this.saldoInformado = null;
       this.historico.length = 0;
@@ -364,9 +391,10 @@ export class DjenService {
     if (this.historico.length < this.limitePorMinuto) return;
 
     const espera = this.esperaAteJanelaVirar();
+    if (!esperar) throw new CotaEsgotadaError(espera);
     this.logger.log(`[DJEN] Cota local atingida — pausando ${Math.ceil(espera / 1000)}s.`);
     await dormir(espera);
-    return this.aguardarCota();
+    return this.aguardarCota(esperar);
   }
 
   /** Quanto falta para a requisição mais antiga sair da janela (+1s de folga). */

@@ -164,7 +164,9 @@ export class DjenSyncService {
     });
     if (!proc?.numeroCNJ) return { ingeridas: 0, recebidas: 0 };
 
-    const recebidas = await this.djen.buscarPorProcesso(proc.numeroCNJ);
+    // `false` = não esperar a cota virar. Quem clicou está olhando a tela;
+    // prender o botão por até um minuto é pior que dizer "tente em 40s".
+    const recebidas = await this.djen.buscarPorProcesso(proc.numeroCNJ, false);
     const r = await this.ingerir(recebidas, OrigemSincronizacao.MANUAL);
     // Quem clicou no botão espera ver a atividade criada agora, não amanhã.
     await this.correlacao.aplicarAposDjen(processoId);

@@ -391,12 +391,18 @@ function BadgeInstancias({
     <span
       className="mt-0.5 flex w-fit items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
       title={instancias
-        .map((i) => `${rotuloGrau(i.grau)}${i.baixada ? ' (baixado)' : ''}`)
+        .map((i) => `${rotuloGrau(i.grau)}${i.baixada ? ' — baixado (baixa definitiva ou trânsito em julgado)' : ' — em andamento'}`)
         .join(' · ')}
     >
       <Layers className="h-3 w-3" />
       {instancias.length} instâncias
-      {vivas.length < instancias.length && ` · ${vivas.length} ativa${vivas.length === 1 ? '' : 's'}`}
+      {/* "0 ativas" não comunicava nada — ninguém lê um zero e entende "os dois
+          graus receberam baixa definitiva". O texto agora diz o que aconteceu. */}
+      {vivas.length === 0
+        ? ' · todas baixadas'
+        : vivas.length < instancias.length
+          ? ` · ${vivas.length} em andamento`
+          : ''}
     </span>
   );
 }

@@ -31,6 +31,16 @@ class HealthController {
       status: 'ok',
       db,
       storage: await this.storage.diagnostico(),
+      /**
+       * Versão publicada. É o que permite ao front descobrir que saiu build
+       * novo e oferecer a atualização — sem isso, quem está com o aplicativo
+       * instalado no celular pode ficar semanas numa versão antiga, porque
+       * nada obriga o aparelho a recarregar a página.
+       *
+       * O Railway injeta `RAILWAY_GIT_COMMIT_SHA` em todo deploy. Fora dele
+       * (desenvolvimento) o valor é fixo e o aviso nunca aparece.
+       */
+      versao: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'dev').slice(0, 7),
       timestamp: new Date().toISOString(),
     };
   }
