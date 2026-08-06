@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, TIMEOUT_LONGO } from './api';
 
 /**
  * Publicações e intimações do DJEN (Diário de Justiça Eletrônico Nacional).
@@ -76,7 +76,10 @@ export async function listarPublicacoes(processoId: string): Promise<PublicacaoD
 export async function sincronizarPublicacoes(
   processoId: string,
 ): Promise<{ ingeridas: number; recebidas: number }> {
-  const { data } = await api.post(`/djen/processo/${processoId}/sincronizar`);
+  // Consulta o CNJ, tribunal a tribunal — não cabe no timeout de leitura.
+  const { data } = await api.post(`/djen/processo/${processoId}/sincronizar`, undefined, {
+    timeout: TIMEOUT_LONGO,
+  });
   return data;
 }
 

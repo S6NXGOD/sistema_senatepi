@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, TIMEOUT_LONGO } from './api';
 import type { Confronto, ParteResumo } from './partes';
 
 // ---------------------------------------------------------------------------
@@ -369,6 +369,9 @@ export async function consultarDatajud(numeroCNJ: string, tribunal?: string): Pr
   return (
     await api.get('/datajud/consultar', {
       params: { numeroCNJ: numeroCNJ.replace(/\D/g, ''), ...(tribunal ? { tribunal } : {}) },
+      // Fala com o CNJ: o timeout padrão de 30s cortaria uma consulta que ia
+      // dar certo (a API Pública responde em 10–25s no caso comum).
+      timeout: TIMEOUT_LONGO,
     })
   ).data;
 }
@@ -404,12 +407,14 @@ export interface ImportarProcessoInput {
 }
 /** Gatilho On-Demand: consulta o DATAJUD e cria o cache local (409 se já existir). */
 export async function importarProcesso(dto: ImportarProcessoInput): Promise<ProcessoDetalhe> {
-  return (await api.post('/processos/importar', dto)).data;
+  return (await api.post('/processos/importar', dto, { timeout: TIMEOUT_LONGO })).data;
 }
 
 /** Re-sincroniza incrementalmente (insere só as movimentações ausentes). */
 export async function sincronizarProcesso(id: string): Promise<ProcessoDetalhe> {
-  return (await api.patch(`/processos/${id}/sincronizar`)).data;
+  // Com multi-instância, uma sincronização consulta o CNJ e percorre TODOS os
+  // graus do processo — leva mais que uma leitura comum.
+  return (await api.patch(`/processos/${id}/sincronizar`, undefined, { timeout: TIMEOUT_LONGO })).data;
 }
 
 export async function atualizarProcesso(

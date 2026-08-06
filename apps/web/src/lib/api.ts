@@ -2,7 +2,30 @@ import axios, { AxiosError } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
 
-export const api = axios.create({ baseURL: API_URL });
+/**
+ * TIMEOUT PADRÃO — sem ele, uma requisição que não volta nunca vira erro.
+ *
+ * Foi o que transformou uma API fora do ar em "carregando…" eterno: o axios
+ * ficava pendente indefinidamente, o react-query nunca saía de `isLoading`, e a
+ * tela mostrava esqueleto para sempre — sem nunca chegar a exibir a mensagem de
+ * falha. Quem usava reinstalava o app achando ser problema do aparelho.
+ *
+ * 30 s é folgado para uma leitura normal e curto o bastante para o erro
+ * aparecer enquanto a pessoa ainda está olhando. As chamadas legitimamente
+ * lentas — as que falam com o CNJ — declaram o próprio timeout em
+ * `TIMEOUT_LONGO`, e não são reféns deste.
+ */
+const TIMEOUT_PADRAO_MS = 30_000;
+
+/**
+ * Para o que depende de API externa. A API Pública do DataJud responde em
+ * 10–25 s no caso comum e o cliente da API espera até 45 s; a varredura do DJEN
+ * percorre vários tribunais. Cortar essas em 30 s produziria erro numa operação
+ * que ia dar certo.
+ */
+export const TIMEOUT_LONGO = 180_000;
+
+export const api = axios.create({ baseURL: API_URL, timeout: TIMEOUT_PADRAO_MS });
 
 const ACCESS_KEY = 'senatepi.accessToken';
 const REFRESH_KEY = 'senatepi.refreshToken';
