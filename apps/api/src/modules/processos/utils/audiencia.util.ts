@@ -1,3 +1,5 @@
+import { OFFSET_BR_MS } from './data-br.util';
+
 /**
  * Classificador ÚNICO das movimentações do DataJud.
  *
@@ -31,6 +33,55 @@ export const CODIGOS_TPU_AUDIENCIA: ReadonlySet<number> = new Set([
   11025, // Designação de audiência
   12173, // Audiência designada (pauta)
 ]);
+
+/**
+ * Códigos que ENCERRAM uma instância. Conferidos contra o índice real do TJPI
+ * (`movimentos.codigo` → `movimentos.nome`), não deduzidos da tabela da TPU.
+ *
+ * Servem para responder "este grau ainda está vivo?" — a pergunta que decide se
+ * o processo continua na varredura noturna. O caso que motivou: 2º grau com
+ * baixa definitiva e 1º grau com cumprimento de sentença correndo. Antes, a
+ * baixa encerrava o processo inteiro e o 1º grau parava de ser monitorado.
+ */
+export const CODIGOS_TPU_BAIXA: ReadonlySet<number> = new Set([
+  22, // Baixa Definitiva
+  848, // Trânsito em julgado
+]);
+
+/**
+ * Desarquivamento — RESSUSCITA a instância baixada.
+ *
+ * Sem ele, um processo desarquivado ficaria marcado como baixado para sempre e
+ * sairia da varredura justamente quando voltou a andar.
+ */
+export const CODIGO_TPU_DESARQUIVAMENTO = 893;
+
+/**
+ * A instância está baixada?
+ *
+ * Regra: houve baixa/trânsito e NENHUM desarquivamento depois dela. Compara
+ * pela data do movimento, não pela ordem do array — o CNJ não garante ordenação
+ * e a lista chega ordenada por data decrescente em alguns tribunais.
+ */
+export function instanciaBaixada(
+  movimentos: { codigoMovimento?: number | null; dataMovimento: Date | string }[],
+): boolean {
+  let ultimaBaixa = -Infinity;
+  let ultimoDesarquivamento = -Infinity;
+
+  for (const m of movimentos) {
+    const codigo = m.codigoMovimento;
+    if (codigo == null) continue;
+    const quando = new Date(m.dataMovimento).getTime();
+    if (!Number.isFinite(quando)) continue;
+    if (CODIGOS_TPU_BAIXA.has(codigo)) ultimaBaixa = Math.max(ultimaBaixa, quando);
+    else if (codigo === CODIGO_TPU_DESARQUIVAMENTO) {
+      ultimoDesarquivamento = Math.max(ultimoDesarquivamento, quando);
+    }
+  }
+
+  return ultimaBaixa > -Infinity && ultimaBaixa > ultimoDesarquivamento;
+}
 
 /**
  * Substantivo do ato, separado por espécie: perícia tem desfechos próprios
@@ -96,9 +147,6 @@ const MESES: Record<string, number> = {
   JANEIRO: 1, FEVEREIRO: 2, MARCO: 3, ABRIL: 4, MAIO: 5, JUNHO: 6,
   JULHO: 7, AGOSTO: 8, SETEMBRO: 9, OUTUBRO: 10, NOVEMBRO: 11, DEZEMBRO: 12,
 };
-
-/** Brasil sem horário de verão desde 2019 → offset fixo UTC-3 (Teresina). */
-const OFFSET_BR_MS = 3 * 3_600_000;
 
 /**
  * MAIÚSCULAS sem acento. NFD separa a letra-base do acento; removemos tudo que

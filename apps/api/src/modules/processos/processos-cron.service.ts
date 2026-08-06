@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { PrismaService } from '../../prisma/prisma.service';
+import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
 import { AudienciasService } from './audiencias.service';
 import { ProcessosService } from './processos.service';
 
@@ -22,21 +24,34 @@ export class ProcessosCronService {
   /** Processa em lotes pequenos, com respiro entre eles (fila leve). */
   private readonly TAMANHO_LOTE = 10;
   private readonly PAUSA_ENTRE_LOTES = 5000;
-  /** Trava de reentrância: garante que duas execuções não se sobreponham. */
-  private rodando = false;
+  /**
+   * Validade da trava. A varredura leva ~5s por processo (2–3s de espera + a
+   * consulta, que o CNJ responde em 10–25s nos casos ruins); 3h dão folga larga
+   * sobre o acervo atual sem chegar perto do intervalo de 24h entre execuções.
+   */
+  private readonly TRAVA_TTL_MIN = 180;
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly processos: ProcessosService,
     private readonly audiencias: AudienciasService,
   ) {}
 
   @Cron('0 2 * * *', { name: 'datajud-sync', timeZone: 'America/Fortaleza' })
   async sincronizarAtivos() {
-    if (this.rodando) {
-      this.logger.warn('[DATAJUD-SYNC] Execução anterior ainda em andamento — pulando.');
-      return;
-    }
-    this.rodando = true;
+    // Trava no banco, e não em memória: com duas réplicas da API, dois
+    // booleanos de instância valeriam `false` ao mesmo tempo e as duas varreriam
+    // o acervo em paralelo — o dobro de chamadas ao CNJ.
+    await comTravaDeJob(
+      this.prisma,
+      JOB_DATAJUD_SYNC,
+      this.logger,
+      { ttlMinutos: this.TRAVA_TTL_MIN },
+      () => this.varrer(),
+    );
+  }
+
+  private async varrer() {
     const inicio = Date.now();
 
     try {
@@ -99,8 +114,6 @@ export class ProcessosCronService {
       this.logger.log(`[RADAR-AUDIENCIAS] ${pendentes} audiência(s) aguardando agendamento.`);
     } catch (err) {
       this.logger.error(`[DATAJUD-SYNC] Erro na varredura: ${(err as Error).message}`);
-    } finally {
-      this.rodando = false;
     }
   }
 

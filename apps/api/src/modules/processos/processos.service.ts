@@ -9,8 +9,10 @@ import { AcaoAuditoria, OrigemSincronizacao, Prisma, TipoAcaoProcesso } from '@p
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import {
-  DatajudService, MovimentacaoDatajud, ParteDatajud, ProcessoDatajud,
+  DatajudService, InstanciaDatajud, ParteDatajud, ProcessoDatajud,
 } from './datajud.service';
+import { CorrelacaoService } from './correlacao.service';
+import { InstanciasService } from './instancias.service';
 import { SincronizacaoLogService } from './sincronizacao-log.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
@@ -20,8 +22,8 @@ import {
   ImportarProcessoDto,
   ListProcessosQueryDto,
 } from './dto/processos.dto';
-import { classificarAudiencia } from './utils/audiencia.util';
 import { CpfMatcherUtils } from './utils/cpf-matcher.util';
+import { escolherPrincipal, temInstanciaViva } from './utils/instancia.util';
 import { NpuUtils } from './utils/npu.util';
 
 interface Ctx {
@@ -43,6 +45,33 @@ const partesResumoSel = {
   orderBy: PARTE_ORDER,
 } as const;
 
+/** Data do andamento mais recente de uma instância recém-vinda do CNJ. */
+function ultimoMovimento(instancia: ProcessoDatajud): Date | null {
+  let maior = -Infinity;
+  for (const m of instancia.movimentacoes) {
+    const t = new Date(m.dataMovimento).getTime();
+    if (Number.isFinite(t) && t > maior) maior = t;
+  }
+  return maior > -Infinity ? new Date(maior) : null;
+}
+
+/**
+ * Instância que responde pelo processo ANTES de os movimentos entrarem no banco.
+ *
+ * É uma escolha provisória: `baixada` só é conhecida depois de gravar os
+ * andamentos e rodar `instanciaBaixada` sobre eles, então aqui todas contam
+ * como vivas e a decisão sai pelo andamento mais recente.
+ * `InstanciasService.definirPrincipal` reavalia com a regra completa, dentro da
+ * mesma transação, e corrige os atalhos. Serve para dar ao `create` do processo
+ * um conjunto de metadados coerente — nunca como palavra final.
+ */
+function instanciaProvisoria(instancias: InstanciaDatajud[]): InstanciaDatajud {
+  const escolhida = escolherPrincipal(
+    instancias.map((i) => ({ ...i, ultimoMovimentoEm: ultimoMovimento(i), baixada: false })),
+  );
+  return escolhida ?? instancias[0];
+}
+
 @Injectable()
 export class ProcessosService {
   private readonly logger = new Logger(ProcessosService.name);
@@ -51,9 +80,11 @@ export class ProcessosService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly datajud: DatajudService,
+    private readonly instancias: InstanciasService,
     private readonly logSync: SincronizacaoLogService,
     private readonly partes: PartesService,
     private readonly automacao: AutomacaoPrazosService,
+    private readonly correlacao: CorrelacaoService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -110,10 +141,12 @@ export class ProcessosService {
     }
 
     // (c) Busca no DATAJUD (timeout/erros do CNJ tratados no DatajudService).
+    //     Vêm TODAS as instâncias do NPU — 1º grau, 2º grau, juizado, turma
+    //     recursal —, cada uma com o próprio histórico de andamentos.
     const t0 = Date.now();
-    let dados: ProcessoDatajud | null;
+    let instancias: InstanciaDatajud[];
     try {
-      dados = await this.datajud.buscarProcessoPorNPU(numero, sigla);
+      instancias = await this.datajud.buscarInstanciasPorNPU(numero, sigla);
     } catch (err) {
       await this.logSync.registrar({
         numeroCNJ: numero, tribunal: sigla, origem: OrigemSincronizacao.IMPORTACAO,
@@ -122,7 +155,7 @@ export class ProcessosService {
       });
       throw err;
     }
-    if (!dados) {
+    if (!instancias.length) {
       await this.logSync.registrar({
         numeroCNJ: numero, tribunal: sigla, origem: OrigemSincronizacao.IMPORTACAO,
         sucesso: false, mensagemErro: 'Não localizado no índice do tribunal.',
@@ -130,6 +163,9 @@ export class ProcessosService {
       });
       throw new NotFoundException('Processo não localizado no DATAJUD para o tribunal informado.');
     }
+
+    const dados = instanciaProvisoria(instancias);
+    const totalMovimentacoes = instancias.reduce((n, i) => n + i.movimentacoes.length, 0);
 
     // (d) Cria Processo + Movimentações + Partes numa única transação.
     //     O filiado e o advogado informados viram, respectivamente, a parte
@@ -164,11 +200,10 @@ export class ProcessosService {
           ...this.metadados(dados, sigla),
         },
       });
-      if (dados.movimentacoes.length) {
-        await tx.movimentacaoProcessual.createMany({
-          data: dados.movimentacoes.map((m) => this.paraLinha(p.id, m)),
-        });
-      }
+      // Instâncias + movimentações de cada uma, e a eleição da principal (que
+      // reescreve os atalhos gravados acima com a regra completa).
+      await this.instancias.sincronizar(tx, p.id, instancias);
+
       await this.partes.semearNaImportacao(tx, p.id, {
         filiadoId: dto.filiadoId,
         advogadoId: dto.advogadoId,
@@ -189,15 +224,22 @@ export class ProcessosService {
       acao: AcaoAuditoria.CREATE,
       entidade: 'Processo',
       entidadeId: processo.id,
-      descricao: `Processo ${numero} importado do DATAJUD (${sigla.toUpperCase()}, ${dados.movimentacoes.length} mov.)`,
+      descricao:
+        `Processo ${numero} importado do DATAJUD (${sigla.toUpperCase()}, ` +
+        `${instancias.length} instância(s), ${totalMovimentacoes} mov.)`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { numeroCNJ: numero, tribunal: sigla.toUpperCase(), movimentacoes: dados.movimentacoes.length },
+      metadata: {
+        numeroCNJ: numero,
+        tribunal: sigla.toUpperCase(),
+        movimentacoes: totalMovimentacoes,
+        instancias: instancias.map((i) => ({ grau: i.grau, movimentacoes: i.movimentacoes.length })),
+      },
     });
     await this.logSync.registrar({
       processoId: processo.id, numeroCNJ: numero, tribunal: sigla,
       origem: OrigemSincronizacao.IMPORTACAO, sucesso: true,
-      novasMovimentacoes: dados.movimentacoes.length, duracaoMs: Date.now() - t0,
+      novasMovimentacoes: totalMovimentacoes, duracaoMs: Date.now() - t0,
     });
 
     // Robô de prazos: as movimentações que acabaram de entrar podem já conter
@@ -261,14 +303,27 @@ export class ProcessosService {
 
   /**
    * IDs elegíveis à varredura noturna: ATIVOS e PENDENTES. Processos
-   * arquivados/encerrados não são consultados — não mudam mais e só gastariam
-   * cota da API do CNJ. RASCUNHOS ficam de fora por construção (não têm NPU),
-   * e o `numeroCNJ: { not: null }` é o cinto de segurança: mesmo que alguém
-   * mude o status de um rascunho à mão, o robô não tenta consultar o nada.
+   * arquivados não são consultados — não mudam mais e só gastariam cota da API
+   * do CNJ. RASCUNHOS ficam de fora por construção (não têm NPU), e o
+   * `numeroCNJ: { not: null }` é o cinto de segurança: mesmo que alguém mude o
+   * status de um rascunho à mão, o robô não tenta consultar o nada.
+   *
+   * ENCERRADOS COM INSTÂNCIA VIVA TAMBÉM ENTRAM. O status é do PROCESSO, mas a
+   * baixa acontece por GRAU: o 2º grau transita em julgado, o processo é
+   * encerrado — e o cumprimento de sentença segue correndo no 1º grau, sem
+   * ninguém olhando. É o caso que motivou a tabela de instâncias, e deixá-lo de
+   * fora da varredura tornaria toda a funcionalidade inútil: o sistema saberia
+   * que o 1º grau está vivo e mesmo assim pararia de consultá-lo.
    */
   async idsParaSincronizar(): Promise<string[]> {
     const rows = await this.prisma.processo.findMany({
-      where: { statusInterno: { in: ['ATIVO', 'PENDENTE'] }, numeroCNJ: { not: null } },
+      where: {
+        numeroCNJ: { not: null },
+        OR: [
+          { statusInterno: { in: ['ATIVO', 'PENDENTE'] } },
+          { statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } } },
+        ],
+      },
       select: { id: true },
       orderBy: { ultimaSincronizacao: 'asc' }, // prioriza os mais desatualizados
     });
@@ -288,7 +343,16 @@ export class ProcessosService {
     // Filiado/advogado casam com QUALQUER vínculo, não só o principal: numa ação
     // plúrima o filiado buscado costuma ser o terceiro da lista, e num processo
     // com dois advogados o segundo também precisa achá-lo.
-    if (q.filiadoId) and.push({ partes: { some: { filiadoId: q.filiadoId } } });
+    // O atalho `Processo.filiadoId` entra no OR junto com a tabela de partes:
+    // ele é derivado dela e deveria bastar a segunda condição, mas um processo
+    // que perdeu a linha de parte (correção manual, importação antiga) ficaria
+    // invisível na busca por filiado — e é exatamente onde essa busca é usada
+    // para vincular uma atividade a um processo existente.
+    if (q.filiadoId) {
+      and.push({
+        OR: [{ filiadoId: q.filiadoId }, { partes: { some: { filiadoId: q.filiadoId } } }],
+      });
+    }
     if (q.advogadoId) and.push({ advogados: { some: { advogadoId: q.advogadoId } } });
     // Todos os processos de uma parte externa (ex.: tudo contra a PRONTOCARE).
     if (q.parteExternaId) and.push({ partes: { some: { parteExternaId: q.parteExternaId } } });
@@ -318,6 +382,10 @@ export class ProcessosService {
       and.push({
         OR: [
           { numeroCNJ: { contains: busca.replace(/\D/g, '') || busca } },
+          // RASCUNHO não tem NPU nem classe: o `titulo` é a única coisa pela
+          // qual ele pode ser encontrado. Sem isto, um processo aberto por um
+          // desfecho da agenda era invisível na busca até ser formalizado.
+          { titulo: { contains: busca, mode: 'insensitive' } },
           { classeProcessual: { contains: busca, mode: 'insensitive' } },
           { assuntoPrincipal: { contains: busca, mode: 'insensitive' } },
           { filiado: { nomeCompleto: { contains: busca, mode: 'insensitive' } } },
@@ -344,6 +412,12 @@ export class ProcessosService {
           filiado: filiadoSel, advogado: advogadoSel,
           partes: partesResumoSel,
           advogados: { select: { principal: true, advogado: advogadoSel } },
+          // Só o resumo: a lista precisa avisar "este processo corre em dois
+          // graus" sem carregar os metadados de cada um.
+          instancias: {
+            select: { grau: true, baixada: true, principal: true },
+            orderBy: { grau: 'asc' },
+          },
           _count: { select: { movimentacoes: true, partes: true, advogados: true } },
         },
       }),
@@ -372,6 +446,11 @@ export class ProcessosService {
         advogado: advogadoSel,
         partes: { orderBy: PARTE_ORDER, include: PARTE_INCLUDE },
         advogados: { orderBy: [{ principal: 'desc' }, { createdAt: 'asc' }], include: ADVOGADO_INCLUDE },
+        // A instância viva e mais recente primeiro: é a que a tela abre.
+        instancias: {
+          orderBy: [{ baixada: 'asc' }, { ultimoMovimentoEm: 'desc' }],
+          include: { _count: { select: { movimentacoes: true } } },
+        },
         movimentacoes: { orderBy: { dataMovimento: 'desc' } },
       },
     });
@@ -527,24 +606,19 @@ export class ProcessosService {
   // Helpers
   // -------------------------------------------------------------------------
 
-  /** Carrega o processo com as movimentações necessárias para deduplicar. */
+  /**
+   * Carrega o mínimo para sincronizar.
+   *
+   * Não traz mais as movimentações: a deduplicação passou a ser feita por
+   * INSTÂNCIA, dentro de `InstanciasService`, que busca só as da instância que
+   * está processando. Carregar o histórico inteiro do processo aqui era
+   * desperdício crescente — um processo antigo tem centenas de andamentos, e
+   * todos eram trazidos a cada varredura noturna.
+   */
   private carregarParaSync(id: string) {
     return this.prisma.processo.findUnique({
       where: { id },
-      select: {
-        id: true,
-        numeroCNJ: true,
-        tribunal: true,
-        filiadoId: true,
-        movimentacoes: {
-          select: {
-            id: true, dataMovimento: true, descricao: true, codigoMovimento: true,
-            // Usado para detectar linhas antigas, gravadas antes do
-            // detalhamento existir, e enriquecê-las na próxima sincronização.
-            detalhe: true, complementos: true,
-          },
-        },
-      },
+      select: { id: true, numeroCNJ: true, tribunal: true, filiadoId: true },
     });
   }
 
@@ -559,14 +633,6 @@ export class ProcessosService {
       // Processos administrativos podem não ter NPU — o tipo acompanha o schema.
       numeroCNJ: string | null;
       tribunal: string | null;
-      movimentacoes: {
-        id: string;
-        dataMovimento: Date;
-        descricao: string;
-        codigoMovimento: number | null;
-        detalhe: string | null;
-        complementos: Prisma.JsonValue | null;
-      }[];
     },
     origem: OrigemSincronizacao = OrigemSincronizacao.MANUAL,
   ): Promise<{ dados: ProcessoDatajud | null; novas: number }> {
@@ -586,9 +652,9 @@ export class ProcessosService {
     // Toda chamada ao CNJ é registrada — inclusive as que falham (é o que
     // permite auditar o robô noturno na manhã seguinte).
     const t0 = Date.now();
-    let dados: ProcessoDatajud | null;
+    let instancias: InstanciaDatajud[];
     try {
-      dados = await this.datajud.buscarProcessoPorNPU(numeroCNJ, sigla);
+      instancias = await this.datajud.buscarInstanciasPorNPU(numeroCNJ, sigla);
     } catch (err) {
       await this.logSync.registrar({
         processoId: proc.id,
@@ -604,7 +670,7 @@ export class ProcessosService {
     }
 
     // Sem retorno agora: apenas registra a tentativa (não apaga o cache).
-    if (!dados) {
+    if (!instancias.length) {
       await this.prisma.processo.update({
         where: { id: proc.id },
         data: { ultimaSincronizacao: new Date() },
@@ -617,62 +683,37 @@ export class ProcessosService {
       return { dados: null, novas: 0 };
     }
 
-    // MERGE sem duplicar: a chave é (dataHora + código TPU + descrição). O CNJ
-    // pode repetir o mesmo código no mesmo processo em datas distintas, e há
-    // atos simultâneos com códigos diferentes — só a trinca identifica o ato.
-    const chave = (dm: Date | string, cod: number | null | undefined, desc: string) =>
-      `${new Date(dm).getTime()}|${cod ?? ''}|${desc}`;
-    const porChave = new Map(
-      proc.movimentacoes.map((m) => [chave(m.dataMovimento, m.codigoMovimento, m.descricao), m]),
-    );
-    const novas = dados.movimentacoes.filter(
-      (m) => !porChave.has(chave(m.dataMovimento, m.codigoMovimento, m.descricao)),
-    );
-
-    // RE-INDEXAÇÃO AUTO-CORRETIVA: o merge só INSERE, então movimentações
-    // gravadas antes do detalhamento existir (ou com o parser antigo) ficariam
-    // cruas para sempre. Aqui comparamos o que o CNJ manda AGORA com o que está
-    // gravado e atualizamos quando diferir — idempotente: na próxima
-    // sincronização nada mais se qualifica, então não gera escrita à toa.
-    const enriquecer = dados.movimentacoes.flatMap((m) => {
-      const atual = porChave.get(chave(m.dataMovimento, m.codigoMovimento, m.descricao));
-      if (!atual) return [];
-      const temNovidade = m.complementos.length > 0 || !!m.detalhe || !!m.conteudo || !!m.orgaoJulgador;
-      if (!temNovidade) return [];
-      const mudou =
-        atual.detalhe !== m.detalhe ||
-        JSON.stringify(atual.complementos ?? null) !== JSON.stringify(m.complementos ?? []);
-      return mudou ? [{ m, id: atual.id }] : [];
+    // A mesclagem por instância mora em InstanciasService: a chave de igualdade
+    // é (data, código TPU, descrição) DENTRO DE CADA GRAU, e não do processo —
+    // o 1º e o 2º grau praticam atos homônimos, e tratá-los como o mesmo fato
+    // apagaria o andamento de um dos dois.
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      const r = await this.instancias.sincronizar(tx, proc.id, instancias);
+      // Metadados não ligados ao grau (assunto, valor da causa, partes brutas).
+      // Os que descrevem a instância — tribunal, classe, órgão, grau — são
+      // escritos por `definirPrincipal`, dentro da chamada acima.
+      await tx.processo.update({
+        where: { id: proc.id },
+        data: this.metadadosGerais(instancias[0]),
+      });
+      return r;
     });
 
-    await this.prisma.$transaction(async (tx) => {
-      if (novas.length) {
-        await tx.movimentacaoProcessual.createMany({
-          data: novas.map((m) => this.paraLinha(proc.id, m)),
-        });
-      }
-      for (const { m, id } of enriquecer) {
-        await tx.movimentacaoProcessual.update({
-          where: { id },
-          data: {
-            complementos: (m.complementos ?? []) as unknown as Prisma.InputJsonValue,
-            detalhe: m.detalhe,
-            conteudo: m.conteudo,
-            orgaoJulgador: m.orgaoJulgador,
-          },
-        });
-      }
-      await tx.processo.update({ where: { id: proc.id }, data: this.metadados(dados, sigla) });
-    });
-    if (enriquecer.length) {
+    if (resultado.enriquecidas) {
       this.logger.log(
-        `[DATAJUD] ${proc.numeroCNJ}: ${enriquecer.length} movimentação(ões) antiga(s) enriquecida(s) com complementos.`,
+        `[DATAJUD] ${proc.numeroCNJ}: ${resultado.enriquecidas} movimentação(ões) antiga(s) enriquecida(s) com complementos.`,
       );
     }
 
+    // REABERTURA: um grau baixado não encerra o processo se outro ainda corre.
+    // É o caso do 2º grau com baixa definitiva e o 1º em cumprimento de
+    // sentença — antes disso, a baixa tirava o processo da varredura e o
+    // andamento do 1º grau deixava de ser visto.
+    await this.reavaliarStatusPorInstancias(proc.id);
+
     await this.logSync.registrar({
       processoId: proc.id, numeroCNJ, tribunal: sigla, origem,
-      sucesso: true, novasMovimentacoes: novas.length, duracaoMs: Date.now() - t0,
+      sucesso: true, novasMovimentacoes: resultado.novas, duracaoMs: Date.now() - t0,
     });
 
     // ROBÔ DE PRAZOS. Roda FORA da transação de propósito — se a automação
@@ -680,7 +721,58 @@ export class ProcessosService {
     // aceitável; perder a sincronização não).
     await this.dispararAutomacao(proc.id);
 
-    return { dados, novas: novas.length };
+    return { dados: instanciaProvisoria(instancias), novas: resultado.novas };
+  }
+
+  /**
+   * Devolve um processo ENCERRADO ao acompanhamento quando alguma instância
+   * ainda está viva.
+   *
+   * O status é do PROCESSO, mas a baixa é de um GRAU. Sem esta reavaliação, a
+   * baixa definitiva no 2º grau encerrava o processo inteiro, ele saía de
+   * `idsParaSincronizar` e o cumprimento de sentença correndo no 1º grau
+   * passava a andar sem que ninguém visse.
+   *
+   * Só reabre o que o ROBÔ encerrou (ENCERRADO). Arquivado, suspenso ou
+   * improcedente são decisões da equipe e o sistema não as desfaz sozinho.
+   */
+  private async reavaliarStatusPorInstancias(processoId: string): Promise<void> {
+    const processo = await this.prisma.processo.findUnique({
+      where: { id: processoId },
+      select: {
+        statusInterno: true,
+        numeroCNJ: true,
+        instancias: { select: { grau: true, baixada: true } },
+      },
+    });
+    if (!processo || processo.statusInterno !== 'ENCERRADO') return;
+    if (!temInstanciaViva(processo.instancias)) return;
+
+    const vivas = processo.instancias.filter((i) => !i.baixada).map((i) => i.grau);
+    await this.prisma.processo.update({
+      where: { id: processoId },
+      data: { statusInterno: 'ATIVO' },
+    });
+    // O histórico do processo precisa DIZER por que ele reabriu — senão a
+    // equipe encontra um processo ativo que ela mesma tinha encerrado, sem
+    // explicação nenhuma.
+    await this.prisma.movimentacaoInterna.create({
+      data: {
+        processoId,
+        // Slug semeado em `tipos_movimentacao` — reabertura é uma atualização
+        // de estado do processo, não um ato processual novo.
+        tipo: 'ATUALIZACAO',
+        descricao:
+          `Processo reaberto automaticamente: a instância ${vivas.join(', ')} ` +
+          'continua sem baixa definitiva e recebeu andamento novo no DataJud.',
+        statusAnterior: 'ENCERRADO',
+        statusNovo: 'ATIVO',
+        notaInterna: false,
+      },
+    });
+    this.logger.log(
+      `[DATAJUD] ${processo.numeroCNJ}: reaberto — instância(s) ${vivas.join(', ')} ainda ativa(s).`,
+    );
   }
 
   /**
@@ -750,6 +842,13 @@ export class ProcessosService {
    * ainda é acionável.
    */
   private async dispararAutomacao(processoId: string) {
+    // ANTES DE TUDO: amarra as movimentações novas às publicações do DJEN que já
+    // viraram atividade. É o fecho do circuito anti-duplicata — quando a
+    // publicação chega primeiro (o que é comum, porque o diário sai antes de o
+    // tribunal alimentar o índice do CNJ), a movimentação correspondente entra
+    // aqui carimbada e o robô a pula pela trava que ele sempre teve.
+    await this.correlacao.vincularMovimentacoesNovas(processoId);
+
     const desde = new Date(Date.now() - 30 * 24 * 3600 * 1000);
     const pendentes = await this.prisma.movimentacaoProcessual.findMany({
       where: { processoId, compromissoId: null, dataMovimento: { gte: desde } },
@@ -764,64 +863,52 @@ export class ProcessosService {
   }
 
   /**
-   * Movimentação do DataJud → linha do cache local, já CLASSIFICADA pelo radar
-   * de audiências (utils/audiencia.util.ts). Classificar na escrita mantém o
-   * alerta do dashboard barato: a leitura é só um filtro indexado, sem varrer
-   * texto. O estado do alerta (dispensa/vínculo com a agenda) nunca é tocado
-   * aqui — só movimentações NOVAS passam por este caminho.
-   */
-  private paraLinha(processoId: string, m: MovimentacaoDatajud) {
-    const dataMovimento = new Date(m.dataMovimento);
-    // O classificador enxerga também o detalhe/teor: "Expedição de documento"
-    // sozinho não diz nada, mas "— Mandado de Intimação de Audiência" diz.
-    const textoCompleto = [m.descricao, m.detalhe, m.conteudo].filter(Boolean).join(' — ');
-    const { ehAudiencia, audienciaData } = classificarAudiencia(
-      textoCompleto,
-      m.codigoMovimento,
-      dataMovimento,
-    );
-    return {
-      processoId,
-      dataMovimento,
-      descricao: m.descricao,
-      codigoMovimento: m.codigoMovimento,
-      // Detalhamento do ato (para o advogado não precisar abrir o PJe).
-      complementos: (m.complementos ?? []) as unknown as Prisma.InputJsonValue,
-      detalhe: m.detalhe,
-      conteudo: m.conteudo,
-      orgaoJulgador: m.orgaoJulgador,
-      ehAudiencia,
-      audienciaData,
-    };
-  }
-
-  /**
    * Metadados públicos do DATAJUD prontos para gravar no Processo.
    *
    * Tudo que a tela precisa fica PERSISTIDO aqui — abrir o processo depois é
    * leitura 100% local, sem tocar no CNJ. As partes vão para `partesBrutas`
    * (JSON) de propósito: quando o CPF não casa com um Filiado, o dado do
    * tribunal fica guardado sem criar rascunho na tabela de filiados.
+   *
+   * Usado só na CRIAÇÃO do processo, com a instância provisoriamente escolhida.
+   * Na sincronização, os campos ligados ao grau vêm de
+   * `InstanciasService.definirPrincipal`; aqui ficam apenas os gerais.
    */
   private metadados(dados: ProcessoDatajud, sigla: string) {
     return {
+      ...this.metadadosGerais(dados),
       classeProcessual: dados.classeProcessual,
       classeCodigo: dados.classeCodigo,
-      assuntoPrincipal: dados.assuntoPrincipal,
-      assuntos: (dados.assuntos ?? []) as unknown as Prisma.InputJsonValue,
       orgaoJulgador: dados.orgaoJulgador,
       orgaoJulgadorCodigo: dados.orgaoJulgadorCodigo,
-      municipioIBGE: dados.municipioIBGE,
       tribunal: dados.tribunal ?? sigla.toUpperCase(),
       dataDistribuicao: dados.dataDistribuicao ? new Date(dados.dataDistribuicao) : null,
-      valorCausa: dados.valorCausa ?? null,
       grau: dados.grau,
       formato: dados.formato,
       sistema: dados.sistema,
       nivelSigilo: dados.nivelSigilo,
+      atualizadoNoCnjEm: dados.atualizadoNoCnjEm ? new Date(dados.atualizadoNoCnjEm) : null,
+    };
+  }
+
+  /**
+   * Metadados que NÃO pertencem a um grau específico.
+   *
+   * Assunto, valor da causa, sigilo e partes são do processo como um todo e vêm
+   * iguais em todas as instâncias. Os que descrevem a instância — tribunal,
+   * classe, órgão julgador, grau — ficam de fora de propósito: escrevê-los aqui
+   * criaria um segundo escritor dos atalhos de `Processo`, e eles voltariam a
+   * apontar para uma instância arbitrária logo depois de `definirPrincipal`
+   * ter escolhido a certa.
+   */
+  private metadadosGerais(dados: ProcessoDatajud) {
+    return {
+      assuntoPrincipal: dados.assuntoPrincipal,
+      assuntos: (dados.assuntos ?? []) as unknown as Prisma.InputJsonValue,
+      municipioIBGE: dados.municipioIBGE,
+      valorCausa: dados.valorCausa ?? null,
       segredoJustica: dados.segredoJustica,
       prioridades: (dados.prioridades ?? []) as unknown as Prisma.InputJsonValue,
-      atualizadoNoCnjEm: dados.atualizadoNoCnjEm ? new Date(dados.atualizadoNoCnjEm) : null,
       // Só sobrescreve as partes quando o tribunal mandou alguma (não apaga o
       // que já havia numa sincronização que veio sem o bloco de partes).
       ...(dados.partes?.length

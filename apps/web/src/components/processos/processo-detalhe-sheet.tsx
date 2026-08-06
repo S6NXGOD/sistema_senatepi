@@ -8,7 +8,7 @@ import {
   X, RefreshCw, Loader2, Landmark, FileText, CalendarDays, ShieldCheck, Trash2,
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
-  AlertTriangle, Plus, Tag, Bot,
+  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,15 +32,22 @@ import {
   getDossie, excluirMovimentacao, listarTiposMovimentacao,
   rotuloTipoMov, corTipoMov, rotuloComplemento,
   categoriaMovimento, CATEGORIA_LABEL, CATEGORIA_COR,
-  ehTituloGenerico, complementoPrincipal,
-  type ItemTimeline,
+  ehTituloGenerico, complementoPrincipal, rotuloGrau,
+  type ItemTimeline, type InstanciaProcesso,
 } from '@/lib/movimentacoes';
+import {
+  listarPublicacoes, sincronizarPublicacoes, statusDjen,
+  PROVIDENCIA_LABEL, type PublicacaoDjen,
+} from '@/lib/djen';
 import { classesCor } from '@/lib/paleta-cores';
 
-type Aba = 'timeline' | 'notas' | 'documentos' | 'agenda' | 'partes' | 'auditoria';
+type Aba = 'timeline' | 'publicacoes' | 'notas' | 'documentos' | 'agenda' | 'partes' | 'auditoria';
 
 const ABAS: { key: Aba; label: string; icon: any }[] = [
   { key: 'timeline', label: 'Linha do Tempo', icon: Clock },
+  // Publicações fica ao lado da linha do tempo de propósito: é a mesma
+  // pergunta ("o que aconteceu?") respondida com o teor, e não com o rótulo.
+  { key: 'publicacoes', label: 'Publicações', icon: Newspaper },
   { key: 'notas', label: 'Notas Internas', icon: Lock },
   { key: 'documentos', label: 'Documentos', icon: FileText },
   { key: 'agenda', label: 'Agenda', icon: CalendarDays },
@@ -91,6 +98,43 @@ export function ProcessoDetalheSheet({
     queryKey: ['tipos-movimentacao', false],
     queryFn: () => listarTiposMovimentacao(false),
     enabled: open,
+  });
+
+  /**
+   * Estado da integração com o DJEN, perguntado à API em runtime.
+   *
+   * Não vem de `NEXT_PUBLIC_*` porque aquelas são resolvidas no build:
+   * desligar a integração exigiria rebuildar o front. `retry: false` porque
+   * esta é a única rota que responde com o DJEN desligado — insistir não muda
+   * a resposta.
+   */
+  const { data: djen } = useQuery({
+    queryKey: ['djen-status'],
+    queryFn: statusDjen,
+    enabled: open,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: publicacoes = [], isLoading: carregandoPublicacoes } = useQuery({
+    queryKey: ['djen-publicacoes', processoId],
+    queryFn: () => listarPublicacoes(processoId as string),
+    enabled: open && !!processoId && !!djen?.ativo,
+  });
+
+  const buscarPublicacoes = useMutation({
+    mutationFn: () => sincronizarPublicacoes(processoId as string),
+    onSuccess: (r) => {
+      toast.success(
+        r.ingeridas > 0
+          ? `${r.ingeridas} publicação(ões) nova(s).`
+          : 'Nenhuma publicação nova no DJEN.',
+      );
+      qc.invalidateQueries({ queryKey: ['djen-publicacoes', processoId] });
+      recarregar();
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível consultar o DJEN.'),
   });
 
   useEffect(() => {
@@ -353,6 +397,9 @@ export function ProcessoDetalheSheet({
             </div>
           )}
 
+          {/* Instâncias — só quando há mais de uma, senão é ruído */}
+          <ResumoInstancias instancias={p?.instancias ?? []} />
+
           {/* Abas */}
           <div className="mt-3 flex gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-1">
             {ABAS.map((a) => {
@@ -362,6 +409,7 @@ export function ProcessoDetalheSheet({
                 : a.key === 'agenda' ? p?.totais.compromissos
                 : a.key === 'partes' ? p?.totais.partes
                 : a.key === 'timeline' ? (p?.linhaDoTempo.length ?? 0)
+                : a.key === 'publicacoes' ? publicacoes.length
                 : undefined;
               return (
                 <button
@@ -501,6 +549,17 @@ export function ProcessoDetalheSheet({
                   </p>
 
                 </>
+              )}
+
+              {/* ---------------- PUBLICAÇÕES (DJEN) ---------------- */}
+              {aba === 'publicacoes' && (
+                <AbaPublicacoes
+                  ativo={!!djen?.ativo}
+                  carregando={carregandoPublicacoes}
+                  publicacoes={publicacoes}
+                  buscando={buscarPublicacoes.isPending}
+                  onBuscar={() => buscarPublicacoes.mutate()}
+                />
               )}
 
               {/* ---------------- NOTAS INTERNAS ---------------- */}
@@ -849,6 +908,174 @@ function TextoExpansivel({ texto, limite = 180, nu }: { texto: string; limite?: 
   );
 }
 
+/**
+ * Aba "Publicações" — o teor das intimações, que o DataJud não entrega.
+ *
+ * Os três estados são distintos de propósito, porque significam coisas
+ * diferentes para quem opera: integração DESLIGADA (não há o que esperar),
+ * ligada e SEM publicação (o CNJ não publicou nada, ou o processo não tem a
+ * OAB do sindicato no polo), e com publicações.
+ */
+function AbaPublicacoes({
+  ativo, carregando, publicacoes, buscando, onBuscar,
+}: {
+  ativo: boolean;
+  carregando: boolean;
+  publicacoes: PublicacaoDjen[];
+  buscando: boolean;
+  onBuscar: () => void;
+}) {
+  if (!ativo) {
+    return (
+      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+        <Newspaper className="mx-auto mb-2 h-6 w-6 opacity-60" />
+        <p className="font-medium text-foreground">Integração com o DJEN desligada</p>
+        <p className="mt-1 text-xs">
+          Com ela ligada, o sistema traz o teor das intimações publicadas no Diário de Justiça
+          Eletrônico Nacional — e não apenas o rótulo do ato que o DataJud informa.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Teor das intimações publicadas no Diário de Justiça Eletrônico Nacional.
+        </p>
+        <Button size="sm" variant="outline" onClick={onBuscar} disabled={buscando}>
+          {buscando ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+          Buscar no DJEN
+        </Button>
+      </div>
+
+      {carregando ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">Carregando publicações…</p>
+      ) : publicacoes.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          <Inbox className="mx-auto mb-2 h-6 w-6 opacity-60" />
+          Nenhuma publicação encontrada para este processo.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {publicacoes.map((pub) => (
+            <li key={pub.id} className="rounded-lg border border-l-4 border-l-indigo-400 bg-card p-3">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
+                    <Newspaper className="mr-1 inline h-3 w-3" />
+                    {pub.tipoComunicacao ?? 'Publicação'}
+                  </span>
+                  {/* A providência é o que o robô entendeu que precisa ser
+                      feito — e é o título que a atividade da agenda recebeu. */}
+                  {pub.providencia && PROVIDENCIA_LABEL[pub.providencia] && (
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium">
+                      {PROVIDENCIA_LABEL[pub.providencia]}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground/70">{pub.siglaTribunal}</span>
+                </span>
+                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                  {formatData(pub.dataDisponibilizacao)}
+                </span>
+              </div>
+
+              {pub.nomeOrgao && (
+                <p className="mb-1 truncate text-[11px] text-muted-foreground">{pub.nomeOrgao}</p>
+              )}
+
+              <TextoExpansivel texto={pub.texto} limite={300} />
+
+              {/* O prazo é o que o TEXTO diz. O sistema não calcula vencimento —
+                  a contagem oficial depende de dias úteis forenses, feriado da
+                  comarca e forma de intimação. */}
+              {pub.prazoMencionadoDias != null && (
+                <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    O texto menciona prazo de <strong>{pub.prazoMencionadoDias} dias</strong>.
+                    Confira a contagem oficial — o sistema não calcula vencimento.
+                  </span>
+                </p>
+              )}
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px]">
+                {pub.compromissoId && (
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <Bot className="h-3 w-3" /> Atividade criada na Agenda
+                  </span>
+                )}
+                {pub.link && (
+                  <a
+                    href={pub.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                  >
+                    <ExternalLink className="h-3 w-3" /> Ver no tribunal
+                  </a>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Publicações obtidas da API Comunica PJe (CNJ). São atos de publicidade oficial, tratados
+        em conformidade com a LGPD (Lei nº 13.709/2018) para uso exclusivo na defesa dos filiados.
+      </p>
+    </>
+  );
+}
+
+/**
+ * Resumo dos graus em que o processo corre.
+ *
+ * Só aparece quando há MAIS DE UM: com uma instância só, a informação já está
+ * no cabeçalho e a faixa seria ruído. Com duas, é a resposta para "por que este
+ * processo está encerrado e continua recebendo andamento?".
+ */
+function ResumoInstancias({ instancias }: { instancias: InstanciaProcesso[] }) {
+  if (instancias.length < 2) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/10">
+      <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-indigo-800 dark:text-indigo-300">
+        <Layers className="h-3.5 w-3.5" /> Este processo corre em {instancias.length} instâncias
+      </p>
+      <ul className="space-y-1">
+        {instancias.map((i) => (
+          <li
+            key={i.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-card px-3 py-2 text-xs"
+          >
+            <span className="flex flex-wrap items-center gap-1.5">
+              <strong>{rotuloGrau(i.grau)}</strong>
+              {i.orgaoJulgador && (
+                <span className="text-muted-foreground">· {i.orgaoJulgador}</span>
+              )}
+              {i.baixada ? (
+                <Badge className="border border-border text-[10px] text-muted-foreground">
+                  Baixado
+                </Badge>
+              ) : (
+                <Badge className="bg-emerald-100 text-[10px] text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  Ativo
+                </Badge>
+              )}
+            </span>
+            <span className="whitespace-nowrap text-muted-foreground">
+              {i._count?.movimentacoes ?? 0} mov.
+              {i.ultimoMovimentoEm && ` · último em ${formatData(i.ultimoMovimentoEm)}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ItemLinhaTempo({
   item, tipos, podeExcluir, onExcluir,
 }: {
@@ -876,6 +1103,13 @@ function ItemLinhaTempo({
                 <Landmark className="mr-1 inline h-3 w-3" />
                 {CATEGORIA_LABEL[categoria]}
               </span>
+              {/* Grau que praticou o ato. Sem ele, "Conclusão" do 1º e do 2º
+                  grau apareceriam lado a lado sem nada que os distinguisse. */}
+              {item.grau && (
+                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {rotuloGrau(item.grau)}
+                </span>
+              )}
               {item.codigoMovimento != null && (
                 <span className="font-mono text-[10px] text-muted-foreground/70">
                   CNJ {item.codigoMovimento}

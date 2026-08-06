@@ -3,6 +3,7 @@ import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgendaService } from '../agenda/agenda.service';
 import { classificarMovimentacao, type GatilhoMovimentacao } from './utils/audiencia.util';
+import { diaBR } from './utils/data-br.util';
 
 /** Dias úteis padrão para conferir uma intimação/citação. */
 const PRAZO_PADRAO_DIAS_UTEIS = 5;
@@ -269,6 +270,12 @@ export class AutomacaoPrazosService {
    * Pauta com data conhecida: agenda o responsável e avisa a secretaria.
    * O TIPO segue o classificador — perícia entra como PERICIA, e não como
    * audiência oferecendo "houve acordo" na hora de concluir.
+   *
+   * NÃO DUPLICA. A mesma audiência costuma chegar em duas movimentações — uma
+   * reconhecida pelo código TPU 11025 e outra pelo texto "audiência … designada"
+   * — e cada uma criava um evento. Dois compromissos idênticos na mesma data,
+   * um deles fadado a ser cancelado à mão. A checagem espelha a que `criarPrazo`
+   * já fazia: mesma pauta, mesmo dia (em Teresina), reaproveita.
    */
   private async criarPauta(
     processo: ProcessoAlvo,
@@ -281,11 +288,23 @@ export class AutomacaoPrazosService {
     const ehPericia = gatilho.tipo === 'PERICIA';
     const rotulo = ehPericia ? 'Perícia' : 'Audiência';
     const nomeFiliado = processo.filiado?.nomeCompleto ?? 'filiado';
+    const tipo = ehPericia ? TIPO_PERICIA : TIPO_AUDIENCIA;
+
+    const jaAgendada = await this.pautaDoDia(processo.id, tipo, inicio);
+    if (jaAgendada) {
+      // Carimba a movimentação na pauta que já existe: sem isso ela voltaria a
+      // ser candidata em toda varredura e continuaria pendente para o radar.
+      await this.prisma.movimentacaoProcessual.update({
+        where: { id: mov.id },
+        data: { compromissoId: jaAgendada },
+      });
+      return { compromisso: false, tarefa: false };
+    }
 
     const compromisso = await this.prisma.compromisso.create({
       data: {
         titulo: `${rotulo} — ${nomeFiliado}`,
-        tipo: ehPericia ? TIPO_PERICIA : TIPO_AUDIENCIA,
+        tipo,
         status: StatusCompromisso.PENDENTE,
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
@@ -317,25 +336,55 @@ export class AutomacaoPrazosService {
       aviso.setHours(9, 0, 0, 0);
       const inicioAviso = aviso > new Date() ? aviso : new Date();
 
-      await this.prisma.compromisso.create({
-        data: {
-          titulo: `Avisar filiado — ${rotulo.toLowerCase()} de ${nomeFiliado}`,
-          tipo: TIPO_CONTATO,
-          status: StatusCompromisso.PENDENTE,
-          inicio: inicioAviso,
-          fim: new Date(inicioAviso.getTime() + 1800_000),
-          descricao:
-            `Confirmar presença do filiado na ${rotulo.toLowerCase()} de ${inicio.toLocaleString('pt-BR')}.\n` +
-            `Processo ${processo.numeroCNJ ?? '(rascunho)'}.`,
-          responsavelId: secretariaId,
-          processoId: processo.id,
-          filiadoId: processo.filiadoId,
-          origemAutomatica: true,
-        },
-      });
-      tarefa = true;
+      // Mesma regra da pauta: um aviso por pauta. Sem esta checagem, uma pauta
+      // duplicada gerava dois "Avisar filiado", e a secretaria ligava duas vezes.
+      const avisoExistente = await this.pautaDoDia(processo.id, TIPO_CONTATO, inicioAviso);
+      if (!avisoExistente) {
+        await this.prisma.compromisso.create({
+          data: {
+            titulo: `Avisar filiado — ${rotulo.toLowerCase()} de ${nomeFiliado}`,
+            tipo: TIPO_CONTATO,
+            status: StatusCompromisso.PENDENTE,
+            inicio: inicioAviso,
+            fim: new Date(inicioAviso.getTime() + 1800_000),
+            descricao:
+              `Confirmar presença do filiado na ${rotulo.toLowerCase()} de ${inicio.toLocaleString('pt-BR')}.\n` +
+              `Processo ${processo.numeroCNJ ?? '(rascunho)'}.`,
+            responsavelId: secretariaId,
+            processoId: processo.id,
+            filiadoId: processo.filiadoId,
+            origemAutomatica: true,
+          },
+        });
+        tarefa = true;
+      }
     }
     return { compromisso: true, tarefa };
+  }
+
+  /**
+   * Atividade automática em aberto do mesmo processo, mesmo tipo, no mesmo DIA
+   * (fuso de Teresina) — o id, ou null.
+   *
+   * O dia é a granularidade certa: o tribunal remarca o horário sem remarcar a
+   * audiência, e comparar o instante exato trataria "14h" e "14h30" como duas
+   * pautas. Só considera PENDENTE/EM_ANDAMENTO — uma pauta já concluída ou
+   * cancelada não deve absorver a designação nova.
+   */
+  private async pautaDoDia(processoId: string, tipo: string, quando: Date): Promise<string | null> {
+    const dia = diaBR(quando);
+    const inicioDia = new Date(`${dia}T00:00:00.000-03:00`);
+    const existente = await this.prisma.compromisso.findFirst({
+      where: {
+        processoId,
+        tipo,
+        origemAutomatica: true,
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        inicio: { gte: inicioDia, lt: new Date(inicioDia.getTime() + 24 * 3_600_000) },
+      },
+      select: { id: true },
+    });
+    return existente?.id ?? null;
   }
 
   /**
@@ -375,11 +424,24 @@ export class AutomacaoPrazosService {
     // Carimba a movimentação para não reavaliar o cancelamento a cada varredura.
     // Aponta para a pauta derrubada quando havia uma; sem isso a movimentação
     // ficaria eternamente "pendente" aos olhos do robô.
+    //
+    // Uma movimentação carimba UM compromisso (a FK é singular), e quando o
+    // cancelamento derruba várias pautas as demais ficariam sem rastro de quem
+    // as derrubou. O motivo já vai no cancelamento de cada uma
+    // (`cancelarPorSistema` grava a descrição do andamento), então o histórico
+    // não se perde; aqui registramos no log quando houve mais de uma, porque
+    // duas pautas abertas para o mesmo processo é sinal de problema anterior.
     if (abertos.length) {
       await this.prisma.movimentacaoProcessual.update({
         where: { id: mov.id },
         data: { compromissoId: abertos[0].id },
       });
+      if (abertos.length > 1) {
+        this.logger.warn(
+          `[AUTOMACAO] Processo ${processo.numeroCNJ}: ${abertos.length} pautas abertas ` +
+            'derrubadas pela mesma movimentação — verifique duplicidade na agenda.',
+        );
+      }
     }
     return n;
   }

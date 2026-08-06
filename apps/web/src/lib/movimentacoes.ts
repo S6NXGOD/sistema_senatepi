@@ -90,6 +90,13 @@ export type ItemTimeline =
       orgaoJulgador?: string | null;
       ehAudiencia?: boolean;
       audienciaData?: string | null;
+      /**
+       * Grau que praticou o ato (G1, G2, JE, TR). Null no histórico anterior ao
+       * acompanhamento por instância — sem etiqueta, o item não mente sobre a
+       * origem.
+       */
+      grau?: string | null;
+      instanciaId?: string | null;
     }
   | {
       id: string;
@@ -160,6 +167,40 @@ export interface FiliadoDoProcesso {
   formacao: string | null;
 }
 
+/**
+ * Um grau do processo (1º, 2º, juizado, turma recursal).
+ *
+ * Um mesmo número de processo corre em mais de uma instância ao mesmo tempo —
+ * apelação no 2º grau enquanto o cumprimento de sentença anda no 1º —, e cada
+ * uma tem o próprio histórico de andamentos.
+ */
+export interface InstanciaProcesso {
+  id: string;
+  grau: string;
+  tribunal: string;
+  classeProcessual: string | null;
+  orgaoJulgador: string | null;
+  dataDistribuicao: string | null;
+  ultimoMovimentoEm: string | null;
+  /** Baixa definitiva ou trânsito em julgado, sem desarquivamento depois. */
+  baixada: boolean;
+  /** É a instância que responde pelo processo nas listas e nos filtros. */
+  principal: boolean;
+  ultimaSincronizacao: string | null;
+  _count?: { movimentacoes: number };
+}
+
+/** Rótulo legível do grau. */
+export const GRAU_LABEL: Record<string, string> = {
+  G1: '1º grau',
+  G2: '2º grau',
+  JE: 'Juizado Especial',
+  TR: 'Turma Recursal',
+};
+
+export const rotuloGrau = (grau: string | null | undefined): string =>
+  grau ? (GRAU_LABEL[grau.toUpperCase()] ?? grau) : '';
+
 export interface DossieProcesso {
   id: string;
   numeroCNJ: string;
@@ -205,6 +246,8 @@ export interface DossieProcesso {
   polos: PolosProcesso;
   /** Toda a equipe do processo. */
   advogados: AdvogadoDoProcesso[];
+  /** Graus em que o processo corre — vazio no histórico anterior. */
+  instancias: InstanciaProcesso[];
   linhaDoTempo: ItemTimeline[];
   atendimentos: AtendimentoOrigem[];
   compromissos: CompromissoDoProcesso[];

@@ -5,6 +5,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { MovimentacoesService } from './movimentacoes.service';
 import { ConsultaPreviaService } from './consulta-previa.service';
+import { DatajudService } from './datajud.service';
 import {
   CriarTipoAndamentoDto, AtualizarTipoAndamentoDto, RegistrarMovimentacaoDto,
 } from './dto/movimentacoes.dto';
@@ -102,7 +103,23 @@ export class MovimentacoesController {
 @Modulo('processos')
 @Controller('datajud')
 export class DatajudConsultaController {
-  constructor(private readonly consulta: ConsultaPreviaService) {}
+  constructor(
+    private readonly consulta: ConsultaPreviaService,
+    private readonly datajud: DatajudService,
+  ) {}
+
+  /**
+   * Estado do acompanhamento multi-instância.
+   *
+   * O front pergunta em runtime em vez de embutir a decisão no build: as
+   * `NEXT_PUBLIC_*` do Next são resolvidas na compilação, e desligar a
+   * funcionalidade exigiria rebuildar o serviço web. Mesma razão já registrada
+   * em `duplicidade.controller.ts`.
+   */
+  @Get('status')
+  status() {
+    return { multiInstancia: this.datajud.multiInstanciaAtiva };
+  }
 
   @Get('consultar')
   consultarPrevia(@Query('numeroCNJ') numeroCNJ: string, @Query('tribunal') tribunal?: string) {

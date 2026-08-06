@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { AgendaService } from '../agenda/agenda.service';
 import { AgendarAudienciaDto } from './dto/audiencias.dto';
 import { classificarAudiencia, classificarMovimentacao } from './utils/audiencia.util';
+import { diaBR, inicioDoDiaBR } from './utils/data-br.util';
 
 interface Ctx {
   ip?: string;
@@ -26,19 +27,6 @@ const TIPOS_PAUTA = [TIPO_AUDIENCIA, TIPO_PERICIA];
 const JANELA_MOVIMENTACAO_DIAS = 30;
 
 const DIA_MS = 24 * 3_600_000;
-/** Brasil sem horário de verão desde 2019 → offset fixo UTC-3. */
-const OFFSET_BR_MS = 3 * 3_600_000;
-
-/** Meia-noite de hoje em Teresina, como instante real. */
-function inicioDoDiaBR(base = new Date()): Date {
-  const br = new Date(base.getTime() - OFFSET_BR_MS);
-  return new Date(Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), br.getUTCDate()) + OFFSET_BR_MS);
-}
-
-/** Chave "dia em Teresina" (yyyy-mm-dd) — usada para detectar evento duplicado. */
-function diaBR(d: Date): string {
-  return new Date(d.getTime() - OFFSET_BR_MS).toISOString().slice(0, 10);
-}
 
 const alertaSelect = {
   id: true,

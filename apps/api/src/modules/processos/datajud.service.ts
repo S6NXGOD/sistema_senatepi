@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { flagLigada } from '../../common/utils/flag.util';
 
 /**
  * DatajudService — cliente da API Pública do DATAJUD (CNJ).
@@ -107,6 +108,33 @@ export interface ProcessoDatajud {
   movimentacoes: MovimentacaoDatajud[];
 }
 
+/**
+ * Uma instância (grau) devolvida pelo CNJ, com o `_id` do documento.
+ *
+ * É o mesmo `ProcessoDatajud` de sempre acrescido de `docId` — a identidade do
+ * documento no índice do tribunal, que é o que permite reconhecer, na próxima
+ * sincronização, que aquele G2 é o MESMO G2 e deve ser atualizado em vez de
+ * duplicado.
+ */
+export interface InstanciaDatajud extends ProcessoDatajud {
+  /** `_id` do documento no DataJud (ex.: "TJPI_G1_08312362420238180140"). */
+  docId: string;
+}
+
+/**
+ * Data do movimento mais recente de uma instância, em ms.
+ *
+ * As movimentações já chegam ordenadas por data decrescente do `mapear`, mas
+ * depender disso seria depender de um detalhe de outro método; o `reduce`
+ * custa nada e não quebra se aquela ordenação mudar.
+ */
+function ultimoMovimentoMs(instancia: ProcessoDatajud): number {
+  return instancia.movimentacoes.reduce((maior, m) => {
+    const t = new Date(m.dataMovimento).getTime();
+    return Number.isFinite(t) && t > maior ? t : maior;
+  }, -Infinity);
+}
+
 @Injectable()
 export class DatajudService {
   private readonly logger = new Logger(DatajudService.name);
@@ -120,6 +148,15 @@ export class DatajudService {
    */
   private readonly timeoutMs: number;
 
+  /**
+   * Ler TODAS as instâncias do processo, e não só a primeira devolvida.
+   *
+   * Desligado, o serviço se comporta exatamente como antes da mudança: uma
+   * instância por processo, a que o Elasticsearch ranquear em primeiro. É o
+   * rollback da funcionalidade sem redeploy.
+   */
+  private readonly multiInstancia: boolean;
+
   constructor(private readonly config: ConfigService) {
     // Header exata da API Pública do DATAJUD (configurável por ambiente).
     this.apiKey = this.config.get<string>(
@@ -127,6 +164,12 @@ export class DatajudService {
       'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==',
     );
     this.timeoutMs = Number(this.config.get('DATAJUD_TIMEOUT_MS')) || 45_000;
+    this.multiInstancia = flagLigada(this.config.get<string>('DATAJUD_MULTI_INSTANCIA'));
+  }
+
+  /** A flag está ligada? (rota `/processos/instancias/status` lê daqui) */
+  get multiInstanciaAtiva(): boolean {
+    return this.multiInstancia;
   }
 
   /** Alias/índice do tribunal no DATAJUD (ex.: TJPI → api_publica_tjpi, TRE-PI → api_publica_tre-pi). */
@@ -138,11 +181,28 @@ export class DatajudService {
   }
 
   /**
-   * Consulta um processo pelo NPU (número único do CNJ) no índice do tribunal.
-   * A busca é um POST com query Elasticsearch (match em `numeroProcesso`).
-   * Retorna metadados normalizados ou `null` quando não encontrado.
+   * TODAS as instâncias do processo, pelo NPU, no índice do tribunal.
+   *
+   * O DataJud guarda UM DOCUMENTO POR GRAU no mesmo índice, com `_id` no
+   * formato `<TRIBUNAL>_<GRAU>_<NPU>`, e cada documento traz o próprio array de
+   * movimentos. Verificado no NPU 0831236-24.2023.8.18.0140: `TJPI_G2` com 16
+   * movimentos e `TJPI_G1` com 42.
+   *
+   * A versão anterior deste método lia `hits.hits[0]` e devolvia só isso — qual
+   * grau sobrevivia dependia da ordenação por relevância do Elasticsearch, e as
+   * movimentações do outro nunca chegavam ao banco.
+   *
+   * DECISÕES DA CONSULTA
+   *  - `size: 20`: o default do Elasticsearch é 10 e não havia `size` nenhum
+   *    antes. Vinte cobre com folga o número de graus que um processo pode ter e
+   *    ainda serve de teto contra uma resposta absurda.
+   *  - `_source` sem exclusões: `movimentos` é o que interessa e é o campo
+   *    grande; recortá-lo não vale a complexidade.
+   *  - CONFERÊNCIA DO NPU: `match` é análise de texto, não igualdade — pode
+   *    devolver documento de outro processo. O filtro abaixo é o que impede que
+   *    andamento alheio entre na ficha do filiado.
    */
-  async buscarProcessoPorNPU(npu: string, siglaTribunal: string): Promise<ProcessoDatajud | null> {
+  async buscarInstanciasPorNPU(npu: string, siglaTribunal: string): Promise<InstanciaDatajud[]> {
     const numero = (npu || '').replace(/\D/g, '');
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
@@ -162,7 +222,13 @@ export class DatajudService {
           Authorization: `APIKey ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query: { match: { numeroProcesso: numero } } }),
+        body: JSON.stringify({
+          // Com a flag desligada o corpo volta a ser o de antes (sem `size`, o
+          // ES aplica 10) e só o primeiro hit é aproveitado — comportamento
+          // idêntico ao anterior, para o rollback ser real.
+          ...(this.multiInstancia ? { size: 20 } : {}),
+          query: { match: { numeroProcesso: numero } },
+        }),
         signal: controller.signal,
       });
 
@@ -174,16 +240,52 @@ export class DatajudService {
         );
       }
 
-      const json = (await res.json()) as { hits?: { hits?: Array<{ _source?: unknown }> } };
-      const fonte = json?.hits?.hits?.[0]?._source as Record<string, any> | undefined;
-      if (!fonte) {
-        this.logger.log(`[DATAJUD] Nenhum resultado para NPU ${numero} em ${alias}`);
-        return null;
+      const json = (await res.json()) as {
+        hits?: { hits?: Array<{ _id?: string; _source?: unknown }> };
+      };
+      const hits = json?.hits?.hits ?? [];
+
+      const candidatos = this.multiInstancia ? hits : hits.slice(0, 1);
+      const instancias: InstanciaDatajud[] = [];
+      let descartados = 0;
+
+      for (const hit of candidatos) {
+        const fonte = hit?._source as Record<string, any> | undefined;
+        if (!fonte) continue;
+
+        // O `match` do Elasticsearch é textual: um documento de OUTRO processo
+        // pode pontuar e voltar aqui. Sem esta conferência ele seria gravado sob
+        // o NPU pedido, misturando andamento de processo alheio na ficha —
+        // o pior erro possível neste módulo.
+        const numeroDoDoc = String(fonte.numeroProcesso ?? '').replace(/\D/g, '');
+        if (numeroDoDoc && numeroDoDoc !== numero) {
+          descartados++;
+          continue;
+        }
+
+        instancias.push({
+          ...this.mapear(fonte, numero),
+          // Sem `_id` (não deveria acontecer), monta a chave no mesmo formato do
+          // CNJ para a linha continuar reconhecível na próxima sincronização.
+          docId: hit._id ?? `${(fonte.tribunal ?? 'ND')}_${(fonte.grau ?? 'G1')}_${numero}`,
+        });
       }
 
-      const processo = this.mapear(fonte, numero);
-      this.logger.log(`[DATAJUD] NPU ${numero}: ${processo.movimentacoes.length} movimentação(ões) recebidas`);
-      return processo;
+      if (descartados) {
+        this.logger.warn(
+          `[DATAJUD] NPU ${numero}: ${descartados} documento(s) de outro processo descartado(s).`,
+        );
+      }
+      if (!instancias.length) {
+        this.logger.log(`[DATAJUD] Nenhum resultado para NPU ${numero} em ${alias}`);
+        return [];
+      }
+
+      this.logger.log(
+        `[DATAJUD] NPU ${numero}: ${instancias.length} instância(s) — ` +
+          instancias.map((i) => `${i.grau ?? '?'}:${i.movimentacoes.length}mov`).join(', '),
+      );
+      return instancias;
     } catch (err) {
       // Erros HTTP tratados acima são repropagados; o resto vira 503 amigável.
       if (err instanceof HttpException) throw err;
@@ -195,6 +297,21 @@ export class DatajudService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Um processo pelo NPU — a instância mais relevante.
+   *
+   * Mantido com a assinatura de sempre para os chamadores que só querem exibir
+   * metadados (consulta prévia do modal de importação, formalização de
+   * rascunho). Quem precisa gravar o processo usa `buscarInstanciasPorNPU`.
+   */
+  async buscarProcessoPorNPU(npu: string, siglaTribunal: string): Promise<ProcessoDatajud | null> {
+    const instancias = await this.buscarInstanciasPorNPU(npu, siglaTribunal);
+    if (!instancias.length) return null;
+    // A escolha completa (baixa, último movimento) exige os dados já gravados;
+    // aqui basta a instância que mais recentemente teve andamento.
+    return [...instancias].sort((a, b) => ultimoMovimentoMs(b) - ultimoMovimentoMs(a))[0];
   }
 
   /**

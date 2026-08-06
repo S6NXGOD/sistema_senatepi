@@ -75,6 +75,11 @@ export interface ProcessoLista {
   advogados: { principal: boolean; advogado: AdvogadoRef }[];
   /** "Autor × Réu" já calculado pela API — a tela não reimplementa a regra. */
   confronto: Confronto;
+  /**
+   * Graus em que o processo corre. Só o resumo: a lista precisa avisar que há
+   * mais de uma instância, não descrever cada uma.
+   */
+  instancias?: { grau: string; baixada: boolean; principal: boolean }[];
   _count: { movimentacoes: number; partes: number; advogados: number };
 }
 

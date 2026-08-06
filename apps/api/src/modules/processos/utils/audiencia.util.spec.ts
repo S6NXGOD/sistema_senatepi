@@ -1,4 +1,4 @@
-import { classificarAudiencia } from './audiencia.util';
+import { classificarAudiencia, instanciaBaixada } from './audiencia.util';
 
 /** Instante UTC equivalente a uma data/hora local de Teresina (UTC-3). */
 const brt = (iso: string) => new Date(`${iso}-03:00`);
@@ -118,5 +118,59 @@ describe('Radar de audiências — classificação das movimentações do DataJu
       expect(r.ehAudiencia).toBe(true);
       expect(r.audienciaData).toBeNull();
     });
+  });
+});
+
+/**
+ * Códigos conferidos contra o índice real do TJPI (`movimentos.codigo` →
+ * `movimentos.nome`), e não deduzidos da tabela da TPU: 22 = Baixa Definitiva,
+ * 848 = Trânsito em julgado, 893 = Desarquivamento.
+ *
+ * É o que decide se um GRAU ainda está vivo — e, por consequência, se o
+ * processo continua na varredura noturna.
+ */
+describe('instanciaBaixada — o grau ainda está vivo?', () => {
+  const mov = (codigo: number | null, data: string) => ({
+    codigoMovimento: codigo,
+    dataMovimento: new Date(data),
+  });
+
+  it('instância sem movimento algum não está baixada', () => {
+    expect(instanciaBaixada([])).toBe(false);
+  });
+
+  it('andamento comum não baixa', () => {
+    expect(instanciaBaixada([mov(51, '2026-05-13'), mov(85, '2026-05-04')])).toBe(false);
+  });
+
+  it('Baixa Definitiva (22) baixa', () => {
+    expect(instanciaBaixada([mov(51, '2026-01-10'), mov(22, '2026-02-01')])).toBe(true);
+  });
+
+  it('Trânsito em julgado (848) baixa', () => {
+    expect(instanciaBaixada([mov(848, '2026-02-01')])).toBe(true);
+  });
+
+  /** Sem isto, o processo desarquivado sairia da varredura justamente ao voltar a andar. */
+  it('Desarquivamento (893) POSTERIOR desfaz a baixa', () => {
+    expect(instanciaBaixada([mov(22, '2026-02-01'), mov(893, '2026-06-15')])).toBe(false);
+  });
+
+  it('Desarquivamento ANTERIOR não desfaz a baixa que veio depois', () => {
+    expect(instanciaBaixada([mov(893, '2025-03-01'), mov(22, '2026-02-01')])).toBe(true);
+  });
+
+  /**
+   * O CNJ não garante ordenação e alguns tribunais devolvem a lista decrescente.
+   * A comparação é por DATA, nunca pela posição no array.
+   */
+  it('não depende da ordem do array', () => {
+    expect(instanciaBaixada([mov(893, '2026-06-15'), mov(22, '2026-02-01')])).toBe(false);
+    expect(instanciaBaixada([mov(22, '2026-02-01'), mov(893, '2026-06-15')])).toBe(false);
+  });
+
+  it('movimento sem código ou com data inválida é ignorado sem quebrar', () => {
+    expect(instanciaBaixada([mov(null, '2026-01-01'), mov(22, 'data-ruim')])).toBe(false);
+    expect(instanciaBaixada([mov(22, '2026-02-01'), mov(893, 'data-ruim')])).toBe(true);
   });
 });

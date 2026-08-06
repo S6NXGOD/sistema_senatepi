@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
-  AlertTriangle, Swords, FileCheck2,
+  AlertTriangle, Swords, FileCheck2, Layers,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ import {
   listarProcessos, formatNPU, ProcessoLista, StatusProcesso,
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM,
 } from '@/lib/processos';
+import { rotuloGrau } from '@/lib/movimentacoes';
 
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -274,7 +275,10 @@ function ListaProcessos() {
                       <td className="max-w-[220px] truncate px-4 py-3" title={p.classeProcessual ?? ''}>
                         {p.classeProcessual ?? '—'}
                       </td>
-                      <td className="px-4 py-3">{p.tribunal ?? '—'}</td>
+                      <td className="px-4 py-3">
+                        {p.tribunal ?? '—'}
+                        <BadgeInstancias instancias={p.instancias} />
+                      </td>
                       <td className="px-4 py-3 tabular-nums text-muted-foreground">{p._count.movimentacoes}</td>
                       <td className="px-4 py-3"><StatusBadge status={p.statusInterno} /></td>
                     </tr>
@@ -364,6 +368,35 @@ function BadgeInstitucional({ className }: { className?: string }) {
       title="Ação coletiva movida pelo SENATEPI em nome da categoria"
     >
       🏛️ Ação Institucional (SENATEPI)
+    </span>
+  );
+}
+
+/**
+ * Aviso de que o processo corre em mais de um grau.
+ *
+ * Só aparece a partir de duas instâncias: com uma só, a coluna do tribunal já
+ * diz tudo e a etiqueta seria ruído em toda linha da tabela. Quando aparece,
+ * responde à pergunta que a lista antes não conseguia responder — por que um
+ * processo "encerrado" continua recebendo andamento.
+ */
+function BadgeInstancias({
+  instancias,
+}: {
+  instancias?: { grau: string; baixada: boolean; principal: boolean }[];
+}) {
+  if (!instancias || instancias.length < 2) return null;
+  const vivas = instancias.filter((i) => !i.baixada);
+  return (
+    <span
+      className="mt-0.5 flex w-fit items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
+      title={instancias
+        .map((i) => `${rotuloGrau(i.grau)}${i.baixada ? ' (baixado)' : ''}`)
+        .join(' · ')}
+    >
+      <Layers className="h-3 w-3" />
+      {instancias.length} instâncias
+      {vivas.length < instancias.length && ` · ${vivas.length} ativa${vivas.length === 1 ? '' : 's'}`}
     </span>
   );
 }

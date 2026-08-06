@@ -219,25 +219,37 @@ model LinkRecadastramento {
 // ============================================================================
 
 model User {
-  id            String    @id @default(uuid())
-  nome          String
-  nomeExibicao  String?   @map("nome_exibicao") // nome curto exibido na interface
-  email         String    @unique
-  username      String?   @unique // nome de usuário opcional
-  senhaHash     String    @map("senha_hash")
-  avatarUrl     String?   @map("avatar_url") // foto de perfil (URL informada manualmente)
-  avatarKey     String?   @map("avatar_key") // chave no storage quando a foto é enviada (upload)
+  id                 String    @id @default(uuid())
+  nome               String
+  nomeExibicao       String?   @map("nome_exibicao") // nome curto exibido na interface
+  email              String    @unique
+  username           String?   @unique // nome de usuário opcional
+  senhaHash          String    @map("senha_hash")
+  avatarUrl          String?   @map("avatar_url") // foto de perfil (URL informada manualmente)
+  avatarKey          String?   @map("avatar_key") // chave no storage quando a foto é enviada (upload)
   /// Inscrição na OAB (só dígitos) — chave do cruzamento com os advogados que o
   /// tribunal informa no processo, além de dado de perfil do próprio advogado.
-  oab           String?
-  oabUf         String?   @map("oab_uf") // UF da inscrição (ex.: PI)
-  role          UserRole  @default(TRIAGEM)
+  oab                String?
+  oabUf              String?   @map("oab_uf") // UF da inscrição (ex.: PI)
+  role               UserRole  @default(TRIAGEM)
   // Matriz de permissões por módulo (override do preset do perfil): { "processos": "EDITAR", ... }
-  permissoes    Json?
-  ativo         Boolean   @default(true)
-  ultimoLoginEm DateTime? @map("ultimo_login_em")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  permissoes         Json?
+  ativo              Boolean   @default(true)
+  ultimoLoginEm      DateTime? @map("ultimo_login_em")
+  /// CORTE DE SESSÃO: todo token de acesso emitido ANTES deste instante é
+  /// recusado.
+  ///
+  /// Existe porque apagar os refresh tokens não desloga ninguém: o token de
+  /// acesso é um JWT autocontido, válido por 30 dias, e continua sendo aceito
+  /// até expirar sozinho. Sem este corte, tirar alguém de um aparelho
+  /// emprestado — ou encerrar uma demonstração feita com a conta
+  /// administrativa — dependeria de esperar um mês.
+  ///
+  /// Preenchido pelo script `forcar-logout` (ver prisma/scripts). Nulo = nunca
+  /// houve corte.
+  sessoesValidasApos DateTime? @map("sessoes_validas_apos")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   refreshTokens           RefreshToken[]
   auditorias              Auditoria[]
@@ -1571,6 +1583,8 @@ model Compromisso {
   processo            Processo?                @relation(fields: [processoId], references: [id], onDelete: SetNull)
   /// Movimentações do DataJud que originaram este evento (radar de audiências).
   origemMovimentacoes MovimentacaoProcessual[]
+  /// Publicações do DJEN que criaram ou enriqueceram esta atividade.
+  origemComunicacoes  ComunicacaoDjen[]
   historico           CompromissoHistorico[]
   /// Documentos da própria atividade (enviados ou puxados do acervo do filiado).
   /// Os anexos da triagem/processo de origem continuam visíveis por herança —
@@ -1734,6 +1748,10 @@ model Processo {
 
   filiado               Filiado?                  @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   advogado              User?                     @relation("ProcessoAdvogado", fields: [advogadoId], references: [id], onDelete: SetNull)
+  /// Graus/instâncias do MESMO número de processo (ver ProcessoInstancia).
+  instancias            ProcessoInstancia[]
+  /// Publicações do DJEN casadas com este processo.
+  comunicacoes          ComunicacaoDjen[]
   movimentacoes         MovimentacaoProcessual[]
   movimentacoesInternas MovimentacaoInterna[]
   anexos                AnexoDocumento[]
@@ -1753,6 +1771,80 @@ model Processo {
   @@index([statusInterno])
   @@index([tribunal])
   @@map("processos")
+}
+
+/// UMA INSTÂNCIA (grau) do mesmo número de processo.
+///
+/// POR QUE ESTA TABELA EXISTE
+/// O DataJud devolve UM DOCUMENTO POR GRAU, todos no mesmo índice do tribunal,
+/// distinguidos pelo `_id` (`TJPI_G1_<npu>`, `TJPI_G2_<npu>`). Cada documento
+/// carrega o PRÓPRIO array de movimentos. Verificado no NPU
+/// 0831236-24.2023.8.18.0140: o G2 traz 16 movimentos e o G1 traz 42.
+///
+/// Até aqui o sistema lia `hits[0]` e descartava o resto — qual dos dois
+/// sobrevivia dependia da ordenação por relevância do Elasticsearch, e as
+/// movimentações do outro simplesmente nunca existiam no banco. Guardar os dois
+/// como linhas de `processos` era impossível: `numero_cnj` é ÚNICO, e é assim
+/// que deve continuar (é o mesmo processo, com a mesma parte e o mesmo advogado
+/// responsável — o que muda é o grau).
+///
+/// CICLO DE VIDA PRÓPRIO: o 2º grau pode estar baixado enquanto o 1º volta a
+/// correr em cumprimento de sentença. É por isso que `baixada` e
+/// `ultimo_movimento_em` moram aqui, e não em `processos`.
+model ProcessoInstancia {
+  id         String @id @default(uuid())
+  processoId String @map("processo_id")
+
+  /// `_id` do documento no DataJud (ex.: "TJPI_G1_08312362420238180140").
+  /// Chave natural e estável entre sincronizações — melhor que (grau, tribunal)
+  /// porque é exatamente o que o CNJ usa para identificar o documento.
+  docId    String @map("doc_id")
+  /// G1 (1º grau), G2 (2º grau), JE (juizado especial), TR (turma recursal).
+  /// Texto: cada tribunal usa um subconjunto e novos valores aparecem sem aviso.
+  grau     String
+  tribunal String
+
+  classeProcessual    String?   @map("classe_processual")
+  classeCodigo        Int?      @map("classe_codigo")
+  orgaoJulgador       String?   @map("orgao_julgador")
+  orgaoJulgadorCodigo String?   @map("orgao_julgador_codigo")
+  dataDistribuicao    DateTime? @map("data_distribuicao")
+  nivelSigilo         Int?      @map("nivel_sigilo")
+  formato             String?
+  sistema             String?
+  /// Carimbo de última atualização informado pelo CNJ.
+  atualizadoNoCnjEm   DateTime? @map("atualizado_no_cnj_em")
+
+  /// Data do movimento MAIS RECENTE desta instância.
+  ///
+  /// É por ela que se decide qual instância está viva — e NÃO por
+  /// `atualizadoNoCnjEm`, que é o carimbo de INGESTÃO do CNJ e vem praticamente
+  /// igual nos dois graus (verificado: mesmo NPU, ambos 2026-08-03, enquanto os
+  /// movimentos reais eram de 2026-05 no G2 e 2025-11 no G1). Usar o carimbo do
+  /// CNJ para isso escolheria a instância errada.
+  ultimoMovimentoEm DateTime? @map("ultimo_movimento_em")
+
+  /// Recebeu Baixa Definitiva (TPU 22) ou Trânsito em julgado (848) sem
+  /// Desarquivamento (893) posterior. Instância baixada sai do rodízio de
+  /// "instância principal", mas continua no banco: o histórico dela é o que
+  /// explica de onde veio o processo.
+  baixada Boolean @default(false)
+
+  /// Instância que alimenta os atalhos de `Processo` (grau, tribunal, classe,
+  /// órgão julgador). Índice único parcial garante no máximo uma por processo.
+  principal Boolean @default(false)
+
+  ultimaSincronizacao DateTime? @map("ultima_sincronizacao")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  processo      Processo                 @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  movimentacoes MovimentacaoProcessual[]
+  comunicacoes  ComunicacaoDjen[]
+
+  @@unique([processoId, docId])
+  @@index([processoId])
+  @@map("processos_instancias")
 }
 
 /// Cadastro de PARTE EXTERNA — quem não é filiado nem usuário do sistema: a
@@ -1935,8 +2027,16 @@ model AnexoDocumento {
 /// estado do alerta (dispensa / evento criado) mora AQUI, no banco local, e não
 /// na sessão do navegador: a varredura noturna precisa respeitá-lo.
 model MovimentacaoProcessual {
-  id              String   @id @default(uuid())
-  processoId      String   @map("processo_id")
+  id          String  @id @default(uuid())
+  processoId  String  @map("processo_id")
+  /// De QUAL grau veio este andamento.
+  ///
+  /// Nulo no histórico anterior à tabela de instâncias (o backfill aponta tudo
+  /// para a instância principal, mas movimentações gravadas antes de o processo
+  /// ter instância continuam soltas) e em processos sem NPU. A timeline sabe
+  /// lidar com isso: sem instância, o andamento aparece sem etiqueta de grau.
+  instanciaId String? @map("instancia_id")
+
   dataMovimento   DateTime @map("data_movimento")
   descricao       String
   codigoMovimento Int?     @map("codigo_movimento")
@@ -1965,15 +2065,106 @@ model MovimentacaoProcessual {
   dispensadoPor    String?   @map("dispensado_por") // id do usuário (ver Auditoria)
   dispensadoMotivo String?   @map("dispensado_motivo")
 
-  processo    Processo     @relation(fields: [processoId], references: [id], onDelete: Cascade)
-  compromisso Compromisso? @relation(fields: [compromissoId], references: [id], onDelete: SetNull)
+  processo     Processo           @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  /// SetNull: apagar/recriar a instância não pode levar junto o histórico de
+  /// andamentos, que é o dado caro desta tabela.
+  instancia    ProcessoInstancia? @relation(fields: [instanciaId], references: [id], onDelete: SetNull)
+  compromisso  Compromisso?       @relation(fields: [compromissoId], references: [id], onDelete: SetNull)
+  /// Publicações do DJEN que descrevem o mesmo fato deste andamento.
+  comunicacoes ComunicacaoDjen[]
 
   @@index([processoId])
+  @@index([instanciaId])
   @@index([dataMovimento])
   // Suporta a consulta do radar: pendentes = eh_audiencia AND dispensado IS NULL.
   @@index([ehAudiencia, dispensadoEm])
   @@index([compromissoId])
   @@map("movimentacoes_processuais")
+}
+
+/// PUBLICAÇÃO/INTIMAÇÃO do DJEN (API Comunica PJe, do CNJ).
+///
+/// POR QUE EXISTE
+/// O DataJud entrega o RÓTULO do ato ("Expedição de documento", "Mero
+/// expediente") e quase nunca o teor. Quem abre prazo é a publicação, e é ela
+/// que diz o que fazer: "Intimo a parte autora a apresentar réplica no prazo de
+/// 15 dias". Sem essa fonte, a atividade automática só podia dizer "confira no
+/// PJe o que estão pedindo".
+///
+/// A tabela COMPLEMENTA as movimentações — não as substitui. O DataJud continua
+/// sendo quem detecta que algo aconteceu; o DJEN explica o quê.
+///
+/// LGPD: ao contrário do DataJud (só metadado), `texto` traz NOME DAS PARTES no
+/// corpo. É publicação oficial, pública por lei, mas a natureza do dado mudou:
+/// o teor nunca vai para log de aplicação e a leitura passa pelo mesmo controle
+/// de módulo do resto de Processos.
+model ComunicacaoDjen {
+  id String @id @default(uuid())
+
+  /// Hash da comunicação no DJEN. Chave natural e ÚNICA.
+  ///
+  /// É a idempotência que falta ao lado DataJud: aqui a duplicata é impossível
+  /// por constraint do banco, não por acordo em memória. Reprocessar a mesma
+  /// janela de dias — o que a varredura faz todo dia, de propósito — é
+  /// inofensivo.
+  hash String @unique
+
+  /// NPU com 20 dígitos, como o DJEN devolve (idêntico ao do DataJud).
+  numeroProcesso String  @map("numero_processo")
+  /// Processo local. NUNCA nulo na prática: publicação de processo não
+  /// cadastrado é descartada na ingestão, por decisão de produto. Opcional no
+  /// schema para o vínculo sobreviver à exclusão do processo.
+  processoId     String? @map("processo_id")
+  /// Instância inferida pelo órgão julgador. Nulo quando não casa — não bloqueia.
+  instanciaId    String? @map("instancia_id")
+  siglaTribunal  String  @map("sigla_tribunal")
+
+  /// Intimação | Edital | Citação | Lista de distribuição. São 4 valores limpos
+  /// e é sobre eles que as regras são escritas.
+  tipoComunicacao String? @map("tipo_comunicacao")
+  /// TEXTO LIVRE, varia por tribunal ("Sentença", "87", "DESPACHO/DECISÃO",
+  /// "Devedores"). Guardado para exibição; NÃO usar em regra de classificação.
+  tipoDocumento   String? @map("tipo_documento")
+  nomeOrgao       String? @map("nome_orgao")
+  nomeClasse      String? @map("nome_classe")
+  /// D = Diário de Justiça Eletrônico Nacional; E = Plataforma de Editais.
+  meio            String?
+  /// Link para o documento no sistema do tribunal.
+  link            String?
+  /// Teor integral da publicação — o dado que justifica a integração inteira.
+  texto           String
+
+  dataDisponibilizacao DateTime @map("data_disponibilizacao") @db.Date
+
+  /// Partes destinatárias [{nome, polo}] como o DJEN envia.
+  destinatarios Json?
+  /// Advogados intimados [{nome, numero_oab, uf_oab}].
+  advogados     Json?
+
+  /// Providência classificada a partir do texto (ver utils/providencia.util.ts).
+  providencia         String?
+  /// Prazo em dias que o TEXTO menciona. É SUGESTÃO — nunca vira vencimento
+  /// calculado; serve para antecipar o lembrete e alertar quem for conferir.
+  prazoMencionadoDias Int?    @map("prazo_mencionado_dias")
+
+  /// Atividade criada ou enriquecida por esta publicação.
+  compromissoId  String? @map("compromisso_id")
+  /// Movimentação do DataJud que descreve o MESMO fato. É o vínculo que impede
+  /// as duas fontes de gerarem duas atividades para um ato só.
+  movimentacaoId String? @map("movimentacao_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  processo     Processo?               @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  instancia    ProcessoInstancia?      @relation(fields: [instanciaId], references: [id], onDelete: SetNull)
+  compromisso  Compromisso?            @relation(fields: [compromissoId], references: [id], onDelete: SetNull)
+  movimentacao MovimentacaoProcessual? @relation(fields: [movimentacaoId], references: [id], onDelete: SetNull)
+
+  @@index([processoId, dataDisponibilizacao])
+  @@index([numeroProcesso])
+  @@index([compromissoId])
+  @@index([movimentacaoId])
+  @@map("comunicacoes_djen")
 }
 
 /// De onde partiu a chamada ao DataJud (as ÚNICAS três permitidas).
@@ -1987,14 +2178,24 @@ enum OrigemSincronizacao {
 /// madrugada e guarda o motivo das falhas (rate limit, tribunal fora do ar…).
 /// LGPD: registra só metadado público (NPU, tribunal) e a mensagem técnica.
 model LogSincronizacaoDatajud {
-  id                 String              @id @default(uuid())
-  processoId         String?             @map("processo_id")
-  numeroCNJ          String              @map("numero_cnj")
-  tribunal           String?
+  id         String  @id @default(uuid())
+  processoId String? @map("processo_id")
+  numeroCNJ  String  @map("numero_cnj")
+  tribunal   String?
+  /// QUAL API foi chamada: "DATAJUD" ou "DJEN".
+  ///
+  /// Texto e não enum de propósito: `origem` (abaixo) já é um enum e responde
+  /// outra pergunta — QUEM disparou (importação, botão, robô). Somar uma fonte
+  /// nova a um enum custa migração; aqui vão nascer outras (tribunais
+  /// superiores, MNI) e o default preserva todas as linhas já gravadas.
+  fonte      String  @default("DATAJUD")
+
   origem             OrigemSincronizacao
   sucesso            Boolean
   httpStatus         Int?                @map("http_status")
   mensagemErro       String?             @map("mensagem_erro")
+  /// Registros novos gravados nesta chamada — movimentações (DATAJUD) ou
+  /// publicações (DJEN). O nome ficou por compatibilidade com o histórico.
   novasMovimentacoes Int                 @default(0) @map("novas_movimentacoes")
   duracaoMs          Int?                @map("duracao_ms")
   createdAt          DateTime            @default(now()) @map("created_at")
@@ -2004,7 +2205,26 @@ model LogSincronizacaoDatajud {
   @@index([processoId])
   @@index([createdAt])
   @@index([sucesso, createdAt])
+  @@index([fonte, createdAt])
   @@map("logs_sincronizacao_datajud")
+}
+
+/// Trava de execução única dos jobs agendados (ver common/utils/trava-job.util.ts).
+///
+/// Uma linha por job, com prazo. Existe porque a trava anterior era um booleano
+/// em memória: com mais de uma réplica da API, as duas rodavam a varredura ao
+/// mesmo tempo, dobrando as chamadas ao CNJ e duplicando movimentação.
+model TravaJob {
+  /// Nome do job ("datajud-sync", "djen-sync"). Chave primária: é o que garante
+  /// que só exista uma trava por job.
+  nome     String   @id
+  /// Instância da API que a detém — impede que uma réplica libere a trava de outra.
+  donoId   String   @map("dono_id")
+  /// Depois disto a trava é considerada abandonada e pode ser tomada. É o que
+  /// torna a trava à prova de queda do processo, sem intervenção manual.
+  expiraEm DateTime @map("expira_em")
+
+  @@map("travas_job")
 }
 
 /// Tipo de movimentação interna (andamento) — CADASTRÁVEL, mesma ideia dos tipos

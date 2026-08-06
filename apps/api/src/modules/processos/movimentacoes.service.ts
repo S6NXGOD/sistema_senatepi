@@ -236,6 +236,13 @@ export class MovimentacoesService {
           orderBy: [{ principal: 'desc' }, { createdAt: 'asc' }],
           include: ADVOGADO_INCLUDE,
         },
+        // Instâncias do processo: a timeline etiqueta cada andamento com o grau
+        // que o praticou, e sem isto "Conclusão" do 1º e do 2º grau apareceriam
+        // lado a lado, na mesma lista, sem nada que os distinguisse.
+        instancias: {
+          orderBy: [{ baixada: 'asc' }, { ultimoMovimentoEm: 'desc' }],
+          include: { _count: { select: { movimentacoes: true } } },
+        },
         movimentacoes: { orderBy: { dataMovimento: 'desc' } },
         movimentacoesInternas: {
           // Pela data do FATO quando informada; senão pela do registro.
@@ -279,6 +286,9 @@ export class MovimentacoesService {
     const { movimentacoesInternas, movimentacoes, ...resto } = processo;
 
     // Linha do tempo UNIFICADA (DataJud + interna), mais recente primeiro.
+    // Grau de cada instância, para etiquetar os andamentos sem um join por linha.
+    const grauPorInstancia = new Map(resto.instancias.map((i) => [i.id, i.grau]));
+
     const linhaDoTempo = [
       ...movimentacoes.map((m) => ({
         id: m.id,
@@ -286,6 +296,9 @@ export class MovimentacoesService {
         data: m.dataMovimento,
         descricao: m.descricao,
         codigoMovimento: m.codigoMovimento,
+        /** Grau que praticou o ato. Null no histórico anterior às instâncias. */
+        grau: m.instanciaId ? (grauPorInstancia.get(m.instanciaId) ?? null) : null,
+        instanciaId: m.instanciaId,
         // Detalhamento do ato: é o que evita o advogado abrir o PJe.
         detalhe: m.detalhe,
         conteudo: m.conteudo,

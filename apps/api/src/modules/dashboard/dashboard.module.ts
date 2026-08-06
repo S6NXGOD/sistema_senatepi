@@ -266,6 +266,9 @@ export class DashboardService {
       // falhava em silêncio: o painel mostrava "0 audiências a agendar" tanto
       // quando não havia nada quanto quando a varredura nem tinha rodado.
       this.prisma.logSincronizacaoDatajud.findFirst({
+        // Só o DataJud: "quando o robô rodou pela última vez" se refere à
+        // varredura das 02h. O DJEN roda às 05h e tem cadência própria.
+        where: { fonte: 'DATAJUD' },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, sucesso: true },
       }),
@@ -597,6 +600,11 @@ export class DashboardService {
    *    exclusão do processo (`onDelete: SetNull`), e nesse caso o NPU é a
    *    única identidade que resta — sem o COALESCE, todos os órfãos
    *    colapsariam num único NULL.
+   *
+   * 4. `fonte = 'DATAJUD'` — desde que o DJEN passou a gravar na mesma tabela,
+   *    sem este filtro uma indisponibilidade do Comunica PJe apareceria no
+   *    painel como "o CNJ recusou a consulta", que é outro sistema e outra
+   *    providência. O DJEN tem contador próprio.
    */
   private falhasDatajud24h(desde: Date) {
     return this.prisma.$queryRaw<FalhaDatajud[]>`
@@ -606,6 +614,7 @@ export class DashboardService {
                l.http_status, l.mensagem_erro, l.created_at
           FROM logs_sincronizacao_datajud l
          WHERE l.created_at >= ${desde}
+           AND l.fonte = 'DATAJUD'
            AND l.origem <> 'IMPORTACAO'::"OrigemSincronizacao"
          ORDER BY COALESCE(l.processo_id, l.numero_cnj), l.created_at DESC
       )
