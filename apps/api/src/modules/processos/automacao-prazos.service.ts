@@ -14,6 +14,9 @@ const TIPO_AUDIENCIA = 'AUDIENCIA';
 const TIPO_PERICIA = 'PERICIA';
 /** Aviso ao filiado: tipo próprio, com desfechos que perguntam se ele soube. */
 const TIPO_CONTATO = 'CONTATO';
+const TIPO_ACOMPANHAMENTO = 'ACOMPANHAMENTO';
+/** Título fixo — é por ele que a tarefa de confirmação é reconhecida e não duplica. */
+const TITULO_CONFIRMAR_AUDIENCIA = 'Confirmar data da audiência designada';
 
 /**
  * Soma dias ÚTEIS a uma data (pula sábado e domingo).
@@ -50,6 +53,8 @@ interface MovimentacaoParaAutomacao {
   ehAudiencia?: boolean;
   audienciaData?: Date | null;
   compromissoId?: string | null;
+  /** Complementos tabelados — carregam `situacao_da_audiencia`. */
+  complementos?: unknown;
 }
 
 type ProcessoAlvo = {
@@ -96,9 +101,16 @@ export class AutomacaoPrazosService {
     conteudo?: string | null;
     codigoMovimento?: number | null;
     dataMovimento?: Date | null;
+    /** Complementos tabelados do CNJ — carregam `situacao_da_audiencia`. */
+    complementos?: unknown;
   }): GatilhoMovimentacao {
     const texto = [m.descricao, m.detalhe, m.conteudo].filter(Boolean).join(' — ');
-    return classificarMovimentacao(texto, m.codigoMovimento, m.dataMovimento);
+    return classificarMovimentacao(
+      texto,
+      m.codigoMovimento,
+      m.dataMovimento,
+      m.complementos as { descricao?: string | null; nome?: string | null }[] | null,
+    );
   }
 
   /**
@@ -156,8 +168,28 @@ export class AutomacaoPrazosService {
           continue;
         }
 
-        // AUDIENCIA | PERICIA — sem data legível, quem decide é o radar (com um humano).
-        if (!gatilho.data) continue;
+        /**
+         * AUDIÊNCIA SEM DATA — o caso NORMAL na Justiça do Trabalho.
+         *
+         * O movimento do CNJ diz que a audiência foi designada (complemento
+         * `situacao_da_audiencia`) e NÃO diz quando: não há data no nome nem nos
+         * complementos. Verificado nos movimentos do TRT22.
+         *
+         * Antes o robô simplesmente pulava, e a pauta só existia no radar — um
+         * painel dentro da tela de Processos. Quem vive na Agenda não via nada.
+         *
+         * Agora entra uma TAREFA de confirmar a data. Repare que NÃO é a
+         * audiência marcada num dia inventado: seria pior que o silêncio, porque
+         * o calendário passaria a mostrar uma audiência que não existe naquele
+         * dia. É uma tarefa real ("descobrir a data no PJe"), com data real
+         * (próximo dia útil), que aponta para o processo.
+         */
+        if (!gatilho.data) {
+          if (gatilho.tipo === 'AUDIENCIA' && (await this.criarConfirmacaoDeData(processo, mov, responsavelId))) {
+            resumo.audiencias++;
+          }
+          continue;
+        }
         // Remarcação: a data nova substitui a anterior. Sem isto a agenda ficava
         // com a audiência fantasma na data velha ao lado da nova.
         if (gatilho.substituiPauta) {
@@ -262,6 +294,70 @@ export class AutomacaoPrazosService {
     await this.prisma.movimentacaoProcessual.update({
       where: { id: mov.id },
       data: { compromissoId: compromisso.id },
+    });
+    return true;
+  }
+
+  /**
+   * Tarefa "descobrir quando é a audiência".
+   *
+   * NÃO CARIMBA a movimentação. O carimbo (`compromissoId`) significa "este ato
+   * já virou compromisso" e é o que tira o item do radar — e o radar é onde
+   * mora o fluxo de agendar a audiência de verdade, com data. Se carimbasse, a
+   * tarefa tiraria do radar justamente a coisa que ela manda fazer.
+   *
+   * A proteção contra duplicar é outra: uma tarefa aberta por processo. A
+   * varredura noturna reencontra a mesma movimentação todo dia (ela segue sem
+   * carimbo) e não cria uma segunda. Para o lembrete parar de vez, o caminho é
+   * dispensar no radar — `dispararAutomacao` já não traz o que foi dispensado.
+   */
+  private async criarConfirmacaoDeData(
+    processo: ProcessoAlvo,
+    mov: MovimentacaoParaAutomacao,
+    responsavelId: string,
+  ): Promise<boolean> {
+    const existente = await this.prisma.compromisso.findFirst({
+      where: {
+        processoId: processo.id,
+        tipo: TIPO_ACOMPANHAMENTO,
+        origemAutomatica: true,
+        titulo: TITULO_CONFIRMAR_AUDIENCIA,
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+      },
+      select: { id: true },
+    });
+    if (existente) return false;
+
+    const inicio = proximoDiaUtil(new Date());
+    inicio.setHours(9, 0, 0, 0);
+    const detalhe = [mov.descricao, mov.detalhe].filter(Boolean).join(' — ');
+
+    await this.prisma.compromisso.create({
+      data: {
+        titulo: TITULO_CONFIRMAR_AUDIENCIA,
+        tipo: TIPO_ACOMPANHAMENTO,
+        status: StatusCompromisso.PENDENTE,
+        inicio,
+        fim: new Date(inicio.getTime() + 3_600_000),
+        descricao:
+          `Processo ${processo.numeroCNJ ?? '(rascunho)'} — o tribunal registrou audiência DESIGNADA em ` +
+          `${mov.dataMovimento.toLocaleDateString('pt-BR')}, mas a base pública do CNJ não publica a data ` +
+          `da sessão.
+
+` +
+          `O que fazer: abrir o processo no sistema do tribunal, ver a data e a hora, e agendar a ` +
+          `audiência (na ficha do processo, em "Audiências a agendar").
+
+` +
+          `Andamento: ${detalhe}`,
+        responsavelId,
+        processoId: processo.id,
+        filiadoId: processo.filiadoId,
+        // Audiência sem data confirmada é risco de perder sessão — nasce urgente.
+        urgente: true,
+        origemAutomatica: true,
+        criadoPor: null,
+      },
     });
     return true;
   }

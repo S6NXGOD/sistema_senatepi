@@ -1184,12 +1184,21 @@ export class ProcessosService {
 
     const desde = new Date(Date.now() - 30 * 24 * 3600 * 1000);
     const pendentes = await this.prisma.movimentacaoProcessual.findMany({
-      where: { processoId, compromissoId: null, dataMovimento: { gte: desde } },
+      where: {
+        processoId,
+        compromissoId: null,
+        dataMovimento: { gte: desde },
+        // Dispensado no radar = "não é audiência" ou "já resolvi por fora".
+        // Sem isto, a tarefa de confirmar a data da audiência voltaria a ser
+        // criada toda noite depois de a pessoa ter dispensado o alerta.
+        dispensadoEm: null,
+      },
       orderBy: { dataMovimento: 'desc' },
       take: 50,
       select: {
         id: true, descricao: true, detalhe: true, conteudo: true, codigoMovimento: true,
         dataMovimento: true, ehAudiencia: true, audienciaData: true, compromissoId: true,
+        complementos: true,
       },
     });
     await this.automacao.processar(processoId, pendentes);
