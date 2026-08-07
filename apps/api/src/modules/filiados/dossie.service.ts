@@ -199,7 +199,7 @@ export class DossieService {
           id: true, titulo: true, tipo: true, status: true, inicio: true, fim: true,
           local: true, urgente: true, desfecho: true, desfechoObs: true, concluidoEm: true,
           canceladoCategoria: true, canceladoMotivo: true, remarcacoes: true,
-          responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+          responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
           atendimento: { select: { id: true, numero: true } },
           processo: { select: { id: true, numeroCNJ: true, titulo: true } },
         },

@@ -260,7 +260,7 @@ export class ConsultaPreviaService {
   }): Promise<SugestaoAdvogado[]> {
     const equipe = await this.prisma.user.findMany({
       where: { role: 'ADVOGADO', ativo: true },
-      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, oab: true, oabUf: true },
+      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, oab: true, oabUf: true },
     });
     if (!equipe.length) return [];
 

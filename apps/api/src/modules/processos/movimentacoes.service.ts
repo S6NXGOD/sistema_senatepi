@@ -21,7 +21,7 @@ const TIPO_SELECT = {
   id: true, slug: true, nome: true, cor: true, ordem: true, ativo: true, sistema: true,
 } satisfies Prisma.TipoAndamentoSelect;
 
-const autorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } } as const;
+const autorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } } as const;
 
 /**
  * Nome -> slug estavel (MAIUSCULAS, sem acento, so A-Z/0-9/_).
@@ -230,7 +230,7 @@ export class MovimentacoesService {
             telefonePrincipal: true, email: true, formacao: true,
           },
         },
-        advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+        advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
         // Partes (polo ativo × passivo) e a equipe que atua no processo.
         partes: { orderBy: PARTE_ORDER, include: PARTE_INCLUDE },
         advogados: {
@@ -271,7 +271,7 @@ export class MovimentacoesService {
             local: true, urgente: true, origemAutomatica: true, descricao: true,
             desfecho: true, desfechoObs: true, concluidoEm: true,
             canceladoCategoria: true, canceladoMotivo: true,
-            responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+            responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
           },
         },
         anexos: { orderBy: { createdAt: 'desc' } },

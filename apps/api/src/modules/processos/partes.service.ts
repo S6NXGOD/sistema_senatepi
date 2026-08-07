@@ -25,7 +25,7 @@ export const PARTE_INCLUDE = {
 
 export const ADVOGADO_INCLUDE = {
   advogado: {
-    select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, oab: true, oabUf: true, ativo: true },
+    select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, oab: true, oabUf: true, ativo: true },
   },
 } satisfies Prisma.ProcessoAdvogadoInclude;
 

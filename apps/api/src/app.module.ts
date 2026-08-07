@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AvataresInterceptor } from './common/storage/avatares.interceptor';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -79,6 +80,9 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     // Autorização por módulo + regra global "só o Administrador apaga".
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    // Resolve a foto de perfil (avatarKey → URL do storage) em toda resposta.
+    // Ver avatares.interceptor.ts: a foto enviada nunca esteve em `avatarUrl`.
+    { provide: APP_INTERCEPTOR, useClass: AvataresInterceptor },
   ],
 })
 export class AppModule {}

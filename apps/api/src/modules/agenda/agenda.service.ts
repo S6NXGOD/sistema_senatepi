@@ -29,9 +29,9 @@ interface Ctx {
 
 /** LGPD: nos cards da agenda expomos só o mínimo do filiado (nome/matrícula). */
 const filiadoCard = { select: { id: true, nomeCompleto: true, matricula: true } } as const;
-const responsavelSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } } as const;
+const responsavelSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } } as const;
 /** Quem REGISTROU a demanda — nome e foto, para o card creditar o autor. */
-const criadorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } } as const;
+const criadorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } } as const;
 const processoSel = { select: { id: true, numeroCNJ: true, statusInterno: true, titulo: true } } as const;
 
 /** Campos expostos nos cards (Kanban/Calendário/Alertas). */
@@ -117,7 +117,7 @@ export class AgendaService {
     return this.prisma.user.findMany({
       where: { ativo: true },
       orderBy: { nome: 'asc' },
-      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, role: true },
+      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true },
     });
   }
 
@@ -234,10 +234,10 @@ export class AgendaService {
             telefonePrincipal: true, email: true, formacao: true,
           },
         },
-        responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, role: true } },
+        responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
         // Quem REGISTROU a demanda — agora é uma FK, então vem com nome E FOTO
         // numa consulta só (antes era só um id solto, sem como exibir avatar).
-        criador: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, role: true } },
+        criador: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
         processo: { select: { id: true, numeroCNJ: true, classeProcessual: true, statusInterno: true, titulo: true } },
         // Triagem de origem: canal, demanda e QUEM registrou (atendente).
         atendimento: {
@@ -1027,7 +1027,9 @@ export class AgendaService {
       select: {
         id: true, acao: true, descricao: true, autorNome: true,
         metadata: true, createdAt: true,
-        autor: { select: { nomeExibicao: true, nome: true, avatarKey: true } },
+        // Sem foto de propósito: o histórico mostra só o nome de quem agiu, e
+        // selecionar a chave do storage aqui era só vazá-la para o cliente.
+        autor: { select: { nomeExibicao: true, nome: true } },
       },
     });
   }

@@ -68,7 +68,7 @@ const compSelect = {
   local: true,
   urgente: true,
   iniciadoEm: true,
-  responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+  responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
   filiado: { select: { id: true, nomeCompleto: true } },
   processo: { select: { id: true, numeroCNJ: true } },
 } as const;
@@ -216,7 +216,7 @@ export class DashboardService {
           id: true,
           horaInicio: true,
           horaFim: true,
-          advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+          advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
         },
       }),
       // Próximas escalas (para "próximo plantão")
@@ -229,7 +229,7 @@ export class DashboardService {
           data: true,
           horaInicio: true,
           horaFim: true,
-          advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true } },
+          advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
         },
       }),
       // Gráfico: atendimentos por canal (todos)
@@ -339,7 +339,7 @@ export class DashboardService {
           if (!ids.length) return [];
           const pessoas = await this.prisma.user.findMany({
             where: { id: { in: ids as string[] }, ativo: true },
-            select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true },
+            select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
           });
           const atrasoPorId = new Map(
             atrasadasPorAdvogadoRaw.map((a) => [a.responsavelId, a._count._all]),
