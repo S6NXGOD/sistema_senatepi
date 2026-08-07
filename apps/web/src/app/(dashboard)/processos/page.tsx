@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
-  AlertTriangle, Swords, FileCheck2, AlarmClock, Scale,
+  AlertTriangle, Swords, FileCheck2, AlarmClock, Scale, Zap,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -382,7 +382,7 @@ function ListaProcessos() {
                             </button>
                           </span>
                         )}
-                        <Etiquetas lista={p.etiquetas} fase={p.fase} />
+                        <Etiquetas lista={p.etiquetas} automaticas={p.etiquetasAutomaticas} />
                       </td>
                       <td className="max-w-[280px] px-4 py-3"><CelulaPartes p={p} /></td>
                       <td className="max-w-[220px] truncate px-4 py-3" title={p.classeProcessual ?? ''}>
@@ -635,7 +635,7 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
         <p className={cn('text-sm font-semibold', p.numeroCNJ && 'font-mono')}>
           {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho sem título'}
         </p>
-        <Etiquetas lista={p.etiquetas} fase={p.fase} />
+        <Etiquetas lista={p.etiquetas} automaticas={p.etiquetasAutomaticas} />
         <StatusBadge status={p.statusInterno} />
       </div>
       <div className="mt-2 space-y-1 text-sm">
@@ -668,45 +668,40 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
 
 /** Etiquetas internas do processo, compactas na listagem. */
 /**
- * Etiqueta que CONTRADIZ o que o tribunal diz.
+ * Etiquetas da linha: as do SISTEMA primeiro (⚡), depois as escritas à mão.
  *
- * "Fase de Execução" é rótulo escrito à mão (ou sugerido na importação) e não
- * envelhece sozinho: o processo é arquivado, sobe em recurso, e a etiqueta
- * continua ali. A fase da última coluna é derivada dos andamentos e se corrige
- * sozinha — então quando as duas discordam, é a etiqueta que está velha.
- *
- * Marcar em vez de esconder: a etiqueta é filtro do acervo, e quem procurar a
- * fila de execução precisa ver que aquele processo não pertence mais a ela — e
- * poder corrigir. Esconder deixaria o filtro mentindo em silêncio.
+ * A marcação de "etiqueta contraditória" que existia aqui foi embora junto com
+ * a causa: "Fase de Execução" e "Recurso" deixaram de ser texto guardado — a
+ * coluna de fase já diz isso e se corrige sozinha. O que sobra como automática
+ * (Coletiva, Perícia) é derivado a cada leitura e, por construção, não tem como
+ * contradizer nada.
  */
-function etiquetaConflitante(etiqueta: string, fase?: FaseProcessual): boolean {
-  return etiqueta === 'Fase de Execução' && (fase === 'ARQUIVADO' || fase === 'RECURSAL');
-}
-
-function Etiquetas({ lista, fase }: { lista?: string[]; fase?: FaseProcessual }) {
-  if (!lista?.length) return null;
+function Etiquetas({ lista, automaticas }: { lista?: string[]; automaticas?: string[] }) {
+  const auto = automaticas ?? [];
+  const manuais = (lista ?? []).filter((e) => !auto.includes(e));
+  if (!auto.length && !manuais.length) return null;
   return (
     <span className="mt-1 flex flex-wrap gap-1">
-      {lista.slice(0, 3).map((e) => (
+      {auto.map((e) => (
+        <span
+          key={`a-${e}`}
+          title="Mantida pelo sistema a partir dos dados do processo"
+          className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+        >
+          <Zap className="h-2.5 w-2.5 fill-current" />
+          {e}
+        </span>
+      ))}
+      {manuais.slice(0, 3).map((e) => (
         <span
           key={e}
-          title={
-            etiquetaConflitante(e, fase)
-              ? `O processo está em fase ${FASE_LABEL[fase!].toLowerCase()} segundo os andamentos do tribunal — esta etiqueta ficou desatualizada.`
-              : undefined
-          }
-          className={cn(
-            'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-            etiquetaConflitante(e, fase)
-              ? 'bg-amber-100 text-amber-800 line-through decoration-amber-500 dark:bg-amber-900/40 dark:text-amber-300'
-              : 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
-          )}
+          className="rounded-full bg-senatepi-50 px-1.5 py-0.5 text-[10px] font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400"
         >
           {e}
         </span>
       ))}
-      {lista.length > 3 && (
-        <span className="text-[10px] text-muted-foreground">+{lista.length - 3}</span>
+      {manuais.length > 3 && (
+        <span className="text-[10px] text-muted-foreground">+{manuais.length - 3}</span>
       )}
     </span>
   );

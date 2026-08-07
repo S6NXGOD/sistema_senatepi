@@ -28,6 +28,7 @@ import {
   CODIGOS_TPU_EXECUCAO, FaseProcessual, GRAUS_RECURSAIS, faseDoProcesso,
 } from './utils/fase.util';
 import { atoCritico } from './utils/tpu.util';
+import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { NpuUtils } from './utils/npu.util';
 import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
 
@@ -700,6 +701,15 @@ export class ProcessosService {
           temMovimentoDeExecucao: comExecucao.has(p.id),
         }),
         alerta: this.alertaDaLinha(p.movimentacoes[0]),
+        /**
+         * Etiquetas que o sistema mantém sozinho. Derivadas AQUI, na leitura, e
+         * nunca gravadas: o que não é armazenado não fica desatualizado.
+         */
+        etiquetasAutomaticas: etiquetasDerivadas({
+          tipoAcao: p.tipoAcao,
+          classeProcessual: p.classeProcessual,
+          assuntoPrincipal: p.assuntoPrincipal,
+        }),
       })),
       total,
       page,

@@ -5,6 +5,7 @@ import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { atoCritico } from './utils/tpu.util';
 import { CODIGOS_TPU_EXECUCAO, faseDoProcesso } from './utils/fase.util';
+import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { AuditService } from '../../common/audit/audit.service';
 import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
 import {
@@ -370,6 +371,12 @@ export class MovimentacoesService {
        * consegue conferir vira desconfiança do sistema inteiro.
        */
       marcosDoEncerramento: this.marcosDoEncerramento(movimentacoes),
+      /** Etiquetas mantidas pelo sistema — derivadas na leitura (ver util). */
+      etiquetasAutomaticas: etiquetasDerivadas({
+        tipoAcao: resto.tipoAcao,
+        classeProcessual: resto.classeProcessual,
+        assuntoPrincipal: resto.assuntoPrincipal,
+      }),
       /**
        * Fase processual, pela MESMA regra da lista (`fase.util.ts`). Vem daqui
        * para a ficha e a lista nunca discordarem — e é ela que sustenta o aviso

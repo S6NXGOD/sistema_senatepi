@@ -27,9 +27,6 @@ import {
   ProcessoDetalhe, ConsultaDatajud, SugestaoAdvogado, PoloAtivoInput,
 } from '@/lib/processos';
 
-/** Nome da etiqueta compartilhado com a regra do back (`etiquetas.util.ts`). */
-const ETIQUETA_COLETIVA = 'Coletiva';
-
 /**
  * Como o polo ativo é preenchido. A escolha muda o que o formulário pede e o
  * que é gravado — e NENHUMA das opções cria cadastro provisório de filiado.
@@ -158,10 +155,6 @@ export function ImportarProcessoDialog({
    */
   const [sugestoesDatajud, setSugestoesDatajud] = useState<SugestaoAdvogado[]>([]);
   const [etiquetas, setEtiquetas] = useState<string[]>([]);
-  /** Quais das etiquetas marcadas foram deduzidas pelo sistema (raio ⚡). */
-  const [etiquetasAuto, setEtiquetasAuto] = useState<string[]>([]);
-  const etiquetasAutoRef = useRef<string[]>([]);
-  etiquetasAutoRef.current = etiquetasAuto;
 
   /**
    * Parte contrária (réu). Fica no formulário porque a API Pública do DataJud
@@ -205,7 +198,6 @@ export function ImportarProcessoDialog({
     setErroPrevia(null);
     setSugestoesDatajud([]);
     setEtiquetas([]);
-    setEtiquetasAuto([]);
     setReuSelecionado(null);
     setReuNome('');
     setBuscaReu('');
@@ -288,16 +280,12 @@ export function ImportarProcessoDialog({
         }
         if (r.preenchimento?.tribunal) setValue('tribunal', r.preenchimento.tribunal);
         /**
-         * AUTO-ETIQUETAS. A regra vive no back (`etiquetas.util.ts`, com testes)
-         * — a tela só marca o que ele deduziu, e apenas ACRESCENTA: o que o
-         * operador já escolheu à mão nunca é apagado, e ele pode remover
-         * qualquer sugestão antes de confirmar.
+         * NÃO PRÉ-PREENCHE MAIS ETIQUETA. Coletiva, Perícia, fase de execução e
+         * recurso o sistema deduz sozinho dos dados do processo, a cada leitura
+         * — sugerir aqui só criava um texto que congelava enquanto o processo
+         * andava. O campo de etiquetas ficou para o que depende de julgamento
+         * humano (Urgente, Acordo, Aguardando Cliente).
          */
-        const sugeridas = r.preenchimento?.etiquetasSugeridas ?? [];
-        if (sugeridas.length) {
-          setEtiquetas((atuais) => [...atuais, ...sugeridas.filter((e) => !atuais.includes(e))]);
-          setEtiquetasAuto((atuais) => [...new Set([...atuais, ...sugeridas])]);
-        }
         // Não achou no tribunal deduzido? Aí sim o campo manual importa — abre
         // sozinho, em vez de deixar a pessoa procurando o que fazer.
         if (!r.encontrado) setTribunalAberto(true);
@@ -344,34 +332,6 @@ export function ImportarProcessoDialog({
     }, 300);
     return () => clearTimeout(t);
   }, [busca]);
-
-  /**
-   * Escolher "Ação Coletiva / Institucional" marca a etiqueta `Coletiva`.
-   *
-   * É a mesma informação dita duas vezes, e quem acabou de declarar que o
-   * sindicato move a ação em nome da categoria não deveria ter de repetir isso
-   * numa etiqueta. Trocar de volta para outro polo desmarca — mas só se a marca
-   * tiver vindo daqui, nunca se o operador a tiver posto à mão.
-   */
-  useEffect(() => {
-    if (!open) return;
-    const institucional = modoPolo === 'INSTITUCIONAL';
-    setEtiquetas((atuais) => {
-      const tem = atuais.includes(ETIQUETA_COLETIVA);
-      if (institucional && !tem) return [...atuais, ETIQUETA_COLETIVA];
-      if (!institucional && tem && etiquetasAutoRef.current.includes(ETIQUETA_COLETIVA)) {
-        return atuais.filter((e) => e !== ETIQUETA_COLETIVA);
-      }
-      return atuais;
-    });
-    setEtiquetasAuto((auto) =>
-      institucional
-        ? (auto.includes(ETIQUETA_COLETIVA) ? auto : [...auto, ETIQUETA_COLETIVA])
-        : auto.filter((e) => e !== ETIQUETA_COLETIVA),
-    );
-    // `etiquetasAuto` entra por ref para não reexecutar o efeito ao ser escrito
-    // por ele mesmo.
-  }, [modoPolo, open]);
 
   /** Traduz a escolha da tela para o contrato da API. */
   function montarPoloAtivo(): PoloAtivoInput {
@@ -707,16 +667,11 @@ export function ImportarProcessoDialog({
             <label className="flex items-center gap-1.5 text-sm font-medium">
               <Tag className="h-4 w-4 text-muted-foreground" /> Etiquetas (opcional)
             </label>
-            <EtiquetasInput
-              valor={etiquetas}
-              onChange={(v) => {
-                setEtiquetas(v);
-                // Etiqueta removida à mão perde a marca de automática — se ela
-                // voltar depois, voltou porque alguém quis.
-                setEtiquetasAuto((auto) => auto.filter((e) => v.includes(e)));
-              }}
-              automaticas={etiquetasAuto}
-            />
+            <EtiquetasInput valor={etiquetas} onChange={setEtiquetas} />
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              Só o que depende de julgamento seu. Ação coletiva, perícia, fase de execução e recurso
+              o sistema deduz sozinho dos dados do processo.
+            </p>
           </div>
 
           {/* TRIBUNAL — fallback, e só.

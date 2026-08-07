@@ -119,6 +119,49 @@ export interface EntradaEtiquetas {
  * Devolve lista vazia quando não há nada de inequívoco — que é o caso da
  * maioria dos processos, e está certo assim.
  */
+/**
+ * ETIQUETAS QUE O SISTEMA MANTÉM SOZINHO — derivadas na leitura, nunca gravadas.
+ *
+ * POR QUE ISTO SUBSTITUI A SUGESTÃO NA IMPORTAÇÃO
+ * Sugerir a etiqueta no cadastro resolvia o primeiro dia e criava o problema de
+ * todos os outros: o rótulo congela e o processo anda. Os números da produção em
+ * 07/08/2026 mostram o resultado — as duas únicas etiquetas em uso eram
+ * "Fase de Execução" (4 processos) e "Coletiva" (3), ambas deriváveis; a
+ * "Coletiva" faltava em 2 dos 5 processos institucionais (alguém esqueceu), e o
+ * único processo com assunto de insalubridade não tinha "Perícia" (ninguém
+ * lembrou). Ou seja: o trabalho manual dava trabalho E saía errado.
+ *
+ * Derivada na LEITURA, e não gravada, de propósito: o que não é armazenado não
+ * pode ficar desatualizado. Some sozinha quando deixa de valer.
+ *
+ * FASE DE EXECUÇÃO E RECURSO NÃO ENTRAM AQUI: a coluna de fase processual já diz
+ * isso, com regra própria e testada, e repetir a mesma informação em dois
+ * lugares foi exatamente o que gerou a contradição na tela.
+ */
+export function etiquetasDerivadas({
+  tipoAcao,
+  classeProcessual,
+  assuntoPrincipal,
+}: {
+  tipoAcao?: string | null;
+  classeProcessual?: string | null;
+  assuntoPrincipal?: string | null;
+}): string[] {
+  const etiquetas: string[] = [];
+  const classe = normalizar(classeProcessual ?? '');
+  const assunto = normalizar(assuntoPrincipal ?? '');
+
+  // Ação institucional é coletiva por definição — o sindicato move em nome da
+  // categoria. A classe cobre o caso raro de coletiva que não é institucional.
+  if (tipoAcao === 'INSTITUCIONAL' || (classe && CLASSES_COLETIVAS.some((t) => classe.includes(t)))) {
+    etiquetas.push(ETIQUETA_COLETIVA);
+  }
+  if (assunto && ASSUNTOS_COM_PERICIA.some((t) => assunto.includes(t))) {
+    etiquetas.push(ETIQUETA_PERICIA);
+  }
+  return etiquetas;
+}
+
 export function etiquetasAutomaticas({
   classeProcessual,
   assuntoPrincipal,

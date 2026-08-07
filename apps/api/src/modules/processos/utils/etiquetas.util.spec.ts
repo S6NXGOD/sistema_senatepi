@@ -1,4 +1,54 @@
-import { etiquetasAutomaticas } from './etiquetas.util';
+import { etiquetasAutomaticas, etiquetasDerivadas } from './etiquetas.util';
+
+/**
+ * As etiquetas que o sistema mantém sozinho — derivadas na leitura, nunca
+ * gravadas, e por isso impossíveis de ficarem desatualizadas.
+ */
+describe('etiquetasDerivadas — o que o sistema etiqueta sem pedir nada', () => {
+  it('ação institucional é coletiva por definição', () => {
+    expect(etiquetasDerivadas({ tipoAcao: 'INSTITUCIONAL' })).toContain('Coletiva');
+  });
+
+  /** Os 5 processos da produção são institucionais e só 3 tinham a etiqueta. */
+  it('não depende de alguém lembrar de marcar', () => {
+    for (const classe of ['Ação Trabalhista - Rito Ordinário', 'Ação Trabalhista - Rito Sumaríssimo']) {
+      expect(etiquetasDerivadas({ tipoAcao: 'INSTITUCIONAL', classeProcessual: classe })).toContain('Coletiva');
+    }
+  });
+
+  it('coletiva pela CLASSE mesmo sem ser institucional', () => {
+    expect(etiquetasDerivadas({ tipoAcao: 'INDIVIDUAL', classeProcessual: 'Ação Civil Pública' }))
+      .toContain('Coletiva');
+  });
+
+  it('ação individual comum não recebe nada', () => {
+    expect(etiquetasDerivadas({
+      tipoAcao: 'INDIVIDUAL',
+      classeProcessual: 'Ação Trabalhista - Rito Ordinário',
+      assuntoPrincipal: 'Horas Extras',
+    })).toEqual([]);
+  });
+
+  /** O caso real: 0001218-17.2023.5.22.0003, assunto "Adicional de Insalubridade". */
+  it('assunto que exige laudo pericial etiqueta Perícia', () => {
+    expect(etiquetasDerivadas({ assuntoPrincipal: 'Adicional de Insalubridade' })).toContain('Perícia');
+  });
+
+  /**
+   * Fase de Execução e Recurso NÃO saem daqui: a coluna de fase processual já
+   * diz isso. Repetir a mesma informação em dois lugares foi o que produziu a
+   * contradição na tela ("Arquivado" ao lado de "Fase de Execução").
+   */
+  it('não devolve Fase de Execução nem Recurso — a fase processual já responde', () => {
+    const r = etiquetasDerivadas({
+      tipoAcao: 'INSTITUCIONAL',
+      classeProcessual: 'Recurso Ordinário Trabalhista',
+      assuntoPrincipal: 'Multa de 40% do FGTS',
+    });
+    expect(r).not.toContain('Fase de Execução');
+    expect(r).not.toContain('Recurso');
+  });
+});
 
 describe('etiquetasAutomaticas — o que dá para deduzir sem perguntar', () => {
   const mov = (descricao: string, codigoMovimento: number | null = null) => ({ descricao, codigoMovimento });

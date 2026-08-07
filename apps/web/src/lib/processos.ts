@@ -107,6 +107,11 @@ export interface ProcessoLista {
    * códigos da TPU, senão os dois envelheceriam separados.
    */
   alerta?: { nivel: 'PRAZO' | 'DECISAO'; rotulo: string } | null;
+  /**
+   * Etiquetas mantidas pelo SISTEMA (⚡). Derivadas na leitura, nunca gravadas —
+   * é o que garante que não envelheçam. As de `etiquetas` são as manuais.
+   */
+  etiquetasAutomaticas?: string[];
   _count: { movimentacoes: number; partes: number; advogados: number };
 }
 
@@ -120,10 +125,17 @@ export const FASE_LABEL: Record<FaseProcessual, string> = {
   ARQUIVADO: 'Arquivado',
 };
 
-/** Etiquetas sugeridas no seletor (o campo aceita qualquer texto). */
+/**
+ * Etiquetas sugeridas no seletor — só as que dependem de JULGAMENTO HUMANO.
+ *
+ * "Fase de Execução", "Recurso", "Coletiva" e "Perícia" saíram daqui: são
+ * consequência de dados que o sistema já tem, e agora ele as mantém sozinho
+ * (fase processual + `etiquetasAutomaticas`). Escrever à mão o que a máquina
+ * deduz foi o que produziu etiqueta contradizendo a tela ao lado.
+ */
 export const ETIQUETAS_SUGERIDAS = [
-  'Urgente', 'Fase de Execução', 'Coletiva', 'Recurso', 'Perícia',
-  'Acordo', 'Aguardando Cliente', 'Prioridade Idoso',
+  'Urgente', 'Acordo', 'Aguardando Cliente', 'Prioridade Idoso',
+  'Perícia realizada', 'Acordo descumprido',
 ];
 
 export interface ProcessoDetalhe {

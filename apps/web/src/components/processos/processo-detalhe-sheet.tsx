@@ -9,7 +9,7 @@ import {
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
   AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
-  Archive,
+  Archive, Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -370,16 +370,6 @@ export function ProcessoDetalheSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p?.id, p?.instanciasLidasEm, podeEditar]);
 
-  /** Tira UMA etiqueta, sem passar pelo modo de edição. */
-  const removerEtiqueta = useMutation({
-    mutationFn: (etiqueta: string) =>
-      atualizarProcesso(processoId as string, {
-        etiquetas: (p?.etiquetas ?? []).filter((e) => e !== etiqueta),
-      }),
-    onSuccess: () => { toast.success('Etiqueta removida.'); recarregar(); },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível remover a etiqueta.'),
-  });
-
   const excluir = useMutation({
     mutationFn: () => excluirProcesso(processoId as string),
     onSuccess: () => { toast.success('Processo excluído.'); setConfirmarExcluir(false); onChanged?.(); onClose(); },
@@ -687,23 +677,12 @@ export function ProcessoDetalheSheet({
               {editandoEtiquetas ? (
                 <div className="space-y-2 rounded-lg border p-3">
                   <EtiquetasInput valor={etiquetasEdit} onChange={setEtiquetasEdit} />
-                  {/* ETIQUETA QUE CONTRADIZ O PROCESSO.
-                      "Fase de Execução" num processo cujo grau vivo é recursal
-                      diz duas coisas incompatíveis — e a etiqueta é FILTRO: quem
-                      procurar a fila de execução vai encontrar um processo que
-                      está no tribunal, e vai trabalhar em cima disso. Avisa, mas
-                      não bloqueia: existe execução provisória enquanto o recurso
-                      corre, e quem está com o processo na mão sabe se é o caso. */}
-                  {etiquetasEdit.includes('Fase de Execução') && p.fase === 'RECURSAL' && (
-                    <p className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      <span>
-                        Este processo tem instância viva em grau recursal. A etiqueta
-                        <strong> Fase de Execução</strong> vai colocá-lo na fila de execução —
-                        mantenha só se houver execução provisória correndo.
-                      </span>
-                    </p>
-                  )}
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Aqui ficam só as etiquetas que dependem de julgamento seu. Fase de execução,
+                    recurso, ação coletiva e perícia o sistema deduz sozinho dos dados do processo —
+                    aparecem com <Zap className="inline h-3 w-3 fill-current text-emerald-600" /> e se
+                    corrigem sem ninguém mexer.
+                  </p>
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => setEditandoEtiquetas(false)}>Cancelar</Button>
                     <Button size="sm" onClick={() => salvarEtiquetas.mutate()} disabled={salvarEtiquetas.isPending}>
@@ -713,45 +692,25 @@ export function ProcessoDetalheSheet({
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {(p.etiquetas ?? []).map((e) => {
-                    /**
-                     * Etiqueta que o tribunal desmente. "Fase de Execução" é
-                     * rótulo escrito à mão e não envelhece sozinho; a fase vem
-                     * dos andamentos e se corrige. Quando discordam, é a
-                     * etiqueta que está velha — e ela é FILTRO do acervo, então
-                     * some da fila de execução com um clique, sem abrir o modo
-                     * de edição.
-                     */
-                    const conflita =
-                      e === 'Fase de Execução' && (p.fase === 'ARQUIVADO' || p.fase === 'RECURSAL');
-                    return (
-                      <span
-                        key={e}
-                        title={conflita
-                          ? `Os andamentos do tribunal dizem que o processo está em fase ${p.fase === 'ARQUIVADO' ? 'arquivada' : 'recursal'}. Clique no × para remover esta etiqueta.`
-                          : undefined}
-                        className={cn(
-                          'inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 text-xs font-medium',
-                          conflita
-                            ? 'bg-amber-100 pr-1 text-amber-800 line-through decoration-amber-500 dark:bg-amber-900/40 dark:text-amber-300'
-                            : 'pr-2.5 bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
-                        )}
-                      >
+                  {/* AUTOMÁTICAS: derivadas a cada leitura, não editáveis — não
+                      há o que corrigir numa etiqueta que se recalcula sozinha. */}
+                  {(p.etiquetasAutomaticas ?? []).map((e) => (
+                    <span
+                      key={`auto-${e}`}
+                      title="Mantida pelo sistema a partir dos dados do processo — não precisa ser gerenciada à mão"
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    >
+                      <Zap className="h-3 w-3 fill-current" />
+                      {e}
+                    </span>
+                  ))}
+                  {(p.etiquetas ?? [])
+                    .filter((e) => !(p.etiquetasAutomaticas ?? []).includes(e))
+                    .map((e) => (
+                      <span key={e} className="rounded-full bg-senatepi-50 px-2.5 py-0.5 text-xs font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400">
                         {e}
-                        {conflita && podeEditar && (
-                          <button
-                            type="button"
-                            onClick={() => removerEtiqueta.mutate(e)}
-                            disabled={removerEtiqueta.isPending}
-                            title="Remover esta etiqueta"
-                            className="rounded-full p-0.5 transition hover:bg-black/10 dark:hover:bg-white/10"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
                       </span>
-                    );
-                  })}
+                    ))}
                   {/* ASSUNTO na MESMA linha das etiquetas, e não numa própria:
                       são dois rótulos curtos, e cada linha extra no cabeçalho
                       sai direto da área de leitura. Só o principal — os demais

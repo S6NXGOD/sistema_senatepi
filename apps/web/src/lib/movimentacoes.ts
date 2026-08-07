@@ -299,6 +299,8 @@ export interface DossieProcesso {
    * É com isto que a ficha explica POR QUE está arquivado, em vez de só
    * afirmar que está.
    */
+  /** Etiquetas mantidas pelo sistema (⚡) — derivadas, nunca gravadas. */
+  etiquetasAutomaticas?: string[];
   marcosDoEncerramento?: {
     codigo: number;
     rotulo: string;
