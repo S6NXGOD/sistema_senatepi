@@ -1823,6 +1823,14 @@ model ProcessoInstancia {
   orgaoJulgadorCodigo String?   @map("orgao_julgador_codigo")
   dataDistribuicao    DateTime? @map("data_distribuicao")
   nivelSigilo         Int?      @map("nivel_sigilo")
+  /// Assuntos DESTA instância. Guardados por instância porque MUDAM entre os
+  /// graus — conferido nos 5 processos da produção em 07/08/2026: no
+  /// 0001000-26.2022.5.22.0002 o 1º grau trata de "Adicional de Insalubridade"
+  /// e o 2º de "Multa de 40% do FGTS". Gravar só os de uma instância (a
+  /// primeira que o Elasticsearch devolvesse) perdia os demais — e com eles a
+  /// etiqueta de perícia, que depende justamente do assunto.
+  assuntos            Json?
+  assuntoPrincipal    String?   @map("assunto_principal")
   formato             String?
   sistema             String?
   /// Carimbo de última atualização informado pelo CNJ.

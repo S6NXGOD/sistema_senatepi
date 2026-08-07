@@ -214,6 +214,11 @@ export class InstanciasService {
       orgaoJulgadorCodigo: d.orgaoJulgadorCodigo,
       dataDistribuicao: d.dataDistribuicao ? new Date(d.dataDistribuicao) : null,
       nivelSigilo: d.nivelSigilo,
+      // Assuntos POR INSTÂNCIA: eles mudam entre os graus (o 1º trata de
+      // insalubridade e o 2º da multa do FGTS, no mesmo processo), e guardar só
+      // os de uma instância perdia os demais — e com eles a etiqueta de perícia.
+      assuntos: (d.assuntos ?? []) as unknown as Prisma.InputJsonValue,
+      assuntoPrincipal: d.assuntoPrincipal,
       formato: d.formato,
       sistema: d.sistema,
       atualizadoNoCnjEm: d.atualizadoNoCnjEm ? new Date(d.atualizadoNoCnjEm) : null,
@@ -403,6 +408,9 @@ export class InstanciasService {
       textoCompleto,
       m.codigoMovimento,
       dataMovimento,
+      // Os complementos tabelados carregam `situacao_da_audiencia` — o sinal
+      // mais confiável de pauta que o CNJ dá, e que o texto não tem.
+      m.complementos,
     );
     return {
       processoId,

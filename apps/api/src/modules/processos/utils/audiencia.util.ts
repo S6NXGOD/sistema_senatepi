@@ -30,9 +30,57 @@ import { OFFSET_BR_MS } from './data-br.util';
  * movimentação, e a linha do tempo do processo mostra os demais.
  */
 export const CODIGOS_TPU_AUDIENCIA: ReadonlySet<number> = new Set([
+  // --- CONFERIDOS nos índices que o SENATEPI usa, em 07/08/2026 ---
+  // A varredura procurou os movimentos que carregam o complemento
+  // `situacao_da_audiencia` (3.200 movimentos amostrados). Estes são TODOS os
+  // que apareceram, e nenhum deles estava aqui antes:
+  970, //   TJPI  "Audiência"                     740 ocorrências
+  12740, //  ambos "de Conciliação"               715 (TRT22) + 72 (TJPI)
+  12747, //  TRT22 "Inicial"                      841
+  12749, //  TRT22 "de Instrução"               1.655
+  12750, //  TJPI  "de Instrução e Julgamento"      2
+  12753, //  TJPI  "Preliminar"                    38
+  // --- Herdados; não apareceram na amostra, mas não fazem mal ---
   11025, // Designação de audiência
   12173, // Audiência designada (pauta)
 ]);
+
+/**
+ * Situações possíveis do complemento `situacao_da_audiencia` — o sinal mais
+ * confiável que o CNJ dá sobre pauta, e que o sistema ignorava.
+ *
+ * Valores observados na amostra: designada, realizada, redesignada, cancelada e
+ * "não-realizada" (só no TJPI). Só as duas primeiras da lista abaixo pedem
+ * agendamento; as demais são o oposto — dizem que não há o que agendar.
+ */
+const SITUACOES_QUE_PEDEM_PAUTA = new Set(['DESIGNADA', 'REDESIGNADA']);
+
+/**
+ * Complemento tabelado do CNJ, na forma mínima que interessa aqui.
+ *
+ * Deliberadamente estrutural (e não um import de `datajud.service`): este
+ * arquivo é função pura e testável sem rede, e depender do serviço HTTP para
+ * uma forma de objeto quebraria isso.
+ */
+export interface ComplementoTabelado {
+  descricao?: string | null;
+  nome?: string | null;
+}
+
+/** Situação da audiência declarada pelo tribunal, normalizada. Null se não houver. */
+function situacaoDaAudiencia(complementos?: ComplementoTabelado[] | null): string | null {
+  if (!complementos?.length) return null;
+  for (const c of complementos) {
+    // MAIÚSCULAS porque é o que `normalizar` produz — comparar com a versão
+    // minúscula fazia o complemento nunca casar, e o radar continuava cego
+    // enquanto os testes de "designada" passavam pelo caminho do código TPU.
+    if (normalizar(c?.descricao ?? '') === 'SITUACAO_DA_AUDIENCIA') {
+      const valor = normalizar(c?.nome ?? '').trim();
+      if (valor) return valor;
+    }
+  }
+  return null;
+}
 
 /**
  * Códigos que ENCERRAM uma instância. Conferidos contra o índice real do CNJ
@@ -243,8 +291,38 @@ export function classificarMovimentacao(
   descricao: string | null | undefined,
   codigoMovimento?: number | null,
   dataMovimento?: Date | string | null,
+  complementos?: ComplementoTabelado[] | null,
 ): GatilhoMovimentacao {
   const texto = normalizar(descricao ?? '');
+
+  /**
+   * O COMPLEMENTO MANDA MAIS QUE O TEXTO.
+   *
+   * O nome do movimento de audiência no TRT22 é "de Instrução", "Inicial" ou
+   * "de Conciliação" — a palavra "audiência" NÃO aparece. Nenhuma regra de
+   * texto acha isso, e os dois códigos que o sistema conhecia (11025, 12173)
+   * não existem nesses tribunais: o radar estava cego para a pauta inteira.
+   *
+   * O que o CNJ dá de bom é o complemento `situacao_da_audiencia`, presente em
+   * todos esses movimentos e com valor explícito: designada, redesignada,
+   * realizada, cancelada, não-realizada. Ele responde as duas perguntas de uma
+   * vez — "isto é audiência?" e "ainda vai acontecer?" — sem depender de como o
+   * tribunal escreveu o nome.
+   */
+  const situacao = situacaoDaAudiencia(complementos);
+  if (situacao) {
+    if (!SITUACOES_QUE_PEDEM_PAUTA.has(situacao)) {
+      // Realizada, cancelada ou não-realizada: se havia alerta, ele cai.
+      return { tipo: 'PAUTA_CAIU' };
+    }
+    return {
+      tipo: 'AUDIENCIA',
+      data: extrairDataAudiencia(texto, dataMovimento),
+      // Redesignada é data nova: substitui a pauta anterior em vez de somar.
+      substituiPauta: situacao === 'REDESIGNADA',
+    };
+  }
+
   if (!texto) return { tipo: 'NENHUM' };
 
   const porCodigo = codigoMovimento != null && CODIGOS_TPU_AUDIENCIA.has(codigoMovimento);
@@ -288,8 +366,9 @@ export function classificarAudiencia(
   descricao: string | null | undefined,
   codigoMovimento: number | null | undefined,
   dataMovimento?: Date | string | null,
+  complementos?: ComplementoTabelado[] | null,
 ): ClassificacaoAudiencia {
-  const g = classificarMovimentacao(descricao, codigoMovimento, dataMovimento);
+  const g = classificarMovimentacao(descricao, codigoMovimento, dataMovimento, complementos);
   return g.tipo === 'AUDIENCIA' || g.tipo === 'PERICIA'
     ? { ehAudiencia: true, audienciaData: g.data }
     : { ehAudiencia: false, audienciaData: null };

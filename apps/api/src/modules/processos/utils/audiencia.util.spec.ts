@@ -129,6 +129,65 @@ describe('Radar de audiências — classificação das movimentações do DataJu
  * É o que decide se um GRAU ainda está vivo — e, por consequência, se o
  * processo continua na varredura noturna.
  */
+/**
+ * O SINAL QUE O SISTEMA IGNORAVA — e que deixava o radar cego.
+ *
+ * Varredura de 3.200 movimentos com complemento tabelado no TRT22 e no TJPI, em
+ * 07/08/2026: TODOS os movimentos de audiência carregam `situacao_da_audiencia`,
+ * e o NOME do movimento não contém a palavra "audiência" na Justiça do
+ * Trabalho ("de Instrução", "Inicial", "de Conciliação"). Os dois códigos que o
+ * sistema conhecia (11025, 12173) não aparecem em nenhum dos dois tribunais.
+ * Ou seja: audiência designada no TRT22 não gerava alerta nenhum.
+ */
+describe('classificarAudiencia — pelo complemento do CNJ, não pelo texto', () => {
+  const data = new Date('2026-07-20T10:00:00Z');
+  const comp = (situacao: string) => [
+    { descricao: 'dirigida_por', nome: 'Juiz(a)' },
+    { descricao: 'situacao_da_audiencia', nome: situacao },
+  ];
+
+  it.each([
+    [12749, 'de Instrução'],
+    [12747, 'Inicial'],
+    [12740, 'de Conciliação'],
+    [970, 'Audiência'],
+    [12750, 'de Instrução e Julgamento'],
+    [12753, 'Preliminar'],
+  ])('cod %i "%s" designada vira alerta', (codigo, nome) => {
+    expect(classificarAudiencia(nome, codigo as number, data, comp('designada')).ehAudiencia).toBe(true);
+  });
+
+  it('redesignada também — é data nova', () => {
+    expect(classificarAudiencia('de Instrução', 12749, data, comp('redesignada')).ehAudiencia).toBe(true);
+  });
+
+  it.each(['realizada', 'cancelada', 'não-realizada'])('%s NÃO vira alerta', (situacao) => {
+    expect(classificarAudiencia('de Instrução', 12749, data, comp(situacao)).ehAudiencia).toBe(false);
+  });
+
+  /**
+   * O caso que prova o valor: nome sem a palavra "audiência", código que o
+   * sistema não conhecia e nenhuma data no texto. Antes: silêncio. Agora:
+   * alerta, ainda que sem data — que é o que o radar sabe tratar.
+   */
+  it('sem a palavra "audiência" e sem data no texto, ainda assim alerta', () => {
+    const r = classificarAudiencia('de Conciliação', 12740, data, comp('designada'));
+    expect(r.ehAudiencia).toBe(true);
+    expect(r.audienciaData).toBeNull();
+  });
+
+  it('o complemento vence o texto: "cancelada" no complemento não vira alerta', () => {
+    expect(
+      classificarAudiencia('Audiência designada para 15/08/2026', 12749, data, comp('cancelada')).ehAudiencia,
+    ).toBe(false);
+  });
+
+  it('movimento sem o complemento continua na regra antiga (texto + código)', () => {
+    expect(classificarAudiencia('Audiência designada para 15/08/2026', null, data, []).ehAudiencia).toBe(true);
+    expect(classificarAudiencia('Juntada de petição', null, data, null).ehAudiencia).toBe(false);
+  });
+});
+
 describe('instanciaBaixada — o grau ainda está vivo?', () => {
   const mov = (codigo: number | null, data: string) => ({
     codigoMovimento: codigo,

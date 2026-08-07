@@ -301,12 +301,24 @@ export class AudienciasService {
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         take: LOTE,
         orderBy: { id: 'asc' },
-        select: { id: true, descricao: true, codigoMovimento: true, dataMovimento: true, ehAudiencia: true, audienciaData: true },
+        select: {
+          id: true, descricao: true, detalhe: true, codigoMovimento: true, dataMovimento: true,
+          complementos: true, ehAudiencia: true, audienciaData: true,
+        },
       });
       if (!pagina.length) break;
 
       for (const m of pagina) {
-        const novo = classificarAudiencia(m.descricao, m.codigoMovimento, m.dataMovimento);
+        // Mesma entrada do momento da gravação (`paraLinha`): texto completo e
+        // complementos. Reclassificar com menos informação faria a varredura
+        // DESMARCAR audiências que a sincronização tinha marcado certo.
+        const textoCompleto = [m.descricao, m.detalhe].filter(Boolean).join(' — ');
+        const novo = classificarAudiencia(
+          textoCompleto,
+          m.codigoMovimento,
+          m.dataMovimento,
+          m.complementos as { descricao?: string | null; nome?: string | null }[] | null,
+        );
         const mudouFlag = novo.ehAudiencia !== m.ehAudiencia;
         const mudouData =
           (novo.audienciaData?.getTime() ?? null) !== (m.audienciaData?.getTime() ?? null);

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ProcessosService } from './processos.service';
+import { AudienciasService } from './audiencias.service';
 import {
   AtualizarProcessoDto,
   FormalizarProcessoDto,
@@ -16,7 +17,10 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 @Modulo('processos')
 @Controller('processos')
 export class ProcessosController {
-  constructor(private readonly service: ProcessosService) {}
+  constructor(
+    private readonly service: ProcessosService,
+    private readonly audiencias: AudienciasService,
+  ) {}
 
   private ctx(req: Request, userId?: string) {
     return { ip: req.ip, userAgent: req.headers['user-agent'], userId };
@@ -38,8 +42,34 @@ export class ProcessosController {
    */
   @Post('instancias/reavaliar')
   @ApiOperation({ summary: 'Reavalia as instâncias dos processos ainda não lidos pelo parser multi-instância.' })
-  reavaliarInstancias(@Query('limite') limite?: string) {
-    return this.service.reavaliarInstancias(Number(limite) || 10);
+  async reavaliarInstancias(@Query('limite') limite?: string, @CurrentUser('id') userId?: string, @Req() req?: Request) {
+    const n = Number(limite) || 10;
+    const r = await this.service.reavaliarInstancias(n);
+
+    /**
+     * RECLASSIFICAR AS AUDIÊNCIAS junto — e só na rodada "cara" (limite > 0),
+     * que acontece uma vez por sessão.
+     *
+     * O `ehAudiencia` é calculado na GRAVAÇÃO do andamento, então melhorar o
+     * classificador não conserta o que já está no banco. Foi o caso agora: os
+     * códigos de audiência do TRT22 e do TJPI não eram reconhecidos, e todo o
+     * histórico ficou marcado como "não é audiência". Isto reaplica a regra
+     * sobre o que já existe, sem tocar no CNJ e sem desfazer decisão humana
+     * (dispensa e vínculo com a agenda são preservados).
+     */
+    if (n > 0 && req) {
+      try {
+        const audiencias = await this.audiencias.reclassificar({
+          ip: req.ip, userAgent: req.headers['user-agent'], userId,
+        });
+        return { ...r, audiencias };
+      } catch {
+        // Falhar aqui não pode derrubar a reavaliação das instâncias, que é o
+        // motivo principal da chamada.
+        return r;
+      }
+    }
+    return r;
   }
 
   /**

@@ -203,7 +203,8 @@ export class ProcessosService {
             : TipoAcaoProcesso.INDIVIDUAL,
           etiquetas: this.normalizarEtiquetas(dto.etiquetas),
           statusInterno: dto.statusInterno ?? undefined,
-          ...this.metadados(dados, sigla),
+          // `instancias` inteiro: os assuntos são a união de todos os graus.
+          ...this.metadados(dados, sigla, instancias),
         },
       });
       // Instâncias + movimentações de cada uma, e a eleição da principal (que
@@ -977,7 +978,7 @@ export class ProcessosService {
       await tx.processo.update({
         where: { id: proc.id },
         data: {
-          ...this.metadadosGerais(instancias[0]),
+          ...this.metadadosGerais(instancias[0], instancias),
           /**
            * Carimbo do parser multi-instância — só quando ele de fato rodou.
            *
@@ -1206,9 +1207,9 @@ export class ProcessosService {
    * Na sincronização, os campos ligados ao grau vêm de
    * `InstanciasService.definirPrincipal`; aqui ficam apenas os gerais.
    */
-  private metadados(dados: ProcessoDatajud, sigla: string) {
+  private metadados(dados: ProcessoDatajud, sigla: string, todas: InstanciaDatajud[] = []) {
     return {
-      ...this.metadadosGerais(dados),
+      ...this.metadadosGerais(dados, todas),
       classeProcessual: dados.classeProcessual,
       classeCodigo: dados.classeCodigo,
       orgaoJulgador: dados.orgaoJulgador,
@@ -1233,10 +1234,33 @@ export class ProcessosService {
    * apontar para uma instância arbitrária logo depois de `definirPrincipal`
    * ter escolhido a certa.
    */
-  private metadadosGerais(dados: ProcessoDatajud) {
+  private metadadosGerais(dados: ProcessoDatajud, todas: InstanciaDatajud[] = []) {
+    /**
+     * ASSUNTO É DE INSTÂNCIA, mas o processo precisa do conjunto.
+     *
+     * Em 4 dos 5 processos da produção os assuntos DIFEREM entre os graus — o 1º
+     * trata de "Adicional de Insalubridade" e o 2º de "Multa de 40% do FGTS", no
+     * mesmo processo. Guardar só os de uma instância (a primeira que o
+     * Elasticsearch devolvesse) descartava o resto e, com ele, a etiqueta de
+     * perícia, que lê justamente o assunto.
+     *
+     * Aqui vai a UNIÃO, sem repetir, começando pelos da instância escolhida
+     * como referência — é o que a busca e as etiquetas precisam ver.
+     */
+    const vistos = new Set<string>();
+    const assuntos: { nome: string | null; codigo: number | null; principal?: boolean }[] = [];
+    for (const fonte of [dados, ...todas]) {
+      for (const a of fonte.assuntos ?? []) {
+        const chave = `${a.codigo ?? ''}|${(a.nome ?? '').trim().toUpperCase()}`;
+        if (!a.nome || vistos.has(chave)) continue;
+        vistos.add(chave);
+        assuntos.push(a);
+      }
+    }
+
     return {
       assuntoPrincipal: dados.assuntoPrincipal,
-      assuntos: (dados.assuntos ?? []) as unknown as Prisma.InputJsonValue,
+      assuntos: (assuntos.length ? assuntos : (dados.assuntos ?? [])) as unknown as Prisma.InputJsonValue,
       municipioIBGE: dados.municipioIBGE,
       segredoJustica: dados.segredoJustica,
       prioridades: (dados.prioridades ?? []) as unknown as Prisma.InputJsonValue,
