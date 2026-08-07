@@ -2097,6 +2097,11 @@ model MovimentacaoProcessual {
   @@index([processoId])
   @@index([instanciaId])
   @@index([dataMovimento])
+  /// Deduplicação: a chave inclui `detalhe` porque o CNJ devolve, no mesmo
+  /// instante e com o mesmo código, a designação E o cancelamento da audiência
+  /// (verificado no TRT22). O índice único vive na migração
+  /// 20260807200000_dedup_com_detalhe, com COALESCE — o Prisma não expressa
+  /// índice sobre expressão.
   /// "Última movimentação" da lista: WHERE processo_id = ? ORDER BY data DESC LIMIT 1.
   @@index([processoId, dataMovimento(sort: Desc)])
   /// Filtro por fase processual (códigos de início de execução — ver fase.util.ts).

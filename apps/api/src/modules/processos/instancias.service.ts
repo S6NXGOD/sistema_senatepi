@@ -257,14 +257,37 @@ export class InstanciasService {
       },
     });
 
-    const chave = (dm: Date | string, cod: number | null | undefined, desc: string) =>
-      `${new Date(dm).getTime()}|${cod ?? ''}|${desc}`;
+    /**
+     * A chave inclui o DETALHE, e não é preciosismo.
+     *
+     * O CNJ devolve, com o MESMO carimbo de tempo, código e nome, movimentos que
+     * dizem coisas opostas. Medido no 0000600-48.2023.5.22.0108 em 07/08/2026:
+     *
+     *   2023-11-30T11:43:04  cod 12747 "Inicial"  situacao_da_audiencia=designada
+     *   2023-11-30T11:43:04  cod 12747 "Inicial"  situacao_da_audiencia=cancelada
+     *
+     * São dois fatos — a designação e o cancelamento —, registrados no mesmo
+     * instante pelo tribunal. Deduplicando só por (data, código, nome), um dos
+     * dois era descartado, e QUAL deles sobrevivia dependia da ordem em que o
+     * Elasticsearch os devolvesse. Ou seja: uma audiência cancelada podia ficar
+     * gravada como designada, e o advogado ser mandado a uma audiência que não
+     * existe — ou o contrário, que é pior.
+     *
+     * `detalhe` é justamente o texto montado a partir dos complementos
+     * (`montarDetalhe`), então distingue os dois sem inventar campo novo.
+     */
+    const chave = (
+      dm: Date | string,
+      cod: number | null | undefined,
+      desc: string,
+      detalhe?: string | null,
+    ) => `${new Date(dm).getTime()}|${cod ?? ''}|${desc}|${detalhe ?? ''}`;
     const porChave = new Map(
-      gravadas.map((m) => [chave(m.dataMovimento, m.codigoMovimento, m.descricao), m]),
+      gravadas.map((m) => [chave(m.dataMovimento, m.codigoMovimento, m.descricao, m.detalhe), m]),
     );
 
     const novas = doCnj.filter(
-      (m) => !porChave.has(chave(m.dataMovimento, m.codigoMovimento, m.descricao)),
+      (m) => !porChave.has(chave(m.dataMovimento, m.codigoMovimento, m.descricao, m.detalhe)),
     );
 
     if (novas.length) {
@@ -282,7 +305,7 @@ export class InstanciasService {
     // Idempotente — na próxima sincronização nada mais se qualifica.
     let enriquecidas = 0;
     for (const m of doCnj) {
-      const atual = porChave.get(chave(m.dataMovimento, m.codigoMovimento, m.descricao));
+      const atual = porChave.get(chave(m.dataMovimento, m.codigoMovimento, m.descricao, m.detalhe));
       if (!atual) continue;
       const temNovidade =
         m.complementos.length > 0 || !!m.detalhe || !!m.conteudo || !!m.orgaoJulgador;
