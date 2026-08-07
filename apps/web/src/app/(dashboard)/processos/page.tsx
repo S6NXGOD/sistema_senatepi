@@ -22,6 +22,7 @@ import {
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM,
 } from '@/lib/processos';
 import { rotuloGrau } from '@/lib/movimentacoes';
+import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -77,12 +78,17 @@ function ListaProcessos() {
    * o processo na mão. O parâmetro sai da URL assim que a ficha abre, para
    * que fechar a ficha não deixe a URL mentindo sobre o que está aberto.
    */
-  useEffect(() => {
-    const id = searchParams.get('processo');
-    if (!id) return;
-    setDetalheId(id);
-    router.replace('/processos', { scroll: false });
-  }, [searchParams, router]);
+  useAbrirPorUrl('processo', setDetalheId, '/processos');
+
+  /**
+   * `?rascunhos=1` aplica o filtro rápido.
+   *
+   * O sistema JÁ gerava este link — o aviso "rascunho criado", ao concluir uma
+   * atividade, oferece "Abrir Processos" e manda para cá com o parâmetro. A
+   * tela o ignorava e mostrava a lista completa: o atalho parecia funcionar e
+   * não fazia nada, que é pior que não existir, porque ninguém desconfia.
+   */
+  useFiltroPorUrl('rascunhos', () => setRapido('rascunhos'), '/processos');
 
   useEffect(() => {
     const t = setTimeout(() => {

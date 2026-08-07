@@ -278,7 +278,10 @@ export function ProcessoDetalheSheet({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho rico */}
-        <div className="border-b p-5">
+        {/* Cabeçalho ENXUTO: identidade e ações. Todo bloco de contexto que
+            entrou aqui saiu para a área que rola — somados, eles comiam a
+            altura da janela e sobrava uma faixa de conteúdo ilegível. */}
+        <div className="shrink-0 border-b px-5 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
@@ -475,6 +478,15 @@ export function ProcessoDetalheSheet({
                       {e}
                     </span>
                   ))}
+                  {/* ASSUNTO na MESMA linha das etiquetas, e não numa própria:
+                      são dois rótulos curtos, e cada linha extra no cabeçalho
+                      sai direto da área de leitura. Só o principal — os demais
+                      ficam no dossiê, com o código da TPU. */}
+                  {p.assuntos?.filter((a) => a.principal).slice(0, 1).map((a, i) => (
+                    <span key={`as-${i}`} className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground" title="Assunto principal (TPU/CNJ)">
+                      {a.nome}
+                    </span>
+                  ))}
                   {podeEditar && (
                     <button
                       type="button"
@@ -506,67 +518,6 @@ export function ProcessoDetalheSheet({
               </div>
             </div>
           )}
-
-          {/* ASSUNTOS NA CAPA.
-              Continuam no dossiê com o código da TPU; aqui aparece só o rótulo,
-              porque "sobre o que é este processo" é a primeira pergunta de quem
-              abre a ficha — e a resposta estava a três rolagens de distância. */}
-          {(p?.assuntos?.length ?? 0) > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {p!.assuntos!.slice(0, 4).map((a, i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    'inline-flex rounded-full px-2.5 py-0.5 text-[11px]',
-                    a.principal
-                      ? 'bg-senatepi-50 font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400'
-                      : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  {a.nome}
-                </span>
-              ))}
-              {(p!.assuntos!.length ?? 0) > 4 && (
-                <span className="self-center text-[11px] text-muted-foreground">
-                  +{p!.assuntos!.length - 4}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* ATENÇÃO REQUERIDA.
-              Só aparece quando há ato crítico recente SEM atividade criada — é o
-              que o robô de prazos não pegou. Marcar todo processo movimentado
-              faria a etiqueta perder o sentido em uma semana. */}
-          {!!p?.atencao?.total && p.atencao.nivel && (
-            <div
-              className={cn(
-                'mt-3 rounded-xl border border-l-4 bg-muted/30 p-3',
-                classesCor(ATENCAO_COR[p.atencao.nivel]).borda,
-              )}
-            >
-              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
-                <span className={cn('rounded-full px-2 py-0.5', classesCor(ATENCAO_COR[p.atencao.nivel]).badge)}>
-                  <AlertTriangle className="mr-1 inline h-3 w-3" />
-                  {ATENCAO_LABEL[p.atencao.nivel]}
-                </span>
-                Atenção requerida — {p.atencao.total} ato
-                {p.atencao.total === 1 ? '' : 's'} sem tarefa na agenda
-              </p>
-              <ul className="space-y-0.5">
-                {p.atencao.itens.map((a, i) => (
-                  <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-                    <strong>{a.rotulo}</strong>
-                    <span className="text-muted-foreground">{a.descricao}</span>
-                    <span className="text-muted-foreground/70">{formatData(a.data)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Instâncias — só quando há mais de uma, senão é ruído */}
-          <ResumoInstancias instancias={p?.instancias ?? []} />
 
           {/* Abas */}
           {/* `flex-1` só a partir de sm: no celular as abas rolam na
@@ -605,7 +556,53 @@ export function ProcessoDetalheSheet({
           </div>
         </div>
 
-        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        {/* `min-h-0` é o que permite ao filho de um flex encolher e rolar; sem
+            ele o contêiner cresce e a rolagem interna nunca acontece. */}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+          {/* ATENÇÃO REQUERIDA e INSTÂNCIAS ficam AQUI, na área que rola — não no
+              cabeçalho fixo.
+
+              Eu tinha empilhado os dois lá em cima junto com assuntos,
+              etiquetas, partes e responsável. Somados, comiam a altura inteira
+              da janela: sobrava uma faixa de conteúdo de ~150px, e a ficha
+              virava ilegível mesmo com a tela a 80% de zoom. Cabeçalho carrega
+              IDENTIDADE (o que é este processo) e ações; contexto rola junto
+              com o resto.
+
+              ATENÇÃO REQUERIDA.
+              Só aparece quando há ato crítico recente SEM atividade criada — é o
+              que o robô de prazos não pegou. Marcar todo processo movimentado
+              faria a etiqueta perder o sentido em uma semana. */}
+          {!!p?.atencao?.total && p.atencao.nivel && (
+            <div
+              className={cn(
+                'mt-3 rounded-xl border border-l-4 bg-muted/30 p-3',
+                classesCor(ATENCAO_COR[p.atencao.nivel]).borda,
+              )}
+            >
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
+                <span className={cn('rounded-full px-2 py-0.5', classesCor(ATENCAO_COR[p.atencao.nivel]).badge)}>
+                  <AlertTriangle className="mr-1 inline h-3 w-3" />
+                  {ATENCAO_LABEL[p.atencao.nivel]}
+                </span>
+                Atenção requerida — {p.atencao.total} ato
+                {p.atencao.total === 1 ? '' : 's'} sem tarefa na agenda
+              </p>
+              <ul className="space-y-0.5">
+                {p.atencao.itens.map((a, i) => (
+                  <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                    <strong>{a.rotulo}</strong>
+                    <span className="text-muted-foreground">{a.descricao}</span>
+                    <span className="text-muted-foreground/70">{formatData(a.data)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Instâncias — só quando há mais de uma, senão é ruído */}
+          <ResumoInstancias instancias={p?.instancias ?? []} />
+
           {isLoading || !p ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
@@ -983,7 +980,8 @@ export function ProcessoDetalheSheet({
                   <ul className="space-y-2">
                     {p.compromissos.map((c) => (
                       <li key={c.id}>
-                        <Link href="/agenda" className="flex items-center gap-3 rounded-lg border bg-card p-3 transition hover:bg-muted/40">
+                        {/* Abre a atividade, não a agenda inteira. */}
+                        <Link href={`/agenda?compromisso=${c.id}`} className="flex items-center gap-3 rounded-lg border bg-card p-3 transition hover:bg-muted/40">
                           <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg bg-muted">
                             <span className="text-[10px] font-semibold uppercase leading-none text-muted-foreground">
                               {new Date(c.inicio).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}

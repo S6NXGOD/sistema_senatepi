@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -24,6 +24,7 @@ import { CancelarModal } from '@/components/agenda/cancelar-modal';
 import { RemarcarModal } from '@/components/agenda/remarcar-modal';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
+import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import {
   listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis,
   Compromisso, StatusCompromisso, TipoCompromisso,
@@ -70,7 +71,25 @@ function aplicarAba(cs: Compromisso[], aba: Aba): Compromisso[] {
   return cs;
 }
 
+/**
+ * `useSearchParams` obriga a um limite de Suspense — sem ele o build do Next
+ * falha ao pré-renderizar a rota. Mesmo padrão já usado em Processos.
+ */
 export default function AgendaPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+        </div>
+      }
+    >
+      <AgendaConteudo />
+    </Suspense>
+  );
+}
+
+function AgendaConteudo() {
   const qc = useQueryClient();
   const router = useRouter();
   const { user } = useAuth();
@@ -105,6 +124,16 @@ export default function AgendaPage() {
     const t = setTimeout(() => setBuscaDeb(busca.trim()), 350);
     return () => clearTimeout(t);
   }, [busca]);
+
+  /**
+   * `?compromisso=<id>` abre a atividade direto.
+   *
+   * É o que faz um atalho de fora chegar em algum lugar: o painel, os alertas e
+   * a aba Agenda do processo apontavam para `/agenda` puro, e o clique só
+   * trocava de tela — a pessoa caía no quadro inteiro e procurava a atividade
+   * na mão.
+   */
+  useAbrirPorUrl('compromisso', setDetalheId, '/agenda');
 
   const responsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis });
 

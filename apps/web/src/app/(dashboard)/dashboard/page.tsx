@@ -691,7 +691,9 @@ function AudienciasSemana({ data }: { data: ResumoDashboard }) {
         <ul className="space-y-1">
           {itens.map((c) => (
             <li key={c.id}>
-              <Link href="/agenda" className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-muted/60">
+                {/* Leva à ATIVIDADE, não ao módulo: o atalho existe para
+                    poupar a procura, e parar na lista devolvia o problema. */}
+              <Link href={`/agenda?compromisso=${c.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-muted/60">
                 <div className="flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-lg bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
                   <span className="text-[10px] font-semibold uppercase leading-none">
                     {new Date(c.inicio).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')}
@@ -821,7 +823,7 @@ function ContatosHoje({ data }: { data: ResumoDashboard }) {
         <ul className="divide-y divide-border/60">
           {itens.map((c) => (
             <li key={c.id}>
-              <Link href="/agenda" className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
+              <Link href={`/agenda?compromisso=${c.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
                 <span className={cn('w-1 shrink-0 self-stretch rounded-full',
                   new Date(c.inicio) < new Date() ? 'bg-rose-500' : 'bg-cyan-400')} />
                 <div className="min-w-0 flex-1">
@@ -923,7 +925,7 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
         <ul className="divide-y divide-border/60">
           {itens.map((a) => (
             <li key={a.id}>
-              <Link href="/atendimentos" className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
+              <Link href={`/atendimentos?atendimento=${a.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
                 <span className="w-1 shrink-0 self-stretch rounded-full bg-amber-400" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
@@ -953,7 +955,7 @@ function MovimentacoesRecentes({ data }: { data: ResumoDashboard }) {
         <ul className="divide-y divide-border/60">
           {itens.map((m) => (
             <li key={m.id}>
-              <Link href="/processos" className="flex items-start gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
+              <Link href={`/processos?processo=${m.processo.id}`} className="flex items-start gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
                 <Landmark className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{m.descricao}</p>

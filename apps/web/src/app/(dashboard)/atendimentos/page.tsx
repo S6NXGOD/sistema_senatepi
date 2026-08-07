@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import { podeExcluir } from '@/lib/permissoes';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
@@ -27,7 +28,22 @@ import {
 const PAGE_SIZE = 20;
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
 
+/** Suspense obrigatório por causa do `useSearchParams` (ver useAbrirPorUrl). */
 export default function AtendimentosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+        </div>
+      }
+    >
+      <ListaAtendimentos />
+    </Suspense>
+  );
+}
+
+function ListaAtendimentos() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
@@ -46,6 +62,9 @@ export default function AtendimentosPage() {
   const [promptConcluir, setPromptConcluir] = useState<{ id: string; resultado: DesfechoAtendimento } | null>(null);
   const [menu, setMenu] = useState<{ a: AtendimentoLista; top: number; left: number } | null>(null);
   const [excluirAlvo, setExcluirAlvo] = useState<AtendimentoLista | null>(null);
+
+  /** `?atendimento=<id>` abre a triagem direto — mesmo padrão da agenda. */
+  useAbrirPorUrl('atendimento', setDetalheId, '/atendimentos');
 
   useEffect(() => {
     const t = setTimeout(() => { setBuscaDeb(busca.trim()); setPage(1); }, 350);

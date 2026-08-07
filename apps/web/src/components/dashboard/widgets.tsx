@@ -189,7 +189,9 @@ export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrar
     : horaCurta(c.inicio);
   return (
     <Link
-      href="/agenda"
+      // Abre a ATIVIDADE. Este componente é reusado em vários blocos do painel,
+      // então o link genérico daqui era o mesmo beco sem saída em todos eles.
+      href={`/agenda?compromisso=${c.id}`}
       className="flex items-stretch gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60"
     >
       <span className={cn('w-1 shrink-0 rounded-full', corDeTipo(c.tipo, tipos).ponto)} />
