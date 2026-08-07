@@ -339,8 +339,12 @@ export type CategoriaMovimento =
 
 const CATEGORIA_POR_CODIGO: Record<number, CategoriaMovimento> = {
   // Audiências e sessões
-  11025: 'AUDIENCIA', 12173: 'AUDIENCIA', 1061: 'AUDIENCIA', 970: 'AUDIENCIA',
+  11025: 'AUDIENCIA', 12173: 'AUDIENCIA', 970: 'AUDIENCIA',
   // Publicação / intimação / comunicação
+  // 1061 estava classificado como AUDIÊNCIA e é "Disponibilização no Diário da
+  // Justiça Eletrônico" (conferido contra a API do CNJ) — mostrava etiqueta de
+  // audiência numa publicação, que é o oposto do que o advogado precisa ler.
+  1061: 'PUBLICACAO',
   92: 'PUBLICACAO', 60: 'PUBLICACAO', 12265: 'PUBLICACAO', 581: 'PUBLICACAO',
   // Decisões e sentenças
   193: 'DECISAO', 219: 'DECISAO', 385: 'DECISAO', 11009: 'DECISAO',
@@ -411,4 +415,39 @@ export async function registrarMovimentacao(processoId: string, dto: RegistrarMo
 }
 export async function excluirMovimentacao(movId: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/processos/movimentacoes/${movId}`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Consulta pública do tribunal
+// ---------------------------------------------------------------------------
+
+/**
+ * Link para a consulta pública do processo no site do tribunal.
+ *
+ * POR QUE NÃO É UM LINK DIRETO PARA O PROCESSO
+ * Cada tribunal tem o próprio endereço, e os que usam PJe exigem sessão ou
+ * captcha para abrir um processo específico — um "link direto" montado por nós
+ * levaria o advogado a uma tela de erro na metade dos casos. O que funciona
+ * sempre é abrir a CONSULTA do tribunal certo e colar o número, que é o que
+ * este atalho faz (o número vai para a área de transferência junto).
+ *
+ * Tribunais fora da lista caem no portal do CNJ, que encaminha para o tribunal
+ * correto a partir do número — pior que o atalho direto, melhor que nada.
+ */
+const CONSULTA_POR_TRIBUNAL: Record<string, string> = {
+  // Justiça do Trabalho — PJe, mesma estrutura em todos os TRTs.
+  TRT22: 'https://pje.trt22.jus.br/consultaprocessual/',
+  // Justiça Estadual do Piauí — consulta pública do PJe de 1º grau.
+  TJPI: 'https://pje.tjpi.jus.br/1g/ConsultaPublica/listView.seam',
+};
+
+const CONSULTA_PADRAO = 'https://www.cnj.jus.br/consultas-publicas-processuais/';
+
+export function urlConsultaTribunal(tribunal: string | null | undefined): string {
+  const sigla = (tribunal ?? '').trim().toUpperCase();
+  if (CONSULTA_POR_TRIBUNAL[sigla]) return CONSULTA_POR_TRIBUNAL[sigla];
+  // Todo TRT usa PJe no mesmo caminho; vale a generalização.
+  const trt = /^TRT(\d{1,2})$/.exec(sigla);
+  if (trt) return `https://pje.trt${trt[1]}.jus.br/consultaprocessual/`;
+  return CONSULTA_PADRAO;
 }

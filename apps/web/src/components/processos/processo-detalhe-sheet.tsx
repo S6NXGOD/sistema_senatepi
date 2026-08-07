@@ -32,8 +32,8 @@ import {
   getDossie, excluirMovimentacao, listarTiposMovimentacao,
   rotuloTipoMov, corTipoMov, rotuloComplemento,
   categoriaMovimento, CATEGORIA_LABEL, CATEGORIA_COR,
-  ehTituloGenerico, complementoPrincipal, rotuloGrau,
-  type ItemTimeline, type InstanciaProcesso,
+  ehTituloGenerico, complementoPrincipal, rotuloGrau, urlConsultaTribunal,
+  type ItemTimeline, type InstanciaProcesso, type CategoriaMovimento,
 } from '@/lib/movimentacoes';
 import {
   listarPublicacoes, sincronizarPublicacoes, statusDjen,
@@ -91,6 +91,15 @@ export function ProcessoDetalheSheet({
    * ao servidor.
    */
   const [filtroInstancias, setFiltroInstancias] = useState<Set<string>>(new Set());
+  /**
+   * Categoria do ato na linha do tempo. '' = todas.
+   *
+   * A cor por categoria já existia; o que faltava era poder ISOLAR uma. Num
+   * processo com 257 andamentos, "onde está a última decisão?" era rolagem no
+   * olho — e a busca textual não ajuda, porque o tribunal chama decisão de
+   * "Documento", "Ato ordinatório" e mais uma dúzia de nomes.
+   */
+  const [filtroCategoria, setFiltroCategoria] = useState<CategoriaMovimento | ''>('');
   const [confirmarExcluir, setConfirmarExcluir] = useState(false);
   const [movParaExcluir, setMovParaExcluir] = useState<string | null>(null);
   const [registrando, setRegistrando] = useState(false);
@@ -147,7 +156,7 @@ export function ProcessoDetalheSheet({
   });
 
   useEffect(() => {
-    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancias(new Set()); }
+    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancias(new Set()); setFiltroCategoria(''); }
   }, [open, processoId]);
 
   const recarregar = () => {
@@ -199,10 +208,27 @@ export function ProcessoDetalheSheet({
       ) {
         return false;
       }
+      // Categoria só existe para o que veio do tribunal; andamento interno da
+      // equipe não é classificado pela TPU e não deve sumir ao filtrar.
+      if (filtroCategoria && i.origem === 'DATAJUD') {
+        if (categoriaMovimento(i.codigoMovimento, i.descricao) !== filtroCategoria) return false;
+      }
+      if (filtroCategoria && i.origem !== 'DATAJUD') return false;
       if (!termo) return true;
       return i.descricao.toLowerCase().includes(termo);
     });
-  }, [p?.linhaDoTempo, busca, filtroOrigem, filtroInstancias]);
+  }, [p?.linhaDoTempo, busca, filtroOrigem, filtroInstancias, filtroCategoria]);
+
+  /** Quantos itens há por categoria — o filtro mostra o número antes do clique. */
+  const contagemCategoria = useMemo(() => {
+    const conta = new Map<CategoriaMovimento, number>();
+    for (const i of p?.linhaDoTempo ?? []) {
+      if (i.origem !== 'DATAJUD') continue;
+      const c = categoriaMovimento(i.codigoMovimento, i.descricao);
+      conta.set(c, (conta.get(c) ?? 0) + 1);
+    }
+    return conta;
+  }, [p?.linhaDoTempo]);
 
   /**
    * Instância cujos dados o dossiê mostra.
@@ -392,6 +418,31 @@ export function ProcessoDetalheSheet({
                 {sincronizar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 <span className="hidden sm:inline">Sincronizar</span>
               </Button>
+              {/* ABRIR NO TRIBUNAL.
+                  Copia o número e abre a consulta pública do tribunal certo.
+                  Não é link direto para o processo de propósito: os tribunais
+                  que usam PJe exigem sessão ou captcha para abrir um processo
+                  específico, e um link montado por nós levaria a uma tela de
+                  erro em boa parte dos casos. Com o número já na área de
+                  transferência, é um Ctrl+V na consulta. */}
+              {p?.numeroCNJ && (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(formatNPU(p.numeroCNJ));
+                      toast.success('Número copiado — cole na consulta do tribunal.');
+                    } catch {
+                      /* sem permissão de área de transferência: abre assim mesmo */
+                    }
+                    window.open(urlConsultaTribunal(p.tribunal), '_blank', 'noopener');
+                  }}
+                  title={`Abrir a consulta pública do ${p.tribunal ?? 'tribunal'} com o número copiado`}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  <span className="hidden sm:inline">Abrir no tribunal</span>
+                </Button>
+              )}
               {ehAdmin && (
                 <button type="button" onClick={() => setConfirmarExcluir(true)} disabled={!p} title="Excluir processo"
                   className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
@@ -453,6 +504,33 @@ export function ProcessoDetalheSheet({
                   {formatData(origem.createdAt)} · triagem por {origem.atendente.nomeExibicao || origem.atendente.nome}
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* ASSUNTOS NA CAPA.
+              Continuam no dossiê com o código da TPU; aqui aparece só o rótulo,
+              porque "sobre o que é este processo" é a primeira pergunta de quem
+              abre a ficha — e a resposta estava a três rolagens de distância. */}
+          {(p?.assuntos?.length ?? 0) > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {p!.assuntos!.slice(0, 4).map((a, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'inline-flex rounded-full px-2.5 py-0.5 text-[11px]',
+                    a.principal
+                      ? 'bg-senatepi-50 font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400'
+                      : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  {a.nome}
+                </span>
+              ))}
+              {(p!.assuntos!.length ?? 0) > 4 && (
+                <span className="self-center text-[11px] text-muted-foreground">
+                  +{p!.assuntos!.length - 4}
+                </span>
+              )}
             </div>
           )}
 
@@ -667,6 +745,53 @@ export function ProcessoDetalheSheet({
                           {filtroInstancias.size === 1 ? '1 grau selecionado' : `${filtroInstancias.size} graus selecionados`}
                         </span>
                       )}
+                    </div>
+                  )}
+
+                  {/* FILTRO POR CATEGORIA DO ATO.
+                      A cor por categoria já existia em cada linha; o que faltava
+                      era isolar uma. Num processo com centenas de andamentos,
+                      "onde está a última decisão?" virava rolagem — e a busca
+                      textual não resolve, porque o tribunal chama decisão de
+                      "Documento", "Ato ordinatório" e mais uma dúzia de nomes.
+                      Só aparecem as categorias que EXISTEM neste processo. */}
+                  {contagemCategoria.size > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Tipo de ato
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFiltroCategoria('')}
+                        className={cn(
+                          'rounded-full px-3 py-1 text-xs font-medium transition',
+                          !filtroCategoria
+                            ? 'bg-senatepi-800 text-white shadow-sm'
+                            : 'bg-muted text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        Todos
+                      </button>
+                      {[...contagemCategoria.entries()]
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([cat, n]) => {
+                          const ativo = filtroCategoria === cat;
+                          const cor = classesCor(CATEGORIA_COR[cat]);
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => setFiltroCategoria(ativo ? '' : cat)}
+                              className={cn(
+                                'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
+                                ativo ? 'bg-senatepi-800 text-white shadow-sm' : cor.badge,
+                              )}
+                            >
+                              {CATEGORIA_LABEL[cat]}
+                              <span className="opacity-70">{n}</span>
+                            </button>
+                          );
+                        })}
                     </div>
                   )}
 
