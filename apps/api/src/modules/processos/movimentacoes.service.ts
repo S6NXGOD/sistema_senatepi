@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { atoCritico } from './utils/tpu.util';
 import { AuditService } from '../../common/audit/audit.service';
 import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
 import {
@@ -352,6 +353,10 @@ export class MovimentacoesService {
       linhaDoTempo,
       /** Partes agrupadas + o confronto "Autor × Réu" pronto para o cabeçalho. */
       polos,
+      /** Atos recentes que pedem o olho de alguém (ver utils/tpu.util.ts). */
+      atencao: this.atencaoRequerida(movimentacoes),
+      /** Por onde o processo passou — derivado, sem tabela nova. */
+      historicoOrgaos: this.historicoOrgaos(movimentacoes),
       auditoria,
       totais: {
         datajud: movimentacoes.length,
@@ -403,4 +408,72 @@ export class MovimentacoesService {
       ip: ctx.ip, userAgent: ctx.userAgent, metadata,
     });
   }
+
+  /**
+   * Atos recentes que pedem atenção — e que AINDA NÃO viraram atividade.
+   *
+   * A condição `compromissoId: null` é o que separa alerta de ruído. O robô de
+   * prazos já transforma em tarefa o que reconhece; o que sobra aqui é
+   * justamente o que ele NÃO pegou — e é isso que alguém precisa olhar. Sem
+   * esse recorte, a ficha marcaria "atenção" em todo processo movimentado,
+   * inclusive nos que já estão devidamente na agenda, e a marca perderia valor
+   * em uma semana.
+   *
+   * Janela de 30 dias: a mesma do robô. Ato de meses atrás não é pendência, é
+   * histórico.
+   */
+  private atencaoRequerida(
+    movimentacoes: { dataMovimento: Date; descricao: string; codigoMovimento: number | null; compromissoId: string | null }[],
+  ) {
+    const desde = new Date(Date.now() - 30 * 24 * 3_600_000);
+    const itens = movimentacoes
+      .filter((m) => m.dataMovimento >= desde && !m.compromissoId)
+      .flatMap((m) => {
+        const ato = atoCritico(m.codigoMovimento);
+        return ato ? [{ nivel: ato.nivel, rotulo: ato.rotulo, data: m.dataMovimento, descricao: m.descricao }] : [];
+      })
+      .sort((a, b) => b.data.getTime() - a.data.getTime());
+
+    return {
+      total: itens.length,
+      // O nível mais grave manda na cor da etiqueta: um prazo correndo pesa
+      // mais que uma mudança de fase.
+      nivel: itens.find((i) => i.nivel === 'PRAZO')?.nivel
+        ?? itens.find((i) => i.nivel === 'DECISAO')?.nivel
+        ?? itens[0]?.nivel
+        ?? null,
+      itens: itens.slice(0, 5),
+    };
+  }
+
+  /**
+   * Por onde o processo passou, em ordem cronológica.
+   *
+   * DERIVADO das movimentações, sem tabela nova: cada andamento já guarda o
+   * órgão que o praticou (`orgaoJulgador`), então a redistribuição aparece
+   * sozinha como uma troca de órgão entre um ato e o seguinte. Uma tabela de
+   * histórico exigiria migração, backfill e um segundo lugar para manter em dia
+   * — e diria exatamente a mesma coisa que os dados já dizem.
+   *
+   * Retorna só as TROCAS, não um item por andamento.
+   */
+  private historicoOrgaos(movimentacoes: { dataMovimento: Date; orgaoJulgador: string | null }[]) {
+    const cronologico = [...movimentacoes]
+      .filter((m) => !!m.orgaoJulgador)
+      .sort((a, b) => a.dataMovimento.getTime() - b.dataMovimento.getTime());
+
+    const trechos: { orgao: string; de: Date; ate: Date; atos: number }[] = [];
+    for (const m of cronologico) {
+      const atual = trechos[trechos.length - 1];
+      if (atual && atual.orgao === m.orgaoJulgador) {
+        atual.ate = m.dataMovimento;
+        atual.atos++;
+      } else {
+        trechos.push({ orgao: m.orgaoJulgador!, de: m.dataMovimento, ate: m.dataMovimento, atos: 1 });
+      }
+    }
+    // Mais recente primeiro, como todo o resto da ficha.
+    return trechos.reverse();
+  }
+
 }

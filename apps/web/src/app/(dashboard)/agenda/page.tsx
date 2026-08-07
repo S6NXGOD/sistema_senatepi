@@ -267,19 +267,9 @@ export default function AgendaPage() {
         </select>
       </div>
 
-      {/* CALENDÁRIO — fixo acima do quadro. Clicar num dia filtra os cards. */}
-      {calendarioAberto && (
-        <CalendarioView
-          compromissos={compromissosDoMes}
-          mes={mes}
-          onMudarMes={mudarMes}
-          onSelecionar={onAbrir}
-          diaSelecionado={diaSelecionado}
-          onSelecionarDia={setDiaSelecionado}
-        />
-      )}
-
-      {/* Aviso do dia filtrado — sem ele, o quadro pareceria simplesmente vazio */}
+      {/* Aviso do dia filtrado. Fica ACIMA do quadro, e não junto do calendário:
+          quem clicou num dia rola de volta para cima para ver os cards, e é lá
+          que precisa entender por que a lista encolheu — e como desfazer. */}
       {diaSelecionado && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-senatepi-300 bg-senatepi-50 px-3 py-2 text-sm dark:border-senatepi-800 dark:bg-senatepi-900/20">
           <span className="flex items-center gap-1.5">
@@ -311,6 +301,20 @@ export default function AgendaPage() {
           onRemarcar={onRemarcar}
           onExcluir={setExcluir}
           podeExcluir={ehAdmin}
+        />
+      )}
+
+      {/* CALENDÁRIO — abaixo do quadro. O trabalho do dia está nos cards; o
+          calendário é consulta ("o que tem no dia 14?"). Clicar num dia filtra
+          o quadro acima, então a rolagem sobe para o resultado. */}
+      {calendarioAberto && (
+        <CalendarioView
+          compromissos={compromissosDoMes}
+          mes={mes}
+          onMudarMes={mudarMes}
+          onSelecionar={onAbrir}
+          diaSelecionado={diaSelecionado}
+          onSelecionarDia={setDiaSelecionado}
         />
       )}
 

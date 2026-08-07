@@ -32,7 +32,7 @@ import {
   getDossie, excluirMovimentacao, listarTiposMovimentacao,
   rotuloTipoMov, corTipoMov, rotuloComplemento,
   categoriaMovimento, CATEGORIA_LABEL, CATEGORIA_COR,
-  ehTituloGenerico, complementoPrincipal, rotuloGrau, urlConsultaTribunal,
+  ehTituloGenerico, complementoPrincipal, rotuloGrau, urlConsultaTribunal, ATENCAO_COR, ATENCAO_LABEL,
   type ItemTimeline, type InstanciaProcesso, type CategoriaMovimento,
 } from '@/lib/movimentacoes';
 import {
@@ -534,6 +534,37 @@ export function ProcessoDetalheSheet({
             </div>
           )}
 
+          {/* ATENÇÃO REQUERIDA.
+              Só aparece quando há ato crítico recente SEM atividade criada — é o
+              que o robô de prazos não pegou. Marcar todo processo movimentado
+              faria a etiqueta perder o sentido em uma semana. */}
+          {!!p?.atencao?.total && p.atencao.nivel && (
+            <div
+              className={cn(
+                'mt-3 rounded-xl border border-l-4 bg-muted/30 p-3',
+                classesCor(ATENCAO_COR[p.atencao.nivel]).borda,
+              )}
+            >
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold">
+                <span className={cn('rounded-full px-2 py-0.5', classesCor(ATENCAO_COR[p.atencao.nivel]).badge)}>
+                  <AlertTriangle className="mr-1 inline h-3 w-3" />
+                  {ATENCAO_LABEL[p.atencao.nivel]}
+                </span>
+                Atenção requerida — {p.atencao.total} ato
+                {p.atencao.total === 1 ? '' : 's'} sem tarefa na agenda
+              </p>
+              <ul className="space-y-0.5">
+                {p.atencao.itens.map((a, i) => (
+                  <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                    <strong>{a.rotulo}</strong>
+                    <span className="text-muted-foreground">{a.descricao}</span>
+                    <span className="text-muted-foreground/70">{formatData(a.data)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Instâncias — só quando há mais de uma, senão é ruído */}
           <ResumoInstancias instancias={p?.instancias ?? []} />
 
@@ -663,10 +694,62 @@ export function ProcessoDetalheSheet({
                         ))}
                       </div>
                     )}
-                    {p.atualizadoNoCnjEm && (
-                      <p className="mt-2 text-[11px] text-muted-foreground">
-                        Última atualização no CNJ: {formatDataHora(p.atualizadoNoCnjEm)}
-                      </p>
+                    {/* SINCRONIZAÇÃO — duas datas diferentes, e a confusão entre
+                        elas já custou dúvida: `atualizadoNoCnjEm` é quando o
+                        TRIBUNAL alimentou a base do CNJ; `ultimaSincronizacao` é
+                        quando NÓS lemos de lá. Um processo pode estar sincronizado
+                        há minutos e o tribunal não publicar nada há meses. */}
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t pt-2 text-[11px] text-muted-foreground">
+                      {p.ultimaSincronizacao && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <RefreshCw className="h-3 w-3" />
+                          Sincronizado com o CNJ em{' '}
+                          <strong className="font-medium text-foreground">
+                            {formatDataHora(p.ultimaSincronizacao)}
+                          </strong>
+                        </span>
+                      )}
+                      {p.atualizadoNoCnjEm && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Landmark className="h-3 w-3" />
+                          Tribunal atualizou a base em{' '}
+                          <strong className="font-medium text-foreground">
+                            {formatDataHora(p.atualizadoNoCnjEm)}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* POR ONDE O PROCESSO PASSOU.
+                        Derivado dos andamentos — cada um guarda o órgão que o
+                        praticou, então a redistribuição aparece sozinha como
+                        troca de órgão. Só é exibido quando houve mudança: com um
+                        órgão só, o dado já está no campo acima. */}
+                    {(p.historicoOrgaos?.length ?? 0) > 1 && (
+                      <div className="mt-3 border-t pt-2">
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Trâmite entre órgãos ({p.historicoOrgaos!.length})
+                        </p>
+                        <ol className="space-y-1">
+                          {p.historicoOrgaos!.map((h, i) => (
+                            <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                              <span className={cn('font-medium', i === 0 && 'text-foreground')}>
+                                {h.orgao}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {formatData(h.de)}
+                                {h.de !== h.ate ? ` — ${formatData(h.ate)}` : ''} · {h.atos} ato
+                                {h.atos === 1 ? '' : 's'}
+                              </span>
+                              {i === 0 && (
+                                <span className="rounded-full bg-senatepi-50 px-1.5 text-[9px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+                                  atual
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
                     )}
                   </section>
 

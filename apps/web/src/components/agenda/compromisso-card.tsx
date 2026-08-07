@@ -76,17 +76,34 @@ function AcaoBtn({
   );
 }
 
-/** Avatar pequeno (foto ou inicial) — usado para responsável e criador. */
+/**
+ * Avatar do responsável (foto quando há, iniciais quando não).
+ *
+ * 24px em vez de 20: a 20 a foto virava um borrão e não dava para reconhecer
+ * quem é — que é a única razão de haver foto num quadro com dezenas de cards.
+ *
+ * As INICIAIS usam duas letras (primeiro nome + sobrenome). Com uma só, "Dra.
+ * Morgana" e "Dr. Matheus" viravam ambos um "D" — o avatar deixava de
+ * distinguir as pessoas justamente onde precisava.
+ */
 function MiniAvatar({ nome, url, titulo }: { nome: string; url?: string | null; titulo?: string }) {
+  const iniciais = nome
+    .replace(/^(dra?\.?|sr[a]?\.?)\s+/i, '') // "Dr." e "Dra." não identificam ninguém
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join('')
+    .toUpperCase();
   return url ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt="" title={titulo} className="h-5 w-5 shrink-0 rounded-full border object-cover" />
+    <img src={url} alt="" title={titulo} className="h-6 w-6 shrink-0 rounded-full border object-cover" />
   ) : (
     <span
       title={titulo}
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-[10px] font-bold text-senatepi-900"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-[10px] font-bold text-senatepi-900"
     >
-      {nome.charAt(0).toUpperCase()}
+      {iniciais || '?'}
     </span>
   );
 }

@@ -249,6 +249,18 @@ export interface DossieProcesso {
   /** Graus em que o processo corre — vazio no histórico anterior. */
   instancias: InstanciaProcesso[];
   linhaDoTempo: ItemTimeline[];
+  /**
+   * Atos recentes que pedem atenção e que AINDA não viraram atividade.
+   * O robô de prazos já cria tarefa para o que reconhece; o que aparece aqui é
+   * o que ele NÃO pegou — por isso é alerta, e não repetição da agenda.
+   */
+  atencao?: {
+    total: number;
+    nivel: 'PRAZO' | 'DECISAO' | 'ENCERRAMENTO' | null;
+    itens: { nivel: string; rotulo: string; data: string; descricao: string }[];
+  };
+  /** Por onde o processo passou — derivado dos andamentos, sem tabela nova. */
+  historicoOrgaos?: { orgao: string; de: string; ate: string; atos: number }[];
   atendimentos: AtendimentoOrigem[];
   compromissos: CompromissoDoProcesso[];
   anexos: { id: string; nomeArquivo: string; url: string; tipoMime: string; tamanhoBytes: number | null; createdAt: string }[];
@@ -451,3 +463,15 @@ export function urlConsultaTribunal(tribunal: string | null | undefined): string
   if (trt) return `https://pje.trt${trt[1]}.jus.br/consultaprocessual/`;
   return CONSULTA_PADRAO;
 }
+
+/** Rótulo e cor do nível de atenção (espelha utils/tpu.util.ts no back). */
+export const ATENCAO_LABEL: Record<string, string> = {
+  PRAZO: 'Prazo em curso',
+  DECISAO: 'Decisão a analisar',
+  ENCERRAMENTO: 'Mudança de fase',
+};
+export const ATENCAO_COR: Record<string, string> = {
+  PRAZO: 'amber',
+  DECISAO: 'sky',
+  ENCERRAMENTO: 'slate',
+};
