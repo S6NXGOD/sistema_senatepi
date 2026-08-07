@@ -59,28 +59,54 @@ export const CODIGO_TPU_DESARQUIVAMENTO = 893;
 /**
  * A instância está baixada?
  *
- * Regra: houve baixa/trânsito e NENHUM desarquivamento depois dela. Compara
- * pela data do movimento, não pela ordem do array — o CNJ não garante ordenação
- * e a lista chega ordenada por data decrescente em alguns tribunais.
+ * A REGRA É "NÃO HOUVE MAIS NADA DEPOIS" — e não "veio um código de reabertura".
+ *
+ * A versão anterior exigia o código 893 (Desarquivamento) posterior à baixa, e
+ * ele quase nunca vem. Conferido no processo 0000600-48.2023.5.22.0108 (TRT22):
+ * o 1º grau tem "Trânsito em julgado" em 28/08/2025 e, no MESMO DIA, "Liquidação
+ * iniciada", seguida de mais 125 movimentos até julho de 2026 — execução
+ * correndo há quase um ano. O sistema exibia esse grau como baixado, e a lista
+ * mostrava "2 instâncias · todas baixadas" ao lado da etiqueta "Fase de
+ * Execução". O 2º grau do mesmo processo tem Baixa Definitiva e ZERO movimentos
+ * depois: esse sim acabou.
+ *
+ * POR QUE COMPARAR POR DIA, E NÃO POR INSTANTE
+ * A baixa costuma vir acompanhada, no mesmo dia, da publicação e da expedição do
+ * próprio arquivamento. Comparar instantes marcaria como viva toda instância
+ * encerrada, por causa desse eco. Exigir dia ESTRITAMENTE posterior descarta o
+ * eco e ainda captura a execução, que se estende por meses.
+ *
+ * Assim a regra não depende de conhecer os códigos de reabertura — que mudam por
+ * tribunal e por fase (liquidação, cumprimento de sentença, execução fiscal) e
+ * seriam uma lista impossível de manter completa.
+ *
+ * Compara por DATA, nunca pela ordem do array: o CNJ não garante ordenação e
+ * alguns tribunais devolvem a lista decrescente.
  */
 export function instanciaBaixada(
   movimentos: { codigoMovimento?: number | null; dataMovimento: Date | string }[],
 ): boolean {
-  let ultimaBaixa = -Infinity;
-  let ultimoDesarquivamento = -Infinity;
+  const DIA_MS = 24 * 3_600_000;
+  const emDias = (v: Date | string) => Math.floor(new Date(v).getTime() / DIA_MS);
+
+  let diaDaBaixa = -Infinity;
+  let ultimoDia = -Infinity;
 
   for (const m of movimentos) {
-    const codigo = m.codigoMovimento;
-    if (codigo == null) continue;
     const quando = new Date(m.dataMovimento).getTime();
     if (!Number.isFinite(quando)) continue;
-    if (CODIGOS_TPU_BAIXA.has(codigo)) ultimaBaixa = Math.max(ultimaBaixa, quando);
-    else if (codigo === CODIGO_TPU_DESARQUIVAMENTO) {
-      ultimoDesarquivamento = Math.max(ultimoDesarquivamento, quando);
-    }
+    const dia = emDias(m.dataMovimento);
+    if (dia > ultimoDia) ultimoDia = dia;
+
+    const codigo = m.codigoMovimento;
+    // Desarquivamento explícito é uma baixa desfeita: some com o marco.
+    if (codigo === CODIGO_TPU_DESARQUIVAMENTO && dia >= diaDaBaixa) diaDaBaixa = -Infinity;
+    else if (codigo != null && CODIGOS_TPU_BAIXA.has(codigo) && dia > diaDaBaixa) diaDaBaixa = dia;
   }
 
-  return ultimaBaixa > -Infinity && ultimaBaixa > ultimoDesarquivamento;
+  if (diaDaBaixa === -Infinity) return false; // nunca houve baixa (ou foi desfeita)
+  // Movimento em dia POSTERIOR ao da baixa ⇒ a instância voltou a andar.
+  return ultimoDia <= diaDaBaixa;
 }
 
 /**

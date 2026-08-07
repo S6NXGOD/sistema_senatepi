@@ -79,9 +79,46 @@ export interface ProcessoLista {
    * Graus em que o processo corre. Só o resumo: a lista precisa avisar que há
    * mais de uma instância, não descrever cada uma.
    */
-  instancias?: { grau: string; baixada: boolean; principal: boolean }[];
+  instancias?: { grau: string; tribunal: string; baixada: boolean; principal: boolean }[];
+  /**
+   * Última movimentação — data e o que foi.
+   *
+   * A coluna mostrava só a CONTAGEM ("203 mov."), que não responde a pergunta
+   * de quem abre a lista: "este processo andou? quando? o quê?".
+   */
+  movimentacoes?: {
+    dataMovimento: string;
+    descricao: string;
+    detalhe: string | null;
+    codigoMovimento: number | null;
+    /** Já virou tarefa na agenda? Se não, o ato pode estar pendente. */
+    compromissoId: string | null;
+  }[];
+  /**
+   * Fase derivada pela API (`fase.util.ts`). Vem calculada de lá de propósito:
+   * é a mesma regra que alimenta o filtro, e reimplementá-la aqui abriria a
+   * porta para a etiqueta discordar do chip que a pessoa acabou de clicar.
+   */
+  fase?: FaseProcessual;
+  /**
+   * O último ato pede providência e ainda não virou tarefa na agenda.
+   *
+   * Vem classificado da API (`tpu.util.ts`) — a tela não repete o dicionário de
+   * códigos da TPU, senão os dois envelheceriam separados.
+   */
+  alerta?: { nivel: 'PRAZO' | 'DECISAO'; rotulo: string } | null;
   _count: { movimentacoes: number; partes: number; advogados: number };
 }
+
+/** Fase processual — espelha `apps/api/.../utils/fase.util.ts`. */
+export type FaseProcessual = 'CONHECIMENTO' | 'EXECUCAO' | 'RECURSAL' | 'ARQUIVADO';
+
+export const FASE_LABEL: Record<FaseProcessual, string> = {
+  CONHECIMENTO: 'Conhecimento',
+  EXECUCAO: 'Execução',
+  RECURSAL: 'Recursal',
+  ARQUIVADO: 'Arquivado',
+};
 
 /** Etiquetas sugeridas no seletor (o campo aceita qualquer texto). */
 export const ETIQUETAS_SUGERIDAS = [
@@ -271,6 +308,8 @@ export interface FiltroProcessos {
   semParteContraria?: 'true';
   /** Movimentação nos últimos N dias (string por ser query param). */
   movimentacaoRecente?: string;
+  /** Fase processual — a API deriva de instâncias vivas + atos de execução. */
+  fase?: FaseProcessual;
   etiqueta?: string;
   page?: number;
   pageSize?: number;

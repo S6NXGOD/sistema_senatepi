@@ -143,6 +143,38 @@ describe('instanciaBaixada — o grau ainda está vivo?', () => {
     expect(instanciaBaixada([mov(51, '2026-05-13'), mov(85, '2026-05-04')])).toBe(false);
   });
 
+  /**
+   * O CASO QUE MOTIVOU A REGRA — dado real do processo
+   * 0000600-48.2023.5.22.0108 (TRT22): trânsito em julgado em 28/08/2025 e, no
+   * mesmo dia, "Liquidação iniciada", seguida de mais 125 movimentos até julho
+   * de 2026. É execução correndo, não processo encerrado.
+   */
+  it('baixa seguida de EXECUÇÃO não deixa a instância baixada', () => {
+    expect(
+      instanciaBaixada([
+        mov(848, '2025-08-28'), // Trânsito em julgado
+        mov(11384, '2025-08-28'), // Liquidação iniciada — mesmo dia, é eco
+        mov(51, '2025-09-10'), // dia POSTERIOR: a instância voltou a andar
+        mov(60, '2026-07-26'),
+      ]),
+    ).toBe(false);
+  });
+
+  /**
+   * O eco do próprio arquivamento (publicação e expedição no mesmo dia) não pode
+   * ressuscitar uma instância — é o que obriga a comparação por DIA, e não por
+   * instante.
+   */
+  it('publicação da própria baixa, no mesmo dia, NÃO reabre', () => {
+    expect(
+      instanciaBaixada([
+        mov(22, '2025-08-27'),
+        mov(92, '2025-08-27'), // Publicação do arquivamento
+        mov(60, '2025-08-27'), // Expedição de documento
+      ]),
+    ).toBe(true);
+  });
+
   it('Baixa Definitiva (22) baixa', () => {
     expect(instanciaBaixada([mov(51, '2026-01-10'), mov(22, '2026-02-01')])).toBe(true);
   });

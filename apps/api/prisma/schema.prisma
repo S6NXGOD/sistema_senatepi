@@ -2085,6 +2085,10 @@ model MovimentacaoProcessual {
   @@index([processoId])
   @@index([instanciaId])
   @@index([dataMovimento])
+  /// "Última movimentação" da lista: WHERE processo_id = ? ORDER BY data DESC LIMIT 1.
+  @@index([processoId, dataMovimento(sort: Desc)])
+  /// Filtro por fase processual (códigos de início de execução — ver fase.util.ts).
+  @@index([codigoMovimento, processoId])
   // Suporta a consulta do radar: pendentes = eh_audiencia AND dispensado IS NULL.
   @@index([ehAudiencia, dispensadoEm])
   @@index([compromissoId])

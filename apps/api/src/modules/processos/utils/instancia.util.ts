@@ -14,12 +14,32 @@
  * única testável sem banco nem rede.
  */
 
-/** Ordem de subida. Menor número = instância mais próxima da origem. */
+/**
+ * Ordem de subida. Menor número = instância mais próxima da origem.
+ *
+ * Cobre até os tribunais superiores porque o processo trabalhista sobe ao TST e,
+ * excepcionalmente, ao STF — e um grau desconhecido caía num balde único, o que
+ * tornava o desempate entre dois deles arbitrário.
+ *
+ * ATENÇÃO ao alcance real: reconhecer o grau NÃO significa buscá-lo. O DataJud
+ * guarda cada tribunal num índice próprio (`api_publica_tst`,
+ * `api_publica_stf`), e a sincronização consulta apenas o índice do tribunal de
+ * origem. Um recurso no TST só aparece aqui se o próprio índice do TRT o
+ * devolver. Buscar os índices superiores para todo processo multiplicaria as
+ * chamadas ao CNJ — quando valer a pena, o caminho é consultar o TST só para
+ * processos cujo 2º grau tenha remessa a ele.
+ */
 const ORDEM_GRAU: Record<string, number> = {
   G1: 1,
   JE: 2,
   TR: 3,
   G2: 4,
+  G3: 5,
+  TST: 5,
+  STJ: 5,
+  G4: 6,
+  STF: 6,
+  SUP: 6,
 };
 
 /** Grau desconhecido vai para o fim — nunca ganha de um grau que reconhecemos. */

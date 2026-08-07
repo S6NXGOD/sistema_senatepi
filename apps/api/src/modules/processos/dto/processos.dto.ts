@@ -17,6 +17,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { StatusProcesso } from '@prisma/client';
+import { FaseProcessual } from '../utils/fase.util';
 
 /**
  * Parte contrária informada já na importação. Existe porque o DataJud NÃO
@@ -206,6 +207,9 @@ export class ListProcessosQueryDto {
 
   @ApiPropertyOptional({ description: 'Só os com movimentação nos últimos N dias (padrão 7).' })
   @IsOptional() @IsString() movimentacaoRecente?: string;
+  /** Fase processual (ver `fase.util.ts`) — CONHECIMENTO | EXECUCAO | RECURSAL | ARQUIVADO. */
+  @IsOptional() @IsIn(['CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'])
+  fase?: FaseProcessual;
 
   @ApiPropertyOptional({ description: 'Filtra por etiqueta interna.' })
   @IsOptional() @IsString() etiqueta?: string;

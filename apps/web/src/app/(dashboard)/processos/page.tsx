@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
-  AlertTriangle, Swords, FileCheck2, Layers,
+  AlertTriangle, Swords, FileCheck2, AlarmClock, Scale,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,10 +18,11 @@ import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agenda
 import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import {
-  listarProcessos, formatNPU, ProcessoLista, StatusProcesso,
+  listarProcessos, formatNPU, ProcessoLista, StatusProcesso, FaseProcessual, FASE_LABEL,
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM,
 } from '@/lib/processos';
-import { rotuloGrau } from '@/lib/movimentacoes';
+import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
+import { dataBr, desde } from '@/lib/dossie';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
@@ -58,10 +59,26 @@ function ListaProcessos() {
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [status, setStatus] = useState<'' | StatusProcesso>('');
+  /**
+   * Fase processual. Separada do status de propósito: status é a nossa leitura
+   * interna ("Ativo", "Encerrado"), fase é o que o tribunal está fazendo com o
+   * processo. Misturar os dois num seletor só foi o que fez "encerrado" parecer
+   * sinônimo de "arquivado" — e um processo em execução ser dado como morto.
+   */
+  const [fase, setFase] = useState<'' | FaseProcessual>('');
   /** Filtro rápido da tabela (chips). */
   const [rapido, setRapido] = useState<
     'todos' | 'meus' | 'rascunhos' | 'semFiliado' | 'semReu' | 'recentes'
   >('todos');
+  /**
+   * Janela do filtro "com movimentação recente".
+   *
+   * 7 dias é a semana de trabalho — o que andou desde a última vez que alguém
+   * olhou. 15 dias existe porque processo trabalhista costuma andar em blocos:
+   * numa semana morta, o filtro de 7 devolve lista vazia e passa a impressão
+   * errada de que nada acontece.
+   */
+  const [janelaRecente, setJanelaRecente] = useState<'7' | '15'>('7');
   const [page, setPage] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -107,15 +124,16 @@ function ListaProcessos() {
       ...(rapido === 'rascunhos' ? { statusInterno: 'RASCUNHO' as const } : {}),
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
       ...(rapido === 'semReu' ? { semParteContraria: 'true' as const } : {}),
-      ...(rapido === 'recentes' ? { movimentacaoRecente: '7' } : {}),
+      ...(rapido === 'recentes' ? { movimentacaoRecente: janelaRecente } : {}),
+      ...(fase ? { fase } : {}),
       page,
       pageSize: 20,
     }),
-    [buscaDeb, status, rapido, page],
+    [buscaDeb, status, fase, rapido, janelaRecente, page],
   );
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['processos', buscaDeb, status, rapido, page],
+    queryKey: ['processos', buscaDeb, status, fase, rapido, janelaRecente, page],
     queryFn: () => listarProcessos(filtro),
   });
   const items = data?.items ?? [];
@@ -176,6 +194,27 @@ function ListaProcessos() {
             {f.label}
           </button>
         ))}
+        {/* A janela só aparece com o filtro ligado: fora dele, dois botões de
+            "7/15 dias" soltos na barra não significam nada. */}
+        {rapido === 'recentes' && (
+          <span className="flex items-center gap-1 rounded-full bg-muted px-1 py-1">
+            {(['7', '15'] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => { setJanelaRecente(d); setPage(1); }}
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 text-xs font-semibold transition',
+                  janelaRecente === d
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {d} dias
+              </button>
+            ))}
+          </span>
+        )}
       </div>
 
       {/* Filtros */}
@@ -204,6 +243,21 @@ function ListaProcessos() {
           {STATUS_PROCESSO_ORDEM.map((s) => (
             <option key={s} value={s}>
               {STATUS_PROCESSO_LABEL[s]}
+            </option>
+          ))}
+        </select>
+        <select
+          className={cn(inputCls, 'sm:w-48')}
+          value={fase}
+          onChange={(e) => {
+            setFase(e.target.value as '' | FaseProcessual);
+            setPage(1);
+          }}
+        >
+          <option value="">Todas as fases</option>
+          {(['CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'] as const).map((f) => (
+            <option key={f} value={f}>
+              {FASE_LABEL[f]}
             </option>
           ))}
         </select>
@@ -246,8 +300,11 @@ function ListaProcessos() {
                     {/* Quem processou quem — a informação que se procura primeiro */}
                     <th className="px-4 py-3 font-medium">Partes</th>
                     <th className="px-4 py-3 font-medium">Classe</th>
-                    <th className="px-4 py-3 font-medium">Tribunal</th>
-                    <th className="px-4 py-3 font-medium">Mov.</th>
+                    <th className="px-4 py-3 font-medium">Tribunal / Instâncias</th>
+                    {/* A contagem de movimentações ("203") não dizia nada sobre
+                        o processo: o que se quer saber, batendo o olho, é se ele
+                        andou, quando, e o quê. */}
+                    <th className="px-4 py-3 font-medium">Última movimentação</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                   </tr>
                 </thead>
@@ -282,11 +339,14 @@ function ListaProcessos() {
                         {p.classeProcessual ?? '—'}
                       </td>
                       <td className="px-4 py-3">
-                        {p.tribunal ?? '—'}
-                        <BadgeInstancias instancias={p.instancias} />
+                        <span className="text-[13px]">{p.tribunal ?? '—'}</span>
+                        <TagsInstancias instancias={p.instancias} />
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-muted-foreground">{p._count.movimentacoes}</td>
-                      <td className="px-4 py-3"><StatusBadge status={p.statusInterno} /></td>
+                      <td className="max-w-[260px] px-4 py-3"><CelulaUltimaMov p={p} /></td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={p.statusInterno} />
+                        <BadgeFase fase={p.fase} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -379,37 +439,103 @@ function BadgeInstitucional({ className }: { className?: string }) {
 }
 
 /**
- * Aviso de que o processo corre em mais de um grau.
+ * Uma etiqueta POR INSTÂNCIA, colorida pelo que importa: se aquele grau ainda
+ * anda.
  *
- * Só aparece a partir de duas instâncias: com uma só, a coluna do tribunal já
- * diz tudo e a etiqueta seria ruído em toda linha da tabela. Quando aparece,
- * responde à pergunta que a lista antes não conseguia responder — por que um
- * processo "encerrado" continua recebendo andamento.
+ * O texto genérico anterior ("2 instâncias · 1 em andamento") obrigava a abrir a
+ * ficha para saber QUAL delas anda — que é a única coisa que muda o trabalho do
+ * dia. Verde = em andamento; cinza riscado = baixada. Com uma instância só, a
+ * etiqueta aparece do mesmo jeito: é ela que diz se o processo está vivo, e a
+ * linha ficaria muda justamente no caso mais comum.
  */
-function BadgeInstancias({
-  instancias,
-}: {
-  instancias?: { grau: string; baixada: boolean; principal: boolean }[];
-}) {
-  if (!instancias || instancias.length < 2) return null;
-  const vivas = instancias.filter((i) => !i.baixada);
+function TagsInstancias({ instancias }: { instancias?: ProcessoLista['instancias'] }) {
+  if (!instancias?.length) return null;
   return (
-    <span
-      className="mt-0.5 flex w-fit items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
-      title={instancias
-        .map((i) => `${rotuloGrau(i.grau)}${i.baixada ? ' — baixado (baixa definitiva ou trânsito em julgado)' : ' — em andamento'}`)
-        .join(' · ')}
-    >
-      <Layers className="h-3 w-3" />
-      {instancias.length} instâncias
-      {/* "0 ativas" não comunicava nada — ninguém lê um zero e entende "os dois
-          graus receberam baixa definitiva". O texto agora diz o que aconteceu. */}
-      {vivas.length === 0
-        ? ' · todas baixadas'
-        : vivas.length < instancias.length
-          ? ` · ${vivas.length} em andamento`
-          : ''}
+    <span className="mt-1 flex flex-wrap gap-1">
+      {instancias.map((i) => (
+        <span
+          key={`${i.tribunal}-${i.grau}`}
+          title={`${rotuloGrau(i.grau)}${
+            i.baixada
+              ? ' — baixado (baixa definitiva ou trânsito em julgado, sem andamento posterior)'
+              : ' — em andamento'
+          }${i.principal ? ' · instância principal' : ''}`}
+          className={cn(
+            'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+            i.baixada
+              ? 'bg-muted text-muted-foreground line-through decoration-1'
+              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+          )}
+        >
+          {!i.baixada && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+          {siglaGrau(i.grau)}
+        </span>
+      ))}
     </span>
+  );
+}
+
+/**
+ * Fase processual, calculada pela API (instâncias vivas + atos de execução).
+ *
+ * Fica colada ao status porque as duas respondem coisas diferentes que sempre
+ * se confundiram aqui: o status é a nossa leitura interna do processo; a fase é
+ * o que o tribunal está de fato fazendo com ele.
+ */
+function BadgeFase({ fase }: { fase?: FaseProcessual }) {
+  if (!fase) return null;
+  const cor: Record<FaseProcessual, string> = {
+    CONHECIMENTO: 'text-sky-700 dark:text-sky-400',
+    EXECUCAO: 'text-emerald-700 dark:text-emerald-400',
+    RECURSAL: 'text-violet-700 dark:text-violet-400',
+    ARQUIVADO: 'text-muted-foreground',
+  };
+  return (
+    <span className={cn('mt-1 block text-[10px] font-medium uppercase tracking-wide', cor[fase])}>
+      {FASE_LABEL[fase]}
+    </span>
+  );
+}
+
+/**
+ * Última movimentação: quando foi e o que foi.
+ *
+ * O alerta só aparece quando o ato AINDA NÃO virou tarefa na agenda — quem já
+ * tem compromisso criado não precisa de aviso na lista, precisa de agenda. É a
+ * API que classifica (dicionário de TPU conferido, `tpu.util.ts`); a tela só
+ * pinta, para não existirem duas tabelas de códigos discordando com o tempo.
+ */
+function CelulaUltimaMov({ p }: { p: ProcessoLista }) {
+  const ultima = p.movimentacoes?.[0];
+  if (!ultima) {
+    return <span className="text-xs text-muted-foreground">Sem movimentação</span>;
+  }
+  const texto = ultima.detalhe?.trim() || ultima.descricao;
+  const alerta = p.alerta;
+  return (
+    <div className="min-w-0 leading-snug">
+      <p className="flex items-center gap-1.5 text-[13px] font-medium tabular-nums">
+        {dataBr(ultima.dataMovimento)}
+        <span className="text-[11px] font-normal text-muted-foreground">{desde(ultima.dataMovimento)}</span>
+      </p>
+      <p className="truncate text-xs text-muted-foreground" title={texto}>
+        {texto}
+      </p>
+      {alerta && (
+        <span
+          title={`${alerta.rotulo} — ainda sem tarefa na agenda`}
+          className={cn(
+            'mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+            alerta.nivel === 'PRAZO'
+              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+              : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+          )}
+        >
+          {alerta.nivel === 'PRAZO' ? <AlarmClock className="h-3 w-3" /> : <Scale className="h-3 w-3" />}
+          {alerta.nivel === 'PRAZO' ? 'Prazo sem tarefa' : 'Decisão a ler'}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -474,12 +600,17 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
           </p>
         )}
         {p.classeProcessual && <p className="truncate text-muted-foreground">{p.classeProcessual}</p>}
-        <p className="flex items-center gap-3 text-xs text-muted-foreground">
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Landmark className="h-3.5 w-3.5" /> {p.tribunal ?? '—'}
           </span>
-          <span>{p._count.movimentacoes} movimentação(ões)</span>
+          <TagsInstancias instancias={p.instancias} />
         </p>
+        {/* Mesma troca da tabela: a contagem de movimentações saiu, entrou a
+            última — no celular, onde há menos espaço, ela vale ainda mais. */}
+        <div className="border-t pt-1.5">
+          <CelulaUltimaMov p={p} />
+        </div>
       </div>
     </Card>
   );

@@ -24,6 +24,10 @@ import {
 } from './dto/processos.dto';
 import { CpfMatcherUtils } from './utils/cpf-matcher.util';
 import { escolherPrincipal, temInstanciaViva } from './utils/instancia.util';
+import {
+  CODIGOS_TPU_EXECUCAO, FaseProcessual, GRAUS_RECURSAIS, faseDoProcesso,
+} from './utils/fase.util';
+import { atoCritico } from './utils/tpu.util';
 import { NpuUtils } from './utils/npu.util';
 
 interface Ctx {
@@ -334,6 +338,67 @@ export class ProcessosService {
   // 2) Leituras 100% do cache local (instantâneas)
   // -------------------------------------------------------------------------
 
+  /**
+   * Tradução da fase para `WHERE`.
+   *
+   * A precedência de `faseDoProcesso` vira exclusão explícita: EXECUCAO exige
+   * "não recursal", CONHECIMENTO exige "nem recursal nem execução". Sem isso um
+   * processo em grau de recurso apareceria em dois chips ao mesmo tempo.
+   */
+  private whereFase(fase: FaseProcessual): Prisma.ProcessoWhereInput {
+    const graus: string[] = [...GRAUS_RECURSAIS];
+    const recursal: Prisma.ProcessoWhereInput = {
+      instancias: { some: { baixada: false, grau: { in: graus } } },
+    };
+    const comExecucao: Prisma.ProcessoWhereInput = {
+      movimentacoes: { some: { codigoMovimento: { in: [...CODIGOS_TPU_EXECUCAO] } } },
+    };
+    switch (fase) {
+      // `some: {}` é obrigatório: sem ele, `none` também casaria com o processo
+      // que não tem instância nenhuma (rascunho), e o rascunho iria parar no
+      // filtro "Arquivado".
+      case 'ARQUIVADO':
+        return { instancias: { some: {}, none: { baixada: false } } };
+      case 'RECURSAL':
+        return recursal;
+      case 'EXECUCAO':
+        return { AND: [comExecucao, { NOT: recursal }, { NOT: { instancias: { some: {}, none: { baixada: false } } } }] };
+      case 'CONHECIMENTO':
+      default:
+        return {
+          AND: [
+            { NOT: recursal },
+            { NOT: comExecucao },
+            { NOT: { instancias: { some: {}, none: { baixada: false } } } },
+          ],
+        };
+    }
+  }
+
+  /**
+   * O último ato pede alguma coisa de alguém — e ninguém pegou?
+   *
+   * Combina duas informações que a lista já carrega: o NÍVEL do ato (dicionário
+   * conferido em `tpu.util.ts`) e o carimbo `compromissoId`, que é a trava de
+   * idempotência do robô de prazos. Se o ato abre prazo ou traz decisão e não
+   * virou tarefa na agenda, ele está solto — é exatamente o que a lista precisa
+   * mostrar sem obrigar a abrir a ficha.
+   *
+   * ENCERRAMENTO fica de fora de propósito: baixa e trânsito em julgado não
+   * pedem providência, e virariam alarme permanente em todo processo arquivado.
+   *
+   * A classificação vive no back porque o filtro, a ficha e a lista têm de
+   * concordar — dicionário de TPU espelhado no front envelheceria só de um lado.
+   */
+  private alertaDaLinha(
+    ultimo?: { codigoMovimento: number | null; compromissoId: string | null },
+  ): { nivel: 'PRAZO' | 'DECISAO'; rotulo: string } | null {
+    if (!ultimo || ultimo.compromissoId) return null;
+    const ato = atoCritico(ultimo.codigoMovimento);
+    if (!ato || ato.nivel === 'ENCERRAMENTO') return null;
+    return { nivel: ato.nivel, rotulo: ato.rotulo };
+  }
+
   async listar(q: ListProcessosQueryDto, usuarioId?: string) {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
@@ -366,6 +431,10 @@ export class ProcessosService {
     // contra quem se litiga, e o DataJud nunca vai preencher isso sozinho.
     if (q.semParteContraria === 'true') and.push({ partes: { none: { polo: 'PASSIVO' } } });
     if (q.etiqueta) and.push({ etiquetas: { has: q.etiqueta } });
+    // "Fase processual": o mesmo critério de `faseDoProcesso`, traduzido para
+    // WHERE. As duas leituras têm de coincidir — um processo que a tabela mostra
+    // como "Execução" precisa aparecer no filtro "Execução", senão o chip mente.
+    if (q.fase) and.push(this.whereFase(q.fase));
     // "Com movimentação recente": houve andamento (do CNJ ou interno) na janela.
     if (q.movimentacaoRecente) {
       const dias = Number(q.movimentacaoRecente) || 7;
@@ -415,13 +484,45 @@ export class ProcessosService {
           // Só o resumo: a lista precisa avisar "este processo corre em dois
           // graus" sem carregar os metadados de cada um.
           instancias: {
-            select: { grau: true, baixada: true, principal: true },
+            select: { grau: true, tribunal: true, baixada: true, principal: true },
             orderBy: { grau: 'asc' },
           },
-          _count: { select: { movimentacoes: true, partes: true, advogados: true } },
+          // ÚLTIMA MOVIMENTAÇÃO — data + o que foi. A coluna antes mostrava só a
+          // CONTAGEM ("203 mov."), que não responde a pergunta que se faz ao
+          // abrir a lista: "este processo andou? quando? o quê?".
+          movimentacoes: {
+            orderBy: { dataMovimento: 'desc' },
+            take: 1,
+            select: {
+              dataMovimento: true, descricao: true, detalhe: true,
+              codigoMovimento: true, compromissoId: true,
+            },
+          },
+          // Existe ato de execução? Uma linha basta — a fase só pergunta "sim ou
+          // não", e trazer o histórico inteiro de 200 movimentos por processo só
+          // para responder isso custaria a página inteira.
+          _count: {
+            select: {
+              movimentacoes: true, partes: true, advogados: true,
+            },
+          },
         },
       }),
     ]);
+
+    // Fase de cada processo, na mesma consulta: um `groupBy` sobre os códigos de
+    // execução dos processos da página, em vez de N buscas.
+    const comExecucao = new Set(
+      (
+        await this.prisma.movimentacaoProcessual.groupBy({
+          by: ['processoId'],
+          where: {
+            processoId: { in: items.map((p) => p.id) },
+            codigoMovimento: { in: [...CODIGOS_TPU_EXECUCAO] },
+          },
+        })
+      ).map((r) => r.processoId),
+    );
 
     return {
       // `confronto` pronto na resposta: a tabela mostra "Autor × Réu" sem
@@ -430,6 +531,11 @@ export class ProcessosService {
         ...p,
         partes,
         confronto: this.partes.agruparPorPolo(partes).confronto,
+        fase: faseDoProcesso({
+          instancias: p.instancias,
+          temMovimentoDeExecucao: comExecucao.has(p.id),
+        }),
+        alerta: this.alertaDaLinha(p.movimentacoes[0]),
       })),
       total,
       page,
@@ -745,8 +851,47 @@ export class ProcessosService {
         instancias: { select: { grau: true, baixada: true } },
       },
     });
-    if (!processo || processo.statusInterno !== 'ENCERRADO') return;
-    if (!temInstanciaViva(processo.instancias)) return;
+    if (!processo || !processo.instancias.length) return;
+
+    const viva = temInstanciaViva(processo.instancias);
+
+    /**
+     * O OUTRO LADO DA TRAVA: processo ATIVO com todas as instâncias baixadas.
+     *
+     * A reavaliação só sabia REABRIR, então a lista exibia "todas baixadas" ao
+     * lado de "Ativo · Fase de Execução" — duas afirmações que não podem ser
+     * verdade juntas. Agora, quando o CNJ diz que todos os graus acabaram e não
+     * há movimento depois da baixa em nenhum deles, o processo é encerrado.
+     *
+     * NÃO mexe em ARQUIVADO, SUSPENSO, IMPROCEDENTE, GANHO_EXECUCAO nem
+     * RASCUNHO: são decisões da equipe, e o robô não desfaz o que uma pessoa
+     * decidiu. Só ATIVO e PENDENTE — os dois estados que o próprio sistema
+     * atribui — entram nesta conta.
+     */
+    if (!viva && (processo.statusInterno === 'ATIVO' || processo.statusInterno === 'PENDENTE')) {
+      const graus = processo.instancias.map((i) => i.grau).join(', ');
+      await this.prisma.processo.update({
+        where: { id: processoId },
+        data: { statusInterno: 'ENCERRADO' },
+      });
+      await this.prisma.movimentacaoInterna.create({
+        data: {
+          processoId,
+          tipo: 'ATUALIZACAO',
+          descricao:
+            `Processo encerrado automaticamente: todas as instâncias (${graus}) receberam ` +
+            'baixa definitiva ou trânsito em julgado, sem movimentação posterior. ' +
+            'Se a execução continuar, o robô reabre sozinho na próxima movimentação.',
+          statusAnterior: processo.statusInterno,
+          statusNovo: 'ENCERRADO',
+          notaInterna: false,
+        },
+      });
+      this.logger.log(`[DATAJUD] ${processo.numeroCNJ}: encerrado — todas as instâncias baixadas.`);
+      return;
+    }
+
+    if (processo.statusInterno !== 'ENCERRADO' || !viva) return;
 
     const vivas = processo.instancias.filter((i) => !i.baixada).map((i) => i.grau);
     await this.prisma.processo.update({

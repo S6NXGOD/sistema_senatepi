@@ -194,12 +194,33 @@ export interface InstanciaProcesso {
 export const GRAU_LABEL: Record<string, string> = {
   G1: '1º grau',
   G2: '2º grau',
+  G3: '3º grau',
+  G4: '4º grau',
   JE: 'Juizado Especial',
   TR: 'Turma Recursal',
+  TST: 'TST',
+  STJ: 'STJ',
+  STF: 'STF',
+  SUP: 'Instância superior',
 };
 
 export const rotuloGrau = (grau: string | null | undefined): string =>
   grau ? (GRAU_LABEL[grau.toUpperCase()] ?? grau) : '';
+
+/**
+ * Versão curta do grau, para caber numa etiqueta de tabela ("1º", "2º", "TST").
+ *
+ * Mora junto de `GRAU_LABEL` de propósito: são a mesma informação em dois
+ * tamanhos, e separá-las garantiria que um dia uma conheça um grau que a outra
+ * não conhece.
+ */
+const GRAU_SIGLA: Record<string, string> = {
+  G1: '1º', G2: '2º', G3: '3º', G4: '4º',
+  JE: 'JE', TR: 'TR', TST: 'TST', STJ: 'STJ', STF: 'STF', SUP: 'SUP',
+};
+
+export const siglaGrau = (grau: string | null | undefined): string =>
+  grau ? (GRAU_SIGLA[grau.toUpperCase()] ?? grau.toUpperCase()) : '—';
 
 export interface DossieProcesso {
   id: string;
