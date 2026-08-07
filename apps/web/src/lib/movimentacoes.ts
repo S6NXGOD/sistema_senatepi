@@ -1,6 +1,6 @@
 import { api } from './api';
 import { classesCor, type ClassesCor } from './paleta-cores';
-import type { StatusProcesso, TipoAcaoProcesso } from './processos';
+import type { FaseProcessual, StatusProcesso, TipoAcaoProcesso } from './processos';
 import type { AdvogadoDoProcesso, ParteDoProcesso, PolosProcesso } from './partes';
 
 // ---------------------------------------------------------------------------
@@ -282,6 +282,11 @@ export interface DossieProcesso {
   };
   /** Por onde o processo passou — derivado dos andamentos, sem tabela nova. */
   historicoOrgaos?: { orgao: string; de: string; ate: string; atos: number }[];
+  /**
+   * Fase processual pela mesma regra da lista (`fase.util.ts` no back).
+   * Sustenta o aviso de etiqueta conflitante na ficha.
+   */
+  fase?: FaseProcessual;
   atendimentos: AtendimentoOrigem[];
   compromissos: CompromissoDoProcesso[];
   anexos: { id: string; nomeArquivo: string; url: string; tipoMime: string; tamanhoBytes: number | null; createdAt: string }[];

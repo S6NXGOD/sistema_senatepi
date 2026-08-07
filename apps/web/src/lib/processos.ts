@@ -468,6 +468,8 @@ export async function atualizarProcesso(
     filiadoId?: string | null;
     advogadoId?: string | null;
     etiquetas?: string[];
+    /** Preenchimento manual — o CNJ não publica o valor da causa. */
+    valorCausa?: number | null;
   },
 ): Promise<ProcessoDetalhe> {
   return (await api.patch(`/processos/${id}`, dto)).data;

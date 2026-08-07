@@ -575,6 +575,8 @@ export class ProcessosService {
       data: {
         statusInterno: dto.statusInterno,
         etiquetas: dto.etiquetas === undefined ? undefined : this.normalizarEtiquetas(dto.etiquetas),
+        // Preenchimento manual do que o CNJ não publica (ver `metadadosGerais`).
+        valorCausa: dto.valorCausa === undefined ? undefined : dto.valorCausa,
       },
     });
 
@@ -1051,7 +1053,6 @@ export class ProcessosService {
       assuntoPrincipal: dados.assuntoPrincipal,
       assuntos: (dados.assuntos ?? []) as unknown as Prisma.InputJsonValue,
       municipioIBGE: dados.municipioIBGE,
-      valorCausa: dados.valorCausa ?? null,
       segredoJustica: dados.segredoJustica,
       prioridades: (dados.prioridades ?? []) as unknown as Prisma.InputJsonValue,
       // Só sobrescreve as partes quando o tribunal mandou alguma (não apaga o
@@ -1059,6 +1060,15 @@ export class ProcessosService {
       ...(dados.partes?.length
         ? { partesBrutas: dados.partes as unknown as Prisma.InputJsonValue }
         : {}),
+      /**
+       * VALOR DA CAUSA — mesma regra, e por um motivo concreto: a API pública do
+       * CNJ NÃO publica este campo (conferido com `exists: valorCausa` nos
+       * índices do TRT22 e do TJPI: zero documentos). Escrever `?? null` a cada
+       * sincronização apagava, toda madrugada, o valor que alguém tivesse
+       * digitado à mão — um dado some sem ninguém mexer nele, que é o pior tipo
+       * de bug. Só grava quando o tribunal de fato informou.
+       */
+      ...(dados.valorCausa != null ? { valorCausa: dados.valorCausa } : {}),
       ultimaSincronizacao: new Date(),
     };
   }

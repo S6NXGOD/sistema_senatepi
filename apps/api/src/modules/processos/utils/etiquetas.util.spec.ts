@@ -99,6 +99,45 @@ describe('etiquetasAutomaticas — o que dá para deduzir sem perguntar', () => 
     expect(r).toEqual(['Coletiva', 'Fase de Execução']);
   });
 
+  describe('Recurso — só da CLASSE', () => {
+    it.each(['Recurso Ordinário Trabalhista', 'Agravo de Petição', 'Apelação Cível', 'Embargos de Declaração'])(
+      '%s',
+      (classe) => {
+        expect(etiquetasAutomaticas({ classeProcessual: classe })).toContain('Recurso');
+      },
+    );
+
+    /**
+     * "prazo recursal" e "decurso do prazo recursal" são rotina de cartório em
+     * processo que nunca teve recurso — por isso a dedução ignora o andamento.
+     */
+    it('andamento com "recursal" não etiqueta', () => {
+      expect(
+        etiquetasAutomaticas({
+          classeProcessual: 'Ação Trabalhista - Rito Ordinário',
+          movimentacoes: [mov('Decurso de prazo recursal', 1051)],
+        }),
+      ).not.toContain('Recurso');
+    });
+  });
+
+  describe('Perícia — do ASSUNTO', () => {
+    it.each([
+      'Adicional de Insalubridade',
+      'Adicional de Periculosidade',
+      'INSALUBRIDADE',
+    ])('%s', (assunto) => {
+      expect(etiquetasAutomaticas({ classeProcessual: 'Ação Trabalhista', assuntoPrincipal: assunto }))
+        .toContain('Perícia');
+    });
+
+    it('assunto sem laudo obrigatório não etiqueta', () => {
+      expect(
+        etiquetasAutomaticas({ classeProcessual: 'Ação Trabalhista', assuntoPrincipal: 'Horas Extras' }),
+      ).not.toContain('Perícia');
+    });
+  });
+
   it('acento e caixa não interferem', () => {
     expect(etiquetasAutomaticas({ classeProcessual: 'EXECUCAO DE TITULO EXTRAJUDICIAL' }))
       .toContain('Fase de Execução');

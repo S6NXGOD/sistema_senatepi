@@ -22,6 +22,8 @@ import { CODIGOS_TPU_EXECUCAO } from './fase.util';
 /** Etiquetas do catálogo (`ETIQUETAS_SUGERIDAS` no front) que sabemos deduzir. */
 export const ETIQUETA_COLETIVA = 'Coletiva';
 export const ETIQUETA_EXECUCAO = 'Fase de Execução';
+export const ETIQUETA_RECURSO = 'Recurso';
+export const ETIQUETA_PERICIA = 'Perícia';
 
 /** Sem acento e em minúsculas — "Execução" e "EXECUCAO" têm de casar igual. */
 function normalizar(texto: string): string {
@@ -71,8 +73,35 @@ const TERMOS_EXECUCAO = [
   'liquidacao',
 ];
 
+/**
+ * RECURSO. Só da CLASSE, e a lista é fechada de propósito: a palavra "recurso"
+ * aparece em andamento de rotina o tempo todo ("aguardando prazo recursal",
+ * "certidão de decurso do prazo recursal") sem que exista recurso nenhum nos
+ * autos. Classe é o que o tribunal registrou como sendo o processo.
+ */
+const CLASSES_RECURSAIS = [
+  'recurso',
+  'agravo',
+  'apelacao',
+  'embargos de declaracao',
+  'embargos infringentes',
+];
+
+/**
+ * PERÍCIA. Vem do ASSUNTO — insalubridade e periculosidade dependem de laudo
+ * pericial por exigência legal (CLT, art. 195), então a perícia é praticamente
+ * certa e vale avisar antes de ela ser designada.
+ *
+ * NÃO deduzimos perícia de andamento ("nomeado perito"): quando isso aparece, a
+ * perícia já foi marcada e a etiqueta chega tarde para o que ela serve —
+ * planejar. E o radar de audiências já cuida do ato em si.
+ */
+const ASSUNTOS_COM_PERICIA = ['insalubridade', 'periculosidade'];
+
 export interface EntradaEtiquetas {
   classeProcessual?: string | null;
+  /** Assunto principal informado pelo CNJ. */
+  assuntoPrincipal?: string | null;
   /**
    * TODO o histórico de andamentos, não só o último (ver acima).
    *
@@ -92,13 +121,21 @@ export interface EntradaEtiquetas {
  */
 export function etiquetasAutomaticas({
   classeProcessual,
+  assuntoPrincipal,
   movimentacoes = [],
 }: EntradaEtiquetas): string[] {
   const classe = normalizar(classeProcessual ?? '');
+  const assunto = normalizar(assuntoPrincipal ?? '');
   const etiquetas: string[] = [];
 
   if (classe && CLASSES_COLETIVAS.some((t) => classe.includes(t))) {
     etiquetas.push(ETIQUETA_COLETIVA);
+  }
+  if (classe && CLASSES_RECURSAIS.some((t) => classe.includes(t))) {
+    etiquetas.push(ETIQUETA_RECURSO);
+  }
+  if (assunto && ASSUNTOS_COM_PERICIA.some((t) => assunto.includes(t))) {
+    etiquetas.push(ETIQUETA_PERICIA);
   }
 
   const codigosExecucao: readonly number[] = CODIGOS_TPU_EXECUCAO;

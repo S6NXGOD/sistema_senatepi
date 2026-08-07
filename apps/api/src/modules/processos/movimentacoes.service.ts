@@ -4,6 +4,7 @@ import {
 import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { atoCritico } from './utils/tpu.util';
+import { CODIGOS_TPU_EXECUCAO, faseDoProcesso } from './utils/fase.util';
 import { AuditService } from '../../common/audit/audit.service';
 import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
 import {
@@ -357,6 +358,18 @@ export class MovimentacoesService {
       atencao: this.atencaoRequerida(movimentacoes),
       /** Por onde o processo passou — derivado, sem tabela nova. */
       historicoOrgaos: this.historicoOrgaos(movimentacoes),
+      /**
+       * Fase processual, pela MESMA regra da lista (`fase.util.ts`). Vem daqui
+       * para a ficha e a lista nunca discordarem — e é ela que sustenta o aviso
+       * de etiqueta conflitante ("Fase de Execução" num processo em grau
+       * recursal).
+       */
+      fase: faseDoProcesso({
+        instancias: processo.instancias ?? [],
+        temMovimentoDeExecucao: movimentacoes.some(
+          (m) => m.codigoMovimento != null && CODIGOS_TPU_EXECUCAO.includes(m.codigoMovimento as 11384 | 11385),
+        ),
+      }),
       auditoria,
       totais: {
         datajud: movimentacoes.length,

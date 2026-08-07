@@ -8,7 +8,7 @@ import {
   X, RefreshCw, Loader2, Landmark, FileText, CalendarDays, ShieldCheck, Trash2,
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
-  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight,
+  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -129,6 +129,98 @@ function TramiteOrgaos({
   );
 }
 
+/**
+ * Valor da causa — o único campo do dossiê que alguém precisa digitar.
+ *
+ * A API pública do CNJ NÃO publica este campo: conferido com
+ * `exists: valorCausa` nos índices do TRT22 e do TJPI, zero documentos o
+ * trazem. Ou seja, "—" era o que TODO processo mostrava, para sempre. Agora
+ * quem sabe o valor escreve, e a sincronização noturna não apaga mais (só
+ * sobrescreve se o tribunal um dia passar a informar).
+ */
+function ValorCausaEditavel({
+  processoId, valor, podeEditar, onSalvo,
+}: {
+  processoId: string;
+  valor: string | number | null;
+  podeEditar: boolean;
+  onSalvo: () => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState('');
+
+  const salvar = useMutation({
+    mutationFn: () => {
+      // Aceita "12.345,67" e "12345.67" — ninguém deveria pensar em separador
+      // decimal para registrar um valor que leu no processo.
+      const limpo = texto.trim().replace(/[^\d,.-]/g, '');
+      const numero = limpo
+        ? Number(limpo.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'))
+        : null;
+      if (numero !== null && (!Number.isFinite(numero) || numero < 0)) {
+        throw new Error('Valor inválido.');
+      }
+      return atualizarProcesso(processoId, { valorCausa: numero });
+    },
+    onSuccess: () => { toast.success('Valor da causa atualizado.'); setEditando(false); onSalvo(); },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Não foi possível salvar o valor.'),
+  });
+
+  if (editando) {
+    return (
+      <span className="flex items-center gap-1">
+        <input
+          autoFocus
+          inputMode="decimal"
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); salvar.mutate(); }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditando(false); }
+          }}
+          placeholder="R$ 0,00"
+          className="h-8 w-28 rounded border border-input bg-background px-2 text-sm outline-none focus:border-senatepi-500"
+        />
+        <button
+          type="button"
+          onClick={() => salvar.mutate()}
+          disabled={salvar.isPending}
+          title="Salvar"
+          className="rounded p-1 text-senatepi-800 hover:bg-muted dark:text-senatepi-400"
+        >
+          {salvar.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditando(false)}
+          title="Cancelar"
+          className="rounded p-1 text-muted-foreground hover:bg-muted"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    );
+  }
+
+  const temValor = valor !== null && valor !== undefined && valor !== '';
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {temValor ? formatMoeda(valor) : <span className="font-normal text-muted-foreground">Não informado</span>}
+      {podeEditar && (
+        <button
+          type="button"
+          onClick={() => { setTexto(temValor ? String(valor) : ''); setEditando(true); }}
+          title={temValor ? 'Editar valor da causa' : 'Informar valor da causa (o CNJ não publica este dado)'}
+          className="rounded p-0.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        >
+          <PenLine className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
 export function ProcessoDetalheSheet({
   processoId, open, onClose, onChanged,
 }: {
@@ -143,6 +235,22 @@ export function ProcessoDetalheSheet({
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'processos') === 'EDITAR';
 
   const [aba, setAba] = useState<Aba>('timeline');
+  /**
+   * Dossiê do CNJ aberto ou recolhido — preferência guardada na SESSÃO.
+   *
+   * `sessionStorage`, e não `localStorage`, de propósito: é preferência de
+   * trabalho ("hoje estou olhando andamento, não metadado"), não configuração
+   * permanente. Na sessão seguinte volta aberto, que é o padrão descoberto.
+   */
+  const [dossieAberto, setDossieAberto] = useState(true);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setDossieAberto(window.sessionStorage.getItem('senatepi:dossie-datajud') !== 'recolhido');
+  }, []);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem('senatepi:dossie-datajud', dossieAberto ? 'aberto' : 'recolhido');
+  }, [dossieAberto]);
   const [busca, setBusca] = useState('');
   const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'INTERNA' | 'DATAJUD'>('todas');
   /**
@@ -544,6 +652,23 @@ export function ProcessoDetalheSheet({
               {editandoEtiquetas ? (
                 <div className="space-y-2 rounded-lg border p-3">
                   <EtiquetasInput valor={etiquetasEdit} onChange={setEtiquetasEdit} />
+                  {/* ETIQUETA QUE CONTRADIZ O PROCESSO.
+                      "Fase de Execução" num processo cujo grau vivo é recursal
+                      diz duas coisas incompatíveis — e a etiqueta é FILTRO: quem
+                      procurar a fila de execução vai encontrar um processo que
+                      está no tribunal, e vai trabalhar em cima disso. Avisa, mas
+                      não bloqueia: existe execução provisória enquanto o recurso
+                      corre, e quem está com o processo na mão sabe se é o caso. */}
+                  {etiquetasEdit.includes('Fase de Execução') && p.fase === 'RECURSAL' && (
+                    <p className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Este processo tem instância viva em grau recursal. A etiqueta
+                        <strong> Fase de Execução</strong> vai colocá-lo na fila de execução —
+                        mantenha só se houver execução provisória correndo.
+                      </span>
+                    </p>
+                  )}
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => setEditandoEtiquetas(false)}>Cancelar</Button>
                     <Button size="sm" onClick={() => salvarEtiquetas.mutate()} disabled={salvarEtiquetas.isPending}>
@@ -697,9 +822,14 @@ export function ProcessoDetalheSheet({
                       <Landmark className="h-3.5 w-3.5" />
                       DataJud: {p.ultimaSincronizacao ? `última sincronização em ${formatDataHora(p.ultimaSincronizacao)}` : 'ainda não sincronizado'}
                     </span>
-                    {/* Registrar movimentação fica ao ALCANCE — sem rolar até o fim */}
+                    {/* SEMPRE SECUNDÁRIO. Em verde sólido, ao lado da linha que
+                        fala do DataJud, o botão parecia a ação principal — "é
+                        assim que eu atualizo o processo?". Não é: o que traz o
+                        andamento do tribunal é o Sincronizar, no topo. Aqui se
+                        registra um ato INTERNO (ligação, reunião, protocolo
+                        feito na mão), que é o caso menos frequente. */}
                     {podeEditar && (
-                      <Button size="sm" variant={registrando ? 'outline' : 'default'} onClick={() => setRegistrando((v) => !v)}>
+                      <Button size="sm" variant="outline" onClick={() => setRegistrando((v) => !v)}>
                         {registrando ? <><X className="h-4 w-4" /> Fechar</> : <><Plus className="h-4 w-4" /> Registrar movimentação</>}
                       </Button>
                     )}
@@ -723,9 +853,15 @@ export function ProcessoDetalheSheet({
                       instância, fazia o bloco parecer errado — era a pergunta
                       "por que diz G1 se tem dois graus?". */}
                   <section className="rounded-xl border bg-card p-4">
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <h4 className="flex items-center gap-2 text-sm font-semibold">
-                        <Landmark className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDossieAberto((v) => !v)}
+                        aria-expanded={dossieAberto}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded text-left text-sm font-semibold"
+                      >
+                        <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', dossieAberto && 'rotate-90')} />
+                        <Landmark className="h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
                         Dossiê DataJud
                         {instanciaExibida && (p.instancias?.length ?? 0) > 1 && (
                           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -733,9 +869,28 @@ export function ProcessoDetalheSheet({
                             {instanciaExibida.principal && filtroInstancias.size === 0 ? ' · principal' : ''}
                           </span>
                         )}
-                      </h4>
+                      </button>
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Dados oficiais do CNJ</span>
                     </div>
+                    {/* RECOLHIDO: uma linha com o que identifica o processo.
+                        Os nove campos do dossiê são consultados uma vez e depois
+                        empurram para baixo o que se olha todo dia — a linha do
+                        tempo. Fechado, sobra a identificação; a preferência fica
+                        gravada e vale para as próximas fichas abertas. */}
+                    {!dossieAberto && (
+                      <p className="mt-1.5 pl-6 text-xs text-muted-foreground">
+                        {[
+                          instanciaExibida?.tribunal ?? p.tribunal,
+                          rotuloGrau(instanciaExibida?.grau ?? p.grau) || null,
+                          instanciaExibida?.classeProcessual ?? p.classeProcessual,
+                          (instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)
+                            ? `Distribuição: ${formatData(instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)}`
+                            : null,
+                        ].filter(Boolean).join(' · ') || 'Sem dados do CNJ'}
+                      </p>
+                    )}
+                    {dossieAberto && (
+                    <div className="mt-3">
                     {(p.instancias?.length ?? 0) > 1 && filtroInstancias.size === 0 && (
                       <p className="mb-3 rounded-md bg-muted/50 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
                         Este processo corre em {p.instancias!.length} instâncias. Os campos abaixo são
@@ -749,7 +904,14 @@ export function ProcessoDetalheSheet({
                       <CampoDossie label="Grau">{rotuloGrau(instanciaExibida?.grau ?? p.grau) || '—'}</CampoDossie>
                       <CampoDossie label="Classe">{instanciaExibida?.classeProcessual ?? p.classeProcessual ?? '—'}</CampoDossie>
                       <CampoDossie label="Distribuição">{formatData(instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)}</CampoDossie>
-                      <CampoDossie label="Valor da causa">{formatMoeda(p.valorCausa)}</CampoDossie>
+                      <CampoDossie label="Valor da causa">
+                        <ValorCausaEditavel
+                          processoId={p.id}
+                          valor={p.valorCausa}
+                          podeEditar={podeEditar}
+                          onSalvo={recarregar}
+                        />
+                      </CampoDossie>
                       <CampoDossie label="Formato">{p.formato ?? '—'}</CampoDossie>
                       <CampoDossie label="Sistema">{p.sistema ?? '—'}</CampoDossie>
                       <CampoDossie label="Movimentações">
@@ -804,6 +966,8 @@ export function ProcessoDetalheSheet({
                         órgão só, o dado já está no campo acima. */}
                     {(p.historicoOrgaos?.length ?? 0) > 1 && (
                       <TramiteOrgaos historico={p.historicoOrgaos!} />
+                    )}
+                    </div>
                     )}
                   </section>
 

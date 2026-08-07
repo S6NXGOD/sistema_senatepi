@@ -183,6 +183,7 @@ export class ConsultaPreviaService {
          */
         etiquetasSugeridas: etiquetasAutomaticas({
           classeProcessual: dados.classeProcessual,
+          assuntoPrincipal: dados.assuntoPrincipal,
           movimentacoes: dados.movimentacoes,
         }),
       },

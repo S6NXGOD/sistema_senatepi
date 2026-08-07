@@ -141,6 +141,17 @@ export class ImportarProcessoDto {
 export class AtualizarProcessoDto {
   @ApiPropertyOptional({ enum: StatusProcesso })
   @IsOptional() @IsEnum(StatusProcesso) statusInterno?: StatusProcesso;
+
+  /**
+   * Valor da causa — preenchimento MANUAL.
+   *
+   * A API pública do CNJ não publica este campo (verificado com
+   * `exists: valorCausa` nos índices do TRT22 e do TJPI: zero documentos),
+   * então ou alguém digita, ou ele nunca existe. `null` limpa o valor.
+   */
+  @ApiPropertyOptional({ description: 'Valor da causa em reais. Null limpa.' })
+  @IsOptional() @Type(() => Number) @IsNumber() valorCausa?: number | null;
+
   @ApiPropertyOptional() @IsOptional() @IsString() filiadoId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() advogadoId?: string;
 

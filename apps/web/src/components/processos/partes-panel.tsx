@@ -2,17 +2,17 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, Building2, Check, ExternalLink, Landmark, Loader2, Plus, Scale,
+  AlertTriangle, Building2, ExternalLink, Landmark, Loader2, Plus, Scale,
   Star, Swords, Trash2, User as UserIcon, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { SeletorAdvogados, type ValorSeletorAdvogados } from './seletor-advogados';
 import { classesCor } from '@/lib/paleta-cores';
-import { listarResponsaveis } from '@/lib/agenda';
 import { AdicionarParteForm } from './adicionar-parte-form';
 import {
   atualizarParte, definirAdvogadosDoProcesso, formatDocumento, removerParte,
@@ -395,98 +395,39 @@ function EquipeEditor({
   onSalvo: () => void;
   onCancelar: () => void;
 }) {
-  const { data: equipe = [], isLoading } = useQuery({
-    queryKey: ['processos-advogados'],
-    queryFn: listarResponsaveis,
+  /**
+   * Mesma escolha, mesmo componente da importação. Antes havia duas telas para
+   * "quem atua neste processo" — uma aqui, outra no modal de importar — e elas
+   * já divergiam: só esta tinha estrela de responsável.
+   */
+  const [selecao, setSelecao] = useState<ValorSeletorAdvogados>({
+    ids: atuais.map((a) => a.advogado.id),
+    principal: atuais.find((a) => a.principal)?.advogado.id ?? atuais[0]?.advogado.id ?? '',
   });
-
-  const [selecionados, setSelecionados] = useState<string[]>(atuais.map((a) => a.advogado.id));
-  const [principal, setPrincipal] = useState<string>(
-    atuais.find((a) => a.principal)?.advogado.id ?? atuais[0]?.advogado.id ?? '',
-  );
 
   const salvar = useMutation({
     mutationFn: () =>
       definirAdvogadosDoProcesso(
         processoId,
-        selecionados,
-        selecionados.includes(principal) ? principal : undefined,
+        selecao.ids,
+        selecao.ids.includes(selecao.principal) ? selecao.principal : undefined,
       ),
     onSuccess: () => { toast.success('Equipe do processo atualizada.'); onSalvo(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível salvar a equipe.'),
   });
 
-  function alternar(id: string) {
-    setSelecionados((atual) => {
-      const proximo = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id];
-      // Tirar o responsável da lista promove o primeiro que restar — a tela
-      // nunca fica com "responsável" apontando para quem saiu.
-      if (!proximo.includes(principal)) setPrincipal(proximo[0] ?? '');
-      else if (!principal && proximo.length) setPrincipal(proximo[0]);
-      return proximo;
-    });
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center rounded-xl border py-8 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3 rounded-xl border bg-muted/20 p-3">
       <p className="text-xs text-muted-foreground">
-        Marque quem atua no processo. Clique na estrela para definir o{' '}
+        Marque quem atua no processo. A estrela define o{' '}
         <strong className="text-foreground">responsável</strong> — é ele que aparece na lista e em
         "Meus processos".
       </p>
-      <ul className="max-h-64 space-y-1 overflow-auto">
-        {equipe.map((a) => {
-          const marcado = selecionados.includes(a.id);
-          const ehPrincipal = principal === a.id;
-          return (
-            <li key={a.id}>
-              <div
-                className={cn(
-                  'flex items-center gap-2 rounded-lg border px-3 py-2 transition',
-                  marcado ? 'border-senatepi-400 bg-card' : 'bg-card/50',
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => alternar(a.id)}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                >
-                  <span
-                    className={cn(
-                      'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                      marcado ? 'border-senatepi-800 bg-senatepi-800 text-white' : 'border-input',
-                    )}
-                  >
-                    {marcado && <Check className="h-3 w-3" />}
-                  </span>
-                  <span className="truncate text-sm">{a.nome}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { if (!marcado) alternar(a.id); setPrincipal(a.id); }}
-                  title="Definir como responsável"
-                  className={cn(
-                    'shrink-0 rounded p-1 transition',
-                    ehPrincipal
-                      ? 'text-amber-500'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  <Star className={cn('h-4 w-4', ehPrincipal && 'fill-current')} />
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <SeletorAdvogados
+        valor={selecao}
+        onChange={setSelecao}
+        vazioLabel="Nenhum advogado no processo"
+      />
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="outline" onClick={onCancelar} disabled={salvar.isPending}>
           Cancelar

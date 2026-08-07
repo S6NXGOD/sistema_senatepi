@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Tag, X, Plus } from 'lucide-react';
+import { Tag, X, Plus, Zap } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { ETIQUETAS_SUGERIDAS } from '@/lib/processos';
@@ -14,10 +14,21 @@ export function EtiquetasInput({
   valor,
   onChange,
   compacto,
+  automaticas = [],
 }: {
   valor: string[];
   onChange: (v: string[]) => void;
   compacto?: boolean;
+  /**
+   * Quais destas etiquetas o SISTEMA deduziu (raio ⚡).
+   *
+   * A marca existe para quem confere: sem ela, a pessoa abre o formulário com
+   * etiquetas já marcadas e não sabe se foi ela quem marcou numa tentativa
+   * anterior ou se o sistema decidiu sozinho — e é justamente a decisão
+   * automática que merece uma segunda olhada antes de virar filtro do acervo.
+   * Remover funciona igual: o raio não trava nada.
+   */
+  automaticas?: string[];
 }) {
   const [texto, setTexto] = useState('');
 
@@ -39,8 +50,15 @@ export function EtiquetasInput({
           {valor.map((e) => (
             <span
               key={e}
-              className="inline-flex items-center gap-1 rounded-full bg-senatepi-50 py-0.5 pl-2.5 pr-1 text-xs font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400"
+              title={automaticas.includes(e) ? 'Sugerida pelo DataJud — confira e remova se não for o caso' : undefined}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-xs font-medium',
+                automaticas.includes(e)
+                  ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-emerald-800'
+                  : 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+              )}
             >
+              {automaticas.includes(e) && <Zap className="h-3 w-3 shrink-0 fill-current" />}
               {e}
               <button type="button" onClick={() => remover(e)} className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10">
                 <X className="h-3 w-3" />

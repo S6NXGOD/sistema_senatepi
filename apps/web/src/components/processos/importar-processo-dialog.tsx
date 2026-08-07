@@ -12,10 +12,10 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { EtiquetasInput } from './etiquetas-input';
+import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
-import { listarResponsaveis } from '@/lib/agenda';
 import { formatDocumento, listarPartesExternas, TIPO_PARTE_LABEL, type ParteExterna } from '@/lib/partes';
 import { cn } from '@/lib/utils';
 import {
@@ -23,6 +23,9 @@ import {
   aliasTribunalDoNPU, ORIGEM_SUGESTAO_LABEL,
   ProcessoDetalhe, ConsultaDatajud, SugestaoAdvogado, PoloAtivoInput,
 } from '@/lib/processos';
+
+/** Nome da etiqueta compartilhado com a regra do back (`etiquetas.util.ts`). */
+const ETIQUETA_COLETIVA = 'Coletiva';
 
 /**
  * Como o polo ativo é preenchido. A escolha muda o que o formulário pede e o
@@ -61,9 +64,6 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string | null | undef
     </div>
   );
 }
-
-const inputCls =
-  'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
 // Validação: NPU precisa ter exatamente 20 dígitos (o backend também valida).
 const schema = z.object({
@@ -111,11 +111,15 @@ export function ImportarProcessoDialog({
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
 
-  /** Equipe além do responsável — um processo raramente é de um advogado só. */
-  const [coAdvogados, setCoAdvogados] = useState<string[]>([]);
-  const [equipeAberta, setEquipeAberta] = useState(false);
-
-  const advogados = useQuery({ queryKey: ['processos-advogados'], queryFn: listarResponsaveis, enabled: open });
+  /**
+   * A EQUIPE INTEIRA, responsável incluído.
+   *
+   * Antes eram duas listas — `advogadoId` (o responsável) e `coAdvogados` (o
+   * resto) — e mantê-las coerentes era trabalho de quem preenchia: dava para
+   * marcar o mesmo advogado nos dois lugares. Agora é uma lista só, e o
+   * responsável é apenas o item apontado por `advogadoId`.
+   */
+  const [equipeAdvogados, setEquipeAdvogados] = useState<string[]>([]);
 
   // Consulta prévia ao DataJud (auto-preenchimento). NÃO grava nada.
   const [previa, setPrevia] = useState<ConsultaDatajud | null>(null);
@@ -151,6 +155,10 @@ export function ImportarProcessoDialog({
    */
   const [sugestoesDatajud, setSugestoesDatajud] = useState<SugestaoAdvogado[]>([]);
   const [etiquetas, setEtiquetas] = useState<string[]>([]);
+  /** Quais das etiquetas marcadas foram deduzidas pelo sistema (raio ⚡). */
+  const [etiquetasAuto, setEtiquetasAuto] = useState<string[]>([]);
+  const etiquetasAutoRef = useRef<string[]>([]);
+  etiquetasAutoRef.current = etiquetasAuto;
 
   /**
    * Parte contrária (réu). Fica no formulário porque a API Pública do DataJud
@@ -185,14 +193,14 @@ export function ImportarProcessoDialog({
     setModoPolo('FILIADOS');
     setFiliadosPolo([]);
     setOutraParteNome('');
-    setCoAdvogados([]);
-    setEquipeAberta(false);
+    setEquipeAdvogados([]);
     setBusca('');
     setResultados([]);
     setPrevia(null);
     setErroPrevia(null);
     setSugestoesDatajud([]);
     setEtiquetas([]);
+    setEtiquetasAuto([]);
     setReuSelecionado(null);
     setReuNome('');
     setBuscaReu('');
@@ -260,6 +268,7 @@ export function ImportarProcessoDialog({
         const sugeridas = r.preenchimento?.etiquetasSugeridas ?? [];
         if (sugeridas.length) {
           setEtiquetas((atuais) => [...atuais, ...sugeridas.filter((e) => !atuais.includes(e))]);
+          setEtiquetasAuto((atuais) => [...new Set([...atuais, ...sugeridas])]);
         }
         // Não achou no tribunal deduzido? Aí sim o campo manual importa — abre
         // sozinho, em vez de deixar a pessoa procurando o que fazer.
@@ -270,7 +279,10 @@ export function ImportarProcessoDialog({
         // identificador único). Nome parecido fica apenas sugerido — o operador
         // decide. E nunca sobrescrevemos uma escolha já feita.
         const forte = sugs.find((s) => s.origem === 'DATAJUD_OAB');
-        if (forte && !watch('advogadoId')) setValue('advogadoId', forte.advogado.id);
+        if (forte && !watch('advogadoId')) {
+          setValue('advogadoId', forte.advogado.id);
+          setEquipeAdvogados((ids) => (ids.includes(forte.advogado.id) ? ids : [...ids, forte.advogado.id]));
+        }
       } catch (e: any) {
         if (!cancelado) {
           setPrevia(null);
@@ -305,6 +317,34 @@ export function ImportarProcessoDialog({
     return () => clearTimeout(t);
   }, [busca]);
 
+  /**
+   * Escolher "Ação Coletiva / Institucional" marca a etiqueta `Coletiva`.
+   *
+   * É a mesma informação dita duas vezes, e quem acabou de declarar que o
+   * sindicato move a ação em nome da categoria não deveria ter de repetir isso
+   * numa etiqueta. Trocar de volta para outro polo desmarca — mas só se a marca
+   * tiver vindo daqui, nunca se o operador a tiver posto à mão.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const institucional = modoPolo === 'INSTITUCIONAL';
+    setEtiquetas((atuais) => {
+      const tem = atuais.includes(ETIQUETA_COLETIVA);
+      if (institucional && !tem) return [...atuais, ETIQUETA_COLETIVA];
+      if (!institucional && tem && etiquetasAutoRef.current.includes(ETIQUETA_COLETIVA)) {
+        return atuais.filter((e) => e !== ETIQUETA_COLETIVA);
+      }
+      return atuais;
+    });
+    setEtiquetasAuto((auto) =>
+      institucional
+        ? (auto.includes(ETIQUETA_COLETIVA) ? auto : [...auto, ETIQUETA_COLETIVA])
+        : auto.filter((e) => e !== ETIQUETA_COLETIVA),
+    );
+    // `etiquetasAuto` entra por ref para não reexecutar o efeito ao ser escrito
+    // por ele mesmo.
+  }, [modoPolo, open]);
+
   /** Traduz a escolha da tela para o contrato da API. */
   function montarPoloAtivo(): PoloAtivoInput {
     if (modoPolo === 'INSTITUCIONAL') return { tipo: 'INSTITUCIONAL' };
@@ -320,7 +360,7 @@ export function ImportarProcessoDialog({
         tribunal: data.tribunal?.trim() || undefined,
         poloAtivo: montarPoloAtivo(),
         advogadoId: data.advogadoId || undefined,
-        advogadosIds: coAdvogados.length ? coAdvogados : undefined,
+        advogadosIds: equipeAdvogados.length ? equipeAdvogados : undefined,
         etiquetas: etiquetas.length ? etiquetas : undefined,
         // Réu: o DataJud não devolve as partes, então este é o único momento
         // barato de capturá-lo — depois vira tarefa na fila "Sem réu cadastrado".
@@ -568,7 +608,7 @@ export function ImportarProcessoDialog({
           {/* Advogado responsável (opcional) — com sugestão facultativa */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Scale className="h-4 w-4 text-muted-foreground" /> Advogado responsável (opcional)
+              <Scale className="h-4 w-4 text-muted-foreground" /> Advogado(s) do processo (opcional)
             </label>
 
             {/* Sugestões: aceitar é 1 clique; ignorar é só não clicar. */}
@@ -580,7 +620,18 @@ export function ImportarProcessoDialog({
                     <button
                       key={s.advogado.id}
                       type="button"
-                      onClick={() => setValue('advogadoId', jaSelecionado ? '' : s.advogado.id)}
+                      onClick={() => {
+                        // Aceitar a sugestão coloca a pessoa NA EQUIPE e como
+                        // responsável — antes ela virava responsável sem entrar
+                        // na equipe, e a lista de baixo não a mostrava.
+                        if (jaSelecionado) {
+                          setValue('advogadoId', '');
+                          setEquipeAdvogados((ids) => ids.filter((x) => x !== s.advogado.id));
+                        } else {
+                          setValue('advogadoId', s.advogado.id);
+                          setEquipeAdvogados((ids) => (ids.includes(s.advogado.id) ? ids : [...ids, s.advogado.id]));
+                        }
+                      }}
                       className={cn(
                         'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition',
                         jaSelecionado
@@ -609,67 +660,18 @@ export function ImportarProcessoDialog({
               </div>
             )}
 
-            <select className={inputCls} {...register('advogadoId')}>
-              <option value="">Selecione…</option>
-              {(advogados.data ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.nome}
-                </option>
-              ))}
-            </select>
-            {sugestoes.length > 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                A sugestão é apenas um atalho — você pode escolher outro advogado ou deixar em branco.
-              </p>
-            )}
-
-            {/* Equipe: um processo costuma ser tocado por mais de um advogado.
-                O responsável acima entra na equipe automaticamente. */}
-            {(advogados.data ?? []).length > 1 && (
-              <div className="space-y-1.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setEquipeAberta((v) => !v)}
-                  className="flex items-center gap-1.5 text-[11px] font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
-                >
-                  <Users className="h-3.5 w-3.5" />
-                  {equipeAberta ? 'Ocultar equipe' : 'Adicionar outros advogados à equipe'}
-                  {coAdvogados.length > 0 && ` (${coAdvogados.length})`}
-                </button>
-
-                {equipeAberta && (
-                  <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded-lg border p-1.5">
-                    {(advogados.data ?? [])
-                      .filter((a) => a.id !== advogadoSelecionado)
-                      .map((a) => {
-                        const marcado = coAdvogados.includes(a.id);
-                        return (
-                          <li key={a.id}>
-                            <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 accent-senatepi-700"
-                                checked={marcado}
-                                onChange={() =>
-                                  setCoAdvogados((atuais) =>
-                                    marcado ? atuais.filter((x) => x !== a.id) : [...atuais, a.id],
-                                  )
-                                }
-                              />
-                              <span className="min-w-0 truncate">{a.nomeExibicao || a.nome}</span>
-                            </label>
-                          </li>
-                        );
-                      })}
-                  </ul>
-                )}
-                {coAdvogados.length > 0 && !equipeAberta && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {coAdvogados.length} advogado(s) na equipe, além do responsável.
-                  </p>
-                )}
-              </div>
-            )}
+            <SeletorAdvogados
+              valor={{ ids: equipeAdvogados, principal: advogadoSelecionado ?? '' }}
+              onChange={({ ids, principal }) => {
+                setEquipeAdvogados(ids);
+                setValue('advogadoId', principal);
+              }}
+              vazioLabel="Selecionar advogado(s)…"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Pode marcar mais de um — a estrela define quem responde pelo processo. Deixar em
+              branco também é válido: o vínculo pode ser feito depois.
+            </p>
           </div>
 
           {/* Etiquetas internas */}
@@ -677,7 +679,16 @@ export function ImportarProcessoDialog({
             <label className="flex items-center gap-1.5 text-sm font-medium">
               <Tag className="h-4 w-4 text-muted-foreground" /> Etiquetas (opcional)
             </label>
-            <EtiquetasInput valor={etiquetas} onChange={setEtiquetas} />
+            <EtiquetasInput
+              valor={etiquetas}
+              onChange={(v) => {
+                setEtiquetas(v);
+                // Etiqueta removida à mão perde a marca de automática — se ela
+                // voltar depois, voltou porque alguém quis.
+                setEtiquetasAuto((auto) => auto.filter((e) => v.includes(e)));
+              }}
+              automaticas={etiquetasAuto}
+            />
           </div>
 
           {/* TRIBUNAL — fallback, e só.
