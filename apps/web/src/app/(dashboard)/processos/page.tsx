@@ -505,7 +505,7 @@ function TagsInstancias({ instancias }: { instancias?: ProcessoLista['instancias
       {instancias.map((i) => (
         <span
           key={`${i.tribunal}-${i.grau}`}
-          title={`${rotuloGrau(i.grau)}${
+          title={`${rotuloGrau(i.grau, i.tribunal)}${
             i.baixada
               ? ' — baixado (baixa definitiva ou trânsito em julgado, sem andamento posterior)'
               : ' — em andamento'
@@ -518,7 +518,7 @@ function TagsInstancias({ instancias }: { instancias?: ProcessoLista['instancias
           )}
         >
           {!i.baixada && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-          {siglaGrau(i.grau)}
+          {siglaGrau(i.grau, i.tribunal)}
         </span>
       ))}
     </span>

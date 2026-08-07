@@ -896,7 +896,7 @@ export function ProcessoDetalheSheet({
                         Dossiê DataJud
                         {instanciaExibida && (p.instancias?.length ?? 0) > 1 && (
                           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {rotuloGrau(instanciaExibida.grau)}
+                            {rotuloGrau(instanciaExibida.grau, instanciaExibida.tribunal)}
                             {instanciaExibida.principal && filtroInstancias.size === 0 ? ' · principal' : ''}
                           </span>
                         )}
@@ -912,7 +912,7 @@ export function ProcessoDetalheSheet({
                       <p className="mt-1.5 pl-6 text-xs text-muted-foreground">
                         {[
                           instanciaExibida?.tribunal ?? p.tribunal,
-                          rotuloGrau(instanciaExibida?.grau ?? p.grau) || null,
+                          rotuloGrau(instanciaExibida?.grau ?? p.grau, instanciaExibida?.tribunal) || null,
                           instanciaExibida?.classeProcessual ?? p.classeProcessual,
                           (instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)
                             ? `Distribuição: ${formatData(instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)}`
@@ -925,14 +925,14 @@ export function ProcessoDetalheSheet({
                     {(p.instancias?.length ?? 0) > 1 && filtroInstancias.size === 0 && (
                       <p className="mb-3 rounded-md bg-muted/50 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
                         Este processo corre em {p.instancias!.length} instâncias. Os campos abaixo são
-                        da instância <strong>{rotuloGrau(instanciaExibida?.grau)}</strong> — use o
+                        da instância <strong>{rotuloGrau(instanciaExibida?.grau, instanciaExibida?.tribunal)}</strong> — use o
                         seletor acima para ver os dados de outro grau.
                       </p>
                     )}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
                       <CampoDossie label="Tribunal">{instanciaExibida?.tribunal ?? p.tribunal ?? '—'}</CampoDossie>
                       <CampoDossie label="Órgão Julgador">{instanciaExibida?.orgaoJulgador ?? p.orgaoJulgador ?? '—'}</CampoDossie>
-                      <CampoDossie label="Grau">{rotuloGrau(instanciaExibida?.grau ?? p.grau) || '—'}</CampoDossie>
+                      <CampoDossie label="Grau">{rotuloGrau(instanciaExibida?.grau ?? p.grau, instanciaExibida?.tribunal) || '—'}</CampoDossie>
                       <CampoDossie label="Classe">{instanciaExibida?.classeProcessual ?? p.classeProcessual ?? '—'}</CampoDossie>
                       <CampoDossie label="Distribuição">{formatData(instanciaExibida?.dataDistribuicao ?? p.dataDistribuicao)}</CampoDossie>
                       <CampoDossie label="Valor da causa">
@@ -1055,7 +1055,7 @@ export function ProcessoDetalheSheet({
                             )}
                           >
                             {marcada && <Check className="h-3 w-3" />}
-                            {rotuloGrau(i.grau)}
+                            {rotuloGrau(i.grau, i.tribunal)}
                             <span className={cn('opacity-70', marcada && 'opacity-90')}>
                               {i._count?.movimentacoes ?? 0}
                             </span>
@@ -1766,7 +1766,7 @@ function ResumoInstancias({ instancias }: { instancias: InstanciaProcesso[] }) {
             className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-card px-3 py-2 text-xs"
           >
             <span className="flex flex-wrap items-center gap-1.5">
-              <strong>{rotuloGrau(i.grau)}</strong>
+              <strong>{rotuloGrau(i.grau, i.tribunal)}</strong>
               {i.orgaoJulgador && (
                 <span className="text-muted-foreground">· {i.orgaoJulgador}</span>
               )}

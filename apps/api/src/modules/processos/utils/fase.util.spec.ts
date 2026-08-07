@@ -50,9 +50,43 @@ describe('faseDoProcesso — em que pé está o processo', () => {
   });
 
   it('tribunal superior conta como recursal', () => {
-    for (const grau of ['G3', 'TST', 'STJ', 'STF']) {
+    for (const grau of ['G3', 'TST', 'STJ', 'STF', 'SUP']) {
       expect(faseDoProcesso({ instancias: [{ grau, baixada: false }], temMovimentoDeExecucao: false })).toBe('RECURSAL');
     }
+  });
+
+  /**
+   * A REGRA QUE O RECURSO NO TST IMPÕE: enquanto o tribunal superior não
+   * baixar, o processo não acabou — nem que 1º e 2º grau já estejam baixados.
+   *
+   * O grau do TST vem como "SUP" no DataJud (documento TST_SUP_<npu>), e é
+   * assim que ele chega aqui.
+   */
+  it('recurso vivo no TST impede o arquivamento, com 1º e 2º grau baixados', () => {
+    expect(
+      faseDoProcesso({
+        instancias: [
+          { grau: 'G1', baixada: true },
+          { grau: 'G2', baixada: true },
+          { grau: 'SUP', baixada: false },
+        ],
+        temMovimentoDeExecucao: true,
+      }),
+    ).toBe('RECURSAL');
+  });
+
+  /** Caso real do 0001000-26.2022.5.22.0002: o TST também baixou (20/08/2025). */
+  it('com o TST baixado junto dos demais, aí sim é arquivado', () => {
+    expect(
+      faseDoProcesso({
+        instancias: [
+          { grau: 'G1', baixada: true },
+          { grau: 'G2', baixada: true },
+          { grau: 'SUP', baixada: true },
+        ],
+        temMovimentoDeExecucao: true,
+      }),
+    ).toBe('ARQUIVADO');
   });
 
   it('grau em caixa baixa ou nulo não quebra a regra', () => {

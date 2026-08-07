@@ -204,8 +204,17 @@ export const GRAU_LABEL: Record<string, string> = {
   SUP: 'Instância superior',
 };
 
-export const rotuloGrau = (grau: string | null | undefined): string =>
-  grau ? (GRAU_LABEL[grau.toUpperCase()] ?? grau) : '';
+/**
+ * Rótulo do grau. Recebendo o TRIBUNAL, ele vence na instância superior:
+ * "TST" identifica muito melhor que "Instância superior", e é assim que o
+ * advogado se refere ao recurso.
+ */
+export const rotuloGrau = (grau: string | null | undefined, tribunal?: string | null): string => {
+  const g = (grau ?? '').toUpperCase();
+  if (!g) return '';
+  if (g === 'SUP' && tribunal) return tribunal.toUpperCase();
+  return GRAU_LABEL[g] ?? grau ?? '';
+};
 
 /**
  * Versão curta do grau, para caber numa etiqueta de tabela ("1º", "2º", "TST").
@@ -219,8 +228,12 @@ const GRAU_SIGLA: Record<string, string> = {
   JE: 'JE', TR: 'TR', TST: 'TST', STJ: 'STJ', STF: 'STF', SUP: 'SUP',
 };
 
-export const siglaGrau = (grau: string | null | undefined): string =>
-  grau ? (GRAU_SIGLA[grau.toUpperCase()] ?? grau.toUpperCase()) : '—';
+export const siglaGrau = (grau: string | null | undefined, tribunal?: string | null): string => {
+  const g = (grau ?? '').toUpperCase();
+  if (!g) return '—';
+  if (g === 'SUP' && tribunal) return tribunal.toUpperCase();
+  return GRAU_SIGLA[g] ?? g;
+};
 
 export interface DossieProcesso {
   id: string;

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { flagLigada } from '../../common/utils/flag.util';
+import { NpuUtils } from './utils/npu.util';
 
 /**
  * DatajudService — cliente da API Pública do DATAJUD (CNJ).
@@ -135,6 +136,15 @@ function ultimoMovimentoMs(instancia: ProcessoDatajud): number {
   }, -Infinity);
 }
 
+/**
+ * Graus a partir dos quais existe recurso ao tribunal superior.
+ *
+ * Recurso de revista pressupõe acórdão de 2º grau, então processo que só tem 1º
+ * grau nunca está no TST — e consultar o índice superior para ele seria gastar
+ * cota do CNJ para receber zero resultados.
+ */
+const GRAUS_QUE_SOBEM = new Set(['G2', 'G3', 'TR', 'G4']);
+
 @Injectable()
 export class DatajudService {
   private readonly logger = new Logger(DatajudService.name);
@@ -202,12 +212,61 @@ export class DatajudService {
    *    devolver documento de outro processo. O filtro abaixo é o que impede que
    *    andamento alheio entre na ficha do filiado.
    */
+  /**
+   * TODAS as instâncias do processo: as do tribunal de origem MAIS a do
+   * tribunal superior, quando houver.
+   *
+   * POR QUE PRECISA DE DUAS CONSULTAS
+   * O DataJud guarda cada tribunal num índice próprio. O recurso ao TST não
+   * aparece no índice do TRT — é um documento separado, com o mesmo NPU, em
+   * `api_publica_tst`. Enquanto só o índice de origem era consultado, essa
+   * instância não existia para o sistema: o 0001000-26.2022.5.22.0002 mostrava
+   * "2 instâncias" havendo três (o AIRR no TST, baixado em 20/08/2025).
+   *
+   * O CUSTO É CONTIDO: a consulta ao superior só acontece quando o processo tem
+   * instância de 2º grau ou acima — sem acórdão não há recurso de revista. No
+   * acervo atual isso significa 4 chamadas extras por varredura, e 2 delas
+   * encontram algo.
+   */
   async buscarInstanciasPorNPU(npu: string, siglaTribunal: string): Promise<InstanciaDatajud[]> {
     const numero = (npu || '').replace(/\D/g, '');
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
     }
-    const alias = this.aliasTribunal(siglaTribunal);
+
+    const instancias = await this.consultarIndice(this.aliasTribunal(siglaTribunal), numero);
+    if (!this.multiInstancia) return instancias;
+
+    const superior = NpuUtils.tribunalSuperior(numero);
+    // Sem 2º grau não há o que subir: recurso de revista pressupõe acórdão.
+    const subiu = instancias.some((i) => GRAUS_QUE_SOBEM.has((i.grau ?? '').toUpperCase()));
+    if (!superior || !subiu) return instancias;
+
+    try {
+      const noSuperior = await this.consultarIndice(this.aliasTribunal(superior), numero);
+      if (noSuperior.length) {
+        this.logger.log(`[DATAJUD] NPU ${numero}: +${noSuperior.length} instância(s) em ${superior}.`);
+      }
+      return [...instancias, ...noSuperior];
+    } catch (err) {
+      /**
+       * Falha no índice superior NÃO derruba a sincronização.
+       *
+       * O tribunal de origem já respondeu e traz o grosso do processo; perder a
+       * instância superior nesta rodada é um dado a menos, e ela volta na
+       * próxima. Propagar o erro faria o oposto: uma instabilidade do TST
+       * impediria de atualizar o 1º grau, que é onde o processo anda.
+       */
+      this.logger.warn(
+        `[DATAJUD] NPU ${numero}: falha ao consultar ${superior} — seguindo só com ` +
+          `${siglaTribunal.toUpperCase()}. (${(err as Error).message})`,
+      );
+      return instancias;
+    }
+  }
+
+  /** Uma consulta a UM índice do DataJud. */
+  private async consultarIndice(alias: string, numero: string): Promise<InstanciaDatajud[]> {
     const url = `${this.baseUrl}/${alias}/_search`;
 
     // LGPD: log apenas com dado público (NPU + tribunal), sem nada pessoal.

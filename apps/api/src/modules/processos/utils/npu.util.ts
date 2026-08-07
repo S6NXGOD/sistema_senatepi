@@ -33,6 +33,40 @@ export class NpuUtils {
   };
 
   /**
+   * Tribunal SUPERIOR que julga o recurso deste processo — ou `null`.
+   *
+   * O DataJud guarda cada tribunal num índice próprio, e o recurso ao tribunal
+   * superior NÃO aparece no índice do tribunal de origem: é um documento
+   * separado, com o mesmo NPU. Conferido em 07/08/2026 no
+   * 0001000-26.2022.5.22.0002 — `api_publica_trt22` devolve G1 e G2, e o
+   * `api_publica_tst` devolve um terceiro documento
+   * (TST_SUP_..., "Agravo de Instrumento em Recurso de Revista"). Sem consultar
+   * o índice superior, essa instância simplesmente não existia para o sistema.
+   *
+   * O STF FICA DE FORA porque não há índice: `api_publica_stf` responde
+   * `index_not_found_exception` (verificado na mesma data). Não é omissão
+   * nossa — o CNJ não publica.
+   */
+  static tribunalSuperior(npu: string): string | null {
+    const d = this.digitos(npu);
+    if (d.length !== 20) return null;
+    const j = d[13];
+    const tr = d.slice(14, 16);
+    switch (j) {
+      // Justiça do Trabalho: TRT → TST. Um processo que já ESTÁ no TST (TR=00)
+      // não tem para onde subir dentro deste alcance.
+      case '5':
+        return tr === '00' ? null : 'TST';
+      // Federal e Estadual sobem ao STJ (o índice existe e responde).
+      case '4':
+      case '8':
+        return 'STJ';
+      default:
+        return null;
+    }
+  }
+
+  /**
    * Deriva a sigla do tribunal a partir do NPU (dígitos J e TR).
    * Retorna `null` quando não é possível inferir com segurança — nesses casos o
    * chamador deve exigir a sigla explicitamente.
