@@ -362,6 +362,11 @@ export interface ConsultaDatajud {
     totalMovimentacoes: number;
     ultimaMovimentacao: { data: string; descricao: string; detalhe: string | null } | null;
     descricaoSugerida: string;
+    /**
+     * Etiquetas deduzidas da classe e do último andamento (`etiquetas.util.ts`).
+     * A tela marca de saída; o operador desmarca o que não quiser.
+     */
+    etiquetasSugeridas?: string[];
   };
   partes?: ParteConferida[];
   /** Partes separadas por polo, prontas para o card de prévia. */

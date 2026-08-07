@@ -5,6 +5,7 @@ import { DatajudService, ParteDatajud } from './datajud.service';
 import { ProcessosService } from './processos.service';
 import { SincronizacaoLogService } from './sincronizacao-log.service';
 import { NpuUtils } from './utils/npu.util';
+import { etiquetasAutomaticas } from './utils/etiquetas.util';
 
 /** Parte do processo já confrontada com a base de filiados. */
 export interface ParteConferida extends ParteDatajud {
@@ -175,6 +176,15 @@ export class ConsultaPreviaService {
           : null,
         /** Sugestão de observação para o campo Descrição do formulário. */
         descricaoSugerida: this.montarDescricao(dados),
+        /**
+         * Etiquetas que dá para deduzir da classe e do último andamento. A tela
+         * as marca de saída e o operador desmarca o que não quiser — é sugestão,
+         * não decisão (ver `etiquetas.util.ts`).
+         */
+        etiquetasSugeridas: etiquetasAutomaticas({
+          classeProcessual: dados.classeProcessual,
+          movimentacoes: dados.movimentacoes,
+        }),
       },
       /** Polos separados, prontos para o card de prévia. */
       polos: {

@@ -8,7 +8,7 @@ import {
   X, RefreshCw, Loader2, Landmark, FileText, CalendarDays, ShieldCheck, Trash2,
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
-  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check,
+  AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -62,6 +62,69 @@ function CampoDossie({ label, children }: { label: string; children: React.React
     <div className="min-w-0">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-0.5 break-words text-sm font-medium">{children}</p>
+    </div>
+  );
+}
+
+/**
+ * Por onde o processo passou — recolhido, mostrando só onde ele está AGORA.
+ *
+ * A lista inteira ocupava metade da ficha antes de qualquer coisa útil
+ * aparecer, e ela responde a uma pergunta que raramente se faz ("por quais
+ * varas isto já passou?"). A pergunta do dia a dia — "onde ele está?" — é
+ * respondida pela primeira linha, que continua visível fechada. O resto abre
+ * num clique.
+ */
+function TramiteOrgaos({
+  historico,
+}: {
+  historico: { orgao: string; de: string; ate: string; atos: number }[];
+}) {
+  const [aberto, setAberto] = useState(false);
+  const atual = historico[0];
+  const periodo = (h: { de: string; ate: string; atos: number }) =>
+    `${formatData(h.de)}${h.de !== h.ate ? ` — ${formatData(h.ate)}` : ''} · ${h.atos} ato${h.atos === 1 ? '' : 's'}`;
+
+  return (
+    <div className="mt-3 border-t pt-2">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-center gap-1.5 rounded-md py-0.5 text-left transition hover:bg-muted/50"
+      >
+        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', aberto && 'rotate-90')} />
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Trâmite entre órgãos
+        </span>
+        <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+          {historico.length}
+        </span>
+        {/* Fechado, a linha ainda diz o essencial: onde o processo está hoje. */}
+        {!aberto && atual && (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">{atual.orgao}</span>
+            <span className="ml-1.5 rounded-full bg-senatepi-50 px-1.5 text-[9px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+              atual
+            </span>
+          </span>
+        )}
+      </button>
+      {aberto && (
+        <ol className="mt-1.5 space-y-1 pl-5">
+          {historico.map((h, i) => (
+            <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+              <span className={cn('font-medium', i === 0 && 'text-foreground')}>{h.orgao}</span>
+              <span className="text-muted-foreground">{periodo(h)}</span>
+              {i === 0 && (
+                <span className="rounded-full bg-senatepi-50 px-1.5 text-[9px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+                  atual
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -382,17 +445,23 @@ export function ProcessoDetalheSheet({
                       )}
                       <Users className="h-3 w-3 opacity-0 transition group-hover:opacity-60" />
                     </button>
-                    {/* A linha do filiado NUNCA some — sem vínculo vira alerta acionável. */}
+                    {/* FILIADO — alarme só quando é mesmo um problema.
+                        O aviso amarelo aparecia em TODO processo sem filiado,
+                        inclusive na ação institucional (SENATEPI × empresa), em
+                        que não existe filiado "dono" e o polo ativo está
+                        corretamente cadastrado. Alarme que soa quando está tudo
+                        certo ensina a equipe a ignorar alarme. Agora só acusa
+                        quando NINGUÉM representa o polo ativo — aí sim não se
+                        sabe por quem se litiga. */}
                     {p.filiado ? (
                       <span>
                         Filiado: <strong className="text-foreground">{p.filiado.nomeCompleto}</strong>
                         {p.totais.filiados > 1 && ` +${p.totais.filiados - 1}`}
                       </span>
-                    ) : (
+                    ) : !p.polos?.ativo?.length ? (
                       <span className="inline-flex items-center gap-1.5">
-                        Filiado:
                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                          <AlertTriangle className="h-3 w-3" /> Sem filiado vinculado
+                          <AlertTriangle className="h-3 w-3" /> Polo ativo não cadastrado
                         </span>
                         {podeEditar && (
                           <button
@@ -400,11 +469,22 @@ export function ProcessoDetalheSheet({
                             onClick={() => { setAba('partes'); setVinculando(true); }}
                             className="font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
                           >
-                            Vincular filiado
+                            Cadastrar
                           </button>
                         )}
                       </span>
-                    )}
+                    ) : podeEditar && p.tipoAcao !== 'INSTITUCIONAL' ? (
+                      // Polo ativo cadastrado, mas sem filiado da base: é uma
+                      // possibilidade legítima (parte externa, herdado), então
+                      // fica só o atalho, sem cor de alerta.
+                      <button
+                        type="button"
+                        onClick={() => { setAba('partes'); setVinculando(true); }}
+                        className="font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                      >
+                        Vincular filiado
+                      </button>
+                    ) : null}
                     {p.orgaoJulgador && <span>· {p.orgaoJulgador}</span>}
                     {p.dataDistribuicao && <span>· Distribuição: {formatData(p.dataDistribuicao)}</span>}
                   </div>
@@ -723,30 +803,7 @@ export function ProcessoDetalheSheet({
                         troca de órgão. Só é exibido quando houve mudança: com um
                         órgão só, o dado já está no campo acima. */}
                     {(p.historicoOrgaos?.length ?? 0) > 1 && (
-                      <div className="mt-3 border-t pt-2">
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Trâmite entre órgãos ({p.historicoOrgaos!.length})
-                        </p>
-                        <ol className="space-y-1">
-                          {p.historicoOrgaos!.map((h, i) => (
-                            <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
-                              <span className={cn('font-medium', i === 0 && 'text-foreground')}>
-                                {h.orgao}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {formatData(h.de)}
-                                {h.de !== h.ate ? ` — ${formatData(h.ate)}` : ''} · {h.atos} ato
-                                {h.atos === 1 ? '' : 's'}
-                              </span>
-                              {i === 0 && (
-                                <span className="rounded-full bg-senatepi-50 px-1.5 text-[9px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
-                                  atual
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
+                      <TramiteOrgaos historico={p.historicoOrgaos!} />
                     )}
                   </section>
 
@@ -1039,24 +1096,43 @@ export function ProcessoDetalheSheet({
               {/* ---------------- PARTES ---------------- */}
               {aba === 'partes' && (
                 <>
-                  {/* Sem filiado: nenhum cadastro provisório é criado — a equipe decide */}
+                  {/* SEM FILIADO — a mesma regra do cabeçalho.
+                      O aviso era amarelo e dizia, no próprio texto, que "o
+                      processo pode ficar assim": um alerta que explica não ser
+                      um problema não devia ter cor de problema. Na ação
+                      institucional ele era simplesmente falso.
+                      Agora: vermelho-âmbar só quando o polo ativo está vazio;
+                      nos demais casos, uma faixa neutra com o atalho. */}
                   {!p.filiado && (
-                    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
-                      <p className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        <AlertTriangle className="h-4 w-4" /> Sem filiado vinculado
-                      </p>
-                      <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-300/80">
-                        O processo pode ficar assim — o vínculo não é obrigatório. Nenhum cadastro
-                        provisório foi criado a partir dos dados do tribunal.
-                      </p>
-                      {podeEditar && (
-                        <div className="mt-3">
-                          <Button size="sm" variant="outline" onClick={() => setVinculando(true)}>
-                            <UserIcon className="h-4 w-4" /> Vincular ou cadastrar filiado
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                    !p.polos?.ativo?.length ? (
+                      <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+                        <p className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+                          <AlertTriangle className="h-4 w-4" /> Polo ativo não cadastrado
+                        </p>
+                        <p className="mt-1 text-xs text-amber-800/80 dark:text-amber-300/80">
+                          Não há ninguém registrado do lado de quem move a ação — nem filiado, nem o
+                          sindicato, nem parte externa. O DataJud não devolve as partes, então esse
+                          cadastro só existe se a equipe fizer.
+                        </p>
+                        {podeEditar && (
+                          <div className="mt-3">
+                            <Button size="sm" variant="outline" onClick={() => setVinculando(true)}>
+                              <UserIcon className="h-4 w-4" /> Vincular ou cadastrar filiado
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : p.tipoAcao !== 'INSTITUCIONAL' && podeEditar ? (
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/40 px-4 py-3">
+                        <p className="text-xs text-muted-foreground">
+                          Nenhum filiado da base está vinculado a este processo. O vínculo é
+                          opcional — serve para o processo aparecer no dossiê da pessoa.
+                        </p>
+                        <Button size="sm" variant="outline" onClick={() => setVinculando(true)}>
+                          <UserIcon className="h-4 w-4" /> Vincular filiado
+                        </Button>
+                      </div>
+                    ) : null
                   )}
 
                   <PartesPanel
