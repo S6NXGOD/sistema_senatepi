@@ -19,7 +19,7 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import {
   listarProcessos, formatNPU, ProcessoLista, StatusProcesso, FaseProcessual, FASE_LABEL,
-  STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM,
+  STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM, reavaliarInstancias,
 } from '@/lib/processos';
 import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
 import { dataBr, desde } from '@/lib/dossie';
@@ -115,6 +115,42 @@ function ListaProcessos() {
     return () => clearTimeout(t);
   }, [busca]);
 
+  /**
+   * RELEITURA DAS INSTÂNCIAS, uma vez por sessão.
+   *
+   * O parser que enxerga todos os graus é novo; o acervo já cadastrado foi lido
+   * pelo antigo e mostraria um grau só até a varredura das 02:00. Abrir a lista
+   * dispara a releitura do que falta e, ao terminar, as badges se atualizam
+   * sozinhas.
+   *
+   * TRÊS FREIOS, porque isto conversa com o CNJ:
+   *  · a API só relê processo SEM carimbo — cada um é lido uma vez, nunca mais;
+   *  · uma vez por sessão do navegador, mesmo com a lista sendo reaberta;
+   *  · só para quem pode editar (a rota exige permissão de escrita; para os
+   *    demais a chamada voltaria 403 e viraria um erro sem sentido na tela).
+   */
+  const [reavaliando, setReavaliando] = useState(false);
+  useEffect(() => {
+    if (!podeRadar || typeof window === 'undefined') return;
+    if (window.sessionStorage.getItem('senatepi:instancias-reavaliadas')) return;
+    window.sessionStorage.setItem('senatepi:instancias-reavaliadas', '1');
+
+    let vivo = true;
+    setReavaliando(true);
+    reavaliarInstancias(10)
+      .then((r) => {
+        if (!vivo) return;
+        // Só invalida se algo mudou — recarregar a lista à toa é piscada de tela.
+        if (r.reavaliados > 0) qc.invalidateQueries({ queryKey: ['processos'] });
+      })
+      // Silêncio no erro de propósito: isto é melhoria de fundo. A lista já está
+      // na tela com o que havia, e a varredura noturna cobre o que falhar —
+      // avisar sobre uma tarefa que ninguém pediu só assusta.
+      .catch(() => undefined)
+      .finally(() => { if (vivo) setReavaliando(false); });
+    return () => { vivo = false; };
+  }, [podeRadar, qc]);
+
   const filtro = useMemo(
     () => ({
       busca: buscaDeb || undefined,
@@ -156,7 +192,14 @@ function ListaProcessos() {
           </div>
           <div>
             <h2 className="text-2xl font-bold">Processos</h2>
-            <p className="text-sm text-muted-foreground">Acompanhamento processual · DATAJUD (CNJ)</p>
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              Acompanhamento processual · DATAJUD (CNJ)
+              {reavaliando && (
+                <span className="inline-flex items-center gap-1 text-xs text-senatepi-800 dark:text-senatepi-400">
+                  <Loader2 className="h-3 w-3 animate-spin" /> atualizando instâncias…
+                </span>
+              )}
+            </p>
           </div>
         </div>
         <Button onClick={() => setImportOpen(true)}>

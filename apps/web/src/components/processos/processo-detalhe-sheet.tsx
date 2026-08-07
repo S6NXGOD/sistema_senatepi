@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -344,6 +344,30 @@ export function ProcessoDetalheSheet({
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível sincronizar com o DATAJUD.'),
   });
+
+  /**
+   * RELEITURA AO ABRIR A FICHA — só do processo aberto, e só uma vez.
+   *
+   * Complementa a releitura em lote da lista: quem chega por link direto
+   * (`?processo=<id>`), pela agenda ou pelo dossiê do filiado não passa pela
+   * lista, e veria os graus do parser antigo até as 02:00.
+   *
+   * As MESMAS travas: só age quando `instanciasLidasEm` é nulo — depois da
+   * primeira leitura o carimbo existe e nada mais é disparado —, e o `ref`
+   * impede uma segunda chamada enquanto a primeira responde (a ficha
+   * re-renderiza várias vezes enquanto carrega).
+   */
+  const jaPediuReleitura = useRef<string | null>(null);
+  useEffect(() => {
+    if (!p || !podeEditar) return;
+    if (p.instanciasLidasEm) return;
+    if (jaPediuReleitura.current === p.id) return;
+    jaPediuReleitura.current = p.id;
+    // Silencioso: a pessoa abriu a ficha para ler o processo, não para
+    // acompanhar uma manutenção interna. Falhando, a varredura noturna cobre.
+    sincronizarProcesso(p.id).then(() => recarregar()).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p?.id, p?.instanciasLidasEm, podeEditar]);
 
   const excluir = useMutation({
     mutationFn: () => excluirProcesso(processoId as string),

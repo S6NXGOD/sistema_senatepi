@@ -1752,6 +1752,10 @@ model Processo {
   /// robô não teria como saber quem já foi visto e varreria sempre a mesma
   /// fatia, deixando o resto no escuro para sempre.
   ultimaConsultaDjen  DateTime?        @map("ultima_consulta_djen")
+  /// Quando o parser MULTI-INSTÂNCIA leu este processo pela última vez.
+  /// Nulo = o processo é anterior ao parser (ou só passou pelo backfill), e a
+  /// tela pede a reavaliação ao ser aberta. Ver `reavaliarInstancias`.
+  instanciasLidasEm   DateTime?        @map("instancias_lidas_em")
   createdAt           DateTime         @default(now()) @map("created_at")
   updatedAt           DateTime         @updatedAt @map("updated_at")
 

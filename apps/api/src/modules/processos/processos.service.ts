@@ -29,6 +29,7 @@ import {
 } from './utils/fase.util';
 import { atoCritico } from './utils/tpu.util';
 import { NpuUtils } from './utils/npu.util';
+import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
 
 interface Ctx {
   ip?: string;
@@ -293,6 +294,89 @@ export class ProcessosService {
     if (!proc) return { novas: 0 };
     const { novas } = await this.mesclarDoDatajud(proc, OrigemSincronizacao.CRON);
     return { novas };
+  }
+
+  // -------------------------------------------------------------------------
+  // REAVALIAÇÃO DAS INSTÂNCIAS (sob demanda, ao abrir a tela)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Relê no CNJ os processos que o parser MULTI-INSTÂNCIA ainda não viu.
+   *
+   * POR QUE EXISTE, SE JÁ HÁ VARREDURA NOTURNA
+   * Depois de um deploy que muda a leitura das instâncias, o acervo fica com
+   * dados do parser antigo até as 02:00 — e é justamente nesse intervalo que
+   * alguém abre a lista, vê "1ª instância" num processo que corre em duas e
+   * conclui que o sistema está errado. Isto encurta a espera para o tempo de
+   * uma tela abrir.
+   *
+   * O QUE IMPEDE ISSO DE VIRAR UMA ENXURRADA NO CNJ
+   *  1. `instanciasLidasEm` — cada processo é relido UMA vez, nunca mais. Sem o
+   *     carimbo, cada abertura de tela reconsultaria tudo, para sempre.
+   *  2. Teto por chamada (`limite`), com a mesma cadência da varredura noturna:
+   *     sequencial, com respiro entre as chamadas.
+   *  3. A mesma trava de job do robô — duas abas abertas, ou uma aba e o cron,
+   *     não varrem em paralelo.
+   *
+   * Devolve quantos foram relidos e quantos ainda faltam, para a tela decidir
+   * se pede outra rodada.
+   */
+  async reavaliarInstancias(limite = 10): Promise<{ reavaliados: number; restantes: number; executou: boolean }> {
+    if (!this.datajud.multiInstanciaAtiva) {
+      // Sem a flag, reler não descobriria grau nenhum — só gastaria cota.
+      return { reavaliados: 0, restantes: 0, executou: false };
+    }
+
+    const pendentes = await this.prisma.processo.findMany({
+      where: {
+        numeroCNJ: { not: null },
+        instanciasLidasEm: null,
+        // Arquivado e improcedente não mudam mais; reler seria gastar chamada
+        // para confirmar o que já se sabe.
+        statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'RASCUNHO'] },
+      },
+      select: { id: true },
+      orderBy: { ultimaSincronizacao: 'asc' },
+      take: Math.min(50, Math.max(1, limite)),
+    });
+    if (!pendentes.length) return { reavaliados: 0, restantes: 0, executou: true };
+
+    const r = await comTravaDeJob(
+      this.prisma,
+      JOB_DATAJUD_SYNC,
+      this.logger,
+      { ttlMinutos: 10 },
+      async () => {
+        let reavaliados = 0;
+        for (let i = 0; i < pendentes.length; i++) {
+          try {
+            await this.ressincronizarSilencioso(pendentes[i].id);
+            reavaliados++;
+          } catch (err) {
+            // Falha isolada: o processo continua sem carimbo e entra na próxima
+            // rodada (ou na varredura noturna). Nada de repetir agora — se o CNJ
+            // recusou, insistir só queima cota.
+            this.logger.warn(
+              `[REAVALIAR] Falha no processo ${pendentes[i].id}: ${(err as Error).message}`,
+            );
+          }
+          // Mesma cadência da varredura noturna: sequencial, com respiro.
+          if (i < pendentes.length - 1) await new Promise((res) => setTimeout(res, 2_000));
+        }
+        return reavaliados;
+      },
+    );
+
+    if (!r.executou) return { reavaliados: 0, restantes: pendentes.length, executou: false };
+
+    const restantes = await this.prisma.processo.count({
+      where: {
+        numeroCNJ: { not: null },
+        instanciasLidasEm: null,
+        statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'RASCUNHO'] },
+      },
+    });
+    return { reavaliados: r.resultado, restantes, executou: true };
   }
 
   /** IDs de todos os processos ATIVOS (varredura do robô). */
@@ -802,7 +886,18 @@ export class ProcessosService {
       // escritos por `definirPrincipal`, dentro da chamada acima.
       await tx.processo.update({
         where: { id: proc.id },
-        data: this.metadadosGerais(instancias[0]),
+        data: {
+          ...this.metadadosGerais(instancias[0]),
+          /**
+           * Carimbo do parser multi-instância — só quando ele de fato rodou.
+           *
+           * Com a flag desligada, o cliente lê UM documento e o processo
+           * continua sem conhecer os outros graus; marcá-lo como "lido" faria a
+           * reavaliação pulá-lo justamente depois de a flag ser ligada, que é
+           * quando ele mais precisa ser relido.
+           */
+          ...(this.datajud.multiInstanciaAtiva ? { instanciasLidasEm: new Date() } : {}),
+        },
       });
       return r;
     });

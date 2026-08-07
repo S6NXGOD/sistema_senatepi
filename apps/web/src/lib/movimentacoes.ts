@@ -287,6 +287,13 @@ export interface DossieProcesso {
    * Sustenta o aviso de etiqueta conflitante na ficha.
    */
   fase?: FaseProcessual;
+  /**
+   * Quando o parser MULTI-INSTÂNCIA leu este processo. Nulo = ainda não foi
+   * lido (processo anterior à funcionalidade), e a ficha pede a releitura ao
+   * abrir — é o que faz as badges de grau aparecerem sem esperar a varredura
+   * das 02:00.
+   */
+  instanciasLidasEm?: string | null;
   atendimentos: AtendimentoOrigem[];
   compromissos: CompromissoDoProcesso[];
   anexos: { id: string; nomeArquivo: string; url: string; tipoMime: string; tamanhoBytes: number | null; createdAt: string }[];

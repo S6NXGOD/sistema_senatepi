@@ -461,6 +461,25 @@ export async function sincronizarProcesso(id: string): Promise<ProcessoDetalhe> 
   return (await api.patch(`/processos/${id}/sincronizar`, undefined, { timeout: TIMEOUT_LONGO })).data;
 }
 
+/**
+ * Pede à API que releia no CNJ os processos que o parser multi-instância ainda
+ * não viu. Idempotente por construção: cada processo é relido uma única vez
+ * (carimbo `instanciasLidasEm`), então chamar de novo não custa chamada ao CNJ.
+ */
+export async function reavaliarInstancias(limite = 10): Promise<{
+  reavaliados: number;
+  restantes: number;
+  executou: boolean;
+}> {
+  // Fala com o CNJ, um processo por vez — o timeout curto cortaria a rodada.
+  return (
+    await api.post('/processos/instancias/reavaliar', undefined, {
+      params: { limite },
+      timeout: TIMEOUT_LONGO,
+    })
+  ).data;
+}
+
 export async function atualizarProcesso(
   id: string,
   dto: {

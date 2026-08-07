@@ -29,6 +29,19 @@ export class ProcessosController {
     return this.service.importar(dto, this.ctx(req, userId));
   }
 
+  /**
+   * Relê no CNJ o que o parser multi-instância ainda não viu.
+   *
+   * Chamado pela TELA ao abrir a lista, uma vez por sessão. É POST porque muda
+   * dados (grava instâncias e andamentos), e devolve `restantes` para a tela
+   * saber se vale pedir outra rodada.
+   */
+  @Post('instancias/reavaliar')
+  @ApiOperation({ summary: 'Reavalia as instâncias dos processos ainda não lidos pelo parser multi-instância.' })
+  reavaliarInstancias(@Query('limite') limite?: string) {
+    return this.service.reavaliarInstancias(Number(limite) || 10);
+  }
+
   /** Lista o cache local (leitura instantânea, sem consulta ao vivo). */
   @Get()
   listar(@Query() query: ListProcessosQueryDto, @CurrentUser('id') userId: string) {

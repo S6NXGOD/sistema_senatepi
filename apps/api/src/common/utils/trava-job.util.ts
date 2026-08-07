@@ -66,7 +66,12 @@ export async function comTravaDeJob<T>(
 ): Promise<{ executou: true; resultado: T } | { executou: false }> {
   const donos = await prisma.$queryRaw<{ dono_id: string }[]>`
     INSERT INTO travas_job ("nome", "dono_id", "expira_em")
-    VALUES (${nome}, ${INSTANCIA_ID}, now() + make_interval(mins => ${ttlMinutos}))
+    -- O ::int NÃO é enfeite. O Prisma manda todo number de $queryRaw como int8
+    -- (bigint), e make_interval só tem assinatura com int: sem a conversão o
+    -- Postgres responde 42883 ("função não existe") e a trava falha SEMPRE — o
+    -- que derrubava a varredura noturna inteira, já que erro ao tomar a trava
+    -- propaga de propósito (ver o comentário acima).
+    VALUES (${nome}, ${INSTANCIA_ID}, now() + make_interval(mins => ${ttlMinutos}::int))
     ON CONFLICT ("nome") DO UPDATE
        SET "dono_id"  = EXCLUDED."dono_id",
            "expira_em" = EXCLUDED."expira_em"
