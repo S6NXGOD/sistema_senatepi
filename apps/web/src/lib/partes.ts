@@ -235,6 +235,36 @@ export interface ParteExternaInput {
   ativo?: boolean;
 }
 
+/** Por que o cadastro sugerido pode ser o mesmo que se está digitando. */
+export type MotivoSemelhanca = 'MESMO_DOCUMENTO' | 'MESMO_NOME' | 'CONTIDO' | 'PALAVRAS_EM_COMUM';
+
+export const MOTIVO_SEMELHANCA_LABEL: Record<MotivoSemelhanca, string> = {
+  MESMO_DOCUMENTO: 'mesmo CNPJ/CPF',
+  MESMO_NOME: 'mesmo nome',
+  CONTIDO: 'nome contido',
+  PALAVRAS_EM_COMUM: 'nome parecido',
+};
+
+export interface ParteParecida extends ParteExterna {
+  motivo: MotivoSemelhanca;
+}
+
+/**
+ * Cadastros que podem SER a parte que está sendo digitada.
+ *
+ * Não é a busca do autocomplete: aqui a comparação é por palavra, nos dois
+ * sentidos, e é ela que impede o mesmo réu nascer duas vezes com nomes
+ * diferentes.
+ */
+export async function partesParecidas(nome: string, documento?: string): Promise<ParteParecida[]> {
+  if (nome.trim().length < 3) return [];
+  return (
+    await api.get('/partes-externas/parecidas', {
+      params: { nome: nome.trim(), ...(documento ? { documento } : {}) },
+    })
+  ).data;
+}
+
 export async function listarPartesExternas(f: {
   busca?: string;
   tipo?: TipoParteExterna;

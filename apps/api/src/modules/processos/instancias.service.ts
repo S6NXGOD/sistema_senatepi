@@ -48,11 +48,32 @@ export class InstanciasService {
 
     await this.reconciliarInstanciaHerdada(tx, processoId, instanciasDoCnj);
 
+    /**
+     * A instância herdada do backfill guarda o histórico do PROCESSO INTEIRO —
+     * a migração apontou para ela todos os andamentos, porque naquele momento
+     * só existia uma. Quando o CNJ passa a devolver dois graus, os andamentos do
+     * outro grau seriam inseridos DE NOVO na instância nova (a chave de
+     * deduplicação é por instância, de propósito: dois graus praticam atos
+     * homônimos). Resultado medido em produção: 148 atos duplicados num único
+     * processo, contagem inflada e a linha do tempo mostrando tudo duas vezes.
+     *
+     * Aqui os andamentos são MOVIDOS para a instância a que pertencem, antes da
+     * mesclagem — nada é apagado, e a mesclagem seguinte encontra cada ato onde
+     * ele deve estar e não duplica.
+     */
+    const idPorDoc = new Map<string, string>();
+    for (const doCnj of instanciasDoCnj) {
+      idPorDoc.set(doCnj.docId, await this.upsertInstancia(tx, processoId, doCnj));
+    }
+    if (instanciasDoCnj.length > 1) {
+      await this.redistribuirAndamentos(tx, processoId, instanciasDoCnj, idPorDoc);
+    }
+
     let novas = 0;
     let enriquecidas = 0;
 
     for (const doCnj of instanciasDoCnj) {
-      const instanciaId = await this.upsertInstancia(tx, processoId, doCnj);
+      const instanciaId = idPorDoc.get(doCnj.docId)!;
       const r = await this.mesclarMovimentacoes(tx, processoId, instanciaId, doCnj.movimentacoes);
       novas += r.novas;
       enriquecidas += r.enriquecidas;
@@ -90,6 +111,61 @@ export class InstanciasService {
    * Só age nesse caso exato. Com duas ou mais instâncias de qualquer lado, o
    * casamento por `docId` já é confiável e mexer seria adivinhação.
    */
+  /**
+   * Põe cada andamento na instância a que ele pertence, segundo o CNJ.
+   *
+   * Só age sobre o que está no lugar errado: monta a chave (data|código|
+   * descrição) de cada instância a partir do payload e move o andamento cuja
+   * instância atual não corresponde. Ato que aparece nos DOIS graus (homônimo,
+   * praticado de verdade em ambos) fica onde está — mover seria trocar um erro
+   * por outro.
+   */
+  private async redistribuirAndamentos(
+    tx: Prisma.TransactionClient,
+    processoId: string,
+    instanciasDoCnj: InstanciaDatajud[],
+    idPorDoc: Map<string, string>,
+  ): Promise<void> {
+    const chave = (dm: Date | string, cod: number | null | undefined, desc: string) =>
+      `${new Date(dm).getTime()}|${cod ?? ''}|${desc}`;
+
+    /** chave do ato → instâncias do CNJ que o contêm. */
+    const donos = new Map<string, string[]>();
+    for (const inst of instanciasDoCnj) {
+      const id = idPorDoc.get(inst.docId);
+      if (!id) continue;
+      for (const m of inst.movimentacoes) {
+        const k = chave(m.dataMovimento, m.codigoMovimento, m.descricao);
+        const lista = donos.get(k);
+        if (lista) { if (!lista.includes(id)) lista.push(id); } else donos.set(k, [id]);
+      }
+    }
+
+    const gravadas = await tx.movimentacaoProcessual.findMany({
+      where: { processoId },
+      select: { id: true, instanciaId: true, dataMovimento: true, codigoMovimento: true, descricao: true },
+    });
+
+    let movidos = 0;
+    for (const m of gravadas) {
+      const lista = donos.get(chave(m.dataMovimento, m.codigoMovimento, m.descricao));
+      // Ato que o CNJ não devolve mais (índice reprocessado) fica onde está:
+      // apagar ou mover às cegas perderia histórico que só nós temos.
+      if (!lista || lista.length !== 1) continue;
+      if (m.instanciaId === lista[0]) continue;
+      await tx.movimentacaoProcessual.update({
+        where: { id: m.id },
+        data: { instanciaId: lista[0] },
+      });
+      movidos++;
+    }
+    if (movidos) {
+      this.logger.log(
+        `[INSTANCIAS] Processo ${processoId}: ${movidos} andamento(s) realocado(s) para a instância correta.`,
+      );
+    }
+  }
+
   private async reconciliarInstanciaHerdada(
     tx: Prisma.TransactionClient,
     processoId: string,

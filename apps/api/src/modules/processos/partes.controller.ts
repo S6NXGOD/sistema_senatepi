@@ -96,6 +96,16 @@ export class PartesExternasController {
     return this.service.listar(query);
   }
 
+  /**
+   * Fica ANTES de `:id` de propósito: o Nest casa as rotas na ordem em que são
+   * declaradas, e `@Get(':id')` engoliria "parecidas" como se fosse um id.
+   */
+  @Get('parecidas')
+  @ApiOperation({ summary: 'Cadastros que podem ser a mesma parte — evita duplicar o réu.' })
+  parecidas(@Query('nome') nome: string, @Query('documento') documento?: string) {
+    return this.service.parecidas(nome ?? '', documento);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Dossiê da parte: cadastro + todos os processos em que figura.' })
   detalhe(@Param('id') id: string) {

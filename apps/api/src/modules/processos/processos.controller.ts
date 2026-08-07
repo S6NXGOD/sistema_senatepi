@@ -42,6 +42,16 @@ export class ProcessosController {
     return this.service.reavaliarInstancias(Number(limite) || 10);
   }
 
+  /**
+   * Advogados que podem atuar num processo. Declarado antes de `:id` — o Nest
+   * casa na ordem, e `@Get(':id')` engoliria "advogados" como se fosse um id.
+   */
+  @Get('advogados')
+  @ApiOperation({ summary: 'Usuários com perfil ADVOGADO (seletor de equipe do processo).' })
+  listarAdvogados() {
+    return this.service.listarAdvogados();
+  }
+
   /** Lista o cache local (leitura instantânea, sem consulta ao vivo). */
   @Get()
   listar(@Query() query: ListProcessosQueryDto, @CurrentUser('id') userId: string) {

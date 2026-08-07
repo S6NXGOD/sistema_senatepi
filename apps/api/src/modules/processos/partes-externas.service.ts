@@ -4,6 +4,7 @@ import {
 import { AcaoAuditoria, Prisma, TipoParteExterna, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { partesParecidas } from './utils/similaridade.util';
 import {
   AtualizarParteExternaDto, CriarParteExternaDto, ListParteExternaQueryDto,
 } from './dto/partes.dto';
@@ -75,6 +76,44 @@ export class PartesExternasService {
     ]);
 
     return { items, total, page, pageSize, totalPaginas: Math.max(1, Math.ceil(total / pageSize)) };
+  }
+
+  /**
+   * Cadastros que podem SER a parte que alguém está digitando.
+   *
+   * Diferente da busca do autocomplete, que usa `contains` e só acha quem digita
+   * MENOS do que está gravado: quem digita a razão social inteira não encontra o
+   * apelido já cadastrado, e cadastra o segundo. Foi assim que "PRONTOCARE" e
+   * "PRONTOCARE CLINICA E ATENDIMENTOS LTDA" passaram a conviver na base — e a
+   * conta de "quantos processos contra esta empresa" deixou de valer.
+   *
+   * Compara PALAVRA a palavra, nos dois sentidos, ignorando forma societária e
+   * termos genéricos do ramo (ver `similaridade.util.ts`, com testes).
+   *
+   * A LISTA INTEIRA vem para a memória de propósito: o cadastro de partes é
+   * pequeno (dezenas), a comparação por palavra não é expressável em índice, e
+   * um teto explícito é mais honesto que uma consulta que degrada em silêncio.
+   * Se um dia passar de mil, o caminho é `pg_trgm` — e aí este comentário vira
+   * o aviso de que chegou a hora.
+   */
+  async parecidas(nome: string, documento?: string) {
+    const termo = (nome ?? '').trim();
+    if (termo.length < 3) return [];
+
+    const candidatos = await this.prisma.parteExterna.findMany({
+      where: { ativo: true },
+      select: {
+        id: true, nome: true, nomeFantasia: true, documento: true, tipo: true,
+        _count: { select: { participacoes: true } },
+      },
+      orderBy: { nome: 'asc' },
+      take: 1000,
+    });
+
+    return partesParecidas(termo, documento, candidatos).map((s) => ({
+      ...s.parte,
+      motivo: s.motivo,
+    }));
   }
 
   /**

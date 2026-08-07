@@ -461,6 +461,25 @@ export async function sincronizarProcesso(id: string): Promise<ProcessoDetalhe> 
   return (await api.patch(`/processos/${id}/sincronizar`, undefined, { timeout: TIMEOUT_LONGO })).data;
 }
 
+/** Advogado habilitado a atuar num processo (perfil ADVOGADO). */
+export interface AdvogadoDisponivel {
+  id: string;
+  nome: string;
+  nomeExibicao: string | null;
+  role: string;
+  oab: string | null;
+  oabUf: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * SÓ o perfil ADVOGADO — diferente de `listarResponsaveis` (Agenda), que traz
+ * todo usuário ativo porque lá triagem e coordenação respondem por tarefas.
+ */
+export async function listarAdvogadosDisponiveis(): Promise<AdvogadoDisponivel[]> {
+  return (await api.get('/processos/advogados')).data;
+}
+
 /**
  * Pede à API que releia no CNJ os processos que o parser multi-instância ainda
  * não viu. Idempotente por construção: cada processo é relido uma única vez

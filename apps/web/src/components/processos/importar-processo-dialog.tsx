@@ -16,7 +16,10 @@ import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
-import { formatDocumento, listarPartesExternas, TIPO_PARTE_LABEL, type ParteExterna } from '@/lib/partes';
+import {
+  formatDocumento, listarPartesExternas, TIPO_PARTE_LABEL, partesParecidas,
+  MOTIVO_SEMELHANCA_LABEL, type ParteExterna, type ParteParecida,
+} from '@/lib/partes';
 import { cn } from '@/lib/utils';
 import {
   importarProcesso, mascararNPU, consultarDatajud, sugerirAdvogado,
@@ -171,6 +174,8 @@ export function ImportarProcessoDialog({
   const [buscaReu, setBuscaReu] = useState('');
   const [reusEncontrados, setReusEncontrados] = useState<ParteExterna[]>([]);
   const [buscandoReu, setBuscandoReu] = useState(false);
+  /** Cadastros que podem ser o réu que está sendo digitado à mão. */
+  const [reusParecidos, setReusParecidos] = useState<ParteParecida[]>([]);
   const sugestoesHistorico = useQuery({
     queryKey: ['sugestao-advogado', filiadoSelecionado],
     queryFn: () => sugerirAdvogado(filiadoSelecionado as string),
@@ -205,6 +210,7 @@ export function ImportarProcessoDialog({
     setReuNome('');
     setBuscaReu('');
     setReusEncontrados([]);
+    setReusParecidos([]);
     setTribunalAberto(false);
   }, [open, reset]);
 
@@ -220,6 +226,28 @@ export function ImportarProcessoDialog({
     }, 300);
     return () => clearTimeout(t);
   }, [buscaReu, open]);
+
+  /**
+   * O RÉU DIGITADO À MÃO JÁ EXISTE NO CADASTRO?
+   *
+   * Este campo é o caminho rápido — digitar "PRONTOCARE" e seguir em frente — e
+   * é justamente ele que cria duplicata: o autocomplete acima só encontra quem
+   * digita MENOS do que está gravado, então quem escreve a razão social
+   * completa não vê o apelido já cadastrado. Aqui a comparação é por palavra,
+   * nos dois sentidos, e o resultado aparece antes de importar.
+   *
+   * Avisa, nunca bloqueia: pode ser outra empresa com nome parecido, e quem
+   * está com o processo na mão sabe.
+   */
+  useEffect(() => {
+    const termo = reuNome.trim();
+    if (!open || reuSelecionado || termo.length < 3) { setReusParecidos([]); return; }
+    const t = setTimeout(async () => {
+      try { setReusParecidos(await partesParecidas(termo)); }
+      catch { setReusParecidos([]); }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [reuNome, reuSelecionado, open]);
 
   // Dispara a consulta assim que os 20 dígitos estiverem completos (com debounce
   // para não bater no CNJ a cada tecla).
@@ -935,6 +963,42 @@ export function ImportarProcessoDialog({
                   value={reuNome}
                   onChange={(e) => setReuNome(e.target.value)}
                 />
+
+                {/* Aviso amigável: mostra o que já existe e deixa reaproveitar
+                    com um clique, em vez de recusar o que a pessoa digitou. */}
+                {reusParecidos.length > 0 && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+                    <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 dark:text-amber-300">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      Pode ser que esta parte já esteja cadastrada
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-amber-800/80 dark:text-amber-300/80">
+                      Reaproveitar mantém todos os processos contra a mesma empresa juntos.
+                    </p>
+                    <ul className="mt-1.5 space-y-1">
+                      {reusParecidos.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onClick={() => { setReuSelecionado(c); setReuNome(''); setReusParecidos([]); }}
+                            className="flex w-full items-center gap-2 rounded bg-card px-2 py-1.5 text-left transition hover:bg-muted"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-medium">{c.nome}</span>
+                              <span className="block truncate text-[11px] text-muted-foreground">
+                                {MOTIVO_SEMELHANCA_LABEL[c.motivo]} · {TIPO_PARTE_LABEL[c.tipo]}
+                                {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-[11px] font-medium text-senatepi-800 dark:text-senatepi-400">
+                              usar esta
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </>
             )}
             <p className="text-[11px] text-muted-foreground">

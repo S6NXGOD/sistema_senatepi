@@ -335,11 +335,22 @@ export class ProcessosService {
    * Devolve quantos foram relidos e quantos ainda faltam, para a tela decidir
    * se pede outra rodada.
    */
-  async reavaliarInstancias(limite = 10): Promise<{ reavaliados: number; restantes: number; executou: boolean }> {
+  async reavaliarInstancias(
+    limite = 10,
+  ): Promise<{ reavaliados: number; restantes: number; executou: boolean; desalinhados: number }> {
     if (!this.datajud.multiInstanciaAtiva) {
-      // Sem a flag, reler não descobriria grau nenhum — só gastaria cota.
-      return { reavaliados: 0, restantes: 0, executou: false };
+      // Sem a flag, reler não descobriria grau nenhum. O alinhamento de status,
+      // porém, é só banco e vale sempre — inclusive com a flag desligada.
+      return { reavaliados: 0, restantes: 0, executou: false, desalinhados: await this.reconciliarStatus() };
     }
+
+    // ANTES de falar com o CNJ: alinhar o status do que já está no banco.
+    // Uma migração pode corrigir a baixa das instâncias sem que ninguém
+    // reavalie o status do processo — foi o que aconteceu com a correção do
+    // arquivamento definitivo (TPU 246): as duas instâncias viraram baixadas e o
+    // processo continuou "Ativo" até a madrugada seguinte, exibindo "Ativo" ao
+    // lado de "Arquivado" na mesma linha. Isto é só banco, não custa chamada.
+    const desalinhados = await this.reconciliarStatus();
 
     const pendentes = await this.prisma.processo.findMany({
       where: {
@@ -353,7 +364,7 @@ export class ProcessosService {
       orderBy: { ultimaSincronizacao: 'asc' },
       take: Math.min(50, Math.max(1, limite)),
     });
-    if (!pendentes.length) return { reavaliados: 0, restantes: 0, executou: true };
+    if (!pendentes.length) return { reavaliados: 0, restantes: 0, executou: true, desalinhados };
 
     const r = await comTravaDeJob(
       this.prisma,
@@ -381,7 +392,7 @@ export class ProcessosService {
       },
     );
 
-    if (!r.executou) return { reavaliados: 0, restantes: pendentes.length, executou: false };
+    if (!r.executou) return { reavaliados: 0, restantes: pendentes.length, executou: false, desalinhados };
 
     const restantes = await this.prisma.processo.count({
       where: {
@@ -390,7 +401,55 @@ export class ProcessosService {
         statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'RASCUNHO'] },
       },
     });
-    return { reavaliados: r.resultado, restantes, executou: true };
+    return { reavaliados: r.resultado, restantes, executou: true, desalinhados };
+  }
+
+  /**
+   * Processos cujo STATUS não corresponde mais às instâncias — sem tocar no CNJ.
+   *
+   * Reaproveita `reavaliarStatusPorInstancias`, que é quem sabe a regra (e
+   * registra a movimentação interna explicando). Aqui só se descobre em QUEM
+   * chamá-la: processo ATIVO/PENDENTE sem nenhuma instância viva, ou ENCERRADO
+   * com alguma viva. Os dois sentidos, porque o desalinhamento acontece nos dois.
+   */
+  private async reconciliarStatus(): Promise<number> {
+    const candidatos = await this.prisma.processo.findMany({
+      where: {
+        OR: [
+          {
+            statusInterno: { in: ['ATIVO', 'PENDENTE'] },
+            instancias: { some: {}, none: { baixada: false } },
+          },
+          { statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } } },
+        ],
+      },
+      select: { id: true },
+      take: 200,
+    });
+    for (const c of candidatos) await this.reavaliarStatusPorInstancias(c.id);
+    return candidatos.length;
+  }
+
+  /**
+   * Quem pode figurar como advogado de um processo — SÓ o perfil ADVOGADO.
+   *
+   * A lista vinha de `listarResponsaveis`, da Agenda, que devolve todo usuário
+   * ativo. Faz sentido lá: triagem e coordenação respondem por tarefas. Não faz
+   * aqui — advogado do processo é quem tem capacidade postulatória, e oferecer
+   * a recepção nesse campo é convidar ao erro de cadastro.
+   *
+   * Para alguém aparecer aqui, o caminho é dar-lhe o perfil ADVOGADO em
+   * Usuários e Perfis — e não afrouxar este filtro.
+   */
+  listarAdvogados() {
+    return this.prisma.user.findMany({
+      where: { ativo: true, role: 'ADVOGADO' },
+      orderBy: { nome: 'asc' },
+      select: {
+        id: true, nome: true, nomeExibicao: true, role: true,
+        oab: true, oabUf: true, avatarUrl: true, avatarKey: true,
+      },
+    });
   }
 
   /** IDs de todos os processos ATIVOS (varredura do robô). */

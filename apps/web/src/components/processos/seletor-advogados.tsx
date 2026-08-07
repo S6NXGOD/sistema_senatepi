@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown, Loader2, Search, Star, X } from 'lucide-react';
-import { listarResponsaveis, type Responsavel } from '@/lib/agenda';
+import { listarAdvogadosDisponiveis, type AdvogadoDisponivel } from '@/lib/processos';
 import { cn, normalizarTexto } from '@/lib/utils';
 
 /**
@@ -42,9 +42,16 @@ export function SeletorAdvogados({
   placeholder?: string;
   vazioLabel?: string;
 }) {
+  /**
+   * SÓ ADVOGADOS. A lista vinha da Agenda (`listarResponsaveis`), que devolve
+   * todo usuário ativo — triagem e coordenação inclusive. Faz sentido lá, onde
+   * qualquer um responde por uma tarefa; aqui não: advogado do processo é quem
+   * tem capacidade postulatória, e oferecer a recepção neste campo é convidar
+   * ao erro de cadastro.
+   */
   const { data: equipe = [], isLoading } = useQuery({
-    queryKey: ['processos-advogados'],
-    queryFn: listarResponsaveis,
+    queryKey: ['processos-advogados-disponiveis'],
+    queryFn: listarAdvogadosDisponiveis,
   });
 
   const [aberto, setAberto] = useState(false);
@@ -96,7 +103,7 @@ export function SeletorAdvogados({
     onChange({ ids, principal: id });
   }
 
-  const nomeDe = (a: Responsavel) => a.nomeExibicao || a.nome;
+  const nomeDe = (a: AdvogadoDisponivel) => a.nomeExibicao || a.nome;
 
   return (
     <div className="relative" ref={caixa}>
@@ -118,7 +125,27 @@ export function SeletorAdvogados({
         ) : (
           valor.ids.map((id) => {
             const a = porId.get(id);
-            if (!a) return null;
+            // Vínculo com alguém que não está mais na lista (perfil mudou, ou
+            // usuário inativado). Mostrar em vez de sumir: sumir esconderia um
+            // vínculo que continua gravado e seria salvo de novo sem ninguém ver.
+            if (!a) {
+              return (
+                <span
+                  key={id}
+                  title="Este usuário não tem mais perfil de advogado — remova ou ajuste o perfil dele em Usuários e Perfis."
+                  className="inline-flex items-center gap-1 rounded-full bg-amber-100 py-0.5 pl-2 pr-1.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  vínculo fora da lista
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); alternar(id); }}
+                    className="shrink-0 rounded-full p-0.5 opacity-70 transition hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              );
+            }
             const ehPrincipal = valor.principal === id;
             return (
               <span
@@ -207,9 +234,9 @@ export function SeletorAdvogados({
                       )}
                       <span className="min-w-0">
                         <span className="block truncate text-sm">{nomeDe(a)}</span>
-                        {a.role && (
+                        {(a.oab || a.role) && (
                           <span className="block truncate text-[10px] uppercase tracking-wide text-muted-foreground">
-                            {a.role}
+                            {a.oab ? `OAB ${a.oab}${a.oabUf ? `/${a.oabUf}` : ''}` : a.role}
                           </span>
                         )}
                       </span>

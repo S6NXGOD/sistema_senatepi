@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import {
   adicionarParte, criarParteExterna, listarPartesExternas, mascararDocumento,
+  partesParecidas, MOTIVO_SEMELHANCA_LABEL, type ParteParecida,
   formatDocumento, PAPEIS_SUGERIDOS, TIPO_PARTE_LABEL,
   type ParteExterna, type PoloProcesso, type TipoParteExterna,
 } from '@/lib/partes';
@@ -68,7 +69,7 @@ export function AdicionarParteForm({
   const [documento, setDocumento] = useState('');
   const [salvarNoCadastro, setSalvarNoCadastro] = useState(true);
   /** Cadastros parecidos com o nome digitado — evita criar o mesmo réu de novo. */
-  const [semelhantes, setSemelhantes] = useState<ParteExterna[]>([]);
+  const [semelhantes, setSemelhantes] = useState<ParteParecida[]>([]);
 
   useEffect(() => {
     const termo = buscaCadastro.trim();
@@ -92,16 +93,22 @@ export function AdicionarParteForm({
    * "quantos processos temos contra esta empresa", que é a razão de o cadastro
    * existir. Aqui os candidatos aparecem ANTES de salvar, para que a escolha
    * seja reaproveitar em vez de recriar.
+   *
+   * A REDE ERA FURADA até aqui: usava a busca do autocomplete (`contains`), que
+   * só acha quem digita MENOS do que está gravado. Quem digitava a razão social
+   * completa não via o apelido já cadastrado — e os dois "PRONTOCARE" da
+   * produção nasceram exatamente assim. Agora a comparação é por palavra, nos
+   * dois sentidos, e o CNPJ digitado também é conferido.
    */
   useEffect(() => {
     const termo = nome.trim();
     if (fonte !== 'NOVO' || termo.length < 3) { setSemelhantes([]); return; }
     const t = setTimeout(async () => {
-      try { setSemelhantes((await listarPartesExternas({ busca: termo, pageSize: 5 })).items); }
+      try { setSemelhantes(await partesParecidas(termo, documento.replace(/\D/g, '') || undefined)); }
       catch { setSemelhantes([]); }
     }, 400);
     return () => clearTimeout(t);
-  }, [nome, fonte]);
+  }, [nome, documento, fonte]);
 
   useEffect(() => {
     const termo = buscaFiliado.trim();
@@ -335,7 +342,13 @@ export function AdicionarParteForm({
             <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900/50 dark:bg-amber-950/20">
               <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                Já existe no cadastro — use, em vez de criar outro
+                {semelhantes[0].motivo === 'MESMO_DOCUMENTO'
+                  ? 'Este CNPJ/CPF já está cadastrado'
+                  : 'Pode ser que já exista no cadastro'}
+              </p>
+              <p className="mb-1.5 text-[11px] leading-snug text-amber-800/80 dark:text-amber-300/80">
+                Reaproveitar mantém o histórico junto — todos os processos contra a mesma empresa
+                num lugar só. Se for outra parte mesmo, é só continuar preenchendo.
               </p>
               <ul className="space-y-1">
                 {semelhantes.map((c) => (
@@ -348,7 +361,7 @@ export function AdicionarParteForm({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-medium">{c.nome}</span>
                         <span className="block truncate text-[11px] text-muted-foreground">
-                          {TIPO_PARTE_LABEL[c.tipo]}
+                          {MOTIVO_SEMELHANCA_LABEL[c.motivo]} · {TIPO_PARTE_LABEL[c.tipo]}
                           {c.documento ? ` · ${formatDocumento(c.documento)}` : ' · sem CNPJ'}
                           {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
                         </span>
