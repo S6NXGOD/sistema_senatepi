@@ -294,6 +294,18 @@ export interface DossieProcesso {
    * das 02:00.
    */
   instanciasLidasEm?: string | null;
+  /**
+   * Atos que encerraram (ou reabriram) o processo, em ordem cronológica.
+   * É com isto que a ficha explica POR QUE está arquivado, em vez de só
+   * afirmar que está.
+   */
+  marcosDoEncerramento?: {
+    codigo: number;
+    rotulo: string;
+    data: string;
+    /** Desarquivamento, liquidação e início de execução reabrem o ciclo. */
+    reabre: boolean;
+  }[];
   atendimentos: AtendimentoOrigem[];
   compromissos: CompromissoDoProcesso[];
   anexos: { id: string; nomeArquivo: string; url: string; tipoMime: string; tamanhoBytes: number | null; createdAt: string }[];

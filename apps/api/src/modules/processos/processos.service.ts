@@ -338,19 +338,26 @@ export class ProcessosService {
   async reavaliarInstancias(
     limite = 10,
   ): Promise<{ reavaliados: number; restantes: number; executou: boolean; desalinhados: number }> {
-    if (!this.datajud.multiInstanciaAtiva) {
-      // Sem a flag, reler não descobriria grau nenhum. O alinhamento de status,
-      // porém, é só banco e vale sempre — inclusive com a flag desligada.
-      return { reavaliados: 0, restantes: 0, executou: false, desalinhados: await this.reconciliarStatus() };
-    }
-
-    // ANTES de falar com o CNJ: alinhar o status do que já está no banco.
-    // Uma migração pode corrigir a baixa das instâncias sem que ninguém
-    // reavalie o status do processo — foi o que aconteceu com a correção do
-    // arquivamento definitivo (TPU 246): as duas instâncias viraram baixadas e o
-    // processo continuou "Ativo" até a madrugada seguinte, exibindo "Ativo" ao
-    // lado de "Arquivado" na mesma linha. Isto é só banco, não custa chamada.
+    /**
+     * O alinhamento de status é só BANCO — não custa chamada ao CNJ, e por isso
+     * roda sempre, antes de qualquer outra coisa e independentemente da flag.
+     *
+     * Isto foi um erro meu de desenho: ele estava atrás do mesmo freio que
+     * existe para poupar cota do CNJ (uma releitura por sessão do navegador).
+     * Resultado: um processo cujas instâncias foram corrigidas por migração
+     * continuava exibindo "Ativo" ao lado de "Arquivado" até a madrugada
+     * seguinte, porque a sessão já tinha "gasto" sua releitura.
+     */
     const desalinhados = await this.reconciliarStatus();
+
+    // `limite = 0` é o pedido explícito de "só alinhe o status, não fale com o
+    // CNJ" — é o que a tela manda quando já releu nesta sessão.
+    if (limite <= 0) return { reavaliados: 0, restantes: 0, executou: true, desalinhados };
+
+    if (!this.datajud.multiInstanciaAtiva) {
+      // Sem a flag, reler não descobriria grau nenhum — só gastaria cota.
+      return { reavaliados: 0, restantes: 0, executou: false, desalinhados };
+    }
 
     const pendentes = await this.prisma.processo.findMany({
       where: {

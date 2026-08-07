@@ -175,6 +175,48 @@ describe('instanciaBaixada — o grau ainda está vivo?', () => {
     ).toBe(true);
   });
 
+  /**
+   * A TRAVA QUE PROTEGE A EXECUÇÃO TRABALHISTA.
+   *
+   * Na Justiça do Trabalho a execução corre DEPOIS da baixa da fase de
+   * conhecimento — é o normal, não a exceção. A regra já cobre isso por
+   * construção (qualquer andamento em dia posterior à baixa mantém a instância
+   * viva), mas o caso é importante demais para depender de dedução: se um dia
+   * alguém "simplificar" a regra para "tem código de baixa ⇒ acabou", estes
+   * testes quebram antes de o acervo inteiro ser dado como morto.
+   *
+   * Dados reais da produção (07/08/2026):
+   *   0000600-48.2023.5.22.0108 — trânsito 28/08/2025, execução iniciada 23/07/2026
+   *   0000764-11.2021.5.22.0002 — baixa 06/10/2025, liquidação 14/10/2025,
+   *                               extinção da execução 28/01/2026 e execução
+   *                               REINICIADA em 17/07/2026
+   */
+  it('execução iniciada DEPOIS da baixa mantém a instância viva', () => {
+    expect(
+      instanciaBaixada([
+        mov(22, '2025-10-06'),
+        mov(848, '2025-10-06'),
+        mov(11384, '2025-10-14'), // liquidação
+        mov(11385, '2026-07-17'), // execução iniciada
+      ]),
+    ).toBe(false);
+  });
+
+  /**
+   * Extinção da execução (196) NÃO encerra nada sozinha — o mesmo processo
+   * acima teve a execução extinta em janeiro e reiniciada em julho. Tratar 196
+   * como fim seria dar por morto um processo que voltou a andar.
+   */
+  it('extinção da execução seguida de nova execução não baixa', () => {
+    expect(
+      instanciaBaixada([
+        mov(11384, '2025-10-14'),
+        mov(196, '2026-01-28'),
+        mov(11385, '2026-07-17'),
+      ]),
+    ).toBe(false);
+  });
+
   it('Baixa Definitiva (22) baixa', () => {
     expect(instanciaBaixada([mov(51, '2026-01-10'), mov(22, '2026-02-01')])).toBe(true);
   });

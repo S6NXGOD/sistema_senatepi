@@ -489,6 +489,8 @@ export async function reavaliarInstancias(limite = 10): Promise<{
   reavaliados: number;
   restantes: number;
   executou: boolean;
+  /** Processos cujo status foi realinhado às instâncias (só banco, sem CNJ). */
+  desalinhados: number;
 }> {
   // Fala com o CNJ, um processo por vez — o timeout curto cortaria a rodada.
   return (

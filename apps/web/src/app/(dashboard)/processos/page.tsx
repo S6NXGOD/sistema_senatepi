@@ -132,16 +132,23 @@ function ListaProcessos() {
   const [reavaliando, setReavaliando] = useState(false);
   useEffect(() => {
     if (!podeRadar || typeof window === 'undefined') return;
-    if (window.sessionStorage.getItem('senatepi:instancias-reavaliadas')) return;
+    /**
+     * O freio de sessão vale só para a parte CARA (falar com o CNJ). O
+     * alinhamento de status é banco puro e roda toda vez que a lista abre —
+     * antes, ele ficava atrás do mesmo freio, e um processo corrigido por
+     * migração seguia exibindo "Ativo" ao lado de "Arquivado" porque a sessão
+     * já tinha gasto sua releitura.
+     */
+    const jaReleu = !!window.sessionStorage.getItem('senatepi:instancias-reavaliadas');
     window.sessionStorage.setItem('senatepi:instancias-reavaliadas', '1');
 
     let vivo = true;
-    setReavaliando(true);
-    reavaliarInstancias(10)
+    if (!jaReleu) setReavaliando(true);
+    reavaliarInstancias(jaReleu ? 0 : 10)
       .then((r) => {
         if (!vivo) return;
         // Só invalida se algo mudou — recarregar a lista à toa é piscada de tela.
-        if (r.reavaliados > 0) qc.invalidateQueries({ queryKey: ['processos'] });
+        if (r.reavaliados > 0 || r.desalinhados > 0) qc.invalidateQueries({ queryKey: ['processos'] });
       })
       // Silêncio no erro de propósito: isto é melhoria de fundo. A lista já está
       // na tela com o que havia, e a varredura noturna cobre o que falhar —

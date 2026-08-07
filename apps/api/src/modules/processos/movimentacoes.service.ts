@@ -359,6 +359,18 @@ export class MovimentacoesService {
       /** Por onde o processo passou — derivado, sem tabela nova. */
       historicoOrgaos: this.historicoOrgaos(movimentacoes),
       /**
+       * Os atos que ENCERRARAM o processo, em ordem. Existe para a ficha poder
+       * responder "por que isto está arquivado?" com fato, e não com rótulo.
+       *
+       * A pergunta foi feita de verdade: um processo com a etiqueta "Fase de
+       * Execução" apareceu como Arquivado e pareceu erro do sistema. Não era —
+       * a execução tinha sido extinta em novembro e o processo arquivado em
+       * fevereiro. O sistema sabia disso e não mostrava; a etiqueta, escrita à
+       * mão meses antes, era a única coisa visível. Um rótulo que ninguém
+       * consegue conferir vira desconfiança do sistema inteiro.
+       */
+      marcosDoEncerramento: this.marcosDoEncerramento(movimentacoes),
+      /**
        * Fase processual, pela MESMA regra da lista (`fase.util.ts`). Vem daqui
        * para a ficha e a lista nunca discordarem — e é ela que sustenta o aviso
        * de etiqueta conflitante ("Fase de Execução" num processo em grau
@@ -435,6 +447,38 @@ export class MovimentacoesService {
    * Janela de 30 dias: a mesma do robô. Ato de meses atrás não é pendência, é
    * histórico.
    */
+  /**
+   * Linha do tempo do fim: baixa, trânsito, extinção da execução, arquivamento
+   * e eventual desarquivamento — só o que muda o ciclo de vida.
+   *
+   * Devolve vazio quando não houve nenhum: processo em curso não precisa
+   * explicar que está em curso.
+   */
+  private marcosDoEncerramento(
+    movimentacoes: { dataMovimento: Date; descricao: string; codigoMovimento: number | null }[],
+  ) {
+    /** Códigos conferidos no índice do CNJ, não deduzidos da tabela da TPU. */
+    const ROTULOS: Record<number, string> = {
+      22: 'Baixa definitiva',
+      246: 'Arquivamento definitivo',
+      848: 'Trânsito em julgado',
+      893: 'Desarquivamento',
+      196: 'Extinção da execução',
+      11384: 'Liquidação iniciada',
+      11385: 'Execução iniciada',
+    };
+    return movimentacoes
+      .filter((m) => m.codigoMovimento != null && ROTULOS[m.codigoMovimento])
+      .map((m) => ({
+        codigo: m.codigoMovimento as number,
+        rotulo: ROTULOS[m.codigoMovimento as number],
+        data: m.dataMovimento,
+        /** Reabre o ciclo: serve para a tela mostrar que o fim não foi o fim. */
+        reabre: m.codigoMovimento === 893 || m.codigoMovimento === 11385 || m.codigoMovimento === 11384,
+      }))
+      .sort((a, b) => a.data.getTime() - b.data.getTime());
+  }
+
   private atencaoRequerida(
     movimentacoes: { dataMovimento: Date; descricao: string; codigoMovimento: number | null; compromissoId: string | null }[],
   ) {

@@ -9,6 +9,7 @@ import {
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
   AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
+  Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -369,6 +370,16 @@ export function ProcessoDetalheSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p?.id, p?.instanciasLidasEm, podeEditar]);
 
+  /** Tira UMA etiqueta, sem passar pelo modo de edição. */
+  const removerEtiqueta = useMutation({
+    mutationFn: (etiqueta: string) =>
+      atualizarProcesso(processoId as string, {
+        etiquetas: (p?.etiquetas ?? []).filter((e) => e !== etiqueta),
+      }),
+    onSuccess: () => { toast.success('Etiqueta removida.'); recarregar(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível remover a etiqueta.'),
+  });
+
   const excluir = useMutation({
     mutationFn: () => excluirProcesso(processoId as string),
     onSuccess: () => { toast.success('Processo excluído.'); setConfirmarExcluir(false); onChanged?.(); onClose(); },
@@ -702,11 +713,45 @@ export function ProcessoDetalheSheet({
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {(p.etiquetas ?? []).map((e) => (
-                    <span key={e} className="rounded-full bg-senatepi-50 px-2.5 py-0.5 text-xs font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400">
-                      {e}
-                    </span>
-                  ))}
+                  {(p.etiquetas ?? []).map((e) => {
+                    /**
+                     * Etiqueta que o tribunal desmente. "Fase de Execução" é
+                     * rótulo escrito à mão e não envelhece sozinho; a fase vem
+                     * dos andamentos e se corrige. Quando discordam, é a
+                     * etiqueta que está velha — e ela é FILTRO do acervo, então
+                     * some da fila de execução com um clique, sem abrir o modo
+                     * de edição.
+                     */
+                    const conflita =
+                      e === 'Fase de Execução' && (p.fase === 'ARQUIVADO' || p.fase === 'RECURSAL');
+                    return (
+                      <span
+                        key={e}
+                        title={conflita
+                          ? `Os andamentos do tribunal dizem que o processo está em fase ${p.fase === 'ARQUIVADO' ? 'arquivada' : 'recursal'}. Clique no × para remover esta etiqueta.`
+                          : undefined}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 text-xs font-medium',
+                          conflita
+                            ? 'bg-amber-100 pr-1 text-amber-800 line-through decoration-amber-500 dark:bg-amber-900/40 dark:text-amber-300'
+                            : 'pr-2.5 bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+                        )}
+                      >
+                        {e}
+                        {conflita && podeEditar && (
+                          <button
+                            type="button"
+                            onClick={() => removerEtiqueta.mutate(e)}
+                            disabled={removerEtiqueta.isPending}
+                            title="Remover esta etiqueta"
+                            className="rounded-full p-0.5 transition hover:bg-black/10 dark:hover:bg-white/10"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
                   {/* ASSUNTO na MESMA linha das etiquetas, e não numa própria:
                       são dois rótulos curtos, e cada linha extra no cabeçalho
                       sai direto da área de leitura. Só o principal — os demais
@@ -831,6 +876,9 @@ export function ProcessoDetalheSheet({
 
           {/* Instâncias — só quando há mais de uma, senão é ruído */}
           <ResumoInstancias instancias={p?.instancias ?? []} />
+
+          {/* POR QUE ESTE PROCESSO ESTÁ ARQUIVADO */}
+          {p?.fase === 'ARQUIVADO' && <MarcosDoEncerramento marcos={p.marcosDoEncerramento ?? []} />}
 
           {isLoading || !p ? (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -1694,6 +1742,57 @@ function AbaPublicacoes({
  * no cabeçalho e a faixa seria ruído. Com duas, é a resposta para "por que este
  * processo está encerrado e continua recebendo andamento?".
  */
+/**
+ * A prova de que o processo acabou — com data e nome do ato.
+ *
+ * SÓ APARECE QUANDO A FASE É "ARQUIVADO", e existe porque a afirmação sozinha
+ * gerou desconfiança justificada: um processo com a etiqueta "Fase de Execução"
+ * exibido como arquivado parece erro do sistema. Não era — a execução tinha
+ * sido extinta meses antes e o processo arquivado depois. O sistema sabia e não
+ * mostrava. Rótulo que ninguém consegue conferir mina a confiança em tudo o
+ * mais que a tela afirma.
+ *
+ * Os atos que REABREM o ciclo (desarquivamento, liquidação, início de execução)
+ * aparecem na mesma linha do tempo, em verde: se houver um deles depois do
+ * arquivamento, quem olha vê na hora que a conclusão do sistema não fecha — e
+ * pode nos avisar em vez de simplesmente deixar de acreditar.
+ */
+function MarcosDoEncerramento({
+  marcos,
+}: {
+  marcos: { codigo: number; rotulo: string; data: string; reabre: boolean }[];
+}) {
+  if (!marcos.length) return null;
+  const ultimo = marcos[marcos.length - 1];
+  return (
+    <div className="mx-5 mb-3 rounded-xl border bg-muted/40 p-3">
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        <Archive className="h-3.5 w-3.5" />
+        Por que está arquivado
+      </p>
+      <ol className="space-y-1">
+        {marcos.map((m, i) => (
+          <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+            <span className="w-20 shrink-0 tabular-nums text-muted-foreground">{formatData(m.data)}</span>
+            <span className={cn(
+              'font-medium',
+              m.reabre ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground',
+            )}>
+              {m.rotulo}
+            </span>
+            {m.reabre && <span className="text-[10px] text-muted-foreground">(reabre o ciclo)</span>}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 border-t pt-1.5 text-[11px] leading-snug text-muted-foreground">
+        O último ato do tribunal foi <strong className="text-foreground">{ultimo.rotulo}</strong>, em{' '}
+        {formatData(ultimo.data)}, e nenhum grau registrou andamento depois disso. Voltando a andar, o
+        processo reabre sozinho na próxima sincronização.
+      </p>
+    </div>
+  );
+}
+
 function ResumoInstancias({ instancias }: { instancias: InstanciaProcesso[] }) {
   if (instancias.length < 2) return null;
   return (
