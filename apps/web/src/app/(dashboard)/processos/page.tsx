@@ -375,7 +375,7 @@ function ListaProcessos() {
                             </button>
                           </span>
                         )}
-                        <Etiquetas lista={p.etiquetas} />
+                        <Etiquetas lista={p.etiquetas} fase={p.fase} />
                       </td>
                       <td className="max-w-[280px] px-4 py-3"><CelulaPartes p={p} /></td>
                       <td className="max-w-[220px] truncate px-4 py-3" title={p.classeProcessual ?? ''}>
@@ -628,7 +628,7 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
         <p className={cn('text-sm font-semibold', p.numeroCNJ && 'font-mono')}>
           {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho sem título'}
         </p>
-        <Etiquetas lista={p.etiquetas} />
+        <Etiquetas lista={p.etiquetas} fase={p.fase} />
         <StatusBadge status={p.statusInterno} />
       </div>
       <div className="mt-2 space-y-1 text-sm">
@@ -660,14 +660,40 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
 }
 
 /** Etiquetas internas do processo, compactas na listagem. */
-function Etiquetas({ lista }: { lista?: string[] }) {
+/**
+ * Etiqueta que CONTRADIZ o que o tribunal diz.
+ *
+ * "Fase de Execução" é rótulo escrito à mão (ou sugerido na importação) e não
+ * envelhece sozinho: o processo é arquivado, sobe em recurso, e a etiqueta
+ * continua ali. A fase da última coluna é derivada dos andamentos e se corrige
+ * sozinha — então quando as duas discordam, é a etiqueta que está velha.
+ *
+ * Marcar em vez de esconder: a etiqueta é filtro do acervo, e quem procurar a
+ * fila de execução precisa ver que aquele processo não pertence mais a ela — e
+ * poder corrigir. Esconder deixaria o filtro mentindo em silêncio.
+ */
+function etiquetaConflitante(etiqueta: string, fase?: FaseProcessual): boolean {
+  return etiqueta === 'Fase de Execução' && (fase === 'ARQUIVADO' || fase === 'RECURSAL');
+}
+
+function Etiquetas({ lista, fase }: { lista?: string[]; fase?: FaseProcessual }) {
   if (!lista?.length) return null;
   return (
     <span className="mt-1 flex flex-wrap gap-1">
       {lista.slice(0, 3).map((e) => (
         <span
           key={e}
-          className="rounded-full bg-senatepi-50 px-1.5 py-0.5 text-[10px] font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400"
+          title={
+            etiquetaConflitante(e, fase)
+              ? `O processo está em fase ${FASE_LABEL[fase!].toLowerCase()} segundo os andamentos do tribunal — esta etiqueta ficou desatualizada.`
+              : undefined
+          }
+          className={cn(
+            'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+            etiquetaConflitante(e, fase)
+              ? 'bg-amber-100 text-amber-800 line-through decoration-amber-500 dark:bg-amber-900/40 dark:text-amber-300'
+              : 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+          )}
         >
           {e}
         </span>

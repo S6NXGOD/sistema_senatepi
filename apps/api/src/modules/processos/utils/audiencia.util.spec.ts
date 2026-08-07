@@ -179,6 +179,28 @@ describe('instanciaBaixada — o grau ainda está vivo?', () => {
     expect(instanciaBaixada([mov(51, '2026-01-10'), mov(22, '2026-02-01')])).toBe(true);
   });
 
+  /**
+   * O CASO DE PRODUÇÃO — 0001000-26.2022.5.22.0002 (TRT22), conferido no CNJ em
+   * 07/08/2026: trânsito em julgado e liquidação em 22/08/2025, execução extinta
+   * em 24/11/2025 e arquivamento definitivo (246) em 02/02/2026, sem nada
+   * depois. Como 246 não contava como baixa, a instância seguia "viva" e a lista
+   * mostrava o processo em Execução — meses depois de ele ter acabado.
+   */
+  it('Arquivamento definitivo (246) baixa — a forma mais comum de encerrar', () => {
+    expect(
+      instanciaBaixada([
+        mov(848, '2025-08-22'),
+        mov(11384, '2025-08-22'),
+        mov(196, '2025-11-24'),
+        mov(246, '2026-02-02'),
+      ]),
+    ).toBe(true);
+  });
+
+  it('arquivamento definitivo seguido de desarquivamento NÃO baixa', () => {
+    expect(instanciaBaixada([mov(246, '2026-02-02'), mov(893, '2026-03-10')])).toBe(false);
+  });
+
   it('Trânsito em julgado (848) baixa', () => {
     expect(instanciaBaixada([mov(848, '2026-02-01')])).toBe(true);
   });

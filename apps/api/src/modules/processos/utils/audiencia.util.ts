@@ -35,16 +35,33 @@ export const CODIGOS_TPU_AUDIENCIA: ReadonlySet<number> = new Set([
 ]);
 
 /**
- * Códigos que ENCERRAM uma instância. Conferidos contra o índice real do TJPI
+ * Códigos que ENCERRAM uma instância. Conferidos contra o índice real do CNJ
  * (`movimentos.codigo` → `movimentos.nome`), não deduzidos da tabela da TPU.
  *
  * Servem para responder "este grau ainda está vivo?" — a pergunta que decide se
  * o processo continua na varredura noturna. O caso que motivou: 2º grau com
  * baixa definitiva e 1º grau com cumprimento de sentença correndo. Antes, a
  * baixa encerrava o processo inteiro e o 1º grau parava de ser monitorado.
+ *
+ * O 246 ENTROU DEPOIS, e a ausência dele era grave: é a forma MAIS COMUM de um
+ * processo trabalhista terminar. Contagem no índice do TRT22 (07/08/2026):
+ *
+ *   246 "Definitivo" (arquivamento)  171.261 documentos
+ *   848 "Trânsito em julgado"        102.083
+ *   22  "Baixa Definitiva"            40.890
+ *
+ * Sem ele, TODO processo arquivado continuava marcado como vivo: seguia na
+ * varredura noturna para sempre e a lista o mostrava em "Execução" ou
+ * "Conhecimento" meses depois de arquivado. Foi assim que o
+ * 0001000-26.2022.5.22.0002 — arquivado em 02/02/2026, com a execução extinta
+ * em 24/11/2025 — aparecia como processo em andamento.
+ *
+ * O desarquivamento (893) posterior continua desfazendo a baixa, então o
+ * processo que volta a andar volta a ser acompanhado sozinho.
  */
 export const CODIGOS_TPU_BAIXA: ReadonlySet<number> = new Set([
   22, // Baixa Definitiva
+  246, // Arquivamento — "Definitivo"
   848, // Trânsito em julgado
 ]);
 

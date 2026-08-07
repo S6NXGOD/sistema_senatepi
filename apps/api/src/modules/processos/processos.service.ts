@@ -251,6 +251,20 @@ export class ProcessosService {
     // intimações/audiências que exigem tarefa.
     await this.dispararAutomacao(processo.id);
 
+    /**
+     * O processo pode nascer JÁ ENCERRADO.
+     *
+     * Nem todo processo importado está em andamento: é comum cadastrar um que
+     * já foi arquivado, para ter o histórico. Sem esta reavaliação ele entrava
+     * como ATIVO e só era corrigido na varredura da madrugada seguinte — ou
+     * seja, a lista abria mostrando "Ativo" ao lado de "Arquivado" na coluna de
+     * fase, duas afirmações que não podem ser verdade juntas.
+     *
+     * A mesma função da sincronização, com as mesmas travas: só mexe em
+     * ATIVO/PENDENTE e registra a movimentação interna que explica.
+     */
+    await this.reavaliarStatusPorInstancias(processo.id);
+
     // (e) Resposta com partes desmascaradas (apenas o filiado vinculado — LGPD).
     const detalhe = await this.detalhe(processo.id);
     const partes = await this.desmascararPartes(dados.partes, dto.filiadoId);
