@@ -1072,22 +1072,35 @@ funciona no bash e falha no cmd do Windows.
 
 ### Onde se define a identidade visual
 
-| O quê | Onde | Efeito |
+Em **dois lugares**, e a ordem entre eles é o desenho:
+
+| O quê | Onde | Quem mexe |
 |---|---|---|
-| **Paleta** (10 tons) | `apps/web/src/tenant/tenants/<cliente>.ts` | tudo: `bg-brand-*`, gráficos, cor da aba do navegador |
-| **Logo** | `apps/web/public/<cliente>-<horizontal\|vertical>-<cor\|branco>.png` | 4 arquivos por sindicato |
-| **Nome, sigla, vocabulário** | `tenant/tenants/<cliente>.ts` (nos dois apps) | títulos, menu, documentos |
-| **Favicon / ícone do PWA** | `apps/web/public/` | aba e app instalado |
+| Cor institucional | **`/configuracoes` → Identidade visual** | o administrador do sindicato, sem deploy |
+| Logos (4 arquivos) | **`/configuracoes` → Identidade visual** | idem |
+| Cor e logo **padrão** | `tenant/tenants/<cliente>.ts` e `apps/web/public/` | o programador, no nascimento do cliente |
+| Nome, sigla, vocabulário | `tenant/tenants/<cliente>.ts`, nos dois apps | o programador |
 
-Sobre a paleta: **os dez degraus são obrigatórios**. O Tailwind não emite classe
-para tom inexistente, então um degrau faltando vira `bg-brand-700 text-white`
-como texto branco sobre fundo branco — já aconteceu. E o 700 precisa passar em
-contraste AA com texto branco, porque é o tom dos botões primários e das abas.
+**O arquivo é o padrão; a tela é uma sobreposição.** Instalação que nunca mexeu
+abre com a marca compilada. Se o banco estiver fora do ar, idem — a identidade
+visual não pode ficar refém de uma consulta, e a tela de login precisa da marca
+antes de qualquer autenticação (por isso o `GET` é público).
 
-Sobre o logo: se os arquivos ainda não existirem, o componente **cai para a
-sigla escrita** na cor da marca. Um cliente novo entra no ar apresentável antes
-de o designer entregar os arquivos, e um `id` com typo vira texto em vez do
-ícone de imagem quebrada no topo de todas as telas.
+**UMA cor, não dez.** A escala de dez tons é derivada da cor institucional, com
+os fundos sólidos escurecidos até passarem em contraste AA com texto branco. Dez
+campos de cor pareceriam mais poderosos e produziriam, cedo ou tarde, um botão
+primário ilegível — este sistema já teve `bg-brand-700 text-white` como branco
+sobre branco. A tela mostra a prévia dos dez tons, um botão de exemplo e a
+conta do contraste em português.
+
+**Logo:** PNG, WebP ou SVG com fundo transparente, até 2 MB. Sem arquivo
+enviado, vale o de `/public`; sem esse, o componente escreve a **sigla** na cor
+da marca — um cliente novo fica apresentável antes de o designer entregar.
+
+Por baixo, `bg-brand-800` não guarda mais hexadecimal: lê
+`rgb(var(--brand-800) / <alpha-value>)`. Os valores vão em **canais**
+(`27 127 10`), porque é isso que permite ao Tailwind compor opacidade — com o
+hexadecimal dentro da variável, todo `bg-brand-400/20` do código quebraria.
 
 ### O que ainda falta para o SINDSERM em PRODUÇÃO
 
