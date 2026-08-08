@@ -40,6 +40,10 @@ export const NAV_SECOES: NavSecao[] = [
       { href: '/processos', label: 'Processos', icon: Gavel, modulo: 'processos' },
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock, modulo: 'agenda' },
       { href: '/escalas', label: 'Escalas dos Advogados', icon: CalendarRange, modulo: 'escalas' },
+      // Fica no Jurídico porque o cadastro vive sob o módulo `processos` — mas
+      // serve aos dois papéis: o órgão que emprega o filiado é o mesmo que
+      // figura como réu na ação dele.
+      { href: '/organizacoes', label: 'Organizações', icon: Building2, modulo: 'processos' },
     ],
   },
   {

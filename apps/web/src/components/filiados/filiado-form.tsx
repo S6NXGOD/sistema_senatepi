@@ -624,10 +624,11 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         </CardContent>
       </Card>
 
-      {/* Locais de trabalho — sem limite: duplo vínculo é a regra na categoria. */}
+      {/* Vínculos profissionais — sem limite: duplo vínculo é a regra na
+          enfermagem, e o servidor com dois contratos de 20h também tem dois. */}
       <Card>
         <CardHeader>
-          <CardTitle>Locais de trabalho</CardTitle>
+          <CardTitle>Vínculos profissionais</CardTitle>
         </CardHeader>
         <CardContent>
           <LocaisTrabalhoSection

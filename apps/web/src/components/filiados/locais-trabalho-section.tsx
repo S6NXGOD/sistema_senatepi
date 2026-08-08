@@ -150,14 +150,14 @@ export function LocaisTrabalhoSection({
     <div className="space-y-4">
       {locais.length === 0 && (
         <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-          Nenhum local de trabalho cadastrado.
+          Nenhum vínculo profissional cadastrado.
         </p>
       )}
 
       {avisoIncoerente && (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
-          A modalidade é <strong>Desconto em Folha</strong>, mas nenhum local está marcado. Marque em
-          qual folha o desconto acontece — senão o financeiro não saberá onde cobrar.
+          A modalidade é <strong>Desconto em Folha</strong>, mas nenhum vínculo está marcado.
+          Marque em qual folha o desconto acontece — senão o financeiro não saberá onde cobrar.
         </p>
       )}
 
@@ -171,7 +171,7 @@ export function LocaisTrabalhoSection({
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Local {i + 1}
+              Vínculo {i + 1}
             </span>
             <button
               type="button"
@@ -298,7 +298,7 @@ export function LocaisTrabalhoSection({
         className="w-full"
         onClick={() => onChange([...locais, { empresa: '', cargo: '', matricula: '', descontoEmFolha: false }])}
       >
-        <Plus className="h-4 w-4" /> Adicionar Local de Trabalho
+        <Plus className="h-4 w-4" /> Adicionar Vínculo
       </Button>
     </div>
   );
