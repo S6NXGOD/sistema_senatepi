@@ -22,7 +22,11 @@ export type { TenantConfig, ModuloSistema } from './tenant.types';
  * sozinho (fica no banco).
  */
 
-const TENANTS: Record<string, TenantConfig> = {
+/**
+ * Registro de TODOS os clientes. Exportado para o teste de conformidade
+ * poder percorrê-lo: é ele que impede um sindicato entrar pela metade.
+ */
+export const TENANTS: Record<string, TenantConfig> = {
   senatepi,
   sindserm,
 };

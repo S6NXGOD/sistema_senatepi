@@ -25,7 +25,11 @@ export type { PaletaMarca, TenantConfigWeb } from './tenant/tenant.types';
  * dois.
  */
 
-const TENANTS: Record<string, TenantConfigWeb> = {
+/**
+ * Registro de TODOS os clientes. Exportado para o teste de conformidade
+ * poder percorrê-lo: é ele que impede um sindicato entrar pela metade.
+ */
+export const TENANTS: Record<string, TenantConfigWeb> = {
   senatepi,
   sindserm,
 };

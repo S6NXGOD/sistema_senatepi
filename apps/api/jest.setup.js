@@ -8,3 +8,6 @@
  * determinística e documenta a exigência para quem for escrever o próximo spec.
  */
 process.env.TENANT = process.env.TENANT || 'senatepi';
+// O teste de conformidade importa a configuração da TELA, que exige a
+// variável dela — os dois arquivos explodem sem saber de qual cliente são.
+process.env.NEXT_PUBLIC_TENANT = process.env.NEXT_PUBLIC_TENANT || 'senatepi';

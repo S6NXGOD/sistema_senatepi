@@ -1,0 +1,21 @@
+{
+  // tsconfig EXCLUSIVO dos testes.
+  //
+  // O alias `@/` ganha uma SEGUNDA origem: a tela. É o que permite ao teste de
+  // conformidade comparar a configuração dos dois lados — as listas de módulos
+  // e de campos ocultos são mantidas à mão em arquivos diferentes, e é
+  // exatamente o par que diverge sem ninguém notar.
+  //
+  // A ordem importa: `src/*` primeiro, para que o alias continue significando
+  // "a própria API" em qualquer outro teste. E isto fica FORA do tsconfig da
+  // aplicação de propósito — com o caminho do front no build, um serviço da API
+  // poderia importar código de tela sem ninguém perceber.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*", "../web/src/*"],
+      "@core/infra": ["../../packages/core-infra/src/index.ts"]
+    }
+  }
+}

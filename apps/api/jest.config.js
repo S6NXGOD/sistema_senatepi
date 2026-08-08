@@ -9,9 +9,17 @@ module.exports = {
   // passaria verde por engano.
   moduleNameMapper: {
     '^@core/infra$': '<rootDir>/../../packages/core-infra/src/index.ts',
+    // O teste de conformidade compara a configuração da API com a da TELA — as
+    // duas listas de módulos e campos são mantidas à mão em arquivos
+    // diferentes, e é exatamente o par que diverge sem ninguém notar. Os
+    // arquivos de tenant do web só têm imports de TIPO, então carregam aqui.
+    '^@/(.*)$': '<rootDir>/../web/src/$1',
   },
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    // `tsconfig.spec.json` acrescenta o alias `@/` apontando para a TELA, que
+    // só o teste de conformidade usa. Ele fica fora do tsconfig da aplicação
+    // para que nenhum serviço da API consiga importar código do front.
+    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.spec.json' }],
   },
   collectCoverageFrom: ['src/**/*.(t|j)s'],
   coverageDirectory: './coverage',
