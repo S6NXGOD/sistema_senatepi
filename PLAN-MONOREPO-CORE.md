@@ -190,6 +190,11 @@ SENATEPI hoje.
 
 ### FASE 3 — Extrair os pacotes (≈ 1 semana · risco médio)
 
+> ⚠️ **Esta fase foi executada só até a metade, e de propósito.** A 3a
+> extraiu `@core/infra` e provou a mecânica. A 3b mediu o jurídico e
+> encontrou dois impedimentos que mudaram o desenho — a leitura abaixo
+> continua válida como história, mas **o que valeu está na §15**.
+
 Só agora, e só o que a Fase 0–2 provou ser neutro.
 
 **Ordem recomendada — do menos acoplado para o mais:**
@@ -218,17 +223,30 @@ sem que o core saiba.
 
 ### FASE 4 — Deploy (≈ 1 dia · risco controlado)
 
-Se as pastas de `apps/senatepi` mantiverem `api/` e `web/` como estão hoje, o
-**Root Directory** do Railway muda de `apps/api` para `apps/senatepi/api`. É uma
-alteração de configuração, feita com o serviço no ar e revertível em um clique.
+> **Reescrito depois da Fase 3b.** A versão anterior previa mover a API para
+> `apps/senatepi/api` e trocar o **Root Directory** no Railway. Isso deixou de
+> existir: os caminhos não mudam, e o serviço do SENATEPI em produção continua
+> apontando para `apps/api` e `apps/web`.
+
+O que o deploy do SENATEPI passa a exigir são **duas variáveis**:
+
+| Serviço | Variável | Valor |
+|---|---|---|
+| API | `TENANT` | `senatepi` |
+| Web | `NEXT_PUBLIC_TENANT` | `senatepi` |
+
+**Esquecê-las derruba o serviço, de propósito** — a alternativa silenciosa seria
+subir com o cliente errado por cima do banco certo. Configure-as **antes** do
+merge; elas não afetam o código atual, que ainda não as lê.
+
+`NEXT_PUBLIC_TENANT` é lida no **build**, não no start: trocá-la exige rebuild.
+Isso é correto, porque a paleta é compilada dentro do CSS pelo Tailwind.
 
 **Ordem segura:**
-1. Merge da branch com produção **ainda apontando para os caminhos antigos**
-   (mantenha `apps/api` como link ou faça o merge só depois do passo 2).
-2. Criar um **serviço de teste** no Railway apontando para os caminhos novos e
-   para um banco de cópia.
-3. Confirmado o teste, trocar o Root Directory dos serviços de produção.
-4. Rollback = voltar o Root Directory.
+1. Definir as duas variáveis nos serviços de produção (sem efeito ainda).
+2. Merge da branch.
+3. Conferir no ar: identidade, menu, e uma tela de cada módulo.
+4. Rollback = `git revert` do merge. O schema é aditivo; nada some.
 
 ---
 
@@ -245,7 +263,7 @@ core e o que não é.
 | Empregador | Hospitais, clínicas, fundações | Prefeitura de Teresina e suas secretarias | "Empresas Patronais" vira "Órgãos" ou é desligado |
 | Justiça | **TRT22** (celetista) | **TJPI** para estatutário, TRT22 para celetista | O jurídico precisa dos dois — e já tem |
 | Contribuição | Desconto em folha, avulso, pensionista | Desconto em folha da Prefeitura | `ModalidadeContribuicao` provavelmente muda |
-| Colônia de férias | Sim | A confirmar | Módulo ligável (Fase 1) |
+| Colônia de férias | Sim | **Não** — têm clube, com entrada por carteirinha/QR | Módulo ligável (Fase 1); o clube virou o módulo `acessos` |
 | Vínculo | Formação profissional | Cargo, secretaria de lotação, regime (estatutário/celetista/comissionado), data de posse | **Campos customizados** (Fase 2) |
 
 **A boa notícia sobre o jurídico:** o core já atende os dois. Ao longo do
@@ -260,7 +278,7 @@ campos do `Filiado` foram desenhados para enfermagem. Este é o módulo que
 justifica a Fase 2 — e é por isso que ela deixou de ser opcional.
 
 **Três perguntas a fazer ao SINDSERM antes da Fase 2**, porque as respostas
-definem os campos customizados:
+definem os campos customizados. ✅ **Todas respondidas — ver §9.**
 
 1. Quais dados do servidor vocês precisam guardar que o SENATEPI não guarda?
    (matrícula funcional, secretaria, cargo, regime, data de posse, lotação…)
@@ -390,40 +408,61 @@ você não lembra.
 
 ## 9. Como nasce um cliente novo
 
-Depois das Fases 0–2, criar um cliente é **dias, não meses**. Roteiro, usando o
-SINDSERM como exemplo:
+> **Reescrito depois da Fase 3b.** O roteiro anterior criava uma pasta
+> `apps/<cliente>/` com api, web e schema próprios. Não é mais assim: os apps
+> são únicos e o cliente é configuração. Ver §15.
 
-```bash
-# 1. estrutura do app, a partir da forma do SENATEPI
-apps/sindserm/
-├── api/            (NestJS: importa os cores + módulos próprios)
-├── web/            (Next.js: importa core-ui + páginas próprias)
-└── tenant.config.ts
-```
+Criar um cliente é **dias, não meses**. Roteiro, usando o SINDSERM:
 
-2. `apps/sindserm/tenant.config.ts` — nome, sigla, CNPJ, cores, logo, módulos
-   ativos, vocabulário (`servidor` em vez de `filiado`, se for o caso).
-3. `apps/sindserm/api/prisma/schema/` — `_core.prisma` (cópia do core) +
-   `sindserm.prisma` (models próprios). Ver §11.
-4. Projeto novo no Railway: API + Web + Postgres. **Banco vazio e separado.**
-5. `prisma migrate deploy` — as migrations rodam do zero no banco novo.
-6. Seed do cliente: perfis de acesso, tipos de evento, cargos, campos
-   customizados, tipos de andamento.
-7. Deploy.
+1. `apps/api/src/tenant/tenants/<cliente>.ts` — identidade, CNPJ, endereço,
+   conta, vocabulário, módulos, campos ocultos.
+2. `apps/web/src/tenant/tenants/<cliente>.ts` — o espelho da tela, mais a
+   **paleta** (dez tons; o Tailwind não emite classe para tom inexistente).
+3. Registrar os dois no `TENANTS` do respectivo `tenant.config.ts`.
+4. Acrescentar o cliente à matriz da CI (`.github/workflows/ci.yml`) — sem isso
+   ele não é construído a cada push, que é justamente o que impede quebrá-lo em
+   silêncio.
+5. Projeto novo no Railway: API + Web + Postgres. **Banco vazio e separado.**
+   `TENANT` na API, `NEXT_PUBLIC_TENANT` no web, `SEED_ADMIN_EMAIL` e
+   `SEED_ADMIN_PASSWORD` no primeiro deploy.
+6. `prisma migrate deploy` roda no start e cria o banco do zero.
+7. O `AdminSeedService` cria o administrador **só se o banco estiver vazio**, e
+   em produção **exige** `SEED_ADMIN_PASSWORD` — sem ela, nenhum admin é criado
+   e o log diz por quê.
 
 **Nada é compartilhado em runtime.** Se o SINDSERM cair, o SENATEPI não sente —
-são bancos, deploys e domínios diferentes.
+são bancos, serviços e domínios diferentes. O que passa a ser compartilhado é o
+CÓDIGO, e é por isso que a CI constrói todos os clientes a cada push.
 
-### O que decidir com o SINDSERM antes do passo 2
+### O que verificar em um cliente novo, sempre
 
-- **Módulos ativos:** Colônia de Férias? Eventos? Carteirinha? Empresas
-  Patronais (que para eles seriam órgãos da Prefeitura)?
-- **Vocabulário:** "filiado", "associado" ou "servidor"? "matrícula" ou
-  "inscrição"?
-- **Campos próprios do cadastro:** matrícula funcional, secretaria de lotação,
-  cargo, regime, data de posse.
-- **IP para o DJEN:** se o jurídico deles for usar publicações, o deploy precisa
-  sair de um IP que o CNJ aceite (§12.1).
+Cada item abaixo já mordeu uma vez:
+
+| Verificar | Por quê |
+|---|---|
+| Rotas do módulo desligado respondem 404 na API **e** somem do front | guarda de rota não cobre URL digitada; ver `GateDeModulo` |
+| Nenhum **seed de boot** de módulo desligado roda | o seed da colônia criava 5 lotes e 30 quartos num sindicato sem colônia |
+| Nenhum **cron** de módulo desligado roda | cron não passa por guarda: é registrado no boot e dispara sozinho |
+| Campo escondido não é **obrigatório** em lugar nenhum | esconder um campo obrigatório trava o cadastro sem dizer por quê |
+| Campo escondido também some da **leitura** | escondido na entrada e visível na lista, no detalhe e no dossiê |
+| A cor institucional aparece no CSS **gerado** | a paleta é compilada; o `.next` reaproveita o CSS do build anterior |
+
+### Respostas do SINDSERM
+
+As três perguntas do §5 foram respondidas:
+
+1. **Dados do servidor:** foto, situação funcional (ativo/aposentado/pensionista),
+   órgão, lotação, matrícula da Prefeitura, nome, cargo/carreira/especialidade,
+   CPF, e-mail, telefone, endereço, admissão, nascimento, desconto do sindicato
+   (sim/não), carteirinha com QR e dependentes (pai, mãe, filho e cônjuge).
+   **Todos cabem no schema atual** — `vinculo_funcional` e `lotacao` foram as
+   duas colunas novas; `PAI` e `MAE` entraram em `TipoDependente`.
+2. **Contribuição:** somente desconto em folha da Prefeitura. Por isso
+   `cobrancas` fica desligada, e o tenant não tem conta bancária — a linha
+   simplesmente não sai no termo.
+3. **Módulos:** sem colônia; **com clube**, cuja entrada é validada por
+   carteirinha com QR, matrícula ou CPF. Foi o que originou a portaria
+   (`acessos`). `empresas` desligada: o empregador é um só, a Prefeitura.
 
 ---
 
