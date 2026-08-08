@@ -15,6 +15,10 @@ build/
 .next/
 # um diretório de build por cliente (ver apps/web/next.config.mjs)
 .next-*/
+# Gerado pelo Next a cada build e agora APONTA PARA O distDir do cliente
+# (`.next-senatepi`, `.next-sindserm`). Versionado, sujaria a árvore a cada
+# troca de sindicato e entraria em conflito entre clientes.
+apps/web/next-env.d.ts
 out/
 *.tsbuildinfo
 
