@@ -1193,28 +1193,64 @@ core existir: a melhoria do jurídico deixaria de chegar aos dois.
 
 ## 19. Nascer um cliente novo
 
-**Não é uma pasta nova.** Não existe `apps/sindicato-x/` — existe configuração.
-O que um cliente novo exige, ao todo:
+**Um comando.**
 
-```
-apps/api/src/tenant/tenants/<cliente>.ts     identidade, módulos, campos ocultos
-apps/web/src/tenant/tenants/<cliente>.ts     idem + paleta padrão
-  ↳ registrar os dois no TENANTS do respectivo tenant.config.ts
-scripts/dev.js                               portas do cliente (PORTAS)
-.github/workflows/ci.yml                     acrescentar à matriz
-apps/api/.env.<cliente>                      banco, porta, segredos, CORS, storage
-apps/web/.env.<cliente>                      URL da API
-apps/web/public/<cliente>-*.png              4 logos (opcional; cai para a sigla)
-apps/api/assets/<cliente>-horizontal-branco.png   logo dos PDFs
+```bash
+npm run novo-cliente                      # pergunta uma coisa de cada vez
+npm run novo-cliente respostas.json       # ou lê tudo de um arquivo
 ```
 
-Descrever o cliente em uma conversa é o suficiente para isso ser montado — o que
-precisa vir de você é o que **só o sindicato sabe**: razão social, CNPJ,
-endereço, registro sindical, como chamam os associados, quais módulos usam,
-quais campos não fazem sentido, e a cor institucional.
+Ele escreve os **nove pontos** de uma vez:
 
-Depois disso, `npm run dev:<cliente>` sobe o sindicato novo em desenvolvimento,
-com banco próprio.
+| # | O quê |
+|---|---|
+| 1 | `apps/api/src/tenant/tenants/<id>.ts` — identidade, módulos, campos ocultos |
+| 2 | `apps/web/src/tenant/tenants/<id>.ts` — idem + a paleta **derivada** da cor |
+| 3–4 | registro nos dois `tenant.config.ts` |
+| 5 | portas em `scripts/dev.js` (sem colidir com as já usadas) |
+| 6 | `npm run dev:<id>` no `package.json` |
+| 7 | matriz da CI, **com a cor a conferir** |
+| 8–9 | `.env.<id>` da API e do web, com segredos sorteados, CORS, storage e banco |
+
+O que ele **não** faz, de propósito: não cria o banco (avisa o comando e alerta
+que o nome precisa estar livre) e não inventa CNPJ, endereço nem cor — pede, e
+recusa seguir sem.
+
+### O que impede o esquecimento não é este script
+
+É `apps/api/src/tenant/tenants.conformidade.spec.ts`. Ele percorre os clientes
+registrados e **reprova** quando um está pela metade:
+
+- os módulos são os mesmos na API e na tela;
+- os campos ocultos são os mesmos;
+- o vocabulário é o mesmo, e em minúsculas;
+- a paleta tem os dez degraus, todos hexadecimais válidos;
+- os fundos sólidos passam em contraste AA com texto branco;
+- o cliente tem portas próprias, sem colidir;
+- o cliente está na matriz da CI;
+- não sobrou nenhum «confirmar» no arquivo.
+
+Cada asserção nasceu de um defeito real do SINDSERM. **O script evita o
+trabalho; o teste evita o esquecimento** — e é por isso que a resposta a "não é
+melhor fazer um documento?" é *não, é melhor fazer um teste*. Documento não
+falha; teste falha.
+
+> O próprio gerador caiu na armadilha que existe para evitar: no Windows o git
+> entrega os arquivos com CRLF e as expressões procuravam `{
+`. Ele disse
+> "cadastrado" sem registrar nada, e quem mostrou foi o teste de conformidade.
+> Hoje ele lança quando uma âncora some, em vez de seguir em silêncio.
+
+### O que sobra para você, em qualquer cliente novo
+
+1. Criar o banco — **conferindo que o nome está livre**. Há outros sistemas no
+   mesmo Postgres; apontar para o banco de outro faz a API subir sem a tabela
+   `users`, e o login responde 500. Aconteceu.
+2. `prisma migrate deploy` no banco novo.
+3. Os logos — ou pelos arquivos, ou pela tela (Configurações › Identidade
+   visual), que é o caminho sem programador.
+4. No deploy: o projeto no Railway com `TENANT`, `NEXT_PUBLIC_TENANT`,
+   `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD`.
 
 > **`npm run dev` sobe UM cliente, não todos.** Cada sindicato é um comando: um
 > par de processos (API + web), portas próprias, banco próprio. Rodar dois ao
