@@ -1255,3 +1255,103 @@ falha; teste falha.
 > **`npm run dev` sobe UM cliente, não todos.** Cada sindicato é um comando: um
 > par de processos (API + web), portas próprias, banco próprio. Rodar dois ao
 > mesmo tempo é abrir dois terminais.
+
+---
+
+## 20. Cliente com necessidade própria — os quatro níveis
+
+A pergunta: *um sindicato precisa de campo próprio, ou de uma API que os outros
+não usam. E quando eu for corrigir um bug do jurídico que atinge todos?*
+
+**A segunda parte é a fácil, e é o motivo de todo o resto:** o código é UM. Uma
+correção no jurídico é um commit, e vale para todos os sindicatos no próximo
+deploy de cada um. Não existe backport, não existe cópia divergindo. A CI
+constrói **todos** os clientes a cada push, então quebrar um enquanto se
+conserta outro reprova antes do merge.
+
+O preço disso é a disciplina do outro lado: o que é de um cliente só precisa
+ficar **isolado por configuração**, nunca por `if (tenant.id === 'x')` no meio
+da lógica — porque é isso que faz a correção compartilhada deixar de valer.
+
+### Nível 1 — Um punhado de campos
+
+**Coluna na tabela compartilhada + `camposOcultos` para quem não usa.**
+
+Já aconteceu duas vezes, nos dois sentidos: `vinculoFuncional` e `lotacao`
+entraram para o SINDSERM e estão ocultos… em ninguém (o SENATEPI também os usa);
+`formacao` e `numeroCoren` são da enfermagem e estão ocultos no SINDSERM.
+
+O banco de todos ganha a coluna, vazia em quem não usa. É barato — e a
+alternativa (apagar a coluna para agradar um) destruiria o dado do outro.
+
+### Nível 2 — Muitos campos, só de um cliente
+
+**Tabela dedicada, 1:1 com `filiados`, gateada por módulo.**
+
+> **Correção ao §11.** Aquela seção provou que um model de cliente não podia ter
+> `@relation` para um model do core. Aquilo valia para o desenho de *um schema
+> por app*, que foi descartado na §15. Com **um schema só**, a restrição não
+> existe: a tabela do cliente se relaciona normalmente. O preço é o banco dos
+> outros ganhar uma tabela vazia.
+
+Ainda não foi preciso. Quando for, a régua é: **até uns cinco campos, nível 1;
+acima disso, tabela própria.**
+
+### Nível 3 — Uma fonte de dados externa
+
+É o caso do exemplo, e **já existe um precedente pronto no código: o DJEN.**
+
+Ele é uma segunda fonte do jurídico, mora em `apps/api/src/modules/processos/`
+como qualquer outro arquivo do módulo, e é ligado por cliente:
+
+```ts
+// apps/api/src/tenant/tenants/senatepi.ts
+integracoes: ['datajud', 'djen'],
+
+// apps/api/src/tenant/tenants/sindserm.ts
+integracoes: ['datajud'],   // sem DJEN: o IP precisa ser aceito pelo CNJ
+```
+
+O código é compartilhado; **o que muda por cliente é a lista.** Uma integração
+nova de um terceiro sindicato — e-SAJ, Projudi, o sistema de folha da prefeitura
+— segue a mesma forma:
+
+1. um `IntegracaoExterna` novo no `tenant.types.ts`;
+2. o serviço da fonte dentro do módulo a que ela pertence;
+3. `if (!integracaoAtiva('x', process.env.X_INTEGRACAO)) return;` no ponto de
+   entrada (cron, controller);
+4. a palavra na lista do cliente que a usa.
+
+**A variável de ambiente vence a declaração, nos dois sentidos.** Não é redundância:
+quando uma API externa cai ou passa a recusar o IP — já aconteceu com o DJEN —,
+desligar precisa ser uma variável e um restart, não um commit, um build e um deploy.
+
+> **Só entra em `IntegracaoExterna` o que é realmente conferido em algum lugar.**
+> `brasilapi` chegou a ser declarada e foi removida antes de virar hábito:
+> ninguém lia a chave. Flag que não é lida é pior que flag ausente, porque quem
+> lê o arquivo acredita nela — foi o que aconteceu com `vocabulario`, declarado
+> na Fase 0 e sem efeito nenhum na tela até a §16.
+
+### Nível 4 — O comportamento em si difere
+
+O último recurso, e o que exige mais cuidado. A regra: **o ponto de variação é
+nomeado no core**, e o cliente escolhe entre opções que o core conhece — nunca o
+core perguntando quem é o cliente.
+
+Ruim: `if (tenant.id === 'sindserm') { … }` no meio do serviço.
+Bom: uma opção declarada no `tenant.config` que o serviço lê, como
+`camposOcultos` e `integracoes` já fazem.
+
+A diferença prática aparece no dia da correção de bug: no primeiro caso, quem
+conserta precisa lembrar de conferir os dois caminhos; no segundo, existe um
+caminho só, e a configuração decide os dados.
+
+### O que protege a correção compartilhada
+
+| | |
+|---|---|
+| Um código só | a correção vale para todos, no mesmo commit |
+| CI em matriz | constrói **todos** os clientes a cada push |
+| Conformidade | 35 asserções reprovam cliente cadastrado pela metade |
+| Testes do jurídico | 8 arquivos de spec no módulo `processos` |
+| Integração isolada | fonte externa desligada não roda, nem por cron nem por rota |

@@ -76,6 +76,14 @@ export const sindserm: TenantConfig = {
    * `escalas` fica LIGADA: apesar do nome, é a escala dos ADVOGADOS, não escala
    * de plantão de enfermagem — serve a qualquer sindicato com jurídico.
    */
+  /**
+   * Só o DataJud por enquanto.
+   *
+   * `djen` fica de fora porque a consulta depende de o IP do servidor ser
+   * aceito pelo CNJ, e isso é por instalação — não por código. Ligar depois é
+   * acrescentar uma palavra nesta lista.
+   */
+  integracoes: ['datajud'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'acessos', 'auditoria', 'usuarios',

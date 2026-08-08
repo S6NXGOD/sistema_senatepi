@@ -1,8 +1,8 @@
-import { ModuloSistema, TenantConfig } from './tenant.types';
+import { IntegracaoExterna, ModuloSistema, TenantConfig } from './tenant.types';
 import { senatepi } from './tenants/senatepi';
 import { sindserm } from './tenants/sindserm';
 
-export type { TenantConfig, ModuloSistema } from './tenant.types';
+export type { TenantConfig, ModuloSistema, IntegracaoExterna } from './tenant.types';
 
 /**
  * QUEM É O CLIENTE DESTA INSTALAÇÃO.
@@ -114,6 +114,25 @@ export function rodapeInstitucional(t: TenantConfig = tenant): string {
 /** O módulo está ligado nesta instalação? */
 export function moduloAtivo(modulo: ModuloSistema, t: TenantConfig = tenant): boolean {
   return t.modulos.includes(modulo);
+}
+
+/**
+ * A integração externa está ligada nesta instalação?
+ *
+ * A variável de ambiente VENCE a configuração, e nos dois sentidos. É de
+ * propósito: quando uma API externa cai ou passa a recusar o IP do servidor —
+ * o que já aconteceu com o DJEN —, desligar precisa ser uma variável e um
+ * restart, não um commit, um build e um deploy.
+ */
+export function integracaoAtiva(
+  integracao: IntegracaoExterna,
+  ambiente?: string,
+  t: TenantConfig = tenant,
+): boolean {
+  const bruto = ambiente?.trim().toLowerCase();
+  if (bruto === 'true' || bruto === '1' || bruto === 'sim') return true;
+  if (bruto === 'false' || bruto === '0' || bruto === 'nao' || bruto === 'não') return false;
+  return (t.integracoes ?? []).includes(integracao);
 }
 
 /** O campo é pedido e exibido nesta instalação? */

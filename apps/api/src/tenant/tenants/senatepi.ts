@@ -38,6 +38,8 @@ export const senatepi: TenantConfig = {
   // `acessos` (portaria do clube) fica de fora: a colônia do SENATEPI tem
   // controle próprio, com regra de reserva e sorteio. A portaria nasceu para
   // o clube do SINDSERM e ligá-la aqui só somaria um menu sem uso.
+  // As duas fontes do jurídico.
+  integracoes: ['datajud', 'djen'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',

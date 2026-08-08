@@ -155,6 +155,24 @@ async function main() {
     if (sim) modulos.push(m);
   }
 
+  /**
+   * Integração é fonte de dados DENTRO de uma área que existe — por isso só se
+   * pergunta a quem tem o jurídico. O código delas é compartilhado; o que muda
+   * por cliente é esta lista.
+   */
+  const integracoes = [];
+  if (modulos.includes('processos')) {
+    console.log('\n  Integrações externas do jurídico (s/n)');
+    for (const [chave, rotulo] of [
+      ['datajud', 'Consultar processos no DataJud (CNJ)?'],
+      ['djen', 'Consultar publicações no DJEN? (exige IP aceito pelo CNJ)'],
+    ]) {
+      const sim = (await campo(rotulo, { chave: `integracao_${chave}`, obrigatorio: false }))
+        .toLowerCase().startsWith('s');
+      if (sim) integracoes.push(chave);
+    }
+  }
+
   console.log('\n  Campos do cadastro que este sindicato NÃO usa');
   console.log('  (ex.: formacao,numeroCoren — a escala e o registro de enfermagem)');
   const ocultosBruto = await campo('Separados por vírgula', { chave: 'camposOcultos', obrigatorio: false });
@@ -174,7 +192,7 @@ async function main() {
 
   escreverConfigApi({ id, sigla, nome, nomeCurto, cnpj, registro, logradouro, bairro,
     cidade, uf, cep, telefone, email, filiado, filiados, contribuicao, bancario,
-    camposOcultos, modulos });
+    camposOcultos, modulos, integracoes });
   escreverConfigWeb({ id, sigla, nome, nomeCurto, filiado, filiados, camposOcultos, modulos, paleta });
   registrar(id);
   acrescentarPortas(id, portas);
@@ -278,6 +296,7 @@ export const ${nomeVar(d.id)}: TenantConfig = {
   contato: {${d.telefone ? `\n    telefone: '${escapar(d.telefone)}',` : ''}${d.email ? `\n    email: '${escapar(d.email)}',` : ''}${d.telefone || d.email ? '\n  ' : ''}},
 ${d.bancario ? `  bancario: { banco: '${escapar(d.bancario.banco)}', agencia: '${escapar(d.bancario.agencia)}',${d.bancario.operacao ? ` operacao: '${escapar(d.bancario.operacao)}',` : ''} conta: '${escapar(d.bancario.conta)}' },\n` : ''}  vocabulario: { filiado: '${escapar(d.filiado)}', filiados: '${escapar(d.filiados)}', matricula: 'matrícula' },
 ${d.contribuicao ? `  contribuicao: { descricao: '${escapar(d.contribuicao)}' },\n` : ''}  camposOcultos: [${d.camposOcultos.map((c) => `'${escapar(c)}'`).join(', ')}],
+  integracoes: [${d.integracoes.map((i) => `'${i}'`).join(', ')}],
   modulos: [
     ${d.modulos.map((m) => `'${m}'`).join(', ')},
   ],

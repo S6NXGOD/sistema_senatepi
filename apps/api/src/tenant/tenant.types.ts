@@ -21,6 +21,43 @@ import { ModuloKey } from '../common/permissions/permissoes.constants';
  */
 export type ModuloSistema = ModuloKey;
 
+/**
+ * INTEGRAÇÕES EXTERNAS que uma instalação pode ligar.
+ *
+ * Diferente de `ModuloSistema`: módulo é uma ÁREA do sistema (o jurídico
+ * existe ou não existe); integração é uma FONTE DE DADOS dentro de uma área
+ * que existe. Dois sindicatos podem ter o jurídico e só um consultar o DJEN —
+ * é o caso real hoje, porque a consulta depende de o IP do servidor ser aceito
+ * pelo CNJ.
+ *
+ * É AQUI que entra a fonte de dados de um cliente futuro. O código dela vive no
+ * módulo compartilhado, como o DJEN vive dentro de `processos`; o que muda por
+ * cliente é esta lista.
+ */
+export type IntegracaoExterna =
+  /**
+   * Consulta processual do CNJ. Desligada, o acervo continua existindo e sendo
+   * editado à mão — some a varredura automática e o botão de sincronizar.
+   */
+  | 'datajud'
+  /**
+   * Publicações e intimações do Diário de Justiça Eletrônico Nacional.
+   *
+   * Depende de o IP do servidor ser aceito pelo CNJ, o que é por instalação e
+   * não por código — a razão de isto ser uma chave por cliente.
+   */
+  | 'djen';
+
+/**
+ * SÓ ENTRA AQUI O QUE É REALMENTE CONFERIDO em algum lugar do código.
+ *
+ * `brasilapi` chegou a ser declarada e foi removida antes de virar hábito:
+ * ninguém lia a chave, então ela seria uma promessa sem efeito — o mesmo
+ * defeito de `vocabulario`, que existia desde a Fase 0 e não mudava uma
+ * palavra na tela. Flag que não é lida é pior que flag ausente, porque
+ * quem lê o arquivo acredita nela.
+ */
+
 export interface TenantConfig {
   /** Identificador técnico, em minúsculas — é o valor de `TENANT` no ambiente. */
   id: string;
@@ -74,4 +111,14 @@ export interface TenantConfig {
    */
   camposOcultos?: string[];
   modulos: ModuloSistema[];
+  /**
+   * Fontes externas ligadas nesta instalação.
+   *
+   * Estava só em variável de ambiente (`DJEN_INTEGRACAO`), o que funcionava —
+   * cada cliente tem o seu serviço — mas era invisível: não dava para olhar o
+   * arquivo do sindicato e saber o que ele consulta. Aqui é declaração; a
+   * variável de ambiente continua valendo como interruptor de emergência,
+   * para desligar sem deploy quando uma API externa cai.
+   */
+  integracoes?: IntegracaoExterna[];
 }

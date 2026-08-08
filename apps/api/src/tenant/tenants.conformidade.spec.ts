@@ -136,6 +136,26 @@ describe('paleta da marca', () => {
   });
 });
 
+describe('integrações externas', () => {
+  const CONHECIDAS = ['datajud', 'djen'];
+
+  it.each(ids)('%s: só declara integração que existe', (id) => {
+    for (const i of TENANTS[id].integracoes ?? []) expect(CONHECIDAS).toContain(i);
+  });
+
+  /**
+   * Integração é fonte de dados DENTRO de uma área. Declarar `datajud` num
+   * cliente sem o módulo `processos` não quebra nada — o job já para no gate do
+   * módulo —, mas é uma mentira no arquivo: alguém lendo acredita que aquele
+   * sindicato consulta o CNJ.
+   */
+  it.each(ids)('%s: não declara integração de módulo desligado', (id) => {
+    const t = TENANTS[id];
+    const doJuridico = (t.integracoes ?? []).filter((i) => ['datajud', 'djen'].includes(i));
+    if (doJuridico.length) expect(t.modulos).toContain('processos');
+  });
+});
+
 describe('o cliente está ligado em todo lugar que precisa', () => {
   it.each(ids)('%s: tem portas próprias no lançador de desenvolvimento', (id) => {
     const dev = ler('scripts/dev.js');
