@@ -13,6 +13,8 @@ export interface LocalTrabalho {
   /** Id no cadastro de organizações, quando escolhido no combobox. */
   parteExternaId?: string;
   cargo?: string;
+  /** Onde a pessoa trabalha DENTRO do órgão — secretaria, unidade, setor. */
+  lotacao?: string;
   matricula?: string;
   descontoEmFolha?: boolean;
 }
@@ -224,6 +226,19 @@ export function LocaisTrabalhoSection({
                   onChange={(e) => mudar(i, 'cargo', e.target.value)}
                 />
               )}
+            </div>
+
+            <div className="space-y-1.5">
+              {/* LOTAÇÃO é o lugar DENTRO do órgão. O campo acima ("Local de
+                  trabalho") guarda o empregador; num sindicato de servidores é
+                  pela lotação que a base se organiza — e é ela que responde
+                  "quantos filiados temos na Secretaria de Saúde?". */}
+              <label className="text-sm font-medium">Lotação</label>
+              <Input
+                placeholder="Secretaria, unidade ou setor"
+                value={l.lotacao ?? ''}
+                onChange={(e) => mudar(i, 'lotacao', e.target.value)}
+              />
             </div>
 
             <div className="space-y-1.5">

@@ -69,6 +69,19 @@ export interface TenantConfig {
   };
   /** Artigo do estatuto que fundamenta a contribuição (sai no termo). */
   contribuicao?: { artigoEstatuto?: string; descricao?: string };
+  /**
+   * Campos do cadastro que ESTA instalação não usa.
+   *
+   * O caso que motivou: `formacao` é a escala de enfermagem (enfermeiro,
+   * técnico, auxiliar) e não significa nada num sindicato de servidores
+   * municipais, onde o que vale é o cargo — que já é texto livre no vínculo
+   * profissional.
+   *
+   * ESCONDER, E NÃO APAGAR: o campo continua no banco e no histórico do
+   * SENATEPI. Remover a coluna para agradar um cliente destruiria o dado do
+   * outro. Um campo oculto simplesmente não é pedido nem exibido.
+   */
+  camposOcultos?: string[];
   modulos: ModuloSistema[];
 }
 
@@ -96,6 +109,8 @@ export const tenant: TenantConfig = {
     artigoEstatuto: 'Art. 57, §1º',
     descricao: '1% sobre o maior vencimento básico ao qual esteja vinculado',
   },
+  // O SENATEPI usa todos os campos do cadastro.
+  camposOcultos: [],
   // Todos ligados: é a instalação de referência.
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',

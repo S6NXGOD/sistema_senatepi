@@ -109,6 +109,7 @@ export class FiliadosService {
         cpf,
         dataNascimento: dataCalendario(dto.dataNascimento),
         dataAdmissao: dataCalendario(dto.dataAdmissao),
+        vinculoFuncional: dto.vinculoFuncional,
         // Filiação registrada AGORA. Campo próprio para o gráfico de crescimento
         // não depender de `createdAt`, que a importação legada sobrescrevia.
         dataFiliacao: new Date(),
@@ -400,6 +401,7 @@ export class FiliadosService {
         cpf: dto.cpf ? dto.cpf.replace(/\D/g, '') : undefined,
         dataNascimento: dataCalendario(dto.dataNascimento),
         dataAdmissao: dataCalendario(dto.dataAdmissao),
+        vinculoFuncional: dto.vinculoFuncional,
         // Substitui os vínculos quando enviados
         vinculos: vinculos
           ? {

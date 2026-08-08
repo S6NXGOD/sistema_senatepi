@@ -33,6 +33,7 @@ import {
 import { LocaisTrabalhoSection, type LocalTrabalho } from '@/components/filiados/locais-trabalho-section';
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import { travado, AVISO_TRAVADO, type CampoImutavel } from '@/lib/campos-imutaveis';
+import { campoVisivel } from '@/tenant.config';
 
 // O local de trabalho e a sua edição vivem em locais-trabalho-section.tsx.
 
@@ -65,6 +66,8 @@ const schema = z.object({
     .min(1, 'COREN obrigatório')
     .regex(COREN_REGEX, 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)'),
   dataAdmissao: z.string().optional().refine(dataNaoFutura, MSG_DATA_FUTURA),
+  /** Vínculo com o EMPREGADOR — ver o enum no schema. */
+  vinculoFuncional: z.enum(['ATIVO', 'APOSENTADO', 'PENSIONISTA']).or(z.literal('')).optional(),
   situacao: z.enum(['ATIVO', 'INATIVO', 'DESFILIADO']).optional(),
   modalidadeContribuicao: z.enum(['DESCONTO_FOLHA', 'AVULSO', 'PENSIONISTA']).optional().or(z.literal('')),
 }).refine((d) => d.formacao !== 'OUTRO' || !!d.formacaoOutro?.trim(), {
@@ -118,6 +121,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       empresa: v.empresa ?? '',
       parteExternaId: v.parteExternaId ?? undefined,
       cargo: v.cargo ?? '',
+      lotacao: v.lotacao ?? '',
       matricula: v.matricula ?? '',
       descontoEmFolha: v.descontoEmFolha ?? false,
     })) ?? [],
@@ -175,6 +179,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           formacaoOutro: inicial.formacaoOutro ?? '',
           numeroCoren: inicial.numeroCoren ?? '',
           dataAdmissao: inicial.dataAdmissao?.slice(0, 10) ?? '',
+          vinculoFuncional: inicial.vinculoFuncional ?? '',
           situacao: inicial.situacao,
           modalidadeContribuicao: inicial.modalidadeContribuicao ?? '',
         }
@@ -246,6 +251,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           empresa: v.empresa.trim(),
           parteExternaId: v.parteExternaId || undefined,
           cargo: v.cargo?.trim() || undefined,
+          lotacao: v.lotacao?.trim() || undefined,
           matricula: v.matricula?.trim() || undefined,
           descontoEmFolha: !!v.descontoEmFolha,
           ordem: i + 1,
@@ -284,6 +290,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         formacaoOutro: d.formacao === 'OUTRO' ? d.formacaoOutro?.trim() : null,
         numeroCoren: d.numeroCoren,
         dataAdmissao: d.dataAdmissao || undefined,
+        vinculoFuncional: d.vinculoFuncional || undefined,
         modalidadeContribuicao: d.modalidadeContribuicao || undefined,
         // Situação NÃO é enviada no cadastro (novo filiado nasce ATIVO no back).
         // Só acompanha edição; a troca "rica" (motivo/termo) tem fluxo próprio.
@@ -505,27 +512,48 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         <CardHeader><CardTitle>Informações profissionais</CardTitle></CardHeader>
         <CardContent className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Campo label="Formação profissional *" erro={errors.formacao?.message}>
-              <select className={sel} {...register('formacao')}>{FORMACOES.map((f) => <option key={f} value={f}>{FORMACAO_LABEL[f]}</option>)}</select>
-            </Campo>
-            {watch('formacao') === 'OUTRO' && (
-              <Campo label="Qual a formação? *" erro={errors.formacaoOutro?.message}>
-                <Input placeholder="Descreva a formação" {...register('formacaoOutro')} />
+            {/* FORMAÇÃO e COREN são da enfermagem. Num sindicato de servidores
+                municipais o que vale é o cargo, que já existe no vínculo
+                profissional — por isso os dois campos podem ser desligados por
+                instalação, sem sumir do banco de quem os usa. */}
+            {campoVisivel('formacao') && (
+              <>
+                <Campo label="Formação profissional *" erro={errors.formacao?.message}>
+                  <select className={sel} {...register('formacao')}>{FORMACOES.map((f) => <option key={f} value={f}>{FORMACAO_LABEL[f]}</option>)}</select>
+                </Campo>
+                {watch('formacao') === 'OUTRO' && (
+                  <Campo label="Qual a formação? *" erro={errors.formacaoOutro?.message}>
+                    <Input placeholder="Descreva a formação" {...register('formacaoOutro')} />
+                  </Campo>
+                )}
+              </>
+            )}
+            {campoVisivel('numeroCoren') && (
+              <Campo label="Número COREN *" erro={errors.numeroCoren?.message}>
+                <Controller
+                  name="numeroCoren"
+                  control={control}
+                  render={({ field }) => (
+                    <Input
+                      placeholder="COREN-PI 000000-SSS"
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(mascararCoren(e.target.value))}
+                      onFocus={(e) => { if (!e.target.value) field.onChange('COREN-PI '); }}
+                    />
+                  )}
+                />
               </Campo>
             )}
-            <Campo label="Número COREN *" erro={errors.numeroCoren?.message}>
-              <Controller
-                name="numeroCoren"
-                control={control}
-                render={({ field }) => (
-                  <Input
-                    placeholder="COREN-PI 000000-SSS"
-                    value={field.value ?? ''}
-                    onChange={(e) => field.onChange(mascararCoren(e.target.value))}
-                    onFocus={(e) => { if (!e.target.value) field.onChange('COREN-PI '); }}
-                  />
-                )}
-              />
+            <Campo label="Vínculo funcional">
+              {/* Vínculo com o EMPREGADOR — diferente da situação no sindicato:
+                  um aposentado segue filiado, e um servidor na ativa pode estar
+                  desfiliado. */}
+              <select className={sel} {...register('vinculoFuncional')}>
+                <option value="">Não informado</option>
+                <option value="ATIVO">Ativo</option>
+                <option value="APOSENTADO">Aposentado</option>
+                <option value="PENSIONISTA">Pensionista</option>
+              </select>
             </Campo>
             <Campo label="Data de admissão" erro={errors.dataAdmissao?.message}>
               <Input type="date" {...LIMITES_DATA_PASSADA} {...register('dataAdmissao')} />

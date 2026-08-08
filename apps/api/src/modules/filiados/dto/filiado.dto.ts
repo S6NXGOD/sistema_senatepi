@@ -21,6 +21,7 @@ import {
   Sexo,
   SituacaoFiliado,
   TipoDependente,
+  VinculoFuncional,
 } from '@prisma/client';
 
 /**
@@ -39,7 +40,16 @@ export class VinculoDto {
   @IsOptional() @IsString() parteExternaId?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() cargo?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() matricula?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Lotação — onde a pessoa trabalha DENTRO do órgão (secretaria, unidade, setor). ' +
+      '`empresa` é o empregador; num sindicato de servidores é pela lotação que a base se organiza.',
+  })
+  @IsOptional() @IsString() lotacao?: string;
+
+  @ApiPropertyOptional({ description: 'Matrícula funcional no empregador (≠ matrícula do sindicato).' })
+  @IsOptional() @IsString() matricula?: string;
 
   @ApiPropertyOptional({
     default: false,
@@ -110,6 +120,15 @@ export class CreateFiliadoDto {
   })
   numeroCoren?: string;
   @ApiPropertyOptional() @IsOptional() @IsDataPassada() dataAdmissao?: string;
+
+  @ApiPropertyOptional({
+    enum: VinculoFuncional,
+    description:
+      'Vínculo com o EMPREGADOR (ativo/aposentado/pensionista). Não confundir com `situacao`, ' +
+      'que é o vínculo com o sindicato: um aposentado segue filiado, e um servidor na ativa ' +
+      'pode estar desfiliado.',
+  })
+  @IsOptional() @IsEnum(VinculoFuncional) vinculoFuncional?: VinculoFuncional;
 
   @ApiPropertyOptional({
     enum: ModalidadeContribuicao,

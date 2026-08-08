@@ -15,6 +15,8 @@ export interface Vinculo {
   /** Id no cadastro de organizações, quando escolhido no combobox. */
   parteExternaId?: string | null;
   cargo?: string | null;
+  /** Onde trabalha DENTRO do órgão — secretaria, unidade, setor. */
+  lotacao?: string | null;
   matricula?: string | null;
   /** A mensalidade é descontada NA FOLHA deste local. */
   descontoEmFolha?: boolean;
@@ -64,6 +66,8 @@ export interface Filiado {
   formacaoOutro?: string | null;
   numeroCoren?: string | null;
   dataAdmissao?: string | null;
+  /** Vínculo com o EMPREGADOR (≠ `situacao`, que é o vínculo com o sindicato). */
+  vinculoFuncional?: 'ATIVO' | 'APOSENTADO' | 'PENSIONISTA' | null;
   situacao: SituacaoFiliado;
   fotoUrl?: string | null;
   vinculos?: Vinculo[];
@@ -94,7 +98,7 @@ export const ORDENACOES_FILIADO = [
 
 export type OrdenacaoFiliado = (typeof ORDENACOES_FILIADO)[number]['valor'];
 
-export type TipoDependente = 'CONJUGE' | 'FILHO';
+export type TipoDependente = 'CONJUGE' | 'FILHO' | 'PAI' | 'MAE';
 
 /** Dependente editável junto com o cadastro. Sem `id` = novo. */
 export interface DependenteFiliado {
@@ -105,9 +109,16 @@ export interface DependenteFiliado {
   dataNascimento: string;
 }
 
+/**
+ * Só FILHO tem limite de idade (18 anos) — a regra vive no back
+ * (`dependenteValidoParaEvento`). Cônjuge, pai e mãe não perdem a condição
+ * com o tempo.
+ */
 export const TIPOS_DEPENDENTE: Array<{ valor: TipoDependente; rotulo: string }> = [
   { valor: 'FILHO', rotulo: 'Filho(a)' },
   { valor: 'CONJUGE', rotulo: 'Cônjuge' },
+  { valor: 'PAI', rotulo: 'Pai' },
+  { valor: 'MAE', rotulo: 'Mãe' },
 ];
 
 export const SITUACAO_LABEL: Record<SituacaoFiliado, string> = {

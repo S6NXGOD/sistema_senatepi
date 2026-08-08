@@ -38,6 +38,21 @@ enum EstadoCivil {
   OUTRO
 }
 
+/// Vínculo do filiado com o EMPREGADOR — não confundir com `SituacaoFiliado`,
+/// que é o vínculo dele com o SINDICATO.
+///
+/// São duas coisas distintas: um aposentado pode (e costuma) seguir filiado e
+/// em dia; um servidor na ativa pode estar desfiliado. Guardar as duas no mesmo
+/// campo obrigaria a escolher qual verdade contar.
+///
+/// Universal o bastante para ser enum: serve tanto a servidor público quanto a
+/// celetista. Nulo em quem não informou.
+enum VinculoFuncional {
+  ATIVO
+  APOSENTADO
+  PENSIONISTA
+}
+
 enum SituacaoFiliado {
   ATIVO
   INATIVO
@@ -63,6 +78,11 @@ enum TipoHistoricoFiliado {
 enum TipoDependente {
   CONJUGE
   FILHO
+  /// Pai e mãe entram como dependentes em sindicatos que estendem benefícios
+  /// (clube, convênios) à família de origem. Sem limite de idade, ao contrário
+  /// de FILHO — ver `dependenteValidoParaEvento`.
+  PAI
+  MAE
 }
 
 enum FormacaoProfissional {
@@ -339,6 +359,9 @@ model Filiado {
   buscaNormalizada   String?               @map("busca_normalizada")
   cidadeNormalizada  String?               @map("cidade_normalizada")
   dataAdmissao       DateTime?             @map("data_admissao")
+  /// Vínculo com o EMPREGADOR (ativo/aposentado/pensionista). Diferente de
+  /// `situacao`, que é o vínculo com o SINDICATO — ver o enum.
+  vinculoFuncional   VinculoFuncional?     @map("vinculo_funcional")
   // Situação
   situacao           SituacaoFiliado       @default(ATIVO)
   aprovadoEm         DateTime?             @map("aprovado_em")
@@ -435,6 +458,10 @@ model VinculoProfissional {
   parteExternaId String? @map("parte_externa_id")
 
   cargo     String?
+  /// Onde a pessoa trabalha DENTRO do órgão — secretaria, unidade, setor.
+  /// `empresa` é o empregador; num sindicato de servidores é pela lotação
+  /// que a base se organiza.
+  lotacao   String?
   matricula String? // matrícula na instituição
 
   /// A mensalidade sindical é descontada NA FOLHA DESTE local.

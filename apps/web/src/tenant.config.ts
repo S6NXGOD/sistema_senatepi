@@ -40,6 +40,11 @@ export interface TenantConfigWeb {
    * rota morta leva a pessoa a um erro.
    */
   modulos: ModuloKey[];
+  /**
+   * Campos do cadastro que esta instalação não usa — escondidos na tela, nunca
+   * apagados do banco. Ver o mesmo campo no `tenant.config.ts` da API.
+   */
+  camposOcultos?: string[];
 }
 
 /**
@@ -76,7 +81,14 @@ export const tenant: TenantConfigWeb = {
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
     'empresas', 'auditoria', 'usuarios',
   ],
+  // O SENATEPI usa todos os campos do cadastro.
+  camposOcultos: [],
 };
+
+/** O campo é usado nesta instalação? */
+export function campoVisivel(campo: string): boolean {
+  return !(tenant.camposOcultos ?? []).includes(campo);
+}
 
 /** O módulo está ligado nesta instalação? */
 export function moduloAtivo(modulo: ModuloKey): boolean {
