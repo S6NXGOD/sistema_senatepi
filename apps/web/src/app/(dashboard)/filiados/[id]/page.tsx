@@ -27,6 +27,7 @@ import { DependentesSection } from '@/components/filiados/dependentes-section';
 import { FinanceiroSection } from '@/components/filiados/financeiro-section';
 import { DossieDrawer } from '@/components/filiados/dossie-drawer';
 import { abrirPdf } from '@/lib/pdf';
+import { campoVisivel } from '@/tenant.config';
 
 const HIST_ICON: Record<string, any> = {
   FILIACAO: UserPlus,
@@ -114,7 +115,10 @@ export default function PerfilFiliadoPage() {
             <div>
               <h2 className="text-2xl font-bold">{f.nomeCompleto}</h2>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>{f.matricula}</span>·<span>{f.formacao ? FORMACAO_LABEL[f.formacao as keyof typeof FORMACAO_LABEL] : '-'}</span>
+                <span>{f.matricula}</span>
+                {campoVisivel('formacao') && (
+                  <>·<span>{f.formacao ? FORMACAO_LABEL[f.formacao as keyof typeof FORMACAO_LABEL] : '-'}</span></>
+                )}
                 <Badge className={SITUACAO_COR[f.situacao as keyof typeof SITUACAO_COR]}>{SITUACAO_LABEL[f.situacao as keyof typeof SITUACAO_LABEL]}</Badge>
               </div>
             </div>
@@ -154,8 +158,10 @@ export default function PerfilFiliadoPage() {
             <CardHeader><CardTitle>Dados profissionais</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                <Info label="Formação" valor={f.formacao === 'OUTRO' ? (f.formacaoOutro || 'Outro') : (f.formacao ? FORMACAO_LABEL[f.formacao as keyof typeof FORMACAO_LABEL] : '-')} />
-                <Info label="COREN" valor={f.numeroCoren} />
+                {campoVisivel('formacao') && (
+                  <Info label="Formação" valor={f.formacao === 'OUTRO' ? (f.formacaoOutro || 'Outro') : (f.formacao ? FORMACAO_LABEL[f.formacao as keyof typeof FORMACAO_LABEL] : '-')} />
+                )}
+                {campoVisivel('numeroCoren') && <Info label="COREN" valor={f.numeroCoren} />}
                 <Info label="Admissão" valor={formatarData(f.dataAdmissao)} />
                 <Info
                   label="Contribuição"

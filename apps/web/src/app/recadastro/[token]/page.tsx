@@ -19,6 +19,7 @@ import {
 } from '@/lib/recadastro';
 import { travado, type CampoImutavel } from '@/lib/campos-imutaveis';
 import { tenant } from '@/tenant.config';
+import { campoVisivel } from '@/tenant.config';
 
 const campo = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-11';
 
@@ -494,9 +495,11 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
                 <Input className={campo} value={f.formacaoOutro ?? ''} onChange={(e) => set('formacaoOutro', e.target.value)} />
               </Campo>
             )}
-            <Campo label="Número do COREN" dica="Formato: COREN-PI 000000-ENF">
-              <Input className={campo} value={f.numeroCoren ?? ''} onChange={(e) => set('numeroCoren', e.target.value)} />
-            </Campo>
+            {campoVisivel('numeroCoren') && (
+              <Campo label="Número do COREN" dica="Formato: COREN-PI 000000-ENF">
+                <Input className={campo} value={f.numeroCoren ?? ''} onChange={(e) => set('numeroCoren', e.target.value)} />
+              </Campo>
+            )}
             <Campo label="Data de admissão">
               <Input className={campo} type="date" {...LIMITES_DATA_PASSADA} value={f.dataAdmissao?.slice(0, 10) ?? ''} onChange={(e) => set('dataAdmissao', e.target.value)} />
             </Campo>

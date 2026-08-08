@@ -52,20 +52,24 @@ export const sindserm: TenantConfig = {
     descricao: 'Desconto em folha de pagamento da Prefeitura Municipal de Teresina', // confirmar percentual
   },
   /**
-   * `formacao` é a escala de enfermagem — não existe aqui. O campo continua no
-   * banco e no histórico do SENATEPI; nesta instalação ele apenas não é pedido
-   * nem exibido.
+   * `formacao` é a escala de enfermagem (enfermeiro, técnico, auxiliar) e
+   * `numeroCoren` é o registro no conselho de enfermagem. Nenhum dos dois
+   * significa coisa alguma para um servidor municipal — e os dois eram
+   * OBRIGATÓRIOS no formulário, então esconder um sem o outro deixava o
+   * cadastro impossível de enviar.
+   *
+   * Ambos continuam no banco e no histórico do SENATEPI. Aqui apenas não são
+   * pedidos nem exibidos.
    */
-  camposOcultos: ['formacao'],
+  camposOcultos: ['formacao', 'numeroCoren'],
   /**
    * `colonia` fora (não existe aqui) e `acessos` dentro (o clube é a razão de
    * ser da portaria).
    *
-   * `cobrancas` e `empresas` ficam DESLIGADAS por leitura, não por certeza:
-   * cobrança é boleto/PIX/carnê, e aqui a contribuição é só desconto em folha;
-   * «empresas (patronal)» pressupõe muitos empregadores privados, e aqui o
-   * empregador é um só, a Prefeitura. Ambas são um `push` de uma linha se a
-   * conversa com o sindicato disser o contrário. «confirmar»
+   * `cobrancas` e `empresas` ficam DESLIGADAS — confirmado pelo sindicato:
+   * cobrança é boleto/PIX/carnê, e aqui a contribuição é só desconto em folha
+   * da Prefeitura; «empresas (patronal)» pressupõe muitos empregadores
+   * privados, e aqui o empregador é um só.
    *
    * `escalas` fica LIGADA: apesar do nome, é a escala dos ADVOGADOS, não escala
    * de plantão de enfermagem — serve a qualquer sindicato com jurídico.

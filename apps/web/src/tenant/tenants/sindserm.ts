@@ -47,7 +47,8 @@ export const sindserm: TenantConfigWeb = {
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'acessos', 'auditoria', 'usuarios',
   ],
-  // `formacao` é a escala de enfermagem — não existe num sindicato de
-  // servidores municipais, onde o que vale é o cargo.
-  camposOcultos: ['formacao'],
+  // Escala de enfermagem e registro no conselho de enfermagem. Precisam sair
+  // JUNTOS: os dois eram obrigatórios no formulário, e esconder um sem o outro
+  // deixaria o cadastro impossível de enviar. Ver o mesmo campo na API.
+  camposOcultos: ['formacao', 'numeroCoren'],
 };

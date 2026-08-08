@@ -23,6 +23,7 @@ import {
   type OrdenacaoFiliado,
 } from '@/lib/filiados';
 import { FiliadoRowActions } from '@/components/filiados/filiado-row-actions';
+import { campoVisivel } from '@/tenant.config';
 
 const VAZIO = { busca: '', coren: '', cidade: '', situacao: '', dataInicio: '', dataFim: '' };
 type Filtros = typeof VAZIO;
@@ -131,7 +132,7 @@ export default function FiliadosPage() {
               // exemplo é escrito de propósito sem acento e com sobrenome
               // solto: é o jeito que as pessoas realmente digitam, e mostrar
               // que funciona vale mais do que uma instrução.
-              placeholder="Buscar por nome, CPF, matrícula ou COREN — ex.: maria silva"
+              placeholder={`Buscar por nome, CPF, matrícula${campoVisivel('numeroCoren') ? ' ou COREN' : ''} — ex.: maria silva`}
               className="pl-10 pr-9"
               value={rascunho.busca}
               onChange={(e) => setR('busca', e.target.value)}
@@ -215,9 +216,11 @@ export default function FiliadosPage() {
           <Card>
             <CardContent className="space-y-3 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Campo label="COREN">
-                  <Input placeholder="Ex.: 123456" value={rascunho.coren} onChange={(e) => setR('coren', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }} />
-                </Campo>
+                {campoVisivel('numeroCoren') && (
+                  <Campo label="COREN">
+                    <Input placeholder="Ex.: 123456" value={rascunho.coren} onChange={(e) => setR('coren', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }} />
+                  </Campo>
+                )}
                 <Campo label="Cidade">
                   <Input placeholder="Ex.: Teresina" value={rascunho.cidade} onChange={(e) => setR('cidade', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }} />
                 </Campo>
@@ -267,7 +270,7 @@ export default function FiliadosPage() {
                   <th className="px-4 py-3 font-medium">Nome</th>
                   <th className="px-4 py-3 font-medium">CPF</th>
                   <th className="px-4 py-3 font-medium">Matrícula</th>
-                  <th className="px-4 py-3 font-medium">Categoria</th>
+                  {campoVisivel('formacao') && <th className="px-4 py-3 font-medium">Categoria</th>}
                   <th className="px-4 py-3 font-medium">Telefone</th>
                   <th className="px-4 py-3 font-medium">Situação</th>
                   <th className="px-4 py-3 font-medium">Filiação</th>
@@ -295,7 +298,9 @@ export default function FiliadosPage() {
                     </td>
                     <td className="px-4 py-3">{f.cpf ? mascararCpf(f.cpf) : '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs">{f.matricula}</td>
-                    <td className="px-4 py-3 text-xs">{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</td>
+                    {campoVisivel('formacao') && (
+                      <td className="px-4 py-3 text-xs">{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</td>
+                    )}
                     <td className="px-4 py-3">{f.telefonePrincipal ?? '—'}</td>
                     <td className="px-4 py-3"><Badge className={SITUACAO_COR[f.situacao]}>{SITUACAO_LABEL[f.situacao]}</Badge></td>
                     <td className="px-4 py-3"><DataFiliacao f={f} /></td>
@@ -488,7 +493,9 @@ function FiliadoCardMobile({ f, onChanged }: { f: Filiado; onChanged: () => void
         </div>
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
           <Info label="CPF" valor={f.cpf ? mascararCpf(f.cpf) : '—'} />
-          <Info label="Categoria" valor={f.formacao ? FORMACAO_LABEL[f.formacao] : '—'} />
+          {campoVisivel('formacao') && (
+            <Info label="Categoria" valor={f.formacao ? FORMACAO_LABEL[f.formacao] : '—'} />
+          )}
           <Info label="Telefone" valor={f.telefonePrincipal ?? '—'} />
           <Info
             label="Filiação"

@@ -28,7 +28,7 @@ import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { formatNPU, STATUS_PROCESSO_LABEL } from '@/lib/processos';
 import { FORMACAO_LABEL, SITUACAO_COR, SITUACAO_LABEL } from '@/lib/filiados';
 import { ORIGEM_COR, ORIGEM_LABEL, ehImagem, formatTamanho } from '@/lib/anexos';
-import { tenant } from '@/tenant.config';
+import { campoVisivel, tenant } from '@/tenant.config';
 
 /**
  * DOSSIÊ DO FILIADO — o histórico completo do associado, sem sair da listagem.
@@ -93,8 +93,15 @@ export function DossieDrawer({
             {f && (
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="font-mono">{f.matricula}</span>
-                <span>·</span>
-                <span>{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</span>
+                {/* Escondido no formulário mas visível aqui, o campo voltava
+                    pela porta dos fundos — e numa instalação sem formação o
+                    traço seco ("—") ainda ocuparia a linha de identificação. */}
+                {campoVisivel('formacao') && (
+                  <>
+                    <span>·</span>
+                    <span>{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</span>
+                  </>
+                )}
                 <Badge className={cn('text-[10px]', SITUACAO_COR[f.situacao])}>
                   {SITUACAO_LABEL[f.situacao]}
                 </Badge>

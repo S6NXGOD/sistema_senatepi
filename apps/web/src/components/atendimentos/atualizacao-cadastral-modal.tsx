@@ -12,6 +12,7 @@ import {
   type DependenteFiliado, type Filiado,
 } from '@/lib/filiados';
 import { travado, AVISO_TRAVADO, AVISO_VAZIO_LIBERADO, type CampoImutavel } from '@/lib/campos-imutaveis';
+import { campoVisivel } from '@/tenant.config';
 
 const sel = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
 const SEXOS = ['MASCULINO', 'FEMININO', 'OUTRO'];
@@ -255,7 +256,9 @@ export function AtualizacaoCadastralModal({
                     {FORMACOES.map((s) => <option key={s} value={s}>{ROTULO[s] ?? s}</option>)}
                   </select>
                 </Campo>
-                <Campo label="Número do COREN"><Input value={form.numeroCoren} onChange={(e) => set('numeroCoren', e.target.value)} /></Campo>
+                {campoVisivel('numeroCoren') && (
+                  <Campo label="Número do COREN"><Input value={form.numeroCoren} onChange={(e) => set('numeroCoren', e.target.value)} /></Campo>
+                )}
                 <Campo label="Data de admissão"><Input type="date" value={form.dataAdmissao} onChange={(e) => set('dataAdmissao', e.target.value)} /></Campo>
               </div>
               {form.formacao === 'OUTRO' && (

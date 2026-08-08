@@ -37,7 +37,7 @@ import { campoVisivel } from '@/tenant.config';
 
 // O local de trabalho e a sua edição vivem em locais-trabalho-section.tsx.
 
-const schema = z.object({
+export const schema = z.object({
   nomeCompleto: z.string().min(3, 'Informe o nome'),
   cpf: z.string().min(11, 'CPF inválido'),
   rg: z.string().optional(),
@@ -59,22 +59,63 @@ const schema = z.object({
   bairro: z.string().optional(),
   cidade: z.string().min(1, 'Cidade obrigatória'),
   estado: z.string().min(1, 'Estado obrigatório'),
-  formacao: z.enum(['ENFERMEIRO', 'TECNICO_ENFERMAGEM', 'AUXILIAR_ENFERMAGEM', 'OUTRO']),
+  /**
+   * FORMAÇÃO e COREN são declarados OPCIONAIS aqui e exigidos no `superRefine`
+   * abaixo, conforme a instalação.
+   *
+   * Exigi-los no schema quebrava o cadastro inteiro numa instalação que esconde
+   * os dois: o campo não é renderizado, o zod reprova mesmo assim, e o erro fica
+   * preso num campo invisível — formulário que não envia e não diz por quê.
+   *
+   * Opcional-com-superRefine em vez de um schema condicional porque assim o
+   * `FormData` continua tendo UM tipo só; um `z.infer` que muda por cliente
+   * viraria união e espalharia `as` pelo arquivo.
+   */
+  formacao: z.enum(['ENFERMEIRO', 'TECNICO_ENFERMAGEM', 'AUXILIAR_ENFERMAGEM', 'OUTRO']).optional(),
   formacaoOutro: z.string().optional(),
-  numeroCoren: z
-    .string()
-    .min(1, 'COREN obrigatório')
-    .regex(COREN_REGEX, 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)'),
+  numeroCoren: z.string().optional(),
   dataAdmissao: z.string().optional().refine(dataNaoFutura, MSG_DATA_FUTURA),
   /** Vínculo com o EMPREGADOR — ver o enum no schema. */
   vinculoFuncional: z.enum(['ATIVO', 'APOSENTADO', 'PENSIONISTA']).or(z.literal('')).optional(),
   situacao: z.enum(['ATIVO', 'INATIVO', 'DESFILIADO']).optional(),
   modalidadeContribuicao: z.enum(['DESCONTO_FOLHA', 'AVULSO', 'PENSIONISTA']).optional().or(z.literal('')),
-}).refine((d) => d.formacao !== 'OUTRO' || !!d.formacaoOutro?.trim(), {
-  path: ['formacaoOutro'],
-  message: 'Descreva a formação',
+}).superRefine((d, ctx) => {
+  // Onde os campos APARECEM, a exigência é exatamente a de sempre. Onde não
+  // aparecem, não há o que exigir.
+  if (campoVisivel('formacao')) {
+    if (!d.formacao) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['formacao'], message: 'Formação obrigatória' });
+    }
+    if (d.formacao === 'OUTRO' && !d.formacaoOutro?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['formacaoOutro'], message: 'Descreva a formação' });
+    }
+  }
+  if (campoVisivel('numeroCoren')) {
+    const coren = d.numeroCoren?.trim();
+    if (!coren) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['numeroCoren'], message: 'COREN obrigatório' });
+    } else if (!COREN_REGEX.test(coren)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['numeroCoren'],
+        message: 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)',
+      });
+    }
+  }
 });
 type FormData = z.infer<typeof schema>;
+
+/**
+ * Formação inicial do formulário — e `undefined` onde o campo está escondido.
+ *
+ * Era `'ENFERMEIRO'` fixo. Numa instalação sem o campo, isso não seria só um
+ * default inútil: TODO cadastro sairia gravado como enfermeiro, sem ninguém
+ * escolher e sem nada na tela para desmentir. Default invisível é dado
+ * inventado.
+ */
+const PADRAO_FORMACAO: FormData['formacao'] = campoVisivel('formacao')
+  ? 'ENFERMEIRO'
+  : undefined;
 
 const SEXOS = ['MASCULINO', 'FEMININO', 'OUTRO'];
 const ESTADOS_CIVIS = ['SOLTEIRO', 'CASADO', 'DIVORCIADO', 'VIUVO', 'UNIAO_ESTAVEL', 'OUTRO'];
@@ -175,7 +216,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           bairro: inicial.bairro ?? '',
           cidade: inicial.cidade ?? '',
           estado: inicial.estado ?? '',
-          formacao: (inicial.formacao as FormData['formacao']) ?? 'ENFERMEIRO',
+          formacao: (inicial.formacao as FormData['formacao']) ?? PADRAO_FORMACAO,
           formacaoOutro: inicial.formacaoOutro ?? '',
           numeroCoren: inicial.numeroCoren ?? '',
           dataAdmissao: inicial.dataAdmissao?.slice(0, 10) ?? '',
@@ -183,7 +224,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           situacao: inicial.situacao,
           modalidadeContribuicao: inicial.modalidadeContribuicao ?? '',
         }
-      : { formacao: 'ENFERMEIRO' },
+      : { formacao: PADRAO_FORMACAO },
   });
 
   // Municípios da UF escolhida alimentam o autocomplete da cidade. O resultado
@@ -286,9 +327,12 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         bairro: d.bairro,
         cidade: d.cidade,
         estado: d.estado,
-        formacao: d.formacao,
+        // `|| undefined` e não o valor cru: com o campo escondido, `numeroCoren`
+        // chegaria como string vazia e a API a reprovaria no formato do COREN —
+        // um erro de validação vindo de um campo que a pessoa nem viu.
+        formacao: d.formacao || undefined,
         formacaoOutro: d.formacao === 'OUTRO' ? d.formacaoOutro?.trim() : null,
-        numeroCoren: d.numeroCoren,
+        numeroCoren: d.numeroCoren?.trim() || undefined,
         dataAdmissao: d.dataAdmissao || undefined,
         vinculoFuncional: d.vinculoFuncional || undefined,
         modalidadeContribuicao: d.modalidadeContribuicao || undefined,
