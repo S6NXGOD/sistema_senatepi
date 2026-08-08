@@ -29,6 +29,7 @@ import {
 } from '@/components/dashboard/widgets';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { cn } from '@/lib/utils';
+import { tenant } from '@/tenant.config';
 
 const BADGE_ROLE: Record<PerfilUsuario, string> = {
   ADMINISTRADOR: 'bg-rose-600 text-white',
@@ -165,7 +166,7 @@ function HeroHeader({
         <div>
           <div className="flex items-center gap-2 text-sm text-white/80">
             <Activity className="h-4 w-4" />
-            <span>Painel · SENATEPI</span>
+            <span>Painel · {tenant.sigla}</span>
           </div>
           <h1 className="mt-1 text-2xl font-bold md:text-3xl">{saudacao(nome)} 👋</h1>
           <p className="mt-0.5 text-sm text-white/80">{dataPorExtenso()}</p>
@@ -858,7 +859,7 @@ function Aniversariantes({ data }: { data: ResumoDashboard }) {
       <ul className="divide-y divide-border/60">
         {itens.map((p) => {
           const primeiroNome = p.nome.split(' ')[0];
-          const msg = `Olá, ${primeiroNome}! O SENATEPI deseja a você um feliz aniversário! 🎉`;
+          const msg = `Olá, ${primeiroNome}! O ${tenant.sigla} deseja a você um feliz aniversário! 🎉`;
           const zap = p.telefone
             ? `https://wa.me/55${p.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`
             : null;

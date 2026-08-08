@@ -5,6 +5,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { apenasDigitosCnpj, cnpjValido, formatarCnpj } from '../../common/utils/cnpj.util';
 import { DadosCnpj } from './dto/empresa.dto';
+import { tenant } from '../../tenant/tenant.config';
 
 /** Resposta da BrasilAPI (só o que consumimos; ela devolve muito mais). */
 interface RespostaBrasilApi {
@@ -63,7 +64,7 @@ export class BrasilApiService {
     try {
       const res = await fetch(`${this.baseUrl}/${cnpj}`, {
         // A BrasilAPI responde 403 para requisições sem User-Agent.
-        headers: { 'User-Agent': 'SENATEPI/1.0', Accept: 'application/json' },
+        headers: { 'User-Agent': `${tenant.sigla}/1.0`, Accept: 'application/json' },
         signal: controller.signal,
       });
 

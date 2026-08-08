@@ -1,10 +1,11 @@
 import { cn } from '@/lib/utils';
+import { tenant } from '@/tenant.config';
 
 type Orientacao = 'horizontal' | 'vertical';
 type Variante = 'auto' | 'cor' | 'branco';
 
 /**
- * Logo oficial do SENATEPI (arquivos em /public).
+ * Logo da instalação (arquivos em /public, nomeados pelo id do cliente).
  * - variant="auto"   → verde no tema claro, branco no escuro (troca via CSS)
  * - variant="cor"    → sempre verde (fundos claros)
  * - variant="branco" → sempre branco (fundos escuros/verdes)
@@ -20,15 +21,21 @@ export function Logo({
   variant?: Variante;
   orientation?: Orientacao;
 }) {
-  const arquivo = (cor: 'verde' | 'branco') => `/senatepi-${orientation}-${cor}.png`;
+  /**
+   * O arquivo é nomeado pelo ID DA INSTALAÇÃO — `/senatepi-horizontal-verde.png`
+   * hoje, `/sindserm-horizontal-verde.png` no próximo cliente. Assim trocar a
+   * marca é soltar quatro PNGs em `/public` e mudar o `id` no `tenant.config`,
+   * sem tocar em componente.
+   */
+  const arquivo = (cor: 'verde' | 'branco') => `/${tenant.id}-${orientation}-${cor}.png`;
 
   if (variant === 'auto') {
     return (
       <span className={cn('inline-flex items-center', className)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={arquivo('verde')} alt="SENATEPI" className="block h-full w-auto object-contain dark:hidden" />
+        <img src={arquivo('verde')} alt={tenant.sigla} className="block h-full w-auto object-contain dark:hidden" />
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={arquivo('branco')} alt="SENATEPI" className="hidden h-full w-auto object-contain dark:block" />
+        <img src={arquivo('branco')} alt={tenant.sigla} className="hidden h-full w-auto object-contain dark:block" />
       </span>
     );
   }
@@ -37,7 +44,7 @@ export function Logo({
   return (
     <span className={cn('inline-flex items-center', className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={arquivo(cor)} alt="SENATEPI" className="h-full w-auto object-contain" />
+      <img src={arquivo(cor)} alt={tenant.sigla} className="h-full w-auto object-contain" />
     </span>
   );
 }

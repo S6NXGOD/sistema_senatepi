@@ -254,7 +254,7 @@ export function PartesPanel({
 
 // ---------------------------------------------------------------------------
 
-/** Um lado do confronto ("SENATEPI" × "PRONTOCARE"). */
+/** Um lado do confronto (autor × réu). */
 function LadoConfronto({
   parte, outros, polo,
 }: {

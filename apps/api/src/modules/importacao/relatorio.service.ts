@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { lerAsset } from '../../common/assets.util';
+import { tenant } from '../../tenant/tenant.config';
 
 const VERDE_ESCURO = '#1B7F0A';
 
@@ -42,9 +43,9 @@ export class RelatorioImportacaoService {
       doc.rect(0, 0, doc.page.width, 64).fill(VERDE_ESCURO);
       const logo = lerAsset('senatepi-horizontal-branco.png');
       if (logo) {
-        try { doc.image(logo, 50, 18, { fit: [170, 26] }); } catch { doc.fillColor('#FFF').fontSize(16).text('SENATEPI', 50, 22); }
+        try { doc.image(logo, 50, 18, { fit: [170, 26] }); } catch { doc.fillColor('#FFF').fontSize(16).text(tenant.sigla, 50, 22); }
       } else {
-        doc.fillColor('#FFF').fontSize(16).text('SENATEPI', 50, 22);
+        doc.fillColor('#FFF').fontSize(16).text(tenant.sigla, 50, 22);
       }
       doc.fillColor('#FFFFFF').fontSize(9).text('Relatório de Importação de Filiados', 50, 44);
 
@@ -98,7 +99,7 @@ export class RelatorioImportacaoService {
     });
 
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'SENATEPI';
+    wb.creator = tenant.sigla;
 
     const resumo = wb.addWorksheet('Resumo');
     resumo.columns = [

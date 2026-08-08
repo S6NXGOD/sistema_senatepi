@@ -26,6 +26,7 @@ import {
   aliasTribunalDoNPU, ORIGEM_SUGESTAO_LABEL,
   ProcessoDetalhe, ConsultaDatajud, SugestaoAdvogado, PoloAtivoInput,
 } from '@/lib/processos';
+import { tenant } from '@/tenant.config';
 
 /**
  * Como o polo ativo é preenchido. A escolha muda o que o formulário pede e o
@@ -38,12 +39,12 @@ const OPCOES_POLO: { modo: ModoPoloAtivo; icone: typeof User; titulo: string; aj
     modo: 'INSTITUCIONAL',
     icone: Landmark,
     titulo: '🏛️ Ação Coletiva / Institucional',
-    ajuda: 'O SENATEPI move a ação em nome da categoria.',
+    ajuda: `O ${tenant.sigla} move a ação em nome da categoria.`,
   },
   {
     modo: 'FILIADOS',
     icone: Users,
-    titulo: '👤 Filiado(s) do SENATEPI',
+    titulo: `👤 Filiado(s) do ${tenant.sigla}`,
     ajuda: 'Um ou mais filiados já cadastrados.',
   },
   {
@@ -746,7 +747,7 @@ export function ImportarProcessoDialog({
             {modoPolo === 'INSTITUCIONAL' && (
               <div className="rounded-lg border border-brand-400/60 bg-brand-50/60 px-3 py-2 dark:bg-brand-900/10">
                 <p className="text-xs font-semibold text-brand-800 dark:text-brand-400">
-                  🏛️ Ação Institucional (SENATEPI)
+                  🏛️ Ação Institucional ({tenant.sigla})
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   O sindicato entra como autor. O processo é marcado como coletivo e não cobra

@@ -13,6 +13,7 @@ import {
   gerarContribuicao, anexarDocumentos, mascaraMoeda, moedaParaNumero, formatarReais,
   type DadosPix, type ErroPortal,
 } from '@/lib/portal-empresa';
+import { tenant } from '@/tenant.config';
 
 type Passo = 1 | 2 | 3 | 4;
 
@@ -285,7 +286,7 @@ export function NovaDeclaracaoWizard({ open, onClose }: { open: boolean; onClose
             <CheckCircle2 className="h-12 w-12 text-brand-600" />
             <h4 className="text-lg font-bold">Declaração enviada!</h4>
             <p className="max-w-xs text-sm text-muted-foreground">
-              Seus documentos foram recebidos e estão <strong>em análise</strong> pelo SENATEPI.
+              Seus documentos foram recebidos e estão <strong>em análise</strong> pelo {tenant.sigla}.
               Acompanhe a situação pelo histórico.
             </p>
             <Button className="mt-2 w-full" onClick={fechar}>Voltar ao portal</Button>
@@ -314,7 +315,7 @@ export function AvisoLgpd() {
         </strong>{' '}
         (Fonte: Diário Oficial da União). Os dados pessoais constantes do documento serão tratados
         exclusivamente para conferência e homologação da contribuição patronal, com acesso restrito
-        à equipe do SENATEPI e armazenamento em ambiente controlado.
+        à equipe do {tenant.sigla} e armazenamento em ambiente controlado.
       </p>
     </div>
   );

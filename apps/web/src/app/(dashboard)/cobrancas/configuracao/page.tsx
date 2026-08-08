@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getConfig, salvarConfig, ConfiguracaoSindicato } from '@/lib/cobrancas';
+import { tenant } from '@/tenant.config';
 
 type FormConfig = {
   pixChave: string;
@@ -109,7 +110,7 @@ export default function ConfiguracaoCobrancasPage() {
               </Campo>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Campo label="Nome do recebedor" dica="Aparece no QR (máx. 25 caracteres).">
-                  <Input maxLength={25} placeholder="SINDICATO SENATEPI" value={form.pixNomeRecebedor} onChange={(e) => set('pixNomeRecebedor', e.target.value)} />
+                  <Input maxLength={25} placeholder={`SINDICATO ${tenant.sigla}`} value={form.pixNomeRecebedor} onChange={(e) => set('pixNomeRecebedor', e.target.value)} />
                 </Campo>
                 <Campo label="Cidade do recebedor" dica="Aparece no QR (máx. 15 caracteres).">
                   <Input maxLength={15} placeholder="TERESINA" value={form.pixCidade} onChange={(e) => set('pixCidade', e.target.value)} />

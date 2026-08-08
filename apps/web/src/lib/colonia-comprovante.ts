@@ -9,7 +9,8 @@ import {
 } from './colonia';
 import {
   VERDE, CINZA, AMBAR_BG, AMBAR_BORDA, AMBAR_TXT, MARGEM, desenharCabecalho,
-} from './pdf-senatepi';
+} from './pdf-institucional';
+import { tenant } from '@/tenant.config';
 
 /** Aviso de destaque exibido também na tela de sucesso. */
 export const AVISO_APRESENTAR =
@@ -34,8 +35,8 @@ export function montarTextoCompartilhamento(info: ComprovanteInfo, linkPublico?:
   const sorteio = info.tipo === 'SORTEIO';
   const linhas = [
     sorteio
-      ? '✅ Inscrição no sorteio da Colônia de Férias SENATEPI confirmada!'
-      : '✅ Reserva confirmada na Colônia de Férias SENATEPI!',
+      ? `✅ Inscrição no sorteio da Colônia de Férias ${tenant.sigla} confirmada!`
+      : `✅ Reserva confirmada na Colônia de Férias ${tenant.sigla}!`,
     '',
     `📌 ${info.campanha} — Lote ${info.loteNumero}`,
     `🟢 Check-in: ${formatarDataHoraLote(info.dataInicio)}`,
@@ -61,7 +62,7 @@ export async function gerarComprovantePdf(info: ComprovanteInfo): Promise<void> 
   const M = MARGEM;
   const contentW = pageW - M * 2;
 
-  // ---- Cabeçalho institucional (logo SENATEPI) ----
+  // ---- Cabeçalho institucional (logo da instalação) ----
   let y = await desenharCabecalho(doc, 'Comprovante de Reserva');
 
   // ---- Protocolo / emissão ----
@@ -166,7 +167,7 @@ export async function gerarComprovantePdf(info: ComprovanteInfo): Promise<void> 
   doc.setTextColor(...CINZA);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text('Secretaria SENATEPI', M, y);
+  doc.text(`Secretaria ${tenant.sigla}`, M, y);
   y += 5;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);

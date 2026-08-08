@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import {
   getCarne, CarneData, TIPO_LABEL, formatBRL, formatData, formatCpf,
 } from '@/lib/cobrancas';
+import { tenant } from '@/tenant.config';
 
 const LGPD =
   'Documento em conformidade com a LGPD (Lei nº 13.709/2018): dados pessoais tratados exclusivamente para fins de gestão financeira associativa.';
@@ -74,7 +75,7 @@ export function CarnePrintModal({ cobrancaId, onClose }: { cobrancaId: string; o
 
 function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['parcelas'][number] }) {
   const { config, filiado, cobranca } = data;
-  const recebedor = config?.pixNomeRecebedor ?? 'SENATEPI';
+  const recebedor = config?.pixNomeRecebedor ?? tenant.sigla;
   const posicao = `${parcela.numero}/${cobranca.totalParcelas}`;
   const rodape = [config?.textoRodapeCarne, LGPD].filter(Boolean).join(' ');
 
@@ -87,7 +88,7 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
           // eslint-disable-next-line @next/next/no-img-element
           <img src={config.logoUrl} alt="" className="mb-1 h-6 object-contain" />
         ) : (
-          <p className="text-xs font-bold text-brand-800">SENATEPI</p>
+          <p className="text-xs font-bold text-brand-800">{tenant.sigla}</p>
         )}
         <MiniLinha rotulo="Filiado" valor={filiado.nomeCompleto} />
         <MiniLinha rotulo="Matrícula" valor={filiado.matricula} />

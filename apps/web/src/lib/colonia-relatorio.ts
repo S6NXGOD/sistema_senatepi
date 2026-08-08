@@ -3,7 +3,7 @@ import {
 } from './colonia';
 import {
   VERDE, CINZA, MARGEM, carregarLogo, desenharCabecalhoSync, desenharRodapeGeracao,
-} from './pdf-senatepi';
+} from './pdf-institucional';
 
 const slug = (s: string) => s.replace(/\s+/g, '-').replace(/[^\w-]/g, '').toLowerCase();
 

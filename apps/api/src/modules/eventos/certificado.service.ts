@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
 import { lerAsset } from '../../common/assets.util';
 import { lerConfiguracoes } from './configuracoes-evento';
+import { tenant } from '../../tenant/tenant.config';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -126,7 +127,7 @@ export class CertificadoService {
         try { doc.image(logo, 40, 28, { fit: [140, 36] }); } catch { /* segue sem logo */ }
       }
       doc.font('Helvetica').fontSize(7.5).fillColor('#E8F5E3').text(
-        'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ\nCNPJ: 11.378.331/0001-86',
+        `${tenant.nome}\nCNPJ: ${tenant.cnpj}`,
         W - 350, 34, { align: 'right', width: 300, lineGap: 2 },
       );
 
@@ -159,7 +160,7 @@ export class CertificadoService {
       doc.moveTo(W / 2 - 130, yAss).lineTo(W / 2 + 130, yAss)
         .strokeColor('#9CA3AF').lineWidth(0.8).stroke();
       doc.font('Helvetica-Bold').fontSize(9).fillColor('#111827')
-        .text('DIRETORIA DO SENATEPI', W / 2 - 130, yAss + 6, { align: 'center', width: 260 });
+        .text(`DIRETORIA DO ${tenant.sigla}`, W / 2 - 130, yAss + 6, { align: 'center', width: 260 });
 
       // Código de verificação — é o que torna o documento conferível por quem
       // o recebe, sem precisar de acesso ao sistema.
@@ -168,7 +169,7 @@ export class CertificadoService {
         40, H - 62, { align: 'center', width: W - 80 },
       );
       doc.fontSize(7).text(
-        'A autenticidade deste certificado pode ser conferida junto ao SENATEPI ' +
+        `A autenticidade deste certificado pode ser conferida junto ao ${tenant.sigla} ` +
         'mediante informação do código acima.',
         40, H - 50, { align: 'center', width: W - 80 },
       );

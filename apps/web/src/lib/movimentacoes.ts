@@ -246,7 +246,7 @@ export interface DossieProcesso {
   dataDistribuicao: string | null;
   valorCausa: string | number | null;
   statusInterno: StatusProcesso;
-  /** INSTITUCIONAL = ação coletiva do SENATEPI (badge no cabeçalho). */
+  /** INSTITUCIONAL = ação coletiva do sindicato (badge no cabeçalho). */
   tipoAcao?: TipoAcaoProcesso;
   ultimaSincronizacao: string | null;
   createdAt: string;

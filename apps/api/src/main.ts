@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { StorageService } from './common/storage/storage.service';
 import { validarAmbiente } from './common/config/validar-ambiente';
+import { tenant } from './tenant/tenant.config';
 
 async function bootstrap() {
   // Fail-fast: barra o boot em produção com segredos ausentes/inseguros.
@@ -57,8 +58,8 @@ async function bootstrap() {
     config.get<string>('NODE_ENV') !== 'production';
   if (swaggerHabilitado) {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('SENATEPI API')
-      .setDescription('API de gestão sindical do SENATEPI')
+      .setTitle(`${tenant.sigla} API`)
+      .setDescription(`API de gestão sindical do ${tenant.sigla}`)
       .setVersion('1.0')
       .addBearerAuth()
       .build();
@@ -70,7 +71,7 @@ async function bootstrap() {
   const port = Number(config.get('PORT') ?? config.get('API_PORT', 3333));
   await app.listen(port, '0.0.0.0');
   // eslint-disable-next-line no-console
-  console.log(`🚀 SENATEPI API rodando na porta ${port} (prefixo /${prefix})`);
+  console.log(`🚀 ${tenant.sigla} API rodando na porta ${port} (prefixo /${prefix})`);
 }
 
 bootstrap().catch((err) => {

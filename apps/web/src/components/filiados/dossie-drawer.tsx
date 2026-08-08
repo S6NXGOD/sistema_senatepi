@@ -28,6 +28,7 @@ import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { formatNPU, STATUS_PROCESSO_LABEL } from '@/lib/processos';
 import { FORMACAO_LABEL, SITUACAO_COR, SITUACAO_LABEL } from '@/lib/filiados';
 import { ORIGEM_COR, ORIGEM_LABEL, ehImagem, formatTamanho } from '@/lib/anexos';
+import { tenant } from '@/tenant.config';
 
 /**
  * DOSSIÊ DO FILIADO — o histórico completo do associado, sem sair da listagem.
@@ -179,7 +180,7 @@ function AbaResumo({ d }: { d: Dossie }) {
   const { filiado: f, resumo: r } = d;
   const whats = linkWhatsApp(
     f.telefonePrincipal,
-    `Olá, ${f.nomeCompleto.split(' ')[0]}! 👋 Aqui é do *SENATEPI*.`,
+    `Olá, ${f.nomeCompleto.split(' ')[0]}! 👋 Aqui é do *${tenant.sigla}*.`,
   );
 
   return (

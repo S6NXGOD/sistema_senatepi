@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Logo } from '@/components/logo';
 import { InstallHint } from '@/components/install-hint';
+import { tenant } from '@/tenant.config';
 
 const schema = z.object({
   email: z.string().email('E-mail inválido'),
@@ -41,7 +42,7 @@ export default function LoginPage() {
     setEnviando(true);
     try {
       await login(data.email, data.senha, data.lembrar);
-      toast.success('Bem-vindo(a) ao SENATEPI');
+      toast.success(`Bem-vindo(a) ao ${tenant.sigla}`);
     } catch {
       toast.error('Credenciais inválidas');
     } finally {
@@ -64,7 +65,7 @@ export default function LoginPage() {
           </p>
         </div>
         <p className="text-sm text-white/60">
-          © {new Date().getFullYear()} SENATEPI — Sindicato dos Enfermeiros do Piauí
+          © {new Date().getFullYear()} {tenant.sigla} — {tenant.descricao}
         </p>
       </div>
 

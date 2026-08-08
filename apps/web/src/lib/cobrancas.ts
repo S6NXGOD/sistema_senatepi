@@ -1,4 +1,5 @@
 import { api } from './api';
+import { tenant } from '@/tenant.config';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -179,7 +180,7 @@ export function mensagemCobranca(p: {
   const primeiroNome = p.nome.trim().split(/\s+/)[0] || p.nome;
   let msg =
     `Olá, ${primeiroNome}! 👋\n\n` +
-    `Aqui é do *SENATEPI*. Passando para lembrar da sua parcela com vencimento em ` +
+    `Aqui é do *${tenant.sigla}*. Passando para lembrar da sua parcela com vencimento em ` +
     `*${formatData(p.vencimento)}*, no valor de *${formatBRL(p.valor)}*.`;
   if (p.copiaECola) {
     msg +=

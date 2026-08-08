@@ -24,6 +24,7 @@ import {
 import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
 import { dataBr, desde } from '@/lib/dossie';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
+import { tenant } from '@/tenant.config';
 
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -481,9 +482,9 @@ function BadgeInstitucional({ className }: { className?: string }) {
         'inline-flex w-fit items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300',
         className,
       )}
-      title="Ação coletiva movida pelo SENATEPI em nome da categoria"
+      title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
     >
-      🏛️ Ação Institucional (SENATEPI)
+      🏛️ Ação Institucional ({tenant.sigla})
     </span>
   );
 }

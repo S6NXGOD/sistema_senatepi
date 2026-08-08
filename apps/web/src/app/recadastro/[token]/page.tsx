@@ -18,6 +18,7 @@ import {
   type LinkAberto, type FiliadoRecadastro, type VinculoFiliado, type DependenteFiliado,
 } from '@/lib/recadastro';
 import { travado, type CampoImutavel } from '@/lib/campos-imutaveis';
+import { tenant } from '@/tenant.config';
 
 const campo = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-11';
 
@@ -289,7 +290,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
           <h1 className="text-lg font-bold">Link indisponível</h1>
           <p className="max-w-sm text-sm text-muted-foreground">{erroLink}</p>
           <p className="max-w-sm text-xs text-muted-foreground">
-            Entre em contato com o SENATEPI para receber um novo link de recadastramento.
+            Entre em contato com o {tenant.sigla} para receber um novo link de recadastramento.
           </p>
         </div>
       </Moldura>
@@ -303,7 +304,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
           <CheckCircle2 className="h-12 w-12 text-brand-600" />
           <h1 className="text-lg font-bold">Cadastro atualizado!</h1>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Obrigado, {link?.primeiroNome}. Seus dados foram enviados ao SENATEPI e serão
+            Obrigado, {link?.primeiroNome}. Seus dados foram enviados ao {tenant.sigla} e serão
             conferidos pela equipe.
           </p>
           <p className="max-w-sm text-xs text-muted-foreground">

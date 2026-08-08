@@ -5,6 +5,7 @@ import {
   StatusTemporada,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { tenant } from '../../tenant/tenant.config';
 
 /**
  * Inventário fixo de 6 quartos POR LOTE (regra do módulo):
@@ -111,7 +112,7 @@ export class ColoniaSeedService implements OnApplicationBootstrap {
         slug: CAMPANHA_SLUG,
         ano: 2026,
         status: StatusTemporada.ATIVA,
-        descricao: 'Temporada de férias de julho de 2026 na Colônia do SENATEPI.',
+        descricao: `Temporada de férias de julho de 2026 na Colônia do ${tenant.sigla}.`,
         dataSorteio: new Date(DATA_SORTEIO),
       },
     });

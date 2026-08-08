@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   Calculator, ChevronDown, ChevronUp, FileUp, Info, QrCode, ShieldCheck,
 } from 'lucide-react';
+import { tenant } from '@/tenant.config';
 
 /**
  * Percentual da contribuição patronal.
@@ -20,7 +21,7 @@ const PASSOS = [
   {
     Icone: Calculator,
     titulo: 'Você calcula',
-    texto: `O SENATEPI cobra ${PERCENTUAL} sobre a folha de vencimentos. O cálculo é feito pela própria empresa, que conhece os valores do mês.`,
+    texto: `O ${tenant.sigla} cobra ${PERCENTUAL} sobre a folha de vencimentos. O cálculo é feito pela própria empresa, que conhece os valores do mês.`,
   },
   {
     Icone: QrCode,

@@ -9,6 +9,7 @@ import { StorageService } from '../../common/storage/storage.service';
 import { gerarPixCopiaECola } from '../../common/utils/pix.util';
 import { apenasDigitosCnpj } from '../../common/utils/cnpj.util';
 import { GerarContribuicaoDto, ListarContribuicoesQueryDto } from './dto/contribuicao.dto';
+import { tenant } from '../../tenant/tenant.config';
 
 /** 15 MB por arquivo — folha de pagamento em PDF passa longe disso. */
 export const TAMANHO_MAX_ANEXO = 15 * 1024 * 1024;
@@ -259,7 +260,7 @@ export class ContribuicoesPatronaisService {
 
     const copiaECola = gerarPixCopiaECola({
       chave: cfg.pixChave,
-      nome: cfg.pixNomeRecebedor ?? 'SENATEPI',
+      nome: cfg.pixNomeRecebedor ?? tenant.sigla,
       cidade: cfg.pixCidade ?? 'TERESINA',
       valor,
       identificador,
@@ -272,7 +273,7 @@ export class ContribuicoesPatronaisService {
       identificador,
       copiaECola,
       qrDataUrl,
-      recebedor: cfg.pixNomeRecebedor ?? 'SENATEPI',
+      recebedor: cfg.pixNomeRecebedor ?? tenant.sigla,
     };
   }
 

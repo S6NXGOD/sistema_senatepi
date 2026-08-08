@@ -8,12 +8,13 @@ import { lerAsset } from '../../common/assets.util';
 import { mascararCpf } from '../../common/utils/matricula.util';
 import { VotacaoService } from './votacao.service';
 import { lerConfiguracoes } from './configuracoes-evento';
+import { tenant, enderecoEmLinha } from '../../tenant/tenant.config';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
 
 const RODAPE =
-  'DIRETORIA SENATEPI - RUA LUCÍDIO FREITAS, Nº.1070, CENTRO-NORTE, TERESINA-PI, CEP: 64000-440 | ' +
+  `DIRETORIA ${tenant.sigla} - ${enderecoEmLinha()} | ` +
   'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
 
 /**
@@ -163,7 +164,7 @@ export class DossieEventoService {
         try { doc.image(logo, X, 18, { fit: [150, 38] }); } catch { /* segue sem logo */ }
       }
       doc.font('Helvetica').fontSize(7.5).fillColor('#E8F5E3').text(
-        'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS\nEM ENFERMAGEM DO ESTADO DO PIAUÍ\nCNPJ: 11.378.331/0001-86',
+        `${tenant.nome}\nCNPJ: ${tenant.cnpj}`,
         X + W - 230, 20, { align: 'right', width: 230, lineGap: 1.5 },
       );
       doc.rect(0, ALT, doc.page.width, 4).fill(VERDE_MEDIO);

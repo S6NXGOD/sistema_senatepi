@@ -14,8 +14,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getDisponibilidade, partesData, SECRETARIA, ESTRUTURA_QUARTO, AVISO_NOSHOW_24H, LoteDisp, QuartoDisp } from '@/lib/colonia';
 import { CheckoutModal, TipoCheckout } from '@/components/colonia/checkout-modal';
+import { tenant } from '@/tenant.config';
 
-const WHATSAPP_MSG = 'Olá! Gostaria de saber mais informações sobre como me filiar ao SENATEPI.';
+const WHATSAPP_MSG = `Olá! Gostaria de saber mais informações sobre como me filiar ao ${tenant.sigla}.`;
 const WHATSAPP_URL = `https://wa.me/${SECRETARIA.whatsappNumero}?text=${encodeURIComponent(WHATSAPP_MSG)}`;
 
 function primeiroDisponivel(quartos: QuartoDisp[], clim: 'AR_CONDICIONADO' | 'VENTILADOR') {
@@ -72,7 +73,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
                   <Sun className="h-9 w-9" />
                 </div>
-                <h1 className="text-2xl font-bold sm:text-3xl">Colônia de Férias SENATEPI</h1>
+                <h1 className="text-2xl font-bold sm:text-3xl">Colônia de Férias {tenant.sigla}</h1>
                 <p className="mt-2 text-sm text-white/90 sm:text-base">
                   Descanso, lazer e boas memórias para você e sua família.
                 </p>
@@ -80,7 +81,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
 
               <CardContent className="space-y-5 p-8 text-center">
                 <div className="space-y-1">
-                  <h2 className="text-lg font-semibold">Você é filiado ativo do SENATEPI?</h2>
+                  <h2 className="text-lg font-semibold">Você é filiado ativo do {tenant.sigla}?</h2>
                   <p className="text-sm text-muted-foreground">As reservas são exclusivas para filiados ativos.</p>
                 </div>
                 <div className="flex flex-col gap-3">
@@ -114,7 +115,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                   <AlertTriangle className="h-10 w-10 text-amber-500" />
                   <p className="text-lg font-semibold">Reservas indisponíveis</p>
                   <p className="max-w-md text-sm text-muted-foreground">
-                    Não há campanha aberta no momento. Acompanhe os canais oficiais do SENATEPI para a próxima temporada.
+                    Não há campanha aberta no momento. Acompanhe os canais oficiais do {tenant.sigla} para a próxima temporada.
                   </p>
                   <Button variant="outline" className="mt-2" onClick={() => setEtapa('gate')}>
                     <ArrowLeft className="h-4 w-4" /> Voltar ao início
@@ -178,7 +179,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-900/30">
                 <Sparkles className="h-8 w-8 text-brand-800 dark:text-brand-400" />
               </div>
-              <h3 className="text-xl font-bold">Que tal fazer parte do SENATEPI?</h3>
+              <h3 className="text-xl font-bold">Que tal fazer parte do {tenant.sigla}?</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 As reservas da Colônia são um dos muitos benefícios exclusivos para filiados ativos. Fale com a nossa
                 secretaria e descubra como se filiar — é rápido e acolhedor!
@@ -383,7 +384,7 @@ function LocalizacaoCard() {
         <div className="relative min-h-[12rem] sm:min-h-full">
           <img
             src="/lc.png"
-            alt="Colônia de Férias do SENATEPI em Luís Correia (PI)"
+            alt={`Colônia de Férias do ${tenant.sigla}`}
             className="h-full w-full object-cover"
           />
           <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
@@ -393,7 +394,7 @@ function LocalizacaoCard() {
         <CardContent className="flex flex-col gap-3 p-5">
           <div>
             <h2 className="text-lg font-bold">Onde você vai ficar</h2>
-            <p className="text-sm text-muted-foreground">Colônia de Férias do SENATEPI — Luís Correia (PI)</p>
+            <p className="text-sm text-muted-foreground">Colônia de Férias do {tenant.sigla}</p>
           </div>
           <ul className="space-y-2 text-sm">
             <li className="flex items-start gap-2">

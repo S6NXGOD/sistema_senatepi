@@ -26,6 +26,7 @@ import { StorageService } from '../../common/storage/storage.service';
 import { mascararCpf } from '../../common/utils/matricula.util';
 import { lerAsset } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { tenant } from '../../tenant/tenant.config';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -196,10 +197,10 @@ export class CarteirinhasService {
             valign: 'center',
           });
         } catch {
-          doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('SENATEPI', W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
+          doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text(tenant.sigla, W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
         }
       } else {
-        doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('SENATEPI', W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
+        doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text(tenant.sigla, W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
       }
 
       // QR Code no painel

@@ -41,6 +41,7 @@ import {
   PROVIDENCIA_LABEL, type PublicacaoDjen,
 } from '@/lib/djen';
 import { classesCor } from '@/lib/paleta-cores';
+import { tenant } from '@/tenant.config';
 
 type Aba = 'timeline' | 'publicacoes' | 'notas' | 'documentos' | 'agenda' | 'partes' | 'auditoria';
 
@@ -497,9 +498,9 @@ export function ProcessoDetalheSheet({
                   {p?.tipoAcao === 'INSTITUCIONAL' && (
                     <span
                       className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300"
-                      title="Ação coletiva movida pelo SENATEPI em nome da categoria"
+                      title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
                     >
-                      🏛️ Ação Institucional (SENATEPI)
+                      🏛️ Ação Institucional ({tenant.sigla})
                     </span>
                   )}
                   {/* Bandeiras de atenção vindas do CNJ */}
@@ -580,7 +581,7 @@ export function ProcessoDetalheSheet({
                     </button>
                     {/* FILIADO — alarme só quando é mesmo um problema.
                         O aviso amarelo aparecia em TODO processo sem filiado,
-                        inclusive na ação institucional (SENATEPI × empresa), em
+                        inclusive na ação institucional (sindicato × empresa), em
                         que não existe filiado "dono" e o polo ativo está
                         corretamente cadastrado. Alarme que soa quando está tudo
                         certo ensina a equipe a ignorar alarme. Agora só acusa

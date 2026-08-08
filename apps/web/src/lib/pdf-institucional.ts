@@ -1,4 +1,5 @@
 import type { jsPDF } from 'jspdf';
+import { tenant } from '@/tenant.config';
 
 // Paleta institucional para os documentos.
 export const VERDE: [number, number, number] = [27, 127, 10]; // brand-800
@@ -65,7 +66,7 @@ export function desenharCabecalhoSync(doc: jsPDF, titulo: string, logo: LogoData
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text('SENATEPI', MARGEM, 18);
+    doc.text(tenant.sigla, MARGEM, 18);
   }
 
   doc.setTextColor(255, 255, 255);
@@ -100,7 +101,7 @@ export function desenharRodapeGeracao(doc: jsPDF): void {
     doc.setTextColor(...CINZA);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text(`Documento gerado em ${emissao} — SENATEPI`, MARGEM, pageH - 7);
+    doc.text(`Documento gerado em ${emissao} — ${tenant.sigla}`, MARGEM, pageH - 7);
     doc.text(`Página ${i} de ${total}`, pageW - MARGEM, pageH - 7, { align: 'right' });
   }
 }

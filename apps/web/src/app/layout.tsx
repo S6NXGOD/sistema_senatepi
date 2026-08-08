@@ -2,11 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
+import { tenant } from '@/tenant.config';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 
 export const metadata: Metadata = {
-  title: 'SENATEPI — Gestão Sindical',
+  title: `${tenant.sigla} — Gestão Sindical`,
   description:
     'Sistema de gestão do Sindicato dos Enfermeiros, Auxiliares e Técnicos em Enfermagem do Piauí',
   // NB: o `manifest` (PWA) NÃO é global — é vinculado só nas rotas administrativas
