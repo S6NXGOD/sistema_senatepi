@@ -42,6 +42,7 @@ import {
 } from '@/lib/djen';
 import { classesCor } from '@/lib/paleta-cores';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 type Aba = 'timeline' | 'publicacoes' | 'notas' | 'documentos' | 'agenda' | 'partes' | 'auditoria';
 
@@ -1485,7 +1486,7 @@ function NotaInternaRapida({ processoId, onRegistrada }: { processoId: string; o
     <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
       <textarea
         className="min-h-[70px] w-full resize-y rounded-md border border-input bg-background p-2.5 text-sm"
-        placeholder="Ex.: filiado ligou pedindo posição; combinei retorno na sexta."
+        placeholder={`Ex.: ${V.filiado} ligou pedindo posição; combinei retorno na sexta.`}
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
       />

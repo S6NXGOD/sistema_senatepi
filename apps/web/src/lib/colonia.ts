@@ -1,5 +1,6 @@
 import { api } from './api';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 export type Climatizacao = 'AR_CONDICIONADO' | 'VENTILADOR';
 export type ModoReserva = 'RESERVA_DIRETA' | 'SORTEIO_OU_MANUAL';
@@ -74,7 +75,7 @@ export function prazoCancelamento24h(createdAtIso: string) {
 
 // Aviso legal obrigatório no comprovante e na tela de sucesso.
 export const AVISO_LEGAL_RESERVA =
-  'ATENÇÃO: Esta reserva poderá ser cancelada caso seja constatado que o titular não é filiado ' +
+  `ATENÇÃO: Esta reserva poderá ser cancelada caso seja constatado que o titular não é ${V.filiado} ` +
   `ativo ao ${tenant.sigla}. Neste caso, a vaga voltará a ficar disponível no sistema e o CPF ficará ` +
   'bloqueado para novas reservas até a regularização da situação junto à secretaria. ' +
   '(Conforme regras administrativas internas amparadas pelo Código Civil - Lei nº 10.406, de 10 de ' +

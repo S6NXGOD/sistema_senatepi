@@ -12,6 +12,7 @@ import { listarProcessos, formatNPU } from '@/lib/processos';
 import {
   registrarDesfecho, DesfechoAtendimento, TipoEncaminhamento, TIPO_ENC_LABEL,
 } from '@/lib/atendimentos';
+import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -152,7 +153,7 @@ export function RegistrarDesfechoModal({
           {resultado === 'RESOLVIDO_ATO' ? (
             <div className="space-y-1.5">
               <label className="flex items-center gap-1.5 text-sm font-medium"><CheckCircle2 className="h-4 w-4 text-brand-700 dark:text-brand-400" /> O que foi resolvido?</label>
-              <textarea className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder="Descreva a orientação/solução dada ao filiado…" value={desfechoObs} onChange={(e) => setDesfechoObs(e.target.value)} />
+              <textarea className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder={`Descreva a orientação/solução dada ao ${V.filiado}…`} value={desfechoObs} onChange={(e) => setDesfechoObs(e.target.value)} />
             </div>
           ) : (
             <>
@@ -227,7 +228,7 @@ export function RegistrarDesfechoModal({
                     ))}
                   </select>
                   {(processos.data?.items ?? []).length === 0 && !processos.isLoading && (
-                    <p className="text-xs text-muted-foreground">Este filiado não tem processos cadastrados.</p>
+                    <p className="text-xs text-muted-foreground">Este {V.filiado} não tem processos cadastrados.</p>
                   )}
                 </div>
               )}

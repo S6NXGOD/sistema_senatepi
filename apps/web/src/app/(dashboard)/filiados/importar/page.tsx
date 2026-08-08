@@ -123,7 +123,7 @@ export default function ImportarFiliadosPage() {
         <Link href="/filiados" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
         <div>
           <h2 className="text-2xl font-bold">Importação de {V.Filiados}</h2>
-          <p className="text-sm text-muted-foreground">Migre filiados em lote a partir de um arquivo CSV do sistema legado</p>
+          <p className="text-sm text-muted-foreground">Migre {V.filiados} em lote a partir de um arquivo CSV do sistema legado</p>
         </div>
       </div>
 
@@ -393,7 +393,7 @@ export default function ImportarFiliadosPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-5 py-16">
             <Loader2 className="h-10 w-10 animate-spin text-brand-800" />
-            <p className="text-lg font-semibold">Importando filiados...</p>
+            <p className="text-lg font-semibold">Importando {V.filiados}...</p>
             <div className="w-full max-w-md">
               <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
                 <div className="h-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
@@ -437,7 +437,7 @@ export default function ImportarFiliadosPage() {
             <Button variant="outline" onClick={() => baixarArquivo(`/importacoes/${id}/relatorio.xlsx`, `importacao-${id}.xlsx`)}>
               <Download className="h-4 w-4" /> Relatório Excel
             </Button>
-            <Link href="/filiados"><Button><Users className="h-4 w-4" /> Ver filiados</Button></Link>
+            <Link href="/filiados"><Button><Users className="h-4 w-4" /> Ver {V.filiados}</Button></Link>
           </div>
         </div>
       )}

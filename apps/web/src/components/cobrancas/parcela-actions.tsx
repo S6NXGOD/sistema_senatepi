@@ -18,6 +18,7 @@ import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
 import { RegistrarPagamentoModal } from '@/components/cobrancas/registrar-pagamento-modal';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir as ehAdministrador } from '@/lib/permissoes';
+import { V } from '@/lib/vocabulario';
 
 export interface ParcelaAcao {
   id: string;
@@ -104,7 +105,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
     setAberto(false);
     const tel = parcela.filiado.telefonePrincipal;
     if (!tel) {
-      toast.error('Filiado sem telefone cadastrado para cobrança.');
+      toast.error(`${V.Filiado} sem telefone cadastrado para cobrança.`);
       return;
     }
     // Abre a aba antes do await (evita bloqueio de popup).

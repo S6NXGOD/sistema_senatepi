@@ -976,27 +976,30 @@ CNPJ, registro sindical, endereço, percentual da contribuição, cores
 institucionais, e se `cobrancas` e `empresas` ficam mesmo desligadas. Estão
 todos num arquivo só, para serem resolvidos numa passada.
 
-### Pendência conhecida: o vocabulário está pela metade
+### Vocabulário: concluído
 
 `tenant.vocabulario` existia desde a Fase 0 e **não era lido por ninguém** — a
 configuração estava lá e a tela continuava com o texto escrito à mão. `V`
-(`apps/web/src/lib/vocabulario.ts`) é a ponte que faltava, aplicada nos quatro
-pontos mais vistos: **menu lateral, matriz de permissões, título da listagem e
-título da importação**.
+(`apps/web/src/lib/vocabulario.ts`) é a ponte, com as quatro formas que o
+português exige prontas (`filiado`, `filiados`, `Filiado`, `Filiados`, mais
+`matricula`), em vez de espalhar `.toUpperCase()` pela interface.
 
-Restam **~214 ocorrências visíveis de «filiado» em 33 arquivos** — textos de
-apoio, mensagens de confirmação, placeholders, títulos de modal, PDFs.
+**71 trocas em 36 arquivos.** Zero ocorrência de «filiado» sobrou em texto de
+tela.
 
-Por que não foram todas de uma vez: uma substituição automática pegaria junto
-`/filiados` (rota), `'filiados'` (chave de permissão), `filiadoId` (campo da
-API) e nomes de arquivo — trocar qualquer um quebra o sistema sem mudar uma
-palavra na tela. E o SENATEPI está em produção.
+O que o inventário mostrou, e por que a substituição automática teria sido um
+desastre:
 
-**Como continuar, com segurança:** arquivo por arquivo, trocando só o que está
-dentro de JSX ou de `label`/`placeholder`, e conferindo com o build dos dois
-clientes. `V.Filiado`, `V.Filiados`, `V.filiado`, `V.filiados` cobrem as quatro
-formas que o português exige.
+| | Quantidade | Ação |
+|---|---|---|
+| Identificadores — `/filiados` (rota), `'filiados'` (chave), `filiadoId`, `type Filiado` | **383** | **intocados** — trocar qualquer um quebra o sistema sem mudar uma palavra na tela |
+| Texto de tela — JSX, `label`, `placeholder`, `title`, `toast` | 68 | trocados |
+| Rótulos em `lib/` — desfecho, providência, aviso legal | 6 | trocados |
 
-**Impacto de não fazer agora:** o SINDSERM vê «Servidores» no menu e no título,
-e ainda encontra «filiado» em textos internos. É inconsistente, não é quebrado —
-e é reversível a qualquer momento, um arquivo por vez.
+Ficaram de fora, de propósito: `'FILIADO' | 'COLABORADOR'` (valor que vem da
+API), `'CARTEIRA_FILIADO'` (enum) e a menção em comentário de `permissoes.ts`,
+que é registro histórico e não tela.
+
+Verificado executando com os dois tenants: menu, matriz de permissões, rótulo de
+cancelamento e providência do DJEN saem «Filiado…» no SENATEPI e «Servidor…» no
+SINDSERM.

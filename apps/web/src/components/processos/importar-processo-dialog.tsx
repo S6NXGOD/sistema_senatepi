@@ -27,6 +27,7 @@ import {
   ProcessoDetalhe, ConsultaDatajud, SugestaoAdvogado, PoloAtivoInput,
 } from '@/lib/processos';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 /**
  * Como o polo ativo é preenchido. A escolha muda o que o formulário pede e o
@@ -559,7 +560,7 @@ export function ImportarProcessoDialog({
                     "dono" — cobrar o vínculo ali seria ruído, não alerta. */}
                 {modoPolo === 'INSTITUCIONAL' ? null : previa.filiadoSugerido ? (
                   <p className="flex items-center gap-1.5 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Filiado localizado pelo CPF: <strong>{previa.filiadoSugerido.nomeCompleto}</strong> — já adicionado ao polo ativo.
+                    <CheckCircle2 className="h-3.5 w-3.5" /> {V.Filiado} localizado pelo CPF: <strong>{previa.filiadoSugerido.nomeCompleto}</strong> — já adicionado ao polo ativo.
                   </p>
                 ) : (
                   /* NÃO É ALERTA. A API pública do CNJ não devolve as partes —

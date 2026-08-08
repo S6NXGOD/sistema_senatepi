@@ -13,6 +13,7 @@ import {
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
+import { V } from '@/lib/vocabulario';
 
 /** Cronômetro ao vivo em HH:MM:SS (atualiza a cada segundo) desde `iniciadoEm`. */
 function Cronometro({ desde }: { desde: string }) {
@@ -187,7 +188,7 @@ export function CompromissoCard({
             <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
           </p>
           {c.local && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 shrink-0" /> {c.local}</p>}
-          {c.filiado && <p className="truncate">Filiado: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
+          {c.filiado && <p className="truncate">{V.Filiado}: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
         </div>
 
         {/* Quem responde e quem registrou — os dois com foto */}

@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { getDisponibilidade, partesData, SECRETARIA, ESTRUTURA_QUARTO, AVISO_NOSHOW_24H, LoteDisp, QuartoDisp } from '@/lib/colonia';
 import { CheckoutModal, TipoCheckout } from '@/components/colonia/checkout-modal';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 const WHATSAPP_MSG = `Olá! Gostaria de saber mais informações sobre como me filiar ao ${tenant.sigla}.`;
 const WHATSAPP_URL = `https://wa.me/${SECRETARIA.whatsappNumero}?text=${encodeURIComponent(WHATSAPP_MSG)}`;
@@ -82,11 +83,11 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
               <CardContent className="space-y-5 p-8 text-center">
                 <div className="space-y-1">
                   <h2 className="text-lg font-semibold">Você é filiado ativo do {tenant.sigla}?</h2>
-                  <p className="text-sm text-muted-foreground">As reservas são exclusivas para filiados ativos.</p>
+                  <p className="text-sm text-muted-foreground">As reservas são exclusivas para {V.filiados} ativos.</p>
                 </div>
                 <div className="flex flex-col gap-3">
                   <Button size="lg" className="h-12 text-base" onClick={() => setEtapa('vitrine')}>
-                    <UserCheck className="h-5 w-5" /> Sou Filiado Ativo <ArrowRight className="h-4 w-4" />
+                    <UserCheck className="h-5 w-5" /> Sou {V.Filiado} Ativo <ArrowRight className="h-4 w-4" />
                   </Button>
                   <Button size="lg" variant="outline" className="h-12 text-base" onClick={() => setNaoFiliado(true)}>
                     <UserX className="h-5 w-5" /> Ainda não sou filiado

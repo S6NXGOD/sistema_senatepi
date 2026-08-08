@@ -1,4 +1,5 @@
 import { api, TIMEOUT_LONGO } from './api';
+import { V } from '@/lib/vocabulario';
 
 /**
  * Publicações e intimações do DJEN (Diário de Justiça Eletrônico Nacional).
@@ -60,8 +61,8 @@ export const PROVIDENCIA_LABEL: Record<string, string> = {
   ANALISAR_SENTENCA: 'Analisar sentença',
   AVALIAR_RECURSO: 'Avaliar recurso',
   PREPARAR_AUDIENCIA: 'Preparar audiência',
-  SOLICITAR_DOCUMENTOS_FILIADO: 'Solicitar documentos ao filiado',
-  COMUNICAR_FILIADO: 'Comunicar filiado',
+  SOLICITAR_DOCUMENTOS_FILIADO: `Solicitar documentos ao ${V.filiado}`,
+  COMUNICAR_FILIADO: `Comunicar ${V.filiado}`,
 };
 
 /**

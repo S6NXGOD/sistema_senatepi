@@ -11,6 +11,7 @@ import {
   historicoFiliado, formatBRL, formatData, statusExibicao,
   STATUS_LABEL, STATUS_COR, TIPO_LABEL,
 } from '@/lib/cobrancas';
+import { V } from '@/lib/vocabulario';
 
 interface FiliadoFin {
   id: string;
@@ -69,7 +70,7 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
 
             {/* Lista de parcelas */}
             {parcelas.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma cobrança lançada para este filiado.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma cobrança lançada para este {V.filiado}.</p>
             ) : (
               <ul className="divide-y">
                 {parcelas.map((p) => {

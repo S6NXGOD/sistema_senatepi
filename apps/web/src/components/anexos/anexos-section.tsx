@@ -15,6 +15,7 @@ import {
   MIME_ACEITOS, TAMANHO_MAX_MB, AlvoAnexo, Anexo,
 } from '@/lib/anexos';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
+import { V } from '@/lib/vocabulario';
 
 /** Registro do qual esta seção HERDA documentos (só leitura). */
 export interface HerancaAnexos {
@@ -286,7 +287,7 @@ function AnexoItem({
           {reaproveitado && (
             <span
               className="flex items-center gap-0.5 font-medium text-brand-700 dark:text-brand-400"
-              title="Puxado do acervo do filiado — não houve novo upload"
+              title={`Puxado do acervo do ${V.filiado} — não houve novo upload`}
             >
               <Link2 className="h-3 w-3" /> puxado ·
             </span>

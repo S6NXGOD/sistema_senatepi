@@ -25,6 +25,7 @@ import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } fr
 import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
 import { formatNPU } from '@/lib/processos';
 import { HistoricoAtividade } from './historico-atividade';
+import { V } from '@/lib/vocabulario';
 
 /** Cronômetro ao vivo HH:MM:SS. */
 function Cronometro({ desde }: { desde: string }) {
@@ -90,7 +91,7 @@ export function CompromissoDrawer({
 
   function abrirWhatsApp() {
     if (!filiado || !c) return;
-    if (!filiado.telefonePrincipal) return toast.error('Filiado sem telefone cadastrado.');
+    if (!filiado.telefonePrincipal) return toast.error(`${V.Filiado} sem telefone cadastrado.`);
     const url = linkWhatsApp(filiado.telefonePrincipal, mensagemSaudacao({ nome: filiado.nomeCompleto, data: c.inicio }));
     if (!url) return toast.error('Telefone inválido para WhatsApp.');
     window.open(url, '_blank');
@@ -252,7 +253,7 @@ export function CompromissoDrawer({
           {filiado && (
             <div className="rounded-xl border p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-brand-800 dark:text-brand-400" /> Filiado</p>
+                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-brand-800 dark:text-brand-400" /> {V.Filiado}</p>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Matrícula {filiado.matricula}</span>
               </div>
               <p className="text-sm font-medium">{filiado.nomeCompleto}</p>

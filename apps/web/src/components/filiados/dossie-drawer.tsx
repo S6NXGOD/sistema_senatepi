@@ -29,6 +29,7 @@ import { formatNPU, STATUS_PROCESSO_LABEL } from '@/lib/processos';
 import { FORMACAO_LABEL, SITUACAO_COR, SITUACAO_LABEL } from '@/lib/filiados';
 import { ORIGEM_COR, ORIGEM_LABEL, ehImagem, formatTamanho } from '@/lib/anexos';
 import { campoVisivel, tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 /**
  * DOSSIÊ DO FILIADO — o histórico completo do associado, sem sair da listagem.
@@ -270,7 +271,7 @@ function AbaResumo({ d }: { d: Dossie }) {
       {/* Relacionamento */}
       <Bloco titulo="Relacionamento" icone={<Clock className="h-4 w-4" />}>
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Info rotulo="Filiado desde" valor={`${dataBr(r.relacionamento.desde)} (${desde(r.relacionamento.desde)})`} />
+          <Info rotulo={`${V.Filiado} desde`} valor={`${dataBr(r.relacionamento.desde)} (${desde(r.relacionamento.desde)})`} />
           <Info
             rotulo="Último contato"
             valor={
@@ -345,7 +346,7 @@ function AbaResumo({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 function AbaAtendimentos({ d }: { d: Dossie }) {
-  if (d.atendimentos.length === 0) return <Vazio>Nenhum atendimento registrado para este filiado.</Vazio>;
+  if (d.atendimentos.length === 0) return <Vazio>Nenhum atendimento registrado para este {V.filiado}.</Vazio>;
   return (
     <ul className="space-y-3">
       {d.atendimentos.map((a) => (
@@ -399,7 +400,7 @@ function AbaAtendimentos({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
-  if (d.atividades.length === 0) return <Vazio>Nenhuma atividade agendada para este filiado.</Vazio>;
+  if (d.atividades.length === 0) return <Vazio>Nenhuma atividade agendada para este {V.filiado}.</Vazio>;
   return (
     <ul className="space-y-3">
       {d.atividades.map((c) => (
@@ -458,7 +459,7 @@ function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
 // ---------------------------------------------------------------------------
 
 function AbaProcessos({ d }: { d: Dossie }) {
-  if (d.processos.length === 0) return <Vazio>Este filiado não figura em nenhum processo.</Vazio>;
+  if (d.processos.length === 0) return <Vazio>Este {V.filiado} não figura em nenhum processo.</Vazio>;
   return (
     <ul className="space-y-3">
       {d.processos.map((p) => (
@@ -521,7 +522,7 @@ function AbaFinanceiro({ d }: { d: Dossie }) {
       </div>
 
       {d.cobrancas.length === 0 ? (
-        <Vazio>Nenhuma cobrança emitida para este filiado.</Vazio>
+        <Vazio>Nenhuma cobrança emitida para este {V.filiado}.</Vazio>
       ) : (
         <ul className="space-y-3">
           {d.cobrancas.map((c) => (
@@ -564,7 +565,7 @@ function AbaFinanceiro({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 function AbaDocumentos({ d }: { d: Dossie }) {
-  if (d.documentos.length === 0) return <Vazio>Nenhum documento do filiado no sistema.</Vazio>;
+  if (d.documentos.length === 0) return <Vazio>Nenhum documento do {V.filiado} no sistema.</Vazio>;
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">

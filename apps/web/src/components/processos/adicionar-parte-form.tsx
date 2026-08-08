@@ -14,6 +14,7 @@ import {
   formatDocumento, PAPEIS_SUGERIDOS, TIPO_PARTE_LABEL,
   type ParteExterna, type PoloProcesso, type TipoParteExterna,
 } from '@/lib/partes';
+import { V } from '@/lib/vocabulario';
 
 const campoCls = 'h-11 w-full rounded-md border border-input bg-background px-3 text-sm md:h-10';
 
@@ -277,7 +278,7 @@ export function AdicionarParteForm({
             <Input
               className="pl-9"
               autoFocus
-              placeholder="Buscar filiado por nome ou CPF…"
+              placeholder={`Buscar ${V.filiado} por nome ou CPF…`}
               value={buscaFiliado}
               onChange={(e) => setBuscaFiliado(e.target.value)}
             />

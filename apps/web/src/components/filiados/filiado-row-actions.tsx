@@ -20,6 +20,7 @@ import { excluirFiliado, Filiado } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
 import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
+import { V } from '@/lib/vocabulario';
 
 /**
  * Menu de ações (dropdown) de cada linha da tabela de filiados. Concentra as
@@ -148,7 +149,7 @@ export function FiliadoRowActions({
       <ConfirmDialog
         open={modal === 'excluir'}
         variant="destructive"
-        title="Excluir filiado permanentemente?"
+        title={`Excluir ${V.filiado} permanentemente?`}
         confirmLabel="Excluir definitivamente"
         loading={loading}
         icon={<Trash2 className="h-6 w-6" />}

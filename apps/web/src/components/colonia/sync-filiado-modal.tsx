@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { mascararCpf } from '@/lib/utils';
 import { compararFiliado, sincronizarFiliado, getCandidatosFiliado, CampoDiff } from '@/lib/colonia';
+import { V } from '@/lib/vocabulario';
 
 /**
  * Fluxo de "Atualizar cadastro": encontra o filiado (por CPF ou por NOME exato —
@@ -105,7 +106,7 @@ export function SyncFiliadoModal({
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-muted p-2"><UserCog className="h-6 w-6 text-brand-800 dark:text-brand-400" /></div>
             <div className="min-w-0">
-              <h3 className="font-semibold leading-tight">Atualizar cadastro do filiado</h3>
+              <h3 className="font-semibold leading-tight">Atualizar cadastro do {V.filiado}</h3>
               {data && (
                 <p className="truncate text-xs text-muted-foreground">
                   {[data.filiadoNome, data.cpf ? mascararCpf(data.cpf) : null, data.matricula].filter(Boolean).join(' · ')}

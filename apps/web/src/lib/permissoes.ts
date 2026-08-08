@@ -82,7 +82,7 @@ export interface PerfilInfo {
   descricao: string;
 }
 export const PERFIS: PerfilInfo[] = [
-  { key: 'TRIAGEM', label: 'Triagem', descricao: 'Atendimento inicial de filiados e registro de demandas.' },
+  { key: 'TRIAGEM', label: 'Triagem', descricao: `Atendimento inicial de ${V.filiados} e registro de demandas.` },
   { key: 'ADVOGADO', label: 'Advogado(a)', descricao: 'Acesso a processos, agenda de prazos e acompanhamento jurídico.' },
   { key: 'COORDENACAO', label: 'Coordenação', descricao: 'Gestão de equipe, financeiro e relatórios gerenciais.' },
   { key: 'ADMINISTRADOR', label: 'Administrador', descricao: 'Acesso completo a todos os módulos e configurações.' },

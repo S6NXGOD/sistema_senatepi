@@ -426,7 +426,7 @@ function DataFiliacao({ f }: { f: Filiado }) {
   return (
     <span
       className="cursor-help text-xs italic text-muted-foreground/70"
-      title="Este filiado veio da importação sem a data de filiação. O cadastro está completo; apenas essa data não foi informada."
+      title={`Este ${V.filiado} veio da importação sem a data de filiação. O cadastro está completo; apenas essa data não foi informada.`}
     >
       não informada
     </span>
@@ -440,7 +440,7 @@ function Vazio({ temFiltro, onLimpar }: { temFiltro: boolean; onLimpar: () => vo
       <Users className="h-8 w-8 text-muted-foreground/40" />
       {temFiltro ? (
         <>
-          <p className="text-sm font-medium">Nenhum filiado corresponde aos filtros</p>
+          <p className="text-sm font-medium">Nenhum {V.filiado} corresponde aos filtros</p>
           <p className="max-w-sm text-xs text-muted-foreground">
             Tente ampliar o período ou remover algum critério.
           </p>
@@ -450,7 +450,7 @@ function Vazio({ temFiltro, onLimpar }: { temFiltro: boolean; onLimpar: () => vo
         </>
       ) : (
         <>
-          <p className="text-sm font-medium">Nenhum filiado cadastrado ainda</p>
+          <p className="text-sm font-medium">Nenhum {V.filiado} cadastrado ainda</p>
           <Link href="/filiados/novo" className="mt-1">
             <Button size="sm"><Plus className="h-4 w-4" /> Nova filiação</Button>
           </Link>

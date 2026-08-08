@@ -34,6 +34,7 @@ import { LocaisTrabalhoSection, type LocalTrabalho } from '@/components/filiados
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import { travado, AVISO_TRAVADO, type CampoImutavel } from '@/lib/campos-imutaveis';
 import { campoVisivel } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 // O local de trabalho e a sua edição vivem em locais-trabalho-section.tsx.
 
@@ -415,7 +416,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       className="space-y-6"
     >
       <Card>
-        <CardHeader><CardTitle>Foto do filiado</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Foto do {V.filiado}</CardTitle></CardHeader>
         <CardContent className="flex items-center gap-6">
           {fotoPreview ? (
             // eslint-disable-next-line @next/next/no-img-element

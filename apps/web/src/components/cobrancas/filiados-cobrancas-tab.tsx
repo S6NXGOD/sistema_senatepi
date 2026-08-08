@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FiliadoCobrancasCard } from '@/components/cobrancas/filiado-cobrancas-card';
 import { listarPorFiliado, getDashboard, formatBRL } from '@/lib/cobrancas';
+import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
 
@@ -61,7 +62,7 @@ export function FiliadosCobrancasTab() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar filiado (nome, matrícula, CPF)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Input className="pl-9" placeholder={`Buscar ${V.filiado} (nome, ${V.matricula}, CPF)…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
           {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
         </div>
         <label className="flex cursor-pointer select-none items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm">

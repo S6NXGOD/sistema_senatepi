@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import {
   remarcarCompromisso, formatDataHora, paraInputLocal, type Compromisso,
 } from '@/lib/agenda';
+import { V } from '@/lib/vocabulario';
 
 /** Atalhos que cobrem a maioria das remarcações reais do balcão. */
 const ATALHOS = [
@@ -136,7 +137,7 @@ export function RemarcarModal({
               Motivo <span className="font-normal text-muted-foreground">(opcional)</span>
             </label>
             <Input
-              placeholder="Ex.: filiado pediu para adiar; advogado em audiência."
+              placeholder={`Ex.: ${V.filiado} pediu para adiar; advogado em audiência.`}
               value={motivo}
               onChange={(e) => setMotivo(e.target.value)}
             />

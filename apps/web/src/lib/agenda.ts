@@ -1,5 +1,6 @@
 import { api } from './api';
 import { CORES_PALETA, PALETA, type ClassesCor, type CorPaleta } from './paleta-cores';
+import { V } from '@/lib/vocabulario';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -259,8 +260,8 @@ export const rotuloDesfecho = (slug?: string | null): string =>
   slug ? (DESFECHO_LABEL[slug] ?? slug) : '';
 
 export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> = {
-  NAO_COMPARECEU: 'Filiado não compareceu',
-  DESISTENCIA: 'Filiado desistiu',
+  NAO_COMPARECEU: `${V.Filiado} não compareceu`,
+  DESISTENCIA: `${V.Filiado} desistiu`,
   ADIADA_JUIZO: 'Adiada pelo juízo/órgão',
   INDISPONIBILIDADE: 'Indisponibilidade do sindicato',
   DUPLICIDADE: 'Agendada por engano',

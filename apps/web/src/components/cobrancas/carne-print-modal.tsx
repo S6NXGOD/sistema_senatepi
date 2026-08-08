@@ -10,6 +10,7 @@ import {
   getCarne, CarneData, TIPO_LABEL, formatBRL, formatData, formatCpf,
 } from '@/lib/cobrancas';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 const LGPD =
   'Documento em conformidade com a LGPD (Lei nº 13.709/2018): dados pessoais tratados exclusivamente para fins de gestão financeira associativa.';
@@ -90,7 +91,7 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
         ) : (
           <p className="text-xs font-bold text-brand-800">{tenant.sigla}</p>
         )}
-        <MiniLinha rotulo="Filiado" valor={filiado.nomeCompleto} />
+        <MiniLinha rotulo={V.Filiado} valor={filiado.nomeCompleto} />
         <MiniLinha rotulo="Matrícula" valor={filiado.matricula} />
         <MiniLinha rotulo="Parcela" valor={posicao} />
         <MiniLinha rotulo="Vencimento" valor={formatData(parcela.dataVencimento)} />
@@ -122,7 +123,7 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
         </div>
 
         <div className="mt-2 grid grid-cols-4 gap-x-3 gap-y-1 border-y py-2">
-          <Campo rotulo="Filiado" valor={filiado.nomeCompleto} className="col-span-2" />
+          <Campo rotulo={V.Filiado} valor={filiado.nomeCompleto} className="col-span-2" />
           <Campo rotulo="CPF" valor={formatCpf(filiado.cpf)} />
           <Campo rotulo="Vencimento" valor={formatData(parcela.dataVencimento)} />
           <Campo rotulo="Competência" valor={formatData(parcela.dataCompetencia)} />

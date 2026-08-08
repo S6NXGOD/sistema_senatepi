@@ -25,6 +25,7 @@ import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
 import { dataBr, desde } from '@/lib/dossie';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -274,7 +275,7 @@ function ListaProcessos() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Buscar por NPU, filiado, classe…"
+            placeholder={`Buscar por NPU, ${V.filiado}, classe…`}
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />

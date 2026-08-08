@@ -24,6 +24,7 @@ import {
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, formatDataHora,
 } from '@/lib/atendimentos';
+import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
@@ -133,7 +134,7 @@ function ListaAtendimentos() {
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar por filiado ou descrição…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Input className="pl-9" placeholder={`Buscar por ${V.filiado} ou descrição…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
           {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -194,7 +195,7 @@ function ListaAtendimentos() {
               <table className="w-full text-sm">
                 <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Filiado</th>
+                    <th className="px-4 py-3 font-medium">{V.Filiado}</th>
                     <th className="px-4 py-3 font-medium">Canal</th>
                     <th className="px-4 py-3 font-medium">Resultado</th>
                     <th className="px-4 py-3 font-medium">Descrição</th>

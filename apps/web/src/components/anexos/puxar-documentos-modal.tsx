@@ -14,6 +14,7 @@ import {
   listarAcervo, puxarAnexos, formatTamanho, ehImagem,
   ORIGEM_COR, ORIGEM_LABEL, type AlvoAnexo, type ItemAcervo, type OrigemAcervo,
 } from '@/lib/anexos';
+import { V } from '@/lib/vocabulario';
 
 /**
  * "Puxar documento de outro atendimento".
@@ -134,7 +135,7 @@ export function PuxarDocumentosModal({
               <FolderInput className="h-[18px] w-[18px] text-brand-700 dark:text-brand-400" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-base font-bold">Puxar documentos do filiado</h3>
+              <h3 className="text-base font-bold">Puxar documentos do {V.filiado}</h3>
               <p className="truncate text-xs text-muted-foreground">
                 Reaproveita o que já foi entregue — sem pedir o arquivo de novo.
               </p>

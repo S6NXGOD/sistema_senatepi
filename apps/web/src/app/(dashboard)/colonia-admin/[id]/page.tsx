@@ -27,6 +27,7 @@ import { gerarRelatorioCompletoPdf, gerarRelatorioLotePdf } from '@/lib/colonia-
 import { AlocarManualModal } from '@/components/colonia/alocar-manual-modal';
 import { DrawModal } from '@/components/colonia/draw-modal';
 import { SyncFiliadoModal } from '@/components/colonia/sync-filiado-modal';
+import { V } from '@/lib/vocabulario';
 
 type SyncArg = { tipo: 'reserva' | 'inscricao'; id: string; filiadoId: string | null; jaSincronizado: boolean };
 
@@ -281,13 +282,13 @@ function BotaoSync({ tipo, id, filiadoId, filiadoCandidatos, sincronizadoEm, onO
   }
   if (compact) {
     return (
-      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title="Atualizar cadastro do filiado" onClick={abrir}>
+      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" title={`Atualizar cadastro do ${V.filiado}`} onClick={abrir}>
         <UserCog className="h-4 w-4" />
       </Button>
     );
   }
   return (
-    <Button variant="outline" size="sm" title="Atualizar o cadastro do filiado com estes dados" onClick={abrir}>
+    <Button variant="outline" size="sm" title={`Atualizar o cadastro do ${V.filiado} com estes dados`} onClick={abrir}>
       <UserCog className="h-4 w-4" /> Atualizar cadastro
     </Button>
   );

@@ -22,6 +22,7 @@ import {
   FiliadoBusca,
   QuartoDisp,
 } from '@/lib/colonia';
+import { V } from '@/lib/vocabulario';
 
 type QuartoPainel = QuartoDisp & { ocupado: boolean };
 
@@ -230,10 +231,10 @@ export function AlocarManualModal({
 
           {/* Autocomplete: cadastro legado de Filiados (Nome + CPF) */}
           <div className="relative space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Buscar filiado (opcional)</label>
+            <label className="text-xs font-medium text-muted-foreground">Buscar {V.filiado} (opcional)</label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-9" placeholder="Nome ou CPF do filiado…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+              <Input className="pl-9" placeholder={`Nome ou CPF do ${V.filiado}…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
               {buscando && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
             </div>
             {resultados.length > 0 && (
