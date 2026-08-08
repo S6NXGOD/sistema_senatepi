@@ -41,4 +41,18 @@ export interface TenantConfigWeb {
    * apagados do banco. Ver o mesmo campo no `tenant.types.ts` da API.
    */
   camposOcultos?: string[];
+  /**
+   * Cargos da CATEGORIA que este sindicato representa.
+   *
+   * Lista curta e fechada quando a categoria é fechada — é o que permite
+   * contar ("quantos técnicos temos na FMS?"). VAZIA ou ausente quando não é:
+   * num sindicato de servidores municipais o cargo vem de centenas de carreiras
+   * do plano do município, e um select seria uma lista impossível de manter e
+   * errada no dia seguinte.
+   *
+   * Estava escrita à mão no componente, com os três cargos da enfermagem — e o
+   * cadastro do SINDSERM oferecia «Enfermeiro(a)» a um servidor da Secretaria
+   * de Finanças.
+   */
+  cargos?: string[];
 }

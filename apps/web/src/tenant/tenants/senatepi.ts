@@ -39,4 +39,10 @@ export const senatepi: TenantConfigWeb = {
   ],
   // O SENATEPI usa todos os campos do cadastro.
   camposOcultos: [],
+  /**
+   * Categoria fechada: os três cargos da enfermagem, com escape para o caso
+   * atípico (enfermeiro em função administrativa). É esta lista que permite
+   * contar quantos técnicos há em cada empregador.
+   */
+  cargos: ['Enfermeiro(a)', 'Técnico(a) em Enfermagem', 'Auxiliar de Enfermagem'],
 };

@@ -40,14 +40,17 @@ export const sindserm: TenantConfig = {
    * da Prefeitura. Deixar em branco é a informação correta, não uma pendência —
    * o termo de filiação simplesmente não imprime a linha da conta.
    */
-  vocabulario: {
-    // «servidor» em vez de «filiado»: é como a categoria se chama a si mesma, e
-    // o vocabulário existe exatamente para isso.
-    filiado: 'servidor',
-    filiados: 'servidores',
-    // A matrícula que o servidor sabe de cor é a da Prefeitura.
-    matricula: 'matrícula',
-  },
+  /**
+   * «filiado», e não «servidor».
+   *
+   * Parece igual e não é: servidor é quem trabalha na Prefeitura; filiado é
+   * quem se associou ao sindicato. Nem todo servidor é filiado, e o sistema
+   * cadastra os filiados. Chamar a tela de «Servidores» daria a entender que
+   * ali está a folha inteira do município.
+   *
+   * A matrícula que o filiado sabe de cor é a da Prefeitura.
+   */
+  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
   contribuicao: {
     descricao:
       '1% sobre o vencimento base, descontado em folha de pagamento da ' +

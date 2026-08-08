@@ -42,7 +42,9 @@ export const sindserm: TenantConfigWeb = {
   nome: 'SINDICATO DOS SERVIDORES PÚBLICOS MUNICIPAIS DE TERESINA',
   descricao: 'Sindicato dos Servidores Municipais de Teresina',
   paleta: PALETA_SINDSERM,
-  vocabulario: { filiado: 'servidor', filiados: 'servidores', matricula: 'matrícula' },
+  // «filiado», e não «servidor»: nem todo servidor da Prefeitura é filiado ao
+  // sindicato, e é o filiado que este cadastro guarda. Ver o arquivo da API.
+  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'acessos', 'auditoria', 'usuarios',
@@ -51,4 +53,14 @@ export const sindserm: TenantConfigWeb = {
   // JUNTOS: os dois eram obrigatórios no formulário, e esconder um sem o outro
   // deixaria o cadastro impossível de enviar. Ver o mesmo campo na API.
   camposOcultos: ['formacao', 'numeroCoren'],
+  /**
+   * SEM lista fechada: o cargo aqui é texto livre.
+   *
+   * O plano de cargos do município tem centenas de carreiras — professor,
+   * agente de trânsito, fiscal, médico, auxiliar administrativo —, e um select
+   * com todas seria impossível de manter e estaria errado no dia seguinte a uma
+   * reestruturação. O campo do sistema antigo era «Cargo/Carreira/
+   * Especialidade», digitado, e essa é a decisão certa.
+   */
+  cargos: [],
 };

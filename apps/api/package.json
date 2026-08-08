@@ -20,7 +20,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
     "prisma:seed:colonia": "ts-node prisma/seed-colonia.ts",
-    "forcar-logout": "ts-node prisma/scripts/forcar-logout.ts"
+    "forcar-logout": "ts-node prisma/scripts/forcar-logout.ts",
+    "seed:orgaos:sindserm": "ts-node prisma/seed-orgaos-sindserm.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
