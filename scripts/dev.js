@@ -97,10 +97,18 @@ const ambienteWeb = {
   PORT: String(portas.web),
 };
 
-const banco = (ambienteApi.DATABASE_URL || '').replace(/^.*\//, '').replace(/\?.*$/, '');
+/**
+ * O banco só aparece aqui quando vem do `.env.<tenant>`. Para o cliente que usa
+ * o `.env` comum, quem lê o arquivo é o Nest — imprimir aspas vazias sugeriria
+ * configuração faltando onde não há.
+ */
+const banco = ambienteApi.DATABASE_URL
+  ? `banco "${ambienteApi.DATABASE_URL.replace(/^.*\//, '').replace(/\?.*$/, '')}"`
+  : 'banco do .env';
+
 console.log(
   `\n  ${tenant.toUpperCase()}  ·  API http://localhost:${portas.api}` +
-    `  ·  web http://localhost:${portas.web}  ·  banco "${banco}"\n`,
+    `  ·  web http://localhost:${portas.web}  ·  ${banco}\n`,
 );
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -108,8 +116,17 @@ const filhos = [
   spawn(npm, ['run', 'start:dev', '-w', '@senatepi/api'], {
     cwd: RAIZ, env: ambienteApi, stdio: 'inherit', shell: process.platform === 'win32',
   }),
-  spawn(npm, ['run', 'dev', '-w', '@senatepi/web', '--', '-p', String(portas.web)], {
-    cwd: RAIZ, env: ambienteWeb, stdio: 'inherit', shell: process.platform === 'win32',
+  /**
+   * `next dev` direto, e não `npm run dev -w @senatepi/web`: o script do
+   * workspace já traz `-p 3000`, e acrescentar outro `-p` gerava
+   * `next dev -p 3000 -p 3000`. Funcionava por acidente — o Next fica com o
+   * último — e teria dado a porta errada no dia em que a ordem mudasse.
+   */
+  spawn(npm, ['exec', '--', 'next', 'dev', '-p', String(portas.web)], {
+    cwd: path.join(RAIZ, 'apps/web'),
+    env: ambienteWeb,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
   }),
 ];
 
