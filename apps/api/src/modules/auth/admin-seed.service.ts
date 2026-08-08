@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { tenant } from '../../tenant/tenant.config';
 
 /**
  * Seed de PRIMEIRA EXECUÇÃO do usuário administrador padrão.
@@ -40,8 +41,11 @@ export class AdminSeedService implements OnApplicationBootstrap {
         return;
       }
 
-      const email = this.config.get<string>('SEED_ADMIN_EMAIL', 'admin@senatepi.org.br');
-      const senha = senhaEnv || 'senatepi@2026';
+      // O fallback sai do tenant: fixo em 'senatepi', um deploy de outro
+      // sindicato que esquecesse SEED_ADMIN_EMAIL criaria o administrador com
+      // o domínio do cliente errado.
+      const email = this.config.get<string>('SEED_ADMIN_EMAIL', `admin@${tenant.id}.org.br`);
+      const senha = senhaEnv || `${tenant.id}@2026`;
       const senhaHash = await bcrypt.hash(senha, 12);
 
       await this.prisma.user.create({

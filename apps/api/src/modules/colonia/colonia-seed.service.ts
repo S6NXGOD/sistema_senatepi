@@ -5,7 +5,7 @@ import {
   StatusTemporada,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { tenant } from '../../tenant/tenant.config';
+import { moduloAtivo, tenant } from '../../tenant/tenant.config';
 
 /**
  * Inventário fixo de 6 quartos POR LOTE (regra do módulo):
@@ -60,6 +60,15 @@ export class ColoniaSeedService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     try {
+      /**
+       * A instalação não tem colônia? Então não há o que semear.
+       *
+       * Sem esta linha, um banco novo de um sindicato SEM colônia nasceria com
+       * a campanha de julho do SENATEPI dentro: 5 lotes, 30 quartos e uma
+       * página pública de inscrição — tudo criado sozinho, no primeiro boot,
+       * para um módulo que aquele cliente nem enxerga.
+       */
+      if (!moduloAtivo('colonia')) return;
       // Seed de PRIMEIRA EXECUÇÃO: se a campanha já existe, não re-roda a lógica
       // (não sobrescreve datas/nome que a diretoria possa ter ajustado).
       const existe = await this.prisma.coloniaTemporada.findUnique({
