@@ -82,6 +82,42 @@ export const NAV_SECOES: NavSecao[] = [
 /** Lista plana (compatibilidade). */
 export const NAV_ITENS: NavItem[] = NAV_SECOES.flatMap((s) => s.itens);
 
+/**
+ * Rotas que pertencem a um módulo mas não têm item de menu próprio.
+ *
+ * Sem isto, `/colonia-admin/123` e `/colonia/inscricao` continuariam abrindo
+ * numa instalação sem colônia — o menu escondido não protege quem digita a URL.
+ */
+const ROTAS_EXTRAS: Array<{ prefixo: string; modulo: ModuloKey }> = [
+  { prefixo: '/colonia', modulo: 'colonia' },      // inscrição pública
+  { prefixo: '/carteirinhas', modulo: 'filiados' },
+  { prefixo: '/validacao', modulo: 'eventos' },    // validação de presença em evento
+  { prefixo: '/evento', modulo: 'eventos' },       // página pública do evento
+];
+
+/**
+ * A qual módulo esta rota pertence — ou `null` se ela não é de módulo nenhum
+ * (login, configurações do próprio usuário, portal da empresa).
+ *
+ * Derivado do MESMO `NAV_SECOES` que monta o menu, de propósito. Uma segunda
+ * tabela de rota→módulo divergiria na primeira vez que alguém acrescentasse um
+ * item em só um dos lados, e o sintoma seria o pior possível: menu escondido
+ * com a tela ainda acessível.
+ *
+ * Vence o prefixo MAIS LONGO: `/colonia-admin` precisa ganhar de `/colonia`,
+ * senão a tela administrativa cairia na regra da página pública.
+ */
+export function moduloDaRota(pathname: string): ModuloKey | null {
+  const candidatos = [
+    ...NAV_ITENS.filter((i) => i.modulo).map((i) => ({ prefixo: i.href, modulo: i.modulo! })),
+    ...ROTAS_EXTRAS,
+  ]
+    .filter(({ prefixo }) => pathname === prefixo || pathname.startsWith(`${prefixo}/`))
+    .sort((a, b) => b.prefixo.length - a.prefixo.length);
+
+  return candidatos[0]?.modulo ?? null;
+}
+
 /** Filtra as seções/itens de navegação segundo as permissões do usuário. */
 export function filtrarNav(
   role: string | null | undefined,

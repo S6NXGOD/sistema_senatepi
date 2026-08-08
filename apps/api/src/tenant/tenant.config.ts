@@ -1,17 +1,20 @@
-import { ModuloKey } from '../common/permissions/permissoes.constants';
+import { ModuloSistema, TenantConfig } from './tenant.types';
+import { senatepi } from './tenants/senatepi';
+import { sindserm } from './tenants/sindserm';
+
+export type { TenantConfig, ModuloSistema } from './tenant.types';
 
 /**
  * QUEM É O CLIENTE DESTA INSTALAÇÃO.
  *
- * Este arquivo é a única coisa que precisa mudar para o mesmo código servir a
- * outro sindicato. Tudo o que estava escrito à mão no meio da lógica — nome,
- * sigla, CNPJ, endereço, conta bancária, o vocabulário das telas — passa a sair
- * daqui.
+ * O mesmo código serve a todos os sindicatos. O que muda entre eles — nome,
+ * CNPJ, endereço, conta, vocabulário, quais módulos existem, quais campos são
+ * pedidos — sai daqui, e não de `if` espalhado pela lógica.
  *
- * NÃO É MULTI-TENANT. Não existe seleção de cliente em tempo de execução: cada
- * instalação tem um cliente, um banco e um deploy. Se um dia forem dois
- * sindicatos, serão duas instalações — e esta é a razão de o arquivo ser um
- * módulo estático, e não uma tabela.
+ * NÃO É MULTI-TENANT. Não existe seleção de cliente por requisição: cada
+ * instalação é UM cliente, UM banco e UM deploy, e a variável `TENANT` é lida
+ * uma vez, no boot. Dois sindicatos são dois serviços apontando para dois
+ * bancos, rodando o mesmo build.
  *
  * O QUE MORA AQUI: identidade, dados institucionais que aparecem em documento
  * (PDF, termo, carnê) e a lista de módulos ligados.
@@ -19,107 +22,44 @@ import { ModuloKey } from '../common/permissions/permissoes.constants';
  * sozinho (fica no banco).
  */
 
-/**
- * Módulos que a instalação pode ligar ou desligar.
- *
- * É a MESMA lista da matriz de permissões (`ModuloKey`), e não uma paralela:
- * duas listas de módulos divergiriam na primeira vez que alguém acrescentasse
- * um dos lados. Carteirinha, dependentes e recadastramento não aparecem aqui
- * porque não são módulos — são partes do cadastro de filiados, e desligá-las
- * separadamente não faria sentido.
- */
-export type ModuloSistema = ModuloKey;
+const TENANTS: Record<string, TenantConfig> = {
+  senatepi,
+  sindserm,
+};
 
-export interface TenantConfig {
-  /** Identificador técnico, em minúsculas — usado em log e em nome de arquivo. */
-  id: string;
-  sigla: string;
-  /** Razão social completa, como sai em documento oficial. */
-  nome: string;
-  /** Versão curta para rodapé e assinatura. */
-  nomeCurto: string;
-  cnpj: string;
-  /**
-   * Registro sindical no Ministério do Trabalho. Sai no termo de filiação; nem
-   * todo sindicato tem os dois números, por isso são opcionais.
-   */
-  registroSindical?: { processo?: string; codigoEntidade?: string };
-  endereco: {
-    logradouro: string;
-    bairro: string;
-    cidade: string;
-    uf: string;
-    cep: string;
-  };
-  contato: { telefone?: string; email?: string; site?: string };
-  /**
-   * Conta para desconto em folha, citada no termo de filiação. Opcional porque
-   * nem todo sindicato desconta em folha.
-   */
-  bancario?: { banco: string; agencia: string; operacao?: string; conta: string };
-  /**
-   * Como a instalação chama as pessoas que representa. "Filiado" no SENATEPI;
-   * um sindicato de servidores pode preferir "servidor" ou "associado".
-   */
-  vocabulario: {
-    filiado: string;
-    filiados: string;
-    /** Como se chama o número de identificação interno. */
-    matricula: string;
-  };
-  /** Artigo do estatuto que fundamenta a contribuição (sai no termo). */
-  contribuicao?: { artigoEstatuto?: string; descricao?: string };
-  /**
-   * Campos do cadastro que ESTA instalação não usa.
-   *
-   * O caso que motivou: `formacao` é a escala de enfermagem (enfermeiro,
-   * técnico, auxiliar) e não significa nada num sindicato de servidores
-   * municipais, onde o que vale é o cargo — que já é texto livre no vínculo
-   * profissional.
-   *
-   * ESCONDER, E NÃO APAGAR: o campo continua no banco e no histórico do
-   * SENATEPI. Remover a coluna para agradar um cliente destruiria o dado do
-   * outro. Um campo oculto simplesmente não é pedido nem exibido.
-   */
-  camposOcultos?: string[];
-  modulos: ModuloSistema[];
+/**
+ * POR QUE ISTO EXPLODE EM VEZ DE ASSUMIR UM PADRÃO.
+ *
+ * A tentação é cair no SENATEPI quando `TENANT` não vem. Seria o pior erro
+ * possível deste desenho: uma API do SINDSERM sem a variável subiria falando o
+ * nome do SENATEPI, com a lista de módulos do SENATEPI e os campos do SENATEPI
+ * — **por cima do banco do SINDSERM**. Ninguém perceberia até um dado errado
+ * já estar gravado.
+ *
+ * Serviço que não sobe é um problema de 30 segundos, com a causa escrita na
+ * primeira linha do log. Cliente trocado em silêncio é um problema de semanas.
+ */
+function resolverTenant(): TenantConfig {
+  const id = (process.env.TENANT ?? '').trim().toLowerCase();
+  const conhecidos = Object.keys(TENANTS).join(', ');
+
+  if (!id) {
+    throw new Error(
+      `A variável de ambiente TENANT não está definida. ` +
+        `Sem ela não há como saber de qual sindicato é esta instalação. ` +
+        `Valores aceitos: ${conhecidos}.`,
+    );
+  }
+  const escolhido = TENANTS[id];
+  if (!escolhido) {
+    throw new Error(
+      `TENANT="${id}" não corresponde a nenhum cliente. Valores aceitos: ${conhecidos}.`,
+    );
+  }
+  return escolhido;
 }
 
-export const tenant: TenantConfig = {
-  id: 'senatepi',
-  sigla: 'SENATEPI',
-  nome: 'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ',
-  nomeCurto: 'Sindicato dos Enfermeiros do Piauí',
-  cnpj: '11.378.331/0001-86',
-  registroSindical: {
-    processo: '46214.0005793/2018-86',
-    codigoEntidade: '19020-7',
-  },
-  endereco: {
-    logradouro: 'RUA LUCÍDIO FREITAS, Nº 1070',
-    bairro: 'CENTRO-NORTE',
-    cidade: 'TERESINA',
-    uf: 'PI',
-    cep: '64000-440',
-  },
-  contato: {},
-  bancario: { banco: 'CEF', agencia: '2004', operacao: '003', conta: '1341-4' },
-  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
-  contribuicao: {
-    artigoEstatuto: 'Art. 57, §1º',
-    descricao: '1% sobre o maior vencimento básico ao qual esteja vinculado',
-  },
-  // O SENATEPI usa todos os campos do cadastro.
-  camposOcultos: [],
-  // `acessos` (portaria do clube) fica de fora: a colônia do SENATEPI tem
-  // controle próprio, com regra de reserva e sorteio. A portaria nasceu para
-  // o clube do SINDSERM e ligá-la aqui só somaria um menu sem uso.
-  modulos: [
-    'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
-    'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
-    'empresas', 'auditoria', 'usuarios',
-  ],
-};
+export const tenant: TenantConfig = resolverTenant();
 
 /** Endereço em uma linha — é como ele aparece no rodapé dos PDFs. */
 export function enderecoEmLinha(t: TenantConfig = tenant): string {
@@ -138,4 +78,9 @@ export function contaEmLinha(t: TenantConfig = tenant): string {
 /** O módulo está ligado nesta instalação? */
 export function moduloAtivo(modulo: ModuloSistema, t: TenantConfig = tenant): boolean {
   return t.modulos.includes(modulo);
+}
+
+/** O campo é pedido e exibido nesta instalação? */
+export function campoVisivel(campo: string, t: TenantConfig = tenant): boolean {
+  return !(t.camposOcultos ?? []).includes(campo);
 }

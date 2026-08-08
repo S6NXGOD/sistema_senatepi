@@ -2,10 +2,10 @@ name: CI
 
 # O guarda que impede quebrar um cliente em silêncio.
 #
-# Com mais de um sindicato no mesmo repositório, o risco novo não é técnico, é
-# de atenção: mexer no core e descobrir três semanas depois que o outro cliente
-# não compila. Aqui todos os workspaces são construídos a cada push — se um app
-# quebrar, o merge não passa.
+# Com mais de um sindicato no mesmo código, o risco novo não é técnico, é de
+# atenção: mexer no core e descobrir três semanas depois que o outro cliente não
+# compila. Aqui CADA cliente é construído a cada push — se um quebrar, o merge
+# não passa.
 on:
   push:
     branches: [main, refatoracao-monorepo]
@@ -14,6 +14,19 @@ on:
 jobs:
   verificar:
     runs-on: ubuntu-latest
+
+    # Um job por sindicato. `fail-fast: false` de propósito: quando o core
+    # quebra, interessa saber se quebrou em UM cliente ou em todos — e o job
+    # cancelado esconde justamente essa informação.
+    strategy:
+      fail-fast: false
+      matrix:
+        tenant: [senatepi, sindserm]
+
+    env:
+      TENANT: ${{ matrix.tenant }}
+      NEXT_PUBLIC_TENANT: ${{ matrix.tenant }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +46,24 @@ jobs:
       - name: Testes
         run: npm test --workspaces --if-present
 
-      # TODOS os apps, não só o que foi alterado: é exatamente o cliente que
-      # ninguém tocou que quebra quando o core muda.
-      - name: Build de todos os apps
+      # TODOS os workspaces, não só o que foi alterado: é exatamente o cliente
+      # que ninguém tocou que quebra quando o core muda. O `prebuild` da API
+      # compila os pacotes de `packages/` antes.
+      - name: Build (${{ matrix.tenant }})
         run: npm run build --workspaces --if-present
+
+      # A paleta é compilada DENTRO do CSS pelo Tailwind. Um build que sai com a
+      # cor do cliente errado passaria por todos os passos acima sem reclamar —
+      # foi o que aconteceu localmente por causa do cache do `.next`. Aqui a
+      # asserção é explícita, contra o CSS que realmente foi gerado.
+      - name: Conferir que a marca compilada é a do cliente certo
+        run: |
+          case "${{ matrix.tenant }}" in
+            senatepi) COR="1B7F0A" ;;
+            sindserm) COR="0F4C81" ;;
+          esac
+          if ! grep -riq "$COR" apps/web/.next/static/css/; then
+            echo "::error::O CSS de ${{ matrix.tenant }} não contém a cor institucional #$COR."
+            exit 1
+          fi
+          echo "ok: #$COR presente no CSS de ${{ matrix.tenant }}"
