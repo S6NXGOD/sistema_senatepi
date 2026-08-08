@@ -27,6 +27,7 @@ import { QrCodeService } from '../../common/qrcode/qrcode.service';
 import { ImageService } from '../../common/storage/image.service';
 import { StorageService } from '../../common/storage/storage.service';
 import { dataCalendario } from '../../common/utils/datas.util';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 // ---- Regra de negócio compartilhável ----
 export function calcularIdade(dataNascimento: Date, referencia = new Date()): number {
@@ -151,6 +152,7 @@ export class DependentesService {
 // ---- Controller ----
 @ApiTags('dependentes')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller()
 class DependentesController {
   constructor(private readonly service: DependentesService) {}

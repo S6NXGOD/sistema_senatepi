@@ -4,6 +4,7 @@ import {
   Building2, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
+import { moduloAtivo } from '@/tenant.config';
 
 export interface NavItem {
   href: string;
@@ -88,7 +89,15 @@ export function filtrarNav(
   return NAV_SECOES
     .map((secao) => ({
       ...secao,
-      itens: secao.itens.filter((i) => !i.modulo || podeVer(role, permissoes, i.modulo)),
+      /**
+       * DOIS filtros, e a ordem importa pouco mas o significado é diferente:
+       * `moduloAtivo` pergunta se a INSTALAÇÃO tem o módulo; `podeVer`, se a
+       * PESSOA pode. Um módulo que o sindicato não contratou some para todo
+       * mundo, inclusive para o administrador.
+       */
+      itens: secao.itens.filter(
+        (i) => !i.modulo || (moduloAtivo(i.modulo) && podeVer(role, permissoes, i.modulo)),
+      ),
     }))
     .filter((secao) => secao.itens.length > 0);
 }

@@ -27,6 +27,7 @@ import { mascararCpf } from '../../common/utils/matricula.util';
 import { lerAsset } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { tenant } from '../../tenant/tenant.config';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -218,6 +219,7 @@ export class CarteirinhasService {
 
 @ApiTags('carteirinhas')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller('filiados/:filiadoId/carteirinha')
 class CarteirinhasController {
   constructor(private readonly service: CarteirinhasService) {}

@@ -1,3 +1,5 @@
+import type { ModuloKey } from '@/lib/permissoes';
+
 /**
  * QUEM É O CLIENTE DESTA INSTALAÇÃO — lado da tela.
  *
@@ -29,6 +31,15 @@ export interface TenantConfigWeb {
   descricao: string;
   paleta: PaletaMarca;
   vocabulario: { filiado: string; filiados: string; matricula: string };
+  /**
+   * Módulos ligados nesta instalação — a MESMA lista da API.
+   *
+   * O menu some para módulo desligado, e a rota some junto (a API responde 404
+   * pelo `ModuloAtivoGuard`). Os dois lados precisam concordar: menu escondido
+   * com rota viva deixa a funcionalidade acessível por URL; menu visível com
+   * rota morta leva a pessoa a um erro.
+   */
+  modulos: ModuloKey[];
 }
 
 /**
@@ -59,4 +70,15 @@ export const tenant: TenantConfigWeb = {
   descricao: 'Sindicato dos Enfermeiros do Piauí',
   paleta: PALETA_SENATEPI,
   vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
+  // Todos ligados: é a instalação de referência.
+  modulos: [
+    'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
+    'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
+    'empresas', 'auditoria', 'usuarios',
+  ],
 };
+
+/** O módulo está ligado nesta instalação? */
+export function moduloAtivo(modulo: ModuloKey): boolean {
+  return tenant.modulos.includes(modulo);
+}

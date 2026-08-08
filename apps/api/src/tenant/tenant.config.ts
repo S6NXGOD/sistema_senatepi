@@ -1,3 +1,5 @@
+import { ModuloKey } from '../common/permissions/permissoes.constants';
+
 /**
  * QUEM É O CLIENTE DESTA INSTALAÇÃO.
  *
@@ -17,23 +19,16 @@
  * sozinho (fica no banco).
  */
 
-/** Módulos que a instalação pode ligar ou desligar. */
-export type ModuloSistema =
-  | 'agenda'
-  | 'atendimentos'
-  | 'auditoria'
-  | 'carteirinhas'
-  | 'cobrancas'
-  | 'colaboradores'
-  | 'colonia'
-  | 'dependentes'
-  | 'empresas'
-  | 'escalas'
-  | 'eventos'
-  | 'filiados'
-  | 'processos'
-  | 'recadastramento'
-  | 'usuarios';
+/**
+ * Módulos que a instalação pode ligar ou desligar.
+ *
+ * É a MESMA lista da matriz de permissões (`ModuloKey`), e não uma paralela:
+ * duas listas de módulos divergiriam na primeira vez que alguém acrescentasse
+ * um dos lados. Carteirinha, dependentes e recadastramento não aparecem aqui
+ * porque não são módulos — são partes do cadastro de filiados, e desligá-las
+ * separadamente não faria sentido.
+ */
+export type ModuloSistema = ModuloKey;
 
 export interface TenantConfig {
   /** Identificador técnico, em minúsculas — usado em log e em nome de arquivo. */
@@ -103,9 +98,9 @@ export const tenant: TenantConfig = {
   },
   // Todos ligados: é a instalação de referência.
   modulos: [
-    'agenda', 'atendimentos', 'auditoria', 'carteirinhas', 'cobrancas',
-    'colaboradores', 'colonia', 'dependentes', 'empresas', 'escalas',
-    'eventos', 'filiados', 'processos', 'recadastramento', 'usuarios',
+    'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
+    'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
+    'empresas', 'auditoria', 'usuarios',
   ],
 };
 

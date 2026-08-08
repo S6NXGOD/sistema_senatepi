@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 @Injectable()
 export class AuditoriaService {
@@ -31,6 +32,7 @@ export class AuditoriaService {
 
 @ApiTags('auditoria')
 @ApiBearerAuth()
+@ModuloTenant('auditoria')
 @Controller('auditoria')
 class AuditoriaController {
   constructor(private readonly service: AuditoriaService) {}

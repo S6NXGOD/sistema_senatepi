@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AvataresInterceptor } from './common/storage/avatares.interceptor';
+import { ModuloAtivoGuard } from './common/tenant/modulo-ativo.guard';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -75,6 +76,12 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Autenticação global (rotas públicas usam @Public())
+    /**
+     * Primeiro de todos: módulo desligado nesta instalação responde 404, sem
+     * sequer checar autenticação. É o que faz a página pública da Colônia
+     * sumir num sindicato que não tem colônia.
+     */
+    { provide: APP_GUARD, useClass: ModuloAtivoGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // Autorização por módulo + regra global "só o Administrador apaga".

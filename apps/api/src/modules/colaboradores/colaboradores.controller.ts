@@ -26,9 +26,11 @@ import {
 } from './dto/colaborador.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 @ApiTags('colaboradores')
 @ApiBearerAuth()
+@ModuloTenant('colaboradores')
 @Controller('colaboradores')
 export class ColaboradoresController {
   constructor(private readonly service: ColaboradoresService) {}

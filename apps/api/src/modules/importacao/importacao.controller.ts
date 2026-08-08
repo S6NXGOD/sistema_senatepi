@@ -22,9 +22,11 @@ import { RelatorioImportacaoService } from './relatorio.service';
 import { ConfirmarImportacaoDto, EditarLinhaDto } from './dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 @ApiTags('importacao')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller('importacoes')
 @Roles(UserRole.ADMINISTRADOR) // importação de filiados: apenas administradores
 export class ImportacaoController {

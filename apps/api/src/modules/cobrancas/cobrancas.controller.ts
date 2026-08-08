@@ -24,10 +24,12 @@ import {
 } from './dto/cobrancas.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 @ApiTags('cobrancas')
 @ApiBearerAuth()
 @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+@ModuloTenant('cobrancas')
 @Controller('cobrancas')
 export class CobrancasController {
   constructor(private readonly service: CobrancasService) {}

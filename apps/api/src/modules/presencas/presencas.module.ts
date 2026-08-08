@@ -31,6 +31,7 @@ import {
   calcularIdade,
   dependenteValidoParaEvento,
 } from '../dependentes/dependentes.module';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 class ValidarQrDto {
   @ApiProperty({ description: 'Payload lido do QR Code', type: Object })
@@ -212,6 +213,7 @@ export class PresencasService {
 
 @ApiTags('presencas')
 @ApiBearerAuth()
+@ModuloTenant('eventos')
 @Controller()
 class PresencasController {
   constructor(private readonly service: PresencasService) {}

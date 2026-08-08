@@ -1,0 +1,39 @@
+name: CI
+
+# O guarda que impede quebrar um cliente em silêncio.
+#
+# Com mais de um sindicato no mesmo repositório, o risco novo não é técnico, é
+# de atenção: mexer no core e descobrir três semanas depois que o outro cliente
+# não compila. Aqui todos os workspaces são construídos a cada push — se um app
+# quebrar, o merge não passa.
+on:
+  push:
+    branches: [main, refatoracao-monorepo]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # O client do Prisma é gerado a partir do schema e não vai para o git;
+      # sem isto a API não tipa e o build falha por um motivo que não é o real.
+      - name: Gerar o Prisma Client
+        run: npm run prisma:generate -w @senatepi/api --if-present || npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      - name: Testes
+        run: npm test --workspaces --if-present
+
+      # TODOS os apps, não só o que foi alterado: é exatamente o cliente que
+      # ninguém tocou que quebra quando o core muda.
+      - name: Build de todos os apps
+        run: npm run build --workspaces --if-present
