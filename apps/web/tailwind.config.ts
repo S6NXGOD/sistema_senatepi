@@ -18,14 +18,28 @@ const config: Config = {
     extend: {
       colors: {
         /**
-         * Paleta da MARCA — os valores vêm de `src/tenant.config.ts`.
+         * Paleta da MARCA — lida em TEMPO DE EXECUÇÃO, de variáveis CSS.
          *
          * Antes esta escala se chamava `senatepi` e estava escrita aqui. Com o
          * nome do cliente na classe de cor (`bg-senatepi-800`), trocar de
-         * cliente exigiria caçar 871 usos pelo código. Agora a classe é neutra
-         * (`bg-brand-800`) e o valor sai da configuração da instalação.
+         * cliente exigiria caçar 871 usos pelo código. Depois passou a ser
+         * `tenant.paleta`, compilada — e trocar a cor exigia um deploy.
+         *
+         * Agora o valor sai de `--brand-N`, que o layout emite com o padrão da
+         * instalação e a tela de Identidade Visual sobrescreve. Trocar a cor
+         * do sindicato deixou de exigir programador.
+         *
+         * POR QUE CANAIS (`27 127 10`) E NÃO HEXADECIMAL: é o que permite ao
+         * Tailwind compor opacidade. Com `#1B7F0A` dentro da variável, as
+         * dezenas de `bg-brand-400/20` e `dark:bg-brand-900/30` que existem no
+         * código produziriam CSS inválido e a cor simplesmente sumiria.
          */
-        brand: tenant.paleta,
+        brand: Object.fromEntries(
+          Object.keys(tenant.paleta).map((tom) => [
+            tom,
+            `rgb(var(--brand-${tom}) / <alpha-value>)`,
+          ]),
+        ),
         cinza: {
           claro: '#F5F7FA',
         },

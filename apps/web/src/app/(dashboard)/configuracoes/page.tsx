@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { User, ShieldCheck, Loader2, Save, KeyRound, Upload } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { IdentidadeVisualTab } from '@/components/configuracoes/identidade-visual-tab';
+import { Palette } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -30,7 +32,7 @@ export default function ConfiguracoesPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6">
+    <div className="mx-auto w-full max-w-3xl space-y-6">
       <div>
         <h2 className="text-2xl font-bold">Configurações</h2>
         <p className="text-sm text-muted-foreground">Gerencie seus dados de perfil e de acesso.</p>
@@ -45,6 +47,12 @@ export default function ConfiguracoesPage() {
           <TabsList>
             <TabsTrigger value="perfil"><User className="h-4 w-4" /> Perfil</TabsTrigger>
             <TabsTrigger value="seguranca"><ShieldCheck className="h-4 w-4" /> Segurança</TabsTrigger>
+            {/* A marca é da INSTALAÇÃO, não da pessoa — por isso só o
+                administrador vê a aba. A API confere de novo: esconder o botão
+                não protege nada sozinho. */}
+            {perfil.role === 'ADMINISTRADOR' && (
+              <TabsTrigger value="identidade"><Palette className="h-4 w-4" /> Identidade visual</TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="perfil">
@@ -54,6 +62,12 @@ export default function ConfiguracoesPage() {
           <TabsContent value="seguranca">
             <SegurancaTab />
           </TabsContent>
+
+          {perfil.role === 'ADMINISTRADOR' && (
+            <TabsContent value="identidade">
+              <IdentidadeVisualTab />
+            </TabsContent>
+          )}
         </Tabs>
       )}
     </div>

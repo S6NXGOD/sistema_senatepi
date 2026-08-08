@@ -49,6 +49,8 @@ coverage/
 # Uploads / mídia local (NÃO ignorar código-fonte: use caminhos específicos!)
 # Antes havia "storage/" genérico, que ignorava apps/api/src/common/storage/ (código).
 /apps/api/uploads/
+# um acervo por cliente em dev (ver apps/api/.env.<cliente>)
+/apps/api/uploads-*/
 /uploads/
 /storage_local/
 minio-data/

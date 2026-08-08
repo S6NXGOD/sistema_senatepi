@@ -39,6 +39,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { PermissionsGuard } from './common/permissions/permissions.guard';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
+import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-visual.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
+    IdentidadeVisualModule,
     StorageModule,
     QrCodeModule,
     AuditModule,

@@ -8,13 +8,18 @@
     --foreground: 222 47% 11%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
-    --primary: 105 85% 27%; /* verde escuro SENATEPI */
+    /* --primary e --ring vêm da MARCA e são emitidos por <MarcaCss>, a
+       partir de tenant.paleta. Ficavam aqui em verde cravado, então o
+       botão primário do SINDSERM sairia com a cor do SENATEPI. Os valores
+       abaixo são só a rede de segurança para quando o CSS carrega antes
+       do <style> da marca. */
+    --primary: 0 0% 20%;
     --primary-foreground: 0 0% 100%;
     --muted: 210 20% 95%;
     --muted-foreground: 215 16% 47%;
     --border: 214 20% 90%;
     --input: 214 20% 90%;
-    --ring: 105 60% 35%;
+    --ring: 0 0% 35%;
     --radius: 0.75rem;
   }
 
@@ -23,13 +28,13 @@
     --foreground: 210 20% 96%;
     --card: 222 25% 13%;
     --card-foreground: 210 20% 96%;
-    --primary: 88 55% 51%; /* verde claro para dark */
+    --primary: 0 0% 80%;
     --primary-foreground: 222 47% 11%;
     --muted: 222 20% 18%;
     --muted-foreground: 215 16% 65%;
     --border: 222 20% 22%;
     --input: 222 20% 22%;
-    --ring: 88 55% 51%;
+    --ring: 0 0% 60%;
   }
 
   * {

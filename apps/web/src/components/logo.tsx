@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
+import { useIdentidade } from '@/components/identidade-provider';
 
 type Orientacao = 'horizontal' | 'vertical';
 type Variante = 'auto' | 'cor' | 'branco';
@@ -52,7 +53,8 @@ export function Logo({
 }
 
 /**
- * A imagem, com queda para a sigla escrita.
+ * A imagem, em três degraus: o que foi ENVIADO pela tela, o arquivo de
+ * `/public`, e a sigla escrita.
  *
  * POR QUE A QUEDA EXISTE: um cliente novo entra no ar antes de o designer
  * entregar os arquivos, e o caminho é montado por convenção de nome — basta um
@@ -73,8 +75,16 @@ function Marca({
   className?: string;
 }) {
   const [falhou, setFalhou] = useState(false);
+  const identidade = useIdentidade();
 
-  if (falhou) {
+  /**
+   * O logo enviado pela tela vence o arquivo de `/public` — é o que torna a
+   * troca de marca autoserviço. A URL é assinada e expira, então ela entra na
+   * `key` da imagem para o React remontar quando o endereço mudar.
+   */
+  const enviado = identidade?.logos?.[`${orientation}-${tom}` as const] ?? null;
+
+  if (falhou && !enviado) {
     return (
       <span
         className={cn('flex h-full items-center whitespace-nowrap font-bold tracking-tight', className)}
@@ -93,7 +103,8 @@ function Marca({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={`/${tenant.id}-${orientation}-${tom}.png`}
+      key={enviado ?? 'padrao'}
+      src={enviado ?? `/${tenant.id}-${orientation}-${tom}.png`}
       alt={tenant.sigla}
       onError={() => setFalhou(true)}
       className={cn('h-full w-auto object-contain', className)}

@@ -2530,3 +2530,34 @@ enum DecisaoDuplicata {
   /// Fundidos: os dados foram consolidados no mantido e o outro, apagado.
   FUNDIDO
 }
+
+/// A identidade visual DESTA instalação, editável pela tela.
+///
+/// A paleta e os logos nasceram em arquivo (`tenant.config.ts` e `/public`), o
+/// que exigia programador e deploy para trocar a cor de um sindicato. Aqui eles
+/// passam a ser dado — e o arquivo continua sendo o PADRÃO, usado enquanto
+/// ninguém mexeu e como rede de segurança se o banco estiver fora do ar.
+///
+/// LINHA ÚNICA, com id fixo. Não é uma tabela de configurações genérica: cada
+/// banco é de um sindicato só, então "a identidade" é uma coisa só. Um id fixo
+/// torna a gravação um `upsert` trivial e impede duas linhas concorrentes.
+model IdentidadeVisual {
+  id String @id @default("unica")
+
+  /// Cor institucional escolhida, em hexadecimal (#RRGGBB). Os dez tons da
+  /// escala são DERIVADOS dela na tela — guardar os dez aqui deixaria o banco
+  /// e o algoritmo saírem de sincronia na primeira melhoria do algoritmo.
+  corPrimaria String? @map("cor_primaria")
+
+  /// Chaves no storage. Nulo = usa o arquivo de `/public`, pelo nome do tenant.
+  logoHorizontalCorKey    String? @map("logo_horizontal_cor_key")
+  logoHorizontalBrancoKey String? @map("logo_horizontal_branco_key")
+  logoVerticalCorKey      String? @map("logo_vertical_cor_key")
+  logoVerticalBrancoKey   String? @map("logo_vertical_branco_key")
+
+  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
+  /// Snapshot do nome de quem mexeu; sobrevive à exclusão do usuário.
+  atualizadoPor String?  @map("atualizado_por")
+
+  @@map("identidade_visual")
+}
