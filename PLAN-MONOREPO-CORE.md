@@ -1115,3 +1115,107 @@ Nada de código. O que falta é do sindicato e da infraestrutura:
 4. **Se o jurídico deles for usar o DJEN**, o IP do deploy precisa ser aceito
    pelo CNJ — é a mesma pendência do SENATEPI (§12.1), e é o único item que não
    depende só de nós.
+
+---
+
+## 17. Isolamento entre sindicatos — auditado
+
+Varredura completa em 08/08/2026, com os dois clientes no ar.
+
+### O que é separado, e por quê
+
+| Recurso | Separado por | Verificado |
+|---|---|---|
+| Banco de dados | `DATABASE_URL` por cliente | dois bancos locais; nada compartilhado |
+| Acervo de arquivos | `STORAGE_LOCAL_DIR` / bucket por cliente | upload do cliente 2 cai na pasta dele |
+| URL pública dos arquivos | `STORAGE_PUBLIC_URL` por cliente | URL assinada aponta para a API certa |
+| Segredo do JWT | `JWT_ACCESS_SECRET` por cliente | — |
+| **Fronteira do token** | **claim `tenant`, conferida na estratégia** | **token cruzado recusado MESMO com segredo igual** |
+| Segredo do QR | `QR_SIGNING_SECRET` por cliente | + assinatura já inclui token por pessoa |
+| CORS | origem do front do próprio cliente | preflight: 3001 permitido, 3000 negado |
+| Logo dos PDFs | nome derivado do `tenant.id` | — |
+| Chaves do navegador | prefixo `tenant.id` | — |
+| Diretório de build | `.next-<tenant>` | — |
+| Processo | um por cliente | sem estado global em memória |
+
+### As duas armadilhas que a auditoria encontrou
+
+**O logo dos PDFs.** Seis geradores liam `'senatepi-horizontal-branco.png'` com
+o nome escrito à mão. A carteirinha, o certificado e o termo de um filiado do
+SINDSERM sairiam com a marca do SENATEPI — impressos, na mão dele.
+
+**Os valores de reserva dos segredos.** `'dev-access-secret'`, `'dev-qr-secret'`
+e `'senatepi-dev-secret'` eram literais iguais em toda instalação: duas que
+esquecessem a mesma variável passariam a assinar com a MESMA chave. Hoje a
+reserva deriva do tenant e, em produção, **não existe reserva** — falta a
+variável, o serviço não sobe.
+
+### A regra que resume
+
+> Se um recurso é identificado por um **nome fixo** — arquivo, chave, pasta,
+> segredo —, ele é um vazamento esperando acontecer. Nome de recurso sai do
+> `tenant.id`, ou do ambiente.
+
+---
+
+## 18. Como pedir uma alteração
+
+Com um código só servindo vários sindicatos, **a pergunta que decide tudo é
+"para quem?"**. As três respostas possíveis:
+
+| Você quer | Diga | O que acontece |
+|---|---|---|
+| Mudar para **todos** | «no core», «para todos os sindicatos» | altera o código compartilhado; vale em todos no próximo deploy |
+| Mudar para **um** | «só no SENATEPI», «só no SINDSERM» | altera o `tenant.config` daquele cliente, ou cria um ponto de extensão gateado |
+| Não sei qual | descreva o resultado que quer | a análise dirá se cabe em configuração ou se exige mexer no core |
+
+**O padrão, quando não se diz nada, é o CORE — ou seja, todos.** É o
+comportamento mais perigoso dos dois, e por isso vale a pena a frase de uma
+palavra. Um pedido como *"esconda o campo X do cadastro"* sem destinatário
+esconde o campo para todos os sindicatos.
+
+### Mudar «só para um» quase nunca é duplicar código
+
+Na ordem de preferência:
+
+1. **`modulos`** — o cliente tem ou não tem a funcionalidade.
+2. **`camposOcultos`** — o campo não é pedido nem exibido. *Nunca apagar a
+   coluna:* a migration roda no banco de todos e destruiria o dado dos outros.
+3. **`vocabulario`** — «filiado» vira «servidor».
+4. **Ponto de extensão gateado** — quando o comportamento em si difere. Fica no
+   código compartilhado, ligado por módulo ou por configuração, nunca por
+   `if (tenant.id === 'x')` no meio da lógica.
+
+Duplicar o módulo para um cliente é a última opção, e ela desfaz o motivo de o
+core existir: a melhoria do jurídico deixaria de chegar aos dois.
+
+---
+
+## 19. Nascer um cliente novo
+
+**Não é uma pasta nova.** Não existe `apps/sindicato-x/` — existe configuração.
+O que um cliente novo exige, ao todo:
+
+```
+apps/api/src/tenant/tenants/<cliente>.ts     identidade, módulos, campos ocultos
+apps/web/src/tenant/tenants/<cliente>.ts     idem + paleta padrão
+  ↳ registrar os dois no TENANTS do respectivo tenant.config.ts
+scripts/dev.js                               portas do cliente (PORTAS)
+.github/workflows/ci.yml                     acrescentar à matriz
+apps/api/.env.<cliente>                      banco, porta, segredos, CORS, storage
+apps/web/.env.<cliente>                      URL da API
+apps/web/public/<cliente>-*.png              4 logos (opcional; cai para a sigla)
+apps/api/assets/<cliente>-horizontal-branco.png   logo dos PDFs
+```
+
+Descrever o cliente em uma conversa é o suficiente para isso ser montado — o que
+precisa vir de você é o que **só o sindicato sabe**: razão social, CNPJ,
+endereço, registro sindical, como chamam os associados, quais módulos usam,
+quais campos não fazem sentido, e a cor institucional.
+
+Depois disso, `npm run dev:<cliente>` sobe o sindicato novo em desenvolvimento,
+com banco próprio.
+
+> **`npm run dev` sobe UM cliente, não todos.** Cada sindicato é um comando: um
+> par de processos (API + web), portas próprias, banco próprio. Rodar dois ao
+> mesmo tempo é abrir dois terminais.
