@@ -1038,7 +1038,7 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
       {ehFiliados && (
         <div className="flex flex-wrap gap-1.5 border-b px-5 py-2">
           {([
-            ['entradas', 'Entradas', '#1B7F0A'],
+            ['entradas', 'Entradas', tenant.paleta[800]],
             ['saidas', 'Saídas', '#DC2626'],
             ['saldo', 'Saldo', '#7C3AED'],
           ] as const).map(([k, rotulo, cor]) => (
@@ -1063,8 +1063,11 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
           <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <defs>
               <linearGradient id="grad-verde" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#4FA11B" stopOpacity={0.55} />
-                <stop offset="95%" stopColor="#4FA11B" stopOpacity={0} />
+                {/* O id do gradiente ainda se chama "grad-verde" por ser
+                    referenciado em `fill="url(#grad-verde)"`; a COR, essa sim,
+                    vem da marca da instalação. */}
+                <stop offset="5%" stopColor={tenant.paleta[600]} stopOpacity={0.55} />
+                <stop offset="95%" stopColor={tenant.paleta[600]} stopOpacity={0} />
               </linearGradient>
               <linearGradient id="grad-vermelho" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#DC2626" stopOpacity={0.4} />
@@ -1081,7 +1084,7 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
             {ehFiliados ? (
               <>
                 {series.entradas && (
-                  <Area type="monotone" dataKey="entradas" name="Entradas" stroke="#1B7F0A"
+                  <Area type="monotone" dataKey="entradas" name="Entradas" stroke={tenant.paleta[800]}
                     strokeWidth={2} fill="url(#grad-verde)" />
                 )}
                 {series.saidas && (
@@ -1094,7 +1097,7 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
                 )}
               </>
             ) : (
-              <Area type="monotone" dataKey="total" name="Total" stroke="#1B7F0A" strokeWidth={2} fill="url(#grad-verde)" />
+              <Area type="monotone" dataKey="total" name="Total" stroke={tenant.paleta[800]} strokeWidth={2} fill="url(#grad-verde)" />
             )}
           </AreaChart>
         </ResponsiveContainer>

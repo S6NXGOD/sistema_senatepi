@@ -13,6 +13,8 @@ node_modules/
 dist/
 build/
 .next/
+# um diretório de build por cliente (ver apps/web/next.config.mjs)
+.next-*/
 out/
 *.tsbuildinfo
 

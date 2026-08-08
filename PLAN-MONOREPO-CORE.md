@@ -1040,24 +1040,54 @@ TENANT=sindserm DATABASE_URL=".../sindserm_dev" \
 O 404 da colônia é a prova que importa: não é menu escondido, é rota que **não
 existe** naquela instalação.
 
-### Para você repetir e navegar pela tela
+### Rodar os dois, lado a lado
 
 ```bash
-# API do SINDSERM (banco próprio)
-cd apps/api
-TENANT=sindserm DATABASE_URL="postgresql://.../sindserm_dev" npm run start:dev
-
-# Front do SINDSERM — em OUTRO terminal.
-# O `rm -rf .next` NÃO é zelo: o Tailwind compila a paleta dentro do CSS e o
-# cache devolve a marca do build anterior. Sem isso o SINDSERM abre verde.
-cd apps/web
-rm -rf .next
-NEXT_PUBLIC_TENANT=sindserm npm run dev
+npm run dev            # SENATEPI  ·  API 3333  ·  web 3000  ·  banco "senatepi"
+npm run dev:sindserm   # SINDSERM  ·  API 3334  ·  web 3001  ·  banco "sindserm_dev"
 ```
 
-Entre com `admin@sindserm.org.br` / a senha padrão de dev. O que você deve ver:
-**azul** em vez de verde, «Servidores» no menu, sem Colônia, sem Cobranças, sem
-Empresas, **com Portaria**, e o cadastro **sem** Formação e sem COREN.
+Podem ficar no ar ao mesmo tempo, em dois terminais. Cada um tem porta, banco e
+diretório de build próprios.
+
+Entre no SINDSERM com `admin@sindserm.org.br`. O que muda em relação ao
+SENATEPI: **azul**, «Servidores» no menu, sem Colônia, sem Cobranças, sem
+Empresas, **com Portaria**, e o cadastro sem Formação e sem COREN.
+
+**O que faz isso funcionar** (`scripts/dev.js` e os arquivos de ambiente):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `apps/api/.env` | base comum: segredos, JWT, storage |
+| `apps/api/.env.<cliente>` | **só o que muda**: `DATABASE_URL`, `API_PORT`, `SEED_ADMIN_EMAIL` |
+| `apps/web/.env.local` | base do front |
+| `apps/web/.env.<cliente>` | **só o que muda**: `NEXT_PUBLIC_API_URL` |
+
+O arquivo do cliente vence — funciona sem gambiarra porque o `ConfigModule` do
+Nest só grava em `process.env` a chave que ainda não existe. Nenhum `.env` vai
+para o git.
+
+O script é Node, e não variável na linha do npm, porque `TENANT=x npm run dev`
+funciona no bash e falha no cmd do Windows.
+
+### Onde se define a identidade visual
+
+| O quê | Onde | Efeito |
+|---|---|---|
+| **Paleta** (10 tons) | `apps/web/src/tenant/tenants/<cliente>.ts` | tudo: `bg-brand-*`, gráficos, cor da aba do navegador |
+| **Logo** | `apps/web/public/<cliente>-<horizontal\|vertical>-<cor\|branco>.png` | 4 arquivos por sindicato |
+| **Nome, sigla, vocabulário** | `tenant/tenants/<cliente>.ts` (nos dois apps) | títulos, menu, documentos |
+| **Favicon / ícone do PWA** | `apps/web/public/` | aba e app instalado |
+
+Sobre a paleta: **os dez degraus são obrigatórios**. O Tailwind não emite classe
+para tom inexistente, então um degrau faltando vira `bg-brand-700 text-white`
+como texto branco sobre fundo branco — já aconteceu. E o 700 precisa passar em
+contraste AA com texto branco, porque é o tom dos botões primários e das abas.
+
+Sobre o logo: se os arquivos ainda não existirem, o componente **cai para a
+sigla escrita** na cor da marca. Um cliente novo entra no ar apresentável antes
+de o designer entregar os arquivos, e um `id` com typo vira texto em vez do
+ícone de imagem quebrada no topo de todas as telas.
 
 ### O que ainda falta para o SINDSERM em PRODUÇÃO
 

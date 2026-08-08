@@ -20,7 +20,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#1B7F0A', // brand-800
+  // Cor da barra do navegador e do app instalado (PWA). Vinha cravada em
+  // verde: a aba do SINDSERM abria com a marca do SENATEPI.
+  themeColor: tenant.paleta[800],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

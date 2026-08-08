@@ -52,18 +52,30 @@ jobs:
       - name: Build (${{ matrix.tenant }})
         run: npm run build --workspaces --if-present
 
-      # A paleta é compilada DENTRO do CSS pelo Tailwind. Um build que sai com a
-      # cor do cliente errado passaria por todos os passos acima sem reclamar —
-      # foi o que aconteceu localmente por causa do cache do `.next`. Aqui a
-      # asserção é explícita, contra o CSS que realmente foi gerado.
+      # A paleta é compilada DENTRO do CSS pelo Tailwind, e a cor da aba do
+      # navegador sai no HTML. Um build com a marca do cliente errado passaria
+      # por tsc, testes e build sem uma reclamação — foi exatamente o que
+      # aconteceu. Aqui a asserção é contra o que realmente foi gerado.
+      #
+      # O diretório é `.next-<tenant>` (ver apps/web/next.config.mjs): cada
+      # cliente tem o seu, então não há cache de um vazando para o outro.
       - name: Conferir que a marca compilada é a do cliente certo
         run: |
           case "${{ matrix.tenant }}" in
             senatepi) COR="1B7F0A" ;;
             sindserm) COR="0F4C81" ;;
           esac
-          if ! grep -riq "$COR" apps/web/.next/static/css/; then
+          DIR="apps/web/.next-${{ matrix.tenant }}"
+          if [ ! -d "$DIR" ]; then
+            echo "::error::$DIR não existe — o distDir por cliente não foi aplicado."
+            exit 1
+          fi
+          if ! grep -riq "$COR" "$DIR/static/css/"; then
             echo "::error::O CSS de ${{ matrix.tenant }} não contém a cor institucional #$COR."
             exit 1
           fi
-          echo "ok: #$COR presente no CSS de ${{ matrix.tenant }}"
+          if ! grep -rq "theme-color\" content=\"#$COR" "$DIR/server/app/login.html"; then
+            echo "::error::A cor da aba (theme-color) de ${{ matrix.tenant }} não é #$COR."
+            exit 1
+          fi
+          echo "ok: #$COR no CSS e no theme-color de ${{ matrix.tenant }}"
