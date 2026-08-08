@@ -883,3 +883,56 @@ dez, é bagunça — e aí (A) deixa de ser prematura e passa a ser necessária.
 Vale lembrar a régua que este próprio plano fixou no §3: *extrair cedo demais
 custa duas refatorações*. Com um cliente em produção e um segundo por nascer,
 (B) é o que a régua manda.
+
+### A decisão, nas palavras do cliente
+
+> *"Cada cliente tem seu banco de dados, mas alguns módulos são CORE, como por
+> exemplo o jurídico, que não muda muito de um sindicato ao outro. Cada sindicato
+> é independente, mas a 'forma de bolo' é a mesma. Se o módulo jurídico
+> atualizar, atualiza em todos os sindicatos, mas caso o sindicato queira algo em
+> específico no módulo jurídico, faz alterações só no tenant dele. Em resumo, é
+> praticamente o mesmo código pra todos, mas alguns módulos vão ficar padrão como
+> já está e outros não serão necessários ou serão necessários porém com
+> mudanças."*
+
+É a saída **(B)**, e ela está implementada. Um build serve a todos; `TENANT` diz
+de qual sindicato é a instalação.
+
+### Os três mecanismos para um cliente variar, em ordem de preferência
+
+| Quero… | Uso | Onde |
+|---|---|---|
+| que o módulo não exista aqui | `modulos` | menu some **e** a rota some (front) **e** a API responde 404 |
+| que um campo não seja pedido | `camposOcultos` | esconde na tela; a coluna continua no banco |
+| que se chame outra coisa | `vocabulario` | «servidor» em vez de «filiado» |
+
+**A regra que evita o pior erro:** nunca apagar coluna para agradar um cliente.
+O `formacao` some da tela do SINDSERM e continua guardando o histórico inteiro
+do SENATEPI. Uma migration destrutiva roda em todos os bancos.
+
+Quando nenhum dos três resolve — o cliente precisa de comportamento **diferente**
+no mesmo módulo —, o caminho é um ponto de extensão nomeado no core, não um `if
+(tenant.id === 'x')` no meio da lógica. O §10 já descreve os três formatos
+(fonte adicional, evento de domínio, slot na tela).
+
+### O que a Fase 4 (deploy) ganha de obrigação
+
+**Duas variáveis novas, e esquecê-las derruba o serviço** — de propósito, porque
+a alternativa silenciosa é pior (ver o comentário em `tenant.config.ts`):
+
+| Serviço | Variável | Valor |
+|---|---|---|
+| API do SENATEPI | `TENANT` | `senatepi` |
+| Web do SENATEPI | `NEXT_PUBLIC_TENANT` | `senatepi` |
+| API do SINDSERM | `TENANT` | `sindserm` |
+| Web do SINDSERM | `NEXT_PUBLIC_TENANT` | `sindserm` |
+
+`NEXT_PUBLIC_TENANT` é lida no **build**, não no start: mudá-la exige rebuild, e
+isso é correto — a paleta é compilada dentro do CSS pelo Tailwind.
+
+### O que sobrou pendente do SINDSERM
+
+Os campos marcados «confirmar» em `apps/api/src/tenant/tenants/sindserm.ts`:
+CNPJ, registro sindical, endereço, percentual da contribuição, cores
+institucionais, e se `cobrancas` e `empresas` ficam mesmo desligadas. Estão
+todos num arquivo só, para serem resolvidos numa passada.
