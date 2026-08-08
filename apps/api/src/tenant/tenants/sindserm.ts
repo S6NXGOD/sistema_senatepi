@@ -79,9 +79,11 @@ export const sindserm: TenantConfig = {
   /**
    * Só o DataJud por enquanto.
    *
-   * `djen` fica de fora porque a consulta depende de o IP do servidor ser
-   * aceito pelo CNJ, e isso é por instalação — não por código. Ligar depois é
-   * acrescentar uma palavra nesta lista.
+   * `djen` fica de fora POR ORA, e não por característica do sindicato: o CDN
+   * do CNJ recusa consultas que não chegam por um ponto de presença no Brasil,
+   * e o servidor de hoje está nos Estados Unidos. Assim que a hospedagem
+   * mudar para o Brasil, `djen` passa a ser padrão em todos os clientes — é
+   * acrescentar a palavra nesta lista.
    */
   integracoes: ['datajud'],
   modulos: [

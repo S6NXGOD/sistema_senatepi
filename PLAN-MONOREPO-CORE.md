@@ -1355,3 +1355,108 @@ caminho só, e a configuração decide os dados.
 | Conformidade | 35 asserções reprovam cliente cadastrado pela metade |
 | Testes do jurídico | 8 arquivos de spec no módulo `processos` |
 | Integração isolada | fonte externa desligada não roda, nem por cron nem por rota |
+
+---
+
+## 21. A VPS: quantas APIs, quantos bancos, e de onde vem o core
+
+### O DJEN é geográfico, não é IP registrado
+
+Corrige o que estava escrito antes. O bloqueio foi **medido lado a lado, mesma
+URL**:
+
+| Origem da consulta | Resposta | Ponto de presença |
+|---|---|---|
+| Brasil | **200**, JSON | `x-amz-cf-pop: GIG52` (Rio) |
+| Servidor de produção (EUA) | **403**, HTML | `x-amz-cf-pop: SFO53` (San Francisco) |
+
+O CDN do CNJ recusa a requisição **antes de ela chegar à API** — sem os
+cabeçalhos `X-RateLimit-*`, que é o sinal decisivo de que não é cota. Nenhum
+ajuste de ritmo contorna.
+
+**A consequência é boa:** não existe cadastro de IP, nem aprovação por
+sindicato, nem nada por cliente. O que precisa mudar é **o país do servidor**.
+Uma VPS no Brasil resolve para **todos os clientes que rodarem nela, de uma
+vez** — e um cliente novo já nasce com DJEN funcionando, sem passo extra.
+
+> Ao contratar, **confirme a região brasileira**. VPS "barata" costuma ser
+> Europa ou EUA por padrão, e ali o problema é exatamente o mesmo de hoje.
+
+**A chave `integracoes` continua valendo depois da migração**, por outro motivo:
+é ela que permite desligar o DJEN de um cliente sozinho quando o CNJ estiver
+fora do ar, sem derrubar a consulta dos outros.
+
+### Cada cliente tem a própria API? Sim e não — e a diferença importa
+
+| | Build | Processos |
+|---|---|---|
+| **API** | **UM só, para todos** | um processo por cliente |
+| **Web** | **um por cliente** | um processo por cliente |
+| **Banco** | — | um por cliente |
+
+**A API é escolhida em tempo de execução.** Verificado: o mesmo
+`dist/src/main.js`, sem recompilar, sobe como SENATEPI na porta 3333 e como
+SINDSERM na 3334 — o que muda é `TENANT`, `DATABASE_URL` e `API_PORT`. Cliente
+novo na VPS **não exige novo build da API**: é mais um processo.
+
+**A tela é escolhida em tempo de build**, e não por descuido: o Tailwind compila
+a paleta dentro do CSS. Cada cliente tem o seu `.next-<id>`, e é por isso que a
+CI constrói todos em matriz.
+
+```
+VPS (Brasil)
+├── git clone do repositório           ← O CORE. Um só.
+│   └── npm ci && npm run build        ← 1 build de API + 1 build de web POR CLIENTE
+│
+├── senatepi-api   :3333  TENANT=senatepi  →  banco senatepi
+├── senatepi-web   :3000  NEXT_PUBLIC_TENANT=senatepi
+├── sindserm-api   :3334  TENANT=sindserm  →  banco sindserm
+├── sindserm-web   :3001  NEXT_PUBLIC_TENANT=sindserm
+│
+├── Postgres        um servidor, N bancos separados
+└── nginx/Caddy     senatepi.org.br → :3000   api.senatepi.org.br → :3333
+                    sindserm.org.br → :3001   api.sindserm.org.br → :3334
+```
+
+### De onde o core "vem"
+
+**De lugar nenhum — ele já está lá.** Não há pacote publicado, registro privado
+nem submódulo. É **um clone do repositório na VPS**; os clientes são
+configuração dentro dele.
+
+Publicar é:
+
+```bash
+git pull
+npm ci
+npm run build            # API (uma vez) + web (uma vez por cliente)
+# reiniciar os processos
+```
+
+**É por isso que a correção de bug vale para todos:** os processos rodam o mesmo
+código, do mesmo commit. Não existe versão do SENATEPI e versão do SINDSERM.
+
+### Um banco por cliente, um servidor de banco
+
+Postgres é **um serviço** com **N bancos** — `CREATE DATABASE senatepi;`,
+`CREATE DATABASE sindserm;`. Cada API só enxerga o seu, pela `DATABASE_URL`. Não
+há schema compartilhado nem coluna `tenant_id`: se um banco cair, o outro nem
+sabe.
+
+> **O nome do banco precisa estar livre.** Apontar para um banco que já existe e
+> é de outro sistema faz a API subir contra tabelas erradas e o login responder
+> 500 — foi exatamente o que aconteceu ao apontar o SINDSERM para um
+> `sindserm_dev` que pertencia ao sistema de eleições.
+
+### O que muda no roteiro do cliente novo
+
+Nada do que já existe. Depois de `npm run novo-cliente`, na VPS:
+
+1. `CREATE DATABASE <banco>;` (nome livre)
+2. `prisma migrate deploy` no banco novo
+3. build do web daquele cliente
+4. dois processos novos (API + web), com as variáveis do cliente
+5. duas entradas no nginx e o certificado do domínio
+
+Do quinto cliente em diante, vale automatizar os passos 3–5 num script de
+deploy — mas isso só depois de a forma estar provada com dois no ar.

@@ -43,8 +43,14 @@ export type IntegracaoExterna =
   /**
    * Publicações e intimações do Diário de Justiça Eletrônico Nacional.
    *
-   * Depende de o IP do servidor ser aceito pelo CNJ, o que é por instalação e
-   * não por código — a razão de isto ser uma chave por cliente.
+   * DESTINADA A SER PADRÃO EM TODOS OS CLIENTES. Está desligada hoje por um
+   * motivo de hospedagem, não de sindicato: o CDN do CNJ recusa a consulta que
+   * não chega por um ponto de presença no Brasil, e o servidor atual está nos
+   * Estados Unidos — medido lado a lado, mesma URL, 200 do Brasil e 403 de lá.
+   *
+   * A chave continua existindo depois da mudança de hospedagem: é ela que
+   * permite desligar um cliente sozinho quando o CNJ estiver fora do ar, sem
+   * derrubar a consulta dos outros.
    */
   | 'djen';
 
