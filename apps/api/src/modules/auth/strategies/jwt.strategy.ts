@@ -4,12 +4,29 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthUser } from '../../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { tenant } from '../../../tenant/tenant.config';
+import { segredoDaInstalacao } from '../../../common/segredo.util';
 
 export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
   nome: string;
+  /**
+   * De qual SINDICATO é este token.
+   *
+   * Com mais de um cliente rodando o mesmo código, o segredo do JWT deixou de
+   * ser suficiente como fronteira: se dois deles compartilharem o segredo — por
+   * descuido na configuração, ou porque um vazou —, um token emitido para um
+   * vale no outro. A busca do usuário no banco limita o estrago por acidente
+   * (o `sub` não existe do outro lado), mas quem tem o segredo forja um `sub`
+   * qualquer.
+   *
+   * Esta claim é a fronteira EXPLÍCITA. Opcional para não derrubar os tokens
+   * que já estão na mão dos usuários no dia do deploy — ver a regra em
+   * `validate`.
+   */
+  tenant?: string;
   /** Emitido em (segundos). Preenchido pelo próprio `@nestjs/jwt`. */
   iat?: number;
 }
@@ -23,7 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_ACCESS_SECRET', 'dev-access-secret'),
+      secretOrKey: segredoDaInstalacao('JWT_ACCESS_SECRET', config.get<string>('JWT_ACCESS_SECRET')),
     });
   }
 
@@ -33,6 +50,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * acesso na hora (revogação), sem esperar o token expirar.
    */
   async validate(payload: JwtPayload): Promise<AuthUser> {
+    /**
+     * O token é de OUTRO sindicato? Não passa.
+     *
+     * Token SEM a claim é aceito de propósito: no dia do deploy, todo mundo
+     * está com um token antigo na mão, e recusá-los deslogaria a base inteira
+     * de uma vez. Eles expiram sozinhos, e a partir daí só existe token
+     * carimbado. Um token com a claim ERRADA, esse é recusado sempre.
+     */
+    if (payload.tenant && payload.tenant !== tenant.id) {
+      throw new UnauthorizedException('Sessão inválida ou usuário inativo.');
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {

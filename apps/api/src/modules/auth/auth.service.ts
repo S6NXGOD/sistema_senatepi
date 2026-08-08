@@ -14,6 +14,7 @@ import { AuditService } from '../../common/audit/audit.service';
 
 import { JwtPayload } from './strategies/jwt.strategy';
 import { LoginDto, ResetPasswordDto } from './dto/auth.dto';
+import { tenant } from '../../tenant/tenant.config';
 
 interface RequestContext {
   ip?: string;
@@ -58,7 +59,8 @@ export class AuthService {
       ? 90
       : this.parseDuracaoDias(this.config.get('JWT_REFRESH_EXPIRES_IN'), 30);
 
-    const accessToken = await this.jwt.signAsync(payload, {
+    // Carimba o sindicato no token. Ver `JwtPayload.tenant` para o porquê.
+    const accessToken = await this.jwt.signAsync({ ...payload, tenant: tenant.id }, {
       secret: this.config.get('JWT_ACCESS_SECRET'),
       expiresIn: this.config.get('JWT_ACCESS_EXPIRES_IN', '30d'),
     });

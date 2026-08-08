@@ -3,7 +3,7 @@ import { Importacao } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { lerAsset } from '../../common/assets.util';
+import { lerLogoDaMarca } from '../../common/assets.util';
 import { tenant } from '../../tenant/tenant.config';
 
 const VERDE_ESCURO = '#1B7F0A';
@@ -41,7 +41,7 @@ export class RelatorioImportacaoService {
       doc.on('error', reject);
 
       doc.rect(0, 0, doc.page.width, 64).fill(VERDE_ESCURO);
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try { doc.image(logo, 50, 18, { fit: [170, 26] }); } catch { doc.fillColor('#FFF').fontSize(16).text(tenant.sigla, 50, 22); }
       } else {

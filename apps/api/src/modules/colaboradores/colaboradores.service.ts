@@ -23,7 +23,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
-import { lerAsset } from '../../common/assets.util';
+import { lerLogoDaMarca } from '../../common/assets.util';
 import {
   AlterarStatusColaboradorDto,
   CreateColaboradorDto,
@@ -439,7 +439,7 @@ export class ColaboradoresService {
       doc.on('error', reject);
 
       doc.rect(0, 0, 340, 50).fill(VERDE_ESCURO);
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try {
           doc.image(logo, 16, 9, { fit: [130, 24] });

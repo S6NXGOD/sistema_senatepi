@@ -1,4 +1,5 @@
 import { api } from './api';
+import { chaveLocal } from '@/lib/armazenamento';
 
 /**
  * Plenário Virtual — assembleias, cursos e sorteios.
@@ -500,7 +501,7 @@ export async function votar(eventoId: string, pautaId: string, presencaId: strin
  * deixar o `presencaId` da pessoa anterior gravado permitiria a próxima votar
  * no lugar dela.
  */
-const CHAVE = (eventoId: string) => `senatepi:sala:${eventoId}`;
+const CHAVE = (eventoId: string) => chaveLocal('sala', eventoId);
 
 export function guardarPresenca(eventoId: string, presencaId: string) {
   try { sessionStorage.setItem(CHAVE(eventoId), presencaId); } catch { /* modo privado */ }

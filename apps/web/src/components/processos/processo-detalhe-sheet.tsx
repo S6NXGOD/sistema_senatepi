@@ -43,6 +43,7 @@ import {
 import { classesCor } from '@/lib/paleta-cores';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
+import { chaveLocal } from '@/lib/armazenamento';
 
 type Aba = 'timeline' | 'publicacoes' | 'notas' | 'documentos' | 'agenda' | 'partes' | 'auditoria';
 
@@ -248,11 +249,11 @@ export function ProcessoDetalheSheet({
   const [dossieAberto, setDossieAberto] = useState(true);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    setDossieAberto(window.sessionStorage.getItem('senatepi:dossie-datajud') !== 'recolhido');
+    setDossieAberto(window.sessionStorage.getItem(chaveLocal('dossie-datajud')) !== 'recolhido');
   }, []);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.sessionStorage.setItem('senatepi:dossie-datajud', dossieAberto ? 'aberto' : 'recolhido');
+    window.sessionStorage.setItem(chaveLocal('dossie-datajud'), dossieAberto ? 'aberto' : 'recolhido');
   }, [dossieAberto]);
   const [busca, setBusca] = useState('');
   const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'INTERNA' | 'DATAJUD'>('todas');

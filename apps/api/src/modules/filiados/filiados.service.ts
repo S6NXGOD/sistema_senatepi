@@ -26,7 +26,7 @@ import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 
-import { lerAsset } from '../../common/assets.util';
+import { lerLogoDaMarca } from '../../common/assets.util';
 
 import {
   calcularIdade,
@@ -850,7 +850,7 @@ export class FiliadosService {
       const ALT_FAIXA = 74;
       doc.rect(0, 0, doc.page.width, ALT_FAIXA).fill(VERDE_ESCURO);
 
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try {
           doc.image(logo, X, 18, { fit: [150, 38] });

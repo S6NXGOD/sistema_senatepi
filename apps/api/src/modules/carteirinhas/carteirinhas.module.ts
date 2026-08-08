@@ -23,7 +23,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
-import { lerAsset } from '../../common/assets.util';
+import { lerLogoDaMarca } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { tenant } from '../../tenant/tenant.config';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
@@ -188,7 +188,7 @@ export class CarteirinhasService {
       doc.restore();
 
       // Logo (imagem branca) com fallback textual
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try {
           doc.image(logo, W - PANEL + 20, fy + fh + 10, {

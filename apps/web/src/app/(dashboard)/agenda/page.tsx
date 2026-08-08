@@ -29,10 +29,11 @@ import {
   listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis,
   Compromisso, StatusCompromisso, TipoCompromisso,
 } from '@/lib/agenda';
+import { chaveLocal } from '@/lib/armazenamento';
 
 type Aba = 'todos' | 'aberto' | 'hoje' | '7dias' | 'urgentes';
 /** Lembra se o calendário fica aberto — a escolha vale por navegador. */
-const CHAVE_CALENDARIO = 'senatepi:agenda:calendario-aberto';
+const CHAVE_CALENDARIO = chaveLocal('agenda', 'calendario-aberto');
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
 
 const ABAS: { key: Aba; label: string }[] = [

@@ -26,6 +26,7 @@ import { dataBr, desde } from '@/lib/dossie';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
+import { chaveLocal } from '@/lib/armazenamento';
 
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -141,8 +142,8 @@ function ListaProcessos() {
      * migração seguia exibindo "Ativo" ao lado de "Arquivado" porque a sessão
      * já tinha gasto sua releitura.
      */
-    const jaReleu = !!window.sessionStorage.getItem('senatepi:instancias-reavaliadas');
-    window.sessionStorage.setItem('senatepi:instancias-reavaliadas', '1');
+    const jaReleu = !!window.sessionStorage.getItem(chaveLocal('instancias-reavaliadas'));
+    window.sessionStorage.setItem(chaveLocal('instancias-reavaliadas'), '1');
 
     let vivo = true;
     if (!jaReleu) setReavaliando(true);

@@ -1,4 +1,5 @@
 import { api } from './api';
+import { chaveLocal } from '@/lib/armazenamento';
 
 /**
  * Identidade visual da instalação — cor institucional e logos.
@@ -17,7 +18,7 @@ export interface IdentidadeVisual {
 }
 
 /** Chave do cache local. Ver `marca-css.tsx` para o porquê de existir. */
-export const CHAVE_MARCA = 'marca-canais';
+export const CHAVE_MARCA = chaveLocal('marca-canais');
 
 /** Pública: a tela de login precisa da marca antes de qualquer autenticação. */
 export async function obterIdentidade(): Promise<IdentidadeVisual> {

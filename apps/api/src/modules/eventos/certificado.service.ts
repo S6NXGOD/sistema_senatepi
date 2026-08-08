@@ -2,9 +2,10 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { createHmac } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
-import { lerAsset } from '../../common/assets.util';
+import { lerLogoDaMarca } from '../../common/assets.util';
 import { lerConfiguracoes } from './configuracoes-evento';
 import { tenant } from '../../tenant/tenant.config';
+import { segredoDaInstalacao } from '../../common/segredo.util';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -30,7 +31,7 @@ export class CertificadoService {
   constructor(private readonly prisma: PrismaService) {}
 
   private segredo(): string {
-    return process.env.QR_SIGNING_SECRET ?? 'senatepi-dev-secret';
+    return segredoDaInstalacao('QR_SIGNING_SECRET', process.env.QR_SIGNING_SECRET);
   }
 
   private codigo(eventoId: string, presencaId: string): string {
@@ -122,7 +123,7 @@ export class CertificadoService {
 
       // Faixa do cabeçalho — a logo do acervo é BRANCA e exige fundo escuro.
       doc.rect(8, 14, W - 16, 64).fill(VERDE_ESCURO);
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try { doc.image(logo, 40, 28, { fit: [140, 36] }); } catch { /* segue sem logo */ }
       }

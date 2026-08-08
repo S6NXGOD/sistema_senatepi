@@ -5,7 +5,7 @@ import PDFDocument from 'pdfkit';
 import { ModoVotacao, StatusPauta } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
-import { lerAsset } from '../../common/assets.util';
+import { lerLogoDaMarca } from '../../common/assets.util';
 
 import { VotacaoService } from './votacao.service';
 import { lerConfiguracoes } from './configuracoes-evento';
@@ -160,7 +160,7 @@ export class DossieEventoService {
       // ---- Faixa institucional (a logo é branca; exige fundo escuro) ----
       const ALT = 74;
       doc.rect(0, 0, doc.page.width, ALT).fill(VERDE_ESCURO);
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try { doc.image(logo, X, 18, { fit: [150, 38] }); } catch { /* segue sem logo */ }
       }

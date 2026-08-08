@@ -89,7 +89,17 @@ const base = {
   NEXT_PUBLIC_TENANT: tenant,
 };
 
-const ambienteApi = { ...base, ...envApi, API_PORT: String(portas.api) };
+const ambienteApi = {
+  ...base,
+  ...envApi,
+  API_PORT: String(portas.api),
+  /**
+   * O CORS precisa apontar para o front DESTE cliente. Sem isto o navegador
+   * bloqueia tudo e o sintoma é "a tela não carrega", sem erro no servidor —
+   * `curl` não pega, porque CORS é regra de navegador.
+   */
+  CORS_ORIGINS: envApi.CORS_ORIGINS || `http://localhost:${portas.web}`,
+};
 const ambienteWeb = {
   ...base,
   ...envWeb,

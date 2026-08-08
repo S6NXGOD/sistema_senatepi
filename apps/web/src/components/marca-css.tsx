@@ -1,5 +1,6 @@
 import { tenant } from '@/tenant.config';
 import { hexParaHslCss, paletaParaCanaisCss } from '@/lib/paleta';
+import { CHAVE_MARCA } from '@/lib/identidade-visual';
 
 /**
  * AS CORES DA MARCA, COMO VARIÁVEIS CSS.
@@ -52,9 +53,12 @@ export function MarcaCss() {
         dangerouslySetInnerHTML={{ __html: `:root{${claro}}.dark{${escuro}}` }}
       />
       <script
+        // A chave tem o sindicato no prefixo (ver `lib/armazenamento.ts`) e
+        // precisa ser a MESMA de `CHAVE_MARCA` — este script roda antes do
+        // bundle, então não dá para importar a constante; ela é interpolada.
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{
-          __html: `(function(){try{var c=localStorage.getItem('marca-canais');if(!c)return;var o=JSON.parse(c);var e=document.documentElement;for(var k in o){if(/^--brand-\\d+$|^--primary$/.test(k))e.style.setProperty(k,o[k]);}}catch(e){}})();`,
+          __html: `(function(){try{var c=localStorage.getItem(${JSON.stringify(CHAVE_MARCA)});if(!c)return;var o=JSON.parse(c);var e=document.documentElement;for(var k in o){if(/^--brand-\\d+$|^--primary$|^--ring$/.test(k))e.style.setProperty(k,o[k]);}}catch(e){}})();`,
         }}
       />
     </>
