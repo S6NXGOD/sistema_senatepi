@@ -975,3 +975,28 @@ Os campos marcados «confirmar» em `apps/api/src/tenant/tenants/sindserm.ts`:
 CNPJ, registro sindical, endereço, percentual da contribuição, cores
 institucionais, e se `cobrancas` e `empresas` ficam mesmo desligadas. Estão
 todos num arquivo só, para serem resolvidos numa passada.
+
+### Pendência conhecida: o vocabulário está pela metade
+
+`tenant.vocabulario` existia desde a Fase 0 e **não era lido por ninguém** — a
+configuração estava lá e a tela continuava com o texto escrito à mão. `V`
+(`apps/web/src/lib/vocabulario.ts`) é a ponte que faltava, aplicada nos quatro
+pontos mais vistos: **menu lateral, matriz de permissões, título da listagem e
+título da importação**.
+
+Restam **~214 ocorrências visíveis de «filiado» em 33 arquivos** — textos de
+apoio, mensagens de confirmação, placeholders, títulos de modal, PDFs.
+
+Por que não foram todas de uma vez: uma substituição automática pegaria junto
+`/filiados` (rota), `'filiados'` (chave de permissão), `filiadoId` (campo da
+API) e nomes de arquivo — trocar qualquer um quebra o sistema sem mudar uma
+palavra na tela. E o SENATEPI está em produção.
+
+**Como continuar, com segurança:** arquivo por arquivo, trocando só o que está
+dentro de JSX ou de `label`/`placeholder`, e conferindo com o build dos dois
+clientes. `V.Filiado`, `V.Filiados`, `V.filiado`, `V.filiados` cobrem as quatro
+formas que o português exige.
+
+**Impacto de não fazer agora:** o SINDSERM vê «Servidores» no menu e no título,
+e ainda encontra «filiado» em textos internos. É inconsistente, não é quebrado —
+e é reversível a qualquer momento, um arquivo por vez.

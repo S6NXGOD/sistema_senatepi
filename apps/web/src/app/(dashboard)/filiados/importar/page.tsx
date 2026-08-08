@@ -20,6 +20,7 @@ import {
   formatarTamanho, formatarDuracao,
 } from '@/lib/importacao';
 import { EditarLinhaDialog } from '@/components/filiados/editar-linha-dialog';
+import { V } from '@/lib/vocabulario';
 
 const PASSOS = ['Upload', 'Revisão', 'Importação', 'Resumo'];
 
@@ -121,7 +122,7 @@ export default function ImportarFiliadosPage() {
       <div className="flex items-center gap-3">
         <Link href="/filiados" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
         <div>
-          <h2 className="text-2xl font-bold">Importação de Filiados</h2>
+          <h2 className="text-2xl font-bold">Importação de {V.Filiados}</h2>
           <p className="text-sm text-muted-foreground">Migre filiados em lote a partir de um arquivo CSV do sistema legado</p>
         </div>
       </div>

@@ -1,6 +1,8 @@
 // Espelho (frontend) do modelo de permissões definido no backend.
 // Mantém em sincronia com apps/api/src/common/permissions/permissoes.constants.ts
 
+import { V } from '@/lib/vocabulario';
+
 export type PerfilUsuario = 'ADMINISTRADOR' | 'COORDENACAO' | 'ADVOGADO' | 'TRIAGEM';
 export type NivelPermissao = 'SEM_ACESSO' | 'VISUALIZAR' | 'EDITAR';
 
@@ -31,7 +33,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'atendimentos', label: 'Triagem / Atendimento', grupo: 'Principal' },
   { key: 'processos', label: 'Processos', grupo: 'Principal' },
   { key: 'agenda', label: 'Agenda e Prazos', grupo: 'Principal' },
-  { key: 'filiados', label: 'Filiados', grupo: 'Principal' },
+  { key: 'filiados', label: V.Filiados, grupo: 'Principal' },
   { key: 'colaboradores', label: 'Colaboradores', grupo: 'Principal' },
   { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },

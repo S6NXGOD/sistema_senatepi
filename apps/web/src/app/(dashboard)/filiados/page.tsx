@@ -24,6 +24,7 @@ import {
 } from '@/lib/filiados';
 import { FiliadoRowActions } from '@/components/filiados/filiado-row-actions';
 import { campoVisivel } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 const VAZIO = { busca: '', coren: '', cidade: '', situacao: '', dataInicio: '', dataFim: '' };
 type Filtros = typeof VAZIO;
@@ -98,7 +99,7 @@ export default function FiliadosPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">Filiados</h2>
+          <h2 className="text-2xl font-bold">{V.Filiados}</h2>
           <p className="text-sm text-muted-foreground">
             {temFiltro ? (
               <>

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 export interface NavItem {
   href: string;
@@ -44,7 +45,9 @@ export const NAV_SECOES: NavSecao[] = [
   {
     titulo: 'Pessoas',
     itens: [
-      { href: '/filiados', label: 'Filiados', icon: Users, modulo: 'filiados' },
+      // A ROTA continua `/filiados` em qualquer cliente: URL é identificador,
+      // não texto. Só o rótulo muda.
+      { href: '/filiados', label: V.Filiados, icon: Users, modulo: 'filiados' },
       { href: '/colaboradores', label: 'Colaboradores', icon: Contact, modulo: 'colaboradores' },
     ],
   },
