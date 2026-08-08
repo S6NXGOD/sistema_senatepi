@@ -43,7 +43,7 @@ import {
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
-import { tenant, enderecoEmLinha, contaEmLinha } from '../../tenant/tenant.config';
+import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
 
 const MIME_PERMITIDOS: Record<string, true> = {
   'application/pdf': true,
@@ -635,8 +635,7 @@ export class FiliadosService {
       'dados pessoais SEMPRE QUE FOR SOLICITADO. Consinto, ainda, com a utilização destes dados para as ' +
       'finalidades de representação sindical, emissão de carteirinha, controle de eventos e acesso a benefícios.';
     const RODAPE =
-      `DIRETORIA ${tenant.sigla} - ${enderecoEmLinha()} | ` +
-      'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+      rodapeInstitucional();
 
     const SEXO_LABEL: Record<string, string> = {
       MASCULINO: 'Masculino', FEMININO: 'Feminino', OUTRO: 'Outro',
@@ -828,8 +827,7 @@ export class FiliadosService {
     const mesCorte = dados?.mesCorte?.trim() || f.desfiliacaoMesCorte || null;
 
     const RODAPE =
-      `DIRETORIA ${tenant.sigla} - ${enderecoEmLinha()} | ` +
-      'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+      rodapeInstitucional();
 
     const pdf = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });

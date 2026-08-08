@@ -5,6 +5,7 @@ import {
   Calculator, ChevronDown, ChevronUp, FileUp, Info, QrCode, ShieldCheck,
 } from 'lucide-react';
 import { tenant } from '@/tenant.config';
+import { chaveLocal } from '@/lib/armazenamento';
 
 /**
  * Percentual da contribuição patronal.
@@ -15,7 +16,7 @@ import { tenant } from '@/tenant.config';
  */
 const PERCENTUAL = '1%';
 
-const CHAVE_RECOLHIDO = 'senatepi.empresa.guiaRecolhida';
+const CHAVE_RECOLHIDO = chaveLocal('empresa', 'guiaRecolhida');
 
 const PASSOS = [
   {

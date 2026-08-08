@@ -19,10 +19,17 @@ const cacheLogo: Record<string, LogoData | null> = {};
  * Carrega a logo oficial de /public e devolve como data URL (base64) + proporção.
  * Same-origin (sem CORS). Cacheado. Retorna null se indisponível (fallback textual).
  */
-export async function carregarLogo(cor: 'verde' | 'branco'): Promise<LogoData | null> {
-  if (cor in cacheLogo) return cacheLogo[cor];
+export async function carregarLogo(tom: 'cor' | 'branco'): Promise<LogoData | null> {
+  if (tom in cacheLogo) return cacheLogo[tom];
   try {
-    const res = await fetch(`/senatepi-horizontal-${cor}.png`);
+    /**
+     * O nome do arquivo sai da INSTALAÇÃO. Estava cravado em
+     * `senatepi-horizontal-…`, então os PDFs gerados no navegador — termo de
+     * filiação, comprovantes — sairiam com o logo do SENATEPI em qualquer
+     * cliente. E o sufixo era `verde`, que deixou de existir na renomeação
+     * para `cor`: sem esta correção, nem o SENATEPI teria logo no PDF.
+     */
+    const res = await fetch(`/${tenant.id}-horizontal-${tom}.png`);
     if (!res.ok) throw new Error('logo indisponível');
     const blob = await res.blob();
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -37,10 +44,10 @@ export async function carregarLogo(cor: 'verde' | 'branco'): Promise<LogoData | 
       img.onerror = () => resolve(3.2);
       img.src = dataUrl;
     });
-    cacheLogo[cor] = { dataUrl, ratio };
-    return cacheLogo[cor];
+    cacheLogo[tom] = { dataUrl, ratio };
+    return cacheLogo[tom];
   } catch {
-    cacheLogo[cor] = null;
+    cacheLogo[tom] = null;
     return null;
   }
 }

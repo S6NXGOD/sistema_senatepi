@@ -9,14 +9,17 @@ import { lerLogoDaMarca } from '../../common/assets.util';
 
 import { VotacaoService } from './votacao.service';
 import { lerConfiguracoes } from './configuracoes-evento';
-import { tenant, enderecoEmLinha } from '../../tenant/tenant.config';
+import { tenant, rodapeInstitucional } from '../../tenant/tenant.config';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
 
+/**
+ * Constante de MÓDULO, e não de função: era avaliada uma vez na carga, o que
+ * não muda nada com um cliente por processo — cada instalação tem o seu.
+ */
 const RODAPE =
-  `DIRETORIA ${tenant.sigla} - ${enderecoEmLinha()} | ` +
-  'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+  rodapeInstitucional();
 
 /**
  * Base legal citada no dossiê e na tela de check-in — o MESMO texto nos dois

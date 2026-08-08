@@ -75,6 +75,38 @@ export function contaEmLinha(t: TenantConfig = tenant): string {
   return `AG: ${agencia}; ${op}C/C ${conta} BANCO: ${banco}`;
 }
 
+/**
+ * Contatos em uma linha, como saem no rodapé dos documentos.
+ *
+ * Os telefones e o e-mail do SENATEPI estavam escritos à mão dentro de três
+ * geradores de PDF — o termo de filiação e o de desfiliação de OUTRO sindicato
+ * sairiam mandando o filiado ligar para o SENATEPI.
+ *
+ * Devolve string vazia quando a instalação não informou contato: melhor o
+ * rodapé mais curto do que um "CONTATOS:" seguido de nada.
+ */
+export function contatosEmLinha(t: TenantConfig = tenant): string {
+  const partes = [
+    t.contato.telefone,
+    t.contato.email ? `e-mail: ${t.contato.email}` : '',
+    t.contato.site,
+  ].filter(Boolean);
+  return partes.length ? `CONTATOS: ${partes.join('; ')}` : '';
+}
+
+/**
+ * O rodapé institucional dos documentos, montado num lugar só.
+ *
+ * Estava repetido em três geradores de PDF, cada um concatenando o próprio
+ * template — e foi assim que os contatos do SENATEPI acabaram dentro do termo
+ * de qualquer sindicato. Sem contatos informados, a barra sobrando também some.
+ */
+export function rodapeInstitucional(t: TenantConfig = tenant): string {
+  return [`DIRETORIA ${t.sigla} - ${enderecoEmLinha(t)}`, contatosEmLinha(t)]
+    .filter(Boolean)
+    .join(' | ');
+}
+
 /** O módulo está ligado nesta instalação? */
 export function moduloAtivo(modulo: ModuloSistema, t: TenantConfig = tenant): boolean {
   return t.modulos.includes(modulo);

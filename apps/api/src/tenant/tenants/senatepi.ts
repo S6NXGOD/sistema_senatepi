@@ -18,7 +18,15 @@ export const senatepi: TenantConfig = {
     uf: 'PI',
     cep: '64000-440',
   },
-  contato: {},
+  /**
+   * Estes números e o e-mail estavam escritos à mão dentro de três geradores de
+   * PDF. O rodapé continua saindo idêntico — só que agora de um lugar só, e o
+   * documento de outro sindicato não manda mais ligar para o SENATEPI.
+   */
+  contato: {
+    telefone: '(86) 3303-1426; (86) 99421-1117',
+    email: 'senatepienfermagem@outlook.com',
+  },
   bancario: { banco: 'CEF', agencia: '2004', operacao: '003', conta: '1341-4' },
   vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
   contribuicao: {

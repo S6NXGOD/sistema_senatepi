@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, tokenStore, persistentStore } from './api';
 
 import type { MatrizPermissoes, PerfilUsuario } from './permissoes';
+import { chaveLocal } from '@/lib/armazenamento';
 
 export interface Usuario {
   id: string;
@@ -26,7 +27,7 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const USER_KEY = 'senatepi.user';
+const USER_KEY = chaveLocal('user');
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Usuario | null>(null);
