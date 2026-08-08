@@ -18,7 +18,7 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
-  | 'escalas' | 'eventos' | 'colonia' | 'cobrancas' | 'empresas' | 'auditoria' | 'usuarios';
+  | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'auditoria' | 'usuarios';
 
 export interface ModuloInfo {
   key: ModuloKey;
@@ -36,6 +36,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
+  { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
   { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos passaram a viver dentro de
@@ -55,16 +56,18 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
   COORDENACAO: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'EDITAR', colaboradores: 'EDITAR', escalas: 'EDITAR', eventos: 'EDITAR', colonia: 'EDITAR',
-    cobrancas: 'EDITAR', empresas: 'EDITAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
+    acessos: 'EDITAR', cobrancas: 'EDITAR', empresas: 'EDITAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
-    cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    acessos: 'SEM_ACESSO', cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
+    // Quem fica no balcão é quem valida a entrada no clube.
+    acessos: 'EDITAR',
     // A secretaria (Triagem) cadastra a empresa e define a senha provisória.
     cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },

@@ -419,6 +419,7 @@ model Filiado {
   recadastramentos     Recadastramento[]
   linksRecadastramento LinkRecadastramento[]
   historico            FiliadoHistorico[]
+  registrosAcesso      RegistroAcesso[]
 
   @@index([situacao])
   @@index([cpf])
@@ -499,8 +500,9 @@ model Dependente {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  filiado   Filiado    @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
-  presencas Presenca[]
+  filiado         Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  presencas       Presenca[]
+  registrosAcesso RegistroAcesso[]
 
   @@index([filiadoId])
   @@map("dependentes")
@@ -728,6 +730,64 @@ enum StatusPauta {
   RASCUNHO
   ABERTA
   ENCERRADA
+}
+
+/// Como a pessoa foi identificada na portaria.
+enum OrigemAcesso {
+  /// Leitura do QR da carteirinha (o caminho normal).
+  QR
+  /// Digitada a matrícula — do sindicato ou a funcional do empregador.
+  MATRICULA
+  /// Digitado o CPF, quando a pessoa está sem a carteirinha.
+  CPF
+}
+
+/// Entrada no CLUBE (ou em qualquer espaço controlado do sindicato).
+///
+/// POR QUE NÃO É `Presenca`
+/// `Presenca` significa "esteve NESTE EVENTO" em todo o sistema — alimenta
+/// certificado, quórum de plenário e relatório por evento, e `eventoId` é
+/// obrigatório lá. Acesso ao clube é outro fato: acontece todo dia, sem evento,
+/// e o que importa é quem entrou, quando e se foi liberado. Enfiar os dois na
+/// mesma tabela obrigaria toda consulta de evento a filtrar o que não é evento
+/// — o tipo de "duas verdades numa coluna só" que este sistema já pagou caro.
+///
+/// REGISTRA TAMBÉM QUEM FOI BARRADO, de propósito. Saber que um desfiliado
+/// tentou entrar ontem é mais útil que saber que dez filiados entraram: é o
+/// registro da recusa que a portaria precisa mostrar quando alguém reclama.
+model RegistroAcesso {
+  id String @id @default(uuid())
+
+  tipoPessoa    TipoPessoa @map("tipo_pessoa")
+  filiadoId     String?    @map("filiado_id")
+  dependenteId  String?    @map("dependente_id")
+  colaboradorId String?    @map("colaborador_id")
+
+  /// Nome como estava no momento da entrada — o cadastro muda, o registro não.
+  nomeSnapshot String   @map("nome_snapshot")
+  registradoEm DateTime @default(now()) @map("registrado_em")
+
+  origem        OrigemAcesso
+  /// O que foi digitado quando a origem não é QR (matrícula ou CPF). Guardado
+  /// para a portaria conseguir explicar uma recusa de alguém que não foi achado.
+  identificador String?
+
+  liberado Boolean
+  /// Por que liberou ou negou, em texto — é o que a portaria mostra na tela.
+  motivo   String
+
+  /// Quem operou a portaria. Nulo em terminal de autoatendimento.
+  registradoPor String? @map("registrado_por")
+  ip            String?
+  userAgent     String? @map("user_agent")
+
+  filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  dependente  Dependente?  @relation(fields: [dependenteId], references: [id], onDelete: SetNull)
+  colaborador Colaborador? @relation(fields: [colaboradorId], references: [id], onDelete: SetNull)
+
+  @@index([registradoEm])
+  @@index([filiadoId])
+  @@map("registros_acesso")
 }
 
 enum OrigemPresenca {
@@ -1269,12 +1329,13 @@ model Colaborador {
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
-  cargo        Cargo                  @relation(fields: [cargoId], references: [id])
-  departamento Departamento           @relation(fields: [departamentoId], references: [id])
-  empresa      Empresa?               @relation(fields: [empresaId], references: [id], onDelete: SetNull)
-  historico    ColaboradorHistorico[]
-  documentos   Documento[]
-  presencas    Presenca[]
+  cargo           Cargo                  @relation(fields: [cargoId], references: [id])
+  departamento    Departamento           @relation(fields: [departamentoId], references: [id])
+  empresa         Empresa?               @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  historico       ColaboradorHistorico[]
+  documentos      Documento[]
+  presencas       Presenca[]
+  registrosAcesso RegistroAcesso[]
 
   @@index([status])
   @@index([cargoId])

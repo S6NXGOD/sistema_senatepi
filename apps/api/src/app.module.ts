@@ -27,6 +27,7 @@ import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PortalEmpresaModule } from './modules/portal-empresa/portal-empresa.module';
 import { EventosModule } from './modules/eventos/eventos.module';
 import { PresencasModule } from './modules/presencas/presencas.module';
+import { AcessosModule } from './modules/acessos/acessos.module';
 import { CarteirinhasModule } from './modules/carteirinhas/carteirinhas.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
@@ -68,6 +69,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     PortalEmpresaModule,
     EventosModule,
     PresencasModule,
+    AcessosModule,
     CarteirinhasModule,
     DashboardModule,
     AuditoriaModule,

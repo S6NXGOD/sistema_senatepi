@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
+  LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
   Building2, type LucideIcon,
 } from 'lucide-react';
@@ -65,6 +65,7 @@ export const NAV_SECOES: NavSecao[] = [
     itens: [
       { href: '/eventos', label: 'Eventos', icon: CalendarDays, modulo: 'eventos' },
       { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella, modulo: 'colonia' },
+      { href: '/portaria', label: 'Portaria / Clube', icon: ScanLine, modulo: 'acessos' },
     ],
   },
   {

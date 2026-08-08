@@ -30,6 +30,7 @@ export type ModuloKey =
   | 'escalas'
   | 'eventos'
   | 'colonia'
+  | 'acessos'
   | 'cobrancas'
   | 'empresas'
   | 'auditoria'
@@ -52,6 +53,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
+  { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
   { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos são listas de apoio de
@@ -86,6 +88,8 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     escalas: 'EDITAR',
     eventos: 'EDITAR',
     colonia: 'EDITAR',
+    // A portaria é operação de balcão: coordenação e triagem validam entrada.
+    acessos: 'EDITAR',
     cobrancas: 'EDITAR',
     empresas: 'EDITAR',
     auditoria: 'VISUALIZAR',
@@ -102,6 +106,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     escalas: 'VISUALIZAR',
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
+    acessos: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
     empresas: 'SEM_ACESSO',
     auditoria: 'SEM_ACESSO',
@@ -118,6 +123,8 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     escalas: 'SEM_ACESSO',
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
+    // Quem fica no balcão é quem valida a entrada no clube.
+    acessos: 'EDITAR',
     cobrancas: 'SEM_ACESSO',
     // A secretaria (Triagem) é quem cadastra a empresa e define a senha provisória.
     empresas: 'EDITAR',

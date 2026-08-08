@@ -53,6 +53,20 @@ interface PessoaResolvida {
 }
 
 /** Motivo legível quando o colaborador não está apto a entrar. */
+/**
+ * Rótulo do parentesco.
+ *
+ * Era um ternário `é cônjuge ? 'Cônjuge' : 'Filho(a)'`. Com a entrada de PAI e
+ * MÃE, uma mãe apareceria na portaria como "Filho(a)" — e a portaria confere o
+ * parentesco na hora de liberar acompanhante.
+ */
+const PARENTESCO: Record<TipoDependente, string> = {
+  CONJUGE: 'Cônjuge',
+  FILHO: 'Filho(a)',
+  PAI: 'Pai',
+  MAE: 'Mãe',
+};
+
 const STATUS_COLAB: Record<StatusColaborador, string> = {
   ATIVO: 'ativo',
   INATIVO: 'inativo',
@@ -105,7 +119,7 @@ export class PresencasService {
       return {
         tipo: TipoPessoa.DEPENDENTE,
         id: d.id,
-        nome: `${d.nome} (${d.tipo === TipoDependente.CONJUGE ? 'Cônjuge' : 'Filho(a)'})`,
+        nome: `${d.nome} (${PARENTESCO[d.tipo]})`,
         fotoThumbKey: d.fotoThumbKey,
         liberado: valido && filiadoAtivo && idadeOk,
         motivo,
