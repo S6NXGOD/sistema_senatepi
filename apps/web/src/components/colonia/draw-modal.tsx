@@ -113,7 +113,7 @@ export function DrawModal({
         {/* Faixa do modo atual */}
         <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-2">
           <Badge className={apresentacao
-            ? 'bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400'
+            ? 'bg-brand-50 text-brand-900 dark:bg-brand-900/30 dark:text-brand-400'
             : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}>
             {apresentacao ? 'Modo Apresentação · LGPD' : 'Modo Interno · dados visíveis'}
           </Badge>
@@ -181,7 +181,7 @@ export function DrawModal({
               </div>
 
               <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <ShieldCheck className="h-4 w-4 text-senatepi-600 dark:text-senatepi-400" />
+                <ShieldCheck className="h-4 w-4 text-brand-600 dark:text-brand-400" />
                 Processando sorteio seguro...
               </div>
             </div>
@@ -194,9 +194,9 @@ export function DrawModal({
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 220, damping: 18 }}
-                className="rounded-xl border-2 border-senatepi-600 bg-senatepi-50 p-4 dark:bg-senatepi-900/20"
+                className="rounded-xl border-2 border-brand-600 bg-brand-50 p-4 dark:bg-brand-900/20"
               >
-                <div className="flex items-center gap-2 text-senatepi-800 dark:text-senatepi-400">
+                <div className="flex items-center gap-2 text-brand-800 dark:text-brand-400">
                   <Trophy className="h-5 w-5" />
                   <span className="text-xs font-bold uppercase tracking-wide">Contemplado(a)</span>
                 </div>
@@ -225,8 +225,8 @@ export function DrawModal({
               )}
 
               {/* Selo de auditoria */}
-              <div className="rounded-lg border border-dashed border-senatepi-600/50 bg-muted/40 p-3">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-senatepi-800 dark:text-senatepi-400">
+              <div className="rounded-lg border border-dashed border-brand-600/50 bg-muted/40 p-3">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-brand-800 dark:text-brand-400">
                   <ShieldCheck className="h-4 w-4" /> Selo de Auditoria
                 </div>
                 <div className="mt-2 space-y-1 text-xs">

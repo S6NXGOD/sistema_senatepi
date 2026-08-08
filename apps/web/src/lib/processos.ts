@@ -194,7 +194,7 @@ export const STATUS_PROCESSO_ORDEM: StatusProcesso[] = [
 export const STATUS_PROCESSO_COR: Record<StatusProcesso, string> = {
   RASCUNHO: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  ATIVO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+  ATIVO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   SUSPENSO: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
   GANHO_EXECUCAO: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
   IMPROCEDENTE: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',

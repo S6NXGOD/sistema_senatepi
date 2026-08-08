@@ -1,7 +1,7 @@
 import type { jsPDF } from 'jspdf';
 
 // Paleta institucional para os documentos.
-export const VERDE: [number, number, number] = [27, 127, 10]; // senatepi-800
+export const VERDE: [number, number, number] = [27, 127, 10]; // brand-800
 export const CINZA: [number, number, number] = [90, 100, 110];
 export const AMBAR_BG: [number, number, number] = [255, 247, 237];
 export const AMBAR_BORDA: [number, number, number] = [245, 158, 11];

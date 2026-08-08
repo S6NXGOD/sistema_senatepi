@@ -57,7 +57,7 @@ export const STATUS_COLAB_LABEL: Record<StatusColaborador, string> = {
   DESLIGADO: 'Desligado',
 };
 export const STATUS_COLAB_COR: Record<StatusColaborador, string> = {
-  ATIVO: 'bg-senatepi-50 text-senatepi-800',
+  ATIVO: 'bg-brand-50 text-brand-800',
   INATIVO: 'bg-gray-100 text-gray-600',
   AFASTADO: 'bg-amber-100 text-amber-700',
   FERIAS: 'bg-blue-100 text-blue-700',

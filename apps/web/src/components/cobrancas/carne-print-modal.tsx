@@ -52,7 +52,7 @@ export function CarnePrintModal({ cobrancaId, onClose }: { cobrancaId: string; o
         {/* Papel A4 */}
         <div className="carne-paper mx-auto w-full max-w-[210mm] bg-white p-[10mm] text-[#111] shadow-xl">
           {isLoading ? (
-            <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800" /></div>
+            <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800" /></div>
           ) : isError || !data ? (
             <p className="py-20 text-center text-sm text-red-600">Não foi possível carregar o carnê.</p>
           ) : (
@@ -87,7 +87,7 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
           // eslint-disable-next-line @next/next/no-img-element
           <img src={config.logoUrl} alt="" className="mb-1 h-6 object-contain" />
         ) : (
-          <p className="text-xs font-bold text-senatepi-800">SENATEPI</p>
+          <p className="text-xs font-bold text-brand-800">SENATEPI</p>
         )}
         <MiniLinha rotulo="Filiado" valor={filiado.nomeCompleto} />
         <MiniLinha rotulo="Matrícula" valor={filiado.matricula} />
@@ -108,7 +108,7 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
               <img src={config.logoUrl} alt="" className="h-8 object-contain" />
             )}
             <div>
-              <p className="text-sm font-bold text-senatepi-800">{recebedor}</p>
+              <p className="text-sm font-bold text-brand-800">{recebedor}</p>
               <p className="text-[9px] uppercase tracking-wide text-gray-500">
                 Carnê de Pagamento · {TIPO_LABEL[cobranca.tipo]}
               </p>
@@ -188,7 +188,7 @@ function Campo({ rotulo, valor, destaque, className }: { rotulo: string; valor: 
   return (
     <div className={`min-w-0 ${className ?? ''}`}>
       <p className="text-[8px] uppercase tracking-wide text-gray-500">{rotulo}</p>
-      <p className={`truncate ${destaque ? 'text-sm font-bold text-senatepi-800' : 'font-medium text-gray-800'}`}>{valor}</p>
+      <p className={`truncate ${destaque ? 'text-sm font-bold text-brand-800' : 'font-medium text-gray-800'}`}>{valor}</p>
     </div>
   );
 }

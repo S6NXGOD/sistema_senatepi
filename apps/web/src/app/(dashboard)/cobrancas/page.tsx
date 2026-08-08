@@ -30,8 +30,8 @@ export default function CobrancasPage() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <Receipt className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <Receipt className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Cobranças</h2>

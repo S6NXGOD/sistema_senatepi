@@ -32,7 +32,7 @@ import { cn } from '@/lib/utils';
 
 const BADGE_ROLE: Record<PerfilUsuario, string> = {
   ADMINISTRADOR: 'bg-rose-600 text-white',
-  COORDENACAO: 'bg-senatepi-800 text-white',
+  COORDENACAO: 'bg-brand-800 text-white',
   ADVOGADO: 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900',
   TRIAGEM: 'bg-sky-600 text-white',
 };
@@ -158,9 +158,9 @@ function HeroHeader({
   atualizadoEm?: number;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-senatepi-800 to-senatepi-600 p-5 text-white shadow-sm md:p-6">
+    <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-brand-800 to-brand-600 p-5 text-white shadow-sm md:p-6">
       <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-12 right-24 h-32 w-32 rounded-full bg-senatepi-400/20 blur-2xl" />
+      <div className="pointer-events-none absolute -bottom-12 right-24 h-32 w-32 rounded-full bg-brand-400/20 blur-2xl" />
       <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-sm text-white/80">
@@ -216,7 +216,7 @@ function Conteudo({
   const kpiCards = [
     pode.processos && {
       label: 'Processos ativos', valor: kpis.processosAtivos, sub: 'em andamento',
-      icon: Briefcase, cor: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+      icon: Briefcase, cor: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
       href: '/processos',
     },
     pode.atendimentos && {
@@ -249,7 +249,7 @@ function Conteudo({
           <SectionTitle icon={FolderKanban} texto="Minha carteira" />
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <KpiCard label="Meus processos" valor={minhaCarteira.meusProcessos} sub="vinculados a mim"
-              icon={Briefcase} cor="bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400" href="/processos" destaque />
+              icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos" destaque />
             <KpiCard label="Minhas audiências" valor={minhaCarteira.minhasAudiencias} sub="esta semana"
               icon={Gavel} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400" href="/agenda" destaque />
             <KpiCard label="Atrasadas" valor={minhaCarteira.atrasadas} sub="pendentes agora"
@@ -390,7 +390,7 @@ function Conteudo({
 function SectionTitle({ icon: Icon, texto }: { icon: typeof Briefcase; texto: string }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <Icon className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+      <Icon className="h-4 w-4 text-brand-800 dark:text-brand-400" />
       <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">{texto}</h2>
     </div>
   );
@@ -776,7 +776,7 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={advogado.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
               ) : (
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-senatepi-100 text-xs font-bold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
                   {(advogado.nomeExibicao || advogado.nome).charAt(0)}
                 </span>
               )}
@@ -795,7 +795,7 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
                 {/* Barra proporcional ao maior da equipe — a comparação é o dado */}
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
                   <div
-                    className={cn('h-full rounded-full', atrasadas > 0 ? 'bg-rose-500' : 'bg-senatepi-600')}
+                    className={cn('h-full rounded-full', atrasadas > 0 ? 'bg-rose-500' : 'bg-brand-600')}
                     style={{ width: `${Math.round((abertas / maior) * 100)}%` }}
                   />
                 </div>
@@ -956,7 +956,7 @@ function MovimentacoesRecentes({ data }: { data: ResumoDashboard }) {
           {itens.map((m) => (
             <li key={m.id}>
               <Link href={`/processos?processo=${m.processo.id}`} className="flex items-start gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
-                <Landmark className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                <Landmark className="mt-0.5 h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm">{m.descricao}</p>
                   <p className="truncate text-xs text-muted-foreground">
@@ -1008,7 +1008,7 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
     <Card className="h-full">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
         <div className="flex items-center gap-2">
-          <TrendingUp className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+          <TrendingUp className="h-4 w-4 text-brand-800 dark:text-brand-400" />
           <h3 className="text-sm font-semibold">Tendência</h3>
         </div>
         {abas.length > 1 && (
@@ -1016,7 +1016,7 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
             {abas.map((a) => (
               <button key={a.key} onClick={() => setAba(a.key)}
                 className={cn('rounded-md px-2.5 py-1 text-xs font-medium transition',
-                  aba === a.key ? 'bg-senatepi-800 text-white' : 'text-muted-foreground hover:text-foreground')}>
+                  aba === a.key ? 'bg-brand-800 text-white' : 'text-muted-foreground hover:text-foreground')}>
                 {a.label}
               </button>
             ))}
@@ -1111,7 +1111,7 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
   return (
     <Card className="h-full">
       <div className="flex items-center gap-2 border-b px-5 py-3.5">
-        <Inbox className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+        <Inbox className="h-4 w-4 text-brand-800 dark:text-brand-400" />
         <h3 className="text-sm font-semibold">Atendimentos por canal</h3>
       </div>
       <CardContent className="p-4">

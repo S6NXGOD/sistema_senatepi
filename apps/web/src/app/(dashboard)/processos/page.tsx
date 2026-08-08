@@ -41,7 +41,7 @@ function StatusBadge({ status }: { status: StatusProcesso }) {
  */
 export default function ProcessosPage() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>}>
+    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}>
       <ListaProcessos />
     </Suspense>
   );
@@ -194,15 +194,15 @@ function ListaProcessos() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <Gavel className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <Gavel className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Processos</h2>
             <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
               Acompanhamento processual · DATAJUD (CNJ)
               {reavaliando && (
-                <span className="inline-flex items-center gap-1 text-xs text-senatepi-800 dark:text-senatepi-400">
+                <span className="inline-flex items-center gap-1 text-xs text-brand-800 dark:text-brand-400">
                   <Loader2 className="h-3 w-3 animate-spin" /> atualizando instâncias…
                 </span>
               )}
@@ -237,7 +237,7 @@ function ListaProcessos() {
             className={cn(
               'rounded-full px-3 py-1.5 text-sm font-medium transition',
               rapido === f.k
-                ? 'bg-senatepi-800 text-white shadow-sm'
+                ? 'bg-brand-800 text-white shadow-sm'
                 : 'bg-muted text-muted-foreground hover:text-foreground',
             )}
           >
@@ -478,7 +478,7 @@ function BadgeInstitucional({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        'inline-flex w-fit items-center gap-1 rounded-full bg-senatepi-50 px-2 py-0.5 text-[10px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300',
+        'inline-flex w-fit items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300',
         className,
       )}
       title="Ação coletiva movida pelo SENATEPI em nome da categoria"
@@ -695,7 +695,7 @@ function Etiquetas({ lista, automaticas }: { lista?: string[]; automaticas?: str
       {manuais.slice(0, 3).map((e) => (
         <span
           key={e}
-          className="rounded-full bg-senatepi-50 px-1.5 py-0.5 text-[10px] font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400"
+          className="rounded-full bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-800 dark:bg-brand-900/30 dark:text-brand-400"
         >
           {e}
         </span>

@@ -173,7 +173,7 @@ export default function FiliadosPage() {
           >
             <SlidersHorizontal className="h-4 w-4" /> Filtros
             {temFiltro && (
-              <span className="ml-1 rounded-full bg-senatepi-800 px-1.5 text-xs font-bold text-white dark:bg-senatepi-400 dark:text-senatepi-900">
+              <span className="ml-1 rounded-full bg-brand-800 px-1.5 text-xs font-bold text-white dark:bg-brand-400 dark:text-brand-900">
                 {ativos.length}
               </span>
             )}
@@ -187,7 +187,7 @@ export default function FiliadosPage() {
             {ativos.map((k) => (
               <span
                 key={k}
-                className="inline-flex items-center gap-1 rounded-full border border-senatepi-200 bg-senatepi-50 py-1 pl-2.5 pr-1 text-xs text-senatepi-900 dark:border-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-100"
+                className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1 text-xs text-brand-900 dark:border-brand-800 dark:bg-brand-900/30 dark:text-brand-100"
               >
                 <span className="opacity-70">{ROTULO[k]}:</span>
                 <strong>{valorLegivel(k, aplicado[k])}</strong>
@@ -195,7 +195,7 @@ export default function FiliadosPage() {
                   type="button"
                   aria-label={`Remover filtro ${ROTULO[k]}`}
                   onClick={() => removerFiltro(k)}
-                  className="rounded-full p-0.5 hover:bg-senatepi-200 dark:hover:bg-senatepi-800"
+                  className="rounded-full p-0.5 hover:bg-brand-200 dark:hover:bg-brand-800"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -285,7 +285,7 @@ export default function FiliadosPage() {
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={f.fotoUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
                       ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-senatepi-50 text-xs font-semibold text-senatepi-800">{f.nomeCompleto.charAt(0)}</div>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-800">{f.nomeCompleto.charAt(0)}</div>
                       )}
                     </td>
                     <td className="px-4 py-3 font-medium">
@@ -471,7 +471,7 @@ function FiliadoCardMobile({ f, onChanged }: { f: Filiado; onChanged: () => void
         // eslint-disable-next-line @next/next/no-img-element
         <img src={f.fotoUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
       ) : (
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-senatepi-50 text-sm font-semibold text-senatepi-800">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-800">
           {f.nomeCompleto.charAt(0)}
         </div>
       )}

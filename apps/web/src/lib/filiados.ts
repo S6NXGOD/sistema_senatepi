@@ -117,7 +117,7 @@ export const SITUACAO_LABEL: Record<SituacaoFiliado, string> = {
 };
 
 export const SITUACAO_COR: Record<SituacaoFiliado, string> = {
-  ATIVO: 'bg-senatepi-50 text-senatepi-800',
+  ATIVO: 'bg-brand-50 text-brand-800',
   INATIVO: 'bg-gray-100 text-gray-600',
   DESFILIADO: 'bg-red-100 text-red-700',
 };

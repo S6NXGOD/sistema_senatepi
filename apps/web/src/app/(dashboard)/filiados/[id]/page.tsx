@@ -95,7 +95,7 @@ export default function PerfilFiliadoPage() {
   });
 
   if (isLoading || !f) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800" /></div>;
+    return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800" /></div>;
   }
 
   return (
@@ -109,7 +109,7 @@ export default function PerfilFiliadoPage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={f.fotoUrl} alt="" className="h-16 w-16 rounded-xl object-cover" />
             ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-senatepi-50 text-xl font-bold text-senatepi-800">{f.nomeCompleto.charAt(0)}</div>
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-brand-50 text-xl font-bold text-brand-800">{f.nomeCompleto.charAt(0)}</div>
             )}
             <div>
               <h2 className="text-2xl font-bold">{f.nomeCompleto}</h2>
@@ -181,7 +181,7 @@ export default function PerfilFiliadoPage() {
                         className={cn(
                           'rounded-lg border p-3 text-sm',
                           v.descontoEmFolha
-                            ? 'border-senatepi-400 bg-senatepi-50/50 dark:bg-senatepi-900/10'
+                            ? 'border-brand-400 bg-brand-50/50 dark:bg-brand-900/10'
                             : 'bg-card',
                         )}
                       >
@@ -198,7 +198,7 @@ export default function PerfilFiliadoPage() {
                           {[v.cargo, v.matricula && `Matr. ${v.matricula}`].filter(Boolean).join(' · ') || '—'}
                         </p>
                         {v.descontoEmFolha && (
-                          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-senatepi-100 px-2 py-0.5 text-[10px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+                          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
                             💳 Desconto em Folha
                           </span>
                         )}
@@ -256,7 +256,7 @@ export default function PerfilFiliadoPage() {
               {f.documentos?.map((d: any) => (
                 <div key={d.id} className="flex items-center justify-between rounded-lg border p-3">
                   <a href={d.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm font-medium hover:underline">
-                    <FileText className="h-4 w-4 text-senatepi-800" /> {d.titulo}
+                    <FileText className="h-4 w-4 text-brand-800" /> {d.titulo}
                   </a>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground">{formatarData(d.createdAt)}</span>
@@ -284,7 +284,7 @@ export default function PerfilFiliadoPage() {
                 <Badge className={SITUACAO_COR[f.situacao as keyof typeof SITUACAO_COR]}>
                   {SITUACAO_LABEL[f.situacao as keyof typeof SITUACAO_LABEL]}
                 </Badge>
-                {mudarSituacao.isPending && <Loader2 className="h-4 w-4 animate-spin text-senatepi-800" />}
+                {mudarSituacao.isPending && <Loader2 className="h-4 w-4 animate-spin text-brand-800" />}
               </div>
               <div>
                 <label className="text-xs uppercase text-muted-foreground">Alterar situação</label>
@@ -334,7 +334,7 @@ export default function PerfilFiliadoPage() {
               {f.termos?.length ? (
                 f.termos.map((t: any) => (
                   <a key={t.id} href={t.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border p-2 text-sm hover:underline">
-                    <FileSignature className="h-4 w-4 text-senatepi-800" /> {t.titulo}
+                    <FileSignature className="h-4 w-4 text-brand-800" /> {t.titulo}
                   </a>
                 ))
               ) : (
@@ -352,8 +352,8 @@ export default function PerfilFiliadoPage() {
                   const Icon = HIST_ICON[h.tipo] ?? Clock;
                   return (
                     <li key={h.id} className="relative">
-                      <span className="absolute -left-[27px] flex h-5 w-5 items-center justify-center rounded-full bg-senatepi-50 ring-2 ring-background">
-                        <Icon className="h-3 w-3 text-senatepi-800" />
+                      <span className="absolute -left-[27px] flex h-5 w-5 items-center justify-center rounded-full bg-brand-50 ring-2 ring-background">
+                        <Icon className="h-3 w-3 text-brand-800" />
                       </span>
                       <p className="text-sm font-medium">{h.descricao}</p>
                       <p className="text-xs text-muted-foreground">

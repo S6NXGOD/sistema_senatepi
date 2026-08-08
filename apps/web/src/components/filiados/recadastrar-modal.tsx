@@ -115,8 +115,8 @@ export function RecadastrarModal({
         {/* Link recém-gerado */}
         {link?.url ? (
           <div className="space-y-4 p-5">
-            <div className="rounded-xl border border-senatepi-400/60 bg-senatepi-50/50 p-4 dark:bg-senatepi-900/10">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-senatepi-800 dark:text-senatepi-400">
+            <div className="rounded-xl border border-brand-400/60 bg-brand-50/50 p-4 dark:bg-brand-900/10">
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-800 dark:text-brand-400">
                 <ShieldCheck className="h-4 w-4" /> Link gerado
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -230,14 +230,14 @@ function Opcao({
       disabled={carregando}
       className={cn(
         'flex w-full items-start gap-3 rounded-xl border p-4 text-left transition',
-        'hover:border-senatepi-400 hover:bg-muted/40 disabled:opacity-60',
+        'hover:border-brand-400 hover:bg-muted/40 disabled:opacity-60',
       )}
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
         {carregando ? (
-          <Loader2 className="h-5 w-5 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-5 w-5 animate-spin text-brand-800 dark:text-brand-400" />
         ) : (
-          <Icon className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <Icon className="h-5 w-5 text-brand-800 dark:text-brand-400" />
         )}
       </span>
       <span className="min-w-0">

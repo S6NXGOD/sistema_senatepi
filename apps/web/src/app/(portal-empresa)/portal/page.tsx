@@ -59,7 +59,7 @@ export default function PortalEmpresaHome() {
       <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
         {/* Identificação */}
         <div className="rounded-2xl border bg-card p-6">
-          <p className="flex items-center gap-2 text-sm font-semibold text-senatepi-800 dark:text-senatepi-400">
+          <p className="flex items-center gap-2 text-sm font-semibold text-brand-800 dark:text-brand-400">
             <ShieldCheck className="h-4 w-4" /> Acesso confirmado
           </p>
           {isLoading ? (

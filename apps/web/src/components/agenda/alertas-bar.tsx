@@ -39,7 +39,7 @@ function ItemAlerta({ c, onAbrir }: { c: Compromisso; onAbrir: (c: Compromisso) 
           // eslint-disable-next-line @next/next/no-img-element
           <img src={c.responsavel.avatarUrl} alt="" className="h-5 w-5 rounded-full border object-cover" />
         ) : (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-senatepi-400 text-[10px] font-bold text-senatepi-900">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-400 text-[10px] font-bold text-brand-900">
             {c.responsavel.nome.charAt(0)}
           </span>
         )}

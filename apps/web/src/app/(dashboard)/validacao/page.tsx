@@ -127,7 +127,7 @@ export default function ValidacaoPage() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
           >
-            <Card className={resultado.liberado ? 'border-senatepi-600' : 'border-red-400'}>
+            <Card className={resultado.liberado ? 'border-brand-600' : 'border-red-400'}>
               <CardContent className="flex items-center gap-6 p-6">
                 {resultado.pessoa.fotoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -140,7 +140,7 @@ export default function ValidacaoPage() {
                 <div className="flex-1">
                   <p className="text-xs uppercase text-muted-foreground">{resultado.pessoa.tipo}</p>
                   <p className="text-xl font-bold">{resultado.pessoa.nome}</p>
-                  <div className={`mt-2 flex items-center gap-2 text-lg font-semibold ${resultado.liberado ? 'text-senatepi-800' : 'text-red-600'}`}>
+                  <div className={`mt-2 flex items-center gap-2 text-lg font-semibold ${resultado.liberado ? 'text-brand-800' : 'text-red-600'}`}>
                     {resultado.liberado ? <CheckCircle2 className="h-6 w-6" /> : <XCircle className="h-6 w-6" />}
                     {resultado.liberado ? 'Entrada liberada' : 'Entrada negada'}
                   </div>

@@ -75,7 +75,7 @@ export function PhotoCropDialog({
             step={0.01}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
-            className="w-full accent-senatepi-800"
+            className="w-full accent-brand-800"
           />
         </div>
 

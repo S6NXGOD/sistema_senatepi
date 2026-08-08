@@ -248,7 +248,7 @@ export function Combobox({
                 <span className="truncate">{o.rotulo}</span>
                 <span className="flex shrink-0 items-center gap-2">
                   {o.detalhe && <span className="text-xs text-muted-foreground">{o.detalhe}</span>}
-                  {o.valor === value && <Check className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />}
+                  {o.valor === value && <Check className="h-4 w-4 text-brand-800 dark:text-brand-400" />}
                 </span>
               </button>
             </li>

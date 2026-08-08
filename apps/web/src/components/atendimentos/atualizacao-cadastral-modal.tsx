@@ -45,7 +45,7 @@ function Campo({
       {children}
       {bloqueado && <p className="text-[10px] leading-tight text-muted-foreground">{AVISO_TRAVADO}</p>}
       {liberado && (
-        <p className="text-[10px] leading-tight text-senatepi-700 dark:text-senatepi-400">
+        <p className="text-[10px] leading-tight text-brand-700 dark:text-brand-400">
           {AVISO_VAZIO_LIBERADO}
         </p>
       )}
@@ -173,8 +173,8 @@ export function AtualizacaoCadastralModal({
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-senatepi-50 p-2 dark:bg-senatepi-900/30">
-              <UserCog className="h-6 w-6 text-senatepi-700 dark:text-senatepi-400" />
+            <div className="rounded-xl bg-brand-50 p-2 dark:bg-brand-900/30">
+              <UserCog className="h-6 w-6 text-brand-700 dark:text-brand-400" />
             </div>
             <div>
               <h3 className="font-semibold leading-tight">Atualização cadastral</h3>

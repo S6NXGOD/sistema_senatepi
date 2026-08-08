@@ -59,7 +59,7 @@ export default function LoginEmpresaPage() {
         <div className="mb-8 text-center">
           <Logo orientation="horizontal" variant="auto" className="mx-auto h-10" />
           <p className="mt-4 flex items-center justify-center gap-1.5 text-sm font-semibold">
-            <Building2 className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+            <Building2 className="h-4 w-4 text-brand-800 dark:text-brand-400" />
             Portal da Empresa
           </p>
           <p className="mt-1 text-xs text-muted-foreground">

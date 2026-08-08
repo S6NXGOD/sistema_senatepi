@@ -52,7 +52,7 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen">
       {/* Lateral institucional */}
-      <div className="relative hidden w-1/2 flex-col justify-between bg-gradient-to-br from-senatepi-900 via-senatepi-800 to-senatepi-600 p-12 text-white lg:flex">
+      <div className="relative hidden w-1/2 flex-col justify-between bg-gradient-to-br from-brand-900 via-brand-800 to-brand-600 p-12 text-white lg:flex">
         <Logo orientation="horizontal" variant="branco" className="h-14" />
         <div className="space-y-4">
           <h1 className="text-4xl font-bold leading-tight">
@@ -125,7 +125,7 @@ export default function LoginPage() {
                 Usuários e Perfis, que é o fluxo que de fato funciona. */}
             <div className="text-sm">
               <label className="flex items-center gap-2">
-                <input type="checkbox" className="accent-senatepi-800" {...register('lembrar')} />
+                <input type="checkbox" className="accent-brand-800" {...register('lembrar')} />
                 Lembrar acesso
               </label>
             </div>

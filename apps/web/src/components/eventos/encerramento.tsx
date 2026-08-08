@@ -146,10 +146,10 @@ export function ResumoEncerramento({ eventoId }: { eventoId: string }) {
 
   return (
     <div className="space-y-4">
-      <Card className="border-senatepi-300 dark:border-senatepi-800">
+      <Card className="border-brand-300 dark:border-brand-800">
         <CardContent className="space-y-4 p-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-senatepi-800 dark:text-senatepi-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-800 dark:text-brand-400">
               Assembleia encerrada
             </p>
             <p className="text-sm text-muted-foreground">
@@ -215,7 +215,7 @@ export function ResumoEncerramento({ eventoId }: { eventoId: string }) {
         <Card>
           <CardContent className="space-y-2 p-5">
             <h3 className="flex items-center gap-2 font-semibold">
-              <Award className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+              <Award className="h-4 w-4 text-brand-800 dark:text-brand-400" />
               Certificados
               {certificados.cargaHoraria && (
                 <span className="text-sm font-normal text-muted-foreground">

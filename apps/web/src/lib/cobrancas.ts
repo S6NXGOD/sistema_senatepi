@@ -129,7 +129,7 @@ export const STATUS_LABEL: Record<StatusParcela, string> = {
 
 export const STATUS_COR: Record<StatusParcela, string> = {
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  PAGO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+  PAGO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   VENCIDO: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   CANCELADO: 'bg-muted text-muted-foreground',
 };

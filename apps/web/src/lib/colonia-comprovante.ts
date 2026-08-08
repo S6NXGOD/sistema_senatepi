@@ -120,7 +120,7 @@ export async function gerarComprovantePdf(info: ComprovanteInfo): Promise<void> 
     doc.setFontSize(9.5);
     const linhas = doc.splitTextToSize(AVISO_APRESENTAR, contentW - 10) as string[];
     const h = linhas.length * 4.6 + 8;
-    doc.setFillColor(241, 248, 233); // senatepi-50
+    doc.setFillColor(241, 248, 233); // brand-50
     doc.setDrawColor(...VERDE);
     doc.setLineWidth(0.4);
     doc.roundedRect(M, y, contentW, h, 2, 2, 'FD');

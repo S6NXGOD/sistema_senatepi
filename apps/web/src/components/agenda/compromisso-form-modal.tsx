@@ -151,8 +151,8 @@ export function CompromissoFormModal({
       >
         <div className="flex items-center justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-              <CalendarClock className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+              <CalendarClock className="h-5 w-5 text-brand-800 dark:text-brand-400" />
             </div>
             <h3 className="text-lg font-bold">{ehEdicao ? 'Editar Evento' : 'Novo Evento na Agenda'}</h3>
           </div>

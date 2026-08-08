@@ -237,7 +237,7 @@ export function ConcluirModal({
                       ativo
                         ? o.alerta
                           ? 'border-red-400 bg-red-50 dark:bg-red-950/20'
-                          : 'border-senatepi-500 bg-senatepi-50 dark:bg-senatepi-900/20'
+                          : 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
                         : 'hover:bg-muted/50',
                     )}
                   >
@@ -247,7 +247,7 @@ export function ConcluirModal({
                         o.alerta
                           ? 'text-red-600 dark:text-red-400'
                           : ativo
-                            ? 'text-senatepi-700 dark:text-senatepi-400'
+                            ? 'text-brand-700 dark:text-brand-400'
                             : 'text-muted-foreground',
                       )}
                     />

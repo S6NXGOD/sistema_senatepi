@@ -150,7 +150,7 @@ function WizardCobranca() {
       <div className="flex items-center gap-3">
         <Link href="/cobrancas"><Button variant="ghost" size="icon" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></Button></Link>
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-2xl font-bold"><Receipt className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" /> Nova cobrança</h2>
+          <h2 className="flex items-center gap-2 text-2xl font-bold"><Receipt className="h-6 w-6 text-brand-800 dark:text-brand-400" /> Nova cobrança</h2>
           <p className="text-sm text-muted-foreground">Etapa {etapa} de 2 — {etapa === 1 ? 'parâmetros' : 'edição e gravação'}</p>
         </div>
       </div>
@@ -165,7 +165,7 @@ function WizardCobranca() {
               {filiadoId ? (
                 <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
                   <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <User className="h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+                    <User className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
                     <span className="truncate">{filiadoNome || 'Filiado selecionado'}</span>
                   </span>
                   {!filiadoIdPre && (
@@ -275,7 +275,7 @@ function WizardCobranca() {
             {parcelas.map((p, i) => (
               <div key={i} className="rounded-xl border bg-card p-4">
                 <div className="mb-3 flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-senatepi-50 text-xs font-bold text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400">{p.numero}</span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-800 dark:bg-brand-900/30 dark:text-brand-400">{p.numero}</span>
                   <span className="text-sm font-medium">Parcela {p.numero}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -317,7 +317,7 @@ function ModoBtn({ ativo, onClick, titulo, sub }: { ativo: boolean; onClick: () 
       type="button"
       onClick={onClick}
       className={`rounded-md px-3 py-2 text-left transition-colors ${
-        ativo ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'
+        ativo ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'
       }`}
     >
       <span className="block text-sm font-semibold">{titulo}</span>
@@ -328,7 +328,7 @@ function ModoBtn({ ativo, onClick, titulo, sub }: { ativo: boolean; onClick: () 
 
 export default function NovaCobrancaPage() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>}>
+    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}>
       <WizardCobranca />
     </Suspense>
   );

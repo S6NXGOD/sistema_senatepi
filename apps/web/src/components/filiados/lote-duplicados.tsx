@@ -77,9 +77,9 @@ export function LoteDuplicados() {
 
   if (concluido !== null) {
     return (
-      <Card className="border-senatepi-300 dark:border-senatepi-800">
+      <Card className="border-brand-300 dark:border-brand-800">
         <CardContent className="flex items-start gap-3 p-4">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-brand-700 dark:text-brand-400" />
           <div className="text-sm">
             <p className="font-semibold">{concluido} cadastro(s) consolidado(s).</p>
             {falhas.length > 0 && (
@@ -96,10 +96,10 @@ export function LoteDuplicados() {
   if (total === 0) return null;
 
   return (
-    <Card className="border-senatepi-300 dark:border-senatepi-800">
+    <Card className="border-brand-300 dark:border-brand-800">
       <CardContent className="space-y-3 p-4">
         <div className="flex items-start gap-2.5">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-brand-700 dark:text-brand-400" />
           <div className="min-w-0">
             <p className="font-semibold">
               {total.toLocaleString('pt-BR')} podem ser consolidados de uma vez
@@ -139,7 +139,7 @@ export function LoteDuplicados() {
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full bg-senatepi-700 transition-all dark:bg-senatepi-400"
+                className="h-full bg-brand-700 transition-all dark:bg-brand-400"
                 style={{ width: `${progresso.total ? (progresso.feitos / progresso.total) * 100 : 0}%` }}
               />
             </div>

@@ -24,7 +24,7 @@ export default function EditarFiliadoPage() {
         </div>
       </div>
       {isLoading || !data ? (
-        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800" /></div>
+        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800" /></div>
       ) : (
         <FiliadoForm inicial={data} modo="editar" />
       )}

@@ -88,10 +88,10 @@ export function CalendarioView({
                 'min-h-[92px] border-b border-r p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0',
                 onSelecionarDia && 'cursor-pointer transition-colors hover:bg-muted/40',
                 foraDoMes && 'bg-muted/20',
-                selecionado && 'bg-senatepi-50 ring-1 ring-inset ring-senatepi-400 dark:bg-senatepi-900/20',
+                selecionado && 'bg-brand-50 ring-1 ring-inset ring-brand-400 dark:bg-brand-900/20',
               )}
             >
-              <div className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs ${ehHoje ? 'bg-senatepi-700 font-bold text-white' : foraDoMes ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+              <div className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs ${ehHoje ? 'bg-brand-700 font-bold text-white' : foraDoMes ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
                 {dia.getDate()}
               </div>
               <div className="space-y-1">

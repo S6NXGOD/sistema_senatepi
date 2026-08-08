@@ -49,8 +49,8 @@ export default function ColoniaCampanhasPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <Umbrella className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <Umbrella className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Colônia de Férias</h2>
@@ -77,7 +77,7 @@ export default function ColoniaCampanhasPage() {
               onClick={() => setStatus(f.valor)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                 status === f.valor
-                  ? 'bg-senatepi-800 text-white shadow-sm'
+                  ? 'bg-brand-800 text-white shadow-sm'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
@@ -89,7 +89,7 @@ export default function ColoniaCampanhasPage() {
 
       {isLoading ? (
         <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       ) : campanhas.length === 0 ? (
         <Card>
@@ -121,7 +121,7 @@ function CardCampanha({ c, onCopiar }: { c: CampanhaResumo; onCopiar: () => void
             <p className="text-xs text-muted-foreground">{c.totalLotes} lote(s) · {c.ano}</p>
           </div>
           {ativa ? (
-            <Badge className="shrink-0 bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">Aberta</Badge>
+            <Badge className="shrink-0 bg-brand-50 text-brand-900 dark:bg-brand-900/30 dark:text-brand-400">Aberta</Badge>
           ) : (
             <Badge className="shrink-0 bg-muted text-muted-foreground">Fechada</Badge>
           )}
@@ -146,7 +146,7 @@ function CardCampanha({ c, onCopiar }: { c: CampanhaResumo; onCopiar: () => void
             <span className="font-medium tabular-nums">{c.ocupadas}/{c.totalVagas}</span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-senatepi-600" style={{ width: `${pct}%` }} />
+            <div className="h-full rounded-full bg-brand-600" style={{ width: `${pct}%` }} />
           </div>
         </div>
 

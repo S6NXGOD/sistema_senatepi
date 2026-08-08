@@ -161,7 +161,7 @@ export function LocaisTrabalhoSection({
           key={i}
           className={cn(
             'space-y-4 rounded-xl border p-4 transition',
-            l.descontoEmFolha ? 'border-senatepi-400 bg-senatepi-50/40 dark:bg-senatepi-900/10' : 'bg-muted/30',
+            l.descontoEmFolha ? 'border-brand-400 bg-brand-50/40 dark:bg-brand-900/10' : 'bg-muted/30',
           )}
         >
           <div className="flex items-center justify-between">
@@ -240,7 +240,7 @@ export function LocaisTrabalhoSection({
               <label className="flex h-12 cursor-pointer items-center gap-2 rounded-md border border-input px-3 md:h-10">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 accent-senatepi-700"
+                  className="h-4 w-4 accent-brand-700"
                   checked={!!l.descontoEmFolha}
                   onChange={(e) => mudar(i, 'descontoEmFolha', e.target.checked)}
                 />

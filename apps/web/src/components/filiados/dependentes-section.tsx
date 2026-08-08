@@ -107,7 +107,7 @@ export function DependentesSection({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={d.fotoUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
               ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-senatepi-50 text-xs font-semibold text-senatepi-800">{d.nome.charAt(0)}</div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-800">{d.nome.charAt(0)}</div>
               )}
               <div>
                 <p className="text-sm font-medium">{d.nome}</p>
@@ -117,7 +117,7 @@ export function DependentesSection({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge className={d.validoParaEvento ? 'bg-senatepi-50 text-senatepi-800' : 'bg-red-100 text-red-700'}>
+              <Badge className={d.validoParaEvento ? 'bg-brand-50 text-brand-800' : 'bg-red-100 text-red-700'}>
                 {d.validoParaEvento ? 'Válido p/ eventos' : 'Inválido p/ eventos'}
               </Badge>
               <input

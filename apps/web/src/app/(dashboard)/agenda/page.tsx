@@ -80,7 +80,7 @@ export default function AgendaPage() {
     <Suspense
       fallback={
         <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       }
     >
@@ -233,8 +233,8 @@ function AgendaConteudo() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <CalendarClock className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <CalendarClock className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Agenda e Prazos</h2>
@@ -259,7 +259,7 @@ function AgendaConteudo() {
               onClick={() => setAba(a.key)}
               className={cn(
                 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                aba === a.key ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
+                aba === a.key ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
               )}
             >
               {a.label}
@@ -300,15 +300,15 @@ function AgendaConteudo() {
           quem clicou num dia rola de volta para cima para ver os cards, e é lá
           que precisa entender por que a lista encolheu — e como desfazer. */}
       {diaSelecionado && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-senatepi-300 bg-senatepi-50 px-3 py-2 text-sm dark:border-senatepi-800 dark:bg-senatepi-900/20">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm dark:border-brand-800 dark:bg-brand-900/20">
           <span className="flex items-center gap-1.5">
-            <CalendarDays className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+            <CalendarDays className="h-4 w-4 text-brand-800 dark:text-brand-400" />
             Mostrando <strong>{filtrados.length}</strong> atividade{filtrados.length === 1 ? '' : 's'} de{' '}
             <strong>{diaSelecionado.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</strong>
           </span>
           <button
             onClick={() => setDiaSelecionado(null)}
-            className="font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+            className="font-medium text-brand-800 hover:underline dark:text-brand-400"
           >
             Limpar filtro do dia
           </button>
@@ -317,7 +317,7 @@ function AgendaConteudo() {
 
       {/* Quadro */}
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : (
         <KanbanView
           compromissos={filtrados}

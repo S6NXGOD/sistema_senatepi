@@ -71,7 +71,7 @@ export function StatusModal({
       <div className="w-full max-w-md overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-muted p-2"><ShieldCheck className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" /></div>
+            <div className="rounded-xl bg-muted p-2"><ShieldCheck className="h-6 w-6 text-brand-800 dark:text-brand-400" /></div>
             <div>
               <h3 className="font-semibold leading-tight">Alterar status</h3>
               <p className="text-xs text-muted-foreground">{colaborador.nome}</p>

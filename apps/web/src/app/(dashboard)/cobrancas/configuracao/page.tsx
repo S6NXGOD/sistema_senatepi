@@ -97,7 +97,7 @@ export default function ConfiguracaoCobrancasPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : (
         <>
           {/* PIX */}
@@ -159,7 +159,7 @@ export default function ConfiguracaoCobrancasPage() {
 
           <div className="flex items-center justify-end gap-3">
             {salvoOk && (
-              <span className="flex items-center gap-1.5 text-sm font-medium text-senatepi-700 dark:text-senatepi-400">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-brand-700 dark:text-brand-400">
                 <CheckCircle2 className="h-4 w-4" /> Configuração salva
               </span>
             )}

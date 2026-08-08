@@ -48,7 +48,7 @@ export function MobileNav() {
                     className={cn(
                       'flex h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
                       ativo
-                        ? 'bg-senatepi-800 text-white shadow-sm'
+                        ? 'bg-brand-800 text-white shadow-sm'
                         : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     )}
                   >

@@ -158,7 +158,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
         >
           {podePagar && (
             <button className={item} onClick={() => { setAberto(false); setPagarAberto(true); }}>
-              <CheckCircle2 className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Registrar pagamento
+              <CheckCircle2 className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar pagamento
             </button>
           )}
           {podeImprimir && (

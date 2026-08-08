@@ -122,7 +122,7 @@ export function RemarcarModal({
                   key={a.label}
                   type="button"
                   onClick={() => adiar(a.dias)}
-                  className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-senatepi-50 hover:text-senatepi-800 dark:hover:bg-senatepi-900/30 dark:hover:text-senatepi-400"
+                  className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-brand-50 hover:text-brand-800 dark:hover:bg-brand-900/30 dark:hover:text-brand-400"
                 >
                   {a.label}
                 </button>

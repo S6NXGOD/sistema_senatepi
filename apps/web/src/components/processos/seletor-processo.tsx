@@ -221,10 +221,10 @@ function Opcao({
       onClick={onClick}
       className={cn(
         'flex w-full items-start gap-2 px-3 py-2 text-left transition hover:bg-muted/60',
-        ativo && 'bg-senatepi-50 dark:bg-senatepi-900/20',
+        ativo && 'bg-brand-50 dark:bg-brand-900/20',
       )}
     >
-      <Check className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', ativo ? 'text-senatepi-700 dark:text-senatepi-400' : 'invisible')} />
+      <Check className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', ativo ? 'text-brand-700 dark:text-brand-400' : 'invisible')} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium"><RotuloProcesso p={p} /></span>
         <span className="block truncate text-[11px] text-muted-foreground">

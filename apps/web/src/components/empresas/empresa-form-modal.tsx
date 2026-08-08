@@ -145,7 +145,7 @@ export function EmpresaFormModal({ open, onClose }: { open: boolean; onClose: ()
         <div className="flex items-start justify-between border-b p-5">
           <div>
             <h3 className="flex items-center gap-2 font-semibold">
-              <Building2 className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+              <Building2 className="h-5 w-5 text-brand-800 dark:text-brand-400" />
               Nova empresa
             </h3>
             <p className="text-xs text-muted-foreground">
@@ -173,7 +173,7 @@ export function EmpresaFormModal({ open, onClose }: { open: boolean; onClose: ()
                 {busca.tipo === 'buscando' ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : busca.tipo === 'ok' ? (
-                  <CheckCircle2 className="h-4 w-4 text-senatepi-600" />
+                  <CheckCircle2 className="h-4 w-4 text-brand-600" />
                 ) : (
                   <Search className="h-4 w-4" />
                 )}

@@ -38,7 +38,7 @@ export default function ConfiguracoesPage() {
 
       {isLoading || !perfil ? (
         <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       ) : (
         <Tabs defaultValue="perfil" className="space-y-6">
@@ -178,7 +178,7 @@ function PerfilTab({ perfil, onSalvo }: { perfil: Perfil; onSalvo: () => void })
                 className="h-20 w-20 shrink-0 rounded-full border object-cover"
               />
             ) : (
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-senatepi-100 text-2xl font-bold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-brand-100 text-2xl font-bold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
                 {(nome || perfil.nome).charAt(0).toUpperCase()}
               </div>
             )}

@@ -137,7 +137,7 @@ export function NovoAtendimentoDrawer({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
                     <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <User className="h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+                      <User className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
                       <span className="truncate">{filiadoNome}</span>
                     </span>
                     {!filiadoPre && (
@@ -148,7 +148,7 @@ export function NovoAtendimentoDrawer({
                     {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
                   </Button>
                   {acervo.length > 0 && (
-                    <p className="flex items-start gap-1.5 rounded-lg bg-senatepi-50 px-3 py-2 text-xs text-senatepi-800 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+                    <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
                       <FolderInput className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
                         Este filiado já tem <strong>{acervo.length} documento(s)</strong> no sistema.

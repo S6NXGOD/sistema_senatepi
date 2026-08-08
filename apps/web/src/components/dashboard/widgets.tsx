@@ -58,7 +58,7 @@ export function AvatarMini({
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-senatepi-50 text-[11px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400',
+        'inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-50 text-[11px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-400',
         ring && 'ring-2 ring-white dark:ring-slate-900',
       )}
       style={{ width: size, height: size }}
@@ -83,7 +83,7 @@ export interface KpiCardProps {
   valor?: number;
   sub?: string;
   icon: LucideIcon;
-  cor: string; // ex.: 'text-senatepi-700 bg-senatepi-50'
+  cor: string; // ex.: 'text-brand-700 bg-brand-50'
   href?: string;
   destaque?: boolean;
 }
@@ -94,8 +94,8 @@ export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: 
     <Card
       className={cn(
         'group relative h-full overflow-hidden',
-        href && 'cursor-pointer hover:border-senatepi-400',
-        destaque && 'border-senatepi-400/70 bg-senatepi-50/40 dark:bg-senatepi-900/10',
+        href && 'cursor-pointer hover:border-brand-400',
+        destaque && 'border-brand-400/70 bg-brand-50/40 dark:bg-brand-900/10',
       )}
     >
       <CardContent className="flex items-start justify-between gap-3 p-5">
@@ -145,7 +145,7 @@ export function SectionCard({
     <Card className={cn('flex flex-col', className)}>
       <div className="flex items-center justify-between gap-2 border-b px-5 py-3.5">
         <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+          <Icon className="h-4 w-4 text-brand-800 dark:text-brand-400" />
           <h3 className="text-sm font-semibold">{title}</h3>
           {count !== undefined && (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
@@ -156,7 +156,7 @@ export function SectionCard({
         {actionHref && (
           <Link
             href={actionHref}
-            className="flex items-center gap-0.5 text-xs font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+            className="flex items-center gap-0.5 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
           >
             {actionLabel} <ChevronRight className="h-3.5 w-3.5" />
           </Link>

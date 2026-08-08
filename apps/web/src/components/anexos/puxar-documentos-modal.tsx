@@ -130,8 +130,8 @@ export function PuxarDocumentosModal({
         {/* Cabeçalho */}
         <div className="flex items-center justify-between gap-3 border-b p-5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-              <FolderInput className="h-[18px] w-[18px] text-senatepi-700 dark:text-senatepi-400" />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+              <FolderInput className="h-[18px] w-[18px] text-brand-700 dark:text-brand-400" />
             </span>
             <div className="min-w-0">
               <h3 className="text-base font-bold">Puxar documentos do filiado</h3>
@@ -174,7 +174,7 @@ export function PuxarDocumentosModal({
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
             <div className="flex justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-senatepi-700 dark:text-senatepi-400" />
+              <Loader2 className="h-6 w-6 animate-spin text-brand-700 dark:text-brand-400" />
             </div>
           ) : acervo.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
@@ -205,7 +205,7 @@ export function PuxarDocumentosModal({
               <button
                 type="button"
                 onClick={selecionarTodos}
-                className="text-xs font-medium text-senatepi-700 hover:underline dark:text-senatepi-400"
+                className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
               >
                 Selecionar todos os visíveis
               </button>
@@ -263,8 +263,8 @@ function ItemLinha({
           item.jaVinculado
             ? 'cursor-default border-dashed bg-muted/30 opacity-70'
             : marcado
-              ? 'cursor-pointer border-senatepi-500 bg-senatepi-50/60 dark:bg-senatepi-900/20'
-              : 'cursor-pointer hover:border-senatepi-400 hover:bg-muted/40',
+              ? 'cursor-pointer border-brand-500 bg-brand-50/60 dark:bg-brand-900/20'
+              : 'cursor-pointer hover:border-brand-400 hover:bg-muted/40',
         )}
       >
         {/* Caixa de seleção */}
@@ -274,7 +274,7 @@ function ItemLinha({
             item.jaVinculado
               ? 'border-transparent bg-emerald-600 text-white'
               : marcado
-                ? 'border-senatepi-600 bg-senatepi-600 text-white'
+                ? 'border-brand-600 bg-brand-600 text-white'
                 : 'border-input',
           )}
         >
@@ -282,7 +282,7 @@ function ItemLinha({
         </span>
 
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-          <Icone className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" />
+          <Icone className="h-4 w-4 text-brand-700 dark:text-brand-400" />
         </div>
 
         <div className="min-w-0 flex-1">
@@ -339,7 +339,7 @@ function Chip({
       className={cn(
         'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
         ativo
-          ? 'border-senatepi-600 bg-senatepi-600 text-white'
+          ? 'border-brand-600 bg-brand-600 text-white'
           : 'border-input text-muted-foreground hover:bg-muted',
       )}
     >

@@ -131,7 +131,7 @@ export function VincularFiliadoModal({
                 onClick={() => setModo(t.k)}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition',
-                  modo === t.k ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
+                  modo === t.k ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
                 )}
               >
                 <Icon className="h-4 w-4" /> {t.label}
@@ -178,7 +178,7 @@ export function VincularFiliadoModal({
                           <span className="block truncate text-sm font-medium">{f.nome}</span>
                           <span className="block text-xs text-muted-foreground">{f.cpfMascarado}</span>
                         </span>
-                        {vincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-senatepi-700" />}
+                        {vincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-brand-700" />}
                       </button>
                     </li>
                   ))}

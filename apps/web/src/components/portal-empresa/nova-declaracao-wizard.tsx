@@ -137,7 +137,7 @@ export function NovaDeclaracaoWizard({ open, onClose }: { open: boolean; onClose
                 <span
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
                     passo >= p.n
-                      ? 'bg-senatepi-800 text-white'
+                      ? 'bg-brand-800 text-white'
                       : 'bg-muted text-muted-foreground'
                   }`}
                 >
@@ -282,7 +282,7 @@ export function NovaDeclaracaoWizard({ open, onClose }: { open: boolean; onClose
         {/* ================================================== CONCLUSÃO */}
         {passo === 4 && (
           <div className="flex flex-col items-center gap-3 p-8 text-center">
-            <CheckCircle2 className="h-12 w-12 text-senatepi-600" />
+            <CheckCircle2 className="h-12 w-12 text-brand-600" />
             <h4 className="text-lg font-bold">Declaração enviada!</h4>
             <p className="max-w-xs text-sm text-muted-foreground">
               Seus documentos foram recebidos e estão <strong>em análise</strong> pelo SENATEPI.
@@ -303,8 +303,8 @@ export function NovaDeclaracaoWizard({ open, onClose }: { open: boolean; onClose
  */
 export function AvisoLgpd() {
   return (
-    <div className="rounded-xl border border-senatepi-400/50 bg-senatepi-50/50 p-4 dark:bg-senatepi-900/10">
-      <p className="flex items-center gap-1.5 text-xs font-semibold text-senatepi-800 dark:text-senatepi-400">
+    <div className="rounded-xl border border-brand-400/50 bg-brand-50/50 p-4 dark:bg-brand-900/10">
+      <p className="flex items-center gap-1.5 text-xs font-semibold text-brand-800 dark:text-brand-400">
         <ScrollText className="h-4 w-4" /> Aviso legal — proteção de dados
       </p>
       <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -354,10 +354,10 @@ export function Arquivo({
       <button
         type="button"
         onClick={() => document.getElementById(id)?.click()}
-        className="flex w-full items-center gap-3 rounded-xl border border-dashed p-4 text-left transition hover:border-senatepi-400 hover:bg-muted/40"
+        className="flex w-full items-center gap-3 rounded-xl border border-dashed p-4 text-left transition hover:border-brand-400 hover:bg-muted/40"
       >
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-          {arquivo ? <FileText className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" /> : <Upload className="h-5 w-5 text-muted-foreground" />}
+          {arquivo ? <FileText className="h-5 w-5 text-brand-800 dark:text-brand-400" /> : <Upload className="h-5 w-5 text-muted-foreground" />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">
@@ -367,7 +367,7 @@ export function Arquivo({
             {arquivo ? `${(arquivo.size / 1024 / 1024).toFixed(2)} MB` : dica}
           </span>
         </span>
-        {arquivo && <Check className="h-4 w-4 shrink-0 text-senatepi-600" />}
+        {arquivo && <Check className="h-4 w-4 shrink-0 text-brand-600" />}
       </button>
     </div>
   );

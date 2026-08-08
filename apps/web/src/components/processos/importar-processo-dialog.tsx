@@ -434,8 +434,8 @@ export function ImportarProcessoDialog({
       >
       <div className="flex items-center justify-between border-b p-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <Gavel className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <Gavel className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h3 className="text-lg font-bold">Importar processo</h3>
@@ -477,9 +477,9 @@ export function ImportarProcessoDialog({
                 assim que os dígitos do segmento/tribunal são digitados. */}
             {aliasTribunal ? (
               <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Landmark className="h-3.5 w-3.5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+                <Landmark className="h-3.5 w-3.5 shrink-0 text-brand-700 dark:text-brand-400" />
                 Tribunal identificado:{' '}
-                <strong className="font-semibold text-senatepi-800 dark:text-senatepi-400">
+                <strong className="font-semibold text-brand-800 dark:text-brand-400">
                   {aliasTribunal}
                 </strong>
               </p>
@@ -505,8 +505,8 @@ export function ImportarProcessoDialog({
 
           {previa && !consultando && (
             previa.encontrado && previa.preenchimento ? (
-              <div className="space-y-2 rounded-xl border border-senatepi-400/60 bg-senatepi-50/50 p-3 dark:bg-senatepi-900/10">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-senatepi-800 dark:text-senatepi-400">
+              <div className="space-y-2 rounded-xl border border-brand-400/60 bg-brand-50/50 p-3 dark:bg-brand-900/10">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-brand-800 dark:text-brand-400">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Processo localizado no{' '}
                   {previa.preenchimento.tribunal}
                 </p>
@@ -623,11 +623,11 @@ export function ImportarProcessoDialog({
                       className={cn(
                         'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition',
                         jaSelecionado
-                          ? 'border-senatepi-500 bg-senatepi-50 dark:bg-senatepi-900/20'
-                          : 'border-dashed border-senatepi-400/60 hover:bg-muted/50',
+                          ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
+                          : 'border-dashed border-brand-400/60 hover:bg-muted/50',
                       )}
                     >
-                      <Sparkles className="h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+                      <Sparkles className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
                           {s.advogado.nomeExibicao || s.advogado.nome}
@@ -637,8 +637,8 @@ export function ImportarProcessoDialog({
                       <span className={cn(
                         'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold',
                         jaSelecionado
-                          ? 'bg-senatepi-800 text-white'
-                          : 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400',
+                          ? 'bg-brand-800 text-white'
+                          : 'bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-400',
                       )}>
                         {jaSelecionado ? 'Selecionado' : ORIGEM_SUGESTAO_LABEL[s.origem]}
                       </span>
@@ -684,7 +684,7 @@ export function ImportarProcessoDialog({
               <button
                 type="button"
                 onClick={() => setTribunalAberto(true)}
-                className="flex items-center gap-1 text-[11px] font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                className="flex items-center gap-1 text-[11px] font-medium text-brand-800 hover:underline dark:text-brand-400"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
                 Não encontrou o tribunal automaticamente? Defina a sigla à mão
@@ -723,14 +723,14 @@ export function ImportarProcessoDialog({
                     className={cn(
                       'flex items-start gap-2 rounded-lg border p-2.5 text-left transition',
                       ativo
-                        ? 'border-senatepi-500 bg-senatepi-50 dark:bg-senatepi-900/20'
+                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
                         : 'hover:bg-muted/50',
                     )}
                   >
                     <o.icone
                       className={cn(
                         'mt-0.5 h-4 w-4 shrink-0',
-                        ativo ? 'text-senatepi-700 dark:text-senatepi-400' : 'text-muted-foreground',
+                        ativo ? 'text-brand-700 dark:text-brand-400' : 'text-muted-foreground',
                       )}
                     />
                     <span className="min-w-0">
@@ -744,8 +744,8 @@ export function ImportarProcessoDialog({
 
             {/* --- Institucional: nada a preencher, só a confirmação visual --- */}
             {modoPolo === 'INSTITUCIONAL' && (
-              <div className="rounded-lg border border-senatepi-400/60 bg-senatepi-50/60 px-3 py-2 dark:bg-senatepi-900/10">
-                <p className="text-xs font-semibold text-senatepi-800 dark:text-senatepi-400">
+              <div className="rounded-lg border border-brand-400/60 bg-brand-50/60 px-3 py-2 dark:bg-brand-900/10">
+                <p className="text-xs font-semibold text-brand-800 dark:text-brand-400">
                   🏛️ Ação Institucional (SENATEPI)
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -945,7 +945,7 @@ export function ImportarProcessoDialog({
                                 {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
                               </span>
                             </span>
-                            <span className="shrink-0 text-[11px] font-medium text-senatepi-800 dark:text-senatepi-400">
+                            <span className="shrink-0 text-[11px] font-medium text-brand-800 dark:text-brand-400">
                               usar esta
                             </span>
                           </button>

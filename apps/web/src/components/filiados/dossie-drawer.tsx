@@ -78,7 +78,7 @@ export function DossieDrawer({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={f.fotoUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
           ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-senatepi-50 text-xl font-bold text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-300">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-xl font-bold text-brand-800 dark:bg-brand-900/30 dark:text-brand-300">
               {f?.nomeCompleto?.charAt(0) ?? '—'}
             </div>
           )}
@@ -123,7 +123,7 @@ export function DossieDrawer({
 
       {isLoading || !data || !f || !r ? (
         <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       ) : (
         <>
@@ -137,7 +137,7 @@ export function DossieDrawer({
                 className={cn(
                   'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   aba === a.id
-                    ? 'bg-senatepi-700 text-white dark:bg-senatepi-600'
+                    ? 'bg-brand-700 text-white dark:bg-brand-600'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
@@ -418,7 +418,7 @@ function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
           </p>
           {c.desfecho && (
             <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-muted/50 p-2 text-sm">
-              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-700 dark:text-brand-400" />
               <span>
                 <strong>{rotuloDesfecho(c.desfecho)}</strong>
                 {c.desfechoObs ? ` — ${c.desfechoObs}` : ''}
@@ -456,7 +456,7 @@ function AbaProcessos({ d }: { d: Dossie }) {
       {d.processos.map((p) => (
         <li key={p.id} className="rounded-xl border p-3">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            <Gavel className="h-3.5 w-3.5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+            <Gavel className="h-3.5 w-3.5 shrink-0 text-brand-700 dark:text-brand-400" />
             <span className="font-mono text-sm font-semibold">
               {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho'}
             </span>
@@ -496,7 +496,7 @@ function AbaProcessos({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 const PARCELA_COR: Record<string, string> = {
-  PAGO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+  PAGO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   VENCIDO: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   CANCELADO: 'bg-muted text-muted-foreground line-through',
@@ -572,7 +572,7 @@ function AbaDocumentos({ d }: { d: Dossie }) {
               className="flex items-center gap-3 rounded-lg border bg-card p-2.5"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                <Icone className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" />
+                <Icone className="h-4 w-4 text-brand-700 dark:text-brand-400" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium" title={doc.nomeArquivo}>
@@ -647,7 +647,7 @@ function AbaTimeline({ fatos }: { fatos: FatoDossie[] }) {
 /** Cor do marcador da linha do tempo (a bolinha), por domínio. */
 function pontoDoFato(tipo: FatoDossie['tipo']): string {
   const mapa: Record<FatoDossie['tipo'], string> = {
-    FILIACAO: 'bg-senatepi-600',
+    FILIACAO: 'bg-brand-600',
     ATENDIMENTO: 'bg-sky-500',
     ATIVIDADE: 'bg-amber-500',
     PROCESSO: 'bg-violet-500',

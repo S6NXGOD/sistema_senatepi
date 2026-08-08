@@ -166,7 +166,7 @@ export default function DuplicadosPage() {
             onClick={() => setAba(n)}
             className={cn(
               'rounded-lg border px-3 py-2 text-sm transition',
-              aba === n ? 'border-senatepi-800 bg-senatepi-50 font-semibold dark:bg-senatepi-900/30' : 'hover:bg-muted',
+              aba === n ? 'border-brand-800 bg-brand-50 font-semibold dark:bg-brand-900/30' : 'hover:bg-muted',
             )}
           >
             Confiança {CONFIANCA_LABEL[n]}
@@ -206,7 +206,7 @@ export default function DuplicadosPage() {
 
       {!isLoading && !isError && grupos.length === 0 && (
         <Card><CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-          <CheckCircle2 className="h-8 w-8 text-senatepi-700 dark:text-senatepi-400" />
+          <CheckCircle2 className="h-8 w-8 text-brand-700 dark:text-brand-400" />
           <p className="text-sm font-medium">Nada pendente nesta confiança</p>
           <p className="max-w-sm text-xs text-muted-foreground">
             Os grupos resolvidos não voltam a aparecer.
@@ -407,13 +407,13 @@ function CandidatoCard({
       className={cn(
         'rounded-xl border p-3 text-left transition',
         escolhido
-          ? 'border-senatepi-700 bg-senatepi-50/60 ring-1 ring-senatepi-700 dark:bg-senatepi-900/20'
+          ? 'border-brand-700 bg-brand-50/60 ring-1 ring-brand-700 dark:bg-brand-900/20'
           : 'hover:bg-muted/50',
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="font-mono text-xs text-muted-foreground">{c.matricula}</span>
-        <span className={cn('text-xs font-semibold', escolhido ? 'text-senatepi-800 dark:text-senatepi-300' : 'text-muted-foreground')}>
+        <span className={cn('text-xs font-semibold', escolhido ? 'text-brand-800 dark:text-brand-300' : 'text-muted-foreground')}>
           {escolhido ? 'MANTER' : 'remover'}
         </span>
       </div>

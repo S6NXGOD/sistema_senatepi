@@ -84,7 +84,7 @@ export default function SalaPage() {
 function Carregando() {
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+      <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
     </div>
   );
 }
@@ -333,7 +333,7 @@ function Plenario({ eventoId, sessao }: { eventoId: string; sessao: Sessao }) {
         <Card>
           <CardContent className="space-y-3 p-5">
             <h2 className="flex items-center gap-2 font-semibold">
-              <Video className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+              <Video className="h-4 w-4 text-brand-800 dark:text-brand-400" />
               {sessao.evento.nome}
             </h2>
             {sessao.evento.linkReuniao ? (
@@ -361,7 +361,7 @@ function Plenario({ eventoId, sessao }: { eventoId: string; sessao: Sessao }) {
 
         <Card>
           <CardContent className="flex items-center gap-2.5 p-4 text-sm">
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
             <span>
               Presença confirmada como <strong>{sessao.participante.nome}</strong>.
             </span>
@@ -438,7 +438,7 @@ function PainelVotacao({
             'inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold',
             encerrada
               ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200'
-              : 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100',
+              : 'bg-brand-100 text-brand-900 dark:bg-brand-900/40 dark:text-brand-100',
           )}>
             {encerrada ? 'Encerrada' : 'Votação aberta'}
             {pauta.modo === 'SECRETA' && ' · secreta'}
@@ -452,8 +452,8 @@ function PainelVotacao({
         {encerrada && pauta.resultado ? (
           <Resultado apuracao={pauta.resultado} />
         ) : pauta.jaVotou ? (
-          <div className="flex items-start gap-2 rounded-lg bg-senatepi-50 p-3 text-sm dark:bg-senatepi-900/20">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+          <div className="flex items-start gap-2 rounded-lg bg-brand-50 p-3 text-sm dark:bg-brand-900/20">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
             <span>
               Seu voto já foi registrado.
               {pauta.modo === 'SECRETA' && ' Por ser votação secreta, ele não fica vinculado ao seu nome.'}
@@ -505,7 +505,7 @@ function Resultado({ apuracao }: { apuracao: NonNullable<EstadoAoVivo['pauta']>[
               className={cn(
                 'h-full transition-all',
                 apuracao.vencedora?.opcaoId === r.opcaoId
-                  ? 'bg-senatepi-700 dark:bg-senatepi-400'
+                  ? 'bg-brand-700 dark:bg-brand-400'
                   : 'bg-muted-foreground/30',
               )}
               style={{ width: `${r.percentual}%` }}
@@ -524,9 +524,9 @@ function Resultado({ apuracao }: { apuracao: NonNullable<EstadoAoVivo['pauta']>[
 
 function PainelSorteio({ sorteio }: { sorteio: NonNullable<EstadoAoVivo['ultimoSorteio']> }) {
   return (
-    <Card className="border-senatepi-300 dark:border-senatepi-800">
+    <Card className="border-brand-300 dark:border-brand-800">
       <CardContent className="space-y-2 p-5 text-center">
-        <Gift className="mx-auto h-7 w-7 text-senatepi-700 dark:text-senatepi-400" />
+        <Gift className="mx-auto h-7 w-7 text-brand-700 dark:text-brand-400" />
         <p className="text-xs uppercase tracking-wide text-muted-foreground">{sorteio.titulo}</p>
         {sorteio.resultado?.map((g) => (
           <p key={g.filiadoId} className="text-lg font-bold leading-tight">{g.nome}</p>

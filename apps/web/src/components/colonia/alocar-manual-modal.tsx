@@ -162,7 +162,7 @@ export function AlocarManualModal({
       <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-muted p-2"><UserPlus className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" /></div>
+            <div className="rounded-xl bg-muted p-2"><UserPlus className="h-6 w-6 text-brand-800 dark:text-brand-400" /></div>
             <div>
               <h3 className="font-semibold leading-tight">Alocação manual (diretoria)</h3>
               <p className="text-xs text-muted-foreground">Lote {loteNumero}</p>
@@ -193,13 +193,13 @@ export function AlocarManualModal({
                       desabilitado
                         ? 'cursor-not-allowed border-input opacity-40'
                         : ativo
-                          ? 'border-senatepi-600 bg-senatepi-50 dark:bg-senatepi-900/30'
-                          : 'border-input hover:border-senatepi-600',
+                          ? 'border-brand-600 bg-brand-50 dark:bg-brand-900/30'
+                          : 'border-input hover:border-brand-600',
                     )}
                   >
                     {ar
                       ? <Snowflake className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                      : <Fan className="h-4 w-4 text-senatepi-600 dark:text-senatepi-400" />}
+                      : <Fan className="h-4 w-4 text-brand-600 dark:text-brand-400" />}
                     <span className="font-bold">Q{q.numero}</span>
                     <span className="text-[9px] text-muted-foreground">{q.ocupado ? 'ocupado' : q6Trava ? 'sorteio' : ar ? 'Ar' : 'Vent.'}</span>
                   </button>

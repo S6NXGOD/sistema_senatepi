@@ -32,7 +32,7 @@ export function TimelineMovimentacoes({ movimentacoes }: { movimentacoes: Movime
                 className={cn(
                   'mt-1 h-3 w-3 shrink-0 rounded-full ring-4 transition-colors',
                   primeiro
-                    ? 'bg-senatepi-600 ring-senatepi-100 dark:bg-senatepi-400 dark:ring-senatepi-900/40'
+                    ? 'bg-brand-600 ring-brand-100 dark:bg-brand-400 dark:ring-brand-900/40'
                     : 'bg-muted-foreground/40 ring-transparent',
                 )}
               />

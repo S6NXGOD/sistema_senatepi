@@ -91,7 +91,7 @@ export default function EventosPage() {
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {eventos?.map((e) => (
           <Link key={e.id} href={`/eventos/${e.id}`}>
-            <Card className="h-full transition hover:border-senatepi-400">
+            <Card className="h-full transition hover:border-brand-400">
               <CardContent className="space-y-2 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <Badge className={STATUS_EVENTO_COR[e.status]}>
@@ -221,7 +221,7 @@ function FormNovoEvento({
               <label key={chave} className="flex items-start gap-2.5 text-sm">
                 <input
                   type="checkbox"
-                  className="mt-1 accent-senatepi-800"
+                  className="mt-1 accent-brand-800"
                   checked={!!cfg[chave]}
                   onChange={(e) => setCfg((c) => ({ ...c, [chave]: e.target.checked }))}
                 />

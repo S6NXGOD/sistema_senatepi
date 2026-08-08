@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import { tenant } from './src/tenant.config';
 
 const config: Config = {
   darkMode: 'class',
@@ -17,30 +18,14 @@ const config: Config = {
     extend: {
       colors: {
         /**
-         * Paleta institucional SENATEPI — ESCALA COMPLETA.
+         * Paleta da MARCA — os valores vêm de `src/tenant.config.ts`.
          *
-         * Faltavam 100, 200, 300, 500 e 700. Como o Tailwind simplesmente não
-         * emite classe para um tom inexistente, `bg-senatepi-700 text-white`
-         * virava texto branco sobre fundo branco — a aba ativa do dossiê ficava
-         * invisível no tema claro. Havia 65 usos desses tons pelo app.
-         *
-         * Os cinco tons originais (900/800/600/400/50) foram preservados byte a
-         * byte; os novos interpolam entre eles. O 700 foi escolhido escuro o
-         * bastante para passar em contraste AA (4.6:1) com texto branco, que é
-         * exatamente o caso das abas e dos botões primários.
+         * Antes esta escala se chamava `senatepi` e estava escrita aqui. Com o
+         * nome do cliente na classe de cor (`bg-senatepi-800`), trocar de
+         * cliente exigiria caçar 871 usos pelo código. Agora a classe é neutra
+         * (`bg-brand-800`) e o valor sai da configuração da instalação.
          */
-        senatepi: {
-          900: '#145E07',
-          800: '#1B7F0A', // Verde escuro (institucional)
-          700: '#2C860F',
-          600: '#4FA11B', // Verde médio
-          500: '#75B32C',
-          400: '#9BC53D', // Verde claro
-          300: '#B5D268',
-          200: '#D0E29E',
-          100: '#E4F0CC',
-          50: '#F1F8E9',
-        },
+        brand: tenant.paleta,
         cinza: {
           claro: '#F5F7FA',
         },

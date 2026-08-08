@@ -151,7 +151,7 @@ export function RegistrarDesfechoModal({
 
           {resultado === 'RESOLVIDO_ATO' ? (
             <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium"><CheckCircle2 className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> O que foi resolvido?</label>
+              <label className="flex items-center gap-1.5 text-sm font-medium"><CheckCircle2 className="h-4 w-4 text-brand-700 dark:text-brand-400" /> O que foi resolvido?</label>
               <textarea className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder="Descreva a orientação/solução dada ao filiado…" value={desfechoObs} onChange={(e) => setDesfechoObs(e.target.value)} />
             </div>
           ) : (
@@ -189,7 +189,7 @@ export function RegistrarDesfechoModal({
                 {selecionados.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {selecionados.map((s) => (
-                      <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-senatepi-100 px-2.5 py-1 text-sm font-medium text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+                      <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2.5 py-1 text-sm font-medium text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
                         {s.nome}
                         <button type="button" onClick={() => remAdv(s.id)} className="hover:text-red-600"><X className="h-3.5 w-3.5" /></button>
                       </span>

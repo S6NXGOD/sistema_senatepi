@@ -112,7 +112,7 @@ export function AnexosSection({
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-2 text-sm font-semibold">
-          <Paperclip className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> {titulo}
+          <Paperclip className="h-4 w-4 text-brand-700 dark:text-brand-400" /> {titulo}
           {anexos.length > 0 && (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               {anexos.length}
@@ -123,7 +123,7 @@ export function AnexosSection({
           <button
             type="button"
             onClick={() => setPuxarAberto(true)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium text-senatepi-700 transition-colors hover:bg-muted dark:text-senatepi-400"
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium text-brand-700 transition-colors hover:bg-muted dark:text-brand-400"
           >
             <FolderInput className="h-3.5 w-3.5" /> Puxar do acervo
           </button>
@@ -148,8 +148,8 @@ export function AnexosSection({
         className={cn(
           'flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors',
           dragOver
-            ? 'border-senatepi-500 bg-senatepi-50 dark:bg-senatepi-900/20'
-            : 'border-input hover:border-senatepi-400 hover:bg-muted/40',
+            ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
+            : 'border-input hover:border-brand-400 hover:bg-muted/40',
           enviando && 'pointer-events-none opacity-70',
         )}
       >
@@ -163,7 +163,7 @@ export function AnexosSection({
         />
         {enviando ? (
           <>
-            <Loader2 className="h-6 w-6 animate-spin text-senatepi-700 dark:text-senatepi-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-brand-700 dark:text-brand-400" />
             <span className="text-sm font-medium">Enviando… {progresso}%</span>
           </>
         ) : (
@@ -276,7 +276,7 @@ function AnexoItem({
   return (
     <li className="flex items-center gap-3 rounded-lg border bg-card p-2.5">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-        <Icone className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" />
+        <Icone className="h-4 w-4 text-brand-700 dark:text-brand-400" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium" title={anexo.nomeArquivo}>
@@ -285,7 +285,7 @@ function AnexoItem({
         <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
           {reaproveitado && (
             <span
-              className="flex items-center gap-0.5 font-medium text-senatepi-700 dark:text-senatepi-400"
+              className="flex items-center gap-0.5 font-medium text-brand-700 dark:text-brand-400"
               title="Puxado do acervo do filiado — não houve novo upload"
             >
               <Link2 className="h-3 w-3" /> puxado ·

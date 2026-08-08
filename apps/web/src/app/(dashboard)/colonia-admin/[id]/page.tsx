@@ -112,7 +112,7 @@ export default function ColoniaGestaoPage() {
         </div>
       </div>
 
-      {isLoading && <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>}
+      {isLoading && <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}
 
       {!isLoading && !t && (
         <Card>
@@ -134,7 +134,7 @@ export default function ColoniaGestaoPage() {
                   aria-label="Ativar/desativar link público"
                   disabled={toggle.isPending}
                   onClick={() => toggle.mutate(t.status === 'ATIVA' ? 'INATIVA' : 'ATIVA')}
-                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${t.status === 'ATIVA' ? 'bg-senatepi-600' : 'bg-muted-foreground/30'}`}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${t.status === 'ATIVA' ? 'bg-brand-600' : 'bg-muted-foreground/30'}`}
                 >
                   <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${t.status === 'ATIVA' ? 'left-6' : 'left-1'}`} />
                 </button>
@@ -427,7 +427,7 @@ function OcupanteCard({ o, onCancelar, onDetalhes, onSincronizar }: {
         <div className="flex min-w-0 items-center gap-2">
           {ar
             ? <Snowflake className="h-5 w-5 shrink-0 text-sky-600 dark:text-sky-400" />
-            : <Fan className="h-5 w-5 shrink-0 text-senatepi-600 dark:text-senatepi-400" />}
+            : <Fan className="h-5 w-5 shrink-0 text-brand-600 dark:text-brand-400" />}
           <div className="min-w-0 leading-tight">
             <div className="font-semibold">Quarto {o.quartoNumero}</div>
             <div className="text-xs text-muted-foreground">{ar ? 'Ar-condicionado' : 'Ventilador'}</div>
@@ -505,7 +505,7 @@ function ParticipanteModal({ p, onSincronizar, onClose }: {
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {mostrarSync && (
-            <div className="rounded-lg border border-senatepi-200 bg-senatepi-50/50 p-3 dark:border-senatepi-900/40 dark:bg-senatepi-900/10">
+            <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-900/40 dark:bg-brand-900/10">
               <p className="mb-2 text-sm text-muted-foreground">
                 {p.sincronizadoEm
                   ? 'Os dados desta inscrição já foram subidos para o cadastro do filiado. Consulte o que foi atualizado.'
@@ -581,13 +581,13 @@ function ExportarMenu({ temporadaId, campanha, lotes }: { temporadaId: string; c
             className={itemCls}
             onClick={() => { setAberto(false); comGerando(() => gerarRelatorioCompletoPdf(campanha, lotes)); }}
           >
-            <FileText className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Baixar Relatório Completo (PDF)
+            <FileText className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Baixar Relatório Completo (PDF)
           </button>
           <button
             className={itemCls}
             onClick={() => { setAberto(false); setPicker(true); }}
           >
-            <FileDown className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Baixar Relatório por Lote (PDF)
+            <FileDown className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Baixar Relatório por Lote (PDF)
           </button>
         </div>
       )}
@@ -605,7 +605,7 @@ function ExportarMenu({ temporadaId, campanha, lotes }: { temporadaId: string; c
               {lotes.map((l) => (
                 <button
                   key={l.lote.id}
-                  className="flex w-full items-center justify-between rounded-lg border p-3 text-left text-sm transition-colors hover:border-senatepi-600 hover:bg-muted"
+                  className="flex w-full items-center justify-between rounded-lg border p-3 text-left text-sm transition-colors hover:border-brand-600 hover:bg-muted"
                   onClick={() => { setPicker(false); comGerando(() => gerarRelatorioLotePdf(campanha, l)); }}
                 >
                   <span className="font-medium">Lote {l.lote.numero}</span>
@@ -673,7 +673,7 @@ function DetalheModal({ ocupante: o, lote, campanha, onSincronizar, onClose }: {
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-muted p-2">
-              {ar ? <Snowflake className="h-6 w-6 text-sky-600 dark:text-sky-400" /> : <Fan className="h-6 w-6 text-senatepi-600 dark:text-senatepi-400" />}
+              {ar ? <Snowflake className="h-6 w-6 text-sky-600 dark:text-sky-400" /> : <Fan className="h-6 w-6 text-brand-600 dark:text-brand-400" />}
             </div>
             <div>
               <h3 className="font-semibold leading-tight">{o.nomeCompleto}</h3>
@@ -703,7 +703,7 @@ function DetalheModal({ ocupante: o, lote, campanha, onSincronizar, onClose }: {
           </div>
 
           {o.filiadoId && (
-            <div className="rounded-lg border border-senatepi-200 bg-senatepi-50/50 p-3 dark:border-senatepi-900/40 dark:bg-senatepi-900/10">
+            <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-900/40 dark:bg-brand-900/10">
               <p className="mb-2 text-sm text-muted-foreground">
                 {o.sincronizadoEm
                   ? 'Os dados desta reserva já foram subidos para o cadastro do filiado. Consulte o que foi atualizado.'

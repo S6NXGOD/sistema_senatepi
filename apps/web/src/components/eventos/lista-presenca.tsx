@@ -43,7 +43,7 @@ export function ListaPresenca({ eventoId, aoVivo = false }: { eventoId: string; 
       <CardContent className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 font-semibold">
-            <Users className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+            <Users className="h-4 w-4 text-brand-800 dark:text-brand-400" />
             Lista de presença
             <span className="rounded-full bg-muted px-2 text-sm">{data?.length ?? 0}</span>
           </h3>
@@ -221,7 +221,7 @@ function ModalIdentificar({
                   className={cn(
                     'w-full rounded-lg border p-2.5 text-left transition',
                     escolhido === c.id
-                      ? 'border-senatepi-700 bg-senatepi-50/60 ring-1 ring-senatepi-700 dark:bg-senatepi-900/20'
+                      ? 'border-brand-700 bg-brand-50/60 ring-1 ring-brand-700 dark:bg-brand-900/20'
                       : 'hover:bg-muted/50',
                   )}
                 >

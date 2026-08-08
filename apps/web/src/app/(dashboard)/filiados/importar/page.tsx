@@ -134,11 +134,11 @@ export default function ImportarFiliadosPage() {
           const feito = etapa > n;
           return (
             <div key={p} className="flex flex-1 items-center gap-2">
-              <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${feito ? 'bg-senatepi-600 text-white' : ativo ? 'bg-senatepi-800 text-white' : 'bg-muted text-muted-foreground'}`}>
+              <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${feito ? 'bg-brand-600 text-white' : ativo ? 'bg-brand-800 text-white' : 'bg-muted text-muted-foreground'}`}>
                 {feito ? <CheckCircle2 className="h-5 w-5" /> : n}
               </div>
               <span className={`text-sm ${ativo ? 'font-semibold' : 'text-muted-foreground'}`}>{p}</span>
-              {n < PASSOS.length && <div className={`h-0.5 flex-1 ${feito ? 'bg-senatepi-600' : 'bg-muted'}`} />}
+              {n < PASSOS.length && <div className={`h-0.5 flex-1 ${feito ? 'bg-brand-600' : 'bg-muted'}`} />}
             </div>
           );
         })}
@@ -150,10 +150,10 @@ export default function ImportarFiliadosPage() {
           <CardHeader><CardTitle>Selecione o arquivo CSV</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div
-              className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border py-14 transition-colors hover:border-senatepi-600 hover:bg-senatepi-50/40"
+              className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border py-14 transition-colors hover:border-brand-600 hover:bg-brand-50/40"
               onClick={() => fileRef.current?.click()}
             >
-              <UploadCloud className="h-10 w-10 text-senatepi-800" />
+              <UploadCloud className="h-10 w-10 text-brand-800" />
               <p className="text-sm font-medium">Clique para escolher o arquivo .csv</p>
               <p className="text-xs text-muted-foreground">Suporta arquivos com mais de 10.000 registros</p>
               <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
@@ -163,7 +163,7 @@ export default function ImportarFiliadosPage() {
             {file && (
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div className="flex items-center gap-3">
-                  <FileSpreadsheet className="h-8 w-8 text-senatepi-800" />
+                  <FileSpreadsheet className="h-8 w-8 text-brand-800" />
                   <div>
                     <p className="text-sm font-medium">{file.name}</p>
                     <p className="text-xs text-muted-foreground">{formatarTamanho(file.size)}</p>
@@ -184,8 +184,8 @@ export default function ImportarFiliadosPage() {
         <div className="space-y-6">
           {/* Indicadores */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Indicador titulo="Total" valor={imp.total} icon={Users} cor="text-senatepi-800" />
-            <Indicador titulo="Válidos" valor={imp.validos} icon={CheckCircle2} cor="text-senatepi-600" />
+            <Indicador titulo="Total" valor={imp.total} icon={Users} cor="text-brand-800" />
+            <Indicador titulo="Válidos" valor={imp.validos} icon={CheckCircle2} cor="text-brand-600" />
             <Indicador titulo="Com erro" valor={imp.comErro} icon={XCircle} cor="text-red-600" />
             <Indicador titulo="Duplicados (já no sistema)" valor={imp.duplicados} icon={AlertTriangle} cor="text-amber-600" />
           </div>
@@ -237,7 +237,7 @@ export default function ImportarFiliadosPage() {
                 <div key={m.coluna} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                   <span className="font-mono text-xs text-muted-foreground">{m.coluna}</span>
                   {m.campo ? (
-                    <span className="font-medium text-senatepi-800">→ {m.rotulo}</span>
+                    <span className="font-medium text-brand-800">→ {m.rotulo}</span>
                   ) : (
                     <span className="text-xs text-muted-foreground">ignorada</span>
                   )}
@@ -290,7 +290,7 @@ export default function ImportarFiliadosPage() {
                             l.duplicadoNoSistema ? (
                               <Badge className="bg-amber-100 text-amber-700">Duplicado</Badge>
                             ) : (
-                              <Badge className="bg-senatepi-50 text-senatepi-800">OK</Badge>
+                              <Badge className="bg-brand-50 text-brand-800">OK</Badge>
                             )
                           ) : seraImportada(l) ? (
                             <Badge className="bg-orange-100 text-orange-700">Importará c/ ressalva</Badge>
@@ -337,12 +337,12 @@ export default function ImportarFiliadosPage() {
               <div>
                 <p className="mb-2 text-sm font-medium">Quando o CPF já existir no sistema ({imp.duplicados}):</p>
                 <div className="flex gap-3">
-                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategia === 'IGNORAR' ? 'border-senatepi-600 bg-senatepi-50/40' : ''}`}>
-                    <input type="radio" className="accent-senatepi-800" checked={estrategia === 'IGNORAR'} onChange={() => setEstrategia('IGNORAR')} />
+                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategia === 'IGNORAR' ? 'border-brand-600 bg-brand-50/40' : ''}`}>
+                    <input type="radio" className="accent-brand-800" checked={estrategia === 'IGNORAR'} onChange={() => setEstrategia('IGNORAR')} />
                     Ignorar (não altera o existente)
                   </label>
-                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategia === 'ATUALIZAR' ? 'border-senatepi-600 bg-senatepi-50/40' : ''}`}>
-                    <input type="radio" className="accent-senatepi-800" checked={estrategia === 'ATUALIZAR'} onChange={() => setEstrategia('ATUALIZAR')} />
+                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategia === 'ATUALIZAR' ? 'border-brand-600 bg-brand-50/40' : ''}`}>
+                    <input type="radio" className="accent-brand-800" checked={estrategia === 'ATUALIZAR'} onChange={() => setEstrategia('ATUALIZAR')} />
                     Atualizar cadastro existente
                   </label>
                 </div>
@@ -351,12 +351,12 @@ export default function ImportarFiliadosPage() {
               <div>
                 <p className="mb-2 text-sm font-medium">Quando a matrícula colidir (já usada por outra pessoa):</p>
                 <div className="flex gap-3">
-                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategiaMatricula === 'REGENERAR' ? 'border-senatepi-600 bg-senatepi-50/40' : ''}`}>
-                    <input type="radio" className="accent-senatepi-800" checked={estrategiaMatricula === 'REGENERAR'} onChange={() => setEstrategiaMatricula('REGENERAR')} />
+                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategiaMatricula === 'REGENERAR' ? 'border-brand-600 bg-brand-50/40' : ''}`}>
+                    <input type="radio" className="accent-brand-800" checked={estrategiaMatricula === 'REGENERAR'} onChange={() => setEstrategiaMatricula('REGENERAR')} />
                     Gerar uma nova matrícula
                   </label>
-                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategiaMatricula === 'DISPENSAR' ? 'border-senatepi-600 bg-senatepi-50/40' : ''}`}>
-                    <input type="radio" className="accent-senatepi-800" checked={estrategiaMatricula === 'DISPENSAR'} onChange={() => setEstrategiaMatricula('DISPENSAR')} />
+                  <label className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${estrategiaMatricula === 'DISPENSAR' ? 'border-brand-600 bg-brand-50/40' : ''}`}>
+                    <input type="radio" className="accent-brand-800" checked={estrategiaMatricula === 'DISPENSAR'} onChange={() => setEstrategiaMatricula('DISPENSAR')} />
                     Dispensar a pessoa (não importar)
                   </label>
                 </div>
@@ -391,11 +391,11 @@ export default function ImportarFiliadosPage() {
       {etapa === 3 && imp && (
         <Card>
           <CardContent className="flex flex-col items-center gap-5 py-16">
-            <Loader2 className="h-10 w-10 animate-spin text-senatepi-800" />
+            <Loader2 className="h-10 w-10 animate-spin text-brand-800" />
             <p className="text-lg font-semibold">Importando filiados...</p>
             <div className="w-full max-w-md">
               <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-senatepi-600 transition-all" style={{ width: `${pct}%` }} />
+                <div className="h-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
               </div>
               <p className="mt-2 text-center text-sm text-muted-foreground">
                 {imp.processados} de {imp.total} ({pct}%)
@@ -413,17 +413,17 @@ export default function ImportarFiliadosPage() {
       {/* ETAPA 4 — RESUMO */}
       {etapa === 4 && imp && (
         <div className="space-y-6">
-          <Card className="border-senatepi-600">
+          <Card className="border-brand-600">
             <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
-              <CheckCircle2 className="h-12 w-12 text-senatepi-700" />
+              <CheckCircle2 className="h-12 w-12 text-brand-700" />
               <p className="text-xl font-bold">Importação concluída!</p>
               <p className="text-sm text-muted-foreground">Tempo de execução: {formatarDuracao(imp.duracaoMs)}</p>
             </CardContent>
           </Card>
 
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <Indicador titulo="Importados" valor={imp.importados} icon={Users} cor="text-senatepi-800" />
-            <Indicador titulo="Atualizados" valor={imp.atualizados} icon={RefreshCw} cor="text-senatepi-600" />
+            <Indicador titulo="Importados" valor={imp.importados} icon={Users} cor="text-brand-800" />
+            <Indicador titulo="Atualizados" valor={imp.atualizados} icon={RefreshCw} cor="text-brand-600" />
             <Indicador titulo="Ignorados" valor={imp.ignorados} icon={AlertTriangle} cor="text-amber-600" />
             <Indicador titulo="Dispensados" valor={imp.dispensados} icon={Ban} cor="text-orange-600" />
             <Indicador titulo="Com erro" valor={imp.comErro} icon={XCircle} cor="text-red-600" />

@@ -42,7 +42,7 @@ type FormData = z.infer<typeof schema>;
 
 const CABECALHO: Record<TipoCheckout, { titulo: string; icon: any; cor: string }> = {
   AR: { titulo: 'Reserva — Quarto com Ar-Condicionado', icon: Snowflake, cor: 'text-sky-600 dark:text-sky-400' },
-  VENTILADOR: { titulo: 'Reserva — Quarto com Ventilador', icon: Fan, cor: 'text-senatepi-600 dark:text-senatepi-400' },
+  VENTILADOR: { titulo: 'Reserva — Quarto com Ventilador', icon: Fan, cor: 'text-brand-600 dark:text-brand-400' },
   SORTEIO: { titulo: 'Inscrição no Sorteio — Quarto com Ventilador', icon: Ticket, cor: 'text-amber-600 dark:text-amber-400' },
 };
 
@@ -177,8 +177,8 @@ export function CheckoutModal({
               {/* Resumo do lote/quarto + estrutura (visível em todos os quartos) */}
               <div className="rounded-lg border bg-muted/40 p-3 text-sm">
                 <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                  <span className="flex items-center gap-1.5"><CalendarCheck2 className="h-4 w-4 text-senatepi-600 dark:text-senatepi-400" /> {formatarDataHoraLote(lote.dataInicio)}</span>
-                  <span className="flex items-center gap-1.5"><CalendarX2 className="h-4 w-4 text-senatepi-600 dark:text-senatepi-400" /> {formatarDataHoraLote(lote.dataFim)}</span>
+                  <span className="flex items-center gap-1.5"><CalendarCheck2 className="h-4 w-4 text-brand-600 dark:text-brand-400" /> {formatarDataHoraLote(lote.dataInicio)}</span>
+                  <span className="flex items-center gap-1.5"><CalendarX2 className="h-4 w-4 text-brand-600 dark:text-brand-400" /> {formatarDataHoraLote(lote.dataFim)}</span>
                 </div>
                 <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
                   <BedDouble className="mt-0.5 h-4 w-4 shrink-0" /> {ESTRUTURA_QUARTO}
@@ -289,7 +289,7 @@ function SucessoView({
   return (
     <div className="flex flex-col overflow-hidden">
       {/* Faixa de sucesso */}
-      <div className="flex items-center justify-between border-b bg-senatepi-800 p-5 text-white">
+      <div className="flex items-center justify-between border-b bg-brand-800 p-5 text-white">
         <div className="flex items-center gap-3">
           <CheckCircle2 className="h-7 w-7" />
           <div>
@@ -329,7 +329,7 @@ function SucessoView({
         </div>
 
         {/* Destaque: baixe e apresente na chegada */}
-        <div className="flex items-start gap-2 rounded-lg border border-senatepi-600/50 bg-senatepi-50 p-3 text-xs font-medium text-senatepi-900 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+        <div className="flex items-start gap-2 rounded-lg border border-brand-600/50 bg-brand-50 p-3 text-xs font-medium text-brand-900 dark:bg-brand-900/20 dark:text-brand-300">
           <FileDown className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{AVISO_APRESENTAR}</span>
         </div>

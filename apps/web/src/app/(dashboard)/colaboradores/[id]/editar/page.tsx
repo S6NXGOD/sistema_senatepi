@@ -18,7 +18,7 @@ export default function EditarColaboradorPage() {
         <h2 className="text-2xl font-bold">Editar colaborador</h2>
       </div>
       {isLoading || !data ? (
-        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : (
         <ColaboradorForm inicial={data} />
       )}

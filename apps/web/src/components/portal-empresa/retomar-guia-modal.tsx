@@ -98,7 +98,7 @@ export function RetomarGuiaModal({
 
         {concluido ? (
           <div className="flex flex-col items-center gap-3 p-8 text-center">
-            <CheckCircle2 className="h-12 w-12 text-senatepi-600" />
+            <CheckCircle2 className="h-12 w-12 text-brand-600" />
             <h4 className="text-lg font-bold">Documentos enviados!</h4>
             <p className="max-w-xs text-sm text-muted-foreground">
               A declaração está <strong>em análise</strong> pelo SENATEPI.

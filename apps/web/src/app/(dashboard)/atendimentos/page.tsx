@@ -34,7 +34,7 @@ export default function AtendimentosPage() {
     <Suspense
       fallback={
         <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       }
     >
@@ -118,8 +118,8 @@ function ListaAtendimentos() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <Headset className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <Headset className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Triagem / Atendimento</h2>
@@ -162,7 +162,7 @@ function ListaAtendimentos() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : itens.length === 0 ? (
         <Card><CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground"><Inbox className="h-8 w-8 opacity-40" /> Nenhum atendimento encontrado com esses filtros.</CardContent></Card>
       ) : (
@@ -239,7 +239,7 @@ function ListaAtendimentos() {
           <div className="fixed z-50 w-52 overflow-hidden rounded-lg border bg-card py-1 shadow-xl" style={{ top: menu.top, left: menu.left }}>
             <button type="button" onClick={() => { setDetalheId(menu.a.id); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Eye className="h-4 w-4 text-muted-foreground" /> Ver detalhes</button>
             {!menu.a.desfecho && (
-              <button type="button" onClick={() => abrirDesfecho(menu.a)} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Gavel className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Registrar desfecho</button>
+              <button type="button" onClick={() => abrirDesfecho(menu.a)} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Gavel className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar desfecho</button>
             )}
             {menu.a.desfecho && menu.a.status === 'PENDENTE' && (
               <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CONCLUIDO' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Marcar como Concluído</button>
