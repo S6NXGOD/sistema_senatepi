@@ -1,3 +1,4 @@
+import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
 import {
   BadRequestException,
   ConflictException,
@@ -30,7 +31,7 @@ import {
 import { atoCritico } from './utils/tpu.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { NpuUtils } from './utils/npu.util';
-import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
+
 import { tenant } from '../../tenant/tenant.config';
 
 interface Ctx {

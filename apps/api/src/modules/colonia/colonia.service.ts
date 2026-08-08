@@ -1,3 +1,4 @@
+import { dataCalendarioOuNulo, mascararCpf } from '@core/infra';
 import {
   BadRequestException,
   ConflictException,
@@ -21,14 +22,13 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { mascararCpf } from '../../common/utils/matricula.util';
+
 import {
   AlocacaoManualDto,
   CheckoutDto,
   CreateReservaDiretaDto,
   EntrarSorteioDto,
 } from './dto/colonia.dto';
-import { dataCalendarioOuNulo } from '../../common/utils/datas.util';
 
 type Tx = Prisma.TransactionClient;
 

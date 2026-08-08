@@ -1,3 +1,4 @@
+import { ImageService, QrCodeService, StorageService, dataCalendario } from '@core/infra';
 import {
   BadRequestException,
   Body,
@@ -23,10 +24,7 @@ import {
 import { IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
 import { TipoDependente, TipoHistoricoFiliado, TipoPessoa } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
-import { ImageService } from '../../common/storage/image.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { dataCalendario } from '../../common/utils/datas.util';
+
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 // ---- Regra de negócio compartilhável ----

@@ -1,3 +1,4 @@
+import { apenasDigitosCnpj, cnpjValido, formatarCnpj } from '@core/infra';
 import {
   BadRequestException, Injectable, Logger, UnauthorizedException,
 } from '@nestjs/common';
@@ -7,7 +8,7 @@ import { AcaoAuditoria } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { apenasDigitosCnpj, cnpjValido, formatarCnpj } from '../../common/utils/cnpj.util';
+
 import { EmpresaAutenticada, LoginEmpresaDto, PrimeiroAcessoDto } from './dto/portal-empresa.dto';
 import { EmpresaJwtPayload } from './strategies/empresa-jwt.strategy';
 import { segredoEmpresa } from './portal-empresa.secret';

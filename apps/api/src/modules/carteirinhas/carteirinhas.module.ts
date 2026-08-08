@@ -1,3 +1,4 @@
+import { QrCodeService, StorageService, mascararCpf } from '@core/infra';
 import {
   BadRequestException,
   Controller,
@@ -21,9 +22,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { mascararCpf } from '../../common/utils/matricula.util';
+
 import { lerAsset } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { tenant } from '../../tenant/tenant.config';

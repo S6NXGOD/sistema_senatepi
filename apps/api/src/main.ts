@@ -1,10 +1,11 @@
+import { StorageService } from '@core/infra';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
-import { StorageService } from './common/storage/storage.service';
+
 import { validarAmbiente } from './common/config/validar-ambiente';
 import { tenant } from './tenant/tenant.config';
 

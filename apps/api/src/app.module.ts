@@ -1,9 +1,10 @@
+import { AvataresInterceptor, QrCodeModule, StorageModule } from '@core/infra';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { AvataresInterceptor } from './common/storage/avatares.interceptor';
+
 import { ModuloAtivoGuard } from './common/tenant/modulo-ativo.guard';
 
 import { PrismaModule } from './prisma/prisma.module';
@@ -32,8 +33,7 @@ import { CarteirinhasModule } from './modules/carteirinhas/carteirinhas.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
 import { HealthModule } from './modules/health/health.module';
-import { StorageModule } from './common/storage/storage.module';
-import { QrCodeModule } from './common/qrcode/qrcode.module';
+
 import { AuditModule } from './common/audit/audit.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';

@@ -1,7 +1,8 @@
+import { JOB_DJEN_SYNC, comTravaDeJob } from '@core/infra';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { comTravaDeJob, JOB_DJEN_SYNC } from '../../common/utils/trava-job.util';
+
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
 

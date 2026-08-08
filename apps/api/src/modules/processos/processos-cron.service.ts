@@ -1,7 +1,8 @@
+import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
+
 import { AudienciasService } from './audiencias.service';
 import { ProcessosService } from './processos.service';
 

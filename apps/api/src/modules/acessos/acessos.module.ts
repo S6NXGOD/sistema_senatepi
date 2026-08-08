@@ -1,3 +1,4 @@
+import { QrCodeService, QrPayload, StorageService } from '@core/infra';
 import {
   BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException,
   Post, Query, Req,
@@ -9,8 +10,7 @@ import {
   OrigemAcesso, SituacaoFiliado, StatusColaborador, TipoDependente, TipoPessoa, UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService, QrPayload } from '../../common/qrcode/qrcode.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { AuditService } from '../../common/audit/audit.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';

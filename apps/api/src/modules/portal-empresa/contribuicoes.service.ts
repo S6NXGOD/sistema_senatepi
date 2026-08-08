@@ -1,3 +1,4 @@
+import { StorageService, apenasDigitosCnpj, gerarPixCopiaECola } from '@core/infra';
 import {
   BadRequestException, ConflictException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
@@ -5,9 +6,7 @@ import { AcaoAuditoria, Prisma, StatusContribuicaoPatronal } from '@prisma/clien
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { gerarPixCopiaECola } from '../../common/utils/pix.util';
-import { apenasDigitosCnpj } from '../../common/utils/cnpj.util';
+
 import { GerarContribuicaoDto, ListarContribuicoesQueryDto } from './dto/contribuicao.dto';
 import { tenant } from '../../tenant/tenant.config';
 

@@ -1,3 +1,4 @@
+import { StorageService, dataCalendario, diasPossiveis } from '@core/infra';
 import {
   BadRequestException, ConflictException, ForbiddenException, GoneException,
   Injectable, Logger, NotFoundException,
@@ -9,10 +10,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AcaoAuditoria } from '@prisma/client';
 import { UpdateFiliadoDto } from '../filiados/dto/filiado.dto';
-import { dataCalendario, diasPossiveis } from '../../common/utils/datas.util';
+
 import { FiliadosService } from '../filiados/filiados.service';
 import { protegerImutaveis } from '../filiados/campos-imutaveis';
-import { StorageService } from '../../common/storage/storage.service';
+
 import {
   montarSincronizacaoDependentes, resumirDependentes,
 } from '../dependentes/dependentes.sync';

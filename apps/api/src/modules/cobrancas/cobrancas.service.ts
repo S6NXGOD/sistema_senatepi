@@ -1,3 +1,4 @@
+import { gerarPixCopiaECola } from '@core/infra';
 import {
   BadRequestException,
   Injectable,
@@ -7,7 +8,7 @@ import { AcaoAuditoria, Prisma, StatusParcela, TipoCobranca, TipoMovimentacao } 
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { gerarPixCopiaECola } from '../../common/utils/pix.util';
+
 import {
   BaixarParcelaDto,
   ConfiguracaoSindicatoDto,

@@ -1,9 +1,10 @@
+import { apenasDigitosCnpj, cnpjValido, formatarCnpj } from '@core/infra';
 import {
   BadRequestException, HttpException, Injectable, Logger, NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { apenasDigitosCnpj, cnpjValido, formatarCnpj } from '../../common/utils/cnpj.util';
+
 import { DadosCnpj } from './dto/empresa.dto';
 import { tenant } from '../../tenant/tenant.config';
 

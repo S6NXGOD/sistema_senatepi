@@ -1,3 +1,4 @@
+import { dataCalendario } from '@core/infra';
 import {
   Body,
   Controller,
@@ -25,7 +26,7 @@ import {
   LinkRecadastramentoRevogarController,
   RecadastroPublicoController,
 } from './link-recadastramento.controller';
-import { dataCalendario } from '../../common/utils/datas.util';
+
 import { protegerImutaveis } from '../filiados/campos-imutaveis';
 import {
   montarSincronizacaoDependentes, resumirDependentes,

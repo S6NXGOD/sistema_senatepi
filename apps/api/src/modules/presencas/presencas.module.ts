@@ -1,3 +1,4 @@
+import { QrCodeService, QrPayload, StorageService } from '@core/infra';
 import {
   BadRequestException,
   Body,
@@ -22,9 +23,9 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService, QrPayload } from '../../common/qrcode/qrcode.service';
+
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {

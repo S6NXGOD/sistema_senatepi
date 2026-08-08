@@ -1,3 +1,4 @@
+import { StorageService } from '@core/infra';
 import {
   Injectable,
   Logger,
@@ -10,7 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AcaoAuditoria } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { JwtPayload } from './strategies/jwt.strategy';
 import { LoginDto, ResetPasswordDto } from './dto/auth.dto';
 

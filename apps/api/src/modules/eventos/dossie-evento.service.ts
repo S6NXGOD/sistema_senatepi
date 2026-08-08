@@ -1,11 +1,12 @@
+import { StorageService, mascararCpf } from '@core/infra';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { ModoVotacao, StatusPauta } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { lerAsset } from '../../common/assets.util';
-import { mascararCpf } from '../../common/utils/matricula.util';
+
 import { VotacaoService } from './votacao.service';
 import { lerConfiguracoes } from './configuracoes-evento';
 import { tenant, enderecoEmLinha } from '../../tenant/tenant.config';

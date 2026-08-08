@@ -5,6 +5,7 @@
   "description": "API NestJS do SENATEPI",
   "main": "dist/src/main.js",
   "scripts": {
+    "prebuild": "npm run build -w @core/infra",
     "build": "nest build",
     "start": "prisma migrate deploy && node dist/src/main.js",
     "start:dev": "nest start --watch",
@@ -52,7 +53,8 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "@core/infra": "*"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.5",

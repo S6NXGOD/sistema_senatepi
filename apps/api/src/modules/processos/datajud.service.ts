@@ -1,3 +1,4 @@
+import { flagLigada } from '@core/infra';
 import {
   BadRequestException,
   HttpException,
@@ -6,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { flagLigada } from '../../common/utils/flag.util';
+
 import { NpuUtils } from './utils/npu.util';
 
 /**
