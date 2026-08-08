@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
+import { pularJobSemModulo } from '../../tenant/job-do-modulo';
 
 /**
  * Robô de publicações do DJEN.
@@ -46,6 +47,7 @@ export class DjenCronService {
 
   @Cron('0 5 * * *', { name: 'djen-sync', timeZone: 'America/Fortaleza' })
   async sincronizarPublicacoes() {
+    if (pularJobSemModulo('processos', this.logger, 'DJEN-SYNC')) return;
     if (!this.djen.integracaoAtiva) return;
 
     await comTravaDeJob(

@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 import { AudienciasService } from './audiencias.service';
 import { ProcessosService } from './processos.service';
+import { pularJobSemModulo } from '../../tenant/job-do-modulo';
 
 /**
  * Robô de sincronização do DATAJUD.
@@ -40,6 +41,8 @@ export class ProcessosCronService {
 
   @Cron('0 2 * * *', { name: 'datajud-sync', timeZone: 'America/Fortaleza' })
   async sincronizarAtivos() {
+    if (pularJobSemModulo('processos', this.logger, 'DATAJUD-SYNC')) return;
+
     // Trava no banco, e não em memória: com duas réplicas da API, dois
     // booleanos de instância valeriam `false` ao mesmo tempo e as duas varreriam
     // o acervo em paralelo — o dobro de chamadas ao CNJ.
