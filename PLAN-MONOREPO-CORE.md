@@ -1003,3 +1003,72 @@ que é registro histórico e não tela.
 Verificado executando com os dois tenants: menu, matriz de permissões, rótulo de
 cancelamento e providência do DJEN saem «Filiado…» no SENATEPI e «Servidor…» no
 SINDSERM.
+
+---
+
+## 16. O SINDSERM já roda — como testar hoje, sem Railway
+
+Não é projeção: o segundo cliente foi levantado localmente e verificado.
+
+### O que foi feito, e o resultado
+
+```bash
+# 1. banco novo, vazio, separado
+CREATE DATABASE sindserm_dev;
+
+# 2. o histórico INTEIRO de migrations roda do zero
+DATABASE_URL=".../sindserm_dev" npx prisma migrate deploy
+#   → All migrations have been successfully applied.
+
+# 3. a API sobe como SINDSERM contra o banco dele
+TENANT=sindserm DATABASE_URL=".../sindserm_dev" \
+  SEED_ADMIN_EMAIL="admin@sindserm.org.br" node dist/src/main.js
+```
+
+| Verificação | Resultado |
+|---|---|
+| Migrations do zero em banco novo | ✅ todas aplicadas |
+| API sobe como SINDSERM | ✅ |
+| Admin criado com o e-mail do cliente certo | ✅ `admin@sindserm.org.br` |
+| Avisa que a senha padrão é insegura | ✅ (e em produção **recusa** criar sem `SEED_ADMIN_PASSWORD`) |
+| Seed da colônia **não** roda | ✅ nenhuma linha no log |
+| Portaria (`acessos`) montada | ✅ rotas mapeadas |
+| `GET /api/colonia/disponibilidade` (módulo desligado) | ✅ **HTTP 404** |
+| `GET /api/health` | ✅ HTTP 200 |
+| `POST /api/acessos/validar` | ✅ HTTP 401 (existe, pede autenticação) |
+
+O 404 da colônia é a prova que importa: não é menu escondido, é rota que **não
+existe** naquela instalação.
+
+### Para você repetir e navegar pela tela
+
+```bash
+# API do SINDSERM (banco próprio)
+cd apps/api
+TENANT=sindserm DATABASE_URL="postgresql://.../sindserm_dev" npm run start:dev
+
+# Front do SINDSERM — em OUTRO terminal.
+# O `rm -rf .next` NÃO é zelo: o Tailwind compila a paleta dentro do CSS e o
+# cache devolve a marca do build anterior. Sem isso o SINDSERM abre verde.
+cd apps/web
+rm -rf .next
+NEXT_PUBLIC_TENANT=sindserm npm run dev
+```
+
+Entre com `admin@sindserm.org.br` / a senha padrão de dev. O que você deve ver:
+**azul** em vez de verde, «Servidores» no menu, sem Colônia, sem Cobranças, sem
+Empresas, **com Portaria**, e o cadastro **sem** Formação e sem COREN.
+
+### O que ainda falta para o SINDSERM em PRODUÇÃO
+
+Nada de código. O que falta é do sindicato e da infraestrutura:
+
+1. Os campos «confirmar» de `tenant/tenants/sindserm.ts`: CNPJ, endereço,
+   registro sindical, percentual da contribuição e as cores institucionais
+   reais (a paleta azul de hoje é provisória).
+2. Projeto no Railway: API + Web + Postgres, com `TENANT`,
+   `NEXT_PUBLIC_TENANT`, `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD`.
+3. Carga inicial da base de servidores (a importação por CSV já existe).
+4. **Se o jurídico deles for usar o DJEN**, o IP do deploy precisa ser aceito
+   pelo CNJ — é a mesma pendência do SENATEPI (§12.1), e é o único item que não
+   depende só de nós.
