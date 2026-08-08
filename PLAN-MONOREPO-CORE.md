@@ -792,3 +792,94 @@ no TRT22, e o core já atende os dois sem uma linha nova.
 outro cliente antes: as Fases 0 e 1 mudam o código que está em produção hoje. O
 que a branch garante é que nada chega lá antes de você mandar — e que o rollback
 é um `git revert`.
+
+---
+
+## 15. Fase 3b — a bifurcação, medida
+
+> Seção escrita **depois** da Fase 3a, com números colhidos no código e um teste
+> executado. Ela corrige o §3 e o §11 deste plano em um ponto que muda o desenho.
+
+### O que a Fase 3a provou
+
+`@core/infra` (storage, QR Code, utilitários) saiu da API e funciona: o
+TypeScript acha os tipos, o Node acha o código em produção e a injeção de
+dependência do Nest atravessa a fronteira do pacote — a API **compilada** sobe
+inteira. 221 testes preservados (199 na API + 22 no pacote).
+
+Essa era a pergunta da Fase 3a, e a resposta é sim.
+
+### O que a medição do jurídico mostrou
+
+O módulo `processos` (11.236 linhas) + `agenda` (2.012, que vem junto) importa
+de fora de si mesmo:
+
+| Dependência | Vezes | Natureza |
+|---|---|---|
+| `prisma/prisma.service` | 14 | **acesso a 14 models do banco** |
+| `common/audit/audit.service` | 5 | depende de Prisma |
+| `common/permissions/*` | 6 | é o RBAC — ou seja, `core-identidade` |
+| `common/decorators/*` | 6 | idem |
+| `tenant/tenant.config` | 1 | contrato do tenant |
+| `agenda/*` | 2 | outro core |
+
+**Correção ao §3:** os pacotes não são independentes. `core-juridico` **não pode
+vir antes** de `core-identidade` — o §14 recomendava exatamente o contrário
+("core-juridico antes"). A ordem real é imposta pelo grafo de dependências, não
+por valor comercial.
+
+### O teste que decide
+
+Se cada cliente é um app com o próprio schema (§11), os dois apps convivem no
+mesmo workspace. Testei se dois schemas podem coexistir:
+
+```bash
+# schema do "cliente 2", com um único model
+npx prisma generate --schema apps/api/prisma/_teste/cliente2.prisma
+```
+
+| | antes | depois |
+|---|---|---|
+| `export type Processo` no client gerado | 1 | **0** |
+| `export type ServidorMunicipal` | 0 | **1** |
+
+**O segundo `prisma generate` apaga o client do primeiro.** O client é gerado em
+`node_modules/.prisma/client`, que o npm workspaces **içou para a raiz** — é um
+lugar só, e o último a gerar vence.
+
+A saída seria dar a cada app um `output` próprio. Só que aí um pacote
+compartilhado deixa de poder fazer `import { Prisma } from '@prisma/client'` —
+e são **14 pontos** no jurídico que perderiam tipagem, ou exigiriam plumbing de
+genéricos em 13 mil linhas.
+
+### As duas saídas honestas
+
+**(A) Dois apps + pacotes compartilhados** — o plano como está escrito. Exige,
+nesta ordem: `output` de Prisma por app, `core-identidade`, `core-persistencia`,
+e só então `core-juridico`. É a arquitetura certa para 5+ clientes. Custo: uma a
+duas semanas, sem nada visível para o usuário no fim.
+
+**(B) Um app, cliente escolhido por `TENANT`** — o mesmo código para todos, e a
+instalação decide o que existe. Isto **já está construído**: as Fases 0/1/2
+entregaram `tenant.config.ts`, `@ModuloTenant`, `ModuloAtivoGuard` (404) e
+`camposOcultos`. Falta só o config deixar de ser um arquivo e virar uma escolha
+por variável de ambiente. Cada cliente continua com **banco próprio e serviço
+próprio no Railway** — a exigência do §1 é atendida igual.
+
+|  | (A) dois apps | (B) um app + `TENANT` |
+|---|---|---|
+| Bancos isolados | sim | sim |
+| Migrations | uma cópia por app, à mão (§11) | **uma história só** |
+| Prisma client | um `output` por app | **um só** |
+| Módulo desligado no cliente | não é compilado | 404 pelo guard + menu escondido |
+| Tabela de outro cliente no banco | não existe | existe, vazia |
+| Trabalho restante | 1–2 semanas | ~1 dia |
+
+**O preço real de (B)** é o único ponto em que (A) ganha: o banco do SINDSERM
+carregaria as tabelas da colônia do SENATEPI, vazias, e uma migration de um
+cliente roda no banco de todos. Com dois a quatro clientes isso é ruído. Com
+dez, é bagunça — e aí (A) deixa de ser prematura e passa a ser necessária.
+
+Vale lembrar a régua que este próprio plano fixou no §3: *extrair cedo demais
+custa duas refatorações*. Com um cliente em produção e um segundo por nascer,
+(B) é o que a régua manda.
