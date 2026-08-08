@@ -39,6 +39,24 @@ export function IdentidadeProvider({ children }: { children: React.ReactNode }) 
     retry: 1,
   });
 
+  /**
+   * O ÍCONE DA ABA, trocado em tempo de execução.
+   *
+   * O `<link rel="icon">` sai do `metadata` do layout, que é renderizado no
+   * servidor com o arquivo padrão da instalação. Enviar um ícone pela tela não
+   * teria efeito nenhum sem reescrever o link aqui — e "enviei e não mudou
+   * nada" é pior do que não ter o campo.
+   */
+  useEffect(() => {
+    const enviado = data?.logos?.icone;
+    if (!enviado) return;
+    for (const rel of ['icon', 'shortcut icon', 'apple-touch-icon']) {
+      document.head
+        .querySelectorAll<HTMLLinkElement>(`link[rel="${rel}"]`)
+        .forEach((link) => { link.href = enviado; });
+    }
+  }, [data]);
+
   useEffect(() => {
     if (!data) return;
 

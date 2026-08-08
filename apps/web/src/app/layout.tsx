@@ -14,10 +14,13 @@ export const metadata: Metadata = {
   description: `Sistema de gestão do ${tenant.descricao}`,
   // NB: o `manifest` (PWA) NÃO é global — é vinculado só nas rotas administrativas
   // (login + dashboard), mantendo o Portal do Filiado como web puro, sem instalação.
+  // Ícone da aba e do app instalado. Segue a convenção dos logos:
+  // `<id-do-cliente>-icone.png`. Estava cravado em `/LOGO_PWA.png`, que é o do
+  // SENATEPI — a aba do SINDSERM abria com a marca do outro sindicato.
   icons: {
-    icon: '/LOGO_PWA.png',
-    shortcut: '/LOGO_PWA.png',
-    apple: '/LOGO_PWA.png',
+    icon: `/${tenant.id}-icone.png`,
+    shortcut: `/${tenant.id}-icone.png`,
+    apple: `/${tenant.id}-icone.png`,
   },
 };
 

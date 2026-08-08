@@ -2554,6 +2554,8 @@ model IdentidadeVisual {
   logoHorizontalBrancoKey String? @map("logo_horizontal_branco_key")
   logoVerticalCorKey      String? @map("logo_vertical_cor_key")
   logoVerticalBrancoKey   String? @map("logo_vertical_branco_key")
+  /// Ícone da aba do navegador e do app instalado (PWA). Quadrado.
+  iconeKey                String? @map("icone_key")
 
   atualizadoEm  DateTime @updatedAt @map("atualizado_em")
   /// Snapshot do nome de quem mexeu; sobrevive à exclusão do usuário.

@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios';
+import { chaveLocal } from '@/lib/armazenamento';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
 
@@ -27,8 +28,22 @@ export const TIMEOUT_LONGO = 180_000;
 
 export const api = axios.create({ baseURL: API_URL, timeout: TIMEOUT_PADRAO_MS });
 
-const ACCESS_KEY = 'senatepi.accessToken';
-const REFRESH_KEY = 'senatepi.refreshToken';
+/**
+ * AS CHAVES DA SESSÃO LEVAM O SINDICATO.
+ *
+ * Eram `'senatepi.accessToken'` e `'senatepi.refreshToken'`, com o nome de um
+ * cliente escrito à mão. Isso não era só feio: **cookie não distingue porta**.
+ * `localhost:3000` e `localhost:3001` são a mesma origem para efeito de cookie,
+ * então a sessão do SENATEPI era enviada ao front do SINDSERM — e o sintoma foi
+ * um laço infinito entre `/dashboard` e `/login`, porque o middleware via o
+ * cookie e mandava para o painel, o painel recebia 401 e mandava de volta.
+ *
+ * Em produção os domínios diferem e isso não aconteceria. Mas a chave com o
+ * nome de um cliente dentro do código de todos é o mesmo defeito de sempre:
+ * recurso identificado por nome fixo é vazamento esperando acontecer.
+ */
+const ACCESS_KEY = chaveLocal('accessToken');
+const REFRESH_KEY = chaveLocal('refreshToken');
 
 // ---------------------------------------------------------------------------
 // Persistência resiliente: localStorage + cookie de longa duração (fallback).

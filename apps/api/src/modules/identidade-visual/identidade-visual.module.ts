@@ -31,6 +31,10 @@ const SLOTS = {
   'horizontal-branco': 'logoHorizontalBrancoKey',
   'vertical-cor': 'logoVerticalCorKey',
   'vertical-branco': 'logoVerticalBrancoKey',
+  // Não é um logo: é o quadrado da aba do navegador e do app instalado.
+  // Entra na mesma tabela porque é a mesma pergunta — "qual é a marca desta
+  // instalação?" — e separar em outro lugar só criaria uma segunda tela.
+  icone: 'iconeKey',
 } as const;
 
 type Slot = keyof typeof SLOTS;
@@ -82,6 +86,7 @@ export class IdentidadeVisualService {
       logos: {
         'horizontal-cor': null, 'horizontal-branco': null,
         'vertical-cor': null, 'vertical-branco': null,
+        icone: null,
       },
       atualizadoEm: null,
       atualizadoPor: null,

@@ -32,7 +32,9 @@ import {
  */
 
 const TONS = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900] as const;
-const SLOTS: SlotLogo[] = ['horizontal-cor', 'horizontal-branco', 'vertical-cor', 'vertical-branco'];
+const SLOTS: SlotLogo[] = [
+  'horizontal-cor', 'horizontal-branco', 'vertical-cor', 'vertical-branco', 'icone',
+];
 
 export function IdentidadeVisualTab() {
   const qc = useQueryClient();
@@ -261,6 +263,7 @@ function CampoLogo({
 }) {
   const entrada = useRef<HTMLInputElement>(null);
   const [ocupado, setOcupado] = useState(false);
+  // O ícone é quadrado e colorido: prévia em fundo claro, como a aba.
   const fundoEscuro = slot.endsWith('branco');
 
   async function enviar(arquivo: File) {

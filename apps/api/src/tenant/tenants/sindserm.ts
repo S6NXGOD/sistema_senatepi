@@ -15,24 +15,24 @@ import { TenantConfig } from '../tenant.types';
  *   auxiliar). Num sindicato de servidores o que vale é o cargo, que já é texto
  *   livre no vínculo profissional.
  *
- * ITENS MARCADOS COM «confirmar» estão preenchidos com a melhor leitura do que
- * foi dito até aqui, não com informação do próprio sindicato. Estão isolados
- * neste arquivo justamente para serem revistos numa passada só, antes do
- * primeiro deploy.
+ * DADOS INSTITUCIONAIS confirmados pelo sindicato em 08/08/2026. O que ainda
+ * não veio dele é a PALETA — a cor de hoje é provisória (ver o arquivo do web),
+ * e agora pode ser trocada pela própria tela, em Configurações → Identidade
+ * visual, sem passar por aqui.
  */
 export const sindserm: TenantConfig = {
   id: 'sindserm',
   sigla: 'SINDSERM',
   nome: 'SINDICATO DOS SERVIDORES PÚBLICOS MUNICIPAIS DE TERESINA',
   nomeCurto: 'Sindicato dos Servidores Municipais de Teresina',
-  cnpj: '', // confirmar
-  registroSindical: {}, // confirmar
+  cnpj: '23.649.007/0001-34',
+  registroSindical: { codigoEntidade: '000.000.000.26085-1' },
   endereco: {
-    logradouro: '', // confirmar
-    bairro: '',
+    logradouro: 'RUA QUINTINO BOCAIÚVA, Nº 446',
+    bairro: 'CENTRO (NORTE)',
     cidade: 'TERESINA',
     uf: 'PI',
-    cep: '',
+    cep: '64001-270',
   },
   contato: {},
   /**
@@ -49,7 +49,9 @@ export const sindserm: TenantConfig = {
     matricula: 'matrícula',
   },
   contribuicao: {
-    descricao: 'Desconto em folha de pagamento da Prefeitura Municipal de Teresina', // confirmar percentual
+    descricao:
+      '1% sobre o vencimento base, descontado em folha de pagamento da ' +
+      'Prefeitura Municipal de Teresina',
   },
   /**
    * `formacao` é a escala de enfermagem (enfermeiro, técnico, auxiliar) e

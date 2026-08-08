@@ -8,7 +8,11 @@ import { chaveLocal } from '@/lib/armazenamento';
  * sobreposição. Instalação que nunca mexeu devolve tudo nulo, e nada muda.
  */
 
-export type SlotLogo = 'horizontal-cor' | 'horizontal-branco' | 'vertical-cor' | 'vertical-branco';
+export type SlotLogo =
+  | 'horizontal-cor' | 'horizontal-branco'
+  | 'vertical-cor' | 'vertical-branco'
+  /** Quadrado da aba do navegador e do app instalado. */
+  | 'icone';
 
 export interface IdentidadeVisual {
   corPrimaria: string | null;
@@ -44,6 +48,7 @@ export const ROTULO_SLOT: Record<SlotLogo, string> = {
   'horizontal-branco': 'Horizontal · branco',
   'vertical-cor': 'Vertical · colorido',
   'vertical-branco': 'Vertical · branco',
+  icone: 'Ícone (aba e app)',
 };
 
 export const DICA_SLOT: Record<SlotLogo, string> = {
@@ -51,4 +56,5 @@ export const DICA_SLOT: Record<SlotLogo, string> = {
   'horizontal-branco': 'Topo do sistema no tema escuro e sobre fundos da cor da marca.',
   'vertical-cor': 'Documentos e telas estreitas.',
   'vertical-branco': 'Documentos com fundo escuro.',
+  icone: 'Quadrado, 512×512. Aba do navegador e ícone do app na tela inicial.',
 };
