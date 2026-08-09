@@ -106,6 +106,7 @@ export class DashboardService {
     const [
       // KPIs globais
       processosAtivos,
+      processosTotal,
       atendimentosPendentesCount,
       filiadosAtivos,
       filiadosTotal,
@@ -145,6 +146,19 @@ export class DashboardService {
       tempoMedioTriagem,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
+      /**
+       * TODOS os processos, em qualquer status.
+       *
+       * O cartão mostrava só os ATIVOS, e quem tinha 5 processos cadastrados
+       * lia "4" como "só existem 4" — o arquivado, o suspenso, o rascunho e o
+       * encerrado sumiam sem deixar rastro. O número grande continua sendo o
+       * que exige trabalho HOJE; o total entra no subtítulo para responder
+       * "cadê o resto?" sem precisar abrir a lista.
+       *
+       * Sem `where`: `ATIVO` é um dos OITO status, e os outros sete não são
+       * "não existe" — são outra fase da vida do processo.
+       */
+      this.prisma.processo.count(),
       this.prisma.atendimento.count({ where: { status: 'PENDENTE' } }),
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
       this.prisma.filiado.count(),
@@ -386,6 +400,7 @@ export class DashboardService {
       escopo: souAdvogado ? 'PESSOAL' : 'GLOBAL',
       kpis: {
         processosAtivos,
+        processosTotal,
         atendimentosPendentes: atendimentosPendentesCount,
         prazosSemana,
         filiadosAtivos,

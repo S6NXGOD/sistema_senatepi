@@ -216,7 +216,12 @@ function Conteudo({
   // KPIs globais, filtrados pelo que o perfil pode ver.
   const kpiCards = [
     pode.processos && {
-      label: 'Processos ativos', valor: kpis.processosAtivos, sub: 'em andamento',
+      label: 'Processos ativos', valor: kpis.processosAtivos,
+      // O total junto porque o número sozinho engana: quem tem 5 processos
+      // cadastrados e lê "4" conclui que sumiu um. Os outros sete status
+      // (arquivado, suspenso, rascunho, encerrado...) não são "não existe" —
+      // são outra fase, e some do painel quem não souber que ela existe.
+      sub: `em andamento · ${kpis.processosTotal} no total`,
       icon: Briefcase, cor: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
       href: '/processos',
     },

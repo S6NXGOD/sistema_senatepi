@@ -74,6 +74,8 @@ export interface ResumoDashboard {
   escopo: 'PESSOAL' | 'GLOBAL';
   kpis: {
     processosAtivos: number;
+    /** Todos os processos, em qualquer status — o contexto do número de ativos. */
+    processosTotal: number;
     atendimentosPendentes: number;
     prazosSemana: number;
     filiadosAtivos: number;
