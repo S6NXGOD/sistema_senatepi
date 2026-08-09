@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
-  Building2, type LucideIcon,
+  Building2, Landmark, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
@@ -43,18 +43,21 @@ export const NAV_SECOES: NavSecao[] = [
       // Fica no Jurídico porque serve aos dois papéis: o órgão que emprega o
       // filiado é o mesmo que figura como réu na ação dele.
       //
-      // MÓDULO PRÓPRIO, e não `processos`, por causa de uma COLISÃO: em quem
-      // tem o módulo patronal — o SENATEPI tem — esta tela apareceria ao lado
-      // de "Empresas", com o mesmo ícone e um nome sinônimo, sobre tabelas
-      // DIFERENTES (`partes_externas` × `empresas`). O hospital que emprega,
-      // é réu e faz repasse teria de ser cadastrado nas duas, sem ligação
-      // nenhuma entre elas. Enquanto os dois cadastros não forem unificados,
-      // a tela fica só onde não há ambiguidade.
+      // ESTE É **O** CADASTRO DE ORGANIZAÇÃO — órgão público, empresa e pessoa
+      // física. "Empresas", no menu Patronal, NÃO é um segundo cadastro: é o
+      // trabalho patronal (portal e contribuições) sobre as organizações que
+      // contribuem, penduradas nestas por `empresas.parte_externa_id`.
       //
-      // Isto gateia a TELA, não o dado: `/partes-externas` continua em
+      // ÍCONE DIFERENTE de propósito. Os dois itens usavam `Building2`, e ícone
+      // igual com nome sinônimo foi metade do motivo pelo qual as telas eram
+      // lidas como a mesma coisa. `Landmark` (instituição) para o cadastro,
+      // `Building2` (prédio) para o patronal.
+      //
+      // MÓDULO PRÓPRIO, e não `processos`, porque um cliente pode não ter esta
+      // tela. Isto gateia a TELA, não o dado: `/partes-externas` continua em
       // `@Modulo('processos')` na API, porque é ele que alimenta o seletor de
       // partes e o combobox de empregador em TODO cliente.
-      { href: '/organizacoes', label: 'Organizações', icon: Building2, modulo: 'organizacoes' },
+      { href: '/organizacoes', label: 'Organizações', icon: Landmark, modulo: 'organizacoes' },
     ],
   },
   {
@@ -69,7 +72,11 @@ export const NAV_SECOES: NavSecao[] = [
   {
     titulo: 'Patronal',
     itens: [
-      { href: '/empresas', label: 'Empresas', icon: Building2, modulo: 'empresas' },
+      // NÃO é um segundo cadastro de organização — é o trabalho PATRONAL
+      // (acesso ao portal e contribuições) sobre as que contribuem. A
+      // identidade delas (razão social, CNPJ) mora em Organizações e é lá que
+      // se corrige; aqui ela só é EXIBIDA, lida de lá.
+      { href: '/empresas', label: 'Empresas contribuintes', icon: Building2, modulo: 'empresas' },
     ],
   },
   {

@@ -32,19 +32,47 @@ const CAMPOS = {
   primeiroAcesso: true,
   createdAt: true,
   updatedAt: true,
+  /**
+   * A ORGANIZAÇÃO é a fonte da verdade da IDENTIDADE.
+   *
+   * As colunas de identidade desta tabela (`razaoSocial`, `nomeFantasia`,
+   * `cnpj`) viraram SNAPSHOT do momento do cadastro. Quem responde "quem é
+   * esta organização?" é `partes_externas`, que é onde a secretaria corrige
+   * razão social e documento — e é de lá que sai o nome em petição.
+   *
+   * Sem isto, a correção feita em Organizações não chegaria à tela Patronal e
+   * as duas telas voltariam a divergir, que é exatamente o defeito que a
+   * unificação foi feita para acabar. Note que `empresas` NÃO tem rota de
+   * edição: sem esta leitura, o snapshot ficaria errado para sempre.
+   */
+  parteExterna: { select: { id: true, nome: true, nomeFantasia: true, documento: true, ativo: true } },
 } satisfies Prisma.EmpresaSelect;
 
 type EmpresaBruta = Prisma.EmpresaGetPayload<{ select: typeof CAMPOS }>;
 
 /**
- * Troca o hash por um indicador de estado.
+ * Troca o hash por um indicador de estado e faz a identidade vir da organização.
  *
  * A tabela `empresas` também guarda empregadoras de colaboradores PJ, que
  * existem sem credencial. `temAcessoPortal` distingue as duas situações sem
  * expor nada da senha.
+ *
+ * `parteExterna` pode ser nula em registro anterior à unificação que, por algum
+ * motivo, não tenha sido ligado pelo backfill. Nesse caso o snapshot da própria
+ * linha responde — melhor um nome desatualizado do que uma tela em branco.
  */
-function apresentar({ senhaHash, ...empresa }: EmpresaBruta) {
-  return { ...empresa, temAcessoPortal: !!senhaHash };
+function apresentar({ senhaHash, parteExterna, ...empresa }: EmpresaBruta) {
+  return {
+    ...empresa,
+    razaoSocial: parteExterna?.nome ?? empresa.razaoSocial,
+    nomeFantasia: parteExterna?.nomeFantasia ?? empresa.nomeFantasia,
+    cnpj: parteExterna?.documento ?? empresa.cnpj,
+    /** Para a tela poder levar de Patronal ao cadastro da organização. */
+    organizacaoId: parteExterna?.id ?? null,
+    /** Organização inativada não deve mais aparecer em autocomplete de parte. */
+    organizacaoAtiva: parteExterna?.ativo ?? true,
+    temAcessoPortal: !!senhaHash,
+  };
 }
 
 interface Ctx {

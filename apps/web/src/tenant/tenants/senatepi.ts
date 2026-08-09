@@ -33,15 +33,14 @@ export const senatepi: TenantConfigWeb = {
   // controle próprio, com regra de reserva e sorteio. A portaria nasceu para
   // o clube do SINDSERM e ligá-la aqui só somaria um menu sem uso.
   //
-  // `organizacoes` fica de fora porque COLIDE com `empresas`, que o SENATEPI
-  // tem: dois cadastros de organização, em tabelas diferentes, com nomes
-  // sinônimos e o mesmo ícone no menu. Nada se perde — a tela nunca existiu
-  // aqui e `partes_externas` segue alimentada de dentro de processos e
-  // vínculos. Ver a nota completa no arquivo equivalente da API.
+  // `organizacoes` esteve de fora enquanto colidia com `empresas`. Depois da
+  // unificação (uma organização, com o dossiê patronal pendurado nela) os dois
+  // itens deixaram de ser redundantes: um é o CADASTRO, o outro é o TRABALHO
+  // patronal sobre quem contribui. Ver a nota completa no arquivo da API.
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
-    'empresas', 'auditoria', 'usuarios',
+    'empresas', 'organizacoes', 'auditoria', 'usuarios',
   ],
   // O SENATEPI usa todos os campos do cadastro.
   camposOcultos: [],

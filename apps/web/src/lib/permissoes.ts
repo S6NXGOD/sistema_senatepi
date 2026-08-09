@@ -41,7 +41,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
-  { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
+  { key: 'empresas', label: 'Empresas contribuintes (Patronal)', grupo: 'Operacional' },
   // A TELA de órgãos/organizações. O DADO é de `processos` — os mesmos
   // endpoints servem o seletor de partes e o combobox de empregador, e por
   // isso o controller da API continua em `@Modulo('processos')`. Ver a nota

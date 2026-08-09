@@ -71,25 +71,29 @@ describe('a API e a tela precisam concordar', () => {
   });
 });
 
-describe('cadastros que nao podem conviver', () => {
+describe('o cadastro de organizacao e unico', () => {
   /**
-   * `empresas` e `organizacoes` SAO DOIS CADASTROS DE ORGANIZACAO, em tabelas
-   * diferentes: `empresas` e quem faz repasse patronal e tem login no portal;
-   * `partes_externas` e quem emprega o filiado e figura como parte no
-   * processo. Ligar os dois no mesmo cliente poe no menu dois itens com nomes
-   * sinonimos e o MESMO icone, e obriga a cadastrar duas vezes o hospital que
-   * e as duas coisas — sem nenhuma ligacao entre os registros.
+   * AQUI MORAVA O TESTE OPOSTO — o que PROIBIA um cliente de ligar `empresas`
+   * e `organizacoes` juntos. Ele existiu porque os dois eram cadastros de
+   * organizacao que nao se conheciam, e conviver significava cadastrar o mesmo
+   * hospital duas vezes.
    *
-   * Este teste existe porque a decisao e facil de desfazer sem querer: basta
-   * alguem "completar" a lista de modulos de um cliente achando que faltava
-   * uma linha. Quando os dois cadastros forem UNIFICADOS — uma organizacao,
-   * com o dossie patronal pendurado nela —, e este teste que deve ser
-   * apagado, junto com a unificacao, e nao antes dela.
+   * A unificacao acabou com o motivo: `partes_externas` virou O cadastro e
+   * `empresas` virou o DOSSIE PATRONAL pendurado nele, via
+   * `empresas.parte_externa_id`. Os dois itens de menu deixaram de ser
+   * redundantes — um e o CADASTRO de qualquer organizacao, o outro e o
+   * TRABALHO patronal sobre as que contribuem.
+   *
+   * O teste foi trocado, e nao apenas removido: o que precisa continuar
+   * garantido e que quem tem o modulo patronal tenha TAMBEM o cadastro de
+   * organizacao. Ligar `empresas` sem `organizacoes` devolveria o cliente ao
+   * estado em que a identidade da empresa so pode ser corrigida por dentro de
+   * outra tela — que foi de onde a divergencia nasceu.
    */
-  it.each(ids)('%s: nao liga "empresas" e "organizacoes" ao mesmo tempo', (id) => {
+  it.each(ids)('%s: quem tem "empresas" tem "organizacoes"', (id) => {
     const modulos = TENANTS[id].modulos;
-    const ambos = modulos.includes('empresas') && modulos.includes('organizacoes');
-    expect(ambos).toBe(false);
+    if (!modulos.includes('empresas')) return; // cliente sem patronal: nada a exigir
+    expect(modulos).toContain('organizacoes');
   });
 });
 

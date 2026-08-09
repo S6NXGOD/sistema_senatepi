@@ -56,7 +56,7 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
-  { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
+  { key: 'empresas', label: 'Empresas contribuintes (Patronal)', grupo: 'Operacional' },
   /**
    * A TELA de cadastro de órgãos/organizações (`partes_externas`).
    *
