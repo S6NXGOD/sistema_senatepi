@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FiliadoCobrancasCard } from '@/components/cobrancas/filiado-cobrancas-card';
 import { listarPorFiliado, getDashboard, formatBRL } from '@/lib/cobrancas';
+import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
 
@@ -53,7 +54,7 @@ export function FiliadosCobrancasTab() {
       {/* Mini-dashboard de inadimplência (mês corrente) */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <DashCard Icon={TrendingUp} rotulo="Receita prevista (mês)" valor={formatBRL(dash?.receitaPrevista ?? 0)} sub="Parcelas a vencer no mês" cor="text-amber-600 dark:text-amber-400" bg="bg-amber-100 dark:bg-amber-900/30" />
-        <DashCard Icon={TrendingDown} rotulo="Receita realizada (mês)" valor={formatBRL(dash?.receitaRealizada ?? 0)} sub="Parcelas pagas no mês" cor="text-senatepi-700 dark:text-senatepi-400" bg="bg-senatepi-50 dark:bg-senatepi-900/30" />
+        <DashCard Icon={TrendingDown} rotulo="Receita realizada (mês)" valor={formatBRL(dash?.receitaRealizada ?? 0)} sub="Parcelas pagas no mês" cor="text-brand-700 dark:text-brand-400" bg="bg-brand-50 dark:bg-brand-900/30" />
         <DashCard Icon={AlertTriangle} rotulo="Inadimplência (mês)" valor={`${(dash?.taxaInadimplencia ?? 0).toLocaleString('pt-BR')}%`} sub={`${dash?.qtdVencido ?? 0} vencida(s) · ${formatBRL(dash?.totalVencido ?? 0)}`} cor="text-red-600 dark:text-red-400" bg="bg-red-100 dark:bg-red-900/30" />
       </div>
 
@@ -61,18 +62,18 @@ export function FiliadosCobrancasTab() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar filiado (nome, matrícula, CPF)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Input className="pl-9" placeholder={`Buscar ${V.filiado} (nome, ${V.matricula}, CPF)…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
           {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
         </div>
         <label className="flex cursor-pointer select-none items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm">
-          <input type="checkbox" checked={inadimplentes} onChange={(e) => setInadimplentes(e.target.checked)} className="h-4 w-4 accent-senatepi-700" />
+          <input type="checkbox" checked={inadimplentes} onChange={(e) => setInadimplentes(e.target.checked)} className="h-4 w-4 accent-brand-700" />
           Somente inadimplentes
         </label>
       </div>
 
       {/* Lista agrupada por filiado */}
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : itens.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">

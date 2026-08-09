@@ -74,7 +74,7 @@ export function PartesPanel({
       {/* Confronto em destaque — a resposta a "quem processou quem" */}
       <section className="rounded-xl border bg-card p-4">
         <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Swords className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" /> Confronto
+          <Swords className="h-4 w-4 text-brand-800 dark:text-brand-400" /> Confronto
         </h4>
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           <LadoConfronto
@@ -113,7 +113,7 @@ export function PartesPanel({
               key={polo}
               type="button"
               onClick={() => setAdicionandoEm('TERCEIRO')}
-              className="w-full rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground transition hover:border-senatepi-400 hover:text-foreground"
+              className="w-full rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground transition hover:border-brand-400 hover:text-foreground"
             >
               <Plus className="mr-1 inline h-3.5 w-3.5" /> Adicionar terceiro interessado
             </button>
@@ -176,7 +176,7 @@ export function PartesPanel({
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h4 className="flex items-center gap-2 text-sm font-semibold">
-            <Scale className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+            <Scale className="h-4 w-4 text-brand-800 dark:text-brand-400" />
             Advogados do sindicato
             <span className="text-xs font-normal text-muted-foreground">— quem atua no caso</span>
           </h4>
@@ -206,7 +206,7 @@ export function PartesPanel({
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={advogado.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
                 ) : (
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-sm font-bold text-senatepi-900">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-400 text-sm font-bold text-brand-900">
                     {(advogado.nomeExibicao || advogado.nome).charAt(0)}
                   </span>
                 )}
@@ -219,7 +219,7 @@ export function PartesPanel({
                   </p>
                 </div>
                 {principal && (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-senatepi-50 px-2 py-0.5 text-[10px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-400">
                     <Star className="h-3 w-3" /> Responsável
                   </span>
                 )}
@@ -254,7 +254,7 @@ export function PartesPanel({
 
 // ---------------------------------------------------------------------------
 
-/** Um lado do confronto ("SENATEPI" × "PRONTOCARE"). */
+/** Um lado do confronto (autor × réu). */
 function LadoConfronto({
   parte, outros, polo,
 }: {
@@ -311,7 +311,7 @@ function CardParte({
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="truncate text-sm font-medium">{parte.nome}</p>
             {parte.principal && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-senatepi-50 px-2 py-0.5 text-[10px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-400">
                 <Star className="h-3 w-3" /> Principal
               </span>
             )}
@@ -325,7 +325,7 @@ function CardParte({
           {parte.filiado ? (
             <Link
               href={`/filiados/${parte.filiado.id}`}
-              className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+              className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-800 hover:underline dark:text-brand-400"
             >
               <UserIcon className="h-3 w-3" /> Filiado · matrícula {parte.filiado.matricula}
               <ExternalLink className="h-3 w-3" />

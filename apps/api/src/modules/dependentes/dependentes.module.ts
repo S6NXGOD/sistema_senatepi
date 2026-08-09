@@ -1,3 +1,4 @@
+import { ImageService, QrCodeService, StorageService, dataCalendario } from '@core/infra';
 import {
   BadRequestException,
   Body,
@@ -23,10 +24,8 @@ import {
 import { IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
 import { TipoDependente, TipoHistoricoFiliado, TipoPessoa } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
-import { ImageService } from '../../common/storage/image.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { dataCalendario } from '../../common/utils/datas.util';
+
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 // ---- Regra de negócio compartilhável ----
 export function calcularIdade(dataNascimento: Date, referencia = new Date()): number {
@@ -36,12 +35,29 @@ export function calcularIdade(dataNascimento: Date, referencia = new Date()): nu
   return idade;
 }
 
-/** Filho só é válido para eventos com até 18 anos; cônjuge sempre válido. */
+/**
+ * Quem pode entrar acompanhando o filiado.
+ *
+ * O LIMITE DE IDADE VALE SÓ PARA FILHO, e é o motivo de a regra existir: filho
+ * deixa de ser dependente ao crescer. Cônjuge, pai e mãe não têm idade máxima —
+ * a condição deles não muda com o tempo.
+ *
+ * A regra era `se não é cônjuge, exige ≤ 18`. Com a entrada de PAI e MÃE isso
+ * passaria a barrar justamente quem sempre terá mais de 18 — por isso agora a
+ * lista de "sem limite de idade" é explícita, e um tipo novo entra nela de
+ * propósito, não por descuido.
+ */
+const SEM_LIMITE_DE_IDADE = new Set<TipoDependente>([
+  TipoDependente.CONJUGE,
+  TipoDependente.PAI,
+  TipoDependente.MAE,
+]);
+
 export function dependenteValidoParaEvento(
   tipo: TipoDependente,
   dataNascimento: Date,
 ): boolean {
-  if (tipo === TipoDependente.CONJUGE) return true;
+  if (SEM_LIMITE_DE_IDADE.has(tipo)) return true;
   return calcularIdade(dataNascimento) <= 18;
 }
 
@@ -151,6 +167,7 @@ export class DependentesService {
 // ---- Controller ----
 @ApiTags('dependentes')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller()
 class DependentesController {
   constructor(private readonly service: DependentesService) {}

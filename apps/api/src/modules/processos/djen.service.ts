@@ -1,3 +1,4 @@
+import { flagLigada } from '@core/infra';
 import {
   BadRequestException,
   HttpException,
@@ -6,8 +7,9 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { flagLigada } from '../../common/utils/flag.util';
+
 import { limparTextoPublicacao } from './utils/providencia.util';
+import { integracaoAtiva } from '../../tenant/tenant.config';
 
 /**
  * DjenService — cliente da API Comunica PJe (DJEN / CNJ).
@@ -216,7 +218,10 @@ export class DjenService {
     this.janelaDias = Number(this.config.get('DJEN_JANELA_DIAS')) || 3;
     this.limitePorMinuto =
       Number(this.config.get('DJEN_REQ_POR_MINUTO')) || LIMITE_PADRAO_POR_MINUTO;
-    this.ativa = flagLigada(this.config.get<string>('DJEN_INTEGRACAO'));
+    // A declaração do cliente é a fonte; `DJEN_INTEGRACAO` continua valendo
+    // como interruptor de emergência — o CNJ já bloqueou o IP deste servidor,
+    // e nessa hora desligar precisa ser variável e restart, não um deploy.
+    this.ativa = integracaoAtiva('djen', this.config.get<string>('DJEN_INTEGRACAO'));
   }
 
   /** A integração está ligada? (o Guard das rotas e o cron leem daqui) */

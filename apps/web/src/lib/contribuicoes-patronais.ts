@@ -112,7 +112,7 @@ export const STATUS_ADMIN: Record<StatusContribuicao, { label: string; classe: s
   },
   HOMOLOGADA: {
     label: 'Homologada',
-    classe: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300',
+    classe: 'bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-300',
   },
   REJEITADA: {
     label: 'Rejeitada',

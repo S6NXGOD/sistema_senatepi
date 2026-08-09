@@ -1,3 +1,4 @@
+import { gerarPixCopiaECola } from '@core/infra';
 import {
   BadRequestException,
   Injectable,
@@ -7,7 +8,7 @@ import { AcaoAuditoria, Prisma, StatusParcela, TipoCobranca, TipoMovimentacao } 
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { gerarPixCopiaECola } from '../../common/utils/pix.util';
+
 import {
   BaixarParcelaDto,
   ConfiguracaoSindicatoDto,
@@ -16,6 +17,7 @@ import {
   ListarPorFiliadoQueryDto,
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
+import { tenant } from '../../tenant/tenant.config';
 
 /** Contexto de request para auditoria (ip/user-agent/usuário logado). */
 interface Ctx {
@@ -661,10 +663,10 @@ export class CobrancasService {
     if (!cfg?.pixChave)
       throw new BadRequestException('Configure a chave PIX do sindicato antes de gerar o carnê.');
 
-    const identificador = `${parcela.cobranca.filiado.matricula ?? 'SENATEPI'}-${parcela.numero}`;
+    const identificador = `${parcela.cobranca.filiado.matricula ?? tenant.sigla}-${parcela.numero}`;
     const copiaECola = gerarPixCopiaECola({
       chave: cfg.pixChave,
-      nome: cfg.pixNomeRecebedor ?? 'SENATEPI',
+      nome: cfg.pixNomeRecebedor ?? tenant.sigla,
       cidade: cfg.pixCidade ?? 'TERESINA',
       valor: Number(parcela.valor),
       identificador,
@@ -703,7 +705,7 @@ export class CobrancasService {
       if (cfg?.pixChave) {
         copiaECola = gerarPixCopiaECola({
           chave: cfg.pixChave,
-          nome: cfg.pixNomeRecebedor ?? 'SENATEPI',
+          nome: cfg.pixNomeRecebedor ?? tenant.sigla,
           cidade: cfg.pixCidade ?? 'TERESINA',
           valor: Number(p.valor),
           identificador: `${cobranca.filiado.matricula ?? 'SEN'}-${p.numero}`,

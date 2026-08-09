@@ -12,6 +12,7 @@ import { criarAtendimento, CanalAtendimento, CANAIS, CANAL_LABEL } from '@/lib/a
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
+import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -74,7 +75,7 @@ export function NovoAtendimentoDrawer({
     if (!filiadoId) return;
     setCarregandoContato(true);
     try { setCadastral((await api.get(`/filiados/${filiadoId}`)).data); }
-    catch { toast.error('Não foi possível carregar os dados do filiado.'); }
+    catch { toast.error(`Não foi possível carregar os dados do ${V.filiado}.`); }
     finally { setCarregandoContato(false); }
   }
 
@@ -92,7 +93,7 @@ export function NovoAtendimentoDrawer({
   });
 
   function registrar() {
-    if (!filiadoId) return toast.error('Selecione o filiado.');
+    if (!filiadoId) return toast.error(`Selecione o ${V.filiado}.`);
     if (descricao.trim().length < 3) return toast.error('Descreva a demanda.');
     criar.mutate();
   }
@@ -124,7 +125,7 @@ export function NovoAtendimentoDrawer({
           <div className="flex items-center justify-between border-b p-5">
             <div>
               <h3 className="text-lg font-bold">Novo Atendimento</h3>
-              <p className="text-sm text-muted-foreground">Registre a demanda do filiado</p>
+              <p className="text-sm text-muted-foreground">Registre a demanda do {V.filiado}</p>
             </div>
             <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
           </div>
@@ -132,23 +133,23 @@ export function NovoAtendimentoDrawer({
           <div className="flex-1 space-y-4 overflow-y-auto p-5">
             {/* Filiado */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Filiado *</label>
+              <label className="text-sm font-medium">{V.Filiado} *</label>
               {filiadoId ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
                     <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                      <User className="h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+                      <User className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
                       <span className="truncate">{filiadoNome}</span>
                     </span>
                     {!filiadoPre && (
-                      <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="text-muted-foreground hover:text-foreground" aria-label="Trocar filiado"><X className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="text-muted-foreground hover:text-foreground" aria-label={`Trocar ${V.filiado}`}><X className="h-4 w-4" /></button>
                     )}
                   </div>
                   <Button variant="outline" size="sm" className="w-full" onClick={abrirCadastral} disabled={carregandoContato}>
                     {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
                   </Button>
                   {acervo.length > 0 && (
-                    <p className="flex items-start gap-1.5 rounded-lg bg-senatepi-50 px-3 py-2 text-xs text-senatepi-800 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+                    <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
                       <FolderInput className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       <span>
                         Este filiado já tem <strong>{acervo.length} documento(s)</strong> no sistema.
@@ -162,7 +163,7 @@ export function NovoAtendimentoDrawer({
                 <div className="relative">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input className="pl-9" placeholder="Selecionar filiado (nome ou CPF)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                    <Input className="pl-9" placeholder={`Selecionar ${V.filiado} (nome ou CPF)…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
                     {buscando && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
                   </div>
                   {resultados.length > 0 && (

@@ -239,7 +239,7 @@ export function ListasApoioModal({
               className={cn(
                 'flex items-center gap-1.5 rounded-t-lg border-b-2 px-3 py-2 text-sm transition',
                 aba === k
-                  ? 'border-senatepi-600 font-medium text-foreground'
+                  ? 'border-brand-600 font-medium text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >

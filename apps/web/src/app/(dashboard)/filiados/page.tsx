@@ -23,6 +23,8 @@ import {
   type OrdenacaoFiliado,
 } from '@/lib/filiados';
 import { FiliadoRowActions } from '@/components/filiados/filiado-row-actions';
+import { campoVisivel } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 const VAZIO = { busca: '', coren: '', cidade: '', situacao: '', dataInicio: '', dataFim: '' };
 type Filtros = typeof VAZIO;
@@ -97,7 +99,7 @@ export default function FiliadosPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">Filiados</h2>
+          <h2 className="text-2xl font-bold">{V.Filiados}</h2>
           <p className="text-sm text-muted-foreground">
             {temFiltro ? (
               <>
@@ -131,7 +133,7 @@ export default function FiliadosPage() {
               // exemplo é escrito de propósito sem acento e com sobrenome
               // solto: é o jeito que as pessoas realmente digitam, e mostrar
               // que funciona vale mais do que uma instrução.
-              placeholder="Buscar por nome, CPF, matrícula ou COREN — ex.: maria silva"
+              placeholder={`Buscar por nome, CPF, matrícula${campoVisivel('numeroCoren') ? ' ou COREN' : ''} — ex.: maria silva`}
               className="pl-10 pr-9"
               value={rascunho.busca}
               onChange={(e) => setR('busca', e.target.value)}
@@ -173,7 +175,7 @@ export default function FiliadosPage() {
           >
             <SlidersHorizontal className="h-4 w-4" /> Filtros
             {temFiltro && (
-              <span className="ml-1 rounded-full bg-senatepi-800 px-1.5 text-xs font-bold text-white dark:bg-senatepi-400 dark:text-senatepi-900">
+              <span className="ml-1 rounded-full bg-brand-800 px-1.5 text-xs font-bold text-white dark:bg-brand-400 dark:text-brand-900">
                 {ativos.length}
               </span>
             )}
@@ -187,7 +189,7 @@ export default function FiliadosPage() {
             {ativos.map((k) => (
               <span
                 key={k}
-                className="inline-flex items-center gap-1 rounded-full border border-senatepi-200 bg-senatepi-50 py-1 pl-2.5 pr-1 text-xs text-senatepi-900 dark:border-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-100"
+                className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1 text-xs text-brand-900 dark:border-brand-800 dark:bg-brand-900/30 dark:text-brand-100"
               >
                 <span className="opacity-70">{ROTULO[k]}:</span>
                 <strong>{valorLegivel(k, aplicado[k])}</strong>
@@ -195,7 +197,7 @@ export default function FiliadosPage() {
                   type="button"
                   aria-label={`Remover filtro ${ROTULO[k]}`}
                   onClick={() => removerFiltro(k)}
-                  className="rounded-full p-0.5 hover:bg-senatepi-200 dark:hover:bg-senatepi-800"
+                  className="rounded-full p-0.5 hover:bg-brand-200 dark:hover:bg-brand-800"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -215,9 +217,11 @@ export default function FiliadosPage() {
           <Card>
             <CardContent className="space-y-3 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Campo label="COREN">
-                  <Input placeholder="Ex.: 123456" value={rascunho.coren} onChange={(e) => setR('coren', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }} />
-                </Campo>
+                {campoVisivel('numeroCoren') && (
+                  <Campo label="COREN">
+                    <Input placeholder="Ex.: 123456" value={rascunho.coren} onChange={(e) => setR('coren', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }} />
+                  </Campo>
+                )}
                 <Campo label="Cidade">
                   <Input placeholder="Ex.: Teresina" value={rascunho.cidade} onChange={(e) => setR('cidade', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') aplicar(); }} />
                 </Campo>
@@ -267,7 +271,7 @@ export default function FiliadosPage() {
                   <th className="px-4 py-3 font-medium">Nome</th>
                   <th className="px-4 py-3 font-medium">CPF</th>
                   <th className="px-4 py-3 font-medium">Matrícula</th>
-                  <th className="px-4 py-3 font-medium">Categoria</th>
+                  {campoVisivel('formacao') && <th className="px-4 py-3 font-medium">Categoria</th>}
                   <th className="px-4 py-3 font-medium">Telefone</th>
                   <th className="px-4 py-3 font-medium">Situação</th>
                   <th className="px-4 py-3 font-medium">Filiação</th>
@@ -285,7 +289,7 @@ export default function FiliadosPage() {
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={f.fotoUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
                       ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-senatepi-50 text-xs font-semibold text-senatepi-800">{f.nomeCompleto.charAt(0)}</div>
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold text-brand-800">{f.nomeCompleto.charAt(0)}</div>
                       )}
                     </td>
                     <td className="px-4 py-3 font-medium">
@@ -295,7 +299,9 @@ export default function FiliadosPage() {
                     </td>
                     <td className="px-4 py-3">{f.cpf ? mascararCpf(f.cpf) : '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs">{f.matricula}</td>
-                    <td className="px-4 py-3 text-xs">{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</td>
+                    {campoVisivel('formacao') && (
+                      <td className="px-4 py-3 text-xs">{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</td>
+                    )}
                     <td className="px-4 py-3">{f.telefonePrincipal ?? '—'}</td>
                     <td className="px-4 py-3"><Badge className={SITUACAO_COR[f.situacao]}>{SITUACAO_LABEL[f.situacao]}</Badge></td>
                     <td className="px-4 py-3"><DataFiliacao f={f} /></td>
@@ -420,7 +426,7 @@ function DataFiliacao({ f }: { f: Filiado }) {
   return (
     <span
       className="cursor-help text-xs italic text-muted-foreground/70"
-      title="Este filiado veio da importação sem a data de filiação. O cadastro está completo; apenas essa data não foi informada."
+      title={`Este ${V.filiado} veio da importação sem a data de filiação. O cadastro está completo; apenas essa data não foi informada.`}
     >
       não informada
     </span>
@@ -434,7 +440,7 @@ function Vazio({ temFiltro, onLimpar }: { temFiltro: boolean; onLimpar: () => vo
       <Users className="h-8 w-8 text-muted-foreground/40" />
       {temFiltro ? (
         <>
-          <p className="text-sm font-medium">Nenhum filiado corresponde aos filtros</p>
+          <p className="text-sm font-medium">Nenhum {V.filiado} corresponde aos filtros</p>
           <p className="max-w-sm text-xs text-muted-foreground">
             Tente ampliar o período ou remover algum critério.
           </p>
@@ -444,7 +450,7 @@ function Vazio({ temFiltro, onLimpar }: { temFiltro: boolean; onLimpar: () => vo
         </>
       ) : (
         <>
-          <p className="text-sm font-medium">Nenhum filiado cadastrado ainda</p>
+          <p className="text-sm font-medium">Nenhum {V.filiado} cadastrado ainda</p>
           <Link href="/filiados/novo" className="mt-1">
             <Button size="sm"><Plus className="h-4 w-4" /> Nova filiação</Button>
           </Link>
@@ -471,7 +477,7 @@ function FiliadoCardMobile({ f, onChanged }: { f: Filiado; onChanged: () => void
         // eslint-disable-next-line @next/next/no-img-element
         <img src={f.fotoUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
       ) : (
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-senatepi-50 text-sm font-semibold text-senatepi-800">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-800">
           {f.nomeCompleto.charAt(0)}
         </div>
       )}
@@ -488,7 +494,9 @@ function FiliadoCardMobile({ f, onChanged }: { f: Filiado; onChanged: () => void
         </div>
         <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
           <Info label="CPF" valor={f.cpf ? mascararCpf(f.cpf) : '—'} />
-          <Info label="Categoria" valor={f.formacao ? FORMACAO_LABEL[f.formacao] : '—'} />
+          {campoVisivel('formacao') && (
+            <Info label="Categoria" valor={f.formacao ? FORMACAO_LABEL[f.formacao] : '—'} />
+          )}
           <Info label="Telefone" valor={f.telefonePrincipal ?? '—'} />
           <Info
             label="Filiação"

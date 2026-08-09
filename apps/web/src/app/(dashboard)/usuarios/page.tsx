@@ -68,8 +68,8 @@ export default function UsuariosPage() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <ShieldCheck className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <ShieldCheck className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Usuários e Perfis</h2>
@@ -108,7 +108,7 @@ export default function UsuariosPage() {
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 font-semibold">
                       <span className="truncate">{u.nome}</span>
-                      {u.id === user?.id && <span className="text-[10px] font-bold text-senatepi-700">VOCÊ</span>}
+                      {u.id === user?.id && <span className="text-[10px] font-bold text-brand-700">VOCÊ</span>}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -144,7 +144,7 @@ export default function UsuariosPage() {
                           <div className="min-w-0">
                             <p className="flex items-center gap-1.5 font-medium">
                               <span className="truncate">{u.nome}</span>
-                              {u.id === user?.id && <span className="text-[10px] font-bold text-senatepi-700">VOCÊ</span>}
+                              {u.id === user?.id && <span className="text-[10px] font-bold text-brand-700">VOCÊ</span>}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                           </div>
@@ -190,7 +190,7 @@ function Avatar({ u }: { u: UsuarioSistema }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img src={u.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border object-cover" />
   ) : (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-sm font-bold text-senatepi-900">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-400 text-sm font-bold text-brand-900">
       {u.nome.charAt(0)}
     </div>
   );
@@ -202,7 +202,7 @@ function StatusPill({ ativo }: { ativo: boolean }) {
       className={cn(
         'rounded-full px-2 py-0.5 text-[11px] font-medium',
         ativo
-          ? 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400'
+          ? 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400'
           : 'bg-muted text-muted-foreground',
       )}
     >

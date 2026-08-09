@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { PortalGuard } from '@/components/portal-empresa/portal-guard';
+import { tenant } from '@/tenant.config';
 
 /**
  * Layout do PORTAL DA EMPRESA.
@@ -8,8 +9,8 @@ import { PortalGuard } from '@/components/portal-empresa/portal-guard';
  * (PWA) das rotas internas. Só a casca da marca e o conteúdo.
  */
 export const metadata: Metadata = {
-  title: 'Portal da Empresa — SENATEPI',
-  description: 'Área da empresa conveniada ao SENATEPI.',
+  title: `Portal da Empresa — ${tenant.sigla}`,
+  description: `Área da empresa conveniada ao ${tenant.sigla}.`,
 };
 
 export default function PortalEmpresaLayout({ children }: { children: React.ReactNode }) {

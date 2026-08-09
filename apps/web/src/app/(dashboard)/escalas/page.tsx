@@ -95,8 +95,8 @@ export default function EscalasPage() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <ClipboardList className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <ClipboardList className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Escalas dos Advogados</h2>
@@ -125,10 +125,10 @@ export default function EscalasPage() {
           </select>
         </div>
         <div className="flex rounded-lg border border-input bg-card p-1">
-          <button onClick={() => { setVisao('calendario'); setDetalhe(null); }} className={cn('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors', visao === 'calendario' ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted')}>
+          <button onClick={() => { setVisao('calendario'); setDetalhe(null); }} className={cn('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors', visao === 'calendario' ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted')}>
             <CalendarDays className="h-4 w-4" /> Calendário
           </button>
-          <button onClick={() => { setVisao('lista'); setDetalhe(null); }} className={cn('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors', visao === 'lista' ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted')}>
+          <button onClick={() => { setVisao('lista'); setDetalhe(null); }} className={cn('flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors', visao === 'lista' ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted')}>
             <List className="h-4 w-4" /> Lista
           </button>
         </div>
@@ -151,7 +151,7 @@ export default function EscalasPage() {
 
       {/* Conteúdo */}
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : visao === 'calendario' ? (
         <Card className="overflow-hidden p-0">
           <div className="grid grid-cols-7 border-b text-center text-xs font-medium text-muted-foreground">
@@ -168,7 +168,7 @@ export default function EscalasPage() {
                   onClick={() => !foraDoMes && ehAdmin && novaEm(dia)}
                   className={cn('min-h-[104px] border-b border-r p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0', foraDoMes ? 'bg-muted/20' : ehAdmin && 'cursor-pointer hover:bg-muted/30')}
                 >
-                  <div className={cn('mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs', ehHoje ? 'bg-senatepi-800 font-bold text-white' : foraDoMes ? 'text-muted-foreground/40' : 'text-muted-foreground')}>
+                  <div className={cn('mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs', ehHoje ? 'bg-brand-800 font-bold text-white' : foraDoMes ? 'text-muted-foreground/40' : 'text-muted-foreground')}>
                     {dia.getDate()}
                   </div>
                   <div className="space-y-0.5">

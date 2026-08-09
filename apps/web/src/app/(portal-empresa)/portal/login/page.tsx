@@ -13,6 +13,7 @@ import {
 import {
   usePortalEmpresa, ROTA_INICIO, ROTA_PRIMEIRO_ACESSO,
 } from '@/components/portal-empresa/portal-guard';
+import { tenant } from '@/tenant.config';
 
 export default function LoginEmpresaPage() {
   const router = useRouter();
@@ -59,7 +60,7 @@ export default function LoginEmpresaPage() {
         <div className="mb-8 text-center">
           <Logo orientation="horizontal" variant="auto" className="mx-auto h-10" />
           <p className="mt-4 flex items-center justify-center gap-1.5 text-sm font-semibold">
-            <Building2 className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+            <Building2 className="h-4 w-4 text-brand-800 dark:text-brand-400" />
             Portal da Empresa
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -120,7 +121,7 @@ export default function LoginEmpresaPage() {
         </form>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          Esqueceu a senha? Fale com a secretaria do SENATEPI.
+          Esqueceu a senha? Fale com a secretaria do {tenant.sigla}.
         </p>
       </div>
     </main>

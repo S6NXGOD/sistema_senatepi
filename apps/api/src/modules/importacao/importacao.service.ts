@@ -1,3 +1,4 @@
+import { QrCodeService } from '@core/infra';
 import {
   BadRequestException,
   Injectable,
@@ -17,7 +18,7 @@ import {
 import * as Papa from 'papaparse';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
+
 import { AuditService } from '../../common/audit/audit.service';
 import {
   CODIGO_LABEL,

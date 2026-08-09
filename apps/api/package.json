@@ -5,6 +5,7 @@
   "description": "API NestJS do SENATEPI",
   "main": "dist/src/main.js",
   "scripts": {
+    "prebuild": "npm run build -w @core/infra",
     "build": "nest build",
     "start": "prisma migrate deploy && node dist/src/main.js",
     "start:dev": "nest start --watch",
@@ -19,7 +20,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
     "prisma:seed:colonia": "ts-node prisma/seed-colonia.ts",
-    "forcar-logout": "ts-node prisma/scripts/forcar-logout.ts"
+    "forcar-logout": "ts-node prisma/scripts/forcar-logout.ts",
+    "seed:orgaos:sindserm": "ts-node prisma/seed-orgaos-sindserm.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -52,7 +54,8 @@
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "@core/infra": "*"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.5",

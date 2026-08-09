@@ -14,6 +14,7 @@ import { PresencaListaService } from './presenca-lista.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 class CriarPautaDto {
   @IsString() @MaxLength(300) titulo!: string;
@@ -50,6 +51,7 @@ class VincularDto {
  */
 @ApiTags('plenario')
 @ApiBearerAuth()
+@ModuloTenant('eventos')
 @Controller('eventos/:eventoId/plenario')
 export class PlenarioAdminController {
   constructor(

@@ -80,7 +80,7 @@ export default function ColaboradorDetalhePage() {
   }
 
   if (isLoading || !c) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>;
+    return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>;
   }
 
   return (
@@ -94,7 +94,7 @@ export default function ColaboradorDetalhePage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={c.fotoUrl} alt="" className="h-16 w-16 rounded-xl object-cover" />
             ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-senatepi-50 text-xl font-bold text-senatepi-800">{c.nome.charAt(0)}</div>
+              <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-brand-50 text-xl font-bold text-brand-800">{c.nome.charAt(0)}</div>
             )}
             <div>
               <h2 className="text-2xl font-bold">{c.nome}</h2>
@@ -179,7 +179,7 @@ export default function ColaboradorDetalhePage() {
                 <ul className="divide-y">
                   {c.documentos.map((d) => (
                     <li key={d.id} className="flex items-center gap-2 py-2">
-                      <FileText className="h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                      <FileText className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
                       <a href={d.url ?? '#'} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-sm hover:underline">
                         {d.titulo}
                       </a>
@@ -213,7 +213,7 @@ export default function ColaboradorDetalhePage() {
                   return (
                     <li key={h.id} className="flex gap-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                        <Icon className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+                        <Icon className="h-4 w-4 text-brand-800 dark:text-brand-400" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm">{h.descricao}</p>

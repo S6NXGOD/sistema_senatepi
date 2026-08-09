@@ -1,4 +1,12 @@
 import {
+  ImageService,
+  QrCodeService,
+  StorageService,
+  dataCalendario,
+  dataCalendarioOuNulo,
+  gerarMatricula,
+} from '@core/infra';
+import {
   BadRequestException,
   ConflictException,
   Injectable,
@@ -14,18 +22,16 @@ import {
   TipoVinculo,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { ImageService } from '../../common/storage/image.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
-import { gerarMatricula } from '../../common/utils/matricula.util';
-import { lerAsset } from '../../common/assets.util';
+
+import { lerLogoDaMarca } from '../../common/assets.util';
 import {
   AlterarStatusColaboradorDto,
   CreateColaboradorDto,
   ListColaboradoresQueryDto,
   UpdateColaboradorDto,
 } from './dto/colaborador.dto';
-import { dataCalendario, dataCalendarioOuNulo } from '../../common/utils/datas.util';
+
+import { tenant } from '../../tenant/tenant.config';
 
 const INCLUDE = {
   cargo: { select: { id: true, nome: true } },
@@ -433,15 +439,15 @@ export class ColaboradoresService {
       doc.on('error', reject);
 
       doc.rect(0, 0, 340, 50).fill(VERDE_ESCURO);
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try {
           doc.image(logo, 16, 9, { fit: [130, 24] });
         } catch {
-          doc.fillColor('#FFFFFF').fontSize(14).text('SENATEPI', 16, 12);
+          doc.fillColor('#FFFFFF').fontSize(14).text(tenant.sigla, 16, 12);
         }
       } else {
-        doc.fillColor('#FFFFFF').fontSize(14).text('SENATEPI', 16, 12);
+        doc.fillColor('#FFFFFF').fontSize(14).text(tenant.sigla, 16, 12);
       }
       doc.fillColor('#FFFFFF').fontSize(7).text('Crachá de Identificação Interna', 16, 36);
 
@@ -465,7 +471,7 @@ export class ColaboradoresService {
       doc.image(Buffer.from(qrImagem.split(',')[1], 'base64'), 254, 70, { width: 70, height: 70 });
 
       doc.rect(0, 200, 340, 15).fill(VERDE_MEDIO);
-      doc.fillColor('#FFFFFF').fontSize(6).text('SENATEPI — Uso interno', 16, 204);
+      doc.fillColor('#FFFFFF').fontSize(6).text(`${tenant.sigla} — Uso interno`, 16, 204);
       doc.end();
     });
 

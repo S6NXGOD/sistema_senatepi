@@ -16,6 +16,7 @@ import {
   concluirCompromisso, listarResponsaveis, listarDesfechos,
   type Compromisso, type DesfechoOpcao,
 } from '@/lib/agenda';
+import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-11 w-full rounded-md border border-input bg-background px-3 text-sm md:h-10';
 
@@ -210,7 +211,7 @@ export function ConcluirModal({
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {compromisso.filiado && (
             <div className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
-              <span className="text-muted-foreground">Filiado: </span>
+              <span className="text-muted-foreground">{V.Filiado}: </span>
               <strong>{compromisso.filiado.nomeCompleto}</strong>
             </div>
           )}
@@ -237,7 +238,7 @@ export function ConcluirModal({
                       ativo
                         ? o.alerta
                           ? 'border-red-400 bg-red-50 dark:bg-red-950/20'
-                          : 'border-senatepi-500 bg-senatepi-50 dark:bg-senatepi-900/20'
+                          : 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
                         : 'hover:bg-muted/50',
                     )}
                   >
@@ -247,7 +248,7 @@ export function ConcluirModal({
                         o.alerta
                           ? 'text-red-600 dark:text-red-400'
                           : ativo
-                            ? 'text-senatepi-700 dark:text-senatepi-400'
+                            ? 'text-brand-700 dark:text-brand-400'
                             : 'text-muted-foreground',
                       )}
                     />
@@ -272,7 +273,7 @@ export function ConcluirModal({
               >
                 <UserX className="h-4 w-4 shrink-0" />
                 <span className="text-xs">
-                  <strong className="font-medium">O filiado não compareceu?</strong> Então a
+                  <strong className="font-medium">O {V.filiado} não compareceu?</strong> Então a
                   atividade não aconteceu — cancele informando o motivo.
                 </span>
               </button>

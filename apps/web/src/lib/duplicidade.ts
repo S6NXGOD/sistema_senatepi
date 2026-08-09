@@ -50,7 +50,7 @@ export const CONFIANCA_LABEL: Record<Confianca, string> = {
 };
 
 export const CONFIANCA_COR: Record<Confianca, string> = {
-  ALTA: 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100',
+  ALTA: 'bg-brand-100 text-brand-900 dark:bg-brand-900/40 dark:text-brand-100',
   MEDIA: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200',
   BAIXA: 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200',
 };

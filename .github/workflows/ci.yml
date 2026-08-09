@@ -1,0 +1,91 @@
+name: CI
+
+# O guarda que impede quebrar um cliente em silêncio.
+#
+# Com mais de um sindicato no mesmo código, o risco novo não é técnico, é de
+# atenção: mexer no core e descobrir três semanas depois que o outro cliente não
+# compila. Aqui CADA cliente é construído a cada push — se um quebrar, o merge
+# não passa.
+on:
+  push:
+    branches: [main, refatoracao-monorepo]
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+
+    # Um job por sindicato. `fail-fast: false` de propósito: quando o core
+    # quebra, interessa saber se quebrou em UM cliente ou em todos — e o job
+    # cancelado esconde justamente essa informação.
+    strategy:
+      fail-fast: false
+      matrix:
+        tenant: [senatepi, sindserm]
+
+    env:
+      TENANT: ${{ matrix.tenant }}
+      NEXT_PUBLIC_TENANT: ${{ matrix.tenant }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      # O client do Prisma é gerado a partir do schema e não vai para o git;
+      # sem isto a API não tipa e o build falha por um motivo que não é o real.
+      - name: Gerar o Prisma Client
+        run: npm run prisma:generate -w @senatepi/api --if-present || npx prisma generate --schema apps/api/prisma/schema.prisma
+
+      - name: Testes
+        run: npm test --workspaces --if-present
+
+      # TODOS os workspaces, não só o que foi alterado: é exatamente o cliente
+      # que ninguém tocou que quebra quando o core muda. O `prebuild` da API
+      # compila os pacotes de `packages/` antes.
+      - name: Build (${{ matrix.tenant }})
+        run: npm run build --workspaces --if-present
+
+      # A marca não está mais no CSS: `bg-brand-800` virou
+      # `rgb(var(--brand-800)/…)`, e o VALOR sai no `<style>` que o layout
+      # renderiza. Um build com a marca do cliente errado passaria por tsc,
+      # testes e build sem uma reclamação — já aconteceu. Aqui a asserção é
+      # contra o HTML que realmente foi gerado.
+      #
+      # O diretório é `.next-<tenant>` (ver apps/web/next.config.mjs): cada
+      # cliente tem o seu, então não há cache de um vazando para o outro.
+      - name: Conferir que a marca compilada é a do cliente certo
+        run: |
+          case "${{ matrix.tenant }}" in
+            senatepi) HEX="1B7F0A"; CANAIS="27 127 10" ;;
+            sindserm) HEX="0F4C81"; CANAIS="15 76 129" ;;
+          esac
+          DIR="apps/web/.next-${{ matrix.tenant }}"
+          HTML="$DIR/server/app/login.html"
+          if [ ! -f "$HTML" ]; then
+            echo "::error::$HTML não existe — o distDir por cliente não foi aplicado."
+            exit 1
+          fi
+          # 1. o tom 800 da marca, em canais, dentro do <style> do layout
+          if ! grep -q -- "--brand-800:$CANAIS" "$HTML"; then
+            echo "::error::--brand-800 de ${{ matrix.tenant }} não é \"$CANAIS\"."
+            exit 1
+          fi
+          # 2. a cor da aba do navegador
+          if ! grep -q "theme-color\" content=\"#$HEX" "$HTML"; then
+            echo "::error::A cor da aba (theme-color) de ${{ matrix.tenant }} não é #$HEX."
+            exit 1
+          fi
+          # 3. as classes precisam LER a variável — se voltarem a compilar o
+          #    hexadecimal, trocar a cor pela tela para de funcionar em silêncio
+          if ! grep -rq "rgb(var(--brand-800)" "$DIR/static/css/"; then
+            echo "::error::As classes brand não estão lendo as variáveis CSS."
+            exit 1
+          fi
+          echo "ok: marca de ${{ matrix.tenant }} correta no <style>, no theme-color e nas classes"

@@ -13,6 +13,7 @@ import {
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
+import { V } from '@/lib/vocabulario';
 
 /** Cronômetro ao vivo em HH:MM:SS (atualiza a cada segundo) desde `iniciadoEm`. */
 function Cronometro({ desde }: { desde: string }) {
@@ -44,7 +45,7 @@ function AcaoPrimaria({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-senatepi-800 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-senatepi-900"
+      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-900"
     >
       {children}
     </button>
@@ -101,7 +102,7 @@ function MiniAvatar({ nome, url, titulo }: { nome: string; url?: string | null; 
   ) : (
     <span
       title={titulo}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-[10px] font-bold text-senatepi-900"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-400 text-[10px] font-bold text-brand-900"
     >
       {iniciais || '?'}
     </span>
@@ -187,7 +188,7 @@ export function CompromissoCard({
             <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
           </p>
           {c.local && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 shrink-0" /> {c.local}</p>}
-          {c.filiado && <p className="truncate">Filiado: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
+          {c.filiado && <p className="truncate">{V.Filiado}: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
         </div>
 
         {/* Quem responde e quem registrou — os dois com foto */}
@@ -263,7 +264,7 @@ export function CompromissoCard({
       )}
 
       {c.atendimentoId && (
-        <button type="button" onClick={() => onVerTriagem(c.atendimentoId!)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-senatepi-700 hover:underline dark:text-senatepi-400">
+        <button type="button" onClick={() => onVerTriagem(c.atendimentoId!)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400">
           <FileSearch className="h-3 w-3" /> Ver triagem de origem
         </button>
       )}

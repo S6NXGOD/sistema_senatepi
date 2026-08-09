@@ -117,7 +117,7 @@ export function SeletorAdvogados({
         }}
         className={cn(
           'flex min-h-[3rem] w-full cursor-pointer flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 text-sm transition md:min-h-[2.5rem]',
-          aberto && 'border-senatepi-500 ring-1 ring-senatepi-500/30',
+          aberto && 'border-brand-500 ring-1 ring-brand-500/30',
         )}
       >
         {valor.ids.length === 0 ? (
@@ -153,7 +153,7 @@ export function SeletorAdvogados({
                 className={cn(
                   'inline-flex max-w-full items-center gap-1 rounded-full py-0.5 pl-1 pr-1.5 text-xs font-medium',
                   ehPrincipal
-                    ? 'bg-senatepi-800 text-white'
+                    ? 'bg-brand-800 text-white'
                     : 'bg-muted text-foreground',
                 )}
                 title={ehPrincipal ? `${nomeDe(a)} — responsável pelo processo` : nomeDe(a)}
@@ -164,7 +164,7 @@ export function SeletorAdvogados({
                 ) : (
                   <span className={cn(
                     'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
-                    ehPrincipal ? 'bg-white/20 text-white' : 'bg-senatepi-400 text-senatepi-900',
+                    ehPrincipal ? 'bg-white/20 text-white' : 'bg-brand-400 text-brand-900',
                   )}>
                     {nomeDe(a).charAt(0)}
                   </span>
@@ -198,7 +198,7 @@ export function SeletorAdvogados({
               // Enter aqui é "filtrar", nunca "enviar o formulário".
               onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
               placeholder={placeholder}
-              className="h-9 w-full rounded border border-input bg-background pl-8 pr-2 text-sm outline-none focus:border-senatepi-500"
+              className="h-9 w-full rounded border border-input bg-background pl-8 pr-2 text-sm outline-none focus:border-brand-500"
             />
           </div>
 
@@ -220,7 +220,7 @@ export function SeletorAdvogados({
                     >
                       <span className={cn(
                         'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                        marcado ? 'border-senatepi-800 bg-senatepi-800 text-white' : 'border-input',
+                        marcado ? 'border-brand-800 bg-brand-800 text-white' : 'border-input',
                       )}>
                         {marcado && <Check className="h-3 w-3" />}
                       </span>
@@ -228,7 +228,7 @@ export function SeletorAdvogados({
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={a.avatarUrl} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover" />
                       ) : (
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-xs font-bold text-senatepi-900">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-400 text-xs font-bold text-brand-900">
                           {nomeDe(a).charAt(0)}
                         </span>
                       )}

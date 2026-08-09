@@ -30,8 +30,10 @@ export type ModuloKey =
   | 'escalas'
   | 'eventos'
   | 'colonia'
+  | 'acessos'
   | 'cobrancas'
   | 'empresas'
+  | 'organizacoes'
   | 'auditoria'
   | 'usuarios';
 
@@ -52,8 +54,25 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
+  { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
   { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
+  /**
+   * A TELA de cadastro de órgãos/organizações (`partes_externas`).
+   *
+   * NÃO é o dado — o dado é de `processos`, e o `PartesExternasController`
+   * segue com `@Modulo('processos')` de propósito: os MESMOS endpoints
+   * alimentam o seletor de partes do processo e o combobox de empregador do
+   * vínculo profissional. Gatear o controller aqui derrubaria as duas coisas
+   * num cliente sem esta tela.
+   *
+   * Existe como módulo separado porque colide com `empresas` em quem tem os
+   * dois: no SENATEPI "Empresas" (patronal, faz repasse) e "Organizações"
+   * (órgão/parte) apareceriam lado a lado, mesmo ícone, nomes sinônimos, e
+   * obrigariam a cadastrar o mesmo hospital duas vezes. Enquanto os dois
+   * cadastros não forem unificados, a tela fica só onde não há ambiguidade.
+   */
+  { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos são listas de apoio de
   // Colaboradores e seguem a permissão DELE. Uma linha só para editar duas
   // listas não se pagava — e não valia nada, porque o controller checava
@@ -86,8 +105,14 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     escalas: 'EDITAR',
     eventos: 'EDITAR',
     colonia: 'EDITAR',
+    // A portaria é operação de balcão: coordenação e triagem validam entrada.
+    acessos: 'EDITAR',
     cobrancas: 'EDITAR',
     empresas: 'EDITAR',
+    // Espelha `processos` em todos os perfis: é a mesma tabela, vista por
+    // outra porta. Divergir daria o absurdo de quem edita a parte dentro do
+    // processo não poder corrigir o nome dela na tela de cadastro.
+    organizacoes: 'EDITAR',
     auditoria: 'VISUALIZAR',
     usuarios: 'SEM_ACESSO',
   },
@@ -102,8 +127,12 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     escalas: 'VISUALIZAR',
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
+    acessos: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
     empresas: 'SEM_ACESSO',
+    // O advogado edita partes dentro do processo; corrigir o cadastro delas
+    // é a mesma atribuição.
+    organizacoes: 'EDITAR',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
   },
@@ -118,9 +147,13 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     escalas: 'SEM_ACESSO',
     eventos: 'SEM_ACESSO',
     colonia: 'SEM_ACESSO',
+    // Quem fica no balcão é quem valida a entrada no clube.
+    acessos: 'EDITAR',
     cobrancas: 'SEM_ACESSO',
     // A secretaria (Triagem) é quem cadastra a empresa e define a senha provisória.
     empresas: 'EDITAR',
+    // Acompanha `processos`, que a Triagem não vê.
+    organizacoes: 'SEM_ACESSO',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
   },

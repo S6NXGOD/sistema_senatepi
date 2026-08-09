@@ -41,8 +41,8 @@ export function InstallHint() {
 
   const { Icon, texto } = CONTEUDO[os];
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-senatepi-600/40 bg-senatepi-50 p-3 text-sm text-senatepi-900 dark:border-senatepi-400/30 dark:bg-senatepi-900/20 dark:text-senatepi-200">
-      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+    <div className="flex items-start gap-3 rounded-xl border border-brand-600/40 bg-brand-50 p-3 text-sm text-brand-900 dark:border-brand-400/30 dark:bg-brand-900/20 dark:text-brand-200">
+      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-brand-700 dark:text-brand-400" />
       <p className="leading-snug">{texto}</p>
     </div>
   );

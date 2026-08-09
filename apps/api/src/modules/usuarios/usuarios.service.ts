@@ -1,3 +1,4 @@
+import { ImageService, StorageService } from '@core/infra';
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
@@ -5,8 +6,7 @@ import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { ImageService } from '../../common/storage/image.service';
+
 import { PRESETS_PERFIL, sanitizarPermissoes } from '../../common/permissions/permissoes.constants';
 import { CriarUsuarioDto, AtualizarUsuarioDto } from './dto/usuarios.dto';
 

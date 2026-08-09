@@ -1,3 +1,4 @@
+import { QrCodeService, StorageService, mascararCpf } from '@core/infra';
 import {
   BadRequestException,
   Controller,
@@ -21,11 +22,11 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { mascararCpf } from '../../common/utils/matricula.util';
-import { lerAsset } from '../../common/assets.util';
+
+import { lerLogoDaMarca } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { tenant } from '../../tenant/tenant.config';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -187,7 +188,7 @@ export class CarteirinhasService {
       doc.restore();
 
       // Logo (imagem branca) com fallback textual
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try {
           doc.image(logo, W - PANEL + 20, fy + fh + 10, {
@@ -196,10 +197,10 @@ export class CarteirinhasService {
             valign: 'center',
           });
         } catch {
-          doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('SENATEPI', W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
+          doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text(tenant.sigla, W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
         }
       } else {
-        doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text('SENATEPI', W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
+        doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text(tenant.sigla, W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
       }
 
       // QR Code no painel
@@ -217,6 +218,7 @@ export class CarteirinhasService {
 
 @ApiTags('carteirinhas')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller('filiados/:filiadoId/carteirinha')
 class CarteirinhasController {
   constructor(private readonly service: CarteirinhasService) {}

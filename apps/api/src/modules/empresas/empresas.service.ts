@@ -1,3 +1,4 @@
+import { StorageService, apenasDigitosCnpj, cnpjValido, formatarCnpj } from '@core/infra';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AcaoAuditoria, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -5,8 +6,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { apenasDigitosCnpj, cnpjValido, formatarCnpj } from '../../common/utils/cnpj.util';
+
 import { BrasilApiService } from './brasil-api.service';
 import { CreateEmpresaDto, DadosCnpj, ListEmpresasQueryDto } from './dto/empresa.dto';
 

@@ -11,6 +11,7 @@ import {
   historicoFiliado, formatBRL, formatData, statusExibicao,
   STATUS_LABEL, STATUS_COR, TIPO_LABEL,
 } from '@/lib/cobrancas';
+import { V } from '@/lib/vocabulario';
 
 interface FiliadoFin {
   id: string;
@@ -46,7 +47,7 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
-          <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+          <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-brand-800 dark:text-brand-400" /></div>
         ) : (
           <>
             {/* Resumo */}
@@ -62,14 +63,14 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
                 </div>
                 <div className="rounded-lg bg-muted/40 p-2">
                   <p className="text-[11px] uppercase text-muted-foreground">Pago</p>
-                  <p className="text-sm font-bold tabular-nums text-senatepi-700 dark:text-senatepi-400">{formatBRL(data.resumo.totalPago)}</p>
+                  <p className="text-sm font-bold tabular-nums text-brand-700 dark:text-brand-400">{formatBRL(data.resumo.totalPago)}</p>
                 </div>
               </div>
             )}
 
             {/* Lista de parcelas */}
             {parcelas.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma cobrança lançada para este filiado.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma cobrança lançada para este {V.filiado}.</p>
             ) : (
               <ul className="divide-y">
                 {parcelas.map((p) => {

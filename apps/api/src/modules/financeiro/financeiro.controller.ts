@@ -6,10 +6,12 @@ import { FinanceiroService } from './financeiro.service';
 import { CriarContaBancariaDto } from './dto/financeiro.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 @ApiTags('financeiro')
 @ApiBearerAuth()
 @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+@ModuloTenant('cobrancas')
 @Controller('financeiro')
 export class FinanceiroController {
   constructor(private readonly service: FinanceiroService) {}

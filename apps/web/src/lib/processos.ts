@@ -1,5 +1,6 @@
 import { api, TIMEOUT_LONGO } from './api';
 import type { Confronto, ParteResumo } from './partes';
+import { tenant } from '@/tenant.config';
 
 // ---------------------------------------------------------------------------
 // Tipos (espelham a API — módulo de Processos / DATAJUD)
@@ -10,14 +11,14 @@ export type StatusProcesso =
   | 'IMPROCEDENTE' | 'ENCERRADO' | 'ARQUIVADO';
 
 /**
- * Natureza da atuação. INSTITUCIONAL é a ação coletiva movida pelo SENATEPI em
+ * Natureza da atuação. INSTITUCIONAL é a ação coletiva movida pelo sindicato em
  * nome da categoria — nela não existe filiado "dono", e a tela para de cobrar o
  * vínculo que num processo coletivo não faria sentido.
  */
 export type TipoAcaoProcesso = 'INDIVIDUAL' | 'INSTITUCIONAL';
 
 /** Selo da ação institucional, usado na lista e no detalhe. */
-export const BADGE_INSTITUCIONAL = '🏛️ Ação Institucional (SENATEPI)';
+export const BADGE_INSTITUCIONAL = `🏛️ Ação Institucional (${tenant.sigla})`;
 
 export interface FiliadoRef {
   id: string;
@@ -64,7 +65,7 @@ export interface ProcessoLista {
   ultimaSincronizacao: string | null;
   etiquetas?: string[];
   segredoJustica?: boolean;
-  /** INSTITUCIONAL = ação coletiva movida pelo SENATEPI (badge própria). */
+  /** INSTITUCIONAL = ação coletiva movida pelo sindicato (badge própria). */
   tipoAcao?: TipoAcaoProcesso;
   /** Filiado principal e advogado responsável (atalhos dos vínculos N:N). */
   filiado: FiliadoRef | null;
@@ -194,7 +195,7 @@ export const STATUS_PROCESSO_ORDEM: StatusProcesso[] = [
 export const STATUS_PROCESSO_COR: Record<StatusProcesso, string> = {
   RASCUNHO: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  ATIVO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+  ATIVO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   SUSPENSO: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
   GANHO_EXECUCAO: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
   IMPROCEDENTE: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
@@ -437,7 +438,7 @@ export async function consultarDatajud(numeroCNJ: string, tribunal?: string): Pr
  * provisório de filiado.
  */
 export type PoloAtivoInput =
-  /** Ação coletiva: o polo ativo é o próprio SENATEPI. */
+  /** Ação coletiva: o polo ativo é o próprio sindicato. */
   | { tipo: 'INSTITUCIONAL' }
   /** Um ou mais filiados (o primeiro é o principal). */
   | { tipo: 'FILIADOS'; filiadoIds: string[] }

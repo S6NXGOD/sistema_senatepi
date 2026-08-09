@@ -168,9 +168,9 @@ export function DesfiliarModal({
           </div>
 
           {/* ---- Corte financeiro ---- */}
-          <div className="space-y-3 rounded-lg border border-senatepi-300/60 bg-senatepi-50/40 p-3 dark:border-senatepi-900/40 dark:bg-senatepi-900/10">
+          <div className="space-y-3 rounded-lg border border-brand-300/60 bg-brand-50/40 p-3 dark:border-brand-900/40 dark:bg-brand-900/10">
             <p className="flex items-center gap-1.5 text-sm font-medium">
-              <CalendarDays className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" />
+              <CalendarDays className="h-4 w-4 text-brand-700 dark:text-brand-400" />
               Corte financeiro
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

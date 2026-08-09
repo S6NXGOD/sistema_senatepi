@@ -12,6 +12,7 @@ import {
   buscarPixDaGuia, anexarDocumentos, formatarReais,
   type Contribuicao, type ErroPortal,
 } from '@/lib/portal-empresa';
+import { tenant } from '@/tenant.config';
 
 /**
  * Retomada de uma guia já criada: mostra o PIX de novo e recebe os documentos.
@@ -98,10 +99,10 @@ export function RetomarGuiaModal({
 
         {concluido ? (
           <div className="flex flex-col items-center gap-3 p-8 text-center">
-            <CheckCircle2 className="h-12 w-12 text-senatepi-600" />
+            <CheckCircle2 className="h-12 w-12 text-brand-600" />
             <h4 className="text-lg font-bold">Documentos enviados!</h4>
             <p className="max-w-xs text-sm text-muted-foreground">
-              A declaração está <strong>em análise</strong> pelo SENATEPI.
+              A declaração está <strong>em análise</strong> pelo {tenant.sigla}.
             </p>
             <Button className="mt-2 w-full" onClick={fechar}>Voltar ao portal</Button>
           </div>

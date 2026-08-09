@@ -38,6 +38,21 @@ enum EstadoCivil {
   OUTRO
 }
 
+/// Vínculo do filiado com o EMPREGADOR — não confundir com `SituacaoFiliado`,
+/// que é o vínculo dele com o SINDICATO.
+///
+/// São duas coisas distintas: um aposentado pode (e costuma) seguir filiado e
+/// em dia; um servidor na ativa pode estar desfiliado. Guardar as duas no mesmo
+/// campo obrigaria a escolher qual verdade contar.
+///
+/// Universal o bastante para ser enum: serve tanto a servidor público quanto a
+/// celetista. Nulo em quem não informou.
+enum VinculoFuncional {
+  ATIVO
+  APOSENTADO
+  PENSIONISTA
+}
+
 enum SituacaoFiliado {
   ATIVO
   INATIVO
@@ -63,6 +78,11 @@ enum TipoHistoricoFiliado {
 enum TipoDependente {
   CONJUGE
   FILHO
+  /// Pai e mãe entram como dependentes em sindicatos que estendem benefícios
+  /// (clube, convênios) à família de origem. Sem limite de idade, ao contrário
+  /// de FILHO — ver `dependenteValidoParaEvento`.
+  PAI
+  MAE
 }
 
 enum FormacaoProfissional {
@@ -173,6 +193,72 @@ enum EstrategiaDuplicado {
 enum EstrategiaMatricula {
   REGENERAR // gera uma matrícula nova quando a do arquivo colide
   DISPENSAR // não importa a pessoa quando a matrícula colide
+}
+
+/// QUAL PLANILHA está sendo importada — o layout muda o que cada coluna
+/// significa e, principalmente, COMO SE RECONHECE A PESSOA.
+///
+/// Não é preciosismo: no CSV legado a âncora de identidade é o CPF; na folha da
+/// Prefeitura NÃO EXISTE CPF, e a âncora passa a ser o par órgão + matrícula.
+/// Um único fluxo tentando adivinhar qual dos dois vale acabaria casando gente
+/// errada — que é o erro que este módulo inteiro existe para não cometer.
+enum PerfilImportacao {
+  /// Base do sistema antigo, com CPF, endereço, formação. Fluxo original.
+  LEGADO_CSV
+  /// Folha enviada pela Prefeitura: Órgão, Matrícula, Nome, Quadro, Lotação,
+  /// Cargo (e Valor, que é descartado na leitura).
+  FOLHA_PREFEITURA
+}
+
+/// O QUE A PRÉVIA DECIDIU sobre cada linha, antes de qualquer escrita.
+///
+/// É o vocabulário da tela de conferência. `CONFLITO` é o estado mais
+/// importante: significa "há um candidato, mas casar por conta própria seria
+/// chute" — e nada acontece com ele até uma pessoa decidir.
+enum ClassificacaoLinha {
+  /// Ninguém no sistema tem esta matrícula neste órgão, nem nome parecido.
+  NOVO
+  /// Achou o vínculo exato (órgão + matrícula). Atualiza cargo/lotação/quadro.
+  ATUALIZACAO
+  /// Achou candidato, mas a identidade não é certa — espera decisão humana.
+  CONFLITO
+  /// A mesma matrícula aparece mais de uma vez NO ARQUIVO.
+  DUPLICIDADE
+  /// Linha inválida (sem nome, sem matrícula...). Não entra de jeito nenhum.
+  ERRO
+}
+
+/// POR QUE a linha ficou em conflito. O motivo muda o que se pergunta ao
+/// operador, então é dado, não texto solto.
+///
+/// NÃO existe "órgão divergente" aqui, e a ausência é uma decisão: na
+/// Prefeitura de Teresina a matrícula é única no município, então a mesma
+/// matrícula em outra secretaria é a MESMA pessoa que foi transferida — isso é
+/// atualização do vínculo, não conflito. Tratar transferência como conflito
+/// mandaria centenas de servidores para uma fila de decisão manual sem que
+/// houvesse dúvida nenhuma a resolver.
+enum MotivoConflito {
+  /// Nome igual ao de um cadastro existente, mas a matrícula é nova. Pode ser
+  /// segundo vínculo da MESMA pessoa — ou um homônimo.
+  NOME_SEMELHANTE
+  /// O nome da planilha não bate com o nome de quem tem essa matrícula.
+  /// Matrícula reaproveitada, erro de digitação na origem, ou casamento.
+  NOME_DIVERGENTE
+  /// Matrícula igual, CPF diferente. Só o export do banco legado traz CPF; um
+  /// dos dois documentos está errado e o sistema não tem como saber qual.
+  CPF_DIVERGENTE
+}
+
+/// O que o operador respondeu num conflito. Enquanto for `PENDENTE`, a linha
+/// não é importada — silêncio nunca vira ação.
+enum DecisaoConflito {
+  PENDENTE
+  /// "É a mesma pessoa": anexa o vínculo ao cadastro apontado.
+  MESMA_PESSOA
+  /// "São pessoas diferentes": cria cadastro novo.
+  PESSOA_DIFERENTE
+  /// "Deixa para depois": não importa esta linha.
+  IGNORAR
 }
 
 enum StatusRecadastramento {
@@ -339,6 +425,9 @@ model Filiado {
   buscaNormalizada   String?               @map("busca_normalizada")
   cidadeNormalizada  String?               @map("cidade_normalizada")
   dataAdmissao       DateTime?             @map("data_admissao")
+  /// Vínculo com o EMPREGADOR (ativo/aposentado/pensionista). Diferente de
+  /// `situacao`, que é o vínculo com o SINDICATO — ver o enum.
+  vinculoFuncional   VinculoFuncional?     @map("vinculo_funcional")
   // Situação
   situacao           SituacaoFiliado       @default(ATIVO)
   aprovadoEm         DateTime?             @map("aprovado_em")
@@ -396,6 +485,7 @@ model Filiado {
   recadastramentos     Recadastramento[]
   linksRecadastramento LinkRecadastramento[]
   historico            FiliadoHistorico[]
+  registrosAcesso      RegistroAcesso[]
 
   @@index([situacao])
   @@index([cpf])
@@ -435,7 +525,40 @@ model VinculoProfissional {
   parteExternaId String? @map("parte_externa_id")
 
   cargo     String?
+  /// Onde a pessoa trabalha DENTRO do órgão — secretaria, unidade, setor.
+  /// `empresa` é o empregador; num sindicato de servidores é pela lotação
+  /// que a base se organiza.
+  lotacao   String?
   matricula String? // matrícula na instituição
+
+  /// QUADRO funcional — efetivo, comissionado, contrato temporário, inativo.
+  ///
+  /// Texto livre, e não enum, porque a nomenclatura é de quem emite a folha:
+  /// a Prefeitura de Teresina manda "EFETIVO"/"COMISSIONADO"/"CONTRATO", e o
+  /// próximo cliente mandará outra coisa. Um enum obrigaria a uma migration a
+  /// cada palavra nova numa planilha que não controlamos — e, pior, obrigaria
+  /// a DESCARTAR o que não coubesse. Texto guarda o que veio.
+  quadro String?
+
+  /// A MATRÍCULA EM FORMA COMPARÁVEL — maiúsculas, sem espaço, sem zeros à
+  /// esquerda ('0012345' e '12345' são a mesma matrícula; o Excel come o zero
+  /// sozinho conforme a coluna saia como texto ou como número).
+  ///
+  /// É por ela que a importação da folha reconhece uma pessoa, já que a
+  /// planilha da Prefeitura não traz CPF. Coluna, e não expressão na consulta,
+  /// para dar índice e deixar a regra visível no banco.
+  ///
+  /// NULA quando o vínculo não tem matrícula — cadastro de balcão não precisa
+  /// de chave. O índice é PARCIAL justamente por isso.
+  ///
+  /// ATENÇÃO AO QUE ESTA COLUNA **NÃO** GARANTE: unicidade global. Na
+  /// Prefeitura de Teresina a matrícula é única no município inteiro, e ali o
+  /// índice único nasce (ver a migration). Num sindicato com muitos
+  /// empregadores — o SENATEPI tem hospitais que reaproveitam numeração — dois
+  /// vínculos podem legitimamente ter a matrícula '123', e lá o índice único
+  /// não é criado. A regra "matrícula identifica a pessoa" é da folha da
+  /// Prefeitura e mora no importador dela, não no schema.
+  matriculaNormalizada String? @map("matricula_normalizada")
 
   /// A mensalidade sindical é descontada NA FOLHA DESTE local.
   /// Fica no vínculo, e não no filiado, porque quem tem dois empregos costuma
@@ -444,6 +567,7 @@ model VinculoProfissional {
 
   ordem     Int      @default(1) // 1 = instituição 1, 2 = instituição 2
   createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   filiado      Filiado       @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
   /// SetNull: apagar a organização não pode apagar o vínculo — `empresa`
@@ -452,6 +576,11 @@ model VinculoProfissional {
 
   @@index([filiadoId])
   @@index([parteExternaId])
+  /// Lookup da importação: "quem tem esta matrícula?". É a pergunta que
+  /// reconhece o servidor mesmo depois de ele mudar de secretaria.
+  /// A unicidade, onde couber, vem de índice PARCIAL criado na migration —
+  /// o Prisma não sabe declarar índice parcial.
+  @@index([matriculaNormalizada])
   @@map("vinculos_profissionais")
 }
 
@@ -472,8 +601,9 @@ model Dependente {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  filiado   Filiado    @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
-  presencas Presenca[]
+  filiado         Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  presencas       Presenca[]
+  registrosAcesso RegistroAcesso[]
 
   @@index([filiadoId])
   @@map("dependentes")
@@ -703,6 +833,64 @@ enum StatusPauta {
   ENCERRADA
 }
 
+/// Como a pessoa foi identificada na portaria.
+enum OrigemAcesso {
+  /// Leitura do QR da carteirinha (o caminho normal).
+  QR
+  /// Digitada a matrícula — do sindicato ou a funcional do empregador.
+  MATRICULA
+  /// Digitado o CPF, quando a pessoa está sem a carteirinha.
+  CPF
+}
+
+/// Entrada no CLUBE (ou em qualquer espaço controlado do sindicato).
+///
+/// POR QUE NÃO É `Presenca`
+/// `Presenca` significa "esteve NESTE EVENTO" em todo o sistema — alimenta
+/// certificado, quórum de plenário e relatório por evento, e `eventoId` é
+/// obrigatório lá. Acesso ao clube é outro fato: acontece todo dia, sem evento,
+/// e o que importa é quem entrou, quando e se foi liberado. Enfiar os dois na
+/// mesma tabela obrigaria toda consulta de evento a filtrar o que não é evento
+/// — o tipo de "duas verdades numa coluna só" que este sistema já pagou caro.
+///
+/// REGISTRA TAMBÉM QUEM FOI BARRADO, de propósito. Saber que um desfiliado
+/// tentou entrar ontem é mais útil que saber que dez filiados entraram: é o
+/// registro da recusa que a portaria precisa mostrar quando alguém reclama.
+model RegistroAcesso {
+  id String @id @default(uuid())
+
+  tipoPessoa    TipoPessoa @map("tipo_pessoa")
+  filiadoId     String?    @map("filiado_id")
+  dependenteId  String?    @map("dependente_id")
+  colaboradorId String?    @map("colaborador_id")
+
+  /// Nome como estava no momento da entrada — o cadastro muda, o registro não.
+  nomeSnapshot String   @map("nome_snapshot")
+  registradoEm DateTime @default(now()) @map("registrado_em")
+
+  origem        OrigemAcesso
+  /// O que foi digitado quando a origem não é QR (matrícula ou CPF). Guardado
+  /// para a portaria conseguir explicar uma recusa de alguém que não foi achado.
+  identificador String?
+
+  liberado Boolean
+  /// Por que liberou ou negou, em texto — é o que a portaria mostra na tela.
+  motivo   String
+
+  /// Quem operou a portaria. Nulo em terminal de autoatendimento.
+  registradoPor String? @map("registrado_por")
+  ip            String?
+  userAgent     String? @map("user_agent")
+
+  filiado     Filiado?     @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  dependente  Dependente?  @relation(fields: [dependenteId], references: [id], onDelete: SetNull)
+  colaborador Colaborador? @relation(fields: [colaboradorId], references: [id], onDelete: SetNull)
+
+  @@index([registradoEm])
+  @@index([filiadoId])
+  @@map("registros_acesso")
+}
+
 enum OrigemPresenca {
   /// Leitura do QR Code na portaria (fluxo que já existia).
   QR_PRESENCIAL
@@ -823,6 +1011,20 @@ model Importacao {
   estrategia          EstrategiaDuplicado @default(IGNORAR)
   estrategiaMatricula EstrategiaMatricula @default(REGENERAR) @map("estrategia_matricula")
   permitirCpfInvalido Boolean             @default(false) @map("permitir_cpf_invalido")
+
+  /// Qual planilha é esta. Default = LEGADO_CSV para que TODA importação já
+  /// gravada continue significando exatamente o que significava.
+  perfil PerfilImportacao @default(LEGADO_CSV)
+
+  /// SHA-256 do arquivo enviado — é o que reconhece "esta planilha já foi
+  /// importada" mesmo que alguém a renomeie.
+  ///
+  /// Nulo nas importações antigas (não havia hash quando foram feitas). Por
+  /// isso o índice é comum e a checagem é da aplicação: um índice único aqui
+  /// trataria todos os nulos históricos como... nada, mas travaria a migration
+  /// se duas cargas do mesmo arquivo já existissem.
+  hashArquivo String? @map("hash_arquivo")
+
   // Contadores
   total               Int                 @default(0)
   validos             Int                 @default(0)
@@ -833,6 +1035,15 @@ model Importacao {
   atualizados         Int                 @default(0)
   ignorados           Int                 @default(0)
   dispensados         Int                 @default(0) // matrícula colidiu e a pessoa foi dispensada
+
+  /// Linhas que exigem decisão humana. Enquanto houver conflito PENDENTE a
+  /// confirmação recusa — ver `FolhaPrefeituraService.confirmar`.
+  conflitos       Int @default(0)
+  /// Vínculos criados/atualizados. Contados à parte de `importados`, que conta
+  /// PESSOAS: uma folha pode não criar ninguém e ainda assim corrigir 300
+  /// lotações — e um relatório que só mostrasse pessoas diria "nada mudou".
+  vinculosCriados    Int @default(0) @map("vinculos_criados")
+  vinculosAtualizados Int @default(0) @map("vinculos_atualizados")
   // Mapeamento detectado (coluna do CSV -> campo do sistema)
   mapeamento          Json?
   // Execução
@@ -847,6 +1058,8 @@ model Importacao {
 
   @@index([status])
   @@index([createdAt])
+  /// Consulta de reenvio: "já existe importação com este hash?".
+  @@index([hashArquivo])
   @@map("importacoes")
 }
 
@@ -863,15 +1076,43 @@ model ImportacaoLinha {
   telefone           String?
   empresa            String?
   situacao           String?
+  // Denormalizado da folha da Prefeitura (o `empresa` acima recebe o Órgão)
+  lotacao            String?
+  cargo              String?
+  quadro             String?
   // Validação
   valido             Boolean  @default(true)
   duplicadoNoSistema Boolean  @default(false) @map("duplicado_no_sistema")
   erros              Json? // string[] de mensagens bloqueantes
   avisos             Json? // string[] de mensagens informativas
   codigos            String[] @default([]) // códigos de problema (CPF_INVALIDO, etc.)
+
+  /// O VEREDITO DA PRÉVIA. Nulo no perfil legado, que classifica por
+  /// `valido`/`duplicadoNoSistema` e continua funcionando como antes.
+  classificacao ClassificacaoLinha?
+  /// Por que ficou em conflito — só preenchido quando `classificacao = CONFLITO`.
+  motivoConflito MotivoConflito? @map("motivo_conflito")
+  /// Cadastro que a prévia apontou como candidato. NÃO é decisão: é a pessoa
+  /// que o operador vai olhar para dizer se é a mesma ou não.
+  candidatoId    String?         @map("candidato_id")
+  /// Resposta do operador. PENDENTE bloqueia a confirmação — é o que garante
+  /// que ninguém importe conflito sem olhar.
+  decisao        DecisaoConflito @default(PENDENTE)
+  decididoPor    String?         @map("decidido_por")
+  decididoEm     DateTime?       @map("decidido_em")
+
+  /// DIFERENÇAS QUE ESTA LINHA PRODUZIU — `{campo: {de, para}}`.
+  ///
+  /// É o coração da auditoria: sem ele, "atualizados: 312" é um número que
+  /// ninguém consegue conferir nem desfazer. Gravado na aplicação (prévia) e
+  /// reconfirmado na execução.
+  alteracoes Json?
+
   // Resultado da importação
   resultado          String? // IMPORTADO | ATUALIZADO | IGNORADO | ERRO
   filiadoId          String?  @map("filiado_id")
+  /// Vínculo criado ou atualizado por esta linha.
+  vinculoId          String?  @map("vinculo_id")
   createdAt          DateTime @default(now()) @map("created_at")
 
   importacao Importacao @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
@@ -879,6 +1120,8 @@ model ImportacaoLinha {
   @@index([importacaoId])
   @@index([importacaoId, valido])
   @@index([cpf])
+  /// Filtros da tela de revisão: "mostre só os conflitos", "só os novos".
+  @@index([importacaoId, classificacao])
   @@map("importacao_linhas")
 }
 
@@ -1242,12 +1485,13 @@ model Colaborador {
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
-  cargo        Cargo                  @relation(fields: [cargoId], references: [id])
-  departamento Departamento           @relation(fields: [departamentoId], references: [id])
-  empresa      Empresa?               @relation(fields: [empresaId], references: [id], onDelete: SetNull)
-  historico    ColaboradorHistorico[]
-  documentos   Documento[]
-  presencas    Presenca[]
+  cargo           Cargo                  @relation(fields: [cargoId], references: [id])
+  departamento    Departamento           @relation(fields: [departamentoId], references: [id])
+  empresa         Empresa?               @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+  historico       ColaboradorHistorico[]
+  documentos      Documento[]
+  presencas       Presenca[]
+  registrosAcesso RegistroAcesso[]
 
   @@index([status])
   @@index([cargoId])
@@ -2441,4 +2685,37 @@ enum DecisaoDuplicata {
   DISTINTOS
   /// Fundidos: os dados foram consolidados no mantido e o outro, apagado.
   FUNDIDO
+}
+
+/// A identidade visual DESTA instalação, editável pela tela.
+///
+/// A paleta e os logos nasceram em arquivo (`tenant.config.ts` e `/public`), o
+/// que exigia programador e deploy para trocar a cor de um sindicato. Aqui eles
+/// passam a ser dado — e o arquivo continua sendo o PADRÃO, usado enquanto
+/// ninguém mexeu e como rede de segurança se o banco estiver fora do ar.
+///
+/// LINHA ÚNICA, com id fixo. Não é uma tabela de configurações genérica: cada
+/// banco é de um sindicato só, então "a identidade" é uma coisa só. Um id fixo
+/// torna a gravação um `upsert` trivial e impede duas linhas concorrentes.
+model IdentidadeVisual {
+  id String @id @default("unica")
+
+  /// Cor institucional escolhida, em hexadecimal (#RRGGBB). Os dez tons da
+  /// escala são DERIVADOS dela na tela — guardar os dez aqui deixaria o banco
+  /// e o algoritmo saírem de sincronia na primeira melhoria do algoritmo.
+  corPrimaria String? @map("cor_primaria")
+
+  /// Chaves no storage. Nulo = usa o arquivo de `/public`, pelo nome do tenant.
+  logoHorizontalCorKey    String? @map("logo_horizontal_cor_key")
+  logoHorizontalBrancoKey String? @map("logo_horizontal_branco_key")
+  logoVerticalCorKey      String? @map("logo_vertical_cor_key")
+  logoVerticalBrancoKey   String? @map("logo_vertical_branco_key")
+  /// Ícone da aba do navegador e do app instalado (PWA). Quadrado.
+  iconeKey                String? @map("icone_key")
+
+  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
+  /// Snapshot do nome de quem mexeu; sobrevive à exclusão do usuário.
+  atualizadoPor String?  @map("atualizado_por")
+
+  @@map("identidade_visual")
 }

@@ -18,6 +18,8 @@ import {
   type LinkAberto, type FiliadoRecadastro, type VinculoFiliado, type DependenteFiliado,
 } from '@/lib/recadastro';
 import { travado, type CampoImutavel } from '@/lib/campos-imutaveis';
+import { tenant } from '@/tenant.config';
+import { campoVisivel } from '@/tenant.config';
 
 const campo = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-11';
 
@@ -289,7 +291,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
           <h1 className="text-lg font-bold">Link indisponível</h1>
           <p className="max-w-sm text-sm text-muted-foreground">{erroLink}</p>
           <p className="max-w-sm text-xs text-muted-foreground">
-            Entre em contato com o SENATEPI para receber um novo link de recadastramento.
+            Entre em contato com o {tenant.sigla} para receber um novo link de recadastramento.
           </p>
         </div>
       </Moldura>
@@ -300,10 +302,10 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     return (
       <Moldura>
         <div className="flex flex-col items-center gap-3 py-12 text-center">
-          <CheckCircle2 className="h-12 w-12 text-senatepi-600" />
+          <CheckCircle2 className="h-12 w-12 text-brand-600" />
           <h1 className="text-lg font-bold">Cadastro atualizado!</h1>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Obrigado, {link?.primeiroNome}. Seus dados foram enviados ao SENATEPI e serão
+            Obrigado, {link?.primeiroNome}. Seus dados foram enviados ao {tenant.sigla} e serão
             conferidos pela equipe.
           </p>
           <p className="max-w-sm text-xs text-muted-foreground">
@@ -322,8 +324,8 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
       <Moldura>
         <div className="mx-auto max-w-sm space-y-5 py-6">
           <div className="text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-senatepi-50 dark:bg-senatepi-900/30">
-              <Lock className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" />
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-900/30">
+              <Lock className="h-6 w-6 text-brand-800 dark:text-brand-400" />
             </div>
             <h1 className="text-lg font-bold">Olá, {link?.primeiroNome}!</h1>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -493,9 +495,11 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
                 <Input className={campo} value={f.formacaoOutro ?? ''} onChange={(e) => set('formacaoOutro', e.target.value)} />
               </Campo>
             )}
-            <Campo label="Número do COREN" dica="Formato: COREN-PI 000000-ENF">
-              <Input className={campo} value={f.numeroCoren ?? ''} onChange={(e) => set('numeroCoren', e.target.value)} />
-            </Campo>
+            {campoVisivel('numeroCoren') && (
+              <Campo label="Número do COREN" dica="Formato: COREN-PI 000000-ENF">
+                <Input className={campo} value={f.numeroCoren ?? ''} onChange={(e) => set('numeroCoren', e.target.value)} />
+              </Campo>
+            )}
             <Campo label="Data de admissão">
               <Input className={campo} type="date" {...LIMITES_DATA_PASSADA} value={f.dataAdmissao?.slice(0, 10) ?? ''} onChange={(e) => set('dataAdmissao', e.target.value)} />
             </Campo>

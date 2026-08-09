@@ -1,3 +1,4 @@
+import { StorageService, apenasDigitosCnpj, formatarCnpj } from '@core/infra';
 import {
   BadRequestException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
@@ -6,8 +7,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { apenasDigitosCnpj, formatarCnpj } from '../../common/utils/cnpj.util';
+
 import {
   HomologarContribuicaoDto, ListarContribuicoesAdminQueryDto, RejeitarContribuicaoDto,
 } from './dto/auditoria-contribuicao.dto';

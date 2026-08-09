@@ -41,6 +41,9 @@ import {
   PROVIDENCIA_LABEL, type PublicacaoDjen,
 } from '@/lib/djen';
 import { classesCor } from '@/lib/paleta-cores';
+import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
+import { chaveLocal } from '@/lib/armazenamento';
 
 type Aba = 'timeline' | 'publicacoes' | 'notas' | 'documentos' | 'agenda' | 'partes' | 'auditoria';
 
@@ -105,7 +108,7 @@ function TramiteOrgaos({
         {!aberto && atual && (
           <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
             <span className="font-medium text-foreground">{atual.orgao}</span>
-            <span className="ml-1.5 rounded-full bg-senatepi-50 px-1.5 text-[9px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+            <span className="ml-1.5 rounded-full bg-brand-50 px-1.5 text-[9px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-400">
               atual
             </span>
           </span>
@@ -118,7 +121,7 @@ function TramiteOrgaos({
               <span className={cn('font-medium', i === 0 && 'text-foreground')}>{h.orgao}</span>
               <span className="text-muted-foreground">{periodo(h)}</span>
               {i === 0 && (
-                <span className="rounded-full bg-senatepi-50 px-1.5 text-[9px] font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+                <span className="rounded-full bg-brand-50 px-1.5 text-[9px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-400">
                   atual
                 </span>
               )}
@@ -181,14 +184,14 @@ function ValorCausaEditavel({
             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditando(false); }
           }}
           placeholder="R$ 0,00"
-          className="h-8 w-28 rounded border border-input bg-background px-2 text-sm outline-none focus:border-senatepi-500"
+          className="h-8 w-28 rounded border border-input bg-background px-2 text-sm outline-none focus:border-brand-500"
         />
         <button
           type="button"
           onClick={() => salvar.mutate()}
           disabled={salvar.isPending}
           title="Salvar"
-          className="rounded p-1 text-senatepi-800 hover:bg-muted dark:text-senatepi-400"
+          className="rounded p-1 text-brand-800 hover:bg-muted dark:text-brand-400"
         >
           {salvar.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
         </button>
@@ -246,11 +249,11 @@ export function ProcessoDetalheSheet({
   const [dossieAberto, setDossieAberto] = useState(true);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    setDossieAberto(window.sessionStorage.getItem('senatepi:dossie-datajud') !== 'recolhido');
+    setDossieAberto(window.sessionStorage.getItem(chaveLocal('dossie-datajud')) !== 'recolhido');
   }, []);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.sessionStorage.setItem('senatepi:dossie-datajud', dossieAberto ? 'aberto' : 'recolhido');
+    window.sessionStorage.setItem(chaveLocal('dossie-datajud'), dossieAberto ? 'aberto' : 'recolhido');
   }, [dossieAberto]);
   const [busca, setBusca] = useState('');
   const [filtroOrigem, setFiltroOrigem] = useState<'todas' | 'INTERNA' | 'DATAJUD'>('todas');
@@ -480,8 +483,8 @@ export function ProcessoDetalheSheet({
         <div className="shrink-0 border-b px-5 pb-3 pt-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-                <Gavel className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+                <Gavel className="h-5 w-5 text-brand-800 dark:text-brand-400" />
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -496,10 +499,10 @@ export function ProcessoDetalheSheet({
                   {/* Ação coletiva: o autor é o próprio sindicato. */}
                   {p?.tipoAcao === 'INSTITUCIONAL' && (
                     <span
-                      className="inline-flex items-center gap-1 rounded-full bg-senatepi-50 px-2.5 py-0.5 text-xs font-semibold text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300"
-                      title="Ação coletiva movida pelo SENATEPI em nome da categoria"
+                      className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300"
+                      title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
                     >
-                      🏛️ Ação Institucional (SENATEPI)
+                      🏛️ Ação Institucional ({tenant.sigla})
                     </span>
                   )}
                   {/* Bandeiras de atenção vindas do CNJ */}
@@ -580,7 +583,7 @@ export function ProcessoDetalheSheet({
                     </button>
                     {/* FILIADO — alarme só quando é mesmo um problema.
                         O aviso amarelo aparecia em TODO processo sem filiado,
-                        inclusive na ação institucional (SENATEPI × empresa), em
+                        inclusive na ação institucional (sindicato × empresa), em
                         que não existe filiado "dono" e o polo ativo está
                         corretamente cadastrado. Alarme que soa quando está tudo
                         certo ensina a equipe a ignorar alarme. Agora só acusa
@@ -600,7 +603,7 @@ export function ProcessoDetalheSheet({
                           <button
                             type="button"
                             onClick={() => { setAba('partes'); setVinculando(true); }}
-                            className="font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                            className="font-medium text-brand-800 hover:underline dark:text-brand-400"
                           >
                             Cadastrar
                           </button>
@@ -613,7 +616,7 @@ export function ProcessoDetalheSheet({
                       <button
                         type="button"
                         onClick={() => { setAba('partes'); setVinculando(true); }}
-                        className="font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                        className="font-medium text-brand-800 hover:underline dark:text-brand-400"
                       >
                         Vincular filiado
                       </button>
@@ -707,7 +710,7 @@ export function ProcessoDetalheSheet({
                   {(p.etiquetas ?? [])
                     .filter((e) => !(p.etiquetasAutomaticas ?? []).includes(e))
                     .map((e) => (
-                      <span key={e} className="rounded-full bg-senatepi-50 px-2.5 py-0.5 text-xs font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400">
+                      <span key={e} className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-800 dark:bg-brand-900/30 dark:text-brand-400">
                         {e}
                       </span>
                     ))}
@@ -724,7 +727,7 @@ export function ProcessoDetalheSheet({
                     <button
                       type="button"
                       onClick={() => { setEtiquetasEdit(p.etiquetas ?? []); setEditandoEtiquetas(true); }}
-                      className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-senatepi-400 hover:text-foreground"
+                      className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-brand-400 hover:text-foreground"
                     >
                       <Tag className="h-3 w-3" /> {(p.etiquetas?.length ?? 0) > 0 ? 'Editar etiquetas' : 'Adicionar etiqueta'}
                     </button>
@@ -892,7 +895,7 @@ export function ProcessoDetalheSheet({
                         className="flex min-w-0 flex-1 items-center gap-2 rounded text-left text-sm font-semibold"
                       >
                         <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', dossieAberto && 'rotate-90')} />
-                        <Landmark className="h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                        <Landmark className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
                         Dossiê DataJud
                         {instanciaExibida && (p.instancias?.length ?? 0) > 1 && (
                           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -957,7 +960,7 @@ export function ProcessoDetalheSheet({
                         {(p.assuntos?.length ? p.assuntos : [{ nome: p.assuntoPrincipal, codigo: null, principal: true }]).map((a, i) => (
                           <span key={i} className={cn(
                             'inline-flex rounded-full px-2.5 py-0.5 text-xs',
-                            a.principal ? 'bg-senatepi-50 font-medium text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400' : 'bg-muted text-muted-foreground',
+                            a.principal ? 'bg-brand-50 font-medium text-brand-800 dark:bg-brand-900/30 dark:text-brand-400' : 'bg-muted text-muted-foreground',
                           )}>
                             {a.nome}{a.principal ? ' · principal' : ''}
                           </span>
@@ -1022,7 +1025,7 @@ export function ProcessoDetalheSheet({
                         className={cn(
                           'rounded-full px-3 py-1 text-xs font-medium transition',
                           filtroInstancias.size === 0
-                            ? 'bg-senatepi-800 text-white shadow-sm'
+                            ? 'bg-brand-800 text-white shadow-sm'
                             : 'bg-muted text-muted-foreground hover:text-foreground',
                         )}
                       >
@@ -1050,7 +1053,7 @@ export function ProcessoDetalheSheet({
                             className={cn(
                               'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
                               marcada
-                                ? 'bg-senatepi-800 text-white shadow-sm'
+                                ? 'bg-brand-800 text-white shadow-sm'
                                 : 'bg-muted text-muted-foreground hover:text-foreground',
                             )}
                           >
@@ -1098,7 +1101,7 @@ export function ProcessoDetalheSheet({
                         className={cn(
                           'rounded-full px-3 py-1 text-xs font-medium transition',
                           !filtroCategoria
-                            ? 'bg-senatepi-800 text-white shadow-sm'
+                            ? 'bg-brand-800 text-white shadow-sm'
                             : 'bg-muted text-muted-foreground hover:text-foreground',
                         )}
                       >
@@ -1116,7 +1119,7 @@ export function ProcessoDetalheSheet({
                               onClick={() => setFiltroCategoria(ativo ? '' : cat)}
                               className={cn(
                                 'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition',
-                                ativo ? 'bg-senatepi-800 text-white shadow-sm' : cor.badge,
+                                ativo ? 'bg-brand-800 text-white shadow-sm' : cor.badge,
                               )}
                             >
                               {CATEGORIA_LABEL[cat]}
@@ -1347,7 +1350,7 @@ export function ProcessoDetalheSheet({
                         {p.totais.filiados > 1 && ` · +${p.totais.filiados - 1} outro(s) neste processo`}
                       </p>
                       <div className="flex items-start gap-3">
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-lg font-bold text-senatepi-900">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-400 text-lg font-bold text-brand-900">
                           {p.filiado.nomeCompleto.charAt(0)}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -1484,7 +1487,7 @@ function NotaInternaRapida({ processoId, onRegistrada }: { processoId: string; o
     <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
       <textarea
         className="min-h-[70px] w-full resize-y rounded-md border border-input bg-background p-2.5 text-sm"
-        placeholder="Ex.: filiado ligou pedindo posição; combinei retorno na sexta."
+        placeholder={`Ex.: ${V.filiado} ligou pedindo posição; combinei retorno na sexta.`}
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
       />
@@ -1505,8 +1508,8 @@ function NotaInternaRapida({ processoId, onRegistrada }: { processoId: string; o
  */
 function SinteseAto({ texto }: { texto: string }) {
   return (
-    <div className="mt-2 rounded-md border-l-2 border-senatepi-400 bg-senatepi-50/60 py-1.5 pl-2.5 pr-2 dark:border-senatepi-600 dark:bg-senatepi-900/15">
-      <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-senatepi-800/70 dark:text-senatepi-400/80">
+    <div className="mt-2 rounded-md border-l-2 border-brand-400 bg-brand-50/60 py-1.5 pl-2.5 pr-2 dark:border-brand-600 dark:bg-brand-900/15">
+      <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-brand-800/70 dark:text-brand-400/80">
         <ScrollText className="h-3 w-3" /> Síntese do ato
       </p>
       <TextoExpansivel texto={texto} nu />
@@ -1539,7 +1542,7 @@ function TextoExpansivel({ texto, limite = 180, nu }: { texto: string; limite?: 
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
-        className="mt-1 text-[11px] font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+        className="mt-1 text-[11px] font-medium text-brand-800 hover:underline dark:text-brand-400"
       >
         {aberto ? 'ver menos' : 'ver mais'}
       </button>
@@ -1675,7 +1678,7 @@ function AbaPublicacoes({
                     href={pub.link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                    className="flex items-center gap-1 font-medium text-brand-800 hover:underline dark:text-brand-400"
                   >
                     <ExternalLink className="h-3 w-3" /> Ver no tribunal
                   </a>
@@ -1907,7 +1910,7 @@ function ItemLinhaTempo({
             href={item.anexo.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-senatepi-800 hover:bg-muted dark:text-senatepi-400"
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-brand-800 hover:bg-muted dark:text-brand-400"
           >
             <Paperclip className="h-3 w-3" /> {item.anexo.nomeArquivo} <Download className="h-3 w-3" />
           </a>

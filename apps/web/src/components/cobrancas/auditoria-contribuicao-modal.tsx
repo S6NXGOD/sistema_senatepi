@@ -142,7 +142,7 @@ export function AuditoriaContribuicaoModal({
         <div className="flex flex-wrap items-start justify-between gap-3 border-b p-4 sm:p-5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Building2 className="h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+              <Building2 className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
               <h3 className="truncate font-semibold">{contribuicao.empresa.razaoSocial}</h3>
               <Badge className={s.classe}>{s.label}</Badge>
             </div>
@@ -204,7 +204,7 @@ export function AuditoriaContribuicaoModal({
           {contribuicao.status === 'HOMOLOGADA' && (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ShieldCheck className="h-3.5 w-3.5 text-senatepi-600" />
+                <ShieldCheck className="h-3.5 w-3.5 text-brand-600" />
                 Homologada{contribuicao.analista ? ` por ${contribuicao.analista}` : ''}
                 {contribuicao.analisadoEm && ` em ${new Date(contribuicao.analisadoEm).toLocaleString('pt-BR')}`}
                 {contribuicao.movimentacaoId ? ' · entrada lançada no caixa.' : ' · sem lançamento no caixa.'}

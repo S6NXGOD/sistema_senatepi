@@ -32,6 +32,7 @@ import {
   CertificadoPublicoController, PlenarioAdminController, PlenarioPublicoController,
 } from './plenario.controller';
 import { lerConfiguracoes, normalizarConfiguracoes } from './configuracoes-evento';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 class CreateEventoDto {
   @ApiProperty() @IsString() nome: string;
@@ -176,6 +177,7 @@ export class EventosService {
 
 @ApiTags('eventos')
 @ApiBearerAuth()
+@ModuloTenant('eventos')
 @Controller('eventos')
 class EventosController {
   constructor(private readonly service: EventosService) {}

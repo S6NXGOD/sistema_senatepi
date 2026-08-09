@@ -51,8 +51,8 @@ export function CrachaDialog({
       >
         <div className="flex items-center justify-between border-b p-5">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-              <QrCode className="h-4.5 w-4.5 text-senatepi-800 dark:text-senatepi-400" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+              <QrCode className="h-4.5 w-4.5 text-brand-800 dark:text-brand-400" />
             </span>
             <div className="min-w-0">
               <h3 className="text-base font-bold">Crachá e QR de entrada</h3>

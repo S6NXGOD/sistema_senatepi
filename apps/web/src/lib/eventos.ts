@@ -1,4 +1,5 @@
 import { api } from './api';
+import { chaveLocal } from '@/lib/armazenamento';
 
 /**
  * Plenário Virtual — assembleias, cursos e sorteios.
@@ -41,7 +42,7 @@ export const STATUS_EVENTO_LABEL: Record<StatusEvento, string> = {
 
 export const STATUS_EVENTO_COR: Record<StatusEvento, string> = {
   AGENDADO: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
-  EM_ANDAMENTO: 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100',
+  EM_ANDAMENTO: 'bg-brand-100 text-brand-900 dark:bg-brand-900/40 dark:text-brand-100',
   REALIZADO: 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200',
   CANCELADO: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-200',
 };
@@ -500,7 +501,7 @@ export async function votar(eventoId: string, pautaId: string, presencaId: strin
  * deixar o `presencaId` da pessoa anterior gravado permitiria a próxima votar
  * no lugar dela.
  */
-const CHAVE = (eventoId: string) => `senatepi:sala:${eventoId}`;
+const CHAVE = (eventoId: string) => chaveLocal('sala', eventoId);
 
 export function guardarPresenca(eventoId: string, presencaId: string) {
   try { sessionStorage.setItem(CHAVE(eventoId), presencaId); } catch { /* modo privado */ }

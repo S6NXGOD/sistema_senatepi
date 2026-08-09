@@ -1,9 +1,12 @@
+import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
+
 import { AudienciasService } from './audiencias.service';
 import { ProcessosService } from './processos.service';
+import { pularJobSemModulo } from '../../tenant/job-do-modulo';
+import { integracaoAtiva } from '../../tenant/tenant.config';
 
 /**
  * Robô de sincronização do DATAJUD.
@@ -39,6 +42,15 @@ export class ProcessosCronService {
 
   @Cron('0 2 * * *', { name: 'datajud-sync', timeZone: 'America/Fortaleza' })
   async sincronizarAtivos() {
+    if (pularJobSemModulo('processos', this.logger, 'DATAJUD-SYNC')) return;
+    if (!integracaoAtiva('datajud', process.env.DATAJUD_INTEGRACAO)) {
+      // Instalação com acervo jurídico mas sem consulta ao CNJ: os processos
+      // existem e são editados à mão, e a varredura noturna simplesmente não
+      // acontece. Em `debug` porque, ali, isso é o esperado todo dia.
+      this.logger.debug('[DATAJUD-SYNC] Integração não faz parte desta instalação.');
+      return;
+    }
+
     // Trava no banco, e não em memória: com duas réplicas da API, dois
     // booleanos de instância valeriam `false` ao mesmo tempo e as duas varreriam
     // o acervo em paralelo — o dobro de chamadas ao CNJ.

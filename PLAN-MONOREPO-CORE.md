@@ -190,6 +190,11 @@ SENATEPI hoje.
 
 ### FASE 3 — Extrair os pacotes (≈ 1 semana · risco médio)
 
+> ⚠️ **Esta fase foi executada só até a metade, e de propósito.** A 3a
+> extraiu `@core/infra` e provou a mecânica. A 3b mediu o jurídico e
+> encontrou dois impedimentos que mudaram o desenho — a leitura abaixo
+> continua válida como história, mas **o que valeu está na §15**.
+
 Só agora, e só o que a Fase 0–2 provou ser neutro.
 
 **Ordem recomendada — do menos acoplado para o mais:**
@@ -218,17 +223,30 @@ sem que o core saiba.
 
 ### FASE 4 — Deploy (≈ 1 dia · risco controlado)
 
-Se as pastas de `apps/senatepi` mantiverem `api/` e `web/` como estão hoje, o
-**Root Directory** do Railway muda de `apps/api` para `apps/senatepi/api`. É uma
-alteração de configuração, feita com o serviço no ar e revertível em um clique.
+> **Reescrito depois da Fase 3b.** A versão anterior previa mover a API para
+> `apps/senatepi/api` e trocar o **Root Directory** no Railway. Isso deixou de
+> existir: os caminhos não mudam, e o serviço do SENATEPI em produção continua
+> apontando para `apps/api` e `apps/web`.
+
+O que o deploy do SENATEPI passa a exigir são **duas variáveis**:
+
+| Serviço | Variável | Valor |
+|---|---|---|
+| API | `TENANT` | `senatepi` |
+| Web | `NEXT_PUBLIC_TENANT` | `senatepi` |
+
+**Esquecê-las derruba o serviço, de propósito** — a alternativa silenciosa seria
+subir com o cliente errado por cima do banco certo. Configure-as **antes** do
+merge; elas não afetam o código atual, que ainda não as lê.
+
+`NEXT_PUBLIC_TENANT` é lida no **build**, não no start: trocá-la exige rebuild.
+Isso é correto, porque a paleta é compilada dentro do CSS pelo Tailwind.
 
 **Ordem segura:**
-1. Merge da branch com produção **ainda apontando para os caminhos antigos**
-   (mantenha `apps/api` como link ou faça o merge só depois do passo 2).
-2. Criar um **serviço de teste** no Railway apontando para os caminhos novos e
-   para um banco de cópia.
-3. Confirmado o teste, trocar o Root Directory dos serviços de produção.
-4. Rollback = voltar o Root Directory.
+1. Definir as duas variáveis nos serviços de produção (sem efeito ainda).
+2. Merge da branch.
+3. Conferir no ar: identidade, menu, e uma tela de cada módulo.
+4. Rollback = `git revert` do merge. O schema é aditivo; nada some.
 
 ---
 
@@ -245,7 +263,7 @@ core e o que não é.
 | Empregador | Hospitais, clínicas, fundações | Prefeitura de Teresina e suas secretarias | "Empresas Patronais" vira "Órgãos" ou é desligado |
 | Justiça | **TRT22** (celetista) | **TJPI** para estatutário, TRT22 para celetista | O jurídico precisa dos dois — e já tem |
 | Contribuição | Desconto em folha, avulso, pensionista | Desconto em folha da Prefeitura | `ModalidadeContribuicao` provavelmente muda |
-| Colônia de férias | Sim | A confirmar | Módulo ligável (Fase 1) |
+| Colônia de férias | Sim | **Não** — têm clube, com entrada por carteirinha/QR | Módulo ligável (Fase 1); o clube virou o módulo `acessos` |
 | Vínculo | Formação profissional | Cargo, secretaria de lotação, regime (estatutário/celetista/comissionado), data de posse | **Campos customizados** (Fase 2) |
 
 **A boa notícia sobre o jurídico:** o core já atende os dois. Ao longo do
@@ -260,7 +278,7 @@ campos do `Filiado` foram desenhados para enfermagem. Este é o módulo que
 justifica a Fase 2 — e é por isso que ela deixou de ser opcional.
 
 **Três perguntas a fazer ao SINDSERM antes da Fase 2**, porque as respostas
-definem os campos customizados:
+definem os campos customizados. ✅ **Todas respondidas — ver §9.**
 
 1. Quais dados do servidor vocês precisam guardar que o SENATEPI não guarda?
    (matrícula funcional, secretaria, cargo, regime, data de posse, lotação…)
@@ -390,40 +408,61 @@ você não lembra.
 
 ## 9. Como nasce um cliente novo
 
-Depois das Fases 0–2, criar um cliente é **dias, não meses**. Roteiro, usando o
-SINDSERM como exemplo:
+> **Reescrito depois da Fase 3b.** O roteiro anterior criava uma pasta
+> `apps/<cliente>/` com api, web e schema próprios. Não é mais assim: os apps
+> são únicos e o cliente é configuração. Ver §15.
 
-```bash
-# 1. estrutura do app, a partir da forma do SENATEPI
-apps/sindserm/
-├── api/            (NestJS: importa os cores + módulos próprios)
-├── web/            (Next.js: importa core-ui + páginas próprias)
-└── tenant.config.ts
-```
+Criar um cliente é **dias, não meses**. Roteiro, usando o SINDSERM:
 
-2. `apps/sindserm/tenant.config.ts` — nome, sigla, CNPJ, cores, logo, módulos
-   ativos, vocabulário (`servidor` em vez de `filiado`, se for o caso).
-3. `apps/sindserm/api/prisma/schema/` — `_core.prisma` (cópia do core) +
-   `sindserm.prisma` (models próprios). Ver §11.
-4. Projeto novo no Railway: API + Web + Postgres. **Banco vazio e separado.**
-5. `prisma migrate deploy` — as migrations rodam do zero no banco novo.
-6. Seed do cliente: perfis de acesso, tipos de evento, cargos, campos
-   customizados, tipos de andamento.
-7. Deploy.
+1. `apps/api/src/tenant/tenants/<cliente>.ts` — identidade, CNPJ, endereço,
+   conta, vocabulário, módulos, campos ocultos.
+2. `apps/web/src/tenant/tenants/<cliente>.ts` — o espelho da tela, mais a
+   **paleta** (dez tons; o Tailwind não emite classe para tom inexistente).
+3. Registrar os dois no `TENANTS` do respectivo `tenant.config.ts`.
+4. Acrescentar o cliente à matriz da CI (`.github/workflows/ci.yml`) — sem isso
+   ele não é construído a cada push, que é justamente o que impede quebrá-lo em
+   silêncio.
+5. Projeto novo no Railway: API + Web + Postgres. **Banco vazio e separado.**
+   `TENANT` na API, `NEXT_PUBLIC_TENANT` no web, `SEED_ADMIN_EMAIL` e
+   `SEED_ADMIN_PASSWORD` no primeiro deploy.
+6. `prisma migrate deploy` roda no start e cria o banco do zero.
+7. O `AdminSeedService` cria o administrador **só se o banco estiver vazio**, e
+   em produção **exige** `SEED_ADMIN_PASSWORD` — sem ela, nenhum admin é criado
+   e o log diz por quê.
 
 **Nada é compartilhado em runtime.** Se o SINDSERM cair, o SENATEPI não sente —
-são bancos, deploys e domínios diferentes.
+são bancos, serviços e domínios diferentes. O que passa a ser compartilhado é o
+CÓDIGO, e é por isso que a CI constrói todos os clientes a cada push.
 
-### O que decidir com o SINDSERM antes do passo 2
+### O que verificar em um cliente novo, sempre
 
-- **Módulos ativos:** Colônia de Férias? Eventos? Carteirinha? Empresas
-  Patronais (que para eles seriam órgãos da Prefeitura)?
-- **Vocabulário:** "filiado", "associado" ou "servidor"? "matrícula" ou
-  "inscrição"?
-- **Campos próprios do cadastro:** matrícula funcional, secretaria de lotação,
-  cargo, regime, data de posse.
-- **IP para o DJEN:** se o jurídico deles for usar publicações, o deploy precisa
-  sair de um IP que o CNJ aceite (§12.1).
+Cada item abaixo já mordeu uma vez:
+
+| Verificar | Por quê |
+|---|---|
+| Rotas do módulo desligado respondem 404 na API **e** somem do front | guarda de rota não cobre URL digitada; ver `GateDeModulo` |
+| Nenhum **seed de boot** de módulo desligado roda | o seed da colônia criava 5 lotes e 30 quartos num sindicato sem colônia |
+| Nenhum **cron** de módulo desligado roda | cron não passa por guarda: é registrado no boot e dispara sozinho |
+| Campo escondido não é **obrigatório** em lugar nenhum | esconder um campo obrigatório trava o cadastro sem dizer por quê |
+| Campo escondido também some da **leitura** | escondido na entrada e visível na lista, no detalhe e no dossiê |
+| A cor institucional aparece no CSS **gerado** | a paleta é compilada; o `.next` reaproveita o CSS do build anterior |
+
+### Respostas do SINDSERM
+
+As três perguntas do §5 foram respondidas:
+
+1. **Dados do servidor:** foto, situação funcional (ativo/aposentado/pensionista),
+   órgão, lotação, matrícula da Prefeitura, nome, cargo/carreira/especialidade,
+   CPF, e-mail, telefone, endereço, admissão, nascimento, desconto do sindicato
+   (sim/não), carteirinha com QR e dependentes (pai, mãe, filho e cônjuge).
+   **Todos cabem no schema atual** — `vinculo_funcional` e `lotacao` foram as
+   duas colunas novas; `PAI` e `MAE` entraram em `TipoDependente`.
+2. **Contribuição:** somente desconto em folha da Prefeitura. Por isso
+   `cobrancas` fica desligada, e o tenant não tem conta bancária — a linha
+   simplesmente não sai no termo.
+3. **Módulos:** sem colônia; **com clube**, cuja entrada é validada por
+   carteirinha com QR, matrícula ou CPF. Foi o que originou a portaria
+   (`acessos`). `empresas` desligada: o empregador é um só, a Prefeitura.
 
 ---
 
@@ -792,3 +831,632 @@ no TRT22, e o core já atende os dois sem uma linha nova.
 outro cliente antes: as Fases 0 e 1 mudam o código que está em produção hoje. O
 que a branch garante é que nada chega lá antes de você mandar — e que o rollback
 é um `git revert`.
+
+---
+
+## 15. Fase 3b — a bifurcação, medida
+
+> Seção escrita **depois** da Fase 3a, com números colhidos no código e um teste
+> executado. Ela corrige o §3 e o §11 deste plano em um ponto que muda o desenho.
+
+### O que a Fase 3a provou
+
+`@core/infra` (storage, QR Code, utilitários) saiu da API e funciona: o
+TypeScript acha os tipos, o Node acha o código em produção e a injeção de
+dependência do Nest atravessa a fronteira do pacote — a API **compilada** sobe
+inteira. 221 testes preservados (199 na API + 22 no pacote).
+
+Essa era a pergunta da Fase 3a, e a resposta é sim.
+
+### O que a medição do jurídico mostrou
+
+O módulo `processos` (11.236 linhas) + `agenda` (2.012, que vem junto) importa
+de fora de si mesmo:
+
+| Dependência | Vezes | Natureza |
+|---|---|---|
+| `prisma/prisma.service` | 14 | **acesso a 14 models do banco** |
+| `common/audit/audit.service` | 5 | depende de Prisma |
+| `common/permissions/*` | 6 | é o RBAC — ou seja, `core-identidade` |
+| `common/decorators/*` | 6 | idem |
+| `tenant/tenant.config` | 1 | contrato do tenant |
+| `agenda/*` | 2 | outro core |
+
+**Correção ao §3:** os pacotes não são independentes. `core-juridico` **não pode
+vir antes** de `core-identidade` — o §14 recomendava exatamente o contrário
+("core-juridico antes"). A ordem real é imposta pelo grafo de dependências, não
+por valor comercial.
+
+### O teste que decide
+
+Se cada cliente é um app com o próprio schema (§11), os dois apps convivem no
+mesmo workspace. Testei se dois schemas podem coexistir:
+
+```bash
+# schema do "cliente 2", com um único model
+npx prisma generate --schema apps/api/prisma/_teste/cliente2.prisma
+```
+
+| | antes | depois |
+|---|---|---|
+| `export type Processo` no client gerado | 1 | **0** |
+| `export type ServidorMunicipal` | 0 | **1** |
+
+**O segundo `prisma generate` apaga o client do primeiro.** O client é gerado em
+`node_modules/.prisma/client`, que o npm workspaces **içou para a raiz** — é um
+lugar só, e o último a gerar vence.
+
+A saída seria dar a cada app um `output` próprio. Só que aí um pacote
+compartilhado deixa de poder fazer `import { Prisma } from '@prisma/client'` —
+e são **14 pontos** no jurídico que perderiam tipagem, ou exigiriam plumbing de
+genéricos em 13 mil linhas.
+
+### As duas saídas honestas
+
+**(A) Dois apps + pacotes compartilhados** — o plano como está escrito. Exige,
+nesta ordem: `output` de Prisma por app, `core-identidade`, `core-persistencia`,
+e só então `core-juridico`. É a arquitetura certa para 5+ clientes. Custo: uma a
+duas semanas, sem nada visível para o usuário no fim.
+
+**(B) Um app, cliente escolhido por `TENANT`** — o mesmo código para todos, e a
+instalação decide o que existe. Isto **já está construído**: as Fases 0/1/2
+entregaram `tenant.config.ts`, `@ModuloTenant`, `ModuloAtivoGuard` (404) e
+`camposOcultos`. Falta só o config deixar de ser um arquivo e virar uma escolha
+por variável de ambiente. Cada cliente continua com **banco próprio e serviço
+próprio no Railway** — a exigência do §1 é atendida igual.
+
+|  | (A) dois apps | (B) um app + `TENANT` |
+|---|---|---|
+| Bancos isolados | sim | sim |
+| Migrations | uma cópia por app, à mão (§11) | **uma história só** |
+| Prisma client | um `output` por app | **um só** |
+| Módulo desligado no cliente | não é compilado | 404 pelo guard + menu escondido |
+| Tabela de outro cliente no banco | não existe | existe, vazia |
+| Trabalho restante | 1–2 semanas | ~1 dia |
+
+**O preço real de (B)** é o único ponto em que (A) ganha: o banco do SINDSERM
+carregaria as tabelas da colônia do SENATEPI, vazias, e uma migration de um
+cliente roda no banco de todos. Com dois a quatro clientes isso é ruído. Com
+dez, é bagunça — e aí (A) deixa de ser prematura e passa a ser necessária.
+
+Vale lembrar a régua que este próprio plano fixou no §3: *extrair cedo demais
+custa duas refatorações*. Com um cliente em produção e um segundo por nascer,
+(B) é o que a régua manda.
+
+### A decisão, nas palavras do cliente
+
+> *"Cada cliente tem seu banco de dados, mas alguns módulos são CORE, como por
+> exemplo o jurídico, que não muda muito de um sindicato ao outro. Cada sindicato
+> é independente, mas a 'forma de bolo' é a mesma. Se o módulo jurídico
+> atualizar, atualiza em todos os sindicatos, mas caso o sindicato queira algo em
+> específico no módulo jurídico, faz alterações só no tenant dele. Em resumo, é
+> praticamente o mesmo código pra todos, mas alguns módulos vão ficar padrão como
+> já está e outros não serão necessários ou serão necessários porém com
+> mudanças."*
+
+É a saída **(B)**, e ela está implementada. Um build serve a todos; `TENANT` diz
+de qual sindicato é a instalação.
+
+### Os três mecanismos para um cliente variar, em ordem de preferência
+
+| Quero… | Uso | Onde |
+|---|---|---|
+| que o módulo não exista aqui | `modulos` | menu some **e** a rota some (front) **e** a API responde 404 |
+| que um campo não seja pedido | `camposOcultos` | esconde na tela; a coluna continua no banco |
+| que se chame outra coisa | `vocabulario` | «servidor» em vez de «filiado» |
+
+**A regra que evita o pior erro:** nunca apagar coluna para agradar um cliente.
+O `formacao` some da tela do SINDSERM e continua guardando o histórico inteiro
+do SENATEPI. Uma migration destrutiva roda em todos os bancos.
+
+Quando nenhum dos três resolve — o cliente precisa de comportamento **diferente**
+no mesmo módulo —, o caminho é um ponto de extensão nomeado no core, não um `if
+(tenant.id === 'x')` no meio da lógica. O §10 já descreve os três formatos
+(fonte adicional, evento de domínio, slot na tela).
+
+### O que a Fase 4 (deploy) ganha de obrigação
+
+**Duas variáveis novas, e esquecê-las derruba o serviço** — de propósito, porque
+a alternativa silenciosa é pior (ver o comentário em `tenant.config.ts`):
+
+| Serviço | Variável | Valor |
+|---|---|---|
+| API do SENATEPI | `TENANT` | `senatepi` |
+| Web do SENATEPI | `NEXT_PUBLIC_TENANT` | `senatepi` |
+| API do SINDSERM | `TENANT` | `sindserm` |
+| Web do SINDSERM | `NEXT_PUBLIC_TENANT` | `sindserm` |
+
+`NEXT_PUBLIC_TENANT` é lida no **build**, não no start: mudá-la exige rebuild, e
+isso é correto — a paleta é compilada dentro do CSS pelo Tailwind.
+
+### O que sobrou pendente do SINDSERM
+
+Os campos marcados «confirmar» em `apps/api/src/tenant/tenants/sindserm.ts`:
+CNPJ, registro sindical, endereço, percentual da contribuição, cores
+institucionais, e se `cobrancas` e `empresas` ficam mesmo desligadas. Estão
+todos num arquivo só, para serem resolvidos numa passada.
+
+### Vocabulário: concluído
+
+`tenant.vocabulario` existia desde a Fase 0 e **não era lido por ninguém** — a
+configuração estava lá e a tela continuava com o texto escrito à mão. `V`
+(`apps/web/src/lib/vocabulario.ts`) é a ponte, com as quatro formas que o
+português exige prontas (`filiado`, `filiados`, `Filiado`, `Filiados`, mais
+`matricula`), em vez de espalhar `.toUpperCase()` pela interface.
+
+**71 trocas em 36 arquivos.** Zero ocorrência de «filiado» sobrou em texto de
+tela.
+
+O que o inventário mostrou, e por que a substituição automática teria sido um
+desastre:
+
+| | Quantidade | Ação |
+|---|---|---|
+| Identificadores — `/filiados` (rota), `'filiados'` (chave), `filiadoId`, `type Filiado` | **383** | **intocados** — trocar qualquer um quebra o sistema sem mudar uma palavra na tela |
+| Texto de tela — JSX, `label`, `placeholder`, `title`, `toast` | 68 | trocados |
+| Rótulos em `lib/` — desfecho, providência, aviso legal | 6 | trocados |
+
+Ficaram de fora, de propósito: `'FILIADO' | 'COLABORADOR'` (valor que vem da
+API), `'CARTEIRA_FILIADO'` (enum) e a menção em comentário de `permissoes.ts`,
+que é registro histórico e não tela.
+
+Verificado executando com os dois tenants: menu, matriz de permissões, rótulo de
+cancelamento e providência do DJEN saem «Filiado…» no SENATEPI e «Servidor…» no
+SINDSERM.
+
+---
+
+## 16. O SINDSERM já roda — como testar hoje, sem Railway
+
+Não é projeção: o segundo cliente foi levantado localmente e verificado.
+
+### O que foi feito, e o resultado
+
+```bash
+# 1. banco novo, vazio, separado
+CREATE DATABASE sindserm_dev;
+
+# 2. o histórico INTEIRO de migrations roda do zero
+DATABASE_URL=".../sindserm_dev" npx prisma migrate deploy
+#   → All migrations have been successfully applied.
+
+# 3. a API sobe como SINDSERM contra o banco dele
+TENANT=sindserm DATABASE_URL=".../sindserm_dev" \
+  SEED_ADMIN_EMAIL="admin@sindserm.org.br" node dist/src/main.js
+```
+
+| Verificação | Resultado |
+|---|---|
+| Migrations do zero em banco novo | ✅ todas aplicadas |
+| API sobe como SINDSERM | ✅ |
+| Admin criado com o e-mail do cliente certo | ✅ `admin@sindserm.org.br` |
+| Avisa que a senha padrão é insegura | ✅ (e em produção **recusa** criar sem `SEED_ADMIN_PASSWORD`) |
+| Seed da colônia **não** roda | ✅ nenhuma linha no log |
+| Portaria (`acessos`) montada | ✅ rotas mapeadas |
+| `GET /api/colonia/disponibilidade` (módulo desligado) | ✅ **HTTP 404** |
+| `GET /api/health` | ✅ HTTP 200 |
+| `POST /api/acessos/validar` | ✅ HTTP 401 (existe, pede autenticação) |
+
+O 404 da colônia é a prova que importa: não é menu escondido, é rota que **não
+existe** naquela instalação.
+
+### Rodar os dois, lado a lado
+
+```bash
+npm run dev            # SENATEPI  ·  API 3333  ·  web 3000  ·  banco "senatepi"
+npm run dev:sindserm   # SINDSERM  ·  API 3334  ·  web 3001  ·  banco "sindserm_dev"
+```
+
+Podem ficar no ar ao mesmo tempo, em dois terminais. Cada um tem porta, banco e
+diretório de build próprios.
+
+Entre no SINDSERM com `admin@sindserm.org.br`. O que muda em relação ao
+SENATEPI: **azul**, «Servidores» no menu, sem Colônia, sem Cobranças, sem
+Empresas, **com Portaria**, e o cadastro sem Formação e sem COREN.
+
+**O que faz isso funcionar** (`scripts/dev.js` e os arquivos de ambiente):
+
+| Arquivo | Conteúdo |
+|---|---|
+| `apps/api/.env` | base comum: segredos, JWT, storage |
+| `apps/api/.env.<cliente>` | **só o que muda**: `DATABASE_URL`, `API_PORT`, `SEED_ADMIN_EMAIL` |
+| `apps/web/.env.local` | base do front |
+| `apps/web/.env.<cliente>` | **só o que muda**: `NEXT_PUBLIC_API_URL` |
+
+O arquivo do cliente vence — funciona sem gambiarra porque o `ConfigModule` do
+Nest só grava em `process.env` a chave que ainda não existe. Nenhum `.env` vai
+para o git.
+
+O script é Node, e não variável na linha do npm, porque `TENANT=x npm run dev`
+funciona no bash e falha no cmd do Windows.
+
+### Onde se define a identidade visual
+
+Em **dois lugares**, e a ordem entre eles é o desenho:
+
+| O quê | Onde | Quem mexe |
+|---|---|---|
+| Cor institucional | **`/configuracoes` → Identidade visual** | o administrador do sindicato, sem deploy |
+| Logos (4 arquivos) | **`/configuracoes` → Identidade visual** | idem |
+| Cor e logo **padrão** | `tenant/tenants/<cliente>.ts` e `apps/web/public/` | o programador, no nascimento do cliente |
+| Nome, sigla, vocabulário | `tenant/tenants/<cliente>.ts`, nos dois apps | o programador |
+
+**O arquivo é o padrão; a tela é uma sobreposição.** Instalação que nunca mexeu
+abre com a marca compilada. Se o banco estiver fora do ar, idem — a identidade
+visual não pode ficar refém de uma consulta, e a tela de login precisa da marca
+antes de qualquer autenticação (por isso o `GET` é público).
+
+**UMA cor, não dez.** A escala de dez tons é derivada da cor institucional, com
+os fundos sólidos escurecidos até passarem em contraste AA com texto branco. Dez
+campos de cor pareceriam mais poderosos e produziriam, cedo ou tarde, um botão
+primário ilegível — este sistema já teve `bg-brand-700 text-white` como branco
+sobre branco. A tela mostra a prévia dos dez tons, um botão de exemplo e a
+conta do contraste em português.
+
+**Logo:** PNG, WebP ou SVG com fundo transparente, até 2 MB. Sem arquivo
+enviado, vale o de `/public`; sem esse, o componente escreve a **sigla** na cor
+da marca — um cliente novo fica apresentável antes de o designer entregar.
+
+Por baixo, `bg-brand-800` não guarda mais hexadecimal: lê
+`rgb(var(--brand-800) / <alpha-value>)`. Os valores vão em **canais**
+(`27 127 10`), porque é isso que permite ao Tailwind compor opacidade — com o
+hexadecimal dentro da variável, todo `bg-brand-400/20` do código quebraria.
+
+### O que ainda falta para o SINDSERM em PRODUÇÃO
+
+Nada de código. O que falta é do sindicato e da infraestrutura:
+
+1. Os campos «confirmar» de `tenant/tenants/sindserm.ts`: CNPJ, endereço,
+   registro sindical, percentual da contribuição e as cores institucionais
+   reais (a paleta azul de hoje é provisória).
+2. Projeto no Railway: API + Web + Postgres, com `TENANT`,
+   `NEXT_PUBLIC_TENANT`, `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD`.
+3. Carga inicial da base de servidores (a importação por CSV já existe).
+4. **Se o jurídico deles for usar o DJEN**, o IP do deploy precisa ser aceito
+   pelo CNJ — é a mesma pendência do SENATEPI (§12.1), e é o único item que não
+   depende só de nós.
+
+---
+
+## 17. Isolamento entre sindicatos — auditado
+
+Varredura completa em 08/08/2026, com os dois clientes no ar.
+
+### O que é separado, e por quê
+
+| Recurso | Separado por | Verificado |
+|---|---|---|
+| Banco de dados | `DATABASE_URL` por cliente | dois bancos locais; nada compartilhado |
+| Acervo de arquivos | `STORAGE_LOCAL_DIR` / bucket por cliente | upload do cliente 2 cai na pasta dele |
+| URL pública dos arquivos | `STORAGE_PUBLIC_URL` por cliente | URL assinada aponta para a API certa |
+| Segredo do JWT | `JWT_ACCESS_SECRET` por cliente | — |
+| **Fronteira do token** | **claim `tenant`, conferida na estratégia** | **token cruzado recusado MESMO com segredo igual** |
+| Segredo do QR | `QR_SIGNING_SECRET` por cliente | + assinatura já inclui token por pessoa |
+| CORS | origem do front do próprio cliente | preflight: 3001 permitido, 3000 negado |
+| Logo dos PDFs | nome derivado do `tenant.id` | — |
+| Chaves do navegador | prefixo `tenant.id` | — |
+| Diretório de build | `.next-<tenant>` | — |
+| Processo | um por cliente | sem estado global em memória |
+
+### As duas armadilhas que a auditoria encontrou
+
+**O logo dos PDFs.** Seis geradores liam `'senatepi-horizontal-branco.png'` com
+o nome escrito à mão. A carteirinha, o certificado e o termo de um filiado do
+SINDSERM sairiam com a marca do SENATEPI — impressos, na mão dele.
+
+**Os valores de reserva dos segredos.** `'dev-access-secret'`, `'dev-qr-secret'`
+e `'senatepi-dev-secret'` eram literais iguais em toda instalação: duas que
+esquecessem a mesma variável passariam a assinar com a MESMA chave. Hoje a
+reserva deriva do tenant e, em produção, **não existe reserva** — falta a
+variável, o serviço não sobe.
+
+### A regra que resume
+
+> Se um recurso é identificado por um **nome fixo** — arquivo, chave, pasta,
+> segredo —, ele é um vazamento esperando acontecer. Nome de recurso sai do
+> `tenant.id`, ou do ambiente.
+
+---
+
+## 18. Como pedir uma alteração
+
+Com um código só servindo vários sindicatos, **a pergunta que decide tudo é
+"para quem?"**. As três respostas possíveis:
+
+| Você quer | Diga | O que acontece |
+|---|---|---|
+| Mudar para **todos** | «no core», «para todos os sindicatos» | altera o código compartilhado; vale em todos no próximo deploy |
+| Mudar para **um** | «só no SENATEPI», «só no SINDSERM» | altera o `tenant.config` daquele cliente, ou cria um ponto de extensão gateado |
+| Não sei qual | descreva o resultado que quer | a análise dirá se cabe em configuração ou se exige mexer no core |
+
+**O padrão, quando não se diz nada, é o CORE — ou seja, todos.** É o
+comportamento mais perigoso dos dois, e por isso vale a pena a frase de uma
+palavra. Um pedido como *"esconda o campo X do cadastro"* sem destinatário
+esconde o campo para todos os sindicatos.
+
+### Mudar «só para um» quase nunca é duplicar código
+
+Na ordem de preferência:
+
+1. **`modulos`** — o cliente tem ou não tem a funcionalidade.
+2. **`camposOcultos`** — o campo não é pedido nem exibido. *Nunca apagar a
+   coluna:* a migration roda no banco de todos e destruiria o dado dos outros.
+3. **`vocabulario`** — «filiado» vira «servidor».
+4. **Ponto de extensão gateado** — quando o comportamento em si difere. Fica no
+   código compartilhado, ligado por módulo ou por configuração, nunca por
+   `if (tenant.id === 'x')` no meio da lógica.
+
+Duplicar o módulo para um cliente é a última opção, e ela desfaz o motivo de o
+core existir: a melhoria do jurídico deixaria de chegar aos dois.
+
+---
+
+## 19. Nascer um cliente novo
+
+**Um comando.**
+
+```bash
+npm run novo-cliente                      # pergunta uma coisa de cada vez
+npm run novo-cliente respostas.json       # ou lê tudo de um arquivo
+```
+
+Ele escreve os **nove pontos** de uma vez:
+
+| # | O quê |
+|---|---|
+| 1 | `apps/api/src/tenant/tenants/<id>.ts` — identidade, módulos, campos ocultos |
+| 2 | `apps/web/src/tenant/tenants/<id>.ts` — idem + a paleta **derivada** da cor |
+| 3–4 | registro nos dois `tenant.config.ts` |
+| 5 | portas em `scripts/dev.js` (sem colidir com as já usadas) |
+| 6 | `npm run dev:<id>` no `package.json` |
+| 7 | matriz da CI, **com a cor a conferir** |
+| 8–9 | `.env.<id>` da API e do web, com segredos sorteados, CORS, storage e banco |
+
+O que ele **não** faz, de propósito: não cria o banco (avisa o comando e alerta
+que o nome precisa estar livre) e não inventa CNPJ, endereço nem cor — pede, e
+recusa seguir sem.
+
+### O que impede o esquecimento não é este script
+
+É `apps/api/src/tenant/tenants.conformidade.spec.ts`. Ele percorre os clientes
+registrados e **reprova** quando um está pela metade:
+
+- os módulos são os mesmos na API e na tela;
+- os campos ocultos são os mesmos;
+- o vocabulário é o mesmo, e em minúsculas;
+- a paleta tem os dez degraus, todos hexadecimais válidos;
+- os fundos sólidos passam em contraste AA com texto branco;
+- o cliente tem portas próprias, sem colidir;
+- o cliente está na matriz da CI;
+- não sobrou nenhum «confirmar» no arquivo.
+
+Cada asserção nasceu de um defeito real do SINDSERM. **O script evita o
+trabalho; o teste evita o esquecimento** — e é por isso que a resposta a "não é
+melhor fazer um documento?" é *não, é melhor fazer um teste*. Documento não
+falha; teste falha.
+
+> O próprio gerador caiu na armadilha que existe para evitar: no Windows o git
+> entrega os arquivos com CRLF e as expressões procuravam `{
+`. Ele disse
+> "cadastrado" sem registrar nada, e quem mostrou foi o teste de conformidade.
+> Hoje ele lança quando uma âncora some, em vez de seguir em silêncio.
+
+### O que sobra para você, em qualquer cliente novo
+
+1. Criar o banco — **conferindo que o nome está livre**. Há outros sistemas no
+   mesmo Postgres; apontar para o banco de outro faz a API subir sem a tabela
+   `users`, e o login responde 500. Aconteceu.
+2. `prisma migrate deploy` no banco novo.
+3. Os logos — ou pelos arquivos, ou pela tela (Configurações › Identidade
+   visual), que é o caminho sem programador.
+4. No deploy: o projeto no Railway com `TENANT`, `NEXT_PUBLIC_TENANT`,
+   `SEED_ADMIN_EMAIL` e `SEED_ADMIN_PASSWORD`.
+
+> **`npm run dev` sobe UM cliente, não todos.** Cada sindicato é um comando: um
+> par de processos (API + web), portas próprias, banco próprio. Rodar dois ao
+> mesmo tempo é abrir dois terminais.
+
+---
+
+## 20. Cliente com necessidade própria — os quatro níveis
+
+A pergunta: *um sindicato precisa de campo próprio, ou de uma API que os outros
+não usam. E quando eu for corrigir um bug do jurídico que atinge todos?*
+
+**A segunda parte é a fácil, e é o motivo de todo o resto:** o código é UM. Uma
+correção no jurídico é um commit, e vale para todos os sindicatos no próximo
+deploy de cada um. Não existe backport, não existe cópia divergindo. A CI
+constrói **todos** os clientes a cada push, então quebrar um enquanto se
+conserta outro reprova antes do merge.
+
+O preço disso é a disciplina do outro lado: o que é de um cliente só precisa
+ficar **isolado por configuração**, nunca por `if (tenant.id === 'x')` no meio
+da lógica — porque é isso que faz a correção compartilhada deixar de valer.
+
+### Nível 1 — Um punhado de campos
+
+**Coluna na tabela compartilhada + `camposOcultos` para quem não usa.**
+
+Já aconteceu duas vezes, nos dois sentidos: `vinculoFuncional` e `lotacao`
+entraram para o SINDSERM e estão ocultos… em ninguém (o SENATEPI também os usa);
+`formacao` e `numeroCoren` são da enfermagem e estão ocultos no SINDSERM.
+
+O banco de todos ganha a coluna, vazia em quem não usa. É barato — e a
+alternativa (apagar a coluna para agradar um) destruiria o dado do outro.
+
+### Nível 2 — Muitos campos, só de um cliente
+
+**Tabela dedicada, 1:1 com `filiados`, gateada por módulo.**
+
+> **Correção ao §11.** Aquela seção provou que um model de cliente não podia ter
+> `@relation` para um model do core. Aquilo valia para o desenho de *um schema
+> por app*, que foi descartado na §15. Com **um schema só**, a restrição não
+> existe: a tabela do cliente se relaciona normalmente. O preço é o banco dos
+> outros ganhar uma tabela vazia.
+
+Ainda não foi preciso. Quando for, a régua é: **até uns cinco campos, nível 1;
+acima disso, tabela própria.**
+
+### Nível 3 — Uma fonte de dados externa
+
+É o caso do exemplo, e **já existe um precedente pronto no código: o DJEN.**
+
+Ele é uma segunda fonte do jurídico, mora em `apps/api/src/modules/processos/`
+como qualquer outro arquivo do módulo, e é ligado por cliente:
+
+```ts
+// apps/api/src/tenant/tenants/senatepi.ts
+integracoes: ['datajud', 'djen'],
+
+// apps/api/src/tenant/tenants/sindserm.ts
+integracoes: ['datajud'],   // sem DJEN: o IP precisa ser aceito pelo CNJ
+```
+
+O código é compartilhado; **o que muda por cliente é a lista.** Uma integração
+nova de um terceiro sindicato — e-SAJ, Projudi, o sistema de folha da prefeitura
+— segue a mesma forma:
+
+1. um `IntegracaoExterna` novo no `tenant.types.ts`;
+2. o serviço da fonte dentro do módulo a que ela pertence;
+3. `if (!integracaoAtiva('x', process.env.X_INTEGRACAO)) return;` no ponto de
+   entrada (cron, controller);
+4. a palavra na lista do cliente que a usa.
+
+**A variável de ambiente vence a declaração, nos dois sentidos.** Não é redundância:
+quando uma API externa cai ou passa a recusar o IP — já aconteceu com o DJEN —,
+desligar precisa ser uma variável e um restart, não um commit, um build e um deploy.
+
+> **Só entra em `IntegracaoExterna` o que é realmente conferido em algum lugar.**
+> `brasilapi` chegou a ser declarada e foi removida antes de virar hábito:
+> ninguém lia a chave. Flag que não é lida é pior que flag ausente, porque quem
+> lê o arquivo acredita nela — foi o que aconteceu com `vocabulario`, declarado
+> na Fase 0 e sem efeito nenhum na tela até a §16.
+
+### Nível 4 — O comportamento em si difere
+
+O último recurso, e o que exige mais cuidado. A regra: **o ponto de variação é
+nomeado no core**, e o cliente escolhe entre opções que o core conhece — nunca o
+core perguntando quem é o cliente.
+
+Ruim: `if (tenant.id === 'sindserm') { … }` no meio do serviço.
+Bom: uma opção declarada no `tenant.config` que o serviço lê, como
+`camposOcultos` e `integracoes` já fazem.
+
+A diferença prática aparece no dia da correção de bug: no primeiro caso, quem
+conserta precisa lembrar de conferir os dois caminhos; no segundo, existe um
+caminho só, e a configuração decide os dados.
+
+### O que protege a correção compartilhada
+
+| | |
+|---|---|
+| Um código só | a correção vale para todos, no mesmo commit |
+| CI em matriz | constrói **todos** os clientes a cada push |
+| Conformidade | 35 asserções reprovam cliente cadastrado pela metade |
+| Testes do jurídico | 8 arquivos de spec no módulo `processos` |
+| Integração isolada | fonte externa desligada não roda, nem por cron nem por rota |
+
+---
+
+## 21. A VPS: quantas APIs, quantos bancos, e de onde vem o core
+
+### O DJEN é geográfico, não é IP registrado
+
+Corrige o que estava escrito antes. O bloqueio foi **medido lado a lado, mesma
+URL**:
+
+| Origem da consulta | Resposta | Ponto de presença |
+|---|---|---|
+| Brasil | **200**, JSON | `x-amz-cf-pop: GIG52` (Rio) |
+| Servidor de produção (EUA) | **403**, HTML | `x-amz-cf-pop: SFO53` (San Francisco) |
+
+O CDN do CNJ recusa a requisição **antes de ela chegar à API** — sem os
+cabeçalhos `X-RateLimit-*`, que é o sinal decisivo de que não é cota. Nenhum
+ajuste de ritmo contorna.
+
+**A consequência é boa:** não existe cadastro de IP, nem aprovação por
+sindicato, nem nada por cliente. O que precisa mudar é **o país do servidor**.
+Uma VPS no Brasil resolve para **todos os clientes que rodarem nela, de uma
+vez** — e um cliente novo já nasce com DJEN funcionando, sem passo extra.
+
+> Ao contratar, **confirme a região brasileira**. VPS "barata" costuma ser
+> Europa ou EUA por padrão, e ali o problema é exatamente o mesmo de hoje.
+
+**A chave `integracoes` continua valendo depois da migração**, por outro motivo:
+é ela que permite desligar o DJEN de um cliente sozinho quando o CNJ estiver
+fora do ar, sem derrubar a consulta dos outros.
+
+### Cada cliente tem a própria API? Sim e não — e a diferença importa
+
+| | Build | Processos |
+|---|---|---|
+| **API** | **UM só, para todos** | um processo por cliente |
+| **Web** | **um por cliente** | um processo por cliente |
+| **Banco** | — | um por cliente |
+
+**A API é escolhida em tempo de execução.** Verificado: o mesmo
+`dist/src/main.js`, sem recompilar, sobe como SENATEPI na porta 3333 e como
+SINDSERM na 3334 — o que muda é `TENANT`, `DATABASE_URL` e `API_PORT`. Cliente
+novo na VPS **não exige novo build da API**: é mais um processo.
+
+**A tela é escolhida em tempo de build**, e não por descuido: o Tailwind compila
+a paleta dentro do CSS. Cada cliente tem o seu `.next-<id>`, e é por isso que a
+CI constrói todos em matriz.
+
+```
+VPS (Brasil)
+├── git clone do repositório           ← O CORE. Um só.
+│   └── npm ci && npm run build        ← 1 build de API + 1 build de web POR CLIENTE
+│
+├── senatepi-api   :3333  TENANT=senatepi  →  banco senatepi
+├── senatepi-web   :3000  NEXT_PUBLIC_TENANT=senatepi
+├── sindserm-api   :3334  TENANT=sindserm  →  banco sindserm
+├── sindserm-web   :3001  NEXT_PUBLIC_TENANT=sindserm
+│
+├── Postgres        um servidor, N bancos separados
+└── nginx/Caddy     senatepi.org.br → :3000   api.senatepi.org.br → :3333
+                    sindserm.org.br → :3001   api.sindserm.org.br → :3334
+```
+
+### De onde o core "vem"
+
+**De lugar nenhum — ele já está lá.** Não há pacote publicado, registro privado
+nem submódulo. É **um clone do repositório na VPS**; os clientes são
+configuração dentro dele.
+
+Publicar é:
+
+```bash
+git pull
+npm ci
+npm run build            # API (uma vez) + web (uma vez por cliente)
+# reiniciar os processos
+```
+
+**É por isso que a correção de bug vale para todos:** os processos rodam o mesmo
+código, do mesmo commit. Não existe versão do SENATEPI e versão do SINDSERM.
+
+### Um banco por cliente, um servidor de banco
+
+Postgres é **um serviço** com **N bancos** — `CREATE DATABASE senatepi;`,
+`CREATE DATABASE sindserm;`. Cada API só enxerga o seu, pela `DATABASE_URL`. Não
+há schema compartilhado nem coluna `tenant_id`: se um banco cair, o outro nem
+sabe.
+
+> **O nome do banco precisa estar livre.** Apontar para um banco que já existe e
+> é de outro sistema faz a API subir contra tabelas erradas e o login responder
+> 500 — foi exatamente o que aconteceu ao apontar o SINDSERM para um
+> `sindserm_dev` que pertencia ao sistema de eleições.
+
+### O que muda no roteiro do cliente novo
+
+Nada do que já existe. Depois de `npm run novo-cliente`, na VPS:
+
+1. `CREATE DATABASE <banco>;` (nome livre)
+2. `prisma migrate deploy` no banco novo
+3. build do web daquele cliente
+4. dois processos novos (API + web), com as variáveis do cliente
+5. duas entradas no nginx e o certificado do domínio
+
+Do quinto cliente em diante, vale automatizar os passos 3–5 num script de
+deploy — mas isso só depois de a forma estar provada com dois no ar.

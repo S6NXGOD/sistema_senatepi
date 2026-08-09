@@ -82,8 +82,8 @@ export function NovaEscalaModal({
       <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-              <CalendarClock className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+              <CalendarClock className="h-5 w-5 text-brand-800 dark:text-brand-400" />
             </div>
             <div>
               <h3 className="text-lg font-bold">Cadastrar Escalas</h3>

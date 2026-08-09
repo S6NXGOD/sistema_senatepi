@@ -1,4 +1,5 @@
 import { api } from './api';
+import { tenant } from '@/tenant.config';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -182,7 +183,7 @@ export function mensagemSaudacao(p: { nome: string; data: string }): string {
   const primeiro = p.nome.trim().split(/\s+/)[0] || p.nome;
   const quando = new Date(p.data).toLocaleDateString('pt-BR');
   return (
-    `Olá, ${primeiro}! 👋 Aqui é do *SENATEPI*.\n\n` +
+    `Olá, ${primeiro}! 👋 Aqui é do *${tenant.sigla}*.\n\n` +
     `Estamos entrando em contato a respeito do seu atendimento registrado em ${quando}. ` +
     `Como podemos te ajudar?`
   );

@@ -16,6 +16,7 @@ import {
   type AudienciaAAgendar,
 } from '@/lib/audiencias';
 import { AgendarAudienciaModal } from './agendar-audiencia-modal';
+import { V } from '@/lib/vocabulario';
 
 /**
  * Painel "Audiências a Agendar".
@@ -252,7 +253,7 @@ function CartaoAudiencia({
 
         {/* Quem e onde */}
         <p className="mt-1.5 text-sm">
-          <span className="text-muted-foreground">Filiado: </span>
+          <span className="text-muted-foreground">{V.Filiado}: </span>
           <strong>{a.processo.filiado?.nomeCompleto ?? 'não vinculado'}</strong>
           <span className="text-muted-foreground"> · Responsável: </span>
           {a.processo.advogado?.nome ?? <span className="text-amber-700 dark:text-amber-400">sem advogado</span>}

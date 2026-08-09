@@ -1,10 +1,10 @@
+import { mascararCpf, termosDeBusca } from '@core/infra';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   AcaoAuditoria, ModoVotacao, SituacaoFiliado, StatusPauta, TipoHistoricoFiliado,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { mascararCpf } from '../../common/utils/matricula.util';
-import { termosDeBusca } from '../../common/utils/busca.util';
+
 import { AuditService } from '../../common/audit/audit.service';
 
 /**

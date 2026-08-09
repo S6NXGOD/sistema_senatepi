@@ -24,6 +24,7 @@ import {
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, formatDataHora,
 } from '@/lib/atendimentos';
+import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
 const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
@@ -34,7 +35,7 @@ export default function AtendimentosPage() {
     <Suspense
       fallback={
         <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       }
     >
@@ -118,8 +119,8 @@ function ListaAtendimentos() {
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <Headset className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <Headset className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Triagem / Atendimento</h2>
@@ -133,7 +134,7 @@ function ListaAtendimentos() {
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar por filiado ou descrição…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <Input className="pl-9" placeholder={`Buscar por ${V.filiado} ou descrição…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
           {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -162,7 +163,7 @@ function ListaAtendimentos() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : itens.length === 0 ? (
         <Card><CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground"><Inbox className="h-8 w-8 opacity-40" /> Nenhum atendimento encontrado com esses filtros.</CardContent></Card>
       ) : (
@@ -194,7 +195,7 @@ function ListaAtendimentos() {
               <table className="w-full text-sm">
                 <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Filiado</th>
+                    <th className="px-4 py-3 font-medium">{V.Filiado}</th>
                     <th className="px-4 py-3 font-medium">Canal</th>
                     <th className="px-4 py-3 font-medium">Resultado</th>
                     <th className="px-4 py-3 font-medium">Descrição</th>
@@ -239,7 +240,7 @@ function ListaAtendimentos() {
           <div className="fixed z-50 w-52 overflow-hidden rounded-lg border bg-card py-1 shadow-xl" style={{ top: menu.top, left: menu.left }}>
             <button type="button" onClick={() => { setDetalheId(menu.a.id); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Eye className="h-4 w-4 text-muted-foreground" /> Ver detalhes</button>
             {!menu.a.desfecho && (
-              <button type="button" onClick={() => abrirDesfecho(menu.a)} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Gavel className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Registrar desfecho</button>
+              <button type="button" onClick={() => abrirDesfecho(menu.a)} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Gavel className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar desfecho</button>
             )}
             {menu.a.desfecho && menu.a.status === 'PENDENTE' && (
               <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CONCLUIDO' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Marcar como Concluído</button>

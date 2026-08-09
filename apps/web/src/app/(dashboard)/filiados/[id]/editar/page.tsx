@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { FiliadoForm } from '@/components/filiados/filiado-form';
+import { V } from '@/lib/vocabulario';
 
 export default function EditarFiliadoPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,12 +20,12 @@ export default function EditarFiliadoPage() {
       <div className="flex items-center gap-3">
         <Link href={`/filiados/${id}`} className="text-muted-foreground hover:text-foreground"><ArrowLeft className="h-5 w-5" /></Link>
         <div>
-          <h2 className="text-2xl font-bold">Editar filiado</h2>
+          <h2 className="text-2xl font-bold">Editar {V.filiado}</h2>
           <p className="text-sm text-muted-foreground">{data?.nomeCompleto}</p>
         </div>
       </div>
       {isLoading || !data ? (
-        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800" /></div>
+        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800" /></div>
       ) : (
         <FiliadoForm inicial={data} modo="editar" />
       )}

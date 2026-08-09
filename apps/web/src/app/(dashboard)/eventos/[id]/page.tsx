@@ -57,7 +57,7 @@ export default function EventoAdminPage() {
   if (isLoading || !evento) {
     return (
       <div className="flex justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
       </div>
     );
   }
@@ -352,7 +352,7 @@ function SecaoPautas({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-2 font-semibold">
-          <Vote className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" /> Pautas
+          <Vote className="h-4 w-4 text-brand-800 dark:text-brand-400" /> Pautas
         </h3>
         {pode && (
           <Button size="sm" variant="outline" onClick={() => setCriando((v) => !v)}>
@@ -464,7 +464,7 @@ function CardPauta({
     (pauta.totalVotantes ?? 0) < pauta.quorumMinimo;
 
   return (
-    <Card className={cn(pauta.status === 'ABERTA' && 'border-senatepi-400')}>
+    <Card className={cn(pauta.status === 'ABERTA' && 'border-brand-400')}>
       <CardContent className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-[200px] flex-1">
@@ -472,7 +472,7 @@ function CardPauta({
               <p className="font-medium">{pauta.titulo}</p>
               <Badge className={
                 pauta.status === 'ABERTA'
-                  ? 'bg-senatepi-100 text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-100'
+                  ? 'bg-brand-100 text-brand-900 dark:bg-brand-900/40 dark:text-brand-100'
                   : pauta.status === 'ENCERRADA'
                     ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200'
                     : 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200'
@@ -676,7 +676,7 @@ function SecaoSorteios({
   return (
     <div className="space-y-3">
       <h3 className="flex items-center gap-2 font-semibold">
-        <Gift className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" /> Sorteios
+        <Gift className="h-4 w-4 text-brand-800 dark:text-brand-400" /> Sorteios
       </h3>
 
       {pode && (

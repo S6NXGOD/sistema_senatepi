@@ -175,8 +175,8 @@ export function UsuarioFormModal({
     <Sheet open={open} onClose={onClose} side="right" className="w-full max-w-xl">
       <div className="flex items-center justify-between border-b p-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <ShieldCheck className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+            <ShieldCheck className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
           <div>
             <h3 className="text-lg font-bold">{ehEdicao ? 'Editar Usuário' : 'Novo Usuário'}</h3>
@@ -212,14 +212,14 @@ export function UsuarioFormModal({
                   className={cn(
                     'rounded-xl border p-3 text-left transition-colors',
                     ativoCard
-                      ? 'border-senatepi-500 bg-senatepi-50 ring-1 ring-senatepi-300 dark:bg-senatepi-900/20'
-                      : 'border-input hover:border-senatepi-300 hover:bg-muted/40',
+                      ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300 dark:bg-brand-900/20'
+                      : 'border-input hover:border-brand-300 hover:bg-muted/40',
                   )}
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <Icone className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+                    <Icone className="h-5 w-5 text-brand-800 dark:text-brand-400" />
                     {ativoCard ? (
-                      <Unlock className="h-4 w-4 text-senatepi-600" />
+                      <Unlock className="h-4 w-4 text-brand-600" />
                     ) : (
                       <Lock className="h-4 w-4 text-muted-foreground/50" />
                     )}
@@ -241,7 +241,7 @@ export function UsuarioFormModal({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={avatarPreview} alt="" className="h-20 w-20 shrink-0 rounded-full border object-cover" />
           ) : (
-            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-2xl font-bold text-senatepi-900">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-brand-400 text-2xl font-bold text-brand-900">
               {(nome.trim().charAt(0) || '?').toUpperCase()}
             </div>
           )}
@@ -332,7 +332,7 @@ export function UsuarioFormModal({
             <Lock className="h-4 w-4 text-muted-foreground" /> Permissões de módulos
           </p>
           {adminLock && (
-            <p className="mb-3 rounded-md bg-senatepi-50 px-3 py-2 text-xs text-senatepi-800 dark:bg-senatepi-900/20 dark:text-senatepi-300">
+            <p className="mb-3 rounded-md bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
               O Administrador tem <strong>acesso total</strong> a todos os módulos e é o único que pode excluir registros.
             </p>
           )}
@@ -357,7 +357,7 @@ export function UsuarioFormModal({
                             className={cn(
                               'rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
                               sel
-                                ? 'bg-senatepi-800 text-white shadow-sm'
+                                ? 'bg-brand-800 text-white shadow-sm'
                                 : 'bg-muted text-muted-foreground hover:bg-muted-foreground/10',
                             )}
                           >

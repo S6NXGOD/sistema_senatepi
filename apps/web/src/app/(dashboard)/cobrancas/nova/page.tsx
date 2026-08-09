@@ -17,6 +17,7 @@ import {
   simularCobranca, gravarCobranca, TipoCobranca, TIPOS, TIPO_LABEL,
   ParcelaSimulada, formatBRL,
 } from '@/lib/cobrancas';
+import { V } from '@/lib/vocabulario';
 
 type ParcelaEditavel = { numero: number; dataCompetencia: string; dataVencimento: string; valor: string };
 
@@ -75,7 +76,7 @@ function WizardCobranca() {
   }
 
   async function gerarSimulacao() {
-    if (!filiadoId) return toast.error('Selecione o filiado.');
+    if (!filiadoId) return toast.error(`Selecione o ${V.filiado}.`);
     const valor = Number(valorCampo);
     const qtd = Number(qtdParcelas);
     if (!(valor > 0)) return toast.error('Informe um valor válido.');
@@ -150,7 +151,7 @@ function WizardCobranca() {
       <div className="flex items-center gap-3">
         <Link href="/cobrancas"><Button variant="ghost" size="icon" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></Button></Link>
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-2xl font-bold"><Receipt className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" /> Nova cobrança</h2>
+          <h2 className="flex items-center gap-2 text-2xl font-bold"><Receipt className="h-6 w-6 text-brand-800 dark:text-brand-400" /> Nova cobrança</h2>
           <p className="text-sm text-muted-foreground">Etapa {etapa} de 2 — {etapa === 1 ? 'parâmetros' : 'edição e gravação'}</p>
         </div>
       </div>
@@ -161,15 +162,15 @@ function WizardCobranca() {
           <CardContent className="space-y-4 p-5">
             {/* Filiado */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Filiado *</label>
+              <label className="text-sm font-medium">{V.Filiado} *</label>
               {filiadoId ? (
                 <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
                   <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
-                    <User className="h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+                    <User className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
                     <span className="truncate">{filiadoNome || 'Filiado selecionado'}</span>
                   </span>
                   {!filiadoIdPre && (
-                    <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="text-muted-foreground hover:text-foreground" aria-label="Trocar filiado">
+                    <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="text-muted-foreground hover:text-foreground" aria-label={`Trocar ${V.filiado}`}>
                       <X className="h-4 w-4" />
                     </button>
                   )}
@@ -257,7 +258,7 @@ function WizardCobranca() {
           <Card>
             <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <div className="text-sm">
-                <span className="text-muted-foreground">Filiado:</span> <strong>{filiadoNome || 'selecionado'}</strong> ·{' '}
+                <span className="text-muted-foreground">{V.Filiado}:</span> <strong>{filiadoNome || 'selecionado'}</strong> ·{' '}
                 <span className="text-muted-foreground">{TIPO_LABEL[tipo]}</span>
               </div>
               <div className="text-sm">
@@ -275,7 +276,7 @@ function WizardCobranca() {
             {parcelas.map((p, i) => (
               <div key={i} className="rounded-xl border bg-card p-4">
                 <div className="mb-3 flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-senatepi-50 text-xs font-bold text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400">{p.numero}</span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-800 dark:bg-brand-900/30 dark:text-brand-400">{p.numero}</span>
                   <span className="text-sm font-medium">Parcela {p.numero}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -317,7 +318,7 @@ function ModoBtn({ ativo, onClick, titulo, sub }: { ativo: boolean; onClick: () 
       type="button"
       onClick={onClick}
       className={`rounded-md px-3 py-2 text-left transition-colors ${
-        ativo ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'
+        ativo ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'
       }`}
     >
       <span className="block text-sm font-semibold">{titulo}</span>
@@ -328,7 +329,7 @@ function ModoBtn({ ativo, onClick, titulo, sub }: { ativo: boolean; onClick: () 
 
 export default function NovaCobrancaPage() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>}>
+    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}>
       <WizardCobranca />
     </Suspense>
   );

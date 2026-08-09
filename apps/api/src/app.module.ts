@@ -1,9 +1,11 @@
+import { AvataresInterceptor, QrCodeModule, StorageModule } from '@core/infra';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { AvataresInterceptor } from './common/storage/avatares.interceptor';
+
+import { ModuloAtivoGuard } from './common/tenant/modulo-ativo.guard';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -26,17 +28,18 @@ import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PortalEmpresaModule } from './modules/portal-empresa/portal-empresa.module';
 import { EventosModule } from './modules/eventos/eventos.module';
 import { PresencasModule } from './modules/presencas/presencas.module';
+import { AcessosModule } from './modules/acessos/acessos.module';
 import { CarteirinhasModule } from './modules/carteirinhas/carteirinhas.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
 import { HealthModule } from './modules/health/health.module';
-import { StorageModule } from './common/storage/storage.module';
-import { QrCodeModule } from './common/qrcode/qrcode.module';
+
 import { AuditModule } from './common/audit/audit.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { PermissionsGuard } from './common/permissions/permissions.guard';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
+import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-visual.module';
 
 @Module({
   imports: [
@@ -44,6 +47,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
+    IdentidadeVisualModule,
     StorageModule,
     QrCodeModule,
     AuditModule,
@@ -67,6 +71,7 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
     PortalEmpresaModule,
     EventosModule,
     PresencasModule,
+    AcessosModule,
     CarteirinhasModule,
     DashboardModule,
     AuditoriaModule,
@@ -75,6 +80,12 @@ import { AuditInterceptor } from './common/audit/audit.interceptor';
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Autenticação global (rotas públicas usam @Public())
+    /**
+     * Primeiro de todos: módulo desligado nesta instalação responde 404, sem
+     * sequer checar autenticação. É o que faz a página pública da Colônia
+     * sumir num sindicato que não tem colônia.
+     */
+    { provide: APP_GUARD, useClass: ModuloAtivoGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // Autorização por módulo + regra global "só o Administrador apaga".

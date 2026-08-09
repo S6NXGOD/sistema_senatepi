@@ -33,10 +33,12 @@ import {
 import { LocaisTrabalhoSection, type LocalTrabalho } from '@/components/filiados/locais-trabalho-section';
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import { travado, AVISO_TRAVADO, type CampoImutavel } from '@/lib/campos-imutaveis';
+import { campoVisivel } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 // O local de trabalho e a sua edição vivem em locais-trabalho-section.tsx.
 
-const schema = z.object({
+export const schema = z.object({
   nomeCompleto: z.string().min(3, 'Informe o nome'),
   cpf: z.string().min(11, 'CPF inválido'),
   rg: z.string().optional(),
@@ -58,20 +60,63 @@ const schema = z.object({
   bairro: z.string().optional(),
   cidade: z.string().min(1, 'Cidade obrigatória'),
   estado: z.string().min(1, 'Estado obrigatório'),
-  formacao: z.enum(['ENFERMEIRO', 'TECNICO_ENFERMAGEM', 'AUXILIAR_ENFERMAGEM', 'OUTRO']),
+  /**
+   * FORMAÇÃO e COREN são declarados OPCIONAIS aqui e exigidos no `superRefine`
+   * abaixo, conforme a instalação.
+   *
+   * Exigi-los no schema quebrava o cadastro inteiro numa instalação que esconde
+   * os dois: o campo não é renderizado, o zod reprova mesmo assim, e o erro fica
+   * preso num campo invisível — formulário que não envia e não diz por quê.
+   *
+   * Opcional-com-superRefine em vez de um schema condicional porque assim o
+   * `FormData` continua tendo UM tipo só; um `z.infer` que muda por cliente
+   * viraria união e espalharia `as` pelo arquivo.
+   */
+  formacao: z.enum(['ENFERMEIRO', 'TECNICO_ENFERMAGEM', 'AUXILIAR_ENFERMAGEM', 'OUTRO']).optional(),
   formacaoOutro: z.string().optional(),
-  numeroCoren: z
-    .string()
-    .min(1, 'COREN obrigatório')
-    .regex(COREN_REGEX, 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)'),
+  numeroCoren: z.string().optional(),
   dataAdmissao: z.string().optional().refine(dataNaoFutura, MSG_DATA_FUTURA),
+  /** Vínculo com o EMPREGADOR — ver o enum no schema. */
+  vinculoFuncional: z.enum(['ATIVO', 'APOSENTADO', 'PENSIONISTA']).or(z.literal('')).optional(),
   situacao: z.enum(['ATIVO', 'INATIVO', 'DESFILIADO']).optional(),
   modalidadeContribuicao: z.enum(['DESCONTO_FOLHA', 'AVULSO', 'PENSIONISTA']).optional().or(z.literal('')),
-}).refine((d) => d.formacao !== 'OUTRO' || !!d.formacaoOutro?.trim(), {
-  path: ['formacaoOutro'],
-  message: 'Descreva a formação',
+}).superRefine((d, ctx) => {
+  // Onde os campos APARECEM, a exigência é exatamente a de sempre. Onde não
+  // aparecem, não há o que exigir.
+  if (campoVisivel('formacao')) {
+    if (!d.formacao) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['formacao'], message: 'Formação obrigatória' });
+    }
+    if (d.formacao === 'OUTRO' && !d.formacaoOutro?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['formacaoOutro'], message: 'Descreva a formação' });
+    }
+  }
+  if (campoVisivel('numeroCoren')) {
+    const coren = d.numeroCoren?.trim();
+    if (!coren) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['numeroCoren'], message: 'COREN obrigatório' });
+    } else if (!COREN_REGEX.test(coren)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['numeroCoren'],
+        message: 'Formato: COREN-PI 000000-SSS (ex.: COREN-PI 123456-ENF)',
+      });
+    }
+  }
 });
 type FormData = z.infer<typeof schema>;
+
+/**
+ * Formação inicial do formulário — e `undefined` onde o campo está escondido.
+ *
+ * Era `'ENFERMEIRO'` fixo. Numa instalação sem o campo, isso não seria só um
+ * default inútil: TODO cadastro sairia gravado como enfermeiro, sem ninguém
+ * escolher e sem nada na tela para desmentir. Default invisível é dado
+ * inventado.
+ */
+const PADRAO_FORMACAO: FormData['formacao'] = campoVisivel('formacao')
+  ? 'ENFERMEIRO'
+  : undefined;
 
 const SEXOS = ['MASCULINO', 'FEMININO', 'OUTRO'];
 const ESTADOS_CIVIS = ['SOLTEIRO', 'CASADO', 'DIVORCIADO', 'VIUVO', 'UNIAO_ESTAVEL', 'OUTRO'];
@@ -118,6 +163,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       empresa: v.empresa ?? '',
       parteExternaId: v.parteExternaId ?? undefined,
       cargo: v.cargo ?? '',
+      lotacao: v.lotacao ?? '',
       matricula: v.matricula ?? '',
       descontoEmFolha: v.descontoEmFolha ?? false,
     })) ?? [],
@@ -171,14 +217,15 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           bairro: inicial.bairro ?? '',
           cidade: inicial.cidade ?? '',
           estado: inicial.estado ?? '',
-          formacao: (inicial.formacao as FormData['formacao']) ?? 'ENFERMEIRO',
+          formacao: (inicial.formacao as FormData['formacao']) ?? PADRAO_FORMACAO,
           formacaoOutro: inicial.formacaoOutro ?? '',
           numeroCoren: inicial.numeroCoren ?? '',
           dataAdmissao: inicial.dataAdmissao?.slice(0, 10) ?? '',
+          vinculoFuncional: inicial.vinculoFuncional ?? '',
           situacao: inicial.situacao,
           modalidadeContribuicao: inicial.modalidadeContribuicao ?? '',
         }
-      : { formacao: 'ENFERMEIRO' },
+      : { formacao: PADRAO_FORMACAO },
   });
 
   // Municípios da UF escolhida alimentam o autocomplete da cidade. O resultado
@@ -246,6 +293,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           empresa: v.empresa.trim(),
           parteExternaId: v.parteExternaId || undefined,
           cargo: v.cargo?.trim() || undefined,
+          lotacao: v.lotacao?.trim() || undefined,
           matricula: v.matricula?.trim() || undefined,
           descontoEmFolha: !!v.descontoEmFolha,
           ordem: i + 1,
@@ -280,10 +328,14 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         bairro: d.bairro,
         cidade: d.cidade,
         estado: d.estado,
-        formacao: d.formacao,
+        // `|| undefined` e não o valor cru: com o campo escondido, `numeroCoren`
+        // chegaria como string vazia e a API a reprovaria no formato do COREN —
+        // um erro de validação vindo de um campo que a pessoa nem viu.
+        formacao: d.formacao || undefined,
         formacaoOutro: d.formacao === 'OUTRO' ? d.formacaoOutro?.trim() : null,
-        numeroCoren: d.numeroCoren,
+        numeroCoren: d.numeroCoren?.trim() || undefined,
         dataAdmissao: d.dataAdmissao || undefined,
+        vinculoFuncional: d.vinculoFuncional || undefined,
         modalidadeContribuicao: d.modalidadeContribuicao || undefined,
         // Situação NÃO é enviada no cadastro (novo filiado nasce ATIVO no back).
         // Só acompanha edição; a troca "rica" (motivo/termo) tem fluxo próprio.
@@ -364,7 +416,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       className="space-y-6"
     >
       <Card>
-        <CardHeader><CardTitle>Foto do filiado</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Foto do {V.filiado}</CardTitle></CardHeader>
         <CardContent className="flex items-center gap-6">
           {fotoPreview ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -505,27 +557,48 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         <CardHeader><CardTitle>Informações profissionais</CardTitle></CardHeader>
         <CardContent className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Campo label="Formação profissional *" erro={errors.formacao?.message}>
-              <select className={sel} {...register('formacao')}>{FORMACOES.map((f) => <option key={f} value={f}>{FORMACAO_LABEL[f]}</option>)}</select>
-            </Campo>
-            {watch('formacao') === 'OUTRO' && (
-              <Campo label="Qual a formação? *" erro={errors.formacaoOutro?.message}>
-                <Input placeholder="Descreva a formação" {...register('formacaoOutro')} />
+            {/* FORMAÇÃO e COREN são da enfermagem. Num sindicato de servidores
+                municipais o que vale é o cargo, que já existe no vínculo
+                profissional — por isso os dois campos podem ser desligados por
+                instalação, sem sumir do banco de quem os usa. */}
+            {campoVisivel('formacao') && (
+              <>
+                <Campo label="Formação profissional *" erro={errors.formacao?.message}>
+                  <select className={sel} {...register('formacao')}>{FORMACOES.map((f) => <option key={f} value={f}>{FORMACAO_LABEL[f]}</option>)}</select>
+                </Campo>
+                {watch('formacao') === 'OUTRO' && (
+                  <Campo label="Qual a formação? *" erro={errors.formacaoOutro?.message}>
+                    <Input placeholder="Descreva a formação" {...register('formacaoOutro')} />
+                  </Campo>
+                )}
+              </>
+            )}
+            {campoVisivel('numeroCoren') && (
+              <Campo label="Número COREN *" erro={errors.numeroCoren?.message}>
+                <Controller
+                  name="numeroCoren"
+                  control={control}
+                  render={({ field }) => (
+                    <Input
+                      placeholder="COREN-PI 000000-SSS"
+                      value={field.value ?? ''}
+                      onChange={(e) => field.onChange(mascararCoren(e.target.value))}
+                      onFocus={(e) => { if (!e.target.value) field.onChange('COREN-PI '); }}
+                    />
+                  )}
+                />
               </Campo>
             )}
-            <Campo label="Número COREN *" erro={errors.numeroCoren?.message}>
-              <Controller
-                name="numeroCoren"
-                control={control}
-                render={({ field }) => (
-                  <Input
-                    placeholder="COREN-PI 000000-SSS"
-                    value={field.value ?? ''}
-                    onChange={(e) => field.onChange(mascararCoren(e.target.value))}
-                    onFocus={(e) => { if (!e.target.value) field.onChange('COREN-PI '); }}
-                  />
-                )}
-              />
+            <Campo label="Vínculo funcional">
+              {/* Vínculo com o EMPREGADOR — diferente da situação no sindicato:
+                  um aposentado segue filiado, e um servidor na ativa pode estar
+                  desfiliado. */}
+              <select className={sel} {...register('vinculoFuncional')}>
+                <option value="">Não informado</option>
+                <option value="ATIVO">Ativo</option>
+                <option value="APOSENTADO">Aposentado</option>
+                <option value="PENSIONISTA">Pensionista</option>
+              </select>
             </Campo>
             <Campo label="Data de admissão" erro={errors.dataAdmissao?.message}>
               <Input type="date" {...LIMITES_DATA_PASSADA} {...register('dataAdmissao')} />
@@ -551,10 +624,11 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         </CardContent>
       </Card>
 
-      {/* Locais de trabalho — sem limite: duplo vínculo é a regra na categoria. */}
+      {/* Vínculos profissionais — sem limite: duplo vínculo é a regra na
+          enfermagem, e o servidor com dois contratos de 20h também tem dois. */}
       <Card>
         <CardHeader>
-          <CardTitle>Locais de trabalho</CardTitle>
+          <CardTitle>Vínculos profissionais</CardTitle>
         </CardHeader>
         <CardContent>
           <LocaisTrabalhoSection

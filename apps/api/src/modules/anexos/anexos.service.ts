@@ -1,8 +1,9 @@
+import { StorageService } from '@core/infra';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AcaoAuditoria, AnexoDocumento, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { AuditService } from '../../common/audit/audit.service';
 import {
   AcervoQueryDto, CriarAnexoDto, ListarAnexosQueryDto, OrigemAcervo, PuxarAnexosDto,

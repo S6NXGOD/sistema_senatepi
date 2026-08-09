@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { mascararCpf } from '@/lib/utils';
 import { compararFiliado, sincronizarFiliado, getCandidatosFiliado, CampoDiff } from '@/lib/colonia';
+import { V } from '@/lib/vocabulario';
 
 /**
  * Fluxo de "Atualizar cadastro": encontra o filiado (por CPF ou por NOME exato —
@@ -103,9 +104,9 @@ export function SyncFiliadoModal({
       >
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-muted p-2"><UserCog className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" /></div>
+            <div className="rounded-xl bg-muted p-2"><UserCog className="h-6 w-6 text-brand-800 dark:text-brand-400" /></div>
             <div className="min-w-0">
-              <h3 className="font-semibold leading-tight">Atualizar cadastro do filiado</h3>
+              <h3 className="font-semibold leading-tight">Atualizar cadastro do {V.filiado}</h3>
               {data && (
                 <p className="truncate text-xs text-muted-foreground">
                   {[data.filiadoNome, data.cpf ? mascararCpf(data.cpf) : null, data.matricula].filter(Boolean).join(' · ')}
@@ -137,7 +138,7 @@ export function SyncFiliadoModal({
                   key={c.id}
                   type="button"
                   onClick={() => setEscolhido(c.id)}
-                  className="flex w-full flex-col items-start rounded-lg border p-3 text-left text-sm transition-colors hover:border-senatepi-600 hover:bg-muted"
+                  className="flex w-full flex-col items-start rounded-lg border p-3 text-left text-sm transition-colors hover:border-brand-600 hover:bg-muted"
                 >
                   <span className="font-medium">{c.nome}</span>
                   <span className="text-xs text-muted-foreground">
@@ -158,7 +159,7 @@ export function SyncFiliadoModal({
                   href={`/filiados/${data.filiadoId}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm font-medium text-senatepi-800 underline dark:text-senatepi-400"
+                  className="inline-flex items-center gap-1 text-sm font-medium text-brand-800 underline dark:text-brand-400"
                 >
                   Ver cadastro atual completo <ExternalLink className="h-3.5 w-3.5" />
                 </a>
@@ -219,8 +220,8 @@ export function SyncFiliadoModal({
                         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{c.label}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
                           <span className="text-muted-foreground line-through">{c.atual || '— (vazio)'}</span>
-                          <ArrowRight className="h-4 w-4 shrink-0 text-senatepi-600 dark:text-senatepi-400" />
-                          <span className="font-semibold text-senatepi-800 dark:text-senatepi-300">{c.novo}</span>
+                          <ArrowRight className="h-4 w-4 shrink-0 text-brand-600 dark:text-brand-400" />
+                          <span className="font-semibold text-brand-800 dark:text-brand-300">{c.novo}</span>
                         </div>
                       </div>
                     ))}
@@ -265,10 +266,10 @@ function CampoLinha({ c, checked, onToggle }: { c: CampoDiff; checked: boolean; 
     <label
       className={cn(
         'flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors',
-        checked ? 'border-senatepi-600 bg-senatepi-50/60 dark:bg-senatepi-900/20' : 'hover:bg-muted',
+        checked ? 'border-brand-600 bg-brand-50/60 dark:bg-brand-900/20' : 'hover:bg-muted',
       )}
     >
-      <input type="checkbox" checked={checked} onChange={onToggle} className="mt-1 h-4 w-4 shrink-0 accent-senatepi-800" />
+      <input type="checkbox" checked={checked} onChange={onToggle} className="mt-1 h-4 w-4 shrink-0 accent-brand-800" />
       <div className="min-w-0 flex-1 text-sm">
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium">{c.label}</span>

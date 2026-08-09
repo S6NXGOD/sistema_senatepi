@@ -79,7 +79,7 @@ export function KanbanView({
             onDrop={() => soltar(s)}
             className={cn(
               'flex flex-col rounded-xl border bg-muted/30 p-2 transition-colors',
-              sobre === s && podeSoltar && 'border-senatepi-500 bg-senatepi-50/50 dark:bg-senatepi-900/20',
+              sobre === s && podeSoltar && 'border-brand-500 bg-brand-50/50 dark:bg-brand-900/20',
               bloqueada && 'opacity-50',
             )}
           >

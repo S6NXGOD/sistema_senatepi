@@ -70,9 +70,9 @@ export function AvisoNovaVersao() {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center p-3 sm:bottom-4">
-      <div className="flex w-full max-w-md items-center gap-3 rounded-xl border border-senatepi-300 bg-card p-3 shadow-lg dark:border-senatepi-800">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-senatepi-50 dark:bg-senatepi-900/40">
-          <RefreshCw className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
+      <div className="flex w-full max-w-md items-center gap-3 rounded-xl border border-brand-300 bg-card p-3 shadow-lg dark:border-brand-800">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-900/40">
+          <RefreshCw className="h-4 w-4 text-brand-800 dark:text-brand-400" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">Atualização disponível</p>
@@ -83,7 +83,7 @@ export function AvisoNovaVersao() {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="shrink-0 rounded-lg bg-senatepi-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-senatepi-700"
+          className="shrink-0 rounded-lg bg-brand-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
         >
           Atualizar
         </button>

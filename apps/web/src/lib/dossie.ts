@@ -212,7 +212,7 @@ export const FATO_LABEL: Record<TipoFatoDossie, string> = {
 };
 
 export const FATO_COR: Record<TipoFatoDossie, string> = {
-  FILIACAO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300',
+  FILIACAO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-300',
   ATENDIMENTO: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   ATIVIDADE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   PROCESSO: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',

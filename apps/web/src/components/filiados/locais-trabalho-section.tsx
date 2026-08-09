@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { listarPartesExternas, TIPO_PARTE_LABEL, type ParteExterna } from '@/lib/partes';
+import { tenant } from '@/tenant.config';
 
 /** Local de trabalho enquanto está sendo editado. */
 export interface LocalTrabalho {
@@ -13,20 +14,22 @@ export interface LocalTrabalho {
   /** Id no cadastro de organizações, quando escolhido no combobox. */
   parteExternaId?: string;
   cargo?: string;
+  /** Onde a pessoa trabalha DENTRO do órgão — secretaria, unidade, setor. */
+  lotacao?: string;
   matricula?: string;
   descontoEmFolha?: boolean;
 }
 
 /**
- * Cargos da categoria. Lista curta e fechada porque é o que permite contar
- * ("quantos técnicos temos na FMS?"), com escape para o caso atípico — o
- * sindicato tem enfermeiros em cargos administrativos.
+ * Cargos da categoria que ESTE sindicato representa.
+ *
+ * Estavam escritos aqui, com os três da enfermagem — e o cadastro de um
+ * sindicato de servidores municipais oferecia «Enfermeiro(a)» a alguém da
+ * Secretaria de Finanças. Agora saem do tenant: lista fechada onde a categoria
+ * é fechada (é o que permite contar "quantos técnicos temos na FMS?"), campo
+ * digitado onde não é.
  */
-export const CARGOS_CATEGORIA = [
-  'Enfermeiro(a)',
-  'Técnico(a) em Enfermagem',
-  'Auxiliar de Enfermagem',
-];
+export const CARGOS_CATEGORIA = tenant.cargos ?? [];
 
 const sel = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -72,7 +75,9 @@ function BuscaEmpregador({
       <div className="relative">
         <Input
           value={valor}
-          placeholder="Ex.: FMS Teresina, HU-UFPI…"
+          // Sem exemplo cravado: "HU-UFPI" é hospital federal e não diz nada a um
+          // sindicato de servidores municipais. A lista real vem do cadastro.
+          placeholder="Digite o nome ou a sigla do empregador…"
           onChange={(e) => { onDigitar(e.target.value); setBusca(e.target.value); setAberto(true); }}
           onFocus={() => setAberto(true)}
         />
@@ -145,14 +150,14 @@ export function LocaisTrabalhoSection({
     <div className="space-y-4">
       {locais.length === 0 && (
         <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-          Nenhum local de trabalho cadastrado.
+          Nenhum vínculo profissional cadastrado.
         </p>
       )}
 
       {avisoIncoerente && (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
-          A modalidade é <strong>Desconto em Folha</strong>, mas nenhum local está marcado. Marque em
-          qual folha o desconto acontece — senão o financeiro não saberá onde cobrar.
+          A modalidade é <strong>Desconto em Folha</strong>, mas nenhum vínculo está marcado.
+          Marque em qual folha o desconto acontece — senão o financeiro não saberá onde cobrar.
         </p>
       )}
 
@@ -161,12 +166,12 @@ export function LocaisTrabalhoSection({
           key={i}
           className={cn(
             'space-y-4 rounded-xl border p-4 transition',
-            l.descontoEmFolha ? 'border-senatepi-400 bg-senatepi-50/40 dark:bg-senatepi-900/10' : 'bg-muted/30',
+            l.descontoEmFolha ? 'border-brand-400 bg-brand-50/40 dark:bg-brand-900/10' : 'bg-muted/30',
           )}
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Local {i + 1}
+              Vínculo {i + 1}
             </span>
             <button
               type="button"
@@ -203,27 +208,60 @@ export function LocaisTrabalhoSection({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Cargo / Função</label>
-              <select
-                className={sel}
-                value={CARGOS_CATEGORIA.includes(l.cargo ?? '') ? l.cargo : (l.cargo ? '__OUTRO__' : '')}
-                onChange={(e) =>
-                  mudar(i, 'cargo', e.target.value === '__OUTRO__' ? ' ' : e.target.value)
-                }
-              >
-                <option value="">Selecione…</option>
-                {CARGOS_CATEGORIA.map((c) => <option key={c} value={c}>{c}</option>)}
-                <option value="__OUTRO__">Outro (especificar)</option>
-              </select>
-              {/* Escape para o caso atípico — enfermeiro em cargo administrativo. */}
-              {l.cargo !== undefined && l.cargo !== '' && !CARGOS_CATEGORIA.includes(l.cargo) && (
+              <label className="text-sm font-medium">
+                {CARGOS_CATEGORIA.length ? 'Cargo / Função' : 'Cargo / Carreira / Especialidade'}
+              </label>
+
+              {CARGOS_CATEGORIA.length > 0 ? (
+                <>
+                  <select
+                    className={sel}
+                    value={CARGOS_CATEGORIA.includes(l.cargo ?? '') ? l.cargo : (l.cargo ? '__OUTRO__' : '')}
+                    onChange={(e) =>
+                      mudar(i, 'cargo', e.target.value === '__OUTRO__' ? ' ' : e.target.value)
+                    }
+                  >
+                    <option value="">Selecione…</option>
+                    {CARGOS_CATEGORIA.map((c) => <option key={c} value={c}>{c}</option>)}
+                    <option value="__OUTRO__">Outro (especificar)</option>
+                  </select>
+                  {/* Escape para o caso atípico — enfermeiro em cargo administrativo. */}
+                  {l.cargo !== undefined && l.cargo !== '' && !CARGOS_CATEGORIA.includes(l.cargo) && (
+                    <Input
+                      className="mt-1.5"
+                      placeholder="Qual o cargo?"
+                      value={l.cargo.trim()}
+                      onChange={(e) => mudar(i, 'cargo', e.target.value)}
+                    />
+                  )}
+                </>
+              ) : (
+                /**
+                 * Sem lista fechada, o campo é digitado — e o rótulo muda junto.
+                 * Um sindicato de servidores tem centenas de carreiras no plano
+                 * de cargos do município; oferecer um select seria uma lista
+                 * impossível de manter, e foi assim que o cadastro do SINDSERM
+                 * chegou a oferecer «Enfermeiro(a)» a um servidor das Finanças.
+                 */
                 <Input
-                  className="mt-1.5"
-                  placeholder="Qual o cargo?"
-                  value={l.cargo.trim()}
+                  placeholder="Ex.: Professor, Agente de Trânsito, Auxiliar Administrativo…"
+                  value={l.cargo ?? ''}
                   onChange={(e) => mudar(i, 'cargo', e.target.value)}
                 />
               )}
+            </div>
+
+            <div className="space-y-1.5">
+              {/* LOTAÇÃO é o lugar DENTRO do órgão. O campo acima ("Local de
+                  trabalho") guarda o empregador; num sindicato de servidores é
+                  pela lotação que a base se organiza — e é ela que responde
+                  "quantos filiados temos na Secretaria de Saúde?". */}
+              <label className="text-sm font-medium">Lotação</label>
+              <Input
+                placeholder="Secretaria, unidade ou setor"
+                value={l.lotacao ?? ''}
+                onChange={(e) => mudar(i, 'lotacao', e.target.value)}
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -240,7 +278,7 @@ export function LocaisTrabalhoSection({
               <label className="flex h-12 cursor-pointer items-center gap-2 rounded-md border border-input px-3 md:h-10">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 accent-senatepi-700"
+                  className="h-4 w-4 accent-brand-700"
                   checked={!!l.descontoEmFolha}
                   onChange={(e) => mudar(i, 'descontoEmFolha', e.target.checked)}
                 />
@@ -260,7 +298,7 @@ export function LocaisTrabalhoSection({
         className="w-full"
         onClick={() => onChange([...locais, { empresa: '', cargo: '', matricula: '', descontoEmFolha: false }])}
       >
-        <Plus className="h-4 w-4" /> Adicionar Local de Trabalho
+        <Plus className="h-4 w-4" /> Adicionar Vínculo
       </Button>
     </div>
   );

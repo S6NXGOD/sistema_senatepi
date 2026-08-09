@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   carregarLogo, desenharCabecalhoSync, desenharRodapeGeracao, MARGEM, VERDE,
-} from './pdf-senatepi';
+} from './pdf-institucional';
 import { Escala } from './escalas';
 
 /** Exporta a grade de escalas do mês como PDF (cabeçalho institucional + tabela). */

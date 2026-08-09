@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { atualizarProcesso } from '@/lib/processos';
+import { V } from '@/lib/vocabulario';
 
 type Modo = 'buscar' | 'criar';
 
@@ -76,7 +77,7 @@ export function VincularFiliadoModal({
 
   const vincular = useMutation({
     mutationFn: (filiadoId: string) => atualizarProcesso(processoId, { filiadoId }),
-    onSuccess: () => { toast.success('Filiado vinculado ao processo.'); onVinculado(); onClose(); },
+    onSuccess: () => { toast.success(`${V.Filiado} vinculado ao processo.`); onVinculado(); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível vincular.'),
   });
 
@@ -93,7 +94,7 @@ export function VincularFiliadoModal({
       await atualizarProcesso(processoId, { filiadoId: novo.id });
       return novo;
     },
-    onSuccess: () => { toast.success('Filiado cadastrado e vinculado.'); onVinculado(); onClose(); },
+    onSuccess: () => { toast.success(`${V.Filiado} cadastrado e vinculado.`); onVinculado(); onClose(); },
     onError: (e: any) => {
       const m = e?.response?.data?.message;
       toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível cadastrar o filiado.');
@@ -109,7 +110,7 @@ export function VincularFiliadoModal({
       <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-5">
           <div>
-            <h3 className="font-semibold">Vincular filiado</h3>
+            <h3 className="font-semibold">Vincular {V.filiado}</h3>
             <p className="text-xs text-muted-foreground">O vínculo é opcional — pode ser feito depois.</p>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -131,7 +132,7 @@ export function VincularFiliadoModal({
                 onClick={() => setModo(t.k)}
                 className={cn(
                   'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition',
-                  modo === t.k ? 'bg-senatepi-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
+                  modo === t.k ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
                 )}
               >
                 <Icon className="h-4 w-4" /> {t.label}
@@ -148,7 +149,7 @@ export function VincularFiliadoModal({
                 <Input
                   className="pl-9"
                   autoFocus
-                  placeholder="Nome ou CPF do filiado…"
+                  placeholder={`Nome ou CPF do ${V.filiado}…`}
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                 />
@@ -157,7 +158,7 @@ export function VincularFiliadoModal({
 
               {busca.trim().length >= 2 && !buscando && resultados.length === 0 && (
                 <div className="rounded-lg border border-dashed p-4 text-center">
-                  <p className="text-sm text-muted-foreground">Nenhum filiado encontrado.</p>
+                  <p className="text-sm text-muted-foreground">Nenhum {V.filiado} encontrado.</p>
                   <Button size="sm" variant="outline" className="mt-2" onClick={() => { setNome(busca); setModo('criar'); }}>
                     <UserPlus className="h-4 w-4" /> Cadastrar "{busca.trim().slice(0, 24)}"
                   </Button>
@@ -178,7 +179,7 @@ export function VincularFiliadoModal({
                           <span className="block truncate text-sm font-medium">{f.nome}</span>
                           <span className="block text-xs text-muted-foreground">{f.cpfMascarado}</span>
                         </span>
-                        {vincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-senatepi-700" />}
+                        {vincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-brand-700" />}
                       </button>
                     </li>
                   ))}

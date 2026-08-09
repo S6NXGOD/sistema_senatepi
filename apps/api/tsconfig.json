@@ -21,5 +21,9 @@
     "paths": {
       "@/*": ["src/*"]
     }
-  }
+  },
+  // Os testes têm o próprio tsconfig (`tsconfig.spec.json`), porque o de
+  // conformidade precisa enxergar a configuração da TELA. Deixá-los aqui
+  // faria `tsc --noEmit` da aplicação falhar por um alias que só o teste usa.
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }

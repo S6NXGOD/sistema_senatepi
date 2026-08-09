@@ -254,7 +254,7 @@ function StatusPortal({ empresa }: { empresa: Empresa }) {
     );
   }
   return (
-    <Badge className="bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+    <Badge className="bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
       <ShieldCheck className="h-3 w-3" /> Ativo
     </Badge>
   );

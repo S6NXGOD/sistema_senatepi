@@ -1,5 +1,6 @@
 import { api } from './api';
 import { CORES_PALETA, PALETA, type ClassesCor, type CorPaleta } from './paleta-cores';
+import { V } from '@/lib/vocabulario';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -189,7 +190,7 @@ export const STATUS_ORDEM: StatusCompromisso[] = ['PENDENTE', 'EM_ANDAMENTO', 'C
 export const STATUS_COR: Record<StatusCompromisso, string> = {
   PENDENTE: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   EM_ANDAMENTO: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
-  CONCLUIDO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+  CONCLUIDO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   CANCELADO: 'bg-muted text-muted-foreground line-through',
 };
 
@@ -259,8 +260,8 @@ export const rotuloDesfecho = (slug?: string | null): string =>
   slug ? (DESFECHO_LABEL[slug] ?? slug) : '';
 
 export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> = {
-  NAO_COMPARECEU: 'Filiado não compareceu',
-  DESISTENCIA: 'Filiado desistiu',
+  NAO_COMPARECEU: `${V.Filiado} não compareceu`,
+  DESISTENCIA: `${V.Filiado} desistiu`,
   ADIADA_JUIZO: 'Adiada pelo juízo/órgão',
   INDISPONIBILIDADE: 'Indisponibilidade do sindicato',
   DUPLICIDADE: 'Agendada por engano',

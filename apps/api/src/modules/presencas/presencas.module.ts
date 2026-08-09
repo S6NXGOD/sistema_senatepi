@@ -1,3 +1,4 @@
+import { QrCodeService, QrPayload, StorageService } from '@core/infra';
 import {
   BadRequestException,
   Body,
@@ -22,15 +23,16 @@ import {
   UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { QrCodeService, QrPayload } from '../../common/qrcode/qrcode.service';
+
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
   calcularIdade,
   dependenteValidoParaEvento,
 } from '../dependentes/dependentes.module';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 class ValidarQrDto {
   @ApiProperty({ description: 'Payload lido do QR Code', type: Object })
@@ -52,6 +54,20 @@ interface PessoaResolvida {
 }
 
 /** Motivo legível quando o colaborador não está apto a entrar. */
+/**
+ * Rótulo do parentesco.
+ *
+ * Era um ternário `é cônjuge ? 'Cônjuge' : 'Filho(a)'`. Com a entrada de PAI e
+ * MÃE, uma mãe apareceria na portaria como "Filho(a)" — e a portaria confere o
+ * parentesco na hora de liberar acompanhante.
+ */
+const PARENTESCO: Record<TipoDependente, string> = {
+  CONJUGE: 'Cônjuge',
+  FILHO: 'Filho(a)',
+  PAI: 'Pai',
+  MAE: 'Mãe',
+};
+
 const STATUS_COLAB: Record<StatusColaborador, string> = {
   ATIVO: 'ativo',
   INATIVO: 'inativo',
@@ -104,7 +120,7 @@ export class PresencasService {
       return {
         tipo: TipoPessoa.DEPENDENTE,
         id: d.id,
-        nome: `${d.nome} (${d.tipo === TipoDependente.CONJUGE ? 'Cônjuge' : 'Filho(a)'})`,
+        nome: `${d.nome} (${PARENTESCO[d.tipo]})`,
         fotoThumbKey: d.fotoThumbKey,
         liberado: valido && filiadoAtivo && idadeOk,
         motivo,
@@ -212,6 +228,7 @@ export class PresencasService {
 
 @ApiTags('presencas')
 @ApiBearerAuth()
+@ModuloTenant('eventos')
 @Controller()
 class PresencasController {
   constructor(private readonly service: PresencasService) {}

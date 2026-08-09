@@ -1,7 +1,8 @@
 import type { jsPDF } from 'jspdf';
+import { tenant } from '@/tenant.config';
 
 // Paleta institucional para os documentos.
-export const VERDE: [number, number, number] = [27, 127, 10]; // senatepi-800
+export const VERDE: [number, number, number] = [27, 127, 10]; // brand-800
 export const CINZA: [number, number, number] = [90, 100, 110];
 export const AMBAR_BG: [number, number, number] = [255, 247, 237];
 export const AMBAR_BORDA: [number, number, number] = [245, 158, 11];
@@ -18,10 +19,17 @@ const cacheLogo: Record<string, LogoData | null> = {};
  * Carrega a logo oficial de /public e devolve como data URL (base64) + proporção.
  * Same-origin (sem CORS). Cacheado. Retorna null se indisponível (fallback textual).
  */
-export async function carregarLogo(cor: 'verde' | 'branco'): Promise<LogoData | null> {
-  if (cor in cacheLogo) return cacheLogo[cor];
+export async function carregarLogo(tom: 'cor' | 'branco'): Promise<LogoData | null> {
+  if (tom in cacheLogo) return cacheLogo[tom];
   try {
-    const res = await fetch(`/senatepi-horizontal-${cor}.png`);
+    /**
+     * O nome do arquivo sai da INSTALAÇÃO. Estava cravado em
+     * `senatepi-horizontal-…`, então os PDFs gerados no navegador — termo de
+     * filiação, comprovantes — sairiam com o logo do SENATEPI em qualquer
+     * cliente. E o sufixo era `verde`, que deixou de existir na renomeação
+     * para `cor`: sem esta correção, nem o SENATEPI teria logo no PDF.
+     */
+    const res = await fetch(`/${tenant.id}-horizontal-${tom}.png`);
     if (!res.ok) throw new Error('logo indisponível');
     const blob = await res.blob();
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -36,10 +44,10 @@ export async function carregarLogo(cor: 'verde' | 'branco'): Promise<LogoData | 
       img.onerror = () => resolve(3.2);
       img.src = dataUrl;
     });
-    cacheLogo[cor] = { dataUrl, ratio };
-    return cacheLogo[cor];
+    cacheLogo[tom] = { dataUrl, ratio };
+    return cacheLogo[tom];
   } catch {
-    cacheLogo[cor] = null;
+    cacheLogo[tom] = null;
     return null;
   }
 }
@@ -65,7 +73,7 @@ export function desenharCabecalhoSync(doc: jsPDF, titulo: string, logo: LogoData
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text('SENATEPI', MARGEM, 18);
+    doc.text(tenant.sigla, MARGEM, 18);
   }
 
   doc.setTextColor(255, 255, 255);
@@ -100,7 +108,7 @@ export function desenharRodapeGeracao(doc: jsPDF): void {
     doc.setTextColor(...CINZA);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text(`Documento gerado em ${emissao} — SENATEPI`, MARGEM, pageH - 7);
+    doc.text(`Documento gerado em ${emissao} — ${tenant.sigla}`, MARGEM, pageH - 7);
     doc.text(`Página ${i} de ${total}`, pageW - MARGEM, pageH - 7, { align: 'right' });
   }
 }

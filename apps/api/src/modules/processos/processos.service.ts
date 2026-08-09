@@ -1,3 +1,4 @@
+import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
 import {
   BadRequestException,
   ConflictException,
@@ -30,7 +31,8 @@ import {
 import { atoCritico } from './utils/tpu.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { NpuUtils } from './utils/npu.util';
-import { comTravaDeJob, JOB_DATAJUD_SYNC } from '../../common/utils/trava-job.util';
+
+import { tenant } from '../../tenant/tenant.config';
 
 interface Ctx {
   ip?: string;
@@ -1131,7 +1133,8 @@ export class ProcessosService {
       const senatepi = await this.partes.parteInstitucional();
       if (!senatepi) {
         throw new BadRequestException(
-          'A parte institucional (SENATEPI) não está cadastrada. Cadastre-a em Partes e marque-a como institucional.',
+          `A parte institucional (${tenant.sigla}) não está cadastrada. ` +
+            'Cadastre-a em Partes e marque-a como institucional.',
         );
       }
       return { institucional: true, filiados: [], avulso: null };

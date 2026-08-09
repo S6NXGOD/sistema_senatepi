@@ -2,6 +2,7 @@ import { api } from './api';
 import type { PerfilUsuario } from './permissoes';
 import type { CanalAtendimento, DesfechoAtendimento } from './atendimentos';
 import type { AudienciaAAgendar } from './audiencias';
+import { tenant } from '@/tenant.config';
 
 // ---------------------------------------------------------------------------
 // Tipos do payload consolidado de /dashboard/resumo
@@ -215,7 +216,16 @@ export const STATUS_COMP_COR: Record<StatusCompromisso, string> = {
   CANCELADO: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 line-through',
 };
 
-export const PALETA_CANAL = ['#1B7F0A', '#4FA11B', '#0ea5e9', '#f59e0b', '#8b5cf6'];
+/**
+ * Cores das fatias por canal de atendimento.
+ *
+ * As duas primeiras são da MARCA (saem do tenant); as outras três são cores
+ * de apoio, iguais em qualquer instalação — um gráfico com cinco tons da
+ * mesma cor institucional seria ilegível.
+ */
+export const PALETA_CANAL = [
+  tenant.paleta[800], tenant.paleta[600], '#0ea5e9', '#f59e0b', '#8b5cf6',
+];
 
 /** Saudação pela hora local. */
 export function saudacao(nome: string): string {

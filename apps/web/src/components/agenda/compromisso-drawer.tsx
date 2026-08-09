@@ -25,6 +25,7 @@ import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } fr
 import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
 import { formatNPU } from '@/lib/processos';
 import { HistoricoAtividade } from './historico-atividade';
+import { V } from '@/lib/vocabulario';
 
 /** Cronômetro ao vivo HH:MM:SS. */
 function Cronometro({ desde }: { desde: string }) {
@@ -45,7 +46,7 @@ function Avatar({ nome, url }: { nome: string; url?: string | null }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img src={url} alt="" className="h-8 w-8 shrink-0 rounded-full border object-cover" />
   ) : (
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-xs font-bold text-senatepi-900">
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-400 text-xs font-bold text-brand-900">
       {nome.charAt(0).toUpperCase()}
     </span>
   );
@@ -90,7 +91,7 @@ export function CompromissoDrawer({
 
   function abrirWhatsApp() {
     if (!filiado || !c) return;
-    if (!filiado.telefonePrincipal) return toast.error('Filiado sem telefone cadastrado.');
+    if (!filiado.telefonePrincipal) return toast.error(`${V.Filiado} sem telefone cadastrado.`);
     const url = linkWhatsApp(filiado.telefonePrincipal, mensagemSaudacao({ nome: filiado.nomeCompleto, data: c.inicio }));
     if (!url) return toast.error('Telefone inválido para WhatsApp.');
     window.open(url, '_blank');
@@ -137,7 +138,7 @@ export function CompromissoDrawer({
       </div>
 
       {isLoading || !c ? (
-        <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : (
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
           {/* Quando / onde */}
@@ -252,7 +253,7 @@ export function CompromissoDrawer({
           {filiado && (
             <div className="rounded-xl border p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" /> Filiado</p>
+                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-brand-800 dark:text-brand-400" /> {V.Filiado}</p>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Matrícula {filiado.matricula}</span>
               </div>
               <p className="text-sm font-medium">{filiado.nomeCompleto}</p>
@@ -323,7 +324,7 @@ export function CompromissoDrawer({
                     <UserCog className="h-3.5 w-3.5" /> Triagem por <strong className="text-foreground">{c.atendimento.atendente.nomeExibicao || c.atendimento.atendente.nome}</strong> · {formatDataHora(c.atendimento.createdAt)}
                   </p>
                   {onVerTriagem && (
-                    <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-senatepi-800 hover:underline dark:text-senatepi-400">
+                    <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400">
                       <FileSearch className="h-3.5 w-3.5" /> Abrir triagem completa
                     </button>
                   )}
@@ -340,7 +341,7 @@ export function CompromissoDrawer({
                     parâmetro e o remove da URL ao abrir a ficha. */}
                 <Link
                   href={`/processos?processo=${c.processo.id}`}
-                  className="flex items-center gap-1.5 text-sm text-senatepi-800 hover:underline dark:text-senatepi-400"
+                  className="flex items-center gap-1.5 text-sm text-brand-800 hover:underline dark:text-brand-400"
                 >
                   <Gavel className="h-3.5 w-3.5" />
                   {/* Rascunho ainda não tem NPU — mostra o rótulo do processo. */}

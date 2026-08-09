@@ -87,7 +87,7 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
               </Badge>
             )}
             {emDia && (
-              <Badge className="bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400">Em dia</Badge>
+              <Badge className="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400">Em dia</Badge>
             )}
             {resumo.proximoVencimento && (
               <span className="flex items-center gap-1 text-muted-foreground">
@@ -106,7 +106,7 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
       {aberto && (
         <div className="border-t p-4">
           {isLoading ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+            <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-brand-800 dark:text-brand-400" /></div>
           ) : !data || data.cobrancas.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">Nenhuma cobrança lançada.</p>
           ) : (

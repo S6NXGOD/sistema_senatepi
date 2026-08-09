@@ -1,8 +1,8 @@
+import { StorageService } from '@core/infra';
 import { Controller, Get, Module } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
 
 @ApiTags('health')
 @Controller('health')

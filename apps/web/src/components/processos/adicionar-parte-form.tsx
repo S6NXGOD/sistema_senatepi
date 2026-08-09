@@ -14,6 +14,7 @@ import {
   formatDocumento, PAPEIS_SUGERIDOS, TIPO_PARTE_LABEL,
   type ParteExterna, type PoloProcesso, type TipoParteExterna,
 } from '@/lib/partes';
+import { V } from '@/lib/vocabulario';
 
 const campoCls = 'h-11 w-full rounded-md border border-input bg-background px-3 text-sm md:h-10';
 
@@ -179,7 +180,7 @@ export function AdicionarParteForm({
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition',
                 fonte === f.k
-                  ? 'bg-senatepi-800 text-white shadow-sm'
+                  ? 'bg-brand-800 text-white shadow-sm'
                   : 'bg-muted text-muted-foreground hover:text-foreground',
               )}
             >
@@ -249,7 +250,7 @@ export function AdicionarParteForm({
                 <button
                   type="button"
                   onClick={() => { setFonte('NOVO'); setNome(buscaCadastro.trim()); }}
-                  className="font-medium text-senatepi-800 hover:underline dark:text-senatepi-400"
+                  className="font-medium text-brand-800 hover:underline dark:text-brand-400"
                 >
                   Cadastrar "{buscaCadastro.trim()}"
                 </button>
@@ -277,7 +278,7 @@ export function AdicionarParteForm({
             <Input
               className="pl-9"
               autoFocus
-              placeholder="Buscar filiado por nome ou CPF…"
+              placeholder={`Buscar ${V.filiado} por nome ou CPF…`}
               value={buscaFiliado}
               onChange={(e) => setBuscaFiliado(e.target.value)}
             />
@@ -366,7 +367,7 @@ export function AdicionarParteForm({
                           {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
                         </span>
                       </span>
-                      <span className="shrink-0 text-[11px] font-medium text-senatepi-800 dark:text-senatepi-400">
+                      <span className="shrink-0 text-[11px] font-medium text-brand-800 dark:text-brand-400">
                         usar esta
                       </span>
                     </button>
@@ -378,7 +379,7 @@ export function AdicionarParteForm({
           <label className="flex cursor-pointer select-none items-start gap-2 text-xs">
             <input
               type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-senatepi-800"
+              className="mt-0.5 h-4 w-4 accent-brand-800"
               checked={salvarNoCadastro}
               onChange={(e) => setSalvarNoCadastro(e.target.checked)}
             />
@@ -403,7 +404,7 @@ export function AdicionarParteForm({
               className={cn(
                 'rounded-full px-2.5 py-1 text-[11px] font-medium transition',
                 papel === p
-                  ? 'bg-senatepi-800 text-white'
+                  ? 'bg-brand-800 text-white'
                   : 'bg-muted text-muted-foreground hover:text-foreground',
               )}
             >

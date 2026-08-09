@@ -1,3 +1,4 @@
+import { termosDeBusca } from '@core/infra';
 import {
   BadRequestException,
   ForbiddenException,
@@ -11,7 +12,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CobrancasService } from '../cobrancas/cobrancas.service';
-import { termosDeBusca } from '../../common/utils/busca.util';
+
 import { janelaCheckin, lerConfiguracoes } from './configuracoes-evento';
 
 export interface ResultadoCheckin {

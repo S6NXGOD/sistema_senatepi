@@ -31,7 +31,7 @@ export function ResultadoPauta({ apuracao, compacto = false }: { apuracao: Apura
               <div
                 className={cn(
                   'h-full transition-all',
-                  vencedora ? 'bg-senatepi-700 dark:bg-senatepi-400' : 'bg-muted-foreground/30',
+                  vencedora ? 'bg-brand-700 dark:bg-brand-400' : 'bg-muted-foreground/30',
                 )}
                 style={{ width: `${r.percentual}%` }}
               />
@@ -50,7 +50,7 @@ export function ResultadoPauta({ apuracao, compacto = false }: { apuracao: Apura
             <TriangleAlert className="h-3.5 w-3.5" /> EMPATE
           </span>
         ) : apuracao.vencedora ? (
-          <span className="flex items-center gap-1 font-semibold text-senatepi-800 dark:text-senatepi-300">
+          <span className="flex items-center gap-1 font-semibold text-brand-800 dark:text-brand-300">
             <CheckCircle2 className="h-3.5 w-3.5" /> {apuracao.vencedora.rotulo}
           </span>
         ) : null}

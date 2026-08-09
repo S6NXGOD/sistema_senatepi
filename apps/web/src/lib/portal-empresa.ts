@@ -7,11 +7,19 @@
  * conviver sem se atropelar no mesmo navegador.
  */
 
+import { chaveLocal } from '@/lib/armazenamento';
+
+// A reserva aponta para a porta do SENATEPI em desenvolvimento. É só uma
+// reserva — `NEXT_PUBLIC_API_URL` sempre vem definida pelo lançador —, mas
+// deixá-la explícita evita a dúvida de por que 3333 aparece no pacote.
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
 
-/** Chave própria — não colide com `senatepi.accessToken` do painel admin. */
-export const CHAVE_TOKEN = 'senatepi.empresa.accessToken';
-export const CHAVE_EMPRESA = 'senatepi.empresa.dados';
+/**
+ * Chave própria — não colide com a do painel administrativo, e leva o id do
+ * sindicato: duas instalações no mesmo host compartilhariam armazenamento.
+ */
+export const CHAVE_TOKEN = chaveLocal('empresa', 'accessToken');
+export const CHAVE_EMPRESA = chaveLocal('empresa', 'dados');
 
 export interface EmpresaSessao {
   id: string;
@@ -182,7 +190,7 @@ export const STATUS_CONTRIBUICAO: Record<
   HOMOLOGADA: {
     label: 'Homologada',
     descricao: 'Contribuição conferida e aceita.',
-    classe: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300',
+    classe: 'bg-brand-50 text-brand-800 dark:bg-brand-900/40 dark:text-brand-300',
   },
   REJEITADA: {
     label: 'Rejeitada',

@@ -30,7 +30,7 @@ export function Sidebar() {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={user.avatarUrl} alt="" className="h-10 w-10 shrink-0 rounded-full border object-cover" />
         ) : (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-senatepi-400 text-sm font-bold text-senatepi-900">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-400 text-sm font-bold text-brand-900">
             {(user?.nomeExibicao || user?.nome)?.charAt(0) ?? '?'}
           </div>
         )}
@@ -38,7 +38,7 @@ export function Sidebar() {
           {/* O apelido é o que a interface exibe; sem ele, o nome completo. */}
           <p className="truncate text-sm font-semibold">{user?.nomeExibicao || user?.nome || '—'}</p>
           {user?.role && (
-            <span className="mt-0.5 inline-block rounded bg-senatepi-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-senatepi-800 dark:bg-senatepi-900/40 dark:text-senatepi-300">
+            <span className="mt-0.5 inline-block rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
               {ROLE_LABEL[user.role]}
             </span>
           )}
@@ -61,7 +61,7 @@ export function Sidebar() {
                   className={cn(
                     'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                     ativo
-                      ? 'bg-senatepi-800 text-white shadow-sm'
+                      ? 'bg-brand-800 text-white shadow-sm'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >

@@ -10,8 +10,8 @@ export function EmConstrucao({ titulo, descricao }: { titulo: string; descricao:
       </div>
       <Card>
         <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <div className="rounded-2xl bg-senatepi-50 p-4 dark:bg-senatepi-900/30">
-            <Construction className="h-10 w-10 text-senatepi-800" />
+          <div className="rounded-2xl bg-brand-50 p-4 dark:bg-brand-900/30">
+            <Construction className="h-10 w-10 text-brand-800" />
           </div>
           <p className="text-lg font-semibold">Módulo em construção</p>
           <p className="max-w-md text-sm text-muted-foreground">

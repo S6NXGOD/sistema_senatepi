@@ -1,3 +1,4 @@
+import { StorageService, dataCalendario, diasPossiveis } from '@core/infra';
 import {
   BadRequestException, ConflictException, ForbiddenException, GoneException,
   Injectable, Logger, NotFoundException,
@@ -9,13 +10,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AcaoAuditoria } from '@prisma/client';
 import { UpdateFiliadoDto } from '../filiados/dto/filiado.dto';
-import { dataCalendario, diasPossiveis } from '../../common/utils/datas.util';
+
 import { FiliadosService } from '../filiados/filiados.service';
 import { protegerImutaveis } from '../filiados/campos-imutaveis';
-import { StorageService } from '../../common/storage/storage.service';
+
 import {
   montarSincronizacaoDependentes, resumirDependentes,
 } from '../dependentes/dependentes.sync';
+import { campoVisivel } from '../../tenant/tenant.config';
 
 interface Ctx {
   userId?: string;
@@ -57,7 +59,10 @@ export class LinkRecadastramentoService {
    */
   private definirDesafio(f: { cpf: string | null; dataNascimento: Date | null; numeroCoren: string | null }): DesafioRecadastramento {
     if (f.cpf && f.dataNascimento) return DesafioRecadastramento.CPF_NASCIMENTO;
-    if (f.numeroCoren) return DesafioRecadastramento.COREN;
+    // Na prática o COREN já seria nulo numa instalação que esconde o campo; a
+    // checagem existe para o caso de dado importado de fora, que passaria a
+    // pedir na tela um número de conselho de enfermagem a um servidor público.
+    if (f.numeroCoren && campoVisivel('numeroCoren')) return DesafioRecadastramento.COREN;
     return DesafioRecadastramento.NENHUM;
   }
 

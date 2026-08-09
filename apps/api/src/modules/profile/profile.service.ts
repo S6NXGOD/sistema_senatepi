@@ -1,3 +1,4 @@
+import { ImageService, StorageService } from '@core/infra';
 import {
   BadRequestException,
   ConflictException,
@@ -8,8 +9,7 @@ import * as bcrypt from 'bcryptjs';
 import { AcaoAuditoria, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { ImageService } from '../../common/storage/image.service';
+
 import { ChangePasswordDto, UpdateProfileDto } from './dto/profile.dto';
 
 interface Ctx {

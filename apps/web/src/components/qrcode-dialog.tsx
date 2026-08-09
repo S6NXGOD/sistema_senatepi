@@ -43,7 +43,7 @@ export function QrCodeDialog({
         </div>
         <div className="flex flex-col items-center gap-4">
           {isLoading ? (
-            <Loader2 className="h-8 w-8 animate-spin text-senatepi-800" />
+            <Loader2 className="h-8 w-8 animate-spin text-brand-800" />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={data?.imagem} alt="QR Code" className="h-64 w-64" />

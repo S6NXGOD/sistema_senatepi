@@ -217,7 +217,7 @@ export function RegistrarMovimentacaoForm({
             </span>
           )}
           <label className="flex cursor-pointer select-none items-center gap-2 text-sm">
-            <input type="checkbox" className="h-4 w-4 accent-senatepi-800" checked={notaInterna} onChange={(e) => setNotaInterna(e.target.checked)} />
+            <input type="checkbox" className="h-4 w-4 accent-brand-800" checked={notaInterna} onChange={(e) => setNotaInterna(e.target.checked)} />
             <span className="flex items-center gap-1 text-muted-foreground">
               <Lock className="h-3.5 w-3.5 text-amber-600" /> Nota interna
             </span>

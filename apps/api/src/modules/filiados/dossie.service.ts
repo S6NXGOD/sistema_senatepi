@@ -1,7 +1,8 @@
+import { StorageService } from '@core/infra';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StatusProcesso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
+
 import { AnexosService } from '../anexos/anexos.service';
 
 /**

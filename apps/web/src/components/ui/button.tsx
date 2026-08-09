@@ -7,11 +7,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-senatepi-800 text-white shadow hover:bg-senatepi-900',
+        default: 'bg-brand-800 text-white shadow hover:bg-brand-900',
         outline: 'border border-input bg-transparent hover:bg-muted',
         ghost: 'hover:bg-muted',
         destructive: 'bg-red-600 text-white hover:bg-red-700',
-        secondary: 'bg-senatepi-400 text-senatepi-900 hover:bg-senatepi-600 hover:text-white',
+        secondary: 'bg-brand-400 text-brand-900 hover:bg-brand-600 hover:text-white',
       },
       size: {
         // Mobile-first: alvos de toque de 48px (h-12) / 44px (icon) no celular,

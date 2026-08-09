@@ -28,6 +28,8 @@ import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { formatNPU, STATUS_PROCESSO_LABEL } from '@/lib/processos';
 import { FORMACAO_LABEL, SITUACAO_COR, SITUACAO_LABEL } from '@/lib/filiados';
 import { ORIGEM_COR, ORIGEM_LABEL, ehImagem, formatTamanho } from '@/lib/anexos';
+import { campoVisivel, tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 /**
  * DOSSIÊ DO FILIADO — o histórico completo do associado, sem sair da listagem.
@@ -78,7 +80,7 @@ export function DossieDrawer({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={f.fotoUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
           ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-senatepi-50 text-xl font-bold text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-300">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-xl font-bold text-brand-800 dark:bg-brand-900/30 dark:text-brand-300">
               {f?.nomeCompleto?.charAt(0) ?? '—'}
             </div>
           )}
@@ -92,8 +94,15 @@ export function DossieDrawer({
             {f && (
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span className="font-mono">{f.matricula}</span>
-                <span>·</span>
-                <span>{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</span>
+                {/* Escondido no formulário mas visível aqui, o campo voltava
+                    pela porta dos fundos — e numa instalação sem formação o
+                    traço seco ("—") ainda ocuparia a linha de identificação. */}
+                {campoVisivel('formacao') && (
+                  <>
+                    <span>·</span>
+                    <span>{f.formacao ? FORMACAO_LABEL[f.formacao] : '—'}</span>
+                  </>
+                )}
                 <Badge className={cn('text-[10px]', SITUACAO_COR[f.situacao])}>
                   {SITUACAO_LABEL[f.situacao]}
                 </Badge>
@@ -123,7 +132,7 @@ export function DossieDrawer({
 
       {isLoading || !data || !f || !r ? (
         <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       ) : (
         <>
@@ -137,7 +146,7 @@ export function DossieDrawer({
                 className={cn(
                   'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   aba === a.id
-                    ? 'bg-senatepi-700 text-white dark:bg-senatepi-600'
+                    ? 'bg-brand-700 text-white dark:bg-brand-600'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
@@ -179,7 +188,7 @@ function AbaResumo({ d }: { d: Dossie }) {
   const { filiado: f, resumo: r } = d;
   const whats = linkWhatsApp(
     f.telefonePrincipal,
-    `Olá, ${f.nomeCompleto.split(' ')[0]}! 👋 Aqui é do *SENATEPI*.`,
+    `Olá, ${f.nomeCompleto.split(' ')[0]}! 👋 Aqui é do *${tenant.sigla}*.`,
   );
 
   return (
@@ -262,7 +271,7 @@ function AbaResumo({ d }: { d: Dossie }) {
       {/* Relacionamento */}
       <Bloco titulo="Relacionamento" icone={<Clock className="h-4 w-4" />}>
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Info rotulo="Filiado desde" valor={`${dataBr(r.relacionamento.desde)} (${desde(r.relacionamento.desde)})`} />
+          <Info rotulo={`${V.Filiado} desde`} valor={`${dataBr(r.relacionamento.desde)} (${desde(r.relacionamento.desde)})`} />
           <Info
             rotulo="Último contato"
             valor={
@@ -337,7 +346,7 @@ function AbaResumo({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 function AbaAtendimentos({ d }: { d: Dossie }) {
-  if (d.atendimentos.length === 0) return <Vazio>Nenhum atendimento registrado para este filiado.</Vazio>;
+  if (d.atendimentos.length === 0) return <Vazio>Nenhum atendimento registrado para este {V.filiado}.</Vazio>;
   return (
     <ul className="space-y-3">
       {d.atendimentos.map((a) => (
@@ -391,7 +400,7 @@ function AbaAtendimentos({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
-  if (d.atividades.length === 0) return <Vazio>Nenhuma atividade agendada para este filiado.</Vazio>;
+  if (d.atividades.length === 0) return <Vazio>Nenhuma atividade agendada para este {V.filiado}.</Vazio>;
   return (
     <ul className="space-y-3">
       {d.atividades.map((c) => (
@@ -418,7 +427,7 @@ function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
           </p>
           {c.desfecho && (
             <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-muted/50 p-2 text-sm">
-              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-700 dark:text-brand-400" />
               <span>
                 <strong>{rotuloDesfecho(c.desfecho)}</strong>
                 {c.desfechoObs ? ` — ${c.desfechoObs}` : ''}
@@ -450,13 +459,13 @@ function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
 // ---------------------------------------------------------------------------
 
 function AbaProcessos({ d }: { d: Dossie }) {
-  if (d.processos.length === 0) return <Vazio>Este filiado não figura em nenhum processo.</Vazio>;
+  if (d.processos.length === 0) return <Vazio>Este {V.filiado} não figura em nenhum processo.</Vazio>;
   return (
     <ul className="space-y-3">
       {d.processos.map((p) => (
         <li key={p.id} className="rounded-xl border p-3">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            <Gavel className="h-3.5 w-3.5 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+            <Gavel className="h-3.5 w-3.5 shrink-0 text-brand-700 dark:text-brand-400" />
             <span className="font-mono text-sm font-semibold">
               {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho'}
             </span>
@@ -496,7 +505,7 @@ function AbaProcessos({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 const PARCELA_COR: Record<string, string> = {
-  PAGO: 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+  PAGO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   VENCIDO: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   CANCELADO: 'bg-muted text-muted-foreground line-through',
@@ -513,7 +522,7 @@ function AbaFinanceiro({ d }: { d: Dossie }) {
       </div>
 
       {d.cobrancas.length === 0 ? (
-        <Vazio>Nenhuma cobrança emitida para este filiado.</Vazio>
+        <Vazio>Nenhuma cobrança emitida para este {V.filiado}.</Vazio>
       ) : (
         <ul className="space-y-3">
           {d.cobrancas.map((c) => (
@@ -556,7 +565,7 @@ function AbaFinanceiro({ d }: { d: Dossie }) {
 // ---------------------------------------------------------------------------
 
 function AbaDocumentos({ d }: { d: Dossie }) {
-  if (d.documentos.length === 0) return <Vazio>Nenhum documento do filiado no sistema.</Vazio>;
+  if (d.documentos.length === 0) return <Vazio>Nenhum documento do {V.filiado} no sistema.</Vazio>;
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
@@ -572,7 +581,7 @@ function AbaDocumentos({ d }: { d: Dossie }) {
               className="flex items-center gap-3 rounded-lg border bg-card p-2.5"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                <Icone className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" />
+                <Icone className="h-4 w-4 text-brand-700 dark:text-brand-400" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium" title={doc.nomeArquivo}>
@@ -647,7 +656,7 @@ function AbaTimeline({ fatos }: { fatos: FatoDossie[] }) {
 /** Cor do marcador da linha do tempo (a bolinha), por domínio. */
 function pontoDoFato(tipo: FatoDossie['tipo']): string {
   const mapa: Record<FatoDossie['tipo'], string> = {
-    FILIACAO: 'bg-senatepi-600',
+    FILIACAO: 'bg-brand-600',
     ATENDIMENTO: 'bg-sky-500',
     ATIVIDADE: 'bg-amber-500',
     PROCESSO: 'bg-violet-500',

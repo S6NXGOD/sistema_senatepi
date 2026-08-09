@@ -1,6 +1,8 @@
 // Espelho (frontend) do modelo de permissões definido no backend.
 // Mantém em sincronia com apps/api/src/common/permissions/permissoes.constants.ts
 
+import { V } from '@/lib/vocabulario';
+
 export type PerfilUsuario = 'ADMINISTRADOR' | 'COORDENACAO' | 'ADVOGADO' | 'TRIAGEM';
 export type NivelPermissao = 'SEM_ACESSO' | 'VISUALIZAR' | 'EDITAR';
 
@@ -18,7 +20,8 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
-  | 'escalas' | 'eventos' | 'colonia' | 'cobrancas' | 'empresas' | 'auditoria' | 'usuarios';
+  | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'organizacoes'
+  | 'auditoria' | 'usuarios';
 
 export interface ModuloInfo {
   key: ModuloKey;
@@ -31,13 +34,19 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'atendimentos', label: 'Triagem / Atendimento', grupo: 'Principal' },
   { key: 'processos', label: 'Processos', grupo: 'Principal' },
   { key: 'agenda', label: 'Agenda e Prazos', grupo: 'Principal' },
-  { key: 'filiados', label: 'Filiados', grupo: 'Principal' },
+  { key: 'filiados', label: V.Filiados, grupo: 'Principal' },
   { key: 'colaboradores', label: 'Colaboradores', grupo: 'Principal' },
   { key: 'escalas', label: 'Escalas dos Advogados', grupo: 'Operacional' },
   { key: 'eventos', label: 'Eventos', grupo: 'Operacional' },
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
+  { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
   { key: 'empresas', label: 'Empresas (Patronal)', grupo: 'Operacional' },
+  // A TELA de órgãos/organizações. O DADO é de `processos` — os mesmos
+  // endpoints servem o seletor de partes e o combobox de empregador, e por
+  // isso o controller da API continua em `@Modulo('processos')`. Ver a nota
+  // longa no espelho do backend.
+  { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos passaram a viver dentro de
   // Colaboradores e seguem a permissão dele.
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
@@ -55,18 +64,27 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
   COORDENACAO: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'EDITAR', colaboradores: 'EDITAR', escalas: 'EDITAR', eventos: 'EDITAR', colonia: 'EDITAR',
-    cobrancas: 'EDITAR', empresas: 'EDITAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
+    // `organizacoes` espelha `processos` em todos os perfis: é a mesma tabela
+    // por outra porta. Divergir daria o absurdo de quem edita a parte dentro
+    // do processo não poder corrigir o nome dela no cadastro.
+    acessos: 'EDITAR', cobrancas: 'EDITAR', empresas: 'EDITAR', organizacoes: 'EDITAR',
+    auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
-    cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    acessos: 'SEM_ACESSO', cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', organizacoes: 'EDITAR',
+    auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
+    // Quem fica no balcão é quem valida a entrada no clube.
+    acessos: 'EDITAR',
     // A secretaria (Triagem) cadastra a empresa e define a senha provisória.
-    cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    // `organizacoes` acompanha `processos`, que a Triagem não vê.
+    cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', organizacoes: 'SEM_ACESSO',
+    auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
 };
 
@@ -77,7 +95,7 @@ export interface PerfilInfo {
   descricao: string;
 }
 export const PERFIS: PerfilInfo[] = [
-  { key: 'TRIAGEM', label: 'Triagem', descricao: 'Atendimento inicial de filiados e registro de demandas.' },
+  { key: 'TRIAGEM', label: 'Triagem', descricao: `Atendimento inicial de ${V.filiados} e registro de demandas.` },
   { key: 'ADVOGADO', label: 'Advogado(a)', descricao: 'Acesso a processos, agenda de prazos e acompanhamento jurídico.' },
   { key: 'COORDENACAO', label: 'Coordenação', descricao: 'Gestão de equipe, financeiro e relatórios gerenciais.' },
   { key: 'ADMINISTRADOR', label: 'Administrador', descricao: 'Acesso completo a todos os módulos e configurações.' },

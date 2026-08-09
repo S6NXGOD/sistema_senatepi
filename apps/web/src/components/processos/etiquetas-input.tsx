@@ -55,7 +55,7 @@ export function EtiquetasInput({
                 'inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-xs font-medium',
                 automaticas.includes(e)
                   ? 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-emerald-800'
-                  : 'bg-senatepi-50 text-senatepi-800 dark:bg-senatepi-900/30 dark:text-senatepi-400',
+                  : 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
               )}
             >
               {automaticas.includes(e) && <Zap className="h-3 w-3 shrink-0 fill-current" />}
@@ -96,7 +96,7 @@ export function EtiquetasInput({
               onClick={() => adicionar(s)}
               className={cn(
                 'inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5',
-                'text-[11px] text-muted-foreground transition hover:border-senatepi-400 hover:text-foreground',
+                'text-[11px] text-muted-foreground transition hover:border-brand-400 hover:text-foreground',
               )}
             >
               <Plus className="h-3 w-3" /> {s}

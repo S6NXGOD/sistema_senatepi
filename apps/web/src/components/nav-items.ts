@@ -1,9 +1,11 @@
 import {
-  LayoutDashboard, Users, Contact, CalendarDays, Umbrella,
+  LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
   Building2, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
+import { moduloAtivo } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 export interface NavItem {
   href: string;
@@ -38,12 +40,29 @@ export const NAV_SECOES: NavSecao[] = [
       { href: '/processos', label: 'Processos', icon: Gavel, modulo: 'processos' },
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock, modulo: 'agenda' },
       { href: '/escalas', label: 'Escalas dos Advogados', icon: CalendarRange, modulo: 'escalas' },
+      // Fica no Jurídico porque serve aos dois papéis: o órgão que emprega o
+      // filiado é o mesmo que figura como réu na ação dele.
+      //
+      // MÓDULO PRÓPRIO, e não `processos`, por causa de uma COLISÃO: em quem
+      // tem o módulo patronal — o SENATEPI tem — esta tela apareceria ao lado
+      // de "Empresas", com o mesmo ícone e um nome sinônimo, sobre tabelas
+      // DIFERENTES (`partes_externas` × `empresas`). O hospital que emprega,
+      // é réu e faz repasse teria de ser cadastrado nas duas, sem ligação
+      // nenhuma entre elas. Enquanto os dois cadastros não forem unificados,
+      // a tela fica só onde não há ambiguidade.
+      //
+      // Isto gateia a TELA, não o dado: `/partes-externas` continua em
+      // `@Modulo('processos')` na API, porque é ele que alimenta o seletor de
+      // partes e o combobox de empregador em TODO cliente.
+      { href: '/organizacoes', label: 'Organizações', icon: Building2, modulo: 'organizacoes' },
     ],
   },
   {
     titulo: 'Pessoas',
     itens: [
-      { href: '/filiados', label: 'Filiados', icon: Users, modulo: 'filiados' },
+      // A ROTA continua `/filiados` em qualquer cliente: URL é identificador,
+      // não texto. Só o rótulo muda.
+      { href: '/filiados', label: V.Filiados, icon: Users, modulo: 'filiados' },
       { href: '/colaboradores', label: 'Colaboradores', icon: Contact, modulo: 'colaboradores' },
     ],
   },
@@ -64,6 +83,7 @@ export const NAV_SECOES: NavSecao[] = [
     itens: [
       { href: '/eventos', label: 'Eventos', icon: CalendarDays, modulo: 'eventos' },
       { href: '/colonia-admin', label: 'Colônia de Férias', icon: Umbrella, modulo: 'colonia' },
+      { href: '/portaria', label: 'Portaria / Clube', icon: ScanLine, modulo: 'acessos' },
     ],
   },
   {
@@ -80,6 +100,42 @@ export const NAV_SECOES: NavSecao[] = [
 /** Lista plana (compatibilidade). */
 export const NAV_ITENS: NavItem[] = NAV_SECOES.flatMap((s) => s.itens);
 
+/**
+ * Rotas que pertencem a um módulo mas não têm item de menu próprio.
+ *
+ * Sem isto, `/colonia-admin/123` e `/colonia/inscricao` continuariam abrindo
+ * numa instalação sem colônia — o menu escondido não protege quem digita a URL.
+ */
+const ROTAS_EXTRAS: Array<{ prefixo: string; modulo: ModuloKey }> = [
+  { prefixo: '/colonia', modulo: 'colonia' },      // inscrição pública
+  { prefixo: '/carteirinhas', modulo: 'filiados' },
+  { prefixo: '/validacao', modulo: 'eventos' },    // validação de presença em evento
+  { prefixo: '/evento', modulo: 'eventos' },       // página pública do evento
+];
+
+/**
+ * A qual módulo esta rota pertence — ou `null` se ela não é de módulo nenhum
+ * (login, configurações do próprio usuário, portal da empresa).
+ *
+ * Derivado do MESMO `NAV_SECOES` que monta o menu, de propósito. Uma segunda
+ * tabela de rota→módulo divergiria na primeira vez que alguém acrescentasse um
+ * item em só um dos lados, e o sintoma seria o pior possível: menu escondido
+ * com a tela ainda acessível.
+ *
+ * Vence o prefixo MAIS LONGO: `/colonia-admin` precisa ganhar de `/colonia`,
+ * senão a tela administrativa cairia na regra da página pública.
+ */
+export function moduloDaRota(pathname: string): ModuloKey | null {
+  const candidatos = [
+    ...NAV_ITENS.filter((i) => i.modulo).map((i) => ({ prefixo: i.href, modulo: i.modulo! })),
+    ...ROTAS_EXTRAS,
+  ]
+    .filter(({ prefixo }) => pathname === prefixo || pathname.startsWith(`${prefixo}/`))
+    .sort((a, b) => b.prefixo.length - a.prefixo.length);
+
+  return candidatos[0]?.modulo ?? null;
+}
+
 /** Filtra as seções/itens de navegação segundo as permissões do usuário. */
 export function filtrarNav(
   role: string | null | undefined,
@@ -88,7 +144,15 @@ export function filtrarNav(
   return NAV_SECOES
     .map((secao) => ({
       ...secao,
-      itens: secao.itens.filter((i) => !i.modulo || podeVer(role, permissoes, i.modulo)),
+      /**
+       * DOIS filtros, e a ordem importa pouco mas o significado é diferente:
+       * `moduloAtivo` pergunta se a INSTALAÇÃO tem o módulo; `podeVer`, se a
+       * PESSOA pode. Um módulo que o sindicato não contratou some para todo
+       * mundo, inclusive para o administrador.
+       */
+      itens: secao.itens.filter(
+        (i) => !i.modulo || (moduloAtivo(i.modulo) && podeVer(role, permissoes, i.modulo)),
+      ),
     }))
     .filter((secao) => secao.itens.length > 0);
 }

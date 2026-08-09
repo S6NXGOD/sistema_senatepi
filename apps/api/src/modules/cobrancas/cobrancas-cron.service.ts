@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CobrancasService } from './cobrancas.service';
+import { pularJobSemModulo } from '../../tenant/job-do-modulo';
 
 /**
  * Robô de automação de vencimentos. Todo dia à meia-noite, marca como VENCIDO
@@ -16,6 +17,7 @@ export class CobrancasCronService {
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async processarVencimentos() {
+    if (pularJobSemModulo('cobrancas', this.logger, 'Vencimentos')) return 0;
     const inicio = Date.now();
     this.logger.log('[Vencimentos] Iniciando varredura de parcelas vencidas…');
     try {

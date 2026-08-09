@@ -1,4 +1,14 @@
 import {
+  ImageService,
+  QrCodeService,
+  StorageService,
+  dataCalendario,
+  gerarMatricula,
+  mascararCpf,
+  normalizarBusca,
+  termosDeBusca,
+} from '@core/infra';
+import {
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -15,13 +25,9 @@ import {
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { ImageService } from '../../common/storage/image.service';
-import { StorageService } from '../../common/storage/storage.service';
-import { QrCodeService } from '../../common/qrcode/qrcode.service';
-import { lerAsset } from '../../common/assets.util';
-import { gerarMatricula, mascararCpf } from '../../common/utils/matricula.util';
-import { normalizarBusca, termosDeBusca } from '../../common/utils/busca.util';
-import { dataCalendario } from '../../common/utils/datas.util';
+
+import { lerLogoDaMarca } from '../../common/assets.util';
+
 import {
   calcularIdade,
   dependenteValidoParaEvento,
@@ -37,6 +43,7 @@ import {
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
+import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
 
 const MIME_PERMITIDOS: Record<string, true> = {
   'application/pdf': true,
@@ -108,6 +115,7 @@ export class FiliadosService {
         cpf,
         dataNascimento: dataCalendario(dto.dataNascimento),
         dataAdmissao: dataCalendario(dto.dataAdmissao),
+        vinculoFuncional: dto.vinculoFuncional,
         // Filiação registrada AGORA. Campo próprio para o gráfico de crescimento
         // não depender de `createdAt`, que a importação legada sobrescrevia.
         dataFiliacao: new Date(),
@@ -399,6 +407,7 @@ export class FiliadosService {
         cpf: dto.cpf ? dto.cpf.replace(/\D/g, '') : undefined,
         dataNascimento: dataCalendario(dto.dataNascimento),
         dataAdmissao: dataCalendario(dto.dataAdmissao),
+        vinculoFuncional: dto.vinculoFuncional,
         // Substitui os vínculos quando enviados
         vinculos: vinculos
           ? {
@@ -612,9 +621,9 @@ export class FiliadosService {
       'O Enfermeiro, Auxiliar em enfermagem e Técnico em enfermagem, abaixo assinado, autoriza as ' +
       'instituições públicas da administração direta, indireta, funcional e privada, ao qual tenha vínculo ' +
       'como Servidor Público, Empregado Público e Empregado, respectivamente, a descontar em folha de ' +
-      'pagamento / contracheque, em favor do SENATEPI, na AG: 2004; OP: 003; C/C 1341-4 BANCO: CEF. A ' +
+      `pagamento / contracheque, em favor do ${tenant.sigla}, na ${contaEmLinha()}. A ` +
       'contribuição associativa mensal no valor de 1% sobre o maior vencimento básico ao qual esteja ' +
-      'vinculado, em conformidade com os Art.: 57, §1º do estatuto do SENATEPI e Art.: 584, alínea b, da ' +
+      `vinculado, em conformidade com os ${tenant.contribuicao?.artigoEstatuto ?? ''} do estatuto do ${tenant.sigla} e Art.: 584, alínea b, da ` +
       'CLT. Solicito que a Contribuição Sindical (Imposto Sindical) de que trata o Art.: 579 da CLT sejam ' +
       'repassadas ao sindicato supra na referida conta da Entidade Sindical Representativa da Categoria ' +
       'Base Territorial do Estado do Piauí Fundado em 30/11/2009 - Registro no Mtb/ sob nº ' +
@@ -622,12 +631,11 @@ export class FiliadosService {
     const TEXTO_LGPD =
       'Em observância à Lei nº. 13.709/18 - Lei Geral de Proteção de Dados Pessoais (Fonte: Diário Oficial ' +
       'da União) e demais normativas aplicáveis sobre proteção de Dados Pessoais, manifesto-me de forma, ' +
-      'livre, expressa e consciente, no sentido de autorizar o SENATEPI a realizar o tratamento de meus ' +
+      `livre, expressa e consciente, no sentido de autorizar o ${tenant.sigla} a realizar o tratamento de meus ` +
       'dados pessoais SEMPRE QUE FOR SOLICITADO. Consinto, ainda, com a utilização destes dados para as ' +
       'finalidades de representação sindical, emissão de carteirinha, controle de eventos e acesso a benefícios.';
     const RODAPE =
-      'DIRETORIA SENATEPI - RUA LUCÍDIO FREITAS, Nº.1070, CENTRO-NORTE, TERESINA-PI, CEP: 64000-440 | ' +
-      'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+      rodapeInstitucional();
 
     const SEXO_LABEL: Record<string, string> = {
       MASCULINO: 'Masculino', FEMININO: 'Feminino', OUTRO: 'Outro',
@@ -698,7 +706,7 @@ export class FiliadosService {
 
       // ---- Cabeçalho oficial (centralizado) ----
       doc.font('Times-Bold').fontSize(9.5).fillColor('#111827').text(
-        'SENATEPI - SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ | CNPJ: 11.378.331/0001-86',
+        `${tenant.sigla} - ${tenant.nome} | CNPJ: ${tenant.cnpj}`,
         X, doc.page.margins.top, { align: 'center', width: W },
       );
       doc.moveDown(0.5);
@@ -819,8 +827,7 @@ export class FiliadosService {
     const mesCorte = dados?.mesCorte?.trim() || f.desfiliacaoMesCorte || null;
 
     const RODAPE =
-      'DIRETORIA SENATEPI - RUA LUCÍDIO FREITAS, Nº.1070, CENTRO-NORTE, TERESINA-PI, CEP: 64000-440 | ' +
-      'CONTATOS: (86) 3303-1426; (86) 99421-1117; e-mail: senatepienfermagem@outlook.com';
+      rodapeInstitucional();
 
     const pdf = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
@@ -841,19 +848,19 @@ export class FiliadosService {
       const ALT_FAIXA = 74;
       doc.rect(0, 0, doc.page.width, ALT_FAIXA).fill(VERDE_ESCURO);
 
-      const logo = lerAsset('senatepi-horizontal-branco.png');
+      const logo = lerLogoDaMarca();
       if (logo) {
         try {
           doc.image(logo, X, 18, { fit: [150, 38] });
         } catch {
-          doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text('SENATEPI', X, 26);
+          doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text(tenant.sigla, X, 26);
         }
       } else {
-        doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text('SENATEPI', X, 26);
+        doc.font('Helvetica-Bold').fontSize(18).fillColor('#FFFFFF').text(tenant.sigla, X, 26);
       }
 
       doc.font('Helvetica').fontSize(7.5).fillColor('#E8F5E3').text(
-        'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS\nEM ENFERMAGEM DO ESTADO DO PIAUÍ\nCNPJ: 11.378.331/0001-86',
+        `${tenant.nome}\nCNPJ: ${tenant.cnpj}`,
         X + W - 230,
         20,
         { align: 'right', width: 230, lineGap: 1.5 },
@@ -980,7 +987,7 @@ export class FiliadosService {
         .fillColor('#1f2937')
         .text(
           'Pelo presente instrumento, o(a) filiado(a) acima identificado(a) formaliza a sua DESFILIAÇÃO ' +
-            'do quadro associativo do SENATEPI, deixando de contribuir e de usufruir dos benefícios e da ' +
+            `do quadro associativo do ${tenant.sigla}, deixando de contribuir e de usufruir dos benefícios e da ` +
             'representação sindical a partir desta data, nos termos do estatuto da entidade. Declara estar ' +
             'ciente de que o presente pedido não o exime de eventuais débitos anteriores ao mês de corte ' +
             'acima indicado.',
@@ -1027,7 +1034,7 @@ export class FiliadosService {
           .text(sub, px, yAss + 19, { align: 'center', width: larguraAss });
       };
       assinatura('Assinatura do(a) Filiado(a)', ou(f.nomeCompleto), 0);
-      assinatura('Diretoria / Secretaria', 'SENATEPI', 1);
+      assinatura('Diretoria / Secretaria', tenant.sigla, 1);
 
       // ---- Rodapé fixo (repetido em todas as páginas) ----
       const range = doc.bufferedPageRange();

@@ -14,8 +14,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getDisponibilidade, partesData, SECRETARIA, ESTRUTURA_QUARTO, AVISO_NOSHOW_24H, LoteDisp, QuartoDisp } from '@/lib/colonia';
 import { CheckoutModal, TipoCheckout } from '@/components/colonia/checkout-modal';
+import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
-const WHATSAPP_MSG = 'Olá! Gostaria de saber mais informações sobre como me filiar ao SENATEPI.';
+const WHATSAPP_MSG = `Olá! Gostaria de saber mais informações sobre como me filiar ao ${tenant.sigla}.`;
 const WHATSAPP_URL = `https://wa.me/${SECRETARIA.whatsappNumero}?text=${encodeURIComponent(WHATSAPP_MSG)}`;
 
 function primeiroDisponivel(quartos: QuartoDisp[], clim: 'AR_CONDICIONADO' | 'VENTILADOR') {
@@ -48,7 +50,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
   const indisponivel = status === 403 || status === 404;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-senatepi-50/60 via-background to-background dark:from-senatepi-900/10">
+    <div className="min-h-screen bg-gradient-to-b from-brand-50/60 via-background to-background dark:from-brand-900/10">
       {/* Topo */}
       <header className="sticky top-0 z-30 border-b bg-card/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
@@ -66,13 +68,13 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
           <div className="mx-auto max-w-lg animate-fade-in">
             <Card className="overflow-hidden">
               {/* Banner com vibe de férias */}
-              <div className="relative isolate overflow-hidden bg-gradient-to-br from-senatepi-800 to-senatepi-600 px-8 py-10 text-center text-white">
+              <div className="relative isolate overflow-hidden bg-gradient-to-br from-brand-800 to-brand-600 px-8 py-10 text-center text-white">
                 <Sun className="pointer-events-none absolute -right-6 -top-6 h-32 w-32 text-white/10" />
                 <Waves className="pointer-events-none absolute -bottom-8 -left-6 h-28 w-28 text-white/10" />
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
                   <Sun className="h-9 w-9" />
                 </div>
-                <h1 className="text-2xl font-bold sm:text-3xl">Colônia de Férias SENATEPI</h1>
+                <h1 className="text-2xl font-bold sm:text-3xl">Colônia de Férias {tenant.sigla}</h1>
                 <p className="mt-2 text-sm text-white/90 sm:text-base">
                   Descanso, lazer e boas memórias para você e sua família.
                 </p>
@@ -80,12 +82,12 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
 
               <CardContent className="space-y-5 p-8 text-center">
                 <div className="space-y-1">
-                  <h2 className="text-lg font-semibold">Você é filiado ativo do SENATEPI?</h2>
-                  <p className="text-sm text-muted-foreground">As reservas são exclusivas para filiados ativos.</p>
+                  <h2 className="text-lg font-semibold">Você é filiado ativo do {tenant.sigla}?</h2>
+                  <p className="text-sm text-muted-foreground">As reservas são exclusivas para {V.filiados} ativos.</p>
                 </div>
                 <div className="flex flex-col gap-3">
                   <Button size="lg" className="h-12 text-base" onClick={() => setEtapa('vitrine')}>
-                    <UserCheck className="h-5 w-5" /> Sou Filiado Ativo <ArrowRight className="h-4 w-4" />
+                    <UserCheck className="h-5 w-5" /> Sou {V.Filiado} Ativo <ArrowRight className="h-4 w-4" />
                   </Button>
                   <Button size="lg" variant="outline" className="h-12 text-base" onClick={() => setNaoFiliado(true)}>
                     <UserX className="h-5 w-5" /> Ainda não sou filiado
@@ -104,7 +106,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
           <div className="animate-fade-in space-y-6 pb-28 sm:pb-6">
             {isLoading && (
               <div className="flex justify-center py-20">
-                <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+                <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
               </div>
             )}
 
@@ -114,7 +116,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                   <AlertTriangle className="h-10 w-10 text-amber-500" />
                   <p className="text-lg font-semibold">Reservas indisponíveis</p>
                   <p className="max-w-md text-sm text-muted-foreground">
-                    Não há campanha aberta no momento. Acompanhe os canais oficiais do SENATEPI para a próxima temporada.
+                    Não há campanha aberta no momento. Acompanhe os canais oficiais do {tenant.sigla} para a próxima temporada.
                   </p>
                   <Button variant="outline" className="mt-2" onClick={() => setEtapa('gate')}>
                     <ArrowLeft className="h-4 w-4" /> Voltar ao início
@@ -135,7 +137,7 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                       <p className="text-sm text-muted-foreground">Escolha um lote e reserve seu quarto</p>
                     </div>
                   </div>
-                  <Badge className="bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">
+                  <Badge className="bg-brand-50 text-brand-900 dark:bg-brand-900/30 dark:text-brand-400">
                     Reservas abertas
                   </Badge>
                 </div>
@@ -175,10 +177,10 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
         >
           <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <CardContent className="p-6 text-center sm:p-8">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-senatepi-50 dark:bg-senatepi-900/30">
-                <Sparkles className="h-8 w-8 text-senatepi-800 dark:text-senatepi-400" />
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-900/30">
+                <Sparkles className="h-8 w-8 text-brand-800 dark:text-brand-400" />
               </div>
-              <h3 className="text-xl font-bold">Que tal fazer parte do SENATEPI?</h3>
+              <h3 className="text-xl font-bold">Que tal fazer parte do {tenant.sigla}?</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 As reservas da Colônia são um dos muitos benefícios exclusivos para filiados ativos. Fale com a nossa
                 secretaria e descubra como se filiar — é rápido e acolhedor!
@@ -197,21 +199,21 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
                 href={SECRETARIA.telefoneHref}
                 className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-input px-5 py-3 font-semibold hover:bg-muted"
               >
-                <Phone className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" /> Ligar para a Secretaria
+                <Phone className="h-5 w-5 text-brand-800 dark:text-brand-400" /> Ligar para a Secretaria
               </a>
 
               {/* Endereço + horário de atendimento */}
               <div className="mt-4 space-y-2 rounded-xl bg-muted/50 p-4 text-left text-sm">
                 <p className="flex items-start gap-2">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
                   <span>{SECRETARIA.endereco}</span>
                 </p>
                 <p className="flex items-start gap-2">
-                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
                   <span>{SECRETARIA.horario}</span>
                 </p>
                 <p className="flex items-start gap-2">
-                  <Phone className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+                  <Phone className="mt-0.5 h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
                   <span>{SECRETARIA.telefone}</span>
                 </p>
               </div>
@@ -274,7 +276,7 @@ function LoteCard({ l, onEscolher }: { l: LoteDisp; onEscolher: (tipo: TipoCheck
         {l.esgotado ? (
           <span className="text-muted-foreground">Sem vagas disponíveis</span>
         ) : vagasDiretas > 0 ? (
-          <span className="text-senatepi-800 dark:text-senatepi-400">
+          <span className="text-brand-800 dark:text-brand-400">
             {vagasDiretas} {vagasDiretas === 1 ? 'vaga disponível' : 'vagas disponíveis'}
           </span>
         ) : l.sorteioHabilitado ? (
@@ -329,8 +331,8 @@ function DataBloco({ rotulo, Icon, partes }: { rotulo: string; Icon: any; partes
         <Icon className="h-3.5 w-3.5" /> {rotulo}
       </div>
       <div className="text-4xl font-extrabold leading-none tracking-tight text-foreground">{partes.dia}</div>
-      <div className="text-sm font-bold uppercase text-senatepi-800 dark:text-senatepi-400">{partes.mes}</div>
-      <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-senatepi-50 px-2 py-0.5 text-xs font-bold text-senatepi-900 dark:bg-senatepi-900/40 dark:text-senatepi-400">
+      <div className="text-sm font-bold uppercase text-brand-800 dark:text-brand-400">{partes.mes}</div>
+      <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-xs font-bold text-brand-900 dark:bg-brand-900/40 dark:text-brand-400">
         <Clock className="h-3 w-3" /> {partes.hora}
       </div>
       <div className="mt-1 text-[11px] text-muted-foreground">{partes.diaSemana}</div>
@@ -367,7 +369,7 @@ function StatusBadge({ l }: { l: LoteDisp }) {
   if (l.esgotado) return <Badge className="bg-muted text-muted-foreground">Esgotado</Badge>;
   if (l.sorteioHabilitado)
     return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Sorteio aberto</Badge>;
-  return <Badge className="bg-senatepi-50 text-senatepi-900 dark:bg-senatepi-900/30 dark:text-senatepi-400">Disponível</Badge>;
+  return <Badge className="bg-brand-50 text-brand-900 dark:bg-brand-900/30 dark:text-brand-400">Disponível</Badge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +385,7 @@ function LocalizacaoCard() {
         <div className="relative min-h-[12rem] sm:min-h-full">
           <img
             src="/lc.png"
-            alt="Colônia de Férias do SENATEPI em Luís Correia (PI)"
+            alt={`Colônia de Férias do ${tenant.sigla}`}
             className="h-full w-full object-cover"
           />
           <span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
@@ -393,15 +395,15 @@ function LocalizacaoCard() {
         <CardContent className="flex flex-col gap-3 p-5">
           <div>
             <h2 className="text-lg font-bold">Onde você vai ficar</h2>
-            <p className="text-sm text-muted-foreground">Colônia de Férias do SENATEPI — Luís Correia (PI)</p>
+            <p className="text-sm text-muted-foreground">Colônia de Férias do {tenant.sigla}</p>
           </div>
           <ul className="space-y-2 text-sm">
             <li className="flex items-start gap-2">
-              <Waves className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+              <Waves className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
               <span>A <strong>200 metros</strong> da <strong>Praia de Atalaia</strong> e da <strong>Praia do Coqueiro</strong>.</span>
             </li>
             <li className="flex items-start gap-2">
-              <Footprints className="mt-0.5 h-4 w-4 shrink-0 text-senatepi-700 dark:text-senatepi-400" />
+              <Footprints className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
               <span>Perto o suficiente para ir <strong>a pé</strong> até as praias.</span>
             </li>
           </ul>
@@ -409,7 +411,7 @@ function LocalizacaoCard() {
             href={MAPS_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-senatepi-800 font-semibold text-white transition-colors hover:bg-senatepi-700"
+            className="mt-auto inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand-800 font-semibold text-white transition-colors hover:bg-brand-700"
           >
             <Navigation className="h-4 w-4" /> Abrir no mapa
           </a>

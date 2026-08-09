@@ -22,6 +22,7 @@ import {
   FiliadoBusca,
   QuartoDisp,
 } from '@/lib/colonia';
+import { V } from '@/lib/vocabulario';
 
 type QuartoPainel = QuartoDisp & { ocupado: boolean };
 
@@ -162,7 +163,7 @@ export function AlocarManualModal({
       <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-muted p-2"><UserPlus className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" /></div>
+            <div className="rounded-xl bg-muted p-2"><UserPlus className="h-6 w-6 text-brand-800 dark:text-brand-400" /></div>
             <div>
               <h3 className="font-semibold leading-tight">Alocação manual (diretoria)</h3>
               <p className="text-xs text-muted-foreground">Lote {loteNumero}</p>
@@ -193,13 +194,13 @@ export function AlocarManualModal({
                       desabilitado
                         ? 'cursor-not-allowed border-input opacity-40'
                         : ativo
-                          ? 'border-senatepi-600 bg-senatepi-50 dark:bg-senatepi-900/30'
-                          : 'border-input hover:border-senatepi-600',
+                          ? 'border-brand-600 bg-brand-50 dark:bg-brand-900/30'
+                          : 'border-input hover:border-brand-600',
                     )}
                   >
                     {ar
                       ? <Snowflake className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                      : <Fan className="h-4 w-4 text-senatepi-600 dark:text-senatepi-400" />}
+                      : <Fan className="h-4 w-4 text-brand-600 dark:text-brand-400" />}
                     <span className="font-bold">Q{q.numero}</span>
                     <span className="text-[9px] text-muted-foreground">{q.ocupado ? 'ocupado' : q6Trava ? 'sorteio' : ar ? 'Ar' : 'Vent.'}</span>
                   </button>
@@ -230,10 +231,10 @@ export function AlocarManualModal({
 
           {/* Autocomplete: cadastro legado de Filiados (Nome + CPF) */}
           <div className="relative space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">Buscar filiado (opcional)</label>
+            <label className="text-xs font-medium text-muted-foreground">Buscar {V.filiado} (opcional)</label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-9" placeholder="Nome ou CPF do filiado…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+              <Input className="pl-9" placeholder={`Nome ou CPF do ${V.filiado}…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
               {buscando && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
             </div>
             {resultados.length > 0 && (

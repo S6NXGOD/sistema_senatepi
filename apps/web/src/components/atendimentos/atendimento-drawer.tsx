@@ -21,6 +21,7 @@ import {
 } from '@/lib/atendimentos';
 import { formatNPU } from '@/lib/processos';
 import { mascararCpf } from '@/lib/utils';
+import { V } from '@/lib/vocabulario';
 
 export function AtendimentoDrawer({
   atendimentoId, open, onClose, onMudou, onRegistrarDesfecho,
@@ -53,7 +54,7 @@ export function AtendimentoDrawer({
   function abrirWhatsApp() {
     if (!filiado || !at) return;
     const url = linkWhatsApp(filiado.telefonePrincipal, mensagemSaudacao({ nome: filiado.nomeCompleto, data: at.createdAt }));
-    if (!url) return toast.error('Filiado sem telefone válido para WhatsApp.');
+    if (!url) return toast.error(`${V.Filiado} sem telefone válido para WhatsApp.`);
     window.open(url, '_blank');
   }
 
@@ -73,13 +74,13 @@ export function AtendimentoDrawer({
         </div>
 
         {isLoading || !at || !filiado ? (
-          <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+          <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
         ) : (
           <div className="flex-1 space-y-5 overflow-y-auto p-5">
             {/* Filiado */}
             <div className="rounded-xl border p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-senatepi-700 dark:text-senatepi-400" /> Filiado</p>
+                <p className="flex items-center gap-1.5 font-semibold"><User className="h-4 w-4 text-brand-700 dark:text-brand-400" /> {V.Filiado}</p>
                 <Badge className="bg-muted text-muted-foreground">Matrícula {filiado.matricula}</Badge>
               </div>
               <div className="space-y-1.5">
@@ -134,7 +135,7 @@ export function AtendimentoDrawer({
                     <ul className="space-y-1.5 pt-1">
                       {at.compromissos.map((c) => (
                         <li key={c.id} className="flex items-center justify-between gap-2 rounded-md bg-card px-2.5 py-1.5 text-xs">
-                          <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-senatepi-700 dark:text-senatepi-400" /> {c.responsavel.nome}</span>
+                          <span className="flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-brand-700 dark:text-brand-400" /> {c.responsavel.nome}</span>
                           <span className="text-muted-foreground">{formatDataHora(c.inicio)}</span>
                         </li>
                       ))}
@@ -171,7 +172,7 @@ export function AtendimentoDrawer({
 
             {/* Histórico do filiado */}
             <div>
-              <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><History className="h-4 w-4" /> Histórico do filiado</p>
+              <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><History className="h-4 w-4" /> Histórico do {V.filiado}</p>
               {data.historico.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nenhum atendimento anterior.</p>
               ) : (

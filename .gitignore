@@ -13,6 +13,12 @@ node_modules/
 dist/
 build/
 .next/
+# um diretório de build por cliente (ver apps/web/next.config.mjs)
+.next-*/
+# Gerado pelo Next a cada build e agora APONTA PARA O distDir do cliente
+# (`.next-senatepi`, `.next-sindserm`). Versionado, sujaria a árvore a cada
+# troca de sindicato e entraria em conflito entre clientes.
+apps/web/next-env.d.ts
 out/
 *.tsbuildinfo
 
@@ -43,6 +49,8 @@ coverage/
 # Uploads / mídia local (NÃO ignorar código-fonte: use caminhos específicos!)
 # Antes havia "storage/" genérico, que ignorava apps/api/src/common/storage/ (código).
 /apps/api/uploads/
+# um acervo por cliente em dev (ver apps/api/.env.<cliente>)
+/apps/api/uploads-*/
 /uploads/
 /storage_local/
 minio-data/

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import {
   Calculator, ChevronDown, ChevronUp, FileUp, Info, QrCode, ShieldCheck,
 } from 'lucide-react';
+import { tenant } from '@/tenant.config';
+import { chaveLocal } from '@/lib/armazenamento';
 
 /**
  * Percentual da contribuição patronal.
@@ -14,13 +16,13 @@ import {
  */
 const PERCENTUAL = '1%';
 
-const CHAVE_RECOLHIDO = 'senatepi.empresa.guiaRecolhida';
+const CHAVE_RECOLHIDO = chaveLocal('empresa', 'guiaRecolhida');
 
 const PASSOS = [
   {
     Icone: Calculator,
     titulo: 'Você calcula',
-    texto: `O SENATEPI cobra ${PERCENTUAL} sobre a folha de vencimentos. O cálculo é feito pela própria empresa, que conhece os valores do mês.`,
+    texto: `O ${tenant.sigla} cobra ${PERCENTUAL} sobre a folha de vencimentos. O cálculo é feito pela própria empresa, que conhece os valores do mês.`,
   },
   {
     Icone: QrCode,
@@ -62,14 +64,14 @@ export function GuiaContribuicao() {
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-senatepi-400/50 bg-senatepi-50/40 dark:bg-senatepi-900/10">
+    <section className="overflow-hidden rounded-2xl border border-brand-400/50 bg-brand-50/40 dark:bg-brand-900/10">
       <button
         type="button"
         onClick={alternar}
         className="flex w-full items-center justify-between gap-3 p-4 text-left sm:p-5"
       >
         <span className="flex items-center gap-2">
-          <Info className="h-5 w-5 shrink-0 text-senatepi-800 dark:text-senatepi-400" />
+          <Info className="h-5 w-5 shrink-0 text-brand-800 dark:text-brand-400" />
           <span>
             <span className="block text-sm font-bold">Como funciona a contribuição patronal</span>
             <span className="block text-xs text-muted-foreground">
@@ -86,9 +88,9 @@ export function GuiaContribuicao() {
         <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 sm:px-5 sm:pb-5">
           {PASSOS.map(({ Icone, titulo, texto }, i) => (
             <div key={titulo} className="flex gap-3 rounded-xl bg-card p-3.5">
-              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-senatepi-50 dark:bg-senatepi-900/40">
-                <Icone className="h-4 w-4 text-senatepi-800 dark:text-senatepi-400" />
-                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-senatepi-800 text-[10px] font-bold text-white">
+              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-900/40">
+                <Icone className="h-4 w-4 text-brand-800 dark:text-brand-400" />
+                <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-800 text-[10px] font-bold text-white">
                   {i + 1}
                 </span>
               </span>

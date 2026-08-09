@@ -144,10 +144,10 @@ export function FormalizarRascunhoModal({
                     onClick={() => setCaminho(o.k)}
                     className={cn(
                       'flex items-start gap-2 rounded-lg border p-2.5 text-left transition',
-                      ativo ? 'border-senatepi-500 bg-senatepi-50 dark:bg-senatepi-900/20' : 'hover:bg-muted/50',
+                      ativo ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20' : 'hover:bg-muted/50',
                     )}
                   >
-                    <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', ativo ? 'text-senatepi-700 dark:text-senatepi-400' : 'text-muted-foreground')} />
+                    <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', ativo ? 'text-brand-700 dark:text-brand-400' : 'text-muted-foreground')} />
                     <span className="min-w-0">
                       <span className="block text-sm font-medium">{o.titulo}</span>
                       <span className="block text-[11px] leading-snug text-muted-foreground">{o.ajuda}</span>

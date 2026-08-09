@@ -42,7 +42,7 @@ export class ParteContrariaImportDto {
  * Quem está no POLO ATIVO do processo. Três caminhos, e nenhum deles cria
  * cadastro provisório de filiado:
  *
- *  • INSTITUCIONAL — ação coletiva do SENATEPI em nome da categoria. O polo
+ *  • INSTITUCIONAL — ação coletiva do sindicato em nome da categoria. O polo
  *    ativo é o próprio sindicato (a ParteExterna marcada `institucional`), e o
  *    processo é gravado como INSTITUCIONAL.
  *  • FILIADOS — um ou MAIS filiados já cadastrados. O primeiro vira a parte
@@ -97,7 +97,7 @@ export class ImportarProcessoDto {
 
   @ApiPropertyOptional({
     type: PoloAtivoImportDto,
-    description: 'Quem move a ação: o SENATEPI, filiados ou outra parte.',
+    description: 'Quem move a ação: o sindicato, filiados ou outra parte.',
   })
   // `@ValidateNested` é o que faz o objeto aninhado ser realmente checado —
   // sem ele, `@IsObject` aceita qualquer coisa e um `tipo` inválido escorregaria

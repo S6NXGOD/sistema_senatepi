@@ -54,8 +54,8 @@ export default function PrimeiroAcessoPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <Logo orientation="horizontal" variant="auto" className="mx-auto h-10" />
-          <div className="mx-auto mt-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-senatepi-50 dark:bg-senatepi-900/30">
-            <KeyRound className="h-6 w-6 text-senatepi-800 dark:text-senatepi-400" />
+          <div className="mx-auto mt-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-900/30">
+            <KeyRound className="h-6 w-6 text-brand-800 dark:text-brand-400" />
           </div>
           <h1 className="mt-3 text-lg font-bold">Crie sua senha de acesso</h1>
           <p className="mt-1 text-sm text-muted-foreground">

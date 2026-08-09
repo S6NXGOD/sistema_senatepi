@@ -6,6 +6,7 @@ import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/lib/auth';
 import { AvisoNovaVersao } from '@/components/avisos/nova-versao';
+import { IdentidadeProvider } from '@/components/identidade-provider';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(
@@ -18,7 +19,11 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
       <QueryClientProvider client={client}>
-        <AuthProvider>{children}</AuthProvider>
+        {/* Dentro do QueryClient e FORA do AuthProvider: a marca precisa
+            valer também na tela de login, onde ninguém está autenticado. */}
+        <IdentidadeProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </IdentidadeProvider>
         {/* Fora do AuthProvider de propósito: a atualização precisa ser
             oferecida também na tela de login, onde ninguém está autenticado. */}
         <AvisoNovaVersao />

@@ -1,7 +1,8 @@
+import { dataCalendario } from '@core/infra';
 import { BadRequestException } from '@nestjs/common';
 import { Prisma, TipoDependente } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { dataCalendario } from '../../common/utils/datas.util';
+
 import { DependenteRecadastroDto } from '../filiados/dto/filiado.dto';
 
 /**

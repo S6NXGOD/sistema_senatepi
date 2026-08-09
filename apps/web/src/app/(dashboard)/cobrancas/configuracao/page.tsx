@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getConfig, salvarConfig, ConfiguracaoSindicato } from '@/lib/cobrancas';
+import { tenant } from '@/tenant.config';
 
 type FormConfig = {
   pixChave: string;
@@ -97,7 +98,7 @@ export default function ConfiguracaoCobrancasPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" /></div>
+        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
       ) : (
         <>
           {/* PIX */}
@@ -109,7 +110,7 @@ export default function ConfiguracaoCobrancasPage() {
               </Campo>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Campo label="Nome do recebedor" dica="Aparece no QR (máx. 25 caracteres).">
-                  <Input maxLength={25} placeholder="SINDICATO SENATEPI" value={form.pixNomeRecebedor} onChange={(e) => set('pixNomeRecebedor', e.target.value)} />
+                  <Input maxLength={25} placeholder={`SINDICATO ${tenant.sigla}`} value={form.pixNomeRecebedor} onChange={(e) => set('pixNomeRecebedor', e.target.value)} />
                 </Campo>
                 <Campo label="Cidade do recebedor" dica="Aparece no QR (máx. 15 caracteres).">
                   <Input maxLength={15} placeholder="TERESINA" value={form.pixCidade} onChange={(e) => set('pixCidade', e.target.value)} />
@@ -159,7 +160,7 @@ export default function ConfiguracaoCobrancasPage() {
 
           <div className="flex items-center justify-end gap-3">
             {salvoOk && (
-              <span className="flex items-center gap-1.5 text-sm font-medium text-senatepi-700 dark:text-senatepi-400">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-brand-700 dark:text-brand-400">
                 <CheckCircle2 className="h-4 w-4" /> Configuração salva
               </span>
             )}

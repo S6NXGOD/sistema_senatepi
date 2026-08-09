@@ -69,7 +69,7 @@ export function ContribuicoesPatronaisTab() {
           sub="Guia gerada, sem documentos" cor="text-muted-foreground" bg="bg-muted"
           ativo={status === 'AGUARDANDO'} onClick={() => setStatus('AGUARDANDO')} />
         <Resumo Icon={ShieldCheck} rotulo="Homologadas" valor={resumo?.homologadas ?? 0}
-          sub={formatarReais(resumo?.totalHomologado ?? 0)} cor="text-senatepi-700 dark:text-senatepi-400" bg="bg-senatepi-50 dark:bg-senatepi-900/30"
+          sub={formatarReais(resumo?.totalHomologado ?? 0)} cor="text-brand-700 dark:text-brand-400" bg="bg-brand-50 dark:bg-brand-900/30"
           ativo={status === 'HOMOLOGADA'} onClick={() => setStatus('HOMOLOGADA')} />
         <Resumo Icon={Ban} rotulo="Rejeitadas" valor={resumo?.rejeitadas ?? 0}
           sub="Aguardando correção" cor="text-red-600 dark:text-red-400" bg="bg-red-100 dark:bg-red-900/30"
@@ -96,7 +96,7 @@ export function ContribuicoesPatronaisTab() {
               onClick={() => setStatus(f.valor)}
               className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                 status === f.valor
-                  ? 'border-senatepi-800 bg-senatepi-800 text-white'
+                  ? 'border-brand-800 bg-brand-800 text-white'
                   : 'text-muted-foreground hover:bg-muted'
               }`}
             >
@@ -111,7 +111,7 @@ export function ContribuicoesPatronaisTab() {
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-senatepi-800 dark:text-senatepi-400" />
+              <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
             </div>
           ) : linhas.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">
@@ -171,7 +171,7 @@ export function ContribuicoesPatronaisTab() {
                         <strong>{formatarReais(c.valorDeclarado)}</strong>
                       </p>
                       {auditavel && (
-                        <p className="text-[11px] font-medium text-senatepi-800 dark:text-senatepi-400">
+                        <p className="text-[11px] font-medium text-brand-800 dark:text-brand-400">
                           Toque para auditar
                         </p>
                       )}
@@ -272,7 +272,7 @@ function Resumo({ Icon, rotulo, valor, sub, cor, bg, ativo, onClick }: {
   return (
     <Card
       onClick={onClick}
-      className={`cursor-pointer transition ${ativo ? 'ring-2 ring-senatepi-800' : 'hover:bg-muted/40'}`}
+      className={`cursor-pointer transition ${ativo ? 'ring-2 ring-brand-800' : 'hover:bg-muted/40'}`}
     >
       <CardContent className="flex items-center gap-3 p-4">
         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${bg ?? 'bg-muted'}`}>

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { FiliadosService } from './filiados.service';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 /**
  * Rotas administrativas de consulta ao cadastro legado de Filiados.
@@ -10,6 +11,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
  */
 @ApiTags('admin-filiados')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller('admin/filiados')
 export class AdminFiliadosController {
   constructor(private readonly service: FiliadosService) {}

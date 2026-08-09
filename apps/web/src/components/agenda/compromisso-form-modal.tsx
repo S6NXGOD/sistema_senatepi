@@ -17,6 +17,7 @@ import {
   Compromisso, TipoCompromisso, formatData,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
+import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -151,8 +152,8 @@ export function CompromissoFormModal({
       >
         <div className="flex items-center justify-between border-b p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-senatepi-50 dark:bg-senatepi-900/30">
-              <CalendarClock className="h-5 w-5 text-senatepi-800 dark:text-senatepi-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+              <CalendarClock className="h-5 w-5 text-brand-800 dark:text-brand-400" />
             </div>
             <h3 className="text-lg font-bold">{ehEdicao ? 'Editar Evento' : 'Novo Evento na Agenda'}</h3>
           </div>
@@ -217,7 +218,7 @@ export function CompromissoFormModal({
 
           {/* Filiado vinculado */}
           <div className="space-y-1.5">
-            <label className="flex items-center gap-1.5 text-sm font-medium"><User className="h-4 w-4 text-muted-foreground" /> Filiado / Pessoa Vinculada</label>
+            <label className="flex items-center gap-1.5 text-sm font-medium"><User className="h-4 w-4 text-muted-foreground" /> {V.Filiado} / Pessoa Vinculada</label>
             {filiadoNome ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
                 <span className="truncate text-sm font-medium">{filiadoNome}</span>
@@ -226,7 +227,7 @@ export function CompromissoFormModal({
             ) : (
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-9" placeholder="Selecionar filiado…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                <Input className="pl-9" placeholder={`Selecionar ${V.filiado}…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
                 {buscando && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
                 {resultados.length > 0 && (
                   <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-input bg-card shadow-lg">
@@ -265,7 +266,7 @@ export function CompromissoFormModal({
           </div>
           {!ehEdicao && (
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Observações Internas <span className="font-normal text-muted-foreground">(não visíveis ao filiado)</span></label>
+              <label className="text-sm font-medium">Observações Internas <span className="font-normal text-muted-foreground">(não visíveis ao {V.filiado})</span></label>
               <textarea className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder="Notas para uso interno da equipe jurídica…" value={obsInternas} onChange={(e) => setObsInternas(e.target.value)} />
             </div>
           )}

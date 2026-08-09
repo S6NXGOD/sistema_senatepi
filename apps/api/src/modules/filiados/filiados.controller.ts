@@ -28,9 +28,11 @@ import {
 } from './dto/filiado.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 @ApiTags('filiados')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
 @Controller('filiados')
 export class FiliadosController {
   constructor(
