@@ -45,7 +45,7 @@ const filiadoSel = { select: { id: true, nomeCompleto: true, matricula: true } }
 const advogadoSel = { select: { id: true, nome: true } } as const;
 
 /**
- * Partes na LISTA: o suficiente para montar "SENATEPI × PRONTOCARE" numa linha
+ * Partes na LISTA: o suficiente para montar "sindicato × empresa ré" numa linha
  * da tabela, sem trazer o dossiê inteiro de cada parte em 20 processos.
  */
 const partesResumoSel = {

@@ -47,8 +47,8 @@ const PAPEL_PADRAO: Record<PoloProcesso, string> = {
  * PartesService — quem processou quem, quem defende e quem é o filiado.
  *
  * Cobre três coisas que a tela trata como uma só:
- *  1) PARTES do processo (polo ativo × passivo × terceiros) — o "SENATEPI contra
- *     a PRONTOCARE". Dado 100% nosso: a API Pública do DataJud não devolve
+ *  1) PARTES do processo (polo ativo × passivo × terceiros) — o "sindicato
+ *     contra a empresa ré". Dado 100% nosso: a API Pública do DataJud não devolve
  *     partes (confirmado em TJPI, TRT22, TJSP e TRF1).
  *  2) FILIADOS vinculados — são partes com `filiadoId`, então um processo pode
  *     ter vários (ação plúrima/coletiva) sem tabela extra.
@@ -446,7 +446,10 @@ export class PartesService {
    * POLO ATIVO — três caminhos, e nenhum deles cria cadastro provisório na
    * tabela de Filiados (regra explícita do fluxo):
    *
-   *  • INSTITUCIONAL → a parte é o SENATEPI (ParteExterna institucional).
+   *  • INSTITUCIONAL → a parte é o PRÓPRIO SINDICATO desta instalação, lido do
+   *    banco por `ParteExterna.institucional`. Nunca um nome fixo: o mesmo
+   *    código serve SENATEPI e SINDSERM, e cravar um deles aqui poria o
+   *    sindicato errado no polo ativo de uma petição.
    *  • FILIADOS      → um ou mais filiados. O primeiro é o principal; os demais
    *    entram como litisconsortes do mesmo polo.
    *  • OUTRA         → grava só o nome digitado. Sem nome, o processo nasce sem
@@ -464,7 +467,7 @@ export class PartesService {
       filiado?: { nomeCompleto: string; cpf: string | null } | null;
       /** Filiados do polo ativo, na ordem escolhida (o 1º é o principal). */
       filiadosAtivos?: { id: string; nomeCompleto: string; cpf: string | null }[] | null;
-      /** Polo ativo institucional: o próprio SENATEPI move a ação. */
+      /** Polo ativo institucional: o próprio sindicato move a ação. */
       institucional?: boolean;
       /** Polo ativo avulso: parte conhecida só pelo nome. */
       poloAtivoAvulso?: { nome?: string; documento?: string } | null;
@@ -473,17 +476,19 @@ export class PartesService {
   ) {
     // ---- Polo ativo ----
     if (entradas.institucional) {
-      const senatepi = await this.parteInstitucional(tx);
-      if (senatepi) {
+      // O sindicato DESTA instalação, e não um nome escrito aqui: quem responde
+      // é `ParteExterna.institucional`, mantida pelo `ParteInstitucionalSeed`.
+      const sindicato = await this.parteInstitucional(tx);
+      if (sindicato) {
         await tx.parteProcesso.create({
           data: {
             processoId,
             polo: 'ATIVO',
             papel: PAPEL_PADRAO.ATIVO,
             principal: true,
-            nome: senatepi.nome,
-            documento: senatepi.documento,
-            parteExternaId: senatepi.id,
+            nome: sindicato.nome,
+            documento: sindicato.documento,
+            parteExternaId: sindicato.id,
           },
         });
       }
