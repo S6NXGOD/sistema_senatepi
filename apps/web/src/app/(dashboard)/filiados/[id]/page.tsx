@@ -28,6 +28,7 @@ import { FinanceiroSection } from '@/components/filiados/financeiro-section';
 import { DossieDrawer } from '@/components/filiados/dossie-drawer';
 import { abrirPdf } from '@/lib/pdf';
 import { campoVisivel } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 
 const HIST_ICON: Record<string, any> = {
   FILIACAO: UserPlus,
@@ -177,8 +178,14 @@ export default function PerfilFiliadoPage() {
                   porque é a pergunta do financeiro: onde a mensalidade sai? */}
               {f.vinculos?.length > 0 ? (
                 <div className="space-y-2">
+                  {/* "Vínculos profissionais", e não "Locais de trabalho": o
+                      LOCAL de trabalho é a lotação (a escola, o hospital), que
+                      fica DENTRO do empregador. Chamar o bloco inteiro de
+                      "local de trabalho" colidia com o campo lotação e fazia a
+                      secretaria procurar a escola no lugar do órgão. O nome
+                      agora é o mesmo do formulário e o do próprio model. */}
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Locais de trabalho ({f.vinculos.length})
+                    Vínculos profissionais ({f.vinculos.length})
                   </p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {f.vinculos.map((v: any) => (
@@ -200,8 +207,30 @@ export default function PerfilFiliadoPage() {
                             />
                           )}
                         </p>
+                        {/**
+                          * A LOTAÇÃO ESTAVA NO BANCO E NÃO APARECIA AQUI.
+                          *
+                          * O card mostrava empregador, cargo e matrícula, e
+                          * pulava justamente a lotação — que num sindicato de
+                          * servidores é o dado mais consultado: é a escola, o
+                          * CMEI, a unidade de saúde onde a pessoa trabalha. A
+                          * secretaria concluía que a importação tinha perdido a
+                          * informação; ela estava gravada desde sempre.
+                          *
+                          * Ganha linha PRÓPRIA, e não mais um item na lista
+                          * separada por "·": é o segundo nível da hierarquia
+                          * (órgão → lotação), e achatá-lo ao lado do cargo
+                          * esconde essa relação.
+                          */}
+                        {v.lotacao && (
+                          <p className="truncate text-xs font-medium text-foreground/80">
+                            {v.lotacao}
+                          </p>
+                        )}
                         <p className="truncate text-xs text-muted-foreground">
-                          {[v.cargo, v.matricula && `Matr. ${v.matricula}`].filter(Boolean).join(' · ') || '—'}
+                          {[v.cargo, v.matricula && `${V.Matricula} ${v.matricula}`]
+                            .filter(Boolean)
+                            .join(' · ') || '—'}
                         </p>
                         {v.descontoEmFolha && (
                           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">

@@ -44,7 +44,18 @@ export const sindserm: TenantConfigWeb = {
   paleta: PALETA_SINDSERM,
   // «filiado», e não «servidor»: nem todo servidor da Prefeitura é filiado ao
   // sindicato, e é o filiado que este cadastro guarda. Ver o arquivo da API.
-  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
+  vocabulario: {
+    filiado: 'filiado',
+    filiados: 'filiados',
+    matricula: 'matrícula',
+    // O empregador é SEMPRE a Prefeitura de Teresina; o que varia é o ÓRGÃO
+    // (SEMEC, FMS, STRANS…), e ele sai da lista mantida em Organizações.
+    // Chamar de «empresa» um órgão público faz a secretaria hesitar.
+    empregador: 'Órgão',
+    // A lotação AQUI é o local de trabalho de verdade: a escola, o CMEI, o
+    // hospital. É por ela que a base se organiza.
+    lotacaoDica: 'Escola, CMEI, hospital, unidade…',
+  },
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'acessos',
@@ -59,6 +70,10 @@ export const sindserm: TenantConfigWeb = {
   // JUNTOS: os dois eram obrigatórios no formulário, e esconder um sem o outro
   // deixaria o cadastro impossível de enviar. Ver o mesmo campo na API.
   camposOcultos: ['formacao', 'numeroCoren'],
+  // A matrícula da Prefeitura é única no município e é a ÂNCORA da importação
+  // da folha, que não traz CPF. Vínculo sem ela não reencontra o servidor na
+  // competência seguinte e vira cadastro duplicado.
+  camposObrigatorios: ['vinculo.matricula'],
   /**
    * SEM lista fechada: o cargo aqui é texto livre.
    *

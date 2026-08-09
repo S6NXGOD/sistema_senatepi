@@ -505,6 +505,38 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           <Campo label="Número"><Input {...register('numero')} /></Campo>
           <Campo label="Complemento"><Input {...register('complemento')} /></Campo>
           <Campo label="Bairro" erro={errors.bairro?.message}><Input {...register('bairro')} /></Campo>
+          {/**
+            * ESTADO VEM ANTES DA CIDADE — e isto é correção de um defeito, não
+            * preferência de layout.
+            *
+            * A lista de municípios é carregada A PARTIR da UF (IBGE). Com a
+            * cidade em cima, o campo aparecia primeiro dizendo "Escolha a UF
+            * primeiro": a tela pedia para preencher de baixo para cima. Quem
+            * seguisse a ordem natural batia num campo inútil, descia, voltava.
+            *
+            * A ordem dos campos é a ordem da dependência entre eles.
+            */}
+          <Campo label="Estado *" erro={errors.estado?.message}>
+            <Controller
+              name="estado"
+              control={control}
+              render={({ field }) => (
+                <Combobox
+                  value={field.value ?? ''}
+                  onChange={(uf) => {
+                    // Trocar de UF invalida a cidade: município de um estado não
+                    // existe no outro, e manter o antigo cria um endereço
+                    // impossível que ninguém percebe até a correspondência voltar.
+                    if (uf !== field.value) setValue('cidade', '', { shouldDirty: true });
+                    field.onChange(uf);
+                  }}
+                  opcoes={UFS.map((u) => ({ valor: u.sigla, rotulo: u.nome, detalhe: u.sigla }))}
+                  placeholder="Digite o estado ou a sigla…"
+                  aria-invalid={!!errors.estado}
+                />
+              )}
+            />
+          </Campo>
           {/* Cidade: municípios da UF (IBGE) em combobox com filtro que ignora
               acento. Aceita texto livre de propósito — se o IBGE não responder,
               digitar à mão precisa continuar possível. */}
@@ -525,27 +557,6 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
                   }
                   permitirLivre
                   aria-invalid={!!errors.cidade}
-                />
-              )}
-            />
-          </Campo>
-          <Campo label="Estado *" erro={errors.estado?.message}>
-            <Controller
-              name="estado"
-              control={control}
-              render={({ field }) => (
-                <Combobox
-                  value={field.value ?? ''}
-                  onChange={(uf) => {
-                    // Trocar de UF invalida a cidade: município de um estado não
-                    // existe no outro, e manter o antigo cria um endereço
-                    // impossível que ninguém percebe até a correspondência voltar.
-                    if (uf !== field.value) setValue('cidade', '', { shouldDirty: true });
-                    field.onChange(uf);
-                  }}
-                  opcoes={UFS.map((u) => ({ valor: u.sigla, rotulo: u.nome, detalhe: u.sigla }))}
-                  placeholder="Digite o estado ou a sigla…"
-                  aria-invalid={!!errors.estado}
                 />
               )}
             />

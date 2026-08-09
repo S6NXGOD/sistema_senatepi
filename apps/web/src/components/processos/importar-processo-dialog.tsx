@@ -915,8 +915,15 @@ export function ImportarProcessoDialog({
                     </ul>
                   )}
                 </div>
+                {/* SEM EXEMPLO COM NOME PRÓPRIO. Dizia "(ex.: PRONTOCARE)" —
+                    uma clínica que o SENATEPI processa —, e isso aparecia na
+                    tela de TODO cliente. O SINDSERM, que litiga contra órgãos da
+                    Prefeitura, via o nome de um réu de outro sindicato sugerido
+                    como modelo. Exemplo específico de um cliente em código
+                    compartilhado é o mesmo defeito de sempre, agora em forma de
+                    placeholder. */}
                 <Input
-                  placeholder="…ou digite o nome do réu (ex.: PRONTOCARE)"
+                  placeholder="…ou digite o nome da parte contrária"
                   value={reuNome}
                   onChange={(e) => setReuNome(e.target.value)}
                 />

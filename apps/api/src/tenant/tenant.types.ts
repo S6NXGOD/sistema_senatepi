@@ -100,6 +100,23 @@ export interface TenantConfig {
     filiados: string;
     /** Como se chama o número de identificação interno. */
     matricula: string;
+    /**
+     * Rótulo do EMPREGADOR no vínculo profissional.
+     *
+     * No SENATEPI é «Instituição / Empresa» — hospitais e clínicas, cada um uma
+     * pessoa jurídica diferente. No SINDSERM o empregador é SEMPRE a Prefeitura
+     * de Teresina, e o que varia é o ÓRGÃO (SEMEC, FMS, STRANS…). Chamar de
+     * "empresa" o órgão público faz a secretaria hesitar no preenchimento.
+     */
+    empregador: string;
+    /**
+     * Dica da LOTAÇÃO — o lugar de trabalho DENTRO do empregador.
+     *
+     * No SINDSERM a lotação é a escola, o CMEI, o hospital: é o local onde a
+     * pessoa efetivamente trabalha, e é por ele que a base se organiza. No
+     * SENATEPI é o setor dentro do hospital.
+     */
+    lotacaoDica: string;
   };
   /** Artigo do estatuto que fundamenta a contribuição (sai no termo). */
   contribuicao?: { artigoEstatuto?: string; descricao?: string };
@@ -116,6 +133,20 @@ export interface TenantConfig {
    * outro. Um campo oculto simplesmente não é pedido nem exibido.
    */
   camposOcultos?: string[];
+  /**
+   * Campos que ESTA instalação torna OBRIGATÓRIOS, além do que o core já exige.
+   *
+   * O par de `camposOcultos`: um tira da tela o que não se usa, o outro exige o
+   * que é essencial AQUI e não é em toda parte. Chave no formato
+   * `entidade.campo` (ex.: `vinculo.matricula`).
+   *
+   * O caso que motivou: no SINDSERM a matrícula da Prefeitura é única no
+   * município e é a âncora da importação da folha, que não traz CPF — vínculo
+   * sem matrícula vira cadastro duplicado na competência seguinte. No SENATEPI
+   * é o oposto: hospitais reaproveitam numeração, a âncora é o CPF, e exigir
+   * matrícula barraria cadastro legítimo.
+   */
+  camposObrigatorios?: string[];
   modulos: ModuloSistema[];
   /**
    * Fontes externas ligadas nesta instalação.

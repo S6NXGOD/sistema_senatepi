@@ -321,7 +321,9 @@ export function AdicionarParteForm({
             <Input
               className="sm:col-span-2"
               autoFocus
-              placeholder={tipo === 'FISICA' ? 'Nome completo' : 'Razão social (ex.: PRONTOCARE LTDA)'}
+              // Sem exemplo com nome próprio: o réu de um sindicato não é
+              // modelo para o de outro. Ver a nota no importar-processo-dialog.
+              placeholder={tipo === 'FISICA' ? 'Nome completo' : 'Razão social da empresa ou órgão'}
               value={nome}
               onChange={(e) => setNome(e.target.value)}
             />

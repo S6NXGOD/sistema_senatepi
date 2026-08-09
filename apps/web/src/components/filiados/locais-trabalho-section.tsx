@@ -7,6 +7,15 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { listarPartesExternas, TIPO_PARTE_LABEL, type ParteExterna } from '@/lib/partes';
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
+
+/**
+ * A matrícula funcional é obrigatória nesta instalação?
+ *
+ * Declarada em `camposObrigatorios` do cliente, e não deduzida de algum outro
+ * sinal: é regra de negócio do sindicato, não consequência técnica.
+ */
+const matriculaObrigatoria = (tenant.camposObrigatorios ?? []).includes('vinculo.matricula');
 
 /** Local de trabalho enquanto está sendo editado. */
 export interface LocalTrabalho {
@@ -184,7 +193,11 @@ export function LocaisTrabalhoSection({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="space-y-1.5 sm:col-span-3">
-              <label className="text-sm font-medium">Empresa / Órgão empregador</label>
+              {/* O rótulo vem do cliente: "Instituição / Empresa" no SENATEPI,
+                  "Órgão" no SINDSERM. Estava escrito à mão como "Empresa /
+                  Órgão empregador" — uma barra que tentava servir aos dois e
+                  não servia a nenhum. */}
+              <label className="text-sm font-medium">{V.empregador}</label>
               <BuscaEmpregador
                 valor={l.empresa ?? ''}
                 vinculado={l.parteExternaId}
@@ -252,25 +265,43 @@ export function LocaisTrabalhoSection({
             </div>
 
             <div className="space-y-1.5">
-              {/* LOTAÇÃO é o lugar DENTRO do órgão. O campo acima ("Local de
-                  trabalho") guarda o empregador; num sindicato de servidores é
-                  pela lotação que a base se organiza — e é ela que responde
-                  "quantos filiados temos na Secretaria de Saúde?". */}
+              {/* LOTAÇÃO é o lugar DENTRO do empregador, e o que ele significa
+                  muda por cliente: no SENATEPI é o setor dentro do hospital; no
+                  SINDSERM é o local de trabalho de verdade — a escola, o CMEI,
+                  a unidade de saúde —, e é por ele que a base se organiza. Daí
+                  a dica sair do vocabulário do cliente. */}
               <label className="text-sm font-medium">Lotação</label>
               <Input
-                placeholder="Secretaria, unidade ou setor"
+                placeholder={V.lotacaoDica}
                 value={l.lotacao ?? ''}
                 onChange={(e) => mudar(i, 'lotacao', e.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Matrícula funcional</label>
+              {/**
+               * MATRÍCULA FUNCIONAL — obrigatória onde ela IDENTIFICA a pessoa.
+               *
+               * No SINDSERM a matrícula da Prefeitura é única no município e é
+               * a âncora da importação da folha (que não traz CPF): um vínculo
+               * sem ela não reencontra o servidor na competência seguinte e
+               * vira cadastro duplicado. No SENATEPI é o contrário — hospitais
+               * reaproveitam numeração, a âncora é o CPF, e exigir matrícula
+               * impediria cadastros legítimos.
+               */}
+              <label className="text-sm font-medium">
+                Matrícula funcional{matriculaObrigatoria ? ' *' : ''}
+              </label>
               <Input
-                placeholder="Opcional"
+                placeholder={matriculaObrigatoria ? `Matrícula d${V.empregador === 'Órgão' ? 'a Prefeitura' : 'o empregador'}` : 'Opcional'}
                 value={l.matricula ?? ''}
                 onChange={(e) => mudar(i, 'matricula', e.target.value)}
               />
+              {matriculaObrigatoria && !(l.matricula ?? '').trim() && (
+                <p className="text-xs text-red-600">
+                  Obrigatória: é ela que reencontra o servidor na folha do mês seguinte.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">

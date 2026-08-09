@@ -28,7 +28,14 @@ export const senatepi: TenantConfigWeb = {
   nome: 'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ',
   descricao: 'Sindicato dos Enfermeiros do Piauí',
   paleta: PALETA_SENATEPI,
-  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
+  vocabulario: {
+    filiado: 'filiado',
+    filiados: 'filiados',
+    matricula: 'matrícula',
+    // Hospitais e clínicas — cada empregador é uma pessoa jurídica distinta.
+    empregador: 'Instituição / Empresa',
+    lotacaoDica: 'Setor, unidade ou ala',
+  },
   // `acessos` (portaria do clube) fica de fora: a colônia do SENATEPI tem
   // controle próprio, com regra de reserva e sorteio. A portaria nasceu para
   // o clube do SINDSERM e ligá-la aqui só somaria um menu sem uso.

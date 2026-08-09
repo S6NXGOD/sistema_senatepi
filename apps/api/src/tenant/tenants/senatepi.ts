@@ -28,7 +28,14 @@ export const senatepi: TenantConfig = {
     email: 'senatepienfermagem@outlook.com',
   },
   bancario: { banco: 'CEF', agencia: '2004', operacao: '003', conta: '1341-4' },
-  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
+  vocabulario: {
+    filiado: 'filiado',
+    filiados: 'filiados',
+    matricula: 'matrícula',
+    // Hospitais e clínicas — cada empregador é uma pessoa jurídica distinta.
+    empregador: 'Instituição / Empresa',
+    lotacaoDica: 'Setor, unidade ou ala',
+  },
   contribuicao: {
     artigoEstatuto: 'Art. 57, §1º',
     descricao: '1% sobre o maior vencimento básico ao qual esteja vinculado',

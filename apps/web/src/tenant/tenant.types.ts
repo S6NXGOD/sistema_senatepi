@@ -26,7 +26,15 @@ export interface TenantConfigWeb {
   /** Descrição curta para o rodapé do login. */
   descricao: string;
   paleta: PaletaMarca;
-  vocabulario: { filiado: string; filiados: string; matricula: string };
+  vocabulario: {
+    filiado: string;
+    filiados: string;
+    matricula: string;
+    /** Rótulo do EMPREGADOR no vínculo: «Instituição / Empresa» × «Órgão». */
+    empregador: string;
+    /** Dica da LOTAÇÃO — o lugar de trabalho dentro do empregador. */
+    lotacaoDica: string;
+  };
   /**
    * Módulos ligados nesta instalação — a MESMA lista da API.
    *
@@ -41,6 +49,20 @@ export interface TenantConfigWeb {
    * apagados do banco. Ver o mesmo campo no `tenant.types.ts` da API.
    */
   camposOcultos?: string[];
+  /**
+   * Campos que ESTA instalação torna OBRIGATÓRIOS, além do que o core já exige.
+   *
+   * O par de `camposOcultos`: um tira da tela o que não se usa, o outro exige o
+   * que é essencial AQUI e não é em toda parte. Chave no formato
+   * `entidade.campo` (ex.: `vinculo.matricula`).
+   *
+   * O caso que motivou: no SINDSERM a matrícula da Prefeitura é única no
+   * município e é a âncora da importação da folha, que não traz CPF — vínculo
+   * sem matrícula vira cadastro duplicado na competência seguinte. No SENATEPI
+   * é o oposto: hospitais reaproveitam numeração, a âncora é o CPF, e exigir
+   * matrícula barraria cadastro legítimo.
+   */
+  camposObrigatorios?: string[];
   /**
    * Cargos da CATEGORIA que este sindicato representa.
    *

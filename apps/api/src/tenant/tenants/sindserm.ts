@@ -50,7 +50,18 @@ export const sindserm: TenantConfig = {
    *
    * A matrícula que o filiado sabe de cor é a da Prefeitura.
    */
-  vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
+  vocabulario: {
+    filiado: 'filiado',
+    filiados: 'filiados',
+    matricula: 'matrícula',
+    // O empregador é SEMPRE a Prefeitura de Teresina; o que varia é o ÓRGÃO
+    // (SEMEC, FMS, STRANS…), e ele sai da lista mantida em Organizações.
+    // Chamar de «empresa» um órgão público faz a secretaria hesitar.
+    empregador: 'Órgão',
+    // A lotação AQUI é o local de trabalho de verdade: a escola, o CMEI, o
+    // hospital. É por ela que a base se organiza.
+    lotacaoDica: 'Escola, CMEI, hospital, unidade…',
+  },
   contribuicao: {
     descricao:
       '1% sobre o vencimento base, descontado em folha de pagamento da ' +
@@ -67,6 +78,10 @@ export const sindserm: TenantConfig = {
    * pedidos nem exibidos.
    */
   camposOcultos: ['formacao', 'numeroCoren'],
+  // A matrícula da Prefeitura é única no município e é a ÂNCORA da importação
+  // da folha, que não traz CPF. Vínculo sem ela não reencontra o servidor na
+  // competência seguinte e vira cadastro duplicado.
+  camposObrigatorios: ['vinculo.matricula'],
   /**
    * `colonia` fora (não existe aqui) e `acessos` dentro (o clube é a razão de
    * ser da portaria).

@@ -35,4 +35,14 @@ export const V = {
   matricula: tenant.vocabulario.matricula,
   /** "Matrícula" */
   Matricula: capitalizar(tenant.vocabulario.matricula),
+  /**
+   * "Instituição / Empresa" · "Órgão" — rótulo do empregador no vínculo.
+   *
+   * Estava escrito à mão como "Empresa / Órgão empregador", uma barra que
+   * tentava servir aos dois e não servia a nenhum: no SINDSERM não existe
+   * "empresa", e no SENATEPI não existe "órgão".
+   */
+  empregador: tenant.vocabulario.empregador,
+  /** Dica do campo de lotação — o lugar de trabalho dentro do empregador. */
+  lotacaoDica: tenant.vocabulario.lotacaoDica,
 } as const;

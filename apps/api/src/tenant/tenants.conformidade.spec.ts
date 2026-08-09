@@ -62,6 +62,16 @@ describe('a API e a tela precisam concordar', () => {
       .toEqual([...(TENANTS[id].camposOcultos ?? [])].sort());
   });
 
+  /**
+   * O par de `camposOcultos`. Divergir aqui é pior que divergir lá: a tela
+   * exigiria um campo que a API aceita vazio (ou o contrário), e o operador
+   * ficaria preso num formulário que não envia, sem entender por quê.
+   */
+  it.each(ids)('%s: os campos obrigatórios são os mesmos dos dois lados', (id) => {
+    expect([...(TENANTS_WEB[id].camposObrigatorios ?? [])].sort())
+      .toEqual([...(TENANTS[id].camposObrigatorios ?? [])].sort());
+  });
+
   it.each(ids)('%s: o vocabulário é o mesmo dos dois lados', (id) => {
     expect(TENANTS_WEB[id].vocabulario).toEqual(TENANTS[id].vocabulario);
   });
