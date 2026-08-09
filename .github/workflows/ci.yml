@@ -58,7 +58,7 @@ jobs:
       # testes e build sem uma reclamação — já aconteceu. Aqui a asserção é
       # contra o HTML que realmente foi gerado.
       #
-      # O diretório é `.next-<tenant>` (ver apps/web/next.config.mjs): cada
+      # O diretório é `.next-<tenant>` (ver apps/web/next.config.ts): cada
       # cliente tem o seu, então não há cache de um vazando para o outro.
       - name: Conferir que a marca compilada é a do cliente certo
         run: |

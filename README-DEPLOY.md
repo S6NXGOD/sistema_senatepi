@@ -98,7 +98,7 @@ NEXT_PUBLIC_APP_NAME=SENATEPI
 > precisa **rebuildar** o serviço Web.
 
 > **`NEXT_PUBLIC_TENANT` precisa estar definida no build E no runtime.** O
-> `next.config.js` usa o cliente no `distDir` (`.next-senatepi`); se ela existir
+> `next.config.ts` usa o cliente no `distDir` (`.next-senatepi`); se ela existir
 > só num dos dois momentos, o `next start` procura o build no diretório errado e
 > falha com *"Could not find a production build"*. No Railway a variável do
 > serviço vale para os dois — só não a defina apenas no comando de build.
