@@ -38,6 +38,13 @@ O primeiro serviço criado a partir do repo é a API. Ele usa o `railway.json` d
 **Variáveis de ambiente** (Settings → Variables):
 
 ```
+# DE QUAL SINDICATO É ESTA INSTALAÇÃO — obrigatória, sem valor padrão.
+# A API NÃO SOBE sem ela, e isso é de propósito: cair no SENATEPI por omissão
+# faria a API de outro cliente subir com o nome, os módulos e os campos do
+# SENATEPI POR CIMA DO BANCO DELE. Serviço fora do ar se percebe em 30 s;
+# cliente trocado em silêncio leva semanas. Valores: senatepi, sindserm.
+TENANT=senatepi
+
 DATABASE_URL=${{ Postgres.DATABASE_URL }}
 NODE_ENV=production
 API_PREFIX=api
@@ -75,6 +82,13 @@ Crie um **segundo serviço** no mesmo projeto: **New → GitHub Repo →** mesmo
 **Variáveis de ambiente:**
 
 ```
+# O MESMO CLIENTE DECLARADO NA API. Obrigatória: sem ela o BUILD FALHA.
+# Ela decide a paleta, o logo, o vocabulário e quais módulos existem — e como
+# o Tailwind compila a cor dentro do CSS, isso é resolvido no build, não em
+# runtime. Precisa ser IGUAL ao `TENANT` da API do mesmo par: front de um
+# sindicato apontando para a API de outro é o pior estado possível.
+NEXT_PUBLIC_TENANT=senatepi
+
 # É EMBUTIDA NO BUILD — precisa apontar para a API já com /api no final
 NEXT_PUBLIC_API_URL=https://<sua-api>.up.railway.app/api
 NEXT_PUBLIC_APP_NAME=SENATEPI
@@ -82,6 +96,12 @@ NEXT_PUBLIC_APP_NAME=SENATEPI
 
 > Como `NEXT_PUBLIC_*` é embutida no build, se você mudar a URL da API depois,
 > precisa **rebuildar** o serviço Web.
+
+> **`NEXT_PUBLIC_TENANT` precisa estar definida no build E no runtime.** O
+> `next.config.js` usa o cliente no `distDir` (`.next-senatepi`); se ela existir
+> só num dos dois momentos, o `next start` procura o build no diretório errado e
+> falha com *"Could not find a production build"*. No Railway a variável do
+> serviço vale para os dois — só não a defina apenas no comando de build.
 
 ---
 
@@ -109,8 +129,15 @@ carteirinhas) são **perdidos a cada redeploy**. Para produção, escolha uma op
 
 ## 6. Checklist de segurança (antes de ir ao ar)
 
-- [ ] `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `QR_SIGNING_SECRET` definidos e **fortes**
-      (o código tem fallbacks só de dev — nunca use em produção).
+- [ ] `TENANT` (API) e `NEXT_PUBLIC_TENANT` (Web) definidos, **iguais entre si** e
+      apontando para o sindicato certo. Confira também que o `DATABASE_URL` é o
+      banco DAQUELE cliente: cada sindicato tem o seu, e não há seleção por
+      requisição — a instalação inteira é de um cliente só.
+- [ ] `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `QR_SIGNING_SECRET` definidos e **fortes**.
+      Em produção **não há fallback**: se faltarem, a aplicação não sobe (um segredo
+      previsível permitiria forjar credenciais desta instalação). Segredos são
+      **por sindicato** — nunca reaproveite os mesmos valores em dois clientes,
+      senão um token emitido para um passa a valer no outro.
 - [ ] `SEED_ADMIN_PASSWORD` definido **antes** do 1º deploy (senão cai numa senha padrão insegura).
 - [ ] Faça login e **troque a senha do admin** após o primeiro acesso.
 - [ ] `NODE_ENV=production` (desliga o Swagger em `/api/docs`).
