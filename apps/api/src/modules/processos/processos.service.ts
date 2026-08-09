@@ -30,6 +30,7 @@ import {
 } from './utils/fase.util';
 import { atoCritico } from './utils/tpu.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
+import { filtroDeVarredura } from './utils/varredura.util';
 import { NpuUtils } from './utils/npu.util';
 
 import { tenant } from '../../tenant/tenant.config';
@@ -474,28 +475,17 @@ export class ProcessosService {
   }
 
   /**
-   * IDs elegíveis à varredura noturna: ATIVOS e PENDENTES. Processos
-   * arquivados não são consultados — não mudam mais e só gastariam cota da API
-   * do CNJ. RASCUNHOS ficam de fora por construção (não têm NPU), e o
-   * `numeroCNJ: { not: null }` é o cinto de segurança: mesmo que alguém mude o
-   * status de um rascunho à mão, o robô não tenta consultar o nada.
+   * IDs elegíveis à varredura noturna.
    *
-   * ENCERRADOS COM INSTÂNCIA VIVA TAMBÉM ENTRAM. O status é do PROCESSO, mas a
-   * baixa acontece por GRAU: o 2º grau transita em julgado, o processo é
-   * encerrado — e o cumprimento de sentença segue correndo no 1º grau, sem
-   * ninguém olhando. É o caso que motivou a tabela de instâncias, e deixá-lo de
-   * fora da varredura tornaria toda a funcionalidade inútil: o sistema saberia
-   * que o 1º grau está vivo e mesmo assim pararia de consultá-lo.
+   * A regra mora em `filtroDeVarredura` (`utils/varredura.util.ts`), com o
+   * porquê de cada faixa e o teste que a trava. Em resumo: o que está vivo é
+   * consultado toda noite; o que está dormente volta a ser consultado a cada
+   * `DIAS_RECHECAGEM_DORMENTE` dias — porque "encerrado" não é "acabou para
+   * sempre", e a promessa de reabrir sozinho precisa de alguém olhando.
    */
   async idsParaSincronizar(): Promise<string[]> {
     const rows = await this.prisma.processo.findMany({
-      where: {
-        numeroCNJ: { not: null },
-        OR: [
-          { statusInterno: { in: ['ATIVO', 'PENDENTE'] } },
-          { statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } } },
-        ],
-      },
+      where: filtroDeVarredura(new Date()),
       select: { id: true },
       orderBy: { ultimaSincronizacao: 'asc' }, // prioriza os mais desatualizados
     });

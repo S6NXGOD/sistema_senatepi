@@ -1,6 +1,6 @@
 import { StorageService, apenasDigitosCnpj, cnpjValido, formatarCnpj } from '@core/infra';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AcaoAuditoria, Prisma } from '@prisma/client';
+import { AcaoAuditoria, Prisma, TipoParteExterna } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -104,25 +104,67 @@ export class EmpresasService {
       );
     }
 
-    const empresa = await this.prisma.empresa.create({
-      data: {
-        cnpj,
-        razaoSocial: dto.razaoSocial,
-        nomeFantasia: dto.nomeFantasia || null,
-        cep: dto.cep ? dto.cep.replace(/\D/g, '') || null : null,
-        logradouro: dto.logradouro || null,
-        bairro: dto.bairro || null,
-        cidade: dto.cidade || null,
-        uf: dto.uf || null,
-        // Sem senha = empresa só de vínculo (empregadora de colaborador PJ):
-        // fica cadastrada, sem acesso ao portal.
-        senhaHash: dto.senhaProvisoria
-          ? await bcrypt.hash(dto.senhaProvisoria, BCRYPT_ROUNDS)
-          : null,
-        // A empresa ainda vai trocar a senha no primeiro login do portal.
-        primeiroAcesso: !!dto.senhaProvisoria,
-      },
-      select: CAMPOS,
+    const senhaHash = dto.senhaProvisoria
+      ? await bcrypt.hash(dto.senhaProvisoria, BCRYPT_ROUNDS)
+      : null;
+
+    /**
+     * A EMPRESA NASCE LIGADA À ORGANIZAÇÃO — nunca solta.
+     *
+     * `empresas` é o DOSSIÊ PATRONAL de uma organização que mora em
+     * `partes_externas`. Criar uma sem a outra é recriar, um cadastro por vez,
+     * a duplicidade que a migration acabou de desfazer: o mesmo hospital em
+     * duas tabelas, sem nada ligando, e o endereço corrigido de um lado nunca
+     * chegando ao outro.
+     *
+     * REAPROVEITA antes de criar. Se a organização já existe — porque o
+     * hospital já era réu num processo ou já era o empregador de algum filiado
+     * —, o dossiê se pendura NELA. É isto que faz o cadastro convergir em vez
+     * de duplicar: o CNPJ é a mesma identidade nos dois papéis.
+     *
+     * Tudo numa transação: uma organização criada e um dossiê que falhou
+     * depois deixaria no cadastro uma linha órfã que ninguém pediu.
+     */
+    const empresa = await this.prisma.$transaction(async (tx) => {
+      const organizacao =
+        (await tx.parteExterna.findFirst({
+          where: { documento: cnpj },
+          select: { id: true },
+        })) ??
+        (await tx.parteExterna.create({
+          data: {
+            tipo: TipoParteExterna.JURIDICA,
+            nome: dto.razaoSocial,
+            nomeFantasia: dto.nomeFantasia || null,
+            documento: cnpj,
+            cidade: dto.cidade || null,
+            uf: dto.uf || null,
+            // NUNCA institucional: essa marca é do próprio sindicato, no polo
+            // ativo das ações. Um hospital com ela iria parar dentro de petição.
+            institucional: false,
+          },
+          select: { id: true },
+        }));
+
+      return tx.empresa.create({
+        data: {
+          cnpj,
+          razaoSocial: dto.razaoSocial,
+          nomeFantasia: dto.nomeFantasia || null,
+          cep: dto.cep ? dto.cep.replace(/\D/g, '') || null : null,
+          logradouro: dto.logradouro || null,
+          bairro: dto.bairro || null,
+          cidade: dto.cidade || null,
+          uf: dto.uf || null,
+          // Sem senha = empresa só de vínculo (empregadora de colaborador PJ):
+          // fica cadastrada, sem acesso ao portal.
+          senhaHash,
+          // A empresa ainda vai trocar a senha no primeiro login do portal.
+          primeiroAcesso: !!dto.senhaProvisoria,
+          parteExternaId: organizacao.id,
+        },
+        select: CAMPOS,
+      });
     });
 
     await this.audit.registrar({
