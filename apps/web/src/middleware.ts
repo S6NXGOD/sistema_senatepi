@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { tenant } from '@/tenant.config';
+import { chaveLocal } from '@/lib/armazenamento';
 
 // ---------------------------------------------------------------------------
 // Interceptador de rotas — GUEST ROUTES.
 //
 // A sessão é persistida no cliente em localStorage + cookie (ver lib/api.ts).
 // Como o middleware roda no servidor, ele lê o TOKEN pelos COOKIES, cujo nome
-// leva o id do sindicato: `<cliente>.refreshToken` (durável, preferido) e
-// `<cliente>.accessToken` (reserva).
+// leva o id do sindicato: `<cliente>:refreshToken` (durável, preferido) e
+// `<cliente>:accessToken` (reserva).
+//
+// O NOME VEM DE `chaveLocal`, A MESMA FUNÇÃO QUE GRAVA — e não de um literal
+// remontado aqui. Já custou uma vez: `api.ts` passou a gravar com `chaveLocal`
+// (`senatepi:accessToken`, dois-pontos) enquanto este arquivo seguia montando
+// `${tenant.id}.accessToken` (ponto). Os nomes deixaram de casar, o middleware
+// nunca mais achou o cookie e o guest redirect simplesmente parou de existir —
+// sem erro, sem log, sem teste vermelho. Repetir o formato do nome em dois
+// lugares é o defeito; derivá-lo da origem é a correção.
 //
 // Regra: usuário LOGADO que tenta abrir a tela de visitante (/login ou a raiz
 // "/") é redirecionado para o painel (/dashboard). Funciona em navegação direta
@@ -20,8 +28,8 @@ import { tenant } from '@/tenant.config';
 // como o /dashboard ser rejeitado por engano.
 // ---------------------------------------------------------------------------
 
-const ACCESS_COOKIE = `${tenant.id}.accessToken`;
-const REFRESH_COOKIE = `${tenant.id}.refreshToken`;
+const ACCESS_COOKIE = chaveLocal('accessToken');
+const REFRESH_COOKIE = chaveLocal('refreshToken');
 
 /**
  * QUEBRA-LAÇO.
@@ -38,7 +46,7 @@ const REFRESH_COOKIE = `${tenant.id}.refreshToken`;
  * Uma volta é permitida; a segunda, dentro da janela, não. O usuário chega ao
  * login e a sessão morta é descartada lá.
  */
-const COOKIE_LACO = `${tenant.id}.bounce`;
+const COOKIE_LACO = chaveLocal('bounce');
 const JANELA_LACO_S = 10;
 
 export function middleware(request: NextRequest) {
