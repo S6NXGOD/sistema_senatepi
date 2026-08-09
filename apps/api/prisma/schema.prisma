@@ -1424,6 +1424,36 @@ model Empresa {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  /// A ORGANIZAÇÃO no cadastro único (`ParteExterna`) da qual esta linha é o
+  /// DOSSIÊ PATRONAL.
+  ///
+  /// O QUE ISTO CONSERTA. "Organização" existia em dois cadastros que não se
+  /// conheciam: `empresas` (quem faz repasse, tem portal e emprega
+  /// terceirizado) e `partes_externas` (quem figura no processo e emprega o
+  /// filiado). O hospital que é as duas coisas — e no SENATEPI isso é o caso
+  /// comum — precisava ser cadastrado DUAS VEZES, sem nada ligando os
+  /// registros: um endereço corrigido de um lado não chegava ao outro.
+  ///
+  /// POR QUE ESPECIALIZAÇÃO, E NÃO FUSÃO DAS TABELAS. Fundir poria `senha_hash`
+  /// numa tabela cujas linhas incluem PESSOAS FÍSICAS que são adversárias em
+  /// litígio — credencial de acesso convivendo com o réu da ação. O que é
+  /// patronal (login do portal e contribuições) é um PAPEL da organização, e
+  /// papel se modela em tabela própria, apontando para a identidade.
+  ///
+  /// NADA DE DINHEIRO NEM DE CREDENCIAL SE MOVEU: `ContribuicaoPatronal`,
+  /// `Colaborador` e a autenticação do portal continuam apontando para
+  /// `empresas.id`, exatamente como antes. Só entrou esta ligação.
+  ///
+  /// NULO só existe para a migration poder ser aditiva. Toda empresa criada a
+  /// partir daqui nasce ligada, e o backfill ligou (ou criou) a organização de
+  /// todas as que já existiam.
+  ///
+  /// RESTRICT, e não Cascade nem SetNull: apagar a organização de quem tem
+  /// contribuição registrada apagaria — ou órfãozaria — o histórico financeiro.
+  /// Quem não deve mais aparecer se INATIVA (`ParteExterna.ativo`), não se apaga.
+  parteExternaId String?       @unique @map("parte_externa_id")
+  parteExterna   ParteExterna? @relation(fields: [parteExternaId], references: [id], onDelete: Restrict)
+
   colaboradores Colaborador[]
   contribuicoes ContribuicaoPatronal[]
 
@@ -2158,6 +2188,16 @@ model ParteExterna {
   /// EMPREGADOR e de PARTE em processo — no sindicato, o hospital que emprega
   /// é com frequência o mesmo que é réu.
   vinculos      VinculoProfissional[]
+  /// O DOSSIÊ PATRONAL desta organização, quando ela faz repasse ao sindicato.
+  ///
+  /// Ausente é o caso comum: a maioria das organizações do cadastro é órgão
+  /// público ou empresa que só figura em processo, e não contribui. Presente
+  /// significa "esta organização é também uma contribuinte patronal", e é lá
+  /// que ficam o acesso ao portal e as contribuições.
+  ///
+  /// É esta relação que responde a pergunta do cadastro — "faz repasse
+  /// patronal?" — sem precisar de uma flag que alguém teria de manter em dia.
+  dossiePatronal Empresa?
 
   @@index([tipo])
   @@index([ativo])
