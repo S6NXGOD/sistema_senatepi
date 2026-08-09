@@ -71,6 +71,28 @@ describe('a API e a tela precisam concordar', () => {
   });
 });
 
+describe('cadastros que nao podem conviver', () => {
+  /**
+   * `empresas` e `organizacoes` SAO DOIS CADASTROS DE ORGANIZACAO, em tabelas
+   * diferentes: `empresas` e quem faz repasse patronal e tem login no portal;
+   * `partes_externas` e quem emprega o filiado e figura como parte no
+   * processo. Ligar os dois no mesmo cliente poe no menu dois itens com nomes
+   * sinonimos e o MESMO icone, e obriga a cadastrar duas vezes o hospital que
+   * e as duas coisas — sem nenhuma ligacao entre os registros.
+   *
+   * Este teste existe porque a decisao e facil de desfazer sem querer: basta
+   * alguem "completar" a lista de modulos de um cliente achando que faltava
+   * uma linha. Quando os dois cadastros forem UNIFICADOS — uma organizacao,
+   * com o dossie patronal pendurado nela —, e este teste que deve ser
+   * apagado, junto com a unificacao, e nao antes dela.
+   */
+  it.each(ids)('%s: nao liga "empresas" e "organizacoes" ao mesmo tempo', (id) => {
+    const modulos = TENANTS[id].modulos;
+    const ambos = modulos.includes('empresas') && modulos.includes('organizacoes');
+    expect(ambos).toBe(false);
+  });
+});
+
 describe('identidade institucional', () => {
   it.each(ids)('%s: tem nome, sigla e endereço preenchidos', (id) => {
     const t = TENANTS[id];

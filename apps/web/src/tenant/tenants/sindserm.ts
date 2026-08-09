@@ -47,7 +47,13 @@ export const sindserm: TenantConfigWeb = {
   vocabulario: { filiado: 'filiado', filiados: 'filiados', matricula: 'matrícula' },
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
-    'colaboradores', 'escalas', 'eventos', 'acessos', 'auditoria', 'usuarios',
+    'colaboradores', 'escalas', 'eventos', 'acessos',
+    // A tela de órgãos. Aqui ela não tem com o que colidir: o SINDSERM não
+    // tem o módulo patronal, então "Organizações" é o único cadastro de
+    // organização que existe — e é por ela que as 31 secretarias da
+    // Prefeitura são mantidas quando o município reorganiza a estrutura.
+    'organizacoes',
+    'auditoria', 'usuarios',
   ],
   // Escala de enfermagem e registro no conselho de enfermagem. Precisam sair
   // JUNTOS: os dois eram obrigatórios no formulário, e esconder um sem o outro

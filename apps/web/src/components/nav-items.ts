@@ -40,10 +40,21 @@ export const NAV_SECOES: NavSecao[] = [
       { href: '/processos', label: 'Processos', icon: Gavel, modulo: 'processos' },
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock, modulo: 'agenda' },
       { href: '/escalas', label: 'Escalas dos Advogados', icon: CalendarRange, modulo: 'escalas' },
-      // Fica no Jurídico porque o cadastro vive sob o módulo `processos` — mas
-      // serve aos dois papéis: o órgão que emprega o filiado é o mesmo que
-      // figura como réu na ação dele.
-      { href: '/organizacoes', label: 'Organizações', icon: Building2, modulo: 'processos' },
+      // Fica no Jurídico porque serve aos dois papéis: o órgão que emprega o
+      // filiado é o mesmo que figura como réu na ação dele.
+      //
+      // MÓDULO PRÓPRIO, e não `processos`, por causa de uma COLISÃO: em quem
+      // tem o módulo patronal — o SENATEPI tem — esta tela apareceria ao lado
+      // de "Empresas", com o mesmo ícone e um nome sinônimo, sobre tabelas
+      // DIFERENTES (`partes_externas` × `empresas`). O hospital que emprega,
+      // é réu e faz repasse teria de ser cadastrado nas duas, sem ligação
+      // nenhuma entre elas. Enquanto os dois cadastros não forem unificados,
+      // a tela fica só onde não há ambiguidade.
+      //
+      // Isto gateia a TELA, não o dado: `/partes-externas` continua em
+      // `@Modulo('processos')` na API, porque é ele que alimenta o seletor de
+      // partes e o combobox de empregador em TODO cliente.
+      { href: '/organizacoes', label: 'Organizações', icon: Building2, modulo: 'organizacoes' },
     ],
   },
   {

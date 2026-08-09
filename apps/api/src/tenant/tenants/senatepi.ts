@@ -38,6 +38,20 @@ export const senatepi: TenantConfig = {
   // `acessos` (portaria do clube) fica de fora: a colônia do SENATEPI tem
   // controle próprio, com regra de reserva e sorteio. A portaria nasceu para
   // o clube do SINDSERM e ligá-la aqui só somaria um menu sem uso.
+  //
+  // `organizacoes` também fica de fora, e por um motivo mais forte: o SENATEPI
+  // TEM o módulo patronal (`empresas`), e as duas telas colidem. São tabelas
+  // diferentes — `empresas` é quem faz repasse e tem login no portal;
+  // `partes_externas` é quem emprega o filiado e figura como parte no processo
+  // — mas com nomes sinônimos e o mesmo ícone, lado a lado no menu. Pior: o
+  // hospital que é as três coisas teria de ser cadastrado duas vezes, sem
+  // ligação entre os registros.
+  //
+  // Isto NÃO tira nada do que o SENATEPI tem hoje: a tela nunca existiu aqui,
+  // e `partes_externas` segue sendo alimentada de dentro das telas de processo
+  // e de vínculo profissional, exatamente como sempre foi. Quando os dois
+  // cadastros forem unificados (uma organização, com o dossiê patronal
+  // pendurado nela), esta linha volta — aí como cadastro único.
   // As duas fontes do jurídico.
   integracoes: ['datajud', 'djen'],
   modulos: [

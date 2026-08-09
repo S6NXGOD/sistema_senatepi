@@ -91,6 +91,10 @@ export const sindserm: TenantConfig = {
   integracoes: ['datajud'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
-    'colaboradores', 'escalas', 'eventos', 'acessos', 'auditoria', 'usuarios',
+    'colaboradores', 'escalas', 'eventos', 'acessos',
+    // A tela de órgãos. Aqui ela não tem com o que colidir: sem o módulo
+    // patronal, "Organizações" é o único cadastro de organização que existe.
+    'organizacoes',
+    'auditoria', 'usuarios',
   ],
 };
