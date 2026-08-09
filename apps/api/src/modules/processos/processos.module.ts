@@ -23,6 +23,7 @@ import { PartesExternasService } from './partes-externas.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { CorrelacaoService } from './correlacao.service';
 import { ParteInstitucionalSeedService } from './parte-institucional-seed.service';
+import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
 
 @Module({
   // AgendaModule: o radar de audiências cria o compromisso pela AgendaService,
@@ -40,6 +41,7 @@ import { ParteInstitucionalSeedService } from './parte-institucional-seed.servic
   ],
   providers: [
     ParteInstitucionalSeedService,
+    OrganizacoesHerdadasService,
     ProcessosService,
     DatajudService,
     InstanciasService,

@@ -59,11 +59,21 @@ export const sindserm: TenantConfigWeb = {
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'acessos',
-    // A tela de órgãos. Aqui ela não tem com o que colidir: o SINDSERM não
-    // tem o módulo patronal, então "Organizações" é o único cadastro de
-    // organização que existe — e é por ela que as 31 secretarias da
-    // Prefeitura são mantidas quando o município reorganiza a estrutura.
-    'organizacoes',
+    // `organizacoes` NÃO entra, e isto é uma decisão do sindicato, não uma
+    // limitação: o SINDSERM é dedicado à Prefeitura de Teresina. O empregador é
+    // sempre ela; o que varia é o ÓRGÃO — uma lista de ~36 secretarias que muda
+    // uma vez por reforma administrativa — e depois a LOTAÇÃO, que é texto
+    // livre (a escola, o CMEI, a unidade de saúde).
+    //
+    // Uma tela de CRUD genérica é a ferramenta errada para 36 linhas quase
+    // fixas: ela pede manutenção que ninguém faz e expõe `partes_externas`
+    // inteira, que também guarda réu de processo. O sistema antigo do sindicato
+    // não tinha esse cadastro e a operação funcionava.
+    //
+    // Os 36 órgãos entram pela carga própria (`npm run seed:orgaos:sindserm`) e
+    // são escolhidos no combobox do vínculo. Consequência aceita: réus de
+    // processo acumulam em `partes_externas` sem tela para administrá-los —
+    // exatamente como era no SENATEPI antes desta tela existir.
     'auditoria', 'usuarios',
   ],
   // Escala de enfermagem e registro no conselho de enfermagem. Precisam sair

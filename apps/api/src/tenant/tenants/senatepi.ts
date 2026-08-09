@@ -42,6 +42,25 @@ export const senatepi: TenantConfig = {
   },
   // O SENATEPI usa todos os campos do cadastro.
   camposOcultos: [],
+  /**
+   * Os empregadores da enfermagem semeados pela migration de locais de
+   * trabalho. AQUI eles são legítimos — é onde os filiados trabalham, e é o que
+   * faz o combobox de empregador nascer útil.
+   *
+   * Estão declarados para que `OrganizacoesHerdadasService` saiba que NÃO deve
+   * removê-los desta instalação. Em qualquer outro cliente, a mesma lista é
+   * lixo herdado de uma migration que não sabia de quem era o banco.
+   */
+  empregadoresIniciais: [
+    'FUNDAÇÃO MUNICIPAL DE SAÚDE DE TERESINA',
+    'SECRETARIA DE ESTADO DA SAÚDE DO PIAUÍ',
+    'HOSPITAL UNIVERSITÁRIO DA UFPI',
+    'MATERNIDADE DONA EVANGELINA ROSA',
+    'HOSPITAL GETÚLIO VARGAS',
+    'HOSPITAL DE URGÊNCIA DE TERESINA',
+    'INSTITUTO DE DOENÇAS TROPICAIS NATAN PORTELLA',
+    'PRONTOCARE',
+  ],
   // `acessos` (portaria do clube) fica de fora: a colônia do SENATEPI tem
   // controle próprio, com regra de reserva e sorteio. A portaria nasceu para
   // o clube do SINDSERM e ligá-la aqui só somaria um menu sem uso.

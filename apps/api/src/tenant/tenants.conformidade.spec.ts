@@ -81,6 +81,51 @@ describe('a API e a tela precisam concordar', () => {
   });
 });
 
+describe('empregadores semeados por migration', () => {
+  /**
+   * A TRAVA QUE PROTEGE O SENATEPI DE SI MESMO.
+   *
+   * `OrganizacoesHerdadasService` remove, no boot, os empregadores semeados
+   * pela migration `20260802120000` que a instalação NÃO declara em
+   * `empregadoresIniciais` e que ninguém usa. É o que tira PRONTOCARE e os
+   * hospitais estaduais do banco do SINDSERM.
+   *
+   * O RISCO INVERSO: se alguém acrescentar um nome àquela lista no serviço e
+   * esquecer de declará-lo no SENATEPI, o robô apagaria do SENATEPI um
+   * empregador legítimo — silenciosamente, no primeiro boot, e só enquanto
+   * ninguém o estivesse usando. Este teste conserta a assimetria: o SENATEPI é
+   * o dono daquela lista e precisa declarar TUDO o que ela semeia.
+   */
+  const SEMEADOS_PELA_MIGRATION = [
+    'FUNDAÇÃO MUNICIPAL DE SAÚDE DE TERESINA',
+    'SECRETARIA DE ESTADO DA SAÚDE DO PIAUÍ',
+    'HOSPITAL UNIVERSITÁRIO DA UFPI',
+    'MATERNIDADE DONA EVANGELINA ROSA',
+    'HOSPITAL GETÚLIO VARGAS',
+    'HOSPITAL DE URGÊNCIA DE TERESINA',
+    'INSTITUTO DE DOENÇAS TROPICAIS NATAN PORTELLA',
+    'PRONTOCARE',
+  ];
+
+  it('o SENATEPI declara todos os empregadores que a migration semeia', () => {
+    const declarados = (TENANTS.senatepi.empregadoresIniciais ?? []).map((n) => n.toUpperCase());
+    for (const nome of SEMEADOS_PELA_MIGRATION) expect(declarados).toContain(nome);
+  });
+
+  /**
+   * O outro lado: um cliente que NÃO é da enfermagem não pode declarar
+   * hospitais estaduais como seus. Se declarasse, estaria pedindo para manter
+   * no cadastro exatamente o lixo que o serviço existe para recolher.
+   */
+  it.each(ids.filter((id) => id !== 'senatepi'))(
+    '%s: não adota os empregadores da enfermagem do SENATEPI',
+    (id) => {
+      const declarados = (TENANTS[id].empregadoresIniciais ?? []).map((n) => n.toUpperCase());
+      expect(declarados).not.toContain('PRONTOCARE');
+    },
+  );
+});
+
 describe('o cadastro de organizacao e unico', () => {
   /**
    * AQUI MORAVA O TESTE OPOSTO — o que PROIBIA um cliente de ligar `empresas`

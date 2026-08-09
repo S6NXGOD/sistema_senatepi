@@ -147,6 +147,26 @@ export interface TenantConfig {
    * matrícula barraria cadastro legítimo.
    */
   camposObrigatorios?: string[];
+  /**
+   * EMPREGADORES QUE ESTA INSTALAÇÃO RECONHECE como sua — pelo nome, em
+   * maiúsculas, exatamente como estão em `partes_externas.nome`.
+   *
+   * POR QUE ISTO EXISTE. A migration `20260802120000_locais_trabalho_e_modalidade`
+   * semeia oito empregadores da ENFERMAGEM (HGV, HUT, PRONTOCARE, Maternidade
+   * Evangelina Rosa…) para o combobox do SENATEPI já nascer útil. Migration não
+   * sabe de qual cliente é o banco — então TODO cliente novo nasce com os
+   * hospitais do SENATEPI dentro. Aconteceu com o SINDSERM, um sindicato de
+   * servidores municipais que não tem nada com hospital estadual, e aconteceria
+   * de novo com o terceiro cliente.
+   *
+   * A migration já rodou em produção e não pode ser reescrita. Quem passa a
+   * mandar é esta lista, lida por `OrganizacoesHerdadasService` no boot: o que
+   * a instalação NÃO reconhece e NINGUÉM usa é removido.
+   *
+   * Lista vazia (ou ausente) significa "não reconheço nenhum destes" — que é o
+   * caso de todo cliente que não seja o SENATEPI.
+   */
+  empregadoresIniciais?: string[];
   modulos: ModuloSistema[];
   /**
    * Fontes externas ligadas nesta instalação.
