@@ -26,6 +26,7 @@ import {
   normalizarMatricula,
   normalizarTexto,
 } from './folha-prefeitura.util';
+import { indexarOrganizacoes, organizacaoDoTexto } from './organizacao-vinculo.util';
 
 const CHUNK = 500;
 
@@ -524,6 +525,25 @@ export class FolhaPrefeituraService {
         select: { cpf: true },
       })).map((f) => f.cpf!),
     );
+    /**
+     * O cadastro de organizações, indexado por sigla e razão social.
+     *
+     * Carregado UMA vez: são dezenas de linhas e milhares de vínculos, e uma
+     * consulta por linha multiplicaria por 4.000 uma resposta que não muda
+     * durante a importação.
+     *
+     * É o que faz o vínculo nascer LIGADO ao órgão, em vez de guardar só o
+     * nome dele. Sem isto, os 963 vínculos do SINDSERM ficaram com
+     * `parteExternaId` nulo enquanto as 36 secretarias estavam cadastradas ali
+     * do lado — e "quantos filiados na SEMEC?" passava a depender de agrupar
+     * texto, que a folha seguinte pode escrever de outro jeito.
+     */
+    const organizacoes = indexarOrganizacoes(
+      await this.prisma.parteExterna.findMany({
+        where: { ativo: true },
+        select: { id: true, nome: true, nomeFantasia: true },
+      }),
+    );
 
     let processados = 0, importados = 0, atualizados = 0, ignorados = 0;
     let vinculosCriados = 0, vinculosAtualizados = 0, comErro = 0;
@@ -558,6 +578,7 @@ export class FolhaPrefeituraService {
             matriculasUsadas,
             chavesUsadas,
             cpfsUsados,
+            organizacoes,
           });
           if (resultado.criouFiliado) importados++;
           else if (resultado.resultado === 'ATUALIZADO') atualizados++;
@@ -639,6 +660,8 @@ export class FolhaPrefeituraService {
       chavesUsadas: Set<string>;
       /** CPFs já usados em `filiados` — só dígitos. */
       cpfsUsados: Set<string>;
+      /** Sigla/razão social → id da organização, para ligar o vínculo ao órgão. */
+      organizacoes: Map<string, string>;
     },
   ): Promise<{ resultado: string; criouFiliado: boolean; criouVinculo: boolean; atualizouVinculo: boolean }> {
     const chave = linha.chave;
@@ -791,6 +814,12 @@ export class FolhaPrefeituraService {
         // pessoa e o mesmo vínculo — só o órgão mudou.
         if (linha.orgao && normalizarTexto(alvo.empresa) !== normalizarTexto(linha.orgao)) {
           data.empresa = linha.orgao;
+          // A ligação acompanha a transferência: o texto novo aponta para outro
+          // órgão, e deixar a ligação antiga faria o vínculo dizer uma coisa na
+          // tela e outra no relatório. `disconnect` quando o órgão novo não está
+          // no cadastro — nunca manter o anterior, que agora está errado.
+          const orgaoNovo = organizacaoDoTexto(linha.orgao, ctx.organizacoes);
+          data.parteExterna = orgaoNovo ? { connect: { id: orgaoNovo } } : { disconnect: true };
           alteracoes.orgao = { de: alvo.empresa, para: linha.orgao };
         }
         // Desconto em folha só muda quando a planilha INFORMOU (coluna Valor
@@ -836,6 +865,10 @@ export class FolhaPrefeituraService {
           // Órgão vazio vira um rótulo honesto em vez de string vazia: `empresa`
           // é obrigatória, e "" na tela pareceria um defeito do sistema.
           empresa: linha.orgao || 'NÃO INFORMADO NA FOLHA',
+          // NASCE LIGADO ao órgão do cadastro quando a sigla bate. `null` é
+          // resposta legítima — "NÃO INFORMADO NA FOLHA" não é organização
+          // nenhuma, e órgão fora da lista fica para a secretaria cadastrar.
+          parteExternaId: organizacaoDoTexto(linha.orgao, ctx.organizacoes),
           matricula: linha.matricula,
           cargo: linha.cargo || null,
           lotacao: linha.lotacao || null,
