@@ -63,6 +63,17 @@ SEED_ADMIN_PASSWORD=<senha-forte>
 # Depois de criar o serviço Web, coloque o domínio dele aqui (CORS)
 CORS_ORIGINS=https://<seu-web>.up.railway.app
 
+# CONSULTA AO CNJ — leia TODAS as instâncias do processo.
+#
+# DESLIGADA POR PADRÃO, e o padrão é ruim para quem tem jurídico: com ela
+# ausente o sistema lê UM ÚNICO documento do DataJud — o que o Elasticsearch
+# ranquear em primeiro — e o processo aparece com uma instância só. O 2º grau,
+# a Turma Recursal do Juizado e o recurso no tribunal superior simplesmente não
+# existem para o sistema.
+#
+# Ligue em TODA instalação que use o módulo de processos.
+DATAJUD_MULTI_INSTANCIA=true
+
 # Armazenamento (ver seção 5)
 STORAGE_DRIVER=local
 STORAGE_PUBLIC_URL=https://<sua-api>.up.railway.app
