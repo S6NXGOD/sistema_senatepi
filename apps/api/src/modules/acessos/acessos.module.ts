@@ -15,7 +15,12 @@ import { AuditService } from '../../common/audit/audit.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
-import { calcularIdade, dependenteValidoParaEvento } from '../dependentes/dependentes.module';
+import {
+  PARENTESCO,
+  calcularIdade,
+  dependenteValidoParaEvento,
+} from '../dependentes/dependentes.module';
+import { situacaoDoTitular } from '../dependentes/titular.util';
 
 /**
  * PORTARIA — entrada no clube do sindicato.
@@ -30,14 +35,6 @@ import { calcularIdade, dependenteValidoParaEvento } from '../dependentes/depend
  * funcional do empregador — num sindicato de servidores é a segunda que a
  * pessoa sabe de cor.
  */
-
-/** Rótulo do parentesco — sem isto, mãe aparecia como "Filho(a)". */
-const PARENTESCO: Record<TipoDependente, string> = {
-  CONJUGE: 'Cônjuge',
-  FILHO: 'Filho(a)',
-  PAI: 'Pai',
-  MAE: 'Mãe',
-};
 
 const STATUS_COLAB: Record<StatusColaborador, string> = {
   ATIVO: 'ativo',
@@ -98,22 +95,30 @@ export class AcessosService {
     };
   }
 
+  /**
+   * O titular pode ser FILIADO ou COLABORADOR — quem resolve é `situacaoDoTitular`.
+   *
+   * A regra de idade continua sendo a mesma dos eventos (só FILHO tem limite):
+   * o filho do funcionário do sindicato e o filho do filiado entram pela mesma
+   * porta e crescem do mesmo jeito.
+   */
   private doDependente(d: {
     id: string; nome: string; tipo: TipoDependente; dataNascimento: Date;
-    fotoThumbKey: string | null; filiado: { situacao: SituacaoFiliado };
+    fotoThumbKey: string | null;
+    filiado?: { situacao: SituacaoFiliado } | null;
+    colaborador?: { status: StatusColaborador; vencimentoContrato: Date | null } | null;
   }, qrValido = true): PessoaResolvida {
-    const responsavelAtivo = d.filiado.situacao === SituacaoFiliado.ATIVO;
-    // A mesma regra dos eventos: só FILHO tem limite de idade.
+    const titular = situacaoDoTitular(d);
     const idadeOk = dependenteValidoParaEvento(d.tipo, d.dataNascimento);
     return {
       tipoPessoa: TipoPessoa.DEPENDENTE,
       nome: `${d.nome} (${PARENTESCO[d.tipo]})`,
       fotoThumbKey: d.fotoThumbKey,
-      liberado: qrValido && responsavelAtivo && idadeOk,
+      liberado: qrValido && titular.liberado && idadeOk,
       motivo: !qrValido
         ? 'QR Code inválido'
-        : !responsavelAtivo
-          ? 'Filiado responsável inativo'
+        : titular.motivo
+          ? titular.motivo
           : !idadeOk
             ? `Filho acima de 18 anos (${calcularIdade(d.dataNascimento)} anos)`
             : 'Entrada liberada',
@@ -154,7 +159,7 @@ export class AcessosService {
     if (payload.tipo === 'dependente') {
       const d = await this.prisma.dependente.findUnique({
         where: { id: payload.id },
-        include: { filiado: true },
+        include: { filiado: true, colaborador: true },
       });
       if (!d) throw new NotFoundException('Dependente não encontrado');
       return this.doDependente(d, this.qr.validarAssinatura(payload, d.qrToken));
@@ -207,7 +212,7 @@ export class AcessosService {
 
       const d = await this.prisma.dependente.findFirst({
         where: { cpf: digitos },
-        include: { filiado: true },
+        include: { filiado: true, colaborador: true },
       });
       if (d) return { pessoa: this.doDependente(d), origem: OrigemAcesso.CPF };
 

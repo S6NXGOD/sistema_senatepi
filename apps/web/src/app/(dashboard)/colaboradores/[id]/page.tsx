@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, Loader2, ShieldCheck, UserPlus, RefreshCw, Camera,
-  CalendarClock, Clock, Ban, Upload, FileText, Trash2, ExternalLink, QrCode,
+  CalendarClock, Clock, Ban, Upload, FileText, Trash2, ExternalLink, QrCode, Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import {
   anexarDocumentoColaborador,
   removerDocumentoColaborador,
   ColaboradorHistorico,
+  PARENTESCO_LABEL,
   STATUS_COLAB_COR,
   STATUS_COLAB_LABEL,
   TIPO_VINCULO_LABEL,
@@ -143,7 +144,11 @@ export default function ColaboradorDetalhePage() {
               <Info label="Tipo de vínculo" valor={TIPO_VINCULO_LABEL[c.tipoVinculo]} />
               <Info label="Cargo" valor={c.cargo.nome} />
               <Info label="Departamento" valor={c.departamento.nome} />
-              {c.empresa && <Info label="Empresa" valor={c.empresa.razaoSocial} />}
+              {/* A Empresa CADASTRADA manda; o texto é o que a origem dizia
+                  quando não havia CNPJ para ligar a uma. Ver `empresaNome`. */}
+              {(c.empresa || c.empresaNome) && (
+                <Info label="Empresa" valor={c.empresa?.razaoSocial ?? c.empresaNome} />
+              )}
               {c.vencimentoContrato && <Info label="Vencimento do contrato" valor={formatarData(c.vencimentoContrato)} />}
               {c.instituicaoEnsino && <Info label="Instituição de ensino" valor={c.instituicaoEnsino} />}
             </CardContent>
@@ -160,6 +165,31 @@ export default function ColaboradorDetalhePage() {
               <Info label="UF" valor={c.uf} />
             </CardContent>
           </Card>
+
+          {/*
+            DEPENDENTES — só aparece quando existe algum.
+            Card de LEITURA por enquanto: quem importa a equipe traz a família
+            junto, e a portaria precisa ver quem acompanha quem. A inclusão pela
+            tela usa `POST /colaboradores/:id/dependentes`, que já existe.
+          */}
+          {c.dependentes && c.dependentes.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle>Dependentes</CardTitle></CardHeader>
+              <CardContent>
+                <ul className="divide-y">
+                  {c.dependentes.map((d) => (
+                    <li key={d.id} className="flex items-center gap-2 py-2 text-sm">
+                      <Users className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
+                      <span className="min-w-0 flex-1 truncate">{d.nome}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {PARENTESCO_LABEL[d.tipo]} · {formatarData(d.dataNascimento)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Documentos */}
           <Card>

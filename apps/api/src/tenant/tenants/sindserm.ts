@@ -104,6 +104,20 @@ export const sindserm: TenantConfig = {
    * acrescentar a palavra nesta lista.
    */
   integracoes: ['datajud'],
+  /**
+   * MIGRAÇÃO EM ANDAMENTO — a equipe do sindicato (funcionários, prestadores e
+   * dependentes) vem do sistema anterior num JSON/CSV.
+   *
+   * É TEMPORÁRIO DE PROPÓSITO: quando a carga terminar e for conferida, apague
+   * esta linha. A tela some do menu, a rota volta a responder 404 e o código
+   * continua onde está, para o terceiro cliente que migrar de um sistema
+   * parecido. Importador que fica ligado para sempre é um botão esperando ser
+   * clicado com o arquivo errado.
+   *
+   * NÃO VALE PARA O SENATEPI: a equipe dele já está cadastrada, e a chave
+   * ausente lá é a resposta certa, não um esquecimento.
+   */
+  importadores: ['colaboradores-legado'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'acessos',

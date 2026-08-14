@@ -29,9 +29,11 @@ import { AuditService } from '../../common/audit/audit.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
+  PARENTESCO,
   calcularIdade,
   dependenteValidoParaEvento,
 } from '../dependentes/dependentes.module';
+import { situacaoDoTitular } from '../dependentes/titular.util';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 class ValidarQrDto {
@@ -54,20 +56,6 @@ interface PessoaResolvida {
 }
 
 /** Motivo legível quando o colaborador não está apto a entrar. */
-/**
- * Rótulo do parentesco.
- *
- * Era um ternário `é cônjuge ? 'Cônjuge' : 'Filho(a)'`. Com a entrada de PAI e
- * MÃE, uma mãe apareceria na portaria como "Filho(a)" — e a portaria confere o
- * parentesco na hora de liberar acompanhante.
- */
-const PARENTESCO: Record<TipoDependente, string> = {
-  CONJUGE: 'Cônjuge',
-  FILHO: 'Filho(a)',
-  PAI: 'Pai',
-  MAE: 'Mãe',
-};
-
 const STATUS_COLAB: Record<StatusColaborador, string> = {
   ATIVO: 'ativo',
   INATIVO: 'inativo',
@@ -106,15 +94,24 @@ export class PresencasService {
       };
     }
 
+    /**
+     * DEPENDENTE — o titular pode ser filiado OU colaborador (ver o model
+     * `Dependente`). Quem responde "o titular autoriza?" é `situacaoDoTitular`,
+     * a MESMA função que a portaria usa: sem isso, o clube e a assembleia
+     * divergiriam sobre a mesma pessoa no mesmo dia.
+     */
     if (tipo === 'dependente') {
-      const d = await this.prisma.dependente.findUnique({ where: { id: payload.id }, include: { filiado: true } });
+      const d = await this.prisma.dependente.findUnique({
+        where: { id: payload.id },
+        include: { filiado: true, colaborador: true },
+      });
       if (!d) throw new NotFoundException('Dependente não encontrado');
       const valido = this.qr.validarAssinatura(payload, d.qrToken);
-      const filiadoAtivo = d.filiado.situacao === SituacaoFiliado.ATIVO;
+      const titular = situacaoDoTitular(d);
       const idadeOk = dependenteValidoParaEvento(d.tipo, d.dataNascimento);
       let motivo = 'Entrada liberada';
       if (!valido) motivo = 'QR Code inválido';
-      else if (!filiadoAtivo) motivo = 'Filiado responsável inativo';
+      else if (titular.motivo) motivo = titular.motivo;
       else if (!idadeOk)
         motivo = `Filho acima de 18 anos (${calcularIdade(d.dataNascimento)} anos)`;
       return {
@@ -122,7 +119,7 @@ export class PresencasService {
         id: d.id,
         nome: `${d.nome} (${PARENTESCO[d.tipo]})`,
         fotoThumbKey: d.fotoThumbKey,
-        liberado: valido && filiadoAtivo && idadeOk,
+        liberado: valido && titular.liberado && idadeOk,
         motivo,
         qrToken: d.qrToken,
         fk: { dependenteId: d.id },

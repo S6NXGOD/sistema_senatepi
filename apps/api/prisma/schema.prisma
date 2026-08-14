@@ -208,6 +208,10 @@ enum PerfilImportacao {
   /// Folha enviada pela Prefeitura: Órgão, Matrícula, Nome, Quadro, Lotação,
   /// Cargo (e Valor, que é descartado na leitura).
   FOLHA_PREFEITURA
+  /// EQUIPE do sindicato vinda do sistema antigo: funcionários e prestadores
+  /// com os DEPENDENTES aninhados. Cria [Colaborador], não [Filiado] — é a
+  /// única importação que não mexe na base de associados.
+  COLABORADORES_LEGADO
 }
 
 /// O QUE A PRÉVIA DECIDIU sobre cada linha, antes de qualquer escrita.
@@ -588,9 +592,26 @@ model VinculoProfissional {
 // DEPENDENTES
 // ============================================================================
 
+/// Dependente de um TITULAR — que pode ser um filiado OU um colaborador.
+///
+/// POR QUE OS DOIS DONOS NA MESMA TABELA. O dependente existe para um fim só:
+/// entrar acompanhando o titular (clube, evento, convênio). Tudo que dá essa
+/// capacidade — `qrToken`, foto de conferência, [Presenca], [RegistroAcesso], a
+/// regra de idade em `dependenteValidoParaEvento` — já está aqui. Uma tabela
+/// `colaborador_dependentes` paralela obrigaria a duplicar o `dependente_id` de
+/// presenças e acessos, a duplicar o leitor de QR da portaria e a manter duas
+/// regras de idade que divergiriam no primeiro ajuste feito só numa delas.
+///
+/// EXATAMENTE UM dos dois é preenchido. Isso NÃO é convenção de código: a
+/// migration cria um CHECK (`num_nonnulls(filiado_id, colaborador_id) = 1`), e o
+/// banco recusa tanto o dependente órfão quanto o de dois donos. O Prisma não
+/// sabe declarar CHECK, por isso o SQL está na migration e o motivo está aqui.
 model Dependente {
   id             String         @id @default(uuid())
-  filiadoId      String         @map("filiado_id")
+  /// Titular filiado. NULO quando o titular é colaborador — ver o CHECK acima.
+  filiadoId      String?        @map("filiado_id")
+  /// Titular colaborador (equipe do sindicato). NULO quando é filiado.
+  colaboradorId  String?        @map("colaborador_id")
   tipo           TipoDependente
   nome           String
   cpf            String?
@@ -601,11 +622,13 @@ model Dependente {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  filiado         Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  filiado         Filiado?         @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
+  colaborador     Colaborador?     @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
   presencas       Presenca[]
   registrosAcesso RegistroAcesso[]
 
   @@index([filiadoId])
+  @@index([colaboradorId])
   @@map("dependentes")
 }
 
@@ -1026,33 +1049,38 @@ model Importacao {
   hashArquivo String? @map("hash_arquivo")
 
   // Contadores
-  total               Int                 @default(0)
-  validos             Int                 @default(0)
-  comErro             Int                 @default(0)
-  duplicados          Int                 @default(0) // CPF já existe no sistema
-  processados         Int                 @default(0)
-  importados          Int                 @default(0)
-  atualizados         Int                 @default(0)
-  ignorados           Int                 @default(0)
-  dispensados         Int                 @default(0) // matrícula colidiu e a pessoa foi dispensada
+  total       Int @default(0)
+  validos     Int @default(0)
+  comErro     Int @default(0)
+  duplicados  Int @default(0) // CPF já existe no sistema
+  processados Int @default(0)
+  importados  Int @default(0)
+  atualizados Int @default(0)
+  ignorados   Int @default(0)
+  dispensados Int @default(0) // matrícula colidiu e a pessoa foi dispensada
 
   /// Linhas que exigem decisão humana. Enquanto houver conflito PENDENTE a
   /// confirmação recusa — ver `FolhaPrefeituraService.confirmar`.
-  conflitos       Int @default(0)
+  conflitos            Int       @default(0)
   /// Vínculos criados/atualizados. Contados à parte de `importados`, que conta
   /// PESSOAS: uma folha pode não criar ninguém e ainda assim corrigir 300
   /// lotações — e um relatório que só mostrasse pessoas diria "nada mudou".
-  vinculosCriados    Int @default(0) @map("vinculos_criados")
-  vinculosAtualizados Int @default(0) @map("vinculos_atualizados")
+  vinculosCriados      Int       @default(0) @map("vinculos_criados")
+  vinculosAtualizados  Int       @default(0) @map("vinculos_atualizados")
+  /// Dependentes criados/removidos — a mesma lógica de `vinculosCriados`, para o
+  /// perfil COLABORADORES_LEGADO: uma carga pode não criar ninguém novo e ainda
+  /// assim acrescentar 40 filhos ao cadastro de quem já estava lá.
+  dependentesCriados   Int       @default(0) @map("dependentes_criados")
+  dependentesRemovidos Int       @default(0) @map("dependentes_removidos")
   // Mapeamento detectado (coluna do CSV -> campo do sistema)
-  mapeamento          Json?
+  mapeamento           Json?
   // Execução
-  iniciadoEm          DateTime?           @map("iniciado_em")
-  finalizadoEm        DateTime?           @map("finalizado_em")
-  duracaoMs           Int?                @map("duracao_ms")
-  erroMensagem        String?             @map("erro_mensagem")
-  userId              String?             @map("user_id")
-  createdAt           DateTime            @default(now()) @map("created_at")
+  iniciadoEm           DateTime? @map("iniciado_em")
+  finalizadoEm         DateTime? @map("finalizado_em")
+  duracaoMs            Int?      @map("duracao_ms")
+  erroMensagem         String?   @map("erro_mensagem")
+  userId               String?   @map("user_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
 
   linhas ImportacaoLinha[]
 
@@ -1089,17 +1117,17 @@ model ImportacaoLinha {
 
   /// O VEREDITO DA PRÉVIA. Nulo no perfil legado, que classifica por
   /// `valido`/`duplicadoNoSistema` e continua funcionando como antes.
-  classificacao ClassificacaoLinha?
+  classificacao  ClassificacaoLinha?
   /// Por que ficou em conflito — só preenchido quando `classificacao = CONFLITO`.
-  motivoConflito MotivoConflito? @map("motivo_conflito")
+  motivoConflito MotivoConflito?     @map("motivo_conflito")
   /// Cadastro que a prévia apontou como candidato. NÃO é decisão: é a pessoa
   /// que o operador vai olhar para dizer se é a mesma ou não.
-  candidatoId    String?         @map("candidato_id")
+  candidatoId    String?             @map("candidato_id")
   /// Resposta do operador. PENDENTE bloqueia a confirmação — é o que garante
   /// que ninguém importe conflito sem olhar.
-  decisao        DecisaoConflito @default(PENDENTE)
-  decididoPor    String?         @map("decidido_por")
-  decididoEm     DateTime?       @map("decidido_em")
+  decisao        DecisaoConflito     @default(PENDENTE)
+  decididoPor    String?             @map("decidido_por")
+  decididoEm     DateTime?           @map("decidido_em")
 
   /// DIFERENÇAS QUE ESTA LINHA PRODUZIU — `{campo: {de, para}}`.
   ///
@@ -1109,11 +1137,16 @@ model ImportacaoLinha {
   alteracoes Json?
 
   // Resultado da importação
-  resultado          String? // IMPORTADO | ATUALIZADO | IGNORADO | ERRO
-  filiadoId          String?  @map("filiado_id")
+  resultado     String? // IMPORTADO | ATUALIZADO | IGNORADO | ERRO
+  filiadoId     String?  @map("filiado_id")
+  /// Colaborador criado ou atualizado por esta linha (perfil COLABORADORES_LEGADO).
+  /// Coluna própria em vez de reaproveitar `filiadoId`: um id de colaborador
+  /// guardado na coluna de filiado transformaria todo relatório futuro numa
+  /// armadilha silenciosa.
+  colaboradorId String?  @map("colaborador_id")
   /// Vínculo criado ou atualizado por esta linha.
-  vinculoId          String?  @map("vinculo_id")
-  createdAt          DateTime @default(now()) @map("created_at")
+  vinculoId     String?  @map("vinculo_id")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   importacao Importacao @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
 
@@ -1512,6 +1545,19 @@ model Colaborador {
   cargoId            String            @map("cargo_id")
   departamentoId     String            @map("departamento_id")
   empresaId          String?           @map("empresa_id")
+  /// NOME DA EMPRESA CONTRATANTE, em texto — o empregador do prestador quando
+  /// ele NÃO é uma [Empresa] cadastrada.
+  ///
+  /// Existe pelo mesmo motivo que `vinculos_profissionais.empresa`: [Empresa] é
+  /// o dossiê PATRONAL (CNPJ obrigatório e único, credencial de portal), e a
+  /// base legada de um sindicato traz o contratante só pelo nome — "Empresa
+  /// Parceira", sem CNPJ. As duas saídas ruins seriam inventar um CNPJ falso
+  /// para caber na FK, ou descartar o dado; esta coluna é a terceira.
+  ///
+  /// PRECEDÊNCIA: quando `empresaId` existe, ele manda — a identidade sai da
+  /// organização, e este texto é só o que a origem dizia. As telas leem
+  /// `empresa?.razaoSocial ?? empresaNome`.
+  empresaNome        String?           @map("empresa_nome")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 
@@ -1522,6 +1568,9 @@ model Colaborador {
   documentos      Documento[]
   presencas       Presenca[]
   registrosAcesso RegistroAcesso[]
+  /// A família do colaborador — mesma tabela dos dependentes do filiado, para
+  /// que o QR da portaria e a regra de idade sejam UM só código. Ver [Dependente].
+  dependentes     Dependente[]
 
   @@index([status])
   @@index([cargoId])
@@ -2183,11 +2232,11 @@ model ParteExterna {
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
 
-  participacoes ParteProcesso[]
+  participacoes  ParteProcesso[]
   /// Filiados que trabalham nesta organização. A mesma entidade serve de
   /// EMPREGADOR e de PARTE em processo — no sindicato, o hospital que emprega
   /// é com frequência o mesmo que é réu.
-  vinculos      VinculoProfissional[]
+  vinculos       VinculoProfissional[]
   /// O DOSSIÊ PATRONAL desta organização, quando ela faz repasse ao sindicato.
   ///
   /// Ausente é o caso comum: a maioria das organizações do cadastro é órgão

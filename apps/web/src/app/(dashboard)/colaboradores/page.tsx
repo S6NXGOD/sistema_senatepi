@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus, Search, Eye, Pencil, Trash2, ShieldCheck, SlidersHorizontal } from 'lucide-react';
+import { Plus, Search, Eye, Pencil, Trash2, ShieldCheck, SlidersHorizontal, UploadCloud } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { ListasApoioModal } from '@/components/colaboradores/listas-apoio-modal'
 import { mascararCpf } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
+import { importadorAtivo } from '@/tenant.config';
 import {
   Colaborador,
   listarColaboradores,
@@ -77,6 +78,16 @@ export default function ColaboradoresPage() {
           <p className="text-sm text-muted-foreground">{data?.total ?? 0} cadastrados</p>
         </div>
         <div className="flex gap-2">
+          {/* Só aparece enquanto a migração do sistema antigo estiver declarada
+              para este cliente, e só para quem pode gravar em lote (a rota é
+              @Roles(ADMINISTRADOR)). Some sozinho quando a carga terminar. */}
+          {ehAdmin && importadorAtivo('colaboradores-legado') && (
+            <Link href="/colaboradores/importar">
+              <Button variant="outline">
+                <UploadCloud className="h-4 w-4" /> Importar do sistema antigo
+              </Button>
+            </Link>
+          )}
           {podeEditar && (
             <Button variant="outline" onClick={() => setListasOpen(true)}>
               <SlidersHorizontal className="h-4 w-4" /> Cargos e Departamentos

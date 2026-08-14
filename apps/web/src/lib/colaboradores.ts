@@ -93,12 +93,45 @@ export interface Colaborador {
   cargoId: string;
   departamentoId: string;
   empresaId: string | null;
+  /**
+   * Contratante em TEXTO — vem da migração, quando a origem não trazia CNPJ e
+   * portanto não havia como ligar a uma Empresa cadastrada. Ao exibir, o
+   * `empresa` cadastrado manda: use `empresa?.razaoSocial ?? empresaNome`.
+   */
+  empresaNome: string | null;
   cargo: { id: string; nome: string };
   departamento: { id: string; nome: string };
   empresa: { id: string; razaoSocial: string; cnpj: string } | null;
   documentos?: ColaboradorDocumento[];
+  /** Só vem no detalhe (`getColaborador`). */
+  dependentes?: DependenteColaborador[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type TipoDependente = 'CONJUGE' | 'FILHO' | 'PAI' | 'MAE';
+
+export const PARENTESCO_LABEL: Record<TipoDependente, string> = {
+  CONJUGE: 'Cônjuge',
+  FILHO: 'Filho(a)',
+  PAI: 'Pai',
+  MAE: 'Mãe',
+};
+
+/**
+ * A família do colaborador — MESMA tabela dos dependentes do filiado.
+ *
+ * O que dá sentido a ela aqui é a portaria: o dependente tem QR próprio e entra
+ * acompanhando o titular, e a liberação olha o status de QUEM É O TITULAR (ver
+ * `situacaoDoTitular`, na API).
+ */
+export interface DependenteColaborador {
+  id: string;
+  nome: string;
+  cpf: string | null;
+  tipo: TipoDependente;
+  dataNascimento: string;
+  fotoThumbKey: string | null;
 }
 
 export interface ColaboradorPayload {
@@ -120,6 +153,8 @@ export interface ColaboradorPayload {
   cargoId: string;
   departamentoId: string;
   empresaId?: string;
+  /** Contratante em texto, quando não há Empresa cadastrada. Ver `Colaborador`. */
+  empresaNome?: string;
   vencimentoContrato?: string;
   instituicaoEnsino?: string;
 }

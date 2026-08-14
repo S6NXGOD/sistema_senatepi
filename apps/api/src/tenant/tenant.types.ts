@@ -55,6 +55,33 @@ export type IntegracaoExterna =
   | 'djen';
 
 /**
+ * MIGRAÇÕES DE SISTEMA ANTIGO que esta instalação tem à disposição.
+ *
+ * Diferente de `ModuloSistema` e de `IntegracaoExterna`: módulo é uma ÁREA do
+ * sistema, integração é uma fonte de dados PERMANENTE, e um importador destes é
+ * uma porta TEMPORÁRIA para o formato de um sistema que o cliente está deixando
+ * para trás. Ele nasce ligado, é usado três ou quatro vezes até o arquivo da
+ * origem sair certo, e depois sai da lista — sem apagar código, porque o
+ * próximo cliente a migrar de um sistema parecido vai querer o mesmo caminho.
+ *
+ * POR QUE NÃO BASTA O MÓDULO. `colaboradores` está ligado nos dois clientes: o
+ * cadastro da equipe é de todo sindicato. O que é de UM cliente é a migração —
+ * e uma tela de "importar equipe" no menu de quem não tem o que importar é um
+ * botão que só serve para alguém clicar por engano com o arquivo errado.
+ *
+ * A folha da Prefeitura NÃO está aqui, e a ausência é deliberada: ela não é
+ * migração, é a planilha que a Prefeitura manda TODO MÊS, e o layout dela se
+ * reconhece sozinho pelos cabeçalhos.
+ */
+export type ImportadorLegado =
+  /**
+   * Equipe do sindicato (funcionários, prestadores e dependentes) exportada em
+   * JSON/CSV pelo sistema anterior do SINDSERM. Cria `Colaborador`, nunca
+   * `Filiado`.
+   */
+  'colaboradores-legado';
+
+/**
  * SÓ ENTRA AQUI O QUE É REALMENTE CONFERIDO em algum lugar do código.
  *
  * `brasilapi` chegou a ser declarada e foi removida antes de virar hábito:
@@ -178,4 +205,10 @@ export interface TenantConfig {
    * para desligar sem deploy quando uma API externa cai.
    */
   integracoes?: IntegracaoExterna[];
+  /**
+   * Migrações de sistema antigo disponíveis nesta instalação. Ausente ou vazia
+   * significa "não há nada a migrar aqui" — que é o estado final de todo
+   * cliente depois que a carga terminou.
+   */
+  importadores?: ImportadorLegado[];
 }

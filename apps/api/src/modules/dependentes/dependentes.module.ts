@@ -22,10 +22,30 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
-import { TipoDependente, TipoHistoricoFiliado, TipoPessoa } from '@prisma/client';
+import {
+  TipoDependente,
+  TipoHistoricoColaborador,
+  TipoHistoricoFiliado,
+  TipoPessoa,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+
+/**
+ * Rótulo do parentesco.
+ *
+ * Antes, o histórico escrevia `tipo === CONJUGE ? 'Cônjuge' : 'Filho(a)'` — com
+ * PAI e MAE no enum, isso registrava "Filho(a)" ao incluir a mãe de alguém.
+ * `Record<TipoDependente, string>` faz o compilador cobrar o rótulo quando um
+ * tipo novo entrar.
+ */
+export const PARENTESCO: Record<TipoDependente, string> = {
+  CONJUGE: 'Cônjuge',
+  FILHO: 'Filho(a)',
+  PAI: 'Pai',
+  MAE: 'Mãe',
+};
 
 // ---- Regra de negócio compartilhável ----
 export function calcularIdade(dataNascimento: Date, referencia = new Date()): number {
@@ -83,21 +103,12 @@ export class DependentesService {
     const filiado = await this.prisma.filiado.findUnique({ where: { id: filiadoId } });
     if (!filiado) throw new NotFoundException('Filiado não encontrado');
 
-    if (dto.tipo === TipoDependente.CONJUGE) {
-      const jaTem = await this.prisma.dependente.count({
-        where: { filiadoId, tipo: TipoDependente.CONJUGE },
-      });
-      if (jaTem > 0) throw new BadRequestException('Filiado já possui cônjuge cadastrado');
-    }
+    await this.recusarSegundoConjuge({ filiadoId }, dto.tipo);
 
     const dependente = await this.prisma.dependente.create({
       data: {
         filiadoId,
-        tipo: dto.tipo,
-        nome: dto.nome,
-        cpf: dto.cpf?.replace(/\D/g, ''),
-        dataNascimento: dataCalendario(dto.dataNascimento),
-        qrToken: this.qr.gerarToken(),
+        ...this.camposComuns(dto),
       },
     });
 
@@ -105,15 +116,79 @@ export class DependentesService {
       data: {
         filiadoId,
         tipo: TipoHistoricoFiliado.INCLUSAO_DEPENDENTE,
-        descricao: `Dependente incluído: ${dependente.nome} (${dependente.tipo === TipoDependente.CONJUGE ? 'Cônjuge' : 'Filho(a)'}).`,
+        descricao: `Dependente incluído: ${dependente.nome} (${PARENTESCO[dependente.tipo]}).`,
         autor,
       },
     });
     return dependente;
   }
 
+  /**
+   * Dependente da EQUIPE do sindicato.
+   *
+   * Mesma tabela e mesmo QR do dependente de filiado — o que muda é o titular e
+   * onde o fato fica registrado: aqui é o histórico do colaborador, que é onde
+   * quem administra a equipe vai procurar.
+   */
+  async createParaColaborador(colaboradorId: string, dto: CreateDependenteDto, autor?: string) {
+    const colaborador = await this.prisma.colaborador.findUnique({ where: { id: colaboradorId } });
+    if (!colaborador) throw new NotFoundException('Colaborador não encontrado');
+
+    await this.recusarSegundoConjuge({ colaboradorId }, dto.tipo);
+
+    const dependente = await this.prisma.dependente.create({
+      data: {
+        colaboradorId,
+        ...this.camposComuns(dto),
+      },
+    });
+
+    await this.prisma.colaboradorHistorico.create({
+      data: {
+        colaboradorId,
+        tipo: TipoHistoricoColaborador.ALTERACAO,
+        descricao: `Dependente incluído: ${dependente.nome} (${PARENTESCO[dependente.tipo]}).`,
+        autor,
+      },
+    });
+    return dependente;
+  }
+
+  private camposComuns(dto: CreateDependenteDto) {
+    return {
+      tipo: dto.tipo,
+      nome: dto.nome,
+      cpf: dto.cpf?.replace(/\D/g, ''),
+      dataNascimento: dataCalendario(dto.dataNascimento),
+      qrToken: this.qr.gerarToken(),
+    };
+  }
+
+  /** Um cônjuge por titular — a regra vale para filiado e para colaborador. */
+  private async recusarSegundoConjuge(
+    titular: { filiadoId: string } | { colaboradorId: string },
+    tipo: TipoDependente,
+  ) {
+    if (tipo !== TipoDependente.CONJUGE) return;
+    const jaTem = await this.prisma.dependente.count({
+      where: { ...titular, tipo: TipoDependente.CONJUGE },
+    });
+    if (jaTem > 0) throw new BadRequestException('Já existe um cônjuge cadastrado');
+  }
+
   async listarPorFiliado(filiadoId: string) {
-    const deps = await this.prisma.dependente.findMany({ where: { filiadoId } });
+    return this.listar({ filiadoId });
+  }
+
+  async listarPorColaborador(colaboradorId: string) {
+    return this.listar({ colaboradorId });
+  }
+
+  private async listar(where: { filiadoId: string } | { colaboradorId: string }) {
+    const deps = await this.prisma.dependente.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+    });
     return Promise.all(
       deps.map(async (d) => ({
         ...d,
@@ -145,14 +220,28 @@ export class DependentesService {
     const dep = await this.prisma.dependente.findUnique({ where: { id } });
     if (!dep) throw new NotFoundException('Dependente não encontrado');
     await this.prisma.dependente.delete({ where: { id } });
-    await this.prisma.filiadoHistorico.create({
-      data: {
-        filiadoId: dep.filiadoId,
-        tipo: TipoHistoricoFiliado.EXCLUSAO_DEPENDENTE,
-        descricao: `Dependente removido: ${dep.nome}.`,
-        autor,
-      },
-    });
+    // O registro vai para o histórico de QUEM É O TITULAR. Um `if` em vez de um
+    // caminho só porque são duas tabelas de histórico diferentes — filiado e
+    // colaborador têm dossiês separados, e é assim que se quer.
+    if (dep.filiadoId) {
+      await this.prisma.filiadoHistorico.create({
+        data: {
+          filiadoId: dep.filiadoId,
+          tipo: TipoHistoricoFiliado.EXCLUSAO_DEPENDENTE,
+          descricao: `Dependente removido: ${dep.nome}.`,
+          autor,
+        },
+      });
+    } else if (dep.colaboradorId) {
+      await this.prisma.colaboradorHistorico.create({
+        data: {
+          colaboradorId: dep.colaboradorId,
+          tipo: TipoHistoricoColaborador.ALTERACAO,
+          descricao: `Dependente removido: ${dep.nome}.`,
+          autor,
+        },
+      });
+    }
     return { ok: true };
   }
 
@@ -180,6 +269,29 @@ class DependentesController {
   @Get('filiados/:filiadoId/dependentes')
   list(@Param('filiadoId') filiadoId: string) {
     return this.service.listarPorFiliado(filiadoId);
+  }
+
+  /**
+   * DEPENDENTES DA EQUIPE — sob o módulo `colaboradores`, não `filiados`.
+   *
+   * O `@ModuloTenant` do método vence o da classe (o guard lê handler antes de
+   * class). Sem isto, uma instalação que tivesse Colaboradores e não tivesse
+   * Filiados receberia 404 aqui — e, pior, a importação criaria dependentes que
+   * ninguém conseguiria corrigir depois pela tela.
+   */
+  @Post('colaboradores/:colaboradorId/dependentes')
+  @ModuloTenant('colaboradores')
+  createColaborador(
+    @Param('colaboradorId') colaboradorId: string,
+    @Body() dto: CreateDependenteDto,
+  ) {
+    return this.service.createParaColaborador(colaboradorId, dto);
+  }
+
+  @Get('colaboradores/:colaboradorId/dependentes')
+  @ModuloTenant('colaboradores')
+  listColaborador(@Param('colaboradorId') colaboradorId: string) {
+    return this.service.listarPorColaborador(colaboradorId);
   }
 
   @Post('dependentes/:id/foto')

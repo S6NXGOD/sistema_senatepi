@@ -94,4 +94,13 @@ export const sindserm: TenantConfigWeb = {
    * Especialidade», digitado, e essa é a decisão certa.
    */
   cargos: [],
+  /**
+   * MIGRAÇÃO EM ANDAMENTO — equipe (funcionários, prestadores e dependentes) do
+   * sistema anterior. Espelha a mesma linha em
+   * `apps/api/src/tenant/tenants/sindserm.ts`, onde está o porquê.
+   *
+   * APAGUE AS DUAS quando a carga terminar: o botão some de Colaboradores e a
+   * rota volta a responder 404.
+   */
+  importadores: ['colaboradores-legado'],
 };

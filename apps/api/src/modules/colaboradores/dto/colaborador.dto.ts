@@ -39,6 +39,15 @@ export class CreateColaboradorDto {
   @ApiProperty() @IsString() @IsNotEmpty() departamentoId: string;
   // Condicional (PJ/Terceirizado)
   @ApiPropertyOptional() @IsOptional() @IsString() empresaId?: string;
+  /**
+   * Contratante em TEXTO, para quem não é uma [Empresa] cadastrada.
+   *
+   * Não é alternativa preferida ao `empresaId` — é o que sobra quando não há
+   * CNPJ, que é o caso de toda base legada. Quando os dois vêm, o `empresaId`
+   * manda. Ver o comentário da coluna `empresa_nome` no schema.
+   */
+  @ApiPropertyOptional({ description: 'Nome do contratante quando não há empresa cadastrada' })
+  @IsOptional() @IsString() @MaxLength(200) empresaNome?: string;
 
   // Campos dinâmicos
   @ApiPropertyOptional() @IsOptional() @IsDateString() vencimentoContrato?: string;

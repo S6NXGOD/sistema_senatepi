@@ -1,9 +1,9 @@
 import type { ModuloKey } from '@/lib/permissoes';
-import type { TenantConfigWeb } from './tenant/tenant.types';
+import type { ImportadorLegado, TenantConfigWeb } from './tenant/tenant.types';
 import { senatepi } from './tenant/tenants/senatepi';
 import { sindserm } from './tenant/tenants/sindserm';
 
-export type { PaletaMarca, TenantConfigWeb } from './tenant/tenant.types';
+export type { PaletaMarca, TenantConfigWeb, ImportadorLegado } from './tenant/tenant.types';
 
 /**
  * QUEM É O CLIENTE DESTA INSTALAÇÃO — lado da tela.
@@ -72,4 +72,15 @@ export function campoVisivel(campo: string): boolean {
 /** O módulo está ligado nesta instalação? */
 export function moduloAtivo(modulo: ModuloKey): boolean {
   return tenant.modulos.includes(modulo);
+}
+
+/**
+ * A migração de sistema antigo está disponível nesta instalação?
+ *
+ * Vale para ESCONDER o botão, não para proteger nada: quem chegar pela URL bate
+ * no 404 da API (`importadorAtivo`, no `tenant.config` de lá). Gate de tela é
+ * conforto; a guarda é do servidor.
+ */
+export function importadorAtivo(importador: ImportadorLegado): boolean {
+  return (tenant.importadores ?? []).includes(importador);
 }

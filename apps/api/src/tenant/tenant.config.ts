@@ -1,8 +1,19 @@
-import { IntegracaoExterna, ModuloSistema, TenantConfig } from './tenant.types';
+import { NotFoundException } from '@nestjs/common';
+import {
+  ImportadorLegado,
+  IntegracaoExterna,
+  ModuloSistema,
+  TenantConfig,
+} from './tenant.types';
 import { senatepi } from './tenants/senatepi';
 import { sindserm } from './tenants/sindserm';
 
-export type { TenantConfig, ModuloSistema, IntegracaoExterna } from './tenant.types';
+export type {
+  TenantConfig,
+  ModuloSistema,
+  IntegracaoExterna,
+  ImportadorLegado,
+} from './tenant.types';
 
 /**
  * QUEM É O CLIENTE DESTA INSTALAÇÃO.
@@ -138,4 +149,23 @@ export function integracaoAtiva(
 /** O campo é pedido e exibido nesta instalação? */
 export function campoVisivel(campo: string, t: TenantConfig = tenant): boolean {
   return !(t.camposOcultos ?? []).includes(campo);
+}
+
+/**
+ * A migração de sistema antigo está disponível nesta instalação?
+ *
+ * `exigir: true` transforma a resposta negativa em 404 — o mesmo que o
+ * `ModuloAtivoGuard` faz com módulo desligado, e pela mesma razão: 403 diria
+ * "existe, mas você não pode" e convidaria a pedir acesso a uma tela que não
+ * faz sentido nenhum para o cliente. Aqui é rota de controller, não de guard,
+ * porque o gate é mais fino que o módulo (`colaboradores` fica ligado).
+ */
+export function importadorAtivo(
+  importador: ImportadorLegado,
+  opts: { exigir?: boolean } = {},
+  t: TenantConfig = tenant,
+): boolean {
+  const ativo = (t.importadores ?? []).includes(importador);
+  if (!ativo && opts.exigir) throw new NotFoundException('Recurso não encontrado.');
+  return ativo;
 }

@@ -493,8 +493,17 @@ export class DashboardService {
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.INATIVO } }),
       this.prisma.filiado.count({ where: { createdAt: { gte: inicioMes } } }),
-      this.prisma.dependente.count({ where: { tipo: TipoDependente.CONJUGE } }),
-      this.prisma.dependente.count({ where: { tipo: TipoDependente.FILHO } }),
+      // `filiadoId: { not: null }` porque o dependente agora pode ser da EQUIPE
+      // do sindicato (ver o model `Dependente`). O bloco "dependentes" deste
+      // painel fica logo abaixo de "filiados" e é lido como a família da BASE —
+      // somar a família dos funcionários ali inflaria o número que o sindicato
+      // usa para negociar convênio.
+      this.prisma.dependente.count({
+        where: { tipo: TipoDependente.CONJUGE, filiadoId: { not: null } },
+      }),
+      this.prisma.dependente.count({
+        where: { tipo: TipoDependente.FILHO, filiadoId: { not: null } },
+      }),
       // Uma contagem só: funcionários e prestadores viraram Colaborador.
       this.prisma.colaborador.count({ where: { status: StatusColaborador.ATIVO } }),
       this.prisma.evento.count({ where: { status: StatusEvento.REALIZADO } }),

@@ -237,6 +237,42 @@ describe('integrações externas', () => {
   });
 });
 
+describe('migrações de sistema antigo', () => {
+  const CONHECIDOS = ['colaboradores-legado'];
+
+  /** O módulo que cada importador escreve. Declarar um sem o outro é 404. */
+  const MODULO_DO_IMPORTADOR: Record<string, string> = {
+    'colaboradores-legado': 'colaboradores',
+  };
+
+  it.each(ids)('%s: só declara importador que existe', (id) => {
+    for (const i of TENANTS[id].importadores ?? []) expect(CONHECIDOS).toContain(i);
+  });
+
+  /**
+   * Mesma exigência das integrações: um importador só faz sentido dentro de uma
+   * área que existe. Declarar `colaboradores-legado` num cliente sem o módulo
+   * `colaboradores` põe um botão na tela para uma rota que o `ModuloAtivoGuard`
+   * responde 404.
+   */
+  it.each(ids)('%s: não declara importador de módulo desligado', (id) => {
+    for (const i of TENANTS[id].importadores ?? []) {
+      expect(TENANTS[id].modulos).toContain(MODULO_DO_IMPORTADOR[i]);
+    }
+  });
+
+  /**
+   * Os dois lados de novo — e aqui a divergência é mais cara que nos módulos:
+   * botão visível sem rota leva a pessoa a um 404 no meio de uma migração, e
+   * rota viva sem botão deixa a carga em lote acessível por URL num cliente que
+   * não tem o que carregar.
+   */
+  it.each(ids)('%s: os importadores são os mesmos dos dois lados', (id) => {
+    expect([...(TENANTS_WEB[id].importadores ?? [])].sort())
+      .toEqual([...(TENANTS[id].importadores ?? [])].sort());
+  });
+});
+
 describe('o cliente está ligado em todo lugar que precisa', () => {
   it.each(ids)('%s: tem portas próprias no lançador de desenvolvimento', (id) => {
     const dev = ler('scripts/dev.js');

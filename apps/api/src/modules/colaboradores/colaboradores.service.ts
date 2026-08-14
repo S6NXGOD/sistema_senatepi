@@ -5,6 +5,7 @@ import {
   dataCalendario,
   dataCalendarioOuNulo,
   gerarMatricula,
+  proximoSequencial,
 } from '@core/infra';
 import {
   BadRequestException,
@@ -100,18 +101,38 @@ export class ColaboradoresService {
     }
   }
 
+  /**
+   * O vínculo decide quais campos condicionais existem — e apaga os que não.
+   *
+   * PJ/TERCEIRIZADO exige o contratante, mas aceita as DUAS formas: a [Empresa]
+   * cadastrada (`empresaId`, o caminho da tela, que tem seletor) ou o nome em
+   * texto (`empresaNome`, o caminho da importação, cuja origem não traz CNPJ).
+   * Exigir só o `empresaId` obrigaria a importação a inventar CNPJ para caber na
+   * FK — poluindo o cadastro patronal com empresas que não contribuem.
+   *
+   * A tela não manda `empresaNome`, então para ela nada muda: continua sendo
+   * "informe a Empresa".
+   */
   private aplicarRegrasVinculo(
     tipo: TipoVinculo,
-    dados: { empresaId?: string | null; vencimentoContrato?: Date | null; instituicaoEnsino?: string | null },
+    dados: {
+      empresaId?: string | null;
+      empresaNome?: string | null;
+      vencimentoContrato?: Date | null;
+      instituicaoEnsino?: string | null;
+    },
   ) {
     if (tipo === TipoVinculo.PJ || tipo === TipoVinculo.TERCEIRIZADO) {
-      if (!dados.empresaId) throw new BadRequestException('Para vínculo PJ/Terceirizado, informe a Empresa.');
+      if (!dados.empresaId && !dados.empresaNome)
+        throw new BadRequestException('Para vínculo PJ/Terceirizado, informe a Empresa.');
       dados.instituicaoEnsino = null;
     } else if (tipo === TipoVinculo.ESTAGIO) {
       if (!dados.instituicaoEnsino) throw new BadRequestException('Para Estágio, informe a Instituição de Ensino.');
       dados.empresaId = null;
+      dados.empresaNome = null;
     } else {
       dados.empresaId = null;
+      dados.empresaNome = null;
       dados.vencimentoContrato = null;
       dados.instituicaoEnsino = null;
     }
@@ -133,6 +154,7 @@ export class ColaboradoresService {
     if (cpf.length !== 11) throw new BadRequestException('CPF inválido.');
     const cond = this.aplicarRegrasVinculo(dto.tipoVinculo, {
       empresaId: dto.empresaId || null,
+      empresaNome: dto.empresaNome?.trim() || null,
       vencimentoContrato: dto.vencimentoContrato ? new Date(dto.vencimentoContrato) : null,
       instituicaoEnsino: dto.instituicaoEnsino?.trim() || null,
     });
@@ -156,6 +178,7 @@ export class ColaboradoresService {
           cargoId: dto.cargoId,
           departamentoId: dto.departamentoId,
           empresaId: cond.empresaId,
+          empresaNome: cond.empresaNome,
           vencimentoContrato: cond.vencimentoContrato,
           instituicaoEnsino: cond.instituicaoEnsino,
           // Identificação física: matrícula sequencial e token do QR de entrada.
@@ -213,6 +236,7 @@ export class ColaboradoresService {
         ...INCLUDE,
         historico: { orderBy: { createdAt: 'desc' } },
         documentos: { orderBy: { createdAt: 'desc' } },
+        dependentes: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!c) throw new NotFoundException('Colaborador não encontrado.');
@@ -232,6 +256,8 @@ export class ColaboradoresService {
 
     const cond = this.aplicarRegrasVinculo(tipoVinculo, {
       empresaId: dto.empresaId !== undefined ? dto.empresaId || null : atual.empresaId,
+      empresaNome:
+        dto.empresaNome !== undefined ? dto.empresaNome?.trim() || null : atual.empresaNome,
       vencimentoContrato:
         dto.vencimentoContrato !== undefined
           ? dto.vencimentoContrato ? new Date(dto.vencimentoContrato) : null
@@ -260,6 +286,7 @@ export class ColaboradoresService {
           cargoId: dto.cargoId,
           departamentoId: dto.departamentoId,
           empresaId: cond.empresaId,
+          empresaNome: cond.empresaNome,
           vencimentoContrato: cond.vencimentoContrato,
           instituicaoEnsino: cond.instituicaoEnsino,
         },
@@ -485,16 +512,27 @@ export class ColaboradoresService {
   }
 
   /**
-   * Próxima matrícula (FUNC-000001…).
+   * Próxima matrícula (FUNC-AAAA-000001…).
    *
-   * Conta os registros existentes, como o cadastro antigo fazia. É sequencial e
-   * não à prova de corrida — dois cadastros simultâneos podem disputar o mesmo
-   * número. O índice único recusa o segundo, então o pior caso é um erro visível
-   * na tela, e não uma matrícula repetida circulando em dois crachás.
+   * DERIVA DO MAIOR NÚMERO JÁ EMITIDO, e não de `count()`, que era como o
+   * cadastro antigo fazia. `count()` reaproveita número depois de qualquer
+   * exclusão, e passou a errar sempre com a importação da equipe legada, que
+   * grava a matrícula da ORIGEM (`2025F001`) — 40 registros importados
+   * empurravam o contador 40 casas à frente e deixavam buracos permanentes.
+   *
+   * Só considera as matrículas no formato emitido aqui; as da origem não entram
+   * na conta, que é justamente o ponto.
+   *
+   * Continua sem ser à prova de corrida — dois cadastros simultâneos podem
+   * disputar o mesmo número. O índice único recusa o segundo, então o pior caso
+   * é um erro visível na tela, e não a mesma matrícula em dois crachás.
    */
   private async proximaMatricula(): Promise<string> {
-    const total = await this.prisma.colaborador.count();
-    return gerarMatricula('FUNC', total + 1);
+    const emitidas = await this.prisma.colaborador.findMany({
+      where: { matricula: { startsWith: 'FUNC-' } },
+      select: { matricula: true },
+    });
+    return gerarMatricula('FUNC', proximoSequencial('FUNC', emitidas.map((c) => c.matricula)));
   }
 
   private async baixarFoto(key: string): Promise<Buffer | null> {

@@ -4,12 +4,23 @@ import { ImportacaoService } from './importacao.service';
 import { RelatorioImportacaoService } from './relatorio.service';
 import { FolhaPrefeituraController } from './folha-prefeitura.controller';
 import { FolhaPrefeituraService } from './folha-prefeitura.service';
+import { ColaboradoresLegadoController } from './colaboradores-legado.controller';
+import { ColaboradoresLegadoService } from './colaboradores-legado.service';
 
 @Module({
-  // FolhaPrefeituraController vem PRIMEIRO: o Nest resolve rotas na ordem de
-  // registro, e o `@Get(':id')` de ImportacaoController casaria com "folha".
-  // Mesmo motivo documentado em `FiliadosModule`.
-  controllers: [FolhaPrefeituraController, ImportacaoController],
-  providers: [ImportacaoService, RelatorioImportacaoService, FolhaPrefeituraService],
+  // Os controllers de PREFIXO ESPECÍFICO vêm PRIMEIRO: o Nest resolve rotas na
+  // ordem de registro, e o `@Get(':id')` de ImportacaoController casaria com
+  // "folha" e com "colaboradores". Mesmo motivo documentado em `FiliadosModule`.
+  controllers: [
+    FolhaPrefeituraController,
+    ColaboradoresLegadoController,
+    ImportacaoController,
+  ],
+  providers: [
+    ImportacaoService,
+    RelatorioImportacaoService,
+    FolhaPrefeituraService,
+    ColaboradoresLegadoService,
+  ],
 })
 export class ImportacaoModule {}

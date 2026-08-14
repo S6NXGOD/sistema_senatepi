@@ -17,6 +17,12 @@ import type { ModuloKey } from '@/lib/permissoes';
  */
 export type PaletaMarca = Record<string, string>;
 
+/**
+ * Migrações de sistema antigo disponíveis — espelha `ImportadorLegado` da API,
+ * onde está o porquê de a lista existir e de ela ser TEMPORÁRIA.
+ */
+export type ImportadorLegado = 'colaboradores-legado';
+
 export interface TenantConfigWeb {
   /** Identificador técnico — é o valor de `NEXT_PUBLIC_TENANT` no ambiente. */
   id: string;
@@ -77,4 +83,12 @@ export interface TenantConfigWeb {
    * de Finanças.
    */
   cargos?: string[];
+  /**
+   * Migrações de sistema antigo ligadas aqui — a MESMA lista da API.
+   *
+   * Os dois lados precisam concordar pelo mesmo motivo dos módulos: botão
+   * visível com rota morta (404) leva a pessoa a um erro; rota viva sem botão
+   * deixa a carga acessível por URL para quem não tem o que carregar.
+   */
+  importadores?: ImportadorLegado[];
 }
