@@ -1,4 +1,4 @@
-import { QrCodeService } from '@core/infra';
+import { QrCodeService, gerarMatricula, proximoSequencial } from '@core/infra';
 import {
   BadRequestException,
   Injectable,
@@ -745,11 +745,23 @@ export class ImportacaoService {
         ? await this.prisma.filiado.findFirst({ where: { matricula: d.matricula } })
         : null;
     if (!existente) {
-      // Caso raro: deixou de existir entre validação e importação → cria
-      const ano = new Date().getFullYear();
-      const total = await this.prisma.filiado.count();
-      return this.criarFiliado(d, `SEN-${ano}-${String(total + 1).padStart(6, '0')}`, () =>
-        `CART-${ano}-${String(total + 1).padStart(6, '0')}`,
+      // Caso raro: deixou de existir entre validação e importação → cria.
+      //
+      // Numerava por `count() + 1`, o mesmo defeito que parou o cadastro de
+      // filiados em produção (ver `FiliadosService.proximaMatricula`): depois de
+      // qualquer exclusão o contador anda para trás e devolve matrícula já
+      // usada. Aqui doía menos por ser caminho raro, mas doía do mesmo jeito —
+      // e no meio de uma importação, com a linha marcada como "erro" sem causa
+      // aparente.
+      const emitidas = await this.prisma.filiado.findMany({
+        where: { matricula: { startsWith: 'SEN-' } },
+        select: { matricula: true },
+      });
+      const seq = proximoSequencial('SEN', emitidas.map((f) => f.matricula));
+      return this.criarFiliado(
+        d,
+        gerarMatricula('SEN', seq),
+        () => gerarMatricula('CART', seq),
         'recriado',
       );
     }

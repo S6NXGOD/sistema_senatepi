@@ -5,12 +5,15 @@ import {
   dataCalendario,
   gerarMatricula,
   mascararCpf,
+  proximoSequencial,
   normalizarBusca,
   termosDeBusca,
 } from '@core/infra';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -66,6 +69,25 @@ export const MOTIVO_DESFILIACAO_LABEL: Record<MotivoDesfiliacao, string> = {
   OUTROS: 'Outros',
 };
 
+/** Prefixo da matrícula sindical — `SEN-AAAA-NNNNNN`. */
+const PREFIXO_MATRICULA = 'SEN';
+
+/**
+ * Quantas vezes recalcular a matrícula quando duas filiações simultâneas
+ * disputam o mesmo número. Três cobre a corrida real; passando disso o problema
+ * é outro e precisa aparecer.
+ */
+const TENTATIVAS_MATRICULA = 3;
+
+/** A violação de unicidade é da MATRÍCULA (e não do CPF, que já foi checado)? */
+function ehColisaoDeMatricula(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError &&
+    e.code === 'P2002' &&
+    ((e.meta?.target as string[] | undefined) ?? []).some((c) => c.includes('matricula'))
+  );
+}
+
 const MESES_PT = [
   'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
@@ -81,6 +103,8 @@ export function formatarMesCorte(valor: string): string {
 
 @Injectable()
 export class FiliadosService {
+  private readonly logger = new Logger(FiliadosService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly image: ImageService,
@@ -106,29 +130,30 @@ export class FiliadosService {
     if (await this.prisma.filiado.findUnique({ where: { cpf } }))
       throw new BadRequestException('Já existe filiado com este CPF');
 
-    const total = await this.prisma.filiado.count();
     const { vinculos, dependentes, ...dados } = dto;
 
-    const filiado = await this.prisma.filiado.create({
-      data: {
-        ...dados,
-        cpf,
-        dataNascimento: dataCalendario(dto.dataNascimento),
-        dataAdmissao: dataCalendario(dto.dataAdmissao),
-        vinculoFuncional: dto.vinculoFuncional,
-        // Filiação registrada AGORA. Campo próprio para o gráfico de crescimento
-        // não depender de `createdAt`, que a importação legada sobrescrevia.
-        dataFiliacao: new Date(),
-        matricula: gerarMatricula('SEN', total + 1),
-        qrToken: this.qr.gerarToken(),
-        vinculos: vinculos
-          ? { create: vinculos.map((v, i) => ({ ...v, ordem: v.ordem ?? i + 1 })) }
-          : undefined,
-        // Dependentes já na filiação: sem dependente prévio, só há criação.
-        dependentes: montarCriacaoDependentes(dependentes),
-      },
-      include: { vinculos: true, dependentes: true },
-    });
+    const filiado = await this.comMatriculaLivre((matricula) =>
+      this.prisma.filiado.create({
+        data: {
+          ...dados,
+          cpf,
+          dataNascimento: dataCalendario(dto.dataNascimento),
+          dataAdmissao: dataCalendario(dto.dataAdmissao),
+          vinculoFuncional: dto.vinculoFuncional,
+          // Filiação registrada AGORA. Campo próprio para o gráfico de crescimento
+          // não depender de `createdAt`, que a importação legada sobrescrevia.
+          dataFiliacao: new Date(),
+          matricula,
+          qrToken: this.qr.gerarToken(),
+          vinculos: vinculos
+            ? { create: vinculos.map((v, i) => ({ ...v, ordem: v.ordem ?? i + 1 })) }
+            : undefined,
+          // Dependentes já na filiação: sem dependente prévio, só há criação.
+          dependentes: montarCriacaoDependentes(dependentes),
+        },
+        include: { vinculos: true, dependentes: true },
+      }),
+    );
 
     await this.registrarHistorico(
       filiado.id,
@@ -137,6 +162,83 @@ export class FiliadosService {
       autor,
     );
     return filiado;
+  }
+
+  /**
+   * A PRÓXIMA MATRÍCULA SINDICAL — a partir da maior já emitida.
+   *
+   * ERA `count() + 1`, E ISSO DERRUBOU O CADASTRO EM PRODUÇÃO (14/08/2026).
+   * Contar só acerta enquanto ninguém for excluído. Na primeira exclusão o
+   * contador anda para trás e devolve uma matrícula que já existe; o índice
+   * único recusa e — como nada é inserido — a contagem nunca mais muda. Não é
+   * um cadastro que falha: é o cadastro inteiro parado, com
+   * `Unique constraint failed on the fields: (matricula)` em toda tentativa,
+   * até alguém mexer no banco.
+   *
+   * Só as matrículas no padrão `SEN-AAAA-NNNNNN` entram na conta. As da carga
+   * legada têm outro formato e não devem empurrar o contador.
+   */
+  private async proximaMatricula(): Promise<string> {
+    const emitidas = await this.prisma.filiado.findMany({
+      where: { matricula: { startsWith: `${PREFIXO_MATRICULA}-` } },
+      select: { matricula: true },
+    });
+    return gerarMatricula(
+      PREFIXO_MATRICULA,
+      proximoSequencial(PREFIXO_MATRICULA, emitidas.map((f) => f.matricula)),
+    );
+  }
+
+  /**
+   * Executa a criação com uma matrícula livre, reagindo à CORRIDA.
+   *
+   * Duas filiações simultâneas leem a mesma "maior emitida" e disputam o mesmo
+   * número — o índice único recusa a segunda. Isso é raro e é legítimo; o que
+   * não pode é virar erro na cara da secretaria, que foi como este defeito se
+   * apresentou. Aqui a segunda simplesmente recalcula e tenta de novo.
+   *
+   * O limite de tentativas existe para que um defeito DIFERENTE que também
+   * viole `matricula` não vire laço infinito — passando disso, o erro sobe
+   * traduzido, e não como 500 cru.
+   */
+  private async comMatriculaLivre<T>(criar: (matricula: string) => Promise<T>): Promise<T> {
+    for (let tentativa = 1; tentativa <= TENTATIVAS_MATRICULA; tentativa++) {
+      const matricula = await this.proximaMatricula();
+      try {
+        return await criar(matricula);
+      } catch (e) {
+        if (!ehColisaoDeMatricula(e) || tentativa === TENTATIVAS_MATRICULA) {
+          throw this.traduzir(e);
+        }
+        this.logger.warn(
+          `Matrícula ${matricula} foi tomada por outra filiação simultânea; ` +
+            `tentativa ${tentativa + 1} de ${TENTATIVAS_MATRICULA}.`,
+        );
+      }
+    }
+    // Inalcançável: o laço acima ou retorna ou lança.
+    throw new ConflictException('Não foi possível gerar a matrícula.');
+  }
+
+  /**
+   * Erro do Prisma → erro com mensagem.
+   *
+   * O `create` não traduzia nada, e por isso a falha de unicidade chegou à tela
+   * como "Internal server error" — sem dizer que campo, sem dizer o que fazer.
+   * Um 500 mudo custou um dia de cadastro parado antes de alguém abrir o log.
+   */
+  private traduzir(e: unknown): Error {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const alvo = (e.meta?.target as string[] | undefined)?.join(', ') ?? 'um campo único';
+      if (alvo.includes('cpf')) return new BadRequestException('Já existe filiado com este CPF.');
+      if (alvo.includes('matricula'))
+        return new ConflictException(
+          'A matrícula gerada já está em uso. Tente cadastrar novamente; ' +
+            'se persistir, avise o suporte (numeração de matrícula fora de sincronia).',
+        );
+      return new ConflictException(`Já existe um registro com este valor em: ${alvo}.`);
+    }
+    return e as Error;
   }
 
   /**
