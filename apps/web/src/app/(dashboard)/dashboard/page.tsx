@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
-  Flame, AlertTriangle, Landmark, Inbox, UserCheck, Activity, RefreshCw, Cake, Timer,
+  Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
 } from 'lucide-react';
 import {
@@ -18,7 +18,7 @@ import { podeEditar, podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/per
 import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
-  primeiroNome, motivoFalhaDatajud, PALETA_CANAL,
+  primeiroNome, motivoFalhaDatajud,
   type ResumoDashboard, type FalhaDatajud,
 } from '@/lib/dashboard';
 import { formatNPU } from '@/lib/processos';
@@ -30,13 +30,9 @@ import {
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
-
-const BADGE_ROLE: Record<PerfilUsuario, string> = {
-  ADMINISTRADOR: 'bg-rose-600 text-white',
-  COORDENACAO: 'bg-brand-800 text-white',
-  ADVOGADO: 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900',
-  TRIAGEM: 'bg-sky-600 text-white',
-};
+import {
+  COR_SAIDA, COR_SALDO, PALETA_CATEGORICA, useCorDaMarca,
+} from '@/lib/cores-grafico';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -149,6 +145,31 @@ function idadeDoDado(quando: number): string {
   return `há ${Math.round(s / 3600)} h`;
 }
 
+/**
+ * O CABEÇALHO DO PAINEL.
+ *
+ * ERA UM BLOCO COM DEGRADÊ, dois círculos desfocados e um emoji de mãozinha.
+ * Saiu por três motivos, nesta ordem:
+ *
+ * 1. NÃO PASSAVA EM CONTRASTE. O degradê ia de `brand-800` a `brand-600` com
+ *    texto branco por cima. Medido na paleta do SENATEPI, o texto sobre o tom
+ *    600 fica em 3,26:1 — abaixo dos 4,5:1 da WCAG AA. A metade direita da
+ *    saudação era literalmente mais difícil de ler que a esquerda, e nenhum
+ *    ajuste de peso de fonte conserta contraste.
+ *
+ * 2. ERA A ÚNICA TELA ASSIM. Filiados, Processos, Colaboradores e todas as
+ *    outras abrem com um título simples sobre o fundo da página. Um painel com
+ *    faixa colorida no topo não parecia "mais importante": parecia de outro
+ *    sistema, colado ali.
+ *
+ * 3. NÃO CARREGAVA INFORMAÇÃO. Os círculos desfocados, o degradê e o emoji
+ *    ocupavam a faixa mais valiosa da tela — a primeira — sem dizer nada. O que
+ *    o usuário lê nos primeiros segundos passou a ser o dado: os indicadores
+ *    começam ~120px mais acima.
+ *
+ * O que ficou é o que se usa: quem é, quando o dado foi buscado, e o perfil —
+ * porque ele muda o que a tela mostra.
+ */
 function HeroHeader({
   nome, role, escopo, atualizadoEm,
 }: {
@@ -159,31 +180,28 @@ function HeroHeader({
   atualizadoEm?: number;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-brand-800 to-brand-600 p-5 text-white shadow-sm md:p-6">
-      <div className="pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-12 right-24 h-32 w-32 rounded-full bg-brand-400/20 blur-2xl" />
-      <div className="relative flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-sm text-white/80">
-            <Activity className="h-4 w-4" />
-            <span>Painel · {tenant.sigla}</span>
-          </div>
-          <h1 className="mt-1 text-2xl font-bold md:text-3xl">{saudacao(nome)} 👋</h1>
-          <p className="mt-0.5 text-sm text-white/80">{dataPorExtenso()}</p>
-        </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <span className={cn('rounded-full px-3 py-1 text-xs font-semibold shadow-sm', BADGE_ROLE[role])}>
-            {PERFIL_LABEL[role]}
-          </span>
-          {/* "Tempo real" era propaganda: o painel recarrega a cada 60s. Dizer
-              QUANDO o dado foi buscado é a informação que o usuário usa para
-              decidir se atualiza a página antes de tomar uma decisão. */}
-          <span className="flex items-center gap-1.5 text-[11px] text-white/70">
-            <RefreshCw className="h-3 w-3" />
-            {escopo === 'PESSOAL' && 'Sua carteira · '}
-            {atualizadoEm ? `atualizado ${idadeDoDado(atualizadoEm)}` : 'carregando…'}
-          </span>
-        </div>
+    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <div className="min-w-0">
+        <h1 className="text-2xl font-bold tracking-tight">{saudacao(nome)}</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          {dataPorExtenso()}
+          {escopo === 'PESSOAL' && ' · sua carteira'}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        {/* "Tempo real" era propaganda: o painel recarrega a cada 60s. Dizer
+            QUANDO o dado foi buscado é a informação que o usuário usa para
+            decidir se atualiza a página antes de tomar uma decisão. */}
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <RefreshCw className="h-3 w-3" />
+          {atualizadoEm ? `atualizado ${idadeDoDado(atualizadoEm)}` : 'carregando…'}
+        </span>
+        {/* O perfil muda o que a tela mostra, então continua à vista — mas como
+            etiqueta discreta, e não como selo colorido disputando a atenção com
+            os números. */}
+        <span className="rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+          {PERFIL_LABEL[role]}
+        </span>
       </div>
     </div>
   );
@@ -782,7 +800,7 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={advogado.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
               ) : (
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-800 text-xs font-bold text-white dark:bg-brand-900/40 dark:text-brand-200">
                   {(advogado.nomeExibicao || advogado.nome).charAt(0)}
                 </span>
               )}
@@ -990,6 +1008,13 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
     podeFil && { key: 'filiados' as const, label: 'Quadro associativo (6 meses)' },
   ].filter(Boolean) as { key: 'atendimentos' | 'filiados'; label: string }[];
   const [aba, setAba] = useState<'atendimentos' | 'filiados'>(abas[0]?.key ?? 'atendimentos');
+  /**
+   * A cor da marca COMO ESTÁ NA TELA — não a compilada no build. Ver
+   * `useCorDaMarca`: quem troca a cor em Configurações mudava a interface
+   * inteira e não mudava os gráficos.
+   */
+  const corMarca = useCorDaMarca(800);
+  const corMarcaClara = useCorDaMarca(600);
 
   /**
    * No quadro associativo, as séries são alternáveis: comparar entrada e saída
@@ -1043,9 +1068,9 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
       {ehFiliados && (
         <div className="flex flex-wrap gap-1.5 border-b px-5 py-2">
           {([
-            ['entradas', 'Entradas', tenant.paleta[800]],
-            ['saidas', 'Saídas', '#DC2626'],
-            ['saldo', 'Saldo', '#7C3AED'],
+            ['entradas', 'Entradas', corMarca],
+            ['saidas', 'Saídas', COR_SAIDA],
+            ['saldo', 'Saldo', COR_SALDO],
           ] as const).map(([k, rotulo, cor]) => (
             <button
               key={k}
@@ -1067,16 +1092,17 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <defs>
-              <linearGradient id="grad-verde" x1="0" y1="0" x2="0" y2="1">
-                {/* O id do gradiente ainda se chama "grad-verde" por ser
-                    referenciado em `fill="url(#grad-verde)"`; a COR, essa sim,
-                    vem da marca da instalação. */}
-                <stop offset="5%" stopColor={tenant.paleta[600]} stopOpacity={0.55} />
-                <stop offset="95%" stopColor={tenant.paleta[600]} stopOpacity={0} />
+              {/* `grad-marca`, e não mais `grad-verde`: o nome dizia a cor de UM
+                  cliente num código que serve a vários — e a cor agora vem da
+                  marca em tempo de execução, então nem hoje ela é verde em toda
+                  instalação. */}
+              <linearGradient id="grad-marca" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={corMarcaClara} stopOpacity={0.55} />
+                <stop offset="95%" stopColor={corMarcaClara} stopOpacity={0} />
               </linearGradient>
-              <linearGradient id="grad-vermelho" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#DC2626" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#DC2626" stopOpacity={0} />
+              <linearGradient id="grad-saida" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={COR_SAIDA} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={COR_SAIDA} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
@@ -1089,20 +1115,20 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
             {ehFiliados ? (
               <>
                 {series.entradas && (
-                  <Area type="monotone" dataKey="entradas" name="Entradas" stroke={tenant.paleta[800]}
-                    strokeWidth={2} fill="url(#grad-verde)" />
+                  <Area type="monotone" dataKey="entradas" name="Entradas" stroke={corMarca}
+                    strokeWidth={2} fill="url(#grad-marca)" />
                 )}
                 {series.saidas && (
-                  <Area type="monotone" dataKey="saidas" name="Saídas" stroke="#DC2626"
-                    strokeWidth={2} fill="url(#grad-vermelho)" />
+                  <Area type="monotone" dataKey="saidas" name="Saídas" stroke={COR_SAIDA}
+                    strokeWidth={2} fill="url(#grad-saida)" />
                 )}
                 {series.saldo && (
-                  <Area type="monotone" dataKey="saldo" name="Saldo" stroke="#7C3AED"
+                  <Area type="monotone" dataKey="saldo" name="Saldo" stroke={COR_SALDO}
                     strokeWidth={2} strokeDasharray="4 3" fill="none" />
                 )}
               </>
             ) : (
-              <Area type="monotone" dataKey="total" name="Total" stroke={tenant.paleta[800]} strokeWidth={2} fill="url(#grad-verde)" />
+              <Area type="monotone" dataKey="total" name="Total" stroke={corMarca} strokeWidth={2} fill="url(#grad-marca)" />
             )}
           </AreaChart>
         </ResponsiveContainer>
@@ -1133,7 +1159,7 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
                 <PieChart>
                   <Pie data={dados} dataKey="total" nameKey="nome" cx="50%" cy="50%" innerRadius={45} outerRadius={68} paddingAngle={2} strokeWidth={0}>
                     {dados.map((_, i) => (
-                      <Cell key={i} fill={PALETA_CANAL[i % PALETA_CANAL.length]} />
+                      <Cell key={i} fill={PALETA_CATEGORICA[i % PALETA_CATEGORICA.length]} />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', fontSize: 12 }} />
@@ -1147,7 +1173,7 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
             <ul className="grid w-full grid-cols-2 gap-x-3 gap-y-1.5">
               {dados.map((d, i) => (
                 <li key={d.nome} className="flex items-center gap-1.5 text-xs">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: PALETA_CANAL[i % PALETA_CANAL.length] }} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: PALETA_CATEGORICA[i % PALETA_CATEGORICA.length] }} />
                   <span className="truncate text-muted-foreground">{d.nome}</span>
                   <span className="ml-auto font-semibold tabular-nums">{d.total}</span>
                 </li>

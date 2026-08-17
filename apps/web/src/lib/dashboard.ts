@@ -2,7 +2,6 @@ import { api } from './api';
 import type { PerfilUsuario } from './permissoes';
 import type { CanalAtendimento, DesfechoAtendimento } from './atendimentos';
 import type { AudienciaAAgendar } from './audiencias';
-import { tenant } from '@/tenant.config';
 
 // ---------------------------------------------------------------------------
 // Tipos do payload consolidado de /dashboard/resumo
@@ -219,15 +218,18 @@ export const STATUS_COMP_COR: Record<StatusCompromisso, string> = {
 };
 
 /**
- * Cores das fatias por canal de atendimento.
+ * As cores das fatias mudaram-se para `lib/cores-grafico.ts` (PALETA_CATEGORICA).
  *
- * As duas primeiras são da MARCA (saem do tenant); as outras três são cores
- * de apoio, iguais em qualquer instalação — um gráfico com cinco tons da
- * mesma cor institucional seria ilegível.
+ * O que havia aqui começava com DOIS TONS DA MARCA (`brand-800` e `brand-600`).
+ * O comentário original já dizia que "cinco tons da mesma cor seria ilegível" —
+ * e dois também são: medidos com o validador de paletas, aquele par fica em
+ * ΔE 11,3 para visão normal, abaixo do piso de 15. Duas das cinco fatias eram
+ * "o verde".
+ *
+ * Também morava no lugar errado: estas cores são desenhadas em SVG e não
+ * acompanhavam a troca de cor feita em Configurações → Identidade visual, que
+ * mexe em `--brand-*` em tempo de execução.
  */
-export const PALETA_CANAL = [
-  tenant.paleta[800], tenant.paleta[600], '#0ea5e9', '#f59e0b', '#8b5cf6',
-];
 
 /** Saudação pela hora local. */
 export function saudacao(nome: string): string {
