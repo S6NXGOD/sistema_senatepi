@@ -169,29 +169,59 @@ export class CheckinService {
     // Reentrada é normal: cai a internet, troca de aparelho, fecha a aba. A
     // presença original é PRESERVADA (com o IP e o horário do primeiro acesso,
     // que é o que vale para o quórum) e a pessoa entra de novo sem atrito.
+    /**
+     * Reentrada é normal: cai a internet, troca de aparelho, fecha a aba. A
+     * presença original é PRESERVADA (com o IP e o horário do primeiro acesso,
+     * que é o que vale para o quórum) e a pessoa entra de novo sem atrito.
+     *
+     * A BUSCA INCLUI A PRESENÇA AINDA NÃO VINCULADA (pelo CPF informado), senão
+     * com a habilitação da mesa ligada cada reentrada criaria uma presença nova
+     * — a pessoa apareceria três vezes na lista da mesa e o quórum contaria
+     * gente que não existe.
+     */
     const existente = await this.prisma.presenca.findFirst({
-      where: { eventoId: dados.eventoId, filiadoId: filiado.id },
-      select: { id: true },
+      where: {
+        eventoId: dados.eventoId,
+        OR: [{ filiadoId: filiado.id }, { filiadoId: null, cpfInformado: digitos }],
+      },
+      select: { id: true, filiadoId: true },
     });
     if (existente) {
       return {
         liberado: true,
-        motivo: 'Presença já registrada. Bem-vindo(a) de volta.',
+        motivo: existente.filiadoId
+          ? 'Presença já registrada. Bem-vindo(a) de volta.'
+          : 'Presença já registrada — aguardando a mesa confirmar seus dados.',
         participante: {
           nome: filiado.nomeCompleto,
           matricula: filiado.matricula,
           presencaId: existente.id,
           jaEstava: true,
-          identificado: true,
+          identificado: !!existente.filiadoId,
         },
       };
     }
+
+    /**
+     * HABILITAÇÃO PELA MESA — quando ligada, a presença nasce SEM vínculo.
+     *
+     * Não é um caminho novo: é o MESMO que os homônimos já percorrem. A
+     * presença conta como assistência, a pessoa vê a sala e a reunião, e o
+     * guarda de `VotacaoService.votar` ("presença não vinculada ao cadastro")
+     * segura o voto até alguém da mesa confirmar quem ela é. Reaproveitar o
+     * caminho existente, em vez de inventar um estado novo, é o que torna isto
+     * seguro de ligar: ele já está em produção e já é exercitado.
+     *
+     * O CPF continua sendo gravado: ele é o que a mesa usa para achar a pessoa
+     * na lista de candidatos e confirmar em segundos.
+     */
+    const exigeMesa = cfg.exigirHabilitacaoDaMesa;
 
     const presenca = await this.prisma.presenca.create({
       data: {
         eventoId: dados.eventoId,
         tipoPessoa: TipoPessoa.FILIADO,
-        filiadoId: filiado.id,
+        filiadoId: exigeMesa ? null : filiado.id,
         nomeSnapshot: filiado.nomeCompleto,
         origem: OrigemPresenca.AUTOATENDIMENTO_VIRTUAL,
         ip: dados.ip ?? null,
@@ -225,13 +255,15 @@ export class CheckinService {
 
     return {
       liberado: true,
-      motivo: 'Presença registrada.',
+      motivo: exigeMesa
+        ? 'Presença registrada. A mesa vai confirmar seus dados para liberar o voto.'
+        : 'Presença registrada.',
       participante: {
         nome: filiado.nomeCompleto,
         matricula: filiado.matricula,
         presencaId: presenca.id,
         jaEstava: false,
-        identificado: true,
+        identificado: !exigeMesa,
       },
     };
   }

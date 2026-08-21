@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import {
@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { CABECALHO_PRESENCA } from './checkin.controller';
 
 class CriarPautaDto {
   @IsString() @MaxLength(300) titulo!: string;
@@ -317,8 +318,16 @@ export class PlenarioPublicoController {
   @Get('ao-vivo')
   async aoVivo(
     @Param('eventoId') eventoId: string,
-    @Query('presencaId') presencaId?: string,
+    @Headers(CABECALHO_PRESENCA) presencaHeader?: string,
+    /**
+     * COMPATIBILIDADE, e com prazo. A tela e a API sobem como serviços
+     * SEPARADOS: durante a janela de deploy, um navegador com o bundle antigo
+     * ainda manda a credencial na query. Recusar aqui derrubaria a sala no meio
+     * de uma assembleia. Apague quando o front antigo sair de circulação.
+     */
+    @Query('presencaId') presencaQuery?: string,
   ) {
+    const presencaId = presencaHeader?.trim() || presencaQuery?.trim() || undefined;
     const [pauta, sorteios] = await Promise.all([
       this.votacao.pautaAoVivo(eventoId, presencaId),
       this.sorteio.listar(eventoId),

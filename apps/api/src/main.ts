@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
@@ -86,6 +87,39 @@ async function bootstrap() {
    */
   const storage = app.get(StorageService);
   if (storage.isLocal) {
+    /**
+     * O PORTEIRO DO /uploads — conferido ANTES de o arquivo ser servido.
+     *
+     * A URL do driver local deixou de ser eterna: `getSignedUrl` passa a emitir
+     * `?exp=&sig=`, com HMAC sobre (chave, expiração). Este middleware é a outra
+     * metade — sem ele a assinatura seria enfeite, porque `express.static`
+     * entregaria o arquivo do mesmo jeito.
+     *
+     * RESPONDE 404, E NÃO 403. Um 403 confirma que aquele arquivo EXISTE, e
+     * transforma a rota num oráculo: dá para varrer chaves e descobrir quais
+     * são válidas sem nunca conseguir baixar nada. 404 não responde nada.
+     *
+     * A CHAVE É RECONSTRUÍDA a partir do caminho, decodificada segmento a
+     * segmento, para casar exatamente com o que foi assinado em `getSignedUrl`.
+     */
+    app.use('/uploads', (req: Request, res: Response, proximo: NextFunction) => {
+      // `req.path` aqui já vem sem o prefixo /uploads e sem a query.
+      const bruto = req.path.replace(/^\/+/, '');
+      if (!bruto) return res.status(404).end();
+
+      let chave: string;
+      try {
+        chave = bruto.split('/').map(decodeURIComponent).join('/');
+      } catch {
+        // Percent-encoding malformado: nem tenta, só recusa.
+        return res.status(404).end();
+      }
+
+      const { exp, sig } = req.query as { exp?: string; sig?: string };
+      if (!storage.urlAssinadaValida(chave, exp, sig)) return res.status(404).end();
+      return proximo();
+    });
+
     app.useStaticAssets(storage.diretorioLocal, {
       prefix: '/uploads/',
       dotfiles: 'deny',

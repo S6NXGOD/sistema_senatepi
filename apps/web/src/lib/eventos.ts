@@ -480,13 +480,23 @@ export async function excluirEvento(eventoId: string) {
   return (await api.delete(`/eventos/${eventoId}`)).data;
 }
 
+/**
+ * A CREDENCIAL DA SALA VAI EM CABEÇALHO, nunca na URL.
+ *
+ * O `presencaId` autoriza votar. Na URL ele entra no histórico do navegador e
+ * no log de acesso do servidor — e a sala é usada justamente em computador
+ * compartilhado (recepção do sindicato, lan house), onde a próxima pessoa
+ * abriria o histórico e votaria no lugar de quem esteve ali antes.
+ */
+const cabecalhoPresenca = (presencaId?: string) =>
+  presencaId ? { headers: { 'X-Presenca-Id': presencaId } } : undefined;
+
 export async function obterSessao(eventoId: string, presencaId: string): Promise<Sessao> {
-  return (await api.get(`/sala/${eventoId}/sessao/${presencaId}`)).data;
+  return (await api.get(`/sala/${eventoId}/sessao`, cabecalhoPresenca(presencaId))).data;
 }
 
 export async function estadoAoVivo(eventoId: string, presencaId?: string): Promise<EstadoAoVivo> {
-  const q = presencaId ? `?presencaId=${encodeURIComponent(presencaId)}` : '';
-  return (await api.get(`/sala/${eventoId}/ao-vivo${q}`)).data;
+  return (await api.get(`/sala/${eventoId}/ao-vivo`, cabecalhoPresenca(presencaId))).data;
 }
 
 export async function votar(eventoId: string, pautaId: string, presencaId: string, opcaoId: string) {

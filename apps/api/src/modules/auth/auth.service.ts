@@ -21,6 +21,13 @@ interface RequestContext {
   userAgent?: string;
 }
 
+/**
+ * Teto e padrão da validade do ACCESS token. Ver `validadeDoAccessToken` para
+ * por que existe um teto imposto pelo código, e não apenas um padrão.
+ */
+const ACCESS_TOKEN_TETO_HORAS = 12;
+const ACCESS_TOKEN_PADRAO = '12h';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -50,6 +57,67 @@ export class AuthService {
   }
 
   /**
+   * VALIDADE DO ACCESS TOKEN — com TETO IMPOSTO PELO CÓDIGO.
+   *
+   * Era `config.get('JWT_ACCESS_EXPIRES_IN', '30d')`, e o `.env.example` do
+   * projeto sugeria justamente `30d`. Um access token é um JWT AUTOCONTIDO: uma
+   * vez roubado (log de proxy, `Referer`, backup de celular, extensão de
+   * navegador), ele vale até expirar sozinho.
+   *
+   * POR QUE UM TETO, E NÃO SÓ UM PADRÃO MENOR. Trocar o valor padrão não teria
+   * efeito nenhum em produção: a variável JÁ ESTÁ definida lá como 30d, e a
+   * configuração venceria o código. Uma correção que depende de alguém lembrar
+   * de editar uma variável de ambiente não é correção — é recomendação. O teto
+   * fecha isso de vez, e o aviso no log diz o que ignorou e por quê.
+   *
+   * POR QUE 12h, E NÃO 15min. O `JwtStrategy` já REVALIDA o usuário no banco a
+   * cada requisição — desativar alguém surte efeito imediato, sem esperar o
+   * token expirar. O que a validade curta protege é o caso do token ROUBADO de
+   * uma conta que continua válida, e 12h já reduz essa janela em 60x. Ir a 15
+   * minutos multiplicaria por 48 as chamadas de refresh de quem passa o dia no
+   * sistema, sem ganho proporcional.
+   *
+   * O REFRESH CONTINUA LONGO (30 a 90 dias) e rotativo, então ninguém é
+   * deslogado: o interceptor da tela renova em 401 e repete a requisição
+   * sozinho — conferido em `apps/web/src/lib/api.ts`.
+   */
+  private validadeDoAccessToken(): string {
+    const bruto = (this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '').trim();
+    if (!bruto) return ACCESS_TOKEN_PADRAO;
+
+    const horas = this.emHoras(bruto);
+    if (horas === null) {
+      this.logger.warn(
+        `[AUTH] JWT_ACCESS_EXPIRES_IN="${bruto}" não foi entendido — usando ${ACCESS_TOKEN_PADRAO}.`,
+      );
+      return ACCESS_TOKEN_PADRAO;
+    }
+    if (horas > ACCESS_TOKEN_TETO_HORAS) {
+      this.logger.warn(
+        `[AUTH] JWT_ACCESS_EXPIRES_IN="${bruto}" excede o teto de ` +
+          `${ACCESS_TOKEN_TETO_HORAS}h e foi IGNORADO — usando ${ACCESS_TOKEN_PADRAO}. ` +
+          'Token de acesso é autocontido: validade longa mantém um token roubado ' +
+          'válido por todo esse tempo. Ajuste a variável para remover este aviso.',
+      );
+      return ACCESS_TOKEN_PADRAO;
+    }
+    return bruto;
+  }
+
+  /** "12h", "30d", "45m" → horas. `null` quando o formato não é reconhecido. */
+  private emHoras(valor: string): number | null {
+    const m = /^(\d+)\s*([smhd])$/i.exec(valor);
+    if (!m) return null;
+    const n = Number(m[1]);
+    switch (m[2].toLowerCase()) {
+      case 's': return n / 3600;
+      case 'm': return n / 60;
+      case 'h': return n;
+      default: return n * 24;
+    }
+  }
+
+  /**
    * Gera o par de tokens. Sessão longa (login persistente): refresh de 30 dias
    * por padrão (90 dias com "lembrar"). Devolve também `refreshExpiraEm` para que
    * o registro no banco fique SEMPRE consistente com a validade do JWT.
@@ -62,7 +130,7 @@ export class AuthService {
     // Carimba o sindicato no token. Ver `JwtPayload.tenant` para o porquê.
     const accessToken = await this.jwt.signAsync({ ...payload, tenant: tenant.id }, {
       secret: this.config.get('JWT_ACCESS_SECRET'),
-      expiresIn: this.config.get('JWT_ACCESS_EXPIRES_IN', '30d'),
+      expiresIn: this.validadeDoAccessToken(),
     });
     const refreshToken = await this.jwt.signAsync(
       { sub: payload.sub, jti: randomUUID() },

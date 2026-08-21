@@ -63,6 +63,41 @@ export interface ConfiguracoesEvento {
    */
   checkinFechaMinutosDepois: number;
 
+  /**
+   * O CHECK-IN NÃO HABILITA A VOTAR: quem libera é a mesa, uma pessoa por vez.
+   *
+   * O PROBLEMA QUE ISTO RESOLVE. O check-in remoto é liberado por CPF, e CPF
+   * não é segredo — está na folha de pagamento, em documento entregue a
+   * terceiros e em vazamentos públicos. Quem sabe o CPF de um associado
+   * registra a presença dele e, com o `presencaId` devolvido, vota no lugar
+   * dele. A vítima só descobre ao tentar votar e ler "seu voto já foi
+   * registrado".
+   *
+   * POR QUE NÃO UM SEGUNDO FATOR DE CONHECIMENTO. Foi a primeira ideia, e ela
+   * não sobrevive aos dados. Medido na base em 21/08/2026, entre os 7.139
+   * filiados ATIVOS: 29,9% têm CPF, 5,1% têm data de nascimento, 2,0% têm
+   * e-mail e 0,1% (quatro pessoas) têm telefone. Pedir qualquer um deles como
+   * segunda prova barraria de 70% a 95% dos associados da própria assembleia.
+   * Uma trava que impede o eleitor legítimo de votar é pior que a fraude que
+   * ela previne. A matrícula é universal e por isso mesmo não serve: 6.976
+   * delas são sequenciais do sistema antigo, e chutar "1850" é trivial.
+   *
+   * A SAÍDA É HUMANA, e já existe. O sistema JÁ sabe registrar presença sem
+   * vínculo e JÁ exige vínculo para votar — é o caminho dos homônimos, em que
+   * a mesa confirma quem é quem (`PresencaListaService.vincular`). Ligar esta
+   * chave manda TODO check-in remoto por esse mesmo caminho: a pessoa entra na
+   * sala, assiste, e só vota depois que alguém da mesa confirmou a identidade
+   * dela por vídeo ou voz.
+   *
+   * PADRÃO DESLIGADO, de propósito. Numa assembleia de rotina o custo de
+   * conferir 300 pessoas à mão não se paga. Numa eleição de diretoria, se
+   * paga com folga — e a decisão de qual é qual é da diretoria, evento a
+   * evento, não do programador. Ligar por padrão também mudaria o
+   * comportamento de eventos JÁ EM ANDAMENTO no deploy, que é exatamente o que
+   * não pode acontecer.
+   */
+  exigirHabilitacaoDaMesa: boolean;
+
   /** Texto livre exibido na tela de check-in (instruções, pauta do dia). */
   avisoCheckin?: string;
 }
@@ -73,6 +108,7 @@ export const PADROES: ConfiguracoesEvento = {
   habilitarSorteio: false,
   gerarCertificado: false,
   permiteDependente: false,
+  exigirHabilitacaoDaMesa: false,
   checkinAbreMinutosAntes: 60,
   checkinFechaMinutosDepois: 0,
 };

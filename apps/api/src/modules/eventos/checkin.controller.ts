@@ -1,9 +1,19 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsDateString, IsOptional, IsString, Length } from 'class-validator';
 import { Request } from 'express';
 import { CheckinService } from './checkin.service';
 import { Public } from '../../common/decorators/public.decorator';
+
+/**
+ * Onde a credencial do participante trafega.
+ *
+ * Minúsculo porque o Express normaliza os nomes de cabeçalho, e o `@Headers()`
+ * do Nest lê do objeto já normalizado — procurar por 'X-Presenca-Id' devolveria
+ * `undefined`.
+ */
+export const CABECALHO_PRESENCA = 'x-presenca-id';
+
 
 class EntrarDto {
   /** Aceita com ou sem máscara — o serviço normaliza. */
@@ -86,7 +96,32 @@ export class CheckinPublicoController {
     });
   }
 
-  /** Sala de quem já entrou — aqui sim o link da reunião é devolvido. */
+  /**
+   * Sala de quem já entrou — aqui sim o link da reunião é devolvido.
+   *
+   * A CREDENCIAL VIAJA EM CABEÇALHO, e não no caminho da URL.
+   *
+   * O `presencaId` autoriza VOTAR. No caminho, ele entrava no histórico do
+   * navegador e no log de acesso do proxy — e o comentário de
+   * `guardarPresenca` nesta mesma sala descreve exatamente o cenário que isso
+   * abre: "computador compartilhado — recepção do sindicato, lan house".
+   * Bastava a próxima pessoa abrir o histórico para votar no lugar de quem
+   * usou a máquina antes. Cabeçalho não é gravado em nenhum dos dois.
+   */
+  @Get(':eventoId/sessao')
+  sessaoPorCabecalho(
+    @Param('eventoId') eventoId: string,
+    @Headers(CABECALHO_PRESENCA) presencaId: string,
+  ) {
+    return this.service.sessao(eventoId, (presencaId ?? '').trim());
+  }
+
+  /**
+   * @deprecated Rota antiga, com a credencial no CAMINHO. Mantida enquanto
+   * houver navegador com o bundle anterior aberto — a tela sobe como serviço
+   * separado da API, então existe janela em que o front velho fala com a API
+   * nova. Apague junto com o fallback de query em `ao-vivo`.
+   */
   @Get(':eventoId/sessao/:presencaId')
   sessao(@Param('eventoId') eventoId: string, @Param('presencaId') presencaId: string) {
     return this.service.sessao(eventoId, presencaId);

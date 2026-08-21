@@ -6,7 +6,7 @@ import * as path from 'node:path';
  *
  * Estes casos não testam comportamento em tempo de execução: testam que
  * DECISÕES continuam escritas no código. É de propósito. Cada um deles nasceu
- * de uma falha encontrada na auditoria OWASP de 14/08/2026, e o que os torna
+ * de uma falha encontrada nas auditorias OWASP de 14 e 21/08/2026, e o que os torna
  * úteis é justamente reprovar quando alguém, meses depois, "limpa" uma linha
  * que parecia decorativa.
  *
@@ -149,5 +149,97 @@ describe('armazenamento', () => {
     expect(st).toMatch(/escapa do diretório/);
     // E o join cru não pode voltar.
     expect(st).not.toMatch(/path\.join\(this\.localDir, key\)/);
+  });
+});
+
+describe('credencial da sala virtual', () => {
+  /**
+   * O `presencaId` autoriza VOTAR. No caminho ou na query ele entrava no
+   * histórico do navegador e no log de acesso — e a sala é usada em computador
+   * compartilhado, onde a próxima pessoa votaria no lugar da anterior.
+   */
+  it('a sessão tem rota que recebe a credencial por CABEÇALHO', () => {
+    const c = ler('src/modules/eventos/checkin.controller.ts');
+    expect(c).toMatch(/CABECALHO_PRESENCA/);
+    expect(c).toMatch(/@Get\(':eventoId\/sessao'\)/);
+  });
+
+  it('o ao-vivo lê o cabeçalho antes da query', () => {
+    const c = ler('src/modules/eventos/plenario.controller.ts');
+    expect(c).toMatch(/presencaHeader\?\.trim\(\) \|\| presencaQuery/);
+  });
+
+  it('o front manda a credencial em cabeçalho, nunca na URL', () => {
+    const lib = readFileSync(
+      path.join(RAIZ, '../../apps/web/src/lib/eventos.ts'), 'utf8',
+    );
+    expect(lib).toMatch(/'X-Presenca-Id'/);
+    // A montagem antiga por query string não pode voltar.
+    expect(lib).not.toMatch(/\?presencaId=\$\{/);
+  });
+});
+
+describe('uploads servidos', () => {
+  const main = ler('src/main.ts');
+
+  /** Sem o porteiro, a assinatura da URL seria enfeite: o static serviria igual. */
+  it('há porteiro conferindo a assinatura ANTES do static', () => {
+    expect(main).toMatch(/urlAssinadaValida/);
+    const posGuarda = main.indexOf('urlAssinadaValida');
+    const posStatic = main.indexOf('useStaticAssets');
+    expect(posGuarda).toBeGreaterThan(-1);
+    expect(posGuarda).toBeLessThan(posStatic);
+  });
+
+  /** 403 confirmaria que o arquivo existe e transformaria a rota num oráculo. */
+  it('recusa com 404, e não 403', () => {
+    const trecho = main.slice(main.indexOf("app.use('/uploads'"), main.indexOf('useStaticAssets'));
+    expect(trecho).toMatch(/status\(404\)/);
+    expect(trecho).not.toMatch(/status\(403\)/);
+  });
+});
+
+describe('validade do access token', () => {
+  const service = ler('src/modules/auth/auth.service.ts');
+
+  /**
+   * Trocar só o PADRÃO não resolveria: a variável já está definida em produção
+   * como 30d e venceria o código. Por isso o teto é imposto aqui.
+   */
+  it('há teto imposto pelo código, não só um padrão', () => {
+    expect(service).toMatch(/ACCESS_TOKEN_TETO_HORAS/);
+    // O que importa é o que o CÓDIGO faz, não o que o comentário cita: o
+    // comentário explica de onde viemos e menciona o valor antigo de propósito.
+    expect(service).toMatch(/expiresIn: this\.validadeDoAccessToken\(\)/);
+  });
+
+  it('o teto é de no máximo 12 horas', () => {
+    const m = /ACCESS_TOKEN_TETO_HORAS = (\d+)/.exec(service);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeLessThanOrEqual(12);
+  });
+});
+
+describe('habilitação pela mesa', () => {
+  /**
+   * CPF sozinho autoriza voto, e não há segundo fator possível: medido na base,
+   * 5,1% dos filiados têm data de nascimento e 0,1% têm telefone. A saída é
+   * humana — e reusa o caminho dos homônimos, que já existe e já é exercitado.
+   */
+  it('a chave existe e vem DESLIGADA por padrão', () => {
+    const cfg = ler('src/modules/eventos/configuracoes-evento.ts');
+    expect(cfg).toMatch(/exigirHabilitacaoDaMesa: boolean/);
+    expect(cfg).toMatch(/exigirHabilitacaoDaMesa: false/);
+  });
+
+  it('ligada, a presença nasce sem vínculo — é o que segura o voto', () => {
+    const c = ler('src/modules/eventos/checkin.service.ts');
+    expect(c).toMatch(/filiadoId: exigeMesa \? null : filiado\.id/);
+  });
+
+  /** Sem isto, cada reentrada criaria uma presença nova e inflaria o quórum. */
+  it('a reentrada reaproveita a presença ainda não vinculada', () => {
+    const c = ler('src/modules/eventos/checkin.service.ts');
+    expect(c).toMatch(/filiadoId: null, cpfInformado: digitos/);
   });
 });

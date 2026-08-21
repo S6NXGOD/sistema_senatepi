@@ -7,6 +7,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { promises as fs, constants as fsConstants } from 'node:fs';
 import * as path from 'node:path';
 
@@ -180,10 +181,74 @@ export class StorageService {
     };
   }
 
-  /** URL para leitura. Local: URL estática pública; S3: URL assinada temporária. */
+  /**
+   * O SEGREDO QUE ASSINA AS URLS DO DRIVER LOCAL.
+   *
+   * Preferência por uma variável própria; sem ela, deriva do segredo do JWT —
+   * que a validação de ambiente JÁ exige forte em produção. Derivar, e não
+   * reutilizar cru: o prefixo de domínio abaixo garante que uma assinatura de
+   * URL nunca possa ser confundida com (ou reaproveitada como) qualquer outra
+   * coisa assinada com a mesma chave.
+   *
+   * POR QUE NÃO EXPLODIR quando a variável falta, como o QR faz: esta correção
+   * sobe numa produção que NÃO tem a variável definida. Derrubar o boot por
+   * causa disso trocaria um risco de vazamento por uma indisponibilidade certa.
+   */
+  private get segredoUrl(): string {
+    const proprio = this.config.get<string>('STORAGE_URL_SECRET')?.trim();
+    if (proprio) return proprio;
+    const jwt = this.config.get<string>('JWT_ACCESS_SECRET')?.trim();
+    if (jwt) return `uploads:v1:${jwt}`;
+    return `uploads:v1:dev-${this.config.get<string>('TENANT') ?? 'sem-tenant'}`;
+  }
+
+  /** HMAC do par (caminho, expiração) — o que torna a URL infalsível. */
+  private assinar(key: string, expiraEm: number): string {
+    return createHmac('sha256', this.segredoUrl)
+      .update(`${key}|${expiraEm}`)
+      .digest('base64url');
+  }
+
+  /**
+   * Confere a assinatura de uma URL do driver local.
+   *
+   * Comparação em TEMPO CONSTANTE: `===` em string vaza, pelo tempo de resposta,
+   * quantos bytes iniciais bateram — e com isso uma assinatura pode ser
+   * descoberta byte a byte. É barato fechar e caro ignorar.
+   */
+  urlAssinadaValida(key: string, expiraEm: string | undefined, assinatura: string | undefined): boolean {
+    if (!expiraEm || !assinatura) return false;
+    const exp = Number(expiraEm);
+    if (!Number.isFinite(exp) || exp * 1000 < Date.now()) return false;
+    const esperada = Buffer.from(this.assinar(key, exp));
+    const recebida = Buffer.from(assinatura);
+    if (esperada.length !== recebida.length) return false;
+    return timingSafeEqual(esperada, recebida);
+  }
+
+  /**
+   * URL para leitura — ASSINADA E TEMPORÁRIA nos DOIS drivers.
+   *
+   * O QUE MUDOU E POR QUÊ. No driver local a URL era estática e eterna:
+   * `/uploads/<chave>`, servida sem autenticação nenhuma. Como a chave é um
+   * UUID, a própria URL era a credencial — e uma credencial que NÃO EXPIRA e
+   * NÃO PODE SER REVOGADA. Basta ela vazar uma vez (e-mail encaminhado, print
+   * num grupo, histórico de navegador de máquina compartilhada, log de proxy
+   * corporativo) para o documento ficar acessível para sempre, a quem quer que
+   * seja. Em `documentos` há laudo médico — dado sensível do art. 11 da LGPD.
+   *
+   * Agora expira, como já expirava no S3. E é essa simetria que torna a mudança
+   * segura: a aplicação inteira JÁ convivia com URL temporária (o driver S3 usa
+   * 3600s desde sempre), e por isso TODA leitura já regenera a URL em vez de
+   * confiar na coluna `url` gravada — que existe como snapshot e volta vazia
+   * nas listagens.
+   */
   async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
     if (this.driver === 'local') {
-      return `${this.publicUrl}/uploads/${key.split('/').map(encodeURIComponent).join('/')}`;
+      const expiraEm = Math.floor(Date.now() / 1000) + expiresIn;
+      const caminho = key.split('/').map(encodeURIComponent).join('/');
+      const sig = encodeURIComponent(this.assinar(key, expiraEm));
+      return `${this.publicUrl}/uploads/${caminho}?exp=${expiraEm}&sig=${sig}`;
     }
     return getSignedUrl(
       this.client!,
