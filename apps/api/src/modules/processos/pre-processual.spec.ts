@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { StatusProcesso } from '@prisma/client';
-import { PRE_PROCESSUAIS } from './processos.service';
+import { PRE_PROCESSUAIS, filtroDeStatus } from './processos.service';
 
 /**
  * A MIGRAÇÃO DO NOME É ADITIVA — e tem de continuar sendo.
@@ -30,6 +30,34 @@ describe('pré-processual: os dois rótulos', () => {
 
   it('a lista de leitura cobre os dois', () => {
     expect([...PRE_PROCESSUAIS].sort()).toEqual(['PRE_PROCESSUAL', 'RASCUNHO']);
+  });
+
+  /**
+   * A REGRESSÃO QUE APARECEU EM PRODUÇÃO, em 21/08/2026.
+   *
+   * A exclusão da listagem padrão estava certa e o portão que reconhece as três
+   * portas de volta também — mas o filtro de igualdade rodava ANTES dele e
+   * procurava o rótulo exato. Resultado: a aba "Pré-processuais" devolvia lista
+   * vazia com o caso legado no banco. Ele sumia da lista padrão, como pedido, e
+   * não voltava por porta nenhuma — que é exatamente o que o desenho jurava
+   * impedir.
+   */
+  it.each([['PRE_PROCESSUAL'], ['RASCUNHO']] as const)(
+    'filtrar por %s traz OS DOIS rótulos',
+    (pedido) => {
+      expect(filtroDeStatus(pedido as never)).toEqual({
+        statusInterno: { in: PRE_PROCESSUAIS },
+      });
+    },
+  );
+
+  it('os demais status seguem sendo igualdade simples', () => {
+    expect(filtroDeStatus(StatusProcesso.ATIVO)).toEqual({ statusInterno: 'ATIVO' });
+    expect(filtroDeStatus(StatusProcesso.ARQUIVADO)).toEqual({ statusInterno: 'ARQUIVADO' });
+  });
+
+  it('sem status pedido, nenhum filtro entra', () => {
+    expect(filtroDeStatus(undefined)).toBeNull();
   });
 
   it('a migração NÃO renomeia e NÃO rerrotula linha', () => {

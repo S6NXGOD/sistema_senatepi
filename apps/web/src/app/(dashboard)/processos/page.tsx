@@ -318,7 +318,17 @@ function ListaProcessos() {
           }}
         >
           <option value="">Todas as fases</option>
-          {(['CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'] as const).map((f) => (
+          {/*
+            PRE_PROCESSUAL entra aqui, e não é redundância com a aba.
+
+            A tabela ESTAMPA o chip "Pré-processual" na coluna de fase; quem vê
+            o chip vai procurá-lo neste seletor, não numa aba do outro lado da
+            tela. Deixá-lo de fora fazia a fase existir para ler e não existir
+            para filtrar — e, junto com o filtro de status que só reconhecia um
+            dos dois rótulos, fechava TODAS as portas de volta para o caso que a
+            listagem padrão esconde.
+          */}
+          {(['PRE_PROCESSUAL', 'CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'] as const).map((f) => (
             <option key={f} value={f}>
               {FASE_LABEL[f]}
             </option>

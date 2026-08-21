@@ -61,6 +61,10 @@ describe('quem o robô consulta de madrugada', () => {
   it('PRE_PROCESSUAL não entra em nenhuma faixa', () => {
     const todos = [...ramos()[0].statusInterno.in, ...ramos()[2].statusInterno.in];
     expect(todos).not.toContain(StatusProcesso.PRE_PROCESSUAL);
+    // E o rótulo LEGADO do mesmo estado: as linhas anteriores ao deploy do nome
+    // novo continuam com ele, e um caso sem NPU na varredura é chamada
+    // desperdiçada ao CNJ — ou pior, um erro por número ausente.
+    expect(todos).not.toContain(StatusProcesso.RASCUNHO);
   });
 
   it('o corte da faixa lenta fica N dias atrás', () => {

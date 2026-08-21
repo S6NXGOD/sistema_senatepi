@@ -103,6 +103,24 @@ export const PRE_PROCESSUAIS: StatusProcesso[] = [
   StatusProcesso.RASCUNHO,
 ];
 
+/**
+ * O WHERE de "status = X" da listagem.
+ *
+ * Existe como função para poder ser testada sozinha: a regra que ela guarda —
+ * pedir um dos dois rótulos do pré-processual traz OS DOIS — já foi esquecida
+ * uma vez, e o sintoma foi mudo. A aba "Pré-processuais" devolvia lista vazia
+ * com o caso legado bem ali no banco: ele saía da listagem padrão, como pedido,
+ * e não voltava por porta nenhuma.
+ */
+export function filtroDeStatus(
+  status?: StatusProcesso,
+): Prisma.ProcessoWhereInput | null {
+  if (!status) return null;
+  return PRE_PROCESSUAIS.includes(status)
+    ? { statusInterno: { in: PRE_PROCESSUAIS } }
+    : { statusInterno: status };
+}
+
 /** Status que a varredura do CNJ nunca deve reler. */
 const FORA_DA_VARREDURA: StatusProcesso[] = [
   StatusProcesso.ARQUIVADO,
@@ -598,7 +616,18 @@ export class ProcessosService {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
     const and: Prisma.ProcessoWhereInput[] = [];
-    if (q.statusInterno) and.push({ statusInterno: q.statusInterno });
+    /**
+     * PEDIR UM DOS DOIS RÓTULOS DO PRÉ-PROCESSUAL TRAZ OS DOIS.
+     *
+     * Para quem usa o sistema é um estado só; os dois nomes são acidente da
+     * migração (ver `PRE_PROCESSUAIS`). Filtrar pela igualdade crua fazia a aba
+     * "Pré-processuais" devolver lista VAZIA justamente onde estava o caso
+     * antigo — ele saía da listagem padrão, como pedido, e não voltava por
+     * porta nenhuma. O portão logo abaixo já reconhecia os dois; faltava o
+     * filtro concordar com ele.
+     */
+    const porStatus = filtroDeStatus(q.statusInterno);
+    if (porStatus) and.push(porStatus);
     if (q.tribunal) and.push({ tribunal: { equals: q.tribunal, mode: 'insensitive' } });
     // Filiado/advogado casam com QUALQUER vínculo, não só o principal: numa ação
     // plúrima o filiado buscado costuma ser o terceiro da lista, e num processo

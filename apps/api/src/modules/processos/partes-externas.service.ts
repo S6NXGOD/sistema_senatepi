@@ -1,10 +1,11 @@
 import {
   BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, Prisma, TipoParteExterna, UserRole } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusProcesso, TipoParteExterna, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { partesParecidas } from './utils/similaridade.util';
+import { PRE_PROCESSUAIS } from './processos.service';
 import {
   AtualizarParteExternaDto, CriarParteExternaDto, ListParteExternaQueryDto,
 } from './dto/partes.dto';
@@ -143,8 +144,14 @@ export class PartesExternasService {
       (soma, p) => soma + Number(p.processo.valorCausa ?? 0),
       0,
     );
+    // Os dois rótulos do pré-processual somam na MESMA chave: agrupar pelo valor
+    // cru renderia duas linhas com o rótulo idêntico na tela ("Pré-processual: 1"
+    // duas vezes), que é o tipo de coisa que faz a pessoa desconfiar do número.
     const porStatus = participacoes.reduce<Record<string, number>>((acc, p) => {
-      acc[p.processo.statusInterno] = (acc[p.processo.statusInterno] ?? 0) + 1;
+      const chave = PRE_PROCESSUAIS.includes(p.processo.statusInterno)
+        ? StatusProcesso.PRE_PROCESSUAL
+        : p.processo.statusInterno;
+      acc[chave] = (acc[chave] ?? 0) + 1;
       return acc;
     }, {});
 
