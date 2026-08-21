@@ -1,28 +1,35 @@
 'use client';
 
-import { FileCheck2, Check, ArrowRight, Scale } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FileCheck2, ChevronDown, Scale, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { V } from '@/lib/vocabulario';
+import { chaveLocal } from '@/lib/armazenamento';
 
 /**
- * O PAINEL DO CASO PRÉ-PROCESSUAL — o que falta, e o botão de ajuizar.
+ * A BARRA DO CASO PRÉ-PROCESSUAL — o que falta, e o botão de ajuizar.
  *
- * O PROBLEMA QUE ELE RESOLVE. A ficha de um caso pré-processual é a ficha de um
- * processo com quase tudo vazio: número "—", tribunal "—", classe "—", grau "—",
- * um "Dossiê DataJud" dizendo "sem dados do CNJ" e um botão "Sincronizar" que
- * não tem o que sincronizar. Quem abre não vê um caso em andamento; vê um
- * cadastro quebrado. E a única forma de ajuizar era voltar para a LISTA e achar
- * o selo "Ajuizar" lá — a ação principal ficava na tela errada.
+ * O PROBLEMA QUE ELA RESOLVE. A ficha de um caso pré-processual é a ficha de um
+ * processo com quase tudo vazio: número "—", tribunal "—", classe "—". Quem
+ * abre não vê um caso em andamento; vê um cadastro quebrado. E a ação que
+ * encerra a fase morava só na LISTA, num selo pequeno — a pessoa lia a ficha
+ * inteira e tinha de fechar e voltar para dar o próximo passo.
  *
- * O painel inverte isso: em vez de mostrar campos vazios, mostra O QUE FALTA,
- * com o caminho para preencher cada coisa e a ação que encerra a fase em
- * destaque.
+ * POR QUE ELA ENCOLHEU. A primeira versão listava os SEIS itens, feitos e não
+ * feitos, em duas colunas, com explicação em cada um: um terço do modal, e
+ * metade desse espaço gasto com o que JÁ ESTÁ PRONTO. Item concluído com
+ * tarjinha em cima é troféu — informa uma vez e atrapalha nas outras cinquenta.
  *
- * A HIERARQUIA É DELIBERADA. Só UM item tira o caso da fase pré-processual: o
- * número único. Os outros são enriquecimento — úteis, mas não bloqueiam. Se
- * todos aparecessem como "pendência" com o mesmo peso, o número se perderia no
- * meio e a lista viraria uma cobrança genérica que ninguém completa.
+ * Então a barra virou UMA LINHA que diz o essencial: em que fase está, o que
+ * falta (pelo nome, sem precisar abrir) e o botão. A lista completa, com os
+ * atalhos para resolver cada item e os já feitos, fica atrás do disclosure — e
+ * a escolha de abrir ou fechar é lembrada NA SESSÃO, como o dossiê do DataJud:
+ * é preferência de trabalho ("hoje estou completando cadastro"), não
+ * configuração permanente.
+ *
+ * A HIERARQUIA CONTINUA SENDO O PONTO. Só UM item tira o caso da fase: o
+ * número único. Os outros são enriquecimento, e a barra diz isso com todas as
+ * letras — se todos aparecessem com o mesmo peso, o número se perderia no meio.
  */
 export interface Pendencia {
   chave: string;
@@ -33,6 +40,8 @@ export interface Pendencia {
   ir?: () => void;
 }
 
+const CHAVE_ABERTO = chaveLocal('pre-processual', 'detalhado');
+
 export function PainelPreProcessual({
   pendencias,
   podeEditar,
@@ -42,88 +51,100 @@ export function PainelPreProcessual({
   podeEditar: boolean;
   onAjuizar: () => void;
 }) {
+  const [aberto, setAberto] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setAberto(window.sessionStorage.getItem(CHAVE_ABERTO) === 'sim');
+  }, []);
+  function alternar() {
+    setAberto((v) => {
+      try { window.sessionStorage.setItem(CHAVE_ABERTO, v ? 'nao' : 'sim'); } catch { /* sessão indisponível */ }
+      return !v;
+    });
+  }
+
   const faltam = pendencias.filter((x) => !x.feito);
 
   return (
-    <div className="mt-3 rounded-xl border border-violet-300 bg-violet-50/60 p-3 dark:border-violet-900 dark:bg-violet-950/25">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2">
-          <Scale className="mt-0.5 h-4 w-4 shrink-0 text-violet-700 dark:text-violet-400" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-violet-900 dark:text-violet-300">
-              Caso em fase pré-processual
-            </p>
-            {/*
-              A explicação existe porque "pré-processual" some da lista padrão, e
-              quem abre a ficha precisa saber que isso é intencional — senão
-              conclui que o cadastro sumiu ou está com defeito.
-            */}
-            <p className="text-[11px] text-violet-900/75 dark:text-violet-200/70">
-              Ainda não foi ajuizado, então não tem número, tribunal nem andamento do CNJ.
-              Fica fora da lista padrão de processos, na aba <strong>Pré-processuais</strong>,
-              até ser ajuizado.
-            </p>
-          </div>
-        </div>
+    <div className="mt-3 rounded-lg border border-violet-300 bg-violet-50/50 dark:border-violet-900 dark:bg-violet-950/20">
+      {/* A LINHA — tudo que importa no dia a dia cabe aqui. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
+        <Scale className="h-4 w-4 shrink-0 text-violet-700 dark:text-violet-400" />
+        <span className="text-[13px] font-semibold text-violet-900 dark:text-violet-300">
+          Fase pré-processual
+        </span>
+
         {/*
-          A AÇÃO PRINCIPAL FICA AQUI, no topo da ficha. Antes ela existia só
-          como um selo na listagem — a pessoa abria o caso, lia tudo, e tinha de
-          fechar e procurar na lista para dar o próximo passo.
+          O QUE FALTA, PELO NOME, na própria linha. Sem isto o disclosure seria
+          obrigatório para descobrir qualquer coisa — e um disclosure que precisa
+          ser aberto toda vez não economizou espaço, só escondeu informação.
         */}
+        {faltam.length > 0 ? (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-violet-900/70 dark:text-violet-200/60">
+            falta{faltam.length === 1 ? '' : 'm'}: {faltam.map((x) => x.rotulo.toLowerCase()).join(', ')}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-violet-900/70 dark:text-violet-200/60">
+            tudo preenchido — falta só o número único
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={alternar}
+          aria-expanded={aberto}
+          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-violet-800 transition hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900/40"
+        >
+          {aberto ? 'menos' : 'detalhes'}
+          <ChevronDown className={cn('h-3 w-3 transition-transform', aberto && 'rotate-180')} />
+        </button>
+
         {podeEditar && (
-          <Button size="sm" onClick={onAjuizar} className="shrink-0 bg-violet-700 hover:bg-violet-800">
-            <FileCheck2 className="h-4 w-4" /> Ajuizar
+          <Button size="sm" onClick={onAjuizar} className="h-7 shrink-0 bg-violet-700 px-2.5 text-xs hover:bg-violet-800">
+            <FileCheck2 className="h-3.5 w-3.5" /> Ajuizar
           </Button>
         )}
       </div>
 
-      <ul className="mt-2.5 grid gap-1 sm:grid-cols-2">
-        {pendencias.map((x) => (
-          <li key={x.chave}>
-            <button
-              type="button"
-              onClick={x.ir}
-              disabled={!x.ir || x.feito}
-              className={cn(
-                'flex w-full items-start gap-1.5 rounded-lg px-2 py-1.5 text-left text-[12px] transition',
-                x.feito
-                  ? 'text-violet-900/50 dark:text-violet-200/40'
-                  : 'text-violet-900 dark:text-violet-200',
-                x.ir && !x.feito && 'hover:bg-violet-100 dark:hover:bg-violet-900/40',
-              )}
-              title={x.ajuda}
-            >
-              <span
-                className={cn(
-                  'mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border',
-                  x.feito
-                    ? 'border-emerald-600 bg-emerald-600 text-white'
-                    : 'border-violet-400 dark:border-violet-600',
-                )}
-              >
-                {x.feito && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className={cn('font-medium', x.feito && 'line-through')}>{x.rotulo}</span>
-                {!x.feito && <span className="block text-[11px] opacity-75">{x.ajuda}</span>}
-              </span>
-              {x.ir && !x.feito && <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 opacity-60" />}
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {/*
-        O resumo no rodapé é o que responde "estou perto?". Sem ele a lista de
-        itens vira uma parede de tarefas sem fim à vista — e a diferença entre
-        "faltam duas" e "faltam seis" muda se a pessoa começa agora ou adia.
-      */}
-      <p className="mt-1.5 px-2 text-[11px] text-violet-900/70 dark:text-violet-200/60">
-        {faltam.length === 0
-          ? `Tudo preenchido. Falta só o número único para ajuizar — e o ${V.filiado} já pode ser avisado.`
-          : `${faltam.length} informação${faltam.length === 1 ? '' : 'ões'} a completar. ` +
-            'Nenhuma delas impede o ajuizamento — só o número único faz isso.'}
-      </p>
+      {aberto && (
+        <div className="border-t border-violet-200 px-3 py-2 dark:border-violet-900">
+          <p className="mb-1.5 text-[11px] leading-snug text-violet-900/75 dark:text-violet-200/65">
+            Ainda não foi ajuizado, então não tem número, tribunal nem andamento do CNJ. Fica fora da
+            lista padrão de processos, na aba <strong>Pré-processuais</strong>, até ser ajuizado.
+            Nenhum item abaixo impede o ajuizamento — só o número único faz isso.
+          </p>
+          <ul className="grid gap-x-4 sm:grid-cols-2">
+            {[...faltam, ...pendencias.filter((x) => x.feito)].map((x) => (
+              <li key={x.chave}>
+                <button
+                  type="button"
+                  onClick={x.ir}
+                  disabled={!x.ir || x.feito}
+                  className={cn(
+                    'flex w-full items-center gap-1.5 rounded px-1 py-1 text-left text-[12px] transition',
+                    x.feito
+                      ? 'text-violet-900/40 dark:text-violet-200/30'
+                      : 'text-violet-900 dark:text-violet-200',
+                    x.ir && !x.feito && 'hover:bg-violet-100 dark:hover:bg-violet-900/40',
+                  )}
+                  title={x.ajuda}
+                >
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full',
+                      x.feito ? 'bg-emerald-500' : 'bg-violet-400 dark:bg-violet-600',
+                    )}
+                  />
+                  <span className={cn('min-w-0 flex-1 truncate', x.feito && 'line-through')}>
+                    {x.rotulo}
+                  </span>
+                  {x.ir && !x.feito && <ArrowRight className="h-3 w-3 shrink-0 opacity-50" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

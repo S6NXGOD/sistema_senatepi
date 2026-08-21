@@ -410,10 +410,32 @@ export class DashboardService {
     const minhaCarteira = souAdvogado
       ? await (async () => {
           const paradoDesde = new Date(hojeIni.getTime() - 30 * DIA_MS);
+          /**
+           * A CARTEIRA É LIDA PELA TABELA DE ADVOGADOS, NÃO PELO ATALHO.
+           *
+           * `Processo.advogadoId` é atalho derivado: guarda só o advogado
+           * PRINCIPAL. Um processo com cinco advogados tem cinco linhas em
+           * `processos_advogados` e um único atalho — então contar pelo atalho
+           * responde "de quantos processos eu sou o principal", que não é a
+           * pergunta do painel.
+           *
+           * Foi assim que a Dra. Shérad viu "A ajuizar: 0" com um caso na tela
+           * dela: ela está entre os advogados do caso, e o principal é outro.
+           * Medido na produção em 21/08/2026 — atalho: 0, tabela: 1.
+           *
+           * Não precisa de OR com o atalho: `sincronizarAdvogados` grava a
+           * linha do principal na tabela também, e a produção confirma (sete
+           * processos com atalho, zero fora da tabela). É a mesma regra do
+           * `FILTRO_RAPIDO.meus`, que a listagem usa — e é por isso que a lista
+           * mostrava o caso e o painel não.
+           */
+          const souAdvogadoDoProcesso: Prisma.ProcessoWhereInput = {
+            advogados: { some: { advogadoId: user.id } },
+          };
           const [meusProcessos, minhasAudiencias, preProcessuais, semMovimentacaoMinha] =
             await Promise.all([
               this.prisma.processo.count({
-                where: { advogadoId: user.id, statusInterno: StatusProcesso.ATIVO },
+                where: { ...souAdvogadoDoProcesso, statusInterno: StatusProcesso.ATIVO },
               }),
               this.prisma.compromisso.count({
                 where: {
@@ -426,13 +448,13 @@ export class DashboardService {
               // Os DOIS rótulos do pré-processual: o legado ainda usa o antigo.
               this.prisma.processo.count({
                 where: {
-                  advogadoId: user.id,
+                  ...souAdvogadoDoProcesso,
                   statusInterno: { in: [StatusProcesso.PRE_PROCESSUAL, StatusProcesso.RASCUNHO] },
                 },
               }),
               this.prisma.processo.count({
                 where: {
-                  advogadoId: user.id,
+                  ...souAdvogadoDoProcesso,
                   statusInterno: StatusProcesso.ATIVO,
                   numeroCNJ: { not: null },
                   AND: [
