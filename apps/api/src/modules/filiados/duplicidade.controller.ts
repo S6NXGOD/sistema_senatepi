@@ -8,6 +8,7 @@ import { DuplicidadeAtivaGuard, duplicidadeAtiva } from './duplicidade.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 class ParFiliadosDto {
   @IsString() idA!: string;
@@ -34,6 +35,7 @@ class LoteDto {
 @ApiTags('filiados')
 @ApiBearerAuth()
 @ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('filiados/duplicidade')
 export class DuplicidadeController {
   constructor(private readonly service: DuplicidadeService) {}

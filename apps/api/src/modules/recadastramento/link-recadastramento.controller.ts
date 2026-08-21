@@ -12,10 +12,14 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
+import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 
 /** Geração e controle dos links — só a equipe autenticada. */
 @ApiTags('recadastramento')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('filiados/:id/link-recadastramento')
 export class LinkRecadastramentoAdminController {
   constructor(private readonly service: LinkRecadastramentoService) {}
@@ -40,6 +44,8 @@ export class LinkRecadastramentoAdminController {
 /** Revogação em rota própria (o id é do LINK, não do filiado). */
 @ApiTags('recadastramento')
 @ApiBearerAuth()
+@ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('links-recadastramento')
 export class LinkRecadastramentoRevogarController {
   constructor(private readonly service: LinkRecadastramentoService) {}

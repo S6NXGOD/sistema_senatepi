@@ -18,6 +18,7 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 import { AudienciasService } from '../processos/audiencias.service';
 import { ProcessosModule } from '../processos/processos.module';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -826,6 +827,7 @@ export class DashboardService {
 @ApiTags('dashboard')
 @ApiBearerAuth()
 @ModuloTenant('dashboard')
+@Modulo('dashboard')
 @Controller('dashboard')
 class DashboardController {
   constructor(private readonly service: DashboardService) {}

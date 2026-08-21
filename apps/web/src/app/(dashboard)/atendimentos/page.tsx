@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { nivelEfetivo } from '@/lib/permissoes';
 import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import { podeExcluir } from '@/lib/permissoes';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
@@ -47,6 +48,13 @@ export default function AtendimentosPage() {
 function ListaAtendimentos() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  /**
+   * A API agora barra de verdade (`@Modulo` em todo controller). Mostrar o
+   * botão a quem só tem leitura faria a pessoa preencher o formulário
+   * inteiro para levar 403 no fim — o gate da tela existe para isso, não
+   * para segurança.
+   */
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'atendimentos') === 'EDITAR';
   const ehAdmin = podeExcluir(user?.role);
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
@@ -127,7 +135,9 @@ function ListaAtendimentos() {
             <p className="text-sm text-muted-foreground">Registre e acompanhe os atendimentos realizados</p>
           </div>
         </div>
-        <Button onClick={() => setNovo(true)}><Plus className="h-4 w-4" /> Novo Atendimento</Button>
+        {podeEditar && (
+          <Button onClick={() => setNovo(true)}><Plus className="h-4 w-4" /> Novo Atendimento</Button>
+        )}
       </div>
 
       {/* Filtros */}

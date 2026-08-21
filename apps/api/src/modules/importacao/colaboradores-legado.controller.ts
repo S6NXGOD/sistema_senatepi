@@ -23,6 +23,7 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 import { importadorAtivo } from '../../tenant/tenant.config';
 
 /**
@@ -41,6 +42,7 @@ import { importadorAtivo } from '../../tenant/tenant.config';
 @ApiTags('importacao-colaboradores')
 @ApiBearerAuth()
 @ModuloTenant('colaboradores')
+@Modulo('colaboradores')
 @Controller('importacoes/colaboradores')
 @Roles(UserRole.ADMINISTRADOR)
 export class ColaboradoresLegadoController {

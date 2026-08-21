@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
+import { nivelEfetivo } from '@/lib/permissoes';
 import { podeExcluir } from '@/lib/permissoes';
 import { formatarData } from '@/lib/utils';
 import { listarEmpresas, excluirEmpresa, mascaraCnpj, type Empresa } from '@/lib/empresas';
@@ -24,6 +25,13 @@ import { EmpresaFormModal } from '@/components/empresas/empresa-form-modal';
 export default function EmpresasPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  /**
+   * A API agora barra de verdade (`@Modulo` em todo controller). Mostrar o
+   * botão a quem só tem leitura faria a pessoa preencher o formulário
+   * inteiro para levar 403 no fim — o gate da tela existe para isso, não
+   * para segurança.
+   */
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'empresas') === 'EDITAR';
   // Excluir é privativo do Administrador — o botão nem aparece para os demais.
   const ehAdmin = podeExcluir(user?.role);
 
@@ -71,9 +79,11 @@ export default function EmpresasPage() {
             {data ? `${data.total} empresa(s) cadastrada(s)` : 'Módulo Patronal'}
           </p>
         </div>
-        <Button onClick={() => setNovaAberta(true)}>
-          <Plus className="h-4 w-4" /> Nova empresa
-        </Button>
+        {podeEditar && (
+          <Button onClick={() => setNovaAberta(true)}>
+            <Plus className="h-4 w-4" /> Nova empresa
+          </Button>
+        )}
       </div>
 
       <Card>

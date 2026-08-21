@@ -33,6 +33,7 @@ import {
 } from '../dependentes/dependentes.sync';
 import { FiliadosModule } from '../filiados/filiados.module';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @Injectable()
 export class RecadastramentoService {
@@ -124,6 +125,7 @@ export class RecadastramentoService {
 @ApiTags('recadastramento')
 @ApiBearerAuth()
 @ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('filiados/:id')
 class RecadastramentoController {
   constructor(private readonly service: RecadastramentoService) {}

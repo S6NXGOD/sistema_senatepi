@@ -25,11 +25,13 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('cobrancas')
 @ApiBearerAuth()
 @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
 @ModuloTenant('cobrancas')
+@Modulo('cobrancas')
 @Controller('cobrancas')
 export class CobrancasController {
   constructor(private readonly service: CobrancasService) {}

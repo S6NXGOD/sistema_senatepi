@@ -27,6 +27,7 @@ import { lerLogoDaMarca } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { tenant } from '../../tenant/tenant.config';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -219,6 +220,7 @@ export class CarteirinhasService {
 @ApiTags('carteirinhas')
 @ApiBearerAuth()
 @ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('filiados/:filiadoId/carteirinha')
 class CarteirinhasController {
   constructor(private readonly service: CarteirinhasService) {}

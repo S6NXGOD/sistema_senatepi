@@ -35,6 +35,7 @@ import {
 } from '../dependentes/dependentes.module';
 import { situacaoDoTitular } from '../dependentes/titular.util';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 class ValidarQrDto {
   @ApiProperty({ description: 'Payload lido do QR Code', type: Object })
@@ -226,6 +227,7 @@ export class PresencasService {
 @ApiTags('presencas')
 @ApiBearerAuth()
 @ModuloTenant('eventos')
+@Modulo('eventos')
 @Controller()
 class PresencasController {
   constructor(private readonly service: PresencasService) {}

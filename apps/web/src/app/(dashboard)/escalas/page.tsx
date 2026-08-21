@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { nivelEfetivo } from '@/lib/permissoes';
 import { podeExcluir } from '@/lib/permissoes';
 import { NovaEscalaModal } from '@/components/escalas/nova-escala-modal';
 import { exportarEscalasPdf } from '@/lib/escalas-pdf';
@@ -29,6 +30,13 @@ function mesmaData(a: Date, b: Date) {
 export default function EscalasPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
+  /**
+   * A API agora barra de verdade (`@Modulo` em todo controller). Mostrar o
+   * botão a quem só tem leitura faria a pessoa preencher o formulário
+   * inteiro para levar 403 no fim — o gate da tela existe para isso, não
+   * para segurança.
+   */
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'escalas') === 'EDITAR';
   const ehAdmin = podeExcluir(user?.role);
 
   const [mes, setMes] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
@@ -107,7 +115,9 @@ export default function EscalasPage() {
           <Button variant="outline" onClick={exportar} disabled={gerandoPdf}>
             {gerandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar PDF
           </Button>
+          {podeEditar && (
           <Button onClick={() => novaEm()}><Plus className="h-4 w-4" /> Nova Escala</Button>
+        )}
         </div>
       </div>
 

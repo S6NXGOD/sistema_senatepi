@@ -28,9 +28,11 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('colonia')
 @ModuloTenant('colonia')
+@Modulo('colonia')
 @Controller('colonia')
 export class ColoniaController {
   constructor(private readonly service: ColoniaService) {}

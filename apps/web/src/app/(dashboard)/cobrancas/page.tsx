@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FiliadosCobrancasTab } from '@/components/cobrancas/filiados-cobrancas-tab';
 import { ContribuicoesPatronaisTab } from '@/components/cobrancas/contribuicoes-patronais-tab';
 import { listarContribuicoesAdmin } from '@/lib/contribuicoes-patronais';
+import { useAuth } from '@/lib/auth';
+import { nivelEfetivo } from '@/lib/permissoes';
 
 /**
  * Cobranças — duas frentes de arrecadação sob a mesma tela:
@@ -16,6 +18,14 @@ import { listarContribuicoesAdmin } from '@/lib/contribuicoes-patronais';
  *  • Empresas: conferência das contribuições patronais declaradas no portal.
  */
 export default function CobrancasPage() {
+  /**
+   * A API agora barra de verdade (`@Modulo` em todo controller). Mostrar o
+   * botão a quem só tem leitura faria a pessoa preencher o formulário
+   * inteiro para levar 403 no fim — o gate da tela existe para isso, não
+   * para segurança.
+   */
+  const { user } = useAuth();
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'cobrancas') === 'EDITAR';
   const [aba, setAba] = useState('filiados');
 
   // Só para o contador na aba — mostra à equipe que há fila esperando.
@@ -49,9 +59,11 @@ export default function CobrancasPage() {
             <Link href="/cobrancas/configuracao">
               <Button variant="outline"><Settings2 className="h-4 w-4" /> Configuração</Button>
             </Link>
-            <Link href="/cobrancas/nova">
-              <Button><Plus className="h-4 w-4" /> Nova cobrança</Button>
-            </Link>
+            {podeEditar && (
+              <Link href="/cobrancas/nova">
+                <Button><Plus className="h-4 w-4" /> Nova cobrança</Button>
+              </Link>
+            )}
           </div>
         )}
       </div>

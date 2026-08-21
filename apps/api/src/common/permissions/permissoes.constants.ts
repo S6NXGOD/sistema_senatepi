@@ -142,7 +142,20 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     atendimentos: 'EDITAR',
     processos: 'SEM_ACESSO',
     agenda: 'VISUALIZAR',
-    filiados: 'VISUALIZAR',
+    /**
+     * EDITAR, e não VISUALIZAR — corrigido em 21/08/2026 junto com o gate.
+     *
+     * A Triagem É o balcão: cadastrar filiado e atualizar cadastro é a função
+     * dela, e as rotas sempre permitiram (`@Roles(..., TRIAGEM)` em POST e
+     * PATCH de /filiados). O preset dizia VISUALIZAR e ninguém percebia porque
+     * o módulo `filiados` NÃO passava pela matriz — o `PermissionsGuard` só
+     * enxergava `@ModuloTenant`, que é outra chave, e caía no `@Roles`.
+     *
+     * Ao ligar a matriz, manter VISUALIZAR aqui tiraria do balcão a função
+     * principal dele. Isto NÃO é uma concessão nova: é escrever o acesso que a
+     * Triagem já exerce todo dia.
+     */
+    filiados: 'EDITAR',
     colaboradores: 'SEM_ACESSO',
     escalas: 'SEM_ACESSO',
     eventos: 'SEM_ACESSO',

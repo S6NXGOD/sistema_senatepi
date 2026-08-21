@@ -15,6 +15,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 import {
   PARENTESCO,
   calcularIdade,
@@ -325,6 +326,7 @@ export class AcessosService {
 @ApiTags('acessos')
 @ApiBearerAuth()
 @ModuloTenant('acessos')
+@Modulo('acessos')
 @Controller('acessos')
 export class AcessosController {
   constructor(private readonly service: AcessosService) {}

@@ -93,9 +93,13 @@ export default function ColaboradoresPage() {
               <SlidersHorizontal className="h-4 w-4" /> Cargos e Departamentos
             </Button>
           )}
-          <Link href="/colaboradores/novo">
-            <Button><Plus className="h-4 w-4" /> Novo colaborador</Button>
-          </Link>
+          {/* Sem `podeEditar`, quem tem só leitura via o botão, clicava, e
+              levava 403 na cara depois de preencher o formulário inteiro. */}
+          {podeEditar && (
+            <Link href="/colaboradores/novo">
+              <Button><Plus className="h-4 w-4" /> Novo colaborador</Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -148,8 +152,12 @@ export default function ColaboradoresPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-0.5">
                         <Link href={`/colaboradores/${c.id}`} title="Detalhes"><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
-                        <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
-                        <Link href={`/colaboradores/${c.id}/editar`} title="Editar"><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
+                        {podeEditar && (
+                          <>
+                            <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
+                            <Link href={`/colaboradores/${c.id}/editar`} title="Editar"><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
+                          </>
+                        )}
                         {/* Só o Administrador apaga — regra global do sistema. */}
                         {ehAdmin && (
                           <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" title="Excluir" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>
@@ -175,8 +183,12 @@ export default function ColaboradoresPage() {
                   </Link>
                   <div className="flex shrink-0 items-center gap-0.5">
                     <Link href={`/colaboradores/${c.id}`}><Button variant="ghost" size="icon"><Eye className="h-4 w-4" /></Button></Link>
-                    <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
-                    <Link href={`/colaboradores/${c.id}/editar`}><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
+                    {podeEditar && (
+                      <>
+                        <Button variant="ghost" size="icon" title="Alterar status" onClick={() => setStatusDe(c)}><ShieldCheck className="h-4 w-4" /></Button>
+                        <Link href={`/colaboradores/${c.id}/editar`}><Button variant="ghost" size="icon"><Pencil className="h-4 w-4" /></Button></Link>
+                      </>
+                    )}
                     {/* Só o Administrador apaga — regra global do sistema. */}
                     {ehAdmin && (
                       <Button variant="ghost" size="icon" className="text-red-600 dark:text-red-400" onClick={() => setExcluir(c)}><Trash2 className="h-4 w-4" /></Button>

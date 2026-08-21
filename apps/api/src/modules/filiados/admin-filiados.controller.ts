@@ -4,6 +4,7 @@ import { UserRole } from '@prisma/client';
 import { FiliadosService } from './filiados.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 /**
  * Rotas administrativas de consulta ao cadastro legado de Filiados.
@@ -12,6 +13,7 @@ import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 @ApiTags('admin-filiados')
 @ApiBearerAuth()
 @ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('admin/filiados')
 export class AdminFiliadosController {
   constructor(private readonly service: FiliadosService) {}

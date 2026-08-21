@@ -7,6 +7,8 @@ import {
   Plus, Search, SlidersHorizontal, Upload, X, ArrowUpDown, Users, CopyCheck, ChevronRight,
 } from 'lucide-react';
 import { statusDuplicidade } from '@/lib/duplicidade';
+import { useAuth } from '@/lib/auth';
+import { nivelEfetivo } from '@/lib/permissoes';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -40,6 +42,14 @@ const ROTULO: Record<keyof Filtros, string> = {
 };
 
 export default function FiliadosPage() {
+  /**
+   * A API agora barra de verdade (`@Modulo` em todo controller). Mostrar o
+   * botão a quem só tem leitura faria a pessoa preencher o formulário
+   * inteiro para levar 403 no fim — o gate da tela existe para isso, não
+   * para segurança.
+   */
+  const { user } = useAuth();
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'filiados') === 'EDITAR';
   // rascunho = o que está sendo digitado; aplicado = o que de fato consulta a API
   const [rascunho, setRascunho] = useState<Filtros>(VAZIO);
   const [aplicado, setAplicado] = useState<Filtros>(VAZIO);
@@ -112,12 +122,17 @@ export default function FiliadosPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/filiados/importar">
-            <Button variant="outline"><Upload className="h-4 w-4" /> Importar CSV</Button>
-          </Link>
-          <Link href="/filiados/novo">
-            <Button><Plus className="h-4 w-4" /> Nova filiação</Button>
-          </Link>
+          {podeEditar && (
+            <>
+              {/* Só quem pode editar: ver a nota em `podeEditar`, no topo. */}
+              <Link href="/filiados/importar">
+                <Button variant="outline"><Upload className="h-4 w-4" /> Importar CSV</Button>
+              </Link>
+              <Link href="/filiados/novo">
+                <Button><Plus className="h-4 w-4" /> Nova filiação</Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
 

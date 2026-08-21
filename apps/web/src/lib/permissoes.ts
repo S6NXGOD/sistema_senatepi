@@ -78,7 +78,8 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
-    filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
+    // EDITAR: a Triagem É o balcão — ver a nota no espelho da API.
+    filiados: 'EDITAR', colaboradores: 'SEM_ACESSO', escalas: 'SEM_ACESSO', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
     // Quem fica no balcão é quem valida a entrada no clube.
     acessos: 'EDITAR',
     // A secretaria (Triagem) cadastra a empresa e define a senha provisória.

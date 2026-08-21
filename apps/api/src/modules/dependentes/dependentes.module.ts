@@ -31,6 +31,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 /**
  * Rótulo do parentesco.
@@ -257,6 +258,7 @@ export class DependentesService {
 @ApiTags('dependentes')
 @ApiBearerAuth()
 @ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller()
 class DependentesController {
   constructor(private readonly service: DependentesService) {}
@@ -281,6 +283,7 @@ class DependentesController {
    */
   @Post('colaboradores/:colaboradorId/dependentes')
   @ModuloTenant('colaboradores')
+  @Modulo('colaboradores')
   createColaborador(
     @Param('colaboradorId') colaboradorId: string,
     @Body() dto: CreateDependenteDto,
@@ -290,6 +293,9 @@ class DependentesController {
 
   @Get('colaboradores/:colaboradorId/dependentes')
   @ModuloTenant('colaboradores')
+  // Sem isto, a leitura herdaria `@Modulo('filiados')` da classe e o gate de
+  // tenant diria uma coisa e o de permissão, outra.
+  @Modulo('colaboradores')
   listColaborador(@Param('colaboradorId') colaboradorId: string) {
     return this.service.listarPorColaborador(colaboradorId);
   }

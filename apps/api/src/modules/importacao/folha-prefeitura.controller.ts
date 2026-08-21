@@ -12,6 +12,7 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 
 /**
  * Revisão e confirmação da FOLHA DA PREFEITURA.
@@ -30,6 +31,7 @@ import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 @ApiTags('importacao-folha')
 @ApiBearerAuth()
 @ModuloTenant('filiados')
+@Modulo('filiados')
 @Controller('importacoes/folha')
 @Roles(UserRole.ADMINISTRADOR)
 export class FolhaPrefeituraController {

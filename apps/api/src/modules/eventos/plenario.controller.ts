@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
+import { Modulo } from '../../common/permissions/modulo.decorator';
 import { CABECALHO_PRESENCA } from './checkin.controller';
 
 class CriarPautaDto {
@@ -54,6 +55,7 @@ class VincularDto {
 @ApiTags('plenario')
 @ApiBearerAuth()
 @ModuloTenant('eventos')
+@Modulo('eventos')
 @Controller('eventos/:eventoId/plenario')
 export class PlenarioAdminController {
   constructor(
