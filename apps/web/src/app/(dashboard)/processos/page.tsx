@@ -16,6 +16,8 @@ import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sh
 import { AjuizarCasoModal } from '@/components/processos/ajuizar-caso-modal';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
+import { FiltroParteContraria } from '@/components/processos/filtro-parte-contraria';
+import type { ParteExterna } from '@/lib/partes';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
@@ -73,6 +75,13 @@ function ListaProcessos() {
    */
   const [fase, setFase] = useState<'' | FaseProcessual>('');
   /** Filtro rápido da tabela (chips). */
+  /**
+   * Parte contrária escolhida no cadastro. Guardo o OBJETO, não só o id: o
+   * filtro precisa mostrar o nome de quem está filtrando, e buscar de novo só
+   * para descobrir o nome de algo que a pessoa acabou de escolher seria uma
+   * chamada a mais para nada.
+   */
+  const [parte, setParte] = useState<ParteExterna | null>(null);
   const [rapido, setRapido] = useState<
     'todos' | 'preProcessuais' | 'meus' | 'semFiliado' | 'semReu' | 'recentes'
   >('todos');
@@ -179,6 +188,7 @@ function ListaProcessos() {
       busca: buscaDeb || undefined,
       statusInterno: status || undefined,
       // Filtros rápidos (mutuamente exclusivos).
+      ...(parte ? { parteExternaId: parte.id } : {}),
       ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
       ...(rapido === 'preProcessuais' ? { statusInterno: 'PRE_PROCESSUAL' as const } : {}),
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
@@ -188,11 +198,11 @@ function ListaProcessos() {
       page,
       pageSize: 20,
     }),
-    [buscaDeb, status, fase, rapido, janelaRecente, page],
+    [buscaDeb, status, fase, rapido, janelaRecente, page, parte],
   );
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['processos', buscaDeb, status, fase, rapido, janelaRecente, page],
+    queryKey: ['processos', buscaDeb, status, fase, rapido, janelaRecente, page, parte?.id],
     queryFn: () => listarProcessos(filtro),
   });
   const items = data?.items ?? [];
@@ -355,7 +365,9 @@ function ListaProcessos() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder={`Buscar por NPU, ${V.filiado}, classe…`}
+            // A busca SEMPRE cobriu o nome das partes; o placeholder é que não dizia,
+            // e ninguém procura o que não sabe que existe.
+            placeholder={`NPU, ${V.filiado}, parte contrária, classe…`}
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -363,6 +375,13 @@ function ListaProcessos() {
             <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           )}
         </div>
+        {/*
+          FILTRO POR PARTE, ao lado da busca e antes dos seletores.
+          É outra pergunta: a busca livre procura o nome ESCRITO em cada
+          processo (que muda de grafia a cada autos); este aqui procura pela
+          LIGAÇÃO com o cadastro, e por isso pega todas as grafias de uma vez.
+        */}
+        <FiltroParteContraria valor={parte} onChange={(p) => { setParte(p); setPage(1); }} className="sm:w-56" />
         <select
           className={cn(inputCls, 'sm:w-48')}
           value={status}
@@ -413,8 +432,8 @@ function ListaProcessos() {
       ) : items.length === 0 ? (
         <VazioContextual
           rapido={rapido}
-          filtrando={!!buscaDeb || !!status || !!fase}
-          onLimpar={() => { setBusca(''); setStatus(''); setFase(''); setRapido('todos'); setPage(1); }}
+          filtrando={!!buscaDeb || !!status || !!fase || !!parte}
+          onLimpar={() => { setBusca(''); setStatus(''); setFase(''); setRapido('todos'); setParte(null); setPage(1); }}
           onImportar={() => setImportOpen(true)}
         />
       ) : (

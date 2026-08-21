@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, AlertTriangle,
-} from 'lucide-react';
+  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,10 +13,10 @@ import { podeEditar } from '@/lib/permissoes';
 import { useAuth } from '@/lib/auth';
 import {
   TIPO_PARTE_LABEL, atualizarParteExterna, criarParteExterna, formatDocumento,
-  listarPartesExternas, partesParecidas, MOTIVO_SEMELHANCA_LABEL,
-  type ParteExterna, type ParteParecida, type TipoParteExterna,
+  listarPartesExternas, partesParecidas, type ParteExterna, type ParteParecida, type TipoParteExterna,
 } from '@/lib/partes';
 import { BuscaCnpj } from '@/components/organizacoes/busca-cnpj';
+import { AvisoDuplicatas } from '@/components/organizacoes/aviso-duplicatas';
 import { OrganizacaoDrawer } from '@/components/organizacoes/organizacao-drawer';
 import { MesclarModal } from '@/components/organizacoes/mesclar-modal';
 import { PainelDuplicadas } from '@/components/organizacoes/painel-duplicadas';
@@ -380,7 +379,14 @@ function FormOrganizacao({
           */}
           {!inicial && (
             <BuscaCnpj
+              /* As parecidas da consulta entram no aviso único abaixo do nome —
+                 duas caixas iguais na mesma tela ensinam a ignorar as duas. */
+              mostrarParecidas={false}
               onEncontrado={(d) => {
+                setSemelhantes((atuais) => {
+                  const vistos = new Set(atuais.map((x) => x.id));
+                  return [...atuais, ...d.parecidas.filter((x) => !vistos.has(x.id))];
+                });
                 setF((x) => ({
                   ...x,
                   tipo: d.tipoSugerido,
@@ -417,33 +423,11 @@ function FormOrganizacao({
               value={f.nome}
               onChange={(e) => set('nome', e.target.value)}
             />
-            {!!semelhantes.length && (
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/30">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  Já existe cadastro parecido — pode ser a mesma organização
-                </p>
-                <ul className="mt-1.5 space-y-1">
-                  {semelhantes.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="min-w-0 truncate">
-                        {p.nome}
-                        <span className="ml-1 text-amber-800/70 dark:text-amber-300/70">
-                          ({MOTIVO_SEMELHANCA_LABEL[p.motivo]})
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => { onFechar(); onAbrir(p); }}
-                        className="shrink-0 font-semibold underline-offset-2 hover:underline"
-                      >
-                        abrir
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {/* Um aviso só, o mesmo da tela de partes do processo. */}
+            <AvisoDuplicatas
+              candidatos={semelhantes}
+              onUsar={(pp) => { onFechar(); onAbrir(pp); }}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

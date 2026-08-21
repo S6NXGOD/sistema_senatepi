@@ -1,51 +1,53 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Loader2, CheckCircle2, AlertTriangle, Building2, ArrowRight } from 'lucide-react';
+import {
+  Search, Loader2, CheckCircle2, AlertTriangle, Landmark, Building2, ArrowRight, Ban,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { AvisoDuplicatas } from './aviso-duplicatas';
 import {
-  consultarCnpj, formatDocumento, MOTIVO_SEMELHANCA_LABEL,
-  type ConsultaCnpj, type ParteExterna,
+  consultarCnpj, formatDocumento, type ConsultaCnpj, type ParteExterna, type ParteParecida,
 } from '@/lib/partes';
 
 /**
  * BUSCA POR CNPJ — o mesmo bloco para Organizações e para partes do processo.
  *
- * POR QUE ISTO É UM COMPONENTE DE ANTIDUPLICAÇÃO, E NÃO DE PREENCHIMENTO.
+ * POR QUE ISTO É ANTIDUPLICAÇÃO, E NÃO PREENCHIMENTO.
  *
  * Preencher o formulário sozinho é o efeito visível; o valor está no que
- * acontece ANTES disso. A duplicata não nasce por descuido — nasce porque quem
+ * acontece ANTES. A duplicata não nasce por descuido — nasce porque quem
  * cadastra não tem como saber que a organização já existe com outro nome.
  * "PRONTOCARE" e "PRONTOCARE CLINICA E ATENDIMENTOS LTDA" são o mesmo CNPJ e
  * viraram dois cadastros; a partir daí "quantos processos temos contra esta
- * empresa" — a razão de o cadastro existir — passa a ter duas respostas erradas.
+ * empresa" passa a ter duas respostas erradas.
  *
- * Então a resposta é lida em três níveis, do mais forte para o mais fraco:
+ * A RESPOSTA TEM UMA ORDEM, e ela é a hierarquia da tela:
  *
- *  1. JÁ CADASTRADA (mesmo CNPJ) — é a mesma organização, ponto. A tela para de
- *     oferecer criação e oferece abrir. Não há decisão a tomar aqui.
- *  2. PARECIDAS (nome semelhante, sem o mesmo documento) — é o cadastro antigo
- *     feito só pelo nome, antes de alguém ter o CNPJ. Aqui a consulta vira uma
- *     oportunidade de MESCLAR, e a tela diz isso com essas palavras.
- *  3. Os dados da Receita, para preencher.
+ *   1. JÁ CADASTRADA (mesmo CNPJ) — não há decisão a tomar, é a mesma.
+ *   2. Os DADOS DA RECEITA, para preencher.
+ *   3. PARECIDAS por nome — suspeita, e por isso vem por último e sem alarme.
+ *
+ * `mostrarParecidas={false}` para quem já exibe o aviso de duplicatas por conta
+ * própria: duas caixas iguais na mesma tela ensinam a pessoa a ignorar as duas.
+ * A lista continua chegando em `onEncontrado`, no payload da consulta.
  *
  * A CONSULTA NUNCA É OBRIGATÓRIA. A Receita é serviço público e gratuito: cai,
  * limita requisição, demora. Toda falha vira aviso em português e o cadastro
- * manual continua exatamente como era — nada aqui bloqueia o caminho de quem
- * está com pressa ou com a parte que nem CNPJ tem.
+ * manual segue exatamente como era.
  */
 export function BuscaCnpj({
   onEncontrado,
   onAbrirExistente,
+  mostrarParecidas = true,
   className,
 }: {
-  /** Dados da Receita aceitos pela pessoa — a tela decide o que fazer com eles. */
   onEncontrado: (d: ConsultaCnpj) => void;
-  /** Clique em "abrir" numa organização que já existe. */
-  onAbrirExistente?: (p: ParteExterna) => void;
+  onAbrirExistente?: (p: ParteExterna | ParteParecida) => void;
+  mostrarParecidas?: boolean;
   className?: string;
 }) {
   const [cnpj, setCnpj] = useState('');
@@ -61,9 +63,9 @@ export function BuscaCnpj({
     try {
       const dados = await consultarCnpj(digitos);
       setR(dados);
-      // Só entrega os dados para o formulário quando NÃO existe cadastro com
-      // este CNPJ. Preencher em cima de uma organização já cadastrada é
-      // convidar a pessoa a criar a duplicata que viemos evitar.
+      // Só entrega os dados quando NÃO existe cadastro com este CNPJ: preencher
+      // em cima de uma organização já cadastrada é convidar a duplicata que
+      // viemos evitar.
       if (!dados.jaCadastrada) onEncontrado(dados);
     } catch (e: unknown) {
       const m = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -75,153 +77,150 @@ export function BuscaCnpj({
 
   return (
     <div className={cn('space-y-2', className)}>
-      <label className="text-sm font-medium">Buscar na Receita Federal</label>
       <div className="flex gap-2">
-        <Input
-          inputMode="numeric"
-          placeholder="00.000.000/0000-00"
-          value={cnpj}
-          onChange={(e) => setCnpj(mascararCnpj(e.target.value))}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } }}
-          className="font-mono"
-        />
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            inputMode="numeric"
+            placeholder="Buscar CNPJ na Receita Federal"
+            value={cnpj}
+            onChange={(e) => setCnpj(mascararCnpj(e.target.value))}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } }}
+            className="pl-9 font-mono"
+          />
+        </div>
         <Button type="button" variant="outline" onClick={buscar} disabled={buscando || digitos.length !== 14}>
           {buscando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          Buscar
+          <span className="hidden sm:inline">Buscar</span>
         </Button>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        Preenche razão social, nome fantasia, cidade e UF — e avisa se a organização já existe aqui.
-        Opcional: dá para cadastrar tudo à mão.
-      </p>
 
-      {/* 1. JÁ EXISTE — a resposta definitiva, nada a decidir. */}
+      {/* 1. JÁ EXISTE — resposta definitiva, nada a decidir. */}
       {r?.jaCadastrada && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+        <div className="rounded-lg border border-amber-400 bg-amber-50/70 p-3 dark:border-amber-700 dark:bg-amber-950/25">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-300">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             Esta organização já está cadastrada
           </p>
-          <p className="mt-1 text-sm text-amber-900/90 dark:text-amber-200/90">
-            <span className="font-medium">{r.jaCadastrada.nome}</span>
-            {r.jaCadastrada.cidade ? ` · ${r.jaCadastrada.cidade}` : ''}
-            {r.jaCadastrada.dossiePatronal ? ' · contribuinte patronal' : ''}
-          </p>
-          {onAbrirExistente && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="mt-2"
-              onClick={() => onAbrirExistente(r.jaCadastrada!)}
-            >
-              Abrir esta organização <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* 2. PARECIDAS — aqui há decisão, e ela é "mesclar", não "criar". */}
-      {!r?.jaCadastrada && !!r?.parecidas.length && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-300">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            Já existe cadastro com nome parecido
-          </p>
-          <p className="mt-0.5 text-[11px] text-amber-900/80 dark:text-amber-200/80">
-            Provavelmente é a MESMA organização, cadastrada antes de alguém ter o CNPJ.
-            Se for, abra a que já existe e informe o CNPJ nela — em vez de criar outra.
-          </p>
-          <ul className="mt-2 space-y-1">
-            {r.parecidas.map((p) => (
-              <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">
-                  {p.nome}
-                  <span className="ml-1 text-[11px] text-amber-800/70 dark:text-amber-300/70">
-                    ({MOTIVO_SEMELHANCA_LABEL[p.motivo]})
-                  </span>
-                </span>
-                {onAbrirExistente && (
-                  <button
-                    type="button"
-                    onClick={() => onAbrirExistente(p)}
-                    className="shrink-0 text-xs font-semibold underline-offset-2 hover:underline"
-                  >
-                    abrir
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* 3. ENCONTRADA E NOVA — o caminho feliz. */}
-      {r && !r.jaCadastrada && (
-        <div
-          className={cn(
-            'rounded-lg border p-3',
-            r.ativaNaReceita
-              ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
-              : 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30',
-          )}
-        >
-          <p
-            className={cn(
-              'flex items-center gap-1.5 text-sm font-semibold',
-              r.ativaNaReceita
-                ? 'text-emerald-900 dark:text-emerald-300'
-                : 'text-red-900 dark:text-red-300',
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-md bg-background/70 px-2.5 py-2">
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-medium">{r.jaCadastrada.nome}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">
+                {formatDocumento(r.cnpj)}
+                {r.jaCadastrada.cidade ? ` · ${r.jaCadastrada.cidade}` : ''}
+                {r.jaCadastrada.dossiePatronal ? ' · contribuinte patronal' : ''}
+              </span>
+            </span>
+            {onAbrirExistente && (
+              <button
+                type="button"
+                onClick={() => onAbrirExistente(r.jaCadastrada!)}
+                className="flex shrink-0 items-center gap-1 text-xs font-semibold text-brand-800 hover:underline dark:text-brand-400"
+              >
+                usar esta <ArrowRight className="h-3 w-3" />
+              </button>
             )}
-          >
-            {r.ativaNaReceita ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-            {r.razaoSocial}
-          </p>
-          <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-            <Linha rotulo="CNPJ" valor={formatDocumento(r.cnpj)} />
-            <Linha rotulo="Situação" valor={r.situacao} />
-            <Linha rotulo="Natureza" valor={r.naturezaJuridica} />
-            <Linha rotulo="Atividade" valor={r.atividadePrincipal} />
-            <Linha rotulo="Cidade" valor={[r.cidade, r.uf].filter(Boolean).join(' - ')} />
-            <Linha rotulo="Abertura" valor={r.dataAbertura} />
-          </dl>
-          {/*
-            O aviso de situação irregular é o mais valioso desta tela e o mais
-            fácil de esquecer: processar uma empresa BAIXADA muda a estratégia
-            (redirecionar para os sócios), e cobrar repasse de quem encerrou é
-            trabalho perdido. A Receita sabe disso e ninguém pergunta.
-          */}
-          {!r.ativaNaReceita && (
-            <p className="mt-2 flex items-start gap-1.5 text-[11px] font-medium text-red-800 dark:text-red-300">
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-              A inscrição NÃO está ativa na Receita ({r.situacao ?? 'situação irregular'}).
-              Confira antes de ajuizar ou de lançar contribuição — pode ser preciso
-              redirecionar a ação aos sócios.
-            </p>
-          )}
-          {r.naturezaJuridica && (
-            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Building2 className="h-3 w-3 shrink-0" />
-              Classificada como{' '}
-              <strong className="font-semibold">
-                {r.tipoSugerido === 'ORGAO_PUBLICO' ? 'órgão público' : 'pessoa jurídica'}
-              </strong>{' '}
-              pela natureza jurídica — dá para trocar no campo abaixo.
-            </p>
-          )}
+          </div>
         </div>
+      )}
+
+      {/* 2. O RESULTADO DA RECEITA. */}
+      {r && !r.jaCadastrada && <CartaoReceita r={r} />}
+
+      {/* 3. PARECIDAS — suspeita, por último e sem cor de alarme. */}
+      {mostrarParecidas && !r?.jaCadastrada && !!r?.parecidas.length && onAbrirExistente && (
+        <AvisoDuplicatas candidatos={r.parecidas} onUsar={onAbrirExistente} />
       )}
     </div>
   );
 }
 
-function Linha({ rotulo, valor }: { rotulo: string; valor?: string | null }) {
+/**
+ * O CARTÃO DA RECEITA.
+ *
+ * A primeira versão era uma lista de definição de duas colunas larga: rótulo
+ * encostado à esquerda, valor à direita, e um vão de dez centímetros entre os
+ * dois. Ler exigia percorrer a linha inteira com o dedo, e eram seis linhas.
+ *
+ * Agora o NOME é o título — é ele que responde "achei quem eu queria?" — com a
+ * situação cadastral como etiqueta ao lado. Os detalhes viram pares compactos
+ * com o rótulo miúdo EM CIMA do valor: o olho lê de cima para baixo em vez de
+ * atravessar a caixa, e cabem três por linha no mesmo espaço.
+ */
+function CartaoReceita({ r }: { r: ConsultaCnpj }) {
+  const orgao = r.tipoSugerido === 'ORGAO_PUBLICO';
+  const Icone = orgao ? Landmark : Building2;
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border p-3',
+        r.ativaNaReceita
+          ? 'border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/25'
+          : 'border-red-300 bg-red-50/70 dark:border-red-800 dark:bg-red-950/25',
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {r.ativaNaReceita
+          ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          : <Ban className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />}
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold leading-tight">{r.razaoSocial}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+            <span className="font-mono">{formatDocumento(r.cnpj)}</span>
+            {r.situacao && (
+              <span
+                className={cn(
+                  'rounded-full px-1.5 py-0.5 font-semibold uppercase tracking-wide',
+                  r.ativaNaReceita
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+                    : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300',
+                )}
+              >
+                {r.situacao}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <Icone className="h-3 w-3" />
+              {orgao ? 'órgão público' : 'pessoa jurídica'}
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-current/10 pt-2 sm:grid-cols-3">
+        <Par rotulo="Nome fantasia" valor={r.nomeFantasia} />
+        <Par rotulo="Cidade" valor={[r.cidade, r.uf].filter(Boolean).join(' - ')} />
+        <Par rotulo="Abertura" valor={r.dataAbertura?.split('-').reverse().join('/')} />
+        <Par rotulo="Natureza" valor={r.naturezaJuridica} />
+        <Par rotulo="Atividade" valor={r.atividadePrincipal} className="sm:col-span-2" />
+      </dl>
+
+      {/*
+        O AVISO DE INSCRIÇÃO IRREGULAR é o mais valioso da tela e o mais fácil de
+        esquecer: processar empresa BAIXADA muda a estratégia (redirecionar aos
+        sócios), e cobrar repasse de quem encerrou é trabalho perdido. A Receita
+        sabe disso e ninguém pergunta.
+      */}
+      {!r.ativaNaReceita && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-red-100/70 px-2 py-1.5 text-[11px] font-medium text-red-900 dark:bg-red-900/30 dark:text-red-200">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          Inscrição {r.situacao?.toLowerCase() ?? 'irregular'} na Receita. Confira antes de ajuizar
+          ou lançar contribuição — pode ser preciso redirecionar a ação aos sócios.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Rótulo miúdo em cima, valor embaixo — some inteiro quando não há valor. */
+function Par({ rotulo, valor, className }: { rotulo: string; valor?: string | null; className?: string }) {
   if (!valor) return null;
   return (
-    <>
-      <dt className="font-medium">{rotulo}</dt>
-      <dd className="truncate" title={valor}>{valor}</dd>
-    </>
+    <div className={cn('min-w-0', className)}>
+      <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{rotulo}</dt>
+      <dd className="truncate text-[12px] font-medium" title={valor}>{valor}</dd>
+    </div>
   );
 }
 

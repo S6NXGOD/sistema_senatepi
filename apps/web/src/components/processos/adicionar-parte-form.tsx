@@ -3,15 +3,16 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, Building2, Landmark, Loader2, Plus, Search, User as UserIcon, X } from 'lucide-react';
+import { Building2, Landmark, Loader2, Plus, Search, User as UserIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { BuscaCnpj } from '@/components/organizacoes/busca-cnpj';
+import { AvisoDuplicatas } from '@/components/organizacoes/aviso-duplicatas';
 import { cn } from '@/lib/utils';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import {
   adicionarParte, criarParteExterna, listarPartesExternas, mascararDocumento,
-  partesParecidas, MOTIVO_SEMELHANCA_LABEL, type ParteParecida,
+  partesParecidas, type ParteParecida,
   formatDocumento, PAPEIS_SUGERIDOS, TIPO_PARTE_LABEL,
   type ParteExterna, type PoloProcesso, type TipoParteExterna,
 } from '@/lib/partes';
@@ -124,6 +125,22 @@ export function AdicionarParteForm({
     }, 300);
     return () => clearTimeout(t);
   }, [buscaFiliado, fonte]);
+
+  /**
+   * Reaproveitar um cadastro que já existe em vez de criar outro.
+   *
+   * Troca a fonte para CADASTRO e limpa o que estava sendo digitado: sem isso o
+   * nome digitado continuaria no formulário e, na próxima renderização, o aviso
+   * de duplicata reapareceria apontando o cadastro que a pessoa ACABOU de
+   * escolher.
+   */
+  function usarCadastro(p: ParteParecida | ParteExterna) {
+    setFonte('CADASTRO');
+    setSelecionada(p as ParteExterna);
+    setNome('');
+    setDocumento('');
+    setSemelhantes([]);
+  }
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -327,11 +344,28 @@ export function AdicionarParteForm({
           */}
           {tipo !== 'FISICA' && (
             <BuscaCnpj
+              /*
+                A CONSULTA NÃO MOSTRA AS PARECIDAS AQUI — este formulário já tem
+                o próprio aviso, alimentado pelo nome digitado. Com as duas
+                ligadas, a tela exibia DUAS caixas amarelas empilhadas listando
+                AS MESMAS organizações, com títulos diferentes ("Já existe
+                cadastro com nome parecido" e "Pode ser que já exista no
+                cadastro"). Duas caixas iguais não avisam em dobro: ensinam a
+                pessoa a pular caixa amarela.
+              */
+              mostrarParecidas={false}
               onEncontrado={(d) => {
                 setTipo(d.tipoSugerido);
                 setNome(d.razaoSocial);
                 setDocumento(mascararDocumento(d.cnpj));
+                // As parecidas da consulta entram na MESMA lista do aviso local,
+                // que é reconciliada por id logo abaixo.
+                setSemelhantes((atuais) => {
+                  const vistos = new Set(atuais.map((x) => x.id));
+                  return [...atuais, ...d.parecidas.filter((x) => !vistos.has(x.id))];
+                });
               }}
+              onAbrirExistente={(p) => usarCadastro(p as ParteParecida)}
             />
           )}
 
@@ -363,48 +397,13 @@ export function AdicionarParteForm({
             className="font-mono"
           />
 
-          {/* Semelhantes já cadastrados. O cadastro só barra duplicata quando há
-              CNPJ informado — sem documento, "PRONTOCARE" e "PRONTOCARE CLINICA
-              E ATENDIMENTOS LTDA" convivem, e a contagem de processos por
-              empresa se divide entre os dois. Mostrar antes de salvar é o que
-              transforma "criar de novo" em "usar o que existe". */}
-          {semelhantes.length > 0 && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900/50 dark:bg-amber-950/20">
-              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                {semelhantes[0].motivo === 'MESMO_DOCUMENTO'
-                  ? 'Este CNPJ/CPF já está cadastrado'
-                  : 'Pode ser que já exista no cadastro'}
-              </p>
-              <p className="mb-1.5 text-[11px] leading-snug text-amber-800/80 dark:text-amber-300/80">
-                Reaproveitar mantém o histórico junto — todos os processos contra a mesma empresa
-                num lugar só. Se for outra parte mesmo, é só continuar preenchendo.
-              </p>
-              <ul className="space-y-1">
-                {semelhantes.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={() => { setFonte('CADASTRO'); setSelecionada(c); setNome(''); setDocumento(''); }}
-                      className="flex w-full items-center gap-2 rounded bg-card px-2 py-1.5 text-left transition hover:bg-muted"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{c.nome}</span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                          {MOTIVO_SEMELHANCA_LABEL[c.motivo]} · {TIPO_PARTE_LABEL[c.tipo]}
-                          {c.documento ? ` · ${formatDocumento(c.documento)}` : ' · sem CNPJ'}
-                          {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-[11px] font-medium text-brand-800 dark:text-brand-400">
-                        usar esta
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/*
+            UM aviso de duplicata, e ele é o mesmo componente da tela de
+            Organizações — o título muda sozinho conforme a força do indício:
+            documento igual é FATO, nome parecido é suspeita.
+          */}
+          <AvisoDuplicatas candidatos={semelhantes} onUsar={usarCadastro} />
+
           <label className="flex cursor-pointer select-none items-start gap-2 text-xs">
             <input
               type="checkbox"
