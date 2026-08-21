@@ -5,11 +5,58 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { DadosCnpj } from './dto/empresa.dto';
 import { tenant } from '../../tenant/tenant.config';
+
+/**
+ * Dados de CNPJ já limpos, no vocabulário do nosso cadastro.
+ *
+ * Vive AQUI, e não no DTO do Patronal, porque três telas consomem a mesma
+ * consulta: cadastro de empresa contribuinte, cadastro de organização e o
+ * formulário de partes do processo. Enquanto o tipo morava dentro de
+ * `modules/empresas`, reusar a consulta obrigava a importar o módulo inteiro.
+ */
+export interface DadosCnpjReceita {
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  /** Ex.: 'ATIVA', 'BAIXADA', 'INAPTA' — a tela avisa quando não está ATIVA. */
+  situacao: string | null;
+  /**
+   * `false` quando a Receita diz que a inscrição NÃO está ativa (baixada,
+   * inapta, suspensa, nula). Vale mais que o texto: é o que a tela usa para
+   * avisar antes de alguém processar uma empresa que não existe mais, ou
+   * cobrar repasse de quem encerrou.
+   */
+  ativaNaReceita: boolean;
+  /**
+   * Natureza jurídica da Receita ("Município", "Sociedade Empresária Limitada",
+   * "Autarquia Estadual"...). É o que permite classificar ÓRGÃO PÚBLICO sem
+   * depender de alguém marcar certo no formulário — e no cadastro de produção
+   * havia prefeitura cadastrada como "Empresa".
+   */
+  naturezaJuridica: string | null;
+  telefone: string | null;
+  email: string | null;
+  /** Atividade principal — ajuda a conferir se é mesmo a organização certa. */
+  atividadePrincipal: string | null;
+  dataAbertura: string | null;
+}
 
 /** Resposta da BrasilAPI (só o que consumimos; ela devolve muito mais). */
 interface RespostaBrasilApi {
+  natureza_juridica?: string;
+  ddd_telefone_1?: string;
+  email?: string;
+  cnae_fiscal_descricao?: string;
+  data_inicio_atividade?: string;
+  situacao_cadastral?: number;
   cnpj?: string;
   razao_social?: string;
   nome_fantasia?: string;
@@ -48,7 +95,7 @@ export class BrasilApiService {
    * O dígito verificador é conferido ANTES da chamada: erro de digitação não
    * gasta requisição no serviço externo nem faz o usuário esperar o timeout.
    */
-  async consultar(cnpjEntrada: string): Promise<Omit<DadosCnpj, 'jaCadastrada'>> {
+  async consultar(cnpjEntrada: string): Promise<DadosCnpjReceita> {
     const cnpj = apenasDigitosCnpj(cnpjEntrada);
 
     if (cnpj.length !== 14) {
@@ -107,6 +154,17 @@ export class BrasilApiService {
         cidade: this.texto(j.municipio),
         uf: this.texto(j.uf)?.toUpperCase() ?? null,
         situacao: this.texto(j.descricao_situacao_cadastral),
+        // 2 = ATIVA na tabela da Receita. Quando o código não vier, cai no
+        // texto; e na dúvida assume ATIVA, para não inventar um alerta.
+        ativaNaReceita:
+          j.situacao_cadastral !== undefined
+            ? j.situacao_cadastral === 2
+            : (j.descricao_situacao_cadastral ?? 'ATIVA').toUpperCase().includes('ATIVA'),
+        naturezaJuridica: this.texto(j.natureza_juridica),
+        telefone: this.telefone(j.ddd_telefone_1),
+        email: this.texto(j.email)?.toLowerCase() ?? null,
+        atividadePrincipal: this.texto(j.cnae_fiscal_descricao),
+        dataAbertura: this.texto(j.data_inicio_atividade),
       };
     } catch (err) {
       // As exceções já tratadas acima sobem como estão.
@@ -123,6 +181,19 @@ export class BrasilApiService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * A Receita devolve o telefone como um bloco de dígitos com o DDD colado
+   * ("0862881220"), às vezes com o zero da operadora na frente. Sem esta
+   * limpeza o número entra no cadastro num formato que ninguém consegue ligar.
+   */
+  private telefone(v: string | undefined): string | null {
+    const d = (v ?? '').replace(/\D/g, '').replace(/^0+/, '');
+    if (d.length < 10 || d.length > 11) return null;
+    const ddd = d.slice(0, 2);
+    const resto = d.slice(2);
+    return `(${ddd}) ${resto.slice(0, resto.length - 4)}-${resto.slice(-4)}`;
   }
 
   /** Campos vazios da BrasilAPI vêm como '' — viram null para não poluir o cadastro. */

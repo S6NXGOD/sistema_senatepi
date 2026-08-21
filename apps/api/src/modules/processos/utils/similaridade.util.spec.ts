@@ -1,4 +1,4 @@
-import { partesParecidas } from './similaridade.util';
+import { partesParecidas, palavrasSignificativas, ruidoDeCidades } from './similaridade.util';
 
 /** O cadastro REAL da produção em 07/08/2026 — inclusive a duplicata que existe. */
 const CADASTRO = [
@@ -80,5 +80,69 @@ describe('partesParecidas — evitar cadastrar o mesmo réu duas vezes', () => {
       id: String(i), nome: `PRONTOCARE UNIDADE ${i}`, documento: null,
     }));
     expect(partesParecidas('PRONTOCARE', null, muitos, 3)).toHaveLength(3);
+  });
+});
+
+/**
+ * TOPÔNIMO NÃO É INDÍCIO — a regressão que a varredura de duplicatas revelou.
+ *
+ * Enquanto a comparação só rodava AO DIGITAR, isto passava: a pessoa está
+ * olhando o nome e descarta o falso positivo em um segundo. Quando o mesmo
+ * código passou a alimentar uma FILA DE LIMPEZA do cadastro inteiro, os dois
+ * únicos resultados eram falsos — e fila que erra duas em duas ninguém abre
+ * de novo.
+ *
+ * Medido no cadastro real em 21/08/2026, antes da correção:
+ *   "HOSPITAL DE URGÊNCIA DE TERESINA"      ~ "FUNDAÇÃO MUNICIPAL DE SAÚDE DE TERESINA"
+ *   "SECRETARIA DE ESTADO DA SAÚDE DO PIAUÍ" ~ "SINDICATO ... DO ESTADO DO PIAUÍ"
+ * Em cada par a única palavra em comum era o lugar.
+ */
+describe('lugar não identifica organização', () => {
+  const cidades = ruidoDeCidades([{ cidade: 'Teresina' }, { cidade: 'Teresina' }]);
+
+  it('nome de UF nunca conta como indício', () => {
+    expect(palavrasSignificativas('SECRETARIA DE ESTADO DA SAÚDE DO PIAUÍ')).toEqual([]);
+    expect(palavrasSignificativas('HOSPITAL DE SÃO PAULO')).toEqual([]);
+  });
+
+  it('cidade do próprio cadastro vira ruído', () => {
+    expect(palavrasSignificativas('HOSPITAL DE URGÊNCIA DE TERESINA')).toEqual(['urgencia', 'teresina']);
+    expect(palavrasSignificativas('HOSPITAL DE URGÊNCIA DE TERESINA', cidades)).toEqual(['urgencia']);
+  });
+
+  it.each([
+    ['HOSPITAL DE URGÊNCIA DE TERESINA', 'FUNDAÇÃO MUNICIPAL DE SAÚDE DE TERESINA'],
+    ['SECRETARIA DE ESTADO DA SAÚDE DO PIAUÍ', 'SINDICATO DOS ENFERMEIROS E TÉCNICOS DE ENFERMAGEM DO ESTADO DO PIAUÍ'],
+  ])('"%s" NÃO é apontado como duplicata de "%s"', (a, b) => {
+    const r = partesParecidas(a, null, [{ id: 'x', nome: b, documento: null }], 3, cidades);
+    expect(r).toEqual([]);
+  });
+
+  /**
+   * E o verdadeiro positivo tem de continuar passando — é o caso que motivou a
+   * comparação existir, e apertar o filtro demais o mataria junto.
+   */
+  it('ainda acha "PRONTOCARE" dentro de "PRONTOCARE CLINICA E ATENDIMENTOS LTDA"', () => {
+    const r = partesParecidas(
+      'PRONTOCARE CLINICA E ATENDIMENTOS LTDA',
+      null,
+      [{ id: 'x', nome: 'PRONTOCARE', documento: null }],
+      3,
+      cidades,
+    );
+    expect(r).toHaveLength(1);
+    expect(r[0].motivo).toBe('CONTIDO');
+  });
+
+  /** O documento continua sendo indício definitivo, sem depender de nome. */
+  it('mesmo CNPJ vale mesmo com nomes sem nada em comum', () => {
+    const r = partesParecidas(
+      'HOSPITAL DE URGÊNCIA DE TERESINA',
+      '11222333000181',
+      [{ id: 'x', nome: 'FUNDAÇÃO MUNICIPAL DE SAÚDE', documento: '11222333000181' }],
+      3,
+      cidades,
+    );
+    expect(r[0]?.motivo).toBe('MESMO_DOCUMENTO');
   });
 });

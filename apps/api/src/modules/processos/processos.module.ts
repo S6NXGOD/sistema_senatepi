@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AgendaModule } from '../agenda/agenda.module';
+import { ReceitaModule } from '../../common/receita/receita.module';
 import { AudienciasController } from './audiencias.controller';
 import { AudienciasService } from './audiencias.service';
 import { ProcessosController } from './processos.controller';
@@ -28,7 +29,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
 @Module({
   // AgendaModule: o radar de audiências cria o compromisso pela AgendaService,
   // reaproveitando validações, auditoria e trava de data original da Agenda.
-  imports: [AgendaModule],
+  imports: [AgendaModule, ReceitaModule],
   controllers: [
     ProcessosController,
     AudienciasController,

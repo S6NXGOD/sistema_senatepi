@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X,
+  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,8 +14,13 @@ import { podeEditar } from '@/lib/permissoes';
 import { useAuth } from '@/lib/auth';
 import {
   TIPO_PARTE_LABEL, atualizarParteExterna, criarParteExterna, formatDocumento,
-  listarPartesExternas, type ParteExterna, type TipoParteExterna,
+  listarPartesExternas, partesParecidas, MOTIVO_SEMELHANCA_LABEL,
+  type ParteExterna, type ParteParecida, type TipoParteExterna,
 } from '@/lib/partes';
+import { BuscaCnpj } from '@/components/organizacoes/busca-cnpj';
+import { OrganizacaoDrawer } from '@/components/organizacoes/organizacao-drawer';
+import { MesclarModal } from '@/components/organizacoes/mesclar-modal';
+import { PainelDuplicadas } from '@/components/organizacoes/painel-duplicadas';
 
 /**
  * ORGANIZAÇÕES — órgãos, empresas e pessoas com quem o sindicato se relaciona.
@@ -39,12 +44,22 @@ const TIPOS: TipoParteExterna[] = ['ORGAO_PUBLICO', 'JURIDICA', 'FISICA'];
 export default function OrganizacoesPage() {
   const { user } = useAuth();
   const editavel = podeEditar(user?.role, user?.permissoes, 'processos');
+  const qc = useQueryClient();
 
   const [busca, setBusca] = useState('');
   const [aplicado, setAplicado] = useState('');
   const [tipo, setTipo] = useState<TipoParteExterna | ''>('');
   const [mostrarInativas, setMostrarInativas] = useState(false);
   const [editando, setEditando] = useState<ParteExterna | 'nova' | null>(null);
+  const [abrindo, setAbrindo] = useState<ParteExterna | null>(null);
+  const [mesclando, setMesclando] = useState<{ fica: ParteExterna; sugerida?: ParteExterna } | null>(null);
+
+  /**
+   * Mesclar apaga um cadastro e move processos, vínculos de trabalho e o dossiê
+   * patronal. É a operação mais destrutiva do módulo e não tem desfazer na
+   * tela, então segue a mesma regra do resto do sistema: só ADMINISTRADOR.
+   */
+  const podeMesclar = user?.role === 'ADMINISTRADOR';
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['organizacoes', aplicado, tipo, mostrarInativas],
@@ -56,6 +71,21 @@ export default function OrganizacoesPage() {
         pageSize: 100,
       }),
   });
+
+  /**
+   * Recarrega a listagem E a varredura de duplicatas.
+   *
+   * Depois de mesclar, deixar a fila de duplicatas com o par que acabou de
+   * sumir é pior que não tê-la: a pessoa clica de novo, recebe "não encontrada"
+   * e passa a desconfiar do painel inteiro.
+   */
+  async function recarregar() {
+    await Promise.all([
+      refetch(),
+      qc.invalidateQueries({ queryKey: ['organizacoes', 'duplicadas'] }),
+      qc.invalidateQueries({ queryKey: ['organizacao'] }),
+    ]);
+  }
 
   async function alternarAtivo(p: ParteExterna) {
     try {
@@ -87,6 +117,19 @@ export default function OrganizacoesPage() {
           </Button>
         )}
       </div>
+
+      {/*
+        A FILA DE LIMPEZA fica ANTES da busca, e não no rodapé.
+
+        Duplicata é trabalho que ninguém procura: no rodapé, embaixo de uma lista
+        de cem linhas, ela nunca seria vista. Aqui ela é a primeira coisa depois
+        do título — e some sozinha quando não há nada a fazer, virando uma linha
+        de confirmação de que o cadastro está limpo.
+      */}
+      <PainelDuplicadas
+        podeMesclar={podeMesclar}
+        onMesclar={(fica, duplicada) => setMesclando({ fica, sugerida: duplicada })}
+      />
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 p-4">
@@ -156,6 +199,17 @@ export default function OrganizacoesPage() {
                       {p.documento ? ` · ${formatDocumento(p.documento)}` : ''}
                       {p.cidade ? ` · ${p.cidade}${p.uf ? `-${p.uf}` : ''}` : ''}
                     </p>
+                    {/* A linha inteira abre o dossiê. Antes não havia como abrir
+                        uma organização — só editar o cadastro —, e por isso os
+                        processos e vínculos que a API já calculava nunca eram
+                        vistos por ninguém. */}
+                    <button
+                      type="button"
+                      onClick={() => setAbrindo(p)}
+                      className="mt-0.5 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-400"
+                    >
+                      Ver processos e vínculos
+                    </button>
                   </div>
                   {editavel && (
                     <div className="flex shrink-0 items-center gap-1">
@@ -199,7 +253,26 @@ export default function OrganizacoesPage() {
         <FormOrganizacao
           inicial={editando === 'nova' ? null : editando}
           onFechar={() => setEditando(null)}
-          onSalvo={async () => { setEditando(null); await refetch(); }}
+          onSalvo={async () => { setEditando(null); await recarregar(); }}
+          onAbrir={(p) => setAbrindo(p)}
+        />
+      )}
+
+      {abrindo && (
+        <OrganizacaoDrawer
+          parte={abrindo}
+          onFechar={() => setAbrindo(null)}
+          onEditar={editavel ? () => { setEditando(abrindo); setAbrindo(null); } : undefined}
+          onMesclar={podeMesclar ? () => setMesclando({ fica: abrindo }) : undefined}
+        />
+      )}
+
+      {mesclando && (
+        <MesclarModal
+          fica={mesclando.fica}
+          sugerida={mesclando.sugerida}
+          onFechar={() => setMesclando(null)}
+          onMesclado={async () => { setMesclando(null); setAbrindo(null); await recarregar(); }}
         />
       )}
     </div>
@@ -212,10 +285,13 @@ function FormOrganizacao({
   inicial,
   onFechar,
   onSalvo,
+  onAbrir,
 }: {
   inicial: ParteExterna | null;
   onFechar: () => void;
   onSalvo: () => void | Promise<void>;
+  /** Abrir uma organização já existente em vez de criar a duplicata. */
+  onAbrir: (p: ParteExterna) => void;
 }) {
   const [f, setF] = useState({
     tipo: (inicial?.tipo ?? 'ORGAO_PUBLICO') as TipoParteExterna,
@@ -227,6 +303,29 @@ function FormOrganizacao({
   });
   const [salvando, setSalvando] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
+
+  /**
+   * AVISO DE DUPLICATA ENQUANTO SE DIGITA O NOME.
+   *
+   * A verificação já existia no formulário de partes do processo e NÃO existia
+   * aqui — que é justamente a tela onde a duplicata nasce, porque é aqui que se
+   * cadastra sem ter um processo à frente para lembrar de conferir.
+   *
+   * Só na CRIAÇÃO: ao editar, o cadastro parecido mais óbvio é ele mesmo, e o
+   * aviso apareceria em toda edição até a pessoa aprender a ignorá-lo.
+   */
+  const [semelhantes, setSemelhantes] = useState<ParteParecida[]>([]);
+  useEffect(() => {
+    if (inicial) return;
+    const termo = f.nome.trim();
+    if (termo.length < 3) { setSemelhantes([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        setSemelhantes(await partesParecidas(termo, f.documento.replace(/\D/g, '') || undefined));
+      } catch { /* aviso é auxiliar: falhar aqui não pode travar o cadastro */ }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [f.nome, f.documento, inicial]);
 
   async function salvar() {
     if (!f.nome.trim() || salvando) return;
@@ -266,6 +365,40 @@ function FormOrganizacao({
             </button>
           </div>
 
+          {/*
+            A BUSCA VEM ANTES DO FORMULÁRIO, e a ordem é o ponto.
+
+            Posta depois, ela seria um "completar campos" que a pessoa usa
+            quando lembra. Posta aqui, é a primeira coisa que acontece — e é ela
+            que responde "esta organização já existe?" antes de qualquer tecla
+            ser digitada no nome. Evitar a duplicata é o trabalho; preencher é
+            o efeito colateral agradável.
+
+            Não aparece na edição: ali o CNPJ já está definido, e reconsultar a
+            Receita para sobrescrever o que a secretaria corrigiu à mão seria
+            desfazer trabalho humano com dado de terceiro.
+          */}
+          {!inicial && (
+            <BuscaCnpj
+              onEncontrado={(d) => {
+                setF((x) => ({
+                  ...x,
+                  tipo: d.tipoSugerido,
+                  nome: d.razaoSocial,
+                  // A "sigla" do nosso cadastro é o que a pessoa digita no
+                  // autocomplete. O nome fantasia da Receita é o candidato
+                  // natural, mas nunca apaga o que já foi digitado.
+                  nomeFantasia: x.nomeFantasia || d.nomeFantasia || '',
+                  documento: d.cnpj,
+                  cidade: d.cidade ?? '',
+                  uf: d.uf ?? '',
+                }));
+                toast.success('Dados da Receita preenchidos. Confira antes de salvar.');
+              }}
+              onAbrirExistente={(p) => { onFechar(); onAbrir(p); }}
+            />
+          )}
+
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Tipo</label>
             <select
@@ -284,6 +417,33 @@ function FormOrganizacao({
               value={f.nome}
               onChange={(e) => set('nome', e.target.value)}
             />
+            {!!semelhantes.length && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/30">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-900 dark:text-amber-300">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  Já existe cadastro parecido — pode ser a mesma organização
+                </p>
+                <ul className="mt-1.5 space-y-1">
+                  {semelhantes.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="min-w-0 truncate">
+                        {p.nome}
+                        <span className="ml-1 text-amber-800/70 dark:text-amber-300/70">
+                          ({MOTIVO_SEMELHANCA_LABEL[p.motivo]})
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => { onFechar(); onAbrir(p); }}
+                        className="shrink-0 font-semibold underline-offset-2 hover:underline"
+                      >
+                        abrir
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

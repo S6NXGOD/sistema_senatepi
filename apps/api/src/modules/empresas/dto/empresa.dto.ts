@@ -1,3 +1,4 @@
+import { DadosCnpjReceita } from '../../../common/receita/brasil-api.service';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
@@ -73,20 +74,12 @@ export class ListEmpresasQueryDto {
   pageSize?: number;
 }
 
-/** Dados já limpos da BrasilAPI, no vocabulário do nosso cadastro. */
-export interface DadosCnpj {
-  cnpj: string;
-  razaoSocial: string;
-  nomeFantasia: string | null;
-  cep: string | null;
-  logradouro: string | null;
-  numero: string | null;
-  complemento: string | null;
-  bairro: string | null;
-  cidade: string | null;
-  uf: string | null;
-  /** Ex.: 'ATIVA', 'BAIXADA', 'INAPTA' — a tela avisa quando não está ATIVA. */
-  situacao: string | null;
+/**
+ * O que a tela do Patronal recebe: os dados da Receita mais a resposta de
+ * "já temos esta empresa?". O primeiro bloco vive em `common/receita` porque
+ * Organizações e o formulário de partes consomem a mesma consulta.
+ */
+export interface DadosCnpj extends DadosCnpjReceita {
   /** Já existe no nosso banco? Evita preencher um formulário que daria 409. */
   jaCadastrada: boolean;
 }

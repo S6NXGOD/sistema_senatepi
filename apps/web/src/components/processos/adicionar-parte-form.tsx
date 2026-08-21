@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, Building2, Landmark, Loader2, Plus, Search, User as UserIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { BuscaCnpj } from '@/components/organizacoes/busca-cnpj';
 import { cn } from '@/lib/utils';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import {
@@ -308,6 +309,32 @@ export function AdicionarParteForm({
       {/* ---- Parte nova ---- */}
       {fonte === 'NOVO' && (
         <div className="space-y-2">
+          {/*
+            BUSCA NA RECEITA TAMBÉM AQUI — e este é o lugar de MAIOR valor.
+
+            O réu do processo é onde a duplicata mais nasce: a pessoa está com o
+            processo aberto, com pressa, e digita o nome que leu nos autos. Foi
+            assim que "PRONTOCARE" e "PRONTOCARE CLINICA E ATENDIMENTOS LTDA"
+            viraram dois cadastros.
+
+            Aqui a consulta faz três coisas de uma vez: avisa se a organização já
+            está cadastrada (e então não há o que criar), preenche a razão social
+            EXATA da Receita — que é a que vai casar com o DataJud —, e diz se a
+            empresa está BAIXADA, o que muda a estratégia da ação antes de
+            ajuizar, não depois.
+
+            Só para PJ e órgão público: pessoa física não tem CNPJ.
+          */}
+          {tipo !== 'FISICA' && (
+            <BuscaCnpj
+              onEncontrado={(d) => {
+                setTipo(d.tipoSugerido);
+                setNome(d.razaoSocial);
+                setDocumento(mascararDocumento(d.cnpj));
+              }}
+            />
+          )}
+
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <select
               className={campoCls}

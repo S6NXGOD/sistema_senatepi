@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 
-import { BrasilApiService } from './brasil-api.service';
+import { BrasilApiService } from '../../common/receita/brasil-api.service';
 import { CreateEmpresaDto, DadosCnpj, ListEmpresasQueryDto } from './dto/empresa.dto';
 
 /** Custo do bcrypt — o mesmo usado nas senhas da equipe (auth.service). */

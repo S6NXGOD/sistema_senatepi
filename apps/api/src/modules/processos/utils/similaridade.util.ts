@@ -39,6 +39,36 @@ const RUIDO_RAMO = new Set([
   'sindicato', 'associacao', 'empresa', 'centro', 'unidade',
 ]);
 
+/**
+ * TOPÔNIMO NÃO IDENTIFICA ORGANIZAÇÃO — e sozinho gera falso positivo.
+ *
+ * Medido no cadastro real em 21/08/2026: a varredura apontou "HOSPITAL DE
+ * URGÊNCIA DE TERESINA" como duplicata de "FUNDAÇÃO MUNICIPAL DE SAÚDE DE
+ * TERESINA", e "SECRETARIA DE ESTADO DA SAÚDE DO PIAUÍ" como duplicata do
+ * próprio SINDICATO. Em cada par, a ÚNICA palavra em comum era o lugar — tudo
+ * o mais tinha sido descartado como ruído de ramo.
+ *
+ * No aviso ao digitar isso passava: a pessoa está olhando o nome e descarta em
+ * um segundo. Numa FILA de limpeza é fatal — dois falsos positivos entre dois
+ * resultados e ninguém abre a lista de novo.
+ *
+ * Os nomes de UF são lista fechada e nunca identificam ninguém. Cidade é
+ * infinita, e por isso `partesParecidas` recebe `ruidoExtra`: a varredura passa
+ * as cidades DO PRÓPRIO CADASTRO, que é a informação que já temos.
+ */
+const RUIDO_GEOGRAFICO = new Set([
+  'acre', 'alagoas', 'amapa', 'amazonas', 'bahia', 'ceara', 'distrito', 'federal',
+  'espirito', 'santo', 'goias', 'maranhao', 'mato', 'grosso', 'sul', 'minas',
+  'gerais', 'para', 'paraiba', 'parana', 'pernambuco', 'piaui', 'rio', 'janeiro',
+  'grande', 'norte', 'rondonia', 'roraima', 'catarina', 'sao', 'paulo', 'sergipe',
+  'tocantins', 'brasil', 'brasileiro', 'brasileira', 'nacional', 'regional',
+  'estadual', 'federal',
+  // Siglas de UF: "MUNICÍPIO DE X -PI" e "Associação de X-PI" compartilhariam
+  // o "pi" e isso contaria como indício.
+  'ac', 'al', 'ap', 'am', 'ba', 'ce', 'df', 'es', 'go', 'ma', 'mt', 'ms', 'mg',
+  'pa', 'pb', 'pr', 'pe', 'pi', 'rj', 'rn', 'rs', 'ro', 'rr', 'sc', 'sp', 'se', 'to',
+]);
+
 function normalizar(texto: string): string {
   return texto
     .normalize('NFD')
@@ -49,10 +79,34 @@ function normalizar(texto: string): string {
 }
 
 /** Palavras que de fato identificam o cadastro. */
-export function palavrasSignificativas(nome: string): string[] {
+export function palavrasSignificativas(nome: string, ruidoExtra?: Set<string>): string[] {
   return normalizar(nome)
     .split(' ')
-    .filter((p) => p.length >= 2 && !RUIDO_SOCIETARIO.has(p) && !RUIDO_RAMO.has(p));
+    .filter(
+      (p) =>
+        p.length >= 2 &&
+        !RUIDO_SOCIETARIO.has(p) &&
+        !RUIDO_RAMO.has(p) &&
+        !RUIDO_GEOGRAFICO.has(p) &&
+        !ruidoExtra?.has(p),
+    );
+}
+
+/**
+ * Monta o ruído extra a partir das CIDADES do próprio cadastro.
+ *
+ * Nome de cidade é lista infinita e muda por sindicato — mas as que importam
+ * estão ali, no campo `cidade` das organizações já cadastradas. Usar o dado que
+ * já temos é mais honesto que manter uma lista de municípios no código.
+ */
+export function ruidoDeCidades(partes: Array<{ cidade?: string | null }>): Set<string> {
+  const r = new Set<string>();
+  for (const p of partes) {
+    for (const palavra of normalizar(p.cidade ?? '').split(' ')) {
+      if (palavra.length >= 3) r.add(palavra);
+    }
+  }
+  return r;
 }
 
 export type MotivoSemelhanca = 'MESMO_DOCUMENTO' | 'MESMO_NOME' | 'CONTIDO' | 'PALAVRAS_EM_COMUM';
@@ -89,11 +143,13 @@ export function partesParecidas<T extends Candidato>(
   documentoDigitado: string | null | undefined,
   candidatos: T[],
   limite = 5,
+  /** Palavras que neste cadastro não identificam ninguém (cidades, p. ex.). */
+  ruidoExtra?: Set<string>,
 ): Semelhante<T>[] {
   const nome = normalizar(nomeDigitado);
   if (nome.length < 3) return [];
 
-  const palavras = palavrasSignificativas(nomeDigitado);
+  const palavras = palavrasSignificativas(nomeDigitado, ruidoExtra);
   const doc = (documentoDigitado ?? '').replace(/\D/g, '');
   const achados: Semelhante<T>[] = [];
 
@@ -110,7 +166,7 @@ export function partesParecidas<T extends Candidato>(
       continue;
     }
 
-    const cPalavras = palavrasSignificativas(c.nome);
+    const cPalavras = palavrasSignificativas(c.nome, ruidoExtra);
     if (!palavras.length || !cPalavras.length) continue;
 
     const comuns = palavras.filter((p) => cPalavras.includes(p));

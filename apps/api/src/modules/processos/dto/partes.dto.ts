@@ -118,3 +118,17 @@ export class DefinirAdvogadosDto {
   @IsOptional() @IsString()
   principalId?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Mesclagem de organizações duplicadas
+// ---------------------------------------------------------------------------
+
+export class MesclarOrganizacaoDto {
+  @ApiProperty({
+    description:
+      'A organização que será ABSORVIDA e apagada. A que permanece é a do caminho da rota — ' +
+      'processos, vínculos de emprego e o dossiê patronal passam para ela.',
+  })
+  @IsString() @MinLength(10)
+  duplicadaId: string;
+}

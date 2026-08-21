@@ -296,12 +296,35 @@ export interface DossieParteExterna extends ParteExterna {
       dataDistribuicao: string | null;
     };
   }[];
+  /**
+   * Amostra dos filiados que trabalham nesta organização (as 8 mais recentes).
+   * `resumo.filiadosVinculados` traz o total — um órgão grande tem centenas, e
+   * esta não é a tela de listagem de filiados.
+   */
+  vinculos: {
+    id: string;
+    cargo: string | null;
+    lotacao: string | null;
+    matricula: string | null;
+    descontoEmFolha: boolean;
+    filiado: { id: string; nomeCompleto: string; matricula: string; situacao: string } | null;
+  }[];
+  /** Presente quando a organização também é contribuinte patronal. */
+  dossiePatronal: {
+    id: string;
+    razaoSocial: string;
+    cnpj: string;
+    primeiroAcesso: boolean;
+  } | null;
+  institucional: boolean;
   resumo: {
     processos: number;
     comoReu: number;
     comoAutor: number;
     valorTotalEmCausa: number;
     porStatus: Record<string, number>;
+    filiadosVinculados: number;
+    contribuintePatronal: boolean;
   };
 }
 
@@ -322,4 +345,100 @@ export async function atualizarParteExterna(
 
 export async function excluirParteExterna(id: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/partes-externas/${id}`)).data;
+}
+
+// ---------------------------------------------------------------------------
+// Receita Federal, duplicatas e mesclagem
+// ---------------------------------------------------------------------------
+
+/**
+ * O que a consulta de CNPJ devolve — e a ordem em que a tela deve usar.
+ *
+ * `jaCadastrada` vem PRIMEIRO de propósito: é a resposta definitiva. Se o CNPJ
+ * já está no cadastro, não há o que criar, e a tela deve oferecer abrir. Só
+ * quando não há casamento por documento é que `parecidas` importa — ali estão
+ * os cadastros antigos feitos só pelo nome, que agora podem ser MESCLADOS em
+ * vez de ganharem um irmão.
+ */
+export interface ConsultaCnpj {
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  situacao: string | null;
+  /** `false` = baixada, inapta ou suspensa na Receita. A tela avisa. */
+  ativaNaReceita: boolean;
+  naturezaJuridica: string | null;
+  telefone: string | null;
+  email: string | null;
+  atividadePrincipal: string | null;
+  dataAbertura: string | null;
+  /** Sugestão vinda da natureza jurídica — a tela pode aceitar ou trocar. */
+  tipoSugerido: TipoParteExterna;
+  jaCadastrada: (ParteExterna & { dossiePatronal: { id: string } | null }) | null;
+  parecidas: ParteParecida[];
+}
+
+export async function consultarCnpj(cnpj: string): Promise<ConsultaCnpj> {
+  return (await api.get(`/partes-externas/cnpj/${cnpj.replace(/\D/g, '')}`)).data;
+}
+
+export interface ParDuplicado {
+  motivo: MotivoSemelhanca;
+  /** Sugestão de sobrevivente: quem tem mais vínculos, dossiê ou documento. */
+  fica: ParteExterna & {
+    institucional: boolean;
+    dossiePatronal: { id: string } | null;
+    _count: { participacoes: number; vinculos: number };
+  };
+  duplicada: ParDuplicado['fica'];
+}
+
+export interface VarreduraDuplicadas {
+  pares: ParDuplicado[];
+  analisadas: number;
+  /** A varredura bateu no limite — há cadastro que não foi comparado. */
+  truncou: boolean;
+}
+
+export async function organizacoesDuplicadas(): Promise<VarreduraDuplicadas> {
+  return (await api.get('/partes-externas/duplicadas')).data;
+}
+
+export interface ResultadoMesclagem {
+  processosRepontados: number;
+  participacoesAbsorvidas: number;
+  vinculosMovidos: number;
+  dossiePatronalMovido: boolean;
+  camposCompletados: string[];
+  ficaId: string;
+  removida: { id: string; nome: string };
+}
+
+/**
+ * Mescla `duplicadaId` DENTRO de `ficaId`. Só ADMINISTRADOR, e não tem desfazer
+ * na tela — o retrato do cadastro apagado fica na auditoria.
+ */
+export async function mesclarOrganizacoes(
+  ficaId: string,
+  duplicadaId: string,
+): Promise<ResultadoMesclagem> {
+  return (await api.post(`/partes-externas/${ficaId}/mesclar`, { duplicadaId })).data;
+}
+
+/**
+ * "Não são a mesma organização" — tira o par da fila de limpeza para sempre.
+ *
+ * É o que faz a fila CONVERGIR. A comparação de nomes vai errar sempre; o que
+ * não pode é errar a mesma coisa toda semana, porque aí ninguém abre mais o
+ * painel — nem quando houver duplicata de verdade.
+ */
+export async function naoSaoDuplicadas(idA: string, idB: string): Promise<{ ok: boolean }> {
+  return (await api.post(`/partes-externas/${idA}/nao-duplicada`, { duplicadaId: idB })).data;
 }

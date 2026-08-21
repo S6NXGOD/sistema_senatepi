@@ -2356,6 +2356,31 @@ model ProcessoInstancia {
 ///
 /// O cadastro é OPCIONAL: a parte pode ficar só com o nome digitado
 /// (`ParteProcesso.nome`) e ser promovida a cadastro depois, sem retrabalho.
+/// Pares que uma PESSOA já disse que NÃO são a mesma organização.
+///
+/// A varredura de duplicatas compara nomes, e comparação de nome erra — no
+/// cadastro real, um par em dois era falso mesmo depois de tratar topônimo como
+/// ruído. Um falso positivo é tolerável desde que dê para descartá-lo; sem
+/// descarte ele reaparece em toda visita, a fila nunca esvazia e em duas
+/// semanas ninguém abre mais o painel, inclusive quando houver duplicata de
+/// verdade.
+///
+/// O par é guardado ORDENADO (`aId < bId`, garantido por CHECK no banco): sem a
+/// ordem canônica, descartar (A,B) deixaria (B,A) voltando.
+model ParteExternaNaoDuplicada {
+  aId           String   @map("a_id")
+  bId           String   @map("b_id")
+  descartadoPor String?  @map("descartado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  a ParteExterna @relation("naoDuplicadaA", fields: [aId], references: [id], onDelete: Cascade)
+  b ParteExterna @relation("naoDuplicadaB", fields: [bId], references: [id], onDelete: Cascade)
+
+  @@id([aId, bId])
+  @@index([bId])
+  @@map("partes_externas_nao_duplicadas")
+}
+
 model ParteExterna {
   id            String           @id @default(uuid())
   tipo          TipoParteExterna
@@ -2396,6 +2421,10 @@ model ParteExterna {
   /// É esta relação que responde a pergunta do cadastro — "faz repasse
   /// patronal?" — sem precisar de uma flag que alguém teria de manter em dia.
   dossiePatronal Empresa?
+
+  /// Pares já descartados como "não são a mesma" — ver `ParteExternaNaoDuplicada`.
+  naoDuplicadaA  ParteExternaNaoDuplicada[] @relation("naoDuplicadaA")
+  naoDuplicadaB  ParteExternaNaoDuplicada[] @relation("naoDuplicadaB")
 
   @@index([tipo])
   @@index([ativo])

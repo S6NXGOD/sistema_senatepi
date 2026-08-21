@@ -5,10 +5,12 @@ import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
 import {
   AdicionarParteDto, AtualizarParteDto, AtualizarParteExternaDto, CriarParteExternaDto,
-  DefinirAdvogadosDto, ListParteExternaQueryDto,
+  DefinirAdvogadosDto, ListParteExternaQueryDto, MesclarOrganizacaoDto,
 } from './dto/partes.dto';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { UserRole } from '@prisma/client';
 
 function ctxDe(req: Request, user?: AuthUser) {
   return { ip: req.ip, userAgent: req.headers['user-agent'], userId: user?.id, role: user?.role };
@@ -104,6 +106,63 @@ export class PartesExternasController {
   @ApiOperation({ summary: 'Cadastros que podem ser a mesma parte — evita duplicar o réu.' })
   parecidas(@Query('nome') nome: string, @Query('documento') documento?: string) {
     return this.service.parecidas(nome ?? '', documento);
+  }
+
+  /**
+   * Consulta o CNPJ na Receita E confere o nosso cadastro na mesma resposta.
+   *
+   * Antes de `@Get(':id')` pelo mesmo motivo de `parecidas`: a rota casa na
+   * ordem em que é declarada, e `:id` engoliria "cnpj" como se fosse um id.
+   */
+  @Get('cnpj/:cnpj')
+  @ApiOperation({ summary: 'Dados do CNPJ na Receita + organização já cadastrada e semelhantes.' })
+  consultarCnpj(@Param('cnpj') cnpj: string) {
+    return this.service.consultarCnpj(cnpj);
+  }
+
+  /** Pares de organizações que parecem ser a mesma — a fila de limpeza. */
+  @Get('duplicadas')
+  @ApiOperation({ summary: 'Varredura do cadastro em busca de organizações duplicadas.' })
+  duplicadas() {
+    return this.service.duplicadas();
+  }
+
+  /**
+   * Marca o par como "não são a mesma organização" — some da fila de limpeza.
+   *
+   * NÃO exige ADMINISTRADOR, ao contrário de mesclar: descartar não apaga nada
+   * e é reversível pelo banco. Exigir o perfil mais alto para dizer "isto aqui
+   * está errado" faria a fila encher justamente de quem tem menos acesso.
+   */
+  @Post(':id/nao-duplicada')
+  @ApiOperation({ summary: 'Descarta o par sugerido pela varredura de duplicatas.' })
+  naoSaoDuplicadas(
+    @Param('id') id: string,
+    @Body() dto: MesclarOrganizacaoDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.naoSaoDuplicadas(id, dto.duplicadaId, ctxDe(req, user));
+  }
+
+  /**
+   * Mescla `duplicadaId` DENTRO de `:id`, que é a que permanece.
+   *
+   * Só ADMINISTRADOR: apaga um cadastro e reponta processos, vínculos de
+   * emprego e, quando existe, o dossiê patronal. É a operação mais destrutiva
+   * do módulo, e não tem desfazer na tela — o retrato do que sumiu fica na
+   * auditoria.
+   */
+  @Post(':id/mesclar')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Mescla a organização duplicada dentro desta.' })
+  mesclar(
+    @Param('id') id: string,
+    @Body() dto: MesclarOrganizacaoDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.mesclar(id, dto.duplicadaId, ctxDe(req, user));
   }
 
   @Get(':id')
