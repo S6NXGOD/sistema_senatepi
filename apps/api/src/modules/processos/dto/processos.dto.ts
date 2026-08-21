@@ -18,6 +18,7 @@ import {
 import { Type } from 'class-transformer';
 import { StatusProcesso } from '@prisma/client';
 import { FaseProcessual } from '../utils/fase.util';
+import { AREAS_JURIDICAS } from '../areas.catalogo';
 
 /**
  * Parte contrária informada já na importação. Existe porque o DataJud NÃO
@@ -128,10 +129,22 @@ export class ImportarProcessoDto {
 
   @ApiPropertyOptional({
     type: ParteContrariaImportDto,
-    description: 'Réu/parte contrária — o DataJud não devolve isso, então é informado aqui.',
+    description:
+      'Réu único. MANTIDO por compatibilidade — o caminho novo é `partesContrarias`, ' +
+      'que aceita litisconsórcio. Quando os dois vierem, este entra como o primeiro.',
   })
   @IsOptional() @IsObject() @ValidateNested() @Type(() => ParteContrariaImportDto)
   parteContraria?: ParteContrariaImportDto;
+
+  @ApiPropertyOptional({
+    type: [ParteContrariaImportDto],
+    description:
+      'RÉUS do processo (litisconsórcio passivo). O primeiro é o principal — é ele que ' +
+      'aparece no "Autor × Réu" da lista. O DataJud não devolve partes, então este é o ' +
+      'momento barato de capturar todos.',
+  })
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ParteContrariaImportDto)
+  partesContrarias?: ParteContrariaImportDto[];
 
   @ApiPropertyOptional({ enum: StatusProcesso })
   @IsOptional() @IsEnum(StatusProcesso)
@@ -156,13 +169,28 @@ export class AtualizarProcessoDto {
   @ApiPropertyOptional() @IsOptional() @IsString() advogadoId?: string;
 
   /** Etiquetas internas — substituem a lista atual quando informadas. */
-  @ApiPropertyOptional({ type: [String], description: 'Rótulos livres (Urgente, Coletiva…).' })
+  @ApiPropertyOptional({ type: [String], description: 'Rótulos livres (Coletiva, Fase de Execução…).' })
   @IsOptional() @IsArray() @IsString({ each: true })
   etiquetas?: string[];
+
+  @ApiPropertyOptional({
+    enum: AREAS_JURIDICAS.map((a) => a.slug),
+    description: 'Área jurídica. String vazia limpa.',
+  })
+  @IsOptional() @IsString()
+  categoria?: string;
+
+  @ApiPropertyOptional({ description: 'Marca/desmarca o processo como urgente.' })
+  @IsOptional() @IsBoolean() urgente?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'POR QUE é urgente — obrigatório ao marcar. Sem motivo a marca não se revisa.',
+  })
+  @IsOptional() @IsString() @MaxLength(300) urgenteMotivo?: string;
 }
 
 /**
- * Formalização de um RASCUNHO (processo aberto a partir de uma consulta).
+ * AJUIZAMENTO de um caso pré-processual (aberto a partir de uma consulta).
  * O NPU é obrigatório — é ele que tira o processo do rascunho. Os demais campos
  * são o caminho manual, para quando o tribunal ainda não indexou o processo no
  * CNJ (comum nos primeiros dias após a distribuição).
@@ -218,12 +246,35 @@ export class ListProcessosQueryDto {
 
   @ApiPropertyOptional({ description: 'Só os com movimentação nos últimos N dias (padrão 7).' })
   @IsOptional() @IsString() movimentacaoRecente?: string;
-  /** Fase processual (ver `fase.util.ts`) — CONHECIMENTO | EXECUCAO | RECURSAL | ARQUIVADO. */
-  @IsOptional() @IsIn(['CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'])
+  /** Fase processual (ver `fase.util.ts`). */
+  @IsOptional()
+  @IsIn(['PRE_PROCESSUAL', 'CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'])
   fase?: FaseProcessual;
 
   @ApiPropertyOptional({ description: 'Filtra por etiqueta interna.' })
   @IsOptional() @IsString() etiqueta?: string;
+
+  @ApiPropertyOptional({ enum: AREAS_JURIDICAS.map((a) => a.slug), description: 'Área jurídica.' })
+  @IsOptional() @IsIn(AREAS_JURIDICAS.map((a) => a.slug))
+  categoria?: string;
+
+  @ApiPropertyOptional({ description: 'Só os marcados como urgentes.' })
+  @IsOptional() @IsString() urgente?: string;
+
+  /**
+   * INCLUIR OS CASOS PRÉ-PROCESSUAIS na listagem. Padrão: NÃO.
+   *
+   * POR QUE O PADRÃO É ESCONDER. O caso pré-processual não tem NPU, nem classe,
+   * nem tribunal, nem movimentação — misturado à lista de processos ele produz
+   * linhas quase vazias que empurram para baixo o que a equipe foi procurar, e
+   * ainda estragam a contagem ("temos 412 processos" incluindo 60 consultas que
+   * talvez nunca virem ação). São duas filas de trabalho diferentes.
+   *
+   * NÃO É O MESMO QUE SUMIR: a fila tem aba própria (`fase=PRE_PROCESSUAL`), que
+   * passa este parâmetro. Filtrar explicitamente por ela também os traz.
+   */
+  @ApiPropertyOptional({ description: 'Inclui os casos pré-processuais (padrão: não).' })
+  @IsOptional() @IsString() incluirPreProcessuais?: string;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;

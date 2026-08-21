@@ -6,7 +6,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, OrigemSincronizacao, Prisma, TipoAcaoProcesso } from '@prisma/client';
+import {
+  AcaoAuditoria, OrigemSincronizacao, Prisma, StatusProcesso, TipoAcaoProcesso,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import {
@@ -32,6 +34,8 @@ import { atoCritico } from './utils/tpu.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { filtroDeVarredura } from './utils/varredura.util';
 import { NpuUtils } from './utils/npu.util';
+import { montarUrgencia } from '../agenda/equipe.util';
+import { normalizarCategoria } from './areas.catalogo';
 
 import { tenant } from '../../tenant/tenant.config';
 
@@ -80,6 +84,31 @@ function instanciaProvisoria(instancias: InstanciaDatajud[]): InstanciaDatajud {
   );
   return escolhida ?? instancias[0];
 }
+
+/**
+ * OS DOIS RÓTULOS QUE SIGNIFICAM "ainda não ajuizado".
+ *
+ * `PRE_PROCESSUAL` é o nome de agora; `RASCUNHO` é o que as linhas antigas
+ * carregam. Os dois convivem de propósito — a migração que introduziu o nome
+ * novo é ADITIVA, porque renomear o rótulo derrubaria a listagem de processos
+ * no contêiner que ainda está no ar durante o deploy (a medição está no
+ * comentário do enum, em `schema.prisma`).
+ *
+ * Quem GRAVA usa sempre `PRE_PROCESSUAL`. Quem LÊ tem de usar esta lista, ou
+ * um processo antigo escapa do filtro e vai parar na varredura do CNJ sem ter
+ * número para consultar.
+ */
+export const PRE_PROCESSUAIS: StatusProcesso[] = [
+  StatusProcesso.PRE_PROCESSUAL,
+  StatusProcesso.RASCUNHO,
+];
+
+/** Status que a varredura do CNJ nunca deve reler. */
+const FORA_DA_VARREDURA: StatusProcesso[] = [
+  StatusProcesso.ARQUIVADO,
+  StatusProcesso.IMPROCEDENTE,
+  ...PRE_PROCESSUAIS,
+];
 
 @Injectable()
 export class ProcessosService {
@@ -222,9 +251,10 @@ export class ProcessosService {
         filiadosAtivos: polo.filiados,
         institucional: polo.institucional,
         poloAtivoAvulso: polo.avulso,
-        // Réu informado já no modal de importação — é o momento em que o
+        // Réu(s) informado(s) já no modal de importação — é o momento em que o
         // operador tem o dado em mãos (o DataJud não devolve partes).
         parteContraria: dto.parteContraria ?? null,
+        partesContrarias: dto.partesContrarias ?? null,
       });
       return p;
     });
@@ -370,7 +400,7 @@ export class ProcessosService {
         instanciasLidasEm: null,
         // Arquivado e improcedente não mudam mais; reler seria gastar chamada
         // para confirmar o que já se sabe.
-        statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'RASCUNHO'] },
+        statusInterno: { notIn: FORA_DA_VARREDURA },
       },
       select: { id: true },
       orderBy: { ultimaSincronizacao: 'asc' },
@@ -410,7 +440,7 @@ export class ProcessosService {
       where: {
         numeroCNJ: { not: null },
         instanciasLidasEm: null,
-        statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'RASCUNHO'] },
+        statusInterno: { notIn: FORA_DA_VARREDURA },
       },
     });
     return { reavaliados: r.resultado, restantes, executou: true, desalinhados };
@@ -511,20 +541,27 @@ export class ProcessosService {
     const comExecucao: Prisma.ProcessoWhereInput = {
       movimentacoes: { some: { codigoMovimento: { in: [...CODIGOS_TPU_EXECUCAO] } } },
     };
+    // Sem NPU o caso ainda não foi ajuizado — a mesma primeira regra de
+    // `faseDoProcesso`, e por isso ela vem antes de tudo aqui também. Todas as
+    // outras fases passam a EXIGIR número, senão o pré-processual apareceria
+    // junto com processo que corre.
+    if (fase === 'PRE_PROCESSUAL') return { numeroCNJ: null };
+    const ajuizado: Prisma.ProcessoWhereInput = { numeroCNJ: { not: null } };
+
     switch (fase) {
       // `some: {}` é obrigatório: sem ele, `none` também casaria com o processo
-      // que não tem instância nenhuma (rascunho), e o rascunho iria parar no
-      // filtro "Arquivado".
+      // que não tem instância nenhuma, e ele iria parar no filtro "Arquivado".
       case 'ARQUIVADO':
-        return { instancias: { some: {}, none: { baixada: false } } };
+        return { AND: [ajuizado, { instancias: { some: {}, none: { baixada: false } } }] };
       case 'RECURSAL':
-        return recursal;
+        return { AND: [ajuizado, recursal] };
       case 'EXECUCAO':
-        return { AND: [comExecucao, { NOT: recursal }, { NOT: { instancias: { some: {}, none: { baixada: false } } } }] };
+        return { AND: [ajuizado, comExecucao, { NOT: recursal }, { NOT: { instancias: { some: {}, none: { baixada: false } } } }] };
       case 'CONHECIMENTO':
       default:
         return {
           AND: [
+            ajuizado,
             { NOT: recursal },
             { NOT: comExecucao },
             { NOT: { instancias: { some: {}, none: { baixada: false } } } },
@@ -589,10 +626,33 @@ export class ProcessosService {
     // contra quem se litiga, e o DataJud nunca vai preencher isso sozinho.
     if (q.semParteContraria === 'true') and.push({ partes: { none: { polo: 'PASSIVO' } } });
     if (q.etiqueta) and.push({ etiquetas: { has: q.etiqueta } });
+    if (q.categoria) and.push({ categoria: q.categoria });
+    if (q.urgente === 'true') and.push({ urgente: true });
     // "Fase processual": o mesmo critério de `faseDoProcesso`, traduzido para
     // WHERE. As duas leituras têm de coincidir — um processo que a tabela mostra
     // como "Execução" precisa aparecer no filtro "Execução", senão o chip mente.
     if (q.fase) and.push(this.whereFase(q.fase));
+
+    /**
+     * O CASO PRÉ-PROCESSUAL FICA FORA DA LISTA POR PADRÃO.
+     *
+     * São duas filas de trabalho diferentes: uma tem NPU, tribunal e prazo
+     * correndo; a outra ainda está sendo negociada e não tem nada disso. Juntas,
+     * o pré-processual entra como uma linha quase vazia que empurra para baixo o
+     * que a pessoa foi procurar — e estraga a contagem que a diretoria lê.
+     *
+     * TRÊS PORTAS O TRAZEM DE VOLTA, e nenhuma delas exige lembrar do
+     * parâmetro: filtrar pela fase PRÉ-PROCESSUAL, filtrar por
+     * `statusInterno=PRE_PROCESSUAL`, ou pedir explicitamente. É o que impede
+     * que "sumir da lista padrão" vire "sumir".
+     */
+    const pediuPreProcessual =
+      q.incluirPreProcessuais === 'true' ||
+      q.fase === 'PRE_PROCESSUAL' ||
+      PRE_PROCESSUAIS.includes(q.statusInterno as StatusProcesso);
+    if (!pediuPreProcessual) {
+      and.push({ statusInterno: { notIn: PRE_PROCESSUAIS } });
+    }
     // "Com movimentação recente": houve andamento (do CNJ ou interno) na janela.
     if (q.movimentacaoRecente) {
       const dias = Number(q.movimentacaoRecente) || 7;
@@ -609,7 +669,7 @@ export class ProcessosService {
       and.push({
         OR: [
           { numeroCNJ: { contains: busca.replace(/\D/g, '') || busca } },
-          // RASCUNHO não tem NPU nem classe: o `titulo` é a única coisa pela
+          // PRE_PROCESSUAL não tem NPU nem classe: o `titulo` é a única coisa pela
           // qual ele pode ser encontrado. Sem isto, um processo aberto por um
           // desfecho da agenda era invisível na busca até ser formalizado.
           { titulo: { contains: busca, mode: 'insensitive' } },
@@ -692,6 +752,7 @@ export class ProcessosService {
         fase: faseDoProcesso({
           instancias: p.instancias,
           temMovimentoDeExecucao: comExecucao.has(p.id),
+          semNumero: !p.numeroCNJ,
         }),
         alerta: this.alertaDaLinha(p.movimentacoes[0]),
         /**
@@ -732,10 +793,27 @@ export class ProcessosService {
   }
 
   async atualizar(id: string, dto: AtualizarProcessoDto, ctx: Ctx) {
-    const atual = await this.prisma.processo.findUnique({ where: { id }, select: { id: true } });
+    const atual = await this.prisma.processo.findUnique({
+      where: { id },
+      select: {
+        id: true, urgente: true, urgenteMotivo: true, urgenteEm: true, urgentePor: true,
+      },
+    });
     if (!atual) throw new NotFoundException('Processo não encontrado.');
     if (dto.filiadoId) await this.garantir('filiado', dto.filiadoId);
     if (dto.advogadoId) await this.garantir('user', dto.advogadoId);
+
+    // Mesma regra e mesmo código da agenda: urgência sem motivo não entra.
+    const urgencia = montarUrgencia(dto.urgente, dto.urgenteMotivo, { userId: ctx.userId }, atual);
+
+    let categoria: string | null | undefined;
+    if (dto.categoria !== undefined) {
+      try {
+        categoria = normalizarCategoria(dto.categoria);
+      } catch (e) {
+        throw new BadRequestException((e as Error).message);
+      }
+    }
 
     await this.prisma.processo.update({
       where: { id },
@@ -744,6 +822,8 @@ export class ProcessosService {
         etiquetas: dto.etiquetas === undefined ? undefined : this.normalizarEtiquetas(dto.etiquetas),
         // Preenchimento manual do que o CNJ não publica (ver `metadadosGerais`).
         valorCausa: dto.valorCausa === undefined ? undefined : dto.valorCausa,
+        categoria,
+        ...urgencia,
       },
     });
 
@@ -766,7 +846,7 @@ export class ProcessosService {
   }
 
   /**
-   * FORMALIZAR UM RASCUNHO — o outro lado da criação a partir de um desfecho.
+   * AJUIZAR UM CASO PRÉ-PROCESSUAL — o outro lado da criação por desfecho.
    *
    * O advogado tem duas saídas, e as duas são legítimas:
    *  a) informa o NPU e manda buscar no DataJud (`sincronizar: true`) — o
@@ -775,7 +855,7 @@ export class ProcessosService {
    *     tribunal ainda não indexou o processo no CNJ, o que é comum nos
    *     primeiros dias após a distribuição.
    *
-   * Só sai de RASCUNHO quem tem número: é a regra que o CHECK do banco também
+   * Só sai de PRE_PROCESSUAL quem tem número: é a regra que o CHECK do banco também
    * garante, e o que impede um "processo ativo" que não existe em lugar nenhum.
    */
   async formalizar(id: string, dto: FormalizarProcessoDto, ctx: Ctx) {
@@ -784,7 +864,7 @@ export class ProcessosService {
       select: { id: true, numeroCNJ: true, statusInterno: true, titulo: true },
     });
     if (!atual) throw new NotFoundException('Processo não encontrado.');
-    if (atual.statusInterno !== 'RASCUNHO') {
+    if (!PRE_PROCESSUAIS.includes(atual.statusInterno)) {
       throw new BadRequestException('Este processo já está formalizado.');
     }
 
@@ -818,7 +898,7 @@ export class ProcessosService {
         orgaoJulgador: dto.orgaoJulgador?.trim() || undefined,
         dataDistribuicao: dto.dataDistribuicao ? new Date(dto.dataDistribuicao) : undefined,
         valorCausa: dto.valorCausa ?? undefined,
-        // Sai de RASCUNHO. PENDENTE (distribuído, sem movimentação conhecida) é
+        // Sai de PRE_PROCESSUAL. PENDENTE (distribuído, sem movimentação) é
         // o estado honesto até o CNJ responder alguma coisa.
         statusInterno: dto.statusInterno ?? 'PENDENTE',
       },
@@ -1044,7 +1124,7 @@ export class ProcessosService {
      * há movimento depois da baixa em nenhum deles, o processo é encerrado.
      *
      * NÃO mexe em ARQUIVADO, SUSPENSO, IMPROCEDENTE, GANHO_EXECUCAO nem
-     * RASCUNHO: são decisões da equipe, e o robô não desfaz o que uma pessoa
+     * PRE_PROCESSUAL: são decisões da equipe, e o robô não desfaz o que alguém
      * decidiu. Só ATIVO e PENDENTE — os dois estados que o próprio sistema
      * atribui — entram nesta conta.
      */

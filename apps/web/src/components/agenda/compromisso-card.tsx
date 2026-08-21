@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import {
-  Clock, MapPin, AlertTriangle, Pencil, Trash2, History, Timer,
+  Clock, MapPin, Pencil, Trash2, History, Timer,
   Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo,
   formatData, formatHora, estaAtrasado, cronometroHMS,
@@ -129,6 +130,8 @@ export function CompromissoCard({
   const { tipos } = useTiposEvento();
   const cor = corDeTipo(c.tipo, tipos);
   const atrasado = estaAtrasado(c);
+  // A API devolve a equipe com o responsável primeiro; aqui interessa o resto.
+  const participantes = (c.equipe ?? []).filter((e) => !e.principal);
 
   return (
     <div
@@ -142,11 +145,7 @@ export function CompromissoCard({
           <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', cor.badge)}>
             <Gavel className="h-3 w-3" /> {rotuloTipo(c.tipo, tipos)}
           </span>
-          {c.urgente && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
-              <AlertTriangle className="h-3 w-3" /> Urgente
-            </span>
-          )}
+          {c.urgente && <SeloUrgente motivo={c.urgenteMotivo} desde={c.urgenteEm} />}
           {c.origemAutomatica && (
             <span
               className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
@@ -202,6 +201,37 @@ export function CompromissoCard({
             <span className="truncate text-xs text-muted-foreground">
               {c.responsavel.nomeExibicao || c.responsavel.nome}
             </span>
+            {/*
+              QUEM MAIS ATUA — avatares empilhados ao lado de quem responde.
+
+              Só aparece quando há alguém: uma atividade de uma pessoa continua
+              exatamente como era. A ordem é a da API (responsável primeiro),
+              então basta pular o principal. Sem isto, uma audiência com três
+              advogados apareceria no quadro como se fosse de um.
+            */}
+            {participantes.length > 0 && (
+              <span
+                className="flex items-center -space-x-1.5"
+                title={`Também atuam: ${participantes
+                  .map((e) => e.usuario.nomeExibicao || e.usuario.nome)
+                  .join(', ')}`}
+              >
+                {participantes.slice(0, 3).map((e) => (
+                  <span key={e.usuario.id} className="rounded-full ring-2 ring-background">
+                    <MiniAvatar
+                      nome={e.usuario.nomeExibicao || e.usuario.nome}
+                      url={e.usuario.avatarUrl}
+                      titulo={e.usuario.nomeExibicao || e.usuario.nome}
+                    />
+                  </span>
+                ))}
+                {participantes.length > 3 && (
+                  <span className="ml-2 text-[11px] font-medium text-muted-foreground">
+                    +{participantes.length - 3}
+                  </span>
+                )}
+              </span>
+            )}
           </span>
 
           {/* Criador: só quando difere do responsável — repetir a mesma foto

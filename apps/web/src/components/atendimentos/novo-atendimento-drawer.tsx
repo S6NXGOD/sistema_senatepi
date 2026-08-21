@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { X, Search, Loader2, User, UserCog, Send, FolderInput } from 'lucide-react';
+import { X, Search, Loader2, User, UserCog, Send, FolderInput, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
@@ -13,6 +13,7 @@ import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
 import { V } from '@/lib/vocabulario';
+import { cn } from '@/lib/utils';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -35,6 +36,8 @@ export function NovoAtendimentoDrawer({
   const [buscando, setBuscando] = useState(false);
   const [canal, setCanal] = useState<CanalAtendimento>('PRESENCIAL');
   const [descricao, setDescricao] = useState('');
+  const [urgente, setUrgente] = useState(false);
+  const [urgenteMotivo, setUrgenteMotivo] = useState('');
   const [cadastral, setCadastral] = useState<any | null>(null);
   const [carregandoContato, setCarregandoContato] = useState(false);
   /** Atendimento recém-criado — abre o "puxar documentos" logo em seguida. */
@@ -80,7 +83,14 @@ export function NovoAtendimentoDrawer({
   }
 
   const criar = useMutation({
-    mutationFn: () => criarAtendimento({ filiadoId, canal, descricao: descricao.trim() }),
+    mutationFn: () =>
+      criarAtendimento({
+        filiadoId,
+        canal,
+        descricao: descricao.trim(),
+        urgente,
+        urgenteMotivo: urgente ? urgenteMotivo.trim() || undefined : undefined,
+      }),
     onSuccess: (novo: any) => {
       toast.success('Atendimento registrado!');
       onCriado();
@@ -95,6 +105,11 @@ export function NovoAtendimentoDrawer({
   function registrar() {
     if (!filiadoId) return toast.error(`Selecione o ${V.filiado}.`);
     if (descricao.trim().length < 3) return toast.error('Descreva a demanda.');
+    // A API recusa urgência sem motivo; barrar aqui devolve o foco ao campo
+    // certo, em vez de um toast genérico vindo do servidor.
+    if (urgente && !urgenteMotivo.trim()) {
+      return toast.error('Diga por que é urgente — sem motivo, a marca não pode ser revista depois.');
+    }
     criar.mutate();
   }
 
@@ -194,6 +209,53 @@ export function NovoAtendimentoDrawer({
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Descrição / Demanda *</label>
               <textarea className="min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder="Descreva o motivo do atendimento…" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+            </div>
+
+            {/*
+              URGENTE NA TRIAGEM — e por quê.
+
+              É no balcão que se descobre que o caso tem prazo curto, e este era o
+              único dos três lugares (triagem, agenda, processo) sem onde registrar
+              isso: a informação ficava na cabeça de quem atendeu e morria ali.
+              O que é marcado aqui É HERDADO pela atividade da agenda e pelo caso
+              que nascerem desta demanda — quem marcou no balcão não precisa
+              remarcar duas telas adiante.
+
+              O motivo é obrigatório pelo mesmo motivo de sempre: urgência sem
+              justificativa não se revisa, ninguém desmarca, e em poucos meses
+              metade da fila está urgente — que é o mesmo que nada estar.
+            */}
+            <div className={cn('rounded-lg border transition-colors', urgente && 'border-red-300 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20')}>
+              <button
+                type="button"
+                onClick={() => setUrgente((v) => !v)}
+                className="flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-muted/40"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <AlertTriangle className={cn('h-4 w-4', urgente ? 'text-red-600' : 'text-muted-foreground')} />
+                  Marcar como urgente
+                </span>
+                <span className={cn('relative h-6 w-11 rounded-full transition-colors', urgente ? 'bg-red-600' : 'bg-muted')}>
+                  <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', urgente ? 'left-[22px]' : 'left-0.5')} />
+                </span>
+              </button>
+              {urgente && (
+                <div className="space-y-1 border-t border-red-200 p-3 dark:border-red-900/50">
+                  <label className="text-xs font-medium text-red-900 dark:text-red-300">
+                    Por que é urgente? *
+                  </label>
+                  <Input
+                    autoFocus
+                    maxLength={300}
+                    value={urgenteMotivo}
+                    onChange={(e) => setUrgenteMotivo(e.target.value)}
+                    placeholder="Ex.: prazo fatal na sexta; risco de demissão"
+                  />
+                  <p className="text-[11px] text-red-800/80 dark:text-red-400/80">
+                    Segue junto para a agenda e para o processo que nascerem daqui.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

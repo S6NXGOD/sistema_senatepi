@@ -343,18 +343,20 @@ model User {
 
   refreshTokens           RefreshToken[]
   auditorias              Auditoria[]
-  recadastramentos        Recadastramento[]      @relation("RecadastramentoRevisor")
+  recadastramentos        Recadastramento[]        @relation("RecadastramentoRevisor")
   atendimentos            Atendimento[]
-  compromissos            Compromisso[]          @relation("CompromissoResponsavel")
+  compromissos            Compromisso[]            @relation("CompromissoResponsavel")
   /// Eventos que este usuário REGISTROU (≠ dos que ele é responsável).
-  compromissosCriados     Compromisso[]          @relation("CompromissoCriador")
-  processos               Processo[]             @relation("ProcessoAdvogado")
+  compromissosCriados     Compromisso[]            @relation("CompromissoCriador")
+  processos               Processo[]               @relation("ProcessoAdvogado")
   /// Processos em que atua (N:N) — inclui os que responde como principal.
-  processosEquipe         ProcessoAdvogado[]     @relation("ProcessoAdvogadoEquipe")
+  processosEquipe         ProcessoAdvogado[]       @relation("ProcessoAdvogadoEquipe")
+  /// Atividades da agenda em que atua (N:N) — inclui as que responde.
+  agendaEquipe            CompromissoResponsavel[] @relation("CompromissoEquipe")
   escalas                 EscalaAdvogado[]
-  movimentacoesInternas   MovimentacaoInterna[]  @relation("MovimentacaoAutor")
-  contribuicoesAnalisadas ContribuicaoPatronal[] @relation("ContribuicaoAnalista")
-  compromissosHistorico   CompromissoHistorico[] @relation("CompromissoHistoricoAutor")
+  movimentacoesInternas   MovimentacaoInterna[]    @relation("MovimentacaoAutor")
+  contribuicoesAnalisadas ContribuicaoPatronal[]   @relation("ContribuicaoAnalista")
+  compromissosHistorico   CompromissoHistorico[]   @relation("CompromissoHistoricoAutor")
 
   @@map("users")
 }
@@ -480,6 +482,9 @@ model Filiado {
   atendimentos         Atendimento[]
   compromissos         Compromisso[]
   processos            Processo[]
+  /// Processos que ESTE filiado pediu — ver `Processo.solicitadoPorId`. Não é o
+  /// mesmo que `processos` (onde ele é a parte principal).
+  processosSolicitados Processo[]            @relation("ProcessoSolicitante")
   /// Processos em que o filiado figura como parte (N:N) — um processo pode ter
   /// vários filiados (ação coletiva/plúrima) e um filiado, vários processos.
   partesProcesso       ParteProcesso[]
@@ -1783,8 +1788,17 @@ model Atendimento {
   processoId         String?              @map("processo_id") // quando ANDAMENTO_PROCESSO
   setor              SetorAtendimento?
   responsavel        String? // nome(s) do(s) advogado(s) — para exibição rápida
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  /// ---- URGÊNCIA ---- (mesmo desenho de [Compromisso] e [Processo])
+  /// A triagem é a PORTA: é ali que se descobre que o caso tem prazo curto, e
+  /// era o único dos três lugares sem como registrar isso. A urgência declarada
+  /// aqui é herdada pela atividade e pelo processo que nascerem desta demanda.
+  urgente       Boolean   @default(false)
+  urgenteMotivo String?   @map("urgente_motivo")
+  urgenteEm     DateTime? @map("urgente_em")
+  urgentePor    String?   @map("urgente_por")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   filiado      Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
   atendente    User             @relation(fields: [atendentePorId], references: [id])
@@ -1797,6 +1811,7 @@ model Atendimento {
   @@index([status])
   @@index([canal])
   @@index([createdAt])
+  @@index([urgente])
   @@map("atendimentos")
 }
 
@@ -1820,7 +1835,7 @@ enum DesfechoCompromisso {
   DUVIDA_ESCLARECIDA // consulta resolvida na hora — a orientação vai na observação
   REALIZADO // audiência/prazo/diligência cumprida conforme planejado
   VINCULADO_PROCESSO // a demanda pertence a um processo que já existe
-  PROCESSO_CRIADO // virou processo novo, aberto como RASCUNHO para o advogado formalizar
+  PROCESSO_CRIADO // virou caso novo, aberto em PRE_PROCESSUAL para o advogado conduzir
   NAO_COMPARECEU // o filiado não compareceu
   OUTRO // qualquer outro fim — exige descrição
 }
@@ -1856,19 +1871,40 @@ model Compromisso {
   local               String? // ex.: "1ª Vara do Trabalho de Teresina"
   descricao           String?
   observacoesInternas String?           @map("observacoes_internas") // notas internas — não visíveis ao filiado
-  urgente             Boolean           @default(false)
-  iniciadoEm          DateTime?         @map("iniciado_em") // quando entrou EM_ANDAMENTO (timer/alertas)
-  responsavelId       String            @map("responsavel_id")
-  filiadoId           String?           @map("filiado_id")
-  atendimentoId       String?           @map("atendimento_id")
-  processoId          String?           @map("processo_id")
+
+  /// ---- URGÊNCIA ----
+  /// POR QUE NÃO BASTA O BOOLEANO. Urgência sem motivo e sem data apodrece:
+  /// tudo pode ser marcado, nada desmarca, e em três meses metade do acervo é
+  /// "urgente" — a marca deixa de significar prioridade e vira ruído. Os três
+  /// campos abaixo respondem POR QUE e DESDE QUANDO, que é o que permite
+  /// revisar a fila depois.
+  urgente         Boolean   @default(false)
+  /// Obrigatório quando quem marca é uma PESSOA. A automação preenche o dela
+  /// ("prazo em 3 dias", "audiência sem data confirmada") — antes, os eventos
+  /// criados pelo robô nasciam urgentes sem nenhuma explicação na tela.
+  urgenteMotivo   String?   @map("urgente_motivo")
+  urgenteEm       DateTime? @map("urgente_em")
+  urgentePor      String?   @map("urgente_por")
+  iniciadoEm      DateTime? @map("iniciado_em") // quando entrou EM_ANDAMENTO (timer/alertas)
+  /// RESPONSÁVEL — ATALHO DENORMALIZADO da linha `principal` em
+  /// [CompromissoResponsavel]. Mesmo desenho de `Processo.advogadoId`, e pelos
+  /// mesmos dois motivos: (1) "minha agenda", carga da equipe e o painel filtram
+  /// por ele com índice, sem join; (2) mantém compatível tudo que já lia
+  /// `responsavelId` — são 52 pontos no código.
+  ///
+  /// REGRA: quem escreve aqui é APENAS `AgendaService.sincronizarEquipe()`, na
+  /// mesma transação da escrita em `compromisso_responsaveis`. Nunca por fora.
+  responsavelId   String    @map("responsavel_id")
+  filiadoId       String?   @map("filiado_id")
+  atendimentoId   String?   @map("atendimento_id")
+  processoId      String?   @map("processo_id")
   // Trilha de auditoria: 1ª data agendada, gravada e TRAVADA na 1ª remarcação.
-  dataOriginal        DateTime?         @map("data_original")
+  dataOriginal    DateTime? @map("data_original")
   /// Quantas vezes já foi remarcado — um evento remarcado 4x é um sinal de gestão,
   /// não um detalhe. Precomputado para a lista não ter de varrer a auditoria.
-  remarcacoes         Int               @default(0)
+  remarcacoes     Int       @default(0)
   /// Motivo da ÚLTIMA remarcação (o histórico completo fica na Auditoria).
-  remarcadoMotivo     String?           @map("remarcado_motivo")
+  remarcadoMotivo String?   @map("remarcado_motivo")
 
   // ---- Conclusão: o que aconteceu com a demanda ----
   /// Slug do desfecho, definido pelo TIPO da atividade (ver desfechos.catalogo.ts).
@@ -1914,8 +1950,12 @@ model Compromisso {
   /// não são copiados para cá.
   anexos              AnexoDocumento[]
 
-  /// Processo (rascunho) gerado a partir do desfecho desta atividade.
+  /// Processo (pré-processual) gerado a partir do desfecho desta atividade.
   processoGerado Processo? @relation("ProcessoOrigemCompromisso")
+
+  /// EQUIPE DA ATIVIDADE (N:N). O `principal` é o responsável — ver
+  /// [CompromissoResponsavel] e o atalho `responsavelId` acima.
+  equipe CompromissoResponsavel[]
 
   @@index([status])
   @@index([tipo])
@@ -1925,6 +1965,38 @@ model Compromisso {
   @@index([processoId])
   @@index([criadoPor])
   @@map("compromissos")
+}
+
+/// QUEM ATUA NUMA ATIVIDADE DA AGENDA (N:N com `users`).
+///
+/// POR QUE ESTA TABELA. Uma audiência com dois advogados, um prazo dividido
+/// entre quem redige e quem protocola, uma diligência com estagiário junto —
+/// tudo isso cabia numa FK única, e o jeito de registrar era criar a mesma
+/// atividade duas vezes. Duas cópias divergem: uma é concluída, a outra fica
+/// pendente para sempre.
+///
+/// UM RESPONSÁVEL, VÁRIOS PARTICIPANTES — e a distinção não é decorativa.
+/// `principal` marca quem RESPONDE pela atividade (no máximo um, garantido por
+/// índice único parcial na migration). Se todos forem responsáveis, ninguém é:
+/// a fila "minhas atividades" viraria a fila de todo mundo e a cobrança não
+/// teria destinatário. Os participantes veem a atividade na própria agenda e
+/// contam na carga de trabalho, mas a conclusão é de quem responde.
+///
+/// Espelha `ProcessoAdvogado` de propósito: mesmo formato, mesma regra de
+/// atalho, mesma leitura para quem já conhece um dos dois.
+model CompromissoResponsavel {
+  compromissoId String   @map("compromisso_id")
+  usuarioId     String   @map("usuario_id")
+  /// O responsável. Os demais são participantes.
+  principal     Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  compromisso Compromisso @relation(fields: [compromissoId], references: [id], onDelete: Cascade)
+  usuario     User        @relation("CompromissoEquipe", fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@id([compromissoId, usuarioId])
+  @@index([usuarioId])
+  @@map("compromisso_responsaveis")
 }
 
 /// Escala de plantão/expediente de um advogado (colaborador) numa data.
@@ -1953,10 +2025,42 @@ model EscalaAdvogado {
 // ===========================================================================
 
 enum StatusProcesso {
-  /// RASCUNHO: aberto a partir de uma consulta/atendimento, AINDA SEM NPU. O
-  /// advogado formaliza depois — informando o número e puxando do DataJud, ou
-  /// preenchendo à mão. É o único status em que `numeroCNJ` pode ser nulo, e
-  /// rascunhos NUNCA entram na varredura noturna do CNJ (não há o que consultar).
+  /// PRÉ-PROCESSUAL: o caso existe e é trabalho de verdade, mas ainda NÃO foi
+  /// ajuizado — não há NPU.
+  ///
+  /// CHAMAVA-SE `RASCUNHO`, e o nome era o problema. "Rascunho" descreve um
+  /// registro pela metade, algo a completar ou jogar fora; o que existe aqui é
+  /// uma FASE do trabalho jurídico, com atos próprios: notificação
+  /// extrajudicial, tentativa de acordo, coleta de documentos, cálculo prévio.
+  /// Um caso pode passar meses legitimamente nesta fase e nunca virar ação — e
+  /// nem por isso é lixo. Com o nome antigo, a fila parecia pendência de
+  /// cadastro e era tratada como tal.
+  ///
+  /// É o único status em que `numeroCNJ` pode ser nulo, e processos nesta fase
+  /// NUNCA entram na varredura noturna do CNJ (não há o que consultar).
+  PRE_PROCESSUAL
+
+  /// O NOME ANTIGO DE `PRE_PROCESSUAL`. Continua aqui de propósito.
+  ///
+  /// A tentação era `ALTER TYPE ... RENAME VALUE` e pronto — o rótulo troca no
+  /// lugar, nenhuma linha se move. Foi o que escrevi primeiro, e está errado
+  /// por um motivo que só aparece NO DEPLOY: durante a troca de contêiner o
+  /// código ANTIGO ainda atende requisição contra o banco JÁ migrado. Medido
+  /// com o cliente Prisma da versão em produção contra o banco renomeado:
+  ///
+  ///   listagem de processos      -> "Value 'PRE_PROCESSUAL' not found in enum"
+  ///   contagem por status        -> mesmo erro
+  ///   filtro notIn ['RASCUNHO']  -> Postgres 22P02, invalid input value
+  ///
+  /// O terceiro é o pior: quebra AINDA QUE NENHUMA LINHA tenha mudado, porque o
+  /// literal `'RASCUNHO'` some do enum e a consulta que o cita fica inválida.
+  ///
+  /// Mantendo os dois rótulos, a migração vira puramente aditiva: o contêiner
+  /// antigo segue lendo suas linhas e usando seus literais até sair do ar.
+  /// As linhas antigas continuam com este valor; quem lê trata os dois como a
+  /// mesma coisa (`PRE_PROCESSUAIS`, em `processos.service.ts`) e quem escreve
+  /// grava sempre `PRE_PROCESSUAL`. Rerrotular as linhas antigas é cosmético e
+  /// pode ser feito em qualquer deploy futuro — nunca junto do que as introduz.
   RASCUNHO
   ATIVO
   ARQUIVADO
@@ -1995,18 +2099,19 @@ enum TipoAcaoProcesso {
 model Processo {
   id String @id @default(uuid())
 
-  /// NPU (20 dígitos). NULO apenas em RASCUNHO — processo aberto a partir de uma
-  /// consulta e ainda não distribuído/formalizado. Continua ÚNICO quando
-  /// preenchido: no Postgres um índice único aceita vários NULLs, então dois
-  /// rascunhos coexistem sem colidir.
+  /// NPU (20 dígitos). NULO apenas em PRE_PROCESSUAL — caso aberto a partir de
+  /// uma consulta e ainda não ajuizado. Continua ÚNICO quando preenchido: no
+  /// Postgres um índice único aceita vários NULLs, então dois casos
+  /// pré-processuais coexistem sem colidir.
   numeroCNJ String? @unique @map("numero_cnj")
 
-  /// Rótulo do processo enquanto ele não tem NPU nem classe do CNJ — sem isto o
-  /// rascunho apareceria como uma linha em branco na lista. Assim que o processo
-  /// é formalizado, a classe do DataJud assume o lugar na exibição.
+  /// Rótulo do caso enquanto ele não tem NPU nem classe do CNJ — sem isto o
+  /// pré-processual apareceria como uma linha em branco na lista. Assim que o
+  /// processo é ajuizado, a classe do DataJud assume o lugar na exibição.
+  /// (A `categoria` complementa: ela existe desde o primeiro dia.)
   titulo String?
 
-  /// De onde veio o rascunho: a atividade da agenda que o originou. Guarda a
+  /// De onde veio o caso: a atividade da agenda que o originou. Guarda a
   /// rastreabilidade "esta consulta virou este processo".
   origemCompromissoId String? @unique @map("origem_compromisso_id")
 
@@ -2059,13 +2164,52 @@ model Processo {
   /// INSTITUCIONAL = ação coletiva movida pelo SENATEPI em nome da categoria.
   /// Escolhido na importação e usado para exibir a badge "Ação Institucional" e
   /// para NÃO cobrar filiado vinculado — num processo coletivo não há um dono.
-  tipoAcao            TipoAcaoProcesso @default(INDIVIDUAL) @map("tipo_acao")
-  /// Etiquetas livres da equipe (Urgente, Fase de Execução, Coletiva…).
+  tipoAcao  TipoAcaoProcesso @default(INDIVIDUAL) @map("tipo_acao")
+  /// Etiquetas livres da equipe (Fase de Execução, Coletiva…).
   /// Texto puro de propósito: são rótulos operacionais que mudam com o tempo e
   /// não valem uma tabela + join só para isso.
-  etiquetas           String[]         @default([])
-  statusInterno       StatusProcesso   @default(ATIVO) @map("status_interno")
-  ultimaSincronizacao DateTime?        @map("ultima_sincronizacao")
+  ///
+  /// "URGENTE" SAIU DAQUI e virou coluna (abaixo). Como etiqueta livre ela
+  /// convivia em quatro grafias — "Urgente", "urgente", "URGENTE",
+  /// "Urgentíssimo" —, nenhuma delas filtrável com confiança e nenhuma capaz
+  /// de alimentar um indicador. A migration converte as existentes.
+  etiquetas String[]         @default([])
+
+  /// ---- URGÊNCIA ---- (mesmo desenho de [Compromisso], de propósito)
+  /// Coluna, e não etiqueta: é o que permite filtro, contagem e ordenação.
+  urgente       Boolean   @default(false)
+  /// Obrigatório quando quem marca é uma PESSOA — urgência sem motivo não se
+  /// revisa depois, e o acervo inteiro acaba urgente.
+  urgenteMotivo String?   @map("urgente_motivo")
+  urgenteEm     DateTime? @map("urgente_em")
+  urgentePor    String?   @map("urgente_por")
+
+  /// QUEM PEDIU o processo — o filiado que procurou o sindicato.
+  ///
+  /// NÃO É REDUNDANTE com `filiadoId`, e a diferença aparece justamente nos
+  /// casos que importam: numa ação INSTITUCIONAL o polo ativo é o sindicato e
+  /// não há filiado parte, mas alguém levou o problema ao balcão; num
+  /// litisconsórcio com oito filiados, um deles foi quem procurou. `filiadoId`
+  /// responde "quem é parte"; este responde "de onde isto veio".
+  ///
+  /// Preenchido automaticamente quando o processo nasce de uma atividade da
+  /// agenda (ver `AgendaService.criarPreProcessual`).
+  solicitadoPorId String? @map("solicitado_por_id")
+
+  /// ÁREA JURÍDICA (Trabalhista, Previdenciário, Administrativo…).
+  ///
+  /// POR QUE ELA PRECISA EXISTIR. Enquanto o processo é PRÉ-PROCESSUAL ele não
+  /// tem NPU e, portanto, não tem `classeProcessual` nem assunto do CNJ — na
+  /// lista ele aparecia como uma linha sem nenhuma classificação. A categoria é
+  /// o que a equipe sabe desde o primeiro dia, antes de qualquer distribuição.
+  ///
+  /// Texto validado contra `areas.catalogo.ts`, e não enum nem tabela: mesma
+  /// escolha de `Compromisso.tipo` e dos desfechos — a lista muda com o uso, e
+  /// um enum exigiria migração a cada ajuste. Validado na entrada, então
+  /// continua filtrável (o defeito que "Urgente" como etiqueta tinha).
+  categoria           String?
+  statusInterno       StatusProcesso @default(ATIVO) @map("status_interno")
+  ultimaSincronizacao DateTime?      @map("ultima_sincronizacao")
   /// Última vez que ESTE processo foi consultado no DJEN, um a um.
   ///
   /// Existe para dar rodízio à varredura complementar. A consulta por OAB cobre
@@ -2074,15 +2218,17 @@ model Processo {
   /// processo — contra uma cota de 20 por minuto no CNJ. Sem este carimbo, o
   /// robô não teria como saber quem já foi visto e varreria sempre a mesma
   /// fatia, deixando o resto no escuro para sempre.
-  ultimaConsultaDjen  DateTime?        @map("ultima_consulta_djen")
+  ultimaConsultaDjen  DateTime?      @map("ultima_consulta_djen")
   /// Quando o parser MULTI-INSTÂNCIA leu este processo pela última vez.
   /// Nulo = o processo é anterior ao parser (ou só passou pelo backfill), e a
   /// tela pede a reavaliação ao ser aberta. Ver `reavaliarInstancias`.
-  instanciasLidasEm   DateTime?        @map("instancias_lidas_em")
-  createdAt           DateTime         @default(now()) @map("created_at")
-  updatedAt           DateTime         @updatedAt @map("updated_at")
+  instanciasLidasEm   DateTime?      @map("instancias_lidas_em")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
 
   filiado               Filiado?                  @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  /// Quem levou a demanda ao sindicato — ver `solicitadoPorId`.
+  solicitadoPor         Filiado?                  @relation("ProcessoSolicitante", fields: [solicitadoPorId], references: [id], onDelete: SetNull)
   advogado              User?                     @relation("ProcessoAdvogado", fields: [advogadoId], references: [id], onDelete: SetNull)
   /// Graus/instâncias do MESMO número de processo (ver ProcessoInstancia).
   instancias            ProcessoInstancia[]
@@ -2106,6 +2252,9 @@ model Processo {
   @@index([advogadoId])
   @@index([statusInterno])
   @@index([tribunal])
+  /// A fila "o que é urgente" é consultada a cada abertura do painel.
+  @@index([urgente])
+  @@index([solicitadoPorId])
   @@map("processos")
 }
 

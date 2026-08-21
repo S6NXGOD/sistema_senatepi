@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { ImportarProcessoDialog } from '@/components/processos/importar-processo-dialog';
 import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sheet';
 import { FormalizarRascunhoModal } from '@/components/processos/formalizar-rascunho-modal';
+import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
@@ -71,7 +72,7 @@ function ListaProcessos() {
   const [fase, setFase] = useState<'' | FaseProcessual>('');
   /** Filtro rápido da tabela (chips). */
   const [rapido, setRapido] = useState<
-    'todos' | 'meus' | 'rascunhos' | 'semFiliado' | 'semReu' | 'recentes'
+    'todos' | 'preProcessuais' | 'meus' | 'semFiliado' | 'semReu' | 'recentes'
   >('todos');
   /**
    * Janela do filtro "com movimentação recente".
@@ -86,7 +87,7 @@ function ListaProcessos() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
-  /** Rascunho escolhido para formalizar (vindo de um desfecho da agenda). */
+  /** Caso pré-processual escolhido para ajuizar (vindo de um desfecho da agenda). */
   const [formalizar, setFormalizar] = useState<ProcessoLista | null>(null);
 
   /**
@@ -101,14 +102,19 @@ function ListaProcessos() {
   useAbrirPorUrl('processo', setDetalheId, '/processos');
 
   /**
-   * `?rascunhos=1` aplica o filtro rápido.
+   * `?rascunhos=1` (nome antigo do link) aplica o filtro rápido.
    *
-   * O sistema JÁ gerava este link — o aviso "rascunho criado", ao concluir uma
+   * O sistema JÁ gerava este link — o aviso ao concluir uma
    * atividade, oferece "Abrir Processos" e manda para cá com o parâmetro. A
    * tela o ignorava e mostrava a lista completa: o atalho parecia funcionar e
    * não fazia nada, que é pior que não existir, porque ninguém desconfia.
    */
-  useFiltroPorUrl('rascunhos', () => setRapido('rascunhos'), '/processos');
+  // O parâmetro continua sendo `rascunhos` porque é o link que a agenda já
+  // manda e que pode estar salvo em favoritos; o que ele liga hoje é a aba
+  // pré-processual. Trocar o nome do parâmetro quebraria links existentes sem
+  // ganhar nada.
+  useFiltroPorUrl('rascunhos', () => setRapido('preProcessuais'), '/processos');
+  useFiltroPorUrl('preProcessuais', () => setRapido('preProcessuais'), '/processos');
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -167,7 +173,7 @@ function ListaProcessos() {
       statusInterno: status || undefined,
       // Filtros rápidos (mutuamente exclusivos).
       ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
-      ...(rapido === 'rascunhos' ? { statusInterno: 'RASCUNHO' as const } : {}),
+      ...(rapido === 'preProcessuais' ? { statusInterno: 'PRE_PROCESSUAL' as const } : {}),
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
       ...(rapido === 'semReu' ? { semParteContraria: 'true' as const } : {}),
       ...(rapido === 'recentes' ? { movimentacaoRecente: janelaRecente } : {}),
@@ -225,8 +231,12 @@ function ListaProcessos() {
         {([
           { k: 'todos', label: 'Todos' },
           { k: 'meus', label: 'Meus processos' },
-          // Fila de formalização: os rascunhos abertos por desfechos da agenda.
-          { k: 'rascunhos', label: 'Rascunhos a formalizar' },
+          // FILA PRÉ-PROCESSUAL — os casos abertos por desfechos da agenda e
+          // ainda não ajuizados. Aba própria porque a lista padrão passou a
+          // esconde-los: são duas filas de trabalho diferentes, e misturadas o
+          // caso sem NPU entra como linha quase vazia empurrando para baixo o
+          // processo que a pessoa foi procurar.
+          { k: 'preProcessuais', label: 'Pré-processuais' },
           { k: 'semFiliado', label: 'Sem filiado vinculado' },
           // Fila de trabalho: o DataJud nunca preenche o réu, então esta lista
           // é a única forma de fechar o cadastro das partes.
@@ -369,19 +379,36 @@ function ListaProcessos() {
                       className="cursor-pointer transition-colors hover:bg-muted/40"
                     >
                       <td className="px-4 py-3">
+                        {/*
+                          O SELO VEM PRIMEIRO, antes do número.
+
+                          Numa tabela densa a varredura é vertical, pela borda
+                          esquerda: pôr o selo depois do NPU (que é monoespaçado
+                          e largo) empurraria a marca para posições diferentes em
+                          cada linha, e o olho perderia justamente a coluna que
+                          ele está usando para achar o urgente.
+                        */}
+                        {p.urgente && (
+                          <SeloUrgente
+                            motivo={p.urgenteMotivo}
+                            desde={p.urgenteEm}
+                            tamanho="sm"
+                            className="mb-1"
+                          />
+                        )}
                         {p.numeroCNJ ? (
-                          <span className="font-mono text-[13px] font-medium">{formatNPU(p.numeroCNJ)}</span>
+                          <span className="block font-mono text-[13px] font-medium">{formatNPU(p.numeroCNJ)}</span>
                         ) : (
-                          // Rascunho ainda não tem número: mostra o rótulo e o
+                          // Pré-processual ainda não tem número: mostra o rótulo e o
                           // convite para formalizar, em vez de uma linha vazia.
                           <span className="flex flex-col gap-1">
-                            <span className="text-[13px] font-medium">{p.titulo || 'Rascunho sem título'}</span>
+                            <span className="text-[13px] font-medium">{p.titulo || 'Caso sem título'}</span>
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setFormalizar(p); }}
                               className="inline-flex w-fit items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 transition hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300"
                             >
-                              <FileCheck2 className="h-3 w-3" /> Formalizar
+                              <FileCheck2 className="h-3 w-3" /> Ajuizar
                             </button>
                           </span>
                         )}
@@ -452,7 +479,7 @@ function ListaProcessos() {
         onChanged={invalidar}
       />
 
-      {/* Formalizar rascunho: informa o NPU e (opcionalmente) puxa do DataJud */}
+      {/* Ajuizar o caso: informa o NPU e (opcionalmente) puxa do DataJud */}
       <FormalizarRascunhoModal
         processo={formalizar}
         open={!!formalizar}
@@ -538,6 +565,8 @@ function TagsInstancias({ instancias }: { instancias?: ProcessoLista['instancias
 function BadgeFase({ fase }: { fase?: FaseProcessual }) {
   if (!fase) return null;
   const cor: Record<FaseProcessual, string> = {
+    // A única fase que NÃO é do tribunal: o caso ainda nem foi ajuizado.
+    PRE_PROCESSUAL: 'text-violet-700 dark:text-violet-400',
     CONHECIMENTO: 'text-sky-700 dark:text-sky-400',
     EXECUCAO: 'text-emerald-700 dark:text-emerald-400',
     RECURSAL: 'text-violet-700 dark:text-violet-400',
@@ -634,9 +663,12 @@ function CelulaPartes({ p }: { p: ProcessoLista }) {
 function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void }) {
   return (
     <Card className="cursor-pointer p-4" onClick={onClick}>
+      {p.urgente && (
+        <SeloUrgente motivo={p.urgenteMotivo} desde={p.urgenteEm} tamanho="sm" className="mb-1.5" />
+      )}
       <div className="flex items-start justify-between gap-2">
         <p className={cn('text-sm font-semibold', p.numeroCNJ && 'font-mono')}>
-          {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho sem título'}
+          {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Caso sem título'}
         </p>
         <Etiquetas lista={p.etiquetas} automaticas={p.etiquetasAutomaticas} />
         <StatusBadge status={p.statusInterno} />

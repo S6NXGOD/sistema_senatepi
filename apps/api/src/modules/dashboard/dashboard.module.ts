@@ -1,6 +1,7 @@
 import { Controller, Get, Injectable, Module } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  Prisma,
   SituacaoFiliado,
   StatusCompromisso,
   StatusEvento,
@@ -99,9 +100,19 @@ export class DashboardService {
     const amanhaData = new Date(hojeData.getTime() + DIA_MS);
 
     const souAdvogado = user.role === 'ADVOGADO';
-    // Escopo pessoal do advogado: suas atividades e sua carteira. Demais perfis
-    // enxergam a operação inteira.
-    const meu = souAdvogado ? { responsavelId: user.id } : {};
+    /**
+     * Escopo pessoal do advogado: suas atividades e sua carteira. Demais perfis
+     * enxergam a operação inteira.
+     *
+     * INCLUI O QUE ELE ACOMPANHA SEM RESPONDER. Desde que a atividade passou a
+     * ter equipe, filtrar só por `responsavelId` deixaria o segundo advogado de
+     * uma audiência sem ela no próprio painel — ele veria "0 audiências esta
+     * semana" no dia em que tem uma. O atalho fica no OR junto com a tabela
+     * pelo mesmo motivo documentado em `AgendaService.listar`.
+     */
+    const meu: Prisma.CompromissoWhereInput = souAdvogado
+      ? { OR: [{ responsavelId: user.id }, { equipe: { some: { usuarioId: user.id } } }] }
+      : {};
 
     const [
       // KPIs globais
@@ -384,7 +395,7 @@ export class DashboardService {
             this.prisma.processo.count({ where: { advogadoId: user.id, statusInterno: StatusProcesso.ATIVO } }),
             this.prisma.compromisso.count({
               where: {
-                responsavelId: user.id,
+                ...meu,
                 tipo: TIPO_AUDIENCIA,
                 status: ABERTOS,
                 inicio: { gte: hojeIni, lt: em7dias },

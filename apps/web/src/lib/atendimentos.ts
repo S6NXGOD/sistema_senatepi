@@ -197,6 +197,10 @@ export interface CriarAtendimentoInput {
   filiadoId: string;
   canal: CanalAtendimento;
   descricao: string;
+  /** A triagem é a PORTA: é no balcão que se descobre que o caso tem prazo. */
+  urgente?: boolean;
+  /** Obrigatório ao marcar urgente — a API recusa sem motivo. */
+  urgenteMotivo?: string;
 }
 export async function criarAtendimento(dto: CriarAtendimentoInput) {
   return (await api.post('/atendimentos', dto)).data;

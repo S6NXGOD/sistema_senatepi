@@ -58,9 +58,9 @@ describe('quem o robô consulta de madrugada', () => {
     expect(dormentes).toContain(StatusProcesso.IMPROCEDENTE);
   });
 
-  it('RASCUNHO não entra em nenhuma faixa', () => {
+  it('PRE_PROCESSUAL não entra em nenhuma faixa', () => {
     const todos = [...ramos()[0].statusInterno.in, ...ramos()[2].statusInterno.in];
-    expect(todos).not.toContain(StatusProcesso.RASCUNHO);
+    expect(todos).not.toContain(StatusProcesso.PRE_PROCESSUAL);
   });
 
   it('o corte da faixa lenta fica N dias atrás', () => {

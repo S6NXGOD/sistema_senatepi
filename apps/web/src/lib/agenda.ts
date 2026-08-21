@@ -90,6 +90,10 @@ export interface Compromisso {
   local: string | null;
   descricao: string | null;
   urgente: boolean;
+  /** POR QUE é urgente. Nulo em registros antigos, migrados da etiqueta. */
+  urgenteMotivo: string | null;
+  /** Desde quando — o que permite revisar a fila de urgências. */
+  urgenteEm: string | null;
   iniciadoEm: string | null;
   /** Gerado pelo robô de prazos a partir de uma movimentação do DataJud. */
   origemAutomatica?: boolean;
@@ -108,6 +112,14 @@ export interface Compromisso {
   atendimentoId: string | null;
   filiado: FiliadoCard | null;
   responsavel: Responsavel;
+  /**
+   * A EQUIPE da atividade, com o responsável marcado (`principal`).
+   *
+   * `responsavel` acima é o atalho para a linha principal — continua valendo e
+   * é o que a maior parte da tela lê. Esta lista é o que permite mostrar os
+   * avatares de quem mais atua.
+   */
+  equipe?: { principal: boolean; usuario: Responsavel }[];
   /** Quem REGISTROU a demanda (com foto). Nulo em eventos do robô. */
   criador: Responsavel | null;
   processo: ProcessoRef | null;
@@ -360,7 +372,11 @@ export interface CriarCompromissoInput {
   descricao?: string;
   observacoesInternas?: string;
   urgente?: boolean;
+  /** Obrigatório ao marcar urgente pela tela. */
+  urgenteMotivo?: string;
   responsavelId: string;
+  /** Demais advogados/colaboradores que atuam nesta atividade. */
+  responsaveisIds?: string[];
   filiadoId?: string;
   atendimentoId?: string;
   processoId?: string;
@@ -450,7 +466,11 @@ export interface ConcluirInput {
   novoProcesso?: {
     titulo?: string;
     assunto?: string;
+    /** Área jurídica — slug de `AREAS_JURIDICAS`. */
+    categoria?: string;
     advogadoId?: string;
+    /** Demais advogados do caso (a equipe da atividade já vai por padrão). */
+    advogadosIds?: string[];
     observacao?: string;
   };
   /** Usado em CRIAR_ATIVIDADE — o que difere dos padrões sugeridos pelo desfecho. */

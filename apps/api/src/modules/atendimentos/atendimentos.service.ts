@@ -5,6 +5,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { montarUrgencia, sincronizarEquipe } from '../agenda/equipe.util';
 import {
   CreateAtendimentoDto, ListAtendimentosQueryDto,
   MudarStatusAtendimentoDto, RegistrarDesfechoDto,
@@ -39,12 +40,15 @@ export class AtendimentosService {
     });
     if (!filiado) throw new NotFoundException('Filiado não encontrado.');
 
+    const urgencia = montarUrgencia(dto.urgente, dto.urgenteMotivo, { userId: ctx.userId });
+
     const atendimento = await this.prisma.atendimento.create({
       data: {
         filiadoId: filiado.id,
         atendentePorId: ctx.userId!,
         canal: dto.canal,
         descricao: dto.descricao.trim(),
+        ...urgencia,
       },
       include: { filiado: filiadoLista, atendente: { select: { id: true, nome: true } } },
     });
@@ -57,14 +61,19 @@ export class AtendimentosService {
 
   // -------------------------------------------------------------------------
   // Registro do DESFECHO (resultado). NÃO conclui — a demanda segue PENDENTE
-  // até ser marcada como concluída. Em ENCAMINHADO, cria a consulta na agenda
-  // de CADA advogado responsável.
+  // até ser marcada como concluída. Em ENCAMINHADO, cria UMA consulta na agenda
+  // com a equipe inteira (era uma cópia por advogado — ver o comentário abaixo).
   // -------------------------------------------------------------------------
 
   async registrarDesfecho(id: string, dto: RegistrarDesfechoDto, ctx: Ctx) {
     const at = await this.prisma.atendimento.findUnique({
       where: { id },
-      select: { id: true, numero: true, desfecho: true, filiado: { select: { id: true, nomeCompleto: true } } },
+      select: {
+        id: true, numero: true, desfecho: true,
+        // A urgência da triagem é herdada pela consulta na agenda.
+        urgente: true, urgenteMotivo: true,
+        filiado: { select: { id: true, nomeCompleto: true } },
+      },
     });
     if (!at) throw new NotFoundException('Atendimento não encontrado.');
     if (at.desfecho) throw new BadRequestException('O desfecho deste atendimento já foi registrado.');
@@ -131,20 +140,51 @@ export class AtendimentosService {
           responsavel: nomes.join(', '),
         },
       });
-      for (const adv of advogados) {
-        await tx.compromisso.create({
-          data: {
-            titulo: tituloBase,
-            tipo: 'CONSULTA_JURIDICA', // slug do tipo (TipoCompromisso cadastrável)
-            inicio,
-            fim,
-            descricao: dto.desfechoObs?.trim() || null,
-            responsavelId: adv.id,
-            filiadoId: at.filiado.id,
-            atendimentoId: id,
-            processoId: processo?.id ?? null,
-            criadoPor: ctx.userId,
-          },
+      /**
+       * UMA consulta com a equipe inteira — e não uma cópia por advogado.
+       *
+       * ERA UM LAÇO CRIANDO N ATIVIDADES IGUAIS, porque a agenda só aceitava um
+       * responsável. O efeito colateral era diário: encaminhada a três, a
+       * demanda virava três cards idênticos; o primeiro que atendesse concluía o
+       * seu, e os outros dois ficavam PENDENTES para sempre — entrando na
+       * contagem de atrasadas, no alerta do painel e na cobrança de gente que já
+       * tinha resolvido o assunto junto.
+       *
+       * Agora é uma atividade só: o PRIMEIRO advogado da lista responde por
+       * ela, os demais entram como participantes e a veem na própria agenda.
+       * Concluir uma vez fecha para todos, porque é uma coisa só — que é o que
+       * ela sempre foi.
+       */
+      const [responsavel, ...participantes] = advogados;
+      const consulta = await tx.compromisso.create({
+        data: {
+          titulo: tituloBase,
+          tipo: 'CONSULTA_JURIDICA', // slug do tipo (TipoCompromisso cadastrável)
+          inicio,
+          fim,
+          descricao: dto.desfechoObs?.trim() || null,
+          responsavelId: responsavel.id,
+          filiadoId: at.filiado.id,
+          atendimentoId: id,
+          processoId: processo?.id ?? null,
+          criadoPor: ctx.userId,
+          // A urgência declarada na TRIAGEM viaja para a agenda: quem marcou no
+          // balcão não deveria precisar remarcar no card seguinte.
+          ...(at.urgente
+            ? {
+                urgente: true,
+                urgenteMotivo: at.urgenteMotivo ?? `Herdado da triagem #${at.numero}.`,
+                urgenteEm: new Date(),
+                urgentePor: ctx.userId ?? null,
+              }
+            : {}),
+        },
+        select: { id: true },
+      });
+      if (participantes.length) {
+        await sincronizarEquipe(tx, consulta.id, {
+          principalId: responsavel.id,
+          participantesIds: participantes.map((a) => a.id),
         });
       }
     });

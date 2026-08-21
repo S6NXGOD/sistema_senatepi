@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
 import { cn } from '@/lib/utils';
 import { SeletorProcesso } from '@/components/processos/seletor-processo';
 import {
@@ -50,8 +51,8 @@ function diaLocal(d: Date): string {
 /**
  * Concluir com DESFECHO — fecha o ciclo da demanda em vez de só sumir com o
  * card. É aqui que a consulta vira histórico ("dúvida esclarecida" + o que foi
- * orientado), se liga a um processo existente, ou abre um processo novo em
- * RASCUNHO para o advogado formalizar depois.
+ * orientado), se liga a um processo existente, ou abre um caso novo em fase
+ * PRÉ-PROCESSUAL para o advogado conduzir até o ajuizamento.
  */
 export function ConcluirModal({
   compromisso, open, onClose, onConcluido, onNaoCompareceu,
@@ -69,6 +70,7 @@ export function ConcluirModal({
   // Campos do rascunho
   const [titulo, setTitulo] = useState('');
   const [assunto, setAssunto] = useState('');
+  const [categoria, setCategoria] = useState('');
   const [advogadoId, setAdvogadoId] = useState('');
   // Campos da atividade de seguimento (desfechos com pendência declarada)
   const [criarSeg, setCriarSeg] = useState(true);
@@ -132,6 +134,7 @@ export function ConcluirModal({
               novoProcesso: {
                 titulo: titulo.trim() || undefined,
                 assunto: assunto.trim() || undefined,
+                categoria: categoria || undefined,
                 advogadoId: advogadoId || undefined,
                 observacao: obs.trim() || undefined,
               },
@@ -308,18 +311,39 @@ export function ConcluirModal({
             </div>
           )}
 
-          {/* Rascunho de processo novo */}
+          {/* Caso novo, em fase pré-processual */}
           {escolhido?.acao === 'CRIAR_PROCESSO' && (
             <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-900/40 dark:bg-violet-950/10">
               <p className="text-xs text-violet-900 dark:text-violet-300">
-                O processo será criado em <strong>rascunho</strong>, sem número. Ele aparece no módulo
-                de Processos para o advogado formalizar quando quiser — informando o NPU e puxando do
-                DataJud, ou preenchendo à mão.
+                O caso nasce em <strong>fase pré-processual</strong>, sem número — é a fase da
+                notificação, do acordo e da coleta de documentos. Ele fica numa aba própria em
+                Processos, fora da lista dos que já correm, até ser ajuizado.
               </p>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Identificação do rascunho</label>
+                <label className="text-xs font-medium text-muted-foreground">Identificação do caso</label>
                 <Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Ação de adicional de insalubridade" />
               </div>
+
+              {/*
+                CATEGORIA — a única classificação que existe antes do ajuizamento.
+                Sem NPU não há classe nem assunto do CNJ, e o caso apareceria na
+                lista sem nada que permita agrupar, filtrar ou distribuir.
+              */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Área jurídica</label>
+                <select className={inputCls} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+                  <option value="">Selecione…</option>
+                  {AREAS_JURIDICAS.map((a) => (
+                    <option key={a.slug} value={a.slug}>{a.nome}</option>
+                  ))}
+                </select>
+                {categoria && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {AREAS_JURIDICAS.find((a) => a.slug === categoria)?.ajuda}
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">
                   Assunto <span className="opacity-70">(opcional)</span>
@@ -333,11 +357,29 @@ export function ConcluirModal({
                     <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
                   ))}
                 </select>
-              </div>
-              {compromisso.filiado && (
                 <p className="text-[11px] text-muted-foreground">
-                  <strong>{compromisso.filiado.nomeCompleto}</strong> entra como autor do processo.
+                  A equipe desta atividade vai junto — quem conduziu a consulta a dois continua a dois.
                 </p>
+              </div>
+
+              {/*
+                SOLICITADO POR — quem levou a demanda ao sindicato.
+
+                Não é o mesmo que "autor": numa ação institucional o polo ativo é o
+                sindicato e não há filiado parte, e num litisconsórcio com oito
+                filiados só um procurou o balcão. É este campo que responde "de
+                onde isto veio" depois que o polo ativo mudar.
+              */}
+              {compromisso.filiado && (
+                <div className="rounded-md border border-violet-200 bg-white/60 px-2.5 py-2 dark:border-violet-900/40 dark:bg-black/20">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Solicitado por
+                  </p>
+                  <p className="text-sm font-medium">{compromisso.filiado.nomeCompleto}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Entra também como autor do caso.
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -443,7 +485,7 @@ export function ConcluirModal({
           <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
           <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !valido}>
             {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {desfecho === 'PROCESSO_CRIADO' ? 'Concluir e criar rascunho' : 'Concluir'}
+            {desfecho === 'PROCESSO_CRIADO' ? 'Concluir e abrir o caso' : 'Concluir'}
           </Button>
         </div>
       </div>

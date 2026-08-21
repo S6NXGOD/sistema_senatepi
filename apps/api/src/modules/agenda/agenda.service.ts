@@ -9,6 +9,8 @@ import {
   acharDesfecho, desfechosDoTipo, categoriaCancelamentoValida,
   CATEGORIA_CANCELAMENTO_LABEL,
 } from './desfechos.catalogo';
+import { montarUrgencia, sincronizarEquipe } from './equipe.util';
+import { normalizarCategoria } from '../processos/areas.catalogo';
 import {
   CancelarCompromissoDto,
   ConcluirCompromissoDto,
@@ -34,6 +36,16 @@ const responsavelSel = { select: { id: true, nome: true, nomeExibicao: true, ava
 const criadorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } } as const;
 const processoSel = { select: { id: true, numeroCNJ: true, statusInterno: true, titulo: true } } as const;
 
+/**
+ * O responsável primeiro, depois quem entrou antes. Tipado explicitamente (e
+ * não `as const`) porque o `as const` produz um array READONLY que o Prisma não
+ * aceita em `orderBy` — mesmo motivo e mesma solução de `PARTE_ORDER`.
+ */
+const EQUIPE_ORDER: Prisma.CompromissoResponsavelOrderByWithRelationInput[] = [
+  { principal: 'desc' },
+  { createdAt: 'asc' },
+];
+
 /** Campos expostos nos cards (Kanban/Calendário/Alertas). */
 const cardSelect = {
   id: true, titulo: true, tipo: true, status: true, inicio: true, fim: true,
@@ -43,7 +55,15 @@ const cardSelect = {
   // A CATEGORIA é a explicação padronizada do cancelamento; o motivo em texto é
   // opcional, então sem ela o card ficaria sem dizer por que a atividade caiu.
   canceladoCategoria: true, canceladoMotivo: true, canceladoEm: true,
+  // A URGÊNCIA vem inteira: sem o motivo, o selo na tela diz "Urgente" e não
+  // diz por quê — que era o defeito que a coluna nova veio resolver.
+  urgenteMotivo: true, urgenteEm: true,
   filiado: filiadoCard, responsavel: responsavelSel, criador: criadorSel, processo: processoSel,
+  /**
+   * A EQUIPE, com o responsável marcado. O card mostra os avatares empilhados;
+   * sem isto, uma audiência com três advogados apareceria como se fosse de um.
+   */
+  equipe: { select: { principal: true, usuario: responsavelSel }, orderBy: EQUIPE_ORDER },
 } as const;
 
 /**
@@ -128,37 +148,85 @@ export class AgendaService {
   async criar(dto: CreateCompromissoDto, ctx: Ctx) {
     await this.tipos.garantirSlugValido(dto.tipo);
     await this.validarVinculos(dto.responsavelId, dto.filiadoId, dto.atendimentoId, dto.processoId);
+    // A equipe inteira é conferida ANTES de gravar: um id inválido no meio da
+    // lista quebraria a FK dentro da transação, e o erro que chegaria à tela
+    // seria de banco, não de formulário.
+    const equipeIds = await this.validarEquipe(dto.responsavelId, dto.responsaveisIds);
     const inicio = new Date(dto.inicio);
     const fim = new Date(dto.fim);
     if (fim < inicio) throw new BadRequestException('O fim não pode ser antes do início.');
 
-    const compromisso = await this.prisma.compromisso.create({
-      data: {
-        titulo: dto.titulo.trim(),
-        tipo: dto.tipo,
-        status: dto.status ?? undefined,
-        inicio,
-        fim,
-        local: dto.local?.trim() || null,
-        descricao: dto.descricao?.trim() || null,
-        observacoesInternas: dto.observacoesInternas?.trim() || null,
-        urgente: dto.urgente ?? false,
-        responsavelId: dto.responsavelId,
-        filiadoId: dto.filiadoId || null,
-        atendimentoId: dto.atendimentoId || null,
-        processoId: dto.processoId || null,
-        criadoPor: ctx.userId,
-      },
-      select: cardSelect,
+    const urgencia = montarUrgencia(dto.urgente, dto.urgenteMotivo, { userId: ctx.userId });
+
+    const compromisso = await this.prisma.$transaction(async (tx) => {
+      const criado = await tx.compromisso.create({
+        data: {
+          titulo: dto.titulo.trim(),
+          tipo: dto.tipo,
+          status: dto.status ?? undefined,
+          inicio,
+          fim,
+          local: dto.local?.trim() || null,
+          descricao: dto.descricao?.trim() || null,
+          observacoesInternas: dto.observacoesInternas?.trim() || null,
+          urgente: false, // definido logo abaixo por `montarUrgencia`
+          responsavelId: dto.responsavelId,
+          filiadoId: dto.filiadoId || null,
+          atendimentoId: dto.atendimentoId || null,
+          processoId: dto.processoId || null,
+          criadoPor: ctx.userId,
+          ...urgencia,
+        },
+        select: { id: true },
+      });
+      // A equipe entra na MESMA transação: uma atividade que existisse sem
+      // equipe, ainda que por um instante, teria o atalho apontando para uma
+      // linha que não existe.
+      await sincronizarEquipe(tx, criado.id, {
+        principalId: dto.responsavelId,
+        participantesIds: equipeIds,
+      });
+      return tx.compromisso.findUniqueOrThrow({ where: { id: criado.id }, select: cardSelect });
     });
 
     await this.auditar(AcaoAuditoria.CREATE, compromisso.id, `Compromisso criado: ${compromisso.titulo}`, ctx, {
-      tipo: dto.tipo, inicio: inicio.toISOString(),
+      tipo: dto.tipo, inicio: inicio.toISOString(), equipe: equipeIds.length,
     });
-    await this.historiar(compromisso.id, 'CRIADO', 'Atividade criada.', ctx, {
+    await this.historiar(compromisso.id, 'CRIADO', this.narrarCriacao(dto, equipeIds), ctx, {
       tipo: dto.tipo, inicio: inicio.toISOString(),
     });
     return compromisso;
+  }
+
+  /**
+   * Confere que todo mundo da equipe existe e está ativo.
+   *
+   * Devolve a lista sem o responsável repetido — quem normaliza de verdade é
+   * `normalizarEquipe`, aqui é só a checagem de existência.
+   */
+  private async validarEquipe(responsavelId: string, outros?: string[]): Promise<string[]> {
+    const ids = [...new Set((outros ?? []).map((i) => i.trim()).filter(Boolean))]
+      .filter((id) => id !== responsavelId);
+    if (!ids.length) return [];
+    const achados = await this.prisma.user.findMany({
+      where: { id: { in: ids }, ativo: true },
+      select: { id: true },
+    });
+    if (achados.length !== ids.length) {
+      const validos = new Set(achados.map((u) => u.id));
+      const faltando = ids.filter((i) => !validos.has(i));
+      throw new BadRequestException(
+        `Participante inválido ou inativo na equipe (${faltando.length}). ` +
+          'Remova quem saiu do sistema e tente de novo.',
+      );
+    }
+    return ids;
+  }
+
+  /** A narrativa do histórico já nasce dizendo quem ficou responsável. */
+  private narrarCriacao(dto: CreateCompromissoDto, equipe: string[]): string {
+    if (!equipe.length) return 'Atividade criada.';
+    return `Atividade criada com equipe de ${equipe.length + 1} pessoas.`;
   }
 
   // -------------------------------------------------------------------------
@@ -169,7 +237,28 @@ export class AgendaService {
     const and: Prisma.CompromissoWhereInput[] = [];
     if (q.status) and.push({ status: q.status });
     if (q.tipo) and.push({ tipo: q.tipo });
-    if (q.responsavelId) and.push({ responsavelId: q.responsavelId });
+    /**
+     * "A agenda do fulano" passa a incluir o que ele ACOMPANHA, e não só o que
+     * ele responde.
+     *
+     * É o ponto inteiro da equipe: o segundo advogado de uma audiência precisa
+     * vê-la na própria agenda, senão a multivinculação não serve para nada — a
+     * atividade existiria com duas pessoas e apareceria para uma.
+     *
+     * O atalho `responsavelId` continua no OR ao lado da tabela: ele é derivado
+     * dela e a segunda condição bastaria, mas uma atividade que tenha perdido a
+     * linha de equipe (correção manual, carga antiga) sumiria da agenda de quem
+     * responde — e essa é a fila que ninguém pode perder. Mesmo cinto de
+     * segurança usado na busca por filiado em `ProcessosService`.
+     */
+    if (q.responsavelId) {
+      and.push({
+        OR: [
+          { responsavelId: q.responsavelId },
+          { equipe: { some: { usuarioId: q.responsavelId } } },
+        ],
+      });
+    }
     if (q.filiadoId) and.push({ filiadoId: q.filiadoId });
     const busca = q.busca?.trim();
     if (busca) {
@@ -283,26 +372,59 @@ export class AgendaService {
     const remarcado = dto.inicio != null && novoInicio.getTime() !== atual.inicio.getTime();
     const dataOriginal = remarcado && !atual.dataOriginal ? atual.inicio : undefined;
 
-    const compromisso = await this.prisma.compromisso.update({
-      where: { id },
-      data: {
-        titulo: dto.titulo?.trim(),
-        tipo: dto.tipo,
-        status: dto.status,
-        inicio: dto.inicio ? novoInicio : undefined,
-        fim: dto.fim ? novoFim : undefined,
-        local: dto.local === undefined ? undefined : dto.local?.trim() || null,
-        descricao: dto.descricao === undefined ? undefined : dto.descricao?.trim() || null,
-        observacoesInternas: dto.observacoesInternas === undefined ? undefined : dto.observacoesInternas?.trim() || null,
-        urgente: dto.urgente,
-        responsavelId: dto.responsavelId,
-        filiadoId: dto.filiadoId === undefined ? undefined : dto.filiadoId || null,
-        atendimentoId: dto.atendimentoId === undefined ? undefined : dto.atendimentoId || null,
-        processoId: dto.processoId === undefined ? undefined : dto.processoId || null,
-        ...(dataOriginal ? { dataOriginal } : {}),
-      },
-      select: cardSelect,
+    // A equipe só é mexida quando a requisição FALA dela. Campo ausente é "não
+    // mexa" — sem esta distinção, um PATCH que só troca o título apagaria os
+    // participantes, que é o defeito clássico de sincronização de lista.
+    const mexeuNaEquipe = dto.responsaveisIds !== undefined || dto.responsavelId !== undefined;
+    const equipeIds = mexeuNaEquipe
+      ? await this.validarEquipe(dto.responsavelId ?? atual.responsavelId, dto.responsaveisIds)
+      : [];
+
+    const urgencia = montarUrgencia(dto.urgente, dto.urgenteMotivo, { userId: ctx.userId }, atual);
+
+    const compromisso = await this.prisma.$transaction(async (tx) => {
+      await tx.compromisso.update({
+        where: { id },
+        data: {
+          titulo: dto.titulo?.trim(),
+          tipo: dto.tipo,
+          status: dto.status,
+          inicio: dto.inicio ? novoInicio : undefined,
+          fim: dto.fim ? novoFim : undefined,
+          local: dto.local === undefined ? undefined : dto.local?.trim() || null,
+          descricao: dto.descricao === undefined ? undefined : dto.descricao?.trim() || null,
+          observacoesInternas: dto.observacoesInternas === undefined ? undefined : dto.observacoesInternas?.trim() || null,
+          responsavelId: dto.responsavelId,
+          filiadoId: dto.filiadoId === undefined ? undefined : dto.filiadoId || null,
+          atendimentoId: dto.atendimentoId === undefined ? undefined : dto.atendimentoId || null,
+          processoId: dto.processoId === undefined ? undefined : dto.processoId || null,
+          ...(dataOriginal ? { dataOriginal } : {}),
+          ...urgencia,
+        },
+      });
+      if (mexeuNaEquipe) {
+        await sincronizarEquipe(tx, id, {
+          principalId: dto.responsavelId ?? atual.responsavelId,
+          participantesIds: dto.responsaveisIds === undefined
+            // Trocou só o responsável: preserva quem já participava.
+            ? (await tx.compromissoResponsavel.findMany({
+                where: { compromissoId: id },
+                select: { usuarioId: true },
+              })).map((e) => e.usuarioId)
+            : equipeIds,
+        });
+      }
+      return tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelect });
     });
+
+    // A troca de responsável é a mudança que mais gera dúvida depois ("quem
+    // ficou com isso?"), então ela entra no histórico com nome e não só no
+    // registro genérico de edição.
+    if (dto.responsavelId && dto.responsavelId !== atual.responsavelId) {
+      await this.historiar(id, 'EDITADO', 'Responsável alterado.', ctx, {
+        de: atual.responsavelId, para: dto.responsavelId,
+      });
+    }
 
     if (remarcado) {
       // Trilha de auditoria da remarcação — nunca apagamos as datas antigas.
@@ -415,7 +537,7 @@ export class AgendaService {
    *    processo, que é justamente onde o advogado vai procurar;
    *  - VINCULADO_PROCESSO → liga a um processo existente, conferindo que ele é
    *    mesmo do filiado da atividade;
-   *  - PROCESSO_CRIADO    → abre um processo em RASCUNHO (que já nasce com o
+   *  - PROCESSO_CRIADO    → abre um caso PRÉ-PROCESSUAL (que já nasce com o
    *    primeiro andamento próprio, por isso não recebe outro aqui);
    *  - CRIAR_ATIVIDADE    → a pendência declarada no desfecho ("encaminhamentos",
    *    "laudo pendente", "prazo perdido") nasce como atividade com dono e data.
@@ -429,6 +551,8 @@ export class AgendaService {
       select: {
         id: true, status: true, titulo: true, descricao: true, tipo: true, inicio: true,
         filiadoId: true, processoId: true, responsavelId: true, atendimentoId: true,
+        // A urgência viaja para o caso pré-processual — ver `criarPreProcessual`.
+        urgente: true, urgenteMotivo: true,
       },
     });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
@@ -460,7 +584,7 @@ export class AgendaService {
 
     // ---- Vínculo com processo, conforme o encaminhamento do desfecho ----
     let processoId = atual.processoId;
-    let rascunhoCriado: { id: string; titulo: string | null } | null = null;
+    let preProcessualCriado: { id: string; titulo: string | null } | null = null;
 
     if (opcao.acao === 'VINCULAR_PROCESSO') {
       if (!dto.processoId) throw new BadRequestException('Selecione o processo a vincular.');
@@ -468,8 +592,8 @@ export class AgendaService {
     }
 
     if (opcao.acao === 'CRIAR_PROCESSO') {
-      rascunhoCriado = await this.criarRascunho(id, atual, dto, ctx);
-      processoId = rascunhoCriado.id;
+      preProcessualCriado = await this.criarPreProcessual(id, atual, dto, ctx);
+      processoId = preProcessualCriado.id;
     }
 
     // ---- Atividade de seguimento (a pendência que o desfecho declara) ----
@@ -490,7 +614,7 @@ export class AgendaService {
 
     // O andamento no processo só é escrito quando NÃO houve rascunho: o rascunho
     // já nasce com a conversa como primeiro andamento (ver criarRascunho).
-    const gravarAndamento = !!processoId && !rascunhoCriado;
+    const gravarAndamento = !!processoId && !preProcessualCriado;
 
     const { compromisso, seguimento } = await this.prisma.$transaction(async (tx) => {
       const atualizado = await tx.compromisso.update({
@@ -540,7 +664,17 @@ export class AgendaService {
           filiadoId: atual.filiadoId,
           processoId,
           atendimentoId: atual.atendimentoId,
+          // Desfecho de alerta (prazo perdido, contato sem sucesso) gera
+          // seguimento urgente — e agora ele diz POR QUÊ. Antes nascia urgente
+          // e mudo, e quem abria não sabia se era regra ou engano.
           urgente: !!opcao.alerta,
+          ...(opcao.alerta
+            ? {
+                urgenteMotivo: `Desfecho "${opcao.label}" da atividade "${atual.titulo}".`,
+                urgenteEm: new Date(),
+                urgentePor: ctx.userId ?? null,
+              }
+            : {}),
           criadoPor: ctx.userId ?? null,
         },
         select: { id: true, titulo: true, inicio: true, tipo: true },
@@ -566,7 +700,7 @@ export class AgendaService {
       {
         desfecho: dto.desfecho,
         processoId: processoId ?? null,
-        rascunhoCriado: rascunhoCriado?.id ?? null,
+        preProcessualCriado: preProcessualCriado?.id ?? null,
         seguimentoCriado: seguimento?.id ?? null,
         andamentoNoProcesso: gravarAndamento,
       },
@@ -583,11 +717,17 @@ export class AgendaService {
       {
         desfecho: dto.desfecho,
         de: atual.status,
-        rascunhoCriado: rascunhoCriado?.id ?? null,
+        preProcessualCriado: preProcessualCriado?.id ?? null,
         seguimentoCriado: seguimento?.id ?? null,
       },
     );
-    return { ...compromisso, rascunhoCriado, seguimentoCriado: seguimento };
+    return {
+      ...compromisso,
+      preProcessualCriado,
+      /** Nome antigo na resposta — a tela em produção ainda lê por ele. */
+      rascunhoCriado: preProcessualCriado,
+      seguimentoCriado: seguimento,
+    };
   }
 
   /**
@@ -857,7 +997,7 @@ export class AgendaService {
   }
 
   /**
-   * Abre um PROCESSO EM RASCUNHO a partir do desfecho da atividade.
+   * Abre um CASO PRÉ-PROCESSUAL a partir do desfecho da atividade.
    *
    * O rascunho nasce SEM NPU de propósito: a consulta acabou de acontecer e o
    * processo ainda não foi distribuído. Ele fica visível no módulo de Processos
@@ -868,7 +1008,7 @@ export class AgendaService {
    * Herda o filiado e o advogado da atividade, para o rascunho já nascer na
    * carteira certa em vez de virar um registro solto que alguém precisa adotar.
    */
-  private async criarRascunho(
+  private async criarPreProcessual(
     compromissoId: string,
     atividade: {
       titulo: string;
@@ -876,6 +1016,8 @@ export class AgendaService {
       filiadoId: string | null;
       responsavelId: string;
       atendimentoId: string | null;
+      urgente?: boolean;
+      urgenteMotivo?: string | null;
     },
     dto: ConcluirCompromissoDto,
     ctx: Ctx,
@@ -888,22 +1030,57 @@ export class AgendaService {
         where: { id: nova.advogadoId },
         select: { id: true },
       });
-      if (!u) throw new BadRequestException('Advogado inválido para o rascunho.');
+      if (!u) throw new BadRequestException('Advogado inválido para o caso.');
     }
+    // A EQUIPE DA ATIVIDADE VAI JUNTO por padrão. Quem conduziu a consulta a
+    // dois continua a dois no caso — obrigar a remontar a equipe na tela
+    // seguinte é o tipo de retrabalho que faz a informação se perder.
+    const equipeCaso = await this.equipeParaOCaso(compromissoId, advogadoId, nova.advogadosIds);
 
     const titulo = nova.titulo?.trim() || atividade.titulo;
     const observacao = nova.observacao?.trim() || dto.desfechoObs?.trim() || atividade.descricao;
+    // Validada contra o catálogo — aceitar texto livre aqui reproduziria o
+    // defeito da etiqueta "Urgente", que virou quatro grafias e nenhum filtro.
+    let categoria: string | null;
+    try {
+      categoria = normalizarCategoria(nova.categoria);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
 
     const processo = await this.prisma.$transaction(async (tx) => {
       const p = await tx.processo.create({
         data: {
-          numeroCNJ: null, // ainda não distribuído — é o que define um rascunho
+          numeroCNJ: null, // ainda não ajuizado — é o que define o pré-processual
           titulo,
           assuntoPrincipal: nova.assunto?.trim() || null,
-          statusInterno: StatusProcesso.RASCUNHO,
+          categoria,
+          statusInterno: StatusProcesso.PRE_PROCESSUAL,
           filiadoId: atividade.filiadoId,
+          /**
+           * SOLICITADO POR — o filiado que estava vinculado à atividade.
+           *
+           * É o que responde "de onde isto veio" numa tela onde `filiadoId`
+           * pode mudar (o polo ativo vira litisconsórcio, ou a ação vira
+           * institucional e deixa de ter filiado parte). O pedido nasceu de uma
+           * pessoa, e essa pessoa não muda depois.
+           */
+          solicitadoPorId: atividade.filiadoId,
           advogadoId,
           origemCompromissoId: compromissoId,
+          // A URGÊNCIA ATRAVESSA. Uma consulta marcada como urgente que vira
+          // caso e chega ao advogado sem a marca perdeu no caminho justamente a
+          // informação que fazia alguém correr.
+          ...(atividade.urgente
+            ? {
+                urgente: true,
+                urgenteMotivo:
+                  atividade.urgenteMotivo ??
+                  `Herdado da atividade urgente "${atividade.titulo}".`,
+                urgenteEm: new Date(),
+                urgentePor: ctx.userId ?? null,
+              }
+            : {}),
         },
         select: { id: true, titulo: true },
       });
@@ -929,9 +1106,12 @@ export class AgendaService {
           });
         }
       }
-      await tx.processoAdvogado.create({
-        data: { processoId: p.id, advogadoId, principal: true },
-      });
+      // A equipe inteira, com o responsável marcado.
+      for (const id of equipeCaso) {
+        await tx.processoAdvogado.create({
+          data: { processoId: p.id, advogadoId: id, principal: id === advogadoId },
+        });
+      }
 
       // A conversa que originou o processo vira o 1º andamento interno — sem
       // isso o advogado abriria o rascunho sem saber o que foi combinado.
@@ -961,12 +1141,43 @@ export class AgendaService {
       acao: AcaoAuditoria.CREATE,
       entidade: 'Processo',
       entidadeId: processo.id,
-      descricao: `Processo aberto em RASCUNHO a partir da atividade "${atividade.titulo}"`,
+      descricao: `Caso aberto em fase PRÉ-PROCESSUAL a partir da atividade "${atividade.titulo}"`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       metadata: { compromissoId, rascunho: true },
     });
     return processo;
+  }
+
+  /**
+   * Quem vai atuar no caso: a equipe da atividade, mais quem a tela acrescentou.
+   *
+   * A equipe da ATIVIDADE é o padrão porque foi ela que conduziu a consulta —
+   * refazer a lista na tela seguinte é retrabalho, e retrabalho não feito vira
+   * caso com um advogado só quando dois trabalharam nele.
+   */
+  private async equipeParaOCaso(
+    compromissoId: string,
+    responsavelId: string,
+    extras?: string[],
+  ): Promise<string[]> {
+    const daAtividade = await this.prisma.compromissoResponsavel.findMany({
+      where: { compromissoId },
+      select: { usuarioId: true },
+    });
+    const ids = new Set<string>([responsavelId]);
+    for (const e of daAtividade) ids.add(e.usuarioId);
+    for (const e of extras ?? []) if (e?.trim()) ids.add(e.trim());
+    // Só quem ainda está ativo — um advogado desligado não deve ser herdado
+    // para um caso que está começando agora.
+    const ativos = await this.prisma.user.findMany({
+      where: { id: { in: [...ids] }, ativo: true },
+      select: { id: true },
+    });
+    const validos = ativos.map((u) => u.id);
+    // O responsável entra de qualquer forma: ele já foi validado acima e é a
+    // FK que o caso exige.
+    return validos.includes(responsavelId) ? validos : [responsavelId, ...validos];
   }
 
   private async validarVinculos(responsavelId?: string, filiadoId?: string, atendimentoId?: string, processoId?: string) {

@@ -366,7 +366,7 @@ function AgendaConteudo() {
         podeExcluir={ehAdmin}
       />
 
-      {/* Concluir com desfecho — pode abrir um processo em rascunho */}
+      {/* Concluir com desfecho — pode abrir um caso pré-processual */}
       <ConcluirModal
         compromisso={concluir}
         open={!!concluir}
@@ -374,12 +374,13 @@ function AgendaConteudo() {
         // Quem não compareceu não realizou a atividade: o atalho leva ao
         // cancelamento, já com a categoria certa.
         onNaoCompareceu={() => { setCancelarCategoria('NAO_COMPARECEU'); setCancelar(concluir); }}
-        onConcluido={(rascunho) => {
+        onConcluido={(caso) => {
           invalidar();
           qc.invalidateQueries({ queryKey: ['processos'] });
-          if (rascunho) {
-            toast.success('Rascunho criado — formalize em Processos quando quiser.', {
-              action: { label: 'Abrir Processos', onClick: () => router.push('/processos?rascunhos=1') },
+          if (caso) {
+            toast.success('Caso aberto em fase pré-processual.', {
+              description: 'Fica na aba Pré-processuais até ser ajuizado.',
+              action: { label: 'Abrir', onClick: () => router.push('/processos?rascunhos=1') },
             });
           }
         }}

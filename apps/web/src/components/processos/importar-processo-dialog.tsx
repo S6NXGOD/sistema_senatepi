@@ -164,6 +164,15 @@ export function ImportarProcessoDialog({
    * TJSP e TRF1. Sem este campo, todo processo importado nasceria sem saber
    * contra quem se litiga.
    */
+  /**
+   * RÉUS JÁ ACRESCENTADOS — o litisconsórcio passivo.
+   *
+   * O par `reuSelecionado`/`reuNome` abaixo continua sendo o réu EM EDIÇÃO.
+   * Essa separação é o que mantém o caso comum (um réu só) exatamente como
+   * era: quem tem um réu preenche e envia, sem precisar clicar em "adicionar".
+   * O botão só aparece para quem tem o segundo.
+   */
+  const [reus, setReus] = useState<{ parteExternaId?: string; nome: string; detalhe?: string }[]>([]);
   const [reuSelecionado, setReuSelecionado] = useState<ParteExterna | null>(null);
   const [reuNome, setReuNome] = useState('');
   const [buscaReu, setBuscaReu] = useState('');
@@ -200,6 +209,7 @@ export function ImportarProcessoDialog({
     setErroPrevia(null);
     setSugestoesDatajud([]);
     setEtiquetas([]);
+    setReus([]);
     setReuSelecionado(null);
     setReuNome('');
     setBuscaReu('');
@@ -335,6 +345,43 @@ export function ImportarProcessoDialog({
     return () => clearTimeout(t);
   }, [busca]);
 
+  /** O réu em edição, se houver algo preenchido. */
+  function reuEmEdicao() {
+    if (reuSelecionado) {
+      return {
+        parteExternaId: reuSelecionado.id,
+        nome: reuSelecionado.nome,
+        detalhe: TIPO_PARTE_LABEL[reuSelecionado.tipo],
+      };
+    }
+    const nome = reuNome.trim();
+    return nome ? { nome } : null;
+  }
+
+  /** Lista final enviada à API — o primeiro vira o réu principal. */
+  function montarReus() {
+    const emEdicao = reuEmEdicao();
+    const todos = [...reus, ...(emEdicao ? [emEdicao] : [])];
+    // Mesmo réu escolhido duas vezes não vira duas linhas do mesmo nome.
+    const vistos = new Set<string>();
+    return todos.filter((r) => {
+      const chave = r.parteExternaId ?? r.nome.trim().toLowerCase();
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
+  }
+
+  /** Guarda o réu atual na lista e limpa o campo para o próximo. */
+  function adicionarReu() {
+    const atual = reuEmEdicao();
+    if (!atual) return;
+    setReus((lista) => [...lista, atual]);
+    setReuSelecionado(null);
+    setReuNome('');
+    setBuscaReu('');
+  }
+
   /** Traduz a escolha da tela para o contrato da API. */
   function montarPoloAtivo(): PoloAtivoInput {
     if (modoPolo === 'INSTITUCIONAL') return { tipo: 'INSTITUCIONAL' };
@@ -354,13 +401,10 @@ export function ImportarProcessoDialog({
         etiquetas: etiquetas.length ? etiquetas : undefined,
         // Réu: o DataJud não devolve as partes, então este é o único momento
         // barato de capturá-lo — depois vira tarefa na fila "Sem réu cadastrado".
-        ...(reuSelecionado || reuNome.trim()
-          ? {
-              parteContraria: reuSelecionado
-                ? { parteExternaId: reuSelecionado.id }
-                : { nome: reuNome.trim() },
-            }
-          : {}),
+        // RÉUS: a lista já montada mais o que estiver em edição. Enviar o
+        // último sem exigir o clique em "adicionar" é o que evita a perda
+        // silenciosa mais comum deste tipo de formulário.
+        ...(montarReus().length ? { partesContrarias: montarReus() } : {}),
       }),
     onSuccess: (p) => {
       toast.success('Processo importado do DATAJUD.');
@@ -865,8 +909,42 @@ export function ImportarProcessoDialog({
           {/* Parte contrária (réu) — o dado que o DataJud não entrega */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Building2 className="h-4 w-4 text-muted-foreground" /> Parte contrária / réu (opcional)
+              <Building2 className="h-4 w-4 text-muted-foreground" /> Parte(s) contrária(s) / réu(s) (opcional)
             </label>
+
+            {/*
+              OS RÉUS JÁ ACRESCENTADOS.
+              Um réu só é a exceção, não a regra: reclamação contra hospital e
+              contra a empresa que terceiriza tem dois desde a inicial, e ação
+              contra o município costuma citar também a autarquia. Antes cabia um,
+              e o segundo virava observação — ou não era registrado.
+            */}
+            {reus.length > 0 && (
+              <ul className="space-y-1">
+                {reus.map((r, i) => (
+                  <li
+                    key={`${r.parteExternaId ?? r.nome}-${i}`}
+                    className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{r.nome}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {i === 0 ? 'Réu principal' : `Litisconsorte ${i}`}
+                        {r.detalhe ? ` · ${r.detalhe}` : ''}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Remover ${r.nome}`}
+                      onClick={() => setReus((lista) => lista.filter((_, j) => j !== i))}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {reuSelecionado ? (
               <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
@@ -877,9 +955,18 @@ export function ImportarProcessoDialog({
                     {reuSelecionado.documento ? ` · ${formatDocumento(reuSelecionado.documento)}` : ''}
                   </span>
                 </span>
-                <button type="button" onClick={() => setReuSelecionado(null)} className="text-muted-foreground hover:text-foreground">
-                  <X className="h-4 w-4" />
-                </button>
+                <span className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={adicionarReu}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Outro
+                  </button>
+                  <button type="button" onClick={() => setReuSelecionado(null)} className="text-muted-foreground hover:text-foreground">
+                    <X className="h-4 w-4" />
+                  </button>
+                </span>
               </div>
             ) : (
               <>
@@ -927,6 +1014,18 @@ export function ImportarProcessoDialog({
                   value={reuNome}
                   onChange={(e) => setReuNome(e.target.value)}
                 />
+
+                {/* Só aparece quando há o que guardar — quem tem um réu nunca vê
+                    este botão e envia direto, como sempre fez. */}
+                {(reuSelecionado || reuNome.trim()) && (
+                  <button
+                    type="button"
+                    onClick={adicionarReu}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Acrescentar outro réu
+                  </button>
+                )}
 
                 {/* Aviso amigável: mostra o que já existe e deixa reaproveitar
                     com um clique, em vez de recusar o que a pessoa digitou. */}

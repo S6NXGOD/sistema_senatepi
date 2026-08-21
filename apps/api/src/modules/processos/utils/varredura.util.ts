@@ -74,9 +74,9 @@ const DORMENTES: StatusProcesso[] = [
  * Recebe `agora` em vez de chamar `new Date()` por dentro: é o que torna a
  * regra testável sem depender do relógio de quem roda o teste.
  *
- * RASCUNHO não aparece em nenhuma das listas e ainda assim é barrado duas
+ * PRE_PROCESSUAL não aparece em nenhuma das listas e ainda assim é barrado duas
  * vezes: ele não tem NPU, e `numeroCNJ: { not: null }` é o cinto de segurança
- * para o caso de alguém mudar o status de um rascunho à mão.
+ * para o caso de alguém mudar o status à mão.
  */
 export function filtroDeVarredura(
   agora: Date,

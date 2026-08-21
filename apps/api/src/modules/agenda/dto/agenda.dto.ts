@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
+  IsIn,
   IsEnum,
   IsNotEmpty,
   IsOptional,
@@ -12,6 +14,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { StatusCompromisso } from '@prisma/client';
+import { AREAS_JURIDICAS } from '../../processos/areas.catalogo';
 
 export class CreateCompromissoDto {
   @ApiProperty() @IsString() @MinLength(2, { message: 'Informe um título.' })
@@ -49,9 +52,27 @@ export class CreateCompromissoDto {
   @IsOptional() @IsBoolean()
   urgente?: boolean;
 
-  @ApiProperty({ description: 'Usuário responsável (advogado/colaborador).' })
+  @ApiPropertyOptional({
+    description:
+      'POR QUE é urgente. Obrigatório ao marcar pela tela — urgência sem motivo não ' +
+      'pode ser revista depois, e a fila inteira acaba urgente.',
+  })
+  @IsOptional() @IsString() @MaxLength(300)
+  urgenteMotivo?: string;
+
+  @ApiProperty({ description: 'Usuário RESPONSÁVEL (quem responde pela atividade).' })
   @IsString() @IsNotEmpty()
   responsavelId: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'EQUIPE: os demais advogados/colaboradores que atuam nesta atividade. O responsável ' +
+      'continua sendo `responsavelId` — pode vir repetido aqui, a API remove. Todos veem a ' +
+      'atividade na própria agenda; a conclusão é de quem responde.',
+  })
+  @IsOptional() @IsArray() @IsString({ each: true })
+  responsaveisIds?: string[];
 
   @ApiPropertyOptional({ description: 'Filiado vinculado (rastreabilidade).' })
   @IsOptional() @IsString()
@@ -92,8 +113,8 @@ export class MudarStatusDto {
  * empurraria a equipe a inventar dado. O advogado formaliza depois, no módulo
  * de Processos — informando o número e puxando do DataJud, ou preenchendo à mão.
  */
-export class NovoProcessoRascunhoDto {
-  @ApiPropertyOptional({ description: 'Rótulo do rascunho (padrão: título da atividade).' })
+export class NovoProcessoPreProcessualDto {
+  @ApiPropertyOptional({ description: 'Rótulo do caso (padrão: título da atividade).' })
   @IsOptional() @IsString() @MaxLength(180)
   titulo?: string;
 
@@ -101,14 +122,33 @@ export class NovoProcessoRascunhoDto {
   @IsOptional() @IsString() @MaxLength(180)
   assunto?: string;
 
-  @ApiPropertyOptional({ description: 'Advogado responsável (padrão: o da atividade).' })
+  @ApiPropertyOptional({
+    enum: AREAS_JURIDICAS.map((a) => a.slug),
+    description:
+      'ÁREA JURÍDICA do caso. É a única classificação que existe antes do ajuizamento — ' +
+      'sem NPU não há classe nem assunto do CNJ, e o caso apareceria na lista sem nada.',
+  })
+  @IsOptional() @IsIn(AREAS_JURIDICAS.map((a) => a.slug))
+  categoria?: string;
+
+  @ApiPropertyOptional({ description: 'Advogado RESPONSÁVEL (padrão: o da atividade).' })
   @IsOptional() @IsString()
   advogadoId?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Demais advogados da equipe do caso (o responsável entra sozinho).',
+  })
+  @IsOptional() @IsArray() @IsString({ each: true })
+  advogadosIds?: string[];
 
   @ApiPropertyOptional({ description: 'Observação inicial, registrada como 1º andamento interno.' })
   @IsOptional() @IsString() @MaxLength(5000)
   observacao?: string;
 }
+
+/** Nome antigo, mantido para não quebrar quem já importava o tipo. */
+export { NovoProcessoPreProcessualDto as NovoProcessoRascunhoDto };
 
 /**
  * Atividade de seguimento criada junto com a conclusão.
@@ -153,11 +193,11 @@ export class ConcluirCompromissoDto {
   processoId?: string;
 
   @ApiPropertyOptional({
-    type: NovoProcessoRascunhoDto,
-    description: 'Dados do rascunho — usado em PROCESSO_CRIADO.',
+    type: NovoProcessoPreProcessualDto,
+    description: 'Dados do caso pré-processual — usado em PROCESSO_CRIADO.',
   })
-  @IsOptional() @ValidateNested() @Type(() => NovoProcessoRascunhoDto)
-  novoProcesso?: NovoProcessoRascunhoDto;
+  @IsOptional() @ValidateNested() @Type(() => NovoProcessoPreProcessualDto)
+  novoProcesso?: NovoProcessoPreProcessualDto;
 
   @ApiPropertyOptional({
     type: SeguimentoDto,

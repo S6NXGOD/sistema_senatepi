@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Bell, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Clock, Bell, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   listarAlertas, Compromisso, rotuloTipo, corDeTipo,
   formatData, formatHora, tempoRelativo,
@@ -22,11 +23,7 @@ function ItemAlerta({ c, onAbrir }: { c: Compromisso; onAbrir: (c: Compromisso) 
       <div className="min-w-0">
         <p className="flex items-center gap-1.5 truncate text-sm font-medium">
           <span className="truncate">{c.titulo}</span>
-          {c.urgente && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
-              <AlertTriangle className="h-2.5 w-2.5" /> Urgente
-            </span>
-          )}
+          {c.urgente && <SeloUrgente motivo={c.urgenteMotivo} desde={c.urgenteEm} tamanho="sm" />}
           <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium', cor.badge)}>{rotuloTipo(c.tipo, tipos)}</span>
         </p>
         <p className="truncate text-xs text-muted-foreground">

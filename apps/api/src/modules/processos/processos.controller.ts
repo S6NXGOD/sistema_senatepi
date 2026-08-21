@@ -102,7 +102,7 @@ export class ProcessosController {
     return this.service.ressincronizar(id, this.ctx(req, userId));
   }
 
-  /** Formaliza um RASCUNHO: recebe o NPU e, opcionalmente, busca no DataJud. */
+  /** Ajuíza um caso pré-processual: recebe o NPU e busca no DataJud. */
   @Patch(':id/formalizar')
   @ApiOperation({ summary: 'Formaliza um processo em rascunho (informa o NPU; DataJud opcional).' })
   formalizar(@Param('id') id: string, @Body() dto: FormalizarProcessoDto, @CurrentUser('id') userId: string, @Req() req: Request) {

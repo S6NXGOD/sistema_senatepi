@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Loader2, Pencil, Trash2, Clock, MapPin, AlertTriangle, Timer, User, Phone, Mail,
+  X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
   Ban, CheckCircle2, Play, RotateCcw, PenLine,
 } from 'lucide-react';
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import { AnexosSection } from '@/components/anexos/anexos-section';
 import { cn, mascararCpf } from '@/lib/utils';
+import { MotivoUrgencia, SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, cronometroHMS,
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
@@ -23,7 +24,7 @@ import {
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
-import { formatNPU } from '@/lib/processos';
+import { formatNPU, ehPreProcessual } from '@/lib/processos';
 import { HistoricoAtividade } from './historico-atividade';
 import { V } from '@/lib/vocabulario';
 
@@ -112,13 +113,14 @@ export function CompromissoDrawer({
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', corDeTipo(c.tipo, tipos).badge)}>{rotuloTipo(c.tipo, tipos)}</span>}
             {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', STATUS_COR[c.status])}>{STATUS_LABEL[c.status]}</span>}
-            {c?.urgente && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
-                <AlertTriangle className="h-3 w-3" /> Urgente
-              </span>
-            )}
+            {c?.urgente && <SeloUrgente motivo={c.urgenteMotivo} desde={c.urgenteEm} />}
           </div>
           <h3 className="truncate text-lg font-bold">{c?.titulo ?? 'Carregando…'}</h3>
+          {/* O selo diz QUE é urgente; aqui cabe o PORQUÊ por extenso — e é
+              nesta tela que a decisão de "isto ainda é urgente?" é tomada. */}
+          {c?.urgente && (
+            <MotivoUrgencia motivo={c.urgenteMotivo} desde={c.urgenteEm} className="mt-2" />
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {c && (
@@ -286,6 +288,34 @@ export function CompromissoDrawer({
               </div>
             </Bloco>
 
+            {/*
+              A EQUIPE, quando há mais de uma pessoa.
+
+              Bloco separado do responsável de propósito: a gaveta é onde alguém
+              vai descobrir "com quem falo sobre isto", e misturar as duas
+              coisas apagaria justamente a distinção entre quem responde e quem
+              acompanha.
+            */}
+            {(c.equipe ?? []).filter((e) => !e.principal).length > 0 && (
+              <Bloco titulo="Também atuam">
+                <ul className="space-y-2">
+                  {(c.equipe ?? [])
+                    .filter((e) => !e.principal)
+                    .map((e) => (
+                      <li key={e.usuario.id} className="flex items-center gap-2">
+                        <Avatar
+                          nome={e.usuario.nomeExibicao || e.usuario.nome}
+                          url={e.usuario.avatarUrl}
+                        />
+                        <p className="truncate text-sm">
+                          {e.usuario.nomeExibicao || e.usuario.nome}
+                        </p>
+                      </li>
+                    ))}
+                </ul>
+              </Bloco>
+            )}
+
             {/* QUEM REGISTROU A DEMANDA — com foto. Aparece sempre que houver
                 criador, inclusive quando o evento veio de uma triagem: são
                 perguntas diferentes ("quem atendeu" × "quem lançou na agenda"). */}
@@ -348,7 +378,7 @@ export function CompromissoDrawer({
                   {c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : (c.processo.titulo || 'Rascunho')}
                   {c.processo.classeProcessual ? ` · ${c.processo.classeProcessual}` : ''}
                 </Link>
-                {c.processo.statusInterno === 'RASCUNHO' && (
+                {ehPreProcessual(c.processo.statusInterno) && (
                   <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
                     Rascunho — falta formalizar
                   </span>

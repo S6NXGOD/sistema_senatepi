@@ -94,3 +94,40 @@ describe('faseDoProcesso — em que pé está o processo', () => {
     expect(faseDoProcesso({ instancias: [{ grau: null, baixada: false }], temMovimentoDeExecucao: false })).toBe('CONHECIMENTO');
   });
 });
+
+/**
+ * PRÉ-PROCESSUAL — a fase que existe ANTES de haver processo.
+ *
+ * Vem antes de todas as outras na precedência, e a razão é mecânica: as demais
+ * regras leem instâncias, e um caso sem NPU não tem nenhuma. Sem esta primeira
+ * checagem ele cairia em CONHECIMENTO e se misturaria com processo que corre —
+ * exatamente a confusão que a fase nova veio desfazer.
+ */
+describe('fase pré-processual', () => {
+  it('sem número, é pré-processual', () => {
+    expect(faseDoProcesso({ instancias: [], temMovimentoDeExecucao: false, semNumero: true }))
+      .toBe('PRE_PROCESSUAL');
+  });
+
+  it('vence até o arquivamento e a execução', () => {
+    expect(faseDoProcesso({
+      instancias: [{ grau: 'G1', baixada: true }],
+      temMovimentoDeExecucao: true,
+      semNumero: true,
+    })).toBe('PRE_PROCESSUAL');
+  });
+
+  /** Compatibilidade: quem já chamava sem o campo continua no comportamento antigo. */
+  it('sem o campo, nada muda', () => {
+    expect(faseDoProcesso({ instancias: [], temMovimentoDeExecucao: false }))
+      .toBe('CONHECIMENTO');
+  });
+
+  it('ajuizado depois deixa de ser pré-processual', () => {
+    expect(faseDoProcesso({
+      instancias: [{ grau: 'G1', baixada: false }],
+      temMovimentoDeExecucao: false,
+      semNumero: false,
+    })).toBe('CONHECIMENTO');
+  });
+});

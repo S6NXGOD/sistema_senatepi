@@ -471,7 +471,10 @@ export class PartesService {
       institucional?: boolean;
       /** Polo ativo avulso: parte conhecida só pelo nome. */
       poloAtivoAvulso?: { nome?: string; documento?: string } | null;
+      /** Compatibilidade: um réu só. Quando vier junto com `partesContrarias`, entra como o primeiro. */
       parteContraria?: { nome?: string; documento?: string; parteExternaId?: string } | null;
+      /** Litisconsórcio passivo — vários réus. O primeiro é o principal. */
+      partesContrarias?: { nome?: string; documento?: string; parteExternaId?: string }[] | null;
     },
   ) {
     // ---- Polo ativo ----
@@ -533,8 +536,30 @@ export class PartesService {
       });
     }
 
-    const contraria = entradas.parteContraria;
-    if (contraria?.parteExternaId || contraria?.nome?.trim()) {
+    /**
+     * POLO PASSIVO — vários réus (litisconsórcio).
+     *
+     * Era UM. E um só é a exceção, não a regra: reclamação contra hospital e
+     * contra a empresa que terceiriza tem dois réus desde a petição inicial, e
+     * ação contra o município costuma citar também a autarquia. Com uma parte
+     * só, o segundo réu era digitado no campo de observação ou simplesmente não
+     * era registrado — e "contra quem litigamos" deixava de ser uma pergunta
+     * respondível pelo sistema.
+     *
+     * O PRIMEIRO É O PRINCIPAL: é ele que aparece no "Autor × Réu" da lista,
+     * pela mesma regra que já vale no polo ativo.
+     *
+     * `parteContraria` (singular) continua aceito e entra na frente da lista —
+     * é o contrato que a tela em produção usa hoje.
+     */
+    const contrarias = [
+      ...(entradas.parteContraria ? [entradas.parteContraria] : []),
+      ...(entradas.partesContrarias ?? []),
+    ];
+    let indicePassivo = 0;
+    const jaVistos = new Set<string>();
+    for (const contraria of contrarias) {
+      if (!contraria?.parteExternaId && !contraria?.nome?.trim()) continue;
       let nome = contraria.nome?.trim() ?? '';
       let documento = this.digitos(contraria.documento);
       if (contraria.parteExternaId) {
@@ -547,19 +572,26 @@ export class PartesService {
           documento = cadastro.documento;
         }
       }
-      if (nome) {
-        await tx.parteProcesso.create({
-          data: {
-            processoId,
-            polo: 'PASSIVO',
-            papel: PAPEL_PADRAO.PASSIVO,
-            principal: true,
-            nome,
-            documento,
-            parteExternaId: contraria.parteExternaId || null,
-          },
-        });
-      }
+      if (!nome) continue;
+      // O mesmo réu escolhido duas vezes (uma pelo cadastro, outra digitado)
+      // criaria duas linhas do mesmo nome no polo — e a lista mostraria
+      // "Hospital X e mais 1" apontando para ele mesmo.
+      const chave = (contraria.parteExternaId || `${nome.toLowerCase()}|${documento ?? ''}`).trim();
+      if (jaVistos.has(chave)) continue;
+      jaVistos.add(chave);
+
+      await tx.parteProcesso.create({
+        data: {
+          processoId,
+          polo: 'PASSIVO',
+          papel: PAPEL_PADRAO.PASSIVO,
+          principal: indicePassivo === 0,
+          nome,
+          documento,
+          parteExternaId: contraria.parteExternaId || null,
+        },
+      });
+      indicePassivo++;
     }
 
     // ---- Equipe de advogados ----

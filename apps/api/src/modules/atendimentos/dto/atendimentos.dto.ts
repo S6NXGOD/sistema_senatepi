@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  ArrayNotEmpty, IsArray, IsDateString, IsEnum, IsInt, IsNotEmpty, IsOptional,
-  IsString, Min, MinLength, ValidateIf,
+  ArrayNotEmpty, IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNotEmpty,
+  IsOptional, IsString, MaxLength, Min, MinLength, ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -21,6 +21,19 @@ export class CreateAtendimentoDto {
   @ApiProperty({ description: 'Descrição da demanda.' })
   @IsString() @MinLength(3, { message: 'Descreva a demanda.' })
   descricao: string;
+
+  /**
+   * A TRIAGEM É A PORTA: é no balcão que se descobre que o caso tem prazo curto.
+   * Era o único dos três lugares (triagem, agenda, processo) sem como registrar
+   * isso — a informação existia na cabeça de quem atendeu e morria ali.
+   * A urgência marcada aqui é HERDADA pela atividade e pelo caso que nascerem
+   * desta demanda.
+   */
+  @ApiPropertyOptional({ description: 'Marca a demanda como urgente.' })
+  @IsOptional() @IsBoolean() urgente?: boolean;
+
+  @ApiPropertyOptional({ description: 'POR QUE é urgente — obrigatório ao marcar.' })
+  @IsOptional() @IsString() @MaxLength(300) urgenteMotivo?: string;
 }
 
 /** Registro do desfecho (resultado) da triagem. */

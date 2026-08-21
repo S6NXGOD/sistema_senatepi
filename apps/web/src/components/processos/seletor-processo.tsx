@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown, Gavel, Loader2, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { listarProcessos, formatNPU, type ProcessoLista } from '@/lib/processos';
+import { listarProcessos, formatNPU, ehPreProcessual, type ProcessoLista } from '@/lib/processos';
 
 /**
  * Escolha de processo com PRIORIDADE para o filiado da atividade.
@@ -234,9 +234,9 @@ function Opcao({
           {foraDoFiliado && p.filiado ? ` · ${primeiroNome(p.filiado.nomeCompleto)}` : ''}
         </span>
       </span>
-      {p.statusInterno === 'RASCUNHO' && (
+      {ehPreProcessual(p.statusInterno) && (
         <span className="shrink-0 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-          Rascunho
+          Pré-processual
         </span>
       )}
     </button>
@@ -244,7 +244,7 @@ function Opcao({
 }
 
 function RotuloProcesso({ p }: { p: ProcessoLista }) {
-  return <>{p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho sem número'}</>;
+  return <>{p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Pré-processual sem número'}</>;
 }
 
 /** Primeiro nome + último sobrenome: cabe na linha e ainda identifica a pessoa. */

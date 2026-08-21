@@ -56,6 +56,9 @@ export function CompromissoFormModal({
   const [descricao, setDescricao] = useState('');
   const [obsInternas, setObsInternas] = useState('');
   const [urgente, setUrgente] = useState(false);
+  const [urgenteMotivo, setUrgenteMotivo] = useState('');
+  /** Participantes ALEM do responsavel - ver `equipe.util.ts` na API. */
+  const [participantes, setParticipantes] = useState<string[]>([]);
   const [filiadoId, setFiliadoId] = useState('');
   const [filiadoNome, setFiliadoNome] = useState('');
   const [processoId, setProcessoId] = useState('');
@@ -77,6 +80,10 @@ export function CompromissoFormModal({
       setInicioData(i.data); setInicioHora(i.hora); setFimData(f.data); setFimHora(f.hora);
       setLocal(editar.local ?? ''); setDescricao(editar.descricao ?? '');
       setObsInternas(''); setUrgente(editar.urgente);
+      setUrgenteMotivo(editar.urgenteMotivo ?? '');
+      setParticipantes(
+        (editar.equipe ?? []).filter((e) => !e.principal).map((e) => e.usuario.id),
+      );
       setFiliadoId(editar.filiado?.id ?? ''); setFiliadoNome(editar.filiado?.nomeCompleto ?? '');
       setProcessoId(editar.processo?.id ?? ''); setAtendimentoId(editar.atendimentoId ?? '');
     } else {
@@ -113,7 +120,9 @@ export function CompromissoFormModal({
         descricao: descricao.trim() || undefined,
         observacoesInternas: obsInternas.trim() || undefined,
         urgente,
+        urgenteMotivo: urgente ? urgenteMotivo.trim() || undefined : undefined,
         responsavelId,
+        responsaveisIds: participantes,
         filiadoId: filiadoId || undefined,
         processoId: processoId || undefined,
         atendimentoId: atendimentoId || undefined,
@@ -131,6 +140,11 @@ export function CompromissoFormModal({
   function submeter() {
     if (titulo.trim().length < 2) return toast.error('Informe o título.');
     if (!responsavelId) return toast.error('Selecione o responsável.');
+    // A API recusa urgencia sem motivo; barrar aqui evita a viagem e devolve o
+    // foco ao campo certo, em vez de um toast generico vindo do servidor.
+    if (urgente && !urgenteMotivo.trim()) {
+      return toast.error('Diga por que é urgente — sem motivo, a marca não pode ser revista depois.');
+    }
     const inicio = combinar(inicioData, inicioHora);
     if (!inicio) return toast.error('Informe a data e hora de início.');
     if (fimData) {
@@ -181,7 +195,62 @@ export function CompromissoFormModal({
                 <option value="">Selecione…</option>
                 {(responsaveis.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
               </select>
+              <p className="text-xs text-muted-foreground">
+                Quem <strong>responde</strong> pela atividade. Só ele conclui.
+              </p>
             </div>
+          </div>
+
+          {/*
+            EQUIPE — o segundo advogado da audiência, quem protocola o prazo,
+            o estagiário que acompanha a diligência.
+
+            Separado do responsável de propósito: se todos forem responsáveis,
+            ninguém é, e a cobrança deixa de ter destinatário. Quem está aqui vê
+            a atividade na própria agenda e conta na carga de trabalho.
+          */}
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-1.5 text-sm font-medium">
+              <Users className="h-4 w-4 text-muted-foreground" /> Também atuam nesta atividade
+            </label>
+            <div className="flex flex-wrap gap-1.5 rounded-lg border p-2">
+              {(responsaveis.data ?? [])
+                .filter((r) => r.id !== responsavelId)
+                .map((r) => {
+                  const dentro = participantes.includes(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      aria-pressed={dentro}
+                      onClick={() =>
+                        setParticipantes((ps) =>
+                          dentro ? ps.filter((i) => i !== r.id) : [...ps, r.id],
+                        )
+                      }
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                        dentro
+                          ? 'border-brand-600 bg-brand-50 font-medium text-brand-800 dark:bg-brand-900/30 dark:text-brand-300'
+                          : 'text-muted-foreground hover:bg-muted',
+                      )}
+                    >
+                      {r.nome}
+                    </button>
+                  );
+                })}
+              {(responsaveis.data ?? []).filter((r) => r.id !== responsavelId).length === 0 && (
+                <span className="px-1 py-0.5 text-xs text-muted-foreground">
+                  Não há outros colaboradores para incluir.
+                </span>
+              )}
+            </div>
+            {participantes.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {participantes.length === 1 ? '1 participante' : `${participantes.length} participantes`}
+                {' '}veem esta atividade na própria agenda.
+              </p>
+            )}
           </div>
 
           {/* Data e Hora */}
@@ -271,19 +340,46 @@ export function CompromissoFormModal({
             </div>
           )}
 
-          {/* Urgente */}
-          <button
-            type="button"
-            onClick={() => setUrgente((v) => !v)}
-            className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted/40"
-          >
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <AlertTriangle className={cn('h-4 w-4', urgente ? 'text-red-600' : 'text-muted-foreground')} /> Marcar como Urgente
-            </span>
-            <span className={cn('relative h-6 w-11 rounded-full transition-colors', urgente ? 'bg-red-600' : 'bg-muted')}>
-              <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', urgente ? 'left-[22px]' : 'left-0.5')} />
-            </span>
-          </button>
+          {/*
+            URGENTE — e POR QUÊ.
+
+            O motivo aparece só depois de ligar a chave, e é obrigatório. Não é
+            burocracia: urgência sem justificativa não se revisa, ninguém
+            desmarca, e em poucos meses metade da fila está urgente — que é o
+            mesmo que nada estar. O campo é a diferença entre um selo decorativo
+            e uma fila de trabalho que dá para auditar.
+          */}
+          <div className={cn('rounded-lg border transition-colors', urgente && 'border-red-300 bg-red-50/50 dark:border-red-900/50 dark:bg-red-950/20')}>
+            <button
+              type="button"
+              onClick={() => setUrgente((v) => !v)}
+              className="flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-muted/40"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <AlertTriangle className={cn('h-4 w-4', urgente ? 'text-red-600' : 'text-muted-foreground')} /> Marcar como Urgente
+              </span>
+              <span className={cn('relative h-6 w-11 rounded-full transition-colors', urgente ? 'bg-red-600' : 'bg-muted')}>
+                <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', urgente ? 'left-[22px]' : 'left-0.5')} />
+              </span>
+            </button>
+            {urgente && (
+              <div className="space-y-1 border-t border-red-200 p-3 dark:border-red-900/50">
+                <label className="text-xs font-medium text-red-900 dark:text-red-300">
+                  Por que é urgente? *
+                </label>
+                <Input
+                  autoFocus
+                  maxLength={300}
+                  value={urgenteMotivo}
+                  onChange={(e) => setUrgenteMotivo(e.target.value)}
+                  placeholder="Ex.: prazo fatal na sexta; filiado em risco de demissão"
+                />
+                <p className="text-[11px] text-red-800/80 dark:text-red-400/80">
+                  Aparece no selo e permite revisar a fila depois.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">

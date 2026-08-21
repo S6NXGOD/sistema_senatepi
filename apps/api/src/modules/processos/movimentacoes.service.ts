@@ -385,6 +385,7 @@ export class MovimentacoesService {
        */
       fase: faseDoProcesso({
         instancias: processo.instancias ?? [],
+        semNumero: !processo.numeroCNJ,
         temMovimentoDeExecucao: movimentacoes.some(
           (m) => m.codigoMovimento != null && CODIGOS_TPU_EXECUCAO.includes(m.codigoMovimento as 11384 | 11385),
         ),

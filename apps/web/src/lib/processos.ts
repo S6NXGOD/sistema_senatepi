@@ -7,8 +7,19 @@ import { tenant } from '@/tenant.config';
 // ---------------------------------------------------------------------------
 
 export type StatusProcesso =
-  | 'RASCUNHO' | 'PENDENTE' | 'ATIVO' | 'SUSPENSO' | 'GANHO_EXECUCAO'
-  | 'IMPROCEDENTE' | 'ENCERRADO' | 'ARQUIVADO';
+  | 'PRE_PROCESSUAL' | 'PENDENTE' | 'ATIVO' | 'SUSPENSO' | 'GANHO_EXECUCAO'
+  | 'IMPROCEDENTE' | 'ENCERRADO' | 'ARQUIVADO'
+  /**
+   * O nome ANTIGO de `PRE_PROCESSUAL`. Ainda chega da API nos casos criados
+   * antes do deploy que introduziu o nome novo — a migração é aditiva de
+   * propósito (renomear o rótulo derrubaria a listagem no contêiner que segue
+   * no ar durante a troca; a medição está no enum, em `schema.prisma`).
+   *
+   * Para o usuário os dois são A MESMA COISA e têm de aparecer idênticos: mesmo
+   * rótulo, mesma cor, mesmo lugar no filtro. Se este valor cair num
+   * `Record<StatusProcesso, …>` sem entrada, a tela mostra `undefined`.
+   */
+  | 'RASCUNHO';
 
 /**
  * Natureza da atuação. INSTITUCIONAL é a ação coletiva movida pelo sindicato em
@@ -50,7 +61,7 @@ export interface ParteProcesso {
 
 export interface ProcessoLista {
   id: string;
-  /** Nulo em RASCUNHO — processo aberto por um desfecho, ainda sem NPU. */
+  /** Nulo em PRE_PROCESSUAL — caso aberto por um desfecho e ainda não ajuizado. */
   numeroCNJ: string | null;
   /** Rótulo do rascunho enquanto não há número/classe. */
   titulo?: string | null;
@@ -64,6 +75,15 @@ export interface ProcessoLista {
   statusInterno: StatusProcesso;
   ultimaSincronizacao: string | null;
   etiquetas?: string[];
+  /** Coluna, e não etiqueta — é o que torna a urgência filtrável e contável. */
+  urgente?: boolean;
+  /** POR QUE é urgente. Nulo nos registros migrados da etiqueta antiga. */
+  urgenteMotivo?: string | null;
+  urgenteEm?: string | null;
+  /** Área jurídica — a única classificação que existe antes do ajuizamento. */
+  categoria?: string | null;
+  /** QUEM PEDIU o caso. Diferente do filiado parte — ver a API. */
+  solicitadoPor?: { id: string; nomeCompleto: string } | null;
   segredoJustica?: boolean;
   /** INSTITUCIONAL = ação coletiva movida pelo sindicato (badge própria). */
   tipoAcao?: TipoAcaoProcesso;
@@ -117,9 +137,15 @@ export interface ProcessoLista {
 }
 
 /** Fase processual — espelha `apps/api/.../utils/fase.util.ts`. */
-export type FaseProcessual = 'CONHECIMENTO' | 'EXECUCAO' | 'RECURSAL' | 'ARQUIVADO';
+export type FaseProcessual =
+  | 'PRE_PROCESSUAL'
+  | 'CONHECIMENTO'
+  | 'EXECUCAO'
+  | 'RECURSAL'
+  | 'ARQUIVADO';
 
 export const FASE_LABEL: Record<FaseProcessual, string> = {
+  PRE_PROCESSUAL: 'Pré-processual',
   CONHECIMENTO: 'Conhecimento',
   EXECUCAO: 'Execução',
   RECURSAL: 'Recursal',
@@ -178,8 +204,21 @@ export interface ListaProcessosResp {
 // Rótulos e cores
 // ---------------------------------------------------------------------------
 
+/**
+ * "Este caso ainda não foi ajuizado?" — pergunte SEMPRE por aqui, nunca
+ * comparando com um literal. São dois rótulos para o mesmo estado (ver o tipo
+ * `StatusProcesso`), e a comparação direta esquece o legado em silêncio: o
+ * selo simplesmente não aparece, e ninguém percebe.
+ */
+// Aceita `string` porque nem todo lugar que carrega o status o tipa: a agenda,
+// por exemplo, traz o processo embutido com `statusInterno: string`. Estreitar
+// o parâmetro só empurraria um `as` para cada chamada.
+export const ehPreProcessual = (s?: string | null) =>
+  s === 'PRE_PROCESSUAL' || s === 'RASCUNHO';
+
 export const STATUS_PROCESSO_LABEL: Record<StatusProcesso, string> = {
-  RASCUNHO: 'Rascunho',
+  PRE_PROCESSUAL: 'Pré-processual',
+  RASCUNHO: 'Pré-processual', // legado: mesmo nome na tela, ver o tipo acima
   PENDENTE: 'Pendente',
   ATIVO: 'Ativo',
   SUSPENSO: 'Suspenso',
@@ -189,10 +228,14 @@ export const STATUS_PROCESSO_LABEL: Record<StatusProcesso, string> = {
   ARQUIVADO: 'Arquivado',
 };
 /** Ordem do ciclo de vida (usada nos filtros e no seletor). */
+// `RASCUNHO` NÃO entra: é o mesmo status com nome velho, e listá-lo criaria
+// duas opções idênticas no filtro. Quem escolhe "Pré-processual" recebe os dois
+// — quem resolve isso é a API (`PRE_PROCESSUAIS`), não a tela.
 export const STATUS_PROCESSO_ORDEM: StatusProcesso[] = [
-  'RASCUNHO', 'PENDENTE', 'ATIVO', 'SUSPENSO', 'GANHO_EXECUCAO', 'IMPROCEDENTE', 'ENCERRADO', 'ARQUIVADO',
+  'PRE_PROCESSUAL', 'PENDENTE', 'ATIVO', 'SUSPENSO', 'GANHO_EXECUCAO', 'IMPROCEDENTE', 'ENCERRADO', 'ARQUIVADO',
 ];
 export const STATUS_PROCESSO_COR: Record<StatusProcesso, string> = {
+  PRE_PROCESSUAL: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   RASCUNHO: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   ATIVO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
@@ -269,7 +312,7 @@ export function aliasTribunalDoNPU(npu: string): string | null {
 
 /**
  * Formata um NPU já armazenado (20 dígitos) para exibição.
- * Aceita nulo porque processos em RASCUNHO ainda não têm número — nesses casos
+ * Aceita nulo porque casos PRÉ-PROCESSUAIS ainda não têm número — nesses casos
  * a tela deve mostrar o título do rascunho, e este travessão é o último recurso.
  */
 export const formatNPU = (numeroCNJ: string | null | undefined) =>
@@ -460,7 +503,10 @@ export interface ImportarProcessoInput {
    * Réu informado já na importação — o DataJud não devolve as partes, e este é o
    * momento em que o operador tem o nome em mãos.
    */
+  /** Compatibilidade: réu único. O caminho novo é `partesContrarias`. */
   parteContraria?: { parteExternaId?: string; nome?: string; documento?: string };
+  /** Litisconsórcio passivo — o primeiro é o réu principal. */
+  partesContrarias?: { parteExternaId?: string; nome?: string; documento?: string }[];
 }
 /** Gatilho On-Demand: consulta o DATAJUD e cria o cache local (409 se já existir). */
 export async function importarProcesso(dto: ImportarProcessoInput): Promise<ProcessoDetalhe> {

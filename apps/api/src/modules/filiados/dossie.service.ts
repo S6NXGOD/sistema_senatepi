@@ -266,7 +266,11 @@ export class DossieService {
       resumo: {
         total,
         ativos: status[StatusProcesso.ATIVO] ?? 0,
-        rascunhos: status[StatusProcesso.RASCUNHO] ?? 0,
+        // Soma os dois rótulos: as linhas anteriores ao deploy do nome novo
+        // continuam como RASCUNHO. Ver `PRE_PROCESSUAIS`.
+        preProcessuais:
+          (status[StatusProcesso.PRE_PROCESSUAL] ?? 0) +
+          (status[StatusProcesso.RASCUNHO] ?? 0),
         encerrados,
         porStatus: status,
       },

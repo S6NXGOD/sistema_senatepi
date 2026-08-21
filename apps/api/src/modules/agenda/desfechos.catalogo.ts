@@ -74,7 +74,7 @@ const VINCULAR: DesfechoOpcao = {
 const CRIAR: DesfechoOpcao = {
   slug: 'PROCESSO_CRIADO',
   label: 'Virou processo novo',
-  ajuda: 'Abre um processo em RASCUNHO para o advogado formalizar.',
+  ajuda: 'Abre um caso em fase pré-processual, antes do ajuizamento.',
   acao: 'CRIAR_PROCESSO',
 };
 
