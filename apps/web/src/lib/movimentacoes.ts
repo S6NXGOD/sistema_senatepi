@@ -246,6 +246,15 @@ export interface DossieProcesso {
   dataDistribuicao: string | null;
   valorCausa: string | number | null;
   statusInterno: StatusProcesso;
+  /**
+   * Campos que a API SEMPRE devolveu — o dossiê monta a resposta com `include`,
+   * que espalha todo escalar do processo — e que faltavam aqui. O tipo estava
+   * mentindo: quem tentasse usá-los levava erro de compilação num dado que
+   * chegava certinho no JSON.
+   */
+  titulo: string | null;
+  categoria: string | null;
+  filiadoId: string | null;
   /** INSTITUCIONAL = ação coletiva do sindicato (badge no cabeçalho). */
   tipoAcao?: TipoAcaoProcesso;
   ultimaSincronizacao: string | null;

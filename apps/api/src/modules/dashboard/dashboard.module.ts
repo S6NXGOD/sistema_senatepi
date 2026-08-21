@@ -1,6 +1,7 @@
 import { Controller, Get, Injectable, Module } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  StatusAtendimento,
   Prisma,
   SituacaoFiliado,
   StatusCompromisso,
@@ -390,22 +391,93 @@ export class DashboardService {
           }[];
         })();
 
+    /**
+     * A CARTEIRA DO ADVOGADO — e por que ela ganhou dois números.
+     *
+     * "Meus processos", "minhas audiências", "atrasadas" e "urgentes" dizem o
+     * que está NA AGENDA. Faltavam os dois riscos que não aparecem em agenda
+     * nenhuma, porque não têm data marcada:
+     *
+     *  · o caso PRÉ-PROCESSUAL parado — ele sai da lista padrão de processos
+     *    de propósito, e sem um contador aqui a única forma de lembrar dele é
+     *    abrir a aba certa e olhar;
+     *  · o processo SEM MOVIMENTAÇÃO há muito tempo — o que mais custa caro,
+     *    e o único que ninguém cobra, porque não vence.
+     *
+     * Os dois são contados NA CARTEIRA DELE, não na do escritório: o painel do
+     * advogado responde "o que EU tenho para fazer".
+     */
     const minhaCarteira = souAdvogado
       ? await (async () => {
-          const [meusProcessos, minhasAudiencias] = await Promise.all([
-            this.prisma.processo.count({ where: { advogadoId: user.id, statusInterno: StatusProcesso.ATIVO } }),
-            this.prisma.compromisso.count({
-              where: {
-                ...meu,
-                tipo: TIPO_AUDIENCIA,
-                status: ABERTOS,
-                inicio: { gte: hojeIni, lt: em7dias },
-              },
-            }),
-          ]);
-          return { meusProcessos, minhasAudiencias, atrasadas: atrasadasCount, urgentes: urgentesSemanaCount };
+          const paradoDesde = new Date(hojeIni.getTime() - 30 * DIA_MS);
+          const [meusProcessos, minhasAudiencias, preProcessuais, semMovimentacaoMinha] =
+            await Promise.all([
+              this.prisma.processo.count({
+                where: { advogadoId: user.id, statusInterno: StatusProcesso.ATIVO },
+              }),
+              this.prisma.compromisso.count({
+                where: {
+                  ...meu,
+                  tipo: TIPO_AUDIENCIA,
+                  status: ABERTOS,
+                  inicio: { gte: hojeIni, lt: em7dias },
+                },
+              }),
+              // Os DOIS rótulos do pré-processual: o legado ainda usa o antigo.
+              this.prisma.processo.count({
+                where: {
+                  advogadoId: user.id,
+                  statusInterno: { in: [StatusProcesso.PRE_PROCESSUAL, StatusProcesso.RASCUNHO] },
+                },
+              }),
+              this.prisma.processo.count({
+                where: {
+                  advogadoId: user.id,
+                  statusInterno: StatusProcesso.ATIVO,
+                  numeroCNJ: { not: null },
+                  AND: [
+                    { movimentacoes: { none: { dataMovimento: { gte: paradoDesde } } } },
+                    { movimentacoesInternas: { none: { createdAt: { gte: paradoDesde } } } },
+                  ],
+                },
+              }),
+            ]);
+          return {
+            meusProcessos,
+            minhasAudiencias,
+            atrasadas: atrasadasCount,
+            urgentes: urgentesSemanaCount,
+            preProcessuais,
+            semMovimentacao: semMovimentacaoMinha,
+          };
         })()
       : null;
+
+    /**
+     * A FILA DA TRIAGEM, do ponto de vista de QUEM ESTÁ NO BALCÃO.
+     *
+     * O painel já mostrava "atendimentos pendentes" — o número do sindicato
+     * inteiro. Quem atende precisa de outra coisa: quanto EU já registrei hoje
+     * (o ritmo do dia) e quantos aguardam encaminhamento. Sem isso, a secretaria
+     * abre a home e vê a operação dos outros.
+     */
+    const minhaTriagem =
+      user.role === 'TRIAGEM'
+        ? await (async () => {
+            const [registradosHoje, semDesfecho, filiadosHoje] = await Promise.all([
+              this.prisma.atendimento.count({
+                where: { atendentePorId: user.id, createdAt: { gte: hojeIni, lt: amanhaData } },
+              }),
+              this.prisma.atendimento.count({
+                where: { atendentePorId: user.id, status: StatusAtendimento.PENDENTE },
+              }),
+              this.prisma.filiado.count({
+                where: { createdAt: { gte: hojeIni, lt: amanhaData } },
+              }),
+            ]);
+            return { registradosHoje, semDesfecho, filiadosHoje };
+          })()
+        : null;
 
     return {
       papel: user.role,
@@ -423,6 +495,8 @@ export class DashboardService {
         saldoFiliadosMes: novosFiliadosMes - desfiliadosMes,
       },
       minhaCarteira,
+      /** Fila própria de quem está no balcão (nulo fora da Triagem). */
+      minhaTriagem,
       alertas: {
         atrasadas: atrasadasCount,
         semMovimentacao: semMovimentacaoCount,

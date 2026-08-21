@@ -24,7 +24,7 @@ import { CancelarModal } from '@/components/agenda/cancelar-modal';
 import { RemarcarModal } from '@/components/agenda/remarcar-modal';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
-import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
+import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import {
   listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis,
   Compromisso, StatusCompromisso, TipoCompromisso,
@@ -135,6 +135,13 @@ function AgendaConteudo() {
    * na mão.
    */
   useAbrirPorUrl('compromisso', setDetalheId, '/agenda');
+  // Atalhos do painel: `?aba=urgentes`, `?aba=hoje`… Só abas conhecidas passam,
+  // senão um link velho deixaria a tela num estado que não existe mais.
+  useFiltroPorUrl(
+    'aba',
+    (v) => { if (ABAS.some((a) => a.key === v)) setAba(v as Aba); },
+    '/agenda',
+  );
 
   const responsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis });
 

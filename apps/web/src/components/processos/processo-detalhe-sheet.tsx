@@ -17,13 +17,14 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn, mascararCpf } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { PainelPreProcessual } from './painel-pre-processual';
+import { AjuizarCasoModal } from './ajuizar-caso-modal';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { AnexosSection } from '@/components/anexos/anexos-section';
 import { RegistrarMovimentacaoForm } from './registrar-movimentacao-form';
 import {
   sincronizarProcesso, excluirProcesso, atualizarProcesso, formatNPU, formatData, formatDataHora,
-  formatMoeda, STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL,
-} from '@/lib/processos';
+  formatMoeda, STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, ehPreProcessual,} from '@/lib/processos';
 import { registrarMovimentacao } from '@/lib/movimentacoes';
 import { corDesfecho, rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL } from '@/lib/agenda';
 import { EtiquetasInput } from './etiquetas-input';
@@ -239,6 +240,7 @@ export function ProcessoDetalheSheet({
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'processos') === 'EDITAR';
 
   const [aba, setAba] = useState<Aba>('timeline');
+  const [ajuizando, setAjuizando] = useState(false);
   /**
    * Dossiê do CNJ aberto ou recolhido — preferência guardada na SESSÃO.
    *
@@ -628,15 +630,25 @@ export function ProcessoDetalheSheet({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button
-                variant="outline" size="sm"
-                onClick={() => sincronizar.mutate()}
-                disabled={sincronizar.isPending || !p}
-                title="Buscar novas movimentações no DATAJUD"
-              >
-                {sincronizar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                <span className="hidden sm:inline">Sincronizar</span>
-              </Button>
+              {/*
+                SINCRONIZAR SÓ APARECE COM NÚMERO.
+                A consulta ao CNJ é POR NPU. Num caso pré-processual o botão
+                existia, ficava habilitado, e a única coisa que podia acontecer
+                era erro — pior: ao lado de um "Dossiê DataJud: sem dados do
+                CNJ", passava a impressão de que a integração estava quebrada,
+                quando o que falta é o processo ter sido ajuizado.
+              */}
+              {p?.numeroCNJ && (
+                <Button
+                  variant="outline" size="sm"
+                  onClick={() => sincronizar.mutate()}
+                  disabled={sincronizar.isPending}
+                  title="Buscar novas movimentações no DATAJUD"
+                >
+                  {sincronizar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  <span className="hidden sm:inline">Sincronizar</span>
+                </Button>
+              )}
               {/* ABRIR NO TRIBUNAL.
                   Copia o número e abre a consulta pública do tribunal certo.
                   Não é link direto para o processo de propósito: os tribunais
@@ -753,6 +765,63 @@ export function ProcessoDetalheSheet({
                 </span>
               </div>
             </div>
+          )}
+
+          {/*
+            O PAINEL DO CASO PRÉ-PROCESSUAL fica ANTES das abas, e o lugar é
+            parte do conserto: a ação que encerra a fase morava só na LISTA, num
+            selo pequeno. Quem abria a ficha lia tudo e tinha de fechar e voltar
+            para dar o próximo passo.
+          */}
+          {p && ehPreProcessual(p.statusInterno) && (
+            <PainelPreProcessual
+              podeEditar={podeEditar}
+              onAjuizar={() => setAjuizando(true)}
+              pendencias={[
+                {
+                  chave: 'npu',
+                  rotulo: 'Número único (NPU)',
+                  ajuda: 'É ele que tira o caso da fase pré-processual.',
+                  feito: !!p.numeroCNJ,
+                  ir: podeEditar ? () => setAjuizando(true) : undefined,
+                },
+                {
+                  chave: 'reu',
+                  rotulo: 'Parte contrária',
+                  ajuda: 'Contra quem se litiga — o DataJud nunca preenche isto sozinho.',
+                  feito: !!p.polos?.passivo?.length,
+                  ir: podeEditar ? () => setAba('partes') : undefined,
+                },
+                {
+                  chave: 'solicitante',
+                  rotulo: `${V.Filiado} solicitante`,
+                  // Ação institucional não tem dono: cobrar vínculo ali seria
+                  // forçar um dado que não existe. Por isso conta como feito.
+                  ajuda: 'Quem procurou o sindicato — vem da atividade que abriu o caso.',
+                  feito: p.tipoAcao === 'INSTITUCIONAL' || !!p.filiadoId || !!p.polos?.ativo?.length,
+                  ir: podeEditar ? () => setAba('partes') : undefined,
+                },
+                {
+                  chave: 'categoria',
+                  rotulo: 'Área jurídica',
+                  ajuda: 'Agrupa o caso nos relatórios da diretoria.',
+                  feito: !!p.categoria,
+                },
+                {
+                  chave: 'valor',
+                  rotulo: 'Valor da causa',
+                  ajuda: 'Entra na soma por parte contrária e no painel.',
+                  feito: p.valorCausa !== null && p.valorCausa !== undefined,
+                },
+                {
+                  chave: 'relato',
+                  rotulo: 'Relato do caso',
+                  ajuda: 'Uma nota interna com o que foi apurado na consulta.',
+                  feito: (p.linhaDoTempo?.length ?? 0) > 0,
+                  ir: () => setAba('notas'),
+                },
+              ]}
+            />
           )}
 
           {/* Abas */}
@@ -1457,6 +1526,23 @@ export function ProcessoDetalheSheet({
         loading={removerMov.isPending}
         onConfirm={() => movParaExcluir && removerMov.mutate(movParaExcluir)}
         onClose={() => setMovParaExcluir(null)}
+      />
+
+      {/*
+        AJUIZAR — o MESMO modal da listagem, agora alcançável da ficha.
+        Reusar em vez de duplicar: a formalização puxa do DataJud e tem regras
+        próprias (o CNJ demora dias a indexar processo recém-distribuído), e
+        duas cópias divergiriam na primeira correção.
+      */}
+      <AjuizarCasoModal
+        processo={p ? { id: p.id, titulo: p.titulo, assuntoPrincipal: p.assuntoPrincipal } : null}
+        open={ajuizando}
+        onClose={() => setAjuizando(false)}
+        onFormalizado={() => {
+          setAjuizando(false);
+          qc.invalidateQueries({ queryKey: ['processo', processoId] });
+          qc.invalidateQueries({ queryKey: ['processos'] });
+        }}
       />
     </>
   );

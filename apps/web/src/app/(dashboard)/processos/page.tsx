@@ -117,6 +117,11 @@ function ListaProcessos() {
   // ganhar nada.
   useFiltroPorUrl('rascunhos', () => setRapido('preProcessuais'), '/processos');
   useFiltroPorUrl('preProcessuais', () => setRapido('preProcessuais'), '/processos');
+  // Os atalhos do painel apontam para cá. Sem estas linhas o link levaria à
+  // lista completa e a pessoa não desconfiaria — o pior tipo de atalho quebrado.
+  useFiltroPorUrl('meus', () => setRapido('meus'), '/processos');
+  useFiltroPorUrl('semReu', () => setRapido('semReu'), '/processos');
+  useFiltroPorUrl('semFiliado', () => setRapido('semFiliado'), '/processos');
 
   useEffect(() => {
     const t = setTimeout(() => {

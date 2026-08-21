@@ -8,6 +8,7 @@ import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
+  FileCheck2, Hourglass, Headset,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -28,6 +29,7 @@ import {
   KpiCard, SectionCard, EmptyState, CompromissoRow, AvatarMini,
 } from '@/components/dashboard/widgets';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
+import { AtalhosDoPerfil } from '@/components/dashboard/atalhos-do-perfil';
 import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
 import {
@@ -71,6 +73,15 @@ export default function DashboardPage() {
         escopo={data?.escopo}
         atualizadoEm={dataUpdatedAt || undefined}
       />
+
+      {/*
+        ATALHOS logo abaixo da saudação, ANTES de qualquer número.
+        O painel era só leitura: dizia muito bem o que está acontecendo e não
+        oferecia nada para fazer a respeito. Quem abre o sistema de manhã já
+        sabe o que vai fazer — e passava por menu, tela e botão para chegar lá.
+        Cada perfil vê no máximo quatro, filtrados pela permissão REAL.
+      */}
+      <AtalhosDoPerfil role={role} permissoes={perms} />
 
       {/* ORDEM IMPORTA: o erro vem ANTES do esqueleto.
           A condição antiga era `isLoading || !data`, e ela mentia quando a
@@ -267,19 +278,52 @@ function Conteudo({
 
   return (
     <>
-      {/* Minha carteira — só advogado */}
+      {/*
+        MINHA CARTEIRA — a primeira coisa que o advogado vê, e agora com os dois
+        riscos que faltavam.
+
+        Os quatro primeiros números vêm da AGENDA: têm data, e por isso alguém
+        cobra. Os dois últimos não têm data nenhuma — e são justamente os que
+        somem: o caso pré-processual, que sai da lista padrão de propósito, e o
+        processo parado há trinta dias, que ninguém percebe porque nada vence.
+      */}
       {minhaCarteira && (
         <section>
           <SectionTitle icon={FolderKanban} texto="Minha carteira" />
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
             <KpiCard label="Meus processos" valor={minhaCarteira.meusProcessos} sub="vinculados a mim"
-              icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos" destaque />
+              icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos?meus=1" destaque />
             <KpiCard label="Minhas audiências" valor={minhaCarteira.minhasAudiencias} sub="esta semana"
               icon={Gavel} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400" href="/agenda" destaque />
             <KpiCard label="Atrasadas" valor={minhaCarteira.atrasadas} sub="pendentes agora"
               icon={AlertTriangle} cor="bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" href="/agenda" destaque />
             <KpiCard label="Urgentes" valor={minhaCarteira.urgentes} sub="próximos 7 dias"
               icon={Flame} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" href="/agenda" destaque />
+            <KpiCard label="A ajuizar" valor={minhaCarteira.preProcessuais} sub="fase pré-processual"
+              icon={FileCheck2} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
+              href="/processos?preProcessuais=1" destaque />
+            <KpiCard label="Parados" valor={minhaCarteira.semMovimentacao} sub="sem andamento há 30d"
+              icon={Hourglass} cor="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              href="/processos?meus=1" destaque />
+          </div>
+        </section>
+      )}
+
+      {/*
+        A FILA DO BALCÃO. O painel já mostrava "atendimentos pendentes" — o
+        número do sindicato inteiro. Quem atende precisa do próprio: quanto EU
+        registrei hoje, e quanto ainda está na minha mão.
+      */}
+      {data.minhaTriagem && (
+        <section>
+          <SectionTitle icon={Headset} texto="Meu balcão hoje" />
+          <div className="grid grid-cols-3 gap-4">
+            <KpiCard label="Registrei hoje" valor={data.minhaTriagem.registradosHoje} sub="atendimentos"
+              icon={Headset} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/atendimentos" destaque />
+            <KpiCard label="Comigo, em aberto" valor={data.minhaTriagem.semDesfecho} sub="aguardando desfecho"
+              icon={Clock} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" href="/atendimentos" destaque />
+            <KpiCard label="Filiações hoje" valor={data.minhaTriagem.filiadosHoje} sub="cadastros novos"
+              icon={Users} cor="bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400" href="/filiados" destaque />
           </div>
         </section>
       )}

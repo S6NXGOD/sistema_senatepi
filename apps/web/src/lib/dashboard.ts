@@ -90,6 +90,20 @@ export interface ResumoDashboard {
     minhasAudiencias: number;
     atrasadas: number;
     urgentes: number;
+    /**
+     * Os dois riscos que NÃO aparecem em agenda nenhuma, porque não têm data:
+     * o caso pré-processual esquecido (some da lista padrão de propósito) e o
+     * processo parado há 30 dias — o que mais custa caro e o único que ninguém
+     * cobra, justamente porque não vence.
+     */
+    preProcessuais: number;
+    semMovimentacao: number;
+  } | null;
+  /** A fila de quem está no BALCÃO. Nulo fora da Triagem. */
+  minhaTriagem: {
+    registradosHoje: number;
+    semDesfecho: number;
+    filiadosHoje: number;
   } | null;
   alertas: {
     atrasadas: number;

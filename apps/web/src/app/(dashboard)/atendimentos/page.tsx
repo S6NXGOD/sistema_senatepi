@@ -15,7 +15,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { nivelEfetivo } from '@/lib/permissoes';
-import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
+import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import { podeExcluir } from '@/lib/permissoes';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
@@ -66,6 +66,9 @@ function ListaAtendimentos() {
   const [page, setPage] = useState(1);
 
   const [novo, setNovo] = useState(false);
+  // `?novo=1` abre a gaveta direto — é o atalho "Novo atendimento" do painel,
+  // que é a ação mais repetida do balcão.
+  useFiltroPorUrl('novo', () => setNovo(true), '/atendimentos');
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [desfechoAlvo, setDesfechoAlvo] = useState<AtendimentoParaDesfecho | null>(null);
   const [promptConcluir, setPromptConcluir] = useState<{ id: string; resultado: DesfechoAtendimento } | null>(null);
