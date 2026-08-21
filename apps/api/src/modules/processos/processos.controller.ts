@@ -82,6 +82,20 @@ export class ProcessosController {
     return this.service.listarAdvogados();
   }
 
+  /**
+   * Os números das abas de filtro rápido.
+   *
+   * Rota própria, e não um campo da listagem: a lista muda a cada busca digitada
+   * e a cada página, e os contadores não — recalculá-los junto faria sete
+   * `count` extras por tecla pressionada. Vem ANTES de `@Get(':id')` pelo mesmo
+   * motivo de `advogados`: a rota casa na ordem.
+   */
+  @Get('contadores')
+  @ApiOperation({ summary: 'Contagem por filtro rápido, para os números das abas.' })
+  contadores(@CurrentUser('id') userId: string) {
+    return this.service.contadores(userId);
+  }
+
   /** Lista o cache local (leitura instantânea, sem consulta ao vivo). */
   @Get()
   listar(@Query() query: ListProcessosQueryDto, @CurrentUser('id') userId: string) {

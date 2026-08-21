@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown, Gavel, Loader2, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { listarProcessos, formatNPU, ehPreProcessual, type ProcessoLista } from '@/lib/processos';
+import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
 
 /**
  * Escolha de processo com PRIORIDADE para o filiado da atividade.
@@ -234,11 +235,7 @@ function Opcao({
           {foraDoFiliado && p.filiado ? ` · ${primeiroNome(p.filiado.nomeCompleto)}` : ''}
         </span>
       </span>
-      {ehPreProcessual(p.statusInterno) && (
-        <span className="shrink-0 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-          Pré-processual
-        </span>
-      )}
+      {ehPreProcessual(p.statusInterno) && <SeloPreProcessual tamanho="sm" />}
     </button>
   );
 }

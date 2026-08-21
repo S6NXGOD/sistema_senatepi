@@ -14,7 +14,13 @@ const inputCls = 'h-11 w-full rounded-md border border-input bg-background px-3 
 type Caminho = 'DATAJUD' | 'MANUAL';
 
 /**
- * FORMALIZAR UM RASCUNHO — o outro lado do desfecho "Processo criado".
+ * AJUIZAR O CASO — o outro lado do desfecho "Virou processo novo".
+ *
+ * VOCABULÁRIO: na tela o verbo é AJUIZAR, que é o que de fato acontece (o caso
+ * é distribuído e ganha número). Na API a rota continua `PATCH /:id/formalizar`
+ * — trocar o nome de um endpoint que já está no ar não entrega nada a quem usa
+ * o sistema e custa uma janela de incompatibilidade no deploy. A diferença é
+ * proposital; não "corrija" um dos lados sem o outro.
  *
  * Dois caminhos, os dois legítimos:
  *  - DataJud: informa o NPU e o sistema puxa classe, vara, assunto e todas as
@@ -23,7 +29,7 @@ type Caminho = 'DATAJUD' | 'MANUAL';
  *    ainda não indexou o processo no CNJ — comum nos primeiros dias após a
  *    distribuição, quando a busca simplesmente não acha nada.
  */
-export function FormalizarRascunhoModal({
+export function AjuizarCasoModal({
   processo, open, onClose, onFormalizado,
 }: {
   processo: { id: string; titulo?: string | null; assuntoPrincipal?: string | null } | null;
@@ -103,8 +109,8 @@ export function FormalizarRascunhoModal({
               <FileCheck2 className="h-4.5 w-4.5 text-violet-700 dark:text-violet-400" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-base font-bold">Formalizar processo</h3>
-              <p className="truncate text-xs text-muted-foreground">{processo.titulo || 'Rascunho'}</p>
+              <h3 className="text-base font-bold">Ajuizar o caso</h3>
+              <p className="truncate text-xs text-muted-foreground">{processo.titulo || 'Caso sem título'}</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -124,7 +130,7 @@ export function FormalizarRascunhoModal({
               className="font-mono tracking-tight"
             />
             <p className="text-[11px] text-muted-foreground">
-              É o número que tira o processo do rascunho. O tribunal é identificado por ele.
+              É o número que tira o caso da fase pré-processual. O tribunal é identificado por ele.
             </p>
           </div>
 

@@ -25,6 +25,7 @@ import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
 import { formatNPU, ehPreProcessual } from '@/lib/processos';
+import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
 import { HistoricoAtividade } from './historico-atividade';
 import { V } from '@/lib/vocabulario';
 
@@ -374,14 +375,12 @@ export function CompromissoDrawer({
                   className="flex items-center gap-1.5 text-sm text-brand-800 hover:underline dark:text-brand-400"
                 >
                   <Gavel className="h-3.5 w-3.5" />
-                  {/* Rascunho ainda não tem NPU — mostra o rótulo do processo. */}
-                  {c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : (c.processo.titulo || 'Rascunho')}
+                  {/* Pré-processual ainda não tem NPU — mostra o rótulo do caso. */}
+                  {c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : (c.processo.titulo || 'Caso sem título')}
                   {c.processo.classeProcessual ? ` · ${c.processo.classeProcessual}` : ''}
                 </Link>
                 {ehPreProcessual(c.processo.statusInterno) && (
-                  <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-                    Rascunho — falta formalizar
-                  </span>
+                  <SeloPreProcessual className="mt-1" />
                 )}
               </Bloco>
             )}

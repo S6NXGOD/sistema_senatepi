@@ -380,7 +380,7 @@ function AgendaConteudo() {
           if (caso) {
             toast.success('Caso aberto em fase pré-processual.', {
               description: 'Fica na aba Pré-processuais até ser ajuizado.',
-              action: { label: 'Abrir', onClick: () => router.push('/processos?rascunhos=1') },
+              action: { label: 'Abrir', onClick: () => router.push('/processos?preProcessuais=1') },
             });
           }
         }}

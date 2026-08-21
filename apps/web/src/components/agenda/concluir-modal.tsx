@@ -60,7 +60,8 @@ export function ConcluirModal({
   compromisso: Compromisso | null;
   open: boolean;
   onClose: () => void;
-  onConcluido: (rascunho: { id: string; titulo: string | null } | null) => void;
+  /** O caso pré-processual aberto pelo desfecho, quando houve um. */
+  onConcluido: (caso: { id: string; titulo: string | null } | null) => void;
   /** Leva ao cancelamento com "não compareceu" pré-selecionado. */
   onNaoCompareceu?: () => void;
 }) {
@@ -158,14 +159,26 @@ export function ConcluirModal({
           : {}),
       }),
     onSuccess: (resp) => {
-      toast.success(
-        resp.rascunhoCriado
-          ? 'Atividade concluída e processo aberto em rascunho.'
-          : resp.seguimentoCriado
+      /*
+        DOIS AVISOS PARA O MESMO FATO, DIZENDO COISAS DIFERENTES.
+
+        Quando o desfecho abria um caso, este modal avisava "processo aberto em
+        rascunho" e a página avisava "Caso aberto em fase pré-processual" — os
+        dois ao mesmo tempo, com nomes diferentes para a mesma coisa. É o tipo de
+        detalhe que faz a equipe achar que são dois estados distintos.
+
+        Quem anuncia o caso é a PÁGINA, porque só ela pode oferecer o "Abrir" que
+        leva à fila certa. Aqui fica o que a página não cobre.
+      */
+      const caso = resp.preProcessualCriado ?? resp.rascunhoCriado;
+      if (!caso) {
+        toast.success(
+          resp.seguimentoCriado
             ? `Atividade concluída. Seguimento agendado: "${resp.seguimentoCriado.titulo}".`
             : 'Atividade concluída.',
-      );
-      onConcluido(resp.rascunhoCriado);
+        );
+      }
+      onConcluido(caso);
       onClose();
     },
     onError: (e: any) => {

@@ -40,7 +40,13 @@ export interface ResumoAtividades {
 export interface ResumoProcessos {
   total: number;
   ativos: number;
-  rascunhos: number;
+  /**
+   * Casos na fase pré-processual. O nome ACOMPANHA A API: ela devolve
+   * `preProcessuais` desde que a fase ganhou nome próprio, e o campo aqui
+   * continuava `rascunhos` — quem lesse receberia `undefined` sem erro nenhum.
+   * Ninguém lia, e por isso a tela não quebrou; o tipo é que estava mentindo.
+   */
+  preProcessuais: number;
   encerrados: number;
   porStatus: Record<string, number>;
 }

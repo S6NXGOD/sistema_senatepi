@@ -462,7 +462,7 @@ export interface ConcluirInput {
   desfechoObs?: string;
   /** Obrigatório em VINCULADO_PROCESSO. */
   processoId?: string;
-  /** Usado em PROCESSO_CRIADO — abre o rascunho no módulo de Processos. */
+  /** Usado em PROCESSO_CRIADO — abre o caso na aba Pré-processuais. */
   novoProcesso?: {
     titulo?: string;
     assunto?: string;
@@ -486,6 +486,14 @@ export interface ConcluirInput {
 
 /** Resposta da conclusão — traz o que o desfecho criou junto. */
 export interface ConcluirResposta extends Compromisso {
+  /** O caso pré-processual aberto pelo desfecho "Virou processo novo". */
+  preProcessualCriado: { id: string; titulo: string | null } | null;
+  /**
+   * O MESMO objeto, sob o nome antigo. A API devolve os dois porque durante a
+   * troca de contêiner o front antigo ainda lê por aqui. Some quando não houver
+   * mais nada lendo — e é este campo, não o de cima, que pode sumir.
+   * @deprecated use `preProcessualCriado`
+   */
   rascunhoCriado: { id: string; titulo: string | null } | null;
   seguimentoCriado: { id: string; titulo: string; inicio: string; tipo: string } | null;
 }

@@ -63,7 +63,7 @@ export interface ProcessoLista {
   id: string;
   /** Nulo em PRE_PROCESSUAL — caso aberto por um desfecho e ainda não ajuizado. */
   numeroCNJ: string | null;
-  /** Rótulo do rascunho enquanto não há número/classe. */
+  /** Rótulo do caso pré-processual enquanto não há número nem classe. */
   titulo?: string | null;
   classeProcessual: string | null;
   assuntoPrincipal: string | null;
@@ -325,7 +325,7 @@ export function rotuloProcesso(p: {
   classeProcessual?: string | null;
 }): string {
   if (p.numeroCNJ) return mascararNPU(p.numeroCNJ);
-  return p.titulo || p.classeProcessual || 'Rascunho sem título';
+  return p.titulo || p.classeProcessual || 'Caso sem título';
 }
 
 export function formatData(iso: string | null | undefined): string {
@@ -377,6 +377,28 @@ export async function listarProcessos(f: FiltroProcessos = {}): Promise<ListaPro
     if (v !== undefined && v !== null && v !== '') params[k] = v as string | number;
   }
   return (await api.get('/processos', { params })).data;
+}
+
+/**
+ * Os números das abas de filtro rápido.
+ *
+ * Chamada separada da listagem de propósito: a lista muda a cada tecla da busca
+ * e a cada página; estes números, não. Juntos, cada tecla custaria sete `count`
+ * no banco.
+ */
+export interface ContadoresProcessos {
+  /** A lista padrão — JÁ SEM os pré-processuais, igual ao que a tela mostra. */
+  todos: number;
+  preProcessuais: number;
+  meus: number;
+  semFiliado: number;
+  semReu: number;
+  recentes: number;
+  urgentes: number;
+}
+
+export async function contadoresProcessos(): Promise<ContadoresProcessos> {
+  return (await api.get('/processos/contadores')).data;
 }
 
 export async function getProcesso(id: string): Promise<ProcessoDetalhe> {

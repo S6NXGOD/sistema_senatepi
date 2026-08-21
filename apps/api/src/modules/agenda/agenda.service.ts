@@ -999,14 +999,15 @@ export class AgendaService {
   /**
    * Abre um CASO PRÉ-PROCESSUAL a partir do desfecho da atividade.
    *
-   * O rascunho nasce SEM NPU de propósito: a consulta acabou de acontecer e o
-   * processo ainda não foi distribuído. Ele fica visível no módulo de Processos
-   * com o selo "Rascunho" para o advogado formalizar quando quiser — informando
-   * o número e puxando do DataJud, ou preenchendo à mão. Enquanto for rascunho,
-   * fica fora da varredura noturna do CNJ (não há o que consultar).
+   * O caso nasce SEM NPU de propósito: a consulta acabou de acontecer e nada foi
+   * distribuído ainda. Ele fica na ABA PRÉ-PROCESSUAIS do módulo de Processos —
+   * fora da lista padrão, que é a fila do que já corre em juízo — com o selo
+   * `SeloPreProcessual` e o botão "Ajuizar", que pede o número e puxa do DataJud
+   * ou deixa preencher à mão. Enquanto estiver nesta fase fica fora da varredura
+   * noturna do CNJ, porque não há o que consultar.
    *
-   * Herda o filiado e o advogado da atividade, para o rascunho já nascer na
-   * carteira certa em vez de virar um registro solto que alguém precisa adotar.
+   * Herda o filiado e o advogado da atividade, para o caso já nascer na carteira
+   * certa em vez de virar um registro solto que alguém precisa adotar.
    */
   private async criarPreProcessual(
     compromissoId: string,

@@ -98,6 +98,35 @@ describe('pré-processual: os dois rótulos', () => {
     expect(svc).not.toMatch(/statusInterno\s*!==\s*'PRE_PROCESSUAL'/);
   });
 
+  /**
+   * NOMENCLATURA — porque um estado com dois nomes na tela vira dois estados na
+   * cabeça de quem usa. Chegou a existir um momento em que concluir a atividade
+   * disparava DOIS avisos ao mesmo tempo: "processo aberto em rascunho" (modal)
+   * e "Caso aberto em fase pré-processual" (página).
+   *
+   * Aqui só o que o usuário LÊ. Identificador interno pode continuar com o nome
+   * antigo — `rascunhoCriado` na resposta da API existe de propósito, para o
+   * front anterior não quebrar durante a troca de contêiner.
+   */
+  it.each([
+    ['src/components/agenda/compromisso-drawer.tsx'],
+    ['src/components/agenda/concluir-modal.tsx'],
+    ['src/components/processos/ajuizar-caso-modal.tsx'],
+    ['src/components/processos/seletor-processo.tsx'],
+    ['src/components/ui/selo-pre-processual.tsx'],
+  ])('%s não mostra a palavra "rascunho" ao usuário', (arquivo) => {
+    const src = readFileSync(path.join(RAIZ, '../../apps/web', arquivo), 'utf8');
+    // Tira os comentários: eles explicam de onde viemos e citam o nome antigo
+    // de propósito. O `.` do JS não casa quebra de linha, então `//.*` para no
+    // fim da linha sozinho — sem precisar fatiar o arquivo.
+    const semComentario = src
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*/g, '');
+    const visivel = semComentario.replace(/rascunhoCriado/g, '');
+    expect(visivel).not.toMatch(/[Rr]ascunho/);
+  });
+
   /** Sem entrada no Record, a tela imprime `undefined` no lugar do status. */
   it('o front rotula e colore o legado igual ao novo', () => {
     const lib = readFileSync(path.join(RAIZ, '../../apps/web/src/lib/processos.ts'), 'utf8');

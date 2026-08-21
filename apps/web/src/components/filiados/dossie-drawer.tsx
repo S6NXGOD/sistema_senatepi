@@ -445,7 +445,7 @@ function AbaAgenda({ d, tipos }: { d: Dossie; tipos?: any[] }) {
               {c.atendimento && `Origem: triagem #${c.atendimento.numero}`}
               {c.atendimento && c.processo && ' · '}
               {c.processo &&
-                `Processo ${c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : c.processo.titulo ?? 'rascunho'}`}
+                `Processo ${c.processo.numeroCNJ ? formatNPU(c.processo.numeroCNJ) : c.processo.titulo ?? 'sem título'}`}
             </p>
           )}
         </li>
@@ -467,7 +467,7 @@ function AbaProcessos({ d }: { d: Dossie }) {
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             <Gavel className="h-3.5 w-3.5 shrink-0 text-brand-700 dark:text-brand-400" />
             <span className="font-mono text-sm font-semibold">
-              {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Rascunho'}
+              {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Caso sem título'}
             </span>
             <Badge className="bg-muted text-muted-foreground">
               {STATUS_PROCESSO_LABEL[p.statusInterno as keyof typeof STATUS_PROCESSO_LABEL] ??

@@ -104,6 +104,60 @@ export const PRE_PROCESSUAIS: StatusProcesso[] = [
 ];
 
 /**
+ * OS WHERES DOS FILTROS RÁPIDOS — a lista e o contador leem daqui, os dois.
+ *
+ * Ficam juntos porque contador que discorda da lista é pior do que contador
+ * nenhum: a aba diz "3", a pessoa clica, aparecem 2, e a partir daí ela não
+ * confia em número nenhum da tela. Enquanto a única definição estiver aqui, os
+ * dois não têm como divergir.
+ */
+export const FILTRO_RAPIDO = {
+  /** Casos abertos por desfecho da agenda e ainda não ajuizados. */
+  preProcessuais: (): Prisma.ProcessoWhereInput => ({
+    statusInterno: { in: PRE_PROCESSUAIS },
+  }),
+  /** Inclui os que a pessoa acompanha sem ser a responsável. */
+  meus: (usuarioId: string): Prisma.ProcessoWhereInput => ({
+    advogados: { some: { advogadoId: usuarioId } },
+  }),
+  /**
+   * O alerta que a equipe precisa resolver — e SÓ ele.
+   *
+   * AÇÃO INSTITUCIONAL FICA DE FORA. Nela o sindicato figura no polo ativo em
+   * nome da categoria inteira: não existe um filiado "dono", e o próprio schema
+   * diz que cobrar o vínculo ali "seria forçar um dado que não existe". Sem
+   * este recorte a fila virava alarme falso — medido na produção em 21/08/2026,
+   * ela apontava SEIS processos, todos institucionais e todos corretos. Fila de
+   * trabalho que aponta trabalho inexistente é pior que fila nenhuma: some
+   * junto com ela o caso individual de verdade, que é o único que importa.
+   */
+  semFiliado: (): Prisma.ProcessoWhereInput => ({
+    tipoAcao: TipoAcaoProcesso.INDIVIDUAL,
+    filiadoId: null,
+    partes: { none: { filiadoId: { not: null } } },
+  }),
+  /**
+   * Processo sem réu cadastrado — não dá para saber contra quem se litiga, e o
+   * DataJud nunca vai preencher isso sozinho.
+   */
+  semReu: (): Prisma.ProcessoWhereInput => ({
+    partes: { none: { polo: 'PASSIVO' } },
+  }),
+  /** Houve andamento (do CNJ ou interno) na janela. */
+  recentes: (dias: number, agora: Date): Prisma.ProcessoWhereInput => {
+    const desde = new Date(agora.getTime() - dias * 24 * 3600 * 1000);
+    return {
+      OR: [
+        { movimentacoes: { some: { dataMovimento: { gte: desde } } } },
+        { movimentacoesInternas: { some: { createdAt: { gte: desde } } } },
+      ],
+    };
+  },
+  /** Marcados como urgentes por uma pessoa. */
+  urgentes: (): Prisma.ProcessoWhereInput => ({ urgente: true }),
+} as const;
+
+/**
  * O WHERE de "status = X" da listagem.
  *
  * Existe como função para poder ser testada sozinha: a regra que ela guarda —
@@ -612,6 +666,48 @@ export class ProcessosService {
     return { nivel: ato.nivel, rotulo: ato.rotulo };
   }
 
+  /**
+   * OS NÚMEROS DAS ABAS.
+   *
+   * Nasceu de um problema concreto: a fila pré-processual É ESCONDIDA da lista
+   * padrão de propósito, e sem contador não havia como saber que existia algo
+   * lá. A pessoa tinha de clicar na aba e torcer. Um caso real ficou invisível
+   * por dias exatamente assim.
+   *
+   * Cada aba usa o MESMO `FILTRO_RAPIDO` que a listagem — é o que garante que o
+   * número bate com o que aparece ao clicar.
+   *
+   * A exclusão do pré-processual vale para TODAS as outras abas, igual à lista:
+   * "sem réu cadastrado" não pode contar um caso que ainda nem foi ajuizado,
+   * senão a aba promete três e entrega dois.
+   */
+  async contadores(usuarioId?: string) {
+    const foraDoPre: Prisma.ProcessoWhereInput = {
+      statusInterno: { notIn: PRE_PROCESSUAIS },
+    };
+    const e = (extra: Prisma.ProcessoWhereInput): Prisma.ProcessoWhereInput => ({
+      AND: [foraDoPre, extra],
+    });
+    const agora = new Date();
+
+    const [todos, preProcessuais, meus, semFiliado, semReu, recentes, urgentes] =
+      await this.prisma.$transaction([
+        this.prisma.processo.count({ where: foraDoPre }),
+        this.prisma.processo.count({ where: FILTRO_RAPIDO.preProcessuais() }),
+        // Sem usuário no contexto não há "meus": devolver o total inteiro aqui
+        // seria pior que devolver zero — a aba mentiria para todo mundo.
+        usuarioId
+          ? this.prisma.processo.count({ where: e(FILTRO_RAPIDO.meus(usuarioId)) })
+          : this.prisma.processo.count({ where: { id: '' } }),
+        this.prisma.processo.count({ where: e(FILTRO_RAPIDO.semFiliado()) }),
+        this.prisma.processo.count({ where: e(FILTRO_RAPIDO.semReu()) }),
+        this.prisma.processo.count({ where: e(FILTRO_RAPIDO.recentes(7, agora)) }),
+        this.prisma.processo.count({ where: e(FILTRO_RAPIDO.urgentes()) }),
+      ]);
+
+    return { todos, preProcessuais, meus, semFiliado, semReu, recentes, urgentes };
+  }
+
   async listar(q: ListProcessosQueryDto, usuarioId?: string) {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
@@ -648,15 +744,12 @@ export class ProcessosService {
 
     // ---- Filtros rápidos da tabela ----
     // "Meus processos": inclui os que o usuário acompanha sem ser o responsável.
-    if (q.meus === 'true' && usuarioId) and.push({ advogados: { some: { advogadoId: usuarioId } } });
-    // "Sem filiado vinculado": o alerta que a equipe precisa resolver.
-    if (q.semFiliado === 'true') and.push({ filiadoId: null, partes: { none: { filiadoId: { not: null } } } });
-    // "Sem parte contrária": processo sem réu cadastrado — não dá para saber
-    // contra quem se litiga, e o DataJud nunca vai preencher isso sozinho.
-    if (q.semParteContraria === 'true') and.push({ partes: { none: { polo: 'PASSIVO' } } });
+    if (q.meus === 'true' && usuarioId) and.push(FILTRO_RAPIDO.meus(usuarioId));
+    if (q.semFiliado === 'true') and.push(FILTRO_RAPIDO.semFiliado());
+    if (q.semParteContraria === 'true') and.push(FILTRO_RAPIDO.semReu());
     if (q.etiqueta) and.push({ etiquetas: { has: q.etiqueta } });
     if (q.categoria) and.push({ categoria: q.categoria });
-    if (q.urgente === 'true') and.push({ urgente: true });
+    if (q.urgente === 'true') and.push(FILTRO_RAPIDO.urgentes());
     // "Fase processual": o mesmo critério de `faseDoProcesso`, traduzido para
     // WHERE. As duas leituras têm de coincidir — um processo que a tabela mostra
     // como "Execução" precisa aparecer no filtro "Execução", senão o chip mente.
@@ -684,14 +777,7 @@ export class ProcessosService {
     }
     // "Com movimentação recente": houve andamento (do CNJ ou interno) na janela.
     if (q.movimentacaoRecente) {
-      const dias = Number(q.movimentacaoRecente) || 7;
-      const desde = new Date(Date.now() - dias * 24 * 3600 * 1000);
-      and.push({
-        OR: [
-          { movimentacoes: { some: { dataMovimento: { gte: desde } } } },
-          { movimentacoesInternas: { some: { createdAt: { gte: desde } } } },
-        ],
-      });
+      and.push(FILTRO_RAPIDO.recentes(Number(q.movimentacaoRecente) || 7, new Date()));
     }
     const busca = q.busca?.trim();
     if (busca) {
