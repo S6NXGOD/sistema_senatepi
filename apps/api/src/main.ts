@@ -1,4 +1,5 @@
 import { StorageService } from '@core/infra';
+import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -16,10 +17,89 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
 
-  // Serve arquivos do driver de armazenamento local em /uploads
+  /**
+   * CABEÇALHOS DE SEGURANÇA (Helmet).
+   *
+   * Vem ANTES de tudo para valer inclusive nas respostas de erro e nos
+   * arquivos estáticos.
+   *
+   * DUAS OPÇÕES SÃO DESLIGADAS DE PROPÓSITO, e nenhuma das duas por descuido:
+   *
+   * · `contentSecurityPolicy: false` — esta é uma API JSON, e a CSP padrão do
+   *   Helmet (`default-src 'self'`) quebraria o Swagger, que carrega o próprio
+   *   bundle inline. A CSP que interessa aqui é a de `/uploads`, e ela é
+   *   aplicada lá embaixo — apertada, no lugar exato onde há conteúdo enviado
+   *   por usuário.
+   *
+   * · `crossOriginResourcePolicy: false` — o padrão do Helmet é `same-origin`,
+   *   e o front roda em OUTRO domínio (`sistemasenatepi.up.railway.app` contra
+   *   `sistemasenatepi-api...`). Deixar o padrão faria o navegador recusar toda
+   *   foto de filiado e todo logo carregado da API — a tela inteira ficaria sem
+   *   imagem. É exatamente o tipo de "endurecimento" que derruba produção.
+   *
+   * O resto entra: HSTS, `nosniff`, `frameguard`, `Referrer-Policy` e
+   * `X-DNS-Prefetch-Control`.
+   *
+   * O `Referrer-Policy` não é detalhe: há credencial viajando em QUERY STRING
+   * (o `presencaId` da sala virtual, em `/sala/:id/ao-vivo?presencaId=...`).
+   * Sem a política, um clique num link externo mandaria a URL inteira — com a
+   * credencial de voto — no cabeçalho `Referer` do site de destino.
+   */
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: false,
+      // O front é servido de outro domínio e não embute a API; negar
+      // enquadramento aqui não quebra nada e barra clickjacking no Swagger.
+      frameguard: { action: 'deny' },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      hsts: { maxAge: 15_552_000, includeSubDomains: true, preload: false },
+    }),
+  );
+
+  /**
+   * Arquivos do driver LOCAL em /uploads.
+   *
+   * ESTA É A PASTA QUE GUARDA DOCUMENTO PESSOAL — laudo, RG, termo assinado.
+   * Ela é servida sem autenticação (as chaves são UUID, então a URL é a
+   * credencial), e enquanto for assim os cabeçalhos abaixo são a única proteção
+   * que resta. Cada um responde a um risco concreto:
+   *
+   * · `Content-Security-Policy: default-src 'none'; sandbox` — NEUTRALIZA XSS
+   *   ARMAZENADO. Um arquivo `.svg` ou `.html` aqui é servido pelo domínio da
+   *   API e executaria script na origem dela. Com `sandbox` e `default-src
+   *   'none'`, o navegador se recusa a rodar qualquer coisa — o arquivo vira
+   *   dado inerte, que é tudo que um anexo deveria ser.
+   *
+   * · `X-Content-Type-Options: nosniff` — impede o navegador de "adivinhar"
+   *   que um arquivo declarado como texto é na verdade HTML.
+   *
+   * · `X-Robots-Tag: noindex` — basta UMA dessas URLs vazar num e-mail
+   *   encaminhado ou num print para o buscador indexar o documento e ele
+   *   passar a ser encontrável por qualquer pessoa, para sempre.
+   *
+   * · `Cache-Control: private, no-store` — tira o documento do cache de proxy
+   *   corporativo e do disco do navegador em máquina compartilhada.
+   *
+   * · `dotfiles: 'deny'` e `index: false` — nada de `.env` esquecido na pasta
+   *   nem listagem de diretório.
+   */
   const storage = app.get(StorageService);
   if (storage.isLocal) {
-    app.useStaticAssets(storage.diretorioLocal, { prefix: '/uploads/' });
+    app.useStaticAssets(storage.diretorioLocal, {
+      prefix: '/uploads/',
+      dotfiles: 'deny',
+      index: false,
+      setHeaders: (res) => {
+        res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+        res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+        // Força download em vez de renderização para tudo que não for imagem
+        // conhecida — ver `deveBaixar`. Um PDF continua abrindo na aba.
+        res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+      },
+    });
   }
 
   /**

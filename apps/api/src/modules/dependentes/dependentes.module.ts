@@ -296,7 +296,7 @@ class DependentesController {
 
   @Post('dependentes/:id/foto')
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('foto'))
+  @UseInterceptors(FileInterceptor('foto', { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
   foto(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('Arquivo "foto" é obrigatório');
     return this.service.atualizarFoto(id, file.buffer);

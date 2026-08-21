@@ -94,7 +94,7 @@ export class ColaboradoresController {
   @Post(':id/foto')
   @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('foto'))
+  @UseInterceptors(FileInterceptor('foto', { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
   foto(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
@@ -108,7 +108,7 @@ export class ColaboradoresController {
   @Post(':id/documentos')
   @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('arquivo'))
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 15 * 1024 * 1024, files: 1 } }))
   addDocumento(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,

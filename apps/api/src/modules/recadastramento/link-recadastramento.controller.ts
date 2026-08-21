@@ -9,6 +9,7 @@ import { UserRole } from '@prisma/client';
 import { LinkRecadastramentoService } from './link-recadastramento.service';
 import { UpdateFiliadoDto } from '../filiados/dto/filiado.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
@@ -69,8 +70,17 @@ export class RecadastroPublicoController {
     return this.service.abrir(token, req.ip);
   }
 
-  /** Confere a identidade e devolve o cadastro para edição. */
+  /**
+   * Confere a identidade e devolve o cadastro para edição.
+   *
+   * LIMITE PRÓPRIO: o desafio (CPF+nascimento ou COREN) é o SEGUNDO fator do
+   * link — é ele que protege quem encaminhou o e-mail para a pessoa errada, ou
+   * teve o link lido por cima do ombro. Sem limite, esse fator cai por força
+   * bruta: data de nascimento tem ~36 mil combinações úteis, e a 120/min isso
+   * sai em cinco horas. A 10/min, não sai.
+   */
   @Post(':token/validar')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   validar(
     @Param('token') token: string,
     @Body() body: { cpf?: string; dataNascimento?: string; coren?: string },

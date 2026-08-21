@@ -13,6 +13,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import {
   Prisma,
@@ -47,6 +48,23 @@ const STATUS_LABEL: Record<StatusColaborador, string> = {
   FERIAS: 'Férias',
   DESLIGADO: 'Desligado',
 };
+
+/**
+ * Formatos aceitos no documento do colaborador — a MESMA lista de filiados e
+ * de anexos. Três cópias da lista é uma a mais do que deveria existir; a
+ * unificação fica para depois da eleição, porque mexer nos três caminhos de
+ * upload no meio dela não vale o risco.
+ */
+const MIME_DOCUMENTO: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+};
+
+/** Teto de 15 MB — o mesmo de `ANEXO_TAMANHO_MAX`. */
+const DOCUMENTO_TAMANHO_MAX = 15 * 1024 * 1024;
 
 /** Cores do crachá (as mesmas da carteirinha do filiado). */
 const VERDE_ESCURO = '#1B7F0A';
@@ -398,8 +416,28 @@ export class ColaboradoresService {
     const c = await this.prisma.colaborador.findUnique({ where: { id }, select: { id: true } });
     if (!c) throw new NotFoundException('Colaborador não encontrado.');
 
-    const ext = arquivo.originalname.split('.').pop() ?? 'bin';
-    const storageKey = `colaboradores/${id}/documentos/${Date.now()}.${ext}`;
+    /**
+     * VALIDAÇÃO DE TIPO — que aqui simplesmente não existia.
+     *
+     * O documento do filiado já passava por uma lista de MIME permitidos; o do
+     * colaborador aceitava qualquer coisa, com a extensão vinda do nome enviado.
+     * Como `/uploads` é servido estático e o `Content-Type` da resposta sai da
+     * EXTENSÃO em disco, um `.svg` ou `.html` gravado aqui executaria script na
+     * origem da API — a mesma que serve todo documento pessoal do sindicato.
+     *
+     * A extensão passa a sair do MIME validado, e o nome enviado deixa de
+     * influenciar o que quer que seja.
+     */
+    const ext = MIME_DOCUMENTO[arquivo.mimetype];
+    if (!ext) {
+      throw new BadRequestException(
+        'Formato não permitido. Use PDF, DOC, DOCX, JPG ou PNG.',
+      );
+    }
+    if (arquivo.size > DOCUMENTO_TAMANHO_MAX) {
+      throw new BadRequestException('Arquivo maior que 15 MB.');
+    }
+    const storageKey = `colaboradores/${id}/documentos/${randomUUID()}.${ext}`;
     await this.storage.upload(storageKey, arquivo.buffer, arquivo.mimetype);
 
     const documento = await this.prisma.documento.create({

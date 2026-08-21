@@ -75,13 +75,52 @@ export class AuthService {
     return { accessToken, refreshToken, refreshExpiraEm };
   }
 
+  /**
+   * REGISTRA A TENTATIVA RECUSADA.
+   *
+   * Antes, só o login BEM-SUCEDIDO ia para a auditoria — e uma trilha que só
+   * guarda sucesso não serve para investigar invasão. Depois de um incidente,
+   * a pergunta é sempre "tentaram entrar antes?", e a resposta era um silêncio
+   * indistinguível de "ninguém tentou".
+   *
+   * NÃO CRIA VALOR DE ENUM NOVO de propósito: `AcaoAuditoria` é um enum do
+   * Postgres, e acrescentar `LOGIN_FALHA` exigiria migration. Isto entra no ar
+   * durante uma eleição — registro novo não vale um ALTER TYPE. Fica como
+   * LOGIN com `sucesso: false` no metadata, que é filtrável do mesmo jeito.
+   *
+   * O E-MAIL TENTADO ENTRA, A SENHA NÃO. Registrar a senha errada é o clássico
+   * jeito de vazar a senha CERTA — ela quase sempre aparece na tentativa
+   * seguinte, com um caractere a mais.
+   *
+   * Falhar aqui nunca pode derrubar o login: a auditoria é melhor-esforço.
+   */
+  private async registrarLoginRecusado(email: string, motivo: string, ctx: RequestContext) {
+    await this.audit
+      .registrar({
+        userId: null,
+        acao: AcaoAuditoria.LOGIN,
+        descricao: `Tentativa de login RECUSADA (${motivo}).`,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { sucesso: false, motivo, emailTentado: email?.slice(0, 120) ?? null },
+      })
+      .catch(() => undefined);
+  }
+
   async login(dto: LoginDto, ctx: RequestContext) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (!user || !user.ativo) {
+      // O motivo separa "conta não existe" de "conta desativada" NA TRILHA, sem
+      // mudar a mensagem devolvida — quem está do lado de fora continua vendo
+      // sempre a mesma coisa, que é o que impede enumerar usuário.
+      await this.registrarLoginRecusado(dto.email, user ? 'conta inativa' : 'usuário inexistente', ctx);
       throw new UnauthorizedException('Credenciais inválidas');
     }
     const ok = await bcrypt.compare(dto.senha, user.senhaHash);
-    if (!ok) throw new UnauthorizedException('Credenciais inválidas');
+    if (!ok) {
+      await this.registrarLoginRecusado(dto.email, 'senha incorreta', ctx);
+      throw new UnauthorizedException('Credenciais inválidas');
+    }
 
     const payload: JwtPayload = {
       sub: user.id,

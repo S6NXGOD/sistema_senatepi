@@ -64,9 +64,30 @@ export class StorageService {
     return this.driver === 'local';
   }
 
+  /**
+   * A CHAVE NÃO PODE ESCAPAR DA PASTA — defesa em profundidade.
+   *
+   * Hoje toda chave é montada pelo servidor (`filiados/<uuid>/...`), então não
+   * há caminho de ataque conhecido. Mas `path.join` resolve `..` alegremente, e
+   * a distância entre "seguro" e "gravação arbitrária em disco" é UMA linha —
+   * basta alguém, um dia, montar a chave a partir do nome do arquivo enviado.
+   * (Foi quase isso que aconteceu com a EXTENSÃO dos documentos, que vinha do
+   * `originalname` e permitia gravar `.svg`.)
+   *
+   * Conferir o caminho RESOLVIDO custa microssegundos e fecha a classe inteira.
+   */
+  private caminhoLocalSeguro(key: string): string {
+    const destino = path.resolve(this.localDir, key);
+    const raiz = this.localDir.endsWith(path.sep) ? this.localDir : this.localDir + path.sep;
+    if (destino !== this.localDir && !destino.startsWith(raiz)) {
+      throw new Error(`Chave de armazenamento inválida: "${key}" escapa do diretório.`);
+    }
+    return destino;
+  }
+
   async upload(key: string, body: Buffer, contentType: string): Promise<string> {
     if (this.driver === 'local') {
-      const destino = path.join(this.localDir, key);
+      const destino = this.caminhoLocalSeguro(key);
       await fs.mkdir(path.dirname(destino), { recursive: true });
       await fs.writeFile(destino, body);
     } else {
@@ -85,7 +106,7 @@ export class StorageService {
 
   async delete(key: string): Promise<void> {
     if (this.driver === 'local') {
-      await fs.unlink(path.join(this.localDir, key)).catch(() => undefined);
+      await fs.unlink(this.caminhoLocalSeguro(key)).catch(() => undefined);
     } else {
       await this.client!.send(
         new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
@@ -97,7 +118,7 @@ export class StorageService {
   async getBuffer(key: string): Promise<Buffer | null> {
     try {
       if (this.driver === 'local') {
-        return await fs.readFile(path.join(this.localDir, key));
+        return await fs.readFile(this.caminhoLocalSeguro(key));
       }
       const res = await this.client!.send(
         new GetObjectCommand({ Bucket: this.bucket, Key: key }),

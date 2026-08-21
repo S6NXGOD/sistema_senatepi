@@ -25,6 +25,7 @@ import {
   TipoHistoricoFiliado,
   TipoPessoa,
 } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -48,12 +49,29 @@ import {
 } from './dto/filiado.dto';
 import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
 
-const MIME_PERMITIDOS: Record<string, true> = {
-  'application/pdf': true,
-  'application/msword': true,
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
-  'image/jpeg': true,
-  'image/png': true,
+/**
+ * Formatos aceitos — e a EXTENSÃO que cada um recebe ao ser gravado.
+ *
+ * O MAPA PASSOU A APONTAR PARA A EXTENSÃO, e não mais para `true`, porque era
+ * dela que vinha o furo: o MIME era conferido aqui, mas a extensão gravada saía
+ * de `arquivo.originalname` — escolhida por quem envia. Como o `/uploads` é
+ * servido por `express.static`, quem manda no `Content-Type` da resposta é a
+ * EXTENSÃO do arquivo em disco, não o MIME que validamos.
+ *
+ * A consequência era concreta: bastava enviar um PDF de verdade (MIME válido)
+ * com o nome `laudo.svg`. O arquivo era aceito, gravado como `.svg` e servido
+ * como `image/svg+xml` — e SVG executa script. Como o domínio é o da API, o
+ * script rodaria na origem que serve TODOS os documentos pessoais.
+ *
+ * Derivando a extensão do MIME já validado, o nome enviado deixa de influenciar
+ * qualquer coisa. É o mesmo desenho que `AnexosService` já usava.
+ */
+const MIME_PERMITIDOS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
 };
 
 const VERDE_ESCURO = '#1B7F0A';
@@ -655,11 +673,16 @@ export class FiliadosService {
     tipo?: string,
   ) {
     await this.findOne(id);
-    if (!MIME_PERMITIDOS[arquivo.mimetype])
+    const ext = MIME_PERMITIDOS[arquivo.mimetype];
+    if (!ext)
       throw new BadRequestException('Formato não permitido. Use PDF, DOC, DOCX, JPG ou PNG.');
 
-    const ext = arquivo.originalname.split('.').pop() ?? 'bin';
-    const storageKey = `filiados/${id}/documentos/${Date.now()}.${ext}`;
+    // `randomUUID` no lugar de `Date.now()`: o carimbo de tempo é adivinhável, e
+    // como a URL do arquivo É a credencial de acesso (ver `getSignedUrl` no
+    // driver local), um nome previsível transforma "quem tem o link" em "quem
+    // sabe a data". O id do filiado continua no caminho, mas ele só é conhecido
+    // por quem já tem acesso ao cadastro.
+    const storageKey = `filiados/${id}/documentos/${randomUUID()}.${ext}`;
     await this.storage.upload(storageKey, arquivo.buffer, arquivo.mimetype);
 
     // Tipo válido classifica o arquivo na aba Documentos; qualquer outra coisa

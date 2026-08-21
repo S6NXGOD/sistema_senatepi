@@ -11,6 +11,7 @@ import { DossieEventoService } from './dossie-evento.service';
 import { CertificadoService } from './certificado.service';
 import { EncerramentoService } from './encerramento.service';
 import { PresencaListaService } from './presenca-lista.service';
+import { IntegridadeAssembleiaService } from './integridade.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -61,6 +62,7 @@ export class PlenarioAdminController {
     private readonly certificado: CertificadoService,
     private readonly encerramento: EncerramentoService,
     private readonly presencaLista: PresencaListaService,
+    private readonly integridade: IntegridadeAssembleiaService,
   ) {}
 
   @Get('pautas')
@@ -222,6 +224,28 @@ export class PlenarioAdminController {
     @CurrentUser('nome') autor: string,
   ) {
     return this.presencaLista.vincular(eventoId, presencaId, dto.filiadoId, autor);
+  }
+
+  /**
+   * INTEGRIDADE — o que olhar antes de homologar.
+   *
+   * Não bloqueia nada e não acusa ninguém: mostra à mesa os padrões de
+   * check-in remoto que merecem uma pergunta (mesmo endereço com vários
+   * participantes, check-ins em rajada). Ver `IntegridadeAssembleiaService`
+   * para por que isto é visibilidade, e não trava.
+   *
+   * Restrito à mesa: é lista de gente com IP e horário, não vai ao telão.
+   */
+  @Get('integridade')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  resumoIntegridade(@Param('eventoId') eventoId: string) {
+    return this.integridade.resumoIntegridade(eventoId);
+  }
+
+  @Get('integridade/presencas-por-origem')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  presencasPorOrigem(@Param('eventoId') eventoId: string) {
+    return this.integridade.presencasPorOrigem(eventoId);
   }
 
   /** Quem tem direito a certificado, já com o código de verificação. */
