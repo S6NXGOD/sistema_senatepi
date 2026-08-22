@@ -25,7 +25,7 @@ import {
   TIPO_VINCULO_LABEL,
 } from '@/lib/colaboradores';
 import { useAuth } from '@/lib/auth';
-import { podeExcluir } from '@/lib/permissoes';
+import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { StatusModal } from '@/components/colaboradores/status-modal';
 import { CrachaDialog } from '@/components/colaboradores/cracha-dialog';
 
@@ -41,6 +41,12 @@ export default function ColaboradorDetalhePage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
+  /**
+   * O `GateDePermissao` já barra a ROTA de edição — mas oferecer um botão que
+   * leva a uma tela de recusa é um jeito ruim de informar. Aqui o botão
+   * simplesmente não existe para quem só consulta.
+   */
+  const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'colaboradores') === 'EDITAR';
   const [statusAberto, setStatusAberto] = useState(false);
   const [crachaAberto, setCrachaAberto] = useState(false);
   const [enviandoDoc, setEnviandoDoc] = useState(false);
@@ -108,8 +114,12 @@ export default function ColaboradorDetalhePage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setCrachaAberto(true)}><QrCode className="h-4 w-4" /> Crachá e QR</Button>
-          <Button variant="outline" onClick={() => setStatusAberto(true)}><ShieldCheck className="h-4 w-4" /> Alterar status</Button>
-          <Link href={`/colaboradores/${c.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
+          {podeEditar && (
+            <>
+              <Button variant="outline" onClick={() => setStatusAberto(true)}><ShieldCheck className="h-4 w-4" /> Alterar status</Button>
+              <Link href={`/colaboradores/${c.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -195,12 +205,14 @@ export default function ColaboradorDetalhePage() {
           <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Documentos</CardTitle>
-              <div>
-                <input type="file" id="doc-colab" className="hidden" onChange={onDoc} />
-                <Button variant="outline" size="sm" disabled={enviandoDoc} onClick={() => document.getElementById('doc-colab')?.click()}>
-                  {enviandoDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Anexar
-                </Button>
-              </div>
+              {podeEditar && (
+                <div>
+                  <input type="file" id="doc-colab" className="hidden" onChange={onDoc} />
+                  <Button variant="outline" size="sm" disabled={enviandoDoc} onClick={() => document.getElementById('doc-colab')?.click()}>
+                    {enviandoDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Anexar
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {!c.documentos || c.documentos.length === 0 ? (

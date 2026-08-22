@@ -530,6 +530,34 @@ export class PartesExternasService {
       );
     }
 
+    /**
+     * A IDENTIDADE QUE VAI VALER DEPOIS DA MESCLAGEM — calculada ANTES de mexer
+     * em qualquer linha.
+     *
+     * Três tabelas guardam uma CÓPIA do nome da organização, e cada uma por um
+     * motivo legítimo:
+     *
+     *   · `partes_processo.nome`     — o nome como consta NOS AUTOS;
+     *   · `vinculos_profissionais.empresa` — texto livre, para o vínculo
+     *     sobreviver à exclusão da organização;
+     *   · `empresas.razao_social/cnpj`    — reserva do dossiê patronal.
+     *
+     * Numa exclusão, essas cópias são o que salva o histórico. Numa MESCLAGEM,
+     * elas viram o problema: a organização não sumiu, foi absorvida — e deixar a
+     * cópia com o nome antigo é exatamente a "informação dispersa" que a
+     * mesclagem existe para acabar. O dossiê do filiado mostraria "PRONTOCARE"
+     * enquanto o vínculo aponta para "PRONTOCARE CLINICA E ATENDIMENTOS LTDA".
+     *
+     * Calculada aqui, e não no fim, porque a que fica ainda vai HERDAR campos em
+     * branco da duplicada (o CNPJ, por exemplo). Usar `fica` cru gravaria nas
+     * cópias um documento nulo que, dois passos depois, deixa de ser nulo.
+     */
+    const identidade = {
+      nome: fica.nome,
+      nomeFantasia: fica.nomeFantasia ?? dup.nomeFantasia,
+      documento: fica.documento ?? dup.documento,
+    };
+
     const resumo = await this.prisma.$transaction(async (tx) => {
       // ---- 1. participações em processos ----------------------------------
       const doDup = await tx.parteProcesso.findMany({
@@ -555,7 +583,7 @@ export class PartesExternasService {
           // a tela mostraria o nome do cadastro que acabou de deixar de existir.
           await tx.parteProcesso.update({
             where: { id: linha.id },
-            data: { parteExternaId: ficaId, nome: fica.nome, documento: fica.documento },
+            data: { parteExternaId: ficaId, nome: identidade.nome, documento: identidade.documento },
           });
           repontados++;
           continue;
@@ -593,9 +621,15 @@ export class PartesExternasService {
 
       // ---- 2. vínculos de emprego -----------------------------------------
       // Não há unicidade por organização aqui: repontar todos é seguro.
+      //
+      // `empresa` é TEXTO LIVRE e vai junto. Ele existe para o vínculo
+      // sobreviver à exclusão da organização — mas aqui ela não foi excluída,
+      // foi absorvida, e deixar o nome velho faria o dossiê do filiado exibir
+      // uma organização que não existe mais enquanto o vínculo aponta para
+      // outra. É a informação dispersa que a mesclagem veio resolver.
       const vinculos = await tx.vinculoProfissional.updateMany({
         where: { parteExternaId: duplicadaId },
-        data: { parteExternaId: ficaId },
+        data: { parteExternaId: ficaId, empresa: identidade.nome },
       });
 
       // ---- 3. dossiê patronal ---------------------------------------------
@@ -604,7 +638,16 @@ export class PartesExternasService {
       if (dup.dossiePatronal) {
         await tx.empresa.update({
           where: { id: dup.dossiePatronal.id },
-          data: { parteExternaId: ficaId },
+          // As colunas de `empresas` são SNAPSHOT DE RESERVA: a identidade
+          // exibida é lida da organização, mas a tabela não tem tela de edição
+          // própria. Sem atualizá-las, a reserva ficaria nomeando um cadastro
+          // que acabou de deixar de existir.
+          data: {
+            parteExternaId: ficaId,
+            razaoSocial: identidade.nome,
+            nomeFantasia: identidade.nomeFantasia,
+            ...(identidade.documento ? { cnpj: identidade.documento } : {}),
+          },
         });
         dossieMovido = true;
       }

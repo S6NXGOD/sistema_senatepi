@@ -185,3 +185,52 @@ describe('nome só de palavras genéricas', () => {
     expect(r).toEqual([]);
   });
 });
+
+/**
+ * A SIGLA É NOME — foi o que faltava para os dois SENATEPI se enxergarem.
+ *
+ * O cadastro de produção tinha `nome = "SENATEPI"` e, separado, a razão social
+ * inteira com `nomeFantasia = "SENATEPI"`. A comparação só olhava `nome`, e as
+ * palavras significativas dos dois não têm nada em comum — cada um seguia
+ * invisível para o outro.
+ *
+ * E a sigla é o que as pessoas DIGITAM: ninguém escreve "SINDICATO DOS
+ * ENFERMEIROS E TÉCNICOS DE ENFERMAGEM DO ESTADO DO PIAUÍ" no meio de um
+ * atendimento. Ignorá-la deixava a duplicata nascer pelo caminho mais provável.
+ */
+describe('a sigla conta como nome', () => {
+  const razaoSocialComSigla = {
+    id: 'b',
+    nome: 'SINDICATO DOS ENFERMEIROS E TÉCNICOS DE ENFERMAGEM DO ESTADO DO PIAUÍ',
+    nomeFantasia: 'SENATEPI',
+    documento: null,
+  };
+
+  it('digitar a sigla acha quem a tem como nome fantasia', () => {
+    const r = partesParecidas('SENATEPI', null, [razaoSocialComSigla], 5);
+    expect(r).toHaveLength(1);
+    expect(r[0].motivo).toBe('MESMO_NOME');
+  });
+
+  it('sigla parcial também acha', () => {
+    const r = partesParecidas('SENATEPI PIAUI', null, [razaoSocialComSigla], 5);
+    expect(r).toHaveLength(1);
+  });
+
+  /** Sem sigla no candidato, nada muda — o caminho antigo continua valendo. */
+  it('candidato sem sigla segue comparado só pelo nome', () => {
+    const r = partesParecidas('PRONTOCARE', null, [{ id: 'x', nome: 'PRONTOCARE CLINICA', documento: null }], 5);
+    expect(r[0]?.motivo).toBe('CONTIDO');
+  });
+
+  /** Siglas DIFERENTES não podem virar indício de nada. */
+  it('siglas diferentes não se apontam', () => {
+    const r = partesParecidas(
+      'SEMEC',
+      null,
+      [{ id: 'y', nome: 'SECRETARIA DE SAÚDE', nomeFantasia: 'SESAPI', documento: null }],
+      5,
+    );
+    expect(r).toEqual([]);
+  });
+});

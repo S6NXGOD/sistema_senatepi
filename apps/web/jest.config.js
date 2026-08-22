@@ -16,6 +16,7 @@ module.exports = {
   testRegex: '.*\.spec\.tsx?$',
   transform: { '^.+\.(t|j)sx?$': ['ts-jest', { tsconfig: { jsx: 'react-jsx' } }] },
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
   testPathIgnorePatterns: ['/node_modules/', '/.next', '/e2e/'],
 };

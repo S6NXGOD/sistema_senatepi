@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore, persistentStore } from './api';
 
 import type { MatrizPermissoes, PerfilUsuario } from './permissoes';
@@ -74,8 +75,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  /**
+   * O CACHE DE CONSULTAS PERTENCE À SESSÃO, E PRECISA MORRER COM ELA.
+   *
+   * O react-query guarda a resposta de cada consulta por chave — `['processos',
+   * …]`, `['dashboard']`, `['filiados', …]` — e a chave NÃO inclui quem
+   * perguntou. Sair e entrar com outra conta na mesma aba deixava o cache
+   * inteiro de pé: a tela abria com os dados de quem saiu e só trocava quando a
+   * consulta nova voltasse. Relatado como "resquícios da outra sessão" —
+   * processos de uma carteira aparecendo para quem não tem nada com ela.
+   *
+   * Pior que confuso: é dado de uma pessoa exibido para outra. A API nunca
+   * chegou a mandar aquilo para a segunda conta — quem mostrou foi o navegador.
+   *
+   * `clear()` nos DOIS lados. No logout pelo motivo óbvio; no login porque nada
+   * garante que houve logout antes — sessão expirada, aba reaberta, token
+   * revogado. Limpar ao entrar é o que fecha o caso em que ninguém saiu.
+   */
+  const qc = useQueryClient();
+
   async function login(email: string, senha: string, lembrar = false) {
     const { data } = await api.post('/auth/login', { email, senha, lembrar });
+    // ANTES de guardar o novo usuário: se alguma tela ainda estiver montada,
+    // ela não pode ler o cache do anterior nem por um render.
+    qc.clear();
     tokenStore.set(data.accessToken, data.refreshToken);
     persistentStore.set(USER_KEY, JSON.stringify(data.user));
     setUser(data.user);
@@ -91,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenStore.clear();
     persistentStore.remove(USER_KEY);
     setUser(null);
+    qc.clear();
     router.push('/login');
   }
 

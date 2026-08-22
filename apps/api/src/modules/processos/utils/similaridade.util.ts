@@ -130,6 +130,23 @@ export type MotivoSemelhanca =
 export interface Candidato {
   id: string;
   nome: string;
+  /**
+   * A SIGLA CONTA TANTO QUANTO O NOME — e ficou de fora até 22/08/2026.
+   *
+   * A comparação só olhava `nome`, e o cadastro de produção tinha DOIS
+   * SENATEPI: um com `nome = "SENATEPI"` e outro com a razão social inteira
+   * ("SINDICATO DOS ENFERMEIROS E TÉCNICOS DE ENFERMAGEM DO ESTADO DO PIAUÍ") e
+   * `nomeFantasia = "SENATEPI"`. Nenhum dos dois enxergava o outro, porque as
+   * palavras significativas de cada nome não têm nada em comum.
+   *
+   * E a sigla é justamente o que as pessoas DIGITAM: ninguém escreve a razão
+   * social por extenso no meio de um atendimento. Ignorá-la deixava a duplicata
+   * nascer pelo caminho mais provável de todos.
+   *
+   * Sigla é indício FORTE, não fraco: "SEMEC", "HUT", "SESAPI" identificam de
+   * verdade — ao contrário de "hospital" ou "município", que são ruído.
+   */
+  nomeFantasia?: string | null;
   documento?: string | null;
 }
 
@@ -170,35 +187,58 @@ export function partesParecidas<T extends Candidato>(
   const achados: Semelhante<T>[] = [];
 
   for (const c of candidatos) {
-    const cNome = normalizar(c.nome);
     const cDoc = (c.documento ?? '').replace(/\D/g, '');
 
     if (doc.length >= 11 && cDoc === doc) {
       achados.push({ parte: c, motivo: 'MESMO_DOCUMENTO', forca: 1 });
       continue;
     }
-    if (cNome === nome) {
-      achados.push({ parte: c, motivo: 'MESMO_NOME', forca: 0.95 });
-      continue;
+
+    /*
+      CADA CANDIDATO TEM DOIS NOMES: a razão social e a sigla. O melhor
+      resultado entre os dois é o que vale — foi o que faltava para os dois
+      SENATEPI se enxergarem (um se chama assim, o outro tem isso como sigla).
+    */
+    const conhecidos = [c.nome, c.nomeFantasia].filter(
+      (n): n is string => !!n && !!n.trim(),
+    );
+
+    // Junta o que cada nome conhecido rendeu e fica com o mais forte. Um array
+    // em vez de um acumulador em closure: o TypeScript não estreita bem uma
+    // variável escrita dentro de função, e o código ficaria cheio de asserção.
+    const notas: Array<{ motivo: MotivoSemelhanca; forca: number }> = [];
+    const considerar = (motivo: MotivoSemelhanca, forca: number) => {
+      notas.push({ motivo, forca });
+    };
+
+    for (const bruto of conhecidos) {
+      const cNome = normalizar(bruto);
+      if (cNome === nome) {
+        considerar('MESMO_NOME', 0.95);
+        continue;
+      }
+
+      const cPalavras = palavrasSignificativas(bruto, ruidoExtra);
+      if (!palavras.length || !cPalavras.length) continue;
+
+      const comuns = palavras.filter((p) => cPalavras.includes(p));
+      if (!comuns.length) continue;
+
+      // Um contém o outro: o caso clássico do nome curto x razão social completa.
+      const contido =
+        comuns.length === palavras.length || comuns.length === cPalavras.length;
+      if (contido) {
+        considerar('CONTIDO', 0.9);
+        continue;
+      }
+
+      // Dice: o dobro da interseção sobre a soma dos tamanhos.
+      const dice = (2 * comuns.length) / (palavras.length + cPalavras.length);
+      if (dice >= 0.5) considerar('PALAVRAS_EM_COMUM', dice);
     }
 
-    const cPalavras = palavrasSignificativas(c.nome, ruidoExtra);
-    if (!palavras.length || !cPalavras.length) continue;
-
-    const comuns = palavras.filter((p) => cPalavras.includes(p));
-    if (!comuns.length) continue;
-
-    // Um contém o outro: o caso clássico do nome curto x razão social completa.
-    const contido =
-      comuns.length === palavras.length || comuns.length === cPalavras.length;
-    if (contido) {
-      achados.push({ parte: c, motivo: 'CONTIDO', forca: 0.9 });
-      continue;
-    }
-
-    // Dice: o dobro da interseção sobre a soma dos tamanhos.
-    const dice = (2 * comuns.length) / (palavras.length + cPalavras.length);
-    if (dice >= 0.5) achados.push({ parte: c, motivo: 'PALAVRAS_EM_COMUM', forca: dice });
+    const melhor = notas.sort((a, b) => b.forca - a.forca)[0];
+    if (melhor) achados.push({ parte: c, motivo: melhor.motivo, forca: melhor.forca });
   }
 
   return achados
