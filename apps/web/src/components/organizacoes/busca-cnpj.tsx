@@ -10,54 +10,70 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { AvisoDuplicatas } from './aviso-duplicatas';
 import {
-  consultarCnpj, formatDocumento, type ConsultaCnpj, type ParteExterna, type ParteParecida,
+  consultarCnpj, formatDocumento, mascararDocumento,
+  type ConsultaCnpj, type ParteExterna, type ParteParecida,
 } from '@/lib/partes';
 
 /**
- * BUSCA POR CNPJ — o mesmo bloco para Organizações e para partes do processo.
+ * O CAMPO DE DOCUMENTO, COM A CONSULTA À RECEITA DENTRO DELE.
  *
- * POR QUE ISTO É ANTIDUPLICAÇÃO, E NÃO PREENCHIMENTO.
+ * POR QUE ERAM DOIS CAMPOS, E VIROU UM SÓ.
  *
- * Preencher o formulário sozinho é o efeito visível; o valor está no que
- * acontece ANTES. A duplicata não nasce por descuido — nasce porque quem
- * cadastra não tem como saber que a organização já existe com outro nome.
- * "PRONTOCARE" e "PRONTOCARE CLINICA E ATENDIMENTOS LTDA" são o mesmo CNPJ e
- * viraram dois cadastros; a partir daí "quantos processos temos contra esta
- * empresa" passa a ter duas respostas erradas.
+ * A primeira versão tinha caixa de busca própria ("Buscar CNPJ na Receita
+ * Federal") e o formulário mantinha o SEU campo de CNPJ logo abaixo. Dois
+ * lugares para digitar a mesma coisa, e nenhum deles dizia qual valia: dava
+ * para buscar num e salvar com o outro em branco — ou, pior, com dois valores
+ * diferentes. Foi erro meu de composição, não do desenho de cada peça.
+ *
+ * Agora é UM campo. O que se digita é o documento QUE SERÁ SALVO, e o botão ao
+ * lado usa esse mesmo valor para perguntar à Receita quem é o dono dele.
+ *
+ * O CAMPO CONTINUA OPCIONAL, e isso é o ponto do cadastro de partes: existe
+ * parte conhecida só pelo nome — o réu que aparece nos autos sem documento — e
+ * exigir CNPJ para cadastrar quebraria o caso mais comum.
+ *
+ * O BOTÃO SÓ ACENDE COM 14 DÍGITOS. Pessoa física não tem CNPJ e esta base da
+ * Receita não responde por CPF; deixar o botão clicável ali só renderia um erro
+ * em português para dizer o óbvio.
  *
  * A RESPOSTA TEM UMA ORDEM, e ela é a hierarquia da tela:
- *
  *   1. JÁ CADASTRADA (mesmo CNPJ) — não há decisão a tomar, é a mesma.
  *   2. Os DADOS DA RECEITA, para preencher.
  *   3. PARECIDAS por nome — suspeita, e por isso vem por último e sem alarme.
  *
  * `mostrarParecidas={false}` para quem já exibe o aviso de duplicatas por conta
- * própria: duas caixas iguais na mesma tela ensinam a pessoa a ignorar as duas.
- * A lista continua chegando em `onEncontrado`, no payload da consulta.
+ * própria: duas caixas iguais na mesma tela ensinam a ignorar as duas.
  *
  * A CONSULTA NUNCA É OBRIGATÓRIA. A Receita é serviço público e gratuito: cai,
  * limita requisição, demora. Toda falha vira aviso em português e o cadastro
  * manual segue exatamente como era.
  */
 export function BuscaCnpj({
+  valor,
+  onChange,
   onEncontrado,
   onAbrirExistente,
   mostrarParecidas = true,
+  rotulo = 'CNPJ / CPF',
   className,
 }: {
+  /** O documento digitado — é ele que será salvo E o que a Receita consulta. */
+  valor: string;
+  onChange: (v: string) => void;
   onEncontrado: (d: ConsultaCnpj) => void;
   onAbrirExistente?: (p: ParteExterna | ParteParecida) => void;
   mostrarParecidas?: boolean;
+  rotulo?: string;
   className?: string;
 }) {
-  const [cnpj, setCnpj] = useState('');
   const [buscando, setBuscando] = useState(false);
   const [r, setR] = useState<ConsultaCnpj | null>(null);
 
-  const digitos = cnpj.replace(/\D/g, '');
+  const digitos = valor.replace(/\D/g, '');
+  const podeBuscar = digitos.length === 14;
 
   async function buscar() {
-    if (digitos.length !== 14) return toast.error('Informe os 14 dígitos do CNPJ.');
+    if (!podeBuscar) return;
     setBuscando(true);
     setR(null);
     try {
@@ -76,24 +92,38 @@ export function BuscaCnpj({
   }
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('space-y-1.5', className)}>
+      <label className="text-sm font-medium">
+        {rotulo} <span className="font-normal text-muted-foreground">(opcional)</span>
+      </label>
       <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            inputMode="numeric"
-            placeholder="Buscar CNPJ na Receita Federal"
-            value={cnpj}
-            onChange={(e) => setCnpj(mascararCnpj(e.target.value))}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } }}
-            className="pl-9 font-mono"
-          />
-        </div>
-        <Button type="button" variant="outline" onClick={buscar} disabled={buscando || digitos.length !== 14}>
+        <Input
+          inputMode="numeric"
+          placeholder="00.000.000/0000-00"
+          value={valor}
+          onChange={(e) => { onChange(mascararDocumento(e.target.value)); setR(null); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && podeBuscar) { e.preventDefault(); buscar(); } }}
+          className="flex-1 font-mono"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={buscar}
+          disabled={buscando || !podeBuscar}
+          title={
+            podeBuscar
+              ? 'Consultar a Receita Federal e preencher o cadastro'
+              : 'Informe os 14 dígitos de um CNPJ para consultar a Receita'
+          }
+        >
           {buscando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          <span className="hidden sm:inline">Buscar</span>
+          <span className="hidden sm:inline">Receita</span>
         </Button>
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        Com o CNPJ, a consulta preenche razão social, cidade e UF — e avisa se a organização já
+        existe aqui.
+      </p>
 
       {/* 1. JÁ EXISTE — resposta definitiva, nada a decidir. */}
       {r?.jaCadastrada && (
@@ -222,14 +252,4 @@ function Par({ rotulo, valor, className }: { rotulo: string; valor?: string | nu
       <dd className="truncate text-[12px] font-medium" title={valor}>{valor}</dd>
     </div>
   );
-}
-
-/** 00.000.000/0000-00 conforme se digita. */
-export function mascararCnpj(v: string): string {
-  const d = v.replace(/\D/g, '').slice(0, 14);
-  if (d.length <= 2) return d;
-  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`;
-  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
-  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
-  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
 }

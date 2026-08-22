@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Building2, Landmark, Loader2, Plus, Search, User as UserIcon, X } from 'lucide-react';
+import {
+  AlertTriangle, Building2, CheckCircle2, Landmark, Loader2, Plus, Search,
+  User as UserIcon, X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { BuscaCnpj } from '@/components/organizacoes/busca-cnpj';
@@ -73,6 +76,20 @@ export function AdicionarParteForm({
   const [salvarNoCadastro, setSalvarNoCadastro] = useState(true);
   /** Cadastros parecidos com o nome digitado — evita criar o mesmo réu de novo. */
   const [semelhantes, setSemelhantes] = useState<ParteParecida[]>([]);
+  /**
+   * A CONFERÊNCIA PRECISA SER VISÍVEL, MESMO QUANDO NÃO ACHA NADA.
+   *
+   * A busca por nome parecido sempre existiu aqui, e passava despercebida: ela
+   * só se manifesta quando ENCONTRA algo. Quem digita um nome novo — o caso
+   * mais comum — vê exatamente o mesmo que veria se a verificação não
+   * existisse: nada. Silêncio é indistinguível de "não está conferindo", e foi
+   * assim que a funcionalidade virou invisível para quem usa.
+   *
+   * Com este estado, a linha abaixo do campo diz sempre em que pé está:
+   * conferindo, achou N, ou conferi e não há nada. O terceiro caso é o que dá
+   * confiança para seguir e criar o cadastro.
+   */
+  const [conferindo, setConferindo] = useState(false);
 
   useEffect(() => {
     const termo = buscaCadastro.trim();
@@ -105,10 +122,16 @@ export function AdicionarParteForm({
    */
   useEffect(() => {
     const termo = nome.trim();
-    if (fonte !== 'NOVO' || termo.length < 3) { setSemelhantes([]); return; }
+    if (fonte !== 'NOVO' || termo.length < 3) {
+      setSemelhantes([]);
+      setConferindo(false);
+      return;
+    }
+    setConferindo(true);
     const t = setTimeout(async () => {
       try { setSemelhantes(await partesParecidas(termo, documento.replace(/\D/g, '') || undefined)); }
       catch { setSemelhantes([]); }
+      finally { setConferindo(false); }
     }, 400);
     return () => clearTimeout(t);
   }, [nome, documento, fonte]);
@@ -326,49 +349,6 @@ export function AdicionarParteForm({
       {/* ---- Parte nova ---- */}
       {fonte === 'NOVO' && (
         <div className="space-y-2">
-          {/*
-            BUSCA NA RECEITA TAMBÉM AQUI — e este é o lugar de MAIOR valor.
-
-            O réu do processo é onde a duplicata mais nasce: a pessoa está com o
-            processo aberto, com pressa, e digita o nome que leu nos autos. Foi
-            assim que "PRONTOCARE" e "PRONTOCARE CLINICA E ATENDIMENTOS LTDA"
-            viraram dois cadastros.
-
-            Aqui a consulta faz três coisas de uma vez: avisa se a organização já
-            está cadastrada (e então não há o que criar), preenche a razão social
-            EXATA da Receita — que é a que vai casar com o DataJud —, e diz se a
-            empresa está BAIXADA, o que muda a estratégia da ação antes de
-            ajuizar, não depois.
-
-            Só para PJ e órgão público: pessoa física não tem CNPJ.
-          */}
-          {tipo !== 'FISICA' && (
-            <BuscaCnpj
-              /*
-                A CONSULTA NÃO MOSTRA AS PARECIDAS AQUI — este formulário já tem
-                o próprio aviso, alimentado pelo nome digitado. Com as duas
-                ligadas, a tela exibia DUAS caixas amarelas empilhadas listando
-                AS MESMAS organizações, com títulos diferentes ("Já existe
-                cadastro com nome parecido" e "Pode ser que já exista no
-                cadastro"). Duas caixas iguais não avisam em dobro: ensinam a
-                pessoa a pular caixa amarela.
-              */
-              mostrarParecidas={false}
-              onEncontrado={(d) => {
-                setTipo(d.tipoSugerido);
-                setNome(d.razaoSocial);
-                setDocumento(mascararDocumento(d.cnpj));
-                // As parecidas da consulta entram na MESMA lista do aviso local,
-                // que é reconciliada por id logo abaixo.
-                setSemelhantes((atuais) => {
-                  const vistos = new Set(atuais.map((x) => x.id));
-                  return [...atuais, ...d.parecidas.filter((x) => !vistos.has(x.id))];
-                });
-              }}
-              onAbrirExistente={(p) => usarCadastro(p as ParteParecida)}
-            />
-          )}
-
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <select
               className={campoCls}
@@ -389,20 +369,94 @@ export function AdicionarParteForm({
               onChange={(e) => setNome(e.target.value)}
             />
           </div>
-          <Input
-            placeholder={tipo === 'FISICA' ? 'CPF (opcional)' : 'CNPJ (opcional)'}
-            value={documento}
-            onChange={(e) => setDocumento(mascararDocumento(e.target.value))}
-            inputMode="numeric"
-            className="font-mono"
-          />
 
           {/*
-            UM aviso de duplicata, e ele é o mesmo componente da tela de
-            Organizações — o título muda sozinho conforme a força do indício:
-            documento igual é FATO, nome parecido é suspeita.
+            O RESULTADO DA CONFERÊNCIA FICA COLADO NO CAMPO QUE O DISPARA.
+            Antes ele aparecia lá embaixo, depois do documento e do "salvar no
+            cadastro" — longe do nome que a pessoa acabou de digitar, que é
+            justamente o que ela está avaliando naquele instante.
           */}
+          {fonte === 'NOVO' && nome.trim().length >= 3 && (
+            <p className="-mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              {conferindo ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  conferindo se já existe cadastro com esse nome…
+                </>
+              ) : semelhantes.length ? (
+                <>
+                  <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                  <span className="font-medium text-amber-800 dark:text-amber-400">
+                    {semelhantes.length} cadastro{semelhantes.length === 1 ? '' : 's'} parecido
+                    {semelhantes.length === 1 ? '' : 's'}
+                  </span>
+                  — veja abaixo antes de criar outro
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                  nenhum cadastro parecido — pode criar
+                </>
+              )}
+            </p>
+          )}
+
           <AvisoDuplicatas candidatos={semelhantes} onUsar={usarCadastro} />
+          {/*
+            UM CAMPO DE DOCUMENTO, e a consulta à Receita mora DENTRO dele.
+
+            Antes havia dois lugares para o CNPJ — a caixa "Buscar CNPJ na
+            Receita Federal", em cima, e este campo aqui. Dava para buscar num e
+            salvar com o outro em branco, ou com dois valores diferentes. Erro
+            meu de composição: montei a busca por cima de um formulário que já
+            tinha o campo.
+
+            Fica DEPOIS do nome de propósito. O réu quase sempre chega pelo nome
+            escrito nos autos; o CNPJ é o que se procura depois, quando existe.
+            Pôr a busca antes do nome sugeria que sem CNPJ não dá para cadastrar
+            — e dá: parte conhecida só pelo nome é o caso mais comum.
+
+            Este é o lugar de MAIOR valor da consulta no sistema inteiro: é aqui
+            que a duplicata nasce, com a pessoa de processo aberto e com pressa.
+            Ela preenche a razão social EXATA da Receita (a que casa com o
+            DataJud) e avisa se a empresa está BAIXADA — o que muda a estratégia
+            antes de ajuizar, não depois.
+          */}
+          {tipo === 'FISICA' ? (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                CPF <span className="font-normal text-muted-foreground">(opcional)</span>
+              </label>
+              <Input
+                placeholder="000.000.000-00"
+                value={documento}
+                onChange={(e) => setDocumento(mascararDocumento(e.target.value))}
+                inputMode="numeric"
+                className="font-mono"
+              />
+            </div>
+          ) : (
+            <BuscaCnpj
+              valor={documento}
+              onChange={setDocumento}
+              rotulo="CNPJ"
+              /*
+                A CONSULTA NÃO MOSTRA AS PARECIDAS AQUI — este formulário já tem
+                o próprio aviso, alimentado pelo nome digitado, e ele se refaz
+                sozinho assim que o nome é preenchido pela Receita. Com as duas
+                ligadas, a tela exibia DUAS caixas amarelas empilhadas listando
+                AS MESMAS organizações, com títulos diferentes. Duas caixas
+                iguais não avisam em dobro: ensinam a pular caixa amarela.
+              */
+              mostrarParecidas={false}
+              onEncontrado={(d) => {
+                setTipo(d.tipoSugerido);
+                setNome(d.razaoSocial);
+                setDocumento(mascararDocumento(d.cnpj));
+              }}
+              onAbrirExistente={(p) => usarCadastro(p as ParteParecida)}
+            />
+          )}
 
           <label className="flex cursor-pointer select-none items-start gap-2 text-xs">
             <input

@@ -364,47 +364,6 @@ function FormOrganizacao({
             </button>
           </div>
 
-          {/*
-            A BUSCA VEM ANTES DO FORMULÁRIO, e a ordem é o ponto.
-
-            Posta depois, ela seria um "completar campos" que a pessoa usa
-            quando lembra. Posta aqui, é a primeira coisa que acontece — e é ela
-            que responde "esta organização já existe?" antes de qualquer tecla
-            ser digitada no nome. Evitar a duplicata é o trabalho; preencher é
-            o efeito colateral agradável.
-
-            Não aparece na edição: ali o CNPJ já está definido, e reconsultar a
-            Receita para sobrescrever o que a secretaria corrigiu à mão seria
-            desfazer trabalho humano com dado de terceiro.
-          */}
-          {!inicial && (
-            <BuscaCnpj
-              /* As parecidas da consulta entram no aviso único abaixo do nome —
-                 duas caixas iguais na mesma tela ensinam a ignorar as duas. */
-              mostrarParecidas={false}
-              onEncontrado={(d) => {
-                setSemelhantes((atuais) => {
-                  const vistos = new Set(atuais.map((x) => x.id));
-                  return [...atuais, ...d.parecidas.filter((x) => !vistos.has(x.id))];
-                });
-                setF((x) => ({
-                  ...x,
-                  tipo: d.tipoSugerido,
-                  nome: d.razaoSocial,
-                  // A "sigla" do nosso cadastro é o que a pessoa digita no
-                  // autocomplete. O nome fantasia da Receita é o candidato
-                  // natural, mas nunca apaga o que já foi digitado.
-                  nomeFantasia: x.nomeFantasia || d.nomeFantasia || '',
-                  documento: d.cnpj,
-                  cidade: d.cidade ?? '',
-                  uf: d.uf ?? '',
-                }));
-                toast.success('Dados da Receita preenchidos. Confira antes de salvar.');
-              }}
-              onAbrirExistente={(p) => { onFechar(); onAbrir(p); }}
-            />
-          )}
-
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Tipo</label>
             <select
@@ -430,20 +389,59 @@ function FormOrganizacao({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/*
+            O DOCUMENTO OCUPA A LINHA INTEIRA.
+
+            Ele carrega o cartão de resposta da Receita — razão social, situação
+            cadastral, natureza, atividade. Espremido em meia largura, ao lado da
+            sigla, esse cartão vira uma coluna de texto cortado.
+
+            E vem logo depois do NOME de propósito: é a identidade da
+            organização, não um detalhe de contato.
+          */}
+          {f.tipo === 'FISICA' ? (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                CPF <span className="font-normal text-muted-foreground">(opcional)</span>
+              </label>
+              <Input
+                placeholder="000.000.000-00"
+                value={f.documento}
+                onChange={(e) => set('documento', e.target.value)}
+                className="font-mono"
+              />
+            </div>
+          ) : (
+            <BuscaCnpj
+              valor={f.documento}
+              onChange={(v) => set('documento', v)}
+              rotulo="CNPJ"
+              /* O aviso de parecidas já está colado no campo de nome, acima. */
+              mostrarParecidas={false}
+              onEncontrado={(d) => {
+                setF((x) => ({
+                  ...x,
+                  tipo: d.tipoSugerido,
+                  nome: d.razaoSocial,
+                  // Nunca apaga o que já foi digitado à mão.
+                  nomeFantasia: x.nomeFantasia || d.nomeFantasia || '',
+                  documento: d.cnpj,
+                  cidade: x.cidade || d.cidade || '',
+                  uf: x.uf || d.uf || '',
+                }));
+                toast.success('Dados da Receita preenchidos. Confira antes de salvar.');
+              }}
+              onAbrirExistente={(p) => { onFechar(); onAbrir(p as ParteExterna); }}
+            />
+          )}
+
+          <div className="grid grid-cols-4 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Sigla</label>
               {/* É a sigla que a pessoa digita no autocomplete e que aparece
                   no cadastro do filiado — "SEMEC", não a razão social inteira. */}
-              <Input placeholder="Ex.: SEMEC" value={f.nomeFantasia} onChange={(e) => set('nomeFantasia', e.target.value)} />
+              <Input placeholder="SEMEC" value={f.nomeFantasia} onChange={(e) => set('nomeFantasia', e.target.value)} />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">CNPJ / CPF</label>
-              <Input placeholder="Opcional" value={f.documento} onChange={(e) => set('documento', e.target.value)} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2 space-y-1.5">
               <label className="text-sm font-medium">Cidade</label>
               <Input value={f.cidade} onChange={(e) => set('cidade', e.target.value)} />
