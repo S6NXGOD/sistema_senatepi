@@ -146,3 +146,42 @@ describe('lugar não identifica organização', () => {
     expect(r[0]?.motivo).toBe('MESMO_DOCUMENTO');
   });
 });
+
+/**
+ * O BURACO QUE O RUÍDO DE RAMO ABRE — e por que ele é tapado FORA daqui.
+ *
+ * Relatado no uso: digitando "Município" no cadastro de uma parte nova, o aviso
+ * dizia "nenhum cadastro parecido — pode criar", enquanto a aba "Do cadastro",
+ * ao lado, listava o MUNICÍPIO DE PALMEIRAIS. Dois algoritmos, duas respostas,
+ * e quem digita não tem como saber disso: parece falha.
+ *
+ * A comparação por palavra está CERTA em ficar muda: `municipio` é ruído de
+ * ramo (senão toda prefeitura seria duplicata das outras), então não sobra
+ * palavra significativa nenhuma e não há indício a apontar.
+ *
+ * O complemento é por SUBSTRING e vive em `PartesExternasService.parecidas`,
+ * com motivo próprio (`CONTEM`) — deliberadamente fora desta função, que é
+ * usada também pela fila de limpeza, onde substring viraria ruído.
+ */
+describe('nome só de palavras genéricas', () => {
+  const cadastro = [
+    { id: '1', nome: 'MUNICÍPIO DE PALMEIRAIS -PI', documento: null },
+    { id: '2', nome: 'FUNDAÇÃO MUNICIPAL DE SAÚDE DE TERESINA', documento: null },
+  ];
+
+  it('"Município" não gera indício por palavra — e isso é o certo', () => {
+    expect(palavrasSignificativas('Município')).toEqual([]);
+    expect(partesParecidas('Município', null, cadastro, 5)).toEqual([]);
+  });
+
+  /** Se isto passar a casar, duas prefeituras diferentes viram duplicata. */
+  it('duas prefeituras diferentes NÃO são apontadas uma pela outra', () => {
+    const r = partesParecidas(
+      'MUNICÍPIO DE AGRICOLÂNDIA',
+      null,
+      [{ id: 'x', nome: 'MUNICÍPIO DE PALMEIRAIS -PI', documento: null }],
+      5,
+    );
+    expect(r).toEqual([]);
+  });
+});

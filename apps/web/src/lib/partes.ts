@@ -236,13 +236,27 @@ export interface ParteExternaInput {
 }
 
 /** Por que o cadastro sugerido pode ser o mesmo que se está digitando. */
-export type MotivoSemelhanca = 'MESMO_DOCUMENTO' | 'MESMO_NOME' | 'CONTIDO' | 'PALAVRAS_EM_COMUM';
+/**
+ * Do indício mais forte para o mais fraco. `CONTEM` é o único que NÃO vem da
+ * comparação por palavra: é busca de substring, acrescentada pelo servidor para
+ * cobrir o que aquela comparação descarta de propósito — digitar "Município"
+ * não gera palavra significativa nenhuma (senão toda prefeitura seria duplicata
+ * das outras), e sem isso o aviso ficava mudo enquanto o autocomplete, ao lado,
+ * listava os municípios cadastrados.
+ */
+export type MotivoSemelhanca =
+  | 'MESMO_DOCUMENTO'
+  | 'MESMO_NOME'
+  | 'CONTIDO'
+  | 'PALAVRAS_EM_COMUM'
+  | 'CONTEM';
 
 export const MOTIVO_SEMELHANCA_LABEL: Record<MotivoSemelhanca, string> = {
   MESMO_DOCUMENTO: 'mesmo CNPJ/CPF',
   MESMO_NOME: 'mesmo nome',
   CONTIDO: 'nome contido',
   PALAVRAS_EM_COMUM: 'nome parecido',
+  CONTEM: 'contém o que você digitou',
 };
 
 export interface ParteParecida extends ParteExterna {

@@ -109,7 +109,23 @@ export function ruidoDeCidades(partes: Array<{ cidade?: string | null }>): Set<s
   return r;
 }
 
-export type MotivoSemelhanca = 'MESMO_DOCUMENTO' | 'MESMO_NOME' | 'CONTIDO' | 'PALAVRAS_EM_COMUM';
+/**
+ * Por que um cadastro foi apontado, do indício mais forte para o mais fraco.
+ *
+ * `CONTEM` é o mais fraco e NÃO sai desta função: é acrescentado pelo serviço,
+ * por busca de substring, e existe para cobrir o buraco que a comparação por
+ * palavra deixa de propósito. Digitar "Município" não produz palavra
+ * significativa nenhuma — `municipio` é ruído de ramo, senão toda prefeitura
+ * seria duplicata de todas as outras —, então a comparação fica muda enquanto o
+ * autocomplete, que usa `contains`, mostra os municípios cadastrados. Quem está
+ * digitando não tem como saber que são dois algoritmos, e a mudez parece falha.
+ */
+export type MotivoSemelhanca =
+  | 'MESMO_DOCUMENTO'
+  | 'MESMO_NOME'
+  | 'CONTIDO'
+  | 'PALAVRAS_EM_COMUM'
+  | 'CONTEM';
 
 export interface Candidato {
   id: string;

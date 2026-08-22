@@ -37,6 +37,14 @@ export function AvisoDuplicatas({
   if (!candidatos.length) return null;
 
   const certeza = candidatos.some((c) => c.motivo === 'MESMO_DOCUMENTO');
+  /**
+   * TRÊS FORÇAS, TRÊS TEXTOS. Documento igual é FATO; nome parecido é suspeita;
+   * e "contém o que você digitou" é só um começo de nome — quem digita
+   * "Município" não está sendo avisado de uma duplicata, está sendo lembrado de
+   * que existem municípios cadastrados. Chamar os três de "cadastro parecido"
+   * gastaria o aviso: em uma semana ninguém olharia o de verdade.
+   */
+  const soSubstring = candidatos.every((c) => c.motivo === 'CONTEM');
 
   return (
     <div
@@ -59,12 +67,16 @@ export function AvisoDuplicatas({
           <p className={cn('text-xs font-semibold', certeza && 'text-amber-900 dark:text-amber-300')}>
             {certeza
               ? 'Este documento já está no cadastro'
-              : `${candidatos.length} cadastro${candidatos.length === 1 ? '' : 's'} com nome parecido`}
+              : soSubstring
+                ? `${candidatos.length} cadastro${candidatos.length === 1 ? '' : 's'} come${candidatos.length === 1 ? 'ça' : 'çam'} assim`
+                : `${candidatos.length} cadastro${candidatos.length === 1 ? '' : 's'} com nome parecido`}
           </p>
           <p className="text-[11px] leading-snug text-muted-foreground">
             {certeza
               ? 'É a mesma organização. Aproveite o cadastro existente.'
-              : 'Aproveitar mantém o histórico junto. Se for outra parte mesmo, siga preenchendo.'}
+              : soSubstring
+                ? 'Continue digitando para o aviso ficar mais preciso — ou use um destes.'
+                : 'Aproveitar mantém o histórico junto. Se for outra parte mesmo, siga preenchendo.'}
           </p>
         </div>
       </div>

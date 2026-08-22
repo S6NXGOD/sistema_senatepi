@@ -26,6 +26,10 @@ const SELECT = {
   ativo: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.ParteExternaSelect;
 
+/** Acento e caixa fora — a comparação de substring precisa ignorar os dois. */
+const normalizarBusca = (t: string) =>
+  t.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+
 /** Separa as observações acumuladas de duas organizações mescladas. */
 const SEPARADOR_OBS = '\n\n';
 
@@ -224,10 +228,49 @@ export class PartesExternasService {
       take: 1000,
     });
 
-    return partesParecidas(termo, documento, candidatos).map((s) => ({
+    const fortes = partesParecidas(termo, documento, candidatos).map((s) => ({
       ...s.parte,
       motivo: s.motivo,
     }));
+
+    /**
+     * O COMPLEMENTO POR SUBSTRING — e o buraco que ele tapa.
+     *
+     * A comparação por palavra descarta ruído de propósito: `municipio`,
+     * `hospital`, `clinica` não identificam ninguém, senão toda prefeitura seria
+     * duplicata de todas as outras. O efeito colateral apareceu no uso: digitar
+     * "Município" não produz palavra significativa NENHUMA, então o aviso ficava
+     * mudo — enquanto a aba "Do cadastro", que usa `contains`, listava os
+     * municípios cadastrados na mesma tela.
+     *
+     * Quem está digitando não tem como saber que são dois algoritmos. Ver um
+     * lado achar e o outro dizer "pode criar" não parece critério: parece falha.
+     *
+     * Então o que o autocomplete acharia entra aqui também, como indício FRACO e
+     * declarado (`CONTEM`), depois dos fortes. Sem consulta nova: a varredura é
+     * sobre a mesma lista já carregada acima.
+     *
+     * Fica de fora da fila de limpeza (`duplicadas`), que só aceita indício
+     * forte — substring é ótimo para avisar quem digita e péssimo para uma
+     * lista que ninguém revisa.
+     */
+    const jaListados = new Set(fortes.map((f) => f.id));
+    const alvo = normalizarBusca(termo);
+    const contem = candidatos
+      .filter((c) => {
+        if (jaListados.has(c.id)) return false;
+        return (
+          normalizarBusca(c.nome).includes(alvo) ||
+          normalizarBusca(c.nomeFantasia ?? '').includes(alvo)
+        );
+      })
+      // Mais processos primeiro: entre vários candidatos fracos, o cadastro com
+      // histórico é o que mais custa duplicar.
+      .sort((a, b) => b._count.participacoes - a._count.participacoes)
+      .slice(0, 5)
+      .map((c) => ({ ...c, motivo: 'CONTEM' as const }));
+
+    return [...fortes, ...contem];
   }
 
   /**
@@ -296,6 +339,7 @@ export class PartesExternasService {
         // PALAVRAS_EM_COMUM sozinho gera ruído demais numa varredura ampla:
         // ao digitar, o aviso é barato porque a pessoa está olhando o nome;
         // aqui ele viraria uma lista de falsos positivos que ninguém revisa.
+        // (`CONTEM` nem chega até aqui: é acrescentado só em `parecidas`.)
         if (s.motivo === 'PALAVRAS_EM_COMUM') continue;
 
         const [fica, duplicada] = [atual, s.parte].sort(
