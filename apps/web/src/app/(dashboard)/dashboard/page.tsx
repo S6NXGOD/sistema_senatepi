@@ -246,11 +246,21 @@ function Conteudo({
   const kpiCards = [
     pode.processos && {
       label: 'Processos ativos', valor: kpis.processosAtivos,
-      // O total junto porque o número sozinho engana: quem tem 5 processos
-      // cadastrados e lê "4" conclui que sumiu um. Os outros sete status
-      // (arquivado, suspenso, rascunho, encerrado...) não são "não existe" —
-      // são outra fase, e some do painel quem não souber que ela existe.
-      sub: `em andamento · ${kpis.processosTotal} no total`,
+      /*
+        O TOTAL JUNTO porque o número sozinho engana: quem tem 5 processos
+        cadastrados e lê "4" conclui que sumiu um. Arquivado, suspenso e
+        encerrado não são "não existe" — são outra fase.
+
+        E a fila PRÉ-PROCESSUAL é dita à parte, com nome. Antes o total contava
+        tudo (11) enquanto a tela de Processos mostrava 7, porque ela esconde os
+        pré-processuais da lista padrão. Dois números com a mesma palavra fazem
+        parecer que um está errado — e a pessoa passa a desconfiar dos dois.
+      */
+      sub:
+        `em andamento · ${kpis.processosTotal} no total` +
+        (kpis.processosPreProcessuais
+          ? ` · ${kpis.processosPreProcessuais} a ajuizar`
+          : ''),
       icon: Briefcase, cor: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
       href: '/processos',
     },

@@ -74,7 +74,10 @@ export interface ResumoDashboard {
   kpis: {
     processosAtivos: number;
     /** Todos os processos, em qualquer status — o contexto do número de ativos. */
+    /** Mesmo universo da tela de Processos: NÃO inclui os pré-processuais. */
     processosTotal: number;
+    /** A fila que a lista padrão esconde, contada à parte. */
+    processosPreProcessuais: number;
     atendimentosPendentes: number;
     prazosSemana: number;
     filiadosAtivos: number;

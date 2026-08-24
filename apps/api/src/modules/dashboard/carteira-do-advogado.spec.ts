@@ -62,3 +62,33 @@ describe('carteira do advogado', () => {
     expect(DASHBOARD).toMatch(/equipe: \{ some: \{ usuarioId: user\.id \} \}/);
   });
 });
+
+/**
+ * O TOTAL DO CARTÃO CONTA O MESMO QUE A TELA DE PROCESSOS.
+ *
+ * O cartão dizia "5 em andamento · 11 no total" e a tela de Processos dizia
+ * "7 processos". Os dois estavam certos — o cartão contava tudo, a tela esconde
+ * a fila pré-processual da lista padrão — e nenhum explicava a diferença. Dois
+ * números com a mesma palavra fazem parecer que um está errado, e a pessoa
+ * passa a desconfiar dos dois.
+ */
+describe('total de processos no painel', () => {
+  const kpis = DASHBOARD.slice(
+    DASHBOARD.indexOf('// KPIs globais'),
+    DASHBOARD.indexOf('// Alertas (escopo do perfil)'),
+  );
+
+  it('o total EXCLUI os pré-processuais, como a listagem faz', () => {
+    const consulta = DASHBOARD.slice(
+      DASHBOARD.indexOf('O TOTAL QUE O CARTÃO MOSTRA'),
+      DASHBOARD.indexOf('this.prisma.atendimento.count'),
+    );
+    expect(consulta).toMatch(/notIn: PRE_PROCESSUAIS/);
+    // E um `count()` sem where nenhum não pode voltar: era ele que contava 11.
+    expect(consulta).not.toMatch(/processo\.count\(\),/);
+  });
+
+  it('a fila pré-processual é contada à parte', () => {
+    expect(kpis).toMatch(/processosPreProcessuais/);
+  });
+});

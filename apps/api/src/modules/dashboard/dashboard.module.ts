@@ -15,6 +15,7 @@ import {
 const TIPO_PRAZO = 'PRAZO';
 const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PRE_PROCESSUAIS } from '../processos/processos.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { AudienciasService } from '../processos/audiencias.service';
 import { ProcessosModule } from '../processos/processos.module';
@@ -120,6 +121,7 @@ export class DashboardService {
       // KPIs globais
       processosAtivos,
       processosTotal,
+      processosPreProcessuais,
       atendimentosPendentesCount,
       filiadosAtivos,
       filiadosTotal,
@@ -160,18 +162,24 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
       /**
-       * TODOS os processos, em qualquer status.
+       * O TOTAL QUE O CARTÃO MOSTRA — o mesmo universo da tela de Processos.
        *
        * O cartão mostrava só os ATIVOS, e quem tinha 5 processos cadastrados
-       * lia "4" como "só existem 4" — o arquivado, o suspenso, o rascunho e o
-       * encerrado sumiam sem deixar rastro. O número grande continua sendo o
-       * que exige trabalho HOJE; o total entra no subtítulo para responder
-       * "cadê o resto?" sem precisar abrir a lista.
+       * lia "4" como "só existem 4": arquivado, suspenso e encerrado sumiam sem
+       * deixar rastro. Daí o total no subtítulo, para responder "cadê o resto?"
+       * sem abrir a lista.
        *
-       * Sem `where`: `ATIVO` é um dos OITO status, e os outros sete não são
-       * "não existe" — são outra fase da vida do processo.
+       * SÓ QUE ELE CONTAVA TUDO, inclusive os pré-processuais — e a tela de
+       * Processos os esconde da lista padrão, de propósito. O cartão dizia "11
+       * no total", a tela dizia "7 processos", e nenhum dos dois explicava a
+       * diferença. Dois números com a mesma palavra é como se um deles
+       * estivesse errado, e a pessoa perde a confiança nos dois.
+       *
+       * Agora este conta o MESMO conjunto da tela, e a fila pré-processual vai
+       * logo abaixo, com nome próprio. Os dois somam o que há no banco.
        */
-      this.prisma.processo.count(),
+      this.prisma.processo.count({ where: { statusInterno: { notIn: PRE_PROCESSUAIS } } }),
+      this.prisma.processo.count({ where: { statusInterno: { in: PRE_PROCESSUAIS } } }),
       this.prisma.atendimento.count({ where: { status: 'PENDENTE' } }),
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
       this.prisma.filiado.count(),
@@ -507,6 +515,8 @@ export class DashboardService {
       kpis: {
         processosAtivos,
         processosTotal,
+        /** A fila que a lista padrão esconde — contada à parte, com nome. */
+        processosPreProcessuais,
         atendimentosPendentes: atendimentosPendentesCount,
         prazosSemana,
         filiadosAtivos,
