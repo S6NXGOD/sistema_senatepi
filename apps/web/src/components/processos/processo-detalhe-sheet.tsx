@@ -507,22 +507,37 @@ export function ProcessoDetalheSheet({
         {/* Cabeçalho ENXUTO: identidade e ações. Todo bloco de contexto que
             entrou aqui saiu para a área que rola — somados, eles comiam a
             altura da janela e sobrava uma faixa de conteúdo ilegível. */}
-        <div className="shrink-0 border-b px-5 pb-3 pt-4">
+        <div className="shrink-0 border-b px-4 pb-2.5 pt-3 sm:px-5 sm:pb-3 sm:pt-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+              {/* O martelo é decoração: no celular ele custa 40px da largura
+                  que o título precisa para não virar reticências. */}
+              <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 sm:flex dark:bg-brand-900/30">
                 <Gavel className="h-5 w-5 text-brand-800 dark:text-brand-400" />
               </div>
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="truncate text-lg font-bold">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {/*
+                    NO CELULAR O TÍTULO USA DUAS LINHAS em vez de virar
+                    reticências. Com `truncate` e quatro botões ao lado,
+                    "Procedimento Comum Cível" aparecia como "Procedimento …" —
+                    e a classe processual é o que diz DE QUE processo se trata.
+                  */}
+                  <h3 className="line-clamp-2 text-base font-bold sm:truncate sm:text-lg">
                     {p?.classeProcessual ?? 'Processo'}
                   </h3>
                   {p && (
-                    <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_PROCESSO_COR[p.statusInterno])}>
+                    <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_PROCESSO_COR[p.statusInterno])}>
                       {STATUS_PROCESSO_LABEL[p.statusInterno]}
                     </span>
                   )}
+                  {/*
+                    OS SELOS DE CONTEXTO SOMEM NO CELULAR — cada um ocupava uma
+                    linha inteira ("Ação Institucional (SENATEPI)" quebrava em
+                    duas), e três deles empurravam o conteúdo para fora da tela.
+                    Reaparecem no resumo, logo abaixo das abas, onde rolam.
+                  */}
+                  <span className="hidden flex-wrap items-center gap-2 sm:flex">
                   {/* Ação coletiva: o autor é o próprio sindicato. */}
                   {p?.tipoAcao === 'INSTITUCIONAL' && (
                     <span
@@ -544,6 +559,7 @@ export function ProcessoDetalheSheet({
                       <AlertTriangle className="h-3 w-3" /> {tag}
                     </span>
                   ))}
+                  </span>
                 </div>
                 <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                   Nº {p ? formatNPU(p.numeroCNJ) : '—'}
@@ -552,8 +568,18 @@ export function ProcessoDetalheSheet({
                 {/* CONFRONTO — "quem processou quem" na primeira olhada, sem
                     precisar abrir a aba Partes. Sem réu cadastrado, vira o
                     convite para cadastrá-lo (o DataJud não preenche isso). */}
+                {/*
+                  O CONFRONTO SAI DO CABEÇALHO NO CELULAR — este era o maior
+                  ofensor. "SINDICATO DOS ENFERMEIROS E TÉCNICOS DE ENFERMAGEM
+                  DO ESTADO DO PIAUÍ × Município de Agricolândia" ocupava CINCO
+                  linhas num aparelho de 360px, dentro de um cabeçalho FIXO. A
+                  ficha abria sem nada para ler.
+
+                  Ele já existe no resumo logo abaixo das abas, em duas linhas
+                  truncadas — e lá rola embora quando a pessoa começa a ler.
+                */}
                 {p && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <div className="mt-1.5 hidden flex-wrap items-center gap-x-2 gap-y-1 text-sm sm:flex">
                     <span className="font-semibold text-foreground">
                       {p.polos.confronto.autor?.nome ?? 'Autor não informado'}
                     </span>
@@ -665,7 +691,7 @@ export function ProcessoDetalheSheet({
                 )}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-start gap-0.5 sm:items-center sm:gap-1">
               {/*
                 SINCRONIZAR SÓ APARECE COM NÚMERO.
                 A consulta ao CNJ é POR NPU. Num caso pré-processual o botão
@@ -680,6 +706,9 @@ export function ProcessoDetalheSheet({
                   onClick={() => sincronizar.mutate()}
                   disabled={sincronizar.isPending}
                   title="Buscar novas movimentações no DATAJUD"
+                  /* Quadrado no celular: com o rótulo escondido, o `px` do botão
+                     deixava um retângulo vazio de 60px em volta de um ícone. */
+                  className="h-9 w-9 p-0 sm:h-auto sm:w-auto sm:px-3"
                 >
                   {sincronizar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   <span className="hidden sm:inline">Sincronizar</span>
@@ -695,6 +724,7 @@ export function ProcessoDetalheSheet({
               {p?.numeroCNJ && (
                 <Button
                   variant="outline"
+                  className="h-9 w-9 p-0 sm:h-auto sm:w-auto sm:px-4"
                   onClick={async () => {
                     try {
                       await navigator.clipboard.writeText(formatNPU(p.numeroCNJ));
@@ -722,9 +752,17 @@ export function ProcessoDetalheSheet({
             </div>
           </div>
 
-          {/* Etiquetas internas — edição inline */}
+          {/*
+            AS ETIQUETAS TAMBÉM SAEM DO CABEÇALHO FIXO no celular.
+
+            São duas linhas ("Coletiva", "Repasse de Verbas Públicas",
+            "Adicionar etiqueta") de algo que se consulta de vez em quando e se
+            edita mais raramente ainda — não é identidade do processo, e não
+            merece espaço permanente numa tela de 360px. Vão para o resumo, que
+            rola.
+          */}
           {p && (
-            <div className="mt-2">
+            <div className="mt-2 hidden sm:block">
               {editandoEtiquetas ? (
                 <div className="space-y-2 rounded-lg border p-3">
                   <EtiquetasInput valor={etiquetasEdit} onChange={setEtiquetasEdit} />
@@ -931,6 +969,32 @@ export function ProcessoDetalheSheet({
           */}
           {p && (
             <div className="space-y-2 rounded-xl border bg-muted/30 p-3 sm:hidden">
+              {/*
+                OS SELOS QUE SAÍRAM DO CABEÇALHO. Nada se perde — só deixa de
+                ocupar altura permanente. "Segredo de Justiça" e as prioridades
+                do CNJ vêm primeiro porque mudam o que se pode FAZER com o
+                processo, e não só o que ele é.
+              */}
+              {(p.tipoAcao === 'INSTITUCIONAL' || p.segredoJustica || (p.prioridades ?? []).length > 0) && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {p.segredoJustica && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                      <Lock className="h-3 w-3" /> Segredo de Justiça
+                    </span>
+                  )}
+                  {(p.prioridades ?? []).map((tag) => (
+                    <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                      <AlertTriangle className="h-3 w-3" /> {tag}
+                    </span>
+                  ))}
+                  {p.tipoAcao === 'INSTITUCIONAL' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+                      🏛️ Ação coletiva
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-start gap-2 text-[13px]">
                 <Swords className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0">
@@ -978,6 +1042,31 @@ export function ProcessoDetalheSheet({
                     .filter(Boolean)
                     .join(' · ')}
                 </p>
+              )}
+
+              {/*
+                AS ETIQUETAS, aqui em modo LEITURA. Editar exige um campo de
+                texto com sugestões e não cabe num resumo — quem precisa editar
+                usa o desktop ou a aba, e no celular o que se quer é SABER que o
+                processo é "Coletiva" e "Repasse de Verbas Públicas".
+              */}
+              {((p.etiquetasAutomaticas ?? []).length > 0 || (p.etiquetas ?? []).length > 0) && (
+                <div className="flex flex-wrap items-center gap-1 border-t pt-2">
+                  {(p.etiquetasAutomaticas ?? []).map((e) => (
+                    <span
+                      key={`auto-${e}`}
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    >
+                      <Zap className="h-2.5 w-2.5 fill-current" />
+                      {e}
+                    </span>
+                  ))}
+                  {(p.etiquetas ?? []).map((e) => (
+                    <span key={e} className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {e}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
           )}
