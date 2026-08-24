@@ -39,6 +39,13 @@ export interface FiliadoRef {
 export interface AdvogadoRef {
   id: string;
   nome: string;
+  /** Como a pessoa é chamada na casa ("Dra. Shérad") — é o que se reconhece. */
+  nomeExibicao?: string | null;
+  /**
+   * Já resolvida pelo `AvataresInterceptor` da API: a foto enviada mora no
+   * storage e nunca esteve neste campo no banco. A tela só consome.
+   */
+  avatarUrl?: string | null;
 }
 
 export interface Movimentacao {

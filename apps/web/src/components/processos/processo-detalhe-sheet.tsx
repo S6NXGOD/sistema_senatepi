@@ -10,6 +10,7 @@ import {
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
   AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
   Archive, Zap,
+  Swords,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn, mascararCpf } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { EquipeAvatares } from '@/components/ui/avatar-pessoa';
 import { PainelPreProcessual } from './painel-pre-processual';
 import { AjuizarCasoModal } from './ajuizar-caso-modal';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
@@ -241,6 +243,21 @@ export function ProcessoDetalheSheet({
 
   const [aba, setAba] = useState<Aba>('timeline');
   const [ajuizando, setAjuizando] = useState(false);
+
+  /**
+   * A ABA ATIVA É TRAZIDA PARA DENTRO DA VISTA.
+   *
+   * No celular a faixa rola, e trocar de aba por um atalho de dentro do
+   * conteúdo (o painel pré-processual manda para "Partes", o aviso de nota
+   * manda para "Notas") deixava a aba escolhida FORA da tela: o conteúdo
+   * mudava e a barra continuava mostrando as três primeiras. A pessoa via a
+   * tela trocar sem entender para onde tinha ido.
+   */
+  const barraDeAbas = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const alvo = barraDeAbas.current?.querySelector<HTMLElement>(`[data-aba="${aba}"]`);
+    alvo?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [aba]);
   /**
    * Dossiê do CNJ aberto ou recolhido — preferência guardada na SESSÃO.
    *
@@ -467,15 +484,23 @@ export function ProcessoDetalheSheet({
     <>
       {/* Modal centralizado (antes era um painel lateral) */}
       <div
-        className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center"
+        className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 sm:items-center sm:overflow-y-auto sm:p-4"
         onClick={onClose}
       >
       <div
-        // 3xl (768px) apertava: sete abas não cabiam numa linha e o dossiê
-        // ficava em duas colunas espremidas. 5xl usa a tela que já existe no
-        // desktop sem virar uma página inteira; no celular continua ocupando a
-        // largura toda, como antes.
-        className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-card shadow-2xl"
+        /*
+          NO CELULAR É TELA CHEIA, e não um cartão flutuando.
+
+          Era um modal centralizado com `p-4` em volta e cantos arredondados. Num
+          aparelho de 360px isso torrava 32px de largura e 32px de altura numa
+          moldura decorativa, e o resultado parecia — como você disse — apertado
+          e confuso: a ficha de um processo é a TELA naquele momento, não uma
+          caixinha por cima de uma lista que ninguém vai ler atrás.
+
+          Do `sm` para cima nada muda: 5xl centralizado, que é o que usa bem o
+          espaço do desktop sem virar página inteira.
+        */
+        className="flex h-full w-full flex-col overflow-hidden bg-card shadow-2xl sm:h-auto sm:max-h-[94vh] sm:max-w-5xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho rico */}
@@ -557,8 +582,19 @@ export function ProcessoDetalheSheet({
                   </div>
                 )}
 
+                {/*
+                  ESTE BLOCO SOME NO CELULAR — e reaparece dentro da área que
+                  rola, logo abaixo das abas.
+
+                  Ele traz o confronto, o responsável, o filiado, a vara e a
+                  distribuição. No desktop cabe e é ótimo ter tudo fixo. Num
+                  aparelho de 360px ele quebrava em cinco linhas e o cabeçalho
+                  FIXO passava de metade da altura útil — sobrava uma faixa de
+                  conteúdo para rolar, que é exatamente a sensação de "difícil
+                  de passear nos itens".
+                */}
                 {p && (
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <div className="mt-1 hidden flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground sm:flex">
                     {/* Atalho para a equipe. "Gerenciar equipe" existe desde
                         sempre, mas dentro da aba Partes — longe de onde o nome
                         do responsável aparece, que é onde se pensa nele. */}
@@ -824,14 +860,28 @@ export function ProcessoDetalheSheet({
             />
           )}
 
-          {/* Abas */}
-          {/* `flex-1` só a partir de sm: no celular as abas rolam na
-              horizontal (é o certo com sete delas); no desktop elas se dividem
-              e a barra de rolagem desaparece, que era o que dava a sensação de
-              aperto mesmo sobrando espaço. */}
-          <div className="mt-3 flex gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-1 [scrollbar-width:thin]">
+          {/*
+            AS ABAS, e por que no celular só a ATIVA tem rótulo.
+
+            Eram sete rótulos por extenso ("Linha do Tempo", "Publicações",
+            "Notas Internas"…) numa faixa que rolava na horizontal. Num aparelho
+            de 360px cabiam duas e meia: para chegar em "Auditoria" era preciso
+            arrastar às cegas, sem saber o que existe depois da borda — e é isso
+            que torna a ficha "difícil de passear", como você descreveu.
+
+            Com ícone + contagem, as sete cabem de uma vez e a pessoa VÊ o mapa
+            inteiro. A ativa mantém o texto: ícone sozinho não diz onde você
+            está, e é justamente isso que se pergunta ao voltar para a tela.
+
+            No desktop nada muda — todas com rótulo, dividindo a largura.
+          */}
+          <div
+            ref={barraDeAbas}
+            className="mt-3 flex gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-1 [scrollbar-width:thin]"
+          >
             {ABAS.map((a) => {
               const Icon = a.icon;
+              const ativa = aba === a.key;
               const n =
                 a.key === 'documentos' ? p?.totais.anexos
                 : a.key === 'agenda' ? p?.totais.compromissos
@@ -842,16 +892,18 @@ export function ProcessoDetalheSheet({
               return (
                 <button
                   key={a.key}
+                  data-aba={a.key}
                   onClick={() => setAba(a.key)}
+                  aria-label={a.label}
+                  title={a.label}
                   className={cn(
-                    // `shrink-0` no celular impede o texto de ser espremido a
-                    // ponto de virar reticências; `sm:flex-1` no desktop faz as
-                    // abas dividirem a largura e sumirem com a rolagem.
-                    'flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition sm:flex-1',
-                    aba === a.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    'flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium transition sm:flex-1 sm:py-1.5',
+                    ativa ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" /> {a.label}
+                  <Icon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+                  {/* O rótulo aparece sempre no desktop; no celular, só na ativa. */}
+                  <span className={cn(ativa ? 'inline' : 'hidden sm:inline')}>{a.label}</span>
                   {n !== undefined && n > 0 && (
                     <span className="rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">{n}</span>
                   )}
@@ -863,7 +915,73 @@ export function ProcessoDetalheSheet({
 
         {/* `min-h-0` é o que permite ao filho de um flex encolher e rolar; sem
             ele o contêiner cresce e a rolagem interna nunca acontece. */}
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-5">
+          {/*
+            O CONTEXTO QUE SAIU DO CABEÇALHO — só no celular, e ROLANDO.
+
+            No desktop essas informações ficam fixas no topo, e é bom que fiquem.
+            Num aparelho de 360px elas quebravam em cinco linhas e empurravam o
+            conteúdo para uma faixa de duas polegadas. Aqui elas voltam inteiras,
+            mas somem quando a pessoa começa a ler — que é o comportamento certo
+            para contexto: útil na chegada, estorvo depois.
+
+            É uma VERSÃO ENXUTA de propósito: quem × quem, quem responde, onde
+            corre. As ações (vincular filiado, gerenciar equipe) continuam nas
+            abas, onde há espaço para fazê-las direito.
+          */}
+          {p && (
+            <div className="space-y-2 rounded-xl border bg-muted/30 p-3 sm:hidden">
+              <div className="flex items-start gap-2 text-[13px]">
+                <Swords className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">
+                    {p.polos?.confronto.autor?.nome ?? 'Autor não informado'}
+                    {p.polos && p.polos.confronto.outrosAtivo > 0 && (
+                      <span className="text-muted-foreground"> +{p.polos.confronto.outrosAtivo}</span>
+                    )}
+                  </span>
+                  <span className="block truncate text-muted-foreground">
+                    × {p.polos?.confronto.reu?.nome ?? 'réu não cadastrado'}
+                    {p.polos && p.polos.confronto.outrosPassivo > 0 && ` +${p.polos.confronto.outrosPassivo}`}
+                  </span>
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAba('partes')}
+                className="flex w-full items-center gap-2 rounded-lg bg-background/70 px-2 py-1.5 text-left"
+              >
+                <EquipeAvatares
+                  pessoas={(p.advogados ?? [])
+                    .slice()
+                    .sort((a, b) => Number(b.principal) - Number(a.principal))
+                    .map((a) => ({
+                      id: a.advogado.id,
+                      nome: a.advogado.nomeExibicao || a.advogado.nome,
+                      avatarUrl: a.advogado.avatarUrl,
+                    }))}
+                  limite={3}
+                  tamanho="xs"
+                />
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                  {p.advogado
+                    ? p.advogado.nomeExibicao || p.advogado.nome
+                    : 'sem advogado responsável'}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
+
+              {(p.orgaoJulgador || p.dataDistribuicao) && (
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {[p.orgaoJulgador, p.dataDistribuicao && `distribuído em ${formatData(p.dataDistribuicao)}`]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ATENÇÃO REQUERIDA e INSTÂNCIAS ficam AQUI, na área que rola — não no
               cabeçalho fixo.
 
@@ -1001,7 +1119,13 @@ export function ProcessoDetalheSheet({
                         seletor acima para ver os dados de outro grau.
                       </p>
                     )}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                    {/*
+                      UMA COLUNA nos aparelhos estreitos. Em duas colunas de
+                      360px, "VARA DO TRABALHO DE BOM JESUS" virava reticências
+                      logo no começo — e um campo que não pode ser lido não é
+                      informação, é ruído ocupando altura.
+                    */}
+                    <div className="grid grid-cols-1 gap-x-4 gap-y-3 min-[420px]:grid-cols-2 sm:grid-cols-3">
                       <CampoDossie label="Tribunal">{instanciaExibida?.tribunal ?? p.tribunal ?? '—'}</CampoDossie>
                       <CampoDossie label="Órgão Julgador">{instanciaExibida?.orgaoJulgador ?? p.orgaoJulgador ?? '—'}</CampoDossie>
                       <CampoDossie label="Grau">{rotuloGrau(instanciaExibida?.grau ?? p.grau, instanciaExibida?.tribunal) || '—'}</CampoDossie>

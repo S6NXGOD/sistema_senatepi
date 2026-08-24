@@ -16,6 +16,7 @@ import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sh
 import { AjuizarCasoModal } from '@/components/processos/ajuizar-caso-modal';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
+import { EquipeAvatares } from '@/components/ui/avatar-pessoa';
 import { FiltroParteContraria } from '@/components/processos/filtro-parte-contraria';
 import type { ParteExterna } from '@/lib/partes';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
@@ -460,6 +461,10 @@ function ListaProcessos() {
                         o processo: o que se quer saber, batendo o olho, é se ele
                         andou, quando, e o quê. */}
                     <th className="px-4 py-3 font-medium">Última movimentação</th>
+                    {/* QUEM RESPONDE. Fica antes do status porque a pergunta que
+                        se faz varrendo a lista é "isto é meu?" — e a resposta é
+                        um rosto, não um rótulo. */}
+                    <th className="px-4 py-3 font-medium">Responsável</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                   </tr>
                 </thead>
@@ -509,6 +514,9 @@ function ListaProcessos() {
                         <TagsInstancias instancias={p.instancias} />
                       </td>
                       <td className="max-w-[260px] px-4 py-3"><CelulaUltimaMov p={p} /></td>
+                      <td className="px-4 py-3">
+                        <EquipeAvatares pessoas={equipeDoProcesso(p)} mostrarNome />
+                      </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={p.statusInterno} />
                         <BadgeFase fase={p.fase} />
@@ -889,12 +897,47 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
         </p>
         {/* Mesma troca da tabela: a contagem de movimentações saiu, entrou a
             última — no celular, onde há menos espaço, ela vale ainda mais. */}
-        <div className="border-t pt-1.5">
+        {/*
+          NO CELULAR o rosto fica no RODAPÉ, ao lado da última movimentação, e
+          não no topo: lá em cima disputaria espaço com o número do processo e
+          com o status, que são o que identifica a linha. Aqui ele responde a
+          outra pergunta — "isto é meu?" — no exato lugar onde o olho para antes
+          de rolar para o próximo card.
+        */}
+        <div className="flex items-center justify-between gap-3 border-t pt-1.5">
           <CelulaUltimaMov p={p} />
+          <EquipeAvatares pessoas={equipeDoProcesso(p)} limite={2} tamanho="xs" className="shrink-0" />
         </div>
       </div>
     </Card>
   );
+}
+
+/**
+ * A EQUIPE DO PROCESSO na ordem certa: o responsável primeiro.
+ *
+ * A API devolve `advogados` (a tabela N:N, com `principal`) e `advogado` (o
+ * atalho, que é o principal). Ler só o atalho mostraria UMA pessoa num processo
+ * de cinco — foi exatamente o erro que fez o painel da Dra. Shérad dizer
+ * "A ajuizar: 0" com o caso na tela dela. Aqui a tabela manda, e o atalho só
+ * entra quando a tabela está vazia (cadastro antigo, importação).
+ */
+function equipeDoProcesso(p: ProcessoLista) {
+  const daTabela = [...(p.advogados ?? [])]
+    .sort((a, b) => Number(b.principal) - Number(a.principal))
+    .map((a) => ({
+      id: a.advogado.id,
+      nome: a.advogado.nomeExibicao || a.advogado.nome,
+      avatarUrl: a.advogado.avatarUrl,
+    }));
+  if (daTabela.length) return daTabela;
+  return p.advogado
+    ? [{
+        id: p.advogado.id,
+        nome: p.advogado.nomeExibicao || p.advogado.nome,
+        avatarUrl: p.advogado.avatarUrl,
+      }]
+    : [];
 }
 
 /** Etiquetas internas do processo, compactas na listagem. */

@@ -47,7 +47,20 @@ interface Ctx {
 
 /** LGPD: nas listas mostramos só o mínimo do filiado (nome/matrícula). */
 const filiadoSel = { select: { id: true, nomeCompleto: true, matricula: true } } as const;
-const advogadoSel = { select: { id: true, nome: true } } as const;
+/**
+ * O advogado NA LISTA — com foto.
+ *
+ * `avatarKey` entra junto com `avatarUrl` porque a foto enviada pelo sistema
+ * mora no storage e nunca esteve em `avatarUrl`: quem resolve uma na outra é o
+ * `AvataresInterceptor`, global. Pedir só a URL devolveria nulo para quem subiu
+ * foto pelo próprio perfil — que é a maioria.
+ *
+ * `nomeExibicao` porque é como a pessoa é chamada na casa ("Dra. Shérad"), e é
+ * o que faz o rosto ser reconhecido numa lista de trinta linhas.
+ */
+const advogadoSel = {
+  select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
+} as const;
 
 /**
  * Partes na LISTA: o suficiente para montar "sindicato × empresa ré" numa linha
