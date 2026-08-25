@@ -381,6 +381,53 @@ export class AutomacaoPrazosService {
   }
 
   /**
+   * A AUDIÊNCIA FOI AGENDADA — FECHE O LEMBRETE QUE MANDAVA AGENDÁ-LA.
+   *
+   * O DEFEITO QUE ISTO CONSERTA. "Confirmar data da audiência designada" e o
+   * radar de audiências mostram O MESMO TRABALHO em duas telas — de propósito,
+   * porque quem vive na Agenda não abre a tela de Processos. Só que resolver
+   * pelo radar (`AudienciasService.agendar`) criava o compromisso da audiência,
+   * carimbava a movimentação... e deixava a tarefa aberta para sempre. A pessoa
+   * fazia o trabalho e o lembrete continuava lá, cobrando.
+   *
+   * Com a escalada por tempo cego, isso ficaria pior: a tarefa de um trabalho
+   * JÁ FEITO passaria a urgente depois de quinze dias.
+   *
+   * O método mora AQUI, e não no serviço de audiências, porque a identidade
+   * desta tarefa (tipo, título, origem automática) é conhecimento deste arquivo.
+   * Espalhá-la seria criar um segundo lugar para manter em dia — e nesta base já
+   * houve defeito demais nascido exatamente assim.
+   */
+  async fecharConfirmacaoDeData(processoId: string, motivo: string): Promise<number> {
+    const { count } = await this.prisma.compromisso.updateMany({
+      where: {
+        processoId,
+        tipo: TIPO_ACOMPANHAMENTO,
+        origemAutomatica: true,
+        titulo: TITULO_CONFIRMAR_AUDIENCIA,
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+      },
+      data: {
+        status: StatusCompromisso.CONCLUIDO,
+        concluidoEm: new Date(),
+        /**
+         * A urgência SAI junto. Se a tarefa tinha escalado, deixar a marca numa
+         * atividade concluída sujaria qualquer relatório de urgências —
+         * `montarUrgencia(false, …)` limpa os quatro campos de uma vez.
+         */
+        ...montarUrgencia(false, null, { origem: 'AUTOMACAO' }),
+        desfechoObs: motivo,
+      },
+    });
+    if (count) {
+      this.logger.log(
+        `[AUTOMACAO] ${processoId}: ${count} lembrete(s) de confirmar data encerrado(s) — ${motivo}`,
+      );
+    }
+    return count;
+  }
+
+  /**
    * Tarefa "descobrir quando é a audiência".
    *
    * NÃO CARIMBA a movimentação. O carimbo (`compromissoId`) significa "este ato
@@ -406,9 +453,40 @@ export class AutomacaoPrazosService {
         titulo: TITULO_CONFIRMAR_AUDIENCIA,
         status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
       },
-      select: { id: true },
+      select: { id: true, urgente: true },
     });
-    if (existente) return false;
+
+    const diasCegos = Math.floor(
+      (Date.now() - mov.dataMovimento.getTime()) / 86_400_000,
+    );
+
+    if (existente) {
+      /**
+       * A TAREFA ESCALA COM O TEMPO, em vez de nascer gritando.
+       *
+       * A varredura reencontra esta movimentação toda noite (ela nunca é
+       * carimbada, de propósito — ver o comentário do método). Isso dá de graça
+       * o único jeito honesto de priorizar uma pauta cuja data ninguém conhece:
+       * pelo tempo que estamos cegos.
+       *
+       * Recém-designada, a sessão costuma estar a semanas de distância e não há
+       * o que correr. Passados quinze dias sem alguém abrir o PJe, a audiência
+       * pode ser na semana que vem — e aí sim é urgente, porque perder sessão é
+       * revelia.
+       */
+      if (!existente.urgente && diasCegos > DIAS_ATO_RECENTE) {
+        await this.prisma.compromisso.update({
+          where: { id: existente.id },
+          data: montarUrgencia(
+            true,
+            `Audiência designada há ${diasCegos} dias e a data continua desconhecida — ` +
+              'a sessão pode estar próxima.',
+            { origem: 'AUTOMACAO' },
+          ),
+        });
+      }
+      return false;
+    }
 
     const inicio = proximoDiaUtil(new Date());
     inicio.setHours(9, 0, 0, 0);
@@ -435,8 +513,23 @@ export class AutomacaoPrazosService {
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
-        // Audiência sem data confirmada é risco de perder sessão — nasce urgente.
-        urgente: true,
+        /**
+         * NASCE NORMAL, e não urgente.
+         *
+         * O comentário antigo dizia "audiência sem data é risco de perder
+         * sessão — nasce urgente", e o raciocínio está certo isolado. O que ele
+         * não considerava é a FREQUÊNCIA: audiência sem data publicada é o caso
+         * NORMAL na Justiça do Trabalho (está escrito algumas linhas acima, no
+         * próprio arquivo), e 22 dos 41 processos da produção correm no TRT22 ou
+         * no TST. Ou seja: quase toda pauta do acervo geraria uma tarefa
+         * urgente, e vinte urgências simultâneas não são vinte prioridades — são
+         * zero.
+         *
+         * A urgência agora vem do TEMPO CEGO, no bloco de escalada acima. A
+         * tarefa já nasce vencendo no próximo dia útil, que é sinal de
+         * prioridade suficiente para algo que ainda tem semanas de folga.
+         */
+        ...montarUrgencia(false, null, { origem: 'AUTOMACAO' }),
         origemAutomatica: true,
         criadoPor: null,
       },

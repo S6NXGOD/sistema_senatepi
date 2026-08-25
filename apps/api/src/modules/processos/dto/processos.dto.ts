@@ -19,6 +19,7 @@ import { Type } from 'class-transformer';
 import { StatusProcesso } from '@prisma/client';
 import { FaseProcessual } from '../utils/fase.util';
 import { AREAS_JURIDICAS } from '../areas.catalogo';
+import { ORDENS_PROCESSO } from '../utils/ordenacao.util';
 
 /**
  * Parte contrária informada já na importação. Existe porque o DataJud NÃO
@@ -277,6 +278,16 @@ export class ListProcessosQueryDto {
   @IsOptional() @IsString() incluirPreProcessuais?: string;
 
   @ApiPropertyOptional({ default: 1 })
+  /**
+   * Como ordenar. Ver `ORDENACAO` em `processos.service.ts`.
+   *
+   * SEM @IsIn de propósito: o serviço cai no padrão quando não reconhece o
+   * valor. Um link salvo nos favoritos com uma ordem que deixou de existir tem
+   * de abrir a lista, não devolver 400 numa tela que a pessoa usa todo dia.
+   */
+  @ApiPropertyOptional({ enum: ORDENS_PROCESSO })
+  @IsOptional() @IsString() ordem?: string;
+
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @ApiPropertyOptional({ default: 20 })
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) pageSize?: number;

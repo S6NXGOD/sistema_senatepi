@@ -2210,6 +2210,21 @@ model Processo {
   categoria           String?
   statusInterno       StatusProcesso @default(ATIVO) @map("status_interno")
   ultimaSincronizacao DateTime?      @map("ultima_sincronizacao")
+  /// Quando o processo ANDOU pela última vez — o mais recente entre o andamento
+  /// do CNJ e a nota da equipe (`dataFato ?? createdAt`, a mesma regra da linha
+  /// do tempo).
+  ///
+  /// DERIVADA E MANTIDA POR GATILHO no banco, nunca pelo serviço: são cinco
+  /// caminhos de escrita e bastaria um esquecer para a lista voltar a mentir.
+  /// Ver `20260825120000_ultimo_movimento_do_processo`.
+  ///
+  /// Existe porque a listagem ordenava por `ultimaSincronizacao` — o carimbo de
+  /// quando o ROBÔ falou com o CNJ, que a varredura noturna iguala em todo o
+  /// acervo. Ordenar por ele é ordenar por ruído.
+  ///
+  /// SÓ AVANÇA: o gatilho ignora andamento mais antigo que o registrado, senão
+  /// o backfill de uma instância recém-descoberta puxaria o processo para trás.
+  ultimoMovimentoEm   DateTime?      @map("ultimo_movimento_em")
   /// Última vez que ESTE processo foi consultado no DJEN, um a um.
   ///
   /// Existe para dar rodízio à varredura complementar. A consulta por OAB cobre
@@ -2255,6 +2270,7 @@ model Processo {
   /// A fila "o que é urgente" é consultada a cada abertura do painel.
   @@index([urgente])
   @@index([solicitadoPorId])
+  @@index([ultimoMovimentoEm])
   @@map("processos")
 }
 
@@ -2423,8 +2439,8 @@ model ParteExterna {
   dossiePatronal Empresa?
 
   /// Pares já descartados como "não são a mesma" — ver `ParteExternaNaoDuplicada`.
-  naoDuplicadaA  ParteExternaNaoDuplicada[] @relation("naoDuplicadaA")
-  naoDuplicadaB  ParteExternaNaoDuplicada[] @relation("naoDuplicadaB")
+  naoDuplicadaA ParteExternaNaoDuplicada[] @relation("naoDuplicadaA")
+  naoDuplicadaB ParteExternaNaoDuplicada[] @relation("naoDuplicadaB")
 
   @@index([tipo])
   @@index([ativo])

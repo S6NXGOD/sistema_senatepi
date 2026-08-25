@@ -147,6 +147,134 @@ describe('urgência do robô de prazos', () => {
 });
 
 /**
+ * "CONFIRMAR DATA DA AUDIÊNCIA" NÃO PODE NASCER GRITANDO.
+ *
+ * Ela nascia com `urgente: true` fixo, e o raciocínio isolado estava certo:
+ * audiência sem data é risco de perder sessão. O que ele ignorava é a
+ * FREQUÊNCIA — audiência sem data publicada é o caso NORMAL na Justiça do
+ * Trabalho (está escrito no próprio arquivo), e 22 dos 41 processos da produção
+ * correm no TRT22 ou no TST. Quase toda pauta do acervo viraria uma urgência, e
+ * vinte urgências simultâneas não são vinte prioridades: são zero.
+ *
+ * A saída não foi desligar o aviso — foi escalonar. A varredura reencontra a
+ * movimentação toda noite (ela nunca é carimbada, de propósito), e é isso que
+ * permite medir o TEMPO CEGO: recém-designada, a sessão está a semanas; quinze
+ * dias depois sem ninguém abrir o PJe, pode ser semana que vem.
+ */
+describe('tarefa de confirmar data da audiência', () => {
+  const metodo = AUTOMACAO.slice(
+    AUTOMACAO.indexOf('private async criarConfirmacaoDeData'),
+    AUTOMACAO.indexOf('Pauta com data conhecida'),
+  );
+
+  it('o trecho existe', () => {
+    expect(metodo.length).toBeGreaterThan(500);
+  });
+
+  it('NÃO nasce urgente', () => {
+    // `select: { ..., urgente: true }` PEDE o campo ao banco; não é atribuição.
+    // Filtrar por linha é o que separa os dois casos.
+    const atribuicoes = metodo
+      .split('\n')
+      .filter((l) => /urgente: true/.test(l) && !/select:/.test(l));
+    expect(atribuicoes).toEqual([]);
+    expect(metodo).toContain("montarUrgencia(false, null, { origem: 'AUTOMACAO' })");
+  });
+
+  it('escala quando o tempo cego passa do prazo recursal', () => {
+    expect(metodo).toMatch(/diasCegos > DIAS_ATO_RECENTE/);
+    // Escala UMA vez: sem o `!existente.urgente`, a varredura reescreveria a
+    // marca e o carimbo de urgência toda noite, apagando quando ela começou.
+    expect(metodo).toMatch(/!existente\.urgente && diasCegos > DIAS_ATO_RECENTE/);
+  });
+
+  it('a escalada também explica o porquê', () => {
+    expect(metodo).toContain('montarUrgencia(');
+    expect(metodo).toMatch(/a data continua desconhecida/);
+  });
+});
+
+/**
+ * TAREFA CUJO TRABALHO JÁ FOI FEITO TEM DE FECHAR SOZINHA.
+ *
+ * "Confirmar data da audiência designada" e o radar de audiências cobrem o
+ * MESMO trabalho em duas telas — de propósito: o robô cria a tarefa para quem
+ * vive na Agenda, o radar atende quem vive em Processos. Faltava o fecho:
+ * agendar pelo radar criava o compromisso da audiência, carimbava a
+ * movimentação e deixava a tarefa aberta cobrando para sempre.
+ *
+ * Com a escalada por tempo cego isso ficaria pior — a tarefa de um trabalho já
+ * concluído passaria a URGENTE quinze dias depois. Um lembrete que cobra o que
+ * já foi feito é a forma mais rápida de ensinar a equipe a ignorar lembretes.
+ */
+describe('o radar fecha o lembrete que ele resolve', () => {
+  const AUDIENCIAS = ler('audiencias.service.ts');
+
+  it('`agendar` encerra a tarefa de confirmar data', () => {
+    const agendar = AUDIENCIAS.slice(
+      AUDIENCIAS.indexOf('async agendar('),
+      AUDIENCIAS.indexOf('return compromisso;'),
+    );
+    expect(agendar.length).toBeGreaterThan(300); // o teste não olha para o vazio
+    expect(agendar).toContain('this.automacao.fecharConfirmacaoDeData(');
+  });
+
+  it('quem sabe a identidade da tarefa é quem a cria', () => {
+    // O título e o tipo moram só em `automacao-prazos`. Se o serviço de
+    // audiências passasse a conhecê-los, seriam dois lugares para manter em dia
+    // — e nesta base o defeito sempre nasceu assim.
+    //
+    // O comentário que EXPLICA a divisão cita o título, e deve mesmo citar:
+    // documentar não é acoplar. Só o código conta.
+    const ehComentario = (l: string) => /^\s*(\*|\/\/|\/\*)/.test(l);
+    const usos = AUDIENCIAS
+      .split('\n')
+      .filter((l) => /Confirmar data da audiência/.test(l) && !ehComentario(l));
+    expect(usos).toEqual([]);
+    expect(AUTOMACAO).toContain('async fecharConfirmacaoDeData(');
+  });
+
+  it('ao fechar, a urgência sai junto', () => {
+    const metodo = AUTOMACAO.slice(
+      AUTOMACAO.indexOf('async fecharConfirmacaoDeData('),
+      AUTOMACAO.indexOf('Tarefa "descobrir quando é a audiência"'),
+    );
+    expect(metodo).toContain('StatusCompromisso.CONCLUIDO');
+    // Urgência pendurada numa atividade concluída sujaria todo relatório de
+    // urgências — `montarUrgencia(false, …)` limpa os quatro campos.
+    expect(metodo).toContain("montarUrgencia(false, null, { origem: 'AUTOMACAO' })");
+  });
+});
+
+/**
+ * NENHUMA MARCA DE URGÊNCIA ESCRITA À MÃO, em lugar nenhum do robô.
+ *
+ * A Agenda exige motivo de quem marca ("sem motivo, a marca não pode ser
+ * revista depois e a fila de urgências perde o sentido"). Escrever os campos
+ * direto no banco burla a regra — e foi o que produziu, na produção, sete
+ * tarefas urgentes com `urgenteMotivo` e `urgentePor` nulos.
+ */
+describe('o robô nunca escreve urgência à mão', () => {
+  it('não há `urgente: true` fora de um `select`', () => {
+    // A única ocorrência aceitável é `select: { ..., urgente: true }`, que PEDE
+    // o campo ao banco em vez de definir valor. Qualquer outra é uma marca
+    // escrita à mão, contornando a regra da Agenda.
+    // Comentários também citam `urgente: true` — os que EXPLICAM o defeito
+    // antigo. Documentar o erro não pode fazer o teste do erro falhar.
+    const ehComentario = (l: string) => /^\s*(\*|\/\/|\/\*)/.test(l);
+    const atribuicoes = AUTOMACAO
+      .split('\n')
+      .filter((l) => /urgente: true/.test(l) && !/select:/.test(l) && !ehComentario(l));
+    expect(atribuicoes).toEqual([]);
+  });
+
+  it('não escreve `urgenteMotivo`/`urgentePor` diretamente', () => {
+    expect(AUTOMACAO).not.toMatch(/^\s+urgenteMotivo:/m);
+    expect(AUTOMACAO).not.toMatch(/^\s+urgentePor:/m);
+  });
+});
+
+/**
  * A JANELA DA AUTOMAÇÃO NÃO PODE ENCOLHER SEM QUE ALGUÉM PERCEBA.
  *
  * Ela é o que impede tarefa nascida de andamento de anos atrás. O acervo tem

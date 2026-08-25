@@ -210,6 +210,24 @@ export interface ProcessoDetalhe {
   novasMovimentacoes?: number;
 }
 
+/**
+ * COMO A LISTA VEM ORDENADA — espelho de `ORDENS_PROCESSO` no back.
+ *
+ * Três, e não sete, porque cada uma responde uma pergunta diferente: o que está
+ * acontecendo, o que estou esquecendo, o que acabou de entrar. Seletor com dez
+ * opções é seletor que ninguém abre.
+ *
+ * Os rótulos aqui são a PERGUNTA em linguagem de gente, não o nome do campo:
+ * "Parados há mais tempo" diz para que serve; "ultimoMovimentoEm asc" não.
+ */
+export const ORDENS_LABEL = {
+  movimentacao: 'Movimentação recente',
+  parados: 'Parados há mais tempo',
+  cadastro: 'Cadastrados por último',
+} as const;
+
+export type OrdemProcesso = keyof typeof ORDENS_LABEL;
+
 export interface ListaProcessosResp {
   items: ProcessoLista[];
   total: number;
@@ -385,6 +403,16 @@ export interface FiltroProcessos {
   /** Fase processual — a API deriva de instâncias vivas + atos de execução. */
   fase?: FaseProcessual;
   etiqueta?: string;
+  /** Área jurídica — slug de `AREAS_JURIDICAS`. */
+  categoria?: string;
+  /**
+   * Ordem da lista. Estava faltando aqui e funcionava por acidente:
+   * `listarProcessos` itera as chaves do objeto, então a chave ia para a URL
+   * mesmo sem existir no tipo. Faltando no tipo, um erro de digitação viraria um
+   * parâmetro silenciosamente ignorado — e a lista voltaria à ordem padrão sem
+   * ninguém entender por quê.
+   */
+  ordem?: OrdemProcesso;
   page?: number;
   pageSize?: number;
 }

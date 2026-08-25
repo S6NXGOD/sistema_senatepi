@@ -32,6 +32,7 @@ import {
 } from './utils/fase.util';
 import { atoAcionavel, diasParado, type NivelAtencao } from './utils/tpu.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
+import { ORDENACAO, ordemValida } from './utils/ordenacao.util';
 import { filtroDeVarredura, STATUS_VIVOS } from './utils/varredura.util';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
@@ -768,6 +769,11 @@ export class ProcessosService {
   async listar(q: ListProcessosQueryDto, usuarioId?: string) {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
+    /**
+     * Ordem desconhecida cai no padrão em vez de estourar: o parâmetro vem da
+     * URL, e um link antigo ou colado à mão não pode derrubar a tela inteira.
+     */
+    const ordem = ordemValida(q.ordem);
     const and: Prisma.ProcessoWhereInput[] = [];
     /**
      * PEDIR UM DOS DOIS RÓTULOS DO PRÉ-PROCESSUAL TRAZ OS DOIS.
@@ -868,7 +874,7 @@ export class ProcessosService {
       this.prisma.processo.count({ where }),
       this.prisma.processo.findMany({
         where,
-        orderBy: { ultimaSincronizacao: 'desc' },
+        orderBy: ORDENACAO[ordem],
         skip: (page - 1) * pageSize,
         take: pageSize,
         select: {

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
   AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,10 @@ import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
 import { EquipeAvatares } from '@/components/ui/avatar-pessoa';
 import { FiltroParteContraria } from '@/components/processos/filtro-parte-contraria';
+import {
+  BotaoFiltros, FichasDeFiltro, FILTROS_VAZIOS, PainelDeFiltros, contarFiltros,
+  type FiltrosProcesso,
+} from '@/components/processos/painel-de-filtros';
 import type { ParteExterna } from '@/lib/partes';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { useAuth } from '@/lib/auth';
@@ -25,7 +30,7 @@ import { podeEditar } from '@/lib/permissoes';
 import {
   listarProcessos, formatNPU, ProcessoLista, StatusProcesso, FaseProcessual, FASE_LABEL,
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM, reavaliarInstancias,
-  contadoresProcessos,
+  contadoresProcessos, ORDENS_LABEL, type OrdemProcesso,
 } from '@/lib/processos';
 import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
 import { dataBr, desde } from '@/lib/dossie';
@@ -67,14 +72,27 @@ function ListaProcessos() {
     podeEditar(user?.role, user?.permissoes, 'agenda');
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
-  const [status, setStatus] = useState<'' | StatusProcesso>('');
+  /**
+   * Os filtros do painel, num objeto só.
+   *
+   * Eram quatro `useState` soltos, e cada filtro novo somava mais um `useState`,
+   * mais uma entrada na `queryKey` e mais uma linha no "limpar". Como objeto, o
+   * conjunto inteiro é uma dependência só — e limpar é atribuir `FILTROS_VAZIOS`.
+   */
+  const [filtros, setFiltros] = useState<FiltrosProcesso>(FILTROS_VAZIOS);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  /**
+   * A ORDEM. Padrão "movimentação recente" — ver `ordenacao.util.ts` no back,
+   * onde está por que a ordem anterior (`ultimaSincronizacao`) era ruído.
+   */
+  const [ordem, setOrdem] = useState<OrdemProcesso>('movimentacao');
   /**
    * Fase processual. Separada do status de propósito: status é a nossa leitura
    * interna ("Ativo", "Encerrado"), fase é o que o tribunal está fazendo com o
    * processo. Misturar os dois num seletor só foi o que fez "encerrado" parecer
    * sinônimo de "arquivado" — e um processo em execução ser dado como morto.
    */
-  const [fase, setFase] = useState<'' | FaseProcessual>('');
+
   /** Filtro rápido da tabela (chips). */
   /**
    * Parte contrária escolhida no cadastro. Guardo o OBJETO, não só o id: o
@@ -187,7 +205,7 @@ function ListaProcessos() {
   const filtro = useMemo(
     () => ({
       busca: buscaDeb || undefined,
-      statusInterno: status || undefined,
+      statusInterno: filtros.status || undefined,
       // Filtros rápidos (mutuamente exclusivos).
       ...(parte ? { parteExternaId: parte.id } : {}),
       ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
@@ -195,15 +213,18 @@ function ListaProcessos() {
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
       ...(rapido === 'semReu' ? { semParteContraria: 'true' as const } : {}),
       ...(rapido === 'recentes' ? { movimentacaoRecente: janelaRecente } : {}),
-      ...(fase ? { fase } : {}),
+      ...(filtros.fase ? { fase: filtros.fase } : {}),
+      ...(filtros.advogadoId ? { advogadoId: filtros.advogadoId } : {}),
+      ...(filtros.categoria ? { categoria: filtros.categoria } : {}),
+      ordem,
       page,
       pageSize: 20,
     }),
-    [buscaDeb, status, fase, rapido, janelaRecente, page, parte],
+    [buscaDeb, filtros, rapido, janelaRecente, page, parte, ordem],
   );
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['processos', buscaDeb, status, fase, rapido, janelaRecente, page, parte?.id],
+    queryKey: ['processos', buscaDeb, filtros, rapido, janelaRecente, page, parte?.id, ordem],
     queryFn: () => listarProcessos(filtro),
   });
   const items = data?.items ?? [];
@@ -279,7 +300,14 @@ function ListaProcessos() {
         mudança, não a cor. Mesmo violeta do selo, para a pessoa ligar as duas
         coisas sem precisar aprender.
       */}
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/*
+        NO CELULAR OS CHIPS ROLAM NA HORIZONTAL, em vez de quebrar.
+        Eram seis com contador; num aparelho de 360px viravam três linhas de
+        botões — quase 120px gastos antes do primeiro processo. Rolando, ocupam
+        uma linha só, e a borda cortada é o próprio aviso de que há mais ao lado.
+        `-mx-1 px-1` dá respiro ao anel de foco, que sumiria no overflow.
+      */}
+      <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible sm:pb-0 [&::-webkit-scrollbar]:hidden">
         {([
           { k: 'todos', label: 'Todos', n: contagem?.todos },
           { k: 'meus', label: 'Meus processos', n: contagem?.meus },
@@ -304,7 +332,7 @@ function ListaProcessos() {
               onClick={() => { setRapido(f.k); setPage(1); }}
               aria-pressed={ativo}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
+                'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition',
                 ativo
                   ? 'border-brand-800 bg-brand-800 text-white shadow-sm'
                   : chama
@@ -360,70 +388,142 @@ function ListaProcessos() {
         )}
       </div>
 
-      {/* Filtros */}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            // A busca SEMPRE cobriu o nome das partes; o placeholder é que não dizia,
-            // e ninguém procura o que não sabe que existe.
-            placeholder={`NPU, ${V.filiado}, parte contrária, classe…`}
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-          />
-          {isFetching && (
-            <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-          )}
-        </div>
-        {/*
-          FILTRO POR PARTE, ao lado da busca e antes dos seletores.
-          É outra pergunta: a busca livre procura o nome ESCRITO em cada
-          processo (que muda de grafia a cada autos); este aqui procura pela
-          LIGAÇÃO com o cadastro, e por isso pega todas as grafias de uma vez.
-        */}
-        <FiltroParteContraria valor={parte} onChange={(p) => { setParte(p); setPage(1); }} className="sm:w-56" />
-        <select
-          className={cn(inputCls, 'sm:w-48')}
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as '' | StatusProcesso);
-            setPage(1);
-          }}
-        >
-          <option value="">Todos os status</option>
-          {STATUS_PROCESSO_ORDEM.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_PROCESSO_LABEL[s]}
-            </option>
-          ))}
-        </select>
-        <select
-          className={cn(inputCls, 'sm:w-48')}
-          value={fase}
-          onChange={(e) => {
-            setFase(e.target.value as '' | FaseProcessual);
-            setPage(1);
-          }}
-        >
-          <option value="">Todas as fases</option>
-          {/*
-            PRE_PROCESSUAL entra aqui, e não é redundância com a aba.
+      {/*
+        A BARRA: busca sempre visível, o resto atrás de um botão.
 
-            A tabela ESTAMPA o chip "Pré-processual" na coluna de fase; quem vê
-            o chip vai procurá-lo neste seletor, não numa aba do outro lado da
-            tela. Deixá-lo de fora fazia a fase existir para ler e não existir
-            para filtrar — e, junto com o filtro de status que só reconhecia um
-            dos dois rótulos, fechava TODAS as portas de volta para o caso que a
-            listagem padrão esconde.
-          */}
-          {(['PRE_PROCESSUAL', 'CONHECIMENTO', 'EXECUCAO', 'RECURSAL', 'ARQUIVADO'] as const).map((f) => (
-            <option key={f} value={f}>
-              {FASE_LABEL[f]}
-            </option>
-          ))}
-        </select>
+        Antes eram quatro controles em coluna no celular (busca, parte, situação,
+        fase), 48px cada. Com os chips acima, davam mais de 200px de enfeite
+        antes do primeiro processo — metade de um aparelho de 360px gasta com
+        coisas que quase nunca mudam. Agora a busca (o que se usa toda hora)
+        divide a linha com o botão de filtros (o que se usa às vezes).
+      */}
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              // A busca SEMPRE cobriu o nome das partes; o placeholder é que não dizia,
+              // e ninguém procura o que não sabe que existe.
+              placeholder={`NPU, ${V.filiado}, parte contrária, classe…`}
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+            {isFetching && (
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
+          </div>
+          <BotaoFiltros
+            aberto={filtrosAbertos}
+            onToggle={() => setFiltrosAbertos((v) => !v)}
+            quantos={contarFiltros(filtros, !!parte)}
+          />
+        </div>
+
+        {filtrosAbertos && (
+          <div className="space-y-2">
+            {/*
+              FILTRO POR PARTE fica no painel, junto dos demais, mas em linha
+              própria: é uma busca com sugestões, não um seletor, e espremê-lo
+              numa célula da grade cortaria a lista de resultados.
+
+              É outra pergunta que a busca livre: a busca procura o nome ESCRITO
+              em cada processo (que muda de grafia a cada autos); este procura
+              pela LIGAÇÃO com o cadastro, e por isso pega todas as grafias.
+            */}
+            <FiltroParteContraria
+              valor={parte}
+              onChange={(p) => { setParte(p); setPage(1); }}
+              className="w-full"
+            />
+            <PainelDeFiltros
+              valor={filtros}
+              onChange={(f) => { setFiltros(f); setPage(1); }}
+            />
+          </div>
+        )}
+
+        {/*
+          O QUE ESTÁ FILTRANDO, mesmo com o painel fechado.
+          Sem esta fila, "só aparecem 3 processos" viraria mistério: o filtro
+          estaria ligado dentro de um painel que ninguém vê. Cada ficha remove
+          só a si mesma — é raro querer limpar tudo.
+        */}
+        <FichasDeFiltro
+          filtros={filtros}
+          parte={parte ? { id: parte.id, nome: parte.nome } : null}
+          busca={buscaDeb}
+          onLimparCampo={(campo) => {
+            setPage(1);
+            if (campo === 'busca') { setBusca(''); setBuscaDeb(''); return; }
+            if (campo === 'parte') { setParte(null); return; }
+            setFiltros((f) => ({ ...f, [campo]: '' }));
+          }}
+          onLimparTudo={() => {
+            setBusca(''); setBuscaDeb(''); setParte(null);
+            setFiltros(FILTROS_VAZIOS); setPage(1);
+          }}
+        />
       </div>
+
+      {/*
+        TOTAL E ORDEM na mesma linha, logo acima da lista.
+
+        A ordem fica FORA do painel de filtros de propósito: ordenar não é
+        filtrar. Filtro muda QUAIS processos aparecem e é raro; ordem muda a
+        prioridade da leitura e se troca várias vezes na mesma sessão — esconder
+        atrás de um botão custaria dois toques toda vez.
+      */}
+      {/*
+        QUEBRA EM VEZ DE CORTAR. Num aparelho de 360px, "41 processos · +4
+        pré-processuais" ao lado de um seletor de 150px não cabe — e com
+        `truncate` o que sumia era justamente o botão do aviso, que é clicável.
+        Deixar a linha quebrar custa 22px numa tela estreita e não esconde nada.
+      */}
+      {!isLoading && total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+          <span className="text-sm text-muted-foreground">
+            <span className="tabular-nums">{total} processo{total === 1 ? '' : 's'}</span>
+            {/*
+              O AVISO DE QUE ALGO FICOU DE FORA.
+
+              A lista padrão esconde a fila pré-processual — decisão certa, mas
+              que sem aviso vira "sumiu". Ficava no rodapé, junto da paginação;
+              subiu para cá quando o total subiu, porque os dois são a mesma
+              frase e separá-los faria a pessoa ler "41 processos" no topo e
+              descobrir a ressalva só depois de rolar a lista inteira.
+
+              Só na aba "Todos" e só com algo escondido: fora disso seria ruído
+              permanente, e ruído permanente ninguém lê.
+            */}
+            {rapido === 'todos' && !!contagem?.preProcessuais && (
+              <>
+                {' · '}
+                <button
+                  type="button"
+                  onClick={() => { setRapido('preProcessuais'); setPage(1); }}
+                  className="font-medium text-violet-700 underline-offset-2 hover:underline dark:text-violet-400"
+                >
+                  +{contagem.preProcessuais} pré-processua{contagem.preProcessuais === 1 ? 'l' : 'is'}
+                </button>
+              </>
+            )}
+          </span>
+          <label className="flex items-center gap-1.5">
+            <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="sr-only">Ordenar por</span>
+            <select
+              className="h-9 max-w-[13rem] rounded-md border border-input bg-background px-2 text-sm"
+              value={ordem}
+              onChange={(e) => { setOrdem(e.target.value as OrdemProcesso); setPage(1); }}
+            >
+              {(Object.keys(ORDENS_LABEL) as OrdemProcesso[]).map((o) => (
+                <option key={o} value={o}>{ORDENS_LABEL[o]}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {/* Lista */}
       {isLoading ? (
@@ -433,8 +533,11 @@ function ListaProcessos() {
       ) : items.length === 0 ? (
         <VazioContextual
           rapido={rapido}
-          filtrando={!!buscaDeb || !!status || !!fase || !!parte}
-          onLimpar={() => { setBusca(''); setStatus(''); setFase(''); setRapido('todos'); setParte(null); setPage(1); }}
+          filtrando={!!buscaDeb || !!parte || contarFiltros(filtros, false) > 0}
+          onLimpar={() => {
+            setBusca(''); setBuscaDeb(''); setFiltros(FILTROS_VAZIOS);
+            setRapido('todos'); setParte(null); setPage(1);
+          }}
           onImportar={() => setImportOpen(true)}
         />
       ) : (
@@ -528,34 +631,15 @@ function ListaProcessos() {
             </div>
           </Card>
 
-          {/* Paginação */}
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {total} processo{total === 1 ? '' : 's'}
-              {/*
-                O AVISO DE QUE ALGO FICOU DE FORA.
+          {/*
+            SÓ A PAGINAÇÃO.
 
-                A lista padrão esconde a fila pré-processual — decisão certa,
-                mas que sem aviso vira "sumiu". O contador da aba já anuncia lá
-                em cima; esta linha fecha o cerco no lugar onde a pessoa confere
-                o total, que é justamente onde ela repararia na falta.
-
-                Só aparece na aba "Todos" e só com algo escondido: fora disso
-                seria ruído permanente, e ruído permanente ninguém lê.
-              */}
-              {rapido === 'todos' && !!contagem?.preProcessuais && (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    onClick={() => { setRapido('preProcessuais'); setPage(1); }}
-                    className="font-medium text-violet-700 underline-offset-2 hover:underline dark:text-violet-400"
-                  >
-                    {contagem.preProcessuais} pré-processua{contagem.preProcessuais === 1 ? 'l' : 'is'} fora desta lista
-                  </button>
-                </>
-              )}
-            </span>
+            O total morava aqui e passou a aparecer TAMBÉM no topo, junto do
+            seletor de ordem — dois lugares com o mesmo número, que é como
+            começam as divergências desta base. Ficou o de cima: é onde a pessoa
+            decide o que fazer, e antes de rolar.
+          */}
+          <div className="flex items-center justify-end text-sm text-muted-foreground">
             {totalPaginas > 1 && (
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>

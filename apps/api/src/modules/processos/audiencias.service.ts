@@ -3,6 +3,7 @@ import { AcaoAuditoria, Prisma, StatusCompromisso, StatusProcesso } from '@prism
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { AgendaService } from '../agenda/agenda.service';
+import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { AgendarAudienciaDto } from './dto/audiencias.dto';
 import { classificarAudiencia, classificarMovimentacao } from './utils/audiencia.util';
 import { diaBR, inicioDoDiaBR } from './utils/data-br.util';
@@ -64,6 +65,7 @@ export class AudienciasService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly agenda: AgendaService,
+    private readonly automacao: AutomacaoPrazosService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -270,6 +272,21 @@ export class AudienciasService {
       where: { id },
       data: { compromissoId: compromisso.id, dispensadoEm: null, dispensadoPor: null, dispensadoMotivo: null },
     });
+
+    /**
+     * O LEMBRETE QUE MANDAVA FAZER ISTO SAI DA FILA.
+     *
+     * "Confirmar data da audiência designada" e este radar cobrem o mesmo
+     * trabalho em duas telas — o robô cria a tarefa para quem vive na Agenda, o
+     * radar atende quem vive em Processos. Faltava fechar o circuito: agendar
+     * por aqui resolvia o problema e deixava a tarefa aberta cobrando para
+     * sempre, e (depois da escalada por tempo cego) ela ainda viraria urgente
+     * quinze dias depois, por um trabalho já feito.
+     */
+    await this.automacao.fecharConfirmacaoDeData(
+      mov.processo.id,
+      `${rotulo} agendada para ${inicio.toLocaleString('pt-BR')} a partir do radar.`,
+    );
 
     await this.auditar(
       AcaoAuditoria.UPDATE,
