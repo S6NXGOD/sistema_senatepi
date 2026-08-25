@@ -134,7 +134,18 @@ export interface ProcessoLista {
    * Vem classificado da API (`tpu.util.ts`) — a tela não repete o dicionário de
    * códigos da TPU, senão os dois envelheceriam separados.
    */
-  alerta?: { nivel: 'PRAZO' | 'DECISAO'; rotulo: string } | null;
+  /**
+   * O aviso da linha — um só, escolhido no back (`alertaDaLinha`).
+   *
+   * `PARADO` não vem de um ato: vem da AUSÊNCIA deles. Entrou quando os selos
+   * de prazo ganharam validade e dez avisos sumiram de uma vez — eles estavam
+   * mal rotulados, não eram falsos, e sumir sem substituto faria a inércia
+   * parecer normalidade.
+   */
+  alerta?: {
+    nivel: 'URGENTE' | 'PRAZO' | 'DECISAO' | 'PARADO';
+    rotulo: string;
+  } | null;
   /**
    * Etiquetas mantidas pelo SISTEMA (⚡). Derivadas na leitura, nunca gravadas —
    * é o que garante que não envelheçam. As de `etiquetas` são as manuais.

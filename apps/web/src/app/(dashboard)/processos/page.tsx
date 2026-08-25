@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
-  AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter,
+  AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -807,21 +807,69 @@ function CelulaUltimaMov({ p }: { p: ProcessoLista }) {
       <p className="truncate text-xs text-muted-foreground" title={texto}>
         {texto}
       </p>
-      {alerta && (
-        <span
-          title={`${alerta.rotulo} — ainda sem tarefa na agenda`}
-          className={cn(
-            'mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-            alerta.nivel === 'PRAZO'
-              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-              : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
-          )}
-        >
-          {alerta.nivel === 'PRAZO' ? <AlarmClock className="h-3 w-3" /> : <Scale className="h-3 w-3" />}
-          {alerta.nivel === 'PRAZO' ? 'Prazo sem tarefa' : 'Decisão a ler'}
-        </span>
-      )}
+      {alerta && <SeloDeAlerta alerta={alerta} />}
     </div>
+  );
+}
+
+/**
+ * O SELO DA LINHA — um aviso por processo, com peso proporcional ao que pede.
+ *
+ * O QUE ISTO CONSERTA. Antes havia dois selos, "Prazo sem tarefa" e "Decisão a
+ * ler", e o primeiro era uma mentira medida: em 25/08/2026, com 41 processos na
+ * produção, a lista mostrava ONZE selos de prazo — nenhum com menos de quinze
+ * dias, dez com mais de trinta, o mais velho com 252. Nenhum era prazo. Um
+ * aviso que só acende para coisa velha ensina a equipe a não olhar para ele.
+ *
+ * Agora o nível vem inteiro do back (`alertaDaLinha` → `tpu.util.ts`), que
+ * aplica dicionário, validade, complemento e dispensa num lugar só. Aqui é só
+ * aparência — e a aparência é DESIGUAL de propósito:
+ *
+ *  · URGENTE  vermelho, com o ícone que mais chama — tutela muda o que se pode
+ *             fazer hoje, e é o único nível que merece interromper alguém;
+ *  · PRAZO    âmbar — o robô devia ter aberto tarefa e não abriu;
+ *  · DECISÃO  azul — há o que ler, sem relógio correndo;
+ *  · PARADO   cinza, sem cor de alarme. É informação, não cobrança: o processo
+ *             não se mexe há meses e ninguém tinha como perceber olhando a
+ *             lista. Dar-lhe cor de urgência recriaria o problema que os outros
+ *             três acabaram de resolver.
+ */
+function SeloDeAlerta({ alerta }: { alerta: NonNullable<ProcessoLista['alerta']> }) {
+  const APARENCIA = {
+    URGENTE: {
+      classe: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+      Icone: Siren,
+      titulo: 'Ação imediata — o ato muda o que pode ser feito hoje',
+    },
+    PRAZO: {
+      classe: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+      Icone: AlarmClock,
+      titulo: 'Ato recente que abre prazo e ainda não virou tarefa na agenda',
+    },
+    DECISAO: {
+      classe: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+      Icone: Scale,
+      titulo: 'Decisão dos últimos 90 dias que ninguém marcou como lida',
+    },
+    PARADO: {
+      classe: 'bg-muted text-muted-foreground',
+      Icone: Hourglass,
+      titulo: 'Processo vivo sem nenhum andamento novo — pode estar esperando algo nosso',
+    },
+  } as const;
+
+  const { classe, Icone, titulo } = APARENCIA[alerta.nivel];
+  return (
+    <span
+      title={titulo}
+      className={cn(
+        'mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+        classe,
+      )}
+    >
+      <Icone className="h-3 w-3" />
+      {alerta.rotulo}
+    </span>
   );
 }
 

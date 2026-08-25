@@ -3,10 +3,37 @@ import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgendaService } from '../agenda/agenda.service';
 import { classificarMovimentacao, type GatilhoMovimentacao } from './utils/audiencia.util';
+import { montarUrgencia } from '../agenda/equipe.util';
 import { diaBR } from './utils/data-br.util';
 
 /** Dias úteis padrão para conferir uma intimação/citação. */
 const PRAZO_PADRAO_DIAS_UTEIS = 5;
+
+/**
+ * Até quantos dias um andamento chegado com atraso ainda pode ter PRAZO VIVO.
+ *
+ * É o que separa a urgência real do alarme decorativo, e a fronteira tem base
+ * no prazo processual, não em preferência:
+ *
+ *  · 0 a 7 dias  — o lembrete de conferência (5 dias úteis) ainda nem venceu.
+ *    Há tempo. Tarefa normal, com data no futuro.
+ *
+ *  · 8 a 15 dias — A ZONA DE PERIGO. O lembrete já venceu, mas o prazo
+ *    processual pode estar correndo agora: 15 dias úteis é o prazo recursal do
+ *    CPC (art. 1.003) e 8 dias o da CLT. Descobrir um ato aqui é descobrir algo
+ *    que talvez ainda dê para salvar — e é exatamente isso que "urgente"
+ *    deveria significar.
+ *
+ *  · mais de 15  — qualquer prazo ordinário já correu. A tarefa continua sendo
+ *    criada, porque há estrago a levantar e filiado a avisar, mas chamá-la de
+ *    urgente não recupera nada e rebaixa o que é urgente de verdade.
+ *
+ * O corte em 7 dias, que eu tinha escolhido antes, tornava a marca quase
+ * inalcançável: com o lembrete vencendo em 5 dias úteis (~7 corridos), só um
+ * ato de exatamente sete dias caía na janela. Uma regra que nunca dispara não é
+ * conservadora, é morta.
+ */
+const DIAS_ATO_RECENTE = 15;
 
 /** Slugs de `tipos_evento` que o robô usa. */
 const TIPO_PRAZO = 'PRAZO';
@@ -244,6 +271,36 @@ export class AutomacaoPrazosService {
     const inicio = proximoDiaUtil(atrasado ? hoje : calculado);
     inicio.setHours(9, 0, 0, 0);
 
+    /**
+     * URGENTE É COISA RARA — ou deixa de significar alguma coisa.
+     *
+     * Medido na produção em 25/08/2026: das SETE tarefas automáticas que o
+     * sistema criou desde que entrou no ar, SETE estavam marcadas como
+     * urgentes. Quatro nasceram na mesma madrugada, de andamentos de 18 a 28
+     * dias atrás, todas vencendo no mesmo dia. Uma agenda em que tudo é urgente
+     * é uma agenda sem prioridade nenhuma.
+     *
+     * A culpa era da regra: `urgente = atrasado`, e `atrasado` é verdade para
+     * QUALQUER andamento com mais de uma semana — o prazo de conferência é de 5
+     * dias úteis e a janela de captura é de 30 dias, então a marca disparava
+     * por construção em quase tudo que o robô pegava.
+     *
+     * A distinção que faltava é entre ATRASO NOSSO e ATRASO DO TRIBUNAL:
+     *
+     *  · o andamento é RECENTE (ver DIAS_ATO_RECENTE) e o prazo de conferência
+     *    já passou → soubemos agora de algo cujo prazo processual pode ainda
+     *    estar correndo. Isso é urgente de verdade: talvez dê para salvar.
+     *
+     *  · o andamento é ANTIGO → o prazo, se havia, correu semanas atrás. Marcar
+     *    como urgente hoje não recupera nada e ainda rebaixa o que é urgente de
+     *    fato. Vira tarefa normal, com o aviso de que chegou atrasado — a
+     *    informação continua ali, sem o alarme falso.
+     */
+    const idadeDoAtoDias = Math.floor(
+      (hoje.getTime() - mov.dataMovimento.getTime()) / 86_400_000,
+    );
+    const urgente = atrasado && idadeDoAtoDias <= DIAS_ATO_RECENTE;
+
     const existente = await this.prisma.compromisso.findFirst({
       where: {
         processoId: processo.id,
@@ -277,13 +334,38 @@ export class AutomacaoPrazosService {
         descricao:
           `Processo ${processo.numeroCNJ ?? '(rascunho)'}. Conferir o teor no sistema do tribunal e o prazo aplicável.\n` +
           (atrasado
-            ? `⚠ Andamento recebido com atraso — o prazo de conferência já venceria em ${calculado.toLocaleDateString('pt-BR')}.\n`
+            ? `⚠ Andamento recebido com atraso (${idadeDoAtoDias} dias) — o prazo de conferência venceria em ` +
+              `${calculado.toLocaleDateString('pt-BR')}. ` +
+              (urgente
+                ? 'Chegou agora: confira hoje.\n'
+                : 'O prazo processual, se havia, já correu — confira sem alarme o que ficou pendente.\n')
             : '') +
           `Andamentos:\n${linha}`,
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
-        urgente: atrasado,
+        /**
+         * A URGÊNCIA PASSA PELA MESMA PORTA QUE A DA TELA.
+         *
+         * A Agenda exige motivo para marcar algo como urgente — "sem motivo, a
+         * marca não pode ser revista depois e a fila de urgências perde o
+         * sentido" (equipe.util.ts). O robô escrevia `urgente: true` no banco
+         * direto, sem passar por ali: conferido na produção em 25/08/2026, TODAS
+         * as tarefas urgentes tinham `urgenteMotivo` e `urgentePor` nulos. Quem
+         * abrisse a fila veria urgências que ninguém consegue explicar nem
+         * auditar — exatamente o que a regra existe para impedir.
+         *
+         * `origem: 'AUTOMACAO'` sempre existiu no tipo e nunca tinha sido usada.
+         * É ela que dispensa o autor humano sem dispensar a explicação.
+         */
+        ...montarUrgencia(
+          urgente,
+          urgente
+            ? `Andamento de ${idadeDoAtoDias} dia(s) chegou com o prazo de conferência já vencido ` +
+              `(venceria em ${calculado.toLocaleDateString('pt-BR')}).`
+            : null,
+          { origem: 'AUTOMACAO' },
+        ),
         origemAutomatica: true,
         criadoPor: null, // sem autor humano — é o robô
       },

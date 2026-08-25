@@ -30,9 +30,9 @@ import { escolherPrincipal, temInstanciaViva } from './utils/instancia.util';
 import {
   CODIGOS_TPU_EXECUCAO, FaseProcessual, GRAUS_RECURSAIS, faseDoProcesso,
 } from './utils/fase.util';
-import { atoCritico } from './utils/tpu.util';
+import { atoAcionavel, diasParado, type NivelAtencao } from './utils/tpu.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
-import { filtroDeVarredura } from './utils/varredura.util';
+import { filtroDeVarredura, STATUS_VIVOS } from './utils/varredura.util';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
 import { normalizarCategoria } from './areas.catalogo';
@@ -579,15 +579,16 @@ export class ProcessosService {
     });
   }
 
-  /** IDs de todos os processos ATIVOS (varredura do robô). */
-  async idsAtivos(): Promise<string[]> {
-    const rows = await this.prisma.processo.findMany({
-      where: { statusInterno: 'ATIVO' },
-      select: { id: true },
-      orderBy: { ultimaSincronizacao: 'asc' }, // prioriza os mais desatualizados
-    });
-    return rows.map((r) => r.id);
-  }
+  /*
+   * `idsAtivos()` VIVIA AQUI e foi removido.
+   *
+   * Ele dizia ser "a varredura do robô" e filtrava `statusInterno: 'ATIVO'` —
+   * mas a varredura é `idsParaSincronizar`, logo abaixo, e o filtro certo mora
+   * em `filtroDeVarredura`. Ninguém o chamava (conferido em todo o `apps/`), e
+   * era uma armadilha esperando: quem o usasse por engano deixaria de fora
+   * PENDENTE, GANHO_EXECUCAO e o ENCERRADO com instância viva — três estados
+   * cuja ausência da varredura já causou defeito documentado neste arquivo.
+   */
 
   /**
    * IDs elegíveis à varredura noturna.
@@ -658,25 +659,68 @@ export class ProcessosService {
   /**
    * O último ato pede alguma coisa de alguém — e ninguém pegou?
    *
-   * Combina duas informações que a lista já carrega: o NÍVEL do ato (dicionário
-   * conferido em `tpu.util.ts`) e o carimbo `compromissoId`, que é a trava de
-   * idempotência do robô de prazos. Se o ato abre prazo ou traz decisão e não
-   * virou tarefa na agenda, ele está solto — é exatamente o que a lista precisa
-   * mostrar sem obrigar a abrir a ficha.
+   * TODA a regra mora em `atoAcionavel` (tpu.util.ts): dicionário, validade,
+   * complemento, tarefa já criada e dispensa. Aqui só se escolhe ENTRE avisos,
+   * nunca se decide se um aviso vale — foi a duplicação dessa decisão em dois
+   * lugares que fez a lista mostrar 11 selos de prazo, nenhum deles recente e o
+   * mais velho com 252 dias, enquanto a ficha do mesmo processo não mostrava
+   * nada. Um dos dois estava mentindo, e era o que tinha regra própria.
    *
-   * ENCERRAMENTO fica de fora de propósito: baixa e trânsito em julgado não
-   * pedem providência, e virariam alarme permanente em todo processo arquivado.
+   * QUANDO NÃO HÁ ATO ACIONÁVEL, AINDA PODE HAVER O QUE DIZER. Um processo vivo
+   * cujo último andamento é de oito meses atrás não tem prazo correndo — tem
+   * inércia, que é problema diferente e merece nome diferente. O aviso de
+   * dormência entra por último, só quando não há nada mais urgente: quem tem
+   * prazo esta semana não precisa ser lembrado de que o processo andou pouco.
    *
    * A classificação vive no back porque o filtro, a ficha e a lista têm de
    * concordar — dicionário de TPU espelhado no front envelheceria só de um lado.
    */
   private alertaDaLinha(
-    ultimo?: { codigoMovimento: number | null; compromissoId: string | null },
-  ): { nivel: 'PRAZO' | 'DECISAO'; rotulo: string } | null {
-    if (!ultimo || ultimo.compromissoId) return null;
-    const ato = atoCritico(ultimo.codigoMovimento);
-    if (!ato || ato.nivel === 'ENCERRAMENTO') return null;
-    return { nivel: ato.nivel, rotulo: ato.rotulo };
+    ultimo: {
+      codigoMovimento: number | null;
+      dataMovimento: Date;
+      detalhe: string | null;
+      compromissoId: string | null;
+      dispensadoEm: Date | null;
+    } | undefined,
+    ultimaNotaInterna: Date | null,
+    statusInterno: StatusProcesso,
+    agora: Date,
+  ): { nivel: NivelAtencao | 'PARADO'; rotulo: string } | null {
+    if (!ultimo) return null;
+
+    const ato = atoAcionavel(ultimo, agora);
+    if (ato) return { nivel: ato.nivel, rotulo: ato.rotulo };
+
+    /**
+     * Dormência só faz sentido em processo VIVO. Arquivado e encerrado estão
+     * parados porque acabaram — acusá-los seria transformar o acervo inteiro
+     * num alerta permanente, que é o defeito que este trabalho veio corrigir.
+     */
+    if (!STATUS_VIVOS.includes(statusInterno)) return null;
+
+    /**
+     * VALE A MAIS RECENTE DAS DUAS FONTES.
+     *
+     * Trabalho no processo nem sempre passa pelo tribunal: negociação, cálculo,
+     * contato com o filiado. Quem registrou uma nota semana passada está com o
+     * caso na mão, e chamá-lo de parado seria cobrar de quem já está fazendo.
+     */
+    const ultimoSinal =
+      ultimaNotaInterna && ultimaNotaInterna > ultimo.dataMovimento
+        ? ultimaNotaInterna
+        : ultimo.dataMovimento;
+
+    const dias = diasParado(ultimoSinal, agora);
+    if (dias == null) return null;
+
+    const meses = Math.floor(dias / 30);
+    return {
+      nivel: 'PARADO',
+      rotulo: meses >= 12
+        ? `Parado há ${Math.floor(meses / 12)} ano${meses >= 24 ? 's' : ''}`
+        : `Parado há ${meses} ${meses === 1 ? 'mês' : 'meses'}`,
+    };
   }
 
   /**
@@ -812,6 +856,14 @@ export class ProcessosService {
     }
     const where: Prisma.ProcessoWhereInput = and.length ? { AND: and } : {};
 
+    /**
+     * UM relógio para a página inteira. Chamar `new Date()` dentro do `map`
+     * daria um instante diferente por linha — irrelevante na prática, mas
+     * suficiente para um teste de validade ficar intermitente na virada do dia,
+     * e teste intermitente é teste que se aprende a ignorar.
+     */
+    const agoraDaLista = new Date();
+
     const [total, items] = await this.prisma.$transaction([
       this.prisma.processo.count({ where }),
       this.prisma.processo.findMany({
@@ -827,6 +879,23 @@ export class ProcessosService {
           filiado: filiadoSel, advogado: advogadoSel,
           partes: partesResumoSel,
           advogados: { select: { principal: true, advogado: advogadoSel } },
+          /**
+           * A última nota da EQUIPE — só a data.
+           *
+           * Entra por causa do aviso de dormência: um processo em que o
+           * advogado escreveu ontem não está parado, ainda que o tribunal não
+           * publique nada há meses. Contar só o andamento do CNJ acusaria de
+           * inércia justamente quem está trabalhando o caso por fora do
+           * tribunal (negociação, cálculo, contato com o filiado).
+           *
+           * O painel do advogado já contava as duas fontes; a lista não. Era
+           * mais um par de telas prestes a discordar sobre a mesma palavra.
+           */
+          movimentacoesInternas: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { createdAt: true },
+          },
           // Só o resumo: a lista precisa avisar "este processo corre em dois
           // graus" sem carregar os metadados de cada um.
           instancias: {
@@ -842,6 +911,9 @@ export class ProcessosService {
             select: {
               dataMovimento: true, descricao: true, detalhe: true,
               codigoMovimento: true, compromissoId: true,
+              // `dispensadoEm` entra porque o aviso passou a respeitá-la: quem
+              // dispensou o alerta no radar não pode vê-lo voltar na lista.
+              dispensadoEm: true,
             },
           },
           // Existe ato de execução? Uma linha basta — a fase só pergunta "sim ou
@@ -882,7 +954,12 @@ export class ProcessosService {
           temMovimentoDeExecucao: comExecucao.has(p.id),
           semNumero: !p.numeroCNJ,
         }),
-        alerta: this.alertaDaLinha(p.movimentacoes[0]),
+        alerta: this.alertaDaLinha(
+          p.movimentacoes[0],
+          p.movimentacoesInternas[0]?.createdAt ?? null,
+          p.statusInterno,
+          agoraDaLista,
+        ),
         /**
          * Etiquetas que o sistema mantém sozinho. Derivadas AQUI, na leitura, e
          * nunca gravadas: o que não é armazenado não fica desatualizado.
@@ -1276,6 +1353,58 @@ export class ProcessosService {
         },
       });
       this.logger.log(`[DATAJUD] ${processo.numeroCNJ}: encerrado — todas as instâncias baixadas.`);
+      return;
+    }
+
+    /**
+     * PENDENTE QUE FINALMENTE APARECEU NO CNJ VIRA ATIVO.
+     *
+     * O CASO. Todo processo cadastrado à mão nasce PENDENTE — é o padrão em
+     * `criar()`. O rótulo quer dizer "distribuído, aguardando movimentação", e
+     * é honesto no primeiro dia: o índice público do CNJ leva dias para
+     * conhecer um processo recém-distribuído, então a ficha abre vazia mesmo.
+     *
+     * O BURACO. A reavaliação sabia encerrar e sabia reabrir, e não sabia esta
+     * terceira transição. O processo era preenchido pelo robô — classe, vara,
+     * quarenta andamentos — e continuava PENDENTE para sempre, dizendo
+     * "aguardando movimentação" com a movimentação toda na tela ao lado.
+     *
+     * E NÃO ERA SÓ O RÓTULO. A carteira do advogado no painel conta
+     * `statusInterno: ATIVO`; um processo travado em PENDENTE não aparecia
+     * nela. É o mesmo defeito do "A ajuizar: 0" — um ZERO, que ninguém
+     * questiona, escondendo trabalho real de alguém.
+     *
+     * A condição é a definição do próprio rótulo lida ao contrário: se há
+     * instância viva E já existe andamento, então não se está mais aguardando
+     * movimentação. Nada de adivinhação — é o CNJ afirmando que o processo
+     * corre.
+     */
+    if (processo.statusInterno === 'PENDENTE' && viva) {
+      const andamentos = await this.prisma.movimentacaoProcessual.count({
+        where: { processoId },
+      });
+      if (andamentos > 0) {
+        await this.prisma.processo.update({
+          where: { id: processoId },
+          data: { statusInterno: 'ATIVO' },
+        });
+        await this.prisma.movimentacaoInterna.create({
+          data: {
+            processoId,
+            tipo: 'ATUALIZACAO',
+            descricao:
+              `Processo passou a Ativo: o CNJ publicou o processo e ele já registra ` +
+              `${andamentos} andamento(s). Enquanto o índice do tribunal não o conhecia, ` +
+              'ele ficou como Pendente (distribuído, aguardando movimentação).',
+            statusAnterior: 'PENDENTE',
+            statusNovo: 'ATIVO',
+            notaInterna: false,
+          },
+        });
+        this.logger.log(
+          `[DATAJUD] ${processo.numeroCNJ}: PENDENTE → ATIVO (${andamentos} andamento(s) no CNJ).`,
+        );
+      }
       return;
     }
 

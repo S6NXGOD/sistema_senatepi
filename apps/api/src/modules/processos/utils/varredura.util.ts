@@ -55,7 +55,15 @@ import { Prisma, StatusProcesso } from '@prisma/client';
  */
 export const DIAS_RECHECAGEM_DORMENTE = 7;
 
-const VIVOS: StatusProcesso[] = [
+/**
+ * O que conta como processo VIVO — uma definição, dois consumidores.
+ *
+ * A varredura usa para decidir quem consultar toda noite; o aviso de dormência
+ * (`alertaDaLinha`) usa para decidir quem pode ser acusado de estar parado.
+ * Precisam ser a MESMA lista: acusar de inércia um processo que o robô nem
+ * consulta seria cobrar movimento de quem ninguém está olhando.
+ */
+export const STATUS_VIVOS: StatusProcesso[] = [
   StatusProcesso.ATIVO,
   StatusProcesso.PENDENTE,
   StatusProcesso.GANHO_EXECUCAO,
@@ -88,7 +96,7 @@ export function filtroDeVarredura(
     numeroCNJ: { not: null },
     OR: [
       // --- Faixa rápida: o que está vivo -----------------------------------
-      { statusInterno: { in: VIVOS } },
+      { statusInterno: { in: STATUS_VIVOS } },
       /**
        * O status é do PROCESSO, mas a baixa acontece por GRAU: o 2º grau
        * transita em julgado, o processo é encerrado — e o cumprimento de

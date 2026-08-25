@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { atoCritico } from './utils/tpu.util';
+import { atoAcionavel, atoCritico } from './utils/tpu.util';
 import { CODIGOS_TPU_EXECUCAO, faseDoProcesso } from './utils/fase.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { AuditService } from '../../common/audit/audit.service';
@@ -465,21 +465,32 @@ export class MovimentacoesService {
   private marcosDoEncerramento(
     movimentacoes: { dataMovimento: Date; descricao: string; codigoMovimento: number | null }[],
   ) {
-    /** Códigos conferidos no índice do CNJ, não deduzidos da tabela da TPU. */
-    const ROTULOS: Record<number, string> = {
-      22: 'Baixa definitiva',
-      246: 'Arquivamento definitivo',
-      848: 'Trânsito em julgado',
-      893: 'Desarquivamento',
-      196: 'Extinção da execução',
+    /**
+     * O RÓTULO VEM DO DICIONÁRIO — só o que ele não tem fica aqui.
+     *
+     * Esta era a TERCEIRA tabela de códigos TPU do sistema, e já tinha
+     * divergido: 196 se chamava "Extinção da execução" aqui e "Execução
+     * extinta" em `tpu.util.ts`. Duas telas, dois nomes, o mesmo ato — o começo
+     * exato do problema que custou os onze selos falsos da listagem.
+     *
+     * Os dois códigos de execução ficam de fora do dicionário DE PROPÓSITO (ver
+     * `CODIGOS_IGNORADOS_DE_PROPOSITO`): não devem virar aviso, porque já
+     * mudam a fase do processo. Mas são marcos legítimos da linha do tempo, e
+     * por isso ganham rótulo só aqui.
+     */
+    const SO_DAQUI: Record<number, string> = {
       11384: 'Liquidação iniciada',
       11385: 'Execução iniciada',
     };
+    const rotuloDoMarco = (codigo: number): string | null =>
+      SO_DAQUI[codigo] ??
+      (atoCritico(codigo)?.nivel === 'ENCERRAMENTO' ? atoCritico(codigo)!.rotulo : null);
+
     return movimentacoes
-      .filter((m) => m.codigoMovimento != null && ROTULOS[m.codigoMovimento])
+      .filter((m) => m.codigoMovimento != null && rotuloDoMarco(m.codigoMovimento))
       .map((m) => ({
         codigo: m.codigoMovimento as number,
-        rotulo: ROTULOS[m.codigoMovimento as number],
+        rotulo: rotuloDoMarco(m.codigoMovimento as number) as string,
         data: m.dataMovimento,
         /** Reabre o ciclo: serve para a tela mostrar que o fim não foi o fim. */
         reabre: m.codigoMovimento === 893 || m.codigoMovimento === 11385 || m.codigoMovimento === 11384,
@@ -487,23 +498,39 @@ export class MovimentacoesService {
       .sort((a, b) => a.data.getTime() - b.data.getTime());
   }
 
+  /**
+   * Atos recentes que ainda pedem providência.
+   *
+   * A janela, a dispensa e o complemento agora moram todos em `atoAcionavel` —
+   * antes esta função tinha a sua própria janela de 30 dias e a lista de
+   * processos não tinha nenhuma, e as duas telas mostravam coisas diferentes
+   * para o mesmo processo. Cada nível tem a sua validade (prazo 30 dias,
+   * decisão 90), e é o dicionário que decide, não o chamador.
+   */
   private atencaoRequerida(
-    movimentacoes: { dataMovimento: Date; descricao: string; codigoMovimento: number | null; compromissoId: string | null }[],
+    movimentacoes: {
+      dataMovimento: Date;
+      descricao: string;
+      codigoMovimento: number | null;
+      detalhe: string | null;
+      compromissoId: string | null;
+      dispensadoEm: Date | null;
+    }[],
   ) {
-    const desde = new Date(Date.now() - 30 * 24 * 3_600_000);
+    const agora = new Date();
     const itens = movimentacoes
-      .filter((m) => m.dataMovimento >= desde && !m.compromissoId)
       .flatMap((m) => {
-        const ato = atoCritico(m.codigoMovimento);
+        const ato = atoAcionavel(m, agora);
         return ato ? [{ nivel: ato.nivel, rotulo: ato.rotulo, data: m.dataMovimento, descricao: m.descricao }] : [];
       })
       .sort((a, b) => b.data.getTime() - a.data.getTime());
 
     return {
       total: itens.length,
-      // O nível mais grave manda na cor da etiqueta: um prazo correndo pesa
-      // mais que uma mudança de fase.
-      nivel: itens.find((i) => i.nivel === 'PRAZO')?.nivel
+      // O nível mais grave manda na cor da etiqueta: uma tutela pesa mais que um
+      // prazo, e um prazo correndo pesa mais que uma decisão a ler.
+      nivel: itens.find((i) => i.nivel === 'URGENTE')?.nivel
+        ?? itens.find((i) => i.nivel === 'PRAZO')?.nivel
         ?? itens.find((i) => i.nivel === 'DECISAO')?.nivel
         ?? itens[0]?.nivel
         ?? null,

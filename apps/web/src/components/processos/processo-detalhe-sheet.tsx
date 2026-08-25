@@ -19,6 +19,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn, mascararCpf } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { EquipeAvatares } from '@/components/ui/avatar-pessoa';
+import { AvisoAguardandoCnj } from './aviso-aguardando-cnj';
 import { PainelPreProcessual } from './painel-pre-processual';
 import { AjuizarCasoModal } from './ajuizar-caso-modal';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
@@ -895,6 +896,27 @@ export function ProcessoDetalheSheet({
                   ir: () => setAba('notas'),
                 },
               ]}
+            />
+          )}
+
+          {/*
+            O PROCESSO EXISTE, O CNJ AINDA NÃO SABE.
+
+            Só aparece quando há NPU e o índice do tribunal ainda não devolveu
+            nada — uma ficha vazia é indistinguível de uma ficha quebrada, e
+            quem cadastrou não tem como saber se errou o número, se o sistema
+            falhou, ou se é só o CNJ demorando.
+
+            A condição usa a CONTAGEM DE ANDAMENTOS, e não a data de
+            sincronização: o carimbo é gravado mesmo quando a consulta volta
+            vazia (de propósito — é o que registra a tentativa), então ele diz
+            "já tentamos", nunca "já temos". Quem responde "temos dados?" é a
+            linha do tempo.
+          */}
+          {p && p.numeroCNJ && !ehPreProcessual(p.statusInterno) && p.totais.datajud === 0 && (
+            <AvisoAguardandoCnj
+              numeroCNJ={formatNPU(p.numeroCNJ)}
+              ultimaSincronizacao={p.ultimaSincronizacao}
             />
           )}
 

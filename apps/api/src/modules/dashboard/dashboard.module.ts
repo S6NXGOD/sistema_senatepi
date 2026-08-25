@@ -16,6 +16,7 @@ const TIPO_PRAZO = 'PRAZO';
 const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PRE_PROCESSUAIS } from '../processos/processos.service';
+import { DIAS_ATE_DORMENTE } from '../processos/utils/tpu.util';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { AudienciasService } from '../processos/audiencias.service';
 import { ProcessosModule } from '../processos/processos.module';
@@ -417,7 +418,22 @@ export class DashboardService {
      */
     const minhaCarteira = souAdvogado
       ? await (async () => {
-          const paradoDesde = new Date(hojeIni.getTime() - 30 * DIA_MS);
+          /**
+           * "PARADO" É UMA PALAVRA SÓ — E PRECISA DE UM NÚMERO SÓ.
+           *
+           * Este cartão dizia "sem movimentação" a partir de 30 dias; a lista
+           * de processos passou a dizer "Parado há N meses" a partir de 90. Um
+           * advogado que clicasse do cartão para a lista veria conjuntos
+           * diferentes com o mesmo nome — a mesma armadilha do cartão que
+           * contava 11 processos enquanto a tela mostrava 7.
+           *
+           * Ficou o 90, e a escolha é medida: no acervo de 25/08/2026, 16 dos
+           * 38 processos vivos tinham andado entre 31 e 90 dias atrás. Com o
+           * corte em 30, o cartão acusaria 58% da carteira — e "quase tudo está
+           * parado" é a mesma coisa que "nada está parado", porque ninguém age
+           * sobre uma lista que não distingue.
+           */
+          const paradoDesde = new Date(hojeIni.getTime() - DIAS_ATE_DORMENTE * DIA_MS);
           /**
            * A CARTEIRA É LIDA PELA TABELA DE ADVOGADOS, NÃO PELO ATALHO.
            *

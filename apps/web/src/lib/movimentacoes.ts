@@ -299,7 +299,7 @@ export interface DossieProcesso {
    */
   atencao?: {
     total: number;
-    nivel: 'PRAZO' | 'DECISAO' | 'ENCERRAMENTO' | null;
+    nivel: 'URGENTE' | 'PRAZO' | 'DECISAO' | 'ENCERRAMENTO' | null;
     itens: { nivel: string; rotulo: string; data: string; descricao: string }[];
   };
   /** Por onde o processo passou — derivado dos andamentos, sem tabela nova. */
@@ -533,13 +533,26 @@ export function urlConsultaTribunal(tribunal: string | null | undefined): string
   return CONSULTA_PADRAO;
 }
 
-/** Rótulo e cor do nível de atenção (espelha utils/tpu.util.ts no back). */
+/**
+ * Rótulo e cor do nível de atenção (espelha `NIVEL_ATENCAO_LABEL` no back).
+ *
+ * Só APARÊNCIA. Quem decide se um ato ainda pede providência é `atoAcionavel`,
+ * no servidor — o front nunca reimplementa a regra, porque um dicionário
+ * espelhado envelhece só de um lado, e foi assim que a lista passou meses
+ * mostrando prazos que a ficha do mesmo processo não mostrava.
+ *
+ * `URGENTE` entrou com a antecipação de tutela: é o único nível que muda o que
+ * se pode fazer HOJE, e por isso é o único em vermelho. Se um dia houver dois
+ * níveis vermelhos, nenhum será vermelho de verdade.
+ */
 export const ATENCAO_LABEL: Record<string, string> = {
+  URGENTE: 'Ação imediata',
   PRAZO: 'Prazo em curso',
   DECISAO: 'Decisão a analisar',
   ENCERRAMENTO: 'Mudança de fase',
 };
 export const ATENCAO_COR: Record<string, string> = {
+  URGENTE: 'red',
   PRAZO: 'amber',
   DECISAO: 'sky',
   ENCERRAMENTO: 'slate',
