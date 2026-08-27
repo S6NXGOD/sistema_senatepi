@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { somarDiasUteis } from './automacao-prazos.service';
+import { montarUrgencia } from '../agenda/equipe.util';
+import { somarDiasUteis, TITULO_PRAZO_GENERICO } from './automacao-prazos.service';
 import { correlacionar } from './utils/correlacao.util';
 import {
   classificarProvidencia,
@@ -282,15 +283,31 @@ export class CorrelacaoService {
     if (jaTemTeor) return; // idempotente: rodar duas vezes não empilha o texto
 
     const promoverTitulo =
-      atual.origemAutomatica && atual.titulo === 'Verificação de Intimação / Prazo';
+      atual.origemAutomatica && atual.titulo === TITULO_PRAZO_GENERICO;
 
     await this.prisma.compromisso.update({
       where: { id: compromissoId },
       data: {
         ...(promoverTitulo ? { titulo: spec.titulo } : {}),
         descricao: `${atual.descricao ?? ''}\n\n${this.blocoTeor(c)}`.trim(),
-        // Prazo curto marca a tarefa como urgente; nunca a desmarca.
-        urgente: atual.urgente || (c.prazoMencionadoDias ?? 99) <= 5,
+        /**
+         * Prazo curto marca como urgente; NUNCA desmarca — por isso o `||` com
+         * o valor atual, e por isso `montarUrgencia` só é chamada quando a
+         * marca vai de fato subir. Chamá-la com `false` limparia a urgência que
+         * uma pessoa tivesse posto à mão.
+         *
+         * Passa por `montarUrgencia` como todo o resto: a Agenda exige motivo
+         * de quem marca, e o robô escrevia os campos direto no banco. Era o
+         * TERCEIRO lugar com o mesmo desvio — os outros dois estão em
+         * `automacao-prazos`, corrigidos antes deste.
+         */
+        ...(!atual.urgente && (c.prazoMencionadoDias ?? 99) <= 5
+          ? montarUrgencia(
+              true,
+              `A publicação menciona prazo de ${c.prazoMencionadoDias} dia(s).`,
+              { origem: 'AUTOMACAO' },
+            )
+          : {}),
       },
     });
   }
@@ -337,7 +354,13 @@ export class CorrelacaoService {
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
-        urgente: atrasado || (c.prazoMencionadoDias ?? 99) <= 5,
+        ...montarUrgencia(
+          atrasado || (c.prazoMencionadoDias ?? 99) <= 5,
+          atrasado
+            ? 'Publicação recebida com atraso — o prazo pode já estar correndo.'
+            : `A publicação menciona prazo de ${c.prazoMencionadoDias} dia(s).`,
+          { origem: 'AUTOMACAO' },
+        ),
         origemAutomatica: true,
         criadoPor: null, // sem autor humano — é o robô
       },

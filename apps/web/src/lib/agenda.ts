@@ -39,6 +39,14 @@ export interface ProcessoRef {
   numeroCNJ: string | null;
   statusInterno?: string;
   titulo?: string | null;
+  tipoAcao?: 'INDIVIDUAL' | 'INSTITUCIONAL';
+  /**
+   * Partes do processo, JÁ ORDENADAS com a principal de cada polo primeiro
+   * (`PARTE_ORDER` no back). É esse contrato que permite ao cartão pegar
+   * `find(polo === 'ATIVO')` sem reimplementar a regra de qual parte é a
+   * principal — se a ordenação mudar lá, o cartão passa a mostrar outra parte.
+   */
+  partes?: { nome: string; polo: 'ATIVO' | 'PASSIVO' | 'TERCEIRO' }[];
 }
 
 /**

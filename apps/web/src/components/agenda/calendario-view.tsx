@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { cn } from '@/lib/utils';
 import { Compromisso, rotuloTipo, corDeTipo, formatHora, estaAtrasado } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
@@ -102,7 +103,14 @@ export function CalendarioView({
                       key={c.id}
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onSelecionar(c); }}
-                      title={`${rotuloTipo(c.tipo, tipos)} · ${c.titulo}`}
+                      // A CÉLULA NÃO COMPORTA MAIS TEXTO, mas a dica sim: sem o
+                      // processo, duas "Verificação de Intimação / Prazo" no
+                      // mesmo dia eram indistinguíveis até clicar.
+                      title={[
+                        rotuloTipo(c.tipo, tipos),
+                        c.titulo,
+                        parteContrariaDoProcesso(c.processo) && `contra ${parteContrariaDoProcesso(c.processo)}`,
+                      ].filter(Boolean).join(' · ')}
                       className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted ${atrasado ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${corDeTipo(c.tipo, tipos).ponto}`} />

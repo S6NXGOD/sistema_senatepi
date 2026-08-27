@@ -260,7 +260,6 @@ export class AudienciasService {
         // exatamente o que o tribunal publicou.
         descricao: `[DataJud] ${mov.descricao}`,
         observacoesInternas: dto.observacoesInternas?.trim() || undefined,
-        urgente: dto.urgente ?? false,
         responsavelId: dto.responsavelId,
         filiadoId: mov.processo.filiado?.id || undefined,
         processoId: mov.processo.id,

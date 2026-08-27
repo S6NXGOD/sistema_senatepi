@@ -255,6 +255,72 @@ describe('o radar fecha o lembrete que ele resolve', () => {
  * tarefas urgentes com `urgenteMotivo` e `urgentePor` nulos.
  */
 describe('o robô nunca escreve urgência à mão', () => {
+  /**
+   * VALE PARA TODO ARQUIVO QUE CRIA ATIVIDADE SOZINHO.
+   *
+   * A primeira versão deste teste lia só `automacao-prazos.service.ts`, e por
+   * isso não viu o TERCEIRO caso do mesmo desvio: `correlacao.service.ts`
+   * escrevia `urgente: atrasado || prazo <= 5` direto no banco. Um teste que
+   * cobre um arquivo dá a sensação de que a regra está garantida em todos —
+   * pior do que não existir, porque desliga a desconfiança.
+   */
+  /**
+   * `audiencias.service.ts` fica de FORA desta lista, e por um bom motivo: ele
+   * não escreve no banco — chama `AgendaService.criar`, que já passa por
+   * `montarUrgencia`. O campo `urgente` que ele repassava foi REMOVIDO do DTO
+   * (garantia de 400: exigia motivo que o formulário não tem), e a cobertura
+   * dele está no teste de remoção, logo abaixo.
+   */
+  const ROBOS = [
+    ['automacao-prazos.service.ts', AUTOMACAO],
+    ['correlacao.service.ts', ler('correlacao.service.ts')],
+  ] as const;
+
+  const ehComentarioLinha = (l: string) => /^\s*(\*|\/\/|\/\*)/.test(l);
+
+  it.each(ROBOS)('%s marca urgência só via `montarUrgencia`', (_arquivo, fonte) => {
+    const atribuicoes = fonte
+      .split('\n')
+      .filter((l) => /urgente:\s*(true|[a-z])/.test(l) && !/select:/.test(l) && !ehComentarioLinha(l));
+    expect(atribuicoes).toEqual([]);
+  });
+
+  it.each(ROBOS)('%s não escreve os campos de urgência à mão', (_arquivo, fonte) => {
+    expect(fonte).not.toMatch(/^\s+urgenteMotivo:/m);
+    expect(fonte).not.toMatch(/^\s+urgentePor:/m);
+    expect(fonte).not.toMatch(/^\s+urgenteEm:/m);
+  });
+
+  /**
+   * O campo `urgente` do DTO de agendar audiência SÓ SABIA FALHAR: `agendar` o
+   * repassava a `AgendaService.criar`, que exige motivo de quem marca — e este
+   * DTO nunca teve campo de motivo. `urgente: true` dava 400 com uma mensagem
+   * sobre um campo que não existe naquele formulário.
+   */
+  it('agendar audiência não aceita urgência sem motivo', () => {
+    expect(ler('dto/audiencias.dto.ts')).not.toMatch(/^\s+urgente\?: boolean;/m);
+    expect(ler('audiencias.service.ts')).not.toMatch(/urgente: dto\.urgente/);
+  });
+
+  /**
+   * A SENTINELA DO TÍTULO É UMA CONSTANTE, não dois literais.
+   *
+   * `correlacao.service.ts` compara o título com a string exata para saber que
+   * ele ainda é genérico e pode virar algo específico quando a publicação
+   * chega. Enquanto foram dois literais em arquivos diferentes, renomear um
+   * deles desligaria a promoção EM SILÊNCIO: nada quebra, o título apenas para
+   * de melhorar, e ninguém descobre.
+   */
+  it('o título genérico é uma constante compartilhada', () => {
+    const literal = /'Verificação de Intimação \/ Prazo'/g;
+    expect((AUTOMACAO.match(literal) ?? []).length).toBe(1); // só a definição
+    expect(AUTOMACAO).toContain('export const TITULO_PRAZO_GENERICO');
+
+    const correlacao = ler('correlacao.service.ts');
+    expect(correlacao).toContain('TITULO_PRAZO_GENERICO');
+    expect(correlacao).not.toMatch(literal);
+  });
+
   it('não há `urgente: true` fora de um `select`', () => {
     // A única ocorrência aceitável é `select: { ..., urgente: true }`, que PEDE
     // o campo ao banco em vez de definir valor. Qualquer outra é uma marca

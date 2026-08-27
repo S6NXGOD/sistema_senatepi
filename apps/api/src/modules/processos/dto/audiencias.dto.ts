@@ -54,9 +54,19 @@ export class AgendarAudienciaDto {
   @IsOptional() @IsString() @MaxLength(180)
   local?: string;
 
-  @ApiPropertyOptional({ default: false })
-  @IsOptional() @Transform(paraBooleano) @IsBoolean()
-  urgente?: boolean;
+  /*
+   * `urgente` VIVIA AQUI e foi removido.
+   *
+   * Era um campo que só sabia falhar: `agendar` o repassa a `AgendaService.criar`,
+   * que exige MOTIVO de quem marca urgência ("sem motivo, a marca não pode ser
+   * revista depois e a fila de urgências perde o sentido"). Este DTO nunca teve
+   * campo de motivo, então `urgente: true` resultava sempre em 400 — e a
+   * mensagem falava de um campo que este formulário não tem.
+   *
+   * Ninguém enviava (conferido no app), então a remoção não quebra tela alguma.
+   * Se um dia a marca fizer sentido ao agendar pelo radar, ela volta ACOMPANHADA
+   * de `urgenteMotivo` — nunca sozinha.
+   */
 
   @ApiPropertyOptional({ description: 'Notas internas (não visíveis ao filiado).' })
   @IsOptional() @IsString() @MaxLength(1000)

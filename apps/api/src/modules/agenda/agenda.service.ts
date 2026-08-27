@@ -11,6 +11,7 @@ import {
 } from './desfechos.catalogo';
 import { montarUrgencia, sincronizarEquipe } from './equipe.util';
 import { normalizarCategoria } from '../processos/areas.catalogo';
+import { PARTE_ORDER } from '../processos/partes.service';
 import {
   CancelarCompromissoDto,
   ConcluirCompromissoDto,
@@ -34,7 +35,32 @@ const filiadoCard = { select: { id: true, nomeCompleto: true, matricula: true } 
 const responsavelSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } } as const;
 /** Quem REGISTROU a demanda — nome e foto, para o card creditar o autor. */
 const criadorSel = { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } } as const;
-const processoSel = { select: { id: true, numeroCNJ: true, statusInterno: true, titulo: true } } as const;
+/**
+ * O PROCESSO NO CARTÃO — e por que ele carrega as PARTES.
+ *
+ * O defeito, visto numa tela real: dois cartões lado a lado, ambos
+ * "Verificação de Intimação / Prazo", mesma hora, mesmo advogado, e NADA que
+ * dissesse de qual processo cada um era. O título é uma categoria, não uma
+ * identidade — e a categoria já está no selo, logo acima.
+ *
+ * A identidade que uma pessoa reconhece num relance é quem litiga contra quem.
+ * Ninguém decora NPU; todo mundo lembra "aquele contra a Prefeitura de X".
+ *
+ * `PARTE_ORDER` põe a parte PRINCIPAL primeiro dentro de cada polo, então a
+ * primeira ATIVO e a primeira PASSIVO são as que o cartão mostra — a mesma
+ * regra de `agruparPorPolo`, sem reimplementá-la. Só `nome` e `polo`: o cartão
+ * não precisa de mais, e uma agenda cheia carregaria o resto à toa.
+ */
+const processoSel = {
+  select: {
+    id: true,
+    numeroCNJ: true,
+    statusInterno: true,
+    titulo: true,
+    tipoAcao: true,
+    partes: { select: { nome: true, polo: true }, orderBy: PARTE_ORDER },
+  },
+} as const;
 
 /**
  * O responsável primeiro, depois quem entrou antes. Tipado explicitamente (e

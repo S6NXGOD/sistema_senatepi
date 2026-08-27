@@ -6,6 +6,7 @@ import {
   Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { IdentidadeDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
@@ -146,6 +147,16 @@ export function CompromissoCard({
         title="Ver detalhes"
       >
         <p className="line-clamp-2 text-sm font-semibold leading-tight">{c.titulo}</p>
+
+        {/*
+          DE QUAL PROCESSO É — logo abaixo do título, porque é identidade.
+
+          O título diz o QUE fazer ("Verificação de Intimação / Prazo") e é uma
+          categoria: dois cartões da mesma categoria ficavam idênticos, mesmo
+          sendo de processos diferentes. Esta linha diz SOBRE O QUÊ, que é o que
+          faltava para distinguir um do outro num relance.
+        */}
+        <IdentidadeDoProcesso processo={c.processo} className="mt-0.5" />
 
         {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
           <div className="mt-1"><Cronometro desde={c.iniciadoEm} /></div>

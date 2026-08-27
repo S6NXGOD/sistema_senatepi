@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { animate } from 'framer-motion';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
+import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -208,6 +209,15 @@ export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrar
           <span className="font-medium text-foreground/70">{rotuloTipo(c.tipo, tipos)}</span>
           <span>· {quando}</span>
           {c.filiado && <span className="truncate">· {c.filiado.nomeCompleto}</span>}
+          {/*
+            CONTRA QUEM — o que distingue duas linhas de mesmo título.
+            "Verificação de Intimação / Prazo" é categoria, não identidade; sem
+            isto, duas atividades de processos diferentes ficavam idênticas.
+            Só a parte contrária: o nosso lado já está no filiado ao lado.
+          */}
+          {parteContrariaDoProcesso(c.processo) && (
+            <span className="truncate">· contra {parteContrariaDoProcesso(c.processo)}</span>
+          )}
           {c.local && <span className="truncate">· {c.local}</span>}
         </div>
       </div>

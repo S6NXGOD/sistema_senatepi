@@ -42,6 +42,22 @@ const TIPO_PERICIA = 'PERICIA';
 /** Aviso ao filiado: tipo próprio, com desfechos que perguntam se ele soube. */
 const TIPO_CONTATO = 'CONTATO';
 const TIPO_ACOMPANHAMENTO = 'ACOMPANHAMENTO';
+/**
+ * TÍTULO GENÉRICO DA TAREFA DE PRAZO — e uma SENTINELA, não só um rótulo.
+ *
+ * Sem o teor do ato, o robô não tem como dizer mais do que "confira isto": o
+ * DataJud entrega o rótulo ("Publicação", "Expedição de documento") e deixa
+ * `conteudo` nulo. Quem sabe se é contestação, manifestação ou embargos é o
+ * DJEN, que traz o texto — e é por isso que `correlacao.service.ts` COMPARA com
+ * esta string exata: título genérico pode ser promovido a um específico quando
+ * a publicação chega; título que uma pessoa editou, não.
+ *
+ * Era um literal repetido nos dois arquivos. Renomear num só desligaria a
+ * promoção em silêncio — nada quebraria, o título simplesmente pararia de
+ * melhorar, e ninguém descobriria. Agora é uma constante só, importada lá.
+ */
+export const TITULO_PRAZO_GENERICO = 'Verificação de Intimação / Prazo';
+
 /** Título fixo — é por ele que a tarefa de confirmação é reconhecida e não duplica. */
 const TITULO_CONFIRMAR_AUDIENCIA = 'Confirmar data da audiência designada';
 
@@ -326,7 +342,7 @@ export class AutomacaoPrazosService {
 
     const compromisso = await this.prisma.compromisso.create({
       data: {
-        titulo: 'Verificação de Intimação / Prazo',
+        titulo: TITULO_PRAZO_GENERICO,
         tipo: TIPO_PRAZO,
         status: StatusCompromisso.PENDENTE,
         inicio,

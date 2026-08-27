@@ -17,6 +17,7 @@ const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PRE_PROCESSUAIS } from '../processos/processos.service';
 import { DIAS_ATE_DORMENTE } from '../processos/utils/tpu.util';
+import { PARTE_ORDER } from '../processos/partes.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { AudienciasService } from '../processos/audiencias.service';
 import { ProcessosModule } from '../processos/processos.module';
@@ -76,7 +77,21 @@ const compSelect = {
   iniciadoEm: true,
   responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
   filiado: { select: { id: true, nomeCompleto: true } },
-  processo: { select: { id: true, numeroCNJ: true } },
+  /**
+   * As PARTES entram para o cartão poder dizer de que caso é a atividade.
+   *
+   * O painel sofria do mesmo problema da agenda: duas linhas "Verificação de
+   * Intimação / Prazo" idênticas, sem nada que as distinguisse. `PARTE_ORDER`
+   * põe a principal de cada polo primeiro — a tela pega a primeira PASSIVO.
+   */
+  processo: {
+    select: {
+      id: true,
+      numeroCNJ: true,
+      titulo: true,
+      partes: { select: { nome: true, polo: true }, orderBy: PARTE_ORDER },
+    },
+  },
 } as const;
 
 @Injectable()
