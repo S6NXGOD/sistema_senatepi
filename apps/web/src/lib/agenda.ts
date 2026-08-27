@@ -146,7 +146,21 @@ export interface CompromissoDetalhe extends Compromisso {
     formacao: string | null;
   }) | null;
   responsavel: Responsavel & { nomeExibicao?: string | null; role?: string };
-  processo: (ProcessoRef & { classeProcessual: string | null }) | null;
+  /**
+   * No DETALHE as partes vêm completas — com `papel` e `principal` — porque é
+   * aqui que se mostram os polos inteiros. No cartão da lista basta nome e
+   * polo, que é o que `ProcessoRef.partes` carrega.
+   */
+  processo: (Omit<ProcessoRef, 'partes'> & {
+    classeProcessual: string | null;
+    partes?: {
+      id: string;
+      nome: string;
+      polo: 'ATIVO' | 'PASSIVO' | 'TERCEIRO';
+      papel: string | null;
+      principal: boolean;
+    }[];
+  }) | null;
   atendimento: {
     id: string;
     numero: number;

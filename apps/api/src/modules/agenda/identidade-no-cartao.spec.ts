@@ -80,3 +80,45 @@ describe('as partes chegam aos cartões', () => {
     }
   });
 });
+
+/**
+ * O DETALHE MOSTRA OS POLOS INTEIROS.
+ *
+ * O cartão da lista tem uma linha e resume ("Autor × Réu"); o detalhe tem
+ * espaço para a verdade completa, que é o que alguém abre o detalhe para ver.
+ * Litisconsórcio é comum em ação coletiva — mostrar só a parte principal
+ * esconderia metade de quem litiga.
+ *
+ * `detalhe()` tem select PRÓPRIO, separado de `cardSelect`. Era o quarto lugar
+ * do arquivo a declarar o que vem do processo, e o único sem as partes.
+ */
+describe('o detalhe carrega os polos completos', () => {
+  const detalhe = AGENDA.slice(
+    AGENDA.indexOf('async detalhe(id: string)'),
+    AGENDA.indexOf('atendimento: {', AGENDA.indexOf('async detalhe(id: string)')),
+  );
+
+  it('o trecho existe (o teste não olha para o vazio)', () => {
+    expect(detalhe.length).toBeGreaterThan(400);
+  });
+
+  it('traz as partes, ordenadas pela regra do back', () => {
+    expect(detalhe).toContain('partes: {');
+    expect(detalhe).toContain('orderBy: PARTE_ORDER');
+  });
+
+  /**
+   * `papel` distingue "Autor" de "Exequente" e "Recorrente" — o polo diz o
+   * lado, o papel diz o que a parte é NAQUELA fase. Sem ele o bloco perderia a
+   * única informação que o título do grupo já não dá.
+   */
+  it('traz o papel — o polo sozinho não distingue execução de conhecimento', () => {
+    expect(detalhe).toContain('papel: true');
+  });
+
+  /** LGPD: o detalhe da atividade não é o lugar do documento da parte. */
+  it('não expõe documento da parte', () => {
+    const bloco = detalhe.slice(detalhe.indexOf('partes: {'));
+    expect(bloco.slice(0, bloco.indexOf('}'))).not.toContain('documento');
+  });
+});

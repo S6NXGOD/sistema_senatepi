@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
 import { somarDiasUteis, TITULO_PRAZO_GENERICO } from './automacao-prazos.service';
 import { correlacionar } from './utils/correlacao.util';
@@ -348,7 +349,7 @@ export class CorrelacaoService {
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
         descricao:
-          `Processo ${processo.numeroCNJ ?? '(rascunho)'}${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.\n` +
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.\n` +
           (atrasado ? '⚠ Publicação recebida com atraso — confira o prazo com urgência.\n' : '') +
           this.blocoTeor(c),
         responsavelId,

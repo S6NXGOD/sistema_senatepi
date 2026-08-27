@@ -89,8 +89,49 @@ export function montarCores(advogados: { id: string }[]): Record<string, CorAdvo
   return mapa;
 }
 
+/**
+ * Tratamentos que NÃO são nome.
+ *
+ * O acervo usa `nomeExibicao` no formato "Dra. Shérad" e "Dr. Murilo" — é como
+ * a equipe se chama, e é o certo para exibir. Só que pegar "o primeiro token"
+ * devolvia o TRATAMENTO: a escala mostrava "Dra. -09:00" e o plantão do dia,
+ * no detalhe da atividade, virava uma lista de "Dr." e "Dra." sem nome nenhum.
+ * Dois advogados de plantão apareciam como duas linhas indistinguíveis.
+ *
+ * Compara sem acento e sem ponto final, então "Dra.", "DRA" e "dra" caem todos
+ * aqui.
+ */
+const TRATAMENTOS = new Set([
+  'dr', 'dra', 'sr', 'sra', 'srta', 'exmo', 'exma', 'prof', 'profa', 'me', 'ma',
+]);
+
+const ehTratamento = (token: string) =>
+  TRATAMENTOS.has(
+    token
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\.$/, '')
+      .toLowerCase(),
+  );
+
+/**
+ * O primeiro nome DE VERDADE — para onde só cabe uma palavra (célula da escala).
+ *
+ * Onde houver espaço, prefira o nome de exibição inteiro: "Dra. Shérad" é como
+ * a pessoa é chamada, e encurtar sem necessidade só tira informação.
+ */
 export function primeiroNome(a: AdvogadoEscala): string {
-  return (a.nomeExibicao || a.nome).trim().split(/\s+/)[0];
+  const completo = (a.nomeExibicao || a.nome).trim();
+  const tokens = completo.split(/\s+/).filter(Boolean);
+  const nome = tokens.find((t) => !ehTratamento(t));
+  // Só tratamento e mais nada (cadastro incompleto): devolve o que existe, em
+  // vez de uma string vazia que sumiria da tela sem explicação.
+  return nome ?? completo;
+}
+
+/** O nome de exibição inteiro, com tratamento — para onde há largura. */
+export function nomeDeExibicao(a: AdvogadoEscala): string {
+  return (a.nomeExibicao || a.nome).trim();
 }
 
 /** "YYYY-MM" do mês de referência. */

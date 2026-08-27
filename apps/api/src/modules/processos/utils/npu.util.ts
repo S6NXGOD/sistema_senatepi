@@ -23,6 +23,27 @@ export class NpuUtils {
     return this.digitos(npu).length === 20;
   }
 
+  /**
+   * NPU no formato que uma pessoa lê: `0001341-41.2025.5.22.0004`.
+   *
+   * POR QUE PRECISOU EXISTIR NO BACK. A formatação só morava no front
+   * (`formatNPU`), e as atividades que o robô cria carregam o número dentro de
+   * um TEXTO gravado — a descrição da tarefa. Ali não passa por componente
+   * nenhum, e o advogado lia "Processo 00013414120255220004" na agenda:
+   * impossível de conferir de bater o olho, impossível de comparar com a capa
+   * dos autos, e nem dá para copiar e colar no PJe sem editar.
+   *
+   * Devolve a entrada intacta quando não são 20 dígitos — texto de tarefa nunca
+   * pode virar `undefined` por causa de um número fora do padrão.
+   */
+  static formatar(npu: string | null | undefined): string {
+    if (!npu) return '';
+    const d = this.digitos(npu);
+    if (d.length !== 20) return npu;
+    // NNNNNNN-DD.AAAA.J.TR.OOOO
+    return `${d.slice(0, 7)}-${d.slice(7, 9)}.${d.slice(9, 13)}.${d.slice(13, 14)}.${d.slice(14, 16)}.${d.slice(16, 20)}`;
+  }
+
   /** Justiça Estadual (J=8): código TR → UF (usado na sigla TJ<UF>). */
   private static readonly UF_ESTADUAL: Record<string, string> = {
     '01': 'AC', '02': 'AL', '03': 'AP', '04': 'AM', '05': 'BA', '06': 'CE',

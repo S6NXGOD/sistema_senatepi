@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NpuUtils } from './utils/npu.util';
 import { AgendaService } from '../agenda/agenda.service';
 import { classificarMovimentacao, type GatilhoMovimentacao } from './utils/audiencia.util';
 import { montarUrgencia } from '../agenda/equipe.util';
@@ -348,7 +349,7 @@ export class AutomacaoPrazosService {
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
         descricao:
-          `Processo ${processo.numeroCNJ ?? '(rascunho)'}. Conferir o teor no sistema do tribunal e o prazo aplicável.\n` +
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}. Conferir o teor no sistema do tribunal e o prazo aplicável.\n` +
           (atrasado
             ? `⚠ Andamento recebido com atraso (${idadeDoAtoDias} dias) — o prazo de conferência venceria em ` +
               `${calculado.toLocaleDateString('pt-BR')}. ` +
@@ -516,7 +517,7 @@ export class AutomacaoPrazosService {
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
         descricao:
-          `Processo ${processo.numeroCNJ ?? '(rascunho)'} — o tribunal registrou audiência DESIGNADA em ` +
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'} — o tribunal registrou audiência DESIGNADA em ` +
           `${mov.dataMovimento.toLocaleDateString('pt-BR')}, mas a base pública do CNJ não publica a data ` +
           `da sessão.
 
@@ -597,7 +598,7 @@ export class AutomacaoPrazosService {
         fim: new Date(inicio.getTime() + 3_600_000),
         descricao:
           `${rotulo} designada conforme andamento do DataJud: ${mov.descricao}.\n` +
-          `Processo ${processo.numeroCNJ ?? '(rascunho)'}.`,
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}.`,
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
@@ -636,7 +637,7 @@ export class AutomacaoPrazosService {
             fim: new Date(inicioAviso.getTime() + 1800_000),
             descricao:
               `Confirmar presença do filiado na ${rotulo.toLowerCase()} de ${inicio.toLocaleString('pt-BR')}.\n` +
-              `Processo ${processo.numeroCNJ ?? '(rascunho)'}.`,
+              `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}.`,
             responsavelId: secretariaId,
             processoId: processo.id,
             filiadoId: processo.filiadoId,

@@ -43,3 +43,37 @@ describe('NpuUtils.tribunalSuperior', () => {
     expect(NpuUtils.tribunalSuperior('0001000-26.2022.5.22.0002')).toBe('TST');
   });
 });
+
+/**
+ * O NPU DENTRO DE TEXTO GRAVADO.
+ *
+ * A formatação só existia no front, e as atividades que o robô cria carregam o
+ * número dentro da DESCRIÇÃO — texto puro, que não passa por componente
+ * nenhum. O advogado lia "Processo 00013414120255220004" na agenda: impossível
+ * de conferir de bater o olho, impossível de comparar com a capa dos autos, e
+ * nem dá para colar no PJe sem editar antes.
+ */
+describe('NpuUtils.formatar', () => {
+  it('aplica a máscara do CNJ', () => {
+    expect(NpuUtils.formatar('00013414120255220004')).toBe('0001341-41.2025.5.22.0004');
+  });
+
+  it('é idempotente — NPU já mascarado sai igual', () => {
+    expect(NpuUtils.formatar('0001341-41.2025.5.22.0004')).toBe('0001341-41.2025.5.22.0004');
+  });
+
+  /**
+   * Texto de tarefa NUNCA pode virar `undefined` por causa de um número fora do
+   * padrão: a descrição é o que explica ao advogado o que fazer.
+   */
+  it('devolve a entrada intacta quando não são 20 dígitos', () => {
+    expect(NpuUtils.formatar('123')).toBe('123');
+    expect(NpuUtils.formatar('processo administrativo')).toBe('processo administrativo');
+  });
+
+  it('vira string vazia quando não há número — o chamador usa `|| "(rascunho)"`', () => {
+    expect(NpuUtils.formatar(null)).toBe('');
+    expect(NpuUtils.formatar(undefined)).toBe('');
+    expect(NpuUtils.formatar('')).toBe('');
+  });
+});

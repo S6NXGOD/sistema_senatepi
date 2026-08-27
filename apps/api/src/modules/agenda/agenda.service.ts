@@ -353,7 +353,28 @@ export class AgendaService {
         // Quem REGISTROU a demanda — agora é uma FK, então vem com nome E FOTO
         // numa consulta só (antes era só um id solto, sem como exibir avatar).
         criador: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
-        processo: { select: { id: true, numeroCNJ: true, classeProcessual: true, statusInterno: true, titulo: true } },
+        /**
+         * O DETALHE MOSTRA OS POLOS INTEIROS, não só a parte principal.
+         *
+         * O cartão da lista tem espaço para uma linha e mostra o confronto
+         * resumido ("Autor × Réu"); aqui há espaço para a verdade completa, que
+         * é o que alguém abre o detalhe para ver. Litisconsórcio é comum em ação
+         * coletiva — mostrar só o principal esconderia metade de quem litiga.
+         *
+         * `papel` vem junto porque nem todo ATIVO é "Autor": em execução é
+         * "Exequente", em recurso é "Recorrente". O polo diz o lado; o papel diz
+         * o que a pessoa é NAQUELA fase.
+         */
+        processo: {
+          select: {
+            id: true, numeroCNJ: true, classeProcessual: true, statusInterno: true, titulo: true,
+            tipoAcao: true,
+            partes: {
+              select: { id: true, nome: true, polo: true, papel: true, principal: true },
+              orderBy: PARTE_ORDER,
+            },
+          },
+        },
         // Triagem de origem: canal, demanda e QUEM registrou (atendente).
         atendimento: {
           select: {

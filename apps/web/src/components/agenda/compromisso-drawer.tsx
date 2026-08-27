@@ -23,7 +23,8 @@ import {
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
-import { listarPlantao, estaNoHorario, primeiroNome } from '@/lib/escalas';
+import { listarPlantao, estaNoHorario, nomeDeExibicao } from '@/lib/escalas';
+import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
 import { formatNPU, ehPreProcessual } from '@/lib/processos';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
 import { HistoricoAtividade } from './historico-atividade';
@@ -382,6 +383,15 @@ export function CompromissoDrawer({
                 {ehPreProcessual(c.processo.statusInterno) && (
                   <SeloPreProcessual className="mt-1" />
                 )}
+
+                {/*
+                  OS POLOS, inteiros — a pergunta que traz alguém a este bloco.
+                  O cartão da lista mostra "Autor × Réu" resumido porque tem uma
+                  linha; aqui há espaço para todas as partes, e é o que evita a
+                  viagem até a ficha do processo só para ver contra quem se
+                  litiga.
+                */}
+                <PolosDoProcesso partes={c.processo.partes} className="mt-2.5" />
               </Bloco>
             )}
           </div>
@@ -417,7 +427,12 @@ export function CompromissoDrawer({
                   return (
                     <li key={p.id} className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5">
                       <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate text-sm">{primeiroNome(p.advogado)}</span>
+                      {/*
+                        NOME INTEIRO, com o tratamento. A linha tem ~300px e o
+                        `truncate` cuida do excesso — encurtar aqui era o que
+                        transformava o plantão numa lista de "Dr." e "Dra.".
+                      */}
+                      <span className="min-w-0 flex-1 truncate text-sm">{nomeDeExibicao(p.advogado)}</span>
                       <span className="text-xs text-muted-foreground">{p.horaInicio}–{p.horaFim}</span>
                       {noHorario && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">no horário</span>}
                     </li>
