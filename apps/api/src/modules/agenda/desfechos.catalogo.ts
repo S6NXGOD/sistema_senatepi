@@ -341,6 +341,15 @@ export interface CategoriaCancelamento {
   slug: string;
   label: string;
   ajuda: string;
+  /**
+   * Só o sistema escolhe — não aparece no formulário de cancelamento.
+   *
+   * Existe porque o rótulo precisa estar no catálogo (a tela lê
+   * `CATEGORIA_CANCELAMENTO_LABEL` para exibir o motivo em qualquer cartão
+   * cancelado), mas oferecer a opção a uma pessoa não faria sentido: ninguém
+   * cancela algo "porque foi substituída" — isso é consequência de outra ação.
+   */
+  apenasSistema?: boolean;
 }
 
 /**
@@ -351,6 +360,21 @@ export interface CategoriaCancelamento {
  * um caso real, o certo é acrescentá-la aqui — não abrir uma gaveta genérica.
  */
 export const CATEGORIAS_CANCELAMENTO: CategoriaCancelamento[] = [
+  {
+    /**
+     * A ATIVIDADE DE ORIGEM FOI CONCLUÍDA DE NOVO.
+     *
+     * Reabrir uma atividade concluída, corrigir o desfecho e concluir outra vez
+     * criava um SEGUNDO seguimento — visto na produção: dois "Encaminhamento da
+     * reunião" idênticos, mesmo horário, dezesseis minutos de diferença. Agora
+     * a providência anterior é cancelada com esta categoria, e não apagada: o
+     * histórico continua contando que ela existiu e por que caiu.
+     */
+    slug: 'SUBSTITUIDA',
+    label: 'Substituída por nova conclusão',
+    ajuda: 'A atividade de origem foi concluída novamente e esta providência deu lugar a outra.',
+    apenasSistema: true,
+  },
   {
     slug: 'NAO_COMPARECEU',
     label: 'Filiado não compareceu',

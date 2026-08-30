@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { AvisoDeChoque } from '@/components/agenda/aviso-de-choque';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
@@ -272,6 +273,30 @@ export function CompromissoFormModal({
                 </div>
               </div>
             </div>
+            {/*
+              CHOQUE DE HORÁRIO — logo abaixo das datas, que é onde a decisão
+              está sendo tomada. Avisa enquanto se preenche; descobrir depois de
+              salvar significaria voltar, apagar e refazer.
+            */}
+            <AvisoDeChoque
+              responsavelId={responsavelId}
+              inicio={combinar(inicioData, inicioHora)}
+              fim={
+                fimData
+                  ? combinar(fimData, fimHora || inicioHora)
+                  : /*
+                      Sem fim informado, o back assume uma hora — o aviso tem de
+                      assumir a MESMA coisa, senão ele confere um intervalo que
+                      não é o que vai ser gravado.
+                    */
+                    (() => {
+                      const i = combinar(inicioData, inicioHora);
+                      return i ? new Date(new Date(i).getTime() + 3600_000).toISOString() : null;
+                    })()
+              }
+              ignorarId={editar?.id}
+            />
+
             {remarcaAviso && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
                 Alterar a data registra uma <strong>remarcação</strong> e trava a data original ({formatData(editar!.inicio)}) para auditoria.

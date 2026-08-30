@@ -259,6 +259,67 @@ export class AgendaService {
   // Listagem (Kanban/Calendário) — filtros + intervalo por `inicio`
   // -------------------------------------------------------------------------
 
+  /**
+   * QUEM MAIS ESTÁ NA AGENDA DESSA PESSOA NESSE HORÁRIO.
+   *
+   * O BURACO, medido na produção em 27/08/2026: a Dra. Margareth tinha TRÊS
+   * consultas encadeadas no dia 31/08 — 12:00–13:00, 12:40–13:40 e 13:20–14:20.
+   * Alguém marcou de quarenta em quarenta minutos atendimentos de uma hora, e
+   * nada no sistema disse nada. Um advogado não se divide em dois, e numa
+   * audiência a consequência não é constrangimento: é revelia.
+   *
+   * NÃO BLOQUEIA, e a escolha é do mesmo tipo da desfiliação. Sobreposição
+   * legítima existe — duas atividades curtas no mesmo bloco, uma que será
+   * delegada, uma audiência que já se sabe que será adiada. Recusar obrigaria a
+   * equipe a mentir a data para conseguir salvar. O que o sistema deve fazer é
+   * MOSTRAR antes de gravar.
+   *
+   * A REGRA DE SOBREPOSIÇÃO é a canônica: dois intervalos se cruzam quando
+   * `a.inicio < b.fim` E `b.inicio < a.fim`. Encostar não é cruzar — uma
+   * atividade que termina 13:00 e outra que começa 13:00 convivem, e tratá-las
+   * como choque encheria a tela de aviso falso na agenda de quem trabalha com
+   * blocos colados.
+   *
+   * Olha a EQUIPE, não só o responsável: desde que a atividade passou a ter
+   * equipe, o segundo advogado de uma audiência também tem o horário ocupado —
+   * conferir só `responsavelId` repetiria o defeito que já escondeu audiência
+   * do painel de quem acompanhava sem responder.
+   */
+  async conflitos(params: {
+    responsavelId: string;
+    inicio: string;
+    fim: string;
+    ignorarId?: string;
+  }) {
+    const inicio = new Date(params.inicio);
+    const fim = new Date(params.fim);
+    if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime())) {
+      throw new BadRequestException('Período inválido para conferir a agenda.');
+    }
+    if (fim <= inicio) return [];
+
+    return this.prisma.compromisso.findMany({
+      where: {
+        // Só o que ainda vai acontecer: uma atividade concluída ou cancelada
+        // não ocupa mais ninguém.
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        ...(params.ignorarId ? { id: { not: params.ignorarId } } : {}),
+        OR: [
+          { responsavelId: params.responsavelId },
+          { equipe: { some: { usuarioId: params.responsavelId } } },
+        ],
+        inicio: { lt: fim },
+        fim: { gt: inicio },
+      },
+      orderBy: { inicio: 'asc' },
+      take: 10,
+      select: {
+        id: true, titulo: true, tipo: true, inicio: true, fim: true, local: true,
+        filiado: filiadoCard,
+      },
+    });
+  }
+
   async listar(q: ListCompromissosQueryDto) {
     const and: Prisma.CompromissoWhereInput[] = [];
     if (q.status) and.push({ status: q.status });
@@ -691,6 +752,54 @@ export class AgendaService {
         });
       }
 
+      /**
+       * CONCLUIR DUAS VEZES NÃO CRIA DOIS SEGUIMENTOS.
+       *
+       * O CASO REAL, na produção de 27/08/2026: o Dr. Murilo tinha DOIS
+       * "Encaminhamento da reunião" idênticos, ambos das 12:00 às 13:00 do dia
+       * 03/09, criados com dezesseis minutos de diferença e com textos que
+       * descreviam o mesmo evento de duas formas. Alguém concluiu a reunião,
+       * reabriu para corrigir o texto do desfecho e concluiu de novo — e cada
+       * conclusão criava um seguimento, com o primeiro ficando para trás.
+       *
+       * A providência anterior é CANCELADA, e não reaproveitada, porque a
+       * segunda conclusão pode ter escolhido OUTRO desfecho: "com
+       * encaminhamentos" vira "sem deliberação" e aí não deve sobrar tarefa
+       * nenhuma. Substituir garante que a agenda reflita o desfecho ATUAL, e
+       * não a soma de todas as tentativas.
+       *
+       * Cancelar (em vez de apagar) preserva o histórico: fica registrado que
+       * houve uma providência anterior e por que ela caiu. E vale mesmo quando
+       * o novo desfecho não gera seguimento — por isso roda ANTES do `return`.
+       */
+      const anteriores = await tx.compromisso.findMany({
+        where: {
+          origemDesfechoId: id,
+          status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        },
+        select: { id: true },
+      });
+      for (const antigo of anteriores) {
+        await tx.compromisso.update({
+          where: { id: antigo.id },
+          data: {
+            status: StatusCompromisso.CANCELADO,
+            canceladoCategoria: 'SUBSTITUIDA',
+            canceladoMotivo: `A atividade de origem foi concluída de novo (${opcao.label}) e esta providência foi substituída.`,
+            canceladoEm: new Date(),
+          },
+        });
+        await tx.compromissoHistorico.create({
+          data: {
+            compromissoId: antigo.id,
+            acao: 'CANCELADO',
+            descricao: `Substituída: "${atual.titulo}" foi concluída novamente como "${opcao.label}".`,
+            autorId: ctx.userId ?? null,
+            autorNome: ctx.nome ?? null,
+          },
+        });
+      }
+
       if (!criarSeguimento) return { compromisso: atualizado, seguimento: null };
 
       const inicio = dto.seguimento?.inicio
@@ -711,6 +820,9 @@ export class AgendaService {
           filiadoId: atual.filiadoId,
           processoId,
           atendimentoId: atual.atendimentoId,
+          // O VÍNCULO COM A ORIGEM — é ele que faz a próxima conclusão
+          // reconhecer esta providência em vez de empilhar uma segunda.
+          origemDesfechoId: id,
           // Desfecho de alerta (prazo perdido, contato sem sucesso) gera
           // seguimento urgente — e agora ele diz POR QUÊ. Antes nascia urgente
           // e mudo, e quem abria não sabia se era regra ou engano.
@@ -805,19 +917,33 @@ export class AgendaService {
     const rotuloCategoria = CATEGORIA_CANCELAMENTO_LABEL[dto.categoria];
     const motivo = dto.motivo?.trim() || null;
 
-    const compromisso = await this.prisma.compromisso.update({
-      where: { id },
-      data: {
-        status: StatusCompromisso.CANCELADO,
-        canceladoCategoria: dto.categoria,
-        canceladoMotivo: motivo,
-        canceladoEm: new Date(),
-        canceladoPor: ctx.userId ?? null,
-        // Cancelar interrompe o cronômetro: o tempo "em andamento" pararia de
-        // fazer sentido num evento que não vai acontecer.
-        iniciadoEm: null,
-      },
-      select: cardSelect,
+    const compromisso = await this.prisma.$transaction(async (tx) => {
+      const atualizado = await tx.compromisso.update({
+        where: { id },
+        data: {
+          status: StatusCompromisso.CANCELADO,
+          canceladoCategoria: dto.categoria,
+          canceladoMotivo: motivo,
+          canceladoEm: new Date(),
+          canceladoPor: ctx.userId ?? null,
+          // Cancelar interrompe o cronômetro: o tempo "em andamento" pararia de
+          // fazer sentido num evento que não vai acontecer.
+          iniciadoEm: null,
+        },
+        select: cardSelect,
+      });
+
+      // A movimentação que gerou a tarefa não pode ficar presa a ela — ver
+      // `dispensarMovimentacaoLigada`. Na mesma transação: cancelar sem
+      // dispensar deixaria o ato invisível, e dispensar sem cancelar tiraria o
+      // alerta de algo que ainda tem tarefa viva.
+      await this.dispensarMovimentacaoLigada(
+        tx,
+        id,
+        `Atividade cancelada — ${rotuloCategoria}${motivo ? `: ${motivo}` : ''}`,
+        ctx.userId,
+      );
+      return atualizado;
     });
 
     await this.auditar(
@@ -864,16 +990,30 @@ export class AgendaService {
       return null;
     }
 
-    await this.prisma.compromisso.update({
-      where: { id: compromissoId },
-      data: {
-        status: StatusCompromisso.CANCELADO,
-        canceladoCategoria: 'ADIADA_JUIZO',
-        canceladoMotivo: motivo,
-        canceladoEm: new Date(),
-        canceladoPor: null, // sem autor humano — veio do tribunal
-        iniciadoEm: null,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.compromisso.update({
+        where: { id: compromissoId },
+        data: {
+          status: StatusCompromisso.CANCELADO,
+          canceladoCategoria: 'ADIADA_JUIZO',
+          canceladoMotivo: motivo,
+          canceladoEm: new Date(),
+          canceladoPor: null, // sem autor humano — veio do tribunal
+          iniciadoEm: null,
+        },
+      });
+
+      /**
+       * A designação que gerou esta pauta também sai do radar.
+       *
+       * Aqui quem cancelou foi o TRIBUNAL, e a movimentação de designação está
+       * carimbada com o compromisso que acaba de cair. Sem dispensá-la, ela
+       * ficaria presa a uma tarefa cancelada — sem alerta, sem tarefa viva e
+       * sem voltar ao radar. Ver `dispensarMovimentacaoLigada`.
+       *
+       * `dispensadoPor` nulo, como o `canceladoPor`: não houve pessoa.
+       */
+      await this.dispensarMovimentacaoLigada(tx, compromissoId, motivo);
     });
 
     await this.audit.registrar({
@@ -972,6 +1112,46 @@ export class AgendaService {
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * CANCELAR UMA TAREFA DO ROBÔ NÃO PODE DEIXAR A MOVIMENTAÇÃO EM LIMBO.
+   *
+   * O robô carimba `movimentacao.compromissoId` ao criar a tarefa — é a trava
+   * de idempotência dele e, ao mesmo tempo, o que faz o selo "Prazo sem tarefa"
+   * sair da lista e o radar de audiências parar de cobrar. Excluir a tarefa
+   * limpa o carimbo sozinho (a FK é `SetNull`); CANCELAR não limpava nada.
+   *
+   * O resultado era um limbo silencioso: a movimentação ficava presa a uma
+   * tarefa cancelada, sem tarefa viva, sem selo na lista e sem voltar ao radar.
+   * O ato desaparecia — e o pior tipo de desaparecimento, o que não deixa
+   * sintoma. (Medido em 27/08/2026: nenhum caso ainda. É buraco novo em folha,
+   * fechado antes de morder.)
+   *
+   * POR QUE DISPENSAR, E NÃO SÓ LIMPAR O CARIMBO. Limpar faria o selo voltar
+   * amanhã e o robô recriar a tarefa na varredura seguinte — um laço em que
+   * cancelar não cancela nada. Dispensar registra o que de fato aconteceu:
+   * uma PESSOA decidiu que aquilo não precisa de providência. É auditável
+   * (guarda quem e por quê), aparece no radar como dispensado e é REVERSÍVEL
+   * (`AudienciasService.restaurar`) — nada fica sem saída.
+   *
+   * Só vale para tarefa do ROBÔ: uma atividade criada à mão e depois cancelada
+   * não tem movimentação para dispensar, e não deve inventar uma.
+   */
+  private async dispensarMovimentacaoLigada(
+    tx: Prisma.TransactionClient,
+    compromissoId: string,
+    motivo: string,
+    userId?: string,
+  ) {
+    await tx.movimentacaoProcessual.updateMany({
+      where: { compromissoId, dispensadoEm: null },
+      data: {
+        dispensadoEm: new Date(),
+        dispensadoPor: userId ?? null,
+        dispensadoMotivo: motivo,
+      },
+    });
+  }
 
   /** Recarrega o cartão (usado quando a ação é um no-op e nada foi escrito). */
   private async cartao(id: string) {

@@ -33,6 +33,33 @@ export interface Responsavel {
   role?: string;
   avatarUrl?: string | null;
 }
+/**
+ * O QUE JÁ OCUPA A AGENDA DE ALGUÉM NUM INTERVALO.
+ *
+ * Consultado enquanto o formulário é preenchido — descobrir o choque depois de
+ * salvar significa voltar, apagar e refazer. Não bloqueia: sobreposição
+ * legítima existe, e recusar obrigaria a equipe a mentir a data para conseguir
+ * gravar.
+ */
+export interface ChoqueDeAgenda {
+  id: string;
+  titulo: string;
+  tipo: string;
+  inicio: string;
+  fim: string;
+  local: string | null;
+  filiado: { id: string; nomeCompleto: string; matricula: string | null } | null;
+}
+
+export async function conflitosDeAgenda(p: {
+  responsavelId: string;
+  inicio: string;
+  fim: string;
+  ignorarId?: string;
+}): Promise<ChoqueDeAgenda[]> {
+  return (await api.get('/compromissos/conflitos', { params: p })).data;
+}
+
 export interface ProcessoRef {
   id: string;
   /** Nulo em processos RASCUNHO (ainda sem NPU). */

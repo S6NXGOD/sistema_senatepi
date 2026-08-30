@@ -1928,10 +1928,22 @@ model Compromisso {
 
   /// Quem registrou o evento. Virou FK (era só o id solto em texto) para a tela
   /// poder mostrar nome E FOTO de quem criou a demanda, sem consulta extra.
-  criadoPor        String?  @map("criado_por")
+  criadoPor        String? @map("criado_por")
   /// Gerado pelo robô de automação (a partir de uma movimentação do DataJud) —
   /// a interface marca esses eventos com o selo "Criado pelo Sistema".
-  origemAutomatica Boolean  @default(false) @map("origem_automatica")
+  origemAutomatica Boolean @default(false) @map("origem_automatica")
+
+  /// A atividade que ORIGINOU esta, quando ela nasceu do desfecho de outra.
+  ///
+  /// Existe porque concluir a mesma atividade duas vezes (reabrir para corrigir
+  /// o texto do desfecho e concluir de novo) criava DOIS seguimentos — visto na
+  /// produção: dois "Encaminhamento da reunião" idênticos, no mesmo horário,
+  /// dezesseis minutos de diferença. Com o vínculo, a conclusão reconhece o
+  /// seguimento anterior e o substitui em vez de empilhar.
+  ///
+  /// Também torna a cadeia NAVEGÁVEL: hoje a origem só existe dentro do texto
+  /// da descrição. Ver `20260827130000_seguimento_do_desfecho`.
+  origemDesfechoId String?  @map("origem_desfecho_id")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -1940,6 +1952,10 @@ model Compromisso {
   filiado             Filiado?                 @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   atendimento         Atendimento?             @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
   processo            Processo?                @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  /// SetNull: apagar a reunião de origem não pode levar junto a providência que
+  /// ela gerou — a tarefa continua sendo devida.
+  origemDesfecho      Compromisso?             @relation("SeguimentoDoDesfecho", fields: [origemDesfechoId], references: [id], onDelete: SetNull)
+  seguimentos         Compromisso[]            @relation("SeguimentoDoDesfecho")
   /// Movimentações do DataJud que originaram este evento (radar de audiências).
   origemMovimentacoes MovimentacaoProcessual[]
   /// Publicações do DJEN que criaram ou enriqueceram esta atividade.
@@ -1961,6 +1977,7 @@ model Compromisso {
   @@index([tipo])
   @@index([inicio])
   @@index([responsavelId])
+  @@index([origemDesfechoId])
   @@index([filiadoId])
   @@index([processoId])
   @@index([criadoPor])

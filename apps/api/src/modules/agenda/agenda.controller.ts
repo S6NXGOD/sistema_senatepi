@@ -57,7 +57,32 @@ export class AgendaController {
   /** Motivos possíveis de cancelamento (inclui "não compareceu"). */
   @Get('categorias-cancelamento')
   categoriasCancelamento() {
-    return CATEGORIAS_CANCELAMENTO;
+    // As categorias `apenasSistema` ficam fora do formulário: ninguém cancela
+    // algo "porque foi substituída" — isso é consequência de outra ação. O
+    // rótulo delas continua no catálogo, para a tela exibir cartões já
+    // cancelados por essa via.
+    return CATEGORIAS_CANCELAMENTO.filter((c) => !c.apenasSistema);
+  }
+
+  /**
+   * O que já ocupa a agenda desta pessoa neste horário.
+   *
+   * ROTA PRÓPRIA, e não um campo da listagem: o formulário consulta a cada
+   * mudança de data/hora/responsável, e trazer o cartão inteiro (equipe,
+   * processo, partes, histórico) a cada tecla seria caro à toa.
+   *
+   * Vem ANTES de `@Get(':id')` no arquivo — senão o Nest casaria "conflitos"
+   * como um id e devolveria 404.
+   */
+  @Get('conflitos')
+  conflitos(
+    @Query('responsavelId') responsavelId: string,
+    @Query('inicio') inicio: string,
+    @Query('fim') fim: string,
+    @Query('ignorarId') ignorarId?: string,
+  ) {
+    if (!responsavelId || !inicio || !fim) return [];
+    return this.service.conflitos({ responsavelId, inicio, fim, ignorarId });
   }
 
   @Get()
