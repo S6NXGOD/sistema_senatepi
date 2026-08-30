@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { X, Loader2, UserX, Upload, FileDown, CalendarDays, Info, FileCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { abrirPdf } from '@/lib/pdf';
+import { VinculosDoFiliado } from '@/components/filiados/vinculos-do-filiado';
 import {
   desfiliarFiliado, anexarDocumentoFiliado,
   MOTIVOS_DESFILIACAO, type MotivoDesfiliacao,
@@ -71,15 +72,35 @@ export function DesfiliarModal({
         dataPedido,
         mesCorte,
       });
-      // O termo assinado entra na aba Documentos JÁ CATEGORIZADO — é a prova
-      // documental da saída, não pode virar "OUTRO" no meio dos RGs.
+      /*
+       * DAQUI PARA BAIXO, A DESFILIAÇÃO JÁ ACONTECEU.
+       *
+       * O anexo tinha o mesmo `try` da desfiliação, e o `catch` dizia "Não foi
+       * possível desfiliar" — mentira, e mentira cara: a saída estava gravada,
+       * o operador achava que falhara, tentava de novo e levava
+       * "Este filiado já está desfiliado". Ele então concluía que o sistema
+       * estava quebrado, quando o único problema era um upload.
+       *
+       * Agora o erro do anexo é dele mesmo, diz o que aconteceu e diz para onde
+       * ir — o termo pode ser anexado depois, pela aba Documentos.
+       */
       if (arquivo) {
-        await anexarDocumentoFiliado(
-          filiado.id,
-          arquivo,
-          'Termo de Desfiliação (assinado)',
-          'TERMO_DESFILIACAO',
-        );
+        try {
+          await anexarDocumentoFiliado(
+            filiado.id,
+            arquivo,
+            'Termo de Desfiliação (assinado)',
+            'TERMO_DESFILIACAO',
+          );
+        } catch {
+          toast.warning(
+            `${filiado.nomeCompleto} foi desfiliado(a), mas o termo assinado não subiu. ` +
+              'Anexe-o pela aba Documentos do cadastro.',
+            { duration: 10_000 },
+          );
+          onConfirmed();
+          return;
+        }
       }
       toast.success(`${filiado.nomeCompleto} foi desfiliado(a).`);
       onConfirmed();
@@ -130,10 +151,20 @@ export function DesfiliarModal({
           <p className="flex items-start gap-2 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-300">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              O cadastro será <strong>preservado no histórico</strong>, podendo ser reativado
-              futuramente. O associado perde acesso a eventos e à Colônia de Férias.
+              O cadastro será <strong>preservado no histórico</strong> e pode ser
+              reativado depois pela ação <strong>Reativar</strong>, no mesmo menu.
+              A partir da confirmação, o associado perde acesso a eventos, à
+              Colônia de Férias, à carteirinha e à portaria — os dependentes
+              perdem junto.
             </span>
           </p>
+
+          {/*
+            O QUE FICA PENDURADO — antes do formulário, porque é informação que
+            pode mudar a decisão (ou pelo menos a ordem das coisas), e depois do
+            aviso de preservação, porque aquele tira o medo e este dá o peso.
+          */}
+          <VinculosDoFiliado filiadoId={filiado.id} />
 
           {/* ---- Motivo ---- */}
           <div className="space-y-1.5">

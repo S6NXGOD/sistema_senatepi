@@ -624,10 +624,33 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
                 ))}
               </select>
             </Campo>
-            {/* Situação só na edição — no cadastro o filiado nasce ATIVO. */}
+            {/*
+              Situação só na edição — no cadastro o filiado nasce ATIVO.
+
+              DESFILIADO NÃO ENTRA NA LISTA. Marcar a saída aqui pulava tudo que
+              ela exige — motivo padronizado (é o que responde "quantos saíram
+              por inadimplência?"), mês de corte, Termo assinado, histórico e
+              auditoria — e a volta, no sentido contrário, deixava os cinco
+              campos da saída gravados num cadastro já ativo. A API recusa as
+              duas transições desde então; tirar a opção do seletor evita
+              oferecer um caminho que só sabe dar erro.
+
+              Quem já está desfiliado vê o estado aqui, mas em campo travado: as
+              ações "Desfiliar" e "Reativar", no menu da linha, são as portas.
+            */}
             {modo !== 'criar' && (
               <Campo label="Situação">
-                <select className={sel} {...register('situacao')}>{SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}</select>
+                {inicial?.situacao === 'DESFILIADO' ? (
+                  <p className="flex h-10 items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-muted-foreground">
+                    Desfiliado — use “Reativar” no menu para retornar ao quadro.
+                  </p>
+                ) : (
+                  <select className={sel} {...register('situacao')}>
+                    {SITUACOES.filter((s) => s !== 'DESFILIADO').map((s) => (
+                      <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>
+                    ))}
+                  </select>
+                )}
               </Campo>
             )}
           </div>

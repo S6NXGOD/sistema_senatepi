@@ -10,6 +10,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -195,6 +196,23 @@ export class DesfiliarDto {
   @IsOptional() @IsString()
   @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Mês de corte inválido — use o formato AAAA-MM.' })
   mesCorte?: string;
+}
+
+/**
+ * Reativação — desfazer a saída.
+ *
+ * O MOTIVO É OBRIGATÓRIO pela mesma razão que ele é obrigatório na desfiliação:
+ * readmitir alguém é decisão da entidade, e decisão sem justificativa gravada
+ * não pode ser revista depois. Aqui é texto livre, e não enum: sair da
+ * categoria tem meia dúzia de causas repetidas (que viram estatística); voltar
+ * é sempre um caso, com uma história própria.
+ */
+export class ReativarDto {
+  @ApiProperty({ description: 'Por que este cadastro está voltando ao quadro.' })
+  @IsString()
+  @MinLength(5, { message: 'Explique o motivo da reativação (mínimo de 5 caracteres).' })
+  @MaxLength(500)
+  motivo: string;
 }
 
 export class ListFiliadosQueryDto {

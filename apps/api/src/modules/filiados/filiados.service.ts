@@ -21,6 +21,10 @@ import {
   MotivoDesfiliacao,
   Prisma,
   SituacaoFiliado,
+  StatusAtendimento,
+  StatusCompromisso,
+  StatusParcela,
+  StatusProcesso,
   TipoDocumento,
   TipoHistoricoFiliado,
   TipoPessoa,
@@ -86,6 +90,24 @@ export const MOTIVO_DESFILIACAO_LABEL: Record<MotivoDesfiliacao, string> = {
   INADIMPLENCIA: 'Inadimplência',
   OUTROS: 'Outros',
 };
+
+/**
+ * A PRAÇA DA ASSINATURA — de onde o documento é datado.
+ *
+ * Estava escrita "Teresina/PI" no corpo de DOIS geradores de PDF. Hoje acerta,
+ * porque os dois clientes ficam em Teresina; no dia em que um terceiro entrar,
+ * o sistema passa a emitir documento oficial datado da cidade errada — e nada
+ * quebra, então ninguém descobre. O endereço já está no `tenant.config`; era só
+ * ler de lá.
+ */
+export function pracaDaAssinatura(): string {
+  const cidade = tenant.endereco?.cidade?.trim();
+  const uf = tenant.endereco?.uf?.trim();
+  if (!cidade) return '';
+  // Nome vem em CAIXA ALTA na configuração; num documento formal isso grita.
+  const bonito = cidade.charAt(0).toUpperCase() + cidade.slice(1).toLowerCase();
+  return uf ? `${bonito}/${uf.toUpperCase()}` : bonito;
+}
 
 /** Prefixo da matrícula sindical — `SEN-AAAA-NNNNNN`. */
 const PREFIXO_MATRICULA = 'SEN';
@@ -511,7 +533,45 @@ export class FiliadosService {
     return { ...filiado, camposProtegidos: ignorados };
   }
 
+  /**
+   * A DESFILIAÇÃO NÃO ENTRA NEM SAI PELO SELETOR DO FORMULÁRIO.
+   *
+   * O campo "Situação" da tela de edição é um `<select>` com as três opções, e
+   * ele escrevia direto — o que abria duas portas dos fundos:
+   *
+   *  · ENTRAR: marcar DESFILIADO ali pulava tudo que a saída exige — motivo
+   *    padronizado (é o que responde "quantos saíram por inadimplência?"),
+   *    mês de corte, Termo assinado, histórico e auditoria. O cadastro ficava
+   *    desfiliado sem que ninguém soubesse por quê nem desde quando;
+   *
+   *  · SAIR: voltar para ATIVO deixava os cinco campos da saída gravados, e o
+   *    cadastro passava a mentir sobre si mesmo (ver `reativar`).
+   *
+   * Cada transição tem a sua porta, e cada porta exige o que a decisão exige.
+   * O erro diz qual usar em vez de apenas recusar.
+   */
+  private async exigirPortaCerta(id: string, novaSituacao?: SituacaoFiliado) {
+    if (!novaSituacao) return;
+    const { situacao } = await this.prisma.filiado.findUniqueOrThrow({
+      where: { id },
+      select: { situacao: true },
+    });
+    if (novaSituacao === situacao) return;
+
+    if (novaSituacao === SituacaoFiliado.DESFILIADO) {
+      throw new BadRequestException(
+        'Para desfiliar, use a ação "Desfiliar" — ela registra o motivo, o mês de corte e o Termo assinado.',
+      );
+    }
+    if (situacao === SituacaoFiliado.DESFILIADO) {
+      throw new BadRequestException(
+        'Para reativar, use a ação "Reativar" — ela limpa os dados da saída e registra o motivo do retorno.',
+      );
+    }
+  }
+
   async update(id: string, dto: UpdateFiliadoDto, autor?: string, protegidos: string[] = []) {
+    await this.exigirPortaCerta(id, dto.situacao);
     await this.findOne(id);
     const { vinculos, dependentes, ...dados } = dto;
 
@@ -553,6 +613,10 @@ export class FiliadosService {
   }
 
   async changeSituacao(id: string, dto: ChangeSituacaoDto, autor?: string) {
+    // A mesma regra do formulário: DESFILIADO tem portas próprias nos dois
+    // sentidos. Sem isto, a rota genérica de situação continuaria sendo o
+    // atalho que contorna motivo, termo e auditoria.
+    await this.exigirPortaCerta(id, dto.situacao);
     const atual = await this.findOne(id);
     const filiado = await this.prisma.filiado.update({
       where: { id },
@@ -571,6 +635,91 @@ export class FiliadosService {
       autor,
     );
     return filiado;
+  }
+
+  /**
+   * O QUE FICA PARA TRÁS QUANDO ALGUÉM SAI.
+   *
+   * A desfiliação era uma decisão tomada às cegas: o modal pedia motivo e mês de
+   * corte, e pronto. Só que o cadastro do filiado é o centro de meia dúzia de
+   * módulos, e nenhum deles aparecia na hora de decidir — dívida em aberto,
+   * processo em andamento, dependentes que perdem acesso junto, atividade
+   * marcada na agenda de um advogado, triagem esperando resposta. Quem
+   * confirmava não tinha como saber, e descobriria depois, por acaso.
+   *
+   * NÃO É UM BLOQUEIO, e a distinção é deliberada. Sair do sindicato é direito
+   * do associado; recusar a saída porque há uma parcela aberta transformaria a
+   * mensalidade em algema. O que o sistema deve fazer é MOSTRAR — para que a
+   * secretaria cobre o que é devido, avise o advogado do caso em curso e
+   * explique aos dependentes — em vez de deixar tudo isso ser descoberto
+   * semanas depois.
+   *
+   * CONTAGENS, E NÃO LISTAS: a pergunta aqui é "tem algo pendurado?", e uma
+   * resposta em números cabe no modal sem empurrar o botão para fora da tela.
+   * Quem quiser o detalhe abre o dossiê, que já mostra tudo.
+   */
+  async levantarVinculos(id: string) {
+    const f = await this.findOne(id);
+    const emAberto = { in: [StatusParcela.PENDENTE, StatusParcela.VENCIDO] };
+
+    const [
+      parcelasAbertas,
+      somaAberta,
+      dependentes,
+      processos,
+      atividadesAbertas,
+      atendimentosAbertos,
+      carteirinhas,
+    ] = await this.prisma.$transaction([
+      this.prisma.parcelaCobranca.count({
+        where: { cobranca: { filiadoId: id }, status: emAberto },
+      }),
+      this.prisma.parcelaCobranca.aggregate({
+        where: { cobranca: { filiadoId: id }, status: emAberto },
+        _sum: { valor: true },
+      }),
+      this.prisma.dependente.count({ where: { filiadoId: id } }),
+      /**
+       * Processos VIVOS em que ele é parte — e pela TABELA, não só pelo atalho
+       * `Processo.filiadoId`. Um filiado pode figurar num processo coletivo sem
+       * ser o "dono" dele, e é justamente esse caso que passaria despercebido.
+       * Mesma lição do atalho/tabela que já escondeu a carteira do advogado.
+       */
+      this.prisma.processo.count({
+        where: {
+          statusInterno: {
+            notIn: [
+              StatusProcesso.ARQUIVADO,
+              StatusProcesso.ENCERRADO,
+              StatusProcesso.IMPROCEDENTE,
+            ],
+          },
+          OR: [{ filiadoId: id }, { partes: { some: { filiadoId: id } } }],
+        },
+      }),
+      this.prisma.compromisso.count({
+        where: {
+          filiadoId: id,
+          status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        },
+      }),
+      this.prisma.atendimento.count({
+        where: { filiadoId: id, status: StatusAtendimento.PENDENTE },
+      }),
+      this.prisma.carteirinha.count({ where: { filiadoId: id } }),
+    ]);
+
+    return {
+      nome: f.nomeCompleto,
+      situacao: f.situacao,
+      parcelasAbertas,
+      valorAberto: Number(somaAberta._sum.valor ?? 0),
+      dependentes,
+      processos,
+      atividadesAbertas,
+      atendimentosAbertos,
+      carteirinhas,
+    };
   }
 
   /**
@@ -628,6 +777,90 @@ export class FiliadosService {
           mesCorte,
           observacoes,
           dataPedido: dataPedido.toISOString(),
+          autor: autor ?? null,
+        },
+      })
+      .catch(() => undefined);
+
+    return filiado;
+  }
+
+  /**
+   * REATIVAÇÃO — desfazer a saída, e desfazer INTEIRA.
+   *
+   * O modal de desfiliação promete, com todas as letras, que "o cadastro será
+   * preservado no histórico, podendo ser reativado futuramente". A promessa era
+   * cumprida pela metade: dava para voltar a situação para ATIVO pelo seletor do
+   * formulário de edição, e só isso acontecia. Os cinco campos da saída
+   * — motivo, data, autor, mês de corte, observações — ficavam todos gravados.
+   *
+   * O ESTRAGO NÃO ERA COSMÉTICO. Um cadastro ATIVO carregando
+   * `motivoDesfiliacao = INADIMPLENCIA` e `desfiliadoEm = 30/08/2026` mente para
+   * quem vier depois:
+   *
+   *  · o Termo de Desfiliação, se gerado de novo, sai preenchido com o motivo
+   *    ANTIGO (o gerador cai no que está no cadastro quando não recebe
+   *    parâmetro) — um documento oficial afirmando uma saída que foi desfeita;
+   *  · qualquer relatório por `desfiliadoEm` conta uma saída que não existe;
+   *  · o dossiê exibe a tarja da desfiliação sobre alguém que está ativo.
+   *
+   * E o histórico dizia apenas "Dados cadastrais atualizados", porque a volta
+   * passava pelo `update()` genérico. Quem lesse a linha do tempo meses depois
+   * não teria como saber que houve uma reativação, nem por quê.
+   *
+   * Aqui o motivo é OBRIGATÓRIO pela mesma razão que ele é obrigatório na
+   * saída: readmitir alguém é decisão da entidade, e decisão sem justificativa
+   * registrada não pode ser revista depois.
+   */
+  async reativar(id: string, motivo: string, autor?: string) {
+    const atual = await this.findOne(id);
+    if (atual.situacao === SituacaoFiliado.ATIVO) {
+      throw new BadRequestException('Este filiado já está ativo.');
+    }
+
+    const rotuloAnterior = atual.motivoDesfiliacao
+      ? MOTIVO_DESFILIACAO_LABEL[atual.motivoDesfiliacao]
+      : null;
+
+    const filiado = await this.prisma.filiado.update({
+      where: { id },
+      data: {
+        situacao: SituacaoFiliado.ATIVO,
+        /**
+         * LIMPA TUDO. Deixar qualquer um destes para trás recria exatamente o
+         * defeito que este método existe para consertar.
+         */
+        motivoDesfiliacao: null,
+        desfiliacaoObservacoes: null,
+        desfiliadoEm: null,
+        desfiliadoPor: null,
+        desfiliacaoMesCorte: null,
+        // Readmissão conta como aprovação nova quando nunca houve uma.
+        aprovadoEm: atual.aprovadoEm ?? new Date(),
+      },
+    });
+
+    await this.registrarHistorico(
+      id,
+      TipoHistoricoFiliado.MUDANCA_STATUS,
+      `Reativado — ${motivo}` +
+        (rotuloAnterior ? ` (saída anterior: ${rotuloAnterior}).` : '.'),
+      autor,
+      { de: atual.situacao, para: SituacaoFiliado.ATIVO, motivo, motivoSaidaAnterior: atual.motivoDesfiliacao },
+    );
+
+    await this.audit
+      .registrar({
+        userId: null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'Filiado',
+        entidadeId: id,
+        descricao: `Reativação de ${atual.nomeCompleto} — ${motivo}`,
+        metadata: {
+          de: atual.situacao,
+          motivo,
+          motivoSaidaAnterior: atual.motivoDesfiliacao,
+          desfiliadoEmAnterior: atual.desfiliadoEm?.toISOString() ?? null,
           autor: autor ?? null,
         },
       })
@@ -892,7 +1125,7 @@ export class FiliadosService {
       doc.moveDown(1.4);
       const dataFmt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
       doc.font('Times-Roman').fontSize(10.5).fillColor('#1f2937')
-        .text(`Teresina/PI, ${dataFmt}.`, X, doc.y, { width: W });
+        .text(`${pracaDaAssinatura()}, ${dataFmt}.`, X, doc.y, { width: W });
       doc.moveDown(2.4);
       const ys = doc.y;
       doc.moveTo(X + 110, ys).lineTo(X + W - 110, ys).strokeColor('#374151').lineWidth(0.8).stroke();
@@ -1131,7 +1364,7 @@ export class FiliadosService {
         .font('Times-Roman')
         .fontSize(10.5)
         .fillColor('#1f2937')
-        .text(`Teresina/PI, ${dataFmt}.`, X, doc.y, { width: W });
+        .text(`${pracaDaAssinatura()}, ${dataFmt}.`, X, doc.y, { width: W });
 
       // ---------------------------------------------------------------
       // Assinaturas — duas: quem sai e quem recebe.

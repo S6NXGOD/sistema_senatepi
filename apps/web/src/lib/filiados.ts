@@ -220,6 +220,42 @@ export async function desfiliarFiliado(id: string, dto: DesfiliarInput): Promise
 }
 
 /**
+ * O QUE FICA PENDURADO NESTE FILIADO.
+ *
+ * A saída era decidida às cegas: o modal pedia motivo e mês de corte e mais
+ * nada. Mas o cadastro é o centro de meia dúzia de módulos — dívida aberta,
+ * processo em curso, dependentes que perdem acesso junto, atividade na agenda
+ * de um advogado — e nenhum deles aparecia na hora de confirmar.
+ *
+ * Números, não listas: a pergunta é "tem algo pendurado?".
+ */
+export interface VinculosDoFiliado {
+  nome: string;
+  situacao: SituacaoFiliado;
+  parcelasAbertas: number;
+  valorAberto: number;
+  dependentes: number;
+  processos: number;
+  atividadesAbertas: number;
+  atendimentosAbertos: number;
+  carteirinhas: number;
+}
+
+export async function vinculosDoFiliado(id: string): Promise<VinculosDoFiliado> {
+  return (await api.get(`/filiados/${id}/vinculos`)).data;
+}
+
+/**
+ * Reativação. Porta PRÓPRIA, e não o seletor de situação do formulário: voltar
+ * a ATIVO sem limpar motivo, data e mês de corte deixava o cadastro afirmando
+ * uma desfiliação que já tinha sido desfeita — e o Termo, se reemitido, saía
+ * com o motivo antigo.
+ */
+export async function reativarFiliado(id: string, motivo: string): Promise<Filiado> {
+  return (await api.patch(`/filiados/${id}/reativar`, { motivo })).data;
+}
+
+/**
  * Anexa um documento ao filiado. `tipo` faz o arquivo aparecer CATEGORIZADO na
  * aba Documentos — sem ele, o termo assinado cairia no genérico "OUTRO", junto
  * com RG e comprovante de residência.

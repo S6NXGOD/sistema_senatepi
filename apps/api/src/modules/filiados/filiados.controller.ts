@@ -23,6 +23,7 @@ import {
   ChangeSituacaoDto,
   CreateFiliadoDto,
   DesfiliarDto,
+  ReativarDto,
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
@@ -115,6 +116,31 @@ export class FiliadosController {
     @CurrentUser('nome') autor: string,
   ) {
     return this.service.changeSituacao(id, dto, autor);
+  }
+
+  /**
+   * O que fica pendurado neste filiado — para a saída não ser decidida às cegas.
+   * Leitura pura; o modal chama ao abrir. Ver `levantarVinculos`.
+   */
+  @Get(':id/vinculos')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  vinculos(@Param('id') id: string) {
+    return this.service.levantarVinculos(id);
+  }
+
+  /**
+   * Reativação. Porta própria porque desfazer a saída exige LIMPAR os dados
+   * dela — voltar só a situação deixa o cadastro afirmando uma desfiliação que
+   * não existe mais.
+   */
+  @Patch(':id/reativar')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
+  reativar(
+    @Param('id') id: string,
+    @Body() dto: ReativarDto,
+    @CurrentUser('nome') autor: string,
+  ) {
+    return this.service.reativar(id, dto.motivo, autor);
   }
 
   @Patch(':id/desfiliar')

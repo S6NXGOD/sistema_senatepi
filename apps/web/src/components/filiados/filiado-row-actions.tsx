@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  UserCheck,
   UserX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import { excluirFiliado, Filiado } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
 import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
+import { ReativarModal } from '@/components/filiados/reativar-modal';
 import { V } from '@/lib/vocabulario';
 
 /**
@@ -40,7 +42,7 @@ export function FiliadoRowActions({
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
-  const [modal, setModal] = useState<null | 'desfiliar' | 'excluir'>(null);
+  const [modal, setModal] = useState<null | 'desfiliar' | 'reativar' | 'excluir'>(null);
   const [loading, setLoading] = useState(false);
 
   const jaDesfiliado = filiado.situacao === 'DESFILIADO';
@@ -112,15 +114,36 @@ export function FiliadoRowActions({
 
             <div className="my-1 border-t" />
 
-            {/* Destaque em âmbar: é ação de gestão, não de rotina. */}
-            <MenuItem
-              icon={<UserX className="h-4 w-4" />}
-              disabled={jaDesfiliado}
-              className="font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
-              onClick={() => run(() => setModal('desfiliar'))}
-            >
-              {jaDesfiliado ? 'Já desfiliado' : 'Desfiliar'}
-            </MenuItem>
+            {/*
+              DESFILIAR ou REATIVAR — nunca um item morto.
+
+              O menu mostrava "Já desfiliado", desabilitado, para quem já tinha
+              saído. Isso é um beco: o modal de saída PROMETE que o cadastro
+              "pode ser reativado futuramente", e o único caminho para isso era
+              o seletor de situação do formulário de edição — que voltava o
+              status e deixava motivo, data e mês de corte gravados, fazendo o
+              cadastro afirmar uma desfiliação já desfeita.
+
+              Destaque em âmbar (saída) e esmeralda (volta): são ações de
+              gestão, não de rotina, e apontam para lados opostos.
+            */}
+            {jaDesfiliado ? (
+              <MenuItem
+                icon={<UserCheck className="h-4 w-4" />}
+                className="font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                onClick={() => run(() => setModal('reativar'))}
+              >
+                Reativar
+              </MenuItem>
+            ) : (
+              <MenuItem
+                icon={<UserX className="h-4 w-4" />}
+                className="font-medium text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                onClick={() => run(() => setModal('desfiliar'))}
+              >
+                Desfiliar
+              </MenuItem>
+            )}
             {/* Só o Administrador apaga — regra global do sistema. Sem este
                 gate a Coordenação via o item e levava 403 depois do clique. */}
             {ehAdmin && (
@@ -139,6 +162,15 @@ export function FiliadoRowActions({
       {/* Desfiliação — motivo, mês de corte, termo em PDF e anexo do assinado */}
       {modal === 'desfiliar' && (
         <DesfiliarModal
+          filiado={{ id: filiado.id, nomeCompleto: filiado.nomeCompleto }}
+          onClose={() => setModal(null)}
+          onConfirmed={() => { setModal(null); onChanged(); }}
+        />
+      )}
+
+      {/* Reativação — limpa os dados da saída e exige motivo do retorno */}
+      {modal === 'reativar' && (
+        <ReativarModal
           filiado={{ id: filiado.id, nomeCompleto: filiado.nomeCompleto }}
           onClose={() => setModal(null)}
           onConfirmed={() => { setModal(null); onChanged(); }}

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  AcaoAuditoria, ModoVotacao, Prisma, StatusEvento, StatusPauta,
+  AcaoAuditoria, ModoVotacao, Prisma, SituacaoFiliado, StatusEvento, StatusPauta,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -227,7 +227,7 @@ export class VotacaoService {
 
     const presenca = await this.prisma.presenca.findFirst({
       where: { id: dados.presencaId, eventoId: pauta.eventoId },
-      select: { filiadoId: true },
+      select: { filiadoId: true, filiado: { select: { situacao: true } } },
     });
     if (!presenca) {
       throw new ForbiddenException('Faça o check-in no evento para poder votar.');
@@ -240,6 +240,26 @@ export class VotacaoService {
       throw new ForbiddenException(
         'Sua presença está registrada, mas ainda não foi vinculada ao cadastro de associado. ' +
         'Procure a mesa para confirmar seus dados e liberar o voto.',
+      );
+    }
+    /**
+     * QUEM VOTA É ASSOCIADO — CONFERIDO NA HORA DO VOTO, e não só no check-in.
+     *
+     * O check-in já recusa quem não está ATIVO, e por isso este teste parece
+     * redundante. Não é: entre entrar no salão e apertar o botão há uma
+     * assembleia inteira, e nada impede que a secretaria registre uma
+     * desfiliação nesse intervalo — aliás, é justamente numa assembleia que
+     * essas coisas se resolvem. Sem esta linha, a presença virava um passe
+     * permanente para uma condição que já tinha deixado de valer.
+     *
+     * Numa eleição sindical, um voto a mais de quem não é mais associado
+     * contamina o resultado inteiro e não tem como ser desfeito depois: a urna
+     * é anônima de propósito. É barato conferir duas vezes.
+     */
+    if (presenca.filiado && presenca.filiado.situacao !== SituacaoFiliado.ATIVO) {
+      throw new ForbiddenException(
+        'Este cadastro não está ativo no quadro associativo e não pode votar. ' +
+        'Procure a mesa.',
       );
     }
     const filiadoId = presenca.filiadoId;
