@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
-  AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass,
+  AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass, PenLine,
   ArrowUpDown,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -876,20 +876,38 @@ function BadgeFase({ fase }: { fase?: FaseProcessual }) {
  * pinta, para não existirem duas tabelas de códigos discordando com o tempo.
  */
 function CelulaUltimaMov({ p }: { p: ProcessoLista }) {
-  const ultima = p.movimentacoes?.[0];
+  /*
+    A COLUNA MOSTRA O QUE O FILTRO CONTA.
+    Antes ela lia só `movimentacoes[0]` (o CNJ) enquanto o chip "com
+    movimentação recente" contava também a nota da equipe — e a tela ficava
+    listando "há 1 ano" sob um filtro de sete dias. `ultimaMovimentacao` já vem
+    resolvida do servidor, com a origem junto.
+  */
+  const ultima = p.ultimaMovimentacao;
   if (!ultima) {
     return <span className="text-xs text-muted-foreground">Sem movimentação</span>;
   }
   const texto = ultima.detalhe?.trim() || ultima.descricao;
+  const daEquipe = ultima.origem === 'EQUIPE';
   const alerta = p.alerta;
   return (
     <div className="min-w-0 leading-snug">
       <p className="flex items-center gap-1.5 text-[13px] font-medium tabular-nums">
-        {dataBr(ultima.dataMovimento)}
-        <span className="text-[11px] font-normal text-muted-foreground">{desde(ultima.dataMovimento)}</span>
+        {dataBr(ultima.data)}
+        <span className="text-[11px] font-normal text-muted-foreground">{desde(ultima.data)}</span>
       </p>
-      <p className="truncate text-xs text-muted-foreground" title={texto}>
-        {texto}
+      <p className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={texto}>
+        {/*
+          DE ONDE VEIO. Publicação oficial e anotação interna não podem parecer
+          a mesma coisa: quem lê a coluna decide com base nisso se o tribunal se
+          mexeu ou se fomos nós. O ícone carrega a distinção sem gastar linha.
+        */}
+        {daEquipe ? (
+          <PenLine className="h-3 w-3 shrink-0 text-brand-700 dark:text-brand-400" aria-label="registro da equipe" />
+        ) : (
+          <Landmark className="h-3 w-3 shrink-0" aria-label="andamento do tribunal" />
+        )}
+        <span className="truncate">{texto}</span>
       </p>
       {alerta && <SeloDeAlerta alerta={alerta} />}
     </div>

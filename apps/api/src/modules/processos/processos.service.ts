@@ -72,6 +72,19 @@ const partesResumoSel = {
   orderBy: PARTE_ORDER,
 } as const;
 
+/**
+ * Quando a nota da equipe VALE — `dataFato` quando existe, senão `createdAt`.
+ *
+ * A mesma regra da linha do tempo e do gatilho de `ultimoMovimentoEm`: registrar
+ * hoje um ato de semana passada não torna o processo movimentado hoje. Escrita
+ * uma vez aqui porque a lista precisa dela em dois lugares (o aviso de dormência
+ * e a coluna), e duas cópias divergiriam na primeira correção.
+ */
+function dataDaNota(nota?: { dataFato: Date | null; createdAt: Date } | null): Date | null {
+  if (!nota) return null;
+  return nota.dataFato ?? nota.createdAt;
+}
+
 /** Data do andamento mais recente de uma instância recém-vinda do CNJ. */
 function ultimoMovimento(instancia: ProcessoDatajud): Date | null {
   let maior = -Infinity;
@@ -157,13 +170,48 @@ export const FILTRO_RAPIDO = {
   semReu: (): Prisma.ProcessoWhereInput => ({
     partes: { none: { polo: 'PASSIVO' } },
   }),
-  /** Houve andamento (do CNJ ou interno) na janela. */
+  /**
+   * HOUVE TRABALHO NESTE PROCESSO NA JANELA — do tribunal ou nosso.
+   *
+   * O DEFEITO, visto na tela em 31/08/2026: o chip "7 dias" devolvia SEIS
+   * processos e a coluna mostrava "há 5 meses", "há 3 meses", "há 1 ano" — dois
+   * deles ARQUIVADOS. Um filtro de sete dias trazendo processo parado há um ano
+   * parece, com razão, quebrado.
+   *
+   * A causa era `movimentacoesInternas.createdAt` sem filtro de origem: QUATRO
+   * das notas recentes eram do próprio robô ("Processo encerrado
+   * automaticamente: todas as instâncias receberam baixa"). O chip de ATIVIDADE
+   * acendia exatamente quando o sistema ARQUIVAVA o processo.
+   *
+   * POR QUE NÃO RESTRINGIR SÓ AO CNJ, que seria a leitura mais literal de
+   * "movimentação": porque o índice público atrasa. Medido no mesmo dia — em 7
+   * e em 15 dias, o filtro só-CNJ devolveria ZERO, porque o último andamento
+   * publicado tinha 24 dias. Um chip permanentemente vazio não é rigor, é
+   * inutilidade.
+   *
+   * Fica então CNJ + trabalho HUMANO (4 e 9 nas duas janelas), que é o que a
+   * equipe entende por "andou": ou o tribunal se mexeu, ou nós mexemos.
+   *
+   * A nota humana vale por `dataFato ?? createdAt` — a mesma regra da linha do
+   * tempo e da coluna `ultimoMovimentoEm`. Registrar hoje um ato de semana
+   * passada não torna o processo movimentado hoje.
+   */
   recentes: (dias: number, agora: Date): Prisma.ProcessoWhereInput => {
     const desde = new Date(agora.getTime() - dias * 24 * 3600 * 1000);
     return {
       OR: [
         { movimentacoes: { some: { dataMovimento: { gte: desde } } } },
-        { movimentacoesInternas: { some: { createdAt: { gte: desde } } } },
+        {
+          movimentacoesInternas: {
+            some: {
+              origemSistema: false,
+              OR: [
+                { dataFato: { gte: desde } },
+                { dataFato: null, createdAt: { gte: desde } },
+              ],
+            },
+          },
+        },
       ],
     };
   },
@@ -898,9 +946,22 @@ export class ProcessosService {
            * mais um par de telas prestes a discordar sobre a mesma palavra.
            */
           movimentacoesInternas: {
+            /**
+             * SEM A PAPELADA DO ROBÔ. "Processo encerrado automaticamente" é
+             * escrita do sistema, não trabalho no caso — contá-la fazia a lista
+             * dizer que um processo arquivado tinha acabado de se mexer.
+             */
+            where: { origemSistema: false },
             orderBy: { createdAt: 'desc' },
             take: 1,
-            select: { createdAt: true },
+            /**
+             * `descricao` e `dataFato` entram porque a COLUNA passou a mostrar
+             * a última movimentação DE VERDADE, e não só a do CNJ. Era esse
+             * descompasso que fazia o chip "7 dias" listar processos com "há 1
+             * ano" ao lado: o filtro contava a nota, a coluna mostrava o
+             * tribunal, e as duas coisas não conversavam.
+             */
+            select: { createdAt: true, dataFato: true, descricao: true },
           },
           // Só o resumo: a lista precisa avisar "este processo corre em dois
           // graus" sem carregar os metadados de cada um.
@@ -962,10 +1023,45 @@ export class ProcessosService {
         }),
         alerta: this.alertaDaLinha(
           p.movimentacoes[0],
-          p.movimentacoesInternas[0]?.createdAt ?? null,
+          dataDaNota(p.movimentacoesInternas[0]),
           p.statusInterno,
           agoraDaLista,
         ),
+        /**
+         * A ÚLTIMA MOVIMENTAÇÃO DE VERDADE — do tribunal ou nossa.
+         *
+         * A coluna mostrava só o andamento do CNJ, enquanto o chip "com
+         * movimentação recente" contava também a nota da equipe. O resultado na
+         * tela: um filtro de sete dias listando processos com "há 1 ano" ao
+         * lado, porque as duas coisas respondiam perguntas diferentes com o
+         * mesmo nome. Agora a coluna mostra o que o filtro conta.
+         *
+         * `origem` viaja junto para a tela poder dizer DE ONDE veio: "Publicação"
+         * (tribunal) e "Peça protocolada" (equipe) merecem marcas diferentes —
+         * sem isso, o andamento interno passaria por publicação oficial.
+         */
+        ultimaMovimentacao: (() => {
+          const cnj = p.movimentacoes[0];
+          const nota = p.movimentacoesInternas[0];
+          const dNota = dataDaNota(nota);
+          if (cnj && (!dNota || cnj.dataMovimento >= dNota)) {
+            return {
+              data: cnj.dataMovimento,
+              descricao: cnj.descricao,
+              detalhe: cnj.detalhe,
+              origem: 'TRIBUNAL' as const,
+            };
+          }
+          if (nota && dNota) {
+            return {
+              data: dNota,
+              descricao: nota.descricao,
+              detalhe: null,
+              origem: 'EQUIPE' as const,
+            };
+          }
+          return null;
+        })(),
         /**
          * Etiquetas que o sistema mantém sozinho. Derivadas AQUI, na leitura, e
          * nunca gravadas: o que não é armazenado não fica desatualizado.
@@ -1356,6 +1452,9 @@ export class ProcessosService {
           statusAnterior: processo.statusInterno,
           statusNovo: 'ENCERRADO',
           notaInterna: false,
+        // Papelada do robô: não conta como andamento do processo, nem no
+        // filtro "movimentação recente" nem na ordenação. Ver `origemSistema`.
+        origemSistema: true,
         },
       });
       this.logger.log(`[DATAJUD] ${processo.numeroCNJ}: encerrado — todas as instâncias baixadas.`);
@@ -1405,6 +1504,9 @@ export class ProcessosService {
             statusAnterior: 'PENDENTE',
             statusNovo: 'ATIVO',
             notaInterna: false,
+        // Papelada do robô: não conta como andamento do processo, nem no
+        // filtro "movimentação recente" nem na ordenação. Ver `origemSistema`.
+        origemSistema: true,
           },
         });
         this.logger.log(
@@ -1436,6 +1538,9 @@ export class ProcessosService {
         statusAnterior: 'ENCERRADO',
         statusNovo: 'ATIVO',
         notaInterna: false,
+        // Papelada do robô: não conta como andamento do processo, nem no
+        // filtro "movimentação recente" nem na ordenação. Ver `origemSistema`.
+        origemSistema: true,
       },
     });
     this.logger.log(

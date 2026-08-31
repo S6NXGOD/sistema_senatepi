@@ -2829,20 +2829,33 @@ model TipoAndamento {
 /// do CNJ dono de dados que não são dele. A "linha do tempo" da tela é a UNIÃO
 /// das duas fontes, ordenada por data.
 model MovimentacaoInterna {
-  id             String          @id @default(uuid())
-  processoId     String          @map("processo_id")
+  id          String    @id @default(uuid())
+  processoId  String    @map("processo_id")
   /// Slug de TipoMovimentacao (cadastrável).
-  tipo           String
-  descricao      String
+  tipo        String
+  descricao   String
   /// DATA DO FATO — quando o ato REALMENTE aconteceu, se diferente do registro.
   ///
   /// Sem isto, a audiência de quarta lançada na sexta apareceria na sexta e a
   /// linha do tempo mentiria. A ordenação da timeline usa `dataFato ?? createdAt`;
   /// `createdAt` continua intocado como carimbo de auditoria ("registrado em"),
   /// e a tela mostra os dois quando divergem.
-  dataFato       DateTime?       @map("data_fato")
+  dataFato    DateTime? @map("data_fato")
   /// Nota interna: não deve ser exibida ao filiado em relatórios/extratos.
-  notaInterna    Boolean         @default(false) @map("nota_interna")
+  notaInterna Boolean   @default(false) @map("nota_interna")
+
+  /// A nota foi escrita pelo SISTEMA, não por uma pessoa.
+  ///
+  /// `reavaliarStatusPorInstancias` grava "Processo encerrado automaticamente"
+  /// e "reaberto automaticamente" — papelada do robô, não trabalho no caso. Sem
+  /// distinguir, o chip "Com movimentação recente" acendia justamente quando o
+  /// robô ARQUIVAVA o processo, e a ordenação levava esse processo ao topo.
+  /// Medido em 31/08/2026: 4 dos 47 estavam no topo por isso.
+  ///
+  /// NÃO é `autor_id IS NULL`: hoje coincide, mas por acidente — qualquer
+  /// caminho humano sem `ctx.userId` gravaria autor nulo e passaria a contar
+  /// como sistema. Ver `20260831140000_movimentacao_do_sistema`.
+  origemSistema  Boolean         @default(false) @map("origem_sistema")
   /// Carimbo da mudança de status feita JUNTO com esta movimentação (auditoria).
   statusAnterior StatusProcesso? @map("status_anterior")
   statusNovo     StatusProcesso? @map("status_novo")
@@ -2860,6 +2873,7 @@ model MovimentacaoInterna {
   @@index([processoId, createdAt])
   // Ordenação da timeline pela data do FATO (quando informada).
   @@index([processoId, dataFato])
+  @@index([processoId, origemSistema, createdAt])
   @@index([tipo])
   @@map("movimentacoes_internas")
 }

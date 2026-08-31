@@ -114,6 +114,24 @@ export interface ProcessoLista {
    * A coluna mostrava só a CONTAGEM ("203 mov."), que não responde a pergunta
    * de quem abre a lista: "este processo andou? quando? o quê?".
    */
+  /**
+   * A ÚLTIMA MOVIMENTAÇÃO DE VERDADE — do tribunal ou da equipe.
+   *
+   * A coluna mostrava só o andamento do CNJ enquanto o chip "com movimentação
+   * recente" contava também a nota da equipe: um filtro de sete dias listava
+   * processos com "há 1 ano" ao lado. Agora a coluna mostra o que o filtro
+   * conta, e `origem` diz de onde veio — publicação oficial e anotação interna
+   * não podem parecer a mesma coisa.
+   *
+   * A papelada do robô ("encerrado automaticamente") não entra em nenhum dos
+   * dois: arquivar não é andar.
+   */
+  ultimaMovimentacao?: {
+    data: string;
+    descricao: string;
+    detalhe: string | null;
+    origem: 'TRIBUNAL' | 'EQUIPE';
+  } | null;
   movimentacoes?: {
     dataMovimento: string;
     descricao: string;
