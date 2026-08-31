@@ -15,6 +15,7 @@ import {
   horaCurta,
   primeiroNome,
 } from '@/lib/dashboard';
+import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { corDeTipo, rotuloTipo } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 
@@ -199,11 +200,12 @@ export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrar
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-medium">{c.titulo}</p>
-          {c.urgente && (
-            <span className="shrink-0 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
-              Urgente
-            </span>
-          )}
+          {/*
+            O MESMO SELO DA AGENDA, e não uma tarja própria. A versão à mão
+            daqui não tinha como dizer POR QUE era urgente — e uma marca
+            vermelha sem explicação é a que a equipe aprende a ignorar.
+          */}
+          {c.urgente && <SeloUrgente motivo={c.urgenteMotivo} desde={c.urgenteEm} tamanho="sm" />}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
           <span className="font-medium text-foreground/70">{rotuloTipo(c.tipo, tipos)}</span>

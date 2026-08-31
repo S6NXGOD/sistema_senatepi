@@ -27,6 +27,9 @@ export interface CompromissoCard {
   fim: string;
   local: string | null;
   urgente: boolean;
+  /** POR QUE é urgente — o selo mostra na dica; sem ele a tarja não explica nada. */
+  urgenteMotivo: string | null;
+  urgenteEm: string | null;
   iniciadoEm: string | null;
   responsavel: PessoaResumo;
   filiado: { id: string; nomeCompleto: string } | null;

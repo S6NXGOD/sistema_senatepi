@@ -74,6 +74,16 @@ const compSelect = {
   fim: true,
   local: true,
   urgente: true,
+  /**
+   * O MOTIVO VIAJA JUNTO COM A MARCA.
+   *
+   * O painel desenhava a tarja "Urgente" à mão, sem trazer `urgenteMotivo` —
+   * enquanto a agenda usa o `SeloUrgente`, que mostra o porquê ao passar o
+   * mouse. Marca vermelha sem explicação é exatamente o que faz a equipe
+   * aprender a ignorar a marca, e foi para isso que o campo foi criado.
+   */
+  urgenteMotivo: true,
+  urgenteEm: true,
   iniciadoEm: true,
   responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
   filiado: { select: { id: true, nomeCompleto: true } },
