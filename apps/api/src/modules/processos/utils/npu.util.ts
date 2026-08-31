@@ -18,9 +18,33 @@ export class NpuUtils {
     return (npu || '').replace(/\D/g, '');
   }
 
-  /** Valida se o NPU tem os 20 dígitos do padrão CNJ. */
+  /** Valida se o NPU tem os 20 dígitos do padrão CNJ (só o TAMANHO). */
   static valido(npu: string): boolean {
     return this.digitos(npu).length === 20;
+  }
+
+  /**
+   * O DÍGITO VERIFICADOR CONFERE? (Resolução CNJ 65/2008, módulo 97 base 10.)
+   *
+   * `valido()` acima olha só o comprimento — o que basta para "cabe no campo",
+   * e não basta para "é um número de processo". Um dígito trocado passa por ele
+   * e só é descoberto quarenta minutos depois, quando o CNJ responde "não
+   * encontrado" — e aí ninguém sabe se o processo não existe ou se a planilha
+   * tem um erro de digitação. Numa importação de 82 linhas essa diferença é a
+   * diferença entre corrigir uma célula e reconferir o acervo inteiro.
+   *
+   * A conta: pega o número com o DV zerado (`...00` no lugar dele) e o DV certo
+   * é `98 - (resto da divisão por 97)`. Usa `BigInt` porque são 18 dígitos —
+   * além do inteiro seguro do JavaScript, onde a conta erraria em silêncio.
+   */
+  static dvValido(npu: string): boolean {
+    const d = this.digitos(npu);
+    if (d.length !== 20) return false;
+    const numero = d.slice(0, 7);
+    const dv = d.slice(7, 9);
+    const resto = d.slice(9); // AAAA + J + TR + OOOO
+    const base = BigInt(`${numero}${resto}00`);
+    return 98n - (base % 97n) === BigInt(dv);
   }
 
   /**

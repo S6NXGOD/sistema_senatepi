@@ -11,7 +11,7 @@ const MIGRACAO = readFileSync(
 );
 
 /**
- * "COM MOVIMENTAÇÃO RECENTE" NÃO PODE ACENDER QUANDO O ROBÔ ARQUIVA.
+ * O CHIP DE ANDAMENTO NÃO PODE ACENDER QUANDO O ROBÔ ARQUIVA.
  *
  * O defeito, visto na tela em 31/08/2026: o chip "7 dias" devolvia SEIS
  * processos, e a coluna "Última movimentação" mostrava "há 5 meses", "há 3
@@ -23,40 +23,38 @@ const MIGRACAO = readFileSync(
  * encerrado automaticamente: todas as instâncias receberam baixa"). O chip de
  * ATIVIDADE acendia exatamente quando o robô ARQUIVAVA o processo.
  */
-describe('filtro "com movimentação recente"', () => {
+describe('filtro "Andamento do tribunal"', () => {
   const recentes = SERVICE.slice(
     SERVICE.indexOf('recentes: (dias: number'),
     SERVICE.indexOf('urgentes:'),
   );
 
   it('o trecho existe (o teste não olha para o vazio)', () => {
-    expect(recentes.length).toBeGreaterThan(300);
-  });
-
-  it('a papelada do robô não conta como atividade', () => {
-    expect(recentes).toContain('origemSistema: false');
-  });
-
-  /**
-   * Restringir só ao CNJ seria a leitura literal de "movimentação" — e daria um
-   * chip permanentemente VAZIO: medido no mesmo dia, em 7 e em 15 dias o
-   * filtro só-CNJ devolvia ZERO, porque o índice público atrasa e o último
-   * andamento publicado tinha 24 dias.
-   */
-  it('continua contando o andamento do CNJ E o trabalho da equipe', () => {
-    expect(recentes).toContain('movimentacoes: { some: { dataMovimento: { gte: desde } } }');
-    expect(recentes).toContain('movimentacoesInternas:');
+    // O corpo é curto de propósito — a explicação mora no comentário ACIMA da
+    // função, que fica fora deste recorte.
+    expect(recentes.length).toBeGreaterThan(120);
   });
 
   /**
-   * A nota vale por `dataFato ?? createdAt` — a mesma regra da linha do tempo e
-   * do gatilho. Registrar hoje um ato de semana passada não torna o processo
-   * movimentado hoje.
+   * O CHIP VOLTOU A SER SÓ DO TRIBUNAL, e o rótulo passou a dizer isso.
+   *
+   * Contar nota interna resolvia a papelada do robô mas mantinha o descompasso
+   * de fundo: a coluna mostrava o andamento do CNJ e o filtro contava outra
+   * coisa. O conserto certo não era ampliar o significado — era ajustar a
+   * JANELA, porque o índice público atrasa (mediana de 41 dias, medida em
+   * 31/08/2026; o andamento mais novo do acervo tinha 24).
    */
-  it('a nota vale pela data do FATO, não pela do registro', () => {
-    expect(recentes).toContain('dataFato: { gte: desde }');
-    expect(recentes).toContain('dataFato: null, createdAt: { gte: desde }');
+  it('conta SÓ o andamento do CNJ', () => {
+    expect(recentes).toContain('movimentacoes: {');
+    expect(recentes).toContain('dataMovimento: { gte:');
+    expect(recentes).not.toContain('movimentacoesInternas');
   });
+
+  it('a janela padrão é de 30 dias — em 7 o filtro era zero por construção', () => {
+    expect(SERVICE).toMatch(/FILTRO_RAPIDO\.recentes\(30, agora\)/);
+    expect(SERVICE).toMatch(/Number\(q\.movimentacaoRecente\) \|\| 30/);
+  });
+
 });
 
 /**

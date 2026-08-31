@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning,
+  Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning, FileSpreadsheet,
   AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass, PenLine,
   ArrowUpDown,
 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { ImportarProcessoDialog } from '@/components/processos/importar-processo-dialog';
+import { ImportarLoteDialog } from '@/components/processos/importar-lote-dialog';
 import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sheet';
 import { AjuizarCasoModal } from '@/components/processos/ajuizar-caso-modal';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
@@ -107,15 +108,16 @@ function ListaProcessos() {
   /**
    * Janela do filtro "com movimentação recente".
    *
-   * 7 dias é a semana de trabalho — o que andou desde a última vez que alguém
-   * olhou. 15 dias existe porque processo trabalhista costuma andar em blocos:
-   * numa semana morta, o filtro de 7 devolve lista vazia e passa a impressão
-   * errada de que nada acontece.
+   * 30 e 60, e não 7 e 15: o índice público do CNJ ATRASA. Medido em
+   * 31/08/2026 sobre o acervo — o andamento mais novo tinha 24 dias e a mediana
+   * era 41. Em 7 dias o filtro devolvia zero por construção, e um chip que
+   * nunca acende ninguém volta a clicar.
    */
-  const [janelaRecente, setJanelaRecente] = useState<'7' | '15'>('7');
+  const [janelaRecente, setJanelaRecente] = useState<'30' | '60'>('30');
   const [page, setPage] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
+  const [loteOpen, setLoteOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   /** Caso pré-processual escolhido para ajuizar (vindo de um desfecho da agenda). */
   const [formalizar, setFormalizar] = useState<ProcessoLista | null>(null);
@@ -271,9 +273,23 @@ function ListaProcessos() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setImportOpen(true)}>
-          <Plus className="h-4 w-4" /> Importar Processo
-        </Button>
+        {/*
+          DOIS CAMINHOS DE ENTRADA, e o de lote fica SECUNDÁRIO de propósito:
+          importar um processo pelo NPU é o gesto de todo dia; subir uma
+          planilha acontece na migração de acervo e em pouco mais. Dar o mesmo
+          peso visual aos dois faria a ação rara competir com a comum.
+        */}
+        <div className="flex shrink-0 items-center gap-2">
+          {podeRadar && (
+            <Button variant="outline" onClick={() => setLoteOpen(true)} title="Importar vários processos de uma planilha">
+              <FileSpreadsheet className="h-4 w-4" />
+              <span className="hidden sm:inline">Em lote</span>
+            </Button>
+          )}
+          <Button onClick={() => setImportOpen(true)}>
+            <Plus className="h-4 w-4" /> Importar Processo
+          </Button>
+        </div>
       </div>
 
       {/* Audiências detectadas no DataJud que ainda não estão na agenda */}
@@ -321,7 +337,10 @@ function ListaProcessos() {
           // Fila de trabalho: o DataJud nunca preenche o réu, então esta lista
           // é a única forma de fechar o cadastro das partes.
           { k: 'semReu', label: 'Sem réu cadastrado', n: contagem?.semReu },
-          { k: 'recentes', label: 'Com movimentação recente', n: contagem?.recentes },
+          // O RÓTULO DIZ O QUE O FILTRO FAZ. "Com movimentação recente" contava
+          // também a nota interna da equipe, e a coluna ao lado mostrava só o
+          // tribunal — daí a tela listar "há 1 ano" sob um filtro de dias.
+          { k: 'recentes', label: 'Andamento do tribunal', n: contagem?.recentes },
         ] as const).map((f) => {
           const ativo = rapido === f.k;
           const chama = 'destaque' in f && f.destaque && !!f.n && !ativo;
@@ -366,10 +385,10 @@ function ListaProcessos() {
           );
         })}
         {/* A janela só aparece com o filtro ligado: fora dele, dois botões de
-            "7/15 dias" soltos na barra não significam nada. */}
+            "30/60 dias" soltos na barra não significam nada. */}
         {rapido === 'recentes' && (
           <span className="flex items-center gap-1 rounded-full bg-muted px-1 py-1">
-            {(['7', '15'] as const).map((d) => (
+            {(['30', '60'] as const).map((d) => (
               <button
                 key={d}
                 type="button"
@@ -663,6 +682,7 @@ function ListaProcessos() {
       )}
 
       {/* Modal de importação */}
+      <ImportarLoteDialog open={loteOpen} onClose={() => setLoteOpen(false)} />
       <ImportarProcessoDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}

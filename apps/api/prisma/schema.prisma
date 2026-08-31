@@ -212,6 +212,12 @@ enum PerfilImportacao {
   /// com os DEPENDENTES aninhados. Cria [Colaborador], não [Filiado] — é a
   /// única importação que não mexe na base de associados.
   COLABORADORES_LEGADO
+
+  /// Acervo de PROCESSOS em planilha: NPU, polo ativo, parte contrária,
+  /// advogados e o resumo do jurídico. Não escreve processo no banco — chama
+  /// `ProcessosService.importar`, o mesmo caminho do botão de um processo só,
+  /// para que o DataJud preencha instâncias e andamentos.
+  PROCESSOS_CSV
 }
 
 /// O QUE A PRÉVIA DECIDIU sobre cada linha, antes de qualquer escrita.

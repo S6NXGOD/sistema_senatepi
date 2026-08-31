@@ -1,0 +1,19 @@
+-- PERFIL DE IMPORTAÇÃO DE PROCESSOS.
+--
+-- O acervo do jurídico vivia numa planilha de 82 linhas e a única porta de
+-- entrada era o diálogo de UM processo por vez — oitenta e duas vezes, cada uma
+-- esperando o CNJ responder. Este perfil abre a importação em lote.
+--
+-- REAPROVEITA `importacoes`/`importacao_linhas`, como os perfis de colaborador
+-- e de folha já fazem: a máquina de estados (VALIDANDO → VALIDADO → IMPORTANDO
+-- → CONCLUIDO), os contadores e a tela de prévia são os mesmos. Os campos
+-- específicos de pessoa (estratégia de matrícula, CPF inválido) ficam sem uso
+-- aqui — duplicar a estrutura para não deixar três colunas nulas seria trocar
+-- um incômodo por um segundo lugar para manter.
+--
+-- SEGURANÇA NA JANELA DE TROCA: acrescentar valor a um enum é aditivo, e o
+-- contêiner antigo nunca vai gravá-lo. O valor NÃO é usado em nenhum comando
+-- desta mesma migração — o Postgres proíbe usar um valor de enum na transação
+-- que o criou, e é justamente esse o erro que derruba o deploy quando alguém
+-- tenta emendar o backfill aqui.
+ALTER TYPE "PerfilImportacao" ADD VALUE IF NOT EXISTS 'PROCESSOS_CSV';

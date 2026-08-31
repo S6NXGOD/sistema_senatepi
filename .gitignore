@@ -60,3 +60,6 @@ postgres-data/
 *.pem
 .cache/
 .turbo/
+
+# Planilhas de carga — dado do cliente, não versionado.
+/importacao/

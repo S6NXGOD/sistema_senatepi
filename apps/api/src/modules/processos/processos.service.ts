@@ -171,50 +171,30 @@ export const FILTRO_RAPIDO = {
     partes: { none: { polo: 'PASSIVO' } },
   }),
   /**
-   * HOUVE TRABALHO NESTE PROCESSO NA JANELA — do tribunal ou nosso.
+   * O TRIBUNAL SE MEXEU NA JANELA.
    *
-   * O DEFEITO, visto na tela em 31/08/2026: o chip "7 dias" devolvia SEIS
-   * processos e a coluna mostrava "há 5 meses", "há 3 meses", "há 1 ano" — dois
-   * deles ARQUIVADOS. Um filtro de sete dias trazendo processo parado há um ano
-   * parece, com razão, quebrado.
+   * SÓ O CNJ, e o nome do chip passou a dizer isso. Antes ele também contava
+   * nota interna, e o resultado na tela era um filtro de "7 dias" listando
+   * processos com "há 1 ano" ao lado — porque a coluna mostrava o andamento do
+   * tribunal e o filtro contava outra coisa. Ampliar o significado sem trocar o
+   * rótulo foi meu erro; o certo era ajustar a JANELA.
    *
-   * A causa era `movimentacoesInternas.createdAt` sem filtro de origem: QUATRO
-   * das notas recentes eram do próprio robô ("Processo encerrado
-   * automaticamente: todas as instâncias receberam baixa"). O chip de ATIVIDADE
-   * acendia exatamente quando o sistema ARQUIVAVA o processo.
+   * POR QUE 30 E 60, e não 7 e 15: o índice público do CNJ atrasa. Medido em
+   * 31/08/2026 sobre o acervo inteiro — o andamento MAIS NOVO tinha 24 dias, e
+   * a mediana era 41. Em 7 e em 15 dias o filtro devolvia ZERO por construção,
+   * e um chip que nunca acende não é rigor, é enfeite. Em 30 e 60 ele devolve 7
+   * e 27, que é a carteira que a equipe precisa olhar.
    *
-   * POR QUE NÃO RESTRINGIR SÓ AO CNJ, que seria a leitura mais literal de
-   * "movimentação": porque o índice público atrasa. Medido no mesmo dia — em 7
-   * e em 15 dias, o filtro só-CNJ devolveria ZERO, porque o último andamento
-   * publicado tinha 24 dias. Um chip permanentemente vazio não é rigor, é
-   * inutilidade.
-   *
-   * Fica então CNJ + trabalho HUMANO (4 e 9 nas duas janelas), que é o que a
-   * equipe entende por "andou": ou o tribunal se mexeu, ou nós mexemos.
-   *
-   * A nota humana vale por `dataFato ?? createdAt` — a mesma regra da linha do
-   * tempo e da coluna `ultimoMovimentoEm`. Registrar hoje um ato de semana
-   * passada não torna o processo movimentado hoje.
+   * O TRABALHO DA EQUIPE não sumiu: ele continua contando na ORDENAÇÃO
+   * ("Movimentação recente", via `ultimoMovimentoEm`), que responde outra
+   * pergunta — "o que mexeu por último", de qualquer origem. Duas perguntas,
+   * dois nomes; era ter UM nome para as duas que confundia.
    */
-  recentes: (dias: number, agora: Date): Prisma.ProcessoWhereInput => {
-    const desde = new Date(agora.getTime() - dias * 24 * 3600 * 1000);
-    return {
-      OR: [
-        { movimentacoes: { some: { dataMovimento: { gte: desde } } } },
-        {
-          movimentacoesInternas: {
-            some: {
-              origemSistema: false,
-              OR: [
-                { dataFato: { gte: desde } },
-                { dataFato: null, createdAt: { gte: desde } },
-              ],
-            },
-          },
-        },
-      ],
-    };
-  },
+  recentes: (dias: number, agora: Date): Prisma.ProcessoWhereInput => ({
+    movimentacoes: {
+      some: { dataMovimento: { gte: new Date(agora.getTime() - dias * 24 * 3600 * 1000) } },
+    },
+  }),
   /** Marcados como urgentes por uma pessoa. */
   urgentes: (): Prisma.ProcessoWhereInput => ({ urgente: true }),
 } as const;
@@ -807,7 +787,9 @@ export class ProcessosService {
           : this.prisma.processo.count({ where: { id: '' } }),
         this.prisma.processo.count({ where: e(FILTRO_RAPIDO.semFiliado()) }),
         this.prisma.processo.count({ where: e(FILTRO_RAPIDO.semReu()) }),
-        this.prisma.processo.count({ where: e(FILTRO_RAPIDO.recentes(7, agora)) }),
+        // 30 dias, e não 7: o índice do CNJ atrasa ~41 dias na mediana, e o
+        // contador da aba tem de bater com o que a lista mostra ao clicar.
+        this.prisma.processo.count({ where: e(FILTRO_RAPIDO.recentes(30, agora)) }),
         this.prisma.processo.count({ where: e(FILTRO_RAPIDO.urgentes()) }),
       ]);
 
@@ -888,7 +870,7 @@ export class ProcessosService {
     }
     // "Com movimentação recente": houve andamento (do CNJ ou interno) na janela.
     if (q.movimentacaoRecente) {
-      and.push(FILTRO_RAPIDO.recentes(Number(q.movimentacaoRecente) || 7, new Date()));
+      and.push(FILTRO_RAPIDO.recentes(Number(q.movimentacaoRecente) || 30, new Date()));
     }
     const busca = q.busca?.trim();
     if (busca) {

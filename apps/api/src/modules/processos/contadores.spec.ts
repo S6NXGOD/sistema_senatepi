@@ -48,12 +48,25 @@ describe('contadores das abas', () => {
     expect(FILTRO_RAPIDO.semFiliado()).toHaveProperty('tipoAcao', 'INDIVIDUAL');
   });
 
-  /** Sem `agora` injetado, o teste dependeria do relógio de quem o roda. */
+  /**
+   * Sem `agora` injetado, o teste dependeria do relógio de quem o roda.
+   *
+   * O `OR` com a nota interna SAIU: o chip passou a contar só o andamento do
+   * tribunal, e o rótulo passou a dizer isso. Contar o trabalho da equipe sob o
+   * nome "movimentação" era o que fazia a tela listar processo de "há 1 ano"
+   * dentro de um filtro de dias.
+   */
   it('"recentes" recua exatamente a janela pedida', () => {
     const agora = new Date('2026-08-21T12:00:00Z');
     const w = FILTRO_RAPIDO.recentes(7, agora) as any;
-    const desde = w.OR[0].movimentacoes.some.dataMovimento.gte as Date;
+    const desde = w.movimentacoes.some.dataMovimento.gte as Date;
     expect(desde.toISOString()).toBe('2026-08-14T12:00:00.000Z');
+  });
+
+  it('"recentes" olha SÓ o andamento do CNJ', () => {
+    const w = FILTRO_RAPIDO.recentes(30, new Date()) as any;
+    expect(w.movimentacoes).toBeDefined();
+    expect(JSON.stringify(w)).not.toMatch(/movimentacoesInternas/);
   });
 
   /**

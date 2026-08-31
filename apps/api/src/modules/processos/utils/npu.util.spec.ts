@@ -77,3 +77,34 @@ describe('NpuUtils.formatar', () => {
     expect(NpuUtils.formatar('')).toBe('');
   });
 });
+
+/**
+ * O DÍGITO VERIFICADOR — a diferença entre "cabe no campo" e "é um processo".
+ *
+ * `valido()` olha só o comprimento. Numa importação de 82 linhas, um dígito
+ * trocado passaria por ele e só apareceria quarenta minutos depois, como um
+ * "não encontrado" do CNJ indistinguível de um processo que realmente não
+ * existe.
+ */
+describe('NpuUtils.dvValido', () => {
+  it('aceita NPUs reais do acervo', () => {
+    for (const npu of [
+      '0001193-66.2021.5.22.0005',
+      '0849971-08.2023.8.18.0140',
+      '0080086-57.2019.5.22.0000',
+      '00013414120255220004',
+    ]) {
+      expect(NpuUtils.dvValido(npu)).toBe(true);
+    }
+  });
+
+  it('recusa o mesmo número com o dígito trocado', () => {
+    expect(NpuUtils.dvValido('0001193-67.2021.5.22.0005')).toBe(false);
+    expect(NpuUtils.dvValido('0849971-09.2023.8.18.0140')).toBe(false);
+  });
+
+  it('recusa tamanho errado em vez de estourar', () => {
+    expect(NpuUtils.dvValido('123')).toBe(false);
+    expect(NpuUtils.dvValido('')).toBe(false);
+  });
+});
