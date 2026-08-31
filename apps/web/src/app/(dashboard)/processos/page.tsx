@@ -1008,19 +1008,46 @@ function CelulaPartes({ p }: { p: ProcessoLista }) {
       </span>
     );
   }
+  /**
+   * NA AÇÃO INSTITUCIONAL, O AUTOR NÃO PRECISA SER ESCRITO.
+   *
+   * A linha do autor trazia "SINDICATO DOS ENFERMEIROS E TÉCNICOS D…" —
+   * truncado, idêntico em todas as linhas institucionais, e logo abaixo do selo
+   * que já diz exatamente isso com o nome curto da entidade. Era a linha mais
+   * larga da célula gasta para repetir o que o selo acabara de afirmar,
+   * enquanto o RÉU — a única coisa que distingue uma linha institucional da
+   * outra — ficava relegado à linha pequena e cinza.
+   *
+   * Com autor omitido, o réu sobe para a linha principal. A exceção é o
+   * litisconsórcio ativo (`+N`): aí há mais alguém no polo além do sindicato, e
+   * isso é informação nova que o selo não carrega.
+   */
+  const autorRedundante = institucional && outrosAtivo === 0;
+
   return (
     <div className="min-w-0 text-sm leading-snug">
       {institucional && <BadgeInstitucional className="mb-0.5" />}
-      <p className="truncate font-medium" title={autor?.nome}>
-        {autor?.nome ?? <span className="font-normal text-muted-foreground">Autor não informado</span>}
-        {outrosAtivo > 0 && <span className="text-xs font-normal text-muted-foreground"> +{outrosAtivo}</span>}
-      </p>
-      <p className="truncate text-xs text-muted-foreground" title={reu?.nome}>
-        <span className="font-semibold uppercase tracking-wider">×</span>{' '}
+      {!autorRedundante && (
+        <p className="truncate font-medium" title={autor?.nome}>
+          {autor?.nome ?? <span className="font-normal text-muted-foreground">Autor não informado</span>}
+          {outrosAtivo > 0 && <span className="text-xs font-normal text-muted-foreground"> +{outrosAtivo}</span>}
+        </p>
+      )}
+      <p
+        className={cn(
+          'truncate',
+          // Sem a linha do autor, o réu É a informação: ganha o corpo dela.
+          autorRedundante ? 'text-sm font-medium' : 'text-xs text-muted-foreground',
+        )}
+        title={reu?.nome}
+      >
+        <span className="font-semibold uppercase tracking-wider text-muted-foreground">×</span>{' '}
         {reu ? (
           <>
             <span className="text-foreground">{reu.nome}</span>
-            {outrosPassivo > 0 && ` +${outrosPassivo}`}
+            {outrosPassivo > 0 && (
+              <span className="text-xs font-normal text-muted-foreground"> +{outrosPassivo}</span>
+            )}
           </>
         ) : (
           <span className="text-amber-700 dark:text-amber-400">réu não cadastrado</span>

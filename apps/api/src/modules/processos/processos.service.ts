@@ -36,7 +36,8 @@ import { ORDENACAO, ordemValida } from './utils/ordenacao.util';
 import { filtroDeVarredura, STATUS_VIVOS } from './utils/varredura.util';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
-import { normalizarCategoria } from './areas.catalogo';
+import { normalizarCategoria, AREA_LABEL } from './areas.catalogo';
+import { areaSugerida, areaSugeridaValida } from './utils/area-sugerida.util';
 
 import { tenant } from '../../tenant/tenant.config';
 
@@ -398,6 +399,10 @@ export class ProcessosService {
       origem: OrigemSincronizacao.IMPORTACAO, sucesso: true,
       novasMovimentacoes: totalMovimentacoes, duracaoMs: Date.now() - t0,
     });
+
+    // A área jurídica sai do que o CNJ acabou de contar — só quando o cadastro
+    // não a informou. Roda AQUI porque depende das partes já semeadas.
+    await this.deduzirAreaJuridica(processo.id);
 
     // Robô de prazos: as movimentações que acabaram de entrar podem já conter
     // intimações/audiências que exigem tarefa. Salvo em migração de acervo, em
@@ -1604,6 +1609,65 @@ export class ProcessosService {
    * vencida — ruído puro numa agenda que precisa ser confiável. Só entra o que
    * ainda é acionável.
    */
+  /**
+   * PREENCHE A ÁREA JURÍDICA quando ninguém a informou.
+   *
+   * Em 31/08/2026, 42 dos 127 processos da produção estavam sem `categoria` —
+   * um terço da base. Não é campo decorativo: é por ele que se filtra a
+   * carteira e se conta quantas ações de cada matéria o sindicato tem em curso.
+   * Com um terço em branco, todo relatório por área mentia por omissão.
+   *
+   * E a informação já estava lá: o tribunal diz o ramo da Justiça, o polo
+   * passivo diz se o adversário é o poder público. Pedir que alguém
+   * reclassificasse 42 processos à mão seria pedir que redigitasse o que o
+   * sistema acabou de receber do CNJ.
+   *
+   * NUNCA SOBRESCREVE. Só age sobre o vazio — a classificação de uma pessoa
+   * vale mais que a dedução, inclusive quando discordam. E deduz apenas quando
+   * os sinais bastam: `areaSugerida` devolve nulo em vez de chutar.
+   *
+   * Fica registrado no histórico do processo, com o motivo, para que quem
+   * discordar saiba de onde veio o rótulo e possa trocá-lo.
+   */
+  private async deduzirAreaJuridica(processoId: string) {
+    const p = await this.prisma.processo.findUnique({
+      where: { id: processoId },
+      select: {
+        categoria: true, tribunal: true, classeProcessual: true,
+        assuntoPrincipal: true, tipoAcao: true,
+        partes: { where: { polo: 'PASSIVO' }, select: { parteExterna: { select: { tipo: true } } } },
+      },
+    });
+    if (!p || p.categoria) return;
+
+    const deduzida = areaSugerida({
+      tribunal: p.tribunal,
+      classeProcessual: p.classeProcessual,
+      assuntoPrincipal: p.assuntoPrincipal,
+      tipoAcao: p.tipoAcao,
+      reuPublico: p.partes.some((x) => x.parteExterna?.tipo === 'ORGAO_PUBLICO'),
+    });
+    if (!areaSugeridaValida(deduzida)) return;
+
+    await this.prisma.processo.update({
+      where: { id: processoId },
+      data: { categoria: deduzida!.slug },
+    });
+    await this.prisma.movimentacaoInterna.create({
+      data: {
+        processoId,
+        tipo: 'ATUALIZACAO',
+        descricao:
+          `Área jurídica definida automaticamente como "${AREA_LABEL[deduzida!.slug] ?? deduzida!.slug}" ` +
+          `— ${deduzida!.porque}. Troque na ficha se discordar.`,
+        notaInterna: true,
+        // É o robô falando: não conta como movimentação do processo nem sobe a
+        // linha na ordenação por andamento recente.
+        origemSistema: true,
+      },
+    });
+  }
+
   private async dispararAutomacao(processoId: string) {
     // ANTES DE TUDO: amarra as movimentações novas às publicações do DJEN que já
     // viraram atividade. É o fecho do circuito anti-duplicata — quando a

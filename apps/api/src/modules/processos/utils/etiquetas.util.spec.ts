@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
 import { etiquetasAutomaticas, etiquetasDerivadas } from './etiquetas.util';
 
 /**
@@ -6,14 +8,40 @@ import { etiquetasAutomaticas, etiquetasDerivadas } from './etiquetas.util';
  */
 describe('etiquetasDerivadas — o que o sistema etiqueta sem pedir nada', () => {
   it('ação institucional é coletiva por definição', () => {
-    expect(etiquetasDerivadas({ tipoAcao: 'INSTITUCIONAL' })).toContain('Coletiva');
+    /**
+     * MUDOU EM 31/08/2026: institucional NÃO gera mais "Coletiva".
+     *
+     * A listagem exibia, na mesma linha, a etiqueta "Coletiva", o selo "🏛 Ação
+     * Institucional (SENATEPI)" e o nome do sindicato por extenso — três
+     * elementos para um fato só. Ficou o selo, que nomeia a entidade e explica
+     * na dica. A etiqueta continua para a coletiva que a CLASSE revela e o
+     * selo não saberia: ação civil pública de outro legitimado, mandado de
+     * segurança coletivo.
+     */
+    expect(etiquetasDerivadas({ tipoAcao: 'INSTITUCIONAL' })).not.toContain('Coletiva');
   });
 
-  /** Os 5 processos da produção são institucionais e só 3 tinham a etiqueta. */
-  it('não depende de alguém lembrar de marcar', () => {
+  /**
+   * A GARANTIA CONTINUA, MUDOU DE PORTADOR.
+   *
+   * O caso original: dos 5 processos institucionais da produção, só 3 tinham a
+   * etiqueta "Coletiva" porque alguém a digitou — e a etiqueta derivada existia
+   * para que a informação não dependesse de memória. Ela continua não
+   * dependendo: agora quem a carrega é `tipoAcao`, que a tela transforma no
+   * selo institucional. A classe trabalhista comum não é coletiva por si, e
+   * fingir que é só para manter a etiqueta seria inverter a regra.
+   */
+  it('a ação institucional se identifica sem etiqueta digitada', () => {
     for (const classe of ['Ação Trabalhista - Rito Ordinário', 'Ação Trabalhista - Rito Sumaríssimo']) {
-      expect(etiquetasDerivadas({ tipoAcao: 'INSTITUCIONAL', classeProcessual: classe })).toContain('Coletiva');
+      // A classe sozinha não faz coletiva — e é isso que o selo passou a cobrir.
+      expect(etiquetasDerivadas({ tipoAcao: 'INSTITUCIONAL', classeProcessual: classe })).toEqual([]);
     }
+    // O selo da listagem lê `tipoAcao`, não a etiqueta: nada a digitar.
+    const pagina = readFileSync(
+      path.join(__dirname, '../../../../../web/src/app/(dashboard)/processos/page.tsx'),
+      'utf8',
+    );
+    expect(pagina).toContain("const institucional = p.tipoAcao === 'INSTITUCIONAL'");
   });
 
   it('coletiva pela CLASSE mesmo sem ser institucional', () => {

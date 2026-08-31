@@ -246,10 +246,34 @@ export function dataBr(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString('pt-BR');
 }
 
-/** "há 3 meses" / "em 5 dias" — a leitura rápida de quando foi a última vez. */
+/**
+ * Meia-noite local do dia em que a data cai.
+ *
+ * Contar de meia-noite a meia-noite (e não de instante a instante) é o que faz
+ * a conta bater com a DATA que aparece ao lado. Usar `Math.round` no intervalo
+ * absorve os dias de 23h e 25h do horário de verão.
+ */
+function inicioDoDia(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/**
+ * "há 3 meses" / "em 5 dias" — a leitura rápida de quando foi a última vez.
+ *
+ * CONTA DIAS DE CALENDÁRIO, não tempo decorrido. A versão anterior fazia
+ * `Math.round((agora - data) / 86.400.000)`, e isso punha dois relógios
+ * diferentes na mesma linha: a data impressa é de calendário, o rótulo era de
+ * cronômetro. Visto na listagem de processos em 31/08/2026 — "25/08/2026 há 7
+ * dias", quando de 25 a 31 vão SEIS. O andamento estava carimbado às 06h; das
+ * 06h do dia 25 às 22h do dia 31 são 6,67 dias, que arredondam para 7.
+ *
+ * O erro é de um dia só, mas é o tipo que corrói a confiança na tela inteira:
+ * quem confere na mão descobre que a conta não fecha e passa a duvidar também
+ * dos números que estão certos.
+ */
 export function desde(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const dias = Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  const dias = Math.round((inicioDoDia(new Date()) - inicioDoDia(new Date(iso))) / 86_400_000);
   if (dias === 0) return 'hoje';
   if (dias === 1) return 'ontem';
   if (dias === -1) return 'amanhã';

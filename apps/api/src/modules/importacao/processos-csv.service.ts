@@ -3,6 +3,8 @@ import { PerfilImportacao, StatusImportacao, TipoParteExterna } from '@prisma/cl
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProcessosService } from '../processos/processos.service';
+import { pareceOrgaoPublico } from '../processos/utils/orgao-publico.util';
+import { tenant } from '../../tenant/tenant.config';
 import { lerPlanilha } from './planilha.util';
 import {
   avisoDeCompletar,
@@ -634,6 +636,28 @@ export class ProcessosCsvService {
     const limpo = nome.trim();
     if (!limpo) return null;
 
+    /**
+     * O PRÓPRIO SINDICATO NÃO É "MAIS UMA PARTE".
+     *
+     * Existe UM registro marcado `institucional: true` — é ele que representa a
+     * entidade em todo o sistema, e o índice único garante que seja um só. A
+     * planilha, porém, escreve "SENATEPI", e a busca por nome não casava: o
+     * registro institucional se chama "SINDICATO DOS ENFERMEIROS E TÉCNICOS DE
+     * ENFERMAGEM DO ESTADO DO PIAUÍ", que não contém a sigla em lugar nenhum.
+     *
+     * Resultado medido na produção: nasceu um "SENATEPI" paralelo, usado em três
+     * processos — dois deles justamente aqueles em que o sindicato é RÉU (a
+     * rescisória do SINSEP e o dissídio do SINDHOSPI). Quem perguntasse ao
+     * sistema "em quais processos somos réus?" pela parte institucional não
+     * veria nenhum dos dois.
+     *
+     * A comparação é contra a sigla E o nome do tenant, além do nome gravado no
+     * próprio registro institucional — a secretaria pode ter corrigido a razão
+     * social pela tela, e o código não pode depender de um texto chumbado.
+     */
+    const institucional = await this.acharInstitucional(limpo);
+    if (institucional) return institucional;
+
     if (cnpj && (cnpj.length === 14 || cnpj.length === 11)) {
       const porDoc = await this.prisma.parteExterna.findFirst({
         where: { documento: cnpj },
@@ -648,16 +672,54 @@ export class ProcessosCsvService {
     });
     if (porNome) return porNome.id;
 
+    /**
+     * ENTE PÚBLICO ENTRA COMO ENTE PÚBLICO.
+     *
+     * A versão anterior classificava tudo o que não fosse CPF como pessoa
+     * jurídica, e assim entraram dezoito municípios, o Estado do Piauí e a
+     * União como se fossem empresas. Não é rótulo à toa: é o polo passivo
+     * público que separa a causa de SERVIDOR ESTATUTÁRIO (administrativa) da
+     * causa de EMPREGADO CELETISTA (trabalhista) — ver `areaSugerida` — e é
+     * também o que evita mandar o jurídico caçar o "CNPJ que falta" de um
+     * município.
+     */
+    const publico = pareceOrgaoPublico(limpo);
     const criada = await this.prisma.parteExterna.create({
       data: {
         nome: limpo,
-        tipo: cnpj.length === 11 ? TipoParteExterna.FISICA : TipoParteExterna.JURIDICA,
+        tipo:
+          cnpj.length === 11
+            ? TipoParteExterna.FISICA
+            : publico
+              ? TipoParteExterna.ORGAO_PUBLICO
+              : TipoParteExterna.JURIDICA,
         documento: cnpj.length === 14 || cnpj.length === 11 ? cnpj : null,
-        observacoes: 'Cadastrada pela importação em lote — confira a razão social.',
+        observacoes: publico
+          ? 'Cadastrada pela importação em lote — ente público reconhecido pelo nome.'
+          : 'Cadastrada pela importação em lote — confira a razão social.',
       },
       select: { id: true },
     });
     return criada.id;
+  }
+
+  /**
+   * O registro institucional, quando o nome da planilha se refere a ele.
+   *
+   * Comparação por texto normalizado (sem acento, sem caixa) contra três
+   * grafias possíveis: a sigla do tenant, o nome completo do tenant e o nome
+   * que estiver gravado no próprio registro.
+   */
+  private async acharInstitucional(nome: string): Promise<string | null> {
+    const reg = await this.prisma.parteExterna.findFirst({
+      where: { institucional: true },
+      select: { id: true, nome: true },
+    });
+    if (!reg) return null;
+    const chave = (v: string) =>
+      v.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase().replace(/\s+/g, ' ').trim();
+    const alvo = chave(nome);
+    return [tenant.sigla, tenant.nome, reg.nome].some((v) => v && chave(v) === alvo) ? reg.id : null;
   }
 
   private aguardar(): Promise<void> {

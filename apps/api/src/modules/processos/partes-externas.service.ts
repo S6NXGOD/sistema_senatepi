@@ -169,6 +169,18 @@ export class PartesExternasService {
     if (q.tipo) and.push({ tipo: q.tipo });
     if (q.incluirInativas !== 'true') and.push({ ativo: true });
 
+    /**
+     * A fila de qualificação — ver `semDocumento` no DTO. Ente público sai
+     * fora: não tem razão social a conferir na Receita, e enfileirá-lo encheria
+     * a lista de trabalho inexistente.
+     */
+    if (q.semDocumento === 'true') {
+      and.push({
+        OR: [{ documento: null }, { documento: '' }],
+        NOT: { tipo: TipoParteExterna.ORGAO_PUBLICO },
+      });
+    }
+
     const busca = q.busca?.trim();
     if (busca) {
       const digitos = busca.replace(/\D/g, '');

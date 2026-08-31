@@ -139,10 +139,10 @@ export interface EntradaEtiquetas {
  * lugares foi exatamente o que gerou a contradição na tela.
  */
 export function etiquetasDerivadas({
-  tipoAcao,
   classeProcessual,
   assuntoPrincipal,
 }: {
+  /** Aceito e IGNORADO: institucional não gera mais "Coletiva" — ver abaixo. */
   tipoAcao?: string | null;
   classeProcessual?: string | null;
   assuntoPrincipal?: string | null;
@@ -151,9 +151,22 @@ export function etiquetasDerivadas({
   const classe = normalizar(classeProcessual ?? '');
   const assunto = normalizar(assuntoPrincipal ?? '');
 
-  // Ação institucional é coletiva por definição — o sindicato move em nome da
-  // categoria. A classe cobre o caso raro de coletiva que não é institucional.
-  if (tipoAcao === 'INSTITUCIONAL' || (classe && CLASSES_COLETIVAS.some((t) => classe.includes(t)))) {
+  /**
+   * "COLETIVA" SÓ QUANDO A CLASSE DIZ — nunca por ser institucional.
+   *
+   * Ação institucional é coletiva por definição, e era por isso que a etiqueta
+   * saía daqui. O efeito na listagem, porém, foi triplicar a mesma informação
+   * na mesma linha: a etiqueta "Coletiva", o selo "🏛 Ação Institucional
+   * (SENATEPI)" e o nome do sindicato por extenso na coluna de partes — três
+   * elementos para dizer um fato só, roubando espaço de tudo o que distingue
+   * uma linha da outra.
+   *
+   * O selo é a forma melhor: nomeia a entidade e explica na dica. A etiqueta
+   * continua existindo para o caso que ela é a ÚNICA a saber — a coletiva que
+   * não é institucional, reconhecida pela classe processual (ação civil
+   * pública movida por outro legitimado, mandado de segurança coletivo).
+   */
+  if (classe && CLASSES_COLETIVAS.some((t) => classe.includes(t))) {
     etiquetas.push(ETIQUETA_COLETIVA);
   }
   if (assunto && ASSUNTOS_COM_PERICIA.some((t) => assunto.includes(t))) {

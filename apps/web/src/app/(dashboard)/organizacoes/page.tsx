@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, } from 'lucide-react';
+  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, IdCard,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,6 +50,21 @@ export default function OrganizacoesPage() {
   const [aplicado, setAplicado] = useState('');
   const [tipo, setTipo] = useState<TipoParteExterna | ''>('');
   const [mostrarInativas, setMostrarInativas] = useState(false);
+  /**
+   * A FILA DE QUALIFICAÇÃO — organizações privadas sem CPF/CNPJ.
+   *
+   * Em 31/08/2026 eram 42 de 78, quase todas apelidos vindos da planilha do
+   * jurídico ("HTI", "DMI", "MAT. MARQUES BASTOS"). Sem o documento não há
+   * razão social conferida, não há consulta à Receita e não há como saber se
+   * duas linhas são a mesma empresa.
+   *
+   * O dado não existe em sistema nenhum que possamos consultar — a Receita
+   * responde por CNPJ, não por nome, e o DataJud não devolve partes. Alguém
+   * precisa informá-lo uma vez. O que a tela pode fazer é parar de esconder a
+   * conta: uma fila visível é trabalho que termina; espalhada por cem linhas,
+   * é trabalho que nunca começa.
+   */
+  const [soSemDocumento, setSoSemDocumento] = useState(false);
   const [editando, setEditando] = useState<ParteExterna | 'nova' | null>(null);
   const [abrindo, setAbrindo] = useState<ParteExterna | null>(null);
   const [mesclando, setMesclando] = useState<{ fica: ParteExterna; sugerida?: ParteExterna } | null>(null);
@@ -61,15 +77,28 @@ export default function OrganizacoesPage() {
   const podeMesclar = user?.role === 'ADMINISTRADOR';
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['organizacoes', aplicado, tipo, mostrarInativas],
+    queryKey: ['organizacoes', aplicado, tipo, mostrarInativas, soSemDocumento],
     queryFn: () =>
       listarPartesExternas({
         busca: aplicado || undefined,
         tipo: tipo || undefined,
         ...(mostrarInativas ? { incluirInativas: 'true' as const } : {}),
+        ...(soSemDocumento ? { semDocumento: 'true' as const } : {}),
         pageSize: 100,
       }),
   });
+
+  /**
+   * O TAMANHO DA FILA, sempre — mesmo quando ela não está aberta.
+   *
+   * Um botão que só mostra o número depois de clicado não convida ninguém: a
+   * pessoa precisa saber que há 42 pendências para decidir enfrentá-las.
+   */
+  const { data: fila } = useQuery({
+    queryKey: ['organizacoes', 'sem-documento'],
+    queryFn: () => listarPartesExternas({ semDocumento: 'true', pageSize: 1 }),
+  });
+  const quantasSemDocumento = fila?.total ?? 0;
 
   /**
    * Recarrega a listagem E a varredura de duplicatas.
@@ -161,6 +190,42 @@ export default function OrganizacoesPage() {
           <Button variant="outline" onClick={() => setAplicado(busca.trim())}>Buscar</Button>
         </CardContent>
       </Card>
+
+      {/*
+        A FILA DE QUALIFICAÇÃO.
+
+        Some da tela quando está zerada — um contador em zero é ruído
+        permanente, e o dia em que ela acabar merece a tela mais limpa, não um
+        troféu ocupando espaço.
+      */}
+      {(quantasSemDocumento > 0 || soSemDocumento) && (
+        <button
+          type="button"
+          onClick={() => setSoSemDocumento((v) => !v)}
+          aria-pressed={soSemDocumento}
+          className={cn(
+            'flex w-full items-start gap-3 rounded-xl border p-3 text-left transition sm:items-center',
+            soSemDocumento
+              ? 'border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30'
+              : 'hover:bg-muted/50',
+          )}
+        >
+          <IdCard className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400 sm:mt-0" />
+          <span className="min-w-0 flex-1 text-sm">
+            <span className="font-medium">
+              {quantasSemDocumento} organização{quantasSemDocumento === 1 ? '' : 'ões'} sem CPF/CNPJ
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {soSemDocumento
+                ? 'Mostrando só a fila. Abra cada uma e informe o documento — a razão social vem da Receita.'
+                : 'Sem o documento não dá para conferir a razão social nem reconhecer duplicatas. Toque para ver a fila.'}
+            </span>
+          </span>
+          <span className="shrink-0 self-center text-xs font-medium text-muted-foreground">
+            {soSemDocumento ? 'ver todas' : 'ver fila'}
+          </span>
+        </button>
+      )}
 
       <Card>
         <CardContent className="p-0">

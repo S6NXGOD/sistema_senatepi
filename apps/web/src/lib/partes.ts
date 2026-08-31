@@ -283,6 +283,8 @@ export async function listarPartesExternas(f: {
   busca?: string;
   tipo?: TipoParteExterna;
   incluirInativas?: 'true';
+  /** Fila de qualificação: só as privadas sem CPF/CNPJ. */
+  semDocumento?: 'true';
   page?: number;
   pageSize?: number;
 } = {}): Promise<ListaPartesExternasResp> {

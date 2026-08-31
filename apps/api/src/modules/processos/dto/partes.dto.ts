@@ -48,6 +48,30 @@ export class ListParteExternaQueryDto {
   @ApiPropertyOptional({ description: '"true" inclui as desativadas.' })
   @IsOptional() @IsString() incluirInativas?: string;
 
+  /**
+   * A FILA DE QUALIFICAÇÃO.
+   *
+   * Em 31/08/2026, 42 das 78 organizações estavam sem CPF/CNPJ — quase todas
+   * apelidos que a planilha do jurídico trazia ("HTI", "DMI", "MAT. MARQUES
+   * BASTOS"). Sem o documento não há razão social conferida, não há consulta à
+   * Receita e não há como saber se duas linhas são a mesma empresa.
+   *
+   * O documento NÃO existe em sistema nenhum que possamos consultar: a API da
+   * Receita responde por CNPJ, não por nome, e o DataJud não devolve partes.
+   * Alguém do jurídico precisa informá-lo, uma vez, por organização. O que o
+   * sistema pode fazer é parar de esconder a fila — daí este filtro, que a tela
+   * transforma num contador clicável.
+   *
+   * ENTE PÚBLICO FICA DE FORA por padrão: município e Estado não têm razão
+   * social a conferir, e enfileirá-los seria encher a lista de trabalho que não
+   * existe.
+   */
+  @ApiPropertyOptional({
+    description:
+      '"true" devolve só as organizações privadas sem CPF/CNPJ — a fila de qualificação do cadastro.',
+  })
+  @IsOptional() @IsString() semDocumento?: string;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
   @ApiPropertyOptional({ default: 20 })
