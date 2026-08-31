@@ -53,6 +53,7 @@ export function AgendarAudienciaModal({
   const [titulo, setTitulo] = useState('');
   const [local, setLocal] = useState('');
   const [urgente, setUrgente] = useState(false);
+  const [urgenteMotivo, setUrgenteMotivo] = useState('');
 
   const responsaveis = useQuery({
     queryKey: ['compromissos-responsaveis'],
@@ -84,6 +85,7 @@ export function AgendarAudienciaModal({
         titulo: titulo.trim() || undefined,
         local: local.trim() || undefined,
         urgente,
+        urgenteMotivo: urgente ? urgenteMotivo.trim() : undefined,
       });
     },
     onSuccess: () => {
@@ -100,6 +102,11 @@ export function AgendarAudienciaModal({
     if (!responsavelId) return toast.error('Selecione o responsável.');
     if (isNaN(new Date(`${data}T${hora || '09:00'}`).getTime())) {
       return toast.error('Data ou hora inválida.');
+    }
+    // Barra AQUI o que o servidor barraria de qualquer forma — a mensagem da
+    // tela diz onde digitar; a do 400 diria só que faltou um campo.
+    if (urgente && !urgenteMotivo.trim()) {
+      return toast.error('Diga por que é urgente — sem motivo a marca não se revisa depois.');
     }
     salvar.mutate();
   }
@@ -222,6 +229,28 @@ export function AgendarAudienciaModal({
               <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', urgente ? 'left-[22px]' : 'left-0.5')} />
             </span>
           </button>
+
+          {/*
+            O MOTIVO APARECE COM O TOGGLE, e é obrigatório.
+
+            A Agenda recusa urgência sem explicação — "sem motivo, a marca não
+            pode ser revista depois e a fila de urgências perde o sentido". O
+            campo estava faltando aqui, e o resultado era um 400 falando de algo
+            que a tela não pedia.
+          */}
+          {urgente && (
+            <div className="mt-2">
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Por que é urgente? *
+              </label>
+              <Input
+                value={urgenteMotivo}
+                onChange={(e) => setUrgenteMotivo(e.target.value)}
+                placeholder="Ex.: audiência em menos de 48h, testemunha a intimar…"
+                maxLength={300}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">

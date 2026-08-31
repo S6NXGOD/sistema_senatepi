@@ -62,6 +62,8 @@ export interface AgendarAudienciaInput {
   titulo?: string;
   local?: string;
   urgente?: boolean;
+  /** POR QUE é urgente — o back exige quando `urgente` é verdadeiro. */
+  urgenteMotivo?: string;
   observacoesInternas?: string;
 }
 /** Cria o evento na Agenda e resolve o alerta numa única chamada. */

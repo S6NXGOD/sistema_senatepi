@@ -260,6 +260,10 @@ export class AudienciasService {
         // exatamente o que o tribunal publicou.
         descricao: `[DataJud] ${mov.descricao}`,
         observacoesInternas: dto.observacoesInternas?.trim() || undefined,
+        // A urgência segue com o MOTIVO. `AgendaService.criar` exige um de quem
+        // marca — mandar a marca sozinha é o que fazia isto voltar 400.
+        urgente: dto.urgente ?? false,
+        urgenteMotivo: dto.urgenteMotivo?.trim() || undefined,
         responsavelId: dto.responsavelId,
         filiadoId: mov.processo.filiado?.id || undefined,
         processoId: mov.processo.id,

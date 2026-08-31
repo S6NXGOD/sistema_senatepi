@@ -54,19 +54,33 @@ export class AgendarAudienciaDto {
   @IsOptional() @IsString() @MaxLength(180)
   local?: string;
 
-  /*
-   * `urgente` VIVIA AQUI e foi removido.
+  /**
+   * Marca a pauta como urgente — E EXIGE O MOTIVO.
    *
-   * Era um campo que só sabia falhar: `agendar` o repassa a `AgendaService.criar`,
-   * que exige MOTIVO de quem marca urgência ("sem motivo, a marca não pode ser
-   * revista depois e a fila de urgências perde o sentido"). Este DTO nunca teve
-   * campo de motivo, então `urgente: true` resultava sempre em 400 — e a
-   * mensagem falava de um campo que este formulário não tem.
+   * HISTÓRICO, porque eu errei duas vezes aqui e a segunda foi pior. O campo
+   * chegava sozinho a `AgendaService.criar`, que exige motivo de quem marca
+   * ("sem motivo, a marca não pode ser revista depois e a fila de urgências
+   * perde o sentido") — então `urgente: true` dava 400 falando de um campo que
+   * o formulário não tinha.
    *
-   * Ninguém enviava (conferido no app), então a remoção não quebra tela alguma.
-   * Se um dia a marca fizer sentido ao agendar pelo radar, ela volta ACOMPANHADA
-   * de `urgenteMotivo` — nunca sozinha.
+   * Eu então REMOVI o campo, afirmando que ninguém o enviava. Tinha conferido o
+   * arquivo errado: quem envia é `agendar-audiencia-modal.tsx`, e envia SEMPRE,
+   * inclusive `false`. Com `forbidNonWhitelisted` ligado, isso derrubou o
+   * agendamento inteiro do radar — não só o caso urgente.
+   *
+   * A correção certa era esta desde o começo: o campo volta ACOMPANHADO do
+   * motivo, e os dois seguem juntos para `criar`, como em qualquer outra tela
+   * que marca urgência.
    */
+  @ApiPropertyOptional({ default: false })
+  @IsOptional() @Transform(paraBooleano) @IsBoolean()
+  urgente?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'POR QUE é urgente — obrigatório quando `urgente` é verdadeiro.',
+  })
+  @IsOptional() @IsString() @MaxLength(300)
+  urgenteMotivo?: string;
 
   @ApiPropertyOptional({ description: 'Notas internas (não visíveis ao filiado).' })
   @IsOptional() @IsString() @MaxLength(1000)

@@ -292,14 +292,50 @@ describe('o robô nunca escreve urgência à mão', () => {
   });
 
   /**
-   * O campo `urgente` do DTO de agendar audiência SÓ SABIA FALHAR: `agendar` o
-   * repassava a `AgendaService.criar`, que exige motivo de quem marca — e este
-   * DTO nunca teve campo de motivo. `urgente: true` dava 400 com uma mensagem
-   * sobre um campo que não existe naquele formulário.
+   * AGENDAR AUDIÊNCIA MARCA URGÊNCIA **COM** MOTIVO — e este teste existe
+   * porque eu errei duas vezes, sendo a segunda pior que a primeira.
+   *
+   * 1ª: o DTO tinha `urgente` e não tinha motivo. `AgendaService.criar` exige
+   *     um de quem marca, então `urgente: true` dava 400 falando de um campo
+   *     que o formulário não pedia.
+   * 2ª: eu REMOVI o campo, afirmando que ninguém o enviava — tinha conferido
+   *     `audiencias-agendar-panel.tsx` em vez de `agendar-audiencia-modal.tsx`,
+   *     que envia SEMPRE, inclusive `false`. Com `forbidNonWhitelisted` ligado,
+   *     isso derrubou o agendamento inteiro do radar, e não só o caso urgente.
+   *
+   * A regra travada aqui é a que estava certa desde o início: os dois campos
+   * andam JUNTOS. Um sem o outro quebra de um jeito ou de outro.
    */
-  it('agendar audiência não aceita urgência sem motivo', () => {
-    expect(ler('dto/audiencias.dto.ts')).not.toMatch(/^\s+urgente\?: boolean;/m);
-    expect(ler('audiencias.service.ts')).not.toMatch(/urgente: dto\.urgente/);
+  it('agendar audiência marca urgência com motivo, nunca sem', () => {
+    const dto = ler('dto/audiencias.dto.ts');
+    expect(dto).toMatch(/^\s+urgente\?: boolean;/m);
+    expect(dto).toMatch(/^\s+urgenteMotivo\?: string;/m);
+
+    const service = ler('audiencias.service.ts');
+    expect(service).toMatch(/urgente: dto\.urgente/);
+    expect(service).toMatch(/urgenteMotivo: dto\.urgenteMotivo/);
+  });
+
+  /**
+   * O QUE A TELA MANDA, O DTO TEM DE ACEITAR.
+   *
+   * `forbidNonWhitelisted: true` transforma qualquer campo a mais num 400 — e
+   * foi exatamente assim que remover `urgente` do DTO quebrou um modal que
+   * ninguém tinha tocado. Este teste lê a TELA e cobra o DTO.
+   */
+  it('todo campo que o modal envia existe no DTO', () => {
+    const modal = readFileSync(
+      path.join(__dirname, '..', '..', '..', '..', 'web', 'src', 'components', 'processos', 'agendar-audiencia-modal.tsx'),
+      'utf8',
+    );
+    const chamada = modal.slice(modal.indexOf('agendarAudiencia(alerta!.id, {'));
+    const enviados = [...chamada.slice(0, chamada.indexOf('});')).matchAll(/^\s+(\w+)[,:]/gm)].map((m) => m[1]);
+    expect(enviados.length).toBeGreaterThan(3); // o teste não olha para o vazio
+
+    const dto = ler('dto/audiencias.dto.ts');
+    for (const campo of enviados) {
+      expect(dto).toMatch(new RegExp(`\\b${campo}\\??:`));
+    }
   });
 
   /**
