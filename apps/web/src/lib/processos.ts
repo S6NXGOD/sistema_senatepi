@@ -180,6 +180,15 @@ export type FaseProcessual =
   | 'RECURSAL'
   | 'ARQUIVADO';
 
+/** Onde o processo está NO TRIBUNAL — a outra metade da coluna "Status". */
+export const FASE_AJUDA: Record<FaseProcessual, string> = {
+  PRE_PROCESSUAL: 'Fase: ainda não ajuizado.',
+  CONHECIMENTO: 'Fase no tribunal: instrução e julgamento em primeiro grau.',
+  EXECUCAO: 'Fase no tribunal: cumprimento da decisão.',
+  RECURSAL: 'Fase no tribunal: há instância recursal ativa.',
+  ARQUIVADO: 'Fase no tribunal: todas as instâncias receberam baixa.',
+};
+
 export const FASE_LABEL: Record<FaseProcessual, string> = {
   PRE_PROCESSUAL: 'Pré-processual',
   CONHECIMENTO: 'Conhecimento',
@@ -281,6 +290,27 @@ export const STATUS_PROCESSO_LABEL: Record<StatusProcesso, string> = {
   ENCERRADO: 'Encerrado',
   ARQUIVADO: 'Arquivado',
 };
+/**
+ * O QUE CADA SITUAÇÃO QUER DIZER — vira a dica ao passar o mouse.
+ *
+ * A coluna "Status" da listagem empilha DUAS escalas diferentes: a situação no
+ * SINDICATO (esta) e a fase no TRIBUNAL (`FASE_LABEL`). Quem chega novo lê
+ * "Ativo / EXECUÇÃO" e precisa adivinhar qual é qual — e, pior, "Pendente"
+ * sozinho não diz nada. Os textos abaixo saíram do próprio schema, onde a
+ * definição de cada valor já estava escrita.
+ */
+export const STATUS_PROCESSO_AJUDA: Record<StatusProcesso, string> = {
+  PRE_PROCESSUAL: 'Situação no sindicato: o caso existe e é trabalho de verdade, mas ainda não foi ajuizado — não há número de processo.',
+  RASCUNHO: 'Situação no sindicato: o caso existe e é trabalho de verdade, mas ainda não foi ajuizado — não há número de processo.',
+  PENDENTE: 'Situação no sindicato: distribuído, aguardando a primeira movimentação do tribunal.',
+  ATIVO: 'Situação no sindicato: em andamento.',
+  SUSPENSO: 'Situação no sindicato: tramitação suspensa.',
+  GANHO_EXECUCAO: 'Situação no sindicato: julgado procedente, em fase de execução/cumprimento.',
+  IMPROCEDENTE: 'Situação no sindicato: julgado improcedente.',
+  ENCERRADO: 'Situação no sindicato: baixado ou transitado em julgado.',
+  ARQUIVADO: 'Situação no sindicato: arquivado.',
+};
+
 /** Ordem do ciclo de vida (usada nos filtros e no seletor). */
 // `RASCUNHO` NÃO entra: é o mesmo status com nome velho, e listá-lo criaria
 // duas opções idênticas no filtro. Quem escolhe "Pré-processual" recebe os dois

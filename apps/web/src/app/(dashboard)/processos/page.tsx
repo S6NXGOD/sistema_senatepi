@@ -31,6 +31,7 @@ import { podeEditar } from '@/lib/permissoes';
 import {
   listarProcessos, formatNPU, ProcessoLista, StatusProcesso, FaseProcessual, FASE_LABEL,
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM, reavaliarInstancias,
+  STATUS_PROCESSO_AJUDA, FASE_AJUDA,
   contadoresProcessos, ORDENS_LABEL, type OrdemProcesso,
 } from '@/lib/processos';
 import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
@@ -44,7 +45,10 @@ const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-ba
 
 function StatusBadge({ status }: { status: StatusProcesso }) {
   return (
-    <span className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_PROCESSO_COR[status])}>
+    <span
+      className={cn('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_PROCESSO_COR[status])}
+      title={STATUS_PROCESSO_AJUDA[status]}
+    >
       {STATUS_PROCESSO_LABEL[status]}
     </span>
   );
@@ -641,7 +645,7 @@ function ListaProcessos() {
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={p.statusInterno} />
-                        <BadgeFase fase={p.fase} />
+                        <BadgeFase fase={p.fase} status={p.statusInterno} />
                       </td>
                     </tr>
                   ))}
@@ -870,8 +874,27 @@ function VazioContextual({
   );
 }
 
-function BadgeFase({ fase }: { fase?: FaseProcessual }) {
+/**
+ * A FASE NO TRIBUNAL, embaixo da situação no sindicato.
+ *
+ * São DUAS escalas na mesma coluna, e é isso que a torna densa e útil: "Ativo /
+ * RECURSAL" diz, em duas palavras, que o sindicato considera o caso em curso e
+ * que há instância recursal viva. 105 das 127 linhas da produção são assim.
+ *
+ * Mas as duas escalas compartilham vocabulário, e aí a segunda linha deixa de
+ * informar: os 5 processos pré-processuais mostravam "Pré-processual" em cima e
+ * "PRÉ-PROCESSUAL" embaixo — a mesma palavra, empilhada, ocupando espaço e
+ * ensinando a ignorar aquela linha.
+ *
+ * "Encerrado / ARQUIVADO" FICA, mesmo parecendo redundante: são fatos
+ * diferentes (o sindicato encerrou; o tribunal deu baixa) e é justamente
+ * quando eles DISCORDAM — "Encerrado / RECURSAL" — que a linha vira um alerta.
+ * Esconder o par concordante esconderia também o discordante.
+ */
+function BadgeFase({ fase, status }: { fase?: FaseProcessual; status?: StatusProcesso }) {
   if (!fase) return null;
+  // Mesma palavra nas duas linhas: a de baixo não acrescenta nada.
+  if (status && FASE_LABEL[fase] === STATUS_PROCESSO_LABEL[status]) return null;
   const cor: Record<FaseProcessual, string> = {
     // A única fase que NÃO é do tribunal: o caso ainda nem foi ajuizado.
     PRE_PROCESSUAL: 'text-violet-700 dark:text-violet-400',
@@ -881,7 +904,10 @@ function BadgeFase({ fase }: { fase?: FaseProcessual }) {
     ARQUIVADO: 'text-muted-foreground',
   };
   return (
-    <span className={cn('mt-1 block text-[10px] font-medium uppercase tracking-wide', cor[fase])}>
+    <span
+      className={cn('mt-1 block text-[10px] font-medium uppercase tracking-wide', cor[fase])}
+      title={FASE_AJUDA[fase]}
+    >
       {FASE_LABEL[fase]}
     </span>
   );
@@ -1072,7 +1098,16 @@ function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void })
           {p.numeroCNJ ? formatNPU(p.numeroCNJ) : p.titulo || 'Caso sem título'}
         </p>
         <Etiquetas lista={p.etiquetas} automaticas={p.etiquetasAutomaticas} />
-        <StatusBadge status={p.statusInterno} />
+        {/*
+          A FASE TAMBÉM NO CELULAR. O cartão mostrava só a situação no
+          sindicato, e a metade que some é justamente a mais acionável — saber
+          que o caso está em RECURSAL ou em EXECUÇÃO muda o que se faz com ele.
+          Alinhado à direita para não empurrar o número do processo.
+        */}
+        <span className="shrink-0 text-right">
+          <StatusBadge status={p.statusInterno} />
+          <BadgeFase fase={p.fase} status={p.statusInterno} />
+        </span>
       </div>
       <div className="mt-2 space-y-1 text-sm">
         <div className="flex items-start gap-1.5 text-muted-foreground">
