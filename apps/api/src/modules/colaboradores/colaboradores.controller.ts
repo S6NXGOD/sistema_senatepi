@@ -28,6 +28,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { conteudoDisposto } from '@core/infra';
 
 @ApiTags('colaboradores')
 @ApiBearerAuth()
@@ -66,9 +67,9 @@ export class ColaboradoresController {
     @CurrentUser('nome') autor: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.service.gerarCrachaPdf(id, autor);
-    res.setHeader('Content-Disposition', `inline; filename="cracha-${id}.pdf"`);
-    res.send(buffer);
+    const { pdf, nomeArquivo } = await this.service.gerarCrachaPdf(id, autor);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
+    res.send(pdf);
   }
 
   @Post()

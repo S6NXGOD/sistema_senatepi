@@ -10,6 +10,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { promises as fs, constants as fsConstants } from 'node:fs';
 import * as path from 'node:path';
+import { conteudoDisposto, modoPorExtensao } from '../utils/nome-de-arquivo.util';
 
 /**
  * Abstração de armazenamento de objetos com dois drivers:
@@ -243,16 +244,46 @@ export class StorageService {
    * confiar na coluna `url` gravada — que existe como snapshot e volta vazia
    * nas listagens.
    */
-  async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
+  async getSignedUrl(key: string, expiresIn = 3600, nomeArquivo?: string): Promise<string> {
+    /**
+     * `nomeArquivo` É O NOME COM QUE O ARQUIVO CHEGA NA PASTA DE DOWNLOADS.
+     *
+     * A chave no bucket é opaca de propósito — `<prefixo>/anexos/<uuid>.pdf` —,
+     * e sem este parâmetro era ELA que virava o nome do arquivo baixado. Quem
+     * anexa o termo assinado a uma atividade e o baixa de volta recebia
+     * `3f9a1c02-....pdf`, embora o nome original esteja gravado no banco desde
+     * o upload.
+     *
+     * Opcional porque a maioria das chamadas é de FOTO exibida em `<img>`:
+     * lá não há download nenhum a nomear, e o cabeçalho só atrapalharia.
+     */
     if (this.driver === 'local') {
       const expiraEm = Math.floor(Date.now() / 1000) + expiresIn;
       const caminho = key.split('/').map(encodeURIComponent).join('/');
       const sig = encodeURIComponent(this.assinar(key, expiraEm));
-      return `${this.publicUrl}/uploads/${caminho}?exp=${expiraEm}&sig=${sig}`;
+      /**
+       * O nome vai FORA da assinatura, e isso é deliberado.
+       *
+       * A assinatura protege QUAL arquivo pode ser lido; o nome sugerido não
+       * dá acesso a nada — quem já tem a URL assinada já pode baixar o
+       * conteúdo. Incluí-lo no HMAC obrigaria a reassinar toda vez que alguém
+       * renomeasse o anexo, sem ganho de segurança nenhum. A sanitização, essa
+       * sim obrigatória, acontece na ponta que escreve o cabeçalho.
+       */
+      const nome = nomeArquivo ? `&nome=${encodeURIComponent(nomeArquivo)}` : '';
+      return `${this.publicUrl}/uploads/${caminho}?exp=${expiraEm}&sig=${sig}${nome}`;
     }
     return getSignedUrl(
       this.client!,
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        // No S3 o nome viaja na própria URL assinada — e aí ele ENTRA na
+        // assinatura, porque é a AWS que assina a requisição inteira.
+        ...(nomeArquivo
+          ? { ResponseContentDisposition: conteudoDisposto(nomeArquivo, modoPorExtensao(nomeArquivo)) }
+          : {}),
+      }),
       { expiresIn },
     );
   }

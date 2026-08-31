@@ -18,6 +18,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { CABECALHO_PRESENCA } from './checkin.controller';
+import { conteudoDisposto } from '@core/infra';
 
 class CriarPautaDto {
   @IsString() @MaxLength(300) titulo!: string;
@@ -137,8 +138,8 @@ export class PlenarioAdminController {
   @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Header('Content-Type', 'application/pdf')
   async baixarDossie(@Param('eventoId') eventoId: string, @Res() res: Response) {
-    const pdf = await this.dossie.baixar(eventoId);
-    res.setHeader('Content-Disposition', `inline; filename="dossie-${eventoId}.pdf"`);
+    const { pdf, nomeArquivo } = await this.dossie.baixar(eventoId);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
     res.send(pdf);
   }
 
@@ -198,10 +199,10 @@ export class PlenarioAdminController {
   @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Header('Content-Type', 'text/csv; charset=utf-8')
   async presencasCsv(@Param('eventoId') eventoId: string, @Res() res: Response) {
-    const csv = await this.presencaLista.csv(eventoId);
-    res.setHeader('Content-Disposition', `attachment; filename="presenca-${eventoId}.csv"`);
+    const { conteudo, nomeArquivo } = await this.presencaLista.csv(eventoId);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo, 'attachment'));
     // BOM UTF-8: sem ele o Excel em português abre "JOSÉ" como "JOSÃ‰".
-    res.send('﻿' + csv);
+    res.send('﻿' + conteudo);
   }
 
   /**
@@ -266,8 +267,8 @@ export class PlenarioAdminController {
     @Param('presencaId') presencaId: string,
     @Res() res: Response,
   ) {
-    const pdf = await this.certificado.gerar(eventoId, presencaId);
-    res.setHeader('Content-Disposition', `inline; filename="certificado-${presencaId}.pdf"`);
+    const { pdf, nomeArquivo } = await this.certificado.gerar(eventoId, presencaId);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
     res.send(pdf);
   }
 }

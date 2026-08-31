@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
-import { abrirPdf } from '@/lib/pdf';
+import { baixarPdf } from '@/lib/pdf';
 import { excluirFiliado, Filiado } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
@@ -105,10 +105,10 @@ export function FiliadoRowActions({
             <MenuItem icon={<Pencil className="h-4 w-4" />} onClick={() => run(() => router.push(`/filiados/${filiado.id}/editar`))}>
               Editar
             </MenuItem>
-            <MenuItem icon={<IdCard className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/carteirinha/pdf`))}>
+            <MenuItem icon={<IdCard className="h-4 w-4" />} onClick={() => run(() => baixarPdf(`/filiados/${filiado.id}/carteirinha/pdf`))}>
               Carteirinha (QR)
             </MenuItem>
-            <MenuItem icon={<FileText className="h-4 w-4" />} onClick={() => run(() => abrirPdf(`/filiados/${filiado.id}/termo/pdf`))}>
+            <MenuItem icon={<FileText className="h-4 w-4" />} onClick={() => run(() => baixarPdf(`/filiados/${filiado.id}/termo/pdf`))}>
               Ficha de Filiação (PDF)
             </MenuItem>
 

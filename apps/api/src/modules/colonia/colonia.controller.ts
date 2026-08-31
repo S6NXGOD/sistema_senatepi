@@ -29,6 +29,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { conteudoDisposto } from '@core/infra';
 
 @ApiTags('colonia')
 @ModuloTenant('colonia')
@@ -168,7 +169,9 @@ export class ColoniaController {
   @Header('Content-Type', 'text/csv; charset=utf-8')
   async relatorioCsv(@Query('temporadaId') temporadaId: string, @Res() res: Response) {
     const { nome, conteudo } = await this.service.relatorioCsv(temporadaId);
-    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+    // Interpolar o nome cru no cabeçalho é o vetor de injeção que
+    // `conteudoDisposto` fecha — e é ele que também faz o acento sobreviver.
+    res.setHeader('Content-Disposition', conteudoDisposto(nome, 'attachment'));
     res.send(conteudo);
   }
 

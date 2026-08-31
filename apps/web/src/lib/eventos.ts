@@ -1,5 +1,6 @@
 import { api } from './api';
 import { chaveLocal } from '@/lib/armazenamento';
+import { nomeDoCabecalho } from './pdf';
 
 /**
  * Plenário Virtual — assembleias, cursos e sorteios.
@@ -298,13 +299,16 @@ export async function listarCertificados(eventoId: string): Promise<Certificados
 async function baixarArquivo(caminho: string, nomeArquivo: string, novaAba = false) {
   const resp = await api.get(caminho, { responseType: 'blob' });
   const url = URL.createObjectURL(resp.data as Blob);
+  // O nome do SERVIDOR vence o passado aqui: é ele que conhece o evento e a
+  // data. O parâmetro vira reserva para o caso de o cabeçalho não vir.
+  const nome = nomeDoCabecalho(resp) ?? nomeArquivo;
   try {
     if (novaAba) {
       window.open(url, '_blank', 'noopener');
     } else {
       const a = document.createElement('a');
       a.href = url;
-      a.download = nomeArquivo;
+      a.download = nome;
       a.click();
     }
   } finally {

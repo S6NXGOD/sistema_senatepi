@@ -11,6 +11,7 @@ import { VotacaoService } from './votacao.service';
 import { lerConfiguracoes } from './configuracoes-evento';
 import { tenant, rodapeInstitucional } from '../../tenant/tenant.config';
 import { carimbarRodape } from '../../common/pdf-rodape.util';
+import { dataParaNome, nomeDeArquivo, type DocumentoGerado } from '@core/infra';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -110,17 +111,28 @@ export class DossieEventoService {
     return { key, tamanho: pdf.length, hash: this.hash(pdf) };
   }
 
-  /** Baixa o dossiê já emitido; gera na hora se ainda não existir. */
-  async baixar(eventoId: string): Promise<Buffer> {
+  /**
+   * Baixa o dossiê já emitido; gera na hora se ainda não existir.
+   *
+   * Devolve o NOME junto: o dossiê é o documento que vai anexo ao e-mail da
+   * diretoria e à prestação de contas, e `dossie-<uuid>.pdf` não diz de qual
+   * assembleia ele é.
+   */
+  async baixar(eventoId: string): Promise<DocumentoGerado> {
     const evento = await this.prisma.evento.findUnique({
       where: { id: eventoId },
-      select: { dossiePdfKey: true },
+      select: { dossiePdfKey: true, nome: true, dataInicio: true },
     });
     if (!evento) throw new NotFoundException('Evento não encontrado.');
 
+    const nomeArquivo = nomeDeArquivo(
+      ['Dossiê', evento.nome, evento.dataInicio ? dataParaNome(new Date(evento.dataInicio)) : null],
+      'pdf',
+    );
+
     if (evento.dossiePdfKey) {
       const existente = await this.storage.getBuffer(evento.dossiePdfKey).catch(() => null);
-      if (existente) return existente;
+      if (existente) return { pdf: existente, nomeArquivo };
       // Chave gravada mas arquivo ausente é o sintoma clássico de disco
       // efêmero: o registro do banco sobrevive ao deploy, o arquivo não.
       // Regerar é melhor do que falhar no dia da conferência.
@@ -132,7 +144,7 @@ export class DossieEventoService {
     });
     const buf = await this.storage.getBuffer(atualizado!.dossiePdfKey!);
     if (!buf) throw new NotFoundException('Não foi possível recuperar o dossiê emitido.');
-    return buf;
+    return { pdf: buf, nomeArquivo };
   }
 
   private hash(buf: Buffer): string {

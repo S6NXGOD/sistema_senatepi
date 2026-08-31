@@ -34,6 +34,7 @@ import {
 } from './dto/colaborador.dto';
 
 import { tenant } from '../../tenant/tenant.config';
+import { nomeDeArquivo, type DocumentoGerado } from '@core/infra';
 
 const INCLUDE = {
   cargo: { select: { id: true, nome: true } },
@@ -488,7 +489,7 @@ export class ColaboradoresService {
   }
 
   /** Crachá em PDF (85×54mm), com foto, dados do vínculo e o QR de entrada. */
-  async gerarCrachaPdf(id: string, autor?: string): Promise<Buffer> {
+  async gerarCrachaPdf(id: string, autor?: string): Promise<DocumentoGerado> {
     const c = await this.prisma.colaborador.findUnique({ where: { id }, include: INCLUDE });
     if (!c) throw new NotFoundException('Colaborador não encontrado.');
 
@@ -546,7 +547,9 @@ export class ColaboradoresService {
       'Crachá digital gerado.',
       autor,
     );
-    return pdf;
+    // O nome sai daqui porque é aqui que o colaborador está carregado — o
+    // controller só tem o id, e era dele que vinha o `cracha-<uuid>.pdf`.
+    return { pdf, nomeArquivo: nomeDeArquivo(['Crachá', c.nome], 'pdf') };
   }
 
   /**

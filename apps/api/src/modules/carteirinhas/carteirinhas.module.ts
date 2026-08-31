@@ -13,6 +13,9 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
+import {
+  conteudoDisposto, nomeDeArquivo, type DocumentoGerado,
+} from '@core/infra';
 import PDFDocument from 'pdfkit';
 import {
   SituacaoFiliado,
@@ -101,8 +104,15 @@ export class CarteirinhasService {
     };
   }
 
-  /** Gera o PDF da carteirinha (formato cartão, estilo institucional). */
-  async gerarPdf(filiadoId: string): Promise<Buffer> {
+  /**
+   * Gera o PDF da carteirinha (formato cartão, estilo institucional).
+   *
+   * Devolve o NOME junto com o conteúdo. O controller sozinho só tem o id, e o
+   * nome do arquivo saía `carteirinha-<uuid>.pdf` — doze carteirinhas baixadas
+   * numa tarde viravam doze arquivos indistinguíveis na pasta. Quem já carregou
+   * o filiado para desenhar o cartão é quem sabe como ele se chama.
+   */
+  async gerarPdf(filiadoId: string): Promise<DocumentoGerado> {
     const filiado = await this.prisma.filiado.findUnique({
       where: { id: filiadoId },
       include: { carteirinha: true },
@@ -121,7 +131,7 @@ export class CarteirinhasService {
     const PANEL = 150; // largura do painel lateral verde
     const dataFiliacao = (filiado.aprovadoEm ?? filiado.createdAt).toLocaleDateString('pt-BR');
 
-    return new Promise<Buffer>((resolve, reject) => {
+    const pdf = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: [W, H], margin: 0 });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c));
@@ -214,6 +224,11 @@ export class CarteirinhasService {
 
       doc.end();
     });
+
+    return {
+      pdf,
+      nomeArquivo: nomeDeArquivo(['Carteirinha', filiado.nomeCompleto], 'pdf'),
+    };
   }
 }
 
@@ -238,9 +253,9 @@ class CarteirinhasController {
   @Get('pdf')
   @Header('Content-Type', 'application/pdf')
   async pdf(@Param('filiadoId') filiadoId: string, @Res() res: Response) {
-    const buffer = await this.service.gerarPdf(filiadoId);
-    res.setHeader('Content-Disposition', `inline; filename="carteirinha-${filiadoId}.pdf"`);
-    res.send(buffer);
+    const { pdf, nomeArquivo } = await this.service.gerarPdf(filiadoId);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
+    res.send(pdf);
   }
 }
 

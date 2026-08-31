@@ -9,6 +9,7 @@ import {
 } from './dto/auditoria-contribuicao.dto';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
+import { conteudoDisposto, modoPorExtensao } from '@core/infra';
 
 /**
  * Auditoria das contribuições patronais — aba "Empresas" da tela de Cobranças.
@@ -46,7 +47,9 @@ export class AuditoriaContribuicoesController {
     }
     const { buffer, contentType, nome } = await this.service.documento(id, tipo);
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${nome}"`);
+    // O nome vem do arquivo que a empresa subiu: sanitizado e codificado em
+    // RFC 5987, senão acento vira mojibake e uma quebra de linha vira injeção.
+    res.setHeader('Content-Disposition', conteudoDisposto(nome, modoPorExtensao(nome)));
     // Folha de pagamento: dado pessoal de terceiros, sem cache compartilhado.
     res.setHeader('Cache-Control', 'private, no-store');
     res.send(buffer);

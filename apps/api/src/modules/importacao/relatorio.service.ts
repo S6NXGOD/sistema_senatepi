@@ -5,6 +5,7 @@ import ExcelJS from 'exceljs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { lerLogoDaMarca } from '../../common/assets.util';
 import { tenant } from '../../tenant/tenant.config';
+import { dataParaNome, nomeDeArquivo } from '@core/infra';
 
 const VERDE_ESCURO = '#1B7F0A';
 
@@ -25,7 +26,14 @@ export class RelatorioImportacaoService {
     return imp;
   }
 
-  async pdf(id: string): Promise<Buffer> {
+  /**
+   * O relatório da importação, com o NOME junto.
+   *
+   * `importacao-<uuid>.pdf` era o pior caso do sistema: quem roda três cargas
+   * numa manhã fica com três relatórios idênticos no nome, e o relatório existe
+   * justamente para conferir O QUE não entrou em CADA uma.
+   */
+  async pdf(id: string): Promise<{ conteudo: Buffer; nomeArquivo: string }> {
     const imp = await this.carregar(id);
     // Na folha, `valido: false` abrange conflito e duplicidade, não só erro —
     // são todos os que NÃO entraram sozinhos, que é justamente o que precisa
@@ -37,7 +45,7 @@ export class RelatorioImportacaoService {
       take: 500,
     });
 
-    return new Promise<Buffer>((resolve, reject) => {
+    const conteudo = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c));
@@ -123,9 +131,29 @@ export class RelatorioImportacaoService {
 
       doc.end();
     });
+
+    return { conteudo, nomeArquivo: this.nomeDoRelatorio(imp, 'pdf') };
   }
 
-  async excel(id: string): Promise<Buffer> {
+  /**
+   * "Relatório de Importação - servidores-agosto.csv - 2026-08-31.pdf".
+   *
+   * Leva o nome do ARQUIVO que foi importado, que é como a pessoa se refere à
+   * carga ("o relatório da planilha de agosto"), e a data, porque a mesma
+   * planilha costuma ser reprocessada depois das correções.
+   */
+  private nomeDoRelatorio(
+    imp: { nomeArquivo: string | null; createdAt: Date },
+    extensao: string,
+  ): string {
+    const semExtensao = (imp.nomeArquivo ?? '').replace(/\.[^.]*$/, '');
+    return nomeDeArquivo(
+      ['Relatório de Importação', semExtensao, dataParaNome(new Date(imp.createdAt))],
+      extensao,
+    );
+  }
+
+  async excel(id: string): Promise<{ conteudo: Buffer; nomeArquivo: string }> {
     const imp = await this.carregar(id);
     const linhas = await this.prisma.importacaoLinha.findMany({
       where: { importacaoId: id },
@@ -225,7 +253,7 @@ export class RelatorioImportacaoService {
         });
       }
       const arrFolha = await wb.xlsx.writeBuffer();
-      return Buffer.from(arrFolha);
+      return { conteudo: Buffer.from(arrFolha), nomeArquivo: this.nomeDoRelatorio(imp, 'xlsx') };
     }
 
     const det = wb.addWorksheet('Registros');
@@ -262,6 +290,6 @@ export class RelatorioImportacaoService {
     }
 
     const arr = await wb.xlsx.writeBuffer();
-    return Buffer.from(arr);
+    return { conteudo: Buffer.from(arr), nomeArquivo: this.nomeDoRelatorio(imp, 'xlsx') };
   }
 }

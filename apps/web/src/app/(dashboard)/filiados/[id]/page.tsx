@@ -26,7 +26,7 @@ import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
 import { DependentesSection } from '@/components/filiados/dependentes-section';
 import { FinanceiroSection } from '@/components/filiados/financeiro-section';
 import { DossieDrawer } from '@/components/filiados/dossie-drawer';
-import { abrirPdf } from '@/lib/pdf';
+import { abrirPdf, baixarPdf } from '@/lib/pdf';
 import { campoVisivel } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
 
@@ -128,8 +128,16 @@ export default function PerfilFiliadoPage() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setDossieAberto(true)}><History className="h-4 w-4" /> Dossiê</Button>
           <Button variant="outline" onClick={() => setQrAberto(true)}><QrIcon className="h-4 w-4" /> QR</Button>
-          <Button variant="outline" onClick={() => abrirPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Gerar Termo</Button>
-          <Button variant="secondary" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Carteirinha</Button>
+          {/*
+            BAIXAR, e não abrir numa aba. O `blob:` de uma aba nova não carrega
+            nome nenhum, e o visualizador salva com o UUID do blob — era essa a
+            queixa. Aqui a intenção é OBTER o documento (assinar, arquivar,
+            mandar por e-mail), e nesse caso o nome vale mais que a
+            pré-visualização, que o navegador oferece de qualquer forma ao
+            abrir o arquivo baixado.
+          */}
+          <Button variant="outline" onClick={() => baixarPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Baixar Termo</Button>
+          <Button variant="secondary" onClick={() => baixarPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Carteirinha</Button>
           {/* Abre a escolha: presencial (equipe) ou link de 24h para o filiado */}
           <Button variant="outline" onClick={() => setRecadastrarAberto(true)}>
             <RefreshCw className="h-4 w-4" /> Recadastrar
@@ -345,7 +353,15 @@ export default function PerfilFiliadoPage() {
                   <Info label="Número" valor={f.carteirinha.numero} />
                   <Info label="Emitida em" valor={formatarData(f.carteirinha.emitidaEm)} />
                   <Info label="Válida até" valor={formatarData(f.carteirinha.validaAte)} />
-                  <Button className="w-full" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Ver / Baixar PDF</Button>
+                  {/*
+                    Dois botões, porque são duas intenções. "Ver" abre na aba e
+                    o arquivo não tem nome — serve para conferir a foto antes de
+                    imprimir. "Baixar" entrega com o nome do filiado.
+                  */}
+                  <div className="flex w-full gap-2">
+                    <Button variant="outline" className="flex-1" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}>Ver</Button>
+                    <Button className="flex-1" onClick={() => baixarPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Baixar</Button>
+                  </div>
                 </>
               ) : (
                 <>

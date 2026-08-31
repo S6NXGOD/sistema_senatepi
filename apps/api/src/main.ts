@@ -1,4 +1,4 @@
-import { StorageService } from '@core/infra';
+import { StorageService, conteudoDisposto, modoPorExtensao } from '@core/infra';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -115,8 +115,26 @@ async function bootstrap() {
         return res.status(404).end();
       }
 
-      const { exp, sig } = req.query as { exp?: string; sig?: string };
+      const { exp, sig, nome } = req.query as { exp?: string; sig?: string; nome?: string };
       if (!storage.urlAssinadaValida(chave, exp, sig)) return res.status(404).end();
+
+      /**
+       * O NOME COM QUE O ARQUIVO CHEGA NA PASTA DE DOWNLOADS.
+       *
+       * A chave no bucket é opaca por LGPD — `<prefixo>/anexos/<uuid>.pdf` —, e
+       * sem isto era ela que virava o nome do arquivo salvo. Quem anexava o
+       * termo assinado a uma atividade e o baixava de volta recebia
+       * `3f9a1c02-….pdf`, embora o nome original esteja no banco desde o upload.
+       *
+       * `nome` VEM DA QUERY E NÃO ESTÁ ASSINADO, e isso é seguro: ele não dá
+       * acesso a nada — quem tem a URL assinada já pode baixar o conteúdo —, e
+       * `conteudoDisposto` sanitiza antes de escrever no cabeçalho, que é onde
+       * uma quebra de linha viraria injeção. Incluí-lo no HMAC só obrigaria a
+       * reassinar quando alguém renomeasse o anexo, sem ganho nenhum.
+       */
+      if (nome) {
+        res.setHeader('Content-Disposition', conteudoDisposto(nome, modoPorExtensao(nome)));
+      }
       return proximo();
     });
 
@@ -129,9 +147,15 @@ async function bootstrap() {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
         res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-        // Força download em vez de renderização para tudo que não for imagem
-        // conhecida — ver `deveBaixar`. Um PDF continua abrindo na aba.
         res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+        /**
+         * O `Content-Disposition` NÃO é escrito aqui, e sim no porteiro acima —
+         * ele é quem enxerga o `?nome=` da URL assinada. O comentário antigo
+         * prometia um `deveBaixar` que forçaria download para o que não fosse
+         * imagem; a função nunca existiu, e o efeito era o oposto do prometido:
+         * TODO arquivo baixava com o UUID da chave. Quem decide entre exibir e
+         * baixar hoje é `modoPorExtensao`.
+         */
       },
     });
   }
@@ -165,7 +189,23 @@ async function bootstrap() {
   const origins = (config.get<string>('CORS_ORIGINS') ?? 'http://localhost:3000')
     .split(',')
     .map((o) => o.trim());
-  app.enableCors({ origin: origins, credentials: true });
+  /**
+   * `exposedHeaders` NÃO é detalhe: sem ele o navegador ESCONDE o
+   * `Content-Disposition` do JavaScript.
+   *
+   * A tela busca os PDFs por XHR (o endpoint exige `Authorization: Bearer`, e
+   * um `<a href>` não manda cabeçalho), e é do `Content-Disposition` que ela
+   * tira o nome do arquivo. Como a API roda em outra origem, a resposta só
+   * entrega ao script os cabeçalhos "simples" — `Content-Disposition` não é um
+   * deles. Sem esta linha, o servidor mandaria o nome certo, o navegador o
+   * descartaria em silêncio, e o arquivo continuaria salvando com o UUID do
+   * blob. Nenhum erro no console; só o sintoma de volta.
+   */
+  app.enableCors({
+    origin: origins,
+    credentials: true,
+    exposedHeaders: ['Content-Disposition'],
+  });
 
   // Swagger / OpenAPI — desabilitado por padrão em produção (menor superfície).
   const swaggerHabilitado =

@@ -3,8 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, X, Download, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/api';
 import { getQrCodeColaborador, urlCrachaColaborador } from '@/lib/colaboradores';
+import { baixarPdf } from '@/lib/pdf';
 
 /**
  * Crachá e QR de entrada do colaborador.
@@ -31,14 +31,15 @@ export function CrachaDialog({
     enabled: open,
   });
 
+  /**
+   * BAIXA com o nome do colaborador, em vez de abrir numa aba.
+   *
+   * O botão se chama "Baixar", e abrir numa aba entregava um `blob:` sem nome:
+   * ao salvar, o navegador usava o UUID do blob. `baixarPdf` lê o nome do
+   * `Content-Disposition` — "Crachá - Fulano de Tal.pdf".
+   */
   async function baixarCracha() {
-    // Vai pelo axios para carregar o Bearer: um <a href> abriria a rota sem
-    // token e receberia 401.
-    const res = await api.get(urlCrachaColaborador(colaboradorId), { responseType: 'blob' });
-    const url = URL.createObjectURL(res.data as Blob);
-    window.open(url, '_blank');
-    // Revoga depois de a aba ter lido o blob.
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    await baixarPdf(urlCrachaColaborador(colaboradorId), 'Crachá.pdf');
   }
 
   if (!open) return null;

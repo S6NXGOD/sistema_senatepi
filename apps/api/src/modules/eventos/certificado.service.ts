@@ -6,6 +6,7 @@ import { lerLogoDaMarca } from '../../common/assets.util';
 import { lerConfiguracoes } from './configuracoes-evento';
 import { tenant } from '../../tenant/tenant.config';
 import { segredoDaInstalacao } from '../../common/segredo.util';
+import { nomeDeArquivo, type DocumentoGerado } from '@core/infra';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -79,7 +80,7 @@ export class CertificadoService {
     return { valido: false as const };
   }
 
-  async gerar(eventoId: string, presencaId: string): Promise<Buffer> {
+  async gerar(eventoId: string, presencaId: string): Promise<DocumentoGerado> {
     const presenca = await this.prisma.presenca.findFirst({
       where: { id: presencaId, eventoId },
       select: {
@@ -104,7 +105,7 @@ export class CertificadoService {
 
     const codigo = this.codigo(eventoId, presencaId);
 
-    return new Promise<Buffer>((resolve, reject) => {
+    const pdf = await new Promise<Buffer>((resolve, reject) => {
       // PAISAGEM: certificado é documento de parede, não de arquivo.
       const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 40 });
       const chunks: Buffer[] = [];
@@ -177,6 +178,16 @@ export class CertificadoService {
 
       doc.end();
     });
+
+    // O certificado vai por e-mail para o participante: o nome do arquivo é a
+    // primeira coisa que ele lê, e `certificado-<uuid>.pdf` não diz nada.
+    return {
+      pdf,
+      nomeArquivo: nomeDeArquivo(
+        ['Certificado', presenca.evento.nome, presenca.nomeSnapshot],
+        'pdf',
+      ),
+    };
   }
 
   /** Lista de quem tem direito ao certificado — alimenta a tela da mesa. */

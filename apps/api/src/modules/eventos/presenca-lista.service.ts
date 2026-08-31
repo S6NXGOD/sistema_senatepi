@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { dataParaNome, nomeDeArquivo } from '@core/infra';
 
 /**
  * Lista de presença para consumo em TELA (e planilha).
@@ -207,7 +208,14 @@ export class PresencaListaService {
    * pautas NOMINAIS o voto de cada um também entra — em pautas secretas isso
    * não existe nem aqui, por construção.
    */
-  async csv(eventoId: string): Promise<string> {
+  /**
+   * A planilha de presenças, com o NOME do arquivo junto.
+   *
+   * `presenca-<uuid>.csv` some na pasta de downloads de quem exporta a lista de
+   * três assembleias no mesmo dia — e é justamente esse arquivo que circula
+   * entre a mesa e a secretaria.
+   */
+  async csv(eventoId: string): Promise<{ conteudo: string; nomeArquivo: string }> {
     const [lista, pautas] = await Promise.all([
       this.listar(eventoId),
       this.prisma.pautaVotacao.findMany({
@@ -254,7 +262,21 @@ export class PresencaListaService {
       ];
     });
 
-    return [cabecalho, ...linhas].map((l) => l.map(this.campo).join(';')).join('\r\n');
+    const evento = await this.prisma.evento.findUnique({
+      where: { id: eventoId },
+      select: { nome: true, dataInicio: true },
+    });
+    return {
+      conteudo: [cabecalho, ...linhas].map((l) => l.map(this.campo).join(';')).join('\r\n'),
+      nomeArquivo: nomeDeArquivo(
+        [
+          'Presenças',
+          evento?.nome,
+          evento?.dataInicio ? dataParaNome(new Date(evento.dataInicio)) : null,
+        ],
+        'csv',
+      ),
+    };
   }
 
   /**

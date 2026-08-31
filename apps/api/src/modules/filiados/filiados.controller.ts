@@ -31,6 +31,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { conteudoDisposto } from '@core/infra';
 
 @ApiTags('filiados')
 @ApiBearerAuth()
@@ -170,13 +171,13 @@ export class FiliadosController {
     @CurrentUser('nome') autor: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.service.gerarTermoDesfiliacaoPdf(
+    const { pdf, nomeArquivo } = await this.service.gerarTermoDesfiliacaoPdf(
       id,
       { motivo, observacoes, mesCorte },
       autor,
     );
-    res.setHeader('Content-Disposition', `inline; filename="termo-desfiliacao-${id}.pdf"`);
-    res.send(buffer);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
+    res.send(pdf);
   }
 
   @Post(':id/foto')
@@ -222,9 +223,9 @@ export class FiliadosController {
     @CurrentUser('nome') autor: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.service.gerarTermoPdf(id, autor);
-    res.setHeader('Content-Disposition', `inline; filename="termo-${id}.pdf"`);
-    res.send(buffer);
+    const { pdf, nomeArquivo } = await this.service.gerarTermoPdf(id, autor);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
+    res.send(pdf);
   }
 
   @Delete(':id')

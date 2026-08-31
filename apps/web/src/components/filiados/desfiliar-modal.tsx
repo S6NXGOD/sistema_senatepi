@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { X, Loader2, UserX, Upload, FileDown, CalendarDays, Info, FileCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { abrirPdf } from '@/lib/pdf';
+import { baixarPdf } from '@/lib/pdf';
 import { VinculosDoFiliado } from '@/components/filiados/vinculos-do-filiado';
 import {
   desfiliarFiliado, anexarDocumentoFiliado,
@@ -133,7 +133,7 @@ export function DesfiliarModal({
     if (observacoes.trim()) q.set('observacoes', observacoes.trim());
     if (mesCorte) q.set('mesCorte', mesCorte);
     const qs = q.toString();
-    abrirPdf(`/filiados/${filiado.id}/desfiliacao/pdf${qs ? `?${qs}` : ''}`);
+    baixarPdf(`/filiados/${filiado.id}/desfiliacao/pdf${qs ? `?${qs}` : ''}`);
   }
 
   return (

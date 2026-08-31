@@ -98,13 +98,23 @@ export class AnexosService {
     // Chave opaca (LGPD): nunca usa o nome original no caminho do storage.
     const storageKey = `${alvo.prefixo}/anexos/${randomUUID()}.${ext}`;
     await this.storage.upload(storageKey, arquivo.buffer, arquivo.mimetype);
-    const url = await this.storage.getSignedUrl(storageKey);
+    /**
+     * A CHAVE É OPACA, O NOME NÃO PRECISA SER.
+     *
+     * O caminho no storage nunca leva o nome original — é regra de LGPD, e
+     * continua valendo. Mas era ELE que virava o nome do arquivo baixado, e
+     * quem clicava em "Baixar" recebia `3f9a1c02-....pdf`. O nome que a pessoa
+     * subiu está gravado na linha ao lado desde sempre; agora ele viaja na URL
+     * assinada e volta no `Content-Disposition`.
+     */
+    const nomeOriginal = this.sanitizarNome(arquivo.originalname);
+    const url = await this.storage.getSignedUrl(storageKey, 3600, nomeOriginal);
 
     const anexo = await this.prisma.anexoDocumento.create({
       data: {
         storageKey,
         url,
-        nomeArquivo: this.sanitizarNome(arquivo.originalname),
+        nomeArquivo: nomeOriginal,
         tipoMime: arquivo.mimetype,
         tamanhoBytes: arquivo.size,
         atendimentoId: dto.atendimentoId || null,
@@ -265,7 +275,7 @@ export class AnexosService {
     return Promise.all(
       itens.map(async (i) => ({
         ...i,
-        url: await this.storage.getSignedUrl(i.storageKey).catch(() => ''),
+        url: await this.storage.getSignedUrl(i.storageKey, 3600, i.nomeArquivo).catch(() => ''),
       })),
     );
   }
@@ -362,7 +372,8 @@ export class AnexosService {
    * (expira), então nunca confiamos na `url` persistida para leitura.
    */
   private async comUrlFresca(a: AnexoDocumento) {
-    const url = await this.storage.getSignedUrl(a.storageKey);
+    // O nome vai junto: é ele que o navegador usa ao salvar — ver `getSignedUrl`.
+    const url = await this.storage.getSignedUrl(a.storageKey, 3600, a.nomeArquivo);
     return { ...a, url };
   }
 

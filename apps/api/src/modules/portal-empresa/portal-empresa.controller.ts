@@ -11,6 +11,7 @@ import { GerarContribuicaoDto, ListarContribuicoesQueryDto } from './dto/contrib
 import { EmpresaJwtGuard } from './guards/empresa-jwt.guard';
 import { EmpresaAtual } from './decorators/empresa-atual.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { conteudoDisposto, modoPorExtensao } from '@core/infra';
 
 /**
  * Área logada do Portal da Empresa.
@@ -88,7 +89,9 @@ export class PortalEmpresaController {
       empresaId, id, tipo,
     );
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${nome}"`);
+    // O nome vem do arquivo que a empresa subiu: sanitizado e codificado em
+    // RFC 5987, senão acento vira mojibake e uma quebra de linha vira injeção.
+    res.setHeader('Content-Disposition', conteudoDisposto(nome, modoPorExtensao(nome)));
     // Dado pessoal de terceiros: nada de cache compartilhado.
     res.setHeader('Cache-Control', 'private, no-store');
     res.send(buffer);

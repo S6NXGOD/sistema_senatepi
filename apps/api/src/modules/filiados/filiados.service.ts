@@ -53,6 +53,7 @@ import {
 } from './dto/filiado.dto';
 import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
 import { carimbarRodape } from '../../common/pdf-rodape.util';
+import { nomeDeArquivo, dataParaNome, type DocumentoGerado } from '@core/infra';
 
 /**
  * Formatos aceitos — e a EXTENSÃO que cada um recebe ao ser gravado.
@@ -972,7 +973,7 @@ export class FiliadosService {
   }
 
   // ---- Termo de Consentimento e Filiação (PDF) ----
-  async gerarTermoPdf(id: string, autor?: string): Promise<Buffer> {
+  async gerarTermoPdf(id: string, autor?: string): Promise<DocumentoGerado> {
     const f = await this.findOne(id);
 
     // Textos legais fixos (inseridos exatamente como definidos pela diretoria).
@@ -1145,7 +1146,10 @@ export class FiliadosService {
       'Termo de Consentimento e Filiação gerado.',
       autor,
     );
-    return pdf;
+    return {
+      pdf,
+      nomeArquivo: nomeDeArquivo(['Termo de Filiação', f.nomeCompleto], 'pdf'),
+    };
   }
 
   // ---- Termo de Desfiliação (PDF) ----
@@ -1166,7 +1170,7 @@ export class FiliadosService {
     id: string,
     dados?: { motivo?: string; observacoes?: string; mesCorte?: string },
     autor?: string,
-  ): Promise<Buffer> {
+  ): Promise<DocumentoGerado> {
     const f = await this.findOne(id);
 
     // O motivo chega como slug do enum (vindo do modal) ou já como rótulo.
@@ -1399,6 +1403,20 @@ export class FiliadosService {
       'Termo de Desfiliação gerado.',
       autor,
     );
-    return pdf;
+    /**
+     * A DATA ENTRA NO NOME deste, e não no do termo de filiação.
+     *
+     * O termo de desfiliação é gerado ANTES de a saída ser confirmada, para o
+     * filiado assinar — e é comum a primeira via ser reimpressa depois de
+     * corrigir o mês de corte ou a observação. Sem a data, a segunda via
+     * sobrescreve a primeira na pasta de downloads, em silêncio.
+     */
+    return {
+      pdf,
+      nomeArquivo: nomeDeArquivo(
+        ['Termo de Desfiliação', f.nomeCompleto, dataParaNome()],
+        'pdf',
+      ),
+    };
   }
 }

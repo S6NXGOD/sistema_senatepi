@@ -28,6 +28,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { conteudoDisposto } from '@core/infra';
 
 @ApiTags('importacao')
 @ApiBearerAuth()
@@ -146,16 +147,16 @@ export class ImportacaoController {
   @Get(':id/relatorio.pdf')
   @Header('Content-Type', 'application/pdf')
   async pdf(@Param('id') id: string, @Res() res: Response) {
-    const buffer = await this.relatorio.pdf(id);
-    res.setHeader('Content-Disposition', `inline; filename="importacao-${id}.pdf"`);
-    res.send(buffer);
+    const { conteudo, nomeArquivo } = await this.relatorio.pdf(id);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
+    res.send(conteudo);
   }
 
   @Get(':id/relatorio.xlsx')
   @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   async excel(@Param('id') id: string, @Res() res: Response) {
-    const buffer = await this.relatorio.excel(id);
-    res.setHeader('Content-Disposition', `attachment; filename="importacao-${id}.xlsx"`);
-    res.send(buffer);
+    const { conteudo, nomeArquivo } = await this.relatorio.excel(id);
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo, 'attachment'));
+    res.send(conteudo);
   }
 }

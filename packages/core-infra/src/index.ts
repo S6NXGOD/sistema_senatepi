@@ -27,5 +27,6 @@ export * from './utils/cnpj.util';
 export * from './utils/datas.util';
 export * from './utils/flag.util';
 export * from './utils/matricula.util';
+export * from './utils/nome-de-arquivo.util';
 export * from './utils/pix.util';
 export * from './utils/trava-job.util';
