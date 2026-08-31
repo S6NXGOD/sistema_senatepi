@@ -348,6 +348,9 @@ export class ProcessosService {
             ? TipoAcaoProcesso.INSTITUCIONAL
             : TipoAcaoProcesso.INDIVIDUAL,
           etiquetas: this.normalizarEtiquetas(dto.etiquetas),
+          // A área jurídica vem VALIDADA contra o catálogo — slug inventado
+          // vira nulo em vez de gravar um valor que nenhum filtro encontra.
+          categoria: normalizarCategoria(dto.categoria),
           statusInterno: dto.statusInterno ?? undefined,
           // `instancias` inteiro: os assuntos são a união de todos os graus.
           ...this.metadados(dados, sigla, instancias),

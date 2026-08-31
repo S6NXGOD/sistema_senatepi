@@ -257,7 +257,9 @@ export class ProcessosCsvService {
       processados++;
       try {
         const resultado = await this.importarLinha(l, ctx);
-        if (resultado === 'IMPORTADO') importados++;
+        // COMPLETADO conta como importado: alguma coisa entrou de fato. Contá-lo
+        // como ignorado faria a segunda passada parecer não ter feito nada.
+        if (resultado === 'IMPORTADO' || resultado === 'COMPLETADO') importados++;
         else ignorados++;
         await this.prisma.importacaoLinha.update({
           where: { id: registro.id },
@@ -300,12 +302,15 @@ export class ProcessosCsvService {
   }
 
   /** Devolve o que aconteceu com a linha, para o resumo poder contar. */
-  private async importarLinha(l: LinhaProcesso, ctx: Ctx): Promise<'IMPORTADO' | 'JA_EXISTIA'> {
+  private async importarLinha(
+    l: LinhaProcesso,
+    ctx: Ctx,
+  ): Promise<'IMPORTADO' | 'COMPLETADO' | 'JA_EXISTIA'> {
     const jaExiste = await this.prisma.processo.findUnique({
       where: { numeroCNJ: l.npu },
-      select: { id: true },
+      select: { id: true, categoria: true, etiquetas: true },
     });
-    if (jaExiste) return 'JA_EXISTIA';
+    if (jaExiste) return this.completarExistente(jaExiste, l);
 
     const advogadoId = l.advogadoEmail ? await this.acharUsuario(l.advogadoEmail) : null;
     const equipeIds = (
@@ -355,6 +360,57 @@ export class ProcessosCsvService {
 
     if (l.andamento) await this.registrarAndamento(l);
     return 'IMPORTADO';
+  }
+
+  /**
+   * O PROCESSO JÁ ESTÁ NO SISTEMA — a segunda passada COMPLETA o que falta.
+   *
+   * Antes esta linha era simplesmente pulada, e isso parecia razoável até a
+   * primeira carga real mostrar o contrário: 82 processos entraram sem área
+   * jurídica (o campo se perdia no DTO da importação, defeito já corrigido), e
+   * rodar a planilha de novo não consertava nada — todos voltavam como "já
+   * existia". A correção do defeito ficava inútil para o acervo que ela mais
+   * precisava alcançar.
+   *
+   * SÓ PREENCHE O QUE ESTÁ VAZIO. Nunca sobrescreve: se alguém corrigiu a área
+   * na ficha, ou trocou uma etiqueta, a planilha não pode desfazer — ela é a
+   * origem do dado, não a autoridade sobre ele. Etiqueta nova é ACRESCENTADA,
+   * não substituída, pela mesma razão.
+   */
+  private async completarExistente(
+    processo: { id: string; categoria: string | null; etiquetas: string[] },
+    l: LinhaProcesso,
+  ): Promise<'COMPLETADO' | 'JA_EXISTIA'> {
+    const faltaCategoria = !processo.categoria && !!l.categoria;
+    const etiquetasNovas = l.etiquetas.filter((e) => !processo.etiquetas.includes(e));
+
+    /**
+     * A nota do jurídico só entra se ainda NÃO houver nenhuma igual — rodar a
+     * planilha três vezes não pode empilhar o mesmo texto três vezes.
+     */
+    let faltaNota = false;
+    if (l.andamento) {
+      const jaTem = await this.prisma.movimentacaoInterna.count({
+        where: { processoId: processo.id, descricao: l.andamento },
+      });
+      faltaNota = jaTem === 0;
+    }
+
+    if (!faltaCategoria && !etiquetasNovas.length && !faltaNota) return 'JA_EXISTIA';
+
+    if (faltaCategoria || etiquetasNovas.length) {
+      await this.prisma.processo.update({
+        where: { id: processo.id },
+        data: {
+          ...(faltaCategoria ? { categoria: l.categoria } : {}),
+          ...(etiquetasNovas.length
+            ? { etiquetas: [...processo.etiquetas, ...etiquetasNovas] }
+            : {}),
+        },
+      });
+    }
+    if (faltaNota) await this.registrarAndamento(l);
+    return 'COMPLETADO';
   }
 
   /**

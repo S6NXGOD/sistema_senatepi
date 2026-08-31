@@ -149,6 +149,19 @@ export class ImportarProcessoDto {
 
   @ApiPropertyOptional({ enum: StatusProcesso })
   @IsOptional() @IsEnum(StatusProcesso)
+  /**
+   * Área jurídica — slug de `AREAS_JURIDICAS`.
+   *
+   * ELA FALTAVA AQUI, e o buraco era silencioso: a importação em lote passava
+   * `categoria` no objeto, o TypeScript não reclamava (spread condicional
+   * derrota a checagem de propriedade excedente) e o valor sumia. Na primeira
+   * carga real, 82 processos entraram sem área — e o filtro de área, que existe
+   * na tela, ficou sem nada para encontrar.
+   */
+  @ApiPropertyOptional({ enum: AREAS_JURIDICAS.map((a) => a.slug) })
+  @IsOptional() @IsString()
+  categoria?: string;
+
   statusInterno?: StatusProcesso;
 }
 
