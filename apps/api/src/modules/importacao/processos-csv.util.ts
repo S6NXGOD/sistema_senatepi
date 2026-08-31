@@ -230,11 +230,23 @@ export function conferirLinha(bruta: Record<string, string>, linha: number): Lin
   }
   if (andamento && !andamentoData) {
     /**
-     * A nota sem data vale por hoje — e isso muda a ORDENAÇÃO da lista, que usa
-     * o andamento mais recente. Importar oitenta notas datadas de hoje jogaria
-     * o acervo inteiro para o topo de uma vez.
+     * A NOTA SEM DATA NÃO PODE VALER POR HOJE.
+     *
+     * A ordenação padrão da lista é pelo andamento mais recente, e o gatilho da
+     * coluna `ultimo_movimento_em` usa `COALESCE(data_fato, created_at)`. Sem
+     * data, oitenta e duas notas gravadas na mesma tarde carimbariam o acervo
+     * inteiro com a data de hoje e jogariam tudo para o topo ao mesmo tempo —
+     * que é o mesmo que não ter ordenação nenhuma.
+     *
+     * O texto do andamento é um RESUMO DE SITUAÇÃO ("Sentença de procedência.
+     * Aguarda R.O."), não um evento datado. Por isso, sem data na planilha, a
+     * importação ancora a nota no último fato já conhecido do processo — ver
+     * `registrarAndamento`. A ordenação não se mexe, e nenhuma data é inventada.
      */
-    avisos.push('Andamento sem data: a nota entra com a data de hoje e sobe o processo na lista.');
+    avisos.push(
+      'Andamento sem data: a nota será ancorada no último andamento conhecido do processo, ' +
+        'para não alterar a ordem da lista.',
+    );
   }
 
   return {
@@ -299,4 +311,59 @@ export function conferirPlanilha(
   }
 
   return { linhas: conferidas, problemasNoArquivo };
+}
+
+// ===========================================================================
+// Segunda passada: o que ainda falta num processo que JÁ está cadastrado
+// ===========================================================================
+
+/** O que a planilha ainda tem a acrescentar a um processo já cadastrado. */
+export type Pendencia = 'CATEGORIA' | 'ETIQUETAS' | 'ANDAMENTO';
+
+/** Retrato do processo como ele está hoje no banco. */
+export interface EstadoNoBanco {
+  categoria: string | null;
+  etiquetas: string[];
+  /** Descrições das notas internas já gravadas — para não repetir o andamento. */
+  andamentos: string[];
+}
+
+export const PENDENCIA_LABEL: Record<Pendencia, string> = {
+  CATEGORIA: 'área jurídica',
+  ETIQUETAS: 'etiquetas',
+  ANDAMENTO: 'andamento do jurídico',
+};
+
+/**
+ * O QUE A PRÉVIA PROMETE É O QUE A EXECUÇÃO FAZ.
+ *
+ * Esta função é a única que decide se um processo já cadastrado ainda tem o que
+ * receber — e é chamada nos DOIS lugares: na conferência, para a tela dizer
+ * quantas linhas serão completadas, e na importação, para completar de fato.
+ *
+ * Duas cópias divergiriam na primeira correção, e o sintoma seria o pior
+ * possível: a tela prometendo "80 a completar" e o resultado dizendo "80
+ * ignorados", sem ninguém conseguir dizer qual das duas mentiu.
+ *
+ * NUNCA SOBRESCREVE. Só entra o campo que está VAZIO no banco: a planilha é
+ * uma fonte auxiliar, e quem digitou uma categoria na ficha depois da primeira
+ * carga não pode perdê-la porque alguém subiu o arquivo de novo.
+ */
+export function oQueCompletar(atual: EstadoNoBanco, l: LinhaProcesso): Pendencia[] {
+  const faltas: Pendencia[] = [];
+  if (!atual.categoria && l.categoria) faltas.push('CATEGORIA');
+  if (l.etiquetas.some((e) => !atual.etiquetas.includes(e))) faltas.push('ETIQUETAS');
+  if (l.andamento && !atual.andamentos.includes(l.andamento)) faltas.push('ANDAMENTO');
+  return faltas;
+}
+
+/** Frase para a linha da prévia — o que ESTA linha vai ganhar, em português. */
+export function avisoDeCompletar(faltas: Pendencia[]): string {
+  if (!faltas.length) return 'Já cadastrado e completo — nada a fazer nesta linha.';
+  const lista = faltas.map((f) => PENDENCIA_LABEL[f]);
+  const texto =
+    lista.length === 1
+      ? lista[0]
+      : `${lista.slice(0, -1).join(', ')} e ${lista[lista.length - 1]}`;
+  return `Já cadastrado — será completado: ${texto}.`;
 }

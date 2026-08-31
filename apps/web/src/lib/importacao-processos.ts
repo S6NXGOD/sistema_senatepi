@@ -16,8 +16,14 @@ export interface ConferenciaPlanilha {
   total: number;
   validos: number;
   comErro: number;
-  /** Já estão no sistema — serão pulados, não são erro. */
+  /** Já estão no sistema. NÃO são pulados: recebem o que estiver faltando. */
   jaCadastrados: number;
+  /** Linhas que vão criar processo novo (consultam o CNJ). */
+  novos: number;
+  /** Já cadastrados que ainda têm o que receber — escrita local, sem CNJ. */
+  aCompletar: number;
+  /** Já cadastrados e sem nada a acrescentar. */
+  jaCompletos: number;
   problemasNoArquivo: string[];
 }
 
@@ -43,6 +49,8 @@ export interface ResumoImportacaoProcessos {
   comErro: number;
   processados: number;
   importados: number;
+  /** Já existiam e receberam o que faltava. Contado à parte de `importados`. */
+  completados: number;
   ignorados: number;
   criadoEm: string;
   finalizadoEm: string | null;

@@ -130,7 +130,23 @@ export function ImportarLoteDialog({
 
   if (!open) return null;
 
-  const aImportar = conferencia ? conferencia.validos - conferencia.jaCadastrados : 0;
+  /**
+   * DOIS TRABALHOS, DOIS NÚMEROS.
+   *
+   * `aImportar` era `validos - jaCadastrados`, e o botão ficava desabilitado
+   * quando dava zero. Parecia razoável até a segunda passada: com os 82
+   * processos já cadastrados, a conta dá zero, o botão trava e o único caminho
+   * para COMPLETAR o que ficou faltando (área jurídica, etiquetas, andamento
+   * do jurídico) fica inalcançável pela tela. Foi exatamente o que aconteceu
+   * com o jurídico em 31/08/2026: mandei subir a planilha de novo e o botão
+   * não deixava.
+   *
+   * Agora a conferência devolve os dois números separados, e há trabalho a
+   * fazer se QUALQUER um deles for maior que zero.
+   */
+  const aImportar = conferencia?.novos ?? 0;
+  const aCompletar = conferencia?.aCompletar ?? 0;
+  const aFazer = aImportar + aCompletar;
   const progresso = resumo && resumo.validos > 0
     ? Math.round((resumo.processados / resumo.validos) * 100)
     : 0;
@@ -189,8 +205,8 @@ export function ImportarLoteDialog({
             <>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Placar rotulo="Linhas" valor={conferencia.total} />
-                <Placar rotulo="Prontas" valor={aImportar} tom="ok" />
-                <Placar rotulo="Já no sistema" valor={conferencia.jaCadastrados} />
+                <Placar rotulo="Novos" valor={aImportar} tom={aImportar ? 'ok' : undefined} />
+                <Placar rotulo="A completar" valor={aCompletar} tom={aCompletar ? 'ok' : undefined} />
                 <Placar rotulo="Com erro" valor={conferencia.comErro} tom={conferencia.comErro ? 'erro' : undefined} />
               </div>
 
@@ -204,8 +220,14 @@ export function ImportarLoteDialog({
 
               {linhas.length > 0 && (
                 <div>
+                  {/*
+                    A API devolve no máximo 50 por página e a tela pede só a
+                    primeira. Anunciar "50" como se fosse o total mentiria num
+                    acervo de 82 — o rótulo diz que a lista está cortada.
+                  */}
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Linhas com algo a conferir ({linhas.length})
+                    Linhas com algo a conferir{' '}
+                    {linhas.length >= 50 ? '(primeiras 50)' : `(${linhas.length})`}
                   </p>
                   <ul className="space-y-1.5">
                     {linhas.map((l) => (
@@ -234,21 +256,61 @@ export function ImportarLoteDialog({
                 </div>
               )}
 
-              <p className="rounded-lg border border-sky-300 bg-sky-50/60 p-2.5 text-xs dark:border-sky-800 dark:bg-sky-950/20">
-                A importação consulta o CNJ um processo por vez, com pausa entre eles para não
-                estourar a cota. <strong>{aImportar} processos levam cerca de {minutosEstimados(aImportar)} minutos.</strong>{' '}
-                Ela roda no servidor — dá para fechar esta janela e voltar depois.
-              </p>
+              {/*
+                A ESTIMATIVA CONTA SÓ OS NOVOS. A pausa de 2–3s existe para não
+                estourar a cota do CNJ, e completar processo que já está no
+                sistema não fala com o CNJ — é escrita local. Uma segunda
+                passada de 82 linhas leva segundos, não três minutos e meio.
+              */}
+              {aFazer === 0 ? (
+                <p className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-2.5 text-xs dark:border-emerald-800 dark:bg-emerald-950/20">
+                  <strong>Nada a fazer com esta planilha.</strong> Os {conferencia.jaCadastrados}{' '}
+                  processos já estão cadastrados e já têm tudo o que o arquivo traz — área
+                  jurídica, etiquetas e o andamento do jurídico. Subir de novo não mudaria nada.
+                </p>
+              ) : (
+                <p className="rounded-lg border border-sky-300 bg-sky-50/60 p-2.5 text-xs dark:border-sky-800 dark:bg-sky-950/20">
+                  {aImportar > 0 && (
+                    <>
+                      <strong>{aImportar} processo{aImportar === 1 ? '' : 's'} novo{aImportar === 1 ? '' : 's'}</strong>{' '}
+                      {aImportar === 1 ? 'será buscado' : 'serão buscados'} no CNJ, um por vez, com pausa
+                      entre eles — cerca de <strong>{minutosEstimados(aImportar)} minuto{minutosEstimados(aImportar) === 1 ? '' : 's'}</strong>.{' '}
+                    </>
+                  )}
+                  {aCompletar > 0 && (
+                    <>
+                      <strong>{aCompletar} já cadastrado{aCompletar === 1 ? '' : 's'}</strong>{' '}
+                      {aCompletar === 1 ? 'vai receber' : 'vão receber'} só o que estiver faltando
+                      (sem consultar o CNJ, e sem sobrescrever nada que já esteja preenchido) —
+                      isso leva segundos.{' '}
+                    </>
+                  )}
+                  {conferencia.jaCompletos > 0 && (
+                    <>
+                      {conferencia.jaCompletos} linha{conferencia.jaCompletos === 1 ? '' : 's'} já{' '}
+                      {conferencia.jaCompletos === 1 ? 'está completa' : 'estão completas'} e{' '}
+                      {conferencia.jaCompletos === 1 ? 'será ignorada' : 'serão ignoradas'}.{' '}
+                    </>
+                  )}
+                  Roda no servidor — dá para fechar esta janela e voltar depois.
+                </p>
+              )}
             </>
           )}
 
           {/* ------------------------------------------------- 3) andamento */}
           {resumo && (
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <Placar rotulo="Processados" valor={`${resumo.processados}/${resumo.validos}`} />
-                <Placar rotulo="Importados" valor={resumo.importados} tom="ok" />
-                <Placar rotulo="Não entraram" valor={resumo.ignorados} tom={resumo.ignorados ? 'erro' : undefined} />
+                <Placar rotulo="Importados" valor={resumo.importados} tom={resumo.importados ? 'ok' : undefined} />
+                <Placar rotulo="Completados" valor={resumo.completados} tom={resumo.completados ? 'ok' : undefined} />
+                {/*
+                  "Sem novidade" e não "Não entraram": a linha já cadastrada e
+                  já completa não é uma falha, e pintá-la de vermelho fazia uma
+                  segunda passada bem-sucedida parecer um desastre.
+                */}
+                <Placar rotulo="Sem novidade" valor={resumo.ignorados} />
               </div>
 
               <div className="h-2 overflow-hidden rounded-full bg-muted">
@@ -309,8 +371,14 @@ export function ImportarLoteDialog({
             </Button>
           )}
           {conferencia && !resumo && (
-            <Button onClick={confirmar} disabled={aImportar === 0}>
-              Importar {aImportar} processo{aImportar === 1 ? '' : 's'}
+            <Button onClick={confirmar} disabled={aFazer === 0}>
+              {aImportar > 0 && aCompletar > 0
+                ? `Importar ${aImportar} e completar ${aCompletar}`
+                : aImportar > 0
+                  ? `Importar ${aImportar} processo${aImportar === 1 ? '' : 's'}`
+                  : aCompletar > 0
+                    ? `Completar ${aCompletar} processo${aCompletar === 1 ? '' : 's'}`
+                    : 'Nada a fazer'}
             </Button>
           )}
         </div>

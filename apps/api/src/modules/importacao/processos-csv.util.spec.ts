@@ -160,9 +160,19 @@ describe('data do andamento', () => {
     expect(r.avisos.join()).toMatch(/não reconhecida/);
   });
 
-  it('andamento sem data avisa que sobe o processo na lista', () => {
+  /**
+   * O AVISO MUDOU JUNTO COM O COMPORTAMENTO.
+   *
+   * Ele dizia "a nota entra com a data de hoje e sobe o processo na lista", e
+   * isso era verdade — e era o problema: as 82 linhas do acervo real vieram sem
+   * data, e teriam carimbado o acervo inteiro com a data de hoje. A importação
+   * passou a ancorar a nota no último fato conhecido do processo, e o aviso
+   * passou a descrever o que de fato acontece.
+   */
+  it('andamento sem data avisa que a nota será ancorada, não datada de hoje', () => {
     const r = conferirLinha(base({ andamento: 'Sentença de procedência' }), 2);
-    expect(r.avisos.join()).toMatch(/sobe o processo na lista/);
+    expect(r.avisos.join()).toMatch(/ancorada no último andamento conhecido/);
+    expect(r.avisos.join()).not.toMatch(/data de hoje/);
   });
 
   it('sem andamento não reclama de data', () => {

@@ -5,7 +5,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProcessosService } from '../processos/processos.service';
 import { lerPlanilha } from './planilha.util';
 import {
+  avisoDeCompletar,
   conferirPlanilha,
+  oQueCompletar,
+  type EstadoNoBanco,
   type LinhaProcesso,
 } from './processos-csv.util';
 
@@ -82,13 +85,39 @@ export class ProcessosCsvService {
      * regras de formato testáveis sem subir meio módulo.
      */
     const npus = linhas.map((l) => l.npu).filter(Boolean);
-    const jaCadastrados = new Set(
-      (
-        await this.prisma.processo.findMany({
-          where: { numeroCNJ: { in: npus } },
-          select: { numeroCNJ: true },
+    const existentes = await this.prisma.processo.findMany({
+      where: { numeroCNJ: { in: npus } },
+      select: { id: true, numeroCNJ: true, categoria: true, etiquetas: true },
+    });
+    const jaCadastrados = new Set(existentes.map((p) => p.numeroCNJ!));
+
+    /**
+     * As notas já gravadas entram na conferência para a prévia saber se o
+     * ANDAMENTO da planilha é novidade ou repetição. Uma consulta só para o
+     * lote inteiro — 82 consultas individuais numa tela que a pessoa está
+     * olhando seria trocar a resposta imediata por meio minuto de espera.
+     */
+    const notas = existentes.length
+      ? await this.prisma.movimentacaoInterna.findMany({
+          where: { processoId: { in: existentes.map((p) => p.id) } },
+          select: { processoId: true, descricao: true },
         })
-      ).map((p) => p.numeroCNJ!),
+      : [];
+    const notasPorProcesso = new Map<string, string[]>();
+    for (const n of notas) {
+      const lista = notasPorProcesso.get(n.processoId) ?? [];
+      lista.push(n.descricao ?? '');
+      notasPorProcesso.set(n.processoId, lista);
+    }
+    const estadoPorNpu = new Map<string, EstadoNoBanco>(
+      existentes.map((p) => [
+        p.numeroCNJ!,
+        {
+          categoria: p.categoria,
+          etiquetas: p.etiquetas ?? [],
+          andamentos: notasPorProcesso.get(p.id) ?? [],
+        },
+      ]),
     );
 
     const emails = [...new Set(linhas.flatMap((l) => [l.advogadoEmail, ...l.equipeEmails]).filter(Boolean))];
@@ -98,12 +127,38 @@ export class ProcessosCsvService {
     });
     const emailsConhecidos = new Set(usuarios.map((u) => u.email.toLowerCase()));
 
+    let aCompletar = 0;
+    let jaCompletos = 0;
     for (const l of linhas) {
       if (l.npu && jaCadastrados.has(l.npu)) {
-        // NÃO é erro: reimportar é o caso comum de uma segunda rodada. A linha
-        // é PULADA, com aviso — barrar o arquivo inteiro porque dois processos
-        // já entraram seria transformar progresso em obstáculo.
-        l.avisos.push('Já cadastrado — esta linha será pulada.');
+        /**
+         * NÃO é erro, e — desde a correção de 31/08/2026 — também não é
+         * "pulada". A linha já cadastrada COMPLETA o que estiver vazio no
+         * processo, e o aviso passa a dizer exatamente o quê.
+         *
+         * O texto antigo ("esta linha será pulada") virou mentira quando a
+         * segunda passada ganhou o `completarExistente`, e mentira na prévia
+         * é o pior tipo: foi ela que fez a tela desabilitar o botão de
+         * importar quando TODAS as linhas já existiam, deixando o único
+         * caminho para completar o acervo inalcançável.
+         */
+        const faltas = oQueCompletar(
+          estadoPorNpu.get(l.npu) ?? { categoria: null, etiquetas: [], andamentos: [] },
+          l,
+        );
+        /**
+         * A linha já completa não ganha aviso — e é de propósito. A lista da
+         * prévia mostra "linhas com algo a conferir"; encher as 82 com "nada a
+         * fazer nesta linha" transforma a única lista útil da tela em parede.
+         * Quem já está completo aparece no placar, que é onde a informação
+         * cabe em um número.
+         */
+        if (faltas.length) {
+          aCompletar++;
+          l.avisos.push(avisoDeCompletar(faltas));
+        } else {
+          jaCompletos++;
+        }
       }
       if (l.advogadoEmail && !emailsConhecidos.has(l.advogadoEmail)) {
         l.erros.push(`Advogado "${l.advogadoEmail}" não encontrado entre os usuários ativos.`);
@@ -145,6 +200,15 @@ export class ProcessosCsvService {
       validos,
       comErro: linhas.length - validos,
       jaCadastrados: linhas.filter((l) => jaCadastrados.has(l.npu)).length,
+      /**
+       * A tela precisa dos TRÊS números para saber se há trabalho a fazer.
+       * Só `jaCadastrados` não distingue "80 processos a completar" de "80
+       * processos que já estão completos" — e era essa indistinção que
+       * desabilitava o botão nos dois casos.
+       */
+      novos: linhas.filter((l) => !l.erros.length && !jaCadastrados.has(l.npu)).length,
+      aCompletar,
+      jaCompletos,
       problemasNoArquivo,
     };
   }
@@ -167,6 +231,8 @@ export class ProcessosCsvService {
       comErro: imp.comErro,
       processados: imp.processados,
       importados: imp.importados,
+      /** Já existiam e receberam o que faltava — ver `oQueCompletar`. */
+      completados: imp.atualizados,
       ignorados: imp.ignorados,
       criadoEm: imp.createdAt,
       finalizadoEm: imp.finalizadoEm,
@@ -254,23 +320,43 @@ export class ProcessosCsvService {
     });
 
     let importados = 0;
+    /**
+     * COMPLETADOS têm contador PRÓPRIO, na coluna `atualizados` que o modelo já
+     * tinha (zero migração, e a janela de troca do deploy agradece).
+     *
+     * Antes eles eram somados a `importados`, com o comentário "alguma coisa
+     * entrou de fato". Entrou mesmo — mas a tela então dizia "82 importados"
+     * numa passada que não criou processo nenhum, e quem lesse concluiria que
+     * o acervo tinha sido duplicado. São dois fatos diferentes e precisam de
+     * dois números.
+     */
+    let completados = 0;
     let ignorados = 0;
     let processados = 0;
 
     for (const registro of linhas) {
       const l = registro.dados as unknown as LinhaProcesso;
       processados++;
+      // Só a criação de processo novo vai ao DataJud; completar é escrita local.
+      let consultouOCnj = false;
       try {
         const resultado = await this.importarLinha(l, ctx, opcoes);
-        // COMPLETADO conta como importado: alguma coisa entrou de fato. Contá-lo
-        // como ignorado faria a segunda passada parecer não ter feito nada.
-        if (resultado === 'IMPORTADO' || resultado === 'COMPLETADO') importados++;
+        consultouOCnj = resultado === 'IMPORTADO';
+        if (resultado === 'IMPORTADO') importados++;
+        else if (resultado === 'COMPLETADO') completados++;
         else ignorados++;
         await this.prisma.importacaoLinha.update({
           where: { id: registro.id },
           data: { avisos: [...(l.avisos ?? []), `Resultado: ${resultado}`] },
         });
       } catch (err) {
+        /**
+         * A linha que falhou conta como se tivesse consultado. A falha mais
+         * provável é o próprio CNJ (404, 429, tempo esgotado), e nesse caso a
+         * cota já foi gasta — presumir que não foi é justamente o caminho para
+         * emendar a próxima chamada sem respiro e levar o 429 seguinte.
+         */
+        consultouOCnj = true;
         ignorados++;
         const motivo = (err as Error).message.slice(0, 300);
         this.logger.warn(`[IMPORT-PROCESSOS] linha ${l.linha} (${l.npu}): ${motivo}`);
@@ -283,12 +369,21 @@ export class ProcessosCsvService {
       }
 
       await this.prisma.importacao
-        .update({ where: { id }, data: { processados, importados, ignorados } })
+        .update({ where: { id }, data: { processados, importados, atualizados: completados, ignorados } })
         .catch(() => undefined);
 
-      // A pausa fica FORA do try: mesmo a linha que falhou consumiu cota do
-      // CNJ, e emendar a próxima sem respiro é o caminho para o 429.
-      if (processados < linhas.length) await this.aguardar();
+      /**
+       * A PAUSA É DÍVIDA COM O CNJ — e só existe quando houve consulta.
+       *
+       * Ficava FORA do try de propósito: a linha que falhou também consumiu
+       * cota, e emendar a próxima sem respiro é o caminho para o 429. O que
+       * estava errado era pausar TAMBÉM nas linhas que não falam com o CNJ.
+       * Numa segunda passada — 82 linhas já cadastradas, nenhuma consulta —
+       * eram 82 esperas de 2 a 3 segundos: três minutos e meio de nada, num
+       * trabalho que é só escrita local. Eu havia dito ao jurídico que
+       * levaria "segundos".
+       */
+      if (consultouOCnj && processados < linhas.length) await this.aguardar();
     }
 
     await this.prisma.importacao.update({
@@ -297,12 +392,14 @@ export class ProcessosCsvService {
         status: StatusImportacao.CONCLUIDO,
         processados,
         importados,
+        atualizados: completados,
         ignorados,
         finalizadoEm: new Date(),
       },
     });
     this.logger.log(
-      `[IMPORT-PROCESSOS] ${id} concluído — ${importados} importado(s), ${ignorados} ignorado(s).`,
+      `[IMPORT-PROCESSOS] ${id} concluído — ${importados} importado(s), ` +
+        `${completados} completado(s), ${ignorados} sem novidade.`,
     );
   }
 
@@ -316,7 +413,7 @@ export class ProcessosCsvService {
       where: { numeroCNJ: l.npu },
       select: { id: true, categoria: true, etiquetas: true },
     });
-    if (jaExiste) return this.completarExistente(jaExiste, l);
+    if (jaExiste) return this.completarExistente(jaExiste, l, ctx.userId);
 
     const advogadoId = l.advogadoEmail ? await this.acharUsuario(l.advogadoEmail) : null;
     const equipeIds = (
@@ -373,7 +470,7 @@ export class ProcessosCsvService {
       { userId: ctx.userId, ip: ctx.ip },
     );
 
-    if (l.andamento) await this.registrarAndamento(l);
+    if (l.andamento) await this.registrarAndamento(l, ctx.userId);
     return 'IMPORTADO';
   }
 
@@ -395,23 +492,31 @@ export class ProcessosCsvService {
   private async completarExistente(
     processo: { id: string; categoria: string | null; etiquetas: string[] },
     l: LinhaProcesso,
+    autorId?: string,
   ): Promise<'COMPLETADO' | 'JA_EXISTIA'> {
-    const faltaCategoria = !processo.categoria && !!l.categoria;
-    const etiquetasNovas = l.etiquetas.filter((e) => !processo.etiquetas.includes(e));
-
     /**
      * A nota do jurídico só entra se ainda NÃO houver nenhuma igual — rodar a
      * planilha três vezes não pode empilhar o mesmo texto três vezes.
      */
-    let faltaNota = false;
-    if (l.andamento) {
-      const jaTem = await this.prisma.movimentacaoInterna.count({
-        where: { processoId: processo.id, descricao: l.andamento },
-      });
-      faltaNota = jaTem === 0;
-    }
+    const andamentos = (
+      await this.prisma.movimentacaoInterna.findMany({
+        where: { processoId: processo.id },
+        select: { descricao: true },
+      })
+    ).map((n) => n.descricao ?? '');
 
-    if (!faltaCategoria && !etiquetasNovas.length && !faltaNota) return 'JA_EXISTIA';
+    // A MESMA função que a prévia usou para prometer. Ver `oQueCompletar`.
+    const faltas = oQueCompletar(
+      { categoria: processo.categoria, etiquetas: processo.etiquetas, andamentos },
+      l,
+    );
+    if (!faltas.length) return 'JA_EXISTIA';
+
+    const faltaCategoria = faltas.includes('CATEGORIA');
+    const etiquetasNovas = faltas.includes('ETIQUETAS')
+      ? l.etiquetas.filter((e) => !processo.etiquetas.includes(e))
+      : [];
+    const faltaNota = faltas.includes('ANDAMENTO');
 
     if (faltaCategoria || etiquetasNovas.length) {
       await this.prisma.processo.update({
@@ -424,7 +529,7 @@ export class ProcessosCsvService {
         },
       });
     }
-    if (faltaNota) await this.registrarAndamento(l);
+    if (faltaNota) await this.registrarAndamento(l, autorId);
     return 'COMPLETADO';
   }
 
@@ -441,18 +546,48 @@ export class ProcessosCsvService {
    * uma vez: sem ela, oitenta notas datadas de hoje fariam o acervo todo
    * parecer recém-movimentado. Ver `ultimoMovimentoEm`.
    */
-  private async registrarAndamento(l: LinhaProcesso) {
+  private async registrarAndamento(l: LinhaProcesso, autorId?: string) {
     const processo = await this.prisma.processo.findUnique({
       where: { numeroCNJ: l.npu },
-      select: { id: true },
+      select: { id: true, ultimoMovimentoEm: true },
     });
     if (!processo) return;
+
+    /**
+     * SEM DATA NA PLANILHA, A NOTA SE ANCORA NO ÚLTIMO FATO CONHECIDO.
+     *
+     * O acervo real veio com `andamento_data` vazio nas 82 linhas — a planilha
+     * de origem registrava a SITUAÇÃO ("Sentença de procedência. Aguarda
+     * R.O."), não a data em que ela mudou. Deixar `dataFato` nulo faz o gatilho
+     * de `ultimo_movimento_em` cair no `created_at`, e aí os 82 processos
+     * amanhecem todos com "movimentação hoje": a ordenação padrão da lista —
+     * justamente a que existe para mostrar o que se mexeu — vira ruído.
+     *
+     * `ultimoMovimentoEm` é a data do fato mais recente que o sistema conhece
+     * daquele processo (andamento do CNJ, em geral). Ancorar ali tem três
+     * qualidades: não inventa data nova, é a afirmação mais verdadeira
+     * disponível sobre quando aquela situação passou a valer, e o gatilho —
+     * que só AVANÇA — vira um no-op garantido.
+     *
+     * Processo sem nenhum fato conhecido continua com nota sem data, e aí
+     * "hoje" é mesmo a coisa mais recente que se sabe dele.
+     */
+    const dataFato = l.andamentoData
+      ? new Date(`${l.andamentoData}T12:00:00-03:00`)
+      : processo.ultimoMovimentoEm;
+
     await this.prisma.movimentacaoInterna.create({
       data: {
         processoId: processo.id,
         tipo: 'ATUALIZACAO',
         descricao: l.andamento,
-        dataFato: l.andamentoData ? new Date(`${l.andamentoData}T12:00:00-03:00`) : null,
+        dataFato,
+        /**
+         * A pessoa que subiu a planilha é a autora do registro. Sem isto a nota
+         * ficava sem autor E sem `origemSistema` — um híbrido que nenhuma das
+         * duas leituras do sistema sabe classificar.
+         */
+        autorId: autorId ?? null,
         notaInterna: false,
         /**
          * NÃO é `origemSistema`. A frase foi escrita por uma pessoa do
