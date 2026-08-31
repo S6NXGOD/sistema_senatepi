@@ -7,7 +7,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { TiposEventoService } from './tipos-evento.service';
 import {
   acharDesfecho, desfechosDoTipo, categoriaCancelamentoValida,
-  CATEGORIA_CANCELAMENTO_LABEL,
+  CATEGORIA_CANCELAMENTO_LABEL, tituloDoSeguimento,
 } from './desfechos.catalogo';
 import { montarUrgencia, sincronizarEquipe } from './equipe.util';
 import { normalizarCategoria } from '../processos/areas.catalogo';
@@ -807,7 +807,7 @@ export class AgendaService {
         : manhaDaqui(spec!.emDias);
       const novo = await tx.compromisso.create({
         data: {
-          titulo: dto.seguimento?.titulo?.trim() || spec!.titulo,
+          titulo: dto.seguimento?.titulo?.trim() || tituloDoSeguimento(spec!.titulo, atual.titulo),
           tipo: tipoSeguimento!,
           inicio,
           fim: new Date(inicio.getTime() + 3_600_000),

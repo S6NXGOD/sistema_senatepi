@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Param,
@@ -10,7 +11,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { IsBoolean, IsOptional } from 'class-validator';
 import { Request } from 'express';
 import { UserRole } from '@prisma/client';
 
@@ -19,6 +21,25 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+
+/**
+ * O QUE QUEM CONFIRMA A IMPORTAÇÃO PRECISA DECIDIR.
+ *
+ * Corpo OPCIONAL de propósito: a tela antiga chamava `POST :id/confirmar` sem
+ * corpo nenhum, e com `forbidNonWhitelisted` ligado uma exigência nova aqui
+ * quebraria a importação durante a janela de troca do deploy — o contêiner
+ * antigo continua atendendo enquanto o novo sobe.
+ */
+export class ConfirmarImportacaoProcessosDto {
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Deixa o robô de prazos avaliar as movimentações importadas. Padrão `false`: a planilha ' +
+      'costuma ser acervo já acompanhado fora do sistema, e as tarefas nasceriam vencidas.',
+  })
+  @IsOptional() @IsBoolean()
+  criarTarefasDePrazo?: boolean;
+}
 
 /**
  * IMPORTAÇÃO DE PROCESSOS EM LOTE.
@@ -104,7 +125,10 @@ export class ProcessosCsvController {
     @CurrentUser('id') userId: string,
     @CurrentUser('nome') nome: string,
     @Req() req: Request,
+    @Body() body?: ConfirmarImportacaoProcessosDto,
   ) {
-    return this.service.confirmar(id, this.ctx(req, userId, nome));
+    return this.service.confirmar(id, this.ctx(req, userId, nome), {
+      criarTarefasDePrazo: body?.criarTarefasDePrazo === true,
+    });
   }
 }

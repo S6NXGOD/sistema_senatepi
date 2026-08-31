@@ -415,3 +415,36 @@ export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> =
 
 export const categoriaCancelamentoValida = (slug?: string | null): boolean =>
   !!slug && CATEGORIAS_CANCELAMENTO.some((c) => c.slug === slug);
+
+/**
+ * O TÍTULO DO SEGUIMENTO DIZ DE QUAL ATIVIDADE ELE NASCEU.
+ *
+ * O caso real, na produção de 31/08/2026: a agenda mostrava TRÊS cartões
+ * "Encaminhamento da reunião" — dois deles no mesmo dia e no mesmo horário —
+ * sem nada na face do cartão que dissesse a qual reunião cada um pertencia. A
+ * informação existia, mas só dentro da descrição, a dois toques de distância.
+ *
+ * Os sete títulos do catálogo são todos assim: "Nova cobrança", "Nova
+ * tentativa de contato", "Cobrar laudo pericial". Descrevem a AÇÃO e nenhum
+ * descreve o CASO. Nos seguimentos ligados a processo o cartão já resolve isso
+ * mostrando as partes ("SENATEPI × FMS/THE"); nos que nascem de reunião,
+ * contato ou cobrança avulsa não há processo nenhum, e o cartão fica mudo.
+ *
+ * A origem vem PRIMEIRO de propósito. O título é truncado pela direita na
+ * lista, e é o sufixo genérico que pode se perder sem prejuízo — o mesmo
+ * critério já aplicado à identidade do processo no cartão, onde o polo ativo
+ * encolhe e o réu não.
+ */
+const LIMITE_ORIGEM = 48;
+
+export function tituloDoSeguimento(tituloPadrao: string, tituloDaOrigem?: string | null): string {
+  const origem = (tituloDaOrigem ?? '').trim();
+  if (!origem) return tituloPadrao;
+
+  // A origem já contém a ação? Repetir só gasta espaço da tela.
+  if (origem.toLowerCase().includes(tituloPadrao.toLowerCase())) return origem;
+
+  const curta =
+    origem.length > LIMITE_ORIGEM ? `${origem.slice(0, LIMITE_ORIGEM - 1).trimEnd()}…` : origem;
+  return `${curta} — ${tituloPadrao}`;
+}

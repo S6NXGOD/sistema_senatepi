@@ -53,6 +53,12 @@ export function ImportarLoteDialog({
   const [conferencia, setConferencia] = useState<ConferenciaPlanilha | null>(null);
   const [linhas, setLinhas] = useState<LinhaConferida[]>([]);
   const [resumo, setResumo] = useState<ResumoImportacaoProcessos | null>(null);
+  /**
+   * DESLIGADO por padrão: ver o comentário de `confirmarImportacaoProcessos`.
+   * A planilha costuma trazer acervo antigo, e aí o robô só produz tarefa
+   * vencida. Quem estiver importando um lote de casos NOVOS liga aqui.
+   */
+  const [criarTarefas, setCriarTarefas] = useState(false);
 
   const rodando = resumo?.status === 'IMPORTANDO';
   const terminou = resumo?.status === 'CONCLUIDO' || resumo?.status === 'ERRO';
@@ -90,6 +96,8 @@ export function ImportarLoteDialog({
     setConferencia(null);
     setLinhas([]);
     setResumo(null);
+    // Volta ao padrão seguro: a próxima planilha não herda a escolha desta.
+    setCriarTarefas(false);
     onClose();
   }
 
@@ -111,7 +119,7 @@ export function ImportarLoteDialog({
   async function confirmar() {
     if (!conferencia) return;
     try {
-      await confirmarImportacaoProcessos(conferencia.id);
+      await confirmarImportacaoProcessos(conferencia.id, { criarTarefasDePrazo: criarTarefas });
       setResumo(await resumoImportacaoProcessos(conferencia.id));
       toast.success('Importação iniciada — pode acompanhar aqui ou fechar.');
     } catch (e: unknown) {
@@ -270,6 +278,25 @@ export function ImportarLoteDialog({
             </div>
           )}
         </div>
+
+        {conferencia && !resumo && (
+          <label className="flex cursor-pointer items-start gap-2.5 border-t bg-muted/40 p-4 sm:px-4 sm:py-3">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+              checked={criarTarefas}
+              onChange={(e) => setCriarTarefas(e.target.checked)}
+            />
+            <span className="min-w-0 text-xs leading-relaxed">
+              <span className="font-medium">Abrir tarefas de prazo para as movimentações recentes</span>
+              <span className="block text-muted-foreground">
+                {criarTarefas
+                  ? 'Cada intimação ou publicação dos últimos 30 dias vai gerar uma atividade na agenda. Use só para processos NOVOS.'
+                  : 'Recomendado deixar desmarcado ao migrar acervo já acompanhado: os prazos desse período já foram cumpridos, e as tarefas nasceriam vencidas.'}
+              </span>
+            </span>
+          </label>
+        )}
 
         <div className="flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:justify-end">
           <Button variant="outline" onClick={fechar}>

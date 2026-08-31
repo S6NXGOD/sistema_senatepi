@@ -10,6 +10,7 @@ import { lerLogoDaMarca } from '../../common/assets.util';
 import { VotacaoService } from './votacao.service';
 import { lerConfiguracoes } from './configuracoes-evento';
 import { tenant, rodapeInstitucional } from '../../tenant/tenant.config';
+import { carimbarRodape } from '../../common/pdf-rodape.util';
 
 const VERDE_ESCURO = '#1B7F0A';
 const VERDE_MEDIO = '#4FA11B';
@@ -336,14 +337,13 @@ export class DossieEventoService {
         .text(TEXTO_LGPD, { align: 'justify', width: W, lineGap: 1.5 });
 
       // ---- Rodapé e numeração em todas as páginas ----
-      const total = doc.bufferedPageRange().count;
-      for (let i = 0; i < total; i++) {
-        doc.switchToPage(i);
-        const yr = doc.page.height - 42;
-        doc.font('Helvetica').fontSize(6).fillColor('#6B7280')
-          .text(RODAPE, X, yr, { width: W, align: 'center' });
-        doc.fontSize(7).text(`Página ${i + 1} de ${total}`, X, yr + 14, { width: W, align: 'center' });
-      }
+      carimbarRodape(doc, RODAPE, {
+        fonte: 'Helvetica',
+        corpo: 6,
+        cor: '#6B7280',
+        corDaLinha: null,
+        numerarPaginas: true,
+      });
 
       doc.end();
     });

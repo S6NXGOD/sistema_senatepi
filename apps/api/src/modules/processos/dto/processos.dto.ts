@@ -111,6 +111,36 @@ export class ImportarProcessoDto {
   @IsOptional() @IsArray() @IsString({ each: true })
   etiquetas?: string[];
 
+  /**
+   * O ROBÔ DE PRAZOS DEVE OLHAR ESTE PROCESSO NA ENTRADA?
+   *
+   * Padrão SIM, que é o caso do cadastro avulso: o advogado acabou de ajuizar
+   * ou de receber o caso, e uma intimação recente nas movimentações é trabalho
+   * de verdade que ninguém viu ainda.
+   *
+   * A MIGRAÇÃO DE ACERVO é o caso oposto, e foi o que apareceu na produção de
+   * 31/08/2026. Dos 82 processos importados da planilha, sete movimentações
+   * dentro da janela de 30 dias viraram quatro tarefas "Verificação de
+   * Intimação / Prazo" — todas de atos com 25 a 28 dias, todas já vencidas na
+   * hora em que nasceram. E não podia ser diferente: são processos que o
+   * escritório acompanha há ANOS, cujas publicações daquele mês já foram lidas,
+   * respondidas e protocoladas fora do sistema. A tarefa não avisava de nada
+   * novo — mandava conferir o que já estava conferido.
+   *
+   * O robô não tem como distinguir "processo novo" de "processo antigo que
+   * acabou de entrar no sistema": para ele as duas coisas são um processo
+   * criado hoje com movimentações recentes. Quem sabe a diferença é quem está
+   * importando, e é por isso que a decisão é um parâmetro e não uma heurística.
+   */
+  @ApiPropertyOptional({
+    default: true,
+    description:
+      'Deixa o robô de prazos avaliar as movimentações recém-importadas. Use `false` ao migrar ' +
+      'um acervo já acompanhado fora do sistema — senão nascem tarefas para prazos já cumpridos.',
+  })
+  @IsOptional() @IsBoolean()
+  criarTarefasDePrazo?: boolean;
+
   @ApiPropertyOptional({
     description:
       'Advogado RESPONSÁVEL (o principal). Para uma equipe, use também `advogadosIds`.',

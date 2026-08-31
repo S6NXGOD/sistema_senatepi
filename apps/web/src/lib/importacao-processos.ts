@@ -66,8 +66,24 @@ export async function linhasImportacaoProcessos(
   return (await api.get(`${BASE}/${id}/linhas`, { params: opts })).data;
 }
 
-export async function confirmarImportacaoProcessos(id: string) {
-  return (await api.post(`${BASE}/${id}/confirmar`)).data;
+/**
+ * `criarTarefasDePrazo` PADRÃO FALSO, e é o padrão certo aqui.
+ *
+ * Planilha de importação é, quase sempre, acervo que já vinha sendo acompanhado
+ * fora do sistema. Com o robô ligado, cada publicação dos últimos 30 dias vira
+ * uma tarefa "Verificação de Intimação / Prazo" que nasce vencida — mandando
+ * conferir um prazo que o escritório já cumpriu. Medido na carga de 31/08/2026:
+ * 82 processos, 4 tarefas, todas de atos com 25 a 28 dias.
+ */
+export async function confirmarImportacaoProcessos(
+  id: string,
+  opcoes: { criarTarefasDePrazo?: boolean } = {},
+) {
+  return (
+    await api.post(`${BASE}/${id}/confirmar`, {
+      criarTarefasDePrazo: opcoes.criarTarefasDePrazo === true,
+    })
+  ).data;
 }
 
 /**

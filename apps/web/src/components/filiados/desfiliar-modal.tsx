@@ -112,10 +112,24 @@ export function DesfiliarModal({
     }
   }
 
-  /** Gera o termo com o que está na tela — antes de confirmar, para assinatura. */
+  /**
+   * Gera o termo com o que está na tela — antes de confirmar, para assinatura.
+   *
+   * EXIGE O MOTIVO. Sem esta trava, o botão entregava um termo com a seção "2.
+   * MOTIVO DA DESFILIAÇÃO" impressa em branco (o PDF cai no traço de
+   * preenchimento manual), embora a linha logo abaixo do botão prometa que "o
+   * termo sai com o motivo e o mês de corte já preenchidos". Aconteceu na
+   * produção em 31/08/2026: o documento foi gerado, assinado e anexado sem o
+   * motivo — e o motivo é justamente o campo que a API exige para confirmar a
+   * saída, ou seja, o papel arquivado dizia menos que o cadastro.
+   */
   function baixarTermo() {
+    if (!motivo) {
+      toast.error('Escolha o motivo antes de gerar o termo — ele sai impresso no documento.');
+      return;
+    }
     const q = new URLSearchParams();
-    if (motivo) q.set('motivo', motivo);
+    q.set('motivo', motivo);
     if (observacoes.trim()) q.set('observacoes', observacoes.trim());
     if (mesCorte) q.set('mesCorte', mesCorte);
     const qs = q.toString();
@@ -239,11 +253,19 @@ export function DesfiliarModal({
               <FileCheck2 className="h-4 w-4 text-muted-foreground" /> Termo de Desfiliação
             </p>
 
-            <Button type="button" variant="outline" className="w-full" onClick={baixarTermo}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={!motivo}
+              onClick={baixarTermo}
+            >
               <FileDown className="h-4 w-4" /> Gerar e Baixar Termo Preenchido
             </Button>
             <p className="text-[11px] text-muted-foreground">
-              O termo sai com o motivo e o mês de corte já preenchidos, pronto para assinatura.
+              {motivo
+                ? 'O termo sai com o motivo e o mês de corte já preenchidos, pronto para assinatura.'
+                : 'Escolha o motivo acima para liberar o termo — ele sai impresso no documento.'}
             </p>
 
             <div className="pt-1">

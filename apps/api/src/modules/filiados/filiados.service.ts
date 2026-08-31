@@ -52,6 +52,7 @@ import {
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
 import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
+import { carimbarRodape } from '../../common/pdf-rodape.util';
 
 /**
  * Formatos aceitos — e a EXTENSÃO que cada um recebe ao ser gravado.
@@ -1133,14 +1134,7 @@ export class FiliadosService {
         .text('Assinatura do(a) Filiado(a)', X, ys + 6, { align: 'center', width: W });
 
       // ---- Rodapé fixo (repetido em todas as páginas) ----
-      const range = doc.bufferedPageRange();
-      for (let i = range.start; i < range.start + range.count; i++) {
-        doc.switchToPage(i);
-        const fy = doc.page.height - 42;
-        doc.moveTo(X, fy - 8).lineTo(X + W, fy - 8).strokeColor('#9ca3af').lineWidth(0.5).stroke();
-        doc.font('Times-Roman').fontSize(7).fillColor('#4b5563')
-          .text(RODAPE, X, fy, { align: 'center', width: W });
-      }
+      carimbarRodape(doc, RODAPE, { fonte: 'Times-Roman', corpo: 7 });
 
       doc.end();
     });
@@ -1395,22 +1389,7 @@ export class FiliadosService {
       assinatura('Diretoria / Secretaria', tenant.sigla, 1);
 
       // ---- Rodapé fixo (repetido em todas as páginas) ----
-      const range = doc.bufferedPageRange();
-      for (let i = range.start; i < range.start + range.count; i++) {
-        doc.switchToPage(i);
-        const fy = doc.page.height - 42;
-        doc
-          .moveTo(X, fy - 8)
-          .lineTo(X + W, fy - 8)
-          .strokeColor(VERDE_MEDIO)
-          .lineWidth(0.8)
-          .stroke();
-        doc
-          .font('Helvetica')
-          .fontSize(6.5)
-          .fillColor('#4b5563')
-          .text(RODAPE, X, fy, { align: 'center', width: W });
-      }
+      carimbarRodape(doc, RODAPE, { corDaLinha: VERDE_MEDIO, espessuraDaLinha: 0.8 });
       doc.end();
     });
 

@@ -15,6 +15,11 @@ interface Ctx {
   ip?: string;
 }
 
+/** Escolhas de quem confirma a importação — ver `ConfirmarImportacaoProcessosDto`. */
+export interface OpcoesImportacao {
+  criarTarefasDePrazo?: boolean;
+}
+
 /**
  * IMPORTAÇÃO DE PROCESSOS EM LOTE.
  *
@@ -199,7 +204,7 @@ export class ProcessosCsvService {
   // 3) Execução
   // ==========================================================================
 
-  async confirmar(id: string, ctx: Ctx) {
+  async confirmar(id: string, ctx: Ctx, opcoes: OpcoesImportacao = {}) {
     const imp = await this.prisma.importacao.findUnique({ where: { id } });
     if (!imp || imp.perfil !== PerfilImportacao.PROCESSOS_CSV) {
       throw new NotFoundException('Importação de processos não encontrada.');
@@ -228,7 +233,7 @@ export class ProcessosCsvService {
      * IMPORTANDO para sempre, e a tela ficaria girando sem nunca dizer o que
      * houve.
      */
-    void this.executar(id, ctx).catch(async (e) => {
+    void this.executar(id, ctx, opcoes).catch(async (e) => {
       this.logger.error(`[IMPORT-PROCESSOS] ${id} falhou: ${(e as Error).message}`);
       await this.prisma.importacao
         .update({
@@ -241,7 +246,7 @@ export class ProcessosCsvService {
     return { ok: true, status: StatusImportacao.IMPORTANDO };
   }
 
-  private async executar(id: string, ctx: Ctx) {
+  private async executar(id: string, ctx: Ctx, opcoes: OpcoesImportacao = {}) {
     const linhas = await this.prisma.importacaoLinha.findMany({
       where: { importacaoId: id, valido: true },
       orderBy: { linha: 'asc' },
@@ -256,7 +261,7 @@ export class ProcessosCsvService {
       const l = registro.dados as unknown as LinhaProcesso;
       processados++;
       try {
-        const resultado = await this.importarLinha(l, ctx);
+        const resultado = await this.importarLinha(l, ctx, opcoes);
         // COMPLETADO conta como importado: alguma coisa entrou de fato. Contá-lo
         // como ignorado faria a segunda passada parecer não ter feito nada.
         if (resultado === 'IMPORTADO' || resultado === 'COMPLETADO') importados++;
@@ -305,6 +310,7 @@ export class ProcessosCsvService {
   private async importarLinha(
     l: LinhaProcesso,
     ctx: Ctx,
+    opcoes: OpcoesImportacao = {},
   ): Promise<'IMPORTADO' | 'COMPLETADO' | 'JA_EXISTIA'> {
     const jaExiste = await this.prisma.processo.findUnique({
       where: { numeroCNJ: l.npu },
@@ -354,6 +360,15 @@ export class ProcessosCsvService {
         ...(equipeIds.length ? { advogadosIds: equipeIds } : {}),
         ...(l.categoria ? { categoria: l.categoria } : {}),
         ...(l.etiquetas.length ? { etiquetas: l.etiquetas } : {}),
+        /**
+         * MIGRAÇÃO DE ACERVO NÃO ABRE PRAZO, por padrão.
+         *
+         * O padrão aqui é o INVERSO do cadastro avulso, e de propósito: uma
+         * planilha com dezenas de processos é, quase sempre, acervo que já
+         * vinha sendo acompanhado fora do sistema. Ver o comentário de
+         * `criarTarefasDePrazo` no DTO para o caso medido na produção.
+         */
+        criarTarefasDePrazo: opcoes.criarTarefasDePrazo === true,
       },
       { userId: ctx.userId, ip: ctx.ip },
     );

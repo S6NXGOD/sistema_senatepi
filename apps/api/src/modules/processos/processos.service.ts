@@ -400,8 +400,12 @@ export class ProcessosService {
     });
 
     // Robô de prazos: as movimentações que acabaram de entrar podem já conter
-    // intimações/audiências que exigem tarefa.
-    await this.dispararAutomacao(processo.id);
+    // intimações/audiências que exigem tarefa. Salvo em migração de acervo, em
+    // que o prazo recente já foi cumprido fora do sistema — ver o comentário de
+    // `criarTarefasDePrazo` no DTO.
+    if (dto.criarTarefasDePrazo !== false) {
+      await this.dispararAutomacao(processo.id);
+    }
 
     /**
      * O processo pode nascer JÁ ENCERRADO.
