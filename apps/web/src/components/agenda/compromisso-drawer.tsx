@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -16,7 +15,7 @@ import { AnexosSection } from '@/components/anexos/anexos-section';
 import { cn, mascararCpf } from '@/lib/utils';
 import { MotivoUrgencia, SeloUrgente } from '@/components/ui/selo-urgente';
 import {
-  getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, cronometroHMS,
+  getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, duracaoEntre,
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
@@ -27,22 +26,9 @@ import { listarPlantao, estaNoHorario, nomeDeExibicao } from '@/lib/escalas';
 import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
 import { formatNPU, ehPreProcessual } from '@/lib/processos';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
+import { Cronometro } from '@/components/agenda/cronometro';
 import { HistoricoAtividade } from './historico-atividade';
 import { V } from '@/lib/vocabulario';
-
-/** Cronômetro ao vivo HH:MM:SS. */
-function Cronometro({ desde }: { desde: string }) {
-  const [agora, setAgora] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setAgora(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 font-mono text-sm font-semibold tabular-nums text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
-      <Timer className="h-4 w-4 animate-pulse" /> {cronometroHMS(desde, agora)}
-    </span>
-  );
-}
 
 function Avatar({ nome, url }: { nome: string; url?: string | null }) {
   return url ? (
@@ -154,7 +140,7 @@ export function CompromissoDrawer({
             </p>
             {c.local && <p className="flex items-center gap-2 text-sm"><MapPin className="h-4 w-4 shrink-0 text-muted-foreground" /> {c.local}</p>}
             {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
-              <p className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Em andamento há</span> <Cronometro desde={c.iniciadoEm} /></p>
+              <p className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Em andamento há</span> <Cronometro desde={c.iniciadoEm} fimPrevisto={c.fim} tamanho="md" /></p>
             )}
             {c.dataOriginal && (
               <p className="flex flex-wrap items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
@@ -183,6 +169,27 @@ export function CompromissoDrawer({
                   <span className="text-xs text-muted-foreground">· {formatDataHora(c.concluidoEm)}</span>
                 )}
               </p>
+              {/*
+                QUANTO LEVOU, com os dois extremos à vista.
+
+                Na gaveta cabe mais do que no card: além da duração, os horários
+                de início e fim reais — que é o que permite conferir o número em
+                vez de acreditar nele. Só aparece quando a atividade foi
+                cronometrada de ponta a ponta; ver `duracaoEntre`.
+              */}
+              {duracaoEntre(c.iniciadoEm, c.concluidoEm) && (
+                <p className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <Timer className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Levou <strong className="font-semibold text-foreground">
+                      {duracaoEntre(c.iniciadoEm, c.concluidoEm)}
+                    </strong>
+                  </span>
+                  <span className="text-muted-foreground/80">
+                    ({formatHora(c.iniciadoEm!)} → {formatHora(c.concluidoEm!)})
+                  </span>
+                </p>
+              )}
               {c.desfechoObs ? (
                 <p className="whitespace-pre-wrap text-sm">{c.desfechoObs}</p>
               ) : !c.desfecho ? (

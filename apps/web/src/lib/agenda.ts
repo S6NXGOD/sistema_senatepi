@@ -464,6 +464,72 @@ export function duracaoDesde(iso: string | null | undefined, agora: number = Dat
   return `${s}s`;
 }
 
+/**
+ * QUANTO A ATIVIDADE LEVOU, de "Iniciar" a "Concluir".
+ *
+ * Só mede o que foi de fato CRONOMETRADO. Devolve `null` quando falta um dos
+ * dois carimbos — e isso não é detalhe: das 25 atividades concluídas na
+ * produção de 31/08/2026, NOVE foram concluídas sem nunca terem sido
+ * iniciadas. Para essas, a única duração calculável seria da criação até a
+ * conclusão, e aí uma tarefa criada há três semanas e resolvida em dez minutos
+ * apareceria como "concluída em 23 dias". Um número errado é pior que nenhum:
+ * o primeiro é lido e usado, o segundo faz a pessoa procurar o dado certo.
+ *
+ * Também devolve `null` se o fim vier antes do início — dado torto existe, e
+ * "concluída em -4h" seria a única coisa que a pessoa lembraria da tela.
+ */
+export function duracaoEntre(
+  inicioIso: string | null | undefined,
+  fimIso: string | null | undefined,
+): string | null {
+  if (!inicioIso || !fimIso) return null;
+  const seg = Math.floor((new Date(fimIso).getTime() - new Date(inicioIso).getTime()) / 1000);
+  if (!Number.isFinite(seg) || seg < 0) return null;
+
+  if (seg < 60) return 'menos de 1 min';
+  if (seg < 3600) return `${Math.round(seg / 60)}min`;
+  if (seg < 86_400) {
+    const h = Math.floor(seg / 3600);
+    const m = Math.round((seg % 3600) / 60);
+    // "2h40" e não "2h 40m": é como se fala a duração de uma audiência.
+    // Arredondar 59min para cima viraria "2h60", daí o ajuste.
+    if (m === 60) return `${h + 1}h`;
+    return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`;
+  }
+  const d = Math.floor(seg / 86_400);
+  const h = Math.round((seg % 86_400) / 3600);
+  if (h === 24) return `${d + 1} dias`;
+  return h === 0 ? `${d} ${d === 1 ? 'dia' : 'dias'}` : `${d}d ${h}h`;
+}
+
+/**
+ * O cronômetro está rodando há tempo demais para ser trabalho?
+ *
+ * Passar do horário previsto é NORMAL — medido na produção, 12 das 25
+ * atividades concluídas passaram até uma hora, e cinco entre uma e quatro.
+ * Usar "passou do previsto" como alerta acenderia em quase todas e não
+ * informaria nada.
+ *
+ * O que NÃO é normal é continuar contando muitas horas depois. As duas
+ * atividades em andamento na produção estavam 11,4h e 12,7h além de um término
+ * previsto para UMA hora depois do início — ninguém ficou meio dia numa
+ * consulta de uma hora; alguém esqueceu de clicar em "Concluir", e o
+ * cronômetro verde e pulsante seguia dizendo que estava tudo bem.
+ *
+ * Seis horas é a folga: cabe a audiência que atrasou a manhã inteira e não
+ * cabe o cronômetro que virou a noite.
+ */
+export const HORAS_ATE_CRONOMETRO_ESQUECIDO = 6;
+
+export function cronometroEsquecido(
+  fimPrevistoIso: string | null | undefined,
+  agora: number = Date.now(),
+): boolean {
+  if (!fimPrevistoIso) return false;
+  const alem = (agora - new Date(fimPrevistoIso).getTime()) / 3_600_000;
+  return alem > HORAS_ATE_CRONOMETRO_ESQUECIDO;
+}
+
 /** Cronômetro HH:MM:SS desde `iniciadoEm` — conta horas, minutos e segundos. */
 export function cronometroHMS(iso: string | null | undefined, agora: number = Date.now()): string {
   if (!iso) return '00:00:00';

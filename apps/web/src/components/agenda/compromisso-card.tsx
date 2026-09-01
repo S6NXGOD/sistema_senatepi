@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
   Clock, MapPin, Pencil, Trash2, History, Timer,
   Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel,
@@ -11,26 +10,14 @@ import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo,
-  formatData, formatHora, estaAtrasado, cronometroHMS,
+  formatData, formatHora, estaAtrasado,
+  duracaoEntre,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
 } from '@/lib/agenda';
+import { Cronometro } from '@/components/agenda/cronometro';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { V } from '@/lib/vocabulario';
-
-/** Cronômetro ao vivo em HH:MM:SS (atualiza a cada segundo) desde `iniciadoEm`. */
-function Cronometro({ desde }: { desde: string }) {
-  const [agora, setAgora] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setAgora(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 font-mono text-xs font-semibold tabular-nums text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
-      <Timer className="h-3.5 w-3.5 animate-pulse" /> {cronometroHMS(desde, agora)}
-    </span>
-  );
-}
 
 /**
  * AÇÃO PRINCIPAL — o único passo que faz sentido dar agora, em destaque.
@@ -159,7 +146,7 @@ export function CompromissoCard({
         <IdentidadeDoProcesso processo={c.processo} className="mt-0.5" />
 
         {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
-          <div className="mt-1"><Cronometro desde={c.iniciadoEm} /></div>
+          <div className="mt-1"><Cronometro desde={c.iniciadoEm} fimPrevisto={c.fim} /></div>
         )}
 
         <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
@@ -235,6 +222,8 @@ export function CompromissoCard({
       {/* Desfecho registrado — o card conta como a demanda terminou */}
       {c.status === 'CONCLUIDO' && (
         <div className="mt-2">
+          {/* Os dois selos dividem a linha; a observação continua embaixo. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {c.desfecho ? (
             <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', corDesfecho(c.desfecho))}>
               <CheckCircle2 className="h-3 w-3" /> {rotuloDesfecho(c.desfecho)}
@@ -244,6 +233,26 @@ export function CompromissoCard({
               Desfecho não informado
             </span>
           )}
+          {/*
+            QUANTO LEVOU, ao lado do desfecho — a mesma linha responde "como
+            terminou" e "em quanto tempo".
+
+            Só aparece quando a atividade foi CRONOMETRADA de ponta a ponta. Das
+            25 concluídas na produção, nove foram concluídas sem nunca terem
+            sido iniciadas; para essas o único cálculo possível seria da criação
+            até a conclusão, e uma tarefa criada há três semanas apareceria como
+            "concluída em 23 dias". Ver `duracaoEntre`.
+          */}
+          {duracaoEntre(c.iniciadoEm, c.concluidoEm) && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+              title="Tempo entre clicar em Iniciar e clicar em Concluir."
+            >
+              <Timer className="h-3 w-3 shrink-0" />
+              Concluída em {duracaoEntre(c.iniciadoEm, c.concluidoEm)}
+            </span>
+          )}
+          </div>
           {c.desfechoObs && (
             <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{c.desfechoObs}</p>
           )}
