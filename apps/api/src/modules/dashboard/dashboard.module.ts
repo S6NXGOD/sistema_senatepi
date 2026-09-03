@@ -15,6 +15,7 @@ import {
 const TIPO_PRAZO = 'PRAZO';
 const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
+import { integracaoAtiva } from '../../tenant/tenant.config';
 import { PRE_PROCESSUAIS } from '../processos/processos.service';
 import { DIAS_ATE_DORMENTE } from '../processos/utils/tpu.util';
 import { PARTE_ORDER } from '../processos/partes.service';
@@ -111,6 +112,19 @@ export class DashboardService {
     private readonly audiencias: AudienciasService,
   ) {}
 
+  /**
+   * A integração do DJEN está ligada nesta instalação?
+   *
+   * Lido do ambiente/tenant e NÃO do `DjenService`, de propósito: o painel
+   * pertence a outro módulo, e injetar o serviço de processos aqui criaria uma
+   * dependência circular por um booleano. `integracaoAtiva` é função pura e dá
+   * a mesma resposta — inclusive a precedência da variável de ambiente sobre a
+   * declaração do tenant, que é o que permite ligar e desligar sem redeploy.
+   */
+  private get djenAtivo(): boolean {
+    return integracaoAtiva('djen', process.env.DJEN_INTEGRACAO);
+  }
+
   // =========================================================================
   // HOME consolidada e ciente do perfil (1 request → tudo que a tela precisa)
   // =========================================================================
@@ -120,6 +134,12 @@ export class DashboardService {
     const hojeIni = inicioDoDiaBR(agora);
     const hojeFim = new Date(hojeIni.getTime() + DIA_MS);
     const em7dias = new Date(agora.getTime() + 7 * DIA_MS);
+    /**
+     * Janela do bloco de publicações. Sete dias e não três (a janela do cron):
+     * o painel é lido às segundas, e três dias esconderiam o que chegou na
+     * sexta — justamente quando o prazo já está correndo.
+     */
+    const seteDiasAtras = new Date(agora.getTime() - 7 * DIA_MS);
     const menos7dias = new Date(agora.getTime() - 7 * DIA_MS);
     const inicioMes = (() => {
       const br = new Date(agora.getTime() - OFFSET_BR);
@@ -185,6 +205,10 @@ export class DashboardService {
       contatosHoje,
       aniversariantes,
       tempoMedioTriagem,
+      // Saúde e conteúdo do robô do DJEN (publicações)
+      djenPublicacoes7d,
+      djenUltimaPublicacao,
+      djenRecentes,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
       /**
@@ -376,6 +400,44 @@ export class DashboardService {
       this.aniversariantesDeHoje(agora),
       // Tempo médio de resolução da triagem (30 dias).
       this.tempoMedioTriagem(agora),
+
+      /**
+       * PUBLICAÇÕES DO DJEN — volume, sinal de vida e as últimas.
+       *
+       * O painel já tinha "saúde do robô do DataJud", e a justificativa era que
+       * a ausência de alerta é ambígua: "0 audiências a agendar" tanto pode ser
+       * "não há nada" quanto "a varredura não rodou". O DJEN tem o mesmo
+       * problema, agravado: ele passou UM MÊS devolvendo zero por bloqueio de
+       * origem e nada na tela dizia isso — quem olhasse a aba Publicações veria
+       * "nenhuma publicação" e concluiria que o tribunal não publicou nada.
+       */
+      this.prisma.comunicacaoDjen.count({
+        where: { dataDisponibilizacao: { gte: seteDiasAtras } },
+      }),
+      this.prisma.comunicacaoDjen.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      /**
+       * As últimas com PROVIDÊNCIA — não as últimas quaisquer.
+       *
+       * Edital e lista de distribuição chegam às dezenas e não pedem nada de
+       * ninguém; listá-las no painel afogaria a intimação que pede peça em três
+       * dias. A ordem é por data de disponibilização, que é a que conta prazo.
+       */
+      this.prisma.comunicacaoDjen.findMany({
+        where: {
+          dataDisponibilizacao: { gte: seteDiasAtras },
+          providencia: { notIn: ['NENHUMA'] },
+        },
+        orderBy: { dataDisponibilizacao: 'desc' },
+        take: 6,
+        select: {
+          id: true, tipoComunicacao: true, nomeOrgao: true, providencia: true,
+          prazoMencionadoDias: true, dataDisponibilizacao: true, compromissoId: true,
+          processo: { select: { id: true, numeroCNJ: true } },
+        },
+      }),
     ]);
 
     // "Próximo plantão": advogados da primeira data futura com escala.
@@ -593,6 +655,22 @@ export class DashboardService {
       pendenciasAtivas,
       atendimentosPendentes,
       movimentacoesRecentes,
+      /**
+       * O DJEN — saúde e conteúdo no mesmo bloco.
+       *
+       * Nasce da mesma constatação que criou a saúde do robô do DataJud: sem
+       * ela, zero não se distingue de parado. No DJEN isso não é hipótese —
+       * ele devolveu zero por UM MÊS, por bloqueio de origem, e a tela dizia
+       * apenas "nenhuma publicação", que qualquer um leria como "o tribunal
+       * não publicou nada nos meus processos".
+       */
+      djen: this.situacaoDjen(
+        this.djenAtivo,
+        djenPublicacoes7d,
+        djenUltimaPublicacao?.createdAt ?? null,
+        djenRecentes,
+        agora,
+      ),
       equipeHoje: { plantaoHoje, proximoPlantao },
       /**
        * Saúde do robô do DataJud. Existe porque a ausência de alerta era
@@ -719,6 +797,54 @@ export class DashboardService {
    *   ATRASADO     já varreu antes e parou — 36h a 3 dias
    *   PARADO       parado há mais de 3 dias: aí sim algo está errado
    */
+  /**
+   * SITUAÇÃO DO ROBÔ DO DJEN — a mesma pergunta que `situacaoRobo` responde
+   * para o DataJud, e pela mesma razão: sem ela, "nenhuma publicação" e "o robô
+   * não roda" viram a mesma tela.
+   *
+   * A ordem das perguntas importa, e a primeira NÃO é "faz quanto tempo?":
+   *
+   *   DESLIGADA   a integração está off — não é falha, é escolha
+   *   PRIMEIRA    ligada, nunca trouxe nada: ou acabou de ligar, ou está muda
+   *   EM_DIA      trouxe publicação nas últimas 48h
+   *   SILENCIOSA  já trouxe antes e parou há mais de 48h
+   *
+   * SILENCIOSA não é necessariamente erro — fim de semana e recesso existem, e
+   * o Judiciário não publica. Por isso o rótulo é "silenciosa" e não "parada":
+   * o painel informa, quem lê decide se estranha.
+   */
+  private situacaoDjen(
+    ativa: boolean,
+    publicacoes7d: number,
+    ultimaEm: Date | null,
+    recentes: unknown[],
+    agora: Date,
+  ) {
+    const HORA = 3_600_000;
+    const horasSemNada = ultimaEm ? (agora.getTime() - ultimaEm.getTime()) / HORA : null;
+
+    const situacao = !ativa
+      ? 'DESLIGADA'
+      : !ultimaEm
+        ? 'PRIMEIRA'
+        : horasSemNada! <= 48
+          ? 'EM_DIA'
+          : 'SILENCIOSA';
+
+    return {
+      ativa,
+      situacao,
+      /** Publicações disponibilizadas nos últimos 7 dias, do acervo cadastrado. */
+      publicacoes7d,
+      ultimaEm,
+      /**
+       * As que pedem providência — e só elas. Ver a consulta: edital e lista de
+       * distribuição chegam às dezenas e afogariam a intimação com prazo.
+       */
+      recentes: ativa ? recentes : [],
+    };
+  }
+
   private situacaoRobo(
     ultimaSync: { createdAt: Date; sucesso: boolean } | null,
     falhas: FalhaDatajud[],

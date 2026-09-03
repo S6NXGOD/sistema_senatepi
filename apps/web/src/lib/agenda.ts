@@ -145,6 +145,24 @@ export interface Compromisso {
   canceladoMotivo: string | null;
   canceladoEm: string | null;
   atendimentoId: string | null;
+  /**
+   * A PUBLICAÇÃO DO DJEN QUE ORIGINOU OU ENRIQUECEU ESTA ATIVIDADE.
+   *
+   * Só vem no DETALHE (a gaveta), nunca no cartão: é o teor integral de uma
+   * intimação, e uma coluna de kanban com quatro cartões carregaria quatro
+   * textos que ninguém vai ler dali.
+   */
+  origemComunicacoes?: {
+    id: string;
+    texto: string;
+    tipoComunicacao: string | null;
+    nomeOrgao: string | null;
+    dataDisponibilizacao: string;
+    providencia: string | null;
+    prazoMencionadoDias: number | null;
+    link: string | null;
+    processoId: string | null;
+  }[];
   filiado: FiliadoCard | null;
   responsavel: Responsavel;
   /**

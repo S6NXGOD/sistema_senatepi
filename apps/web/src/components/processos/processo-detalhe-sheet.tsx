@@ -243,6 +243,56 @@ export function ProcessoDetalheSheet({
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'processos') === 'EDITAR';
 
   const [aba, setAba] = useState<Aba>('timeline');
+  /**
+   * A PUBLICAÇÃO PARA ONDE A LINHA DO TEMPO MANDOU.
+   *
+   * O DataJud entrega o rótulo do ato; o DJEN entrega o teor. Os dois já eram
+   * casados no banco (`ComunicacaoDjen.movimentacaoId`) e o vínculo não existia
+   * na tela: quem lia "Expedição de documento" na linha do tempo não tinha como
+   * saber que o texto integral estava numa aba ao lado, muito menos QUAL das
+   * publicações era aquela.
+   *
+   * Guardar o id aqui (e não na aba) é o que permite o salto: o clique troca a
+   * aba E diz para onde rolar.
+   */
+  const [publicacaoDestacada, setPublicacaoDestacada] = useState<string | null>(null);
+
+  /** O andamento para onde a aba Publicações mandou — o caminho de volta. */
+  const [andamentoDestacado, setAndamentoDestacado] = useState<string | null>(null);
+
+  /** Salta da linha do tempo para o teor da publicação daquele ato. */
+  function verPublicacao(publicacaoId: string) {
+    setAndamentoDestacado(null);
+    setPublicacaoDestacada(publicacaoId);
+    setAba('publicacoes');
+  }
+
+  /** E o caminho inverso: do teor de volta ao ato no histórico. */
+  function verAndamento(movimentacaoId: string) {
+    setPublicacaoDestacada(null);
+    setAndamentoDestacado(movimentacaoId);
+    setAba('timeline');
+  }
+
+  /**
+   * ROLA ATÉ O ITEM DESTACADO depois que a aba trocou.
+   *
+   * O `setTimeout(0)` não é superstição: `setAba` e a rolagem acontecem no
+   * mesmo ciclo, e sem ceder a vez o elemento ainda não existe no DOM quando
+   * `getElementById` procura. Um quadro depois, existe.
+   */
+  useEffect(() => {
+    const alvo = publicacaoDestacada
+      ? `pub-${publicacaoDestacada}`
+      : andamentoDestacado
+        ? `mov-${andamentoDestacado}`
+        : null;
+    if (!alvo) return;
+    const t = setTimeout(() => {
+      document.getElementById(alvo)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [publicacaoDestacada, andamentoDestacado, aba]);
   const [ajuizando, setAjuizando] = useState(false);
 
   /**
@@ -351,7 +401,7 @@ export function ProcessoDetalheSheet({
   });
 
   useEffect(() => {
-    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancias(new Set()); setFiltroCategoria(''); }
+    if (open) { setAba('timeline'); setBusca(''); setFiltroOrigem('todas'); setFiltroInstancias(new Set()); setFiltroCategoria(''); setPublicacaoDestacada(null); setAndamentoDestacado(null); }
   }, [open, processoId]);
 
   const recarregar = () => {
@@ -1463,6 +1513,8 @@ export function ProcessoDetalheSheet({
                           tipos={tipos}
                           podeExcluir={ehAdmin}
                           onExcluir={() => setMovParaExcluir(item.id)}
+                          onVerPublicacao={verPublicacao}
+                          destacado={andamentoDestacado === item.id}
                         />
                       ))}
                     </ul>
@@ -1479,6 +1531,8 @@ export function ProcessoDetalheSheet({
               {/* ---------------- PUBLICAÇÕES (DJEN) ---------------- */}
               {aba === 'publicacoes' && (
                 <AbaPublicacoes
+                  destacada={publicacaoDestacada}
+                  onVerAndamento={verAndamento}
                   ativo={!!djen?.ativo}
                   bloqueadoNaOrigem={!!djen?.bloqueadoNaOrigem}
                   carregando={carregandoPublicacoes}
@@ -1881,6 +1935,7 @@ function TextoExpansivel({ texto, limite = 180, nu }: { texto: string; limite?: 
  */
 function AbaPublicacoes({
   ativo, bloqueadoNaOrigem, carregando, publicacoes, buscando, onBuscar,
+  destacada, onVerAndamento,
 }: {
   ativo: boolean;
   bloqueadoNaOrigem: boolean;
@@ -1888,6 +1943,10 @@ function AbaPublicacoes({
   publicacoes: PublicacaoDjen[];
   buscando: boolean;
   onBuscar: () => void;
+  /** Publicação para onde a linha do tempo mandou — rola até ela e destaca. */
+  destacada?: string | null;
+  /** Volta para o andamento correspondente na linha do tempo. */
+  onVerAndamento?: (movimentacaoId: string) => void;
 }) {
   /**
    * Bloqueio de origem tem aviso próprio, e não o genérico de erro.
@@ -1948,7 +2007,17 @@ function AbaPublicacoes({
       ) : (
         <ul className="space-y-2">
           {publicacoes.map((pub) => (
-            <li key={pub.id} className="rounded-lg border border-l-4 border-l-indigo-400 bg-card p-3">
+            <li
+              key={pub.id}
+              id={`pub-${pub.id}`}
+              className={cn(
+                'rounded-lg border border-l-4 border-l-indigo-400 bg-card p-3 transition-colors',
+                // O destaque some depois que a pessoa interage; é sinalização de
+                // chegada, não um estado permanente da publicação.
+                destacada === pub.id &&
+                  'bg-brand-50 ring-2 ring-brand-500 dark:bg-brand-950/30',
+              )}
+            >
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                 <span className="flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
@@ -1988,11 +2057,32 @@ function AbaPublicacoes({
                 </p>
               )}
 
+              {/*
+                OS VÍNCULOS, NOS DOIS SENTIDOS.
+
+                A publicação já sabia, no banco, qual andamento descreve o mesmo
+                fato e qual atividade nasceu dela — e a tela mostrava isso como
+                texto morto ("Atividade criada na Agenda", sem dizer qual). São
+                os dois saltos que fecham o ciclo: do teor para o ato no
+                histórico, e do teor para o prazo na agenda.
+              */}
               <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px]">
+                {pub.movimentacaoId && onVerAndamento && (
+                  <button
+                    type="button"
+                    onClick={() => onVerAndamento(pub.movimentacaoId!)}
+                    className="flex items-center gap-1 font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
+                  >
+                    <Landmark className="h-3 w-3" /> Ver o ato na linha do tempo
+                  </button>
+                )}
                 {pub.compromissoId && (
-                  <span className="flex items-center gap-1 text-muted-foreground">
-                    <Bot className="h-3 w-3" /> Atividade criada na Agenda
-                  </span>
+                  <Link
+                    href={`/agenda?compromisso=${pub.compromissoId}`}
+                    className="flex items-center gap-1 font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
+                  >
+                    <Bot className="h-3 w-3" /> Abrir a atividade na Agenda
+                  </Link>
                 )}
                 {pub.link && (
                   <a
@@ -2116,12 +2206,16 @@ function ResumoInstancias({ instancias }: { instancias: InstanciaProcesso[] }) {
 }
 
 function ItemLinhaTempo({
-  item, tipos, podeExcluir, onExcluir,
+  item, tipos, podeExcluir, onExcluir, onVerPublicacao, destacado,
 }: {
   item: ItemTimeline;
   tipos: any[];
   podeExcluir: boolean;
   onExcluir: () => void;
+  /** Salta para o teor no DJEN. Opcional: a aba de notas reusa este item. */
+  onVerPublicacao?: (publicacaoId: string) => void;
+  /** Veio da aba Publicações e é este o ato — destaca e recebe a rolagem. */
+  destacado?: boolean;
 }) {
   if (item.origem === 'DATAJUD') {
     const categoria = categoriaMovimento(item.codigoMovimento, item.descricao);
@@ -2134,7 +2228,14 @@ function ItemLinhaTempo({
     const principal = generico ? complementoPrincipal(complementos) : null;
     const restantes = principal ? complementos.filter((c) => c !== principal) : complementos;
     return (
-      <li className={cn('flex gap-3 rounded-lg border border-l-4 bg-card p-3', cor.borda)}>
+      <li
+        id={`mov-${item.id}`}
+        className={cn(
+          'flex gap-3 rounded-lg border border-l-4 bg-card p-3 transition-colors',
+          cor.borda,
+          destacado && 'bg-brand-50 ring-2 ring-brand-500 dark:bg-brand-950/30',
+        )}
+      >
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <span className="flex flex-wrap items-center gap-1.5">
@@ -2196,6 +2297,33 @@ function ItemLinhaTempo({
 
           {/* Síntese do ato (teor do despacho/decisão) — destaque leve */}
           {item.conteudo && <SinteseAto texto={item.conteudo} />}
+
+          {/*
+            O TEOR ESTÁ NO DJEN — e agora o andamento diz onde.
+
+            O DataJud manda o rótulo ("Expedição de documento") e quase nunca o
+            texto: `conteudo` está vazio em 3.018 de 3.018 movimentações. Quem
+            precisava saber o que o ato dizia abria o PJe. A publicação do DJEN
+            traz o teor integral, e a correlação já sabia qual publicação
+            corresponde a qual andamento — faltava a tela contar.
+          */}
+          {item.publicacao && onVerPublicacao && (
+            <button
+              type="button"
+              onClick={() => onVerPublicacao(item.publicacao!.id)}
+              className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-brand-300 bg-brand-50 px-2 py-1 text-[11px] font-medium text-brand-800 transition-colors hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-900/40"
+              title="Abre a aba Publicações no teor desta intimação"
+            >
+              <Newspaper className="h-3 w-3" />
+              Ver teor no DJEN
+              {item.publicacao.providencia &&
+                PROVIDENCIA_LABEL[item.publicacao.providencia] && (
+                  <span className="font-normal opacity-80">
+                    · {PROVIDENCIA_LABEL[item.publicacao.providencia]}
+                  </span>
+                )}
+            </button>
+          )}
 
           {item.orgaoJulgador && (
             <p className="mt-1 truncate text-[10px] text-muted-foreground/70">{item.orgaoJulgador}</p>

@@ -246,7 +246,31 @@ export class MovimentacoesService {
           orderBy: [{ baixada: 'asc' }, { ultimoMovimentoEm: 'desc' }],
           include: { _count: { select: { movimentacoes: true } } },
         },
-        movimentacoes: { orderBy: { dataMovimento: 'desc' } },
+        movimentacoes: {
+          orderBy: { dataMovimento: 'desc' },
+          /**
+           * A PUBLICAÇÃO QUE DESCREVE ESTE MESMO ATO.
+           *
+           * O DataJud manda o rótulo ("Expedição de documento"); o DJEN manda o
+           * TEOR. A correlação já casa os dois e grava `movimentacaoId` na
+           * publicação — mas esse vínculo existia só no banco. Na tela, quem
+           * via "Expedição de documento" não tinha como saber que o texto
+           * integral estava a uma aba de distância.
+           *
+           * Só o necessário para o cartão do andamento acender e apontar: o id
+           * (para a aba abrir na publicação certa) e a providência (para dizer
+           * o que aquele teor pede). O texto inteiro fica na aba Publicações —
+           * trazer 300 andamentos com o teor junto seria pesar a timeline por
+           * uma informação que quase nunca é lida ali.
+           */
+          include: {
+            comunicacoes: {
+              orderBy: { dataDisponibilizacao: 'desc' },
+              take: 1,
+              select: { id: true, providencia: true, dataDisponibilizacao: true },
+            },
+          },
+        },
         movimentacoesInternas: {
           // Pela data do FATO quando informada; senão pela do registro.
           orderBy: [{ dataFato: 'desc' }, { createdAt: 'desc' }],
@@ -309,6 +333,17 @@ export class MovimentacoesService {
         orgaoJulgador: m.orgaoJulgador,
         ehAudiencia: m.ehAudiencia,
         audienciaData: m.audienciaData,
+        /**
+         * Existe publicação do DJEN para este ato? A tela usa para acender o
+         * atalho "ver teor" e saltar para a aba Publicações já na certa.
+         */
+        publicacao: m.comunicacoes[0]
+          ? {
+              id: m.comunicacoes[0].id,
+              providencia: m.comunicacoes[0].providencia,
+              dataDisponibilizacao: m.comunicacoes[0].dataDisponibilizacao,
+            }
+          : null,
       })),
       ...movimentacoesInternas.map((m) => ({
         id: m.id,

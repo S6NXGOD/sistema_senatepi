@@ -97,6 +97,18 @@ export type ItemTimeline =
        */
       grau?: string | null;
       instanciaId?: string | null;
+      /**
+       * A PUBLICAÇÃO DO DJEN QUE DESCREVE ESTE MESMO ATO.
+       *
+       * O DataJud entrega o rótulo ("Expedição de documento"); o DJEN entrega o
+       * TEOR. A correlação casa os dois no banco — este campo é o que traz esse
+       * vínculo para a tela, para o andamento poder apontar onde está o texto.
+       */
+      publicacao?: {
+        id: string;
+        providencia: string | null;
+        dataDisponibilizacao: string;
+      } | null;
     }
   | {
       id: string;

@@ -8,6 +8,7 @@ import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
+  Newspaper,
   FileCheck2, Hourglass, Headset,
 } from 'lucide-react';
 import {
@@ -23,6 +24,7 @@ import {
   type ResumoDashboard, type FalhaDatajud,
 } from '@/lib/dashboard';
 import { formatNPU } from '@/lib/processos';
+import { PROVIDENCIA_LABEL } from '@/lib/djen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -372,6 +374,7 @@ function Conteudo({
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
       {pode.processos && <AvisoRobo robo={data.robo} />}
+      {pode.processos && <PublicacoesDjen djen={data.djen} />}
 
       {/* Audiências a agendar (DataJud → Agenda) — o alerta mais acionável da
           home: vem antes das barras porque cada item tem um "próximo passo". */}
@@ -554,6 +557,110 @@ function AlertBar({
  * As falhas pontuais aparecem à parte, em `FalhasCNJ`: o robô pode estar em
  * dia e mesmo assim ter levado recusa do CNJ em alguns processos.
  */
+/**
+ * AS PUBLICAÇÕES DO DJEN NA HOME.
+ *
+ * Duas coisas num bloco só, e de propósito: o que chegou e se o robô está vivo.
+ * Separá-las produziria o defeito que o `AvisoRobo` já existe para evitar —
+ * uma lista vazia sem contexto, que tanto pode significar "não houve
+ * publicação" quanto "faz um mês que nada entra".
+ *
+ * Lista SÓ o que pede providência. Edital e lista de distribuição chegam às
+ * dezenas: no acervo real são 339 publicações em três dias para oito
+ * advogados, das quais a esmagadora maioria não pede nada de ninguém. Mostrar
+ * tudo afogaria a intimação que pede peça em três dias.
+ *
+ * DESLIGADA não desenha nada. Um bloco permanente dizendo "integração
+ * desativada" seria ruído numa instalação que escolheu não usar o DJEN.
+ */
+function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
+  if (!djen.ativa) return null;
+
+  const desde = djen.ultimaEm ? idadeDoDado(new Date(djen.ultimaEm).getTime()) : null;
+
+  if (djen.situacao === 'PRIMEIRA') {
+    return (
+      <AlertBar tom="info" href="/processos" acao="Ver processos">
+        A integração com o DJEN está ligada, mas ainda não trouxe nenhuma
+        publicação. A varredura roda toda madrugada, às 5h.
+      </AlertBar>
+    );
+  }
+
+  if (djen.situacao === 'SILENCIOSA') {
+    return (
+      <AlertBar tom="atencao" href="/processos" acao="Ver processos">
+        Nenhuma publicação nova do DJEN {desde}. Fim de semana e recesso
+        explicam silêncio curto — mais que isso, vale conferir a integração.
+      </AlertBar>
+    );
+  }
+
+  if (!djen.recentes.length) return null;
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <Newspaper className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            Publicações que pedem providência
+          </p>
+          <span className="text-xs text-muted-foreground">
+            {djen.publicacoes7d} no{" "}total em 7 dias
+          </span>
+        </div>
+
+        <ul className="divide-y">
+          {djen.recentes.map((pub) => (
+            <li key={pub.id} className="py-2 first:pt-0 last:pb-0">
+              <Link
+                href={
+                  pub.compromissoId
+                    ? `/agenda?compromisso=${pub.compromissoId}`
+                    : `/processos?processo=${pub.processo?.id ?? ""}`
+                }
+                className="flex items-start gap-3 rounded-lg px-2 py-1.5 -mx-2 transition hover:bg-muted/60"
+              >
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-sm font-medium">
+                      {pub.providencia && PROVIDENCIA_LABEL[pub.providencia]
+                        ? PROVIDENCIA_LABEL[pub.providencia]
+                        : (pub.tipoComunicacao ?? "Publicação")}
+                    </span>
+                    {pub.processo?.numeroCNJ && (
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {formatNPU(pub.processo.numeroCNJ)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    <span>{new Date(pub.dataDisponibilizacao).toLocaleDateString("pt-BR")}</span>
+                    {pub.nomeOrgao && <span className="truncate">· {pub.nomeOrgao}</span>}
+                    {/*
+                      O prazo é o que o TEXTO menciona, não um vencimento
+                      calculado — a contagem oficial depende de dia útil
+                      forense e feriado de comarca, que o sistema não conhece.
+                    */}
+                    {pub.prazoMencionadoDias != null && (
+                      <span className="font-medium text-amber-700 dark:text-amber-400">
+                        · menciona {pub.prazoMencionadoDias} dias
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
   const { situacao, processosMonitorados, ultimaSincronizacao, falhasProcessos } = robo;
   const desde = ultimaSincronizacao

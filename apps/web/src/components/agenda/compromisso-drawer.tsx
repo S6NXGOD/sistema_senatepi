@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
-  Ban, CheckCircle2, Play, RotateCcw, PenLine,
+  Ban, CheckCircle2, Play, RotateCcw, PenLine, AlertTriangle, Newspaper,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -199,6 +199,61 @@ export function CompromissoDrawer({
               ) : null}
             </div>
           )}
+
+          {/*
+            O TEOR QUE ORIGINOU A ATIVIDADE.
+
+            Quando o robô cria "Verificação de Intimação / Prazo", a descrição
+            traz o rótulo do ato — "Publicação", "Expedição de documento" —
+            porque é só isso que o DataJud entrega. O texto que permite DECIDIR
+            o que fazer vem do DJEN, e já estava vinculado a esta atividade no
+            banco desde a correlação: ficava invisível, e o advogado abria o
+            processo, achava a aba Publicações e procurava qual era.
+          */}
+          {(c.origemComunicacoes ?? []).map((pub) => (
+            <div
+              key={pub.id}
+              className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900/40 dark:bg-indigo-950/10"
+            >
+              <p className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Teor da publicação
+                </span>
+                <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
+                  {pub.tipoComunicacao ?? 'Publicação'}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  · {formatData(pub.dataDisponibilizacao)}
+                </span>
+              </p>
+              {pub.nomeOrgao && (
+                <p className="mb-1 text-[11px] text-muted-foreground">{pub.nomeOrgao}</p>
+              )}
+              <p className="whitespace-pre-wrap text-sm leading-snug">{pub.texto}</p>
+              {/*
+                O prazo é o que o TEXTO diz — não um vencimento calculado. A
+                contagem oficial depende de dias úteis forenses, feriado da
+                comarca e forma de intimação, e o sistema não os conhece.
+              */}
+              {pub.prazoMencionadoDias != null && (
+                <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    O texto menciona prazo de <strong>{pub.prazoMencionadoDias} dias</strong>.
+                    Confira a contagem oficial — o sistema não calcula vencimento.
+                  </span>
+                </p>
+              )}
+              {pub.processoId && (
+                <Link
+                  href={`/processos?processo=${pub.processoId}`}
+                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
+                >
+                  <Newspaper className="h-3 w-3" /> Ver no processo, com as demais publicações
+                </Link>
+              )}
+            </div>
+          ))}
 
           {c.status === 'CANCELADO' && (
             <div className="rounded-xl border border-red-200 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/10">

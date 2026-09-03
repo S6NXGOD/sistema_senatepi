@@ -436,6 +436,27 @@ export class AgendaService {
             },
           },
         },
+        /**
+         * A PUBLICAÇÃO QUE ORIGINOU OU ENRIQUECEU ESTA ATIVIDADE.
+         *
+         * Quando o robô cria "Verificação de Intimação / Prazo", a descrição
+         * diz o rótulo do ato — "Publicação", "Expedição de documento" — porque
+         * é só isso que o DataJud entrega. O TEOR está na publicação do DJEN,
+         * que a correlação já vinculou a esta atividade.
+         *
+         * Sem isto o advogado lia "confira o prazo aplicável" e tinha de abrir
+         * o processo, achar a aba Publicações e procurar qual das publicações
+         * era aquela. O texto que ele precisa ler para decidir estava a três
+         * cliques de distância, ligado no banco e invisível na tela.
+         */
+        origemComunicacoes: {
+          orderBy: { dataDisponibilizacao: 'desc' },
+          select: {
+            id: true, texto: true, tipoComunicacao: true, nomeOrgao: true,
+            dataDisponibilizacao: true, providencia: true, prazoMencionadoDias: true,
+            link: true, processoId: true,
+          },
+        },
         // Triagem de origem: canal, demanda e QUEM registrou (atendente).
         atendimento: {
           select: {

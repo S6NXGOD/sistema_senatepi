@@ -134,6 +134,35 @@ export interface ResumoDashboard {
    * agendar" era ambíguo: podia ser que não houvesse nada OU que a varredura
    * noturna não tivesse rodado.
    */
+  /**
+   * SAÚDE E CONTEÚDO DO DJEN — a mesma razão de existir de `robo`, e por um
+   * motivo que já se materializou: a integração devolveu zero por UM MÊS, por
+   * bloqueio de origem, e a tela dizia apenas "nenhuma publicação". Quem lesse
+   * concluiria que o tribunal não publicou nada nos processos do sindicato.
+   */
+  djen: {
+    ativa: boolean;
+    /**
+     * DESLIGADA   integração off — escolha, não falha
+     * PRIMEIRA    ligada, nunca trouxe nada
+     * EM_DIA      trouxe publicação nas últimas 48h
+     * SILENCIOSA  já trouxe antes e parou há mais de 48h
+     */
+    situacao: 'DESLIGADA' | 'PRIMEIRA' | 'EM_DIA' | 'SILENCIOSA';
+    publicacoes7d: number;
+    ultimaEm: string | null;
+    /** Só as que pedem providência — edital e lista de distribuição ficam fora. */
+    recentes: {
+      id: string;
+      tipoComunicacao: string | null;
+      nomeOrgao: string | null;
+      providencia: string | null;
+      prazoMencionadoDias: number | null;
+      dataDisponibilizacao: string;
+      compromissoId: string | null;
+      processo: { id: string; numeroCNJ: string | null } | null;
+    }[];
+  };
   robo: {
     /**
      * SEM_OBJETO  nada monitorado — o robô não tem o que varrer (sem alerta)
