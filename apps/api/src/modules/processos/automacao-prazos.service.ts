@@ -34,7 +34,12 @@ const PRAZO_PADRAO_DIAS_UTEIS = 5;
  * ato de exatamente sete dias caía na janela. Uma regra que nunca dispara não é
  * conservadora, é morta.
  */
-const DIAS_ATO_RECENTE = 15;
+/**
+ * Compartilhada com a correlação do DJEN de propósito: as duas automações
+ * escrevem na MESMA agenda, e réguas diferentes de urgência produziriam duas
+ * noções de "urgente" convivendo na mesma coluna.
+ */
+export const DIAS_ATO_RECENTE = 15;
 
 /** Slugs de `tipos_evento` que o robô usa. */
 const TIPO_PRAZO = 'PRAZO';

@@ -122,3 +122,122 @@ describe('o painel conta se o DJEN está vivo', () => {
     expect(PAINEL).not.toMatch(/private readonly \w+: DjenService/);
   });
 });
+
+/**
+ * O PAREAMENTO QUE CHEGA DEPOIS — o defeito que só apareceu com dado real.
+ *
+ * A publicação é classificada UMA vez, e isso está certo: sem a trava, a janela
+ * de 30 dias seria reclassificada toda noite e o edital voltaria para sempre.
+ * Só que a mesma trava fechava a porta do pareamento, e o desenho parava de
+ * funcionar na ordem em que os fatos chegam de verdade.
+ *
+ * O DJEN é MUITO mais rápido que o DataJud — o atraso mediano do índice público
+ * do CNJ, medido neste acervo, é de 41 dias. A publicação de hoje chega hoje; a
+ * movimentação que descreve o mesmo ato aparece semanas depois. Na primeira
+ * passada não há com o que parear, e com a trava nunca haveria uma segunda.
+ *
+ * Medido em 03/09/2026, antes da correção: 24 publicações ingeridas num
+ * processo, ZERO pareadas — ele não tinha movimentação do DataJud desde agosto.
+ * Sem esta segunda passada, o botão "Ver teor no DJEN" seria código morto.
+ */
+describe('publicação espera a movimentação atrasada', () => {
+  const CORRELACAO = ler('src/modules/processos/correlacao.service.ts');
+
+  it('existe uma segunda passada só para parear', () => {
+    expect(CORRELACAO).toContain('private async parearAtrasadas(');
+    expect(CORRELACAO).toContain('await this.parearAtrasadas(processoId, desde, movimentacoes);');
+  });
+
+  it('ela pega o que JÁ foi classificado e continua sem movimento', () => {
+    const fn = CORRELACAO.slice(CORRELACAO.indexOf('private async parearAtrasadas('));
+    expect(fn.slice(0, 1200)).toContain('movimentacaoId: null');
+    expect(fn.slice(0, 1200)).toContain('providencia: { not: null }');
+  });
+
+  /**
+   * Reclassificar seria refazer julgamento já feito; criar atividade aqui
+   * duplicaria a que a primeira passada criou. A segunda passada só amarra.
+   */
+  it('não reclassifica nem cria atividade — só amarra o vínculo', () => {
+    const fn = CORRELACAO.slice(
+      CORRELACAO.indexOf('private async parearAtrasadas('),
+      CORRELACAO.indexOf('Lado DataJud — cenário D'),
+    );
+    expect(fn).not.toContain('criarAtividade');
+    expect(fn).not.toContain('classificarProvidencia');
+    expect(fn).not.toContain('providencia: c.providencia');
+    // O update toca UM campo só.
+    expect(fn).toContain('data: { movimentacaoId: par.movimentacaoId }');
+  });
+
+  /** Sem movimentação nova não há o que tentar — sai antes de consultar. */
+  it('sai cedo quando não há movimentação', () => {
+    const fn = CORRELACAO.slice(CORRELACAO.indexOf('private async parearAtrasadas('));
+    expect(fn.slice(0, 400)).toContain('if (!movimentacoes.length) return 0;');
+  });
+});
+
+/**
+ * DOIS DEFEITOS QUE SÓ APARECERAM COM DADO REAL, na primeira ingestão de
+ * verdade em 03/09/2026 — quatro processos, 136 publicações.
+ */
+describe('a primeira ingestão não pode inundar a agenda', () => {
+  const CORRELACAO = ler('src/modules/processos/correlacao.service.ts');
+  const PRAZOS = ler('src/modules/processos/automacao-prazos.service.ts');
+
+  /**
+   * SETE atividades urgentes de uma vez, todas com o mesmo motivo e todas
+   * vencendo no mesmo dia. Na primeira ingestão o DJEN entrega o histórico
+   * inteiro do processo, não só o dia — e tudo que é velho nasce "atrasado".
+   * Sete urgências simultâneas não são sete prioridades; são zero.
+   */
+  it('urgência exige que a publicação seja recente', () => {
+    expect(CORRELACAO).toContain('const recente = idadeDias <= DIAS_ATO_RECENTE;');
+    expect(CORRELACAO).toContain('const urgente = recente && (atrasado || prazoCurto);');
+  });
+
+  /** Publicação velha que mencionava 5 dias também não é urgente — é história. */
+  it('o prazo curto também passa pela régua da idade', () => {
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const recente = idadeDias'));
+    expect(bloco.slice(0, 300)).toContain('const prazoCurto = (c.prazoMencionadoDias ?? 99) <= 5;');
+    expect(bloco.slice(0, 300)).not.toMatch(/urgente = \(atrasado \|\| prazoCurto\)/);
+  });
+
+  /**
+   * A régua é COMPARTILHADA com o robô de prazos. As duas automações escrevem
+   * na mesma agenda; réguas diferentes fariam duas noções de "urgente"
+   * conviverem na mesma coluna.
+   */
+  it('as duas automações usam a mesma régua', () => {
+    expect(PRAZOS).toContain('export const DIAS_ATO_RECENTE = 15;');
+    expect(CORRELACAO).toMatch(/import \{[^}]*DIAS_ATO_RECENTE[^}]*\} from '\.\/automacao-prazos\.service'/);
+  });
+
+  /**
+   * O DJEN publica UMA comunicação POR DESTINATÁRIO: a mesma intimação, num
+   * processo com três advogados, chega três vezes. Medido: três "Avaliar
+   * recurso" do mesmo processo vencendo no mesmo dia, mais dois pares iguais.
+   */
+  it('publicação irmã enriquece a atividade em vez de criar outra', () => {
+    expect(CORRELACAO).toContain('const irma = await this.prisma.comunicacaoDjen.findFirst({');
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'));
+    expect(bloco.slice(0, 700)).toContain('providencia: c.providencia');
+    expect(bloco.slice(0, 700)).toContain('dataDisponibilizacao: c.dataDisponibilizacao');
+    expect(bloco.slice(0, 700)).toContain('compromissoId: { not: null }');
+  });
+
+  /** E não pode casar consigo mesma. */
+  it('a busca pela irmã exclui a própria publicação', () => {
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'));
+    expect(bloco.slice(0, 700)).toContain('id: { not: c.id }');
+  });
+
+  /**
+   * Dois atos DIFERENTES no mesmo dia existem e têm de nascer separados — a
+   * chave inclui a providência justamente para não colapsá-los.
+   */
+  it('atos diferentes no mesmo dia continuam separados', () => {
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'), CORRELACAO.indexOf('// (B) e (C)'));
+    expect(bloco).toContain('providencia: c.providencia');
+  });
+});

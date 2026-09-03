@@ -3,8 +3,8 @@ import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
-import { somarDiasUteis, TITULO_PRAZO_GENERICO } from './automacao-prazos.service';
-import { correlacionar } from './utils/correlacao.util';
+import { somarDiasUteis, TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
+import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
 import {
   classificarProvidencia,
   diasParaLembrete,
@@ -144,6 +144,52 @@ export class CorrelacaoService {
           continue;
         }
 
+        /**
+         * (A2) OUTRA PUBLICAÇÃO DO MESMO ATO JÁ CRIOU A ATIVIDADE.
+         *
+         * O DJEN publica UMA comunicação POR DESTINATÁRIO. A mesma intimação,
+         * num processo com três advogados no polo, chega três vezes — com
+         * textos ligeiramente diferentes, porque cada uma nomeia o seu
+         * destinatário. Para o CNJ são três comunicações; para quem trabalha é
+         * um ato só.
+         *
+         * Sem esta trava a agenda enchia de gêmeas: medido na produção em
+         * 03/09/2026, três "Avaliar recurso" do mesmo processo vencendo no
+         * mesmo dia, e mais dois pares iguais em outros dois processos. Cartões
+         * indistinguíveis na mesma coluna são o defeito que já apareceu neste
+         * sistema pela conclusão dupla de reunião — e a cura é a mesma: a
+         * segunda ocorrência ENRIQUECE a primeira em vez de empilhar.
+         *
+         * A chave é (processo, providência, dia da disponibilização). Duas
+         * publicações do mesmo ato compartilham as três; dois atos diferentes
+         * no mesmo dia — que existem — diferem na providência, e aí nascem
+         * separados, como devem.
+         */
+        const irma = await this.prisma.comunicacaoDjen.findFirst({
+          where: {
+            processoId,
+            id: { not: c.id },
+            providencia: c.providencia,
+            dataDisponibilizacao: c.dataDisponibilizacao,
+            compromissoId: { not: null },
+          },
+          select: { compromissoId: true },
+        });
+        if (irma?.compromissoId) {
+          await this.enriquecer(irma.compromissoId, c);
+          await this.prisma.comunicacaoDjen.update({
+            where: { id: c.id },
+            data: {
+              movimentacaoId,
+              compromissoId: irma.compromissoId,
+              providencia: c.providencia,
+              prazoMencionadoDias: c.prazoMencionadoDias,
+            },
+          });
+          resumo.enriquecidas++;
+          continue;
+        }
+
         // (B) e (C) — o DJEN cria a atividade. Em (B) ainda carimba a
         // movimentação, para o robô de prazos não gerar uma segunda depois.
         const compromissoId = await this.criarAtividade(processo, c);
@@ -165,6 +211,9 @@ export class CorrelacaoService {
         resumo.criadas++;
       }
 
+      // O pareamento tardio — ver `parearAtrasadas`.
+      await this.parearAtrasadas(processoId, desde, movimentacoes);
+
       if (resumo.criadas || resumo.enriquecidas) {
         this.logger.log(
           `[CORRELACAO] ${processo.numeroCNJ}: ${resumo.criadas} atividade(s) criada(s), ` +
@@ -179,6 +228,72 @@ export class CorrelacaoService {
       );
     }
     return resumo;
+  }
+
+  /**
+   * O PAREAMENTO QUE CHEGA DEPOIS.
+   *
+   * A publicação é classificada UMA vez (`providencia: null` no filtro acima), e
+   * isso está certo: sem essa trava, a janela de 30 dias seria reclassificada
+   * toda noite e o edital voltaria para sempre. Só que a mesma trava fechava a
+   * porta para o pareamento, e aí o desenho inteiro deixava de funcionar na
+   * ordem em que os fatos chegam de verdade.
+   *
+   * O DJEN É MAIS RÁPIDO QUE O DATAJUD, e por muito. Medido neste acervo: o
+   * atraso mediano do índice público do CNJ é de 41 dias. A publicação do dia
+   * 03/09 chega no dia 03/09; a movimentação que descreve o mesmo ato aparece no
+   * DataJud semanas depois. Na primeira passada não há com o que parear — e,
+   * com a trava, nunca mais haveria uma segunda.
+   *
+   * Medido na produção em 03/09/2026, antes desta correção: 24 publicações
+   * ingeridas num processo, ZERO pareadas, porque ele não tinha nenhuma
+   * movimentação do DataJud desde agosto.
+   *
+   * Esta passada NÃO classifica e NÃO cria atividade — só amarra o vínculo que
+   * ficou faltando. Reclassificar seria refazer julgamento já feito; criar
+   * atividade aqui duplicaria a que a primeira passada já criou.
+   */
+  private async parearAtrasadas(
+    processoId: string,
+    desde: Date,
+    movimentacoes: MovimentacaoCorrelacionavel[],
+  ): Promise<number> {
+    if (!movimentacoes.length) return 0;
+
+    const orfas = await this.prisma.comunicacaoDjen.findMany({
+      where: {
+        processoId,
+        movimentacaoId: null,
+        // Já classificadas: as não classificadas são da primeira passada.
+        providencia: { not: null },
+        dataDisponibilizacao: { gte: desde },
+      },
+      orderBy: { dataDisponibilizacao: 'asc' },
+      select: { id: true, dataDisponibilizacao: true, providencia: true, movimentacaoId: true },
+    });
+    if (!orfas.length) return 0;
+
+    const pares = correlacionar(
+      orfas.map((c) => ({
+        id: c.id,
+        dataDisponibilizacao: c.dataDisponibilizacao,
+        movimentacaoId: c.movimentacaoId,
+        ehPauta: c.providencia === 'PREPARAR_AUDIENCIA',
+      })),
+      movimentacoes,
+    );
+    if (!pares.length) return 0;
+
+    for (const par of pares) {
+      await this.prisma.comunicacaoDjen.update({
+        where: { id: par.comunicacaoId },
+        data: { movimentacaoId: par.movimentacaoId },
+      });
+    }
+    this.logger.log(
+      `[CORRELACAO] ${pares.length} publicação(ões) pareada(s) com movimentação que chegou depois.`,
+    );
+    return pares.length;
   }
 
   /**
@@ -335,6 +450,33 @@ export class CorrelacaoService {
     const inicio = proximoDiaUtil(atrasado ? hoje : calculado);
     inicio.setHours(9, 0, 0, 0);
 
+    /**
+     * URGÊNCIA EXIGE QUE A PUBLICAÇÃO SEJA RECENTE — e esta trava veio de uma
+     * medição, não de teoria.
+     *
+     * Na primeira ingestão de um processo o DJEN entrega o histórico inteiro
+     * dele, não só o dia. Em 03/09/2026, quatro processos trouxeram 136
+     * publicações de uma vez; catorze estavam na janela de classificação e
+     * SETE viraram atividade urgente, todas com o mesmo motivo ("o prazo pode
+     * já estar correndo") e todas vencendo no mesmo dia. Sete urgências
+     * simultâneas não são sete prioridades — são zero, e a próxima urgência de
+     * verdade chega numa tela onde ninguém mais olha a tarja vermelha.
+     *
+     * Quinze dias é a mesma régua do robô de prazos (`DIAS_ATO_RECENTE`), e
+     * pelo mesmo motivo: é o prazo recursal do art. 1.003 do CPC. Passado ele,
+     * o que havia a perder já se perdeu — a tarefa continua existindo, para
+     * alguém conferir o que ficou pendente, mas sem gritar.
+     *
+     * A mesma régua vale para o prazo curto: uma publicação de vinte dias
+     * atrás que mencionava cinco dias não é urgente, é história.
+     */
+    const idadeDias = Math.floor(
+      (hoje.getTime() - c.dataDisponibilizacao.getTime()) / 86_400_000,
+    );
+    const recente = idadeDias <= DIAS_ATO_RECENTE;
+    const prazoCurto = (c.prazoMencionadoDias ?? 99) <= 5;
+    const urgente = recente && (atrasado || prazoCurto);
+
     // Tarefa de contato é da secretaria; o resto é do advogado do processo.
     const responsavelId =
       spec.tipo === 'CONTATO'
@@ -350,15 +492,18 @@ export class CorrelacaoService {
         fim: new Date(inicio.getTime() + 3_600_000),
         descricao:
           `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.\n` +
-          (atrasado ? '⚠ Publicação recebida com atraso — confira o prazo com urgência.\n' : '') +
+          (atrasado
+            ? `⚠ Publicação de ${idadeDias} dia(s) atrás — o prazo calculado já venceu. ` +
+              `${recente ? 'Confira com urgência.' : 'Confira sem alarme o que ficou pendente.'}\n`
+            : '') +
           this.blocoTeor(c),
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
         ...montarUrgencia(
-          atrasado || (c.prazoMencionadoDias ?? 99) <= 5,
+          urgente,
           atrasado
-            ? 'Publicação recebida com atraso — o prazo pode já estar correndo.'
+            ? `Publicação de ${idadeDias} dia(s) atrás e o prazo já venceu — confira o que ficou pendente.`
             : `A publicação menciona prazo de ${c.prazoMencionadoDias} dia(s).`,
           { origem: 'AUTOMACAO' },
         ),
