@@ -241,3 +241,32 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
     expect(bloco).toContain('providencia: c.providencia');
   });
 });
+
+/**
+ * ENRIQUECER O QUE FOI DESCARTADO É ESCREVER NUM PAPEL JOGADO FORA.
+ *
+ * O cenário (A) enriquecia qualquer atividade vinculada à movimentação,
+ * inclusive CANCELADA. Medido na produção em 03/09/2026: 3 das 14 publicações
+ * apontavam para atividade fechada — e o link "Abrir a atividade na Agenda",
+ * que acabei de criar no painel e na aba, levava a uma tarefa que ninguém
+ * executaria. A publicação nova sobre um ato cuja tarefa foi descartada é
+ * trabalho NOVO, não anotação em tarefa morta.
+ */
+describe('só atividade aberta recebe a publicação', () => {
+  const CORRELACAO = ler('src/modules/processos/correlacao.service.ts');
+
+  it('a movimentação traz o status da atividade, não só o id', () => {
+    expect(CORRELACAO).toContain('compromisso: { select: { status: true } }');
+  });
+
+  it('o cenário A exige atividade aberta', () => {
+    expect(CORRELACAO).toContain("movimentacao?.compromisso?.status === 'PENDENTE'");
+    expect(CORRELACAO).toContain("movimentacao?.compromisso?.status === 'EM_ANDAMENTO'");
+    expect(CORRELACAO).toContain('if (movimentacao?.compromissoId && atividadeAberta) {');
+  });
+
+  it('e a busca pela irmã também', () => {
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'));
+    expect(bloco.slice(0, 900)).toContain("compromisso: { status: { in: ['PENDENTE', 'EM_ANDAMENTO'] } }");
+  });
+});

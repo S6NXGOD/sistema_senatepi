@@ -98,6 +98,16 @@ export class CorrelacaoService {
         select: {
           id: true, dataMovimento: true, descricao: true, detalhe: true,
           conteudo: true, codigoMovimento: true, compromissoId: true,
+          /**
+           * O STATUS da atividade, e não só a existência dela.
+           *
+           * O cenário (A) enriquecia qualquer atividade vinculada, inclusive
+           * CANCELADA. Medido na produção: 3 das 14 publicações apontavam para
+           * atividade fechada — e o link "Abrir a atividade na Agenda", tanto
+           * no painel quanto na aba, levava a uma tarefa que ninguém executaria.
+           * Enriquecer o que foi descartado é escrever num papel jogado fora.
+           */
+          compromisso: { select: { status: true } },
         },
       });
 
@@ -128,8 +138,16 @@ export class CorrelacaoService {
         const movimentacaoId = movPorComunicacao.get(c.id) ?? null;
         const movimentacao = movimentacaoId ? movPorId.get(movimentacaoId) : undefined;
 
-        // (A) A movimentação já virou atividade — enriquece em vez de criar.
-        if (movimentacao?.compromissoId) {
+        /**
+         * (A) A movimentação já virou atividade ABERTA — enriquece em vez de
+         * criar. Fechada não conta: a atividade cancelada foi descartada de
+         * propósito, e a concluída já teve o seu desfecho registrado. Nos dois
+         * casos a publicação nova é trabalho novo.
+         */
+        const atividadeAberta =
+          movimentacao?.compromisso?.status === 'PENDENTE' ||
+          movimentacao?.compromisso?.status === 'EM_ANDAMENTO';
+        if (movimentacao?.compromissoId && atividadeAberta) {
           await this.enriquecer(movimentacao.compromissoId, c);
           await this.prisma.comunicacaoDjen.update({
             where: { id: c.id },
@@ -172,6 +190,9 @@ export class CorrelacaoService {
             providencia: c.providencia,
             dataDisponibilizacao: c.dataDisponibilizacao,
             compromissoId: { not: null },
+            // Pelo mesmo motivo do cenário (A): irmã ligada a atividade
+            // cancelada não serve de destino para esta.
+            compromisso: { status: { in: ['PENDENTE', 'EM_ANDAMENTO'] } },
           },
           select: { compromissoId: true },
         });
