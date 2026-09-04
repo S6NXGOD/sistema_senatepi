@@ -9,13 +9,16 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
+import { DjenBuscaService } from './djen-busca.service';
 
 /**
  * Interruptor da integração com o DJEN.
@@ -37,6 +40,55 @@ export class DjenAtivoGuard implements CanActivate {
   }
 }
 
+/**
+ * Filtros da busca no acervo de publicações.
+ *
+ * DECLARADO ANTES DO CONTROLLER, e isso não é estilo: com
+ * `emitDecoratorMetadata`, o decorador do parâmetro guarda uma REFERÊNCIA à
+ * classe avaliada na definição do método. Classe declarada depois passa no
+ * `tsc --noEmit` e derruba a aplicação no carregamento do módulo com
+ * "Cannot access 'X' before initialization" — já aconteceu neste projeto.
+ */
+export class BuscaPublicacoesDto {
+  @ApiPropertyOptional({ description: 'Teor, número do processo, nome da parte, advogado ou OAB.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  q?: string;
+
+  @ApiPropertyOptional({ description: 'Slug da providência classificada.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  providencia?: string;
+
+  @ApiPropertyOptional({ description: 'Sigla do tribunal (TRT22, TJPI…).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  tribunal?: string;
+
+  @ApiPropertyOptional({ enum: ['COM_TAREFA', 'SEM_TAREFA'] })
+  @IsOptional()
+  @IsIn(['COM_TAREFA', 'SEM_TAREFA'])
+  situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pagina?: number;
+
+  @ApiPropertyOptional({ default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limite?: number;
+}
+
 @ApiTags('djen')
 @ApiBearerAuth()
 @Modulo('processos')
@@ -46,6 +98,7 @@ export class DjenController {
     private readonly prisma: PrismaService,
     private readonly djen: DjenService,
     private readonly sync: DjenSyncService,
+    private readonly busca: DjenBuscaService,
   ) {}
 
   /**
@@ -72,6 +125,28 @@ export class DjenController {
           })
         : 0,
     };
+  }
+
+  /**
+   * BUSCA NO ACERVO — a tela que faltava.
+   *
+   * Declarada ANTES de `processo/:processoId` de propósito: o Nest casa rotas
+   * na ordem de declaração, e um `@Get('processo/:x')` acima engoliria
+   * `/djen/publicacoes` como se "publicacoes" fosse um id.
+   */
+  @Get('publicacoes')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'Procura no que já foi baixado: teor, parte, advogado, OAB ou NPU.' })
+  buscar(@Query() filtro: BuscaPublicacoesDto) {
+    return this.busca.buscar(filtro);
+  }
+
+  /** Tribunais e providências presentes no acervo — alimenta os filtros. */
+  @Get('publicacoes/facetas')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'Valores disponíveis para filtrar a busca.' })
+  facetas() {
+    return this.busca.facetas();
   }
 
   /** Publicações de um processo, mais recentes primeiro. */

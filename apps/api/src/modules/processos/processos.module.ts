@@ -8,6 +8,7 @@ import { ProcessosService } from './processos.service';
 import { DatajudService } from './datajud.service';
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
+import { DjenBuscaService } from './djen-busca.service';
 import { DjenCronService } from './djen-cron.service';
 import { DjenAtivoGuard, DjenController } from './djen.controller';
 import { InstanciasService } from './instancias.service';
@@ -48,6 +49,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     InstanciasService,
     DjenService,
     DjenSyncService,
+    DjenBuscaService,
     DjenCronService,
     DjenAtivoGuard,
     ProcessosCronService,

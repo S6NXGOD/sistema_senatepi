@@ -95,3 +95,55 @@ export async function statusDatajud(): Promise<{ multiInstancia: boolean }> {
   const { data } = await api.get<{ multiInstancia: boolean }>('/datajud/status');
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Busca no acervo já baixado
+// ---------------------------------------------------------------------------
+
+/**
+ * O que a API do CNJ NÃO faz, esta busca faz.
+ *
+ * `nomeParte` e `nomeAdvogado` existem no Comunica PJe e são IGNORADOS pelo
+ * servidor deles — mandar um nome inexistente devolve exatamente o mesmo
+ * resultado. Mas os dois vêm DENTRO de cada publicação e são guardados aqui,
+ * então procurar por parte é impossível na origem e trivial no acervo.
+ */
+export interface FiltroPublicacoes {
+  q?: string;
+  providencia?: string;
+  tribunal?: string;
+  situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+  pagina?: number;
+  limite?: number;
+}
+
+export interface PublicacaoNaBusca extends PublicacaoDjen {
+  processo: { id: string; numeroCNJ: string | null } | null;
+  compromisso: { id: string; titulo: string; status: string; inicio: string } | null;
+}
+
+export interface ResultadoPublicacoes {
+  total: number;
+  pagina: number;
+  limite: number;
+  paginas: number;
+  itens: PublicacaoNaBusca[];
+}
+
+export async function buscarPublicacoes(filtro: FiltroPublicacoes): Promise<ResultadoPublicacoes> {
+  const params = Object.fromEntries(
+    Object.entries(filtro).filter(([, v]) => v !== undefined && v !== '' && v !== null),
+  );
+  const { data } = await api.get<ResultadoPublicacoes>('/djen/publicacoes', { params });
+  return data;
+}
+
+export interface FacetasDjen {
+  tribunais: { sigla: string; total: number }[];
+  providencias: { slug: string; total: number }[];
+}
+
+export async function facetasPublicacoes(): Promise<FacetasDjen> {
+  const { data } = await api.get<FacetasDjen>('/djen/publicacoes/facetas');
+  return data;
+}

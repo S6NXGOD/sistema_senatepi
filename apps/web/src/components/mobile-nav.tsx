@@ -10,13 +10,15 @@ import { Sheet } from '@/components/ui/sheet';
 import { Logo } from '@/components/logo';
 import { filtrarNav } from '@/components/nav-items';
 import { useAuth } from '@/lib/auth';
+import { useIntegracoes } from '@/lib/use-integracoes';
 
 /** Hamburger + Sheet lateral com a navegação — visível só no mobile (md:hidden). */
 export function MobileNav() {
   const [aberto, setAberto] = useState(false);
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const secoes = filtrarNav(user?.role, user?.permissoes);
+  const integracoes = useIntegracoes();
+  const secoes = filtrarNav(user?.role, user?.permissoes, integracoes);
 
   return (
     <div className="md:hidden">
