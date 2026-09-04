@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { criarAtendimento, CanalAtendimento, CANAIS, CANAL_LABEL } from '@/lib/atendimentos';
+import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
@@ -35,6 +36,16 @@ export function NovoAtendimentoDrawer({
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [canal, setCanal] = useState<CanalAtendimento>('PRESENCIAL');
+  /**
+   * SOBRE O QUE É — e por que fica em branco por padrão.
+   *
+   * O relatório precisa disto para responder "as pessoas vêm mais por nível ou
+   * por salário?". Mas obrigar a classificar com o filiado esperando no balcão
+   * produz o primeiro item da lista em toda ficha, e campo preenchido no
+   * automático mente pior que campo vazio. Fica opcional, e o relatório conta
+   * os não informados à parte.
+   */
+  const [assunto, setAssunto] = useState('');
   const [descricao, setDescricao] = useState('');
   const [urgente, setUrgente] = useState(false);
   const [urgenteMotivo, setUrgenteMotivo] = useState('');
@@ -48,7 +59,7 @@ export function NovoAtendimentoDrawer({
       setFiliadoId(filiadoPre?.id ?? '');
       setFiliadoNome(filiadoPre?.nomeCompleto ?? '');
       setBusca(''); setResultados([]);
-      setCanal('PRESENCIAL'); setDescricao('');
+      setCanal('PRESENCIAL'); setDescricao(''); setAssunto('');
       setCriadoId(null);
     }
   }, [open, filiadoPre]);
@@ -87,6 +98,7 @@ export function NovoAtendimentoDrawer({
       criarAtendimento({
         filiadoId,
         canal,
+        ...(assunto ? { assunto } : {}),
         descricao: descricao.trim(),
         urgente,
         urgenteMotivo: urgente ? urgenteMotivo.trim() || undefined : undefined,
@@ -202,6 +214,23 @@ export function NovoAtendimentoDrawer({
               <label className="text-sm font-medium">Canal de Atendimento *</label>
               <select className={inputCls} value={canal} onChange={(e) => setCanal(e.target.value as CanalAtendimento)}>
                 {CANAIS.map((c) => <option key={c} value={c}>{CANAL_LABEL[c]}</option>)}
+              </select>
+            </div>
+
+            {/* Assunto — o que o relatório soma. Ver o comentário do estado. */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Assunto <span className="font-normal text-muted-foreground">(opcional)</span>
+              </label>
+              <select
+                className={inputCls}
+                value={assunto}
+                onChange={(e) => setAssunto(e.target.value)}
+              >
+                <option value="">Não informar agora</option>
+                {ASSUNTOS.map((a) => (
+                  <option key={a} value={a}>{ASSUNTO_LABEL[a]}</option>
+                ))}
               </select>
             </div>
 

@@ -30,6 +30,8 @@ export interface Contagem {
 export interface Relatorio {
   periodo: { de: string; ate: string };
   escopo: 'GLOBAL' | 'PESSOAL';
+  /** Preenchido quando a coordenação pediu o espelho de uma pessoa. */
+  focoUsuario: { id: string; nome: string } | null;
   equipe: LinhaEquipe[];
   atividades: {
     concluidas: number;
@@ -37,6 +39,10 @@ export interface Relatorio {
     abertas: number;
     atrasadas: number;
     porDesfecho: Contagem[];
+    /** Que TIPO de trabalho — audiência e telefonema não custam o mesmo. */
+    porTipo: Contagem[];
+    automaticas: number;
+    manuais: number;
   };
   processos: {
     /** Entraram no sistema no período — inclui acervo antigo importado. */
@@ -53,21 +59,71 @@ export interface Relatorio {
     concluidos: number;
     porCanal: Contagem[];
     porAtendente: Contagem[];
+    /** Sobre o que o filiado procurou — ver `ASSUNTO_LABEL`. */
+    porAssunto: Contagem[];
+    /** Quantos ficaram sem assunto: sem este número, 3 de 3 viram "100%". */
+    assuntoNaoInformado: number;
+    porSetor: Contagem[];
   };
   geradoEm: string;
 }
 
-export async function carregarRelatorio(de: string, ate: string): Promise<Relatorio> {
-  return (await api.get<Relatorio>('/relatorios', { params: { de, ate } })).data;
+export async function carregarRelatorio(
+  de: string,
+  ate: string,
+  usuarioId?: string,
+): Promise<Relatorio> {
+  return (
+    await api.get<Relatorio>('/relatorios', {
+      params: { de, ate, ...(usuarioId ? { usuarioId } : {}) },
+    })
+  ).data;
 }
 
 /** CSV e não PDF: quem pede número quer somar e cruzar, não imprimir. */
-export async function baixarCsvDaEquipe(de: string, ate: string): Promise<void> {
+export async function baixarCsvDaEquipe(
+  de: string,
+  ate: string,
+  usuarioId?: string,
+): Promise<void> {
+  const foco = usuarioId ? `&usuarioId=${usuarioId}` : '';
   await baixarArquivo(
-    `/relatorios/equipe.csv?de=${de}&ate=${ate}`,
+    `/relatorios/equipe.csv?de=${de}&ate=${ate}${foco}`,
     `relatorio-da-equipe-${de}-a-${ate}.csv`,
   );
 }
+
+/**
+ * SOBRE O QUE O FILIADO PROCUROU.
+ *
+ * A lista é fechada porque assunto em texto livre vira sinônimo
+ * ("insalubridade", "adicional de insalubridade", "INSALUB") e nenhum relatório
+ * consegue somar. Os rótulos são os que a equipe usa falando, não os do enum.
+ */
+export const ASSUNTO_LABEL: Record<string, string> = {
+  ANDAMENTO_PROCESSO: 'Andamento de processo',
+  DUVIDA_TRABALHISTA: 'Dúvida trabalhista',
+  REMUNERACAO: 'Remuneração e atrasados',
+  PROGRESSAO_NIVEL: 'Progressão / mudança de nível',
+  ADICIONAIS: 'Adicionais (insalubridade, noturno)',
+  JORNADA_ESCALA: 'Jornada e escala',
+  ASSEDIO_RETALIACAO: 'Assédio ou retaliação',
+  CONTRATO_VINCULO: 'Contrato e vínculo',
+  FERIAS_LICENCAS: 'Férias e licenças',
+  BENEFICIOS_SINDICAIS: 'Benefícios do sindicato',
+  FINANCEIRO_SINDICAL: 'Mensalidade e contribuição',
+  OUTRO: 'Outro',
+};
+
+export const ASSUNTOS = Object.keys(ASSUNTO_LABEL);
+
+/*
+  O TIPO DE ATIVIDADE É CADASTRÁVEL — não existe lista fixa aqui de propósito.
+  `compromissos.tipo` guarda o SLUG de `tipos_evento`, que a administração
+  edita; um mapa chumbado neste arquivo mostraria "PERICIA" para um tipo que
+  alguém renomeou e esconderia os que forem criados. A tela usa `rotuloTipo`
+  de `@/lib/agenda`, alimentado por `listarTiposEvento`.
+*/
 
 /** "1h20" em vez de "80 min" — ninguém pensa a própria tarde em minutos. */
 export function duracao(minutos: number | null): string {

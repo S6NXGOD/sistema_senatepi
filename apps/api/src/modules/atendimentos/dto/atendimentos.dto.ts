@@ -5,7 +5,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
-  CanalAtendimento, DesfechoAtendimento, StatusAtendimento, TipoEncaminhamento,
+  AssuntoAtendimento, CanalAtendimento, DesfechoAtendimento, StatusAtendimento, TipoEncaminhamento,
 } from '@prisma/client';
 
 /** Criação: só o essencial da triagem — o desfecho é registrado depois. */
@@ -17,6 +17,22 @@ export class CreateAtendimentoDto {
   @ApiProperty({ enum: CanalAtendimento })
   @IsEnum(CanalAtendimento)
   canal: CanalAtendimento;
+
+  /**
+   * SOBRE O QUE É A DEMANDA.
+   *
+   * O atendimento sabia COMO a pessoa chegou, QUEM atendeu e COMO terminou — e
+   * não sabia sobre o quê. "As pessoas vêm mais por nível ou por salário?" não
+   * tinha resposta, e a descrição livre dos registros existentes confirma:
+   * cinco dos sete dizem apenas "Consulta Jurídica".
+   *
+   * OPCIONAL de propósito. Obrigar a classificar no balcão, com o filiado
+   * esperando, produz o primeiro item da lista em toda ficha — e um campo
+   * preenchido no automático mente pior que um campo vazio. O relatório conta
+   * os não informados à parte.
+   */
+  @ApiPropertyOptional({ enum: AssuntoAtendimento, description: 'Assunto da demanda.' })
+  @IsOptional() @IsEnum(AssuntoAtendimento) assunto?: AssuntoAtendimento;
 
   @ApiProperty({ description: 'Descrição da demanda.' })
   @IsString() @MinLength(3, { message: 'Descreva a demanda.' })
@@ -85,6 +101,9 @@ export class ListAtendimentosQueryDto {
 
   @ApiPropertyOptional({ enum: CanalAtendimento })
   @IsOptional() @IsEnum(CanalAtendimento) canal?: CanalAtendimento;
+
+  @ApiPropertyOptional({ enum: AssuntoAtendimento })
+  @IsOptional() @IsEnum(AssuntoAtendimento) assunto?: AssuntoAtendimento;
 
   @ApiPropertyOptional({ description: 'Data inicial (YYYY-MM-DD).' })
   @IsOptional() @IsString() dataInicio?: string;

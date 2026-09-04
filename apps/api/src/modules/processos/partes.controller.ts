@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
-import { SugestaoFiliadoService } from './sugestao-filiado.service';
+import { SugestaoFiliadoService } from './sugestao-filiado.service';
+import { VinculosPendentesService, type DecisaoDeVinculo } from './vinculos-pendentes.service';
 import {
   AdicionarParteDto, AtualizarParteDto, AtualizarParteExternaDto, CriarParteExternaDto,
   DefinirAdvogadosDto, ListParteExternaQueryDto, MesclarOrganizacaoDto,
@@ -33,7 +34,28 @@ export class PartesController {
   constructor(
     private readonly service: PartesService,
     private readonly sugestoes: SugestaoFiliadoService,
+    private readonly pendentes: VinculosPendentesService,
   ) {}
+
+  /*
+    ANTES de `@Get(':id/partes')`: "vinculos-pendentes" casaria como se fosse
+    o id de um processo, e a rota devolveria "processo não encontrado".
+  */
+  @Get('vinculos-pendentes')
+  @ApiOperation({ summary: 'A fila "sem filiado vinculado" com os candidatos de cada caso.' })
+  listarPendentes() {
+    return this.pendentes.listar();
+  }
+
+  @Post('vinculos-pendentes/aplicar')
+  @ApiOperation({ summary: 'Aplica as decisões tomadas na fila (vincular ou reclassificar).' })
+  aplicarPendentes(
+    @Body() body: { decisoes: DecisaoDeVinculo[] },
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.pendentes.aplicar(body?.decisoes ?? [], ctxDe(req, user));
+  }
 
   @Get(':id/partes')
   @ApiOperation({ summary: 'Partes do processo agrupadas por polo, com o confronto "Autor × Réu".' })

@@ -34,6 +34,7 @@ import { LocaisTrabalhoSection, type LocalTrabalho } from '@/components/filiados
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import { travado, AVISO_TRAVADO, type CampoImutavel } from '@/lib/campos-imutaveis';
 import { campoVisivel } from '@/tenant.config';
+import { cn } from '@/lib/utils';
 import { V } from '@/lib/vocabulario';
 
 // O local de trabalho e a sua edição vivem em locais-trabalho-section.tsx.
@@ -143,8 +144,37 @@ function Campo({ label, erro, children, bloqueado }: {
 
 type Modo = 'criar' | 'editar' | 'recadastrar';
 
-export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; modo?: Modo }) {
+/**
+ * OS PASSOS — só quando o formulário abre dentro de um modal.
+ *
+ * Na PÁGINA ele continua inteiro e rolando, que é o certo: quem foi até
+ * /filiados/novo veio para cadastrar e quer ver tudo. Dentro de um modal, no
+ * meio de outra tarefa, sete blocos empilhados numa caixa de 600px são um muro
+ * — e o que a pessoa faz diante de um muro é fechar e escolher "outra parte".
+ *
+ * A divisão segue a ORDEM EM QUE A INFORMAÇÃO CHEGA numa conversa de balcão:
+ * quem é, como falo com ela, onde trabalha, quem depende dela.
+ */
+const PASSOS = [
+  { n: 1, titulo: 'Quem é', campos: ['nomeCompleto', 'cpf', 'dataNascimento'] as const },
+  { n: 2, titulo: 'Contato e endereço', campos: ['telefonePrincipal', 'email', 'cidade', 'estado'] as const },
+  { n: 3, titulo: 'Profissional', campos: ['formacao', 'formacaoOutro', 'numeroCoren', 'dataAdmissao'] as const },
+  { n: 4, titulo: 'Dependentes', campos: [] as const },
+];
+
+export function FiliadoForm({
+  inicial, modo = 'criar', emPassos = false, onSalvo, onCancelar,
+}: {
+  inicial?: Filiado;
+  modo?: Modo;
+  /** Apresenta os blocos em etapas — usado quando o formulário vive num modal. */
+  emPassos?: boolean;
+  /** Substitui a navegação para a ficha: quem chamou decide o que fazer com o id. */
+  onSalvo?: (id: string) => void;
+  onCancelar?: () => void;
+}) {
   const router = useRouter();
+  const [passo, setPasso] = useState(1);
   const qc = useQueryClient();
   const [enviando, setEnviando] = useState(false);
   const [fotoPreview, setFotoPreview] = useState<string | null>(inicial?.fotoUrl ?? null);
@@ -194,6 +224,7 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
     control,
     watch,
     setValue,
+    trigger,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -368,7 +399,8 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       toast.success(
         modo === 'criar' ? 'Filiado cadastrado' : modo === 'recadastrar' ? 'Recadastramento concluído' : 'Filiado atualizado',
       );
-      router.push(`/filiados/${id}`);
+      if (onSalvo) onSalvo(id);
+      else router.push(`/filiados/${id}`);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Erro ao salvar');
     } finally {
@@ -377,6 +409,20 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
   }
 
   const sel = 'h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm';
+
+  /** Card visível? Fora do modo passos, todos são. */
+  const mostrar = (n: number) => !emPassos || passo === n;
+
+  /**
+   * AVANÇAR VALIDA O PASSO, e só ele. Sem isso, o erro de um campo obrigatório
+   * do passo 3 só apareceria no fim, num bloco que a pessoa não está vendo —
+   * formulário que não envia e não diz por quê.
+   */
+  async function avancar() {
+    const campos = PASSOS.find((x) => x.n === passo)?.campos ?? [];
+    const ok = campos.length === 0 || (await trigger(campos as unknown as (keyof FormData)[]));
+    if (ok) setPasso((v) => Math.min(v + 1, PASSOS.length));
+  }
 
   return (
     <>
@@ -415,6 +461,33 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
       }}
       className="space-y-6"
     >
+      {emPassos && (
+        <ol className="flex items-center gap-1.5" aria-label="Etapas do cadastro">
+          {PASSOS.map((x) => (
+            <li key={x.n} className="flex-1">
+              <button
+                type="button"
+                /* Voltar é sempre permitido; avançar passa pela validação. */
+                onClick={() => x.n < passo && setPasso(x.n)}
+                disabled={x.n > passo}
+                className={cn(
+                  'w-full rounded-md border px-2 py-1.5 text-left text-[11px] font-medium transition',
+                  x.n === passo && 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-900/20 dark:text-brand-200',
+                  x.n < passo && 'text-muted-foreground hover:bg-muted',
+                  x.n > passo && 'text-muted-foreground/60',
+                )}
+              >
+                <span className="block tabular-nums opacity-60">{x.n}</span>
+                <span className="block truncate">{x.titulo}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {/* A foto sai do modal: ela abre um segundo diálogo por cima deste, e a
+          ficha do filiado é o lugar certo para isso. */}
+      {!emPassos && (
       <Card>
         <CardHeader><CardTitle>Foto do {V.filiado}</CardTitle></CardHeader>
         <CardContent className="flex items-center gap-6">
@@ -433,7 +506,9 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {mostrar(1) && (
       <Card>
         <CardHeader><CardTitle>Informações pessoais</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -461,7 +536,9 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           </Campo>
         </CardContent>
       </Card>
+      )}
 
+      {mostrar(2) && (
       <Card>
         <CardHeader><CardTitle>Contato</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -470,7 +547,9 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           <Campo label="E-mail" erro={errors.email?.message}><Input type="email" {...register('email')} /></Campo>
         </CardContent>
       </Card>
+      )}
 
+      {mostrar(2) && (
       <Card>
         <CardHeader><CardTitle>Endereço</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -563,7 +642,9 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           </Campo>
         </CardContent>
       </Card>
+      )}
 
+      {mostrar(3) && (
       <Card>
         <CardHeader><CardTitle>Informações profissionais</CardTitle></CardHeader>
         <CardContent className="space-y-5">
@@ -658,8 +739,11 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         </CardContent>
       </Card>
 
+      )}
+
       {/* Vínculos profissionais — sem limite: duplo vínculo é a regra na
           enfermagem, e o servidor com dois contratos de 20h também tem dois. */}
+      {mostrar(3) && (
       <Card>
         <CardHeader>
           <CardTitle>Vínculos profissionais</CardTitle>
@@ -673,7 +757,10 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
         </CardContent>
       </Card>
 
+      )}
+
       {/* Dependentes: entram junto com o cadastro, na mesma gravação. */}
+      {mostrar(4) && (
       <Card>
         <CardHeader><CardTitle>Dependentes</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -744,13 +831,29 @@ export function FiliadoForm({ inicial, modo = 'criar' }: { inicial?: Filiado; mo
           </Button>
         </CardContent>
       </Card>
+      )}
 
-      <div className="flex justify-end gap-3">
-        <Button type="button" variant="outline" onClick={() => router.back()}>Cancelar</Button>
-        <Button type="submit" disabled={enviando}>
-          {enviando && <Loader2 className="h-4 w-4 animate-spin" />}
-          {modo === 'criar' ? 'Cadastrar filiação' : modo === 'recadastrar' ? 'Concluir recadastramento' : 'Salvar alterações'}
+      <div className="flex items-center justify-end gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => (onCancelar ? onCancelar() : router.back())}
+        >
+          Cancelar
         </Button>
+        {emPassos && passo > 1 && (
+          <Button type="button" variant="outline" onClick={() => setPasso((v) => v - 1)}>
+            Voltar
+          </Button>
+        )}
+        {emPassos && passo < PASSOS.length ? (
+          <Button type="button" onClick={avancar}>Continuar</Button>
+        ) : (
+          <Button type="submit" disabled={enviando}>
+            {enviando && <Loader2 className="h-4 w-4 animate-spin" />}
+            {modo === 'criar' ? 'Cadastrar filiação' : modo === 'recadastrar' ? 'Concluir recadastramento' : 'Salvar alterações'}
+          </Button>
+        )}
       </div>
     </form>
     </>

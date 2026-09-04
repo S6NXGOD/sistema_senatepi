@@ -196,6 +196,8 @@ export function mensagemSaudacao(p: { nome: string; data: string }): string {
 export interface CriarAtendimentoInput {
   filiadoId: string;
   canal: CanalAtendimento;
+  /** Sobre o que é — opcional; o relatório conta os não informados à parte. */
+  assunto?: string;
   descricao: string;
   /** A triagem é a PORTA: é no balcão que se descobre que o caso tem prazo. */
   urgente?: boolean;

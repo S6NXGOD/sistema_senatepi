@@ -47,6 +47,7 @@ export class AtendimentosService {
         filiadoId: filiado.id,
         atendentePorId: ctx.userId!,
         canal: dto.canal,
+        assunto: dto.assunto ?? null,
         descricao: dto.descricao.trim(),
         ...urgencia,
       },
@@ -250,6 +251,7 @@ export class AtendimentosService {
     if (q.desfecho) and.push({ desfecho: q.desfecho });
     if (q.status) and.push({ status: q.status });
     if (q.canal) and.push({ canal: q.canal });
+    if (q.assunto) and.push({ assunto: q.assunto });
     if (busca) {
       and.push({
         OR: [

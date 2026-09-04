@@ -49,6 +49,8 @@ export interface Contagem {
 export interface Relatorio {
   periodo: { de: string; ate: string };
   escopo: 'GLOBAL' | 'PESSOAL';
+  /** Quando a coordenação pediu o espelho de UMA pessoa. */
+  focoUsuario: { id: string; nome: string } | null;
   equipe: LinhaEquipe[];
   atividades: {
     concluidas: number;
@@ -56,6 +58,14 @@ export interface Relatorio {
     abertas: number;
     atrasadas: number;
     porDesfecho: Contagem[];
+    /**
+     * QUE TIPO DE TRABALHO. "Concluiu 15" não diz se foram quinze audiências
+     * ou quinze telefonemas — e a diferença é o dia inteiro de alguém.
+     */
+    porTipo: Contagem[];
+    /** Quantas nasceram de robô e quantas de gente. */
+    automaticas: number;
+    manuais: number;
   };
   processos: {
     /** Entraram no SISTEMA no período — inclui acervo antigo recém-importado. */
@@ -72,6 +82,15 @@ export interface Relatorio {
     concluidos: number;
     porCanal: Contagem[];
     porAtendente: Contagem[];
+    /**
+     * SOBRE O QUE O FILIADO PROCUROU — a pergunta que a diretoria faz e que o
+     * sistema não sabia responder. `naoInformado` conta os registros anteriores
+     * ao campo e os que ficaram em branco: sem ele, uma amostra de três viraria
+     * "100% progressão de nível".
+     */
+    porAssunto: Contagem[];
+    assuntoNaoInformado: number;
+    porSetor: Contagem[];
   };
   geradoEm: string;
 }
@@ -105,6 +124,12 @@ export class RelatoriosService {
     de: Date,
     ate: Date,
     usuario: { id: string; role: string; permissoes?: unknown },
+    /**
+     * FOCO EM UMA PESSOA — pedido da coordenação para conversar com alguém, não
+     * para publicar um pódio. O advogado NÃO pode usar: para ele o recorte já é
+     * ele mesmo, e aceitar o parâmetro abriria o espelho do colega.
+     */
+    focoId?: string,
   ): Promise<Relatorio> {
     // `ate` chega como data; o período fecha no FIM do dia informado, senão
     // "de 01/09 até 30/09" perderia tudo que aconteceu no dia 30.
@@ -113,8 +138,12 @@ export class RelatoriosService {
     const agora = new Date();
 
     const souAdvogado = usuario.role === 'ADVOGADO';
-    const soMeu: Prisma.CompromissoWhereInput = souAdvogado
-      ? { OR: [{ responsavelId: usuario.id }, { equipe: { some: { usuarioId: usuario.id } } }] }
+    /** O foco só existe para quem vê a equipe inteira. */
+    const foco = souAdvogado ? undefined : focoId?.trim() || undefined;
+    const alvo = souAdvogado ? usuario.id : foco;
+
+    const soMeu: Prisma.CompromissoWhereInput = alvo
+      ? { OR: [{ responsavelId: alvo }, { equipe: { some: { usuarioId: alvo } } }] }
       : {};
 
     const noPeriodo = { gte: inicio, lt: fim };
@@ -141,12 +170,13 @@ export class RelatoriosService {
        */
       this.prisma.compromisso.findMany({
         where: {
-          ...(souAdvogado ? { concluidoPor: usuario.id } : {}),
+          ...(alvo ? { concluidoPor: alvo } : {}),
           status: StatusCompromisso.CONCLUIDO,
           concluidoEm: noPeriodo,
         },
         select: {
           concluidoPor: true, responsavelId: true, desfecho: true,
+          tipo: true, origemAutomatica: true,
           iniciadoEm: true, concluidoEm: true,
         },
       }),
@@ -177,14 +207,18 @@ export class RelatoriosService {
         select: { categoria: true, tribunal: true },
       }),
       this.prisma.atendimento.findMany({
-        where: { createdAt: noPeriodo },
+        where: {
+          createdAt: noPeriodo,
+          // O foco vale também para o balcão: "o que o Ivo atendeu no mês".
+          ...(alvo ? { atendentePorId: alvo } : {}),
+        },
         select: {
-          status: true, canal: true,
+          status: true, canal: true, assunto: true, setor: true,
           atendente: { select: { nome: true, nomeExibicao: true } },
         },
       }),
       this.prisma.user.findMany({
-        where: souAdvogado ? { id: usuario.id } : { ativo: true },
+        where: alvo ? { id: alvo } : { ativo: true },
         select: { id: true, nome: true, nomeExibicao: true, role: true },
         orderBy: { nome: 'asc' },
       }),
@@ -238,9 +272,13 @@ export class RelatoriosService {
       };
     });
 
+    const alvoNome = alvo ? (pessoas.find((x) => x.id === alvo) ?? null) : null;
+
     return {
       periodo: { de: inicio.toISOString(), ate: fim.toISOString() },
       escopo: souAdvogado ? 'PESSOAL' : 'GLOBAL',
+      focoUsuario:
+        foco && alvoNome ? { id: alvoNome.id, nome: alvoNome.nomeExibicao || alvoNome.nome } : null,
       equipe,
       atividades: {
         concluidas: concluidas.length,
@@ -248,6 +286,9 @@ export class RelatoriosService {
         abertas: abertas.length,
         atrasadas: abertas.filter((a) => a.inicio < agora).length,
         porDesfecho: contar(concluidas, (c) => c.desfecho),
+        porTipo: contar(concluidas, (c) => String(c.tipo)),
+        automaticas: concluidas.filter((c) => c.origemAutomatica).length,
+        manuais: concluidas.filter((c) => !c.origemAutomatica).length,
       },
       processos: {
         cadastrados: processosNovos,
@@ -265,6 +306,9 @@ export class RelatoriosService {
           atendimentos,
           (a) => a.atendente?.nomeExibicao || a.atendente?.nome || null,
         ),
+        porAssunto: contar(atendimentos, (a) => (a.assunto ? String(a.assunto) : null)),
+        assuntoNaoInformado: atendimentos.filter((a) => !a.assunto).length,
+        porSetor: contar(atendimentos, (a) => (a.setor ? String(a.setor) : null)),
       },
       geradoEm: new Date().toISOString(),
     };

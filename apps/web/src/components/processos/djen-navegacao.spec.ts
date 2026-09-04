@@ -194,12 +194,25 @@ describe('o painel', () => {
   });
 
   /**
-   * CONTRA QUEM, e não DE QUEM. Medido em 04/09/2026: só 4 dos 127 processos
-   * têm filiado vinculado e o sindicato é o polo ativo em 93 — o nome dele em
-   * toda linha não distingue nada. O réu distingue.
+   * DE QUEM CONTRA QUEM, e o silêncio quando a resposta é "nosso".
+   *
+   * "Contra quem" sempre distinguiu um processo do outro. "De quem" entrou
+   * depois e só aparece quando o autor NÃO é o sindicato: ele é o polo ativo em
+   * 93 dos 127 processos, e o nome dele em toda linha gastaria espaço para
+   * dizer o que já se sabia. Quando é a filiada, é a informação que faltava.
    */
-  it('cada linha diz contra quem é o processo', () => {
-    expect(BLOCO_DJEN).toContain('× {pub.processo.adversario}');
+  it('cada linha diz de quem e contra quem é o processo', () => {
+    expect(BLOCO_DJEN).toContain('pub.processo.autor');
+    expect(BLOCO_DJEN).toContain('× ${pub.processo.adversario}');
+  });
+
+  /**
+   * EM QUE POLO ESTAMOS. A mesma "intimação para manifestar-se" é ataque
+   * quando somos autor e defesa quando somos réu — e a lista não dizia qual.
+   */
+  it('cada linha diz em que polo o sindicato está', () => {
+    expect(BLOCO_DJEN).toContain('pub.processo?.nossoPolo');
+    expect(BLOCO_DJEN).toContain("somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}");
   });
 
   /**

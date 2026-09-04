@@ -100,7 +100,19 @@ export default function PublicacoesPage() {
     placeholderData: keepPreviousData,
   });
 
-  const grupos = useMemo(() => agruparPublicacoes(data?.itens ?? []), [data]);
+  /*
+    O CARTÃO PRECISA DAS PARTES ACHATADAS.
+    A API devolve `processo.partes`; o cartão é o mesmo componente usado dentro
+    do processo, onde essa informação não existe. Achatar aqui mantém o cartão
+    sem saber de onde veio o dado.
+  */
+  const grupos = useMemo(
+    () =>
+      agruparPublicacoes(
+        (data?.itens ?? []).map((p) => ({ ...p, partesDoProcesso: p.processo?.partes ?? null })),
+      ),
+    [data],
+  );
   const temFiltro = !!(busca || providencia || tribunal || situacao || onde !== 'TUDO');
 
   function limpar() {

@@ -105,7 +105,19 @@ describe('busca no acervo de publicações', () => {
 
   /** A lista precisa dizer se a publicação já virou trabalho, e qual. */
   it('devolve o processo e a atividade ligados', () => {
-    expect(BUSCA).toContain('processo: { select: { id: true, numeroCNJ: true } }');
+    expect(BUSCA).toContain('numeroCNJ: true,');
     expect(BUSCA).toContain('compromisso: { select: { id: true, titulo: true, status: true, inicio: true } }');
+  });
+
+  /**
+   * E PRECISA DIZER DE QUEM É O PROCESSO. A lista mostrava tribunal, órgão e
+   * uma parede de texto do tribunal — quem varre 984 publicações reconhece o
+   * caso por "Fulano × Município", não pelo cabeçalho do acórdão.
+   */
+  it('devolve as partes principais para identificar o caso', () => {
+    const trecho = BUSCA.slice(BUSCA.indexOf('          processo: {'));
+    expect(trecho.slice(0, 400)).toContain('partes: {');
+    expect(trecho.slice(0, 400)).toContain('where: { principal: true }');
+    expect(trecho.slice(0, 400)).toContain('select: { nome: true, polo: true }');
   });
 });

@@ -118,7 +118,15 @@ export interface FiltroPublicacoes {
 }
 
 export interface PublicacaoNaBusca extends PublicacaoDjen {
-  processo: { id: string; numeroCNJ: string | null } | null;
+  /**
+   * As PARTES vêm junto do processo. Sem elas a lista não diz de quem é o
+   * caso, e reconhecer um ato entre 984 vira leitura de cabeçalho de acórdão.
+   */
+  processo: {
+    id: string;
+    numeroCNJ: string | null;
+    partes?: { nome: string; polo: string }[];
+  } | null;
   compromisso: { id: string; titulo: string; status: string; inicio: string } | null;
 }
 

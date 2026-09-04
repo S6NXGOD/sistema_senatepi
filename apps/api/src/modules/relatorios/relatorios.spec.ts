@@ -56,7 +56,20 @@ describe('o recorte por perfil', () => {
    */
   it('o advogado recebe só a linha dele', () => {
     expect(SERVICO).toContain("const souAdvogado = usuario.role === 'ADVOGADO';");
-    expect(SERVICO).toContain('where: souAdvogado ? { id: usuario.id } : { ativo: true }');
+    expect(SERVICO).toContain('const alvo = souAdvogado ? usuario.id : foco;');
+    expect(SERVICO).toContain('where: alvo ? { id: alvo } : { ativo: true }');
+  });
+
+  /**
+   * O FOCO É DA COORDENAÇÃO, e o advogado não alcança.
+   *
+   * O parâmetro `usuarioId` recorta o relatório numa pessoa — serve para
+   * conversar com ela. Se o advogado pudesse usá-lo, "o meu relatório" viraria
+   * "o relatório de quem eu quiser", que é exatamente o placar que a decisão de
+   * produto recusa.
+   */
+  it('o advogado não pode focar em outra pessoa', () => {
+    expect(SERVICO).toContain('const foco = souAdvogado ? undefined : focoId?.trim() || undefined;');
   });
 
   /**
@@ -66,7 +79,7 @@ describe('o recorte por perfil', () => {
    * Dois números para a mesma pergunta é pior que número nenhum.
    */
   it('concluída conta para quem concluiu, nos dois escopos', () => {
-    expect(SERVICO).toContain('...(souAdvogado ? { concluidoPor: usuario.id } : {})');
+    expect(SERVICO).toContain('...(alvo ? { concluidoPor: alvo } : {})');
     expect(SERVICO).toContain('const quem = c.concluidoPor ?? c.responsavelId;');
   });
 
@@ -106,6 +119,7 @@ describe('o CSV', () => {
   const relatorio = {
     periodo: { de: '2026-08-01T03:00:00.000Z', ate: '2026-09-01T03:00:00.000Z' },
     escopo: 'GLOBAL' as const,
+    focoUsuario: null,
     equipe: [
       {
         usuarioId: 'u1', nome: 'Dr. Murilo', papel: 'ADVOGADO',
@@ -116,9 +130,15 @@ describe('o CSV', () => {
         concluidas: 0, abertas: 2, atrasadas: 1, medianaMinutos: null, cronometradas: 0,
       },
     ],
-    atividades: { concluidas: 15, canceladas: 0, abertas: 2, atrasadas: 1, porDesfecho: [] },
+    atividades: {
+      concluidas: 15, canceladas: 0, abertas: 2, atrasadas: 1,
+      porDesfecho: [], porTipo: [], automaticas: 0, manuais: 15,
+    },
     processos: { cadastrados: 0, distribuidos: 0, ativos: 0, encerrados: 0, porArea: [], porTribunal: [] },
-    atendimentos: { registrados: 0, concluidos: 0, porCanal: [], porAtendente: [] },
+    atendimentos: {
+      registrados: 0, concluidos: 0, porCanal: [], porAtendente: [],
+      porAssunto: [], assuntoNaoInformado: 0, porSetor: [],
+    },
     geradoEm: '2026-09-04T00:00:00.000Z',
   };
 

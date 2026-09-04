@@ -8,10 +8,10 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
-  ATALHOS, baixarCsvDaEquipe, carregarRelatorio, comoData, duracao,
+  ASSUNTO_LABEL, ATALHOS, baixarCsvDaEquipe, carregarRelatorio, comoData, duracao,
   type Contagem, type Relatorio,
 } from '@/lib/relatorios';
-import { DESFECHO_LABEL } from '@/lib/agenda';
+import { DESFECHO_LABEL, listarTiposEvento, rotuloTipo } from '@/lib/agenda';
 import { CANAL_LABEL, type CanalAtendimento } from '@/lib/atendimentos';
 import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
 
@@ -35,11 +35,24 @@ export default function RelatoriosPage() {
   const [de, setDe] = useState(() => comoData(new Date(hoje.getTime() - 30 * 86_400_000)));
   const [ate, setAte] = useState(() => comoData(hoje));
   const [baixando, setBaixando] = useState(false);
+  /**
+   * ESPELHO DE UMA PESSOA — para conversar com ela, não para publicar um pódio.
+   * A lista continua alfabética e completa; isto é um recorte que se escolhe,
+   * não uma ordenação que se impõe.
+   */
+  const [foco, setFoco] = useState('');
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['relatorio', de, ate],
-    queryFn: () => carregarRelatorio(de, ate),
+    queryKey: ['relatorio', de, ate, foco],
+    queryFn: () => carregarRelatorio(de, ate, foco || undefined),
     placeholderData: keepPreviousData,
+  });
+
+  /* O tipo de atividade é cadastrável: o nome vem do catálogo, não de um mapa. */
+  const { data: tiposEvento } = useQuery({
+    queryKey: ['tipos-evento'],
+    queryFn: () => listarTiposEvento(true),
+    staleTime: 300_000,
   });
 
   function aplicarAtalho(dias: number) {
@@ -50,7 +63,7 @@ export default function RelatoriosPage() {
   async function baixar() {
     setBaixando(true);
     try {
-      await baixarCsvDaEquipe(de, ate);
+      await baixarCsvDaEquipe(de, ate, foco || undefined);
     } catch {
       toast.error('Não foi possível gerar o arquivo agora.');
     } finally {
@@ -70,7 +83,9 @@ export default function RelatoriosPage() {
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
           {pessoal
             ? 'Os seus números no período: o que você entregou e o que continua aberto.'
-            : 'O que a equipe entregou no período e o que continua aberto. Sem posição e sem nota — os casos não são comparáveis entre si.'}
+            : data?.focoUsuario
+              ? `Os números de ${data.focoUsuario.nome} no período.`
+              : 'O que a equipe entregou no período e o que continua aberto. Sem posição e sem nota — os casos não são comparáveis entre si.'}
         </p>
       </header>
 
@@ -110,6 +125,26 @@ export default function RelatoriosPage() {
               className={cn(inputCls, 'w-full sm:w-auto')}
             />
           </label>
+          {/*
+            O SELETOR SÓ EXISTE PARA QUEM VÊ A EQUIPE. Para o advogado o
+            relatório já é o dele — mostrar um seletor de pessoas que a API
+            ignora seria prometer o espelho do colega.
+          */}
+          {!pessoal && (data?.equipe.length ?? 0) > 1 && (
+            <label className="flex-1 space-y-1 sm:flex-none">
+              <span className="block text-xs font-medium text-muted-foreground">Pessoa</span>
+              <select
+                value={foco}
+                onChange={(e) => setFoco(e.target.value)}
+                className={cn(inputCls, 'w-full sm:w-56')}
+              >
+                <option value="">Toda a equipe</option>
+                {data?.equipe.map((l) => (
+                  <option key={l.usuarioId} value={l.usuarioId}>{l.nome}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <Button variant="outline" onClick={baixar} disabled={baixando || !data}>
             {baixando ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -203,7 +238,27 @@ export default function RelatoriosPage() {
             </p>
           </Card>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/*
+            QUE TIPO DE TRABALHO FOI FEITO.
+
+            "Concluiu 15" não diz se foram quinze audiências ou quinze
+            telefonemas, e a diferença é o dia inteiro de alguém. A divisão
+            entre robô e gente vem junto: parte do que a equipe fecha nasceu de
+            uma varredura automática, e contar as duas coisas como se fossem a
+            mesma entrega distorce a leitura.
+          */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Lista
+              titulo="Tipo de atividade concluída"
+              itens={data.atividades.porTipo}
+              rotular={(r) => rotuloTipo(r, tiposEvento)}
+              vazio="Nenhuma atividade concluída no período."
+              nota={
+                data.atividades.concluidas > 0
+                  ? `${data.atividades.automaticas} nasceram de robô, ${data.atividades.manuais} de pessoas.`
+                  : undefined
+              }
+            />
             <Lista
               titulo="Como as atividades terminaram"
               itens={data.atividades.porDesfecho}
@@ -220,6 +275,33 @@ export default function RelatoriosPage() {
               titulo="Acervo ativo por tribunal"
               itens={data.processos.porTribunal}
               vazio="Nenhum processo ativo."
+            />
+          </div>
+
+          {/*
+            POR QUE O FILIADO PROCUROU — a pergunta que a diretoria faz.
+
+            O campo é NOVO e opcional: os registros anteriores a ele e os que
+            ficaram em branco entram como "não informado", à vista. Sem esse
+            número, três atendimentos classificados virariam "100% progressão
+            de nível" numa base de centenas.
+          */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Lista
+              titulo="Por que procuraram o sindicato"
+              itens={data.atendimentos.porAssunto}
+              rotular={(r) => ASSUNTO_LABEL[r] ?? r}
+              vazio="Nenhum atendimento classificado no período."
+              nota={
+                data.atendimentos.assuntoNaoInformado > 0
+                  ? `${data.atendimentos.assuntoNaoInformado} atendimento(s) sem assunto informado.`
+                  : undefined
+              }
+            />
+            <Lista
+              titulo="Atendimentos por setor"
+              itens={data.atendimentos.porSetor}
+              vazio="Nenhum atendimento no período."
             />
           </div>
 
@@ -289,11 +371,14 @@ function Lista({
   itens,
   rotular,
   vazio,
+  nota,
 }: {
   titulo: string;
   itens: Contagem[];
   rotular?: (r: string) => string;
   vazio: string;
+  /** Ressalva que o número sozinho esconderia (base, não informados). */
+  nota?: string;
 }) {
   const maior = Math.max(...itens.map((i) => i.total), 1);
   return (
@@ -319,6 +404,7 @@ function Lista({
           ))}
         </ul>
       )}
+      {nota && <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{nota}</p>}
     </Card>
   );
 }

@@ -29,6 +29,60 @@ export interface PublicacaoExibivel {
   nomeOrgao?: string | null;
   prazoMencionadoDias?: number | null;
   advogados?: { nome: string | null; numeroOab: string | null; ufOab: string | null }[] | null;
+  /** Quem o tribunal intimou, com o polo — vem dentro da própria publicação. */
+  destinatarios?: { nome: string | null; polo: string | null }[] | null;
+  /** As partes principais do processo, para o confronto "Autor × Réu". */
+  partesDoProcesso?: { nome: string; polo: string }[] | null;
+}
+
+/** O DJEN manda 'A' para ativo e 'P' para passivo. */
+const POLO_LABEL: Record<string, string> = {
+  A: 'polo ativo', ATIVO: 'polo ativo',
+  P: 'polo passivo', PASSIVO: 'polo passivo',
+  T: 'terceiro', TERCEIRO: 'terceiro',
+};
+
+/**
+ * "Fulano × Município" e "Intimado: SENATEPI (polo ativo)".
+ *
+ * Fica em UMA linha cada, truncando: quem está varrendo a lista precisa
+ * reconhecer, não ler por extenso — o nome inteiro está a um clique, na ficha
+ * do processo.
+ */
+function IdentificacaoDoCaso({ pub }: { pub: PublicacaoExibivel }) {
+  const partes = pub.partesDoProcesso ?? [];
+  const autor = partes.find((x) => x.polo === 'ATIVO')?.nome;
+  const reu = partes.find((x) => x.polo === 'PASSIVO')?.nome;
+
+  // Um destinatário por publicação é a regra do DJEN; as cópias já foram
+  // agrupadas, então mostrar mais de dois nomes aqui seria repetir o grupo.
+  const intimados = (pub.destinatarios ?? []).filter((d) => d.nome).slice(0, 2);
+
+  if (!autor && !reu && intimados.length === 0) return null;
+
+  return (
+    <div className="mb-1.5 space-y-0.5">
+      {(autor || reu) && (
+        <p className="truncate text-[11px] font-medium">
+          <span className="text-foreground">{autor ? capitalizar(autor) : 'Autor não cadastrado'}</span>
+          <span className="mx-1 text-muted-foreground">×</span>
+          <span className="text-foreground">{reu ? capitalizar(reu) : 'Réu não cadastrado'}</span>
+        </p>
+      )}
+      {intimados.length > 0 && (
+        <p className="truncate text-[11px] text-muted-foreground">
+          Intimado:{' '}
+          {intimados.map((d, i) => (
+            <span key={`${d.nome}-${i}`}>
+              {i > 0 && ', '}
+              {capitalizar(d.nome as string)}
+              {d.polo && POLO_LABEL[d.polo] ? ` (${POLO_LABEL[d.polo]})` : ''}
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Nome próprio em CAIXA ALTA cansa de ler; o tribunal manda tudo assim. */
@@ -118,6 +172,18 @@ export function PublicacaoDjenCard({
       {pub.nomeOrgao && (
         <p className="mb-1 text-[11px] text-muted-foreground">{pub.nomeOrgao}</p>
       )}
+
+      {/*
+        DE QUEM É ESTE PROCESSO — antes da parede de texto.
+
+        A lista mostrava tipo, tribunal, órgão e o teor. Para reconhecer o caso
+        era preciso LER o cabeçalho do acórdão, e são 984 atos no acervo. O
+        confronto vem do cadastro de partes (curado) e o "intimado" vem da
+        própria publicação, que é quem sabe a quem o tribunal se dirigiu — não
+        são a mesma informação: numa intimação de recurso o intimado somos nós,
+        mesmo sendo o autor.
+      */}
+      <IdentificacaoDoCaso pub={pub} />
 
       <div className="relative">
         <p

@@ -107,7 +107,26 @@ export class DjenBuscaService {
           link: true, texto: true, dataDisponibilizacao: true, providencia: true,
           prazoMencionadoDias: true, compromissoId: true, movimentacaoId: true,
           destinatarios: true, advogados: true,
-          processo: { select: { id: true, numeroCNJ: true } },
+          /*
+            AS PARTES VÊM JUNTO, e é o que faltava para a tela fazer sentido.
+
+            A lista mostrava tribunal, órgão e uma parede de texto — e não
+            dizia DE QUEM era o processo. Quem varre 984 publicações precisa
+            reconhecer o caso pela linha "Fulano × Município", não por ler o
+            cabeçalho do acórdão. `destinatarios` (do DJEN) diz quem foi
+            intimado e em que polo; `partes` (do cadastro) diz o confronto.
+          */
+          processo: {
+            select: {
+              id: true,
+              numeroCNJ: true,
+              partes: {
+                where: { principal: true },
+                select: { nome: true, polo: true },
+                orderBy: { polo: 'asc' },
+              },
+            },
+          },
           compromisso: { select: { id: true, titulo: true, status: true, inicio: true } },
         },
       }),

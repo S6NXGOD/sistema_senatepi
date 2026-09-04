@@ -26,6 +26,7 @@ import { PartesController, PartesExternasController } from './partes.controller'
 import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
 import { SugestaoFiliadoService } from './sugestao-filiado.service';
+import { VinculosPendentesService } from './vinculos-pendentes.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { CorrelacaoService } from './correlacao.service';
 import { ParteInstitucionalSeedService } from './parte-institucional-seed.service';
@@ -67,6 +68,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     PartesService,
     PartesExternasService,
     SugestaoFiliadoService,
+    VinculosPendentesService,
     AutomacaoPrazosService,
     CorrelacaoService,
   ],

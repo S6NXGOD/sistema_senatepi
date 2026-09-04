@@ -6,8 +6,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning, FileSpreadsheet,
   AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass, PenLine,
-  ArrowUpDown,
+  ArrowUpDown, Users,
 } from 'lucide-react';
+import { ResolverVinculosPanel } from '@/components/processos/resolver-vinculos-panel';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -163,6 +164,8 @@ function ListaProcessos() {
   useFiltroPorUrl('meus', () => setRapido('meus'), '/processos');
   useFiltroPorUrl('semReu', () => setRapido('semReu'), '/processos');
   useFiltroPorUrl('semFiliado', () => setRapido('semFiliado'), '/processos');
+  /** Painel que resolve a fila toda de uma vez. */
+  const [resolvendo, setResolvendo] = useState(false);
 
   /**
    * `?assunto=<nome>` filtra pelo assunto do CNJ, casamento exato.
@@ -449,6 +452,26 @@ function ListaProcessos() {
           </span>
         )}
       </div>
+
+      {/*
+        RESOLVER A FILA INTEIRA, e não um processo por vez.
+
+        O convite aparece só com a fila aberta e só com algo dentro: um botão
+        permanente para uma fila vazia é enfeite. Fica ao lado da lista, que é
+        onde o problema está visível — sem custar um item de menu.
+      */}
+      {rapido === 'semFiliado' && !!contagem?.semFiliado && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50/50 px-3 py-2 dark:border-brand-900 dark:bg-brand-950/20">
+          <p className="text-xs leading-snug">
+            <strong className="font-semibold">{contagem.semFiliado} processos</strong> sem {V.filiado}.
+            {' '}Dá para conferir e resolver todos de uma vez.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => setResolvendo(true)}>
+            <Users className="h-4 w-4" /> Resolver vínculos
+          </Button>
+        </div>
+      )}
+      <ResolverVinculosPanel open={resolvendo} onClose={() => setResolvendo(false)} />
 
       {/*
         A BARRA: busca sempre visível, o resto atrás de um botão.

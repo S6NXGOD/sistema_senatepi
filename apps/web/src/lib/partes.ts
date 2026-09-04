@@ -488,3 +488,39 @@ export async function identificarParteComoFiliado(parteId: string, filiadoId: st
   const { data } = await api.post(`/processos/partes/${parteId}/filiado/${filiadoId}`);
   return data as ParteDoProcesso;
 }
+
+/**
+ * A FILA "SEM FILIADO VINCULADO", inteira e com os candidatos de cada caso.
+ * Existe para não resolver 29 processos um por um — ver
+ * `resolver-vinculos-panel.tsx` para o porquê da separação em espécies.
+ */
+export interface CasoSemFiliado {
+  processoId: string;
+  numeroCNJ: string | null;
+  titulo: string | null;
+  categoria: string | null;
+  parteId: string | null;
+  nomeNosAutos: string | null;
+  adversario: string | null;
+  especie: 'PESSOA' | 'ENTIDADE';
+  candidatos: CandidatoFiliado[];
+}
+
+export interface DecisaoDeVinculo {
+  parteId?: string;
+  filiadoId?: string;
+  processoId?: string;
+  marcarInstitucional?: boolean;
+}
+
+export async function listarVinculosPendentes(): Promise<CasoSemFiliado[]> {
+  const { data } = await api.get('/processos/vinculos-pendentes');
+  return data;
+}
+
+export async function aplicarVinculos(
+  decisoes: DecisaoDeVinculo[],
+): Promise<{ aplicadas: number; falhas: { alvo: string; motivo: string }[] }> {
+  const { data } = await api.post('/processos/vinculos-pendentes/aplicar', { decisoes });
+  return data;
+}

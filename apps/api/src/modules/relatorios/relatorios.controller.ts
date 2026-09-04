@@ -1,6 +1,6 @@
 import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
-import { IsISO8601, IsOptional } from 'class-validator';
+import { IsISO8601, IsOptional, IsString } from 'class-validator';
 import { Response } from 'express';
 import { conteudoDisposto, nomeDeArquivo } from '@core/infra';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
@@ -21,6 +21,17 @@ export class PeriodoDto {
   @IsOptional()
   @IsISO8601()
   ate?: string;
+
+  /**
+   * Espelho de UMA pessoa — para a coordenação conversar com ela, não para
+   * publicar um pódio. O serviço ignora o parâmetro quando quem pede é
+   * ADVOGADO: para ele o recorte já é ele mesmo, e aceitar aqui abriria o
+   * espelho do colega.
+   */
+  @ApiPropertyOptional({ description: 'Id do usuário a focar (só para quem vê a equipe).' })
+  @IsOptional()
+  @IsString()
+  usuarioId?: string;
 }
 
 /** Trinta dias é o período que a coordenação olha; o resto se escolhe na tela. */
@@ -37,7 +48,7 @@ export class RelatoriosController {
   @ApiOperation({ summary: 'Números da equipe, dos processos e dos atendimentos no período.' })
   montar(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser) {
     const { de, ate } = this.periodo(q);
-    return this.relatorios.montar(de, ate, user);
+    return this.relatorios.montar(de, ate, user, q.usuarioId);
   }
 
   /**
@@ -51,7 +62,7 @@ export class RelatoriosController {
   @ApiOperation({ summary: 'A tabela da equipe em CSV, para abrir no Excel.' })
   async equipeCsv(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser, @Res() res: Response) {
     const { de, ate } = this.periodo(q);
-    const r = await this.relatorios.montar(de, ate, user);
+    const r = await this.relatorios.montar(de, ate, user, q.usuarioId);
     const nome = nomeDeArquivo(
       ['relatorio da equipe', r.periodo.de.slice(0, 10), r.periodo.ate.slice(0, 10)],
       'csv',

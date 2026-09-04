@@ -1753,6 +1753,29 @@ enum DesfechoAtendimento {
   ENCAMINHADO // demanda passada ao Jurídico/outro setor
 }
 
+/// SOBRE O QUE O FILIADO PROCUROU — a pergunta que o atendimento não sabia
+/// responder. `canal` diz como chegou, `setor` quem atendeu, `desfecho` como
+/// terminou; faltava o assunto, e sem ele a diretoria não sabe se as pessoas
+/// vêm mais por progressão de nível ou por salário.
+///
+/// LISTA FECHADA de propósito: em texto livre, "insalubridade" e "adicional de
+/// insalubridade" viram duas linhas do relatório. `OUTRO` mostra, pela
+/// contagem, quando falta uma categoria.
+enum AssuntoAtendimento {
+  ANDAMENTO_PROCESSO /// "como está o meu processo?"
+  DUVIDA_TRABALHISTA /// dúvida sobre direito, CLT, estatuto
+  REMUNERACAO /// piso, reajuste, atrasados, diferenças
+  PROGRESSAO_NIVEL /// enquadramento, progressão, mudança de nível
+  ADICIONAIS /// insalubridade, periculosidade, noturno
+  JORNADA_ESCALA /// carga horária, plantão, escala, hora extra
+  ASSEDIO_RETALIACAO /// assédio moral, perseguição, retaliação
+  CONTRATO_VINCULO /// contratação, demissão, concurso, estágio probatório
+  FERIAS_LICENCAS /// férias, licenças, afastamento
+  BENEFICIOS_SINDICAIS /// colônia, convênios, carteira do filiado
+  FINANCEIRO_SINDICAL /// mensalidade, contribuição, desconto em folha
+  OUTRO
+}
+
 enum SetorAtendimento {
   JURIDICO
   FINANCEIRO
@@ -1782,6 +1805,8 @@ model Atendimento {
   filiadoId          String               @map("filiado_id")
   atendentePorId     String               @map("atendente_por_id") // usuário logado que registrou
   canal              CanalAtendimento
+  /// Sobre o que é a demanda. Nulo nos registros anteriores ao campo.
+  assunto            AssuntoAtendimento?
   descricao          String // demanda (texto rico)
   // Situação da demanda (aberta até ser concluída/cancelada).
   status             StatusAtendimento    @default(PENDENTE)
@@ -1816,6 +1841,7 @@ model Atendimento {
   @@index([desfecho])
   @@index([status])
   @@index([canal])
+  @@index([assunto])
   @@index([createdAt])
   @@index([urgente])
   @@map("atendimentos")

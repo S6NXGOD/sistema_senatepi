@@ -106,35 +106,56 @@ describe('a conclusão de um prazo', () => {
 });
 
 /**
- * O CADASTRO RÁPIDO NÃO PODE PROMETER O QUE A API RECUSA.
+ * CADASTRAR FILIADO NO MEIO DE OUTRA TAREFA — o formulário INTEIRO, em passos.
  *
- * O advogado tem `filiados: VISUALIZAR` e o `POST /filiados` é dos perfis do
- * balcão. É uma boa fronteira — esta base já tem uma pessoa cadastrada sete
- * vezes —, mas um botão que só falha depois do clique faz perder o que foi
- * digitado e ensina a equipe a não confiar na tela.
+ * A primeira versão disto era um formulário de quatro campos, e estava errada:
+ * o cadastro do sindicato exige cidade, estado, formação e COREN, então o
+ * "rápido" produzia ficha pela metade que alguém teria de completar depois, sem
+ * nada avisando que faltava. Quem pode cadastrar é o balcão, e o balcão tem os
+ * dados — a pressa era suposição minha.
  */
-describe('quem pode cadastrar filiado', () => {
-  const FORM = ler('src/components/filiados/formulario-filiado-rapido.tsx');
-  const MODAL = ler('src/components/processos/vincular-filiado-modal.tsx');
+describe('o cadastro dentro do modal', () => {
+  const MODAL_CADASTRO = ler('src/components/filiados/cadastro-filiado-modal.tsx');
+  const FORM = ler('src/components/filiados/filiado-form.tsx');
+  const PERMISSAO = ler('src/components/filiados/permissao-cadastro.ts');
+  const VINCULAR = ler('src/components/processos/vincular-filiado-modal.tsx');
   const IMPORTAR = ler('src/components/processos/importar-processo-dialog.tsx');
 
-  it('o formulário checa a permissão por conta própria', () => {
-    expect(FORM).toContain("podeEditar(user?.role, user?.permissoes, 'filiados')");
-    expect(FORM).toContain('if (!podeCadastrar) {');
+  /** Nada de segundo formulário: é o mesmo de /filiados/novo, em etapas. */
+  it('reaproveita o formulário completo', () => {
+    expect(MODAL_CADASTRO).toContain("import { FiliadoForm } from '@/components/filiados/filiado-form'");
+    expect(MODAL_CADASTRO).toContain('emPassos');
+    expect(FORM).toContain('const PASSOS = [');
   });
 
-  /** Botão escondido não é autorização: os dois têm de existir. */
-  it('os chamadores escondem o caminho, e o formulário ainda checa', () => {
-    for (const arquivo of [MODAL, IMPORTAR]) {
+  /**
+   * AVANÇAR VALIDA O PASSO. Sem isso o erro de um campo obrigatório do passo 3
+   * só apareceria no fim, num bloco invisível — formulário que não envia e não
+   * diz por quê.
+   */
+  it('cada passo valida o que é dele', () => {
+    expect(FORM).toContain('async function avancar()');
+    expect(FORM).toContain('await trigger(campos');
+  });
+
+  /** O MESMO modal recadastra: mesmos campos, mesmas travas. */
+  it('serve também para recadastrar', () => {
+    expect(MODAL_CADASTRO).toContain("modo={recadastro ? 'recadastrar' : 'criar'}");
+  });
+
+  /**
+   * QUEM PODE CADASTRAR NÃO É QUEM MAIS PRECISA. O advogado tem
+   * `filiados: VISUALIZAR` e a API recusa o POST — botão que só falha depois do
+   * clique faz perder o que foi digitado.
+   */
+  it('respeita a permissão, e explica a quem pedir', () => {
+    expect(PERMISSAO).toContain("podeEditar(user?.role, user?.permissoes, 'filiados')");
+    expect(MODAL_CADASTRO).toContain('{!pode ? (');
+    expect(MODAL_CADASTRO).toContain('é feito pela secretaria');
+    for (const arquivo of [VINCULAR, IMPORTAR]) {
       expect(arquivo).toContain('usePodeCadastrarFiliado()');
     }
-    expect(FORM).toContain('export function usePodeCadastrarFiliado()');
-  });
-
-  /** Sem saída morta: quem não pode cadastrar precisa saber a quem pedir. */
-  it('explica em vez de só sumir com o botão', () => {
-    expect(FORM).toContain('é feito pela secretaria');
-    expect(MODAL).toContain('peça à secretaria');
+    expect(VINCULAR).toContain('peça à secretaria');
     expect(IMPORTAR).toContain('O cadastro é feito pela secretaria');
   });
 });

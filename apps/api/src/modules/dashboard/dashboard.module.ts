@@ -104,6 +104,42 @@ export function ehONossoSindicato(
   return limpo.includes(tenant.sigla.toUpperCase());
 }
 
+/**
+ * DE QUEM É O PROCESSO — e o silêncio quando a resposta é "nosso".
+ *
+ * O autor é o próprio sindicato em 93 dos 127 processos: escrever "SENATEPI"
+ * em toda linha do painel gasta espaço para dizer o que já se sabia. Aqui ele
+ * só aparece quando é OUTRO — a filiada, o grupo de profissionais, o sindicato
+ * parceiro —, que é justamente a linha em que a pergunta "de quem é isto?" tem
+ * resposta útil.
+ */
+export function autorQueInforma(
+  partes: { nome: string; polo: string; principal: boolean; parteExternaId: string | null }[],
+  idDoSindicato: string | null,
+): string | null {
+  const ativa =
+    partes.find((x) => x.polo === 'ATIVO' && x.principal) ?? partes.find((x) => x.polo === 'ATIVO');
+  if (!ativa) return null;
+  return ehONossoSindicato(ativa, idDoSindicato) ? null : ativa.nome;
+}
+
+/**
+ * EM QUE POLO NÓS ESTAMOS.
+ *
+ * Muda o que a publicação significa: a mesma "intimação para manifestar-se" é
+ * ataque quando somos autor e defesa quando somos réu. A leitura sai das
+ * partes; quando o sindicato não figura em nenhum polo (ação de filiado em que
+ * ele é só o patrono), devolve nulo em vez de chutar.
+ */
+export function nossoPolo(
+  partes: { nome: string; polo: string; principal: boolean; parteExternaId: string | null }[],
+  idDoSindicato: string | null,
+): 'ATIVO' | 'PASSIVO' | null {
+  const nossa = partes.find((x) => ehONossoSindicato(x, idDoSindicato));
+  if (!nossa) return null;
+  return nossa.polo === 'ATIVO' || nossa.polo === 'PASSIVO' ? nossa.polo : null;
+}
+
 /** Meia-noite (instante real) do dia de `base` no fuso de Brasília. */
 function inicioDoDiaBR(base: Date): Date {
   const br = new Date(base.getTime() - OFFSET_BR);
@@ -1141,6 +1177,9 @@ export class DashboardService {
           id: pub.processo.id,
           numeroCNJ: pub.processo.numeroCNJ,
           adversario: adversarioDoProcesso(pub.processo.partes, idDoSindicato),
+          /** Só quando NÃO somos nós — ver `autorQueInforma`. */
+          autor: autorQueInforma(pub.processo.partes, idDoSindicato),
+          nossoPolo: nossoPolo(pub.processo.partes, idDoSindicato),
           advogado: pub.processo.advogado,
         },
       };

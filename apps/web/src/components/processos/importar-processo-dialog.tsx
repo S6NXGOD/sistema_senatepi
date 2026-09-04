@@ -11,13 +11,13 @@ import {
   CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users, Plus,
   ChevronRight, UserPlus,
 } from 'lucide-react';
-import {
-  FormularioFiliadoRapido, usePodeCadastrarFiliado,
-} from '@/components/filiados/formulario-filiado-rapido';
+import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
+import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
 import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import {
   formatDocumento, listarPartesExternas, TIPO_PARTE_LABEL, partesParecidas,
@@ -971,31 +971,29 @@ export function ImportarProcessoDialog({
               tribunal e os réus já digitados. Ao terminar, o filiado volta já
               selecionado no polo.
             */}
-            {cadastrando && (
-              <div
-                className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
-                onClick={() => setCadastrando(false)}
-              >
-                <div
-                  className="w-full max-w-md rounded-2xl bg-card p-5 shadow-xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <h3 className="font-semibold">Cadastrar {V.filiado}</h3>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Ele entra no polo ativo deste processo assim que for salvo.
-                  </p>
-                  <FormularioFiliadoRapido
-                    nomeInicial={busca.trim()}
-                    rotuloAcao="Cadastrar e usar no processo"
-                    onCancelar={() => setCadastrando(false)}
-                    onCriado={(f) => {
-                      adicionarFiliado({ id: f.id, nome: f.nome, cpfMascarado: f.cpfMascarado ?? '' } as FiliadoBusca);
-                      setCadastrando(false);
-                    }}
-                  />
-                </div>
-              </div>
-            )}
+            {/*
+              CADASTRO COMPLETO POR CIMA, e não em outra tela: sair daqui para
+              cadastrar significa perder o número do processo, o tribunal e os
+              réus já digitados. Ao salvar, o filiado volta já selecionado no
+              polo ativo.
+            */}
+            <CadastroFiliadoModal
+              open={cadastrando}
+              nomeInicial={busca.trim()}
+              onClose={() => setCadastrando(false)}
+              onSalvo={async (id) => {
+                // A busca é por nome/CPF, não por id: a ficha vem da rota do
+                // próprio filiado, senão o polo ficaria com o nome digitado
+                // em vez do nome que foi de fato cadastrado.
+                const f = await api.get(`/filiados/${id}`).then((r) => r.data).catch(() => null);
+                adicionarFiliado({
+                  id,
+                  nome: f?.nomeCompleto ?? busca.trim(),
+                  cpfMascarado: f?.cpf ? `***.${String(f.cpf).slice(3, 6)}.***-**` : '',
+                } as FiliadoBusca);
+                setCadastrando(false);
+              }}
+            />
           </div>
 
           {/* Parte contrária (réu) — o dado que o DataJud não entrega */}

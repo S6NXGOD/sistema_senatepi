@@ -659,14 +659,19 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
                         : (pub.tipoComunicacao ?? 'Publicação')}
                     </span>
                     {/*
-                      CONTRA QUEM — é o que distingue um processo do outro aqui.
-                      "De quem é" seria o filiado, e ele existe em 4 dos 127
-                      processos; o autor é o próprio sindicato em 93 deles, e
-                      repetir o nome dele em toda linha não informa nada.
+                      DE QUEM CONTRA QUEM.
+
+                      "Contra quem" sempre distinguiu um processo do outro
+                      aqui. "De quem" foi acrescentado depois, e só aparece
+                      quando NÃO somos nós: o autor é o próprio sindicato em 93
+                      dos 127 processos, e repetir o nome dele em toda linha
+                      gastaria espaço para dizer o que já se sabia. Quando é a
+                      filiada, é a informação que faltava.
                     */}
-                    {pub.processo?.adversario && (
+                    {(pub.processo?.autor || pub.processo?.adversario) && (
                       <span className="min-w-0 truncate text-xs text-muted-foreground">
-                        × {pub.processo.adversario}
+                        {pub.processo.autor ? `${pub.processo.autor} ` : ''}
+                        {pub.processo.adversario ? `× ${pub.processo.adversario}` : ''}
                       </span>
                     )}
                   </span>
@@ -676,6 +681,14 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
                       <span className="font-mono text-[11px]">
                         · {formatNPU(pub.processo.numeroCNJ)}
                       </span>
+                    )}
+                    {/*
+                      EM QUE POLO ESTAMOS. A mesma "intimação para
+                      manifestar-se" é ataque quando somos autor e defesa
+                      quando somos réu — e a lista não dizia qual dos dois.
+                    */}
+                    {pub.processo?.nossoPolo && (
+                      <span>· somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}</span>
                     )}
                     {/*
                       O advogado só aparece para quem NÃO é o dono da lista: na

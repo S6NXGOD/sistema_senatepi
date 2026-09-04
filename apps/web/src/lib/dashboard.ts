@@ -174,6 +174,10 @@ export interface ResumoDashboard {
         numeroCNJ: string | null;
         /** Quem está do outro lado — é o que distingue um processo do outro. */
         adversario: string | null;
+        /** O autor, e só quando NÃO é o próprio sindicato. */
+        autor: string | null;
+        /** Em que polo o sindicato figura — muda o sentido do ato. */
+        nossoPolo: 'ATIVO' | 'PASSIVO' | null;
         advogado: { id: string; nome: string; nomeExibicao: string | null } | null;
       } | null;
     }[];
