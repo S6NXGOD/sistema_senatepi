@@ -163,6 +163,24 @@ function ListaProcessos() {
   // lista completa e a pessoa não desconfiaria — o pior tipo de atalho quebrado.
   useFiltroPorUrl('meus', () => setRapido('meus'), '/processos');
   useFiltroPorUrl('semReu', () => setRapido('semReu'), '/processos');
+  /*
+    `?nossoPapel=REU` — o filtro alcançável por link.
+
+    Sem isto ele existiria só atrás do botão "Filtros", e um filtro que ninguém
+    encontra é um filtro que ninguém usa. Com o parâmetro, qualquer tela pode
+    mandar direto para "as ações contra a entidade" — e o painel de filtros
+    mostra a ficha removível, então a pessoa vê onde caiu.
+  */
+  useFiltroPorUrl(
+    'nossoPapel',
+    (v) => {
+      if (['AUTOR', 'REU', 'REPRESENTANDO'].includes(v)) {
+        setFiltros((f) => ({ ...f, nossoPapel: v as FiltrosProcesso['nossoPapel'] }));
+        setPage(1);
+      }
+    },
+    '/processos',
+  );
   useFiltroPorUrl('semFiliado', () => setRapido('semFiliado'), '/processos');
   /** Painel que resolve a fila toda de uma vez. */
   const [resolvendo, setResolvendo] = useState(false);
@@ -262,6 +280,7 @@ function ListaProcessos() {
       ...(filtros.advogadoId ? { advogadoId: filtros.advogadoId } : {}),
       ...(filtros.categoria ? { categoria: filtros.categoria } : {}),
       ...(filtros.polo ? { polo: filtros.polo } : {}),
+      ...(filtros.nossoPapel ? { nossoPapel: filtros.nossoPapel } : {}),
       ordem,
       page,
       pageSize: 20,
@@ -793,16 +812,32 @@ function ListaProcessos() {
  * procura "quem move a ação", e num processo institucional a resposta é o
  * próprio sindicato — não a ausência de um filiado.
  */
-function BadgeInstitucional({ className }: { className?: string }) {
+/**
+ * O SELO DIZ DE QUE LADO ESTAMOS, e não só que a ação é institucional.
+ *
+ * "Institucional" quer dizer que o sindicato age em nome próprio — não que ele
+ * seja o AUTOR. Em três processos do acervo somos o RÉU (SINSEP, SINDHOSPI e
+ * uma contabilidade nos processando), e um selo dizendo "Ação institucional"
+ * ali afirma, para quem varre a lista, exatamente o contrário do que aconteceu.
+ *
+ * Mesmo desenho e mesmo tom nos dois casos: ser processado não é um defeito a
+ * ser corrigido, é um fato do acervo. Alarme aqui seria pedir para a equipe
+ * ignorar cor.
+ */
+function BadgeInstitucional({ className, comoReu }: { className?: string; comoReu?: boolean }) {
   return (
     <span
       className={cn(
         'inline-flex w-fit items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300',
         className,
       )}
-      title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
+      title={
+        comoReu
+          ? `O ${tenant.sigla} figura no polo passivo — a ação é contra a entidade`
+          : `Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`
+      }
     >
-      Ação institucional ({tenant.sigla})
+      {comoReu ? `${tenant.sigla} é réu` : `Ação institucional (${tenant.sigla})`}
     </span>
   );
 }
@@ -1089,6 +1124,9 @@ function CelulaPartes({ p }: { p: ProcessoLista }) {
   const { autor, reu, outrosAtivo, outrosPassivo } = p.confronto;
   const institucional = p.tipoAcao === 'INSTITUCIONAL';
 
+  /** Somos nós no polo passivo? Sai da flag do cadastro, não do nome. */
+  const somosReu = !!reu?.institucional && !autor?.institucional;
+
   if (!autor && !reu) {
     return institucional ? (
       <BadgeInstitucional />
@@ -1122,7 +1160,7 @@ function CelulaPartes({ p }: { p: ProcessoLista }) {
 
   return (
     <div className="min-w-0 text-sm leading-snug">
-      {institucional && <BadgeInstitucional className="mb-0.5" />}
+      {institucional && <BadgeInstitucional className="mb-0.5" comoReu={somosReu} />}
       {!autorRedundante && (
         <p className="truncate font-medium" title={autor?.nome}>
           {autor?.nome ?? <span className="font-normal text-muted-foreground">Autor não informado</span>}

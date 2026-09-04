@@ -249,3 +249,59 @@ describe('ação institucional com o sindicato no polo passivo', () => {
     expect(PARTES_API).toContain('reu: marcar(destaque(passivo)),');
   });
 });
+
+/**
+ * ACHAR AS AÇÕES POR PAPEL DO SINDICATO.
+ *
+ * O acervo era lido por réu e por pedido, nunca pelo papel da própria entidade.
+ * São três respostas e elas particionam o acervo: autor 93, patrono do filiado
+ * 31, réu 3 — soma 127, o total.
+ */
+describe('de que lado estamos', () => {
+  const FILTROS = ler('components/processos/painel-de-filtros.tsx');
+  const LISTA = ler('app/(dashboard)/processos/page.tsx');
+  const PANORAMA = ler('app/(dashboard)/panorama/page.tsx');
+  const SHEET = ler('components/processos/processo-detalhe-sheet.tsx');
+
+  it('o filtro tem as três opções, e não duas', () => {
+    expect(FILTROS).toContain('Nosso papel no processo');
+    expect(FILTROS).toContain('<option value="AUTOR">Somos autor</option>');
+    expect(FILTROS).toContain('<option value="REU">Somos réu</option>');
+    expect(FILTROS).toContain('<option value="REPRESENTANDO">Representamos o filiado</option>');
+  });
+
+  /**
+   * NÃO SE CONFUNDE COM O FILTRO DE POLO, que é o lado da parte PROCURADA —
+   * refinamento do nome digitado, não recorte do acervo. Dois selects vizinhos
+   * dizendo "autor/réu" seriam a mesma pergunta com respostas diferentes.
+   */
+  it('continua distinto do lado da parte procurada', () => {
+    expect(FILTROS).toContain('Lado da parte procurada');
+    expect(FILTROS).toContain('Nosso papel no processo');
+  });
+
+  /** Filtro que só existe atrás de um botão é filtro que ninguém encontra. */
+  it('é alcançável por link', () => {
+    expect(LISTA).toContain("useFiltroPorUrl(\n    'nossoPapel',");
+    expect(PANORAMA).toContain('/processos?nossoPapel=REU');
+    expect(PANORAMA).toContain('/processos?nossoPapel=AUTOR');
+    expect(PANORAMA).toContain('/processos?nossoPapel=REPRESENTANDO');
+  });
+
+  /**
+   * O SELO DIZ QUAL LADO. "Ação institucional" num processo em que somos o réu
+   * afirma o contrário do que aconteceu — e são três processos assim.
+   */
+  it('o selo distingue autor de réu', () => {
+    expect(LISTA).toContain('const somosReu = !!reu?.institucional && !autor?.institucional;');
+    expect(LISTA).toContain('${tenant.sigla} é réu');
+    expect(SHEET).toContain('${tenant.sigla} é réu');
+  });
+
+  /** Zero aparece: "nunca fomos processados" é informação. */
+  it('o panorama mostra os três, inclusive zerado', () => {
+    expect(PANORAMA).toContain('function CartaoPapel(');
+    expect(PANORAMA).toContain('De que lado estamos');
+    expect(PANORAMA).not.toContain('valor > 0 &&');
+  });
+});

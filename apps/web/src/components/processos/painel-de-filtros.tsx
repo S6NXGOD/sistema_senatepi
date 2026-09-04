@@ -50,6 +50,8 @@ export interface FiltrosProcesso {
    * separa "processos contra a Hapvida" de "processos em que a Hapvida aparece".
    */
   polo: '' | 'ATIVO' | 'PASSIVO';
+  /** De que lado o SINDICATO está — diferente de `polo`, que é o da busca. */
+  nossoPapel: '' | 'AUTOR' | 'REU' | 'REPRESENTANDO';
 }
 
 export const FILTROS_VAZIOS: FiltrosProcesso = {
@@ -58,6 +60,7 @@ export const FILTROS_VAZIOS: FiltrosProcesso = {
   advogadoId: '',
   categoria: '',
   polo: '',
+  nossoPapel: '',
 };
 
 /** Quantos filtros do painel estão ligados — o número da bolinha no botão. */
@@ -68,6 +71,7 @@ export function contarFiltros(f: FiltrosProcesso, temParte: boolean): number {
     (f.advogadoId ? 1 : 0) +
     (f.categoria ? 1 : 0) +
     (f.polo ? 1 : 0) +
+    (f.nossoPapel ? 1 : 0) +
     (temParte ? 1 : 0)
   );
 }
@@ -197,6 +201,36 @@ export function PainelDeFiltros({
               {a.nome}
             </option>
           ))}
+        </select>
+      </label>
+
+      {/*
+        NOSSO PAPEL — de que lado a ENTIDADE está, e são três respostas.
+
+        Medido em 04/09/2026: somos autor em 93 processos, não somos parte em 31
+        (o filiado é a parte e nós somos o patrono) e somos réu em 3. A terceira
+        categoria é a que se esquece, e é a segunda maior — "processo do
+        sindicato" e "processo que o sindicato conduz" são coisas diferentes, e
+        a diferença muda quem responde por ele.
+
+        FICA LONGE DO FILTRO DE POLO, e o rótulo evita a confusão: aquele é o
+        lado da parte PROCURADA (refinamento do nome digitado), este é o lado do
+        próprio sindicato. Dois selects vizinhos dizendo "autor/réu" seriam a
+        mesma pergunta feita duas vezes, com respostas diferentes.
+      */}
+      <label className="space-y-1">
+        <span className="text-xs font-medium text-muted-foreground">
+          Nosso papel no processo
+        </span>
+        <select
+          className={campoCls}
+          value={valor.nossoPapel}
+          onChange={(e) => set({ nossoPapel: e.target.value as FiltrosProcesso['nossoPapel'] })}
+        >
+          <option value="">Qualquer papel</option>
+          <option value="AUTOR">Somos autor</option>
+          <option value="REU">Somos réu</option>
+          <option value="REPRESENTANDO">Representamos o filiado</option>
         </select>
       </label>
 
@@ -340,6 +374,22 @@ export function FichasDeFiltro({
             : undefined
         }
         onRemover={() => onLimparCampo('advogadoId')}
+      />,
+    );
+  }
+  if (filtros.nossoPapel) {
+    fichas.push(
+      <Ficha
+        key="nossoPapel"
+        rotulo="Papel"
+        valor={
+          filtros.nossoPapel === 'AUTOR'
+            ? 'Somos autor'
+            : filtros.nossoPapel === 'REU'
+              ? 'Somos réu'
+              : 'Representamos o filiado'
+        }
+        onRemover={() => onLimparCampo('nossoPapel')}
       />,
     );
   }

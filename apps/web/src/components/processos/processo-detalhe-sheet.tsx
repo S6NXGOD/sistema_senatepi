@@ -396,6 +396,14 @@ export function ProcessoDetalheSheet({
    * Descobrir isso na hora de ligar para o cliente é tarde — e a ficha está a
    * dois cliques daqui, com o dado que ninguém foi conferir.
    */
+  /**
+   * SOMOS O RÉU? Sai da flag do cadastro de partes, e não de comparar nome:
+   * "SENATEPI" e a razão social inteira são a mesma entidade escrita de dois
+   * jeitos, e só `partes_externas.institucional` sabe disso.
+   */
+  const somosReu =
+    !!p?.polos?.confronto?.reu?.institucional && !p?.polos?.confronto?.autor?.institucional;
+
   const faltaNoCadastro = useMemo(() => {
     const f = p?.filiado;
     if (!f) return [] as string[];
@@ -615,13 +623,21 @@ export function ProcessoDetalheSheet({
                     Reaparecem no resumo, logo abaixo das abas, onde rolam.
                   */}
                   <span className="hidden flex-wrap items-center gap-2 sm:flex">
-                  {/* Ação coletiva: o autor é o próprio sindicato. */}
+                  {/*
+                    Ação em nome próprio — e de que LADO. "Institucional" não
+                    quer dizer que somos o autor: em três processos do acervo
+                    somos o réu, e o selo antigo afirmava o contrário.
+                  */}
                   {p?.tipoAcao === 'INSTITUCIONAL' && (
                     <span
                       className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300"
-                      title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
+                      title={
+                        somosReu
+                          ? `O ${tenant.sigla} figura no polo passivo — a ação é contra a entidade`
+                          : `Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`
+                      }
                     >
-                      Ação institucional ({tenant.sigla})
+                      {somosReu ? `${tenant.sigla} é réu` : `Ação institucional (${tenant.sigla})`}
                     </span>
                   )}
                   {/* Bandeiras de atenção vindas do CNJ */}

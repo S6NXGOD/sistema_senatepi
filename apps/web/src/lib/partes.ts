@@ -72,7 +72,12 @@ export interface PolosProcesso {
   ativo: ParteDoProcesso[];
   passivo: ParteDoProcesso[];
   terceiros: ParteDoProcesso[];
-  confronto: Confronto<ParteDoProcesso>;
+  /**
+   * O par em destaque carrega a marca `institucional` — quem monta o confronto
+   * a calcula (ver `marcar()` em `partes.service.ts`). As listas acima não:
+   * lá a informação está em `parteExterna.institucional`, crua.
+   */
+  confronto: Confronto<ParteDoProcesso & { institucional?: boolean }>;
 }
 
 export interface AdvogadoDoProcesso {

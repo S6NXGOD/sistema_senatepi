@@ -454,6 +454,11 @@ export interface FiltroProcessos {
   assunto?: string;
   /** Restringe a busca por nome de parte a um lado do processo. */
   polo?: 'ATIVO' | 'PASSIVO';
+  /**
+   * De que lado o SINDICATO está. Não confundir com `polo`, que é o lado da
+   * parte procurada na busca por nome.
+   */
+  nossoPapel?: 'AUTOR' | 'REU' | 'REPRESENTANDO';
   /** Filtros rápidos da tabela. */
   meus?: 'true';
   semFiliado?: 'true';

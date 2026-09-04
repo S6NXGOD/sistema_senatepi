@@ -8,6 +8,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
+import { tenant } from '@/tenant.config';
 import {
   carregarPanorama, LEITURA, resumoDesfechos, tendencia,
   type Concentracao, type Desfechos, type Dispersao, type PorAno,
@@ -85,6 +86,53 @@ export default function PanoramaPage() {
         </Card>
       )}
 
+      {/*
+        DE QUE LADO ESTAMOS — a leitura que não existia em lugar nenhum.
+
+        O acervo é lido o tempo todo por réu e por pedido, e nunca pelo PAPEL da
+        própria entidade. Medido: autor em 93, patrono do filiado em 31, réu em
+        3. A do meio é a que se esquece e é a segunda maior — "processo do
+        sindicato" e "processo que o sindicato conduz" são coisas diferentes, e
+        a diferença muda quem responde por ele.
+
+        Cada número leva à lista já filtrada, então isto é leitura E porta de
+        entrada: o filtro existe no painel, mas ninguém abre painel de filtro
+        para descobrir uma pergunta que ainda não fez.
+      */}
+      {!!data?.nossoPapel && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <Scale className="h-4 w-4 text-brand-700 dark:text-brand-400" />
+              De que lado estamos
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              O papel do {tenant.sigla} em cada processo do acervo. Clique para ver a lista.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <CartaoPapel
+              titulo={`${tenant.sigla} é o autor`}
+              valor={data.nossoPapel.autor}
+              nota="Ação movida pela entidade em nome próprio ou da categoria."
+              href="/processos?nossoPapel=AUTOR"
+            />
+            <CartaoPapel
+              titulo="Representamos o filiado"
+              valor={data.nossoPapel.representando}
+              nota="A parte é o filiado; a entidade não figura em polo nenhum."
+              href="/processos?nossoPapel=REPRESENTANDO"
+            />
+            <CartaoPapel
+              titulo={`${tenant.sigla} é réu`}
+              valor={data.nossoPapel.reu}
+              nota="Ação contra a entidade — responde ela, não o filiado."
+              href="/processos?nossoPapel=REU"
+            />
+          </div>
+        </section>
+      )}
+
       {!!data?.concentracoes.length && (
         <section className="space-y-3">
           <div>
@@ -131,6 +179,31 @@ export default function PanoramaPage() {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Um papel e o quanto ele pesa. Zero aparece — "nunca fomos processados" é uma
+ * informação, e esconder faria a ausência do cartão significar duas coisas
+ * (não há, ou não carregou).
+ */
+function CartaoPapel({
+  titulo, valor, nota, href,
+}: {
+  titulo: string;
+  valor: number;
+  nota: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-xl border bg-card p-4 transition hover:border-brand-400"
+    >
+      <p className="text-2xl font-bold tabular-nums">{valor}</p>
+      <p className="mt-0.5 text-sm font-medium">{titulo}</p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{nota}</p>
+    </Link>
   );
 }
 

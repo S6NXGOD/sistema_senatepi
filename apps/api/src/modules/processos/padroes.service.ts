@@ -242,12 +242,15 @@ export class PadroesService {
   async levantar(): Promise<{
     concentracoes: Concentracao[];
     dispersoes: Dispersao[];
+    /** De que lado a entidade está — ver `deQueLadoEstamos`. */
+    nossoPapel: { autor: number; reu: number; representando: number };
     acervoAtivo: number;
     geradoEm: string;
   }> {
     const base = this.comBase(tenant.cnpj.replace(/\D/g, ''));
 
-    const [concentracoesRaw, pedidosRaw, dispersoesRaw, porAnoRaw, acervoAtivo] = await Promise.all([
+    const [concentracoesRaw, pedidosRaw, dispersoesRaw, porAnoRaw, acervoAtivo, nossoPapel] =
+      await Promise.all([
       this.prisma.$queryRaw<LinhaConcentracao[]>(Prisma.sql`
         ${base}
         SELECT a.parte_externa_id                 AS "parteExternaId",
@@ -324,6 +327,7 @@ export class PadroesService {
         ORDER BY 1, 2
       `),
       this.prisma.processo.count({ where: { statusInterno: 'ATIVO' } }),
+      this.deQueLadoEstamos(),
     ]);
 
     const pedidosPorReu = new Map<string, PedidoRecorrente[]>();
@@ -353,9 +357,37 @@ export class PadroesService {
         desde: d.desde ? d.desde.toISOString().slice(0, 10) : null,
         porAno: serieCompleta(porAnoRaw.filter((a) => a.assunto === d.assunto)),
       })),
+      nossoPapel,
       acervoAtivo,
       geradoEm: new Date().toISOString(),
     };
+  }
+
+  /**
+   * DE QUE LADO A ENTIDADE ESTÁ — e são três respostas, não duas.
+   *
+   * Medido em 04/09/2026 sobre os 127 processos: AUTOR em 93, REPRESENTANDO em
+   * 31 (o filiado é a parte e o sindicato é o patrono) e RÉU em 3. As três
+   * somam exatamente o acervo, sem sobreposição — é a partição, não uma
+   * amostra.
+   *
+   * A terceira categoria é a esquecida e é a segunda maior: "processo do
+   * sindicato" e "processo que o sindicato conduz" são coisas diferentes, e a
+   * diferença muda quem responde por ele quando alguém pergunta.
+   *
+   * A IDENTIFICAÇÃO É PELA FLAG, nunca por nome: as 96 partes que são o
+   * sindicato estão todas ligadas ao cadastro `institucional`, e casar por
+   * texto ("SENATEPI", a razão social inteira, o que o tribunal escrever)
+   * erraria nas duas pontas.
+   */
+  private async deQueLadoEstamos() {
+    const somosNos = { parteExterna: { institucional: true } };
+    const [autor, reu, representando] = await Promise.all([
+      this.prisma.processo.count({ where: { partes: { some: { polo: 'ATIVO', ...somosNos } } } }),
+      this.prisma.processo.count({ where: { partes: { some: { polo: 'PASSIVO', ...somosNos } } } }),
+      this.prisma.processo.count({ where: { partes: { none: somosNos } } }),
+    ]);
+    return { autor, reu, representando };
   }
 
   /**

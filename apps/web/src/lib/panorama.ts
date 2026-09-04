@@ -54,6 +54,11 @@ export interface Dispersao extends Desfechos {
 export interface Panorama {
   concentracoes: Concentracao[];
   dispersoes: Dispersao[];
+  /**
+   * De que lado a entidade está. As três somam o acervo inteiro — é partição,
+   * não amostra.
+   */
+  nossoPapel: { autor: number; reu: number; representando: number };
   acervoAtivo: number;
   geradoEm: string;
 }

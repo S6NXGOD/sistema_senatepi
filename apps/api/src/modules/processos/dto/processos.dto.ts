@@ -291,6 +291,21 @@ export class ListProcessosQueryDto {
   })
   @IsOptional() @IsIn(['ATIVO', 'PASSIVO']) polo?: 'ATIVO' | 'PASSIVO';
 
+  /**
+   * DE QUE LADO O SINDICATO ESTÁ — e não confundir com `polo`, que é o lado da
+   * parte PROCURADA na busca por nome. São perguntas diferentes: uma refina o
+   * que foi digitado, a outra recorta o acervo pelo papel da própria entidade.
+   */
+  @ApiPropertyOptional({
+    enum: ['AUTOR', 'REU', 'REPRESENTANDO'],
+    description:
+      'AUTOR: o sindicato move a ação. REU: o sindicato é processado. ' +
+      'REPRESENTANDO: o sindicato não é parte — o filiado é, e nós somos o patrono.',
+  })
+  @IsOptional()
+  @IsIn(['AUTOR', 'REU', 'REPRESENTANDO'])
+  nossoPapel?: 'AUTOR' | 'REU' | 'REPRESENTANDO';
+
   // ---- Filtros rápidos da tabela ----
   @ApiPropertyOptional({ description: 'Só os processos do usuário logado ("meus").' })
   @IsOptional() @IsString() meus?: string;

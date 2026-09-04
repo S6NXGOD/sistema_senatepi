@@ -198,6 +198,28 @@ export const FILTRO_RAPIDO = {
   }),
   /** Marcados como urgentes por uma pessoa. */
   urgentes: (): Prisma.ProcessoWhereInput => ({ urgente: true }),
+
+  /**
+   * DE QUE LADO O SINDICATO ESTÁ — três respostas, não duas.
+   *
+   * Medido em 04/09/2026 sobre os 127 processos: somos AUTOR em 93, não somos
+   * PARTE em 31 (o filiado é a parte e nós somos o patrono) e somos RÉU em 3.
+   * A terceira categoria é a que costuma ser esquecida, e é a maior depois da
+   * primeira — "processo do sindicato" e "processo que o sindicato conduz" são
+   * coisas diferentes, e a diferença muda quem responde por ele.
+   *
+   * A IDENTIFICAÇÃO É EXATA, não por nome. As 96 partes que são o sindicato
+   * estão TODAS ligadas ao cadastro marcado `institucional` — conferido na
+   * produção. Casar por texto ("SENATEPI", a razão social inteira, e o que mais
+   * o tribunal escrever) erraria nas duas pontas.
+   */
+  nossoPapel: (papel: 'AUTOR' | 'REU' | 'REPRESENTANDO'): Prisma.ProcessoWhereInput => {
+    const somosNos = { parteExterna: { institucional: true } };
+    if (papel === 'AUTOR') return { partes: { some: { polo: 'ATIVO', ...somosNos } } };
+    if (papel === 'REU') return { partes: { some: { polo: 'PASSIVO', ...somosNos } } };
+    // Não figuramos em polo nenhum: a ação é do filiado e nós somos o patrono.
+    return { partes: { none: somosNos } };
+  },
 } as const;
 
 /**
@@ -892,6 +914,7 @@ export class ProcessosService {
     if (q.etiqueta) and.push({ etiquetas: { has: q.etiqueta } });
     if (q.categoria) and.push({ categoria: q.categoria });
     if (q.urgente === 'true') and.push(FILTRO_RAPIDO.urgentes());
+    if (q.nossoPapel) and.push(FILTRO_RAPIDO.nossoPapel(q.nossoPapel));
     // "Fase processual": o mesmo critério de `faseDoProcesso`, traduzido para
     // WHERE. As duas leituras têm de coincidir — um processo que a tabela mostra
     // como "Execução" precisa aparecer no filtro "Execução", senão o chip mente.
