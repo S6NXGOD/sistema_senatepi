@@ -385,7 +385,12 @@ export class PadroesService {
     const [autor, reu, representando] = await Promise.all([
       this.prisma.processo.count({ where: { partes: { some: { polo: 'ATIVO', ...somosNos } } } }),
       this.prisma.processo.count({ where: { partes: { some: { polo: 'PASSIVO', ...somosNos } } } }),
-      this.prisma.processo.count({ where: { partes: { none: somosNos } } }),
+      // `some: {}` junto: processo sem parte nenhuma não é "representamos o
+      // filiado", é processo com cadastro incompleto. Ver o comentário gêmeo
+      // em `FILTRO_RAPIDO.nossoPapel`.
+      this.prisma.processo.count({
+        where: { AND: [{ partes: { some: {} } }, { partes: { none: somosNos } }] },
+      }),
     ]);
     return { autor, reu, representando };
   }

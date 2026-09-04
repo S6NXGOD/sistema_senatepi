@@ -217,8 +217,16 @@ export const FILTRO_RAPIDO = {
     const somosNos = { parteExterna: { institucional: true } };
     if (papel === 'AUTOR') return { partes: { some: { polo: 'ATIVO', ...somosNos } } };
     if (papel === 'REU') return { partes: { some: { polo: 'PASSIVO', ...somosNos } } };
-    // Não figuramos em polo nenhum: a ação é do filiado e nós somos o patrono.
-    return { partes: { none: somosNos } };
+    /*
+      Não figuramos em polo nenhum: a ação é do filiado e nós somos o patrono.
+
+      O `some: {}` NÃO É REDUNDANTE. Sem ele, um processo importado sem parte
+      nenhuma entraria aqui — "não tem o sindicato entre as partes" é verdade
+      trivial quando não há partes. Hoje são zero, mas a fila "Sem réu
+      cadastrado" existe justamente porque isso acontece, e o número mentiria
+      em silêncio no dia em que acontecer de novo.
+    */
+    return { AND: [{ partes: { some: {} } }, { partes: { none: somosNos } }] };
   },
 } as const;
 

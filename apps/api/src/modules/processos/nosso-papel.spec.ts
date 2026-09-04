@@ -33,10 +33,20 @@ describe('o papel do sindicato no processo', () => {
     });
   });
 
-  /** Não figuramos em polo nenhum: a ação é do filiado e nós somos o patrono. */
-  it('REPRESENTANDO é a ausência do sindicato entre as partes', () => {
+  /**
+   * REPRESENTANDO exige TER partes e o sindicato não estar entre elas.
+   *
+   * Sem o `some: {}`, um processo importado sem parte nenhuma cairia aqui —
+   * "o sindicato não está entre as partes" é verdade trivial quando não há
+   * partes. Hoje são zero na produção, mas a fila "Sem réu cadastrado" existe
+   * justamente porque isso acontece, e o número mentiria em silêncio.
+   */
+  it('REPRESENTANDO exige ter partes, e o sindicato fora delas', () => {
     expect(FILTRO_RAPIDO.nossoPapel('REPRESENTANDO')).toEqual({
-      partes: { none: { parteExterna: { institucional: true } } },
+      AND: [
+        { partes: { some: {} } },
+        { partes: { none: { parteExterna: { institucional: true } } } },
+      ],
     });
   });
 
