@@ -1125,6 +1125,16 @@ export class DashboardService {
          */
         temTarefaAberta:
           pub.compromisso?.status === 'PENDENTE' || pub.compromisso?.status === 'EM_ANDAMENTO',
+        /**
+         * NUNCA VIROU TAREFA — e isso é diferente de "a tarefa fechou".
+         *
+         * Concluída quer dizer que alguém fez. Cancelada quer dizer que alguém
+         * decidiu que não era para fazer, e a decisão está registrada com
+         * motivo. Nos dois casos houve trabalho humano, e marcar a linha como
+         * "sem tarefa" seria apagar essa decisão. O risco de verdade é o ato
+         * que pediu algo e nunca chegou a virar nada.
+         */
+        semTarefa: pub.compromissoId === null,
         /** Quantos destinatários receberam a MESMA comunicação. */
         copias: grupo.length,
         processo: pub.processo && {

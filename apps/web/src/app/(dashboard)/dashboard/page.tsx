@@ -646,9 +646,9 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
                   aria-hidden
                   className={cn(
                     'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-                    pub.temTarefaAberta
-                      ? 'bg-indigo-500'
-                      : 'border-2 border-amber-500 bg-transparent',
+                    pub.semTarefa
+                      ? 'border-2 border-amber-500 bg-transparent'
+                      : 'bg-indigo-500',
                   )}
                 />
                 <span className="min-w-0 flex-1">
@@ -696,7 +696,7 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
                         · menciona {pub.prazoMencionadoDias} dias
                       </span>
                     )}
-                    {!pub.temTarefaAberta && (
+                    {pub.semTarefa && (
                       <span className="font-medium text-amber-700 dark:text-amber-400">
                         · sem tarefa
                       </span>

@@ -28,3 +28,49 @@ export function inicioDoDiaBR(base = new Date()): Date {
 export function diaBR(d: Date): string {
   return new Date(d.getTime() - OFFSET_BR_MS).toISOString().slice(0, 10);
 }
+
+/**
+ * HORA EM QUE O ROBÔ AGENDA — nove da manhã de Teresina, sempre.
+ *
+ * Os robôs usavam `setHours(9, 0, 0, 0)`, que resolve no fuso do PROCESSO —
+ * uma configuração de ambiente, não do código. A produção mostrou o estrago em
+ * 03/09/2026: na MESMA tabela, uma tarefa às 09:00 UTC (06:00 de Teresina) e
+ * quatro às 12:00 UTC (09:00 de Teresina). Duas noções de "nove da manhã"
+ * convivendo, e a agenda mostrando prazo às seis da manhã para quem chega às
+ * oito.
+ *
+ * O resto do sistema já resolvia isso com `OFFSET_BR_MS`; os robôs eram a
+ * exceção.
+ */
+export function noveDaManhaBR(dia: Date): Date {
+  return new Date(inicioDoDiaBR(dia).getTime() + 9 * 3_600_000);
+}
+
+/**
+ * NENHUMA TAREFA NASCE VENCIDA.
+ *
+ * O robô calculava "hoje às 9h" mesmo rodando às 20h — e a tarefa entrava na
+ * agenda já na lista de atrasadas, com onze horas de atraso no instante do
+ * nascimento. Medido em 03/09/2026: QUATRO das cinco atividades do DJEN
+ * nasceram assim. Não é que o dia acabou sem alguém fazer; elas nunca tiveram
+ * um minuto de validade, e o alerta "4 atividades com horário vencido" na home
+ * era autogerado.
+ *
+ * Empurra para as nove da manhã do próximo dia ÚTIL. A data do compromisso é
+ * quando SENTAR para fazer, não o prazo processual — o prazo o sistema não
+ * calcula, e o aviso de atraso continua escrito na descrição.
+ */
+export function proximoHorarioUtilBR(candidato: Date, agora = new Date()): Date {
+  const alvo = candidato > agora ? candidato : new Date(agora.getTime() + 24 * 3_600_000);
+  const d = noveDaManhaBR(alvo);
+  // Sábado e domingo empurram para segunda: ninguém abre o processo no fim de
+  // semana, e a tarefa entraria na segunda já marcada como atrasada.
+  while (ehFimDeSemanaBR(d)) d.setTime(d.getTime() + 24 * 3_600_000);
+  return d > agora ? d : new Date(agora.getTime() + 3_600_000);
+}
+
+/** Dia da semana no fuso de Teresina — 0 domingo, 6 sábado. */
+export function ehFimDeSemanaBR(d: Date): boolean {
+  const dia = new Date(d.getTime() - OFFSET_BR_MS).getUTCDay();
+  return dia === 0 || dia === 6;
+}

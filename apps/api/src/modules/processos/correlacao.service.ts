@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
 import { somarDiasUteis, TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
+import { inicioDoDiaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
 import {
   classificarProvidencia,
@@ -85,6 +86,21 @@ export class CorrelacaoService {
 
       const processo = await this.carregarProcesso(processoId);
       if (!processo) return resumo;
+
+      /**
+       * DESDE QUANDO ESTAMOS OLHANDO ESTE PROCESSO.
+       *
+       * É a data em que a PRIMEIRA publicação dele entrou no banco — não a do
+       * ato, a do download. Publicação disponibilizada antes disso é um ato que
+       * o sistema não teve como anunciar: ou o escritório soube pelo PJe e já
+       * cuidou, ou perdeu, e nos dois casos uma tarefa criada hoje não muda
+       * nada. Ver `ehNoticiaVelha`.
+       */
+      const primeiraVista = await this.prisma.comunicacaoDjen.aggregate({
+        where: { processoId },
+        _min: { createdAt: true },
+      });
+      const vigiadoDesde = primeiraVista._min.createdAt ?? new Date();
 
       // Classifica antes de parear: o pareamento precisa saber quais publicações
       // designam pauta (caso especial da regra).
@@ -217,30 +233,35 @@ export class CorrelacaoService {
         }
 
         /**
-         * (A3) PUBLICAÇÃO VELHA DEMAIS PARA VIRAR TAREFA.
+         * (A3) NOTÍCIA VELHA NÃO VIRA TAREFA.
          *
-         * A consulta por NPU não traz uma janela de dias: traz o HISTÓRICO
-         * INTEIRO do processo. Medido na produção em 03/09/2026 — a publicação
-         * mais antiga entre as 136 baixadas é de 14/05/2024, 842 dias atrás.
-         * Sem esta trava, cadastrar um processo antigo despeja na agenda a
-         * pilha de tudo que já foi publicado nele desde sempre, com prazos que
-         * venceram há dois anos.
+         * ESTA É A TRAVA QUE FALTAVA, e ela nasceu de olhar a agenda no fim do
+         * dia 03/09/2026. Das cinco atividades que o DJEN criou, QUATRO vieram
+         * de publicações de 12/08, 19/08, 24/08 e 28/08 — em processos que
+         * foram cadastrados no sistema em 25/08 e 31/08. Duas delas são
+         * ANTERIORES ao próprio cadastro do processo.
          *
-         * O corte é de sessenta dias, e ele não é redondo por acaso: é o dobro
-         * do maior prazo processual comum (trinta dias da Fazenda Pública, art.
-         * 183 do CPC). Dentro dele ainda é plausível que algo esteja correndo —
-         * prazo suspenso, intimação por outra via, contagem em dobro. Fora
-         * dele, o que havia a fazer já foi feito ou já se perdeu, e uma tarefa
-         * criada hoje não salva nada: só ocupa a agenda de quem tem prazo vivo.
+         * Nenhuma dessas o sistema teve como anunciar: a integração só passou a
+         * funcionar em 03/09. O escritório soube pelo PJe e cuidou, ou não
+         * cuidou — e nos dois casos uma tarefa criada semanas depois não é
+         * trabalho, é eco. Pior: nasce urgente e vencida, e empurra para baixo
+         * o prazo de verdade que vence amanhã.
          *
-         * A publicação NÃO é descartada. Ela continua gravada, classificada e
-         * visível na aba Publicações do processo — o que ela não faz é fingir
-         * ser trabalho pendente.
+         * A janela de 30 dias da consulta não protegia disso, e a trava de
+         * sessenta dias que eu tinha escrito era código morto — ela nunca podia
+         * disparar, porque nada mais velho que trinta dias chega até aqui.
+         *
+         * A régua certa não é uma idade fixa: é se JÁ ESTÁVAMOS OLHANDO. A
+         * tolerância de três dias é a janela da varredura diária
+         * (`DJEN_JANELA_DIAS`): na primeira ingestão de um processo, um ato de
+         * anteontem ainda é algo que teríamos anunciado se estivéssemos ligados
+         * um dia antes.
+         *
+         * A publicação NÃO é descartada: continua gravada, classificada e
+         * visível na aba Publicações, com o selo da providência. Quem abrir o
+         * processo vê o histórico; o que ela não faz é fingir ser pendência.
          */
-        const idadeDias = Math.floor(
-          (Date.now() - c.dataDisponibilizacao.getTime()) / 86_400_000,
-        );
-        if (idadeDias > DIAS_LIMITE_TAREFA) {
+        if (ehNoticiaVelha(c.dataDisponibilizacao, vigiadoDesde)) {
           await this.prisma.comunicacaoDjen.update({
             where: { id: c.id },
             data: {
@@ -281,7 +302,7 @@ export class CorrelacaoService {
         this.logger.log(
           `[CORRELACAO] ${processo.numeroCNJ}: ${resumo.criadas} atividade(s) criada(s), ` +
             `${resumo.enriquecidas} enriquecida(s) com o teor da publicação` +
-            `${resumo.antigas ? `, ${resumo.antigas} publicação(ões) antiga(s) só classificada(s)` : ''}.`,
+            `${resumo.antigas ? `, ${resumo.antigas} anterior(es) ao acompanhamento — só classificada(s)` : ''}.`,
         );
       }
     } catch (err) {
@@ -480,10 +501,9 @@ export class CorrelacaoService {
      */
     let antecipar: Date | null = null;
     if (c.dataDisponibilizacao) {
-      const novo = proximoDiaUtil(
+      const novo = proximoHorarioUtilBR(
         somarDiasUteis(c.dataDisponibilizacao, diasParaLembrete(spec, c.prazoMencionadoDias)),
       );
-      novo.setHours(9, 0, 0, 0);
       if (novo < atual.inicio) antecipar = novo;
     }
 
@@ -535,8 +555,12 @@ export class CorrelacaoService {
     const calculado = somarDiasUteis(c.dataDisponibilizacao, dias);
     const hoje = new Date();
     const atrasado = calculado < hoje;
-    const inicio = proximoDiaUtil(atrasado ? hoje : calculado);
-    inicio.setHours(9, 0, 0, 0);
+    /**
+     * `proximoHorarioUtilBR` faz duas coisas que o `setHours(9)` não fazia:
+     * fixa as nove da manhã de TERESINA (e não do fuso do contêiner) e garante
+     * que o horário seja futuro. Ver o comentário da função.
+     */
+    const inicio = proximoHorarioUtilBR(atrasado ? hoje : calculado);
 
     /**
      * URGÊNCIA EXIGE QUE A PUBLICAÇÃO SEJA RECENTE — e esta trava veio de uma
@@ -666,16 +690,24 @@ interface ProcessoAlvo {
 }
 
 /**
- * Idade máxima, em dias, de uma publicação que ainda pode virar tarefa.
+ * Tolerância da regra da primeira vista, em dias.
  *
- * Dobro do maior prazo processual comum (30 dias da Fazenda Pública, art. 183
- * do CPC). Ver o comentário do cenário (A3) para o porquê da trava existir.
+ * É a janela da varredura diária (`DJEN_JANELA_DIAS`, padrão 3). Numerar aqui
+ * em vez de injetar o `DjenService` é deliberado: a tolerância é conservadora
+ * por natureza — se a varredura passar a olhar mais dias para trás, esta régua
+ * cria MENOS tarefas, nunca mais.
  */
-const DIAS_LIMITE_TAREFA = 60;
+const DIAS_DE_TOLERANCIA = 3;
 
-/** Próximo dia útil a partir de `base` (inclusive). */
-function proximoDiaUtil(base: Date): Date {
-  const d = new Date(base);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  return d;
+/**
+ * A publicação é anterior ao momento em que passamos a olhar este processo?
+ *
+ * Ver o comentário do cenário (A3). Em regime normal `vigiadoDesde` é antigo e
+ * tudo que chega passa; na PRIMEIRA ingestão ele é agora, e o histórico inteiro
+ * do processo — que a consulta por NPU traz de propósito — fica de fora.
+ */
+function ehNoticiaVelha(dataDisponibilizacao: Date, vigiadoDesde: Date): boolean {
+  const limite = new Date(vigiadoDesde.getTime() - DIAS_DE_TOLERANCIA * 24 * 3_600_000);
+  return dataDisponibilizacao < inicioDoDiaBR(limite);
 }
+

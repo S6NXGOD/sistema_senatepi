@@ -165,6 +165,8 @@ export interface ResumoDashboard {
       compromissoId: string | null;
       /** A atividade existe E está aberta? Concluída/cancelada não conta. */
       temTarefaAberta: boolean;
+      /** Nunca virou tarefa. Diferente de "a tarefa fechou" — ver a API. */
+      semTarefa: boolean;
       /** Quantos destinatários receberam a MESMA comunicação. */
       copias: number;
       processo: {

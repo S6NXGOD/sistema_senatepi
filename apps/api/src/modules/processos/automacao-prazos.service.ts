@@ -5,7 +5,7 @@ import { NpuUtils } from './utils/npu.util';
 import { AgendaService } from '../agenda/agenda.service';
 import { classificarMovimentacao, type GatilhoMovimentacao } from './utils/audiencia.util';
 import { montarUrgencia } from '../agenda/equipe.util';
-import { diaBR } from './utils/data-br.util';
+import { diaBR, noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 
 /** Dias úteis padrão para conferir uma intimação/citação. */
 const PRAZO_PADRAO_DIAS_UTEIS = 5;
@@ -82,13 +82,6 @@ export function somarDiasUteis(base: Date, dias: number): Date {
     const diaSemana = d.getDay();
     if (diaSemana !== 0 && diaSemana !== 6) restantes--;
   }
-  return d;
-}
-
-/** Próximo dia útil a partir de `base` (inclusive). */
-function proximoDiaUtil(base: Date): Date {
-  const d = new Date(base);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
   return d;
 }
 
@@ -290,8 +283,12 @@ export class AutomacaoPrazosService {
     const calculado = somarDiasUteis(mov.dataMovimento, PRAZO_PADRAO_DIAS_UTEIS);
     const hoje = new Date();
     const atrasado = calculado < hoje;
-    const inicio = proximoDiaUtil(atrasado ? hoje : calculado);
-    inicio.setHours(9, 0, 0, 0);
+    /**
+     * Nove da manhã de TERESINA, e sempre no futuro — ver
+     * `proximoHorarioUtilBR`. O `setHours(9)` daqui resolvia no fuso do
+     * contêiner e marcava "hoje às 9h" mesmo rodando às 20h.
+     */
+    const inicio = proximoHorarioUtilBR(atrasado ? hoje : calculado);
 
     /**
      * URGENTE É COISA RARA — ou deixa de significar alguma coisa.
@@ -510,8 +507,7 @@ export class AutomacaoPrazosService {
       return false;
     }
 
-    const inicio = proximoDiaUtil(new Date());
-    inicio.setHours(9, 0, 0, 0);
+    const inicio = proximoHorarioUtilBR(new Date());
     const detalhe = [mov.descricao, mov.detalhe].filter(Boolean).join(' — ');
 
     await this.prisma.compromisso.create({
@@ -624,10 +620,10 @@ export class AutomacaoPrazosService {
     let tarefa = false;
     if (secretariaId && processo.filiadoId) {
       // Avisar com 2 dias úteis de antecedência (nunca depois da pauta).
-      const aviso = new Date(inicio);
-      aviso.setDate(aviso.getDate() - 2);
-      aviso.setHours(9, 0, 0, 0);
-      const inicioAviso = aviso > new Date() ? aviso : new Date();
+      const aviso = new Date(inicio.getTime() - 2 * 24 * 3_600_000);
+      // O aviso é ANTES da pauta; se a antecedência já passou, vale agora — e
+      // não o próximo dia útil, que poderia cair depois da própria audiência.
+      const inicioAviso = aviso > new Date() ? noveDaManhaBR(aviso) : new Date();
 
       // Mesma regra da pauta: um aviso por pauta. Sem esta checagem, uma pauta
       // duplicada gerava dois "Avisar filiado", e a secretaria ligava duas vezes.

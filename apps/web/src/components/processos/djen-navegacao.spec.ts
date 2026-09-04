@@ -202,9 +202,15 @@ describe('o painel', () => {
     expect(BLOCO_DJEN).toContain('× {pub.processo.adversario}');
   });
 
-  /** Publicação que pediu algo e ninguém pegou é o único risco desta lista. */
-  it('marca a publicação que não virou tarefa', () => {
+  /**
+   * Publicação que pediu algo e NUNCA virou tarefa é o único risco desta lista.
+   * Tarefa concluída ou cancelada não conta: nos dois casos houve decisão
+   * humana registrada, e marcá-las como "sem tarefa" apagaria isso.
+   */
+  it('marca só a publicação que nunca virou tarefa', () => {
+    expect(BLOCO_DJEN).toContain('{pub.semTarefa && (');
     expect(BLOCO_DJEN).toContain('· sem tarefa');
+    expect(BLOCO_DJEN).toContain('pub.semTarefa');
     expect(BLOCO_DJEN).toContain('border-2 border-amber-500');
   });
 });

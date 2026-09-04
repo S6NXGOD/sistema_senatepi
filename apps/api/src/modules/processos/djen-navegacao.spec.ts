@@ -237,25 +237,64 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
    * decisão só a tomar. A atividade é unidade de TRABALHO, não de publicação.
    */
   it('a chave da irmã é (processo, providência) — sem o dia', () => {
-    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'), CORRELACAO.indexOf('(A3) PUBLICAÇÃO VELHA'));
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'), CORRELACAO.indexOf('(A3) NOTÍCIA VELHA'));
     expect(bloco).not.toContain('dataDisponibilizacao: c.dataDisponibilizacao');
     // A mais recente primeiro: é a que descreve o estado atual do processo.
     expect(bloco).toContain("orderBy: { dataDisponibilizacao: 'desc' }");
   });
 
   /**
-   * A CONSULTA POR NPU TRAZ O HISTÓRICO INTEIRO, não uma janela. Medido: a
-   * publicação mais antiga das 136 é de 14/05/2024 — 842 dias. Sem trava,
-   * cadastrar um processo antigo despeja na agenda prazos vencidos há dois
-   * anos. Classificar sim; fingir que é trabalho pendente, não.
+   * NOTÍCIA VELHA NÃO VIRA TAREFA — a trava que faltava.
+   *
+   * Medido no fim do dia 03/09/2026: das cinco atividades que o DJEN criou,
+   * QUATRO vieram de publicações de 12/08, 19/08, 24/08 e 28/08, em processos
+   * cadastrados em 25/08 e 31/08. Duas são ANTERIORES ao próprio cadastro do
+   * processo. A integração só passou a funcionar em 03/09 — nenhuma dessas o
+   * sistema teve como anunciar.
+   *
+   * A régua não é idade fixa: é se já estávamos olhando o processo.
    */
-  it('publicação velha demais é classificada mas não vira tarefa', () => {
-    expect(CORRELACAO).toContain('const DIAS_LIMITE_TAREFA = 60;');
-    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('(A3) PUBLICAÇÃO VELHA'), CORRELACAO.indexOf('// (B) e (C)'));
-    expect(bloco).toContain('if (idadeDias > DIAS_LIMITE_TAREFA) {');
+  it('publicação anterior ao acompanhamento é classificada mas não vira tarefa', () => {
+    expect(CORRELACAO).toContain('function ehNoticiaVelha(');
+    expect(CORRELACAO).toContain('const DIAS_DE_TOLERANCIA = 3;');
+    expect(CORRELACAO).toContain('const vigiadoDesde = primeiraVista._min.createdAt ?? new Date();');
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('(A3) NOTÍCIA VELHA'), CORRELACAO.indexOf('// (B) e (C)'));
+    expect(bloco).toContain('if (ehNoticiaVelha(c.dataDisponibilizacao, vigiadoDesde)) {');
     expect(bloco).toContain('providencia: c.providencia');
     expect(bloco).not.toContain('criarAtividade');
     expect(bloco).toContain('resumo.antigas++');
+  });
+
+  /**
+   * A TRAVA ANTERIOR ERA CÓDIGO MORTO e é bom que isso fique registrado: a
+   * consulta já filtra por 30 dias, então uma checagem de "mais de 60 dias"
+   * nunca podia disparar. Passou nos testes por ser afirmação sobre texto, não
+   * sobre comportamento.
+   */
+  it('não sobrou a trava de idade que nunca disparava', () => {
+    expect(CORRELACAO).not.toContain('DIAS_LIMITE_TAREFA');
+  });
+
+  /**
+   * NENHUMA TAREFA NASCE VENCIDA. O robô marcava "hoje às 9h" mesmo rodando às
+   * 20h — quatro das cinco nasceram com onze horas de atraso, e o alerta da
+   * home "4 atividades com horário vencido" era autogerado. E as nove da manhã
+   * são de TERESINA: `setHours(9)` resolvia no fuso do contêiner e produziu, na
+   * mesma tabela, uma tarefa às 06:00 e quatro às 09:00 de Teresina.
+   */
+  it('o horário é de Teresina e sempre no futuro', () => {
+    // Sem os comentários: os dois arquivos EXPLICAM por que `setHours` saiu, e
+    // a explicação não pode fazer o teste acusar o que ela documenta.
+    const semComentarios = (fonte: string) =>
+      fonte
+        .split('\n')
+        .filter((linha) => !/^\s*(\*|\/\/|\/\*)/.test(linha))
+        .join('\n');
+
+    expect(semComentarios(CORRELACAO)).not.toContain('setHours(9');
+    expect(semComentarios(PRAZOS)).not.toContain('setHours(9');
+    expect(CORRELACAO).toContain('proximoHorarioUtilBR(atrasado ? hoje : calculado)');
+    expect(PRAZOS).toContain('proximoHorarioUtilBR(');
   });
 
   /** E não pode casar consigo mesma. */

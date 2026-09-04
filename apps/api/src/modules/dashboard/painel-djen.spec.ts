@@ -64,6 +64,18 @@ describe('painel do DJEN na home', () => {
    * ou cancelada, e aí a publicação volta a ser notícia sem dono. É a diferença
    * entre "alguém está cuidando" e "isto pediu algo e ninguém pegou".
    */
+  /**
+   * "NUNCA VIROU TAREFA" É DIFERENTE DE "A TAREFA FECHOU".
+   *
+   * Concluída quer dizer que alguém fez; cancelada, que alguém decidiu que não
+   * era para fazer — e a decisão fica registrada com motivo e categoria. Marcar
+   * as duas como "sem tarefa" apagaria o trabalho humano. O risco de verdade é
+   * o ato que pediu algo e nunca chegou a virar nada.
+   */
+  it('separa "nunca virou tarefa" de "a tarefa fechou"', () => {
+    expect(PAINEL).toContain('semTarefa: pub.compromissoId === null,');
+  });
+
   it('distingue tarefa ABERTA de tarefa qualquer', () => {
     expect(PAINEL).toContain('temTarefaAberta:');
     const fn = PAINEL.slice(PAINEL.indexOf('temTarefaAberta:'));
