@@ -1,38 +1,41 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { X, Search, Loader2, UserPlus, UserCheck, Check } from 'lucide-react';
+import { X, Search, Loader2, UserPlus, UserCheck, Check, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { atualizarProcesso } from '@/lib/processos';
+import { identificarParteComoFiliado, sugestoesDeFiliado, type CandidatoFiliado } from '@/lib/partes';
+import { FormularioFiliadoRapido } from '@/components/filiados/formulario-filiado-rapido';
 import { V } from '@/lib/vocabulario';
 
 type Modo = 'buscar' | 'criar';
 
-/** Só dígitos, no máximo 11. */
-const soDigitos = (v: string) => v.replace(/\D/g, '').slice(0, 11);
-/** 000.000.000-00 progressivo. */
-function mascaraCpf(v: string): string {
-  const d = soDigitos(v);
-  let out = d.slice(0, 3);
-  if (d.length > 3) out += '.' + d.slice(3, 6);
-  if (d.length > 6) out += '.' + d.slice(6, 9);
-  if (d.length > 9) out += '-' + d.slice(9, 11);
-  return out;
-}
-
 /**
- * Resolve o vínculo do processo com um filiado SEM sair da tela: busca um
- * cadastro existente ou cria um novo com o mínimo necessário (nome, CPF e
- * nascimento — os únicos campos obrigatórios da API) e já vincula.
+ * Resolve o vínculo do processo com um filiado SEM sair da tela: reconhece o
+ * cadastro que já existe, procura outro, ou cria um novo com o mínimo (nome,
+ * CPF e nascimento — os obrigatórios da API) e vincula.
+ *
+ * POR QUE ELE COMEÇA COM SUGESTÃO. Digitar o nome dos autos na busca costuma
+ * devolver ZERO: nos autos a pessoa aparece com o nome inteiro e no cadastro
+ * com o de uso ("SARA MACHADO MIRANDA LEAL BARBOSA" contra "SARA MACHADO
+ * MIRANDA"), ou o contrário ("MARCOS VICTOR" contra "MARCOS VICTOR BARROS
+ * SILVA"). Quem procurava concluía que a pessoa não era filiada e desistia — e
+ * o processo seguia "sem filiado vinculado" com a filiada cadastrada o tempo
+ * todo. A API compara por subconjunto de nome e por CPF, e devolve os
+ * candidatos prontos.
+ *
+ * VINCULAR A PARTE, e não o processo. Com `parteId`, a parte que já está nos
+ * autos passa a apontar para o cadastro. Sem ele, o caminho antigo ADICIONA uma
+ * parte nova ao polo ativo — e o processo fica com dois autores que são a mesma
+ * pessoa.
  */
 export function VincularFiliadoModal({
-  open, processoId, onClose, onVinculado, nomeSugerido,
+  open, processoId, onClose, onVinculado, nomeSugerido, parteId,
 }: {
   open: boolean;
   processoId: string;
@@ -40,6 +43,8 @@ export function VincularFiliadoModal({
   onVinculado: () => void;
   /** Nome vindo das partes do processo, quando houver — poupa digitação. */
   nomeSugerido?: string | null;
+  /** A parte do polo ativo ainda sem cadastro, quando existe. */
+  parteId?: string | null;
 }) {
   const [modo, setModo] = useState<Modo>('buscar');
 
@@ -48,20 +53,26 @@ export function VincularFiliadoModal({
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
 
-  // --- criar ---
+  // --- criar --- (os campos vivem em `FormularioFiliadoRapido`)
   const [nome, setNome] = useState('');
-  const [cpf, setCpf] = useState('');
-  const [nascimento, setNascimento] = useState('');
-  const [telefone, setTelefone] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setModo('buscar');
-    setBusca(nomeSugerido ?? '');
+    // A busca exige TODOS os termos: o nome inteiro dos autos devolve zero
+    // sempre que o cadastro é mais curto. Dois nomes já restringem o bastante
+    // e ainda encontram quem tem sobrenome a mais na ficha.
+    setBusca((nomeSugerido ?? '').split(/\s+/).slice(0, 2).join(' '));
     setResultados([]);
     setNome(nomeSugerido ?? '');
-    setCpf(''); setNascimento(''); setTelefone('');
   }, [open, nomeSugerido]);
+
+  const { data: sugestoes = [], isLoading: carregandoSugestoes } = useQuery({
+    queryKey: ['sugestoes-filiado', parteId],
+    queryFn: () => sugestoesDeFiliado(parteId as string),
+    enabled: open && !!parteId,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     const termo = busca.trim();
@@ -76,34 +87,30 @@ export function VincularFiliadoModal({
   }, [busca, modo]);
 
   const vincular = useMutation({
-    mutationFn: (filiadoId: string) => atualizarProcesso(processoId, { filiadoId }),
+    mutationFn: async (filiadoId: string): Promise<void> => {
+      if (parteId) await identificarParteComoFiliado(parteId, filiadoId);
+      else await atualizarProcesso(processoId, { filiadoId });
+    },
     onSuccess: () => { toast.success(`${V.Filiado} vinculado ao processo.`); onVinculado(); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível vincular.'),
   });
 
-  const criarEVincular = useMutation({
-    mutationFn: async () => {
-      const novo = (
-        await api.post('/filiados', {
-          nomeCompleto: nome.trim(),
-          cpf: soDigitos(cpf),
-          dataNascimento: nascimento,
-          ...(telefone.trim() ? { telefonePrincipal: telefone.trim() } : {}),
-        })
-      ).data as { id: string };
-      await atualizarProcesso(processoId, { filiadoId: novo.id });
-      return novo;
-    },
-    onSuccess: () => { toast.success(`${V.Filiado} cadastrado e vinculado.`); onVinculado(); onClose(); },
-    onError: (e: any) => {
-      const m = e?.response?.data?.message;
-      toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível cadastrar o filiado.');
-    },
-  });
+  async function vincularRecemCriado(filiadoId: string) {
+    try {
+      if (parteId) await identificarParteComoFiliado(parteId, filiadoId);
+      else await atualizarProcesso(processoId, { filiadoId });
+      toast.success(`${V.Filiado} cadastrado e vinculado.`);
+      onVinculado();
+      onClose();
+    } catch {
+      // O cadastro FOI criado; só o vínculo falhou. Dizer "erro ao cadastrar"
+      // faria a pessoa tentar de novo e esbarrar em "CPF já existe".
+      toast.error(`${V.Filiado} cadastrado, mas o vínculo com o processo falhou. Procure-o na busca.`);
+      setModo('buscar');
+    }
+  }
 
   if (!open) return null;
-
-  const podeCriar = nome.trim().length >= 3 && soDigitos(cpf).length === 11 && !!nascimento;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -144,6 +151,54 @@ export function VincularFiliadoModal({
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {modo === 'buscar' ? (
             <>
+              {carregandoSugestoes && (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Procurando no cadastro…
+                </p>
+              )}
+
+              {sugestoes.length > 0 && (
+                <div className="rounded-lg border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-900 dark:bg-brand-950/20">
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-brand-900 dark:text-brand-300">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {sugestoes.length === 1 ? 'Parece ser este cadastro' : 'Pode ser um destes cadastros'}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {sugestoes.map((c: CandidatoFiliado) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => vincular.mutate(c.id)}
+                          disabled={vincular.isPending}
+                          className="w-full rounded-md border bg-card px-3 py-2 text-left transition hover:border-brand-400 disabled:opacity-60"
+                        >
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate text-sm font-medium">{c.nome}</span>
+                            {c.confianca === 'CERTEZA' && (
+                              <span className="shrink-0 rounded-full bg-brand-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-white">
+                                mesmo CPF
+                              </span>
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                            {c.cpfMascarado ? `${c.cpfMascarado} · ` : ''}{c.motivo}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {/*
+                    A CONFERÊNCIA É DE QUEM LÊ. Nome de brasileiro repete —
+                    "ANGELA MARIA" casa com quatro filiadas distintas nesta
+                    base. Vincular a pessoa errada junta o processo de uma à
+                    ficha de outra, e isso não se desfaz com um Ctrl+Z.
+                  */}
+                  <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+                    Confira o nome antes de vincular. Se nenhum for, procure abaixo.
+                  </p>
+                </div>
+              )}
+
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -187,41 +242,13 @@ export function VincularFiliadoModal({
               )}
             </>
           ) : (
-            <>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Nome completo *</label>
-                <Input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Maria Souza Lima" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">CPF *</label>
-                  <Input value={cpf} onChange={(e) => setCpf(mascaraCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Nascimento *</label>
-                  <Input type="date" value={nascimento} onChange={(e) => setNascimento(e.target.value)} />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Telefone</label>
-                <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(86) 90000-0000" />
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                Cadastro mínimo — os demais dados podem ser completados depois na ficha do filiado.
-              </p>
-            </>
+            <FormularioFiliadoRapido
+              nomeInicial={nome}
+              onCriado={(f) => vincularRecemCriado(f.id)}
+              onCancelar={onClose}
+            />
           )}
         </div>
-
-        {modo === 'criar' && (
-          <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
-            <Button variant="outline" onClick={onClose} disabled={criarEVincular.isPending}>Cancelar</Button>
-            <Button onClick={() => criarEVincular.mutate()} disabled={!podeCriar || criarEVincular.isPending}>
-              {criarEVincular.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-              Cadastrar e vincular
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );

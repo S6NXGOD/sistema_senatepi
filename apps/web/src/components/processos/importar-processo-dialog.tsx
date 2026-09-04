@@ -8,9 +8,10 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   X, Search, Loader2, User, Gavel, Landmark, Scale, Building2,
-  CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users, PenLine, Plus,
-  ChevronRight,
+  CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users, Plus,
+  ChevronRight, UserPlus,
 } from 'lucide-react';
+import { FormularioFiliadoRapido } from '@/components/filiados/formulario-filiado-rapido';
 import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
@@ -32,27 +33,32 @@ import { V } from '@/lib/vocabulario';
 /**
  * Como o polo ativo é preenchido. A escolha muda o que o formulário pede e o
  * que é gravado — e NENHUMA das opções cria cadastro provisório de filiado.
+ *
+ * SÃO DUAS HIPÓTESES, e não três. O sindicato litiga por si mesmo ou por um
+ * filiado; não existe terceira. "Outra parte" continua existindo — há ação
+ * movida em conjunto com outro sindicato, e há o processo herdado cuja parte
+ * ninguém identificou ainda — mas saiu do mesmo nível das outras duas.
+ *
+ * POR QUE ELA FOI REBAIXADA. Era o caminho mais curto do formulário: um clique,
+ * campo opcional, segue em frente. E era por ele que o processo entrava sem
+ * dono — 26 processos individuais da produção têm no polo ativo uma pessoa sem
+ * cadastro, e em 14 deles a pessoa ESTAVA no cadastro de filiados o tempo todo.
+ * Agora quem não acha o filiado tem, ali mesmo, o botão de cadastrá-lo.
  */
 type ModoPoloAtivo = 'INSTITUCIONAL' | 'FILIADOS' | 'OUTRA';
 
 const OPCOES_POLO: { modo: ModoPoloAtivo; icone: typeof User; titulo: string; ajuda: string }[] = [
   {
-    modo: 'INSTITUCIONAL',
-    icone: Landmark,
-    titulo: '🏛️ Ação Coletiva / Institucional',
-    ajuda: `O ${tenant.sigla} move a ação em nome da categoria.`,
-  },
-  {
     modo: 'FILIADOS',
     icone: Users,
-    titulo: `👤 Filiado(s) do ${tenant.sigla}`,
-    ajuda: 'Um ou mais filiados já cadastrados.',
+    titulo: `Filiado(s) do ${tenant.sigla}`,
+    ajuda: 'A ação é de um ou mais filiados.',
   },
   {
-    modo: 'OUTRA',
-    icone: PenLine,
-    titulo: '✏️ Outra parte / Definir depois',
-    ajuda: 'Digite o nome ou deixe em branco para resolver depois.',
+    modo: 'INSTITUCIONAL',
+    icone: Landmark,
+    titulo: 'Ação coletiva / institucional',
+    ajuda: `O ${tenant.sigla} move a ação em nome da categoria.`,
   },
 ];
 
@@ -110,6 +116,8 @@ export function ImportarProcessoDialog({
   const [outraParteNome, setOutraParteNome] = useState('');
 
   const [busca, setBusca] = useState('');
+  /** Cadastro rápido aberto sobre o formulário, sem perder o que já foi digitado. */
+  const [cadastrando, setCadastrando] = useState(false);
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
 
@@ -792,7 +800,7 @@ export function ImportarProcessoDialog({
             {modoPolo === 'INSTITUCIONAL' && (
               <div className="rounded-lg border border-brand-400/60 bg-brand-50/60 px-3 py-2 dark:bg-brand-900/10">
                 <p className="text-xs font-semibold text-brand-800 dark:text-brand-400">
-                  🏛️ Ação Institucional ({tenant.sigla})
+                  Ação institucional ({tenant.sigla})
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   O sindicato entra como autor. O processo é marcado como coletivo e não cobra
@@ -874,9 +882,30 @@ export function ImportarProcessoDialog({
                   )}
                 </div>
 
+                {/*
+                  QUEM NÃO ACHA, CADASTRA AQUI.
+                  Sem este botão a saída era "Outra parte": a pessoa entrava
+                  como texto livre e o processo nascia sem dono. O formulário
+                  pede o mínimo (nome, CPF e nascimento) e devolve o filiado já
+                  selecionado no polo.
+                */}
+                {busca.trim().length >= 2 && !buscando && resultados.length === 0 && (
+                  <div className="rounded-lg border border-dashed p-3 text-center">
+                    <p className="text-xs text-muted-foreground">
+                      Nenhum {V.filiado} encontrado com “{busca.trim()}”.
+                    </p>
+                    <Button
+                      type="button" size="sm" variant="outline" className="mt-2"
+                      onClick={() => setCadastrando(true)}
+                    >
+                      <UserPlus className="h-4 w-4" /> Cadastrar {V.filiado}
+                    </Button>
+                  </div>
+                )}
+
                 {filiadosPolo.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    Selecione ao menos um filiado — ou troque para “Outra parte / Definir depois”.
+                    Procure pelo nome ou CPF. Se ainda não estiver cadastrado, dá para cadastrar aqui.
                   </p>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">
@@ -888,10 +917,10 @@ export function ImportarProcessoDialog({
             )}
 
             {/* --- Outra parte: só o nome, e nunca um cadastro novo --- */}
-            {modoPolo === 'OUTRA' && (
+            {modoPolo === 'OUTRA' ? (
               <div className="space-y-1.5">
                 <Input
-                  placeholder="Nome da parte (opcional)"
+                  placeholder="Nome da parte"
                   value={outraParteNome}
                   onChange={(e) => setOutraParteNome(e.target.value)}
                 />
@@ -902,6 +931,59 @@ export function ImportarProcessoDialog({
                   Nenhum cadastro de filiado será criado. Dá para vincular um depois, na aba
                   <strong className="font-semibold text-foreground"> Partes</strong> do processo.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setModoPolo('FILIADOS')}
+                  className="text-[11px] font-medium text-brand-800 hover:underline dark:text-brand-400"
+                >
+                  Voltar para filiado
+                </button>
+              </div>
+            ) : (
+              /*
+                A TERCEIRA HIPÓTESE EXISTE, mas não é uma das duas primeiras.
+                Litisconsórcio com outro sindicato e processo herdado sem parte
+                identificada são reais — e raros. Como link, continuam ao
+                alcance de um clique sem competir com o caminho normal.
+              */
+              <button
+                type="button"
+                onClick={() => setModoPolo('OUTRA')}
+                className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                A parte não é o {tenant.sigla} nem um filiado
+              </button>
+            )}
+
+            {/*
+              CADASTRO RÁPIDO POR CIMA, e não em outra aba: sair da tela para
+              cadastrar o filiado significa perder o número do processo, o
+              tribunal e os réus já digitados. Ao terminar, o filiado volta já
+              selecionado no polo.
+            */}
+            {cadastrando && (
+              <div
+                className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
+                onClick={() => setCadastrando(false)}
+              >
+                <div
+                  className="w-full max-w-md rounded-2xl bg-card p-5 shadow-xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 className="font-semibold">Cadastrar {V.filiado}</h3>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Ele entra no polo ativo deste processo assim que for salvo.
+                  </p>
+                  <FormularioFiliadoRapido
+                    nomeInicial={busca.trim()}
+                    rotuloAcao="Cadastrar e usar no processo"
+                    onCancelar={() => setCadastrando(false)}
+                    onCriado={(f) => {
+                      adicionarFiliado({ id: f.id, nome: f.nome, cpfMascarado: f.cpfMascarado ?? '' } as FiliadoBusca);
+                      setCadastrando(false);
+                    }}
+                  />
+                </div>
               </div>
             )}
           </div>

@@ -7,6 +7,7 @@ import {
   CheckCircle2, FilePlus2, Gavel, Link2, Loader2, Scale, X,
   Handshake, FileCheck2, AlertTriangle, UserX,
   PhoneCall, PhoneOff, ClipboardCheck, CalendarClock, CircleSlash, CalendarPlus,
+  Paperclip,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,7 @@ import {
   concluirCompromisso, listarResponsaveis, listarDesfechos,
   type Compromisso, type DesfechoOpcao,
 } from '@/lib/agenda';
+import { listarAnexos } from '@/lib/anexos';
 import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-11 w-full rounded-md border border-input bg-background px-3 text-sm md:h-10';
@@ -117,6 +119,23 @@ export function ConcluirModal({
     setSegResponsavelId(compromisso.responsavel.id);
     setSegData(diaLocal(data));
   }, [spec, compromisso]);
+
+  /*
+    A PEÇA PROTOCOLADA É A PROVA DE QUE O PRAZO FOI CUMPRIDO.
+
+    "Peça protocolada" sem nada anexado é uma afirmação que ninguém consegue
+    conferir depois — e é justamente o registro que se procura quando o
+    tribunal diz que não recebeu, ou quando o filiado pergunta o que foi feito.
+    O aviso não bloqueia: há caso em que a peça vive só no sistema do tribunal,
+    e travar a conclusão por causa disso empurraria a equipe a mentir no
+    desfecho. Ele só diz o que falta, na hora em que dá para resolver.
+  */
+  const anexos = useQuery({
+    queryKey: ['anexos', 'compromisso', compromisso?.id],
+    queryFn: () => listarAnexos({ compromissoId: compromisso!.id }),
+    enabled: open && !!compromisso && desfecho === 'PRAZO_CUMPRIDO',
+    staleTime: 30_000,
+  });
 
   const advogados = useQuery({
     queryKey: ['compromissos-responsaveis'],
@@ -464,6 +483,32 @@ export function ConcluirModal({
             </div>
           )}
 
+          {/* A peça, quando o desfecho é "prazo cumprido" */}
+          {desfecho === 'PRAZO_CUMPRIDO' && !anexos.isLoading && (
+            <div
+              className={cn(
+                'flex items-start gap-2 rounded-lg border p-3 text-[12px] leading-snug',
+                anexos.data?.length
+                  ? 'border-emerald-200 bg-emerald-50/50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/10 dark:text-emerald-300'
+                  : 'border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/10 dark:text-amber-200',
+              )}
+            >
+              <Paperclip className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {anexos.data?.length ? (
+                <span>
+                  {anexos.data.length === 1
+                    ? '1 documento anexado a esta atividade.'
+                    : `${anexos.data.length} documentos anexados a esta atividade.`}
+                </span>
+              ) : (
+                <span>
+                  Nenhum documento anexado. Se protocolou a peça, anexe-a nesta atividade antes de
+                  concluir — é o que comprova o cumprimento quando alguém perguntar depois.
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Comentário */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">
@@ -471,7 +516,9 @@ export function ConcluirModal({
                 ? 'O que foi orientado ao filiado?'
                 : desfecho === 'PROCESSO_CRIADO'
                   ? 'Observação inicial do processo'
-                  : 'Observação'}
+                  : desfecho === 'PRAZO_CUMPRIDO'
+                    ? 'O que foi protocolado'
+                    : 'Observação'}
               {exigeObs ? ' *' : <span className="font-normal text-muted-foreground"> (opcional)</span>}
             </label>
             <textarea
@@ -481,7 +528,9 @@ export function ConcluirModal({
                   ? 'Descreva a orientação dada — é o que vai constar no histórico do filiado.'
                   : desfecho === 'PROCESSO_CRIADO'
                     ? 'O que foi combinado. Vira o primeiro andamento interno do processo.'
-                    : 'Anote o que for relevante…'
+                    : desfecho === 'PRAZO_CUMPRIDO'
+                      ? 'Ex.: Contestação protocolada em 04/09, protocolo 12345/2026.'
+                      : 'Anote o que for relevante…'
               }
               value={obs}
               onChange={(e) => setObs(e.target.value)}

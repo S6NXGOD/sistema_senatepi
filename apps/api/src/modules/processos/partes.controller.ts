@@ -2,7 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PartesService } from './partes.service';
-import { PartesExternasService } from './partes-externas.service';
+import { PartesExternasService } from './partes-externas.service';
+import { SugestaoFiliadoService } from './sugestao-filiado.service';
 import {
   AdicionarParteDto, AtualizarParteDto, AtualizarParteExternaDto, CriarParteExternaDto,
   DefinirAdvogadosDto, ListParteExternaQueryDto, MesclarOrganizacaoDto,
@@ -29,7 +30,10 @@ function ctxDe(req: Request, user?: AuthUser) {
 @Modulo('processos')
 @Controller('processos')
 export class PartesController {
-  constructor(private readonly service: PartesService) {}
+  constructor(
+    private readonly service: PartesService,
+    private readonly sugestoes: SugestaoFiliadoService,
+  ) {}
 
   @Get(':id/partes')
   @ApiOperation({ summary: 'Partes do processo agrupadas por polo, com o confronto "Autor × Réu".' })
@@ -46,6 +50,27 @@ export class PartesController {
     @Req() req: Request,
   ) {
     return this.service.adicionar(processoId, dto, ctxDe(req, user));
+  }
+
+  /*
+    Precisa vir ANTES de `@Patch('partes/:parteId')`? Não: o método difere.
+    Mas fica junto das outras de item, que é onde alguém procura.
+  */
+  @Get('partes/:parteId/sugestoes-filiado')
+  @ApiOperation({ summary: 'Filiados que provavelmente são esta parte (por CPF ou por nome).' })
+  sugerirFiliado(@Param('parteId') parteId: string) {
+    return this.sugestoes.paraParte(parteId);
+  }
+
+  @Post('partes/:parteId/filiado/:filiadoId')
+  @ApiOperation({ summary: 'Identifica a parte já lançada como sendo um filiado, sem duplicá-la.' })
+  vincularFiliado(
+    @Param('parteId') parteId: string,
+    @Param('filiadoId') filiadoId: string,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.vincularFiliado(parteId, filiadoId, ctxDe(req, user));
   }
 
   @Patch('partes/:parteId')

@@ -27,6 +27,7 @@ import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
 import { formatNPU, ehPreProcessual } from '@/lib/processos';
 import { SeloPreProcessual } from '@/components/ui/selo-pre-processual';
 import { Cronometro } from '@/components/agenda/cronometro';
+import { PassosDaTarefa } from '@/components/agenda/passos-da-tarefa';
 import { HistoricoAtividade } from './historico-atividade';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from '@/components/processos/publicacao-djen-card';
@@ -203,6 +204,26 @@ export function CompromissoDrawer({
           )}
 
           {/*
+            O QUE FAZER VEM ANTES DO TEOR — e a ordem estava invertida.
+
+            A gaveta abria com a parede de texto do tribunal (o maior acórdão do
+            acervo tem 22 mil caracteres) e só no rodapé, depois de responsável,
+            registrado por e processo vinculado, dizia o que a atividade é. O
+            advogado lia a prova antes de saber a pergunta.
+
+            Agora: o que se espera, qual é o processo, e SÓ ENTÃO o teor.
+          */}
+          {c.origemAutomatica && (
+            <PassosDaTarefa providencia={c.origemComunicacoes?.[0]?.providencia ?? null} />
+          )}
+
+          {c.descricao && (
+            <Bloco titulo="Descrição">
+              <p className="whitespace-pre-wrap text-sm">{c.descricao}</p>
+            </Bloco>
+          )}
+
+          {/*
             O TEOR QUE ORIGINOU A ATIVIDADE.
 
             Quando o robô cria "Verificação de Intimação / Prazo", a descrição
@@ -373,8 +394,19 @@ export function CompromissoDrawer({
                 </div>
               </Bloco>
             ) : c.origemAutomatica ? (
+              /*
+                QUAL robô, e não "o robô".
+                São dois: o de prazos lê os andamentos do DataJud; o do DJEN lê
+                o teor das publicações. A gaveta dizia "DataJud" em toda tarefa
+                automática, inclusive nas que nasceram de uma publicação — e o
+                advogado que fosse conferir a origem procuraria na aba errada.
+              */
               <Bloco titulo="Registrado por">
-                <p className="text-sm text-muted-foreground">Robô de prazos (DataJud)</p>
+                <p className="text-sm text-muted-foreground">
+                  {c.origemComunicacoes?.length
+                    ? 'Robô de publicações (DJEN)'
+                    : 'Robô de prazos (DataJud)'}
+                </p>
               </Bloco>
             ) : c.criadoPorNome ? (
               <Bloco titulo="Registrado por">
@@ -433,14 +465,9 @@ export function CompromissoDrawer({
             )}
           </div>
 
-          {/* Descrição / observações */}
-          {(c.descricao || c.observacoesInternas) && (
+          {/* Observações internas — a descrição subiu para antes do teor. */}
+          {c.observacoesInternas && (
             <div className="space-y-3">
-              {c.descricao && (
-                <Bloco titulo="Descrição">
-                  <p className="whitespace-pre-wrap text-sm">{c.descricao}</p>
-                </Bloco>
-              )}
               {c.observacoesInternas && (
                 <div className="rounded-lg border bg-muted/40 p-3">
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Observações internas</p>

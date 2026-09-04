@@ -779,7 +779,7 @@ function BadgeInstitucional({ className }: { className?: string }) {
       )}
       title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
     >
-      🏛️ Ação Institucional ({tenant.sigla})
+      Ação institucional ({tenant.sigla})
     </span>
   );
 }

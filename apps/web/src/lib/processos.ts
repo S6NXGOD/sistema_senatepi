@@ -29,7 +29,7 @@ export type StatusProcesso =
 export type TipoAcaoProcesso = 'INDIVIDUAL' | 'INSTITUCIONAL';
 
 /** Selo da ação institucional, usado na lista e no detalhe. */
-export const BADGE_INSTITUCIONAL = `🏛️ Ação Institucional (${tenant.sigla})`;
+export const BADGE_INSTITUCIONAL = `Ação institucional (${tenant.sigla})`;
 
 export interface FiliadoRef {
   id: string;

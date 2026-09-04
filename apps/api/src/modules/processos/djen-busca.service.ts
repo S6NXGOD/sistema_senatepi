@@ -27,6 +27,20 @@ export interface FiltroBuscaDjen {
   /** COM_TAREFA | SEM_TAREFA — separa o que já virou trabalho do que não. */
   situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
   /**
+   * ONDE procurar o termo — e isto é escolha de PERGUNTA, não filtro.
+   *
+   * A primeira versão tratava o polo como filtro sobre a busca ampla, e o
+   * resultado foi quase inútil: "Hapvida" devolvia 32 no polo passivo e 31 no
+   * ativo, porque o nome da parte aparece TAMBÉM no teor e o `OR` deixava
+   * passar por lá. O recorte existia e não recortava nada.
+   *
+   * Escolher o campo é outra coisa: "Hapvida" em RÉU procura só entre os
+   * destinatários do polo passivo, e a resposta é "os processos contra a
+   * Hapvida" — que é a pergunta que alguém tinha.
+   */
+  onde?: 'TUDO' | 'AUTOR' | 'REU' | 'NUMERO' | 'TEOR';
+
+  /**
    * Só os processos DESTE usuário.
    *
    * Mesma régua do filtro "meus" da tela de Processos: inclui o processo que a
@@ -74,7 +88,7 @@ export class DjenBuscaService {
     const termo = (filtro.q ?? '').trim();
     if (termo) {
       const digitos = termo.replace(/\D/g, '');
-      const ids = await this.idsPorTexto(termo, digitos);
+      const ids = await this.idsPorTexto(termo, digitos, filtro.onde ?? 'TUDO');
       where.push({ id: { in: ids } });
     }
 
@@ -107,9 +121,14 @@ export class DjenBuscaService {
    * JSON — `jsonb_array_elements` não tem equivalente no Prisma. Devolve só os
    * ids; quem monta a página é o Prisma, com tipo.
    */
-  private async idsPorTexto(termo: string, digitos: string): Promise<string[]> {
+  private async idsPorTexto(
+    termo: string,
+    digitos: string,
+    onde: 'TUDO' | 'AUTOR' | 'REU' | 'NUMERO' | 'TEOR',
+  ): Promise<string[]> {
     const like = `%${termo.toUpperCase()}%`;
     const likeSemAcento = `%${semAcento(termo).toUpperCase()}%`;
+    const comDigitos = `%${digitos}%`;
     /**
      * Sentinela do termo SEM dígito nenhum — precisa ser algo que nenhuma
      * inscrição da OAB seja.
@@ -119,20 +138,30 @@ export class DjenBuscaService {
      * a busca contra o banco de verdade — o typecheck passava.
      */
     const oab = digitos || '-';
+    /** 'A' autor, 'P' réu — os códigos que o DJEN usa no destinatário. */
+    const polo = onde === 'AUTOR' ? 'A' : onde === 'REU' ? 'P' : '%';
+
+    const noTeor = onde === 'TUDO' || onde === 'TEOR';
+    const noNumero = onde === 'TUDO' || onde === 'NUMERO';
+    const naParte = onde === 'TUDO' || onde === 'AUTOR' || onde === 'REU';
+    // Advogado e OAB só na busca ampla: quem escolheu "réu" está procurando
+    // empresa, e casar pelo advogado ali devolveria resultado sem explicação.
+    const noAdvogado = onde === 'TUDO';
 
     const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT c.id FROM comunicacoes_djen c
-      WHERE upper(c.texto) LIKE ${like}
-         OR upper(c.texto) LIKE ${likeSemAcento}
-         OR (length(${digitos}) >= 4 AND c.numero_processo LIKE ${'%' + digitos + '%'})
-         OR upper(coalesce(c.nome_orgao, '')) LIKE ${likeSemAcento}
-         OR EXISTS (
+      WHERE
+        (${noTeor} AND (upper(c.texto) LIKE ${like} OR upper(c.texto) LIKE ${likeSemAcento}))
+        OR (${noTeor} AND upper(coalesce(c.nome_orgao, '')) LIKE ${likeSemAcento})
+        OR (${noNumero} AND length(${digitos}) >= 4 AND c.numero_processo LIKE ${comDigitos})
+        OR (${naParte} AND EXISTS (
               SELECT 1 FROM jsonb_array_elements(coalesce(c.destinatarios, '[]'::jsonb)) d
-               WHERE upper(coalesce(d->>'nome', '')) LIKE ${likeSemAcento})
-         OR EXISTS (
+               WHERE upper(coalesce(d->>'nome', '')) LIKE ${likeSemAcento}
+                 AND coalesce(d->>'polo', '') LIKE ${polo}))
+        OR (${noAdvogado} AND EXISTS (
               SELECT 1 FROM jsonb_array_elements(coalesce(c.advogados, '[]'::jsonb)) a
                WHERE upper(coalesce(a->>'nome', '')) LIKE ${likeSemAcento}
-                  OR a->>'numeroOab' = ${oab})
+                  OR a->>'numeroOab' = ${oab}))
       LIMIT 5000
     `;
     return linhas.map((l) => l.id);

@@ -25,6 +25,7 @@ import { ConsultaPreviaService } from './consulta-previa.service';
 import { PartesController, PartesExternasController } from './partes.controller';
 import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
+import { SugestaoFiliadoService } from './sugestao-filiado.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { CorrelacaoService } from './correlacao.service';
 import { ParteInstitucionalSeedService } from './parte-institucional-seed.service';
@@ -65,6 +66,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     ConsultaPreviaService,
     PartesService,
     PartesExternasService,
+    SugestaoFiliadoService,
     AutomacaoPrazosService,
     CorrelacaoService,
   ],

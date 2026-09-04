@@ -458,3 +458,33 @@ export async function mesclarOrganizacoes(
 export async function naoSaoDuplicadas(idA: string, idB: string): Promise<{ ok: boolean }> {
   return (await api.post(`/partes-externas/${idA}/nao-duplicada`, { duplicadaId: idB })).data;
 }
+
+/**
+ * "ESTA PARTE É UM FILIADO NOSSO?"
+ *
+ * A busca comum exige todos os termos digitados, e o nome dos autos quase nunca
+ * é igual ao do cadastro — "SARA MACHADO MIRANDA LEAL BARBOSA" nos autos contra
+ * "SARA MACHADO MIRANDA" na ficha devolve zero resultado, e é a mesma pessoa.
+ * Estas duas rotas existem para esse caso: a primeira aproxima, a segunda
+ * identifica a parte que JÁ está lançada, sem criar uma segunda.
+ */
+export type ConfiancaSugestao = 'CERTEZA' | 'PROVAVEL' | 'POSSIVEL';
+
+export interface CandidatoFiliado {
+  id: string;
+  nome: string;
+  cpfMascarado: string | null;
+  situacao: string;
+  confianca: ConfiancaSugestao;
+  motivo: string;
+}
+
+export async function sugestoesDeFiliado(parteId: string): Promise<CandidatoFiliado[]> {
+  const { data } = await api.get(`/processos/partes/${parteId}/sugestoes-filiado`);
+  return data;
+}
+
+export async function identificarParteComoFiliado(parteId: string, filiadoId: string) {
+  const { data } = await api.post(`/processos/partes/${parteId}/filiado/${filiadoId}`);
+  return data as ParteDoProcesso;
+}

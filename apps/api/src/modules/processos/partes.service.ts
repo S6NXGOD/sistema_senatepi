@@ -342,6 +342,70 @@ export class PartesService {
    *
    * Deve rodar SEMPRE dentro da transação que alterou os vínculos.
    */
+  /**
+   * "ESTA PARTE É ESTE FILIADO" — converte o vínculo NO LUGAR.
+   *
+   * O caminho antigo (`PATCH /processos/:id` com `filiadoId`) resolve o atalho
+   * ADICIONANDO uma parte nova ao polo ativo. Para um processo que já tem a
+   * pessoa lançada como texto livre, isso produz dois autores que são a mesma
+   * pessoa — e o segundo vira o principal, empurrando o primeiro para baixo.
+   *
+   * Aqui a parte que já existe passa a apontar para o cadastro: o `nome`
+   * continua sendo o dos autos (snapshot), o documento é completado a partir do
+   * filiado quando faltava, e a ligação com a "parte externa" — que nunca
+   * deveria ter sido criada para uma pessoa física — é desfeita.
+   */
+  async vincularFiliado(parteId: string, filiadoId: string, ctx: Ctx) {
+    const parte = await this.prisma.parteProcesso.findUnique({
+      where: { id: parteId },
+      select: { id: true, processoId: true, nome: true, polo: true, documento: true, filiadoId: true },
+    });
+    if (!parte) throw new BadRequestException('Parte não encontrada.');
+    if (parte.filiadoId === filiadoId) return this.buscarParte(parteId);
+
+    const filiado = await this.prisma.filiado.findUnique({
+      where: { id: filiadoId },
+      select: { id: true, nomeCompleto: true, cpf: true },
+    });
+    if (!filiado) throw new BadRequestException('Filiado inválido.');
+
+    // O mesmo filiado duas vezes no mesmo processo não é vínculo, é duplicata.
+    const jaEsta = await this.prisma.parteProcesso.findFirst({
+      where: { processoId: parte.processoId, filiadoId, id: { not: parteId } },
+      select: { id: true },
+    });
+    if (jaEsta) {
+      throw new ConflictException(
+        `"${filiado.nomeCompleto}" já consta neste processo em outra parte. Remova a duplicada em vez de vincular as duas.`,
+      );
+    }
+
+    const atualizada = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.parteProcesso.update({
+        where: { id: parteId },
+        data: {
+          filiadoId,
+          parteExternaId: null,
+          documento: parte.documento || this.digitos(filiado.cpf),
+        },
+        include: PARTE_INCLUDE,
+      });
+      await this.sincronizarAtalhos(tx, parte.processoId);
+      return r;
+    });
+
+    await this.auditar(
+      AcaoAuditoria.UPDATE, 'ParteProcesso', parteId, ctx,
+      `"${parte.nome}" identificada como o filiado "${filiado.nomeCompleto}"`,
+      { processoId: parte.processoId, filiadoId, nomeNosAutos: parte.nome },
+    );
+    return atualizada;
+  }
+
+  private buscarParte(id: string) {
+    return this.prisma.parteProcesso.findUnique({ where: { id }, include: PARTE_INCLUDE });
+  }
+
   async sincronizarAtalhos(tx: Prisma.TransactionClient, processoId: string) {
     const partesFiliado = await tx.parteProcesso.findMany({
       where: { processoId, filiadoId: { not: null } },
@@ -665,7 +729,40 @@ export class PartesService {
         'Informe o nome da parte (ou vincule um filiado / uma parte já cadastrada).',
       );
     }
-    return { nome, documento: this.digitos(dto.documento), filiadoId: null, parteExternaId: null };
+
+    /*
+      O CPF IDENTIFICA — e digitá-lo já é dizer quem é a pessoa.
+
+      Era aqui que o vínculo se perdia. Quem lançava a parte digitava nome e
+      CPF, e a parte nascia como texto livre mesmo quando aquele CPF estava no
+      cadastro de filiados desde sempre. O processo aparecia "sem filiado
+      vinculado", a ficha do filiado não mostrava o processo, e ninguém tinha
+      como saber que os dois eram a mesma pessoa — porque o NOME nos autos vem
+      mais longo que o do cadastro ("SARA MACHADO MIRANDA LEAL BARBOSA" contra
+      "SARA MACHADO MIRANDA"), e nenhuma busca por nome os aproximava.
+
+      Só o CPF EXATO vincula sozinho. Nome parecido é sugestão, e sugestão
+      passa por gente (ver `SugestaoFiliadoService`).
+    */
+    const documento = this.digitos(dto.documento);
+    if (documento?.length === 11) {
+      const filiadoDoCpf = await this.prisma.filiado.findFirst({
+        where: { cpf: documento },
+        select: { id: true, nomeCompleto: true },
+      });
+      if (filiadoDoCpf) {
+        return {
+          // O nome dos AUTOS é o que fica: é assim que a parte consta no
+          // processo, e é por ele que a equipe reconhece a peça.
+          nome,
+          documento,
+          filiadoId: filiadoDoCpf.id,
+          parteExternaId: null,
+        };
+      }
+    }
+
+    return { nome, documento, filiadoId: null, parteExternaId: null };
   }
 
   private async temParte(tx: Prisma.TransactionClient, processoId: string, polo: PoloProcesso) {

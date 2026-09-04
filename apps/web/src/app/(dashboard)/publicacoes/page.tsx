@@ -41,6 +41,7 @@ export default function PublicacoesPage() {
   const [providencia, setProvidencia] = useState('');
   const [tribunal, setTribunal] = useState('');
   const [situacao, setSituacao] = useState<'' | 'COM_TAREFA' | 'SEM_TAREFA'>('');
+  const [onde, setOnde] = useState<'TUDO' | 'AUTOR' | 'REU' | 'NUMERO' | 'TEOR'>('TUDO');
   const [pagina, setPagina] = useState(1);
 
   /**
@@ -84,10 +85,11 @@ export default function PublicacoesPage() {
       providencia: providencia || undefined,
       tribunal: tribunal || undefined,
       situacao: situacao || undefined,
+      onde,
       meus: soMeus ? ('true' as const) : undefined,
       pagina,
     }),
-    [busca, providencia, tribunal, situacao, soMeus, pagina],
+    [busca, providencia, tribunal, situacao, onde, soMeus, pagina],
   );
 
   const { data, isLoading, isFetching } = useQuery({
@@ -99,7 +101,7 @@ export default function PublicacoesPage() {
   });
 
   const grupos = useMemo(() => agruparPublicacoes(data?.itens ?? []), [data]);
-  const temFiltro = !!(busca || providencia || tribunal || situacao);
+  const temFiltro = !!(busca || providencia || tribunal || situacao || onde !== 'TUDO');
 
   function limpar() {
     setTermo('');
@@ -107,6 +109,7 @@ export default function PublicacoesPage() {
     setProvidencia('');
     setTribunal('');
     setSituacao('');
+    setOnde('TUDO');
     setPagina(1);
   }
 
@@ -195,6 +198,43 @@ export default function PublicacoesPage() {
               <X className="h-4 w-4" />
             </button>
           )}
+        </div>
+
+        {/*
+          ONDE PROCURAR — colado no campo, porque muda o SENTIDO do que foi
+          digitado, e não a lista. "Hapvida" em Réu é "processos contra a
+          Hapvida"; em Tudo, é qualquer publicação que a mencione, inclusive no
+          meio do teor. Longe do campo de texto, ninguém liga uma coisa à outra.
+        */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="shrink-0 text-muted-foreground">Procurar em</span>
+          <div className="flex flex-wrap gap-0.5 rounded-md border p-0.5">
+            {([
+              { valor: 'TUDO', texto: 'Tudo' },
+              { valor: 'AUTOR', texto: 'Autor' },
+              { valor: 'REU', texto: 'Réu' },
+              { valor: 'NUMERO', texto: 'Nº do processo' },
+              { valor: 'TEOR', texto: 'Teor' },
+            ] as const).map((op) => (
+              <button
+                key={op.valor}
+                type="button"
+                onClick={() => {
+                  setOnde(op.valor);
+                  setPagina(1);
+                }}
+                aria-pressed={onde === op.valor}
+                className={cn(
+                  'rounded px-2.5 py-1 font-medium transition',
+                  onde === op.valor
+                    ? 'bg-brand-700 text-white dark:bg-brand-600'
+                    : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {op.texto}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">

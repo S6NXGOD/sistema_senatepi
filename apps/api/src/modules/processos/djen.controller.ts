@@ -79,6 +79,14 @@ export class BuscaPublicacoesDto {
   @IsIn(['true', 'false'])
   meus?: 'true' | 'false';
 
+  @ApiPropertyOptional({
+    enum: ['TUDO', 'AUTOR', 'REU', 'NUMERO', 'TEOR'],
+    description: 'ONDE procurar o termo. Padrão TUDO. Ver o comentário do serviço.',
+  })
+  @IsOptional()
+  @IsIn(['TUDO', 'AUTOR', 'REU', 'NUMERO', 'TEOR'])
+  onde?: 'TUDO' | 'AUTOR' | 'REU' | 'NUMERO' | 'TEOR';
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)

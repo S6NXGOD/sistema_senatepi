@@ -725,6 +725,7 @@ export class PartesExternasService {
   async criar(dto: CriarParteExternaDto, ctx: Ctx) {
     const documento = this.validarDocumento(dto.documento, dto.tipo);
     if (documento) await this.garantirDocumentoLivre(documento);
+    await this.recusarSeForFiliado(documento);
 
     const parte = await this.prisma.parteExterna.create({
       data: {
@@ -744,6 +745,32 @@ export class PartesExternasService {
     await this.auditar(AcaoAuditoria.CREATE, parte.id, ctx,
       `Parte "${parte.nome}" cadastrada (${this.rotuloTipo(parte.tipo)})`);
     return parte;
+  }
+
+  /**
+   * UM FILIADO NÃO É UMA "PARTE EXTERNA".
+   *
+   * O cadastro de partes existe para quem está do outro lado — município,
+   * hospital, plano de saúde. Quando alguém lança ali uma pessoa física que já
+   * é filiada, a ficha dela deixa de mostrar o processo, o processo aparece
+   * "sem filiado vinculado", e as duas metades do mesmo caso passam a viver em
+   * tabelas diferentes sem nada que as ligue. Aconteceu na produção: uma
+   * filiada ATIVA virou "organização" de tipo pessoa física com o próprio CPF.
+   *
+   * O CPF é o que permite recusar com segurança — ele identifica. Nome
+   * parecido não basta e não bloqueia nada aqui.
+   */
+  private async recusarSeForFiliado(documento: string | null) {
+    if (!documento || documento.length !== 11) return;
+    const filiado = await this.prisma.filiado.findFirst({
+      where: { cpf: documento },
+      select: { nomeCompleto: true, matricula: true },
+    });
+    if (!filiado) return;
+    throw new ConflictException(
+      `Este CPF é do filiado "${filiado.nomeCompleto}" (matrícula ${filiado.matricula}). ` +
+        'Filiado entra no processo como filiado, não como parte cadastrada — use "Vincular filiado" na tela do processo.',
+    );
   }
 
   async atualizar(id: string, dto: AtualizarParteExternaDto, ctx: Ctx) {

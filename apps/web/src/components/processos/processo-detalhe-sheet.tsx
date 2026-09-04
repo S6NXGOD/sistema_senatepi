@@ -599,7 +599,7 @@ export function ProcessoDetalheSheet({
                       className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300"
                       title={`Ação coletiva movida pelo ${tenant.sigla} em nome da categoria`}
                     >
-                      🏛️ Ação Institucional ({tenant.sigla})
+                      Ação institucional ({tenant.sigla})
                     </span>
                   )}
                   {/* Bandeiras de atenção vindas do CNJ */}
@@ -1097,7 +1097,7 @@ export function ProcessoDetalheSheet({
                   ))}
                   {p.tipoAcao === 'INSTITUCIONAL' && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
-                      🏛️ Ação coletiva
+                      Ação coletiva
                     </span>
                   )}
                 </div>
@@ -1810,7 +1810,19 @@ export function ProcessoDetalheSheet({
         <VincularFiliadoModal
           open={vinculando}
           processoId={p.id}
-          nomeSugerido={p.partesBrutas?.find((x) => x.polo === 'ATIVO')?.nome ?? null}
+          /*
+            A PARTE QUE JÁ ESTÁ NOS AUTOS, e não o nome cru do tribunal.
+            Passando a parte, o modal IDENTIFICA a que existe em vez de somar
+            uma segunda ao polo ativo — e é dela que saem as sugestões, por CPF
+            e por nome. `partesBrutas` continua servindo de reserva para o
+            processo importado que ainda não teve as partes lançadas.
+          */
+          parteId={p.polos?.ativo?.find((x) => !x.filiadoId)?.id ?? null}
+          nomeSugerido={
+            p.polos?.ativo?.find((x) => !x.filiadoId)?.nome ??
+            p.partesBrutas?.find((x) => x.polo === 'ATIVO')?.nome ??
+            null
+          }
           onClose={() => setVinculando(false)}
           onVinculado={recarregar}
         />
