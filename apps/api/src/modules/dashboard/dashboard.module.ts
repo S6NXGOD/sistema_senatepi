@@ -881,8 +881,19 @@ export class DashboardService {
        * apenas "nenhuma publicação", que qualquer um leria como "o tribunal
        * não publicou nada nos meus processos".
        */
+      /**
+       * `ativa: false` para quem não tem o módulo — e não é eufemismo.
+       *
+       * Sem acesso, as consultas não rodam e `ultimaEm` chega nulo. Com
+       * `ativa: true`, a regra classificaria isso como PRIMEIRA e a tela
+       * mostraria "a integração está ligada mas nunca trouxe nada" — alarme
+       * falso sobre um sistema saudável. Hoje o gate de módulo do front
+       * esconde o bloco antes disso; depender só dele é depender da tela
+       * para não mentir. Para quem não vê processos, a leitura honesta é
+       * "não há seção do DJEN aqui", e é o que `ativa: false` significa.
+       */
       djen: this.situacaoDjen(
-        this.djenAtivo,
+        this.djenAtivo && veProcessos,
         djenPublicacoes7d,
         djenUltimaPublicacao?.createdAt ?? null,
         djenRecentes,

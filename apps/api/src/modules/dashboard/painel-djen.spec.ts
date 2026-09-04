@@ -102,6 +102,19 @@ describe('painel do DJEN na home', () => {
     expect(guardas).toBe(5);
     expect(PAINEL).toContain("if (!veProcessos) return [];");
   });
+
+  /**
+   * E O PAYLOAD VAZIO PRECISA SER HONESTO.
+   *
+   * Sem acesso as consultas não rodam, e a data da última publicação chega
+   * nula — a regra de situação leria isso como PRIMEIRA e a tela diria que a
+   * integração está ligada e nunca trouxe nada. Alarme falso sobre um sistema
+   * saudável, hoje escondido só pelo gate de módulo do front. Depender disso é
+   * depender da tela para não mentir.
+   */
+  it('sem acesso, o bloco vem inativo em vez de parecer quebrado', () => {
+    expect(PAINEL).toContain("this.djenAtivo && veProcessos,");
+  });
 });
 
 /**
