@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, UploadCloud, X,
+  AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, UploadCloud, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { baixarArquivo } from '@/lib/pdf';
 import {
   confirmarImportacaoProcessos,
   enviarPlanilhaProcessos,
@@ -47,6 +48,18 @@ export function ImportarLoteDialog({
 }) {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * O nome do arquivo sai do `Content-Disposition` da API — `baixarArquivo` já
+   * cuida disso. O nome aqui é só a rede de proteção se o cabeçalho não vier.
+   */
+  async function baixarModelo() {
+    try {
+      await baixarArquivo('/importacoes/processos/modelo', 'modelo-importacao-processos.csv');
+    } catch {
+      toast.error('Não foi possível baixar o modelo agora.');
+    }
+  }
 
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -194,9 +207,25 @@ export function ImportarLoteDialog({
                   Precisa ter, no mínimo, as colunas <strong>npu</strong> e <strong>polo_ativo</strong>
                 </span>
               </button>
-              <p className="text-xs text-muted-foreground">
-                Nada é importado agora — o próximo passo é a conferência, linha a linha.
-              </p>
+              {/*
+                O MODELO VEM ANTES DA PRIMEIRA TENTATIVA.
+                Sem ele, monta-se a planilha adivinhando os nomes das colunas e a
+                conferência devolve "Falta a coluna npu" depois de oitenta linhas
+                preenchidas. O arquivo é GERADO pela API a partir das mesmas
+                constantes que ela usa para conferir — não tem como divergir.
+              */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Nada é importado agora — o próximo passo é a conferência, linha a linha.
+                </p>
+                <button
+                  type="button"
+                  onClick={baixarModelo}
+                  className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-brand-800 hover:underline dark:text-brand-300"
+                >
+                  <Download className="h-3.5 w-3.5" /> Baixar planilha modelo
+                </button>
+              </div>
             </>
           )}
 

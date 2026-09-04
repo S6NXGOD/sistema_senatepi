@@ -36,12 +36,19 @@ export interface Concentracao extends Desfechos {
   leituras: LeituraConcentracao[];
 }
 
+export interface PorAno {
+  ano: number;
+  processos: number;
+}
+
 export interface Dispersao extends Desfechos {
   assunto: string;
   processos: number;
   adversarios: number;
   individuais: number;
   desde: string | null;
+  /** Ações por ano, com os anos zerados no meio — a lacuna é informação. */
+  porAno: PorAno[];
 }
 
 export interface Panorama {
@@ -110,4 +117,31 @@ export function resumoDesfechos(d: Desfechos): string | null {
     partes.push(`${d.improcedentes} improcedente${d.improcedentes > 1 ? 's' : ''}`);
   }
   return `${d.julgados} já julgada${d.julgados > 1 ? 's' : ''}: ${partes.join(', ')}`;
+}
+
+/**
+ * A LEITURA DA TENDÊNCIA — e ela só fala quando há o que dizer.
+ *
+ * Compara os DOIS últimos anos fechados com os dois anteriores, e não o último
+ * ano com o penúltimo: um único ano fraco por acaso viraria "está caindo". O
+ * ano corrente fica de fora do cálculo — ele está pela metade e puxaria toda
+ * série para baixo em janeiro.
+ *
+ * Devolve `null` quando não há base: menos de quatro anos de série, ou variação
+ * pequena demais para significar alguma coisa.
+ */
+export function tendencia(porAno: PorAno[]): 'CRESCENDO' | 'DIMINUINDO' | null {
+  const anoCorrente = new Date().getFullYear();
+  const fechados = porAno.filter((a) => a.ano < anoCorrente);
+  if (fechados.length < 4) return null;
+
+  const soma = (xs: PorAno[]) => xs.reduce((t, a) => t + a.processos, 0);
+  const recentes = soma(fechados.slice(-2));
+  const anteriores = soma(fechados.slice(-4, -2));
+  if (recentes + anteriores < 4) return null; // amostra pequena demais
+
+  // Metade a mais (ou a menos) é o piso para chamar de movimento.
+  if (recentes >= anteriores * 1.5) return 'CRESCENDO';
+  if (anteriores >= recentes * 1.5) return 'DIMINUINDO';
+  return null;
 }

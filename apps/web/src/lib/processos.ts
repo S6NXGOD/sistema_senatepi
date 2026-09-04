@@ -444,6 +444,8 @@ export interface FiltroProcessos {
   parteExternaId?: string;
   /** Assunto do CNJ, casamento exato — inclusive quando for secundário. */
   assunto?: string;
+  /** Restringe a busca por nome de parte a um lado do processo. */
+  polo?: 'ATIVO' | 'PASSIVO';
   /** Filtros rápidos da tabela. */
   meus?: 'true';
   semFiliado?: 'true';

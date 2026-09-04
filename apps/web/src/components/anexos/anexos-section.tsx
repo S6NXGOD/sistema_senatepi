@@ -1,5 +1,7 @@
 'use client';
 
+import NextLink from 'next/link';
+
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -7,7 +9,7 @@ import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
 import {
   Paperclip, UploadCloud, FileText, Image as ImageIcon, Download, Trash2, Loader2,
-  ShieldCheck, FolderInput, Link2, ArrowRight,
+  ShieldCheck, FolderInput, Link2, ArrowRight, CalendarClock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -273,6 +275,10 @@ function AnexoItem({
   somenteLeitura?: boolean;
 }) {
   const Icone = ehImagem(anexo.tipoMime) ? ImageIcon : FileText;
+  // Apagar acontece onde o documento MORA. Na ficha do processo, um anexo
+  // que é da atividade só se lê — senão o mesmo botão teria dois efeitos
+  // diferentes dependendo da aba em que foi clicado.
+  const daAtividade = !!anexo.viaAtividade;
   const reaproveitado = !!(anexo.origemAnexoId || anexo.origemDocumentoId);
   return (
     <li className="flex items-center gap-3 rounded-lg border bg-card p-2.5">
@@ -296,6 +302,21 @@ function AnexoItem({
           {anexo.tamanhoBytes ? ' · ' : ''}
           {new Date(anexo.createdAt).toLocaleDateString('pt-BR')}
         </p>
+        {/*
+          DE ONDE ELE VEIO. O documento mora na ATIVIDADE — é lá que ele foi
+          anexado e é lá que se apaga. A ficha do processo o mostra para o
+          advogado não abrir o processo e não achar a própria petição, mas
+          sem fingir que é dela: o rótulo leva de volta à atividade.
+        */}
+        {anexo.viaAtividade && (
+          <NextLink
+            href={`/agenda?compromisso=${anexo.viaAtividade.id}`}
+            className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] text-brand-800 hover:underline dark:text-brand-300"
+          >
+            <CalendarClock className="h-3 w-3 shrink-0" />
+            <span className="truncate">da atividade “{anexo.viaAtividade.titulo}”</span>
+          </NextLink>
+        )}
       </div>
       <a
         href={anexo.url}
@@ -306,7 +327,7 @@ function AnexoItem({
       >
         <Download className="h-4 w-4" />
       </a>
-      {!somenteLeitura && onExcluir && (
+      {!somenteLeitura && !daAtividade && onExcluir && (
         <button
           type="button"
           onClick={onExcluir}

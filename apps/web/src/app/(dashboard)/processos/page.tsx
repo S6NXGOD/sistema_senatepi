@@ -25,6 +25,7 @@ import {
   type FiltrosProcesso,
 } from '@/components/processos/painel-de-filtros';
 import { getParteExterna, type ParteExterna } from '@/lib/partes';
+import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
 import { toast } from 'sonner';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { useAuth } from '@/lib/auth';
@@ -257,6 +258,7 @@ function ListaProcessos() {
       ...(filtros.fase ? { fase: filtros.fase } : {}),
       ...(filtros.advogadoId ? { advogadoId: filtros.advogadoId } : {}),
       ...(filtros.categoria ? { categoria: filtros.categoria } : {}),
+      ...(filtros.polo ? { polo: filtros.polo } : {}),
       ordem,
       page,
       pageSize: 20,
@@ -330,6 +332,8 @@ function ListaProcessos() {
           </Button>
         </div>
       </div>
+
+      <AbasDoAcervo atual="lista" />
 
       {/* Audiências detectadas no DataJud que ainda não estão na agenda */}
       {podeRadar && <AudienciasAgendarPanel onVerProcesso={(id) => abrirDetalhe(id)} />}

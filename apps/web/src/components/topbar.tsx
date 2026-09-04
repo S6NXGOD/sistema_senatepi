@@ -4,6 +4,7 @@ import { useTheme } from 'next-themes';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MobileNav } from '@/components/mobile-nav';
+import { SinoDePendencias } from '@/components/sino-de-pendencias';
 
 export function Topbar() {
   const { theme, setTheme } = useTheme();
@@ -15,15 +16,22 @@ export function Topbar() {
         <MobileNav />
         <h1 className="text-base font-semibold md:text-lg">Painel administrativo</h1>
       </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        aria-label="Alternar tema"
-      >
-        <Sun className="h-5 w-5 dark:hidden" />
-        <Moon className="hidden h-5 w-5 dark:block" />
-      </Button>
+      <div className="flex items-center gap-0.5">
+        {/*
+          O SINO FICA NO TOPO, e não na lateral: a lateral some no celular, e é
+          no celular que o advogado abre o sistema entre uma audiência e outra.
+        */}
+        <SinoDePendencias />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          aria-label="Alternar tema"
+        >
+          <Sun className="h-5 w-5 dark:hidden" />
+          <Moon className="hidden h-5 w-5 dark:block" />
+        </Button>
+      </div>
     </header>
   );
 }

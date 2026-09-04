@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
-  Building2, Landmark, Newspaper, Scale, type LucideIcon,
+  Building2, Landmark, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
@@ -13,15 +13,6 @@ export interface NavItem {
   icon: LucideIcon;
   /** Módulo permissionável — usado para ocultar o item de quem não tem acesso. */
   modulo?: ModuloKey;
-  /**
-   * Integração externa de que o item DEPENDE.
-   *
-   * Diferente de `modulo`: o módulo é contratado e vive no build; a
-   * integração é ligada por variável de ambiente e pode cair a qualquer
-   * momento, então quem responde é a API, em tempo de execução. Item de menu
-   * que leva a uma tela dizendo \"desligado\" é botão morto — some.
-   */
-  integracao?: 'djen';
 }
 
 export interface NavSecao {
@@ -47,20 +38,6 @@ export const NAV_SECOES: NavSecao[] = [
     itens: [
       { href: '/atendimentos', label: 'Atendimentos', icon: Headset, modulo: 'atendimentos' },
       { href: '/processos', label: 'Processos', icon: Gavel, modulo: 'processos' },
-      // Acervo do DJEN, procurável por parte, advogado, OAB e teor. Mora no
-      // módulo `processos` (é o mesmo dado) mas depende da INTEGRAÇÃO estar
-      // ligada — ver `integracao` abaixo.
-      {
-        href: '/publicacoes',
-        label: 'Publicações (DJEN)',
-        icon: Newspaper,
-        modulo: 'processos',
-        integracao: 'djen',
-      },
-      // Leitura do acervo SOMADO — padrões que não aparecem processo a
-      // processo. Cadência mensal, não diária: por isso tem tela própria em
-      // vez de mais um bloco na home.
-      { href: '/panorama', label: 'Panorama do acervo', icon: Scale, modulo: 'processos' },
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock, modulo: 'agenda' },
       { href: '/escalas', label: 'Escalas dos Advogados', icon: CalendarRange, modulo: 'escalas' },
       // Fica no Jurídico porque serve aos dois papéis: o órgão que emprega o
@@ -93,18 +70,20 @@ export const NAV_SECOES: NavSecao[] = [
     ],
   },
   {
-    titulo: 'Patronal',
+    /**
+     * PATRONAL E FINANCEIRO NUMA SEÇÃO SÓ.
+     *
+     * Eram duas seções de UM item cada — dois títulos ocupando mais altura
+     * que o conteúdo que anunciavam. Contribuição de empresa e cobrança de
+     * filiado são o mesmo assunto para quem usa: dinheiro que entra.
+     */
+    titulo: 'Financeiro',
     itens: [
       // NÃO é um segundo cadastro de organização — é o trabalho PATRONAL
       // (acesso ao portal e contribuições) sobre as que contribuem. A
       // identidade delas (razão social, CNPJ) mora em Organizações e é lá que
       // se corrige; aqui ela só é EXIBIDA, lida de lá.
       { href: '/empresas', label: 'Empresas contribuintes', icon: Building2, modulo: 'empresas' },
-    ],
-  },
-  {
-    titulo: 'Financeiro',
-    itens: [
       { href: '/cobrancas', label: 'Cobranças', icon: Receipt, modulo: 'cobrancas' },
     ],
   },
@@ -137,6 +116,11 @@ export const NAV_ITENS: NavItem[] = NAV_SECOES.flatMap((s) => s.itens);
  * numa instalação sem colônia — o menu escondido não protege quem digita a URL.
  */
 const ROTAS_EXTRAS: Array<{ prefixo: string; modulo: ModuloKey }> = [
+  // Vistas do acervo: viraram abas dentro de Processos e saíram do menu, mas
+  // as rotas continuam — link salvo, atalho da home, link colado no WhatsApp.
+  // Sem estas linhas elas ficariam sem gate de permissão.
+  { prefixo: '/publicacoes', modulo: 'processos' },
+  { prefixo: '/panorama', modulo: 'processos' },
   { prefixo: '/colonia', modulo: 'colonia' },      // inscrição pública
   { prefixo: '/carteirinhas', modulo: 'filiados' },
   { prefixo: '/validacao', modulo: 'eventos' },    // validação de presença em evento
@@ -170,12 +154,6 @@ export function moduloDaRota(pathname: string): ModuloKey | null {
 export function filtrarNav(
   role: string | null | undefined,
   permissoes: unknown,
-  /**
-   * Integrações ligadas AGORA, perguntadas à API. `undefined` quer dizer "ainda
-   * não sei" — e aí o item some, porque piscar um menu que aparece meio segundo
-   * depois é pior que um menu estável.
-   */
-  integracoes?: { djen?: boolean },
 ): NavSecao[] {
   return NAV_SECOES
     .map((secao) => ({
@@ -186,12 +164,9 @@ export function filtrarNav(
        * PESSOA pode. Um módulo que o sindicato não contratou some para todo
        * mundo, inclusive para o administrador.
        */
-      itens: secao.itens.filter((
-        i,
-      ) => {
-        if (i.integracao && !integracoes?.[i.integracao]) return false;
-        return !i.modulo || (moduloAtivo(i.modulo) && podeVer(role, permissoes, i.modulo));
-      }),
+      itens: secao.itens.filter(
+        (i) => !i.modulo || (moduloAtivo(i.modulo) && podeVer(role, permissoes, i.modulo)),
+      ),
     }))
     .filter((secao) => secao.itens.length > 0);
 }

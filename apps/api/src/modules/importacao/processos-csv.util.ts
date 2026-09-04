@@ -367,3 +367,71 @@ export function avisoDeCompletar(faltas: Pendencia[]): string {
       : `${lista.slice(0, -1).join(', ')} e ${lista[lista.length - 1]}`;
   return `Já cadastrado — será completado: ${texto}.`;
 }
+
+/**
+ * O MODELO DA PLANILHA — gerado a partir das mesmas constantes que o
+ * importador usa para conferir.
+ *
+ * Um arquivo de exemplo guardado em `public/` seria uma segunda verdade: no dia
+ * em que uma coluna mudasse, o modelo continuaria oferecendo a antiga e a
+ * pessoa levaria "Falta a coluna X" depois de preencher oitenta linhas. Aqui o
+ * cabeçalho é `COLUNAS_CONHECIDAS` — se a lista mudar, o modelo muda junto.
+ *
+ * Vai com DUAS linhas de exemplo, uma institucional e uma de filiado, porque a
+ * coluna `polo_ativo` muda o significado das outras e um exemplo só não mostra
+ * isso. E com BOM: o Excel em português abre CSV sem BOM com os acentos
+ * quebrados, e a primeira impressão do arquivo seria de que o sistema erra.
+ */
+const EXEMPLOS: Record<(typeof COLUNAS_CONHECIDAS)[number], string>[] = [
+  {
+    npu: '0000123-45.2026.5.22.0001',
+    polo_ativo: 'INSTITUCIONAL',
+    polo_ativo_nome: '',
+    filiado_nome: '',
+    filiado_cpf: '',
+    reu_nome: 'HOSPITAL EXEMPLO LTDA',
+    reu_cnpj: '12.345.678/0001-90',
+    reu_ja_cadastrado: '',
+    advogado_email: 'advogado@sindicato.org.br',
+    equipe_emails: 'colega@sindicato.org.br',
+    categoria: 'SINDICAL_COLETIVO',
+    etiqueta: 'piso salarial',
+    andamento: 'Ação ajuizada em defesa da categoria.',
+    andamento_data: '2026-02-10',
+    conferir: '',
+  },
+  {
+    npu: '0000987-65.2026.5.22.0002',
+    polo_ativo: 'FILIADOS',
+    polo_ativo_nome: '',
+    filiado_nome: 'MARIA DA SILVA',
+    filiado_cpf: '000.000.000-00',
+    reu_nome: 'CLINICA EXEMPLO S/A',
+    reu_cnpj: '',
+    reu_ja_cadastrado: '',
+    advogado_email: 'advogado@sindicato.org.br',
+    equipe_emails: '',
+    categoria: 'TRABALHISTA',
+    etiqueta: '',
+    andamento: 'Reclamação trabalhista individual.',
+    andamento_data: '',
+    conferir: 'sim',
+  },
+];
+
+/**
+ * CSV do modelo, pronto para download.
+ *
+ * Separador PONTO E VÍRGULA e BOM no início: é o que o Excel em português
+ * espera. Sem o BOM ele abre o arquivo com os acentos quebrados, e a primeira
+ * impressão do sistema seria a de que ele erra o próprio modelo.
+ */
+export function modeloDePlanilha(): string {
+  const CRLF = String.fromCharCode(13, 10);
+  const BOM = String.fromCharCode(0xfeff);
+  const linhas = [
+    COLUNAS_CONHECIDAS.join(';'),
+    ...EXEMPLOS.map((e) => COLUNAS_CONHECIDAS.map((c) => e[c] ?? '').join(';')),
+  ];
+  return BOM + linhas.join(CRLF) + CRLF;
+}

@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  AcaoAuditoria, OrigemSincronizacao, Prisma, StatusProcesso, TipoAcaoProcesso,
+  AcaoAuditoria, OrigemSincronizacao, PoloProcesso, Prisma, StatusProcesso, TipoAcaoProcesso,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -867,7 +867,22 @@ export class ProcessosService {
     }
     if (q.advogadoId) and.push({ advogados: { some: { advogadoId: q.advogadoId } } });
     // Todos os processos de uma parte externa (ex.: tudo contra a PRONTOCARE).
-    if (q.parteExternaId) and.push({ partes: { some: { parteExternaId: q.parteExternaId } } });
+    /**
+     * POLO — restringe a QUAL LADO a parte procurada está.
+     *
+     * Sem ele, procurar "Hapvida" devolve tanto o processo em que ela é ré
+     * quanto aquele em que ela figura junto do sindicato, e os dois casos
+     * significam coisas opostas. Vale para o filtro por parte cadastrada E
+     * para a busca por nome, que é o jeito que se procura no dia a dia.
+     */
+    const noPolo = q.polo ? { polo: q.polo as PoloProcesso } : {};
+    if (q.parteExternaId) {
+      and.push({ partes: { some: { parteExternaId: q.parteExternaId, ...noPolo } } });
+    } else if (q.polo) {
+      // Polo sozinho, sem parte e sem busca: só faz sentido junto de um nome.
+      // Sem esta guarda o filtro não faria nada e pareceria quebrado.
+      if (!q.busca?.trim()) and.push({ partes: { some: noPolo } });
+    }
 
     // ---- Filtros rápidos da tabela ----
     // "Meus processos": inclui os que o usuário acompanha sem ser o responsável.
@@ -945,7 +960,7 @@ export class ProcessosService {
           { filiado: { nomeCompleto: { contains: busca, mode: 'insensitive' } } },
           // Buscar pelo nome de QUALQUER parte — é assim que se acha "todos os
           // processos da Prontocare" digitando o nome dela na busca da tela.
-          { partes: { some: { nome: { contains: busca, mode: 'insensitive' } } } },
+          { partes: { some: { nome: { contains: busca, mode: 'insensitive' }, ...noPolo } } },
         ],
       });
     }

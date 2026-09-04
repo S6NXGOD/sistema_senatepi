@@ -284,6 +284,13 @@ export class ListProcessosQueryDto {
   })
   @IsOptional() @IsString() @MaxLength(160) assunto?: string;
 
+  @ApiPropertyOptional({
+    enum: ['ATIVO', 'PASSIVO'],
+    description:
+      'Restringe a busca por NOME de parte e o filtro por parte cadastrada a um polo.',
+  })
+  @IsOptional() @IsIn(['ATIVO', 'PASSIVO']) polo?: 'ATIVO' | 'PASSIVO';
+
   // ---- Filtros rápidos da tabela ----
   @ApiPropertyOptional({ description: 'Só os processos do usuário logado ("meus").' })
   @IsOptional() @IsString() meus?: string;

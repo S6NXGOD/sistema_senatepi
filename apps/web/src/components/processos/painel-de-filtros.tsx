@@ -43,6 +43,13 @@ export interface FiltrosProcesso {
   fase: '' | FaseProcessual;
   advogadoId: string;
   categoria: string;
+  /**
+   * Em que lado a parte procurada está.
+   *
+   * Só tem efeito junto de um NOME na busca ou de uma parte cadastrada — é o que
+   * separa "processos contra a Hapvida" de "processos em que a Hapvida aparece".
+   */
+  polo: '' | 'ATIVO' | 'PASSIVO';
 }
 
 export const FILTROS_VAZIOS: FiltrosProcesso = {
@@ -50,6 +57,7 @@ export const FILTROS_VAZIOS: FiltrosProcesso = {
   fase: '',
   advogadoId: '',
   categoria: '',
+  polo: '',
 };
 
 /** Quantos filtros do painel estão ligados — o número da bolinha no botão. */
@@ -59,6 +67,7 @@ export function contarFiltros(f: FiltrosProcesso, temParte: boolean): number {
     (f.fase ? 1 : 0) +
     (f.advogadoId ? 1 : 0) +
     (f.categoria ? 1 : 0) +
+    (f.polo ? 1 : 0) +
     (temParte ? 1 : 0)
   );
 }
@@ -190,6 +199,26 @@ export function PainelDeFiltros({
           ))}
         </select>
       </label>
+
+      {/*
+        POLO — em que lado a parte procurada está.
+        Sozinho ele não faz sentido, e o rótulo diz isso: é um refinamento do
+        nome digitado na busca, não um filtro independente.
+      */}
+      <label className="space-y-1">
+        <span className="text-xs font-medium text-muted-foreground">
+          Lado da parte procurada
+        </span>
+        <select
+          className={campoCls}
+          value={valor.polo}
+          onChange={(e) => set({ polo: e.target.value as FiltrosProcesso['polo'] })}
+        >
+          <option value="">Qualquer lado</option>
+          <option value="ATIVO">Autor (polo ativo)</option>
+          <option value="PASSIVO">Réu (polo passivo)</option>
+        </select>
+      </label>
     </div>
   );
 }
@@ -311,6 +340,16 @@ export function FichasDeFiltro({
             : undefined
         }
         onRemover={() => onLimparCampo('advogadoId')}
+      />,
+    );
+  }
+  if (filtros.polo) {
+    fichas.push(
+      <Ficha
+        key="polo"
+        rotulo="Lado"
+        valor={filtros.polo === 'ATIVO' ? 'Autor' : 'Réu'}
+        onRemover={() => onLimparCampo('polo')}
       />,
     );
   }

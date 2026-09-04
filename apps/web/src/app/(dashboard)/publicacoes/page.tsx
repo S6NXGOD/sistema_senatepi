@@ -9,6 +9,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
 import {
   buscarPublicacoes, facetasPublicacoes, statusDjen,
   PROVIDENCIA_LABEL, type FiltroPublicacoes,
@@ -136,6 +137,8 @@ export default function PublicacoesPage() {
           acervo — de qualquer tribunal do país.
         </p>
       </header>
+
+      <AbasDoAcervo atual="publicacoes" />
 
       {/*
         DOIS BOTÕES, NÃO UM SELETOR: são dois modos de trabalho, não um filtro

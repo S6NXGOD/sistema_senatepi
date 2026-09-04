@@ -141,15 +141,52 @@ export class AnexosService {
     if (!q.atendimentoId && !q.processoId && !q.compromissoId) {
       throw new BadRequestException('Informe atendimentoId, processoId ou compromissoId.');
     }
+    /**
+     * O PROCESSO ENXERGA O QUE ESTÁ NAS ATIVIDADES DELE.
+     *
+     * O vínculo do anexo é polimórfico e exclusivo: ou é do atendimento, ou do
+     * processo, ou da atividade. Na prática o trabalho acontece na ATIVIDADE —
+     * medido em 04/09/2026: 35 dos 37 anexos estavam pendurados em atividades e
+     * só 2 no processo. Quem concluía "Elaborar manifestação" anexava a peça
+     * ali, e a aba Documentos do processo continuava vazia. O advogado abria o
+     * processo e não achava a própria petição.
+     *
+     * A saída NÃO é copiar (duplicaria o arquivo e a exclusão ficaria ambígua)
+     * nem mover (arrancaria o documento do contexto que explica por que ele
+     * existe). É o processo MOSTRAR, dizendo de onde vem: o documento continua
+     * morando na atividade, e a ficha do processo o exibe com o rótulo dela.
+     */
+    const daAtividade = q.processoId
+      ? { compromisso: { processoId: q.processoId } }
+      : undefined;
+
     const anexos = await this.prisma.anexoDocumento.findMany({
-      where: {
-        atendimentoId: q.atendimentoId || undefined,
-        processoId: q.processoId || undefined,
-        compromissoId: q.compromissoId || undefined,
-      },
+      where: daAtividade
+        ? { OR: [{ processoId: q.processoId }, daAtividade] }
+        : {
+            atendimentoId: q.atendimentoId || undefined,
+            compromissoId: q.compromissoId || undefined,
+          },
       orderBy: { createdAt: 'desc' },
+      include: {
+        // Só para rotular a origem — a ficha precisa dizer "veio da atividade X".
+        compromisso: { select: { id: true, titulo: true } },
+      },
     });
-    return Promise.all(anexos.map((a) => this.comUrlFresca(a)));
+    return Promise.all(
+      anexos.map(async ({ compromisso, ...a }) => ({
+        ...(await this.comUrlFresca(a)),
+        /**
+         * De onde o documento veio, quando NÃO é do próprio registro pedido.
+         * Nulo no caso normal; preenchido quando o processo está exibindo um
+         * anexo que pertence a uma atividade dele.
+         */
+        viaAtividade:
+          q.processoId && a.compromissoId && compromisso
+            ? { id: compromisso.id, titulo: compromisso.titulo }
+            : null,
+      })),
+    );
   }
 
   /**

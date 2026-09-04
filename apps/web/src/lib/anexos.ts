@@ -13,6 +13,11 @@ export interface Anexo {
   /** Preenchido quando o anexo foi PUXADO do acervo (não houve upload novo). */
   origemAnexoId: string | null;
   origemDocumentoId: string | null;
+  /**
+   * A atividade de onde este documento veio, quando a ficha do PROCESSO o
+   * está exibindo. Nulo no caso normal. O anexo continua morando lá.
+   */
+  viaAtividade?: { id: string; titulo: string } | null;
   createdAt: string;
 }
 

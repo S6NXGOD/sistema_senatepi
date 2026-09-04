@@ -7,14 +7,12 @@ import { cn } from '@/lib/utils';
 import { Logo } from './logo';
 import { filtrarNav } from './nav-items';
 import { useAuth } from '@/lib/auth';
-import { useIntegracoes } from '@/lib/use-integracoes';
 import { ROLE_LABEL } from '@/lib/profile';
 
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const integracoes = useIntegracoes();
-  const secoes = filtrarNav(user?.role, user?.permissoes, integracoes);
+  const secoes = filtrarNav(user?.role, user?.permissoes);
 
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r bg-card md:flex">

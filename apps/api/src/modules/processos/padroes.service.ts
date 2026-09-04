@@ -120,12 +120,24 @@ export interface Concentracao extends Desfechos {
   leituras: LeituraConcentracao[];
 }
 
+export interface PorAno {
+  ano: number;
+  processos: number;
+}
+
 export interface Dispersao extends Desfechos {
   assunto: string;
   processos: number;
   adversarios: number;
   individuais: number;
   desde: string | null;
+  /**
+   * Ações distribuídas por ano, do primeiro ao último — inclusive os anos
+   * ZERADOS no meio. Sem eles a série mentiria por omissão: 2022 com quatro e
+   * 2026 com doze, lado a lado, pareceria crescimento constante mesmo que
+   * 2023, 2024 e 2025 não tivessem nenhuma.
+   */
+  porAno: PorAno[];
 }
 
 /**
@@ -178,6 +190,12 @@ interface LinhaPedido {
   processos: number;
 }
 
+interface LinhaPorAno {
+  assunto: string;
+  ano: number;
+  processos: number;
+}
+
 interface LinhaDispersao {
   assunto: string;
   processos: number;
@@ -188,6 +206,24 @@ interface LinhaDispersao {
   parciais: number;
   improcedentes: number;
   desde: Date | null;
+}
+
+/**
+ * Preenche os anos vazios entre o primeiro e o último.
+ *
+ * Um gráfico que pula de 2022 para 2026 desenha os dois pontos vizinhos e a
+ * linha entre eles sobe bonito — escondendo três anos sem nenhuma ação. O ano
+ * zerado é informação, não lacuna.
+ */
+export function serieCompleta(linhas: { ano: number; processos: number }[]): PorAno[] {
+  if (!linhas.length) return [];
+  const porAno = new Map(linhas.map((l) => [l.ano, l.processos]));
+  const anos = [...porAno.keys()];
+  const inicio = Math.min(...anos);
+  const fim = Math.max(...anos);
+  const serie: PorAno[] = [];
+  for (let ano = inicio; ano <= fim; ano++) serie.push({ ano, processos: porAno.get(ano) ?? 0 });
+  return serie;
 }
 
 @Injectable()
@@ -211,7 +247,7 @@ export class PadroesService {
   }> {
     const base = this.comBase(tenant.cnpj.replace(/\D/g, ''));
 
-    const [concentracoesRaw, pedidosRaw, dispersoesRaw, acervoAtivo] = await Promise.all([
+    const [concentracoesRaw, pedidosRaw, dispersoesRaw, porAnoRaw, acervoAtivo] = await Promise.all([
       this.prisma.$queryRaw<LinhaConcentracao[]>(Prisma.sql`
         ${base}
         SELECT a.parte_externa_id                 AS "parteExternaId",
@@ -271,6 +307,22 @@ export class PadroesService {
            AND count(DISTINCT a.parte_externa_id) >= ${MINIMO_DISPERSAO_ADVERSARIOS}
         ORDER BY count(DISTINCT p.id) DESC
       `),
+      /**
+       * A SÉRIE POR ANO de cada assunto. Consulta à parte pelo mesmo motivo dos
+       * pedidos: junta à de cima, cada assunto viraria uma linha por ano e as
+       * contagens de processo sairiam multiplicadas.
+       */
+      this.prisma.$queryRaw<LinhaPorAno[]>(Prisma.sql`
+        ${base}
+        SELECT t.assunto AS assunto,
+               EXTRACT(YEAR FROM p.data_distribuicao)::int AS ano,
+               count(DISTINCT p.id)::int AS processos
+        FROM processos p
+        JOIN tema t ON t.processo_id = p.id
+        WHERE p.status_interno = 'ATIVO' AND p.data_distribuicao IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+      `),
       this.prisma.processo.count({ where: { statusInterno: 'ATIVO' } }),
     ]);
 
@@ -299,6 +351,7 @@ export class PadroesService {
       dispersoes: dispersoesRaw.map((d) => ({
         ...d,
         desde: d.desde ? d.desde.toISOString().slice(0, 10) : null,
+        porAno: serieCompleta(porAnoRaw.filter((a) => a.assunto === d.assunto)),
       })),
       acervoAtivo,
       geradoEm: new Date().toISOString(),

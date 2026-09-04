@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { LEITURA, resumoDesfechos } from '@/lib/panorama';
+import { LEITURA, resumoDesfechos, tendencia } from '@/lib/panorama';
 import { moduloDaRota } from '@/components/nav-items';
 
 const RAIZ = path.resolve(__dirname, '../../..');
@@ -121,5 +121,62 @@ describe('a home aponta para o panorama', () => {
     const HOME = ler('app/(dashboard)/dashboard/page.tsx');
     const bloco = HOME.slice(HOME.indexOf('function AdversariosRecorrentes('));
     expect(bloco.slice(0, 1600)).toContain('actionHref="/panorama"');
+  });
+
+  it('a tela desenha a barra de desfechos e as colunas por ano', () => {
+    expect(PAGINA).toContain('function BarraDeDesfechos(');
+    expect(PAGINA).toContain('function ColunasPorAno(');
+    expect(PAGINA).toContain('<BarraDeDesfechos d={c} />');
+    expect(PAGINA).toContain('<ColunasPorAno serie={d.porAno} />');
+  });
+});
+
+/**
+ * OS VISUAIS NÃO PODEM MENTIR — é o único motivo de eles existirem em vez de
+ * uma frase.
+ */
+describe('a leitura de tendência', () => {
+  /**
+   * A série termina no ANO PASSADO — anos fechados. Ancorar no ano corrente em
+   * vez de escrever 2021 fixo evita o teste começar a falhar sozinho na virada
+   * do ano, e deixa explícito qual janela cada caso está exercitando.
+   */
+  const fechados = (...n: number[]) => {
+    const ultimo = new Date().getFullYear() - 1;
+    return n.map((processos, i) => ({ ano: ultimo - n.length + 1 + i, processos }));
+  };
+
+  /** Menos de quatro anos fechados não sustenta comparação de biênios. */
+  it('cala com série curta', () => {
+    expect(tendencia(fechados(1, 2, 3))).toBeNull();
+    expect(tendencia([])).toBeNull();
+  });
+
+  it('acha crescimento quando o biênio recente é ao menos 50% maior', () => {
+    // Biênio anterior soma 2; o recente soma 6.
+    expect(tendencia(fechados(1, 1, 3, 3))).toBe('CRESCENDO');
+  });
+
+  it('acha queda no sentido inverso', () => {
+    expect(tendencia(fechados(4, 4, 1, 1))).toBe('DIMINUINDO');
+  });
+
+  /** Variação pequena não é movimento: uma seta em todo cartão é enfeite. */
+  it('cala quando a variação é pequena', () => {
+    expect(tendencia(fechados(3, 3, 3, 4))).toBeNull();
+  });
+
+  /**
+   * O ANO CORRENTE FICA DE FORA. Ele está pela metade, e em janeiro puxaria
+   * qualquer série para "diminuindo" — aqui ele vem com zero e não muda nada.
+   */
+  it('ignora o ano corrente', () => {
+    const serie = [...fechados(1, 1, 3, 3), { ano: new Date().getFullYear(), processos: 0 }];
+    expect(tendencia(serie)).toBe('CRESCENDO');
+  });
+
+  /** Amostra minúscula não vira leitura, mesmo com proporção grande. */
+  it('cala com amostra pequena demais', () => {
+    expect(tendencia(fechados(0, 1, 1, 1))).toBeNull();
   });
 });

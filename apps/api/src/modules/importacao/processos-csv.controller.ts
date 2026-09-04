@@ -7,15 +7,18 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsOptional } from 'class-validator';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { UserRole } from '@prisma/client';
 
+import { conteudoDisposto, nomeDeArquivo } from '@core/infra';
+import { modeloDePlanilha } from './processos-csv.util';
 import { ProcessosCsvService } from './processos-csv.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -63,6 +66,27 @@ export class ProcessosCsvController {
 
   private ctx(req: Request, userId?: string, nome?: string) {
     return { userId, nome, ip: req.ip };
+  }
+
+  /**
+   * O MODELO DA PLANILHA.
+   *
+   * Declarado ANTES das rotas com `:id` — "modelo" não colidiria com
+   * `:id/resumo` pelo formato, mas a ordem aqui é convenção do módulo e sai de
+   * graça.
+   *
+   * O conteúdo é GERADO das mesmas constantes que o importador confere. Um
+   * arquivo estático em `public/` seria uma segunda verdade: no dia em que uma
+   * coluna mudasse, o modelo ofereceria a antiga e a pessoa levaria "Falta a
+   * coluna X" depois de preencher oitenta linhas.
+   */
+  @Get('modelo')
+  @ApiOperation({ summary: 'Baixa o CSV modelo da importação de processos, com duas linhas de exemplo.' })
+  modelo(@Res() res: Response) {
+    const nome = nomeDeArquivo(['modelo', 'importacao de processos'], 'csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', conteudoDisposto(nome, 'attachment'));
+    res.send(Buffer.from(modeloDePlanilha(), 'utf8'));
   }
 
   /**
