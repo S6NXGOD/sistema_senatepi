@@ -35,7 +35,15 @@ import { tenant } from '../../tenant/tenant.config';
  * sozinho.
  */
 
-/** Palavras que denunciam pessoa jurídica ou entidade no polo ativo. */
+/**
+ * Palavras que denunciam pessoa jurídica ou entidade no polo ativo.
+ *
+ * É PALPITE, e a tela diz isso. Algumas destas também são sobrenome brasileiro
+ * ("Câmara"); conferido em 04/09/2026 contra os 7.291 filiados e as 128 partes
+ * ativas, nenhuma casa com pessoa nesta base. Se um dia casar, o conserto NÃO é
+ * afinar esta expressão para sempre: o caso é aberto pelo processo e o vínculo
+ * se faz por lá, que é o caminho que a tela indica.
+ */
 const RE_NAO_E_PESSOA =
   /\b(SINDICATO|SINDSERM|SINDHOSPI|SINSEP|SENATEPI|FEDERACAO|CONFEDERACAO|ASSOCIACAO|MUNICIPIO|ESTADO|UNIAO|MINISTERIO|FUNDACAO|INSTITUTO|AUTARQUIA|PREFEITURA|SECRETARIA|CONSELHO|CAMARA|EMPRESA|LTDA|EIRELI|S\/A|ME$|EPP|HOSPITAL|CLINICA|BANCO|COOPERATIVA|PROFISSIONAIS DE)\b/;
 

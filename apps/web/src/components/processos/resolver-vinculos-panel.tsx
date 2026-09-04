@@ -144,9 +144,20 @@ export function ResolverVinculosPanel({ open, onClose }: { open: boolean; onClos
               <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 <Building2 className="h-3.5 w-3.5" /> Sem {V.filiado} dono ({entidades.length})
               </h4>
+              {/*
+                A LEITURA PODE ERRAR, e a tela diz como sair.
+
+                A espécie sai do NOME, e nome de entidade se confunde com
+                sobrenome de gente — "Câmara" é sobrenome brasileiro comum. Hoje
+                não há nenhum caso assim nesta base (conferido nos 7.291
+                filiados e nas 128 partes ativas), mas a base cresce. Em vez de
+                afinar a expressão para sempre, a tela avisa que a classificação
+                é palpite e aponta o caminho certo.
+              */}
               <p className="text-[11px] leading-snug text-muted-foreground">
                 No polo ativo está o próprio {tenant.sigla}, outra entidade ou uma empresa. Não há
                 {' '}{V.filiado} a vincular — são ações institucionais marcadas como individuais.
+                Se algum destes for uma pessoa, abra o processo e vincule por lá.
               </p>
               {entidades.map((c) => (
                 <button
