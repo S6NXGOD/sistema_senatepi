@@ -178,7 +178,16 @@ export interface ResumoDashboard {
         autor: string | null;
         /** Em que polo o sindicato figura — muda o sentido do ato. */
         nossoPolo: 'ATIVO' | 'PASSIVO' | null;
-        advogado: { id: string; nome: string; nomeExibicao: string | null } | null;
+        /**
+         * O responsável, com foto. Numa lista de seis, o rosto é reconhecido
+         * antes do nome — é ele que responde "isto é meu?" sem obrigar a ler.
+         */
+        advogado: {
+          id: string;
+          nome: string;
+          nomeExibicao: string | null;
+          avatarUrl: string | null;
+        } | null;
       } | null;
     }[];
   };

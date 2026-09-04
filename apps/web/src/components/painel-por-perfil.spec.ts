@@ -305,3 +305,38 @@ describe('de que lado estamos', () => {
     expect(PANORAMA).not.toContain('valor > 0 &&');
   });
 });
+
+/**
+ * A AUDITORIA FALA PORTUGUÊS — e o rosto do responsável entra na lista.
+ */
+describe('a auditoria legível', () => {
+  const LIB_AUD = ler('lib/auditoria.ts');
+  const TELA_AUD = ler('app/(dashboard)/auditoria/page.tsx');
+  const PAINEL = ler('app/(dashboard)/dashboard/page.tsx');
+
+  /**
+   * "processos/instancias/reavaliar" não é um lugar, é um endereço. A coluna
+   * "Onde" precisa dizer o MÓDULO, que é o que a pessoa procura.
+   */
+  it('a coluna "onde" traduz rota e modelo', () => {
+    expect(LIB_AUD).toContain('const NOME_DO_MODULO: Record<string, string>');
+    expect(LIB_AUD).toContain('const NOME_DO_MODELO: Record<string, string>');
+    expect(LIB_AUD).toContain("MovimentacaoProcessual: 'Andamento do processo'");
+  });
+
+  /** A rota crua é pista técnica: fica no detalhe, não na frase. */
+  it('a rota original aparece no detalhe expandido', () => {
+    expect(LIB_AUD).toContain('rotaOriginal: string | null;');
+    expect(TELA_AUD).toContain('{r.rotaOriginal && <Detalhe rotulo="Rota chamada"');
+  });
+
+  /**
+   * O ROSTO ANTES DO NOME. Numa lista de seis publicações, o nome do
+   * responsável é a coluna que se lê por último; a foto responde "isto é meu?"
+   * sem obrigar a ler.
+   */
+  it('a publicação mostra a foto do advogado responsável', () => {
+    expect(PAINEL).toContain('url={pub.processo.advogado.avatarUrl}');
+    expect(PAINEL).toContain("tamanho=\"xs\"");
+  });
+});

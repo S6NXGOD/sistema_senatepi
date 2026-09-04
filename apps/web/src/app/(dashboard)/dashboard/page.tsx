@@ -23,6 +23,7 @@ import {
   primeiroNome, motivoFalhaDatajud,
   type ResumoDashboard, type FalhaDatajud,
 } from '@/lib/dashboard';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { formatNPU } from '@/lib/processos';
 import { PROVIDENCIA_LABEL } from '@/lib/djen';
@@ -752,12 +753,23 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
                       <span>· somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}</span>
                     )}
                     {/*
-                      O advogado só aparece para quem NÃO é o dono da lista: na
-                      tela do próprio advogado seria o nome dele em toda linha.
+                      O RESPONSÁVEL, COM ROSTO.
+
+                      Numa lista de seis publicações, o nome é a coluna que se
+                      lê por último — a foto é reconhecida antes de qualquer
+                      texto e responde "isto é meu?" sem obrigar a ler. Só
+                      aparece para quem NÃO é o dono da lista: na tela do
+                      próprio advogado seria a cara dele em toda linha.
                     */}
                     {!pessoal && pub.processo?.advogado && (
-                      <span className="truncate">
-                        · {primeiroENome(pub.processo.advogado)}
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        ·
+                        <AvatarPessoa
+                          nome={pub.processo.advogado.nomeExibicao || pub.processo.advogado.nome}
+                          url={pub.processo.advogado.avatarUrl}
+                          tamanho="xs"
+                        />
+                        <span className="truncate">{primeiroENome(pub.processo.advogado)}</span>
                       </span>
                     )}
                     {/*

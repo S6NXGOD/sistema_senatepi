@@ -22,6 +22,12 @@ export interface RegistroAuditoria {
   ip: string | null;
   userAgent: string | null;
   metadata: unknown;
+  /**
+   * A linha `POST /api/...` original, quando o registro foi gravado assim.
+   * A API já devolve `descricao` traduzida; isto é a pista técnica, para o
+   * detalhe expandido.
+   */
+  rotaOriginal: string | null;
   createdAt: string;
   user: { id: string; nome: string; nomeExibicao: string | null; role: string } | null;
 }
@@ -72,14 +78,59 @@ export const ACAO_TOM: Record<AcaoAuditoria, string> = {
 };
 
 /**
+ * ONDE O ATO ACONTECEU, em palavra de gente.
+ *
  * `entidade` vem de dois jeitos: nome de modelo ("Processo") e rota
- * ("/api/filiados"). São dois escritores com convenções diferentes; a tela
- * mostra os dois como estão, porque normalizar aqui apagaria a diferença sem
- * consertá-la — e o dia em que ela for unificada, este helper some.
+ * ("/api/filiados/:id/foto"). O segundo é o que fazia a coluna "Onde" ficar
+ * ilegível — "processos/instancias/reavaliar" não é um lugar, é um endereço.
+ *
+ * A tradução cobre o MÓDULO, que é o que a pessoa procura ("mexeram em
+ * filiados"), e mantém o nome do modelo quando ele já é claro. O endereço
+ * completo continua no detalhe expandido.
  */
+const NOME_DO_MODULO: Record<string, string> = {
+  processos: 'Processos',
+  compromissos: 'Agenda',
+  filiados: 'Filiados',
+  colaboradores: 'Colaboradores',
+  atendimentos: 'Atendimentos',
+  anexos: 'Anexos',
+  auth: 'Acesso ao sistema',
+  usuarios: 'Usuários',
+  eventos: 'Eventos',
+  colonia: 'Colônia de férias',
+  cobrancas: 'Cobranças',
+  empresas: 'Empresas',
+  djen: 'Publicações (DJEN)',
+  'partes-externas': 'Organizações',
+  presencas: 'Presenças',
+  escalas: 'Escalas',
+  importacao: 'Importação',
+  relatorios: 'Relatórios',
+  auditoria: 'Auditoria',
+};
+
+/** "Processo" → "Processo"; "MovimentacaoProcessual" → "Movimentação". */
+const NOME_DO_MODELO: Record<string, string> = {
+  Processo: 'Processo',
+  ParteProcesso: 'Parte do processo',
+  ParteExterna: 'Organização',
+  MovimentacaoProcessual: 'Andamento do processo',
+  Compromisso: 'Atividade da agenda',
+  Atendimento: 'Atendimento',
+  Filiado: 'Filiado',
+  Colaborador: 'Colaborador',
+  User: 'Usuário do sistema',
+  ColoniaReserva: 'Reserva da colônia',
+  AnexoDocumento: 'Anexo',
+};
+
 export function rotuloDaEntidade(e: string | null): string {
   if (!e) return 'Sistema';
-  return e.startsWith('/api/') ? e.replace('/api/', '') : e;
+  if (NOME_DO_MODELO[e]) return NOME_DO_MODELO[e];
+  if (!e.startsWith('/')) return e;
+  const modulo = e.replace(/^\/?api\//, '').split(/[/?]/)[0];
+  return NOME_DO_MODULO[modulo] ?? modulo;
 }
 
 export const opcoesAuditoria = async () =>

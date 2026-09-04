@@ -51,7 +51,13 @@ interface PublicacaoBruta {
     id: string;
     numeroCNJ: string | null;
     partes: { nome: string; polo: string; principal: boolean; parteExternaId: string | null }[];
-    advogado: { id: string; nome: string; nomeExibicao: string | null } | null;
+    advogado: {
+      id: string;
+      nome: string;
+      nomeExibicao: string | null;
+      avatarUrl: string | null;
+      avatarKey: string | null;
+    } | null;
   } | null;
 }
 
@@ -614,7 +620,18 @@ export class DashboardService {
                   partes: {
                     select: { nome: true, polo: true, principal: true, parteExternaId: true },
                   },
-                  advogado: { select: { id: true, nome: true, nomeExibicao: true } },
+                  /*
+                    O AVATAR VAI JUNTO. Numa lista de seis publicações, o nome
+                    do responsável é a coluna que se lê por último; o rosto é
+                    reconhecido antes de qualquer texto, e é o que responde
+                    "isto é meu?" sem precisar ler.
+                  */
+                  advogado: {
+                    select: {
+                      id: true, nome: true, nomeExibicao: true,
+                      avatarUrl: true, avatarKey: true,
+                    },
+                  },
                 },
               },
             },

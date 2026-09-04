@@ -218,7 +218,7 @@ function LinhaAuditoria({ r }: { r: RegistroAuditoria }) {
   const [aberto, setAberto] = useState(false);
   const quando = new Date(r.createdAt);
   const metadados = r.metadata && Object.keys(r.metadata as object).length > 0 ? r.metadata : null;
-  const temDetalhe = !!(r.entidadeId || r.ip || r.userAgent || metadados);
+  const temDetalhe = !!(r.entidadeId || r.ip || r.userAgent || metadados || r.rotaOriginal);
 
   return (
     <li className="rounded-lg border bg-card">
@@ -258,6 +258,17 @@ function LinhaAuditoria({ r }: { r: RegistroAuditoria }) {
 
       {aberto && temDetalhe && (
         <dl className="grid grid-cols-1 gap-x-4 gap-y-1 border-t bg-muted/30 px-3 py-2 text-[11px] sm:grid-cols-2">
+          {/*
+            A ROTA CRUA FICA AQUI, e não na frase.
+
+            Metade dos registros da produção foi gravada como
+            `POST /api/processos/instancias/reavaliar?limite=10`. Isso não é
+            auditoria, é endereço — e endereço é pista TÉCNICA: serve a quem
+            está investigando um caso específico, não a quem varre a lista
+            procurando quem alterou o quê. A API traduz a frase na leitura e
+            entrega o endereço aqui, intacto.
+          */}
+          {r.rotaOriginal && <Detalhe rotulo="Rota chamada" valor={r.rotaOriginal} />}
           {r.entidadeId && <Detalhe rotulo="Id do alvo" valor={r.entidadeId} />}
           {r.ip && <Detalhe rotulo="IP" valor={r.ip} />}
           {r.userAgent && <Detalhe rotulo="Navegador" valor={r.userAgent} />}

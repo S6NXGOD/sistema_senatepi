@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { descricaoLegivel, lerLinhaHttp } from '../../common/audit/audit.frases';
 
 /**
  * O REGISTRO DE QUEM FEZ O QUÊ — e a tela que finalmente o mostra.
@@ -116,7 +117,31 @@ export class AuditoriaService {
       }),
       this.prisma.auditoria.count({ where }),
     ]);
-    return { data, total, page, pageSize: PAGINA, totalPages: Math.max(Math.ceil(total / PAGINA), 1) };
+    /*
+      A TRADUÇÃO ACONTECE NA LEITURA, e o banco fica intocado.
+
+      1.555 dos 2.973 registros da produção (52%) foram gravados como linha de
+      curl — `POST /api/processos/instancias/reavaliar?limite=10`. O
+      interceptor já não faz mais isso, mas o passado continua lá, e é ele que
+      a tela mostra hoje.
+
+      Reescrever o histórico seria o conserto errado: um log que a própria
+      aplicação edita deixa de servir como prova, e é o único motivo de ele
+      existir. A rota crua continua gravada e aparece no detalhe expandido; o
+      que muda é a FRASE que se lê primeiro.
+    */
+    return {
+      data: data.map((r) => ({
+        ...r,
+        descricao: descricaoLegivel(r.descricao),
+        /** A linha original, para quem for investigar de verdade. */
+        rotaOriginal: lerLinhaHttp(r.descricao)?.caminho ?? null,
+      })),
+      total,
+      page,
+      pageSize: PAGINA,
+      totalPages: Math.max(Math.ceil(total / PAGINA), 1),
+    };
   }
 
   /**
@@ -169,7 +194,9 @@ export function csvDaAuditoria(linhas: LinhaExport[]): string {
       l.acao,
       l.entidade ?? '',
       l.entidadeId ?? '',
-      l.descricao ?? '',
+      // O CSV leva a MESMA frase da tela; quem cruza planilha não deveria
+      // receber a linha de curl que a tela já traduziu.
+      descricaoLegivel(l.descricao) ?? '',
       l.ip ?? '',
     ]
       .map(esc)

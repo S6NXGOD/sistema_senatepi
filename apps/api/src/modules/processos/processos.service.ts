@@ -478,7 +478,16 @@ export class ProcessosService {
       acao: AcaoAuditoria.UPDATE,
       entidade: 'Processo',
       entidadeId: id,
-      descricao: `Processo ${proc.numeroCNJ} sincronizado: ${novas} nova(s) movimentação(ões)`,
+      /*
+        AQUI O ZERO CONTA, ao contrário do radar de audiências. Isto foi
+        alguém CLICANDO em "Sincronizar": "fulano consultou o CNJ e não veio
+        nada" é a resposta para "por que ninguém viu aquela movimentação?".
+        O que muda é a frase — "sincronizado: 0 nova(s)" se lê como erro.
+      */
+      descricao:
+        novas > 0
+          ? `Processo ${proc.numeroCNJ} sincronizado — ${novas} movimentação(ões) nova(s)`
+          : `Processo ${proc.numeroCNJ} sincronizado — nada novo no CNJ`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       metadata: { numeroCNJ: proc.numeroCNJ, novasMovimentacoes: novas },

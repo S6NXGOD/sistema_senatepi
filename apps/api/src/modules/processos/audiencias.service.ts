@@ -357,16 +357,33 @@ export class AudienciasService {
     }
 
     this.logger.log(`[RADAR-AUDIENCIAS] Reclassificação: ${lidas} movimentação(ões) lidas, ${alteradas} atualizada(s).`);
-    await this.audit.registrar({
-      userId: ctx.userId ?? null,
-      acao: AcaoAuditoria.UPDATE,
-      entidade: 'MovimentacaoProcessual',
-      entidadeId: 'reclassificacao-audiencias',
-      descricao: `Radar de audiências reclassificado: ${alteradas} de ${lidas} movimentação(ões) atualizadas`,
-      ip: ctx.ip,
-      userAgent: ctx.userAgent,
-      metadata: { lidas, alteradas },
-    });
+
+    /*
+      NÃO-MUDANÇA NÃO É FATO AUDITÁVEL.
+
+      Esta varredura relê o acervo inteiro e quase sempre não altera nada — o
+      registro "Radar de audiências reclassificado: 0 de 12446 movimentação(ões)
+      atualizadas" apareceu 291 vezes na produção, sempre com ZERO. Auditoria
+      existe para responder "quem mudou isto?"; uma linha afirmando que nada
+      mudou só empurra para baixo as que respondem.
+
+      O log da aplicação (acima) continua registrando toda passada, inclusive as
+      vazias — lá o interesse é operacional ("o robô rodou?"), e aí zero importa.
+    */
+    if (alteradas > 0) {
+      await this.audit.registrar({
+        userId: ctx.userId ?? null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'MovimentacaoProcessual',
+        entidadeId: 'reclassificacao-audiencias',
+        descricao:
+          `Radar de audiências: ${alteradas} movimentação(ões) reclassificada(s) ` +
+          `entre as ${lidas} lidas`,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { lidas, alteradas },
+      });
+    }
     return { lidas, alteradas };
   }
 
