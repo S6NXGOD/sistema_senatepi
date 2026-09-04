@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Search, ShieldCheck,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -54,7 +55,7 @@ export default function AuditoriaPage() {
   const filtros = { de, ate, acao, userId, entidade, q, page };
 
   const { data: opcoes } = useQuery({ queryKey: ['auditoria-opcoes'], queryFn: opcoesAuditoria });
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['auditoria', filtros],
     queryFn: () => listarAuditoria(filtros),
     placeholderData: keepPreviousData,
@@ -150,7 +151,11 @@ export default function AuditoriaPage() {
 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            {isLoading ? 'Carregando…' : `${data?.total ?? 0} registro(s) no período`}
+            {isLoading
+              ? 'Carregando…'
+              : isError
+                ? 'Não foi possível contar'
+                : `${data?.total ?? 0} registro(s) no período`}
             {isFetching && !isLoading && <Loader2 className="ml-2 inline h-3 w-3 animate-spin" />}
           </p>
           <div className="flex gap-2">
@@ -165,7 +170,13 @@ export default function AuditoriaPage() {
         </div>
       </Card>
 
-      {!isLoading && data?.data.length === 0 && (
+      {isError && (
+        <Card className="p-2">
+          <FalhaAoCarregar erro={error} oQue="o registro" onTentarDeNovo={() => refetch()} />
+        </Card>
+      )}
+
+      {!isLoading && !isError && data?.data.length === 0 && (
         <Card className="py-16 text-center text-sm text-muted-foreground">
           Nenhum registro com estes filtros.
         </Card>

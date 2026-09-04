@@ -37,7 +37,7 @@ export function ResolverVinculosPanel({ open, onClose }: { open: boolean; onClos
   const [escolhas, setEscolhas] = useState<Record<string, string>>({});
   const INSTITUCIONAL = '@institucional';
 
-  const { data: casos = [], isLoading } = useQuery({
+  const { data: casos = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['vinculos-pendentes'],
     queryFn: listarVinculosPendentes,
     enabled: open,
@@ -110,7 +110,30 @@ export function ResolverVinculosPanel({ open, onClose }: { open: boolean; onClos
             </p>
           )}
 
-          {!isLoading && casos.length === 0 && (
+          {/*
+            FALHAR NÃO É "NÃO TEM NADA" — e confundir os dois escondeu um bug
+            por um dia inteiro.
+
+            A rota deste painel estava sendo engolida por `/processos/:id` e
+            respondia "processo não encontrado". A tela lia o erro como lista
+            vazia e escrevia "Nenhum processo pendente de vínculo" ao lado de um
+            contador dizendo 29. Quem visse aquilo concluiria que a fila tinha
+            zerado sozinha.
+          */}
+          {isError && (
+            <div className="space-y-3 py-10 text-center">
+              <p className="text-sm font-medium">Não foi possível carregar a fila.</p>
+              <p className="mx-auto max-w-sm text-xs leading-snug text-muted-foreground">
+                {(error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                  'A lista existe — foi a consulta que falhou. Tente de novo; se insistir, avise a administração.'}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                Tentar de novo
+              </Button>
+            </div>
+          )}
+
+          {!isLoading && !isError && casos.length === 0 && (
             <p className="py-12 text-center text-sm text-muted-foreground">
               Nenhum processo pendente de vínculo.
             </p>

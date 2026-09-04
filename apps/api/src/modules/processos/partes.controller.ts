@@ -38,16 +38,27 @@ export class PartesController {
   ) {}
 
   /*
-    ANTES de `@Get(':id/partes')`: "vinculos-pendentes" casaria como se fosse
-    o id de um processo, e a rota devolveria "processo não encontrado".
+    O CAMINHO TEM `partes/` NA FRENTE, E É O QUE FAZ ELE EXISTIR.
+
+    Nasceu como `processos/vinculos-pendentes` e NUNCA FOI ATENDIDO. Vir antes
+    de `@Get(':id/partes')` neste arquivo não bastava: o Nest registra as rotas
+    na ordem dos CONTROLLERS do módulo, e `ProcessosController` — que declara
+    `@Get(':id')` — vem em primeiro na lista. Toda chamada a
+    `/processos/vinculos-pendentes` caía lá dentro com `id="vinculos-pendentes"`,
+    respondia "processo não encontrado", e a tela mostrava "nenhum processo
+    pendente" ao lado de um contador dizendo 29.
+
+    Com três segmentos, nenhuma rota de dois (`:id`) alcança, e as de três
+    exigem o literal na terceira posição (`:id/partes`, `:id/dossie`). Ver
+    `rotas-que-colidem.spec.ts`, que passou a cobrar isso.
   */
-  @Get('vinculos-pendentes')
+  @Get('partes/vinculos-pendentes')
   @ApiOperation({ summary: 'A fila "sem filiado vinculado" com os candidatos de cada caso.' })
   listarPendentes() {
     return this.pendentes.listar();
   }
 
-  @Post('vinculos-pendentes/aplicar')
+  @Post('partes/vinculos-pendentes/aplicar')
   @ApiOperation({ summary: 'Aplica as decisões tomadas na fila (vincular ou reclassificar).' })
   aplicarPendentes(
     @Body() body: { decisoes: DecisaoDeVinculo[] },

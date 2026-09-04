@@ -514,13 +514,13 @@ export interface DecisaoDeVinculo {
 }
 
 export async function listarVinculosPendentes(): Promise<CasoSemFiliado[]> {
-  const { data } = await api.get('/processos/vinculos-pendentes');
+  const { data } = await api.get('/processos/partes/vinculos-pendentes');
   return data;
 }
 
 export async function aplicarVinculos(
   decisoes: DecisaoDeVinculo[],
 ): Promise<{ aplicadas: number; falhas: { alvo: string; motivo: string }[] }> {
-  const { data } = await api.post('/processos/vinculos-pendentes/aplicar', { decisoes });
+  const { data } = await api.post('/processos/partes/vinculos-pendentes/aplicar', { decisoes });
   return data;
 }

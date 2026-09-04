@@ -79,8 +79,11 @@ describe('as rotas novas moram no módulo certo', () => {
   it('a fila de vínculos é do módulo processos', () => {
     const src = ler('processos/partes.controller.ts');
     expect(src).toContain("@Modulo('processos')");
-    expect(src).toContain("@Get('vinculos-pendentes')");
-    expect(src).toContain("@Post('vinculos-pendentes/aplicar')");
+    // `partes/` na frente NÃO é enfeite: sem ele, `@Get(':id')` de
+    // `ProcessosController` — registrado antes — engole a rota. Ver
+    // `rotas-que-colidem.spec.ts`.
+    expect(src).toContain("@Get('partes/vinculos-pendentes')");
+    expect(src).toContain("@Post('partes/vinculos-pendentes/aplicar')");
     // TRIAGEM tem processos SEM_ACESSO: não vê nem a fila nem a aplicação.
     expect(nivelEfetivo('TRIAGEM' as never, {}, 'processos')).toBe('SEM_ACESSO');
     // O advogado edita processo, então resolve o vínculo — é trabalho dele.

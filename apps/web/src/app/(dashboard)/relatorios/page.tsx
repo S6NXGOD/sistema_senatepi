@@ -5,6 +5,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { BarChart3, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -42,7 +43,7 @@ export default function RelatoriosPage() {
    */
   const [foco, setFoco] = useState('');
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['relatorio', de, ate, foco],
     queryFn: () => carregarRelatorio(de, ate, foco || undefined),
     placeholderData: keepPreviousData,
@@ -163,7 +164,17 @@ export default function RelatoriosPage() {
         <p className="py-10 text-center text-sm text-muted-foreground">Somando o período…</p>
       )}
 
-      {data && (
+      {/*
+        NÚMERO ERRADO É PIOR QUE NÚMERO NENHUM — e um relatório que falhou e
+        mostra os cartões zerados afirma que a equipe não entregou nada.
+      */}
+      {isError && (
+        <Card className="p-2">
+          <FalhaAoCarregar erro={error} oQue="o relatório" onTentarDeNovo={() => refetch()} />
+        </Card>
+      )}
+
+      {data && !isError && (
         <>
           <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Numero titulo="Atividades concluídas" valor={data.atividades.concluidas} />

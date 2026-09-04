@@ -153,3 +153,60 @@ describe('quando uma tela quebra', () => {
     expect(ERRO_GLOBAL).not.toContain("from '@/lib");
   });
 });
+
+/**
+ * FALHAR NÃO É "NÃO TEM NADA".
+ *
+ * O painel de vínculos lia o erro da API como lista vazia e escrevia "Nenhum
+ * processo pendente de vínculo" ao lado de um contador dizendo 29. A rota dele
+ * estava sendo engolida por `/processos/:id` — e a tela transformou um bug
+ * gritante num estado que parecia normal.
+ */
+describe('erro não se disfarça de vazio', () => {
+  const PAINEL_VINCULOS = ler('components/processos/resolver-vinculos-panel.tsx');
+
+  it('a falha tem tela própria, com o motivo e um botão de tentar de novo', () => {
+    expect(PAINEL_VINCULOS).toContain('isError');
+    expect(PAINEL_VINCULOS).toContain('Não foi possível carregar a fila.');
+    expect(PAINEL_VINCULOS).toContain('onClick={() => refetch()}');
+  });
+
+  /** E o "vazio" só aparece quando a consulta REALMENTE respondeu vazia. */
+  it('o vazio exige resposta bem-sucedida', () => {
+    expect(PAINEL_VINCULOS).toContain('{!isLoading && !isError && casos.length === 0 && (');
+  });
+});
+
+/**
+ * O MESMO DEFEITO ESTAVA EM MAIS TRÊS TELAS.
+ *
+ * `const { data = [] } = useQuery(...)` seguido de `length === 0 → "Nenhum…"`
+ * transforma toda falha de rede numa afirmação tranquila de que não há nada. É
+ * um padrão, não um descuido isolado — por isso a correção é um componente, e
+ * não três blocos copiados.
+ */
+describe('nenhuma tela nova confunde falha com vazio', () => {
+  const COMPARTILHADO = ler('components/falha-ao-carregar.tsx');
+  const TELAS: [string, string][] = [
+    ['publicações', 'app/(dashboard)/publicacoes/page.tsx'],
+    ['relatórios', 'app/(dashboard)/relatorios/page.tsx'],
+    ['auditoria', 'app/(dashboard)/auditoria/page.tsx'],
+  ];
+
+  it('o componente existe e mostra a mensagem da API', () => {
+    expect(COMPARTILHADO).toContain('response?.data?.message');
+    expect(COMPARTILHADO).toContain('Não foi possível carregar');
+  });
+
+  it.each(TELAS)('%s trata o erro à parte', (_nome, caminho) => {
+    const src = ler(caminho);
+    expect(src).toContain('<FalhaAoCarregar');
+    expect(src).toContain('isError');
+    expect(src).toContain('refetch()');
+  });
+
+  /** Relatório que falhou e mostra cartões zerados afirma que a equipe não entregou nada. */
+  it('o relatório não desenha números quando a consulta falhou', () => {
+    expect(ler('app/(dashboard)/relatorios/page.tsx')).toContain('{data && !isError && (');
+  });
+});

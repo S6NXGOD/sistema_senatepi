@@ -7,6 +7,7 @@ import {
   Newspaper, Search, Loader2, Inbox, ChevronLeft, ChevronRight, Bot, Gavel, X,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
@@ -92,7 +93,7 @@ export default function PublicacoesPage() {
     [busca, providencia, tribunal, situacao, onde, soMeus, pagina],
   );
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['djen-busca', filtro],
     queryFn: () => buscarPublicacoes(filtro),
     enabled: ligado,
@@ -318,7 +319,11 @@ export default function PublicacoesPage() {
         </div>
       </Card>
 
-      {isLoading ? (
+      {isError ? (
+        <Card className="p-2">
+          <FalhaAoCarregar erro={error} oQue="as publicações" onTentarDeNovo={() => refetch()} />
+        </Card>
+      ) : isLoading ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>
       ) : grupos.length === 0 ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">
