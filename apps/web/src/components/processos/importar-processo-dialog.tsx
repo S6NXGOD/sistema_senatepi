@@ -11,7 +11,9 @@ import {
   CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users, Plus,
   ChevronRight, UserPlus,
 } from 'lucide-react';
-import { FormularioFiliadoRapido } from '@/components/filiados/formulario-filiado-rapido';
+import {
+  FormularioFiliadoRapido, usePodeCadastrarFiliado,
+} from '@/components/filiados/formulario-filiado-rapido';
 import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
@@ -118,6 +120,7 @@ export function ImportarProcessoDialog({
   const [busca, setBusca] = useState('');
   /** Cadastro rápido aberto sobre o formulário, sem perder o que já foi digitado. */
   const [cadastrando, setCadastrando] = useState(false);
+  const podeCadastrarFiliado = usePodeCadastrarFiliado();
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
   const [buscando, setBuscando] = useState(false);
 
@@ -894,12 +897,19 @@ export function ImportarProcessoDialog({
                     <p className="text-xs text-muted-foreground">
                       Nenhum {V.filiado} encontrado com “{busca.trim()}”.
                     </p>
-                    <Button
-                      type="button" size="sm" variant="outline" className="mt-2"
-                      onClick={() => setCadastrando(true)}
-                    >
-                      <UserPlus className="h-4 w-4" /> Cadastrar {V.filiado}
-                    </Button>
+                    {podeCadastrarFiliado ? (
+                      <Button
+                        type="button" size="sm" variant="outline" className="mt-2"
+                        onClick={() => setCadastrando(true)}
+                      >
+                        <UserPlus className="h-4 w-4" /> Cadastrar {V.filiado}
+                      </Button>
+                    ) : (
+                      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                        O cadastro é feito pela secretaria. Dá para seguir com o nome da parte e
+                        vincular depois.
+                      </p>
+                    )}
                   </div>
                 )}
 

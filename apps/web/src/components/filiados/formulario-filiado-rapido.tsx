@@ -6,6 +6,8 @@ import { Loader2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
 import { V } from '@/lib/vocabulario';
 
 /**
@@ -24,6 +26,12 @@ import { V } from '@/lib/vocabulario';
  * O CPF NÃO É OPCIONAL de propósito: é ele que identifica a pessoa quando o
  * nome dos autos não bate com o do cadastro, e é o único dado que permite
  * vincular processo e filiado sem alguém conferir no olho.
+ *
+ * QUEM PODE CADASTRAR NÃO É QUEM MAIS PRECISA, e a tela precisa dizer isso. O
+ * advogado tem `filiados: VISUALIZAR` — a API recusa o `POST /filiados` para
+ * ele, e a decisão é boa: o cadastro é do balcão, e esta base já tem uma pessoa
+ * repetida sete vezes. Sem o aviso, o botão daria 403 depois do clique e a
+ * pessoa perderia o que digitou; com ele, sabe na hora a quem pedir.
  */
 
 const soDigitos = (v: string) => v.replace(/\D/g, '').slice(0, 11);
@@ -35,6 +43,16 @@ export function mascaraCpf(v: string): string {
   if (d.length > 6) out += '.' + d.slice(6, 9);
   if (d.length > 9) out += '-' + d.slice(9, 11);
   return out;
+}
+
+/**
+ * Quem pode incluir alguém no cadastro. Os chamadores usam isto para não
+ * OFERECER o caminho — o formulário ainda checa por conta própria, porque um
+ * botão escondido não é uma autorização.
+ */
+export function usePodeCadastrarFiliado(): boolean {
+  const { user } = useAuth();
+  return podeEditar(user?.role, user?.permissoes, 'filiados');
 }
 
 export interface FiliadoCriado {
@@ -59,6 +77,8 @@ export function FormularioFiliadoRapido({
   const [nascimento, setNascimento] = useState('');
   const [telefone, setTelefone] = useState('');
   const [erro, setErro] = useState<string | null>(null);
+  const { user } = useAuth();
+  const podeCadastrar = podeEditar(user?.role, user?.permissoes, 'filiados');
 
   useEffect(() => setNome(nomeInicial ?? ''), [nomeInicial]);
 
@@ -81,6 +101,25 @@ export function FormularioFiliadoRapido({
   });
 
   const pronto = nome.trim().length >= 3 && soDigitos(cpf).length === 11 && !!nascimento;
+
+  if (!podeCadastrar) {
+    return (
+      <div className="space-y-3">
+        <p className="rounded-md border bg-muted/50 px-3 py-2.5 text-[12px] leading-snug">
+          O cadastro de {V.filiados} é feito pela secretaria. Peça a inclusão de{' '}
+          <strong>{nomeInicial?.trim() || 'a pessoa'}</strong> e volte para vincular — enquanto
+          isso, dá para seguir com o nome da parte e resolver o vínculo depois.
+        </p>
+        {onCancelar && (
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" onClick={onCancelar}>
+              Entendi
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

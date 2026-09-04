@@ -104,3 +104,37 @@ describe('a conclusão de um prazo', () => {
     expect(valido.slice(0, 500)).not.toContain('anexos');
   });
 });
+
+/**
+ * O CADASTRO RÁPIDO NÃO PODE PROMETER O QUE A API RECUSA.
+ *
+ * O advogado tem `filiados: VISUALIZAR` e o `POST /filiados` é dos perfis do
+ * balcão. É uma boa fronteira — esta base já tem uma pessoa cadastrada sete
+ * vezes —, mas um botão que só falha depois do clique faz perder o que foi
+ * digitado e ensina a equipe a não confiar na tela.
+ */
+describe('quem pode cadastrar filiado', () => {
+  const FORM = ler('src/components/filiados/formulario-filiado-rapido.tsx');
+  const MODAL = ler('src/components/processos/vincular-filiado-modal.tsx');
+  const IMPORTAR = ler('src/components/processos/importar-processo-dialog.tsx');
+
+  it('o formulário checa a permissão por conta própria', () => {
+    expect(FORM).toContain("podeEditar(user?.role, user?.permissoes, 'filiados')");
+    expect(FORM).toContain('if (!podeCadastrar) {');
+  });
+
+  /** Botão escondido não é autorização: os dois têm de existir. */
+  it('os chamadores escondem o caminho, e o formulário ainda checa', () => {
+    for (const arquivo of [MODAL, IMPORTAR]) {
+      expect(arquivo).toContain('usePodeCadastrarFiliado()');
+    }
+    expect(FORM).toContain('export function usePodeCadastrarFiliado()');
+  });
+
+  /** Sem saída morta: quem não pode cadastrar precisa saber a quem pedir. */
+  it('explica em vez de só sumir com o botão', () => {
+    expect(FORM).toContain('é feito pela secretaria');
+    expect(MODAL).toContain('peça à secretaria');
+    expect(IMPORTAR).toContain('O cadastro é feito pela secretaria');
+  });
+});

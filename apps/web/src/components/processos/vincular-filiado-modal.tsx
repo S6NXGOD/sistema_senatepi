@@ -10,7 +10,9 @@ import { cn } from '@/lib/utils';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { atualizarProcesso } from '@/lib/processos';
 import { identificarParteComoFiliado, sugestoesDeFiliado, type CandidatoFiliado } from '@/lib/partes';
-import { FormularioFiliadoRapido } from '@/components/filiados/formulario-filiado-rapido';
+import {
+  FormularioFiliadoRapido, usePodeCadastrarFiliado,
+} from '@/components/filiados/formulario-filiado-rapido';
 import { V } from '@/lib/vocabulario';
 
 type Modo = 'buscar' | 'criar';
@@ -47,6 +49,7 @@ export function VincularFiliadoModal({
   parteId?: string | null;
 }) {
   const [modo, setModo] = useState<Modo>('buscar');
+  const podeCadastrar = usePodeCadastrarFiliado();
 
   // --- buscar ---
   const [busca, setBusca] = useState('');
@@ -125,7 +128,8 @@ export function VincularFiliadoModal({
           </button>
         </div>
 
-        {/* Alternância entre buscar e cadastrar */}
+        {/* Alternância entre buscar e cadastrar — a segunda só para quem cadastra */}
+        {podeCadastrar && (
         <div className="flex gap-1 border-b p-3">
           {([
             { k: 'buscar' as const, label: 'Buscar existente', icon: UserCheck },
@@ -147,6 +151,7 @@ export function VincularFiliadoModal({
             );
           })}
         </div>
+        )}
 
         <div className="flex-1 space-y-3 overflow-y-auto p-4">
           {modo === 'buscar' ? (
@@ -214,9 +219,17 @@ export function VincularFiliadoModal({
               {busca.trim().length >= 2 && !buscando && resultados.length === 0 && (
                 <div className="rounded-lg border border-dashed p-4 text-center">
                   <p className="text-sm text-muted-foreground">Nenhum {V.filiado} encontrado.</p>
-                  <Button size="sm" variant="outline" className="mt-2" onClick={() => { setNome(busca); setModo('criar'); }}>
-                    <UserPlus className="h-4 w-4" /> Cadastrar "{busca.trim().slice(0, 24)}"
-                  </Button>
+                  {podeCadastrar ? (
+                    <Button size="sm" variant="outline" className="mt-2" onClick={() => { setNome(busca); setModo('criar'); }}>
+                      <UserPlus className="h-4 w-4" /> Cadastrar &quot;{busca.trim().slice(0, 24)}&quot;
+                    </Button>
+                  ) : (
+                    /* O advogado não inclui no cadastro — dizer isso aqui evita
+                       a conclusão errada de que a pessoa não é filiada. */
+                    <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                      Se ela é {V.filiado} e não aparece, peça à secretaria para incluí-la no cadastro.
+                    </p>
+                  )}
                 </div>
               )}
 
