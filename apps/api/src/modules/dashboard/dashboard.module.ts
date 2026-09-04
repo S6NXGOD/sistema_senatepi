@@ -15,7 +15,7 @@ import {
 const TIPO_PRAZO = 'PRAZO';
 const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
-import { integracaoAtiva } from '../../tenant/tenant.config';
+import { integracaoAtiva, tenant } from '../../tenant/tenant.config';
 import { PRE_PROCESSUAIS } from '../processos/processos.service';
 import { DIAS_ATE_DORMENTE } from '../processos/utils/tpu.util';
 import { PARTE_ORDER } from '../processos/partes.service';
@@ -24,6 +24,7 @@ import { AudienciasService } from '../processos/audiencias.service';
 import { ProcessosModule } from '../processos/processos.module';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -31,6 +32,77 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 // para o dia seguinte.
 const OFFSET_BR = 3 * 3_600_000;
 const DIA_MS = 24 * 3_600_000;
+
+/**
+ * O QUE VEM DO BANCO para cada publicação do painel. Declarado aqui porque o
+ * agrupamento das cópias acontece fora do Prisma e precisa do tipo por escrito.
+ */
+interface PublicacaoBruta {
+  id: string;
+  link: string | null;
+  tipoComunicacao: string | null;
+  nomeOrgao: string | null;
+  providencia: string | null;
+  prazoMencionadoDias: number | null;
+  dataDisponibilizacao: Date;
+  compromissoId: string | null;
+  compromisso: { status: string } | null;
+  processo: {
+    id: string;
+    numeroCNJ: string | null;
+    partes: { nome: string; polo: string; principal: boolean; parteExternaId: string | null }[];
+    advogado: { id: string; nome: string; nomeExibicao: string | null } | null;
+  } | null;
+}
+
+/**
+ * CONTRA QUEM É O PROCESSO.
+ *
+ * "De quem é" tem resposta ruim nesta base — só 4 dos 127 processos têm filiado
+ * vinculado, e o sindicato é o polo ativo em 93 deles. Repetir o nome do
+ * próprio sindicato em toda linha do painel não informa nada; o réu informa:
+ * FMS/THE, Unimed, Hapvida.
+ */
+export function adversarioDoProcesso(
+  partes: { nome: string; polo: string; principal: boolean; parteExternaId: string | null }[],
+  idDoSindicato: string | null,
+): string | null {
+  const nosso = partes.find((p) => ehONossoSindicato(p, idDoSindicato));
+
+  // Em qual polo estamos? Autor na esmagadora maioria, réu em alguns — e aí o
+  // adversário está do outro lado. Sem nos achar, sobra tudo.
+  const candidatos = nosso ? partes.filter((p) => p.polo !== nosso.polo) : partes;
+  if (!candidatos.length) return null;
+
+  // A parte PRINCIPAL do polo, quando marcada; senão a primeira.
+  return (candidatos.find((p) => p.principal) ?? candidatos[0]).nome;
+}
+
+/**
+ * A PARTE É O PRÓPRIO SINDICATO?
+ *
+ * A CHAVE É A ORGANIZAÇÃO CANÔNICA, resolvida pelo CNPJ do tenant — 226 das 263
+ * partes cadastradas apontam para uma, e a do sindicato é uma só.
+ *
+ * Comparar NOME não serviria como regra principal: nas partes importadas dos
+ * tribunais o sindicato figura como "SINDICATO DOS ENFERMEIROS E TÉCNICOS DE
+ * ENFERMAGEM DO ESTADO DO PIAUÍ", SEM a sigla — enquanto o DJEN o nomeia
+ * "…DO ESTADO DO PIAUI - SENATEPI". Procurar a sigla erraria em 96 processos.
+ *
+ * E "começa com SINDICATO" seria pior ainda: disputa de representatividade
+ * entre sindicatos existe, e a regra larga leria o adversário como sendo nós.
+ *
+ * O nome só entra como rede para as 33 partes que são texto solto, sem
+ * organização vinculada, e aí exige a sigla — que é específica o bastante.
+ */
+export function ehONossoSindicato(
+  parte: { nome: string; parteExternaId: string | null },
+  idDoSindicato: string | null,
+): boolean {
+  if (idDoSindicato && parte.parteExternaId) return parte.parteExternaId === idDoSindicato;
+  const limpo = parte.nome.normalize('NFD').replace(/\p{Diacritic}/gu, '').toUpperCase();
+  return limpo.includes(tenant.sigla.toUpperCase());
+}
 
 /** Meia-noite (instante real) do dia de `base` no fuso de Brasília. */
 function inicioDoDiaBR(base: Date): Date {
@@ -150,6 +222,17 @@ export class DashboardService {
 
     const souAdvogado = user.role === 'ADVOGADO';
     /**
+     * QUEM NÃO TEM O MÓDULO DE PROCESSOS NÃO RECEBE O DADO DE PROCESSOS.
+     *
+     * A Triagem tem `processos: SEM_ACESSO` no preset do perfil, e a home
+     * escondia os blocos jurídicos só na TELA — o teor das publicações, o
+     * nome das partes contrárias e o do advogado de cada processo viajavam
+     * até o navegador dela de qualquer forma. É a mesma regra já escrita para
+     * `cargaEquipe`: o corte é no backend; esconder no front é conforto, não
+     * controle de acesso.
+     */
+    const veProcessos = nivelEfetivo(user.role, user.permissoes, 'processos') !== 'SEM_ACESSO';
+    /**
      * Escopo pessoal do advogado: suas atividades e sua carteira. Demais perfis
      * enxergam a operação inteira.
      *
@@ -161,6 +244,20 @@ export class DashboardService {
      */
     const meu: Prisma.CompromissoWhereInput = souAdvogado
       ? { OR: [{ responsavelId: user.id }, { equipe: { some: { usuarioId: user.id } } }] }
+      : {};
+
+    /**
+     * O ACERVO DO ADVOGADO — mesma régua do filtro "meus" da tela de
+     * Processos (`FILTRO_RAPIDO.meus`), que já inclui o processo que ele
+     * acompanha sem ser o responsável principal.
+     *
+     * Sem isto, o advogado abria a home e via publicação dos processos dos
+     * outros oito colegas. Publicação alheia na sua tela é ruído com cara de
+     * prazo: ou ele confere uma a uma para descobrir que não é dele, ou
+     * aprende a ignorar o bloco — e aí perde a que era.
+     */
+    const meuAcervo: Prisma.ProcessoWhereInput = souAdvogado
+      ? { advogados: { some: { advogadoId: user.id } } }
       : {};
 
     const [
@@ -209,6 +306,8 @@ export class DashboardService {
       djenPublicacoes7d,
       djenUltimaPublicacao,
       djenRecentes,
+      organizacaoDoSindicato,
+      adversariosRaw,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
       /**
@@ -408,37 +507,155 @@ export class DashboardService {
        * a ausência de alerta é ambígua: "0 audiências a agendar" tanto pode ser
        * "não há nada" quanto "a varredura não rodou". O DJEN tem o mesmo
        * problema, agravado: ele passou UM MÊS devolvendo zero por bloqueio de
-       * origem e nada na tela dizia isso — quem olhasse a aba Publicações veria
-       * "nenhuma publicação" e concluiria que o tribunal não publicou nada.
+       * origem e nada na tela dizia isso.
+       *
+       * O VOLUME CONTA ATOS, NÃO CÓPIAS. O DJEN manda uma comunicação por
+       * destinatário — o `link` do documento é o que identifica o ato. Contar
+       * as linhas cruas dizia "4 publicações" onde havia 2, e a lista mostrava
+       * o mesmo item duas vezes seguidas.
        */
-      this.prisma.comunicacaoDjen.count({
-        where: { dataDisponibilizacao: { gte: seteDiasAtras } },
-      }),
-      this.prisma.comunicacaoDjen.findFirst({
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true },
-      }),
+      !veProcessos
+        ? Promise.resolve([])
+        : this.prisma.comunicacaoDjen.findMany({
+            where: {
+              dataDisponibilizacao: { gte: seteDiasAtras },
+              ...(souAdvogado ? { processo: meuAcervo } : {}),
+            },
+            select: { link: true },
+          }),
+      !veProcessos
+        ? Promise.resolve(null)
+        : this.prisma.comunicacaoDjen.findFirst({
+            orderBy: { createdAt: 'desc' },
+            select: { createdAt: true },
+          }),
       /**
        * As últimas com PROVIDÊNCIA — não as últimas quaisquer.
        *
        * Edital e lista de distribuição chegam às dezenas e não pedem nada de
        * ninguém; listá-las no painel afogaria a intimação que pede peça em três
        * dias. A ordem é por data de disponibilização, que é a que conta prazo.
+       *
+       * O `take` é generoso porque as cópias só são agrupadas DEPOIS: cortar em
+       * seis antes de agrupar entregaria três atos na tela.
        */
-      this.prisma.comunicacaoDjen.findMany({
-        where: {
-          dataDisponibilizacao: { gte: seteDiasAtras },
-          providencia: { notIn: ['NENHUMA'] },
-        },
-        orderBy: { dataDisponibilizacao: 'desc' },
-        take: 6,
-        select: {
-          id: true, tipoComunicacao: true, nomeOrgao: true, providencia: true,
-          prazoMencionadoDias: true, dataDisponibilizacao: true, compromissoId: true,
-          processo: { select: { id: true, numeroCNJ: true } },
-        },
+      !veProcessos
+        ? Promise.resolve([])
+        : this.prisma.comunicacaoDjen.findMany({
+            where: {
+              dataDisponibilizacao: { gte: seteDiasAtras },
+              providencia: { notIn: ['NENHUMA'] },
+              ...(souAdvogado ? { processo: meuAcervo } : {}),
+            },
+            orderBy: { dataDisponibilizacao: 'desc' },
+            take: 40,
+            select: {
+              id: true, link: true, tipoComunicacao: true, nomeOrgao: true, providencia: true,
+              prazoMencionadoDias: true, dataDisponibilizacao: true, compromissoId: true,
+              compromisso: { select: { status: true } },
+              processo: {
+                select: {
+                  id: true, numeroCNJ: true,
+                  /**
+                    * QUEM ESTÁ DO OUTRO LADO — é isso que distingue um processo do
+                    * outro nesta base.
+                    *
+                    * "De quem é o processo" tem resposta ruim aqui: só 4 dos 127
+                    * processos têm filiado vinculado, e o polo ativo é o próprio
+                    * sindicato em 93 deles. Repetir "SINDICATO DOS ENFERMEIROS…"
+                    * em toda linha não informa nada. O réu — FMS/THE, Unimed,
+                    * Hapvida — informa.
+                    */
+                  partes: {
+                    select: { nome: true, polo: true, principal: true, parteExternaId: true },
+                  },
+                  advogado: { select: { id: true, nome: true, nomeExibicao: true } },
+                },
+              },
+            },
+          }),
+      /**
+       * A ORGANIZAÇÃO DO PRÓPRIO SINDICATO, achada pelo CNPJ do tenant.
+       *
+       * É o que permite dizer CONTRA QUEM é cada processo sem comparar nome:
+       * nas partes importadas dos tribunais o sindicato aparece grafado de
+       * várias formas e sem a sigla. Nulo é aceitável — o painel só deixa de
+       * mostrar o adversário, não quebra.
+       */
+      this.prisma.parteExterna.findFirst({
+        where: { documento: tenant.cnpj.replace(/\D/g, '') },
+        select: { id: true },
       }),
+      /**
+       * CONTRA QUEM O SINDICATO MAIS LITIGA.
+       *
+       * Um sindicato processa os MESMOS empregadores repetidamente — medido
+       * na produção: FMS/THE em 10 processos, Unimed em 7, Hapvida em 6. Essa
+       * é a leitura que o jurídico sindical faz e que nenhuma tela mostrava:
+       * é o que sustenta uma negociação coletiva, um TAC, uma ação civil
+       * pública no lugar de dez individuais.
+       *
+       * Agrupado pela ORGANIZAÇÃO, não pelo nome — o mesmo réu chega dos
+       * tribunais grafado de várias formas.
+       */
+      !veProcessos
+        // O array vazio precisa do tipo: sem ele o TypeScript infere `never[]`
+        // e o `.filter` abaixo passa a operar sobre `never`.
+        ? Promise.resolve<{ parteExternaId: string | null; _count: { processoId: number } }[]>([])
+        : this.prisma.parteProcesso.groupBy({
+            by: ['parteExternaId'],
+            where: {
+              parteExternaId: { not: null },
+              processo: {
+                statusInterno: StatusProcesso.ATIVO,
+                ...(souAdvogado ? meuAcervo : {}),
+              },
+            },
+            _count: { processoId: true },
+          }),
     ]);
+
+    /**
+     * ADVERSÁRIOS RECORRENTES — resolve os nomes e tira o próprio sindicato.
+     *
+     * O `groupBy` devolve id e contagem; o nome vem em uma consulta só, para os
+     * que sobraram. Menos de três processos não é padrão, é coincidência — o
+     * corte evita uma lista com quarenta nomes de uma ocorrência cada.
+     */
+    const MINIMO_PARA_SER_PADRAO = 3;
+    const adversarios = await (async () => {
+      if (!veProcessos) return [];
+      const relevantes = adversariosRaw
+        .filter(
+          (a) =>
+            a.parteExternaId &&
+            a.parteExternaId !== organizacaoDoSindicato?.id &&
+            a._count.processoId >= MINIMO_PARA_SER_PADRAO,
+        )
+        .sort((a, b) => b._count.processoId - a._count.processoId)
+        .slice(0, 6);
+      if (!relevantes.length) return [];
+
+      const orgs = await this.prisma.parteExterna.findMany({
+        where: { id: { in: relevantes.map((a) => a.parteExternaId!) } },
+        select: { id: true, nome: true, nomeFantasia: true, tipo: true },
+      });
+      const porId = new Map(orgs.map((o) => [o.id, o]));
+      return relevantes
+        .map((a) => {
+          const org = porId.get(a.parteExternaId!);
+          if (!org) return null;
+          return {
+            id: org.id,
+            // O nome fantasia é o que a equipe usa na conversa ("Hapvida"), e o
+            // razão social é o que o tribunal escreve. Prefere o curto.
+            nome: org.nomeFantasia || org.nome,
+            tipo: org.tipo,
+            processos: a._count.processoId,
+          };
+        })
+        .filter((a): a is NonNullable<typeof a> => a !== null);
+    })();
 
     // "Próximo plantão": advogados da primeira data futura com escala.
     let proximoPlantao: { data: Date; advogados: typeof proximasEscalas[number]['advogado'][] } | null = null;
@@ -670,7 +887,14 @@ export class DashboardService {
         djenUltimaPublicacao?.createdAt ?? null,
         djenRecentes,
         agora,
+        souAdvogado ? 'PESSOAL' : 'GLOBAL',
+        organizacaoDoSindicato?.id ?? null,
       ),
+      /**
+       * Contra quem o sindicato mais litiga hoje. Vazio quando ninguém
+       * aparece três vezes — e aí a tela não desenha o bloco.
+       */
+      adversarios,
       equipeHoje: { plantaoHoje, proximoPlantao },
       /**
        * Saúde do robô do DataJud. Existe porque a ausência de alerta era
@@ -798,9 +1022,7 @@ export class DashboardService {
    *   PARADO       parado há mais de 3 dias: aí sim algo está errado
    */
   /**
-   * SITUAÇÃO DO ROBÔ DO DJEN — a mesma pergunta que `situacaoRobo` responde
-   * para o DataJud, e pela mesma razão: sem ela, "nenhuma publicação" e "o robô
-   * não roda" viram a mesma tela.
+   * SITUAÇÃO DO DJEN — a mesma pergunta que o robô do DataJud responde.
    *
    * A ordem das perguntas importa, e a primeira NÃO é "faz quanto tempo?":
    *
@@ -815,10 +1037,12 @@ export class DashboardService {
    */
   private situacaoDjen(
     ativa: boolean,
-    publicacoes7d: number,
+    linksDaSemana: { link: string | null }[],
     ultimaEm: Date | null,
-    recentes: unknown[],
+    recentesBrutas: PublicacaoBruta[],
     agora: Date,
+    escopo: 'GLOBAL' | 'PESSOAL',
+    idDoSindicato: string | null,
   ) {
     const HORA = 3_600_000;
     const horasSemNada = ultimaEm ? (agora.getTime() - ultimaEm.getTime()) / HORA : null;
@@ -831,18 +1055,75 @@ export class DashboardService {
           ? 'EM_DIA'
           : 'SILENCIOSA';
 
+    /**
+     * O VOLUME CONTA ATOS, NÃO CÓPIAS. Ver a consulta: o `link` é a identidade
+     * do documento no tribunal, e a mesma intimação chega uma vez por
+     * destinatário. Sem link (nunca aconteceu nas 136 medidas, mas o campo é
+     * opcional), cada linha conta por si — é o palpite seguro.
+     */
+    const atos = new Set(
+      linksDaSemana.map((c, i) => c.link ?? `sem-link-${i}`),
+    );
+
     return {
       ativa,
       situacao,
-      /** Publicações disponibilizadas nos últimos 7 dias, do acervo cadastrado. */
-      publicacoes7d,
+      /** ATOS disponibilizados nos últimos 7 dias, já sem as cópias. */
+      publicacoes7d: atos.size,
       ultimaEm,
+      /** GLOBAL para gestão e triagem; PESSOAL para o advogado. */
+      escopo,
       /**
        * As que pedem providência — e só elas. Ver a consulta: edital e lista de
        * distribuição chegam às dezenas e afogariam a intimação com prazo.
        */
-      recentes: ativa ? recentes : [],
+      recentes: ativa ? this.resumirPublicacoes(recentesBrutas, idDoSindicato) : [],
     };
+  }
+
+  /**
+   * Agrupa as cópias e resolve, para cada ato, a informação que a linha do
+   * painel precisa: contra quem é, de quem é, e se já virou trabalho.
+   */
+  private resumirPublicacoes(brutas: PublicacaoBruta[], idDoSindicato: string | null) {
+    const porAto = new Map<string, PublicacaoBruta[]>();
+    for (const pub of brutas) {
+      const chave = pub.link ?? `id:${pub.id}`;
+      const grupo = porAto.get(chave);
+      if (grupo) grupo.push(pub);
+      else porAto.set(chave, [pub]);
+    }
+
+    return [...porAto.values()].slice(0, 6).map((grupo) => {
+      const pub = grupo[0];
+      return {
+        id: pub.id,
+        tipoComunicacao: pub.tipoComunicacao,
+        nomeOrgao: pub.nomeOrgao,
+        providencia: pub.providencia,
+        prazoMencionadoDias: pub.prazoMencionadoDias,
+        dataDisponibilizacao: pub.dataDisponibilizacao,
+        compromissoId: pub.compromissoId,
+        /**
+         * A tarefa existe E está ABERTA?
+         *
+         * `compromissoId` preenchido não basta: a atividade pode ter sido
+         * concluída ou cancelada, e nos dois casos a publicação volta a ser
+         * uma notícia sem dono. É a diferença entre "alguém está cuidando" e
+         * "isto pediu algo e ninguém pegou".
+         */
+        temTarefaAberta:
+          pub.compromisso?.status === 'PENDENTE' || pub.compromisso?.status === 'EM_ANDAMENTO',
+        /** Quantos destinatários receberam a MESMA comunicação. */
+        copias: grupo.length,
+        processo: pub.processo && {
+          id: pub.processo.id,
+          numeroCNJ: pub.processo.numeroCNJ,
+          adversario: adversarioDoProcesso(pub.processo.partes, idDoSindicato),
+          advogado: pub.processo.advogado,
+        },
+      };
+    });
   }
 
   private situacaoRobo(

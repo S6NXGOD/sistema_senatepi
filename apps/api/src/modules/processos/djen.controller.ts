@@ -14,6 +14,7 @@ import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DjenService } from './djen.service';
@@ -72,6 +73,11 @@ export class BuscaPublicacoesDto {
   @IsOptional()
   @IsIn(['COM_TAREFA', 'SEM_TAREFA'])
   situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+
+  @ApiPropertyOptional({ description: 'Só as publicações dos processos de quem está pedindo.' })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  meus?: 'true' | 'false';
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
@@ -137,8 +143,18 @@ export class DjenController {
   @Get('publicacoes')
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Procura no que já foi baixado: teor, parte, advogado, OAB ou NPU.' })
-  buscar(@Query() filtro: BuscaPublicacoesDto) {
-    return this.busca.buscar(filtro);
+  buscar(@Query() filtro: BuscaPublicacoesDto, @CurrentUser() user: AuthUser) {
+    /**
+     * O ESCOPO VEM DO TOKEN, NUNCA DO CLIENTE.
+     *
+     * O parâmetro é um booleano — "quero só os meus" — e o id de quem são "os
+     * meus" sai do usuário autenticado. Aceitar um `advogadoId` na query
+     * deixaria qualquer um ler o acervo de qualquer colega mudando a URL.
+     */
+    return this.busca.buscar({
+      ...filtro,
+      meusProcessosDe: filtro.meus === 'true' ? user.id : undefined,
+    });
   }
 
   /** Tribunais e providências presentes no acervo — alimenta os filtros. */

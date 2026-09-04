@@ -17,6 +17,7 @@ import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from '@/components/processos/publicacao-djen-card';
 import { formatNPU } from '@/lib/processos';
 import { STATUS_LABEL, type StatusCompromisso } from '@/lib/agenda';
+import { useAuth } from '@/lib/auth';
 
 /**
  * O ACERVO DE PUBLICAÇÕES, PROCURÁVEL.
@@ -40,6 +41,22 @@ export default function PublicacoesPage() {
   const [tribunal, setTribunal] = useState('');
   const [situacao, setSituacao] = useState<'' | 'COM_TAREFA' | 'SEM_TAREFA'>('');
   const [pagina, setPagina] = useState(1);
+
+  /**
+   * O ADVOGADO ABRE NA PRÓPRIA CARTEIRA.
+   *
+   * Nove advogados dividem o acervo, e o padrão "tudo" faria cada um chegar
+   * numa lista em que oito de cada nove linhas não são dele. Quem coordena
+   * abre no global, que é o trabalho dele. Os dois trocam num clique.
+   */
+  const { user } = useAuth();
+  const [soMeus, setSoMeus] = useState(false);
+  const [escopoDefinido, setEscopoDefinido] = useState(false);
+  useEffect(() => {
+    if (escopoDefinido || !user) return;
+    setSoMeus(user.role === 'ADVOGADO');
+    setEscopoDefinido(true);
+  }, [user, escopoDefinido]);
 
   // Digitar não dispara requisição a cada tecla: 400ms é o intervalo em que a
   // pessoa termina de escrever uma palavra.
@@ -66,9 +83,10 @@ export default function PublicacoesPage() {
       providencia: providencia || undefined,
       tribunal: tribunal || undefined,
       situacao: situacao || undefined,
+      meus: soMeus ? ('true' as const) : undefined,
       pagina,
     }),
-    [busca, providencia, tribunal, situacao, pagina],
+    [busca, providencia, tribunal, situacao, soMeus, pagina],
   );
 
   const { data, isLoading, isFetching } = useQuery({
@@ -118,6 +136,36 @@ export default function PublicacoesPage() {
           acervo — de qualquer tribunal do país.
         </p>
       </header>
+
+      {/*
+        DOIS BOTÕES, NÃO UM SELETOR: são dois modos de trabalho, não um filtro
+        entre muitos. No celular ocupam a linha inteira e o alvo do dedo é o
+        botão todo.
+      */}
+      <div className="flex rounded-lg border p-0.5">
+        {[
+          { valor: true, texto: 'Meus processos' },
+          { valor: false, texto: 'Todo o acervo' },
+        ].map((op) => (
+          <button
+            key={String(op.valor)}
+            type="button"
+            onClick={() => {
+              setSoMeus(op.valor);
+              setPagina(1);
+            }}
+            aria-pressed={soMeus === op.valor}
+            className={cn(
+              'flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition',
+              soMeus === op.valor
+                ? 'bg-brand-700 text-white dark:bg-brand-600'
+                : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            {op.texto}
+          </button>
+        ))}
+      </div>
 
       {/*
         A BUSCA É O CONTROLE PRINCIPAL: campo largo, primeiro, sozinho na linha
@@ -222,7 +270,9 @@ export default function PublicacoesPage() {
           <Inbox className="mx-auto mb-2 h-6 w-6 opacity-60" />
           {temFiltro
             ? 'Nada encontrado com esses filtros.'
-            : 'Nenhuma publicação no acervo ainda. A varredura roda todo dia às 5h.'}
+            : soMeus
+              ? 'Nenhuma publicação nos seus processos. Veja todo o acervo para as dos colegas.'
+              : 'Nenhuma publicação no acervo ainda. A varredura roda todo dia às 5h.'}
         </Card>
       ) : (
         <ul className="space-y-2">

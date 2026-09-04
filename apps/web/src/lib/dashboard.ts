@@ -149,8 +149,11 @@ export interface ResumoDashboard {
      * SILENCIOSA  já trouxe antes e parou há mais de 48h
      */
     situacao: 'DESLIGADA' | 'PRIMEIRA' | 'EM_DIA' | 'SILENCIOSA';
+    /** ATOS dos últimos 7 dias — já sem as cópias por destinatário. */
     publicacoes7d: number;
     ultimaEm: string | null;
+    /** PESSOAL para o advogado (só o acervo dele); GLOBAL para os demais. */
+    escopo: 'GLOBAL' | 'PESSOAL';
     /** Só as que pedem providência — edital e lista de distribuição ficam fora. */
     recentes: {
       id: string;
@@ -160,9 +163,29 @@ export interface ResumoDashboard {
       prazoMencionadoDias: number | null;
       dataDisponibilizacao: string;
       compromissoId: string | null;
-      processo: { id: string; numeroCNJ: string | null } | null;
+      /** A atividade existe E está aberta? Concluída/cancelada não conta. */
+      temTarefaAberta: boolean;
+      /** Quantos destinatários receberam a MESMA comunicação. */
+      copias: number;
+      processo: {
+        id: string;
+        numeroCNJ: string | null;
+        /** Quem está do outro lado — é o que distingue um processo do outro. */
+        adversario: string | null;
+        advogado: { id: string; nome: string; nomeExibicao: string | null } | null;
+      } | null;
     }[];
   };
+  /**
+   * Contra quem o sindicato mais litiga — organizações com três ou mais
+   * processos ativos. Vazio quando não há padrão; a tela não desenha.
+   */
+  adversarios: {
+    id: string;
+    nome: string;
+    tipo: string;
+    processos: number;
+  }[];
   robo: {
     /**
      * SEM_OBJETO  nada monitorado — o robô não tem o que varrer (sem alerta)

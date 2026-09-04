@@ -169,6 +169,42 @@ describe('o painel', () => {
   it('cada linha leva à atividade ou ao processo', () => {
     const bloco = BLOCO_DJEN;
     expect(bloco).toContain('`/agenda?compromisso=${pub.compromissoId}`');
-    expect(bloco).toContain('`/processos?processo=${pub.processo?.id ?? ""}`');
+    expect(bloco).toContain("`/processos?processo=${pub.processo?.id ?? ''}`");
+  });
+
+  /**
+   * A LINHA LEVA À AGENDA SÓ SE A TAREFA ESTIVER ABERTA.
+   *
+   * `compromissoId` preenchido não basta: a atividade pode ter sido concluída
+   * ou cancelada, e o link levaria a uma tarefa que ninguém vai executar. Nesse
+   * caso o destino certo é o processo, onde está o teor e o histórico.
+   */
+  it('tarefa fechada manda para o processo, não para a agenda', () => {
+    expect(BLOCO_DJEN).toContain('pub.compromissoId && pub.temTarefaAberta');
+  });
+
+  /**
+   * O PAINEL É RESUMO — seis atos de sete dias. A pergunta "e o resto?" tem
+   * resposta: /publicacoes, com busca e paginação. Sem o link, o bloco seria um
+   * beco: mostra cinco itens e não diz que existem cento e trinta.
+   */
+  it('oferece o caminho para o acervo inteiro', () => {
+    expect(BLOCO_DJEN).toContain('href="/publicacoes"');
+    expect(BLOCO_DJEN).toContain('{djen.publicacoes7d} em 7 dias · ver todas');
+  });
+
+  /**
+   * CONTRA QUEM, e não DE QUEM. Medido em 04/09/2026: só 4 dos 127 processos
+   * têm filiado vinculado e o sindicato é o polo ativo em 93 — o nome dele em
+   * toda linha não distingue nada. O réu distingue.
+   */
+  it('cada linha diz contra quem é o processo', () => {
+    expect(BLOCO_DJEN).toContain('× {pub.processo.adversario}');
+  });
+
+  /** Publicação que pediu algo e ninguém pegou é o único risco desta lista. */
+  it('marca a publicação que não virou tarefa', () => {
+    expect(BLOCO_DJEN).toContain('· sem tarefa');
+    expect(BLOCO_DJEN).toContain('border-2 border-amber-500');
   });
 });

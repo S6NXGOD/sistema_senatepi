@@ -24,7 +24,8 @@ import {
   BotaoFiltros, FichasDeFiltro, FILTROS_VAZIOS, PainelDeFiltros, contarFiltros,
   type FiltrosProcesso,
 } from '@/components/processos/painel-de-filtros';
-import type { ParteExterna } from '@/lib/partes';
+import { getParteExterna, type ParteExterna } from '@/lib/partes';
+import { toast } from 'sonner';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
@@ -156,6 +157,25 @@ function ListaProcessos() {
   useFiltroPorUrl('meus', () => setRapido('meus'), '/processos');
   useFiltroPorUrl('semReu', () => setRapido('semReu'), '/processos');
   useFiltroPorUrl('semFiliado', () => setRapido('semFiliado'), '/processos');
+
+  /**
+   * `?parteExternaId=<id>` filtra pela parte contrária.
+   *
+   * É o link do bloco "Contra quem litigamos" da home. O chip do filtro
+   * mostra o NOME, e a URL só carrega o id — então busca-se a organização
+   * uma vez. Passar o nome na URL evitaria a chamada e criaria um jeito de a
+   * tela mentir: link velho continuaria exibindo o nome antigo depois de uma
+   * mesclagem de organizações.
+   */
+  useFiltroPorUrl(
+    'parteExternaId',
+    (id) => {
+      getParteExterna(id)
+        .then((org) => setParte({ id: org.id, nome: org.nome } as ParteExterna))
+        .catch(() => toast.error('Não foi possível abrir o filtro por parte contrária.'));
+    },
+    '/processos',
+  );
 
   useEffect(() => {
     const t = setTimeout(() => {

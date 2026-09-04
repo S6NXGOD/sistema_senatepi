@@ -26,6 +26,14 @@ export interface FiltroBuscaDjen {
   tribunal?: string;
   /** COM_TAREFA | SEM_TAREFA — separa o que já virou trabalho do que não. */
   situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+  /**
+   * Só os processos DESTE usuário.
+   *
+   * Mesma régua do filtro "meus" da tela de Processos: inclui o processo que a
+   * pessoa acompanha sem ser a responsável principal. Nove advogados dividem
+   * o acervo; sem o recorte, cada um procura no acervo dos outros oito.
+   */
+  meusProcessosDe?: string;
   pagina?: number;
   limite?: number;
 }
@@ -59,6 +67,9 @@ export class DjenBuscaService {
     if (filtro.tribunal) where.push({ siglaTribunal: filtro.tribunal.toUpperCase() });
     if (filtro.situacao === 'COM_TAREFA') where.push({ compromissoId: { not: null } });
     if (filtro.situacao === 'SEM_TAREFA') where.push({ compromissoId: null });
+    if (filtro.meusProcessosDe) {
+      where.push({ processo: { advogados: { some: { advogadoId: filtro.meusProcessosDe } } } });
+    }
 
     const termo = (filtro.q ?? '').trim();
     if (termo) {

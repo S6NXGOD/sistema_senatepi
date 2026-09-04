@@ -9,7 +9,7 @@ import {
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
   Newspaper,
-  FileCheck2, Hourglass, Headset,
+  FileCheck2, Hourglass, Headset, Swords,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -458,8 +458,14 @@ function Conteudo({
           O card se esconde sozinho em dia sem aniversário. */}
       {!ehTriagem && pode.filiados && <Aniversariantes data={data} />}
 
-      {/* Movimentações DataJud */}
-      {pode.processos && <MovimentacoesRecentes data={data} />}
+      {/* Leitura de acervo: com quem brigamos, e o que andou nos processos.
+          As duas são contexto, não alerta — por isso ficam no rodapé. */}
+      {pode.processos && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <AdversariosRecorrentes data={data} />
+          <MovimentacoesRecentes data={data} />
+        </div>
+      )}
     </>
   );
 }
@@ -577,6 +583,7 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
   if (!djen.ativa) return null;
 
   const desde = djen.ultimaEm ? idadeDoDado(new Date(djen.ultimaEm).getTime()) : null;
+  const pessoal = djen.escopo === 'PESSOAL';
 
   if (djen.situacao === 'PRIMEIRA') {
     return (
@@ -601,14 +608,22 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <Newspaper className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            Publicações que pedem providência
+            {pessoal ? 'Publicações nos seus processos' : 'Publicações que pedem providência'}
           </p>
-          <span className="text-xs text-muted-foreground">
-            {djen.publicacoes7d} no{" "}total em 7 dias
-          </span>
+          {/*
+            "Ver todas" é a resposta à paginação: o painel é RESUMO — seis atos
+            dos últimos sete dias. O acervo inteiro, procurável por parte,
+            advogado, OAB e teor, mora em /publicacoes.
+          */}
+          <Link
+            href="/publicacoes"
+            className="text-xs font-medium text-brand-800 hover:underline dark:text-brand-300"
+          >
+            {djen.publicacoes7d} em 7 dias · ver todas
+          </Link>
         </div>
 
         <ul className="divide-y">
@@ -616,29 +631,61 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
             <li key={pub.id} className="py-2 first:pt-0 last:pb-0">
               <Link
                 href={
-                  pub.compromissoId
+                  pub.compromissoId && pub.temTarefaAberta
                     ? `/agenda?compromisso=${pub.compromissoId}`
-                    : `/processos?processo=${pub.processo?.id ?? ""}`
+                    : `/processos?processo=${pub.processo?.id ?? ''}`
                 }
-                className="flex items-start gap-3 rounded-lg px-2 py-1.5 -mx-2 transition hover:bg-muted/60"
+                className="-mx-2 flex items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
               >
-                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+                {/*
+                  O PONTO DIZ SE ALGUÉM PEGOU. Sólido = já virou tarefa aberta
+                  na agenda; vazado = o ato pediu algo e ninguém pegou, que é o
+                  único estado desta lista que representa risco.
+                */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                    pub.temTarefaAberta
+                      ? 'bg-indigo-500'
+                      : 'border-2 border-amber-500 bg-transparent',
+                  )}
+                />
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-sm font-medium">
                       {pub.providencia && PROVIDENCIA_LABEL[pub.providencia]
                         ? PROVIDENCIA_LABEL[pub.providencia]
-                        : (pub.tipoComunicacao ?? "Publicação")}
+                        : (pub.tipoComunicacao ?? 'Publicação')}
                     </span>
-                    {pub.processo?.numeroCNJ && (
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        {formatNPU(pub.processo.numeroCNJ)}
+                    {/*
+                      CONTRA QUEM — é o que distingue um processo do outro aqui.
+                      "De quem é" seria o filiado, e ele existe em 4 dos 127
+                      processos; o autor é o próprio sindicato em 93 deles, e
+                      repetir o nome dele em toda linha não informa nada.
+                    */}
+                    {pub.processo?.adversario && (
+                      <span className="min-w-0 truncate text-xs text-muted-foreground">
+                        × {pub.processo.adversario}
                       </span>
                     )}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                    <span>{new Date(pub.dataDisponibilizacao).toLocaleDateString("pt-BR")}</span>
-                    {pub.nomeOrgao && <span className="truncate">· {pub.nomeOrgao}</span>}
+                    <span>{new Date(pub.dataDisponibilizacao).toLocaleDateString('pt-BR')}</span>
+                    {pub.processo?.numeroCNJ && (
+                      <span className="font-mono text-[11px]">
+                        · {formatNPU(pub.processo.numeroCNJ)}
+                      </span>
+                    )}
+                    {/*
+                      O advogado só aparece para quem NÃO é o dono da lista: na
+                      tela do próprio advogado seria o nome dele em toda linha.
+                    */}
+                    {!pessoal && pub.processo?.advogado && (
+                      <span className="truncate">
+                        · {primeiroENome(pub.processo.advogado)}
+                      </span>
+                    )}
                     {/*
                       O prazo é o que o TEXTO menciona, não um vencimento
                       calculado — a contagem oficial depende de dia útil
@@ -647,6 +694,11 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
                     {pub.prazoMencionadoDias != null && (
                       <span className="font-medium text-amber-700 dark:text-amber-400">
                         · menciona {pub.prazoMencionadoDias} dias
+                      </span>
+                    )}
+                    {!pub.temTarefaAberta && (
+                      <span className="font-medium text-amber-700 dark:text-amber-400">
+                        · sem tarefa
                       </span>
                     )}
                   </span>
@@ -659,6 +711,11 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
       </CardContent>
     </Card>
   );
+}
+
+/** Primeiro nome, ou o apelido que a pessoa escolheu. */
+function primeiroENome(p: { nome: string; nomeExibicao: string | null }): string {
+  return p.nomeExibicao || p.nome.split(/\s+/)[0];
 }
 
 function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
@@ -1126,6 +1183,63 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
           ))}
         </ul>
       )}
+    </SectionCard>
+  );
+}
+
+/**
+ * CONTRA QUEM O SINDICATO LITIGA — a leitura que faltava.
+ *
+ * Um sindicato não processa cento e vinte réus diferentes: processa os mesmos
+ * empregadores, de novo e de novo. Na produção, FMS/THE aparece em 10 processos
+ * ativos, Unimed em 7, Hapvida em 6 — e nenhuma tela dizia isso. É a informação
+ * que sustenta a decisão de sentar para negociar, propor um TAC ou trocar dez
+ * ações individuais por uma coletiva.
+ *
+ * Três processos é o piso: menos que isso é coincidência, não padrão. O bloco
+ * some sozinho quando ninguém alcança o piso.
+ */
+function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
+  const itens = data.adversarios;
+  if (!itens.length) return null;
+  const maior = itens[0].processos;
+
+  return (
+    <SectionCard title="Contra quem litigamos" icon={Swords} count={itens.length}>
+      <ul className="space-y-1">
+        {itens.map((a) => (
+          <li key={a.id}>
+            <Link
+              href={`/processos?parteExternaId=${a.id}`}
+              className="-mx-2 block rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
+            >
+              <span className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 truncate text-sm">{a.nome}</span>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  {a.processos}
+                </span>
+              </span>
+              {/*
+                A barra é comparação, não decoração: sem ela, "10, 7, 6, 5" é
+                uma coluna de números que ninguém lê. Com ela, dá para ver de
+                relance que um réu pesa o dobro do outro.
+              */}
+              <span
+                aria-hidden
+                className="mt-1 block h-1 rounded-full bg-brand-100 dark:bg-brand-950/50"
+              >
+                <span
+                  className="block h-full rounded-full bg-brand-600 dark:bg-brand-500"
+                  style={{ width: `${Math.round((a.processos / maior) * 100)}%` }}
+                />
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+        Processos ativos por parte contrária. Clique para ver a lista.
+      </p>
     </SectionCard>
   );
 }
