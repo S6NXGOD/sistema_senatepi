@@ -928,7 +928,13 @@ export function ProcessoDetalheSheet({
             <div className="mt-2 hidden sm:block">
               {editandoEtiquetas ? (
                 <div className="space-y-2 rounded-lg border p-3">
-                  <EtiquetasInput valor={etiquetasEdit} onChange={setEtiquetasEdit} />
+                  <EtiquetasInput
+                    valor={etiquetasEdit}
+                    onChange={setEtiquetasEdit}
+                    /* Mesma ordenação do modal de importação: o que o acervo
+                       usa contra ESTE réu vem primeiro. */
+                    parteExternaId={p.polos?.confronto?.reu?.parteExternaId ?? undefined}
+                  />
                   <p className="text-[11px] leading-snug text-muted-foreground">
                     Aqui ficam só as etiquetas que dependem de julgamento seu. Fase de execução,
                     recurso, ação coletiva e perícia o sistema deduz sozinho dos dados do processo —

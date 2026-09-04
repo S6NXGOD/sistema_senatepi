@@ -433,7 +433,9 @@ export class PartesService {
    * `partes.controller.ts` para por que a lista fixa que existia antes estava
    * errada.
    */
-  async etiquetasDoAcervo(): Promise<{ etiqueta: string; processos: number }[]> {
+  async etiquetasDoAcervo(
+    parteExternaId?: string,
+  ): Promise<{ etiqueta: string; processos: number; noReu?: number }[]> {
     const linhas = await this.prisma.$queryRaw<{ etiqueta: string; processos: bigint }[]>`
       SELECT e AS etiqueta, count(*) AS processos
         FROM processos, unnest(coalesce(etiquetas, ARRAY[]::text[])) AS e
@@ -442,7 +444,49 @@ export class PartesService {
        ORDER BY 2 DESC, 1 ASC
        LIMIT 60
     `;
-    return linhas.map((l) => ({ etiqueta: l.etiqueta, processos: Number(l.processos) }));
+    const geral = linhas.map((l) => ({ etiqueta: l.etiqueta, processos: Number(l.processos) }));
+    if (!parteExternaId) return geral;
+
+    /*
+      O QUE O ACERVO JÁ USOU CONTRA ESTE RÉU.
+
+      A ÚNICA automação de etiqueta que os dados sustentam — e sustentam só
+      pela metade, por isso ela ORDENA e nunca marca sozinha. Medido em
+      04/09/2026, entre os oito réus com 3+ processos etiquetados, a etiqueta
+      dominante cobre 70% ou mais em QUATRO: UNIMED tem `RETALIAÇÃO` nos sete,
+      HAPVIDA em cinco de seis — e FMS/THE, o maior réu, fica em 33%.
+
+      (As outras duas hipóteses foram medidas e DESCARTADAS: o assunto do CNJ
+      não prevê o pedido — "Assistência Judiciária Gratuita" é o assunto de
+      processos etiquetados INSALUBRIDADE, REAJUSTE e SELETIVO SIMPLIFICADO —
+      e o ano da distribuição não prevê a CCT: `CCT 2018/2020` aparece em
+      processos de 2021 a 2025.)
+    */
+    /*
+      A COMPARAÇÃO É TEXTO CONTRA TEXTO, sem cast.
+
+      `parte_externa_id` é TEXT (o Prisma gera cuid, não uuid). Eu tinha escrito
+      `= $1::uuid` por hábito, e o Postgres recusa a comparação inteira:
+      "operator does not exist: text = uuid". Vira 500 na tela — e só apareceu
+      quando rodei a consulta contra dados de verdade, porque o teste anterior
+      bateu numa API antiga que ainda estava de pé na porta.
+    */
+    const doReu = await this.prisma.$queryRaw<{ etiqueta: string; processos: bigint }[]>`
+      SELECT e AS etiqueta, count(*) AS processos
+        FROM processos p, unnest(coalesce(p.etiquetas, ARRAY[]::text[])) AS e
+       WHERE trim(e) <> ''
+         AND EXISTS (
+           SELECT 1 FROM partes_processo pp
+            WHERE pp.processo_id = p.id
+              AND pp.polo = 'PASSIVO'
+              AND pp.parte_externa_id = ${parteExternaId}
+         )
+       GROUP BY 1
+       ORDER BY 2 DESC, 1 ASC
+       LIMIT 20
+    `;
+    const mapa = new Map(doReu.map((l) => [l.etiqueta, Number(l.processos)]));
+    return geral.map((g) => (mapa.has(g.etiqueta) ? { ...g, noReu: mapa.get(g.etiqueta) } : g));
   }
 
   async sincronizarAtalhos(tx: Prisma.TransactionClient, processoId: string) {

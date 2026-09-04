@@ -76,7 +76,7 @@ function Grupo({
   onEscolher,
 }: {
   titulo?: string;
-  itens: { etiqueta: string; processos: number }[];
+  itens: { etiqueta: string; processos: number; noReu?: number }[];
   onEscolher: (e: string) => void;
 }) {
   return (
@@ -98,7 +98,18 @@ function Grupo({
             )}
           >
             {e.etiqueta}
-            <span className="text-[10px] tabular-nums text-muted-foreground/70">{e.processos}</span>
+            {/*
+              O NÚMERO CONTRA ESTE RÉU, quando há réu. É o que transforma
+              "existe no acervo" em "é disto que costumam ser as ações contra
+              esta empresa" — e continua sendo o operador quem decide.
+            */}
+            {e.noReu ? (
+              <span className="rounded bg-brand-100 px-1 text-[10px] font-semibold tabular-nums text-brand-900 dark:bg-brand-900/40 dark:text-brand-300">
+                {e.noReu} neste réu
+              </span>
+            ) : (
+              <span className="text-[10px] tabular-nums text-muted-foreground/70">{e.processos}</span>
+            )}
           </button>
         ))}
       </div>
@@ -111,10 +122,22 @@ export function EtiquetasInput({
   onChange,
   compacto,
   automaticas = [],
+  parteExternaId,
 }: {
   valor: string[];
   onChange: (v: string[]) => void;
   compacto?: boolean;
+  /**
+   * O RÉU PRINCIPAL, quando já escolhido — as etiquetas que o acervo usa
+   * contra ELE sobem para o topo, marcadas.
+   *
+   * É a única automação que os dados sustentam, e sustentam pela METADE: entre
+   * os oito réus com 3+ processos etiquetados, a dominante cobre 70%+ em
+   * quatro (UNIMED: `RETALIAÇÃO` em 7 de 7; FMS/THE: 33%). Por isso ORDENA e
+   * não marca — etiqueta errada que parece deliberada é pior que etiqueta
+   * ausente, porque vira filtro e vira relatório.
+   */
+  parteExternaId?: string;
   /**
    * Quais destas etiquetas o SISTEMA deduziu (raio ⚡).
    *
@@ -127,10 +150,23 @@ export function EtiquetasInput({
   automaticas?: string[];
 }) {
   const [texto, setTexto] = useState('');
+  /**
+   * A LISTA COMEÇA FECHADA.
+   *
+   * Dezenove etiquetas viravam doze bolinhas em dois grupos mais duas linhas de
+   * explicação — tudo isso Á MOSTRA antes de a pessoa fazer qualquer coisa,
+   * num modal que já rola. Etiqueta é campo OPCIONAL: ela não pode ocupar mais
+   * espaço que o número do processo.
+   *
+   * Abre ao focar o campo, ao digitar, ou no botão — e some ao escolher.
+   */
+  const [aberto, setAberto] = useState(false);
+  /** "Ver todas" solta o teto de sugestões por grupo. */
+  const [verTodas, setVerTodas] = useState(false);
 
   const { data: doAcervo = [] } = useQuery({
-    queryKey: ['etiquetas-do-acervo'],
-    queryFn: etiquetasDoAcervo,
+    queryKey: ['etiquetas-do-acervo', parteExternaId ?? ''],
+    queryFn: () => etiquetasDoAcervo(parteExternaId),
     staleTime: 5 * 60_000,
   });
 
@@ -139,6 +175,10 @@ export function EtiquetasInput({
     if (!limpa || valor.includes(limpa) || valor.length >= 12) return;
     onChange([...valor, limpa]);
     setTexto('');
+    // Fecha ao escolher: quem marcou uma etiqueta em geral acabou ali, e a
+    // lista aberta por baixo empurra o resto do formulário para longe.
+    setAberto(false);
+    setVerTodas(false);
   }
   const remover = (e: string) => onChange(valor.filter((x) => x !== e));
 
@@ -154,13 +194,31 @@ export function EtiquetasInput({
     const filtradas = termo
       ? candidatas.filter((e) => normalizarTexto(e.etiqueta).includes(termo))
       : candidatas;
+
+    /*
+      O QUE JÁ SE USOU CONTRA ESTE RÉU vem primeiro. Sem réu escolhido, `noReu`
+      é indefinido em todas e a ordem por frequência do acervo se mantém.
+    */
+    const porRelevancia = [...filtradas].sort(
+      (a, b) => (b.noReu ?? 0) - (a.noReu ?? 0) || b.processos - a.processos,
+    );
+
+    /*
+      SEM TERMO, TRÊS DE CADA — e "ver todas" para o resto. Mostrar dezesseis
+      bolinhas para escolher uma é pedir que a pessoa leia dezesseis nomes; com
+      algo digitado o corte sobe, porque aí a lista já está filtrada pelo que
+      ela quer.
+    */
+    const teto = texto.trim() || verTodas ? 12 : 3;
     return {
-      convencao: filtradas.filter((e) => ehPeriodoDeConvencao(e.etiqueta)).slice(0, 6),
-      pedido: filtradas.filter((e) => !ehPeriodoDeConvencao(e.etiqueta)).slice(0, 10),
+      convencao: porRelevancia.filter((e) => ehPeriodoDeConvencao(e.etiqueta)).slice(0, teto),
+      pedido: porRelevancia.filter((e) => !ehPeriodoDeConvencao(e.etiqueta)).slice(0, teto),
+      total: filtradas.length,
     };
-  }, [doAcervo, valor, texto]);
+  }, [doAcervo, valor, texto, verTodas]);
 
   const todasSugeridas = [...sugestoes.convencao, ...sugestoes.pedido];
+  const escondidas = sugestoes.total - todasSugeridas.length;
 
   /** O que foi digitado já existe no acervo? Se não, criar é a única saída. */
   const exata = doAcervo.some((e) => normalizarTexto(e.etiqueta) === normalizarTexto(texto.trim()));
@@ -186,6 +244,8 @@ export function EtiquetasInput({
     if (!limpas.length) return;
     onChange([...valor, ...limpas].slice(0, 12));
     setTexto('');
+    setAberto(false);
+    setVerTodas(false);
   }
 
   return (
@@ -224,12 +284,14 @@ export function EtiquetasInput({
           }
           value={texto}
           disabled={valor.length >= 12}
-          onChange={(ev) => setTexto(ev.target.value)}
+          onFocus={() => setAberto(true)}
+          onChange={(ev) => { setTexto(ev.target.value); setAberto(true); }}
           onKeyDown={(ev) => {
             if (ev.key === 'Enter') {
               ev.preventDefault();
               adicionar(texto);
             }
+            if (ev.key === 'Escape') { setAberto(false); setVerTodas(false); }
           }}
         />
       </div>
@@ -263,7 +325,7 @@ export function EtiquetasInput({
         </div>
       )}
 
-      {valor.length < 12 && (todasSugeridas.length > 0 || texto.trim()) && (
+      {valor.length < 12 && aberto && (todasSugeridas.length > 0 || texto.trim()) && (
         <div className="space-y-1.5">
           {/*
             DOIS GRUPOS, DOIS EIXOS. Período de convenção e pedido respondem
@@ -296,19 +358,37 @@ export function EtiquetasInput({
               <Plus className="h-3 w-3" /> criar &quot;{texto.trim().slice(0, 24)}&quot;
             </button>
           )}
+
+          {/* O resto do acervo, para quem procura algo que não está no topo. */}
+          {escondidas > 0 && !verTodas && (
+            <button
+              type="button"
+              onClick={() => setVerTodas(true)}
+              className="text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-400"
+            >
+              ver as outras {escondidas}
+            </button>
+          )}
         </div>
       )}
 
       {/*
-        A CONTAGEM DIZ SE A ETIQUETA É DO ACERVO OU INVENÇÃO DO DIA. Uma
-        etiqueta usada uma vez só quase sempre é erro de digitação de outra —
-        na produção há doze assim, contra "CCT 2022/2024" com vinte e seis.
+        UMA LINHA SÓ, E SÓ COM A LISTA FECHADA.
+
+        Eram duas linhas de explicação permanentes sob doze bolinhas, num campo
+        OPCIONAL de um modal que já rola. Aberta a lista, o próprio número em
+        cada etiqueta já diz o que a explicação dizia.
       */}
-      {!compacto && !texto.trim() && doAcervo.length > 0 && (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          Sugestões vêm do que o acervo já usa — o número é em quantos processos
-          cada uma está. Digite para procurar entre as {doAcervo.length}.
-        </p>
+      {!compacto && !aberto && doAcervo.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setAberto(true)}
+          className="text-[11px] text-muted-foreground underline-offset-2 transition hover:text-foreground hover:underline"
+        >
+          {parteExternaId && doAcervo.some((e) => e.noReu)
+            ? `Ver as ${doAcervo.length} do acervo — as usadas contra este réu vêm primeiro`
+            : `Ver as ${doAcervo.length} etiquetas que o acervo já usa`}
+        </button>
       )}
     </div>
   );

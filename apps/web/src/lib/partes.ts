@@ -543,7 +543,22 @@ export async function aplicarVinculos(
  * Alimenta a sugestão do formulário. A lista fixa que existia antes era
  * inventada — ver o comentário de `etiquetas-input.tsx`.
  */
-export async function etiquetasDoAcervo(): Promise<{ etiqueta: string; processos: number }[]> {
-  const { data } = await api.get('/processos/partes/etiquetas-do-acervo');
+export interface EtiquetaDoAcervo {
+  etiqueta: string;
+  processos: number;
+  /**
+   * Em quantos processos contra o RÉU INFORMADO esta etiqueta aparece.
+   *
+   * Só vem quando `parteExternaId` é passado, e serve para ORDENAR — nunca
+   * para marcar sozinha. Medido: entre os oito réus com 3+ processos
+   * etiquetados, a etiqueta dominante cobre 70%+ em quatro. Metade.
+   */
+  noReu?: number;
+}
+
+export async function etiquetasDoAcervo(parteExternaId?: string): Promise<EtiquetaDoAcervo[]> {
+  const { data } = await api.get('/processos/partes/etiquetas-do-acervo', {
+    params: parteExternaId ? { parteExternaId } : undefined,
+  });
   return data;
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Loader2, Plus, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -87,7 +88,69 @@ export function BuscaSelect({
   const [aberto, setAberto] = useState(false);
   const [ativo, setAtivo] = useState(0);
   const caixa = useRef<HTMLDivElement>(null);
+  const lista = useRef<HTMLUListElement>(null);
   const listaId = useId();
+
+  /**
+   * A LISTA SAI DA CAIXA QUE A CORTAVA.
+   *
+   * O modal de importação rola por dentro (`overflow-y-auto`), e um filho
+   * `absolute` é recortado pela borda desse contêiner. Resultado, na tela do
+   * usuário: os resultados apareciam pela metade e a última opção ficava
+   * cortada rente ao rodapé do modal — justamente a opção de criar, que é a
+   * que interessa quando a busca não achou nada.
+   *
+   * `position: fixed` num portal no `body` é o único jeito de escapar: não
+   * existe `overflow` de ancestral que valha para quem não é descendente.
+   * O preço é ter de MEDIR e reposicionar — o que o efeito abaixo faz.
+   */
+  const [caixaDaLista, setCaixaDaLista] = useState<{
+    left: number; width: number; maxHeight: number;
+    /** Um dos dois vem preenchido: `top` abre para baixo, `bottom` para cima. */
+    top?: number; bottom?: number;
+  } | null>(null);
+
+  const medir = useCallback(() => {
+    const el = caixa.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const folga = 8;
+    const abaixo = window.innerHeight - r.bottom - folga;
+    const acima = r.top - folga;
+    // Abre para CIMA quando embaixo não cabem nem 160px e em cima cabe mais.
+    const paraCima = abaixo < 160 && acima > abaixo;
+    /*
+      OS DOIS LADOS SAEM DAQUI, e não do render.
+
+      Ler `getBoundingClientRect()` dentro do `style` obrigaria o React a medir
+      o layout no meio da renderização — valor velho na primeira passada e
+      recontagem a cada re-render. Aqui a medida é uma só, no efeito.
+    */
+    setCaixaDaLista({
+      left: r.left,
+      width: r.width,
+      maxHeight: Math.max(140, Math.min(288, paraCima ? acima - 4 : abaixo)),
+      ...(paraCima
+        ? { bottom: window.innerHeight - r.top + 4 }
+        : { top: r.bottom + 4 }),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!aberto) { setCaixaDaLista(null); return; }
+    medir();
+    /*
+      `true` na captura: a rolagem que importa é a do CONTÊINER do modal, e ela
+      não borbulha até o `window`. Sem a fase de captura, a lista ficaria parada
+      no ar enquanto o formulário rola por baixo.
+    */
+    window.addEventListener('scroll', medir, true);
+    window.addEventListener('resize', medir);
+    return () => {
+      window.removeEventListener('scroll', medir, true);
+      window.removeEventListener('resize', medir);
+    };
+  }, [aberto, medir]);
 
   const termo = texto.trim();
   const curto = termo.length > 0 && termo.length < minimo;
@@ -124,7 +187,11 @@ export function BuscaSelect({
   useEffect(() => {
     if (!aberto) return;
     const fora = (e: MouseEvent) => {
-      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
+      const alvo = e.target as Node;
+      // A lista está num portal: `caixa` não a contém mais, e sem esta segunda
+      // verificação clicar numa opção fecharia a caixa antes do clique chegar.
+      if (caixa.current?.contains(alvo) || lista.current?.contains(alvo)) return;
+      setAberto(false);
     };
     document.addEventListener('mousedown', fora);
     return () => document.removeEventListener('mousedown', fora);
@@ -195,11 +262,23 @@ export function BuscaSelect({
         )}
       </div>
 
-      {aberto && (curto || buscando || opcoes.length > 0 || (!!termo && !buscando)) && (
+      {aberto &&
+        !!caixaDaLista &&
+        (curto || buscando || opcoes.length > 0 || (!!termo && !buscando)) &&
+        typeof document !== 'undefined' &&
+        createPortal(
         <ul
+          ref={lista}
           id={listaId}
           role="listbox"
-          className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-input bg-card shadow-lg"
+          style={{ position: 'fixed', ...caixaDaLista }}
+          /*
+            `z-[80]` fica acima dos modais do projeto (`z-50` no diálogo de
+            importação, `z-[70]` nos que abrem por cima dele). Uma lista de
+            autocomplete que aparece ATRÁS do formulário é o mesmo que não
+            aparecer, e foi assim que o botão de cadastrar filiado sumiu antes.
+          */
+          className="z-[80] overflow-auto rounded-md border border-input bg-card shadow-lg"
         >
           {/* Os três estados que antes eram a mesma lista vazia. */}
           {curto && (
@@ -285,7 +364,8 @@ export function BuscaSelect({
               </li>
             );
           })}
-        </ul>
+        </ul>,
+        document.body,
       )}
 
       {rodape}

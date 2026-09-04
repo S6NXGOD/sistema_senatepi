@@ -111,8 +111,8 @@ describe('as etiquetas', () => {
   });
 
   it('as sugestões vêm do acervo, por frequência', () => {
-    expect(ETIQUETAS).toContain("queryKey: ['etiquetas-do-acervo']");
-    expect(ETIQUETAS).toContain('queryFn: etiquetasDoAcervo');
+    expect(ETIQUETAS).toContain("queryKey: ['etiquetas-do-acervo'");
+    expect(ETIQUETAS).toContain('etiquetasDoAcervo(parteExternaId)');
   });
 
   /**

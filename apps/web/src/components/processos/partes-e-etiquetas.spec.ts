@@ -235,3 +235,154 @@ describe('convenção e pedido são grupos diferentes', () => {
     expect(CAMPO).toContain('{e.processos}');
   });
 });
+
+/**
+ * A LISTA NÃO PODE SER CORTADA PELA CAIXA QUE ROLA.
+ *
+ * O modal de importação rola por dentro (`overflow-y-auto`), e um filho
+ * `absolute` é recortado pela borda desse contêiner. Na tela do usuário os
+ * resultados apareciam pela metade e a última opção ficava cortada rente ao
+ * rodapé — justamente a opção de CRIAR, que é a que interessa quando a busca
+ * não achou nada.
+ */
+describe('a lista de busca escapa do recorte', () => {
+  const BUSCA = lerCodigo('../ui/busca-select.tsx');
+
+  /** Só um portal escapa: não existe `overflow` de ancestral para quem não é descendente. */
+  it('renderiza num portal, com posição medida', () => {
+    expect(BUSCA).toContain('createPortal(');
+    expect(BUSCA).toContain('document.body,');
+    expect(BUSCA).toContain("position: 'fixed'");
+    expect(BUSCA).toContain('getBoundingClientRect()');
+  });
+
+  /** Sem cair fora da tela: perto do rodapé, abre para cima. */
+  it('vira para cima quando não cabe embaixo', () => {
+    expect(BUSCA).toContain('const paraCima = abaixo < 160 && acima > abaixo;');
+    expect(BUSCA).toContain('maxHeight');
+  });
+
+  /**
+   * A rolagem que importa é a do CONTÊINER do modal, e ela não borbulha até o
+   * `window` — sem a fase de captura a lista ficaria parada no ar.
+   */
+  it('acompanha a rolagem de qualquer ancestral', () => {
+    expect(BUSCA).toContain("window.addEventListener('scroll', medir, true)");
+    expect(BUSCA).toContain("window.addEventListener('resize', medir)");
+  });
+
+  /** A lista saiu da árvore da caixa: o clique fora precisa saber disso. */
+  it('clicar numa opção não fecha antes do clique chegar', () => {
+    expect(BUSCA).toContain('lista.current?.contains(alvo)');
+  });
+
+  /** Acima dos modais do projeto (`z-50` e `z-[70]`). */
+  it('fica na frente do formulário', () => {
+    expect(BUSCA).toContain('z-[80]');
+  });
+});
+
+/**
+ * "USAR COMO TEXTO" VIROU CADASTRO DE VERDADE.
+ *
+ * O texto livre era o caminho mais curto da tela, e caminho curto vira caminho
+ * padrão: o réu entrava como nome solto e "quantas ações temos contra a
+ * Unimed?" passava a depender de as sete Unimeds serem a mesma.
+ */
+describe('cadastrar a organização em vez de escrever o nome', () => {
+  const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+  const MODAL = lerCodigo('../organizacoes/cadastro-rapido-modal.tsx');
+
+  it('o polo passivo não oferece mais texto livre direto', () => {
+    const passivo = DIALOGO.slice(DIALOGO.indexOf('rotuloPrincipal="Réu principal"'));
+    expect(passivo).not.toContain('permitirTextoLivre');
+  });
+
+  it('a opção da lista abre o cadastro', () => {
+    expect(DIALOGO).toContain('como organização`');
+    expect(DIALOGO).toContain('<CadastroRapidoOrganizacaoModal');
+  });
+
+  /** Com o CNPJ, o trabalho é da Receita — e ela ainda avisa da duplicata. */
+  it('o modal consulta a Receita pelo CNPJ', () => {
+    expect(MODAL).toContain('<BuscaCnpj');
+    expect(MODAL).toContain('function preencherComReceita');
+    expect(MODAL).toContain('if (d.razaoSocial) setNome(d.razaoSocial);');
+    expect(MODAL).toContain('if (d.tipoSugerido) setTipo(d.tipoSugerido);');
+  });
+
+  /**
+   * A SAÍDA SEM CADASTRO NÃO SUMIU — há réu que os autos trazem só pelo nome, e
+   * tirá-la obrigaria a inventar um CNPJ para conseguir seguir. Ela só deixou
+   * de ser o caminho mais curto.
+   */
+  it('mas ainda dá para usar só o nome, no rodapé do modal', () => {
+    expect(MODAL).toContain('Usar só o nome, sem cadastro');
+    expect(DIALOGO).toContain('onUsarSoNome=');
+  });
+
+  /** O cadastro criado entra no polo de onde foi pedido, não sempre no passivo. */
+  it('a organização volta para o polo certo', () => {
+    expect(DIALOGO).toContain("acrescentarNoPolo(novaOrg?.polo ?? 'PASSIVO'");
+    expect(DIALOGO).toContain("setNovaOrgNoPolo = (nome: string) => setNovaOrg({ nome, polo: 'ATIVO' })");
+  });
+});
+
+/**
+ * O SINDICATO PRECISA DE BOTÃO, NÃO DE UMA LINHA NA LISTA.
+ *
+ * Era a única opção sem termo digitado — para chegar nela era preciso clicar
+ * numa caixa escrita "Nome ou CPF do filiado". Ninguém clica ali para dizer que
+ * o autor é o sindicato; a ação coletiva não tem nome para procurar.
+ */
+describe('o botão do sindicato', () => {
+  const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+
+  it('existe, visível, ao lado do rótulo do polo ativo', () => {
+    expect(DIALOGO).toContain('onClick={acrescentarSindicato}');
+    expect(DIALOGO).toContain('disabled={sindicatoNoPolo}');
+  });
+
+  it('e diz que já está lá em vez de repetir', () => {
+    expect(DIALOGO).toContain('{tenant.sigla} no polo');
+    expect(DIALOGO).toContain("atual.some((x) => x.tipo === 'INSTITUCIONAL')");
+  });
+
+  /** Saiu da lista: com o botão à vista, a linha só ocupava espaço. */
+  it('não é mais uma opção da busca de filiado', () => {
+    expect(DIALOGO).not.toContain('exigeTermo: false');
+  });
+});
+
+/**
+ * ETIQUETA: MENOS RUÍDO, E A ÚNICA AUTOMAÇÃO QUE OS DADOS SUSTENTAM.
+ */
+describe('o campo de etiquetas encolheu', () => {
+  const CAMPO = lerCodigo('etiquetas-input.tsx');
+
+  /** Doze bolinhas e duas linhas de explicação, num campo OPCIONAL. */
+  it('a lista começa fechada', () => {
+    expect(CAMPO).toContain('const [aberto, setAberto] = useState(false);');
+    expect(CAMPO).toContain('{valor.length < 12 && aberto &&');
+    expect(CAMPO).toContain('onFocus={() => setAberto(true)}');
+  });
+
+  it('e fecha ao escolher', () => {
+    expect(CAMPO).toContain('setAberto(false);');
+  });
+
+  /** Sem termo, três de cada grupo; o resto atrás de "ver as outras". */
+  it('mostra poucas de cada vez', () => {
+    expect(CAMPO).toContain('const teto = texto.trim() || verTodas ? 12 : 3;');
+    expect(CAMPO).toContain('ver as outras {escondidas}');
+  });
+
+  /**
+   * ORDENA PELO RÉU, e nunca marca sozinha: entre os oito réus com 3+ processos
+   * etiquetados, a dominante cobre 70%+ em quatro. Metade.
+   */
+  it('o que se usa contra este réu vem primeiro', () => {
+    expect(CAMPO).toContain('(b.noReu ?? 0) - (a.noReu ?? 0) || b.processos - a.processos');
+    expect(CAMPO).toContain('neste réu');
+  });
+});

@@ -14,6 +14,7 @@ import {
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
 import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
+import { CadastroRapidoOrganizacaoModal } from '@/components/organizacoes/cadastro-rapido-modal';
 import { EditorDePartes, jaEstaNaLista, type ParteEditavel } from './editor-de-partes';
 import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
@@ -95,6 +96,13 @@ export function ImportarProcessoDialog({
   const [recadastrar, setRecadastrar] = useState<{ id: string; nome: string } | null>(null);
   /** Recadastro PRESENCIAL: abre o formulário completo por cima, sem navegar. */
   const [filiadoParaRecadastro, setFiliadoParaRecadastro] = useState<string | null>(null);
+  /**
+   * Nome digitado que vai virar organização nova, e para QUAL polo ela vai.
+   * `null` = modal fechado.
+   */
+  const [novaOrg, setNovaOrg] = useState<{ nome: string; polo: 'ATIVO' | 'PASSIVO' } | null>(null);
+  const setNovaOrganizacao = (nome: string) => setNovaOrg({ nome, polo: 'PASSIVO' });
+  const setNovaOrgNoPolo = (nome: string) => setNovaOrg({ nome, polo: 'ATIVO' });
   const podeCadastrarFiliado = usePodeCadastrarFiliado();
 
   /**
@@ -182,6 +190,7 @@ export function ImportarProcessoDialog({
     setNomeParaCadastro('');
     setRecadastrar(null);
     setFiliadoParaRecadastro(null);
+    setNovaOrg(null);
     setPrevia(null);
     setErroPrevia(null);
     setSugestoesDatajud([]);
@@ -372,6 +381,23 @@ export function ImportarProcessoDialog({
   /** Põe um filiado no polo, sem repetir quem já está lá. */
   function adicionarFiliado(p: ParteEditavel) {
     setPoloAtivo((atual) => (jaEstaNaLista(atual, p) ? atual : [...atual, p]));
+  }
+
+  /** Uma parte no polo certo, sem repetir quem já está lá. */
+  function acrescentarNoPolo(polo: 'ATIVO' | 'PASSIVO', nova: ParteEditavel) {
+    const por = polo === 'ATIVO' ? setPoloAtivo : setReus;
+    por((atual) => (jaEstaNaLista(atual, nova) ? atual : [...atual, nova]));
+  }
+
+  const sindicatoNoPolo = poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL');
+
+  /** O sindicato como autor — pelo botão ou pela lista, o mesmo caminho. */
+  function acrescentarSindicato() {
+    setPoloAtivo((atual) =>
+      atual.some((x) => x.tipo === 'INSTITUCIONAL')
+        ? atual
+        : [...atual, { tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' }],
+    );
   }
 
   /**
@@ -664,7 +690,16 @@ export function ImportarProcessoDialog({
             <label className="flex items-center gap-1.5 text-sm font-medium">
               <Tag className="h-4 w-4 text-muted-foreground" /> Etiquetas (opcional)
             </label>
-            <EtiquetasInput valor={etiquetas} onChange={setEtiquetas} />
+            <EtiquetasInput
+              valor={etiquetas}
+              onChange={setEtiquetas}
+              /*
+                O RÉU PRINCIPAL, quando já tem cadastro, reordena as sugestões
+                pelo que o acervo usa CONTRA ELE. É a única automação que os
+                dados sustentam — e ainda assim só ordena, nunca marca.
+              */
+              parteExternaId={reus.find((r) => r.parteExternaId)?.parteExternaId}
+            />
             <p className="text-[11px] leading-snug text-muted-foreground">
               Só o que depende de julgamento seu. Ação coletiva, perícia, fase de execução e recurso
               o sistema deduz sozinho dos dados do processo.
@@ -705,9 +740,40 @@ export function ImportarProcessoDialog({
           <div className="space-y-4">
           {/* ---- POLO ATIVO: quem pede ---- */}
           <div className="space-y-2 rounded-xl border p-3">
-            <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Users className="h-4 w-4 text-muted-foreground" /> Polo ativo — quem pede *
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex items-center gap-1.5 text-sm font-medium">
+                <Users className="h-4 w-4 text-muted-foreground" /> Polo ativo — quem pede *
+              </label>
+
+              {/*
+                O SINDICATO GANHOU BOTÃO PRÓPRIO.
+
+                Ele existia só como opção DENTRO da lista de busca — e para
+                chegar lá era preciso clicar num campo que diz "Nome ou CPF do
+                filiado". Ninguém clica numa caixa de procurar filiado para
+                dizer que o autor é o sindicato; a ação coletiva não tem nome
+                para procurar. E ele SAIU da lista de busca: com o botão à
+                vista, aquela linha — a única que aparecia sem nada digitado —
+                só ocupava espaço.
+              */}
+              <button
+                type="button"
+                onClick={acrescentarSindicato}
+                disabled={sindicatoNoPolo}
+                className={cn(
+                  'flex h-10 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition sm:h-9 sm:px-2.5',
+                  sindicatoNoPolo
+                    ? 'cursor-default border-brand-400 bg-brand-50 text-brand-800 dark:bg-brand-900/20 dark:text-brand-300'
+                    : 'border-input bg-background text-foreground hover:bg-muted',
+                )}
+              >
+                {sindicatoNoPolo ? (
+                  <><CheckCircle2 className="h-3.5 w-3.5" /> {tenant.sigla} no polo</>
+                ) : (
+                  <><Landmark className="h-3.5 w-3.5" /> Ação da categoria · + {tenant.sigla}</>
+                )}
+              </button>
+            </div>
 
             {/*
               TRÊS BOTÕES EXCLUSIVOS VIRARAM UMA RELAÇÃO.
@@ -718,9 +784,9 @@ export function ImportarProcessoDialog({
               sindicato entra AO LADO do filiado, e existe litisconsórcio com
               outro sindicato.
 
-              Agora é uma lista só: procure o filiado, ou acrescente o
-              {' '}{tenant.sigla}, ou digite um nome que não está em lugar nenhum.
-              Os três convivem, e a ordem diz quem é o principal.
+              Agora é uma lista só: procure o filiado, use o botão acima para o
+              sindicato, ou cadastre a organização parceira. Os três convivem, e
+              a ordem diz quem é o principal.
             */}
             <EditorDePartes
               partes={poloAtivo}
@@ -740,22 +806,13 @@ export function ImportarProcessoDialog({
                 }));
               }}
               acoes={[
-                {
-                  /* Sempre visível: a ação coletiva não tem nome para procurar. */
-                  exigeTermo: false,
-                  icone: Landmark,
-                  rotulo: () => `Ação da categoria — acrescentar o ${tenant.sigla}`,
-                  aoEscolher: () =>
-                    setPoloAtivo((atual) =>
-                      atual.some((x) => x.tipo === 'INSTITUCIONAL')
-                        ? atual
-                        : [...atual, {
-                            tipo: 'INSTITUCIONAL',
-                            nome: tenant.nome,
-                            detalhe: 'O próprio sindicato',
-                          }],
-                    ),
-                },
+                /*
+                  O SINDICATO SAIU DAQUI e virou botão, acima do campo. Ele era
+                  a única opção sem termo digitado, o que obrigava a clicar numa
+                  caixa escrita "Nome ou CPF do filiado" para dizer que o autor
+                  é o sindicato — ninguém faz isso. E tirando-o daqui sobra
+                  espaço para as duas ações que SÃO sobre o que se digitou.
+                */
                 ...(podeCadastrarFiliado
                   ? [{
                       /*
@@ -771,6 +828,17 @@ export function ImportarProcessoDialog({
                       aoEscolher: (t: string) => { setNomeParaCadastro(t); setCadastrando(true); },
                     }]
                   : []),
+                {
+                  /*
+                    NEM TODO AUTOR É PESSOA. Litisconsórcio com outro sindicato
+                    é o caso real, e ele é uma ORGANIZAÇÃO — cadastrá-la aqui
+                    é o que liga esse processo aos outros do mesmo parceiro,
+                    em vez de deixar três grafias do mesmo nome soltas.
+                  */
+                  icone: Building2,
+                  rotulo: (t: string) => `Cadastrar “${t}” como organização`,
+                  aoEscolher: (t: string) => setNovaOrgNoPolo(t),
+                },
               ]}
               extraDaLinha={(parte) =>
                 /*
@@ -846,9 +914,27 @@ export function ImportarProcessoDialog({
               placeholder="Nome da empresa, órgão ou pessoa…"
               rotuloPrincipal="Réu principal"
               rotuloSecundario="Litisconsorte"
-              permitirTextoLivre
               vazio="Contra quem é a ação? Dá para deixar em branco e informar depois, na aba Partes."
               buscar={buscarReus}
+              acoes={[
+                {
+                  /*
+                    CADASTRAR SUBSTITUIU "USAR COMO TEXTO".
+
+                    O texto livre era o caminho mais curto da tela, e caminho
+                    curto vira caminho padrão: o réu entrava como nome solto e
+                    "quantas ações temos contra a Unimed?" passava a depender de
+                    as sete Unimeds serem a mesma. Agora a opção abre um
+                    cadastro de verdade — e com CNPJ a Receita preenche o resto.
+
+                    A saída sem cadastro não sumiu: ela virou o link discreto no
+                    rodapé daquele modal, que é onde deve estar.
+                  */
+                  icone: Building2,
+                  rotulo: (t: string) => `Cadastrar “${t}” como organização`,
+                  aoEscolher: (t: string) => setNovaOrganizacao(t),
+                },
+              ]}
               ajuda={
                 <>
                   A API Pública do DataJud <strong>não divulga as partes</strong> do processo —
@@ -907,6 +993,37 @@ export function ImportarProcessoDialog({
             }}
           />
         )}
+
+        {/*
+          CADASTRO RÁPIDO DE ORGANIZAÇÃO — com consulta à Receita pelo CNPJ.
+          Ao salvar, ela já entra no polo de onde o cadastro foi pedido.
+        */}
+        <CadastroRapidoOrganizacaoModal
+          open={novaOrg !== null}
+          nomeInicial={novaOrg?.nome}
+          onClose={() => setNovaOrg(null)}
+          onCriada={(org) => {
+            acrescentarNoPolo(novaOrg?.polo ?? 'PASSIVO', {
+              tipo: 'ORGANIZACAO',
+              nome: org.nome,
+              detalhe: [
+                TIPO_PARTE_LABEL[org.tipo],
+                org.documento ? formatDocumento(org.documento) : null,
+              ].filter(Boolean).join(' · '),
+              parteExternaId: org.id,
+            });
+            setNovaOrg(null);
+          }}
+          onUsarSoNome={(nome) => {
+            const limpo = nome.trim();
+            if (limpo) {
+              acrescentarNoPolo(novaOrg?.polo ?? 'PASSIVO', {
+                tipo: 'AVULSA', nome: limpo, detalhe: 'Sem cadastro',
+              });
+            }
+            setNovaOrg(null);
+          }}
+        />
 
         {/* Presencial: o mesmo formulário do cadastro, em modo recadastro. */}
         <CadastroFiliadoModal

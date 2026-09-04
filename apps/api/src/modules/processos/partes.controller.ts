@@ -2,8 +2,10 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PartesService } from './partes.service';
-import { PartesExternasService } from './partes-externas.service';
-import { SugestaoFiliadoService } from './sugestao-filiado.service';
+import { PartesExternasService } from './partes-externas.service';
+
+import { SugestaoFiliadoService } from './sugestao-filiado.service';
+
 import { VinculosPendentesService, type DecisaoDeVinculo } from './vinculos-pendentes.service';
 import {
   AdicionarParteDto, AtualizarParteDto, AtualizarParteExternaDto, CriarParteExternaDto,
@@ -71,9 +73,15 @@ export class PartesController {
    * segmento literal, `@Get(':id')` de `ProcessosController` engoliria a rota.
    */
   @Get('partes/etiquetas-do-acervo')
-  @ApiOperation({ summary: 'Etiquetas já usadas no acervo, da mais frequente para a menos.' })
-  etiquetasDoAcervo() {
-    return this.service.etiquetasDoAcervo();
+  @ApiOperation({
+    summary: 'Etiquetas já usadas no acervo, da mais frequente para a menos.',
+    description:
+      'Com `parteExternaId`, cada etiqueta ganha `noReu` — em quantos processos contra '
+      + 'AQUELE réu ela aparece. A tela usa isso só para ordenar; marcar sozinha seria '
+      + 'errado em metade dos casos.',
+  })
+  etiquetasDoAcervo(@Query('parteExternaId') parteExternaId?: string) {
+    return this.service.etiquetasDoAcervo(parteExternaId?.trim() || undefined);
   }
 
   @Get('partes/vinculos-pendentes')

@@ -148,3 +148,62 @@ describe('quem pode procurar no cadastro de filiados', () => {
     expect(semLista.canActivate(contexto('ADVOGADO'))).toBe(true);
   });
 });
+
+/**
+ * A ETIQUETA QUE O ACERVO USA CONTRA AQUELE RÉU.
+ *
+ * A única automação de etiqueta que os dados sustentam — e sustentam pela
+ * METADE, medido em 04/09/2026: entre os oito réus com 3+ processos
+ * etiquetados, a dominante cobre 70% ou mais em QUATRO. UNIMED tem `RETALIAÇÃO`
+ * nos sete; FMS/THE, o maior réu, fica em 33%.
+ *
+ * As outras duas hipóteses foram medidas e DESCARTADAS:
+ *  · o assunto do CNJ não prevê o pedido — "Assistência Judiciária Gratuita" é
+ *    o assunto de processos etiquetados INSALUBRIDADE, REAJUSTE e SELETIVO
+ *    SIMPLIFICADO;
+ *  · o ano da distribuição não prevê a CCT — `CCT 2018/2020` aparece em
+ *    processos de 2021 a 2025.
+ */
+describe('etiquetas do acervo, por réu', () => {
+  const CONTROLLER = lerCodigo('partes.controller.ts');
+
+  it('a rota aceita o réu como parâmetro opcional', () => {
+    expect(CONTROLLER).toContain("etiquetasDoAcervo(@Query('parteExternaId') parteExternaId?: string)");
+    expect(CONTROLLER).toContain('parteExternaId?.trim() || undefined');
+  });
+
+  it('sem réu, devolve o acervo como antes', () => {
+    expect(PARTES).toContain('if (!parteExternaId) return geral;');
+  });
+
+  /**
+   * `parte_externa_id` é TEXT (o Prisma gera cuid, não uuid). Eu tinha escrito
+   * `= $1::uuid` por hábito e o Postgres recusava a comparação inteira —
+   * "operator does not exist: text = uuid", 500 na tela. Só apareceu quando
+   * rodei a consulta contra dados reais.
+   */
+  it('compara texto com texto, sem cast para uuid', () => {
+    expect(PARTES).toContain('AND pp.parte_externa_id = ${parteExternaId}');
+    expect(PARTES).not.toContain('${parteExternaId}::uuid');
+  });
+
+  it('o número vem separado, para a tela ordenar sem marcar nada', () => {
+    expect(PARTES).toContain("mapa.has(g.etiqueta) ? { ...g, noReu: mapa.get(g.etiqueta) } : g");
+  });
+});
+
+/**
+ * QUEM CADASTRA ORGANIZAÇÃO no meio do processo.
+ *
+ * `POST /partes-externas` vive sob `@Modulo('processos')`, então exige EDITAR
+ * em PROCESSOS — que é justamente quem alcança o modal de importação. Não há
+ * botão morto: o ADVOGADO tem `processos: EDITAR`.
+ */
+describe('cadastrar organização a partir do processo', () => {
+  it('o gate é o do módulo processos', () => {
+    const src = lerCodigo('partes.controller.ts');
+    const externas = src.slice(src.indexOf("@Controller('partes-externas')"));
+    expect(src).toContain("@Modulo('processos')");
+    expect(externas).not.toContain('@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)');
+  });
+});
