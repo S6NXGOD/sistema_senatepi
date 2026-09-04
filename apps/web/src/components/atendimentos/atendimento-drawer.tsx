@@ -19,6 +19,7 @@ import {
   getAtendimento, mudarStatusAtendimento, linkWhatsApp, mensagemSaudacao, formatDataHora,
   CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, TIPO_ENC_LABEL, StatusAtendimento,
 } from '@/lib/atendimentos';
+import { ASSUNTO_LABEL } from '@/lib/relatorios';
 import { formatNPU } from '@/lib/processos';
 import { mascararCpf } from '@/lib/utils';
 import { V } from '@/lib/vocabulario';
@@ -103,6 +104,13 @@ export function AtendimentoDrawer({
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="bg-muted text-muted-foreground">{CANAL_LABEL[at.canal]}</Badge>
+                {/* O assunto é o que o relatório soma; sem mostrá-lo aqui,
+                    ninguém confere se foi classificado certo. */}
+                {at.assunto && (
+                  <Badge className="bg-muted text-muted-foreground">
+                    {ASSUNTO_LABEL[at.assunto] ?? at.assunto}
+                  </Badge>
+                )}
                 {at.desfecho
                   ? <Badge className={DESFECHO_COR[at.desfecho]}>{DESFECHO_LABEL[at.desfecho]}</Badge>
                   : <span className="text-sm italic text-muted-foreground">Sem desfecho</span>}

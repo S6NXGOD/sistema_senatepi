@@ -280,7 +280,7 @@ export class AtendimentosService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         select: {
-          id: true, numero: true, canal: true, desfecho: true, status: true,
+          id: true, numero: true, canal: true, assunto: true, desfecho: true, status: true,
           tipoEncaminhamento: true, descricao: true, responsavel: true, createdAt: true,
           filiado: filiadoLista,
           atendente: { select: { id: true, nome: true } },
@@ -320,7 +320,7 @@ export class AtendimentosService {
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: {
-        id: true, numero: true, canal: true, desfecho: true, status: true, descricao: true, createdAt: true,
+        id: true, numero: true, canal: true, assunto: true, desfecho: true, status: true, descricao: true, createdAt: true,
         atendente: { select: { nome: true } },
       },
     });

@@ -27,6 +27,8 @@ export interface AtendimentoLista {
   id: string;
   numero: number;
   canal: CanalAtendimento;
+  /** Sobre o que era a demanda — nulo nos registros anteriores ao campo. */
+  assunto?: string | null;
   desfecho: DesfechoAtendimento | null;
   status: StatusAtendimento;
   tipoEncaminhamento: TipoEncaminhamento | null;
@@ -78,6 +80,8 @@ export interface AtendimentoDossie {
     id: string;
     numero: number;
     canal: CanalAtendimento;
+    /** Sobre o que era — nulo nos registros anteriores ao campo. */
+    assunto: string | null;
     desfecho: DesfechoAtendimento | null;
     status: StatusAtendimento;
     tipoEncaminhamento: TipoEncaminhamento | null;
