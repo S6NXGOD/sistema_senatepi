@@ -1200,7 +1200,10 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
  * some sozinho quando ninguém alcança o piso.
  */
 function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
-  const itens = data.adversarios;
+  // `?? []` não é paranoia: web e API são serviços separados no Railway e
+  // sobem em minutos diferentes. Num rollback da API, o campo some e o
+  // acesso direto derrubaria a home inteira — não só este bloco.
+  const itens = data.adversarios ?? [];
   if (!itens.length) return null;
   const maior = itens[0].processos;
 
