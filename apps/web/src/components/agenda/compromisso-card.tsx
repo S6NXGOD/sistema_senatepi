@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
+
 import {
   Clock, MapPin, Pencil, Trash2, History, Timer,
   Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel,
@@ -69,7 +71,7 @@ function AcaoBtn({
 
 export function CompromissoCard({
   c, onAbrir, onEditar, onVerTriagem, onAcao, onConcluir, onCancelar, onRemarcar,
-  onExcluir, podeExcluir, draggable, onDragStart,
+  onExcluir, podeExcluir, draggable, onDragStart, apontado,
 }: {
   c: Compromisso;
   onAbrir: (c: Compromisso) => void;
@@ -83,6 +85,15 @@ export function CompromissoCard({
   podeExcluir?: boolean;
   draggable?: boolean;
   onDragStart?: () => void;
+  /**
+   * A NAVEGAÇÃO APONTOU PARA ESTE.
+   *
+   * Vindo de fora (uma publicação no painel, um alerta), a gaveta abria por
+   * cima de um quadro que não tinha relação nenhuma com ela — nada dizia qual
+   * cartão era aquele. O anel responde "o que eu cliquei" quando a gaveta
+   * fecha.
+   */
+  apontado?: boolean;
 }) {
   const { tipos } = useTiposEvento();
   const cor = corDeTipo(c.tipo, tipos);
@@ -90,11 +101,27 @@ export function CompromissoCard({
   // A API devolve a equipe com o responsável primeiro; aqui interessa o resto.
   const participantes = (c.equipe ?? []).filter((e) => !e.principal);
 
+  /*
+    O ANEL NÃO SERVE DE NADA FORA DA TELA.
+    Num quadro com dezenas de cartões, o que a navegação apontou pode estar
+    quinhentos pixels abaixo — marcar sem rolar é marcar para ninguém.
+  */
+  const alvo = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (apontado) alvo.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [apontado]);
+
   return (
     <div
+      ref={alvo}
       draggable={draggable}
       onDragStart={onDragStart}
-      className={cn('rounded-lg border border-l-4 bg-card p-3 shadow-sm', cor.borda, draggable && 'cursor-grab active:cursor-grabbing')}
+      className={cn(
+        'rounded-lg border border-l-4 bg-card p-3 shadow-sm transition-shadow',
+        cor.borda,
+        draggable && 'cursor-grab active:cursor-grabbing',
+        apontado && 'ring-2 ring-brand-500 ring-offset-1 ring-offset-background',
+      )}
     >
       {/* Cabeçalho: tipo + ações de edição */}
       <div className="mb-1.5 flex items-start justify-between gap-2">

@@ -257,6 +257,9 @@ export class DashboardService {
     const amanhaData = new Date(hojeData.getTime() + DIA_MS);
 
     const souAdvogado = user.role === 'ADVOGADO';
+    const ehGestao = user.role === 'ADMINISTRADOR' || user.role === 'COORDENACAO';
+    /** Quem EDITA filiado — é de quem é a fila de recadastro. */
+    const podeVerFiliados = nivelEfetivo(user.role, user.permissoes, 'filiados') === 'EDITAR';
     /**
      * QUEM NÃO TEM O MÓDULO DE PROCESSOS NÃO RECEBE O DADO DE PROCESSOS.
      *
@@ -337,7 +340,9 @@ export class DashboardService {
       atrasadasPorAdvogadoRaw,
       contatosHoje,
       aniversariantes,
+      cadastrosACompletar,
       tempoMedioTriagem,
+      saudeSincronizacao,
       // Saúde e conteúdo do robô do DJEN (publicações)
       djenPublicacoes7d,
       djenUltimaPublicacao,
@@ -533,8 +538,12 @@ export class DashboardService {
 
       // Aniversariantes do dia — filiados e equipe na mesma lista.
       this.aniversariantesDeHoje(agora),
+      // A fila de recadastro do balcão — ver o método.
+      podeVerFiliados ? this.cadastrosACompletar() : Promise.resolve([]),
       // Tempo médio de resolução da triagem (30 dias).
       this.tempoMedioTriagem(agora),
+      // Integrações: funcionando, instáveis ou paradas — ver `saudeDasFontes`.
+      this.saudeDasFontes(agora),
 
       /**
        * PUBLICAÇÕES DO DJEN — volume, sinal de vida e as últimas.
@@ -708,7 +717,6 @@ export class DashboardService {
      * trabalho de cada advogado, e esconder no front deixaria o dado viajando
      * para quem não deve vê-lo. Advogado e Triagem recebem `null`.
      */
-    const ehGestao = user.role === 'ADMINISTRADOR' || user.role === 'COORDENACAO';
     const cargaEquipe = !ehGestao
       ? null
       : await (async () => {
@@ -896,6 +904,13 @@ export class DashboardService {
       cargaEquipe,
       /** Tarefas de contato com o filiado — a fila própria da Triagem. */
       contatosHoje,
+      /**
+       * QUEM PASSOU POR AQUI E ESTÁ COM A FICHA PELA METADE.
+       *
+       * Vazia para quem não edita filiado — é fila de trabalho do balcão, e
+       * mostrar ao advogado uma lista que ele não pode resolver é ruído.
+       */
+      cadastrosACompletar,
       /** Aniversariantes de hoje: filiados e equipe, na mesma lista. */
       aniversariantes,
       /**
@@ -956,6 +971,14 @@ export class DashboardService {
        * ideal; virar alarme depende de haver trabalho pendente.
        */
       robo: this.situacaoRobo(ultimaSync, falhasSync, processosMonitorados, agora),
+      /**
+       * AS FONTES EXTERNAS ESTÃO DE PÉ?
+       *
+       * Só para quem coordena: é a única pessoa que faz alguma coisa com a
+       * resposta. Ver `saudeDasFontes` para por que isto não se confunde com
+       * `robo` nem com `djen`.
+       */
+      integracoes: ehGestao ? saudeSincronizacao : null,
       graficos: {
         atendimentosPorCanal: canalGroup.map((c) => ({ canal: c.canal, total: c._count._all })),
         atendimentos14dias: this.bucketDiario(atendimentos14Raw.map((a) => a.createdAt), 14),
@@ -1316,6 +1339,150 @@ export class DashboardService {
    * dia em UTC é o dia certo, então `EXTRACT` direto da coluna funciona para as
    * duas convenções (ver common/utils/datas.util.ts).
    */
+  /**
+   * QUEM PASSOU POR AQUI E ESTÁ COM A FICHA PELA METADE.
+   *
+   * A fila do balcão, e ela tem um recorte que não é óbvio. Medido em
+   * 04/09/2026: dos 7.291 filiados, **7.137 não têm telefone** e 5.028 não têm
+   * CPF. Uma lista com sete mil nomes não é fila de trabalho — é um relatório
+   * de dívida que ninguém abre duas vezes.
+   *
+   * O RECORTE É "ESTÁ EM JOGO": quem teve atendimento nos últimos 60 dias, ou
+   * é parte de um processo. São pessoas com quem o sindicato acabou de falar —
+   * o telefone está no histórico da conversa, ou a pessoa atende se ligarem. Na
+   * produção isso dá NOVE, das quais cinco com dado faltando. Nove é uma fila;
+   * sete mil é um muro.
+   *
+   * `totalNaBase` vai junto para que o recorte não esconda o tamanho real do
+   * problema — quem coordena precisa saber que a dívida existe mesmo quando a
+   * fila do dia está limpa.
+   */
+  private async cadastrosACompletar() {
+    const pessoas = await this.prisma.$queryRaw<
+      {
+        id: string;
+        nome: string;
+        telefone: string | null;
+        cpf: string | null;
+        nascimento: Date | null;
+        motivo: string;
+      }[]
+    >`
+      SELECT f.id,
+             f.nome_completo       AS nome,
+             f.telefone_principal  AS telefone,
+             f.cpf,
+             f.data_nascimento     AS nascimento,
+             CASE WHEN EXISTS (SELECT 1 FROM atendimentos a
+                                WHERE a.filiado_id = f.id
+                                  AND a.created_at > now() - interval '60 days')
+                  THEN 'ATENDIMENTO' ELSE 'PROCESSO' END AS motivo
+        FROM filiados f
+       WHERE f.situacao = 'ATIVO'
+         AND (f.telefone_principal IS NULL OR f.telefone_principal = ''
+           OR f.cpf IS NULL OR f.cpf = ''
+           OR f.data_nascimento IS NULL)
+         AND (EXISTS (SELECT 1 FROM atendimentos a
+                       WHERE a.filiado_id = f.id
+                         AND a.created_at > now() - interval '60 days')
+           OR EXISTS (SELECT 1 FROM partes_processo pp WHERE pp.filiado_id = f.id)
+           OR EXISTS (SELECT 1 FROM processos pr WHERE pr.filiado_id = f.id))
+       ORDER BY f.nome_completo
+       LIMIT 12
+    `;
+
+    return pessoas.map((f) => ({
+      id: f.id,
+      nome: f.nome,
+      motivo: f.motivo,
+      /** O que falta, na ordem em que atrapalha. */
+      falta: [
+        !f.telefone && 'telefone',
+        !f.cpf && 'CPF',
+        !f.nascimento && 'nascimento',
+      ].filter(Boolean) as string[],
+    }));
+  }
+
+  /**
+   * AS FONTES EXTERNAS ESTÃO DE PÉ? — e por que isto não é o `robo` nem o `djen`.
+   *
+   * `robo` responde "a varredura do DataJud rodou?"; `djen` responde "chegou
+   * publicação nova?". Nenhum dos dois responde "a integração está QUEBRADA?",
+   * e a diferença não é acadêmica: quando a ponte do DJEN caiu, o painel disse
+   * SILENCIOSA — que se lê como semana parada, não como integração morta. Foram
+   * semanas assim.
+   *
+   * A LEITURA SAI DO LOG DE CHAMADAS, que é o único lugar que sabe se a
+   * requisição saiu e o que voltou:
+   *
+   *  - PARADA:   nenhuma chamada com sucesso nas últimas 48h. Os dois robôs
+   *              rodam TODA madrugada, então 48h já perdoa uma noite inteira
+   *              perdida — e duas noites em silêncio não é folga, é defeito.
+   *  - INSTAVEL: houve sucesso recente, mas mais de um quinto das chamadas das
+   *              últimas 24h falhou. O corte é alto de propósito: medido em
+   *              7 dias, a taxa normal do DataJud é de 0,24% (2 falhas em 821),
+   *              então 20% está ordens de grandeza acima do ruído e não vai
+   *              acender por causa de um 429 isolado.
+   *  - OK:       o resto.
+   *
+   * SEM CHAMADA NENHUMA NÃO É FALHA: uma instalação que nunca ligou a
+   * integração devolve `SEM_USO`, e a tela não mostra nada. Alarme sobre
+   * função desligada é o jeito mais rápido de ensinar a equipe a ignorar
+   * alarme.
+   */
+  private async saudeDasFontes(agora: Date) {
+    const desde24h = new Date(agora.getTime() - 24 * 3_600_000);
+    const desde48h = new Date(agora.getTime() - 48 * 3_600_000);
+
+    const linhas = await this.prisma.$queryRaw<
+      {
+        fonte: string;
+        ok24: bigint;
+        falhas24: bigint;
+        ultimo_sucesso: Date | null;
+        ultima_falha: Date | null;
+        ultimo_erro: string | null;
+      }[]
+    >`
+      SELECT fonte,
+             count(*) FILTER (WHERE sucesso     AND created_at > ${desde24h}) AS ok24,
+             count(*) FILTER (WHERE NOT sucesso AND created_at > ${desde24h}) AS falhas24,
+             max(created_at) FILTER (WHERE sucesso)     AS ultimo_sucesso,
+             max(created_at) FILTER (WHERE NOT sucesso) AS ultima_falha,
+             (array_agg(mensagem_erro ORDER BY created_at DESC)
+                FILTER (WHERE NOT sucesso))[1]          AS ultimo_erro
+        FROM logs_sincronizacao_datajud
+       GROUP BY fonte
+    `;
+
+    return linhas.map((l) => {
+      const ok24 = Number(l.ok24);
+      const falhas24 = Number(l.falhas24);
+      const chamadas24 = ok24 + falhas24;
+      const temSucessoRecente = !!l.ultimo_sucesso && l.ultimo_sucesso > desde48h;
+
+      const situacao = !l.ultimo_sucesso && chamadas24 === 0
+        ? 'SEM_USO'
+        : !temSucessoRecente
+          ? 'PARADA'
+          : chamadas24 > 0 && falhas24 / chamadas24 > 0.2
+            ? 'INSTAVEL'
+            : 'OK';
+
+      return {
+        fonte: l.fonte,
+        situacao,
+        ok24,
+        falhas24,
+        ultimoSucesso: l.ultimo_sucesso,
+        ultimaFalha: l.ultima_falha,
+        /** A mensagem crua da última falha — é o que se cola num chamado. */
+        ultimoErro: l.ultimo_erro,
+      };
+    });
+  }
+
   private async aniversariantesDeHoje(agora: Date) {
     const br = new Date(agora.getTime() - OFFSET_BR);
     const mes = br.getUTCMonth() + 1;

@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
   Newspaper,
-  FileCheck2, Hourglass, Headset, Swords,
+  FileCheck2, Hourglass, Headset, Swords, UserCog,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -23,6 +23,7 @@ import {
   primeiroNome, motivoFalhaDatajud,
   type ResumoDashboard, type FalhaDatajud,
 } from '@/lib/dashboard';
+import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { formatNPU } from '@/lib/processos';
 import { PROVIDENCIA_LABEL } from '@/lib/djen';
 import { Button } from '@/components/ui/button';
@@ -234,6 +235,15 @@ function Conteudo({
   role: PerfilUsuario;
 }) {
   const { kpis, minhaCarteira, alertas } = data;
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  /**
+   * Id do filiado sendo recadastrado por cima do painel. Quem viu o dado
+   * faltando conserta sem perder a tela de onde veio.
+   */
+  const [recadastrando, setRecadastrando] = useState<string | null>(null);
+  /** Quem GRAVA filiado: é de quem é a fila de recadastro. */
+  const podeEditarFiliado = podeEditar(role, user?.permissoes, 'filiados');
 
   /** Perfis que coordenam a operação — os únicos que veem a carga da equipe. */
   const ehGestao = role === 'ADMINISTRADOR' || role === 'COORDENACAO';
@@ -362,14 +372,27 @@ function Conteudo({
             {pode.atendimentos && <AtendimentosPendentes data={data} />}
           </div>
           {/* Aniversariantes logo abaixo da fila: é a secretaria quem faz o
-              contato, e o card só aparece quando há alguém. */}
+              contato, e o card só aparece quando há alguém. E ao lado, os
+              cadastros que dá para completar hoje — é o mesmo gesto (abrir a
+              ficha de alguém e preencher o que falta), e a mesma pessoa. */}
           {pode.filiados && (
-            <div className="mt-4">
-              <Aniversariantes data={data} />
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Aniversariantes
+                data={data}
+                podeCompletar={podeEditarFiliado}
+                onCompletar={setRecadastrando}
+              />
+              {podeEditarFiliado && (
+                <CadastrosACompletar data={data} onCompletar={setRecadastrando} />
+              )}
             </div>
           )}
         </section>
       )}
+
+      {/* A fonte externa caiu? Vem antes de tudo que depende dela — inclusive
+          antes do aviso do robô, que só diz se a varredura rodou. */}
+      <SaudeDasIntegracoes data={data} />
 
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
@@ -454,9 +477,33 @@ function Conteudo({
         </div>
       )}
 
+      {/* Cadastros a completar para quem edita filiado e não é Triagem (esta
+          já viu no topo) — a coordenação também trabalha essa fila. */}
+      {!ehTriagem && podeEditarFiliado && (
+        <CadastrosACompletar data={data} onCompletar={setRecadastrando} />
+      )}
+
       {/* Aniversariantes para os demais perfis (a Triagem já viu no topo).
           O card se esconde sozinho em dia sem aniversário. */}
-      {!ehTriagem && pode.filiados && <Aniversariantes data={data} />}
+      {!ehTriagem && pode.filiados && (
+        <Aniversariantes
+          data={data}
+          podeCompletar={podeEditarFiliado}
+          onCompletar={setRecadastrando}
+        />
+      )}
+
+      {/* O recadastro acontece por cima do painel: quem viu o dado faltando
+          conserta sem perder a tela de onde veio. */}
+      <CadastroFiliadoModal
+        open={!!recadastrando}
+        filiadoId={recadastrando}
+        onClose={() => setRecadastrando(null)}
+        onSalvo={() => {
+          setRecadastrando(null);
+          qc.invalidateQueries({ queryKey: ['dashboard'] });
+        }}
+      />
 
       {/* Leitura de acervo: com quem brigamos, e o que andou nos processos.
           As duas são contexto, não alerta — por isso ficam no rodapé. */}
@@ -505,7 +552,13 @@ function AlertBar({
 }: {
   children: React.ReactNode;
   tom: 'info' | 'atencao' | 'critico';
-  href: string;
+  /**
+   * SEM DESTINO É UM CASO LEGÍTIMO. Quase todo aviso daqui leva a uma tela onde
+   * se resolve — mas "o DJEN parou de responder" não tem tela: não é trabalho
+   * de ninguém dentro do sistema, é uma informação para quem decide abrir
+   * chamado. Um link para lugar nenhum seria pior que link nenhum.
+   */
+  href?: string;
   acao?: string;
 }) {
   const estilo = {
@@ -527,22 +580,30 @@ function AlertBar({
   }[tom];
   const { Icone } = estilo;
 
-  return (
-    <Link
-      href={href}
-      className={cn(
-        'flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition hover:brightness-[0.98]',
-        estilo.cor,
+  const corpo = (
+    <>
+      <span className="flex items-start gap-2.5">
+        <Icone className={cn('mt-0.5 h-4 w-4 shrink-0', estilo.icone)} />
+        <span className="min-w-0">{children}</span>
+      </span>
+      {href && (
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+          {acao} <ChevronRight className="h-3.5 w-3.5" />
+        </span>
       )}
-    >
-      <span className="flex items-center gap-2.5">
-        <Icone className={cn('h-4 w-4 shrink-0', estilo.icone)} />
-        <span>{children}</span>
-      </span>
-      <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
-        {acao} <ChevronRight className="h-3.5 w-3.5" />
-      </span>
-    </Link>
+    </>
+  );
+
+  const classe = cn(
+    'flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm',
+    estilo.cor,
+    href && 'transition hover:brightness-[0.98]',
+  );
+
+  return href ? (
+    <Link href={href} className={classe}>{corpo}</Link>
+  ) : (
+    <div className={classe}>{corpo}</div>
   );
 }
 
@@ -1104,7 +1165,115 @@ function ContatosHoje({ data }: { data: ResumoDashboard }) {
  * O botão do WhatsApp já leva a mensagem pronta, porque o atrito de escrever
  * é o que faz a intenção morrer.
  */
-function Aniversariantes({ data }: { data: ResumoDashboard }) {
+/**
+ * QUEM PASSOU POR AQUI E ESTÁ COM A FICHA PELA METADE — a fila do balcão.
+ *
+ * A dívida real é de sete mil fichas (98% sem telefone, 69% sem CPF), e é
+ * justamente por isso que ESTA lista não é ela. Sete mil nomes não são uma fila
+ * de trabalho: é um relatório de dívida que ninguém abre duas vezes. Aqui só
+ * entra quem está EM JOGO — teve atendimento nos últimos 60 dias ou é parte de
+ * um processo. São pessoas com quem o sindicato acabou de falar, e o dado ainda
+ * está ao alcance.
+ *
+ * Completar abre o formulário completo em passos, sem sair do painel.
+ */
+function CadastrosACompletar({
+  data, onCompletar,
+}: {
+  data: ResumoDashboard;
+  onCompletar: (filiadoId: string) => void;
+}) {
+  const itens = data.cadastrosACompletar ?? [];
+  if (itens.length === 0) return null;
+
+  return (
+    <SectionCard title="Cadastros a completar" icon={UserCog} count={itens.length}>
+      <ul className="divide-y divide-border/60">
+        {itens.map((f) => (
+          <li key={f.id} className="flex items-center gap-3 px-2 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{f.nome}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                Falta {f.falta.join(', ')}
+                {f.motivo === 'ATENDIMENTO' ? ' · atendido há pouco' : ' · tem processo'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onCompletar(f.id)}
+              className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-muted"
+            >
+              Completar
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="border-t px-2 pt-2 text-[11px] leading-snug text-muted-foreground">
+        Só quem teve atendimento recente ou tem processo — são os cadastros que dá para
+        completar hoje.
+      </p>
+    </SectionCard>
+  );
+}
+
+/**
+ * AS FONTES EXTERNAS PARARAM? — e o aviso só existe quando pararam.
+ *
+ * Este painel já dizia "a varredura rodou?" e "chegou publicação?". Nenhum dos
+ * dois respondia "a integração QUEBROU?", e a diferença custou semanas: quando
+ * a ponte do DJEN caiu, a home mostrou "silenciosa", que se lê como semana
+ * parada. A leitura agora sai do log de chamadas — se a requisição saiu e o que
+ * voltou.
+ *
+ * NADA APARECE QUANDO ESTÁ TUDO BEM. Um selo verde permanente vira paisagem em
+ * uma semana e some junto com ele o dia em que fica vermelho.
+ */
+function SaudeDasIntegracoes({ data }: { data: ResumoDashboard }) {
+  const problemas = (data.integracoes ?? []).filter(
+    (i) => i.situacao === 'PARADA' || i.situacao === 'INSTAVEL',
+  );
+  if (problemas.length === 0) return null;
+
+  return (
+    <>
+      {problemas.map((i) => {
+        const parada = i.situacao === 'PARADA';
+        const desde = i.ultimoSucesso
+          ? new Date(i.ultimoSucesso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+          : null;
+        return (
+          <AlertBar key={i.fonte} tom={parada ? 'critico' : 'atencao'}>
+            <strong className="font-semibold">{i.fonte}</strong>{' '}
+            {parada ? (
+              <>
+                sem nenhuma consulta bem-sucedida{' '}
+                {desde ? `desde ${desde}` : 'até agora'}. As duas varreduras rodam toda
+                madrugada — dois dias em silêncio é defeito, não folga.
+              </>
+            ) : (
+              <>
+                instável: {i.falhas24} de {i.ok24 + i.falhas24} consultas falharam nas últimas
+                24 horas.
+              </>
+            )}
+            {i.ultimoErro && (
+              <span className="mt-0.5 block text-[11px] opacity-80">Último erro: {i.ultimoErro}</span>
+            )}
+          </AlertBar>
+        );
+      })}
+    </>
+  );
+}
+
+function Aniversariantes({
+  data, podeCompletar, onCompletar,
+}: {
+  data: ResumoDashboard;
+  /** Quem edita filiado ganha o atalho de recadastro. */
+  podeCompletar?: boolean;
+  onCompletar?: (filiadoId: string) => void;
+}) {
   const itens = data.aniversariantes ?? [];
   if (itens.length === 0) return null; // dia sem aniversário não vira card vazio
 
@@ -1119,8 +1288,8 @@ function Aniversariantes({ data }: { data: ResumoDashboard }) {
             : null;
           return (
             <li key={`${p.tipo}-${p.id}`} className="flex items-center gap-3 px-2 py-2.5">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-100 text-sm dark:bg-pink-950/40">
-                🎂
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-100 dark:bg-pink-950/40">
+                <Cake className="h-4 w-4 text-pink-700 dark:text-pink-300" />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{p.nome}</p>
@@ -1138,6 +1307,23 @@ function Aniversariantes({ data }: { data: ResumoDashboard }) {
                 >
                   Parabenizar
                 </a>
+              ) : podeCompletar && p.tipo === 'FILIADO' ? (
+                /*
+                  SEM TELEFONE ERA BECO SEM SAÍDA — e é o caso mais comum.
+
+                  Medido em 04/09/2026: 7.137 dos 7.291 filiados não têm
+                  telefone. O card dizia "sem telefone" e acabava ali: não dava
+                  para parabenizar nem para consertar. O aniversário é o melhor
+                  momento para completar a ficha, porque a pessoa já está na
+                  tela e há um motivo para ligar.
+                */
+                <button
+                  type="button"
+                  onClick={() => onCompletar?.(p.id)}
+                  className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-muted"
+                >
+                  Completar cadastro
+                </button>
               ) : (
                 <span className="shrink-0 text-[11px] text-muted-foreground">sem telefone</span>
               )}
@@ -1145,6 +1331,17 @@ function Aniversariantes({ data }: { data: ResumoDashboard }) {
           );
         })}
       </ul>
+      {/*
+        A LISTA É UMA AMOSTRA, e dizer isso é obrigação.
+
+        Só 499 dos 7.291 filiados têm data de nascimento no cadastro (7%). Sem
+        esta linha, quem parabeniza dois hoje conclui que parabenizou todo
+        mundo — e a ausência de aniversariante num dia parece "não tem", quando
+        é "não sabemos".
+      */}
+      <p className="border-t px-2 pt-2 text-[11px] leading-snug text-muted-foreground">
+        Só aparece quem tem data de nascimento no cadastro.
+      </p>
     </SectionCard>
   );
 }

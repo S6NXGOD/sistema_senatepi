@@ -25,7 +25,7 @@ const COL_DOT: Record<StatusCompromisso, string> = {
  */
 export function KanbanView({
   compromissos, onAbrir, onEditar, onVerTriagem, onAcao,
-  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir,
+  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, apontado,
 }: {
   compromissos: Compromisso[];
   onAbrir: (c: Compromisso) => void;
@@ -37,6 +37,8 @@ export function KanbanView({
   onRemarcar: (c: Compromisso) => void;
   onExcluir?: (c: Compromisso) => void;
   podeExcluir?: boolean;
+  /** Id do cartão para o qual a navegação apontou — ver `CompromissoCard`. */
+  apontado?: string | null;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [sobre, setSobre] = useState<StatusCompromisso | null>(null);
@@ -94,6 +96,7 @@ export function KanbanView({
                 <CompromissoCard
                   key={c.id}
                   c={c}
+                  apontado={apontado === c.id}
                   draggable
                   onDragStart={() => setDragId(c.id)}
                   onAbrir={onAbrir}

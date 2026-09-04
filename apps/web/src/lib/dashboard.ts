@@ -222,6 +222,33 @@ export interface ResumoDashboard {
   /** Tarefas de contato com o filiado — a fila própria da Triagem. */
   contatosHoje: CompromissoCard[];
   /** Aniversariantes de hoje: filiados e equipe, na mesma lista. */
+  /**
+   * QUEM PASSOU POR AQUI E ESTÁ COM A FICHA PELA METADE — a fila do balcão.
+   * Vazia para quem não edita filiado.
+   */
+  cadastrosACompletar: {
+    id: string;
+    nome: string;
+    /** Por que esta pessoa está "em jogo": atendimento recente ou processo. */
+    motivo: 'ATENDIMENTO' | 'PROCESSO';
+    /** O que falta na ficha, na ordem em que atrapalha. */
+    falta: string[];
+  }[];
+  /**
+   * AS FONTES EXTERNAS ESTÃO DE PÉ? Nulo para quem não coordena — é a única
+   * pessoa que faz alguma coisa com a resposta.
+   */
+  integracoes:
+    | {
+        fonte: string;
+        situacao: 'OK' | 'INSTAVEL' | 'PARADA' | 'SEM_USO';
+        ok24: number;
+        falhas24: number;
+        ultimoSucesso: string | null;
+        ultimaFalha: string | null;
+        ultimoErro: string | null;
+      }[]
+    | null;
   aniversariantes: {
     id: string;
     nome: string;

@@ -112,6 +112,23 @@ function AgendaConteudo() {
   const [formOpen, setFormOpen] = useState(false);
   const [editar, setEditar] = useState<Compromisso | null>(null);
   const [detalheId, setDetalheId] = useState<string | null>(null);
+  /**
+   * Id que chegou pela URL e ainda não foi posicionado no quadro.
+   *
+   * O ATALHO ABRIA A GAVETA E DEIXAVA O FUNDO ERRADO. Clicando numa publicação
+   * do painel, a pessoa caía em `/agenda` na aba padrão ("Hoje"), via as três
+   * colunas escritas "Sem atividades" — e por cima, uma gaveta com uma tarefa
+   * do dia 10. Nada na tela ligava as duas coisas: não dava para saber em que
+   * dia se estava nem de onde aquilo tinha vindo.
+   *
+   * Guardar o id à parte é o que permite reposicionar UMA vez, quando a lista
+   * chega. Reagir a `detalheId` puro reposicionaria o quadro toda vez que
+   * alguém abrisse um cartão com a mão, jogando a tela para longe do que a
+   * pessoa estava lendo.
+   */
+  const [veioDeFora, setVeioDeFora] = useState<string | null>(null);
+  /** Cartão apontado pela navegação — recebe um anel até a pessoa mexer. */
+  const [destacado, setDestacado] = useState<string | null>(null);
   const [triagemId, setTriagemId] = useState<string | null>(null);
   const [excluir, setExcluir] = useState<Compromisso | null>(null);
   // Ações que exigem informação: cada uma tem o seu diálogo.
@@ -134,7 +151,7 @@ function AgendaConteudo() {
    * trocava de tela — a pessoa caía no quadro inteiro e procurava a atividade
    * na mão.
    */
-  useAbrirPorUrl('compromisso', setDetalheId, '/agenda');
+  useAbrirPorUrl('compromisso', (id) => { setDetalheId(id); setVeioDeFora(id); }, '/agenda');
   // Atalhos do painel: `?aba=urgentes`, `?aba=hoje`… Só abas conhecidas passam,
   // senão um link velho deixaria a tela num estado que não existe mais.
   useFiltroPorUrl(
@@ -173,6 +190,37 @@ function AgendaConteudo() {
   });
 
   const compromissos = data ?? [];
+
+  /**
+   * POSICIONA O QUADRO NA ATIVIDADE QUE O ATALHO ABRIU.
+   *
+   * Três coisas, e cada uma responde a uma pergunta que a tela deixava sem
+   * resposta: a ABA passa a "Todos" quando a atual não contém a atividade
+   * ("onde ela está?"), o CALENDÁRIO vai para o mês dela ("que dia é hoje
+   * nisto?") e o CARTÃO ganha um anel ("o que eu cliquei?").
+   *
+   * Roda uma vez por chegada: `veioDeFora` é zerado no fim.
+   */
+  useEffect(() => {
+    if (!veioDeFora || compromissos.length === 0) return;
+    const alvo = compromissos.find((c) => c.id === veioDeFora);
+    if (!alvo) return;
+
+    const inicio = new Date(alvo.inicio);
+    const hoje = new Date();
+    const mesmoDia = inicio.toDateString() === hoje.toDateString();
+    // "Hoje" e "7 dias" mentem sobre uma atividade que não cabe neles.
+    const abaCabe =
+      aba === 'todos' ||
+      (aba === 'hoje' && mesmoDia) ||
+      (aba === '7dias' && inicio.getTime() - hoje.getTime() < 7 * 86_400_000) ||
+      (aba === 'aberto' && (alvo.status === 'PENDENTE' || alvo.status === 'EM_ANDAMENTO'));
+    if (!abaCabe) setAba('todos');
+
+    setMes(new Date(inicio.getFullYear(), inicio.getMonth(), 1));
+    setDestacado(alvo.id);
+    setVeioDeFora(null);
+  }, [veioDeFora, compromissos, aba]);
   const compromissosDoMes = doMes.data ?? [];
 
   /**
@@ -338,6 +386,7 @@ function AgendaConteudo() {
           onRemarcar={onRemarcar}
           onExcluir={setExcluir}
           podeExcluir={ehAdmin}
+          apontado={destacado}
         />
       )}
 
