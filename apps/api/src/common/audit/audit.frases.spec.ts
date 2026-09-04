@@ -70,6 +70,22 @@ describe('o que não vira registro', () => {
     expect(valeAuditar('/api/auth/refresh')).toBe(false);
   });
 
+  /**
+   * A LISTA DE PROCESSOS dispara `instancias/reavaliar` ao abrir. Foram **334
+   * dos 1.245 registros crus dos últimos 30 dias** (27%) — a maior fonte
+   * isolada do log, e nenhum deles pedido por alguém.
+   */
+  it('descarta a varredura que a tela dispara sozinha', () => {
+    expect(valeAuditar('/api/processos/instancias/reavaliar?limite=0')).toBe(false);
+  });
+
+  /** Mas a rota antiga continua traduzível: 334 registros dela já estão no banco. */
+  it('os registros antigos dessa rota continuam legíveis', () => {
+    expect(descricaoLegivel('POST /api/processos/instancias/reavaliar?limite=10')).toBe(
+      'Reavaliou as instâncias dos processos',
+    );
+  });
+
   it('mas mantém o login e o logout', () => {
     expect(valeAuditar('/api/auth/login')).toBe(true);
     expect(valeAuditar('/api/auth/logout')).toBe(true);
@@ -101,5 +117,37 @@ describe('quem já contou, cala o outro', () => {
   it('o registro de último recurso continua existindo', () => {
     expect(INTERCEPTOR).toContain('descricao: fraseDaRota(req.method, url)');
     expect(INTERCEPTOR).toContain('metadata: { rota: url, metodo: req.method }');
+  });
+});
+
+/**
+ * SILÊNCIO NÃO PODE VIRAR BURACO.
+ *
+ * Tirar a rota do interceptor só é legítimo porque a varredura passou a gravar
+ * ELA MESMA quando muda alguma coisa — e aí com o número do que mudou, que a
+ * linha de curl nunca teve.
+ */
+describe('a varredura silenciosa deixa rastro quando muda algo', () => {
+  const SERVICO_PROC = readFileSync(
+    resolve(__dirname, '../../modules/processos/processos.service.ts'),
+    'utf8',
+  );
+
+  it('grava só quando reavaliou ou realinhou', () => {
+    expect(SERVICO_PROC).toContain('if (r.desalinhados > 0 || r.reavaliados > 0) {');
+    expect(SERVICO_PROC).toContain("descricao: `Instâncias reavaliadas — ${partes.join(', ')}`");
+  });
+
+  it('e diz quantos foram — o que a rota crua nunca disse', () => {
+    expect(SERVICO_PROC).toContain('${r.reavaliados} processo(s) relido(s) no CNJ');
+    expect(SERVICO_PROC).toContain('${r.desalinhados} status realinhado(s) às instâncias');
+  });
+
+  it('o controller passa quem pediu', () => {
+    const CTRL = readFileSync(
+      resolve(__dirname, '../../modules/processos/processos.controller.ts'),
+      'utf8',
+    );
+    expect(CTRL).toContain('this.service.reavaliarInstancias(n, req ? this.ctx(req, userId) : { userId })');
   });
 });

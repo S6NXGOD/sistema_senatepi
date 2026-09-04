@@ -30,11 +30,19 @@ export const VERBO_HTTP: Record<string, string> = {
  * sessão continuou existindo. Auditoria responde "quem fez o quê"; isto não tem
  * quem nem o quê, e só empurra para baixo o que tem.
  *
+ * `processos/instancias/reavaliar` é a MESMA coisa com outra roupa: a lista de
+ * processos dispara essa rota ao abrir. Em duas horas de uso normal a produção
+ * gravou doze registros dela, todos dizendo que nada mudou — traduzir a frase
+ * para "Fulano reavaliou as instâncias" só deixaria o ruído mais bem vestido, e
+ * ainda faria parecer decisão de alguém o que foi navegação. Quando a rodada
+ * MUDA alguma coisa, quem grava é o próprio serviço, com o número do que mudou.
+ *
  * O LOGIN CONTINUA REGISTRADO, e é ele que interessa: "quem entrou no sistema
  * no domingo" é uma das três perguntas que trazem alguém a esta tela.
  */
 export const NAO_AUDITAR: RegExp[] = [
   /\/auth\/refresh/,
+  /\/processos\/instancias\/reavaliar/,
 ];
 
 /** Esta requisição merece registro? */

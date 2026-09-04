@@ -49,7 +49,7 @@ export class ProcessosController {
   @ApiOperation({ summary: 'Reavalia as instâncias dos processos ainda não lidos pelo parser multi-instância.' })
   async reavaliarInstancias(@Query('limite') limite?: string, @CurrentUser('id') userId?: string, @Req() req?: Request) {
     const n = Number(limite) || 10;
-    const r = await this.service.reavaliarInstancias(n);
+    const r = await this.service.reavaliarInstancias(n, req ? this.ctx(req, userId) : { userId });
 
     /**
      * RECLASSIFICAR AS AUDIÊNCIAS junto — e só na rodada "cara" (limite > 0),

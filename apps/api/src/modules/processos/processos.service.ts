@@ -537,6 +537,41 @@ export class ProcessosService {
    */
   async reavaliarInstancias(
     limite = 10,
+    ctx: Ctx = {},
+  ): Promise<{ reavaliados: number; restantes: number; executou: boolean; desalinhados: number }> {
+    const r = await this.varrerInstancias(limite);
+    /*
+      QUEM CHAMOU ISTO FOI A TELA, NÃO UMA PESSOA.
+
+      A lista de processos dispara esta rota ao abrir, uma vez por sessão, e a
+      esmagadora maioria das rodadas não muda nada: em duas horas de uso normal
+      a produção gravou doze registros dizendo que nada aconteceu. Por isso a
+      rota está em `NAO_AUDITAR` — o interceptor não escreve por ela.
+
+      MAS QUANDO ELA MUDA ALGO, MUDA CALADA e mexe em status de processo. Esse
+      é o rastro que precisa existir, e é o único que se grava aqui.
+    */
+    if (r.desalinhados > 0 || r.reavaliados > 0) {
+      const partes = [
+        r.reavaliados > 0 ? `${r.reavaliados} processo(s) relido(s) no CNJ` : null,
+        r.desalinhados > 0 ? `${r.desalinhados} status realinhado(s) às instâncias` : null,
+      ].filter(Boolean);
+      await this.audit.registrar({
+        userId: ctx.userId ?? null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'Processo',
+        descricao: `Instâncias reavaliadas — ${partes.join(', ')}`,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { reavaliados: r.reavaliados, desalinhados: r.desalinhados, restantes: r.restantes },
+      });
+    }
+    return r;
+  }
+
+  /** A varredura em si — sem auditoria, para o cron reusar sem gravar nada. */
+  private async varrerInstancias(
+    limite = 10,
   ): Promise<{ reavaliados: number; restantes: number; executou: boolean; desalinhados: number }> {
     /**
      * O alinhamento de status é só BANCO — não custa chamada ao CNJ, e por isso
