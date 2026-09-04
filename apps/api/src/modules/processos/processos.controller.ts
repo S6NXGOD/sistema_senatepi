@@ -1,15 +1,19 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import {
+  Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { ProcessosService } from './processos.service';
 import { AudienciasService } from './audiencias.service';
+import { DossieProcessoService } from './dossie-processo.service';
+import { conteudoDisposto } from '@core/infra';
 import {
   AtualizarProcessoDto,
   FormalizarProcessoDto,
   ImportarProcessoDto,
   ListProcessosQueryDto,
 } from './dto/processos.dto';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('processos')
@@ -20,6 +24,7 @@ export class ProcessosController {
   constructor(
     private readonly service: ProcessosService,
     private readonly audiencias: AudienciasService,
+    private readonly dossieProcesso: DossieProcessoService,
   ) {}
 
   private ctx(req: Request, userId?: string) {
@@ -101,6 +106,28 @@ export class ProcessosController {
   listar(@Query() query: ListProcessosQueryDto, @CurrentUser('id') userId: string) {
     // userId alimenta o filtro rápido "Meus processos".
     return this.service.listar(query, userId);
+  }
+
+  /**
+   * O DOSSIÊ EM PDF — o papel que se entrega a quem perguntou.
+   *
+   * `:id/dossie` não colide com `:id` (são caminhos de tamanhos diferentes),
+   * mas fica antes por convenção do módulo.
+   *
+   * NÃO leva nota interna, nem prognóstico, nem o teor integral das
+   * publicações. Ver o comentário do serviço.
+   */
+  @Get(':id/dossie')
+  @ApiOperation({ summary: 'PDF de acompanhamento do processo, para entregar ao filiado.' })
+  async dossie(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const { pdf, nomeArquivo } = await this.dossieProcesso.gerar(id, user.nomeExibicao || user.nome);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo, 'attachment'));
+    res.send(pdf);
   }
 
   /** Detalhe + movimentações lidos 100% do cache local. */

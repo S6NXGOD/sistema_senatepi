@@ -47,7 +47,7 @@ export const senatepi: TenantConfigWeb = {
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
-    'empresas', 'organizacoes', 'auditoria', 'usuarios',
+    'empresas', 'organizacoes', 'relatorios', 'auditoria', 'usuarios',
   ],
   // O SENATEPI usa todos os campos do cadastro.
   camposOcultos: [],

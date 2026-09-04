@@ -78,6 +78,6 @@ export const senatepi: TenantConfig = {
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
-    'empresas', 'organizacoes', 'auditoria', 'usuarios',
+    'empresas', 'organizacoes', 'relatorios', 'auditoria', 'usuarios',
   ],
 };

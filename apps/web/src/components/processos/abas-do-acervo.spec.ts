@@ -56,8 +56,19 @@ describe('o menu não carrega as vistas do acervo', () => {
     expect(hrefs).toContain('/processos');
     expect(hrefs).not.toContain('/publicacoes');
     expect(hrefs).not.toContain('/panorama');
-    // Duas linhas a menos numa lateral que tinha nove.
-    expect(hrefs.length).toBeLessThanOrEqual(7);
+  });
+
+  /**
+   * A SEÇÃO JURÍDICA CABE EM CINCO LINHAS, e é ela que mede o inchaço.
+   *
+   * Travar o TOTAL do menu seria travar contra evolução: qualquer módulo novo
+   * quebraria o teste sem que nada tivesse piorado. O que não pode voltar a
+   * crescer é a seção de trabalho diário — foi onde as três vistas do mesmo
+   * acervo competiam como se fossem três lugares.
+   */
+  it('a seção Jurídico não volta a inchar', () => {
+    const juridico = NAV_SECOES.find((s) => s.titulo === 'Jurídico')!;
+    expect(juridico.itens.length).toBeLessThanOrEqual(5);
   });
 });
 

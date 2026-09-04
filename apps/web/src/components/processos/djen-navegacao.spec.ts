@@ -214,3 +214,23 @@ describe('o painel', () => {
     expect(BLOCO_DJEN).toContain('border-2 border-amber-500');
   });
 });
+
+/**
+ * "LER TUDO (822 CARACTERES)" SE LÊ COMO "HÁ MAIS 822".
+ *
+ * Foi assim que o jurídico leu, e a leitura é razoável: em toda interface, o
+ * número ao lado de "ver mais" é o que FALTA. Aqui é o tamanho do texto
+ * inteiro. O que falta não dá para contar — o corte é por linha (`line-clamp`),
+ * que depende da largura da tela.
+ */
+describe('o rótulo de expandir', () => {
+  const CARTAO = ler('components/processos/publicacao-djen-card.tsx');
+
+  it('diz que o número é o total', () => {
+    expect(CARTAO).toContain('caracteres no total)`}');
+  });
+
+  it('e o botão volta a recolher', () => {
+    expect(CARTAO).toContain("? 'Recolher'");
+  });
+});

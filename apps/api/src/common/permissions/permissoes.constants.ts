@@ -34,6 +34,7 @@ export type ModuloKey =
   | 'cobrancas'
   | 'empresas'
   | 'organizacoes'
+  | 'relatorios'
   | 'auditoria'
   | 'usuarios';
 
@@ -77,6 +78,16 @@ export const MODULOS: ModuloInfo[] = [
   // Colaboradores e seguem a permissão DELE. Uma linha só para editar duas
   // listas não se pagava — e não valia nada, porque o controller checava
   // `@Roles` em vez do módulo.
+  /**
+   * MÓDULO PRÓPRIO, e não uma aba do painel.
+   *
+   * Relatório de equipe mostra quanto cada pessoa entregou, quanto tem em
+   * aberto e quanto está atrasado. É instrumento de GESTÃO, do mesmo tipo da
+   * carga da equipe — e a decisão de quem enxerga isso é do sindicato, não
+   * nossa. Sem chave própria, ou ficaria escondido para sempre atrás de
+   * `@Roles`, ou apareceria para todo mundo que tem o painel.
+   */
+  { key: 'relatorios', label: 'Relatórios', grupo: 'Administração' },
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
   { key: 'usuarios', label: 'Usuários e Perfis', grupo: 'Administração' },
 ];
@@ -113,6 +124,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     // outra porta. Divergir daria o absurdo de quem edita a parte dentro do
     // processo não poder corrigir o nome dela na tela de cadastro.
     organizacoes: 'EDITAR',
+    relatorios: 'VISUALIZAR',
     auditoria: 'VISUALIZAR',
     usuarios: 'SEM_ACESSO',
   },
@@ -133,6 +145,16 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     // O advogado edita partes dentro do processo; corrigir o cadastro delas
     // é a mesma atribuição.
     organizacoes: 'EDITAR',
+    /**
+     * VÊ RELATÓRIOS, mas só com os NÚMEROS DELE.
+     *
+     * O recorte é no SERVIÇO, e não na permissão: um relatório de equipe que
+     * mostrasse a produção dos nove colegas para cada advogado seria ranking, e
+     * ranking em time pequeno corrói mais do que informa. O que o advogado
+     * precisa é do próprio espelho — o que entregou, o que tem em aberto, o que
+     * está atrasado.
+     */
+    relatorios: 'VISUALIZAR',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
   },
@@ -167,6 +189,9 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     empresas: 'EDITAR',
     // Acompanha `processos`, que a Triagem não vê.
     organizacoes: 'SEM_ACESSO',
+    // Relatório de equipe é instrumento de gestão jurídica; o balcão tem a
+    // própria fila no painel.
+    relatorios: 'SEM_ACESSO',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
   },

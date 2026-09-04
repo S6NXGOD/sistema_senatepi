@@ -2,9 +2,17 @@ import {
   classificarProvidencia,
   corpoDaPublicacao,
   diasParaLembrete,
+  extrairPrazoDias,
   limparTextoPublicacao,
   PROVIDENCIAS,
 } from './providencia.util';
+
+/**
+ * `extrairPrazoDias` recebe o texto JÁ normalizado — é assim que o serviço o
+ * chama. Normalizar aqui deixa os casos legíveis em português de despacho.
+ */
+const normalizarParaTeste = (t: string) =>
+  t.normalize('NFD').replace(/[^\x00-\x7F]/g, '').toUpperCase();
 
 const p = (texto: string, tipo?: string) => classificarProvidencia(texto, tipo).providencia;
 const prazo = (texto: string) => classificarProvidencia(texto).prazoMencionadoDias;
@@ -263,5 +271,115 @@ describe('diasParaLembrete — antecipa, nunca calcula vencimento', () => {
   it('nunca cai abaixo de 1 dia útil', () => {
     expect(diasParaLembrete(spec, 2)).toBe(1);
     expect(diasParaLembrete(spec, 1)).toBe(1);
+  });
+});
+
+/**
+ * O PRAZO QUE O TEXTO MENCIONA — e o que o extrator deixava passar.
+ *
+ * Medido nas 136 publicações da produção em 04/09/2026: das 79 que citam a
+ * palavra "prazo", QUARENTA E UMA não tinham número extraído. Quase todas por
+ * escrever o número por extenso — "no prazo de CINCO DIAS" — que é a forma mais
+ * comum de despacho, ou por falar em HORAS. Depois destes casos, sobraram 19,
+ * e todas são não-detecções corretas: "prazo legal" (o texto não diz o número),
+ * "prazo de 2 anos" e "prazo para inscrição em sessão".
+ */
+describe('prazo mencionado no texto', () => {
+  const dias = (t: string) => extrairPrazoDias(normalizarParaTeste(t));
+
+  describe('formas que os tribunais usam', () => {
+    it.each([
+      ['no prazo de 15 dias', 15],
+      ['no prazo de 05 dias', 5],
+      ['no prazo de 5 (cinco) dias úteis', 5],
+      ['no prazo comum de 8 dias', 8],
+      // A forma mais comum, e a que o extrator não via.
+      ['manifestar-se no prazo de cinco dias (CLT, art. 884)', 5],
+      ['seja concedido o prazo de quinze dias para que a parte', 15],
+      ['o prazo adicional de 15 (quinze) dias', 15],
+      // Sem a palavra "prazo".
+      ['deverá indicar, em 05 (cinco) dias, os bens', 5],
+      ['dentro de 10 dias', 10],
+    ])('%s → %s', (texto, esperado) => {
+      expect(dias(texto)).toBe(esperado);
+    });
+
+    /** 48 horas é dos prazos mais curtos que existem, e ele não via nenhum. */
+    it.each([
+      ['no prazo de 48 horas após o trânsito', 2],
+      ['no prazo de 24 horas', 1],
+      // Arredonda PARA CIMA: para baixo daria zero e sumiria.
+      ['no prazo de 12 horas', 1],
+    ])('%s → %s dias', (texto, esperado) => {
+      expect(dias(texto)).toBe(esperado);
+    });
+  });
+
+  describe('o que NÃO pode virar prazo', () => {
+    /** O texto não informa o número — inventar um seria pior que não avisar. */
+    it.each([
+      'apresentar contrarrazões no prazo legal',
+      'decorrido o prazo legal, voltem-me conclusos',
+      'fica mantido o prazo e as cominações',
+      'aguarde-se o fim do prazo concedido',
+    ])('%s', (texto) => {
+      expect(dias(texto)).toBeNull();
+    });
+
+    it('anos e meses não são prazo de conferência', () => {
+      expect(dias('no prazo de 2 (dois) anos, a partir do trânsito')).toBeNull();
+      expect(dias('no prazo de 6 meses')).toBeNull();
+    });
+
+    /** O passado não é prazo: "há 30 dias" fala de quando algo aconteceu. */
+    it('menção ao passado não vira prazo', () => {
+      expect(dias('há 30 dias o processo está parado')).toBeNull();
+      expect(dias('decorridos 15 dias sem manifestação')).toBeNull();
+    });
+
+    it('fora da faixa plausível, nada', () => {
+      expect(dias('no prazo de 900 dias')).toBeNull();
+      expect(dias('no prazo de 0 dias')).toBeNull();
+    });
+  });
+
+  /**
+   * O MENOR MANDA, quando o texto cita mais de um.
+   *
+   * Sete publicações citam dois prazos e em três eles diferem. No caso medido —
+   * 20 e 10 — o de 20 dias é obrigação da RÉ ("sob pena de multa, cumpra em 20
+   * dias") e o de 10 é o nosso ("fica intimado o sindicato autor para
+   * manifestar-se no prazo de 10 dias úteis"). Pegar o primeiro atrasaria o
+   * lembrete em dez dias.
+   */
+  describe('mais de um prazo no mesmo texto', () => {
+    it('fica com o menor', () => {
+      expect(
+        dias('cumpra a obrigação no prazo de 20 dias, sob pena de multa. Fica intimado o ' +
+          'sindicato autor para manifestar-se no prazo de 10 dias úteis'),
+      ).toBe(10);
+      expect(dias('no prazo de 8 dias ... no prazo de 5 dias')).toBe(5);
+    });
+
+    it('prazos iguais não confundem', () => {
+      expect(dias('no prazo de 5 dias ... no prazo de 5 dias')).toBe(5);
+    });
+
+    /** Dias e horas competem na mesma régua, depois de convertidos. */
+    it('compara horas com dias na mesma unidade', () => {
+      expect(dias('garanta a execução no prazo de 48 horas ... manifeste-se no prazo de 10 dias')).toBe(2);
+    });
+  });
+
+  /**
+   * ARMADILHA DO REGEX COM /g: o objeto guarda `lastIndex` entre chamadas. Sem
+   * zerar, a segunda chamada começa a procurar do meio do texto anterior e
+   * devolve nulo em um texto que casa perfeitamente.
+   */
+  it('não guarda estado entre chamadas', () => {
+    const texto = normalizarParaTeste('no prazo de 15 dias');
+    expect(extrairPrazoDias(texto)).toBe(15);
+    expect(extrairPrazoDias(texto)).toBe(15);
+    expect(extrairPrazoDias(texto)).toBe(15);
   });
 });

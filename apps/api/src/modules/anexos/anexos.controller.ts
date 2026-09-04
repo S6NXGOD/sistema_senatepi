@@ -1,7 +1,9 @@
 import {
-  Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFile, UseInterceptors,
+  Body, Controller, Delete, Get, Param, Post, Query, Req, UploadedFile, UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { AnexoDoModuloGuard } from './anexo-do-modulo.guard';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { UserRole } from '@prisma/client';
@@ -14,7 +16,14 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('anexos')
 @ApiBearerAuth()
+/**
+ * OS QUATRO PERFIS entram — mas cada rota ainda passa pelo módulo do PAI do
+ * anexo. `@Roles` aqui só diz "usuário do sistema"; quem autoriza de verdade é
+ * o `AnexoDoModuloGuard`, porque o anexo não tem módulo próprio: ele herda o
+ * de quem o segura. Ver o comentário do guard.
+ */
 @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.ADVOGADO, UserRole.TRIAGEM)
+@UseGuards(AnexoDoModuloGuard)
 @Controller('anexos')
 export class AnexosController {
   constructor(private readonly service: AnexosService) {}

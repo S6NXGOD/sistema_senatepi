@@ -9,7 +9,7 @@ import {
   Clock, History, Users, Search, Lock, Paperclip, Download, ArrowRight, ExternalLink,
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
   AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
-  Archive, Zap,
+  Archive, Zap, FileDown,
   Swords,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,7 @@ import {
 } from '@/lib/djen';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from './publicacao-djen-card';
+import { baixarPdf } from '@/lib/pdf';
 import { classesCor } from '@/lib/paleta-cores';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
@@ -296,6 +297,7 @@ export function ProcessoDetalheSheet({
     return () => clearTimeout(t);
   }, [publicacaoDestacada, andamentoDestacado, aba]);
   const [ajuizando, setAjuizando] = useState(false);
+  const [baixandoDossie, setBaixandoDossie] = useState(false);
 
   /**
    * A ABA ATIVA É TRAZIDA PARA DENTRO DA VISTA.
@@ -793,6 +795,38 @@ export function ProcessoDetalheSheet({
                   <span className="hidden sm:inline">Abrir no tribunal</span>
                 </Button>
               )}
+              {/*
+                O DOSSIÊ — o papel que se entrega a quem perguntou.
+
+                Fica ao lado de "Abrir no tribunal" porque é da mesma família:
+                levar o processo para FORA da tela. Não leva nota interna, nem
+                prognóstico, nem o teor integral das publicações — ver o
+                comentário do serviço que o gera.
+              */}
+              <Button
+                variant="outline"
+                className="h-9 w-9 p-0 sm:h-auto sm:w-auto sm:px-4"
+                disabled={!p || baixandoDossie}
+                onClick={async () => {
+                  if (!p) return;
+                  setBaixandoDossie(true);
+                  try {
+                    await baixarPdf(`/processos/${p.id}/dossie`, 'dossie-do-processo.pdf');
+                  } catch {
+                    toast.error('Não foi possível gerar o dossiê agora.');
+                  } finally {
+                    setBaixandoDossie(false);
+                  }
+                }}
+                title="Baixar um PDF de acompanhamento para entregar ao filiado"
+              >
+                {baixandoDossie ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">Dossiê</span>
+              </Button>
               {ehAdmin && (
                 <button type="button" onClick={() => setConfirmarExcluir(true)} disabled={!p} title="Excluir processo"
                   className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">

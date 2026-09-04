@@ -31,6 +31,7 @@ import { PresencasModule } from './modules/presencas/presencas.module';
 import { AcessosModule } from './modules/acessos/acessos.module';
 import { CarteirinhasModule } from './modules/carteirinhas/carteirinhas.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { RelatoriosModule } from './modules/relatorios/relatorios.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
 import { HealthModule } from './modules/health/health.module';
 
@@ -74,6 +75,7 @@ import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-v
     AcessosModule,
     CarteirinhasModule,
     DashboardModule,
+    RelatoriosModule,
     AuditoriaModule,
     HealthModule,
   ],

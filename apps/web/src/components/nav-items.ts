@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
-  Building2, Landmark, type LucideIcon,
+  Building2, Landmark, BarChart3, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
@@ -101,6 +101,10 @@ export const NAV_SECOES: NavSecao[] = [
       { href: '/usuarios', label: 'Usuários e Perfis', icon: UserCog, modulo: 'usuarios' },
       // "Cadastros Base" saiu daqui: cargos e departamentos são listas de apoio
       // de Colaboradores e agora se editam de dentro daquela tela.
+      // Relatórios fica em Administração, e não no Jurídico: é instrumento de
+      // gestão, de cadência mensal. No Jurídico competiria com as telas de
+      // trabalho diário.
+      { href: '/relatorios', label: 'Relatórios', icon: BarChart3, modulo: 'relatorios' },
       { href: '/auditoria', label: 'Auditoria', icon: ShieldCheck, modulo: 'auditoria' },
     ],
   },

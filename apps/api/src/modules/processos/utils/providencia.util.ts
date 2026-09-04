@@ -129,14 +129,73 @@ const RE_COMUNICAR = /(ACORDO HOMOLOGADO|HOMOLOGO O ACORDO|TRANSITO EM JULGADO|A
 const RE_SEM_PROVIDENCIA = /(LISTA DE DISTRIBUICAO|DISTRIBUICAO POR SORTEIO|MERO EXPEDIENTE)/;
 
 /**
- * Prazo mencionado no texto.
+ * NÚMEROS POR EXTENSO — o jeito que o juiz escreve.
+ *
+ * Medido nas 136 publicações da produção: de 79 que citam "prazo", 41 não
+ * tinham número extraído, e a maior parte por escrever "no prazo de CINCO
+ * DIAS", "prazo de QUINZE DIAS". Um regex que só entende dígito perde a forma
+ * mais comum de despacho.
+ *
+ * Vai até noventa porque prazo processual maior que isso, por extenso, não
+ * existe na prática — e a faixa plausível corta o resto de qualquer jeito.
+ */
+const POR_EXTENSO: Record<string, number> = {
+  UM: 1, DOIS: 2, TRES: 3, QUATRO: 4, CINCO: 5, SEIS: 6, SETE: 7, OITO: 8, NOVE: 9, DEZ: 10,
+  ONZE: 11, DOZE: 12, TREZE: 13, QUATORZE: 14, CATORZE: 14, QUINZE: 15, DEZESSEIS: 16,
+  DEZESSETE: 17, DEZOITO: 18, DEZENOVE: 19, VINTE: 20, TRINTA: 30, QUARENTA: 40,
+  CINQUENTA: 50, SESSENTA: 60, SETENTA: 70, OITENTA: 80, NOVENTA: 90,
+};
+/**
+ *  NÃO É ENFEITE AQUI.
+ *
+ * Em template literal comum,  vira  e  vira  — o JavaScript
+ * descarta a barra de escapes que não conhece, sem aviso. A primeira versão
+ * destas expressões saiu assim e virou : continuou
+ * compilando, continuou rodando, e parou de achar QUALQUER prazo em dígito.
+ * Só apareceu ao rodar contra as 136 publicações da produção — os casos por
+ * extenso funcionavam e mascaravam a quebra.
+ */
+const NUMERO = String.raw`(?:\d{1,3}|${Object.keys(POR_EXTENSO).join('|')})`;
+
+/**
+ * Prazo em DIAS mencionado no texto.
  *
  * Ancorado em "PRAZO" e tolerante ao que os tribunais escrevem no meio:
- * "no prazo de 15 dias", "prazo de 05 (cinco) dias", "prazo comum de 15 dias".
- * "no prazo legal" não casa — e é exatamente o que se quer, porque ali o texto
- * NÃO informa o número.
+ * "no prazo de 15 dias", "prazo de 05 (cinco) dias", "prazo comum de 15 dias",
+ * "no prazo de cinco dias (CLT, art. 884)".
+ *
+ * "no prazo legal" NÃO casa, e é exatamente o que se quer: ali o texto não
+ * informa o número, e inventar um seria pior que não avisar.
  */
-const RE_PRAZO_DIAS = /PRAZO[^.\d]{0,30}(\d{1,3})\s*(?:\([^)]{0,30}\)\s*)?DIAS/;
+const RE_PRAZO_DIAS = new RegExp(
+  String.raw`PRAZO[^.\d]{0,30}?(${NUMERO})\s*(?:\([^)]{0,30}\)\s*)?DIAS`,
+  'g',
+);
+
+/**
+ * Prazo em HORAS — quase sempre 48, e é dos mais curtos que existem.
+ *
+ * "no prazo de 48 horas para garantir a execução" apareceu quatro vezes na
+ * produção e o sistema não via nenhuma. Vira dias arredondando PARA CIMA: 48h
+ * é dois dias, 24h é um. Arredondar para baixo daria zero e sumiria.
+ */
+const RE_PRAZO_HORAS = new RegExp(
+  String.raw`PRAZO[^.\d]{0,30}?(${NUMERO})\s*(?:\([^)]{0,30}\)\s*)?(?:H\b|HORAS)`,
+  'g',
+);
+
+/**
+ * "EM 05 (CINCO) DIAS", sem a palavra prazo.
+ *
+ * Uma única publicação da produção estava nessa forma, mas é forma corrente de
+ * despacho. Exige "EM" ou "DENTRO DE" imediatamente antes — sem essa âncora,
+ * "decorridos 15 dias" e "há 30 dias" virariam prazo, e os dois falam do
+ * passado.
+ */
+const RE_EM_DIAS = new RegExp(
+  String.raw`(?:\bEM|DENTRO DE)\s+(${NUMERO})\s*(?:\([^)]{0,30}\)\s*)?DIAS`,
+  'g',
+);
 
 /** Prazo processual plausível. Fora disso é erro de leitura, não prazo. */
 const PRAZO_MIN = 1;
@@ -320,13 +379,44 @@ export function classificarProvidencia(
   return resolver('NENHUMA');
 }
 
-/** Prazo em dias citado no texto, dentro de uma faixa plausível. */
+/** "15" ou "QUINZE" viram 15. Qualquer outra coisa vira nulo. */
+function numero(bruto: string): number | null {
+  const n = /^\d+$/.test(bruto) ? Number(bruto) : POR_EXTENSO[bruto];
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Prazo em dias citado no texto — O MENOR de todos, quando há mais de um.
+ *
+ * Sete das 136 publicações citam DOIS prazos, e em três eles diferem: 8 e 5,
+ * 20 e 10. O caso do 20/10 mostra por que o menor é o certo — "sob pena de
+ * multa, cumpra em 20 dias" é obrigação da RÉ, e "fica intimado o sindicato
+ * autor para manifestar-se no prazo de 10 dias úteis" é o nosso. Pegar o
+ * primeiro dava 20 e atrasaria o lembrete em dez dias.
+ *
+ * O menor também é o lado seguro quando não dá para saber de quem é o prazo:
+ * lembrar cedo custa uma conferência, lembrar tarde custa o prazo. E o aviso na
+ * tela diz, em toda publicação, que o sistema NÃO calcula vencimento.
+ */
 export function extrairPrazoDias(textoNormalizado: string): number | null {
-  const m = RE_PRAZO_DIAS.exec(textoNormalizado);
-  if (!m) return null;
-  const dias = Number(m[1]);
-  if (!Number.isFinite(dias) || dias < PRAZO_MIN || dias > PRAZO_MAX) return null;
-  return dias;
+  const candidatos: number[] = [];
+
+  const colher = (re: RegExp, converter: (n: number) => number) => {
+    re.lastIndex = 0; // regex com /g guarda estado entre chamadas
+    for (const m of textoNormalizado.matchAll(re)) {
+      const n = numero(m[1]);
+      if (n == null) continue;
+      const dias = converter(n);
+      if (dias >= PRAZO_MIN && dias <= PRAZO_MAX) candidatos.push(dias);
+    }
+  };
+
+  colher(RE_PRAZO_DIAS, (n) => n);
+  // 48 horas é dois dias; arredonda para cima porque 12h não pode virar zero.
+  colher(RE_PRAZO_HORAS, (n) => Math.ceil(n / 24));
+  colher(RE_EM_DIAS, (n) => n);
+
+  return candidatos.length ? Math.min(...candidatos) : null;
 }
 
 /**

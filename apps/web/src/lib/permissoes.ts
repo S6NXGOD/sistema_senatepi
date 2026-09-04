@@ -21,7 +21,7 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
   | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'organizacoes'
-  | 'auditoria' | 'usuarios';
+  | 'relatorios' | 'auditoria' | 'usuarios';
 
 export interface ModuloInfo {
   key: ModuloKey;
@@ -49,6 +49,16 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos passaram a viver dentro de
   // Colaboradores e seguem a permissão dele.
+  /**
+   * MÓDULO PRÓPRIO, e não uma aba do painel.
+   *
+   * Relatório de equipe mostra quanto cada pessoa entregou, quanto tem em
+   * aberto e quanto está atrasado. É instrumento de GESTÃO, do mesmo tipo da
+   * carga da equipe — e a decisão de quem enxerga isso é do sindicato, não
+   * nossa. Sem chave própria, ou ficaria escondido para sempre atrás de
+   * `@Roles`, ou apareceria para todo mundo que tem o painel.
+   */
+  { key: 'relatorios', label: 'Relatórios', grupo: 'Administração' },
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
   { key: 'usuarios', label: 'Usuários e Perfis', grupo: 'Administração' },
 ];
@@ -68,13 +78,14 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     // por outra porta. Divergir daria o absurdo de quem edita a parte dentro
     // do processo não poder corrigir o nome dela no cadastro.
     acessos: 'EDITAR', cobrancas: 'EDITAR', empresas: 'EDITAR', organizacoes: 'EDITAR',
-    auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
+    relatorios: 'VISUALIZAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
     acessos: 'SEM_ACESSO', cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', organizacoes: 'EDITAR',
-    auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    // Vê relatórios, mas só com os NÚMEROS DELE — o recorte é no serviço.
+    relatorios: 'VISUALIZAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
@@ -85,7 +96,7 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     // A secretaria (Triagem) cadastra a empresa e define a senha provisória.
     // `organizacoes` acompanha `processos`, que a Triagem não vê.
     cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', organizacoes: 'SEM_ACESSO',
-    auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    relatorios: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
 };
 

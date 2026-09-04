@@ -10,6 +10,7 @@ import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
 import { PadroesService } from './padroes.service';
+import { DossieProcessoService } from './dossie-processo.service';
 import { PadroesController } from './padroes.controller';
 import { DjenCronService } from './djen-cron.service';
 import { DjenAtivoGuard, DjenController } from './djen.controller';
@@ -54,6 +55,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     DjenSyncService,
     DjenBuscaService,
     PadroesService,
+    DossieProcessoService,
     DjenCronService,
     DjenAtivoGuard,
     ProcessosCronService,

@@ -136,6 +136,6 @@ export const sindserm: TenantConfig = {
     // são escolhidos no combobox do vínculo. Consequência aceita: réus de
     // processo acumulam em `partes_externas` sem tela para administrá-los —
     // exatamente como era no SENATEPI antes desta tela existir.
-    'auditoria', 'usuarios',
+    'relatorios', 'auditoria', 'usuarios',
   ],
 };

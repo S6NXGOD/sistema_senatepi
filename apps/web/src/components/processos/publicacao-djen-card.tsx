@@ -141,9 +141,17 @@ export function PublicacaoDjenCard({
           onClick={() => setInteiro((v) => !v)}
           className="mt-1 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
         >
+          {/*
+            "NO TOTAL" NÃO É REDUNDÂNCIA.
+            "Ler tudo (822 caracteres)" se lê como "há mais 822 caracteres", e
+            o jurídico leu exatamente assim. O número é o tamanho do texto
+            inteiro, não do que está escondido — e o escondido não dá para
+            contar, porque o corte é por LINHA (line-clamp), não por caractere.
+            Duas palavras resolvem o que uma reescrita do corte não resolveria.
+          */}
           {inteiro
             ? 'Recolher'
-            : `Ler tudo (${pub.texto.length.toLocaleString('pt-BR')} caracteres)`}
+            : `Ler tudo (${pub.texto.length.toLocaleString('pt-BR')} caracteres no total)`}
         </button>
       )}
 
