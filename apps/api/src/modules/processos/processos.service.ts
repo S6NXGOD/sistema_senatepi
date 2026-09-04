@@ -19,6 +19,8 @@ import { InstanciasService } from './instancias.service';
 import { SincronizacaoLogService } from './sincronizacao-log.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
+import { diferencaDeCampos, fraseDaAlteracao } from '../../common/audit/audit.diff';
+import { marcarNadaMudou } from '../../common/audit/audit.contexto';
 import {
   AtualizarProcessoDto,
   FormalizarProcessoDto,
@@ -41,6 +43,14 @@ import { normalizarCategoria, AREA_LABEL } from './areas.catalogo';
 import { areaSugerida, areaSugeridaValida } from './utils/area-sugerida.util';
 
 import { tenant } from '../../tenant/tenant.config';
+
+/** Um status de processo que o robô mudou sozinho, e por quê. */
+export interface MudancaDeStatus {
+  numeroCNJ: string | null;
+  de: string;
+  para: string;
+  porque: string;
+}
 
 /** Uma linha do polo ativo já resolvida contra os cadastros. */
 export interface PoloAtivoResolvido {
@@ -551,38 +561,62 @@ export class ProcessosService {
   ): Promise<{ reavaliados: number; restantes: number; executou: boolean; desalinhados: number }> {
     const r = await this.varrerInstancias(limite);
     /*
-      QUEM CHAMOU ISTO FOI A TELA, NÃO UMA PESSOA.
+      QUEM CHAMOU ISTO FOI A TELA, NÃO UMA PESSOA — e eu calibrei errado.
 
-      A lista de processos dispara esta rota ao abrir, uma vez por sessão, e a
-      esmagadora maioria das rodadas não muda nada: em duas horas de uso normal
-      a produção gravou doze registros dizendo que nada aconteceu. Por isso a
-      rota está em `NAO_AUDITAR` — o interceptor não escreve por ela.
+      Eu gravava quando `reavaliados > 0`, isto é, quando algum processo foi
+      RELIDO no CNJ. Resultado, medido na produção: OITO dos nove registros do
+      log depois do deploy eram "Instâncias reavaliadas — 1 processo(s)
+      relido(s) no CNJ", sem dizer QUAL processo, com `desalinhados: 0` em
+      todos. Virou a maior fonte de ruído da tela, e era minha.
 
-      MAS QUANDO ELA MUDA ALGO, MUDA CALADA e mexe em status de processo. Esse
-      é o rastro que precisa existir, e é o único que se grava aqui.
+      RELER O CNJ NÃO É ATO DE NINGUÉM: é o sistema baixando dado público e
+      carimbando `instanciasLidasEm`. Ninguém vai auditar isso, e ninguém
+      poderia questioná-lo — não há decisão humana ali.
+
+      O QUE SE AUDITA É O STATUS QUE O ROBÔ MUDOU SOZINHO, porque esse sim
+      alguém vai contestar: "quem encerrou meu processo?". Agora o registro sai
+      com o número de cada um, o de → para e o motivo.
     */
-    if (r.desalinhados > 0 || r.reavaliados > 0) {
-      const partes = [
-        r.reavaliados > 0 ? `${r.reavaliados} processo(s) relido(s) no CNJ` : null,
-        r.desalinhados > 0 ? `${r.desalinhados} status realinhado(s) às instâncias` : null,
-      ].filter(Boolean);
+    // A varredura não mudou status nenhum: nada a registrar, e o interceptor
+    // também não precisa inventar uma linha. (A rota já está em `NAO_AUDITAR`;
+    // isto é o cinto de segurança para quando alguém tirá-la de lá.)
+    if (!r.realinhados.length) marcarNadaMudou();
+    if (r.realinhados.length) {
+      const quais = r.realinhados
+        .map((m) => `${m.numeroCNJ ?? 'sem número'}: ${m.de} → ${m.para}`)
+        .join('; ');
       await this.audit.registrar({
         userId: ctx.userId ?? null,
         acao: AcaoAuditoria.UPDATE,
         entidade: 'Processo',
-        descricao: `Instâncias reavaliadas — ${partes.join(', ')}`,
+        entidadeId: r.realinhados.length === 1 ? (r.realinhados[0].numeroCNJ ?? undefined) : undefined,
+        descricao:
+          r.realinhados.length === 1
+            ? `Status realinhado às instâncias do CNJ — ${quais}`
+            : `${r.realinhados.length} status realinhados às instâncias do CNJ — ${quais}`,
         ip: ctx.ip,
         userAgent: ctx.userAgent,
-        metadata: { reavaliados: r.reavaliados, desalinhados: r.desalinhados, restantes: r.restantes },
+        metadata: {
+          alteracoes: r.realinhados.map((m) => ({
+            campo: 'statusInterno',
+            label: `Situação · ${m.numeroCNJ ?? 'sem número'}`,
+            de: m.de,
+            para: m.para,
+          })),
+          motivos: r.realinhados.map((m) => `${m.numeroCNJ}: ${m.porque}`),
+          relidosNoCNJ: r.reavaliados,
+        },
       });
     }
-    return r;
+    return { ...r, desalinhados: r.realinhados.length };
   }
 
   /** A varredura em si — sem auditoria, para o cron reusar sem gravar nada. */
   private async varrerInstancias(
     limite = 10,
-  ): Promise<{ reavaliados: number; restantes: number; executou: boolean; desalinhados: number }> {
+  ): Promise<{
+    reavaliados: number; restantes: number; executou: boolean; realinhados: MudancaDeStatus[];
+  }> {
     /**
      * O alinhamento de status é só BANCO — não custa chamada ao CNJ, e por isso
      * roda sempre, antes de qualquer outra coisa e independentemente da flag.
@@ -593,15 +627,15 @@ export class ProcessosService {
      * continuava exibindo "Ativo" ao lado de "Arquivado" até a madrugada
      * seguinte, porque a sessão já tinha "gasto" sua releitura.
      */
-    const desalinhados = await this.reconciliarStatus();
+    const realinhados = await this.reconciliarStatus();
 
     // `limite = 0` é o pedido explícito de "só alinhe o status, não fale com o
     // CNJ" — é o que a tela manda quando já releu nesta sessão.
-    if (limite <= 0) return { reavaliados: 0, restantes: 0, executou: true, desalinhados };
+    if (limite <= 0) return { reavaliados: 0, restantes: 0, executou: true, realinhados };
 
     if (!this.datajud.multiInstanciaAtiva) {
       // Sem a flag, reler não descobriria grau nenhum — só gastaria cota.
-      return { reavaliados: 0, restantes: 0, executou: false, desalinhados };
+      return { reavaliados: 0, restantes: 0, executou: false, realinhados };
     }
 
     const pendentes = await this.prisma.processo.findMany({
@@ -616,7 +650,7 @@ export class ProcessosService {
       orderBy: { ultimaSincronizacao: 'asc' },
       take: Math.min(50, Math.max(1, limite)),
     });
-    if (!pendentes.length) return { reavaliados: 0, restantes: 0, executou: true, desalinhados };
+    if (!pendentes.length) return { reavaliados: 0, restantes: 0, executou: true, realinhados };
 
     const r = await comTravaDeJob(
       this.prisma,
@@ -644,7 +678,7 @@ export class ProcessosService {
       },
     );
 
-    if (!r.executou) return { reavaliados: 0, restantes: pendentes.length, executou: false, desalinhados };
+    if (!r.executou) return { reavaliados: 0, restantes: pendentes.length, executou: false, realinhados };
 
     const restantes = await this.prisma.processo.count({
       where: {
@@ -653,7 +687,7 @@ export class ProcessosService {
         statusInterno: { notIn: FORA_DA_VARREDURA },
       },
     });
-    return { reavaliados: r.resultado, restantes, executou: true, desalinhados };
+    return { reavaliados: r.resultado, restantes, executou: true, realinhados };
   }
 
   /**
@@ -664,7 +698,7 @@ export class ProcessosService {
    * chamá-la: processo ATIVO/PENDENTE sem nenhuma instância viva, ou ENCERRADO
    * com alguma viva. Os dois sentidos, porque o desalinhamento acontece nos dois.
    */
-  private async reconciliarStatus(): Promise<number> {
+  private async reconciliarStatus(): Promise<MudancaDeStatus[]> {
     const candidatos = await this.prisma.processo.findMany({
       where: {
         OR: [
@@ -678,8 +712,21 @@ export class ProcessosService {
       select: { id: true },
       take: 200,
     });
-    for (const c of candidatos) await this.reavaliarStatusPorInstancias(c.id);
-    return candidatos.length;
+    /*
+      A LISTA DO QUE MUDOU — e não quantos foram OLHADOS.
+
+      Isto devolvia `candidatos.length`, e eu chamava o número de
+      "desalinhados" no registro de auditoria. Era falso: candidato é quem
+      entrou na consulta, e a esmagadora maioria sai de lá sem mudança nenhuma.
+      Um log que diz "3 status realinhados" quando nenhum mudou é pior que log
+      nenhum — ele parece prova.
+    */
+    const mudancas: MudancaDeStatus[] = [];
+    for (const c of candidatos) {
+      const m = await this.reavaliarStatusPorInstancias(c.id);
+      if (m) mudancas.push(m);
+    }
+    return mudancas;
   }
 
   /**
@@ -1245,6 +1292,10 @@ export class ProcessosService {
       where: { id },
       select: {
         id: true, urgente: true, urgenteMotivo: true, urgenteEm: true, urgentePor: true,
+        // O ANTES do diff. Sem estes campos aqui, o registro só saberia dizer
+        // "dados internos atualizados" — que é o que ele dizia.
+        numeroCNJ: true, statusInterno: true, etiquetas: true, valorCausa: true,
+        categoria: true, filiadoId: true, advogadoId: true,
       },
     });
     if (!atual) throw new NotFoundException('Processo não encontrado.');
@@ -1286,10 +1337,40 @@ export class ProcessosService {
         ctx,
       );
     }
-    await this.audit.registrar({
-      userId: ctx.userId ?? null, acao: AcaoAuditoria.UPDATE, entidade: 'Processo', entidadeId: id,
-      descricao: 'Dados internos do processo atualizados', ip: ctx.ip, userAgent: ctx.userAgent, metadata: {},
+    /*
+      "DADOS INTERNOS DO PROCESSO ATUALIZADOS" não respondia nada.
+
+      Agora diz quais campos e com que valores — e cala quando o PATCH não
+      mudou nada. `valorCausa` é Decimal do Prisma: `normalizar` o converte em
+      texto, senão dois objetos Decimal diferentes com o mesmo número
+      apareceriam como alteração.
+    */
+    const alteracoes = diferencaDeCampos(atual as unknown as Record<string, unknown>, {
+      statusInterno: dto.statusInterno,
+      etiquetas: dto.etiquetas === undefined ? undefined : this.normalizarEtiquetas(dto.etiquetas),
+      valorCausa: dto.valorCausa,
+      categoria,
+      filiadoId: dto.filiadoId,
+      advogadoId: dto.advogadoId,
+      urgente: dto.urgente,
+      urgenteMotivo: dto.urgenteMotivo,
     });
+    if (!alteracoes.length) marcarNadaMudou();
+    if (alteracoes.length) {
+      await this.audit.registrar({
+        userId: ctx.userId ?? null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'Processo',
+        entidadeId: id,
+        descricao: fraseDaAlteracao(
+          `Processo ${atual.numeroCNJ ?? 'sem número'} alterado`,
+          alteracoes,
+        ),
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { alteracoes },
+      });
+    }
     return this.detalhe(id);
   }
 
@@ -1550,7 +1631,9 @@ export class ProcessosService {
    * Só reabre o que o ROBÔ encerrou (ENCERRADO). Arquivado, suspenso ou
    * improcedente são decisões da equipe e o sistema não as desfaz sozinho.
    */
-  private async reavaliarStatusPorInstancias(processoId: string): Promise<void> {
+  private async reavaliarStatusPorInstancias(
+    processoId: string,
+  ): Promise<MudancaDeStatus | null> {
     const processo = await this.prisma.processo.findUnique({
       where: { id: processoId },
       select: {
@@ -1559,7 +1642,7 @@ export class ProcessosService {
         instancias: { select: { grau: true, baixada: true } },
       },
     });
-    if (!processo || !processo.instancias.length) return;
+    if (!processo || !processo.instancias.length) return null;
 
     const viva = temInstanciaViva(processo.instancias);
 
@@ -1599,7 +1682,12 @@ export class ProcessosService {
         },
       });
       this.logger.log(`[DATAJUD] ${processo.numeroCNJ}: encerrado — todas as instâncias baixadas.`);
-      return;
+      return {
+        numeroCNJ: processo.numeroCNJ,
+        de: processo.statusInterno,
+        para: 'ENCERRADO',
+        porque: `todas as instâncias (${graus}) receberam baixa`,
+      };
     }
 
     /**
@@ -1653,11 +1741,17 @@ export class ProcessosService {
         this.logger.log(
           `[DATAJUD] ${processo.numeroCNJ}: PENDENTE → ATIVO (${andamentos} andamento(s) no CNJ).`,
         );
+        return {
+          numeroCNJ: processo.numeroCNJ,
+          de: 'PENDENTE',
+          para: 'ATIVO',
+          porque: `o CNJ publicou o processo, com ${andamentos} andamento(s)`,
+        };
       }
-      return;
+      return null;
     }
 
-    if (processo.statusInterno !== 'ENCERRADO' || !viva) return;
+    if (processo.statusInterno !== 'ENCERRADO' || !viva) return null;
 
     const vivas = processo.instancias.filter((i) => !i.baixada).map((i) => i.grau);
     await this.prisma.processo.update({
@@ -1687,6 +1781,12 @@ export class ProcessosService {
     this.logger.log(
       `[DATAJUD] ${processo.numeroCNJ}: reaberto — instância(s) ${vivas.join(', ')} ainda ativa(s).`,
     );
+    return {
+      numeroCNJ: processo.numeroCNJ,
+      de: 'ENCERRADO',
+      para: 'ATIVO',
+      porque: `a instância ${vivas.join(', ')} continua sem baixa`,
+    };
   }
 
   /**

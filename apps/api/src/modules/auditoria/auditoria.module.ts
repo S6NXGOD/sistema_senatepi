@@ -184,9 +184,27 @@ export class AuditoriaService {
 type LinhaExport = Awaited<ReturnType<AuditoriaService['exportar']>>[number];
 
 /** `;` e BOM: sem os dois, o Excel em português quebra acento e coluna. */
+/**
+ * AS MUDANÇAS NUMA CÉLULA: "Situação: ATIVO → DESFILIADO; Telefone: (vazio) → 86…"
+ *
+ * O VALOR VAI CRU, e é de propósito. A tela traduz `DESFILIADO` para
+ * "Desfiliado" porque quem lê na tela está procurando; quem baixa o CSV está
+ * conferindo, e aí o que vale é o que está GRAVADO. O rótulo do campo vem
+ * traduzido porque nome de coluna do banco não é prova de nada.
+ */
+function mudancasEmTexto(metadata: unknown): string {
+  const m = metadata as { alteracoes?: { label?: string; campo: string; de: unknown; para: unknown }[] } | null;
+  if (!m || !Array.isArray(m.alteracoes)) return '';
+  const cru = (v: unknown) =>
+    v === null || v === undefined || v === '' ? '(vazio)' : Array.isArray(v) ? v.join(', ') : String(v);
+  return m.alteracoes
+    .map((a) => `${a.label ?? a.campo}: ${cru(a.de)} → ${cru(a.para)}`)
+    .join('; ');
+}
+
 export function csvDaAuditoria(linhas: LinhaExport[]): string {
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const cab = ['Quando', 'Quem', 'Ação', 'Entidade', 'Id do alvo', 'Descrição', 'IP'];
+  const cab = ['Quando', 'Quem', 'Ação', 'Entidade', 'Id do alvo', 'Descrição', 'O que mudou', 'IP'];
   const corpo = linhas.map((l) =>
     [
       new Date(l.createdAt).toLocaleString('pt-BR'),
@@ -197,6 +215,7 @@ export function csvDaAuditoria(linhas: LinhaExport[]): string {
       // O CSV leva a MESMA frase da tela; quem cruza planilha não deveria
       // receber a linha de curl que a tela já traduziu.
       descricaoLegivel(l.descricao) ?? '',
+      mudancasEmTexto(l.metadata),
       l.ip ?? '',
     ]
       .map(esc)

@@ -128,6 +128,32 @@ describe('as rotas novas moram no módulo certo', () => {
     expect(PRESETS_PERFIL.ADVOGADO.agenda).toBe('EDITAR');
   });
 
+  /**
+   * O "DE → PARA" NÃO ABRE PORTA NENHUMA.
+   *
+   * Ele grava mais DENTRO de um registro que já existia; quem alcançava a rota
+   * continua alcançando, e quem lia a auditoria continua lendo. O que muda é o
+   * conteúdo — e por isso o cuidado está no que NÃO pode entrar nele.
+   */
+  it('a edição de filiado continua sendo do balcão', () => {
+    const src = ler('filiados/filiados.controller.ts');
+    const i = src.indexOf("@Patch(':id')");
+    expect(src.slice(i, i + 200)).toContain(
+      '@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)',
+    );
+    expect(PRESETS_PERFIL.ADVOGADO.filiados).toBe('VISUALIZAR');
+  });
+
+  /**
+   * A auditoria é lida por coordenação, exportada em CSV e guardada por anos.
+   * Hash de senha ali é problema de outra ordem.
+   */
+  it('o diff nunca leva segredo para o log', () => {
+    const src = ler('../common/audit/audit.diff.ts');
+    expect(src).toContain('const NUNCA_MOSTRAR = /senha|hash|token|secret|segredo/i;');
+    expect(src).toContain("'senhaHash',");
+  });
+
   it('a sugestão de filiado é leitura do módulo processos', () => {
     const src = ler('processos/partes.controller.ts');
     expect(src).toContain("@Get('partes/:parteId/sugestoes-filiado')");

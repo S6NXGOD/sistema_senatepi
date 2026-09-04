@@ -12,10 +12,11 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { UserRole } from '@prisma/client';
 import { FiliadosService } from './filiados.service';
 import { DossieService } from './dossie.service';
@@ -28,7 +29,8 @@ import {
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
+import { ctxDaRequisicao } from '../../common/audit/audit.contexto-http';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { conteudoDisposto } from '@core/infra';
@@ -90,8 +92,15 @@ export class FiliadosController {
     @Param('id') id: string,
     @Body() dto: UpdateFiliadoDto,
     @CurrentUser('nome') autor: string,
+    /*
+      O USUÁRIO INTEIRO, e não só o nome. Sem `userId` a linha da auditoria
+      fica sem dono e o filtro "Quem" da tela não a encontra: a alteração
+      existe e some da busca de quem a fez.
+    */
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ) {
-    return this.service.update(id, dto, autor);
+    return this.service.update(id, dto, autor, [], ctxDaRequisicao(req, user));
   }
 
   /**

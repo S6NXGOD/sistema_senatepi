@@ -212,7 +212,22 @@ export class AtendimentosService {
     }
 
     await this.prisma.atendimento.update({ where: { id }, data: { status: dto.status } });
-    await this.auditar(AcaoAuditoria.UPDATE, id, ctx, `Atendimento #${at.numero} → ${dto.status}`, { status: dto.status });
+    /*
+      DE ONDE PARA ONDE. "Atendimento #12 → CONCLUIDO" diz o destino e esconde
+      a origem — e a pergunta que se faz é justamente "ele não estava
+      concluído?". O `de` custa nada: o registro anterior já foi lido acima.
+    */
+    await this.auditar(
+      AcaoAuditoria.UPDATE,
+      id,
+      ctx,
+      `Atendimento #${at.numero}: andamento de ${at.status} para ${dto.status}`,
+      {
+        alteracoes: [
+          { campo: 'status', label: 'Andamento', de: at.status, para: dto.status },
+        ],
+      },
+    );
     return this.detalhe(id);
   }
 

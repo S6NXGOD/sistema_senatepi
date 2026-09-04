@@ -102,11 +102,23 @@ describe('as portas da desfiliação', () => {
     expect(porta).toMatch(/if \(novaSituacao === situacao\) return;/);
   });
 
-  it.each(['async update(id: string', 'async changeSituacao('])(
+  /*
+    A ASSINATURA É CASADA POR PREFIXO, e não pela linha inteira.
+
+    Era `'async update(id: string'` — e quebrou no dia em que `update` ganhou um
+    parâmetro a mais e a assinatura passou a ocupar várias linhas. `indexOf`
+    devolveu -1, o `slice` devolveu string vazia e o teste reprovou uma regra
+    que continuava valendo. Teste que depende de formatação reprova a
+    formatação, não a regra.
+  */
+  it.each(['async update(', 'async changeSituacao('])(
     '%s passa pelo guarda',
     (assinatura) => {
-      const trecho = SERVICE.slice(SERVICE.indexOf(assinatura), SERVICE.indexOf(assinatura) + 400);
-      expect(trecho).toContain('exigirPortaCerta');
+      const i = SERVICE.indexOf(assinatura);
+      expect(i).toBeGreaterThan(-1);
+      // Janela generosa: o guarda é a primeira coisa do corpo, mas a
+      // assinatura pode crescer.
+      expect(SERVICE.slice(i, i + 700)).toContain('exigirPortaCerta');
     },
   );
 });

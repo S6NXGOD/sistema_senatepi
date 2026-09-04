@@ -33,6 +33,9 @@ import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { diferencaDeCampos, fraseDaAlteracao } from '../../common/audit/audit.diff';
+import type { CtxAuditoria } from '../../common/audit/audit.contexto-http';
+import { marcarNadaMudou } from '../../common/audit/audit.contexto';
 
 import { lerLogoDaMarca } from '../../common/assets.util';
 
@@ -572,10 +575,32 @@ export class FiliadosService {
     }
   }
 
-  async update(id: string, dto: UpdateFiliadoDto, autor?: string, protegidos: string[] = []) {
+  async update(
+    id: string,
+    dto: UpdateFiliadoDto,
+    autor?: string,
+    protegidos: string[] = [],
+    ctx: CtxAuditoria = {},
+  ) {
     await this.exigirPortaCerta(id, dto.situacao);
     await this.findOne(id);
     const { vinculos, dependentes, ...dados } = dto;
+
+    /*
+      O ESTADO DE ANTES, lido do banco na hora — é a metade que faltava.
+
+      Sem ele o log dizia "Dr. Murilo alterou" e parava. Com ele, diz o que
+      mudou, de que valor para qual: é o que permite conferir a alteração e,
+      se for o caso, desfazê-la. Só os campos que o formulário ENVIOU entram
+      na comparação — um PATCH parcial não afirma nada sobre o que omitiu.
+    */
+    const antes = await this.prisma.filiado.findUnique({
+      where: { id },
+      select: Object.keys(dados).reduce(
+        (acc, k) => ({ ...acc, [k]: true }),
+        { nomeCompleto: true } as Record<string, boolean>,
+      ),
+    });
 
     const atuais = await this.prisma.dependente.findMany({
       where: { filiadoId: id },
@@ -603,14 +628,43 @@ export class FiliadosService {
       include: { vinculos: true, dependentes: true },
     });
 
+    const alteracoes = diferencaDeCampos(antes as Record<string, unknown>, dados as Record<string, unknown>);
+
     await this.registrarHistorico(
       id,
       TipoHistoricoFiliado.ALTERACAO,
-      'Dados cadastrais atualizados.' +
+      fraseDaAlteracao('Dados cadastrais atualizados', alteracoes) +
         (protegidos.length ? ` Campos protegidos ignorados: ${protegidos.join(', ')}.` : ''),
       autor,
-      { campos: Object.keys(dados), protegidos },
+      { campos: Object.keys(dados), protegidos, alteracoes },
     );
+
+    /*
+      E TAMBÉM NA AUDITORIA, com `userId` de verdade.
+
+      A ficha do filiado já tinha histórico próprio, mas ele só é visto por
+      quem abre AQUELA ficha. A pergunta "quem mexeu no cadastro ontem à
+      noite?" se faz na tela de Auditoria, e lá só chegava a linha do
+      interceptor: "Mexeu no cadastro de um filiado", sem campo, sem valor.
+
+      Nada muda quando nada mudou: PATCH que reenvia os mesmos valores (o
+      formulário inteiro salvo sem editar nada) não vira registro.
+    */
+    // Nada mudou de verdade — e o interceptor precisa saber, senão ele grava
+    // "Mexeu no cadastro de um filiado" para um PATCH que não mexeu em nada.
+    if (!alteracoes.length) marcarNadaMudou();
+    if (alteracoes.length) {
+      await this.audit.registrar({
+        userId: ctx.userId ?? null,
+        acao: AcaoAuditoria.UPDATE,
+        entidade: 'Filiado',
+        entidadeId: id,
+        descricao: fraseDaAlteracao(`Cadastro de ${filiado.nomeCompleto} alterado`, alteracoes),
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { alteracoes, protegidos: protegidos.length ? protegidos : undefined },
+      });
+    }
     return filiado;
   }
 

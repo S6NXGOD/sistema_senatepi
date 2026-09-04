@@ -1,5 +1,5 @@
 import { AvataresInterceptor, QrCodeModule, StorageModule } from '@core/infra';
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -40,6 +40,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { PermissionsGuard } from './common/permissions/permissions.guard';
 import { AuditInterceptor } from './common/audit/audit.interceptor';
+import { AuditContextoMiddleware } from './common/audit/audit.contexto.middleware';
 import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-visual.module';
 
 @Module({
@@ -98,4 +99,20 @@ import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-v
     { provide: APP_INTERCEPTOR, useClass: AvataresInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * O ESCOPO DA AUDITORIA COBRE TODA A REQUISIÇÃO.
+   *
+   * Middleware, e não interceptor — ver `audit.contexto.middleware.ts`. É o que
+   * faz a marca do serviço chegar ao `AuditInterceptor`; enquanto o escopo era
+   * aberto no próprio interceptor, ela se perdia e todo ato instrumentado
+   * gravava DUAS linhas.
+   *
+   * `forRoutes('*')`: o interceptor de auditoria também é global, e um escopo
+   * que cobrisse menos rotas que ele reintroduziria a duplicação justamente nas
+   * que ficassem de fora.
+   */
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(AuditContextoMiddleware).forRoutes('*');
+  }
+}

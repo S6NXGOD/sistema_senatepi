@@ -8,7 +8,7 @@ import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { AcaoAuditoria } from '@prisma/client';
 import { AuditService } from './audit.service';
-import { comContextoDeAuditoria, jaFoiAuditadoPeloServico } from './audit.contexto';
+import { jaFoiAuditadoPeloServico } from './audit.contexto';
 import { fraseDaRota, valeAuditar } from './audit.frases';
 
 const METODO_ACAO: Record<string, AcaoAuditoria | undefined> = {
@@ -42,8 +42,16 @@ export class AuditInterceptor implements NestInterceptor {
     const req = context.switchToHttp().getRequest();
     const acao = METODO_ACAO[req.method];
 
-    return comContextoDeAuditoria(() =>
-      next.handle().pipe(
+    /*
+      O ESCOPO NÃO SE ABRE MAIS AQUI — ver `audit.contexto.middleware.ts`.
+
+      Estava assim: `comContextoDeAuditoria(() => next.handle().pipe(…))`. E
+      não funcionava: `next.handle()` é um Observable FRIO, o handler só corre
+      quando o Nest se inscreve, e isso acontece depois de `intercept()`
+      retornar — fora do `run()`. A marca do serviço ia para um escopo vazio e
+      o interceptor gravava a segunda linha assim mesmo.
+    */
+    return next.handle().pipe(
         tap(() => {
           if (!acao) return;
           // Alguém já contou melhor — ver `audit.contexto.ts`.
@@ -71,7 +79,6 @@ export class AuditInterceptor implements NestInterceptor {
             })
             .catch(() => undefined);
         }),
-      ),
     );
   }
 }

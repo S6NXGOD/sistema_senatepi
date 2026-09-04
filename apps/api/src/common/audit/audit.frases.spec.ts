@@ -133,14 +133,37 @@ describe('a varredura silenciosa deixa rastro quando muda algo', () => {
     'utf8',
   );
 
-  it('grava só quando reavaliou ou realinhou', () => {
-    expect(SERVICO_PROC).toContain('if (r.desalinhados > 0 || r.reavaliados > 0) {');
-    expect(SERVICO_PROC).toContain("descricao: `Instâncias reavaliadas — ${partes.join(', ')}`");
+  /**
+   * E EU AINDA CALIBREI ERRADO NA PRIMEIRA VEZ.
+   *
+   * Gravava quando `reavaliados > 0` — quando algum processo tinha sido RELIDO
+   * no CNJ. Medido depois do deploy: OITO dos nove registros do log eram
+   * "Instâncias reavaliadas — 1 processo(s) relido(s) no CNJ", sem dizer qual
+   * processo, com zero mudanças em todos. Reler o CNJ é o sistema baixando dado
+   * público; ninguém audita isso, e ninguém poderia questioná-lo.
+   *
+   * O que se audita é o STATUS que o robô muda sozinho — esse alguém contesta:
+   * "quem encerrou meu processo?".
+   */
+  it('grava só quando o robô mudou algum status', () => {
+    expect(SERVICO_PROC).toContain('if (r.realinhados.length) {');
+    expect(SERVICO_PROC).not.toContain('if (r.desalinhados > 0 || r.reavaliados > 0) {');
   });
 
-  it('e diz quantos foram — o que a rota crua nunca disse', () => {
-    expect(SERVICO_PROC).toContain('${r.reavaliados} processo(s) relido(s) no CNJ');
-    expect(SERVICO_PROC).toContain('${r.desalinhados} status realinhado(s) às instâncias');
+  it('e diz QUAL processo, de que status para qual', () => {
+    expect(SERVICO_PROC).toContain("${m.numeroCNJ ?? 'sem número'}: ${m.de} → ${m.para}");
+    expect(SERVICO_PROC).toContain("campo: 'statusInterno'");
+  });
+
+  /**
+   * `reconciliarStatus` devolvia `candidatos.length` — quantos foram OLHADOS —
+   * e eu chamava isso de "desalinhados" no registro. Um log que diz "3 status
+   * realinhados" quando nenhum mudou é pior que log nenhum: ele parece prova.
+   */
+  it('conta o que mudou, e não o que foi examinado', () => {
+    expect(SERVICO_PROC).toContain('const mudancas: MudancaDeStatus[] = [];');
+    expect(SERVICO_PROC).toContain('if (m) mudancas.push(m);');
+    expect(SERVICO_PROC).not.toContain('return candidatos.length;');
   });
 
   it('o controller passa quem pediu', () => {

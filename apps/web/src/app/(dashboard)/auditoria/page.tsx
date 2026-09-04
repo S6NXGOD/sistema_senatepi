@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Search, ShieldCheck,
+  ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Search, ShieldCheck,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
@@ -12,8 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
-  ACAO_LABEL, ACAO_TOM, baixarCsvAuditoria, listarAuditoria, opcoesAuditoria,
-  rotuloDaEntidade, type AcaoAuditoria, type RegistroAuditoria,
+  ACAO_LABEL, ACAO_TOM, alteracoesDoRegistro, baixarCsvAuditoria, listarAuditoria,
+  opcoesAuditoria, rotuloDaEntidade, valorLegivel,
+  type AcaoAuditoria, type RegistroAuditoria,
 } from '@/lib/auditoria';
 
 /**
@@ -218,7 +219,17 @@ function LinhaAuditoria({ r }: { r: RegistroAuditoria }) {
   const [aberto, setAberto] = useState(false);
   const quando = new Date(r.createdAt);
   const metadados = r.metadata && Object.keys(r.metadata as object).length > 0 ? r.metadata : null;
+  const alteracoes = alteracoesDoRegistro(r);
   const temDetalhe = !!(r.entidadeId || r.ip || r.userAgent || metadados || r.rotaOriginal);
+  /*
+    ATÉ TRÊS MUDANÇAS FICAM À VISTA. Elas são o conteúdo do registro, não
+    detalhe técnico: esconder "Situação: Ativo → Desfiliado" atrás de uma seta
+    é devolver à pessoa exatamente a pergunta que ela veio fazer. Acima de três
+    vira parede numa lista de quarenta linhas — aí o resto abre junto com o
+    técnico.
+  */
+  const visiveis = alteracoes.slice(0, 3);
+  const escondidas = alteracoes.length - visiveis.length;
 
   return (
     <li className="rounded-lg border bg-card">
@@ -235,6 +246,23 @@ function LinhaAuditoria({ r }: { r: RegistroAuditoria }) {
           <p className="text-sm leading-snug">
             {r.descricao || `${ACAO_LABEL[r.acao] ?? r.acao} em ${rotuloDaEntidade(r.entidade)}`}
           </p>
+          {visiveis.length > 0 && (
+            <ul className="mt-1.5 space-y-0.5">
+              {visiveis.map((a) => (
+                <li key={a.campo} className="flex flex-wrap items-baseline gap-x-1.5 text-[11px]">
+                  <span className="font-medium text-foreground">{a.label}</span>
+                  <span className="text-muted-foreground line-through">{valorLegivel(a.de)}</span>
+                  <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="para" />
+                  <span className="font-medium text-foreground">{valorLegivel(a.para)}</span>
+                </li>
+              ))}
+              {escondidas > 0 && (
+                <li className="text-[11px] text-muted-foreground">
+                  e mais {escondidas} campo{escondidas === 1 ? '' : 's'} — abra para ver
+                </li>
+              )}
+            </ul>
+          )}
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             <span className="font-medium text-foreground">
               {r.user?.nomeExibicao || r.user?.nome || 'Sistema'}
@@ -272,6 +300,32 @@ function LinhaAuditoria({ r }: { r: RegistroAuditoria }) {
           {r.entidadeId && <Detalhe rotulo="Id do alvo" valor={r.entidadeId} />}
           {r.ip && <Detalhe rotulo="IP" valor={r.ip} />}
           {r.userAgent && <Detalhe rotulo="Navegador" valor={r.userAgent} />}
+          {/* Todas as mudanças, inclusive as que não couberam na lista. */}
+          {alteracoes.length > 0 && (
+            <div className="sm:col-span-2">
+              <dt className="mb-1 text-muted-foreground">O que mudou</dt>
+              <dd>
+                <table className="w-full border-separate border-spacing-0 overflow-hidden rounded border">
+                  <thead>
+                    <tr className="bg-background text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+                      <th className="px-2 py-1 font-medium">Campo</th>
+                      <th className="px-2 py-1 font-medium">Antes</th>
+                      <th className="px-2 py-1 font-medium">Depois</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alteracoes.map((a) => (
+                      <tr key={a.campo} className="border-t bg-card align-top">
+                        <td className="border-t px-2 py-1 font-medium">{a.label}</td>
+                        <td className="border-t px-2 py-1 text-muted-foreground">{valorLegivel(a.de)}</td>
+                        <td className="border-t px-2 py-1">{valorLegivel(a.para)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </dd>
+            </div>
+          )}
           {metadados && (
             <div className="sm:col-span-2">
               <dt className="text-muted-foreground">Dados</dt>

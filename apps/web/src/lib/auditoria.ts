@@ -32,6 +32,90 @@ export interface RegistroAuditoria {
   user: { id: string; nome: string; nomeExibicao: string | null; role: string } | null;
 }
 
+/** Uma diferença de campo gravada pelo serviço. Ver `audit.diff.ts` na API. */
+export interface AlteracaoDeCampo {
+  campo: string;
+  label: string;
+  de: string | number | boolean | null | string[];
+  para: string | number | boolean | null | string[];
+}
+
+/** As alterações de um registro, quando o serviço gravou o "de → para". */
+export function alteracoesDoRegistro(r: RegistroAuditoria): AlteracaoDeCampo[] {
+  const m = r.metadata as { alteracoes?: unknown } | null;
+  if (!m || !Array.isArray(m.alteracoes)) return [];
+  return (m.alteracoes as AlteracaoDeCampo[]).filter((a) => a && typeof a.campo === 'string');
+}
+
+/**
+ * OS CÓDIGOS QUE APARECEM NO "DE → PARA", em português.
+ *
+ * O banco guarda `DESFILIADO`, `PRE_PROCESSUAL`, `EM_ANDAMENTO` — e está certo
+ * que guarde: código não muda quando o rótulo muda. Mas ninguém audita lendo
+ * SCREAMING_SNAKE_CASE, e a tradução é NA LEITURA, como a das frases — o que
+ * está gravado continua intacto.
+ *
+ * O que não estiver aqui recebe o tratamento genérico (underscore vira espaço,
+ * primeira maiúscula): "GANHO_EXECUCAO" vira "Ganho execucao". Feio, legível, e
+ * visível o bastante para alguém acrescentar a linha certa.
+ */
+const ROTULO_DE_VALOR: Record<string, string> = {
+  // Situação do filiado
+  ATIVO: 'Ativo',
+  INATIVO: 'Inativo',
+  DESFILIADO: 'Desfiliado',
+  PENDENTE: 'Pendente',
+  SUSPENSO: 'Suspenso',
+  // Processo
+  ENCERRADO: 'Encerrado',
+  ARQUIVADO: 'Arquivado',
+  IMPROCEDENTE: 'Improcedente',
+  GANHO_EXECUCAO: 'Ganho, em execução',
+  PRE_PROCESSUAL: 'Pré-processual',
+  RASCUNHO: 'Rascunho',
+  INSTITUCIONAL: 'Institucional',
+  INDIVIDUAL: 'Individual',
+  // Agenda e atendimento
+  EM_ANDAMENTO: 'Em andamento',
+  CONCLUIDO: 'Concluído',
+  CANCELADO: 'Cancelado',
+  AGUARDANDO: 'Aguardando',
+  // Perfis
+  ADMINISTRADOR: 'Administrador',
+  COORDENACAO: 'Coordenação',
+  ADVOGADO: 'Advogado',
+  TRIAGEM: 'Triagem',
+};
+
+const SO_DATA = /^\d{4}-\d{2}-\d{2}(T|$)/;
+
+/** Um valor do "de → para", pronto para ler. */
+export function valorLegivel(v: AlteracaoDeCampo['de']): string {
+  if (v === null || v === undefined || v === '') return '(vazio)';
+  if (typeof v === 'boolean') return v ? 'Sim' : 'Não';
+  if (Array.isArray(v)) return v.length ? v.join(', ') : '(nenhuma)';
+  if (typeof v === 'number') return String(v);
+
+  if (SO_DATA.test(v)) {
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) {
+      // Com hora é compromisso; sem hora é data de calendário (nascimento,
+      // admissão) — mostrar "00:00" nessas só sugere uma precisão que não existe.
+      const temHora = v.includes('T') && !v.startsWith(v.slice(0, 10) + 'T00:00:00.000Z');
+      return d.toLocaleString('pt-BR', temHora
+        ? { dateStyle: 'short', timeStyle: 'short' }
+        : { dateStyle: 'short' });
+    }
+  }
+  if (ROTULO_DE_VALOR[v]) return ROTULO_DE_VALOR[v];
+  // Código desconhecido: legibiliza sem inventar tradução.
+  if (/^[A-Z][A-Z0-9_]{2,}$/.test(v)) {
+    const t = v.replace(/_/g, ' ').toLowerCase();
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  return v;
+}
+
 export interface PaginaAuditoria {
   data: RegistroAuditoria[];
   total: number;

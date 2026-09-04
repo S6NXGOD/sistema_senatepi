@@ -4,6 +4,8 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { diferencaDeCampos, fraseDaAlteracao } from '../../common/audit/audit.diff';
+import { marcarNadaMudou } from '../../common/audit/audit.contexto';
 import { TiposEventoService } from './tipos-evento.service';
 import {
   acharDesfecho, desfechosDoTipo, categoriaCancelamentoValida,
@@ -594,8 +596,46 @@ export class AgendaService {
         dataOriginal: (compromisso.dataOriginal ?? atual.inicio).toISOString(),
       });
     } else {
-      await this.historiar(id, 'EDITADO', 'Dados da atividade alterados.', ctx, {});
-      await this.auditar(AcaoAuditoria.UPDATE, id, `Compromisso atualizado: ${compromisso.titulo}`, ctx, {});
+      /*
+        O QUE MUDOU, CAMPO A CAMPO.
+
+        "Compromisso atualizado: Audiência de instrução" dizia QUE alguém
+        mexeu e nada sobre o quê — e essa é a metade da pergunta que traz
+        alguém à auditoria. Agora sai "atividade alterada — título e local",
+        com os valores no detalhe.
+
+        Nada mudou de verdade? Não vira registro. Salvar o formulário sem
+        editar nada não é um fato auditável.
+      */
+      const alteracoes = diferencaDeCampos(
+        atual as unknown as Record<string, unknown>,
+        {
+          titulo: dto.titulo?.trim(),
+          tipo: dto.tipo,
+          status: dto.status,
+          local: dto.local,
+          descricao: dto.descricao,
+          urgente: dto.urgente,
+          urgenteMotivo: dto.urgenteMotivo,
+          responsavelId: dto.responsavelId,
+          filiadoId: dto.filiadoId,
+          processoId: dto.processoId,
+          fim: dto.fim ? novoFim : undefined,
+        },
+      );
+      await this.historiar(
+        id, 'EDITADO', fraseDaAlteracao('Dados da atividade alterados', alteracoes), ctx, { alteracoes },
+      );
+      if (!alteracoes.length) marcarNadaMudou();
+      if (alteracoes.length) {
+        await this.auditar(
+          AcaoAuditoria.UPDATE,
+          id,
+          fraseDaAlteracao(`Atividade "${compromisso.titulo}" alterada`, alteracoes),
+          ctx,
+          { alteracoes },
+        );
+      }
     }
     return compromisso;
   }
