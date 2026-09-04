@@ -237,13 +237,16 @@ export function FichasDeFiltro({
   filtros,
   parte,
   busca,
+  assunto,
   onLimparCampo,
   onLimparTudo,
 }: {
   filtros: FiltrosProcesso;
   parte: { id: string; nome: string } | null;
   busca: string;
-  onLimparCampo: (campo: keyof FiltrosProcesso | 'parte' | 'busca') => void;
+  /** Assunto do CNJ, vindo do Panorama. */
+  assunto?: string;
+  onLimparCampo: (campo: keyof FiltrosProcesso | 'parte' | 'busca' | 'assunto') => void;
   onLimparTudo: () => void;
 }) {
   const { data: advogados = [] } = useQuery({
@@ -259,6 +262,16 @@ export function FichasDeFiltro({
   if (busca) {
     fichas.push(
       <Ficha key="busca" rotulo="Busca" valor={`"${busca}"`} onRemover={() => onLimparCampo('busca')} />,
+    );
+  }
+  if (assunto) {
+    fichas.push(
+      <Ficha
+        key="assunto"
+        rotulo="Assunto"
+        valor={assunto}
+        onRemover={() => onLimparCampo('assunto')}
+      />,
     );
   }
   if (parte) {

@@ -9,6 +9,8 @@ import { DatajudService } from './datajud.service';
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
+import { PadroesService } from './padroes.service';
+import { PadroesController } from './padroes.controller';
 import { DjenCronService } from './djen-cron.service';
 import { DjenAtivoGuard, DjenController } from './djen.controller';
 import { InstanciasService } from './instancias.service';
@@ -40,6 +42,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     DjenController,
     PartesController,
     PartesExternasController,
+    PadroesController,
   ],
   providers: [
     ParteInstitucionalSeedService,
@@ -50,6 +53,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     DjenService,
     DjenSyncService,
     DjenBuscaService,
+    PadroesService,
     DjenCronService,
     DjenAtivoGuard,
     ProcessosCronService,

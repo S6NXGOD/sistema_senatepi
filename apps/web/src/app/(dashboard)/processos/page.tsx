@@ -107,6 +107,11 @@ function ListaProcessos() {
    * chamada a mais para nada.
    */
   const [parte, setParte] = useState<ParteExterna | null>(null);
+  /**
+   * Assunto vindo do Panorama (`?assunto=`). Fica em estado próprio para o
+   * chip poder ser removido sem mexer nos demais filtros.
+   */
+  const [assunto, setAssunto] = useState('');
   const [rapido, setRapido] = useState<
     'todos' | 'preProcessuais' | 'meus' | 'semFiliado' | 'semReu' | 'recentes'
   >('todos');
@@ -157,6 +162,15 @@ function ListaProcessos() {
   useFiltroPorUrl('meus', () => setRapido('meus'), '/processos');
   useFiltroPorUrl('semReu', () => setRapido('semReu'), '/processos');
   useFiltroPorUrl('semFiliado', () => setRapido('semFiliado'), '/processos');
+
+  /**
+   * `?assunto=<nome>` filtra pelo assunto do CNJ, casamento exato.
+   *
+   * É o link dos cartões do Panorama. Exato porque "Piso Salarial" e "Piso
+   * Salarial da Categoria" são assuntos distintos do CNJ, e o cartão contou um
+   * deles — um `contains` traria os dois e o número mudaria ao clicar.
+   */
+  useFiltroPorUrl('assunto', (valor) => setAssunto(valor), '/processos');
 
   /**
    * `?parteExternaId=<id>` filtra pela parte contrária.
@@ -234,6 +248,7 @@ function ListaProcessos() {
       statusInterno: filtros.status || undefined,
       // Filtros rápidos (mutuamente exclusivos).
       ...(parte ? { parteExternaId: parte.id } : {}),
+      ...(assunto ? { assunto } : {}),
       ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
       ...(rapido === 'preProcessuais' ? { statusInterno: 'PRE_PROCESSUAL' as const } : {}),
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
@@ -496,14 +511,16 @@ function ListaProcessos() {
           filtros={filtros}
           parte={parte ? { id: parte.id, nome: parte.nome } : null}
           busca={buscaDeb}
+          assunto={assunto}
           onLimparCampo={(campo) => {
             setPage(1);
             if (campo === 'busca') { setBusca(''); setBuscaDeb(''); return; }
+            if (campo === 'assunto') { setAssunto(''); return; }
             if (campo === 'parte') { setParte(null); return; }
             setFiltros((f) => ({ ...f, [campo]: '' }));
           }}
           onLimparTudo={() => {
-            setBusca(''); setBuscaDeb(''); setParte(null);
+            setBusca(''); setBuscaDeb(''); setParte(null); setAssunto('');
             setFiltros(FILTROS_VAZIOS); setPage(1);
           }}
         />

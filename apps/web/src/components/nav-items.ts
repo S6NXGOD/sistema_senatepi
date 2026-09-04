@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
-  Building2, Landmark, Newspaper, type LucideIcon,
+  Building2, Landmark, Newspaper, Scale, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
@@ -57,6 +57,10 @@ export const NAV_SECOES: NavSecao[] = [
         modulo: 'processos',
         integracao: 'djen',
       },
+      // Leitura do acervo SOMADO — padrões que não aparecem processo a
+      // processo. Cadência mensal, não diária: por isso tem tela própria em
+      // vez de mais um bloco na home.
+      { href: '/panorama', label: 'Panorama do acervo', icon: Scale, modulo: 'processos' },
       { href: '/agenda', label: 'Agenda e Prazos', icon: CalendarClock, modulo: 'agenda' },
       { href: '/escalas', label: 'Escalas dos Advogados', icon: CalendarRange, modulo: 'escalas' },
       // Fica no Jurídico porque serve aos dois papéis: o órgão que emprega o

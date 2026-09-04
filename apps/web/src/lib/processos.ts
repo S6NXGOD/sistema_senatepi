@@ -442,6 +442,8 @@ export interface FiltroProcessos {
   advogadoId?: string;
   /** Todos os processos de uma parte cadastrada (ex.: uma empresa ré). */
   parteExternaId?: string;
+  /** Assunto do CNJ, casamento exato — inclusive quando for secundário. */
+  assunto?: string;
   /** Filtros rápidos da tabela. */
   meus?: 'true';
   semFiliado?: 'true';

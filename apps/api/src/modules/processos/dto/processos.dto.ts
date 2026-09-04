@@ -278,6 +278,12 @@ export class ListProcessosQueryDto {
   @ApiPropertyOptional({ description: 'Todos os processos de uma parte cadastrada (ex.: uma empresa ré).' })
   @IsOptional() @IsString() parteExternaId?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Assunto do CNJ, casamento EXATO, inclusive quando for secundário. É o link do Panorama.',
+  })
+  @IsOptional() @IsString() @MaxLength(160) assunto?: string;
+
   // ---- Filtros rápidos da tabela ----
   @ApiPropertyOptional({ description: 'Só os processos do usuário logado ("meus").' })
   @IsOptional() @IsString() meus?: string;

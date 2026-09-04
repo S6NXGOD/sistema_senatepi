@@ -1208,7 +1208,13 @@ function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
   const maior = itens[0].processos;
 
   return (
-    <SectionCard title="Contra quem litigamos" icon={Swords} count={itens.length}>
+    <SectionCard
+      title="Contra quem litigamos"
+      icon={Swords}
+      count={itens.length}
+      actionHref="/panorama"
+      actionLabel="Panorama"
+    >
       <ul className="space-y-1">
         {itens.map((a) => (
           <li key={a.id}>
@@ -1241,7 +1247,8 @@ function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
         ))}
       </ul>
       <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-        Processos ativos por parte contrária. Clique para ver a lista.
+        Processos ativos por parte contrária. Clique para ver a lista — ou abra o Panorama
+        para saber o que essas ações pedem e como vêm sendo julgadas.
       </p>
     </SectionCard>
   );

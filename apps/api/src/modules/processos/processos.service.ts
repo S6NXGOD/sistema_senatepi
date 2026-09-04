@@ -808,6 +808,28 @@ export class ProcessosService {
     return { todos, preProcessuais, meus, semFiliado, semReu, recentes, urgentes };
   }
 
+  /**
+   * Ids dos processos cujo JSON de assuntos casa com o termo.
+   *
+   * SQL cru porque os assuntos vivem num array de objetos JSON, e o Prisma não
+   * sabe procurar substring dentro dele. Devolve id, e quem monta a página é o
+   * Prisma, com tipo.
+   */
+  private async idsPorAssunto(termo: string, exato: boolean): Promise<string[]> {
+    const alvo = termo.trim();
+    if (alvo.length < 3) return [];
+    const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT DISTINCT p.id
+      FROM processos p, jsonb_array_elements(coalesce(p.assuntos, '[]'::jsonb)) x
+      WHERE CASE WHEN ${exato}
+                 THEN btrim(x->>'nome') = ${alvo}
+                 ELSE btrim(x->>'nome') ILIKE ${'%' + alvo + '%'}
+            END
+      LIMIT 2000
+    `;
+    return linhas.map((l) => l.id);
+  }
+
   async listar(q: ListProcessosQueryDto, usuarioId?: string) {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
@@ -885,9 +907,34 @@ export class ProcessosService {
       and.push(FILTRO_RAPIDO.recentes(Number(q.movimentacaoRecente) || 30, new Date()));
     }
     const busca = q.busca?.trim();
+    /**
+     * `?assunto=` — filtro EXATO por assunto, inclusive os secundários.
+     *
+     * É o link dos cartões do Panorama. Sem ele o atalho mentiria: aquela tela
+     * conta os processos em que o assunto aparece em QUALQUER posição (das 24
+     * vezes que "Piso Salarial da Categoria" aparece no acervo, só 11 são como
+     * principal), e a listagem mostraria menos da metade. Atalho que muda o
+     * número ao ser clicado é pior que atalho nenhum.
+     *
+     * Exato, e não `contains`: "Piso Salarial" é um assunto do CNJ e "Piso
+     * Salarial da Categoria/Salário Mínimo Profissional" é outro.
+     */
+    if (q.assunto) {
+      and.push({ id: { in: await this.idsPorAssunto(q.assunto, true) } });
+    }
+
     if (busca) {
+      /**
+       * A busca livre também alcança os assuntos SECUNDÁRIOS.
+       *
+       * Antes ela só olhava `assuntoPrincipal`, e quem digitasse "insalubridade"
+       * não achava o processo em que o adicional é o segundo pedido. São 177
+       * assuntos secundários no acervo — mais que um por processo.
+       */
+      const porAssunto = await this.idsPorAssunto(busca, false);
       and.push({
         OR: [
+          ...(porAssunto.length ? [{ id: { in: porAssunto } }] : []),
           { numeroCNJ: { contains: busca.replace(/\D/g, '') || busca } },
           // PRE_PROCESSUAL não tem NPU nem classe: o `titulo` é a única coisa pela
           // qual ele pode ser encontrado. Sem isto, um processo aberto por um
