@@ -52,6 +52,30 @@ export class PartesController {
     exigem o literal na terceira posição (`:id/partes`, `:id/dossie`). Ver
     `rotas-que-colidem.spec.ts`, que passou a cobrar isso.
   */
+  /**
+   * AS ETIQUETAS QUE O ACERVO USA DE VERDADE, por frequência.
+   *
+   * A tela sugeria seis etiquetas inventadas no código — "Urgente", "Acordo",
+   * "Aguardando Cliente", "Prioridade Idoso"… Medido em 04/09/2026: dos 83
+   * processos etiquetados, essas seis aparecem DUAS vezes no total. A equipe
+   * criou o próprio vocabulário e ele é outro: o período da convenção
+   * ("CCT 2022/2024", 26 processos) e o pedido ("INSALUBRIDADE" 14,
+   * "RETALIAÇÃO" 12).
+   *
+   * Sugerir o que existe faz duas coisas que a lista fixa não fazia: acerta o
+   * vocabulário de cada sindicato sem ninguém manter lista, e freia a
+   * proliferação de quase-duplicatas — hoje já convivem "INSALUBRIDADE" e
+   * "READAPTAÇÃO + INSALUB.".
+   *
+   * `partes/` no caminho pelo mesmo motivo da fila de vínculos: sem um segundo
+   * segmento literal, `@Get(':id')` de `ProcessosController` engoliria a rota.
+   */
+  @Get('partes/etiquetas-do-acervo')
+  @ApiOperation({ summary: 'Etiquetas já usadas no acervo, da mais frequente para a menos.' })
+  etiquetasDoAcervo() {
+    return this.service.etiquetasDoAcervo();
+  }
+
   @Get('partes/vinculos-pendentes')
   @ApiOperation({ summary: 'A fila "sem filiado vinculado" com os candidatos de cada caso.' })
   listarPendentes() {

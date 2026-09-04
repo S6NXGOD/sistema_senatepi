@@ -205,10 +205,18 @@ export const FASE_LABEL: Record<FaseProcessual, string> = {
  * (fase processual + `etiquetasAutomaticas`). Escrever à mão o que a máquina
  * deduz foi o que produziu etiqueta contradizendo a tela ao lado.
  */
-export const ETIQUETAS_SUGERIDAS = [
-  'Urgente', 'Acordo', 'Aguardando Cliente', 'Prioridade Idoso',
-  'Perícia realizada', 'Acordo descumprido',
-];
+/*
+  A LISTA FIXA DE ETIQUETAS FOI REMOVIDA, e não substituída.
+
+  Eram seis sugestões escritas aqui — "Urgente", "Acordo", "Aguardando
+  Cliente", "Prioridade Idoso", "Perícia realizada", "Acordo descumprido".
+  Medido em 04/09/2026: entre os 83 processos etiquetados da produção, as seis
+  somam DUAS ocorrências. O vocabulário real da equipe é outro (período da
+  convenção e pedido), e nenhuma lista escrita no código ia adivinhá-lo.
+
+  Agora a sugestão vem do próprio acervo, por frequência:
+  `etiquetasDoAcervo()` em `@/lib/partes`.
+*/
 
 export interface ProcessoDetalhe {
   id: string;

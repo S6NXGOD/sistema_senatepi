@@ -1,0 +1,235 @@
+'use client';
+
+import { useEffect, useId, useRef, useState } from 'react';
+import { Check, Loader2, Plus, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+export interface ItemBusca {
+  id: string;
+  rotulo: string;
+  /** Linha de apoio: CPF mascarado, CNPJ, cidade. */
+  detalhe?: string | null;
+}
+
+/**
+ * BUSCA REMOTA COM TECLADO — o que o `<input>` + lista solta não fazia.
+ *
+ * O projeto já tem `Combobox`, mas ele recebe a lista pronta; aqui a lista vem
+ * da API a cada tecla. O que se ganha em relação ao que existia:
+ *
+ *  1. TECLADO. Antes só dava para clicar: ↓ e ↑ não andavam pelos resultados e
+ *     Enter não escolhia. Quem cadastra processo em série trabalha com as duas
+ *     mãos no teclado, e tirar a mão para o mouse a cada parte é o atrito que
+ *     faz a pessoa desistir e digitar texto livre.
+ *  2. UM CAMPO, NÃO DOIS. A parte contrária tinha duas caixas empilhadas —
+ *     "buscar cadastrado" e "ou digite o nome" — para UMA decisão. Aqui,
+ *     digitar procura; se nada casa, a mesma tecla cria como texto livre
+ *     (quando `permitirLivre`), e a diferença fica visível na opção.
+ *  3. ESTADO HONESTO. "procurando", "nada encontrado" e "digite mais" são
+ *     coisas diferentes e agora aparecem diferentes — antes, os três eram uma
+ *     lista vazia.
+ *
+ * MOBILE: a lista é rolável com toque e os alvos têm 40px de altura; a caixa
+ * não fecha ao rolar (só ao escolher ou ao tocar fora).
+ */
+export function BuscaSelect({
+  onBuscar,
+  onEscolher,
+  onCriar,
+  placeholder,
+  minimo = 2,
+  autoFocus,
+  rodape,
+  className,
+}: {
+  /** Devolve os candidatos para o termo. Chamada com atraso, já cancelada. */
+  onBuscar: (termo: string) => Promise<ItemBusca[]>;
+  onEscolher: (item: ItemBusca) => void;
+  /** Quando existe, o termo digitado pode virar valor livre. */
+  onCriar?: (texto: string) => void;
+  placeholder?: string;
+  /** Quantos caracteres antes de consultar a API. */
+  minimo?: number;
+  autoFocus?: boolean;
+  /** Texto de ajuda abaixo do campo. */
+  rodape?: React.ReactNode;
+  className?: string;
+}) {
+  const [texto, setTexto] = useState('');
+  const [itens, setItens] = useState<ItemBusca[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [aberto, setAberto] = useState(false);
+  const [ativo, setAtivo] = useState(0);
+  const caixa = useRef<HTMLDivElement>(null);
+  const listaId = useId();
+
+  const termo = texto.trim();
+  const curto = termo.length > 0 && termo.length < minimo;
+  const podeCriar = !!onCriar && termo.length > 0;
+
+  useEffect(() => {
+    if (termo.length < minimo) {
+      setItens([]);
+      setBuscando(false);
+      return;
+    }
+    setBuscando(true);
+    /*
+      CANCELAMENTO POR GERAÇÃO. Sem ele, a resposta de "sil" pode chegar depois
+      da de "silva" e sobrescrever a lista com o resultado antigo — o clássico
+      da busca por digitação, e o mais difícil de reproduzir depois.
+    */
+    let atual = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await onBuscar(termo);
+        if (atual) { setItens(r); setAtivo(0); }
+      } catch {
+        if (atual) setItens([]);
+      } finally {
+        if (atual) setBuscando(false);
+      }
+    }, 300);
+    return () => { atual = false; clearTimeout(t); };
+    // `onBuscar` costuma ser inline; incluí-la relançaria a busca a cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [termo, minimo]);
+
+  useEffect(() => {
+    if (!aberto) return;
+    const fora = (e: MouseEvent) => {
+      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
+    };
+    document.addEventListener('mousedown', fora);
+    return () => document.removeEventListener('mousedown', fora);
+  }, [aberto]);
+
+  /** As opções na ordem em que o teclado anda: resultados e, no fim, criar. */
+  const opcoes: (ItemBusca | 'CRIAR')[] = [
+    ...itens,
+    ...(podeCriar && !itens.some((i) => i.rotulo.toLowerCase() === termo.toLowerCase())
+      ? (['CRIAR'] as const)
+      : []),
+  ];
+
+  function escolher(op: ItemBusca | 'CRIAR') {
+    if (op === 'CRIAR') onCriar?.(termo);
+    else onEscolher(op);
+    setTexto('');
+    setItens([]);
+    setAberto(false);
+  }
+
+  return (
+    <div ref={caixa} className={cn('relative', className)}>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          role="combobox"
+          aria-expanded={aberto}
+          aria-controls={listaId}
+          aria-autocomplete="list"
+          autoComplete="off"
+          autoFocus={autoFocus}
+          value={texto}
+          placeholder={placeholder}
+          onChange={(e) => { setTexto(e.target.value); setAberto(true); }}
+          onFocus={() => setAberto(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setAberto(true);
+              setAtivo((i) => Math.min(i + 1, Math.max(opcoes.length - 1, 0)));
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setAtivo((i) => Math.max(i - 1, 0));
+            } else if (e.key === 'Enter') {
+              // Enter aqui NÃO envia o formulário: a tecla escolhe a opção.
+              e.preventDefault();
+              const op = opcoes[ativo];
+              if (op) escolher(op);
+            } else if (e.key === 'Escape') {
+              setAberto(false);
+            }
+          }}
+          className={cn(
+            'h-11 w-full rounded-md border border-input bg-background pl-9 pr-9 text-base outline-none',
+            'ring-offset-background focus-visible:ring-2 focus-visible:ring-ring md:h-10 md:text-sm',
+          )}
+        />
+        {buscando && (
+          <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+        )}
+      </div>
+
+      {aberto && (curto || buscando || opcoes.length > 0 || (!!termo && !buscando)) && (
+        <ul
+          id={listaId}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-input bg-card shadow-lg"
+        >
+          {/* Os três estados que antes eram a mesma lista vazia. */}
+          {curto && (
+            <li className="px-3 py-2.5 text-xs text-muted-foreground">
+              Digite pelo menos {minimo} letras.
+            </li>
+          )}
+          {!curto && buscando && opcoes.length === 0 && (
+            <li className="px-3 py-2.5 text-xs text-muted-foreground">Procurando…</li>
+          )}
+          {!curto && !buscando && opcoes.length === 0 && !!termo && (
+            <li className="px-3 py-2.5 text-xs text-muted-foreground">Nada encontrado.</li>
+          )}
+
+          {opcoes.map((op, i) => {
+            const selecionado = i === ativo;
+            if (op === 'CRIAR') {
+              return (
+                <li key="criar" role="option" aria-selected={selecionado}>
+                  <button
+                    type="button"
+                    onMouseEnter={() => setAtivo(i)}
+                    onClick={() => escolher(op)}
+                    className={cn(
+                      'flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm transition',
+                      selecionado ? 'bg-muted' : 'hover:bg-muted/60',
+                    )}
+                  >
+                    <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">
+                      Usar <span className="font-medium">{termo}</span> como texto
+                    </span>
+                  </button>
+                </li>
+              );
+            }
+            return (
+              <li key={op.id} role="option" aria-selected={selecionado}>
+                <button
+                  type="button"
+                  onMouseEnter={() => setAtivo(i)}
+                  onClick={() => escolher(op)}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left transition',
+                    selecionado ? 'bg-muted' : 'hover:bg-muted/60',
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{op.rotulo}</span>
+                    {op.detalhe && (
+                      <span className="block truncate text-xs text-muted-foreground">{op.detalhe}</span>
+                    )}
+                  </span>
+                  {selecionado && <Check className="h-4 w-4 shrink-0 text-brand-700" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {rodape}
+    </div>
+  );
+}

@@ -426,6 +426,25 @@ export class PartesService {
     return this.prisma.parteProcesso.findUnique({ where: { id }, include: PARTE_INCLUDE });
   }
 
+  /**
+   * As etiquetas em uso no acervo, da mais frequente para a menos.
+   *
+   * Alimenta a sugestão do formulário. Ver o comentário da rota em
+   * `partes.controller.ts` para por que a lista fixa que existia antes estava
+   * errada.
+   */
+  async etiquetasDoAcervo(): Promise<{ etiqueta: string; processos: number }[]> {
+    const linhas = await this.prisma.$queryRaw<{ etiqueta: string; processos: bigint }[]>`
+      SELECT e AS etiqueta, count(*) AS processos
+        FROM processos, unnest(coalesce(etiquetas, ARRAY[]::text[])) AS e
+       WHERE trim(e) <> ''
+       GROUP BY 1
+       ORDER BY 2 DESC, 1 ASC
+       LIMIT 60
+    `;
+    return linhas.map((l) => ({ etiqueta: l.etiqueta, processos: Number(l.processos) }));
+  }
+
   async sincronizarAtalhos(tx: Prisma.TransactionClient, processoId: string) {
     const partesFiliado = await tx.parteProcesso.findMany({
       where: { processoId, filiadoId: { not: null } },

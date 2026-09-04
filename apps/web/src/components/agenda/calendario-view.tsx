@@ -47,6 +47,11 @@ export function CalendarioView({
     return d;
   });
 
+  /** Os tipos que de fato aparecem na janela exibida. */
+  const tiposPresentes = [...new Set(compromissos.map((c) => c.tipo))].sort((a, b) =>
+    rotuloTipo(a, tipos).localeCompare(rotuloTipo(b, tipos), 'pt-BR'),
+  );
+
   const eventosDoDia = (dia: Date) =>
     compromissos
       .filter((c) => mesmaData(new Date(c.inicio), dia))
@@ -86,7 +91,9 @@ export function CalendarioView({
               // num evento abra o evento em vez de só filtrar o dia.
               onClick={() => onSelecionarDia?.(selecionado ? null : dia)}
               className={cn(
-                'min-h-[92px] border-b border-r p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0',
+                // No celular a célula encolhe: sem o texto dos eventos, 92px
+                // eram 92px de vazio em sete colunas.
+                'group min-h-[58px] border-b border-r p-1 last:border-r-0 sm:min-h-[92px] [&:nth-child(7n)]:border-r-0',
                 onSelecionarDia && 'cursor-pointer transition-colors hover:bg-muted/40',
                 foraDoMes && 'bg-muted/20',
                 selecionado && 'bg-brand-50 ring-1 ring-inset ring-brand-400 dark:bg-brand-900/20',
@@ -95,7 +102,36 @@ export function CalendarioView({
               <div className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs ${ehHoje ? 'bg-brand-700 font-bold text-white' : foraDoMes ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
                 {dia.getDate()}
               </div>
-              <div className="space-y-1">
+              {/*
+                NO CELULAR, SÓ OS PONTOS.
+
+                Sete colunas num aparelho de 360px dão 51px por célula. "09:00
+                Juntar documentos" cabia em três letras e um reticências — a
+                grade inteira virava uma coluna de "09:0…" repetido, e o mês,
+                que é a única coisa que o calendário faz melhor que o quadro,
+                ficava ilegível. Os pontos preservam a leitura que importa nesse
+                tamanho ("que dias têm coisa, e de que tipo"); o detalhe vem ao
+                tocar no dia, que traz as atividades para o quadro acima.
+              */}
+              <div className="flex flex-wrap gap-1 px-0.5 sm:hidden">
+                {eventos.slice(0, 6).map((c) => (
+                  <span
+                    key={c.id}
+                    aria-hidden
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full',
+                      estaAtrasado(c) ? 'bg-red-500' : corDeTipo(c.tipo, tipos).ponto,
+                    )}
+                  />
+                ))}
+                {eventos.length > 6 && (
+                  <span className="text-[9px] leading-none text-muted-foreground">
+                    +{eventos.length - 6}
+                  </span>
+                )}
+              </div>
+
+              <div className="hidden space-y-1 sm:block">
                 {eventos.slice(0, 3).map((c) => {
                   const atrasado = estaAtrasado(c);
                   return (
@@ -118,21 +154,39 @@ export function CalendarioView({
                     </button>
                   );
                 })}
-                {eventos.length > 3 && <p className="px-1 text-[10px] text-muted-foreground">+{eventos.length - 3} mais</p>}
+                {/*
+                  "+12 MAIS" NÃO PARECIA CLICÁVEL — e é o dia mais cheio do mês
+                  que fica escondido atrás dele. A célula inteira já seleciona o
+                  dia; o que faltava era o texto anunciar que há uma saída.
+                */}
+                {eventos.length > 3 && (
+                  <p className="px-1 text-[10px] font-medium text-brand-800 underline-offset-2 group-hover:underline dark:text-brand-400">
+                    +{eventos.length - 3} — ver o dia
+                  </p>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Legenda de tipos */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t p-3 text-xs text-muted-foreground">
-        {tipos.map((t) => (
-          <span key={t.id} className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${corDeTipo(t.slug, tipos).ponto}`} /> {t.nome}
-          </span>
-        ))}
-      </div>
+      {/*
+        A LEGENDA EXPLICA O QUE ESTÁ NA TELA, e só isso.
+
+        Ela listava TODOS os tipos cadastrados — inclusive os que não aparecem
+        no mês nenhum dia. Numa instalação com dez tipos, oito eram legenda de
+        cor que a grade não usa: a pessoa procura o ponto roxo e não acha.
+      */}
+      {tiposPresentes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t p-3 text-xs text-muted-foreground">
+          {tiposPresentes.map((slug) => (
+            <span key={slug} className="inline-flex items-center gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${corDeTipo(slug, tipos).ponto}`} />
+              {rotuloTipo(slug, tipos)}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

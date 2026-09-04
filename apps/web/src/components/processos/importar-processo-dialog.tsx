@@ -17,6 +17,7 @@ import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { BuscaSelect } from '@/components/ui/busca-select';
 import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import {
@@ -117,12 +118,16 @@ export function ImportarProcessoDialog({
   /** Nome da parte quando ela não é filiada (modo OUTRA). Nunca vira cadastro. */
   const [outraParteNome, setOutraParteNome] = useState('');
 
-  const [busca, setBusca] = useState('');
+  /**
+   * O TERMO DA ÚLTIMA BUSCA SEM RESULTADO — só isso, e só para oferecer o
+   * cadastro. O campo é do `BuscaSelect`, que guarda o próprio texto; duplicar
+   * o estado aqui era sobra da versão anterior.
+   */
+  const [semResultado, setSemResultado] = useState('');
   /** Cadastro rápido aberto sobre o formulário, sem perder o que já foi digitado. */
   const [cadastrando, setCadastrando] = useState(false);
   const podeCadastrarFiliado = usePodeCadastrarFiliado();
   const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
-  const [buscando, setBuscando] = useState(false);
 
   /**
    * A EQUIPE INTEIRA, responsável incluído.
@@ -186,9 +191,7 @@ export function ImportarProcessoDialog({
   const [reus, setReus] = useState<{ parteExternaId?: string; nome: string; detalhe?: string }[]>([]);
   const [reuSelecionado, setReuSelecionado] = useState<ParteExterna | null>(null);
   const [reuNome, setReuNome] = useState('');
-  const [buscaReu, setBuscaReu] = useState('');
   const [reusEncontrados, setReusEncontrados] = useState<ParteExterna[]>([]);
-  const [buscandoReu, setBuscandoReu] = useState(false);
   /** Cadastros que podem ser o réu que está sendo digitado à mão. */
   const [reusParecidos, setReusParecidos] = useState<ParteParecida[]>([]);
   const sugestoesHistorico = useQuery({
@@ -214,7 +217,7 @@ export function ImportarProcessoDialog({
     setFiliadosPolo([]);
     setOutraParteNome('');
     setEquipeAdvogados([]);
-    setBusca('');
+    setSemResultado('');
     setResultados([]);
     setPrevia(null);
     setErroPrevia(null);
@@ -223,24 +226,12 @@ export function ImportarProcessoDialog({
     setReus([]);
     setReuSelecionado(null);
     setReuNome('');
-    setBuscaReu('');
     setReusEncontrados([]);
     setReusParecidos([]);
     setTribunalAberto(false);
   }, [open, reset]);
 
   // Autocomplete do cadastro de partes (a empresa ré que já processamos antes).
-  useEffect(() => {
-    const termo = buscaReu.trim();
-    if (!open || termo.length < 2) { setReusEncontrados([]); return; }
-    setBuscandoReu(true);
-    const t = setTimeout(async () => {
-      try { setReusEncontrados((await listarPartesExternas({ busca: termo, pageSize: 6 })).items); }
-      catch { setReusEncontrados([]); }
-      finally { setBuscandoReu(false); }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [buscaReu, open]);
 
   /**
    * O RÉU DIGITADO À MÃO JÁ EXISTE NO CADASTRO?
@@ -337,25 +328,6 @@ export function ImportarProcessoDialog({
     return () => { cancelado = true; clearTimeout(t); };
   }, [numeroDigitado, open, setValue, consultaImediata]);
 
-  useEffect(() => {
-    const termo = busca.trim();
-    if (termo.length < 2) {
-      setResultados([]);
-      return;
-    }
-    setBuscando(true);
-    const t = setTimeout(async () => {
-      try {
-        setResultados(await buscarFiliados(termo));
-      } catch {
-        setResultados([]);
-      } finally {
-        setBuscando(false);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [busca]);
-
   /** O réu em edição, se houver algo preenchido. */
   function reuEmEdicao() {
     if (reuSelecionado) {
@@ -390,7 +362,6 @@ export function ImportarProcessoDialog({
     setReus((lista) => [...lista, atual]);
     setReuSelecionado(null);
     setReuNome('');
-    setBuscaReu('');
   }
 
   /** Traduz a escolha da tela para o contrato da API. */
@@ -435,7 +406,7 @@ export function ImportarProcessoDialog({
 
   function adicionarFiliado(f: FiliadoBusca) {
     setFiliadosPolo((atuais) => (atuais.some((x) => x.id === f.id) ? atuais : [...atuais, f]));
-    setBusca('');
+    setSemResultado('');
     setResultados([]);
   }
   function removerFiliado(id: string) {
@@ -842,48 +813,34 @@ export function ImportarProcessoDialog({
                   </ul>
                 )}
 
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    className="pl-9"
-                    placeholder={filiadosPolo.length ? 'Adicionar outro filiado…' : 'Buscar por nome ou CPF…'}
-                    value={busca}
-                    onChange={(e) => setBusca(e.target.value)}
-                    onKeyDown={enterNaoEnvia}
-                  />
-                  {buscando && (
-                    <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-                  )}
-                  {resultados.length > 0 && (
-                    <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-input bg-card shadow-lg">
-                      {resultados.map((f) => {
-                        const jaNoPolo = filiadosPolo.some((x) => x.id === f.id);
-                        return (
-                          <li key={f.id}>
-                            <button
-                              type="button"
-                              disabled={jaNoPolo}
-                              onClick={() => adicionarFiliado(f)}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
-                            >
-                              {jaNoPolo ? (
-                                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                              ) : (
-                                <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              )}
-                              <span className="min-w-0">
-                                <span className="block truncate font-medium">{f.nome}</span>
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {f.cpfMascarado}
-                                </span>
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
+                {/*
+                  BUSCA COM TECLADO — quem cadastra em série não tira a mão do
+                  teclado a cada parte. ↓ ↑ andam pelos resultados, Enter
+                  escolhe, Esc fecha; antes só o clique funcionava.
+
+                  Quem já está no polo continua aparecendo, marcado: sumir da
+                  lista faria parecer que a busca não achou a pessoa.
+                */}
+                <BuscaSelect
+                  placeholder={filiadosPolo.length ? 'Adicionar outro filiado…' : 'Nome ou CPF…'}
+                  onBuscar={async (termo) => {
+                    const achados = await buscarFiliados(termo);
+                    setResultados(achados);
+                    setSemResultado(achados.length === 0 ? termo : '');
+                    return achados.map((f) => ({
+                      id: f.id,
+                      rotulo: f.nome,
+                      detalhe: [
+                        f.cpfMascarado,
+                        filiadosPolo.some((x) => x.id === f.id) ? 'já no polo ativo' : null,
+                      ].filter(Boolean).join(' · '),
+                    }));
+                  }}
+                  onEscolher={(item) => {
+                    const f = resultados.find((x) => x.id === item.id);
+                    if (f) adicionarFiliado(f);
+                  }}
+                />
 
                 {/*
                   QUEM NÃO ACHA, CADASTRA AQUI.
@@ -892,10 +849,10 @@ export function ImportarProcessoDialog({
                   pede o mínimo (nome, CPF e nascimento) e devolve o filiado já
                   selecionado no polo.
                 */}
-                {busca.trim().length >= 2 && !buscando && resultados.length === 0 && (
+                {!!semResultado && (
                   <div className="rounded-lg border border-dashed p-3 text-center">
                     <p className="text-xs text-muted-foreground">
-                      Nenhum {V.filiado} encontrado com “{busca.trim()}”.
+                      Nenhum {V.filiado} encontrado com “{semResultado}”.
                     </p>
                     {podeCadastrarFiliado ? (
                       <Button
@@ -979,7 +936,7 @@ export function ImportarProcessoDialog({
             */}
             <CadastroFiliadoModal
               open={cadastrando}
-              nomeInicial={busca.trim()}
+              nomeInicial={semResultado}
               onClose={() => setCadastrando(false)}
               onSalvo={async (id) => {
                 // A busca é por nome/CPF, não por id: a ficha vem da rota do
@@ -988,7 +945,7 @@ export function ImportarProcessoDialog({
                 const f = await api.get(`/filiados/${id}`).then((r) => r.data).catch(() => null);
                 adicionarFiliado({
                   id,
-                  nome: f?.nomeCompleto ?? busca.trim(),
+                  nome: f?.nomeCompleto ?? semResultado,
                   cpfMascarado: f?.cpf ? `***.${String(f.cpf).slice(3, 6)}.***-**` : '',
                 } as FiliadoBusca);
                 setCadastrando(false);
@@ -1060,49 +1017,47 @@ export function ImportarProcessoDialog({
               </div>
             ) : (
               <>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    className="pl-9"
-                    placeholder="Buscar empresa/órgão já cadastrado…"
-                    value={buscaReu}
-                    onChange={(e) => setBuscaReu(e.target.value)}
-                    onKeyDown={enterNaoEnvia}
-                  />
-                  {buscandoReu && (
-                    <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-                  )}
-                  {reusEncontrados.length > 0 && (
-                    <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border border-input bg-card shadow-lg">
-                      {reusEncontrados.map((r) => (
-                        <li key={r.id}>
-                          <button
-                            type="button"
-                            onClick={() => { setReuSelecionado(r); setBuscaReu(''); setReusEncontrados([]); setReuNome(''); }}
-                            className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted"
-                          >
-                            <span className="font-medium">{r.nome}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {TIPO_PARTE_LABEL[r.tipo]}
-                              {r._count ? ` · ${r._count.participacoes} processo(s)` : ''}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                {/* SEM EXEMPLO COM NOME PRÓPRIO. Dizia "(ex.: PRONTOCARE)" —
-                    uma clínica que o SENATEPI processa —, e isso aparecia na
-                    tela de TODO cliente. O SINDSERM, que litiga contra órgãos da
-                    Prefeitura, via o nome de um réu de outro sindicato sugerido
-                    como modelo. Exemplo específico de um cliente em código
-                    compartilhado é o mesmo defeito de sempre, agora em forma de
-                    placeholder. */}
-                <Input
-                  placeholder="…ou digite o nome da parte contrária"
-                  value={reuNome}
-                  onChange={(e) => setReuNome(e.target.value)}
+                {/*
+                  UM CAMPO, NÃO DOIS.
+
+                  Eram duas caixas empilhadas para UMA decisão: "buscar
+                  cadastrado" e "…ou digite o nome". Quem chegava aqui tinha de
+                  escolher em qual das duas escrever antes de saber se a empresa
+                  existe — e a resposta a essa pergunta é justamente o que a
+                  busca daria.
+
+                  Agora digitar procura; se nada casa, a mesma tecla usa o texto
+                  como nome livre. A conferência de duplicata que ficava num
+                  aviso amarelo separado passou a acontecer ANTES: os cadastros
+                  parecidos aparecem na lista enquanto se digita, e "usar como
+                  texto" fica visivelmente à parte, no fim.
+
+                  SEM EXEMPLO COM NOME PRÓPRIO no placeholder: dizia "(ex.:
+                  PRONTOCARE)", uma clínica que o SENATEPI processa, e isso
+                  aparecia na tela de todo cliente.
+                */}
+                <BuscaSelect
+                  placeholder="Nome da empresa, órgão ou pessoa…"
+                  onBuscar={async (termo) => {
+                    const { items } = await listarPartesExternas({ busca: termo, pageSize: 8 });
+                    setReusEncontrados(items);
+                    return items.map((r) => ({
+                      id: r.id,
+                      rotulo: r.nome,
+                      detalhe: [
+                        TIPO_PARTE_LABEL[r.tipo],
+                        r._count ? `${r._count.participacoes} processo(s)` : null,
+                      ].filter(Boolean).join(' · '),
+                    }));
+                  }}
+                  onEscolher={(item) => {
+                    const achado = reusEncontrados.find((r) => r.id === item.id);
+                    if (achado) setReuSelecionado(achado);
+                    else setReuSelecionado({ id: item.id, nome: item.rotulo } as ParteExterna);
+                    setReuNome('');
+                    setReusParecidos([]);
+                  }}
+                  onCriar={(texto) => { setReuNome(texto); setReuSelecionado(null); }}
                 />
 
                 {/* Só aparece quando há o que guardar — quem tem um réu nunca vê

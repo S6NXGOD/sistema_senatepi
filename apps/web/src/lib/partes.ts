@@ -531,3 +531,14 @@ export async function aplicarVinculos(
   const { data } = await api.post('/processos/partes/vinculos-pendentes/aplicar', { decisoes });
   return data;
 }
+
+/**
+ * As etiquetas que o acervo já usa, da mais frequente para a menos.
+ *
+ * Alimenta a sugestão do formulário. A lista fixa que existia antes era
+ * inventada — ver o comentário de `etiquetas-input.tsx`.
+ */
+export async function etiquetasDoAcervo(): Promise<{ etiqueta: string; processos: number }[]> {
+  const { data } = await api.get('/processos/partes/etiquetas-do-acervo');
+  return data;
+}
