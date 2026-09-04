@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CorrelacaoService } from './correlacao.service';
 import { ComunicacaoDjenDto, DjenService } from './djen.service';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
+import { classificarProvidencia } from './utils/providencia.util';
 
 /** Resumo de uma varredura, para o log e para a rota manual. */
 export interface ResumoVarreduraDjen {
@@ -211,6 +212,56 @@ export class DjenSyncService {
           `${enriquecidas} enriquecida(s) com o teor da publicação.`,
       );
     }
+
+    await this.rotularForaDaJanela();
+  }
+
+  /**
+   * O HISTÓRICO TAMBÉM PRECISA DE RÓTULO — e ele nunca passava pelo robô.
+   *
+   * A consulta por NPU traz o processo INTEIRO: a varredura de 04/09/2026 subiu
+   * o acervo de 136 para 1.399 publicações, e 1.209 delas são de antes da
+   * janela de 30 dias. Como `aplicarAposDjen` só olha os últimos 30 dias, essas
+   * ficavam com `providencia` NULA para sempre — 86% da tela de Publicações sem
+   * dizer do que trata cada ato, e o filtro por providência devolvendo quase
+   * nada.
+   *
+   * ISTO NÃO CRIA TAREFA, e a garantia é estrutural, não uma promessa:
+   *
+   *  - `aplicarAposDjen` filtra `providencia: null`; ao rotular, a publicação
+   *    deixa de ser candidata a virar atividade. Por isso só se rotula o que
+   *    está FORA da janela — dentro dela, tirar o nulo seria roubar do robô uma
+   *    publicação que ele ainda ia processar.
+   *  - `parearAtrasadas` só grava `movimentacaoId`, e também só dentro da
+   *    janela.
+   *
+   * É classificação para LEITURA, portanto. A que gera trabalho continua sendo
+   * uma só, na passada normal.
+   */
+  private async rotularForaDaJanela(): Promise<void> {
+    const desde = new Date(Date.now() - this.DIAS_SEM_PUBLICACAO * 24 * 3_600_000);
+    const antigas = await this.prisma.comunicacaoDjen.findMany({
+      where: { providencia: null, dataDisponibilizacao: { lt: desde } },
+      select: { id: true, texto: true, tipoComunicacao: true },
+      // Teto por passada: a primeira carga de um acervo grande não pode virar
+      // uma transação de horas. O que sobrar entra amanhã.
+      take: 2_000,
+    });
+    if (!antigas.length) return;
+
+    let rotuladas = 0;
+    for (const c of antigas) {
+      const { providencia } = classificarProvidencia(c.texto, c.tipoComunicacao);
+      await this.prisma.comunicacaoDjen.update({
+        where: { id: c.id },
+        data: { providencia },
+      });
+      rotuladas++;
+    }
+    this.logger.log(
+      `[DJEN-SYNC] ${rotuladas} publicação(ões) do histórico classificada(s) para leitura ` +
+        '(fora da janela de tarefa).',
+    );
   }
 
   // -------------------------------------------------------------------------

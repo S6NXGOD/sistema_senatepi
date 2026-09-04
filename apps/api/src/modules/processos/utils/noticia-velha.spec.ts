@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ehNoticiaVelha } from '../correlacao.service';
 import { diaBR } from './data-br.util';
 
@@ -71,5 +73,54 @@ describe('notícia velha', () => {
     const ingestao2350 = baixadaEm('2026-09-04T02:50:00.000Z'); // 23:50 em Teresina, 03/09
     expect(diaBR(ingestao2350)).toBe('2026-09-03');
     expect(ehNoticiaVelha(publicadaEm('2026-08-31'), ingestao2350)).toBe(false);
+  });
+});
+
+/**
+ * O HISTÓRICO GANHA RÓTULO, MAS NÃO GANHA TAREFA.
+ *
+ * A consulta por NPU traz o processo inteiro: em 04/09/2026 a varredura subiu o
+ * acervo de 136 para 1.399 publicações, e 1.209 eram anteriores à janela de 30
+ * dias. Como a correlação só olha os últimos 30 dias, elas ficavam sem
+ * classificação para sempre — 86% da tela de Publicações sem dizer do que trata
+ * cada ato.
+ */
+describe('classificar o que está fora da janela', () => {
+  const SYNC = readFileSync(
+    resolve(__dirname, '../djen-sync.service.ts'),
+    'utf8',
+  );
+
+  /** Só o corpo do método — o resto do arquivo tem outras janelas. */
+  const FIM_DE_METODO = String.fromCharCode(10) + '  }';
+  const inicio = SYNC.indexOf('private async rotularForaDaJanela(');
+  const CORPO = SYNC.slice(inicio, SYNC.indexOf(FIM_DE_METODO, inicio) + 4);
+
+  /**
+   * SÓ O QUE ESTÁ FORA. Dentro da janela, tirar o `providencia: null` roubaria
+   * do robô uma publicação que ele ainda ia processar — a tela ganharia um
+   * rótulo e a equipe perderia uma tarefa.
+   */
+  it('rotula apenas publicação anterior à janela', () => {
+    expect(CORPO).toContain('providencia: null, dataDisponibilizacao: { lt: desde }');
+    expect(CORPO).not.toContain('gte: desde');
+  });
+
+  /** Nenhuma tarefa nasce daqui: o método só grava a coluna de leitura. */
+  it('não cria atividade nem toca em compromisso', () => {
+    for (const proibido of ['compromisso.create', 'aplicarAposDjen', 'compromissoId']) {
+      expect(`${proibido}: ${CORPO.includes(proibido)}`).toBe(`${proibido}: false`);
+    }
+  });
+
+  /** A primeira carga de um acervo grande não pode virar uma passada de horas. */
+  it('tem teto por passada', () => {
+    expect(CORPO).toContain('take: 2_000');
+  });
+
+  it('roda depois da correlação, e não no lugar dela', () => {
+    expect(SYNC.indexOf('await this.correlacao.aplicarAposDjen(')).toBeLessThan(
+      SYNC.indexOf('await this.rotularForaDaJanela()'),
+    );
   });
 });
