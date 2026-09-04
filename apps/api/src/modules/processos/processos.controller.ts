@@ -111,13 +111,26 @@ export class ProcessosController {
   /**
    * O DOSSIÊ EM PDF — o papel que se entrega a quem perguntou.
    *
-   * `:id/dossie` não colide com `:id` (são caminhos de tamanhos diferentes),
-   * mas fica antes por convenção do módulo.
+   * O CAMINHO TERMINA EM `.pdf`, E ISSO NÃO É ENFEITE.
+   *
+   * Ele nasceu como `:id/dossie` e derrubou a tela de detalhe do processo em
+   * produção. `MovimentacoesController` já servia `GET /processos/:id/dossie`
+   * — o JSON com tudo que a ficha precisa numa chamada só — e os dois
+   * controllers declaram `@Controller('processos')`. O Nest resolve pela ordem
+   * de registro no módulo, `ProcessosController` vem primeiro, e a rota nova
+   * engoliu a antiga sem erro nenhum: nem no build, nem no start, nem no log.
+   * O front pedia JSON, recebia um PDF, e a ficha quebrava com "Cannot read
+   * properties of undefined (reading 'confronto')".
+   *
+   * Nada aponta esse tipo de colisão automaticamente — por isso o sufixo, que
+   * é a convenção que `plenario.controller.ts` já usava (`dossie.pdf`), e por
+   * isso o teste que compara os caminhos de todos os controllers do mesmo
+   * prefixo (`rotas-que-colidem.spec.ts`).
    *
    * NÃO leva nota interna, nem prognóstico, nem o teor integral das
    * publicações. Ver o comentário do serviço.
    */
-  @Get(':id/dossie')
+  @Get(':id/dossie.pdf')
   @ApiOperation({ summary: 'PDF de acompanhamento do processo, para entregar ao filiado.' })
   async dossie(
     @Param('id') id: string,

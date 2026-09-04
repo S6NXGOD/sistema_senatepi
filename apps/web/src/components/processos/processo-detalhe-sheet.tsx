@@ -861,7 +861,7 @@ export function ProcessoDetalheSheet({
                   if (!p) return;
                   setBaixandoDossie(true);
                   try {
-                    await baixarPdf(`/processos/${p.id}/dossie`, 'dossie-do-processo.pdf');
+                    await baixarPdf(`/processos/${p.id}/dossie.pdf`, 'dossie-do-processo.pdf');
                   } catch {
                     toast.error('Não foi possível gerar o dossiê agora.');
                   } finally {
