@@ -655,20 +655,30 @@ export function ProcessoDetalheSheet({
                   Ele já existe no resumo logo abaixo das abas, em duas linhas
                   truncadas — e lá rola embora quando a pessoa começa a ler.
                 */}
+                {/*
+                  `p.polos?` E NÃO `p.polos` — o cinto de segurança.
+
+                  A causa da queda foi outra (uma rota de PDF ocupou o caminho
+                  do JSON, ver `rotas-que-colidem.spec.ts`), mas quem
+                  transformou "a API respondeu errado" em TELA BRANCA foi o
+                  acesso sem guarda: `p` existia, `p.polos` não, e o painel
+                  inteiro morreu. Uma ficha sem polos vale a pena renderizar
+                  incompleta — nunca vale a pena derrubar a tela.
+                */}
                 {p && (
                   <div className="mt-1.5 hidden flex-wrap items-center gap-x-2 gap-y-1 text-sm sm:flex">
                     <span className="font-semibold text-foreground">
-                      {p.polos.confronto.autor?.nome ?? 'Autor não informado'}
+                      {p.polos?.confronto?.autor?.nome ?? 'Autor não informado'}
                     </span>
-                    {p.polos.confronto.outrosAtivo > 0 && (
-                      <span className="text-xs text-muted-foreground">+{p.polos.confronto.outrosAtivo}</span>
+                    {(p.polos?.confronto?.outrosAtivo ?? 0) > 0 && (
+                      <span className="text-xs text-muted-foreground">+{p.polos?.confronto?.outrosAtivo}</span>
                     )}
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">×</span>
-                    {p.polos.confronto.reu ? (
+                    {p.polos?.confronto?.reu ? (
                       <>
                         <span className="font-semibold text-foreground">{p.polos.confronto.reu.nome}</span>
-                        {p.polos.confronto.outrosPassivo > 0 && (
-                          <span className="text-xs text-muted-foreground">+{p.polos.confronto.outrosPassivo}</span>
+                        {(p.polos?.confronto?.outrosPassivo ?? 0) > 0 && (
+                          <span className="text-xs text-muted-foreground">+{p.polos?.confronto?.outrosPassivo}</span>
                         )}
                       </>
                     ) : (
@@ -1157,14 +1167,14 @@ export function ProcessoDetalheSheet({
                 <Swords className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0">
                   <span className="block truncate font-medium">
-                    {p.polos?.confronto.autor?.nome ?? 'Autor não informado'}
-                    {p.polos && p.polos.confronto.outrosAtivo > 0 && (
-                      <span className="text-muted-foreground"> +{p.polos.confronto.outrosAtivo}</span>
+                    {p.polos?.confronto?.autor?.nome ?? 'Autor não informado'}
+                    {(p.polos?.confronto?.outrosAtivo ?? 0) > 0 && (
+                      <span className="text-muted-foreground"> +{p.polos?.confronto?.outrosAtivo}</span>
                     )}
                   </span>
                   <span className="block truncate text-muted-foreground">
-                    × {p.polos?.confronto.reu?.nome ?? 'réu não cadastrado'}
-                    {p.polos && p.polos.confronto.outrosPassivo > 0 && ` +${p.polos.confronto.outrosPassivo}`}
+                    × {p.polos?.confronto?.reu?.nome ?? 'réu não cadastrado'}
+                    {(p.polos?.confronto?.outrosPassivo ?? 0) > 0 && ` +${p.polos?.confronto?.outrosPassivo}`}
                   </span>
                 </span>
               </div>
