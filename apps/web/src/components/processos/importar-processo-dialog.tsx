@@ -7,22 +7,23 @@ import { z } from 'zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Search, Loader2, User, Gavel, Landmark, Scale, Building2,
-  CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users, Plus,
-  ChevronRight, UserPlus,
+  X, Search, Loader2, Gavel, Landmark, Scale, Building2,
+  CheckCircle2, AlertTriangle, ShieldAlert, Sparkles, Tag, Users,
+  ChevronRight, UserPlus, UserCheck, Star,
 } from 'lucide-react';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
+import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
+import { EditorDePartes, jaEstaNaLista, type ParteEditavel } from './editor-de-partes';
 import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { BuscaSelect } from '@/components/ui/busca-select';
 import { api } from '@/lib/api';
-import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
+import { buscarFiliados } from '@/lib/colonia';
 import {
   formatDocumento, listarPartesExternas, TIPO_PARTE_LABEL, partesParecidas,
-  MOTIVO_SEMELHANCA_LABEL, type ParteExterna, type ParteParecida,
+  MOTIVO_SEMELHANCA_LABEL, type ParteParecida,
 } from '@/lib/partes';
 import { cn } from '@/lib/utils';
 import {
@@ -32,38 +33,6 @@ import {
 } from '@/lib/processos';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
-
-/**
- * Como o polo ativo é preenchido. A escolha muda o que o formulário pede e o
- * que é gravado — e NENHUMA das opções cria cadastro provisório de filiado.
- *
- * SÃO DUAS HIPÓTESES, e não três. O sindicato litiga por si mesmo ou por um
- * filiado; não existe terceira. "Outra parte" continua existindo — há ação
- * movida em conjunto com outro sindicato, e há o processo herdado cuja parte
- * ninguém identificou ainda — mas saiu do mesmo nível das outras duas.
- *
- * POR QUE ELA FOI REBAIXADA. Era o caminho mais curto do formulário: um clique,
- * campo opcional, segue em frente. E era por ele que o processo entrava sem
- * dono — 26 processos individuais da produção têm no polo ativo uma pessoa sem
- * cadastro, e em 14 deles a pessoa ESTAVA no cadastro de filiados o tempo todo.
- * Agora quem não acha o filiado tem, ali mesmo, o botão de cadastrá-lo.
- */
-type ModoPoloAtivo = 'INSTITUCIONAL' | 'FILIADOS' | 'OUTRA';
-
-const OPCOES_POLO: { modo: ModoPoloAtivo; icone: typeof User; titulo: string; ajuda: string }[] = [
-  {
-    modo: 'FILIADOS',
-    icone: Users,
-    titulo: `Filiado(s) do ${tenant.sigla}`,
-    ajuda: 'A ação é de um ou mais filiados.',
-  },
-  {
-    modo: 'INSTITUCIONAL',
-    icone: Landmark,
-    titulo: 'Ação coletiva / institucional',
-    ajuda: `O ${tenant.sigla} move a ação em nome da categoria.`,
-  },
-];
 
 /** Linha rótulo/valor do painel de pré-visualização. */
 function Linha({ rotulo, valor }: { rotulo: string; valor: string | null | undefined }) {
@@ -109,25 +78,24 @@ export function ImportarProcessoDialog({
   });
 
   /**
-   * POLO ATIVO. `FILIADOS` é o padrão porque é o caso mais comum (ação
-   * individual de um associado); as outras duas são escolhas conscientes.
+   * O POLO ATIVO COMO UMA RELAÇÃO, e não como um modo escolhido.
+   *
+   * Filiado, o próprio sindicato e parte sem cadastro convivem na mesma lista,
+   * na ordem em que forem postos — o primeiro é o autor principal. Nenhuma das
+   * opções cria cadastro provisório de filiado: o nome livre é só o snapshot
+   * de como a parte consta nos autos.
    */
-  const [modoPolo, setModoPolo] = useState<ModoPoloAtivo>('FILIADOS');
-  /** Litisconsórcio: vários filiados no mesmo polo, o 1º é o principal. */
-  const [filiadosPolo, setFiliadosPolo] = useState<FiliadoBusca[]>([]);
-  /** Nome da parte quando ela não é filiada (modo OUTRA). Nunca vira cadastro. */
-  const [outraParteNome, setOutraParteNome] = useState('');
+  const [poloAtivo, setPoloAtivo] = useState<ParteEditavel[]>([]);
 
-  /**
-   * O TERMO DA ÚLTIMA BUSCA SEM RESULTADO — só isso, e só para oferecer o
-   * cadastro. O campo é do `BuscaSelect`, que guarda o próprio texto; duplicar
-   * o estado aqui era sobra da versão anterior.
-   */
-  const [semResultado, setSemResultado] = useState('');
-  /** Cadastro rápido aberto sobre o formulário, sem perder o que já foi digitado. */
+  /** Cadastro completo por cima do formulário, sem perder o que já foi digitado. */
   const [cadastrando, setCadastrando] = useState(false);
+  /** O nome digitado na busca, para o cadastro não começar em branco. */
+  const [nomeParaCadastro, setNomeParaCadastro] = useState('');
+  /** Recadastramento de quem já está no polo — presencial ou por link. */
+  const [recadastrar, setRecadastrar] = useState<{ id: string; nome: string } | null>(null);
+  /** Recadastro PRESENCIAL: abre o formulário completo por cima, sem navegar. */
+  const [filiadoParaRecadastro, setFiliadoParaRecadastro] = useState<string | null>(null);
   const podeCadastrarFiliado = usePodeCadastrarFiliado();
-  const [resultados, setResultados] = useState<FiliadoBusca[]>([]);
 
   /**
    * A EQUIPE INTEIRA, responsável incluído.
@@ -164,7 +132,7 @@ export function ImportarProcessoDialog({
    * Filiado principal = o primeiro do polo. É ele que alimenta a sugestão de
    * advogado por histórico (a carteira costuma seguir o autor principal).
    */
-  const filiadoSelecionado = modoPolo === 'FILIADOS' ? (filiadosPolo[0]?.id ?? '') : '';
+  const filiadoSelecionado = poloAtivo.find((x) => x.filiadoId)?.filiadoId ?? '';
 
   /**
    * Sugestões de advogado. Vêm de duas fontes que se somam: o DataJud (quando o
@@ -181,19 +149,15 @@ export function ImportarProcessoDialog({
    * contra quem se litiga.
    */
   /**
-   * RÉUS JÁ ACRESCENTADOS — o litisconsórcio passivo.
+   * O LITISCONSÓRCIO PASSIVO — mesma relação, mesma regra do polo ativo.
    *
-   * O par `reuSelecionado`/`reuNome` abaixo continua sendo o réu EM EDIÇÃO.
-   * Essa separação é o que mantém o caso comum (um réu só) exatamente como
-   * era: quem tem um réu preenche e envia, sem precisar clicar em "adicionar".
-   * O botão só aparece para quem tem o segundo.
+   * NÃO EXISTE MAIS "RÉU EM EDIÇÃO". Havia três estados para uma coisa só (a
+   * lista, o escolhido no cadastro e o digitado à mão), e o botão
+   * "Acrescentar outro réu" nem era necessário — o réu em edição já ia no
+   * envio. Quem clicava nele via o nome pular para a lista e o campo esvaziar,
+   * com o aviso de parecidos ainda na tela convidando a repetir.
    */
-  const [reus, setReus] = useState<{ parteExternaId?: string; nome: string; detalhe?: string }[]>([]);
-  const [reuSelecionado, setReuSelecionado] = useState<ParteExterna | null>(null);
-  const [reuNome, setReuNome] = useState('');
-  const [reusEncontrados, setReusEncontrados] = useState<ParteExterna[]>([]);
-  /** Cadastros que podem ser o réu que está sendo digitado à mão. */
-  const [reusParecidos, setReusParecidos] = useState<ParteParecida[]>([]);
+  const [reus, setReus] = useState<ParteEditavel[]>([]);
   const sugestoesHistorico = useQuery({
     queryKey: ['sugestao-advogado', filiadoSelecionado],
     queryFn: () => sugerirAdvogado(filiadoSelecionado as string),
@@ -213,47 +177,62 @@ export function ImportarProcessoDialog({
     if (open) return;
     // Ao fechar, zera tudo.
     reset({ numeroCNJ: '', tribunal: '', advogadoId: '' });
-    setModoPolo('FILIADOS');
-    setFiliadosPolo([]);
-    setOutraParteNome('');
+    setPoloAtivo([]);
     setEquipeAdvogados([]);
-    setSemResultado('');
-    setResultados([]);
+    setNomeParaCadastro('');
+    setRecadastrar(null);
+    setFiliadoParaRecadastro(null);
     setPrevia(null);
     setErroPrevia(null);
     setSugestoesDatajud([]);
     setEtiquetas([]);
     setReus([]);
-    setReuSelecionado(null);
-    setReuNome('');
-    setReusEncontrados([]);
-    setReusParecidos([]);
     setTribunalAberto(false);
   }, [open, reset]);
 
-  // Autocomplete do cadastro de partes (a empresa ré que já processamos antes).
-
   /**
-   * O RÉU DIGITADO À MÃO JÁ EXISTE NO CADASTRO?
+   * A BUSCA DE RÉU — cadastro e "parecidos" na MESMA lista.
    *
-   * Este campo é o caminho rápido — digitar "PRONTOCARE" e seguir em frente — e
-   * é justamente ele que cria duplicata: o autocomplete acima só encontra quem
-   * digita MENOS do que está gravado, então quem escreve a razão social
-   * completa não vê o apelido já cadastrado. Aqui a comparação é por palavra,
-   * nos dois sentidos, e o resultado aparece antes de importar.
+   * Eram duas consultas mostradas em dois lugares: o autocomplete achava quem
+   * digita MENOS do que está gravado, e um efeito à parte procurava, por
+   * palavra, quem digita a razão social inteira — e despejava o resultado num
+   * aviso amarelo abaixo do campo. Duas listas para a mesma pergunta, e a de
+   * baixo continuava na tela depois de escolher.
    *
-   * Avisa, nunca bloqueia: pode ser outra empresa com nome parecido, e quem
-   * está com o processo na mão sabe.
+   * Agora as duas alimentam a mesma lista, e o motivo da semelhança vira o
+   * detalhe da linha. Quem já está na relação continua aparecendo, marcado —
+   * sumir faria parecer que a busca não achou a empresa.
    */
-  useEffect(() => {
-    const termo = reuNome.trim();
-    if (!open || reuSelecionado || termo.length < 3) { setReusParecidos([]); return; }
-    const t = setTimeout(async () => {
-      try { setReusParecidos(await partesParecidas(termo)); }
-      catch { setReusParecidos([]); }
-    }, 400);
-    return () => clearTimeout(t);
-  }, [reuNome, reuSelecionado, open]);
+  async function buscarReus(termo: string): Promise<ParteEditavel[]> {
+    const [{ items }, parecidas] = await Promise.all([
+      listarPartesExternas({ busca: termo, pageSize: 8 }),
+      termo.trim().length >= 3 ? partesParecidas(termo) : Promise.resolve([] as ParteParecida[]),
+    ]);
+    const vistos = new Set(items.map((r) => r.id));
+    const doCadastro: ParteEditavel[] = items.map((r) => ({
+      tipo: 'ORGANIZACAO',
+      nome: r.nome,
+      detalhe: [
+        TIPO_PARTE_LABEL[r.tipo],
+        r.documento ? formatDocumento(r.documento) : null,
+        r._count ? `${r._count.participacoes} processo(s)` : null,
+      ].filter(Boolean).join(' · '),
+      parteExternaId: r.id,
+    }));
+    const semelhantes: ParteEditavel[] = parecidas
+      .filter((c) => !vistos.has(c.id))
+      .map((c) => ({
+        tipo: 'ORGANIZACAO',
+        nome: c.nome,
+        detalhe: [
+          MOTIVO_SEMELHANCA_LABEL[c.motivo],
+          TIPO_PARTE_LABEL[c.tipo],
+          c._count ? `${c._count.participacoes} processo(s)` : null,
+        ].filter(Boolean).join(' · '),
+        parteExternaId: c.id,
+      }));
+    return [...doCadastro, ...semelhantes];
+  }
 
   // Dispara a consulta assim que os 20 dígitos estiverem completos (com debounce
   // para não bater no CNJ a cada tecla).
@@ -285,12 +264,12 @@ export function ImportarProcessoDialog({
         // sem apagar quem o operador já tenha escolhido à mão.
         if (r.filiadoSugerido) {
           const sug = r.filiadoSugerido;
-          setModoPolo('FILIADOS');
-          setFiliadosPolo((atuais) =>
-            atuais.some((f) => f.id === sug.id)
-              ? atuais
-              : [...atuais, { id: sug.id, nome: sug.nomeCompleto, cpfMascarado: '' } as FiliadoBusca],
-          );
+          adicionarFiliado({
+            tipo: 'FILIADO',
+            nome: sug.nomeCompleto,
+            detalhe: `${V.filiado} · achado pelo CPF nos autos`,
+            filiadoId: sug.id,
+          });
         }
         if (r.preenchimento?.tribunal) setValue('tribunal', r.preenchimento.tribunal);
         /**
@@ -328,48 +307,27 @@ export function ImportarProcessoDialog({
     return () => { cancelado = true; clearTimeout(t); };
   }, [numeroDigitado, open, setValue, consultaImediata]);
 
-  /** O réu em edição, se houver algo preenchido. */
-  function reuEmEdicao() {
-    if (reuSelecionado) {
-      return {
-        parteExternaId: reuSelecionado.id,
-        nome: reuSelecionado.nome,
-        detalhe: TIPO_PARTE_LABEL[reuSelecionado.tipo],
-      };
-    }
-    const nome = reuNome.trim();
-    return nome ? { nome } : null;
-  }
-
-  /** Lista final enviada à API — o primeiro vira o réu principal. */
-  function montarReus() {
-    const emEdicao = reuEmEdicao();
-    const todos = [...reus, ...(emEdicao ? [emEdicao] : [])];
-    // Mesmo réu escolhido duas vezes não vira duas linhas do mesmo nome.
-    const vistos = new Set<string>();
-    return todos.filter((r) => {
-      const chave = r.parteExternaId ?? r.nome.trim().toLowerCase();
-      if (vistos.has(chave)) return false;
-      vistos.add(chave);
-      return true;
-    });
-  }
-
-  /** Guarda o réu atual na lista e limpa o campo para o próximo. */
-  function adicionarReu() {
-    const atual = reuEmEdicao();
-    if (!atual) return;
-    setReus((lista) => [...lista, atual]);
-    setReuSelecionado(null);
-    setReuNome('');
-  }
-
-  /** Traduz a escolha da tela para o contrato da API. */
+  /**
+   * Traduz a relação para o contrato da API — e manda os DOIS formatos.
+   *
+   * `partes` é o caminho novo (relação ordenada, tipos misturados). `tipo`
+   * continua junto como RESUMO porque web e API sobem separadas no Railway: na
+   * janela de troca, a tela nova conversa com o contêiner velho, que ignora
+   * `partes`. Sem o resumo, toda importação feita nesse intervalo entraria com
+   * o polo ativo VAZIO — sem erro na tela, só sem autor.
+   */
   function montarPoloAtivo(): PoloAtivoInput {
-    if (modoPolo === 'INSTITUCIONAL') return { tipo: 'INSTITUCIONAL' };
-    if (modoPolo === 'FILIADOS') return { tipo: 'FILIADOS', filiadoIds: filiadosPolo.map((f) => f.id) };
-    // OUTRA: nome digitado, ou nada ("definir depois") — a API aceita vazio.
-    return { tipo: 'OUTRA', nome: outraParteNome.trim() || undefined };
+    const partes = poloAtivo.map((x) => ({
+      tipo: x.tipo,
+      filiadoId: x.filiadoId,
+      parteExternaId: x.parteExternaId,
+      nome: x.nome,
+    }));
+    const filiadoIds = poloAtivo.map((x) => x.filiadoId).filter(Boolean) as string[];
+    if (filiadoIds.length) return { tipo: 'FILIADOS', filiadoIds, partes };
+    if (poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL')) return { tipo: 'INSTITUCIONAL', partes };
+    const avulsa = poloAtivo[0];
+    return { tipo: 'OUTRA', nome: avulsa?.nome, partes };
   }
 
   const importar = useMutation({
@@ -386,7 +344,14 @@ export function ImportarProcessoDialog({
         // RÉUS: a lista já montada mais o que estiver em edição. Enviar o
         // último sem exigir o clique em "adicionar" é o que evita a perda
         // silenciosa mais comum deste tipo de formulário.
-        ...(montarReus().length ? { partesContrarias: montarReus() } : {}),
+        ...(reus.length
+          ? {
+              partesContrarias: reus.map((r) => ({
+                parteExternaId: r.parteExternaId,
+                nome: r.nome,
+              })),
+            }
+          : {}),
       }),
     onSuccess: (p) => {
       toast.success('Processo importado do DATAJUD.');
@@ -404,21 +369,25 @@ export function ImportarProcessoDialog({
     },
   });
 
-  function adicionarFiliado(f: FiliadoBusca) {
-    setFiliadosPolo((atuais) => (atuais.some((x) => x.id === f.id) ? atuais : [...atuais, f]));
-    setSemResultado('');
-    setResultados([]);
-  }
-  function removerFiliado(id: string) {
-    setFiliadosPolo((atuais) => atuais.filter((f) => f.id !== id));
+  /** Põe um filiado no polo, sem repetir quem já está lá. */
+  function adicionarFiliado(p: ParteEditavel) {
+    setPoloAtivo((atual) => (jaEstaNaLista(atual, p) ? atual : [...atual, p]));
   }
 
   /**
-   * O botão de importar só trava quando falta algo que a API vai recusar:
-   * em FILIADOS, ao menos um filiado. As outras duas opções podem seguir vazias
-   * — "definir depois" é uma escolha legítima.
+   * AVISA, NÃO TRAVA.
+   *
+   * Eu tinha travado o botão com polo ativo vazio, e isso era decisão minha:
+   * "definir depois" é legítimo — quem está subindo acervo antigo nem sempre
+   * sabe quem é a parte, e a aba Partes existe para isso. Trancar a porta
+   * empurraria a pessoa para o pior caminho disponível, que é digitar qualquer
+   * nome só para passar.
+   *
+   * O que fica é a CONSEQUÊNCIA dita na hora: sem parte, o processo entra na
+   * fila "sem filiado vinculado". Quem lê isso e mesmo assim segue, seguiu
+   * sabendo — e é diferente de descobrir depois numa fila de 29.
    */
-  const poloValido = modoPolo !== 'FILIADOS' || filiadosPolo.length > 0;
+  const poloVazio = poloAtivo.length === 0;
 
   /**
    * ESC fecha. O drawer trazia isso de graça; num modal próprio é nosso.
@@ -584,7 +553,7 @@ export function ImportarProcessoDialog({
 
                 {/* Vínculo de filiado. Numa ação institucional não há filiado
                     "dono" — cobrar o vínculo ali seria ruído, não alerta. */}
-                {modoPolo === 'INSTITUCIONAL' ? null : previa.filiadoSugerido ? (
+                {poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL') ? null : previa.filiadoSugerido ? (
                   <p className="flex items-center gap-1.5 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
                     <CheckCircle2 className="h-3.5 w-3.5" /> {V.Filiado} localizado pelo CPF: <strong>{previa.filiadoSugerido.nomeCompleto}</strong> — já adicionado ao polo ativo.
                   </p>
@@ -734,389 +703,221 @@ export function ImportarProcessoDialog({
 
           {/* ================= COLUNA 2 — PARTES DO PROCESSO ================= */}
           <div className="space-y-4">
-          {/* ---- POLO ATIVO: quem move a ação ---- */}
+          {/* ---- POLO ATIVO: quem pede ---- */}
           <div className="space-y-2 rounded-xl border p-3">
             <label className="flex items-center gap-1.5 text-sm font-medium">
-              <User className="h-4 w-4 text-muted-foreground" /> Polo Ativo (autor/representado) *
+              <Users className="h-4 w-4 text-muted-foreground" /> Polo ativo — quem pede *
             </label>
 
-            <div className="grid grid-cols-1 gap-1.5">
-              {OPCOES_POLO.map((o) => {
-                const ativo = modoPolo === o.modo;
-                return (
-                  <button
-                    key={o.modo}
-                    type="button"
-                    onClick={() => setModoPolo(o.modo)}
-                    className={cn(
-                      'flex items-start gap-2 rounded-lg border p-2.5 text-left transition',
-                      ativo
-                        ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
-                        : 'hover:bg-muted/50',
-                    )}
-                  >
-                    <o.icone
-                      className={cn(
-                        'mt-0.5 h-4 w-4 shrink-0',
-                        ativo ? 'text-brand-700 dark:text-brand-400' : 'text-muted-foreground',
-                      )}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">{o.titulo}</span>
-                      <span className="block text-[11px] leading-snug text-muted-foreground">{o.ajuda}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* --- Institucional: nada a preencher, só a confirmação visual --- */}
-            {modoPolo === 'INSTITUCIONAL' && (
-              <div className="rounded-lg border border-brand-400/60 bg-brand-50/60 px-3 py-2 dark:bg-brand-900/10">
-                <p className="text-xs font-semibold text-brand-800 dark:text-brand-400">
-                  Ação institucional ({tenant.sigla})
-                </p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  O sindicato entra como autor. O processo é marcado como coletivo e não cobra
-                  filiado vinculado.
-                </p>
-              </div>
-            )}
-
-            {/* --- Filiados: busca e lista (litisconsórcio) --- */}
-            {modoPolo === 'FILIADOS' && (
-              <div className="space-y-2">
-                {filiadosPolo.length > 0 && (
-                  <ul className="space-y-1.5">
-                    {filiadosPolo.map((f, i) => (
-                      <li
-                        key={f.id}
-                        className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{f.nome}</span>
-                          <span className="block truncate text-[11px] text-muted-foreground">
-                            {i === 0 ? 'Autor principal' : 'Litisconsorte'}
-                            {f.cpfMascarado ? ` · ${f.cpfMascarado}` : ''}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removerFiliado(f.id)}
-                          title="Remover do polo"
-                          className="shrink-0 text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                {/*
-                  BUSCA COM TECLADO — quem cadastra em série não tira a mão do
-                  teclado a cada parte. ↓ ↑ andam pelos resultados, Enter
-                  escolhe, Esc fecha; antes só o clique funcionava.
-
-                  Quem já está no polo continua aparecendo, marcado: sumir da
-                  lista faria parecer que a busca não achou a pessoa.
-                */}
-                <BuscaSelect
-                  placeholder={filiadosPolo.length ? 'Adicionar outro filiado…' : 'Nome ou CPF…'}
-                  onBuscar={async (termo) => {
-                    const achados = await buscarFiliados(termo);
-                    setResultados(achados);
-                    setSemResultado(achados.length === 0 ? termo : '');
-                    return achados.map((f) => ({
-                      id: f.id,
-                      rotulo: f.nome,
-                      detalhe: [
-                        f.cpfMascarado,
-                        filiadosPolo.some((x) => x.id === f.id) ? 'já no polo ativo' : null,
-                      ].filter(Boolean).join(' · '),
-                    }));
-                  }}
-                  onEscolher={(item) => {
-                    const f = resultados.find((x) => x.id === item.id);
-                    if (f) adicionarFiliado(f);
-                  }}
-                />
-
-                {/*
-                  QUEM NÃO ACHA, CADASTRA AQUI.
-                  Sem este botão a saída era "Outra parte": a pessoa entrava
-                  como texto livre e o processo nascia sem dono. O formulário
-                  pede o mínimo (nome, CPF e nascimento) e devolve o filiado já
-                  selecionado no polo.
-                */}
-                {!!semResultado && (
-                  <div className="rounded-lg border border-dashed p-3 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      Nenhum {V.filiado} encontrado com “{semResultado}”.
-                    </p>
-                    {podeCadastrarFiliado ? (
-                      <Button
-                        type="button" size="sm" variant="outline" className="mt-2"
-                        onClick={() => setCadastrando(true)}
-                      >
-                        <UserPlus className="h-4 w-4" /> Cadastrar {V.filiado}
-                      </Button>
-                    ) : (
-                      <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                        O cadastro é feito pela secretaria. Dá para seguir com o nome da parte e
-                        vincular depois.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {filiadosPolo.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Procure pelo nome ou CPF. Se ainda não estiver cadastrado, dá para cadastrar aqui.
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">
-                    O primeiro da lista é o autor principal. Vincular o filiado permite revelar o
-                    CPF dele nas partes (máscara inteligente).
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* --- Outra parte: só o nome, e nunca um cadastro novo --- */}
-            {modoPolo === 'OUTRA' ? (
-              <div className="space-y-1.5">
-                <Input
-                  placeholder="Nome da parte"
-                  value={outraParteNome}
-                  onChange={(e) => setOutraParteNome(e.target.value)}
-                />
-                {/* Escolha consciente de quem está preenchendo — não há por que
-                    devolver um alerta amarelo confirmando o que ele acabou de
-                    clicar. Fica só a consequência prática. */}
-                <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
-                  Nenhum cadastro de filiado será criado. Dá para vincular um depois, na aba
-                  <strong className="font-semibold text-foreground"> Partes</strong> do processo.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setModoPolo('FILIADOS')}
-                  className="text-[11px] font-medium text-brand-800 hover:underline dark:text-brand-400"
-                >
-                  Voltar para filiado
-                </button>
-              </div>
-            ) : (
-              /*
-                A TERCEIRA HIPÓTESE EXISTE, mas não é uma das duas primeiras.
-                Litisconsórcio com outro sindicato e processo herdado sem parte
-                identificada são reais — e raros. Como link, continuam ao
-                alcance de um clique sem competir com o caminho normal.
-              */
-              <button
-                type="button"
-                onClick={() => setModoPolo('OUTRA')}
-                className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                A parte não é o {tenant.sigla} nem um filiado
-              </button>
-            )}
-
             {/*
-              CADASTRO RÁPIDO POR CIMA, e não em outra aba: sair da tela para
-              cadastrar o filiado significa perder o número do processo, o
-              tribunal e os réus já digitados. Ao terminar, o filiado volta já
-              selecionado no polo.
+              TRÊS BOTÕES EXCLUSIVOS VIRARAM UMA RELAÇÃO.
+
+              Era "Filiado(s)" OU "Ação institucional" OU, num link abaixo, "a
+              parte não é o sindicato nem um filiado" — e escolher um apagava a
+              tela do outro. A realidade não é exclusiva: existe ação em que o
+              sindicato entra AO LADO do filiado, e existe litisconsórcio com
+              outro sindicato.
+
+              Agora é uma lista só: procure o filiado, ou acrescente o
+              {' '}{tenant.sigla}, ou digite um nome que não está em lugar nenhum.
+              Os três convivem, e a ordem diz quem é o principal.
             */}
-            {/*
-              CADASTRO COMPLETO POR CIMA, e não em outra tela: sair daqui para
-              cadastrar significa perder o número do processo, o tribunal e os
-              réus já digitados. Ao salvar, o filiado volta já selecionado no
-              polo ativo.
-            */}
-            <CadastroFiliadoModal
-              open={cadastrando}
-              nomeInicial={semResultado}
-              onClose={() => setCadastrando(false)}
-              onSalvo={async (id) => {
-                // A busca é por nome/CPF, não por id: a ficha vem da rota do
-                // próprio filiado, senão o polo ficaria com o nome digitado
-                // em vez do nome que foi de fato cadastrado.
-                const f = await api.get(`/filiados/${id}`).then((r) => r.data).catch(() => null);
-                adicionarFiliado({
-                  id,
-                  nome: f?.nomeCompleto ?? semResultado,
-                  cpfMascarado: f?.cpf ? `***.${String(f.cpf).slice(3, 6)}.***-**` : '',
-                } as FiliadoBusca);
-                setCadastrando(false);
+            <EditorDePartes
+              partes={poloAtivo}
+              onChange={setPoloAtivo}
+              placeholder={`Nome ou CPF do ${V.filiado}…`}
+              rotuloPrincipal="Autor principal"
+              rotuloSecundario="Litisconsorte"
+              permitirTextoLivre
+              vazio={`Quem está pedindo? Procure o ${V.filiado} pelo nome ou CPF — ou acrescente o ${tenant.sigla}, se a ação é da categoria.`}
+              buscar={async (termo) => {
+                const achados = await buscarFiliados(termo);
+                return achados.map((f) => ({
+                  tipo: 'FILIADO' as const,
+                  nome: f.nome,
+                  detalhe: [V.filiado, f.cpfMascarado].filter(Boolean).join(' · '),
+                  filiadoId: f.id,
+                }));
               }}
+              acoes={[
+                {
+                  /* Sempre visível: a ação coletiva não tem nome para procurar. */
+                  exigeTermo: false,
+                  icone: Landmark,
+                  rotulo: () => `Ação da categoria — acrescentar o ${tenant.sigla}`,
+                  aoEscolher: () =>
+                    setPoloAtivo((atual) =>
+                      atual.some((x) => x.tipo === 'INSTITUCIONAL')
+                        ? atual
+                        : [...atual, {
+                            tipo: 'INSTITUCIONAL',
+                            nome: tenant.nome,
+                            detalhe: 'O próprio sindicato',
+                          }],
+                    ),
+                },
+                ...(podeCadastrarFiliado
+                  ? [{
+                      /*
+                        O BOTÃO DE CADASTRAR MORA DENTRO DA LISTA.
+
+                        Ele existia num painel logo abaixo do campo — e a lista
+                        de resultados, que é `absolute`, passava POR CIMA dele.
+                        O botão estava na tela e ficava atrás de uma caixa
+                        branca; foi o que o usuário viu.
+                      */
+                      icone: UserPlus,
+                      rotulo: (t: string) => `Cadastrar “${t}” como ${V.filiado}`,
+                      aoEscolher: (t: string) => { setNomeParaCadastro(t); setCadastrando(true); },
+                    }]
+                  : []),
+              ]}
+              extraDaLinha={(parte) =>
+                /*
+                  O BOTÃO SÓ APARECE PARA QUEM A API DEIXA USAR.
+
+                  `POST /filiados/:id/link-recadastramento` e
+                  `PATCH /filiados/:id/atualizacao-cadastral` são
+                  ADMINISTRADOR/COORDENAÇÃO/TRIAGEM — o ADVOGADO tem
+                  `filiados: VISUALIZAR`. Oferecer o recadastro a ele seria
+                  repetir o erro do botão de cadastrar, que eu já tinha
+                  entregado morto uma vez: 403 na cara de quem clicou.
+                */
+                parte.filiadoId && podeCadastrarFiliado ? (
+                  <button
+                    type="button"
+                    onClick={() => setRecadastrar({ id: parte.filiadoId!, nome: parte.nome })}
+                    title={`Recadastrar ${parte.nome}`}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-foreground sm:h-7 sm:w-7"
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    <span className="sr-only">Recadastrar</span>
+                  </button>
+                ) : null
+              }
+              ajuda={
+                podeCadastrarFiliado ? (
+                  <>
+                    O primeiro da lista é o autor principal — a{' '}
+                    <Star className="inline h-3 w-3 align-[-1px]" /> troca sem apagar nada. O{' '}
+                    <UserCheck className="inline h-3 w-3 align-[-1px]" /> ao lado do {V.filiado}{' '}
+                    abre o recadastramento, presencial ou por link.
+                  </>
+                ) : (
+                  <>
+                    O primeiro da lista é o autor principal. O cadastro de {V.filiado} é feito
+                    pela secretaria — dá para seguir com o nome e vincular depois.
+                  </>
+                )
+              }
             />
+
+            {poloVazio && (
+              <p className="rounded-md bg-muted px-2.5 py-2 text-[11px] leading-snug text-muted-foreground">
+                Sem parte no polo ativo, o processo entra na fila{' '}
+                <strong className="font-semibold text-foreground">sem {V.filiado} vinculado</strong> —
+                dá para resolver depois, na aba Partes.
+              </p>
+            )}
           </div>
 
-          {/* Parte contrária (réu) — o dado que o DataJud não entrega */}
-          <div className="space-y-1.5">
+          {/* ---- POLO PASSIVO: contra quem ---- */}
+          <div className="space-y-2 rounded-xl border p-3">
             <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Building2 className="h-4 w-4 text-muted-foreground" /> Parte(s) contrária(s) / réu(s) (opcional)
+              <Building2 className="h-4 w-4 text-muted-foreground" /> Polo passivo — contra quem
             </label>
 
             {/*
-              OS RÉUS JÁ ACRESCENTADOS.
-              Um réu só é a exceção, não a regra: reclamação contra hospital e
-              contra a empresa que terceiriza tem dois desde a inicial, e ação
-              contra o município costuma citar também a autarquia. Antes cabia um,
-              e o segundo virava observação — ou não era registrado.
+              O AVISO DE DUPLICATA VIROU RESULTADO DE BUSCA.
+
+              Os cadastros parecidos apareciam numa caixa amarela SEPARADA,
+              depois do campo e depois do botão — quarta coisa na tela para uma
+              pergunta só. E como ela continuava visível depois de acrescentar,
+              dá para clicar "usar esta" outra vez e pôr a MESMA empresa duas
+              vezes, uma pelo cadastro e outra como texto. Foi o que a tela do
+              usuário mostrou.
+
+              Agora eles são resultado da mesma busca, marcados pelo motivo da
+              semelhança. Um lugar, uma decisão.
             */}
-            {reus.length > 0 && (
-              <ul className="space-y-1">
-                {reus.map((r, i) => (
-                  <li
-                    key={`${r.parteExternaId ?? r.nome}-${i}`}
-                    className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{r.nome}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {i === 0 ? 'Réu principal' : `Litisconsorte ${i}`}
-                        {r.detalhe ? ` · ${r.detalhe}` : ''}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`Remover ${r.nome}`}
-                      onClick={() => setReus((lista) => lista.filter((_, j) => j !== i))}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {reuSelecionado ? (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-input bg-muted/40 px-3 py-2.5">
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">{reuSelecionado.nome}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {TIPO_PARTE_LABEL[reuSelecionado.tipo]}
-                    {reuSelecionado.documento ? ` · ${formatDocumento(reuSelecionado.documento)}` : ''}
-                  </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={adicionarReu}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Outro
-                  </button>
-                  <button type="button" onClick={() => setReuSelecionado(null)} className="text-muted-foreground hover:text-foreground">
-                    <X className="h-4 w-4" />
-                  </button>
-                </span>
-              </div>
-            ) : (
-              <>
-                {/*
-                  UM CAMPO, NÃO DOIS.
-
-                  Eram duas caixas empilhadas para UMA decisão: "buscar
-                  cadastrado" e "…ou digite o nome". Quem chegava aqui tinha de
-                  escolher em qual das duas escrever antes de saber se a empresa
-                  existe — e a resposta a essa pergunta é justamente o que a
-                  busca daria.
-
-                  Agora digitar procura; se nada casa, a mesma tecla usa o texto
-                  como nome livre. A conferência de duplicata que ficava num
-                  aviso amarelo separado passou a acontecer ANTES: os cadastros
-                  parecidos aparecem na lista enquanto se digita, e "usar como
-                  texto" fica visivelmente à parte, no fim.
-
-                  SEM EXEMPLO COM NOME PRÓPRIO no placeholder: dizia "(ex.:
-                  PRONTOCARE)", uma clínica que o SENATEPI processa, e isso
-                  aparecia na tela de todo cliente.
-                */}
-                <BuscaSelect
-                  placeholder="Nome da empresa, órgão ou pessoa…"
-                  onBuscar={async (termo) => {
-                    const { items } = await listarPartesExternas({ busca: termo, pageSize: 8 });
-                    setReusEncontrados(items);
-                    return items.map((r) => ({
-                      id: r.id,
-                      rotulo: r.nome,
-                      detalhe: [
-                        TIPO_PARTE_LABEL[r.tipo],
-                        r._count ? `${r._count.participacoes} processo(s)` : null,
-                      ].filter(Boolean).join(' · '),
-                    }));
-                  }}
-                  onEscolher={(item) => {
-                    const achado = reusEncontrados.find((r) => r.id === item.id);
-                    if (achado) setReuSelecionado(achado);
-                    else setReuSelecionado({ id: item.id, nome: item.rotulo } as ParteExterna);
-                    setReuNome('');
-                    setReusParecidos([]);
-                  }}
-                  onCriar={(texto) => { setReuNome(texto); setReuSelecionado(null); }}
-                />
-
-                {/* Só aparece quando há o que guardar — quem tem um réu nunca vê
-                    este botão e envia direto, como sempre fez. */}
-                {(reuSelecionado || reuNome.trim()) && (
-                  <button
-                    type="button"
-                    onClick={adicionarReu}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Acrescentar outro réu
-                  </button>
-                )}
-
-                {/* Aviso amigável: mostra o que já existe e deixa reaproveitar
-                    com um clique, em vez de recusar o que a pessoa digitou. */}
-                {reusParecidos.length > 0 && (
-                  <div className="rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-900/50 dark:bg-amber-950/20">
-                    <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 dark:text-amber-300">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                      Pode ser que esta parte já esteja cadastrada
-                    </p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-amber-800/80 dark:text-amber-300/80">
-                      Reaproveitar mantém todos os processos contra a mesma empresa juntos.
-                    </p>
-                    <ul className="mt-1.5 space-y-1">
-                      {reusParecidos.map((c) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            onClick={() => { setReuSelecionado(c); setReuNome(''); setReusParecidos([]); }}
-                            className="flex w-full items-center gap-2 rounded bg-card px-2 py-1.5 text-left transition hover:bg-muted"
-                          >
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium">{c.nome}</span>
-                              <span className="block truncate text-[11px] text-muted-foreground">
-                                {MOTIVO_SEMELHANCA_LABEL[c.motivo]} · {TIPO_PARTE_LABEL[c.tipo]}
-                                {c._count ? ` · ${c._count.participacoes} processo(s)` : ''}
-                              </span>
-                            </span>
-                            <span className="shrink-0 text-[11px] font-medium text-brand-800 dark:text-brand-400">
-                              usar esta
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
-            )}
-            <p className="text-[11px] text-muted-foreground">
-              A API Pública do DataJud <strong>não divulga as partes</strong> do processo — este dado é
-              da casa. Informe agora ou depois, na aba "Partes".
-            </p>
+            <EditorDePartes
+              partes={reus}
+              onChange={setReus}
+              placeholder="Nome da empresa, órgão ou pessoa…"
+              rotuloPrincipal="Réu principal"
+              rotuloSecundario="Litisconsorte"
+              permitirTextoLivre
+              vazio="Contra quem é a ação? Dá para deixar em branco e informar depois, na aba Partes."
+              buscar={buscarReus}
+              ajuda={
+                <>
+                  A API Pública do DataJud <strong>não divulga as partes</strong> do processo —
+                  este dado é da casa. Reaproveitar um cadastro mantém todos os processos
+                  contra a mesma empresa juntos.
+                </>
+              }
+            />
           </div>
 
           </div>
         </div>
+
+        {/*
+          OS DOIS MODAIS FICAM POR CIMA, e não em outra tela: sair daqui para
+          cadastrar ou recadastrar significaria perder o número do processo, o
+          tribunal, a equipe e os réus já digitados. Ambos usam `z-[70]`, acima
+          deste diálogo.
+        */}
+        <CadastroFiliadoModal
+          open={cadastrando}
+          nomeInicial={nomeParaCadastro}
+          onClose={() => setCadastrando(false)}
+          onSalvo={async (id) => {
+            // A ficha vem da rota do próprio filiado: o polo tem de mostrar o
+            // nome que foi CADASTRADO, e não o que se digitou na busca.
+            const f = await api.get(`/filiados/${id}`).then((r) => r.data).catch(() => null);
+            adicionarFiliado({
+              tipo: 'FILIADO',
+              nome: f?.nomeCompleto ?? nomeParaCadastro,
+              detalhe: `${V.filiado} · cadastrado agora`,
+              filiadoId: id,
+            });
+            setCadastrando(false);
+          }}
+        />
+
+        {/*
+          RECADASTRAR SEM SAIR DO PROCESSO.
+
+          O modal já oferecia as duas portas — presencial (a equipe preenche na
+          hora) e link de 24h para o próprio filiado. O que faltava era ele
+          estar AQUI: o momento em que alguém abre um processo é o momento em
+          que olha a ficha do filiado e vê que ela está velha.
+        */}
+        {recadastrar && (
+          <RecadastrarModal
+            open
+            filiadoId={recadastrar.id}
+            filiadoNome={recadastrar.nome}
+            onClose={() => setRecadastrar(null)}
+            semNavegar
+            onRecadastrarPresencial={(id) => {
+              setRecadastrar(null);
+              setFiliadoParaRecadastro(id);
+            }}
+          />
+        )}
+
+        {/* Presencial: o mesmo formulário do cadastro, em modo recadastro. */}
+        <CadastroFiliadoModal
+          open={!!filiadoParaRecadastro}
+          filiadoId={filiadoParaRecadastro}
+          onClose={() => setFiliadoParaRecadastro(null)}
+          onSalvo={() => {
+            toast.success('Cadastro atualizado.');
+            setFiliadoParaRecadastro(null);
+          }}
+        />
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 p-4">
           <p className="hidden text-[11px] text-muted-foreground sm:block">
@@ -1127,7 +928,7 @@ export function ImportarProcessoDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={importar.isPending}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={importar.isPending || !poloValido}>
+            <Button type="submit" disabled={importar.isPending}>
               {importar.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" /> Buscando no Tribunal…

@@ -9,6 +9,7 @@ const AGENDA = ler('app/(dashboard)/agenda/page.tsx');
 const ETIQUETAS = ler('components/processos/etiquetas-input.tsx');
 const BUSCA = ler('components/ui/busca-select.tsx');
 const IMPORTAR = ler('components/processos/importar-processo-dialog.tsx');
+const EDITOR = ler('components/processos/editor-de-partes.tsx');
 
 /**
  * O QUADRO — duas coisas diferentes, e eu tratei as duas como uma.
@@ -120,7 +121,7 @@ describe('as etiquetas', () => {
    * encontrada por quem filtra pela primeira.
    */
   it('filtra o que existe antes de oferecer criar', () => {
-    expect(ETIQUETAS).toContain('normalizarTexto(e).includes(termo)');
+    expect(ETIQUETAS).toContain('normalizarTexto(e.etiqueta).includes(termo)');
     expect(ETIQUETAS).toContain('criar &quot;');
   });
 
@@ -158,10 +159,17 @@ describe('a busca com autocomplete', () => {
     expect(BUSCA).toContain('Nada encontrado.');
   });
 
-  /** A parte contrária tinha DUAS caixas para uma decisão. */
+  /**
+   * A parte contrária tinha DUAS caixas para uma decisão — e depois TRÊS
+   * estados (lista, escolhido, digitado). Agora é um editor só, o mesmo dos
+   * dois polos, e escolher já acrescenta.
+   */
   it('o réu tem um campo só, e ele também cria texto livre', () => {
-    expect(IMPORTAR).toContain('<BuscaSelect');
+    expect(IMPORTAR).toContain('<EditorDePartes');
     expect(IMPORTAR).not.toContain('…ou digite o nome da parte contrária');
-    expect(IMPORTAR).toContain('onCriar={(texto) => { setReuNome(texto); setReuSelecionado(null); }}');
+    expect(IMPORTAR).toContain('permitirTextoLivre');
+    // O campo continua sendo o mesmo autocomplete — só mudou de dono.
+    expect(EDITOR).toContain('<BuscaSelect');
+    expect(EDITOR).toContain("acrescentar({ tipo: 'AVULSA', nome, detalhe: 'Sem cadastro' })");
   });
 });

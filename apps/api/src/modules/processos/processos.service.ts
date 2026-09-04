@@ -24,6 +24,7 @@ import {
   FormalizarProcessoDto,
   ImportarProcessoDto,
   ListProcessosQueryDto,
+  ParteDoPoloDto,
 } from './dto/processos.dto';
 import { CpfMatcherUtils } from './utils/cpf-matcher.util';
 import { escolherPrincipal, temInstanciaViva } from './utils/instancia.util';
@@ -40,6 +41,14 @@ import { normalizarCategoria, AREA_LABEL } from './areas.catalogo';
 import { areaSugerida, areaSugeridaValida } from './utils/area-sugerida.util';
 
 import { tenant } from '../../tenant/tenant.config';
+
+/** Uma linha do polo ativo já resolvida contra os cadastros. */
+export interface PoloAtivoResolvido {
+  nome: string;
+  documento: string | null;
+  filiadoId?: string;
+  parteExternaId?: string;
+}
 
 interface Ctx {
   ip?: string;
@@ -399,6 +408,7 @@ export class ProcessosService {
         filiadosAtivos: polo.filiados,
         institucional: polo.institucional,
         poloAtivoAvulso: polo.avulso,
+        poloAtivoPartes: polo.partes,
         // Réu(s) informado(s) já no modal de importação — é o momento em que o
         // operador tem o dado em mãos (o DataJud não devolve partes).
         parteContraria: dto.parteContraria ?? null,
@@ -1694,9 +1704,14 @@ export class ProcessosService {
     institucional: boolean;
     filiados: { id: string; nomeCompleto: string; cpf: string | null }[];
     avulso: { nome?: string; documento?: string } | null;
+    /** A relação ordenada, quando a tela mandou uma. O 1º é o principal. */
+    partes: PoloAtivoResolvido[] | null;
   }> {
     const p = dto.poloAtivo;
-    if (!p) return { institucional: false, filiados: [], avulso: null };
+    if (!p) return { institucional: false, filiados: [], avulso: null, partes: null };
+
+    // A relação explícita vence o resumo — ver `ParteDoPoloDto`.
+    if (p.partes?.length) return this.resolverPartesDoPolo(p.partes);
 
     if (p.tipo === 'INSTITUCIONAL') {
       const senatepi = await this.partes.parteInstitucional();
@@ -1706,7 +1721,7 @@ export class ProcessosService {
             'Cadastre-a em Partes e marque-a como institucional.',
         );
       }
-      return { institucional: true, filiados: [], avulso: null };
+      return { institucional: true, filiados: [], avulso: null, partes: null };
     }
 
     if (p.tipo === 'FILIADOS') {
@@ -1724,7 +1739,7 @@ export class ProcessosService {
       }
       // Preserva a ordem escolhida na tela — o 1º é o principal.
       const porId = new Map(achados.map((f) => [f.id, f]));
-      return { institucional: false, filiados: ids.map((id) => porId.get(id)!), avulso: null };
+      return { institucional: false, filiados: ids.map((id) => porId.get(id)!), avulso: null, partes: null };
     }
 
     // OUTRA — nome digitado ou nada ("definir depois").
@@ -1733,7 +1748,77 @@ export class ProcessosService {
       institucional: false,
       filiados: [],
       avulso: nome ? { nome, documento: p.documento } : null,
+      partes: null,
     };
+  }
+
+  /**
+   * A RELAÇÃO ORDENADA do polo ativo — tipos misturados, na ordem da tela.
+   *
+   * Cada entrada vira uma linha de `partes_processo`. O nome é resolvido AQUI,
+   * contra o cadastro, e não copiado do que a tela mandou: o snapshot gravado
+   * nos autos tem de ser o nome do cadastro, senão corrigir o cadastro depois
+   * deixaria as duas grafias divergindo para sempre.
+   */
+  private async resolverPartesDoPolo(entradas: ParteDoPoloDto[]): Promise<{
+    institucional: boolean;
+    filiados: { id: string; nomeCompleto: string; cpf: string | null }[];
+    avulso: { nome?: string; documento?: string } | null;
+    partes: PoloAtivoResolvido[];
+  }> {
+    const idsFiliado = [...new Set(entradas.filter((e) => e.tipo === 'FILIADO').map((e) => e.filiadoId).filter(Boolean))] as string[];
+    const achados = idsFiliado.length
+      ? await this.prisma.filiado.findMany({
+          where: { id: { in: idsFiliado } },
+          select: { id: true, nomeCompleto: true, cpf: true },
+        })
+      : [];
+    const faltando = idsFiliado.filter((id) => !achados.some((f) => f.id === id));
+    if (faltando.length) throw new BadRequestException(`Filiado não encontrado: ${faltando.join(', ')}.`);
+    const porId = new Map(achados.map((f) => [f.id, f]));
+
+    const sindicato = entradas.some((e) => e.tipo === 'INSTITUCIONAL')
+      ? await this.partes.parteInstitucional()
+      : null;
+    if (entradas.some((e) => e.tipo === 'INSTITUCIONAL') && !sindicato) {
+      throw new BadRequestException(
+        `A parte institucional (${tenant.sigla}) não está cadastrada. ` +
+          'Cadastre-a em Partes e marque-a como institucional.',
+      );
+    }
+
+    const partes: PoloAtivoResolvido[] = [];
+    for (const e of entradas) {
+      if (e.tipo === 'FILIADO' && e.filiadoId) {
+        const f = porId.get(e.filiadoId)!;
+        partes.push({ nome: f.nomeCompleto, documento: f.cpf, filiadoId: f.id });
+      } else if (e.tipo === 'INSTITUCIONAL' && sindicato) {
+        partes.push({ nome: sindicato.nome, documento: sindicato.documento, parteExternaId: sindicato.id });
+      } else if (e.tipo === 'ORGANIZACAO' && e.parteExternaId) {
+        const org = await this.prisma.parteExterna.findUnique({
+          where: { id: e.parteExternaId },
+          select: { id: true, nome: true, documento: true },
+        });
+        if (!org) throw new BadRequestException(`Organização não encontrada: ${e.parteExternaId}.`);
+        partes.push({ nome: org.nome, documento: org.documento, parteExternaId: org.id });
+      } else if (e.nome?.trim()) {
+        partes.push({ nome: e.nome.trim(), documento: e.documento ?? null });
+      }
+    }
+    if (!partes.length) throw new BadRequestException('Informe ao menos uma parte no polo ativo.');
+
+    /*
+      A AÇÃO É INSTITUCIONAL QUANDO NÃO HÁ FILIADO NELA.
+
+      Não é "o sindicato está no polo": em litisconsórcio o sindicato entra AO
+      LADO do filiado, e aí a ação continua sendo daquela pessoa — é a ficha
+      dela que precisa mostrar o processo, e é ela que o painel conta.
+    */
+    const filiados = partes
+      .filter((x) => x.filiadoId)
+      .map((x) => porId.get(x.filiadoId!)!)
+      .filter(Boolean);
+    return { institucional: filiados.length === 0, filiados, avulso: null, partes };
   }
 
   /**

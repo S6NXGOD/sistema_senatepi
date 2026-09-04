@@ -574,6 +574,13 @@ export class PartesService {
       institucional?: boolean;
       /** Polo ativo avulso: parte conhecida só pelo nome. */
       poloAtivoAvulso?: { nome?: string; documento?: string } | null;
+      /**
+       * O POLO ATIVO COMO RELAÇÃO ORDENADA — tipos misturados, 1º é o principal.
+       * Quando vem, vence `institucional`/`filiadosAtivos`/`poloAtivoAvulso`.
+       */
+      poloAtivoPartes?:
+        | { nome: string; documento: string | null; filiadoId?: string; parteExternaId?: string }[]
+        | null;
       /** Compatibilidade: um réu só. Quando vier junto com `partesContrarias`, entra como o primeiro. */
       parteContraria?: { nome?: string; documento?: string; parteExternaId?: string } | null;
       /** Litisconsórcio passivo — vários réus. O primeiro é o principal. */
@@ -581,7 +588,41 @@ export class PartesService {
     },
   ) {
     // ---- Polo ativo ----
-    if (entradas.institucional) {
+    /*
+      A RELAÇÃO EXPLÍCITA, quando a tela mandou uma.
+
+      A cadeia `if/else if` logo abaixo é exclusiva por construção: ou o
+      sindicato, OU os filiados, OU um nome avulso. Ela dá conta de 126 dos 127
+      processos da produção — e não dá conta do litisconsórcio com outro
+      sindicato, nem do sindicato entrando ao lado do filiado. Fica preservada
+      porque é o que o payload antigo manda, e ele não pode parar de funcionar
+      no dia do deploy.
+    */
+    if (entradas.poloAtivoPartes?.length) {
+      let i = 0;
+      const vistos = new Set<string>();
+      for (const parte of entradas.poloAtivoPartes) {
+        const nome = parte.nome?.trim();
+        if (!nome) continue;
+        const chave = parte.filiadoId ?? parte.parteExternaId ?? this.comparavel(nome);
+        if (vistos.has(chave) || vistos.has(this.comparavel(nome))) continue;
+        vistos.add(chave);
+        vistos.add(this.comparavel(nome));
+        await tx.parteProcesso.create({
+          data: {
+            processoId,
+            polo: 'ATIVO',
+            papel: PAPEL_PADRAO.ATIVO,
+            principal: i === 0,
+            nome,
+            documento: this.digitos(parte.documento),
+            filiadoId: parte.filiadoId ?? null,
+            parteExternaId: parte.parteExternaId ?? null,
+          },
+        });
+        i++;
+      }
+    } else if (entradas.institucional) {
       // O sindicato DESTA instalação, e não um nome escrito aqui: quem responde
       // é `ParteExterna.institucional`, mantida pelo `ParteInstitucionalSeed`.
       const sindicato = await this.parteInstitucional(tx);
@@ -676,12 +717,24 @@ export class PartesService {
         }
       }
       if (!nome) continue;
-      // O mesmo réu escolhido duas vezes (uma pelo cadastro, outra digitado)
-      // criaria duas linhas do mesmo nome no polo — e a lista mostraria
-      // "Hospital X e mais 1" apontando para ele mesmo.
-      const chave = (contraria.parteExternaId || `${nome.toLowerCase()}|${documento ?? ''}`).trim();
-      if (jaVistos.has(chave)) continue;
-      jaVistos.add(chave);
+      /*
+        O MESMO RÉU DUAS VEZES — uma pelo cadastro, outra digitado à mão.
+
+        A chave era `parteExternaId` OU `nome|documento`, e por isso não pegava
+        justamente o caso que acontece: escolher "PRONTOCARE" no cadastro dá
+        uma chave de id, digitar "PRONTOCARE CLINICA E ATENDIMENTOS LTDA" dá
+        uma chave de nome, e as duas entravam. A lista do processo passava a
+        mostrar "PRONTOCARE e mais 1" apontando para ela mesma — exatamente a
+        duplicata que o aviso da tela tentava evitar.
+
+        Agora as DUAS chaves são marcadas para cada réu que entra, e basta uma
+        delas bater para o segundo ser descartado.
+      */
+      const porId = contraria.parteExternaId?.trim();
+      const porNome = this.comparavel(nome);
+      if ((porId && jaVistos.has(porId)) || jaVistos.has(porNome)) continue;
+      if (porId) jaVistos.add(porId);
+      jaVistos.add(porNome);
 
       await tx.parteProcesso.create({
         data: {
@@ -721,6 +774,22 @@ export class PartesService {
   // =========================================================================
   // Helpers
   // =========================================================================
+
+  /**
+   * Nome comparável: sem acento, sem pontuação, sem caixa.
+   *
+   * É o mesmo critério do `normalizarNome` da tela — os dois lados precisam
+   * concordar sobre o que é "a mesma parte", senão a tela impede a duplicata e
+   * a API deixa passar (ou o contrário, que é pior: a tela recusa o que o
+   * banco aceitaria).
+   */
+  private comparavel(nome: string): string {
+    return nome
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+  }
 
   /**
    * Resolve a identidade da parte a partir do vínculo informado.

@@ -338,14 +338,29 @@ export class AgendaService {
      * responde — e essa é a fila que ninguém pode perder. Mesmo cinto de
      * segurança usado na busca por filiado em `ProcessosService`.
      */
-    if (q.responsavelId) {
+    /*
+      UM OU VÁRIOS — a mesma regra, aplicada à lista inteira.
+
+      `responsaveis=id1,id2` responde "o que está na mão do Murilo OU da
+      Shérad", que é a pergunta de quem coordena e precisa comparar duas
+      carteiras sem trocar de filtro duas vezes.
+    */
+    const pessoas = [
+      ...new Set(
+        [q.responsavelId, ...(q.responsaveis?.split(',') ?? [])]
+          .map((x) => x?.trim())
+          .filter(Boolean) as string[],
+      ),
+    ];
+    if (pessoas.length) {
       and.push({
-        OR: [
-          { responsavelId: q.responsavelId },
-          { equipe: { some: { usuarioId: q.responsavelId } } },
-        ],
+        OR: pessoas.flatMap((id) => [
+          { responsavelId: id },
+          { equipe: { some: { usuarioId: id } } },
+        ]),
       });
     }
+    if (q.urgente === 'true') and.push({ urgente: true });
     if (q.filiadoId) and.push({ filiadoId: q.filiadoId });
     const busca = q.busca?.trim();
     if (busca) {

@@ -9,6 +9,29 @@ export interface ItemBusca {
   rotulo: string;
   /** Linha de apoio: CPF mascarado, CNPJ, cidade. */
   detalhe?: string | null;
+  /** Marca visual à direita ("já no polo", "mesmo CNPJ"). */
+  marca?: string | null;
+}
+
+/**
+ * AÇÃO QUE MORA DENTRO DA LISTA — "Cadastrar «Fulano»", "usar como texto".
+ *
+ * ELA NÃO PODE FICAR EMBAIXO DO CAMPO. Era o que acontecia com o botão de
+ * cadastrar filiado: o painel "Nenhum filiado encontrado" era desenhado no
+ * fluxo normal, logo abaixo do input, e a lista de resultados — que é
+ * `absolute` — passava POR CIMA dele. O botão existia, aparecia na tela, e
+ * ficava atrás de uma caixa branca.
+ *
+ * Aqui a ação é uma opção da própria lista: sempre visível, alcançável por
+ * ↓ e Enter como qualquer resultado, e some junto com ela.
+ */
+export interface AcaoBusca {
+  /** Texto do item. Recebe o termo digitado para poder citá-lo. */
+  rotulo: (termo: string) => React.ReactNode;
+  aoEscolher: (termo: string) => void;
+  icone?: React.ComponentType<{ className?: string }>;
+  /** Só aparece quando há texto digitado (padrão) ou sempre. */
+  exigeTermo?: boolean;
 }
 
 /**
@@ -36,6 +59,7 @@ export function BuscaSelect({
   onBuscar,
   onEscolher,
   onCriar,
+  acoes,
   placeholder,
   minimo = 2,
   autoFocus,
@@ -47,6 +71,8 @@ export function BuscaSelect({
   onEscolher: (item: ItemBusca) => void;
   /** Quando existe, o termo digitado pode virar valor livre. */
   onCriar?: (texto: string) => void;
+  /** Ações fixas no fim da lista — ver `AcaoBusca`. */
+  acoes?: AcaoBusca[];
   placeholder?: string;
   /** Quantos caracteres antes de consultar a API. */
   minimo?: number;
@@ -104,17 +130,23 @@ export function BuscaSelect({
     return () => document.removeEventListener('mousedown', fora);
   }, [aberto]);
 
-  /** As opções na ordem em que o teclado anda: resultados e, no fim, criar. */
-  const opcoes: (ItemBusca | 'CRIAR')[] = [
+  /** As ações que cabem agora — as que exigem termo só com algo digitado. */
+  const acoesVisiveis = (acoes ?? []).filter((a) => (a.exigeTermo === false ? true : termo.length > 0));
+
+  /** As opções na ordem em que o teclado anda: resultados, criar, ações. */
+  type Opcao = ItemBusca | 'CRIAR' | { acao: AcaoBusca };
+  const opcoes: Opcao[] = [
     ...itens,
     ...(podeCriar && !itens.some((i) => i.rotulo.toLowerCase() === termo.toLowerCase())
       ? (['CRIAR'] as const)
       : []),
+    ...acoesVisiveis.map((acao) => ({ acao })),
   ];
 
-  function escolher(op: ItemBusca | 'CRIAR') {
+  function escolher(op: Opcao) {
     if (op === 'CRIAR') onCriar?.(termo);
-    else onEscolher(op);
+    else if (typeof op === 'object' && 'acao' in op) op.acao.aoEscolher(termo);
+    else onEscolher(op as ItemBusca);
     setTexto('');
     setItens([]);
     setAberto(false);
@@ -184,6 +216,26 @@ export function BuscaSelect({
 
           {opcoes.map((op, i) => {
             const selecionado = i === ativo;
+            if (typeof op === 'object' && 'acao' in op) {
+              const Icone = op.acao.icone;
+              return (
+                <li key={`acao-${i}`} role="option" aria-selected={selecionado}>
+                  <button
+                    type="button"
+                    onMouseEnter={() => setAtivo(i)}
+                    onClick={() => escolher(op)}
+                    className={cn(
+                      'flex w-full items-center gap-2 border-t px-3 py-2.5 text-left text-sm font-medium transition',
+                      'text-brand-800 dark:text-brand-400',
+                      selecionado ? 'bg-muted' : 'hover:bg-muted/60',
+                    )}
+                  >
+                    {Icone && <Icone className="h-4 w-4 shrink-0" />}
+                    <span className="min-w-0 truncate">{op.acao.rotulo(termo)}</span>
+                  </button>
+                </li>
+              );
+            }
             if (op === 'CRIAR') {
               return (
                 <li key="criar" role="option" aria-selected={selecionado}>
@@ -204,8 +256,9 @@ export function BuscaSelect({
                 </li>
               );
             }
+            const item = op as ItemBusca;
             return (
-              <li key={op.id} role="option" aria-selected={selecionado}>
+              <li key={item.id} role="option" aria-selected={selecionado}>
                 <button
                   type="button"
                   onMouseEnter={() => setAtivo(i)}
@@ -216,12 +269,18 @@ export function BuscaSelect({
                   )}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{op.rotulo}</span>
-                    {op.detalhe && (
-                      <span className="block truncate text-xs text-muted-foreground">{op.detalhe}</span>
+                    <span className="block truncate text-sm font-medium">{item.rotulo}</span>
+                    {item.detalhe && (
+                      <span className="block truncate text-xs text-muted-foreground">{item.detalhe}</span>
                     )}
                   </span>
-                  {selecionado && <Check className="h-4 w-4 shrink-0 text-brand-700" />}
+                  {item.marca ? (
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {item.marca}
+                    </span>
+                  ) : (
+                    selecionado && <Check className="h-4 w-4 shrink-0 text-brand-700" />
+                  )}
                 </button>
               </li>
             );

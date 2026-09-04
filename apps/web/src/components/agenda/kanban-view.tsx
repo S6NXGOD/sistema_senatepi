@@ -6,6 +6,7 @@ import { CompromissoCard } from '@/components/agenda/compromisso-card';
 import { cn } from '@/lib/utils';
 import {
   Compromisso, StatusCompromisso, STATUS_ORDEM, STATUS_LABEL, TRANSICOES,
+  ehMinha,
 } from '@/lib/agenda';
 
 const COL_DOT: Record<StatusCompromisso, string> = {
@@ -48,7 +49,7 @@ const TETO_TERMINAL = 10;
  */
 export function KanbanView({
   compromissos, onAbrir, onEditar, onVerTriagem, onAcao,
-  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, apontado, onNovo,
+  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, apontado, onNovo, meuId,
 }: {
   compromissos: Compromisso[];
   onAbrir: (c: Compromisso) => void;
@@ -62,6 +63,8 @@ export function KanbanView({
   podeExcluir?: boolean;
   /** Id do cartão para o qual a navegação apontou — ver `CompromissoCard`. */
   apontado?: string | null;
+  /** Quem está logado — só vem quando o quadro é de mais de uma pessoa. */
+  meuId?: string;
   /**
    * Abre o formulário de nova atividade — é o que a coluna vazia oferece.
    * Ver o comentário do estado vazio, abaixo.
@@ -132,6 +135,7 @@ export function KanbanView({
                     key={c.id}
                     c={c}
                     apontado={apontado === c.id}
+                    minha={ehMinha(c, meuId)}
                     draggable
                     onDragStart={() => setDragId(c.id)}
                     onAbrir={onAbrir}

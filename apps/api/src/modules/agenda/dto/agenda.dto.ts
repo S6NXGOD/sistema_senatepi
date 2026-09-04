@@ -271,7 +271,27 @@ export class ListCompromissosQueryDto {
   @IsOptional() @IsString() tipo?: string;
 
   @ApiPropertyOptional() @IsOptional() @IsString() responsavelId?: string;
+
+  /**
+   * VÁRIOS ADVOGADOS DE UMA VEZ — "a agenda do Murilo e da Shérad".
+   *
+   * LISTA SEPARADA POR VÍRGULA, e não `campo[]=a&campo[]=b`: a notação de
+   * colchete depende de como o `qs` do Express foi configurado e de como o
+   * cliente serializa, e as duas pontas discordarem dá o pior resultado
+   * possível — um filtro que a tela mostra ativo e a API ignora, devolvendo a
+   * agenda inteira como se fosse a de uma pessoa. A vírgula não tem
+   * ambiguidade e cabe na URL que se copia e cola.
+   *
+   * Convive com `responsavelId` (um só): os dois são somados.
+   */
+  @ApiPropertyOptional({ description: 'Ids separados por vírgula ("id1,id2").' })
+  @IsOptional() @IsString() responsaveis?: string;
+
   @ApiPropertyOptional() @IsOptional() @IsString() filiadoId?: string;
+
+  /** Só o que está marcado como urgente. */
+  @ApiPropertyOptional({ description: '"true" para trazer só as urgentes.' })
+  @IsOptional() @IsString() urgente?: string;
   @ApiPropertyOptional({ description: 'Busca por título ou nome do filiado.' })
   @IsOptional() @IsString() busca?: string;
 

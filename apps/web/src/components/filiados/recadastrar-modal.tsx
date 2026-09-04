@@ -34,12 +34,22 @@ function faltamHoras(expiraEm: string): string {
  *  - LINK: gera uma URL de 24h para o próprio filiado atualizar tudo.
  */
 export function RecadastrarModal({
-  open, onClose, filiadoId, filiadoNome,
+  open, onClose, filiadoId, filiadoNome, semNavegar, onRecadastrarPresencial,
 }: {
   open: boolean;
   onClose: () => void;
   filiadoId: string;
   filiadoNome: string;
+  /**
+   * NÃO SAIA DA TELA.
+   *
+   * Chamado de dentro do modal de importação, o `router.push` do presencial
+   * levaria embora o número do processo, o tribunal, a equipe e os réus já
+   * digitados — e sem aviso nenhum, porque a navegação é instantânea. Com
+   * isto ligado, quem chamou decide como abrir o formulário.
+   */
+  semNavegar?: boolean;
+  onRecadastrarPresencial?: (filiadoId: string) => void;
 }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -202,7 +212,11 @@ export function RecadastrarModal({
               icon={UserCheck}
               titulo="Recadastramento presencial"
               descricao="A equipe preenche o formulário agora, com o filiado presente."
-              onClick={() => { fechar(); router.push(`/filiados/${filiadoId}/recadastrar`); }}
+              onClick={() => {
+                if (semNavegar) { onRecadastrarPresencial?.(filiadoId); return; }
+                fechar();
+                router.push(`/filiados/${filiadoId}/recadastrar`);
+              }}
             />
             <Opcao
               icon={Link2}

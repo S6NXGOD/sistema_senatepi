@@ -561,11 +561,32 @@ export function cronometroHMS(iso: string | null | undefined, agora: number = Da
   return `${p(h)}:${p(m)}:${p(s)}`;
 }
 
+/**
+ * ESTA ATIVIDADE É MINHA?
+ *
+ * Responsável OU equipe — as duas coisas, porque a agenda de alguém inclui o
+ * que ele ACOMPANHA, e não só o que responde. O segundo advogado de uma
+ * audiência precisa vê-la como dele; é o ponto inteiro da multivinculação, e
+ * a API já filtra pelas duas na listagem.
+ */
+export function ehMinha(c: Compromisso, meuId?: string): boolean {
+  if (!meuId) return false;
+  return c.responsavel?.id === meuId || !!c.equipe?.some((e) => e.usuario.id === meuId);
+}
+
 export interface FiltroCompromissos {
   status?: StatusCompromisso;
   tipo?: TipoCompromisso;
   responsavelId?: string;
+  /**
+   * Vários responsáveis, separados por vírgula — "a agenda do Murilo e da
+   * Shérad". Vírgula, e não `campo[]=`, para que os dois lados não dependam de
+   * como cada um serializa lista em query string; ver o DTO na API.
+   */
+  responsaveis?: string;
   filiadoId?: string;
+  /** "true" traz só as marcadas como urgentes. */
+  urgente?: string;
   busca?: string;
   dataInicio?: string;
   dataFim?: string;

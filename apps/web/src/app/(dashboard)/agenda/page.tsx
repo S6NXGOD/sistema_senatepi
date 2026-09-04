@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Plus, Search, CalendarClock, CalendarDays, SlidersHorizontal, Trash2, ChevronUp,
+  UserCheck, Flame,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { KanbanView } from '@/components/agenda/kanban-view';
+import { SeletorResponsaveis } from '@/components/agenda/seletor-responsaveis';
 import { CalendarioView } from '@/components/agenda/calendario-view';
 import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
 import { CompromissoDrawer } from '@/components/agenda/compromisso-drawer';
@@ -26,7 +28,7 @@ import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer'
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import {
-  listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis,
+  listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis, ehMinha,
   Compromisso, StatusCompromisso, TipoCompromisso,
 } from '@/lib/agenda';
 import { chaveLocal } from '@/lib/armazenamento';
@@ -51,6 +53,24 @@ function gradeDoMes(mes: Date) {
   const fim = new Date(ini);
   fim.setDate(ini.getDate() + 42);
   return { dataInicio: ini.toISOString(), dataFim: fim.toISOString() };
+}
+
+/**
+ * O QUE É MEU SOBE — e só quando o quadro mostra o de mais gente.
+ *
+ * Abrir a agenda e ver primeiro o trabalho dos outros é o atrito diário de
+ * quem usa isto: são oito pessoas no quadro, e a pergunta que se faz ao
+ * chegar é "o que É MEU hoje?". Ordenar resolve sem esconder nada de ninguém
+ * — nenhuma atividade sai da tela, elas só mudam de lugar dentro da coluna.
+ *
+ * FILTRADO EM UMA PESSOA SÓ, NÃO FAZ NADA. Se o quadro já é só meu, "meu
+ * primeiro" não significa coisa alguma — e a marca visual no cartão viraria
+ * um enfeite repetido em todas as linhas.
+ */
+function minhasPrimeiro(cs: Compromisso[], meuId: string | undefined, aplicar: boolean): Compromisso[] {
+  if (!aplicar || !meuId) return cs;
+  // Estável: dentro de cada grupo a ordem por data que veio da API se mantém.
+  return [...cs].sort((a, b) => Number(ehMinha(b, meuId)) - Number(ehMinha(a, meuId)));
 }
 
 /** Filtro por aba (client-side, sobre os compromissos carregados). */
@@ -105,7 +125,9 @@ function AgendaConteudo() {
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [tipo, setTipo] = useState<'' | TipoCompromisso>('');
-  const [responsavelId, setResponsavelId] = useState('');
+  /** Vários responsáveis ao mesmo tempo — vazio significa "todos". */
+  const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  const [soUrgentes, setSoUrgentes] = useState(false);
   const [mes, setMes] = useState(() => new Date());
   const [tiposOpen, setTiposOpen] = useState(false);
 
@@ -160,7 +182,8 @@ function AgendaConteudo() {
     '/agenda',
   );
 
-  const responsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis });
+  const consultaResponsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis });
+  const responsaveisLista = consultaResponsaveis.data ?? [];
 
   // Preferência do calendário só existe no navegador — lida depois da montagem
   // para não divergir do HTML renderizado no servidor.
@@ -169,7 +192,12 @@ function AgendaConteudo() {
   }, []);
 
   const rangeCal = useMemo(() => gradeDoMes(mes), [mes]);
-  const filtroBase = { busca: buscaDeb || undefined, tipo: tipo || undefined, responsavelId: responsavelId || undefined };
+  const filtroBase = {
+    busca: buscaDeb || undefined,
+    tipo: tipo || undefined,
+    responsaveis: responsaveis.length ? responsaveis.join(',') : undefined,
+    urgente: soUrgentes ? 'true' : undefined,
+  };
 
   /**
    * DUAS consultas, de propósito.
@@ -181,11 +209,11 @@ function AgendaConteudo() {
    * neles. Com o calendário agora sempre na tela, ele precisa da própria janela.
    */
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['compromissos', 'quadro', buscaDeb, tipo, responsavelId],
+    queryKey: ['compromissos', 'quadro', buscaDeb, tipo, responsaveis.join(','), soUrgentes],
     queryFn: () => listarCompromissos(filtroBase),
   });
   const doMes = useQuery({
-    queryKey: ['compromissos', 'mes', buscaDeb, tipo, responsavelId, rangeCal.dataInicio],
+    queryKey: ['compromissos', 'mes', buscaDeb, tipo, responsaveis.join(','), soUrgentes, rangeCal.dataInicio],
     queryFn: () => listarCompromissos({ ...filtroBase, ...rangeCal }),
   });
 
@@ -229,17 +257,46 @@ function AgendaConteudo() {
    * sem explicar por quê. Os dados vêm da consulta do mês, que é a única que
    * garante ter o dia escolhido.
    */
+  /**
+   * O quadro mostra o trabalho de mais de uma pessoa? Só aí a ordenação por
+   * "minhas" tem sentido — e só aí o cartão ganha a marca.
+   */
+  const quadroCompartilhado =
+    !!user?.id && !(responsaveis.length === 1 && responsaveis[0] === user.id);
+
   const filtrados = useMemo(() => {
-    if (!diaSelecionado) return aplicarAba(compromissos, aba);
-    return compromissosDoMes.filter((c) => {
-      const d = new Date(c.inicio);
-      return (
-        d.getFullYear() === diaSelecionado.getFullYear() &&
-        d.getMonth() === diaSelecionado.getMonth() &&
-        d.getDate() === diaSelecionado.getDate()
-      );
-    });
-  }, [diaSelecionado, compromissos, compromissosDoMes, aba]);
+    const base = !diaSelecionado
+      ? aplicarAba(compromissos, aba)
+      : compromissosDoMes.filter((c) => {
+          const d = new Date(c.inicio);
+          return (
+            d.getFullYear() === diaSelecionado.getFullYear() &&
+            d.getMonth() === diaSelecionado.getMonth() &&
+            d.getDate() === diaSelecionado.getDate()
+          );
+        });
+    return minhasPrimeiro(base, user?.id, quadroCompartilhado);
+  }, [diaSelecionado, compromissos, compromissosDoMes, aba, user?.id, quadroCompartilhado]);
+
+  /** Quantas são minhas e ainda estão em aberto — o número do atalho "Minhas". */
+  const minhasEmAberto = useMemo(
+    () =>
+      compromissos.filter(
+        (c) => ehMinha(c, user?.id) && (c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO'),
+      ).length,
+    [compromissos, user?.id],
+  );
+
+  /** Quantos recortes estão valendo agora — alimenta a barra de resumo. */
+  const filtrosAtivos =
+    (buscaDeb ? 1 : 0) + (tipo ? 1 : 0) + (responsaveis.length ? 1 : 0) + (soUrgentes ? 1 : 0);
+
+  function limparFiltros() {
+    setBusca('');
+    setTipo('');
+    setResponsaveis([]);
+    setSoUrgentes(false);
+  }
 
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['compromissos'] });
@@ -336,20 +393,103 @@ function AgendaConteudo() {
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="relative flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="Buscar por nome…" value={busca} onChange={(e) => setBusca(e.target.value)} />
-          {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input className="pl-9" placeholder="Buscar por nome…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+            {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+          </div>
+
+          {/*
+            "MINHAS" É O PRIMEIRO CONTROLE porque é a primeira pergunta de quem
+            abre esta tela. Ele não esconde nada de ninguém: é um filtro que se
+            liga e desliga num toque, e com ele desligado o que é meu continua
+            aparecendo primeiro dentro de cada coluna.
+
+            SÓ APARECE PARA QUEM TEM AGENDA. Coordenação e administração
+            costumam olhar o quadro dos outros — um botão "Minhas" que devolve
+            zero seria um convite a um lugar vazio.
+          */}
+          {!!user?.id && minhasEmAberto > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setResponsaveis((atual) =>
+                  atual.length === 1 && atual[0] === user.id ? [] : [user.id],
+                )
+              }
+              aria-pressed={!quadroCompartilhado}
+              className={cn(
+                'flex h-12 items-center gap-2 rounded-md border px-3 text-sm font-medium transition sm:h-10',
+                !quadroCompartilhado
+                  ? 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-900/20 dark:text-brand-300'
+                  : 'border-input bg-background text-muted-foreground hover:bg-muted',
+              )}
+            >
+              <UserCheck className="h-4 w-4" />
+              Minhas
+              <span
+                className={cn(
+                  'rounded px-1.5 py-0.5 text-[11px] font-semibold',
+                  !quadroCompartilhado ? 'bg-brand-800 text-white' : 'bg-muted text-foreground',
+                )}
+              >
+                {minhasEmAberto}
+              </span>
+            </button>
+          )}
+
+          <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as any)} aria-label="Tipo">
+            <option value="">Todos os tipos</option>
+            {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
+          </select>
+
+          <SeletorResponsaveis
+            pessoas={responsaveisLista}
+            selecionados={responsaveis}
+            onChange={setResponsaveis}
+            meuId={user?.id}
+          />
+
+          <button
+            type="button"
+            onClick={() => setSoUrgentes((v) => !v)}
+            aria-pressed={soUrgentes}
+            className={cn(
+              'flex h-12 items-center gap-2 rounded-md border px-3 text-sm font-medium transition sm:h-10',
+              soUrgentes
+                ? 'border-red-400 bg-red-50 text-red-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+                : 'border-input bg-background text-muted-foreground hover:bg-muted',
+            )}
+          >
+            <Flame className="h-4 w-4" /> Urgentes
+          </button>
         </div>
-        <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as any)} aria-label="Tipo">
-          <option value="">Todos os tipos</option>
-          {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
-        </select>
-        <select className={inputCls} value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} aria-label="Responsável">
-          <option value="">Todos os responsáveis</option>
-          {(responsaveis.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
-        </select>
+
+        {/*
+          O RESUMO DO RECORTE só existe quando há recorte. Uma linha permanente
+          dizendo "nenhum filtro" seria mais uma coisa para ler todo dia; a
+          barra aparece quando a lista deixou de ser o todo, e é ali que fica o
+          botão de desfazer — quem se perde num filtro procura a saída perto do
+          resultado, não no controle que usou.
+        */}
+        {filtrosAtivos > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {filtrosAtivos} filtro{filtrosAtivos === 1 ? '' : 's'} ativo{filtrosAtivos === 1 ? '' : 's'} ·{' '}
+              <strong className="text-foreground">{filtrados.length}</strong> atividade
+              {filtrados.length === 1 ? '' : 's'} à vista
+            </span>
+            <button
+              type="button"
+              onClick={limparFiltros}
+              className="font-medium text-brand-800 hover:underline dark:text-brand-400"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Aviso do dia filtrado. Fica ACIMA do quadro, e não junto do calendário:
@@ -387,6 +527,11 @@ function AgendaConteudo() {
           onExcluir={setExcluir}
           podeExcluir={ehAdmin}
           apontado={destacado}
+          /*
+            A MARCA DE "É SEU" só vai quando o quadro é de mais gente — num
+            quadro filtrado em mim, marcar tudo não distingue nada.
+          */
+          meuId={quadroCompartilhado ? user?.id : undefined}
           /*
             A COLUNA VAZIA DE "PENDENTE" OFERECE CRIAR.
 

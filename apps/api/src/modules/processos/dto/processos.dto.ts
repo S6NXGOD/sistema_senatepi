@@ -54,6 +54,40 @@ export class ParteContrariaImportDto {
  *    Grava a parte pelo nome, SEM tocar na tabela de Filiados. Omitir o nome é
  *    válido: o processo nasce sem polo ativo e entra na fila de pendências.
  */
+/**
+ * UMA PARTE do polo ativo. A lista destas é o caminho novo; `tipo` continua
+ * existindo ao lado como RESUMO.
+ *
+ * POR QUE OS DOIS AO MESMO TEMPO. Web e API sobem separadas no Railway, e
+ * durante a troca a tela nova conversa com o contêiner velho. Se `partes`
+ * fosse o único caminho, toda importação feita nesse intervalo entraria com o
+ * polo ativo vazio — sem erro, sem aviso, só sem autor. Mandando os dois, a
+ * API velha lê o resumo e grava o caso comum; a nova lê a lista e grava tudo.
+ */
+export class ParteDoPoloDto {
+  @ApiProperty({ enum: ['FILIADO', 'INSTITUCIONAL', 'ORGANIZACAO', 'AVULSA'] })
+  @IsIn(['FILIADO', 'INSTITUCIONAL', 'ORGANIZACAO', 'AVULSA'], {
+    message: 'Tipo de parte inválido — use FILIADO, INSTITUCIONAL, ORGANIZACAO ou AVULSA.',
+  })
+  tipo: 'FILIADO' | 'INSTITUCIONAL' | 'ORGANIZACAO' | 'AVULSA';
+
+  @ApiPropertyOptional({ description: 'Obrigatório quando tipo=FILIADO.' })
+  @IsOptional() @IsString()
+  filiadoId?: string;
+
+  @ApiPropertyOptional({ description: 'Cadastro de organização, quando tipo=ORGANIZACAO.' })
+  @IsOptional() @IsString()
+  parteExternaId?: string;
+
+  @ApiPropertyOptional({ description: 'Nome nos autos. Único dado quando tipo=AVULSA.' })
+  @IsOptional() @IsString() @MaxLength(180)
+  nome?: string;
+
+  @ApiPropertyOptional({ description: 'CPF/CNPJ, quando conhecido.' })
+  @IsOptional() @IsString()
+  documento?: string;
+}
+
 export class PoloAtivoImportDto {
   @ApiProperty({ enum: ['INSTITUCIONAL', 'FILIADOS', 'OUTRA'] })
   @IsIn(['INSTITUCIONAL', 'FILIADOS', 'OUTRA'], {
@@ -75,6 +109,20 @@ export class PoloAtivoImportDto {
   @ApiPropertyOptional({ description: 'CPF/CNPJ da parte, quando tipo=OUTRA.' })
   @IsOptional() @IsString()
   documento?: string;
+
+  /**
+   * O POLO ATIVO COMO ELE É NOS AUTOS: uma relação ordenada, o primeiro é o
+   * principal, e os tipos podem se MISTURAR.
+   *
+   * `tipo` sozinho não dá conta de litisconsórcio com outro sindicato, nem do
+   * caso em que o sindicato entra ao lado do filiado. Eram três caixas
+   * exclusivas para uma realidade que não é exclusiva.
+   *
+   * Quando vem preenchida, ela VENCE o `tipo`.
+   */
+  @ApiPropertyOptional({ type: [ParteDoPoloDto] })
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ParteDoPoloDto)
+  partes?: ParteDoPoloDto[];
 }
 
 export class ImportarProcessoDto {

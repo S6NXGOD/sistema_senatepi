@@ -71,7 +71,7 @@ function AcaoBtn({
 
 export function CompromissoCard({
   c, onAbrir, onEditar, onVerTriagem, onAcao, onConcluir, onCancelar, onRemarcar,
-  onExcluir, podeExcluir, draggable, onDragStart, apontado,
+  onExcluir, podeExcluir, draggable, onDragStart, apontado, minha,
 }: {
   c: Compromisso;
   onAbrir: (c: Compromisso) => void;
@@ -94,6 +94,12 @@ export function CompromissoCard({
    * fecha.
    */
   apontado?: boolean;
+  /**
+   * ESTA É SUA — mas só vem preenchido quando o quadro mostra o trabalho de
+   * mais gente. Marcar tudo num quadro filtrado em uma pessoa não distinguiria
+   * nada, só repetiria a mesma etiqueta em toda linha.
+   */
+  minha?: boolean;
 }) {
   const { tipos } = useTiposEvento();
   const cor = corDeTipo(c.tipo, tipos);
@@ -195,6 +201,19 @@ export function CompromissoCard({
             <span className="truncate text-xs text-muted-foreground">
               {c.responsavel.nomeExibicao || c.responsavel.nome}
             </span>
+            {/*
+              A MARCA DE "É SUA" é UMA PALAVRA, e fica junto de quem responde.
+
+              A borda esquerda do cartão já tem dono: ela diz o TIPO da
+              atividade, que é informação mais útil. E um cartão inteiro
+              colorido para dizer "é seu" num quadro onde metade é sua vira
+              ruído — o que se pede aqui é reconhecer, não alarmar.
+            */}
+            {minha && (
+              <span className="shrink-0 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-900 dark:bg-brand-900/40 dark:text-brand-300">
+                você
+              </span>
+            )}
             {/*
               QUEM MAIS ATUA — avatares empilhados ao lado de quem responde.
 

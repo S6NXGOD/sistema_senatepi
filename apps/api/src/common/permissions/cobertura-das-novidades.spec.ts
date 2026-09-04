@@ -90,6 +90,44 @@ describe('as rotas novas moram no módulo certo', () => {
     expect(nivelEfetivo('ADVOGADO' as never, {}, 'processos')).toBe('EDITAR');
   });
 
+  /**
+   * O ADVOGADO PRECISA PROCURAR FILIADO PARA MONTAR O POLO ATIVO.
+   *
+   * A rota de autocomplete era `@Roles(ADMINISTRADOR, COORDENACAO)`, e o preset
+   * do advogado tem `filiados: VISUALIZAR`. Resultado: ao importar processo, a
+   * busca do polo ativo respondia 403, a tela mostrava "nenhum filiado
+   * encontrado" (erro tratado como lista vazia) e o processo nascia sem dono.
+   */
+  it('procurar no cadastro de filiados é leitura, e o advogado tem', () => {
+    const src = ler('filiados/admin-filiados.controller.ts');
+    expect(src).toContain("@Modulo('filiados')");
+    expect(src).not.toContain('@Roles(');
+    expect(nivelEfetivo('ADVOGADO' as never, {}, 'filiados')).toBe('VISUALIZAR');
+  });
+
+  /**
+   * MAS ELE NÃO RECADASTRA. As duas rotas do recadastramento são
+   * ADMINISTRADOR/COORDENAÇÃO/TRIAGEM, e a tela do processo esconde o botão
+   * para quem não tem — botão que devolve 403 é pior que botão ausente.
+   */
+  it('recadastrar continua sendo do balcão', () => {
+    const link = ler('recadastramento/link-recadastramento.controller.ts');
+    expect(link).toContain('@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)');
+    expect(PRESETS_PERFIL.ADVOGADO.filiados).toBe('VISUALIZAR');
+    expect(PRESETS_PERFIL.TRIAGEM.filiados).toBe('EDITAR');
+  });
+
+  /**
+   * O FILTRO POR VÁRIOS ADVOGADOS é recorte de LEITURA sobre a listagem que já
+   * existia — não cria porta nova nem amplia o alcance de ninguém.
+   */
+  it('a agenda por vários responsáveis segue o gate da agenda', () => {
+    const src = ler('agenda/agenda.controller.ts');
+    expect(src).toContain("@Modulo('agenda')");
+    expect(PRESETS_PERFIL.TRIAGEM.agenda).toBe('VISUALIZAR');
+    expect(PRESETS_PERFIL.ADVOGADO.agenda).toBe('EDITAR');
+  });
+
   it('a sugestão de filiado é leitura do módulo processos', () => {
     const src = ler('processos/partes.controller.ts');
     expect(src).toContain("@Get('partes/:parteId/sugestoes-filiado')");

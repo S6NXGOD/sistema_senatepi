@@ -613,13 +613,30 @@ export async function consultarDatajud(numeroCNJ: string, tribunal?: string): Pr
  * Quem move a ação. As três opções do modal, e nenhuma delas cria cadastro
  * provisório de filiado.
  */
+/** Uma linha do polo ativo. Os tipos podem se MISTURAR na mesma ação. */
+export interface ParteDoPoloInput {
+  tipo: 'FILIADO' | 'INSTITUCIONAL' | 'ORGANIZACAO' | 'AVULSA';
+  filiadoId?: string;
+  parteExternaId?: string;
+  nome?: string;
+  documento?: string;
+}
+
+/**
+ * O polo ativo, nos DOIS formatos.
+ *
+ * `partes` é a relação ordenada e é o que a API nova usa. `tipo` continua
+ * obrigatório como RESUMO: web e API sobem separadas, e na janela de troca a
+ * tela nova fala com o contêiner velho, que só entende o resumo. Mandar os
+ * dois é o que impede um processo de entrar sem autor nesse intervalo.
+ */
 export type PoloAtivoInput =
   /** Ação coletiva: o polo ativo é o próprio sindicato. */
-  | { tipo: 'INSTITUCIONAL' }
+  | { tipo: 'INSTITUCIONAL'; partes?: ParteDoPoloInput[] }
   /** Um ou mais filiados (o primeiro é o principal). */
-  | { tipo: 'FILIADOS'; filiadoIds: string[] }
+  | { tipo: 'FILIADOS'; filiadoIds: string[]; partes?: ParteDoPoloInput[] }
   /** Parte conhecida só pelo nome — ou nada, para definir depois. */
-  | { tipo: 'OUTRA'; nome?: string; documento?: string };
+  | { tipo: 'OUTRA'; nome?: string; documento?: string; partes?: ParteDoPoloInput[] };
 
 export interface ImportarProcessoInput {
   numeroCNJ: string;

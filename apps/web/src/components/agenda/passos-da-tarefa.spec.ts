@@ -156,6 +156,13 @@ describe('o cadastro dentro do modal', () => {
       expect(arquivo).toContain('usePodeCadastrarFiliado()');
     }
     expect(VINCULAR).toContain('peça à secretaria');
-    expect(IMPORTAR).toContain('O cadastro é feito pela secretaria');
+    /*
+      NO MODAL DE IMPORTAÇÃO a oferta de cadastrar virou uma OPÇÃO DA LISTA de
+      busca (antes era um botão embaixo do campo, que a lista cobria). Para
+      quem não pode, a opção simplesmente não entra — e a linha de ajuda diz
+      a quem pedir, que é o que evita a pessoa ficar procurando o botão.
+    */
+    expect(IMPORTAR).toContain('...(podeCadastrarFiliado');
+    expect(IMPORTAR).toContain('pela secretaria');
   });
 });
