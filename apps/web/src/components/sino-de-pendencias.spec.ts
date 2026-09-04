@@ -118,3 +118,41 @@ describe('a gaveta', () => {
     expect(SINO).toContain('w-[min(22rem,calc(100vw-2rem))]');
   });
 });
+
+/**
+ * A FAIXA — o sino não basta para prazo vencido.
+ *
+ * O sino convive com o dia normal e é fácil de não ver quando se entra no
+ * sistema para fazer outra coisa. Prazo vencido não é dia normal.
+ */
+describe('a faixa de atraso', () => {
+  const FAIXA = readFileSync(path.join(RAIZ, 'components/faixa-de-atraso.tsx'), 'utf8');
+
+  /** Faixa que aparece todo dia é cabeçalho, e cabeçalho ninguém lê. */
+  it('só aparece para o que já venceu', () => {
+    expect(FAIXA).toContain('.filter((p) => PENDENCIA[p.tipo].urgente)');
+    expect(FAIXA).toContain('if (!urgentes.length) return null;');
+  });
+
+  /**
+   * SEM BOTÃO DE FECHAR. Ela não some por ser dispensada — some quando o
+   * trabalho é feito. Fechar ensinaria que dá para calar o aviso sem resolver.
+   */
+  it('não pode ser dispensada', () => {
+    for (const proibido of ['dispensar', 'setFechada', 'onClose', 'localStorage']) {
+      expect(FAIXA).not.toContain(proibido);
+    }
+  });
+
+  /** Mesma chave do sino: os dois se servem de uma requisição só. */
+  it('reaproveita a consulta do sino', () => {
+    expect(FAIXA).toContain("queryKey: ['minhas-pendencias']");
+  });
+
+  it('fica fora da área que rola', () => {
+    const SHELL = readFileSync(path.join(RAIZ, 'components/dashboard-shell.tsx'), 'utf8');
+    // `<main className=` e não `<main`: o próprio comentário do arquivo cita
+    // "<main>" ao explicar a decisão, e a busca crua casaria com ele.
+    expect(SHELL.indexOf('<FaixaDeAtraso />')).toBeLessThan(SHELL.indexOf('<main className='));
+  });
+});

@@ -19,6 +19,9 @@ import { integracaoAtiva } from '../../tenant/tenant.config';
  * isso há um DELAY de 2–3s entre cada consulta e as falhas são isoladas
  * (um processo que der erro não interrompe a varredura).
  */
+/** Por quantos dias o log de sincronização é guardado. Ver `podarLogAntigo`. */
+const DIAS_DE_LOG = 90;
+
 @Injectable()
 export class ProcessosCronService {
   private readonly logger = new Logger(ProcessosCronService.name);
@@ -61,6 +64,41 @@ export class ProcessosCronService {
       { ttlMinutos: this.TRAVA_TTL_MIN },
       () => this.varrer(),
     );
+
+    // Depois da varredura, e fora da trava: se a poda falhar, o que importa
+    // (a sincronização) já aconteceu.
+    await this.podarLogAntigo().catch((e) =>
+      this.logger.warn(`[DATAJUD-SYNC] Falha ao podar o log: ${(e as Error).message}`),
+    );
+  }
+
+  /**
+   * PODA DO LOG DE SINCRONIZAÇÃO — a única tabela que este sistema apaga sozinho.
+   *
+   * Medido em 04/09/2026: o banco inteiro tem 48 MB e não corre risco nenhum.
+   * O que cresce sem freio é telemetria: 1.176 linhas de log em 31 dias, ~14 mil
+   * por ano. Não é urgente; é o tipo de coisa que ninguém lembra de olhar e que
+   * em três anos vira a maior tabela do banco por nada.
+   *
+   * O QUE NÃO É PODADO, e de propósito:
+   *
+   *  - `auditorias` — é a trilha de quem fez o quê. Num sistema jurídico ela é
+   *    prova, não sujeira. Some só se alguém decidir que some, à mão.
+   *  - `importacao_linhas` — 7.550 linhas de conferência de importações já
+   *    concluídas. Parece lixo e é histórico de uma migração de acervo; apagar
+   *    por conta própria tiraria a chance de auditar de onde veio cada processo.
+   *  - `comunicacoes_djen` e `movimentacoes_processuais` — são o acervo.
+   *
+   * Noventa dias cobrem qualquer investigação de "por que o robô parou", que é
+   * a única pergunta que este log responde. O painel de saúde olha as últimas
+   * 48 horas.
+   */
+  private async podarLogAntigo() {
+    const corte = new Date(Date.now() - DIAS_DE_LOG * 24 * 3_600_000);
+    const { count } = await this.prisma.logSincronizacaoDatajud.deleteMany({
+      where: { createdAt: { lt: corte } },
+    });
+    if (count) this.logger.log(`[DATAJUD-SYNC] ${count} log(s) com mais de ${DIAS_DE_LOG} dias removido(s).`);
   }
 
   private async varrer() {
