@@ -11,37 +11,50 @@ const BUSCA = ler('components/ui/busca-select.tsx');
 const IMPORTAR = ler('components/processos/importar-processo-dialog.tsx');
 
 /**
- * O QUADRO — 90% dele era trabalho morto.
+ * O QUADRO — duas coisas diferentes, e eu tratei as duas como uma.
  *
- * Medido na produção em 04/09/2026, aba "Todos": 37 concluídas e 18 canceladas
- * contra 6 pendentes. E a aba PADRÃO é "Hoje", onde num dia sem prazo as quatro
- * colunas repetem "Sem atividades" — no celular, quatro telas de rolagem antes
- * de chegar ao calendário, que é onde está o conteúdo.
+ * O problema REAL, medido na produção em 04/09/2026 na aba "Todos": 37
+ * concluídas e 18 canceladas contra 6 pendentes. Noventa por cento do quadro é
+ * trabalho morto, e cresce todo mês. O conserto é o TETO nas colunas terminais.
+ *
+ * O problema que eu INVENTEI: achar que as quatro colunas vazias da aba "Hoje"
+ * também eram excesso, e trocá-las por uma mensagem central. Coluna vazia não é
+ * ruído — é o espaço de trabalho, e é o que faz o quadro parecer um lugar onde
+ * cabe alguma coisa. Ver o primeiro caso abaixo.
  */
 describe('o quadro', () => {
-  it('fala uma vez só quando está vazio', () => {
-    expect(KANBAN).toContain('if (compromissos.length === 0 && vazio && !arrastado)');
-    expect(AGENDA).toContain('Nada marcado para hoje.');
-    expect(AGENDA).toContain('O calendário abaixo mostra o mês inteiro');
+  /**
+   * AS QUATRO COLUNAS FICAM À VISTA, SEMPRE — e este teste existe porque eu já
+   * fiz o contrário.
+   *
+   * Troquei as colunas vazias por uma mensagem central ("nada marcado para
+   * hoje") achando que eram ruído. Não eram: são o ESPAÇO DE TRABALHO. Sem os
+   * contêineres, o quadro deixa de ser um lugar onde trabalho cabe e vira um
+   * aviso de que não há trabalho — e num acervo em que quatro dos nove
+   * advogados têm ZERO atividades e mais de oitenta processos, isso confirma
+   * exatamente a crença errada. Quem usa resumiu melhor: "causa preguiça em
+   * cadastrar uma atividade".
+   */
+  it('nunca troca as colunas por uma mensagem central', () => {
+    expect(KANBAN).not.toContain('compromissos.length === 0 &&');
+    expect(AGENDA).not.toContain('Nada marcado para hoje.');
   });
 
   /**
-   * ENQUANTO ALGUÉM ARRASTA, AS COLUNAS VOLTAM. Sem isso, largar o cartão no
-   * quadro vazio não teria onde cair — e o cartão só some da coluna de origem
-   * durante o arraste.
+   * E A COLUNA VAZIA PEDE. "Pendente" é a única em que faz sentido começar
+   * algo; as outras três seguem discretas, porque ninguém cria uma atividade
+   * já concluída.
    */
-  it('as colunas reaparecem durante o arraste', () => {
-    expect(KANBAN).toContain('&& !arrastado');
+  it('a coluna de pendente vazia oferece criar', () => {
+    expect(KANBAN).toContain("s === 'PENDENTE' && onNovo");
+    expect(KANBAN).toContain('Nova atividade');
+    expect(AGENDA).toContain('onNovo={onNovo}');
   });
 
-  /**
-   * TERMINAIS ENCOLHEM VAZIAS, mas continuam existindo: reabrir é permitido
-   * (`TRANSICOES` deixa CONCLUIDO e CANCELADO voltarem), e arrastar de volta
-   * exige um alvo.
-   */
-  it('concluído e cancelado viram faixa fina quando vazios', () => {
+  /** As terminais continuam do tamanho normal, vazias ou não. */
+  it('nenhuma coluna encolhe', () => {
     expect(KANBAN).toContain("const TERMINAIS: StatusCompromisso[] = ['CONCLUIDO', 'CANCELADO']");
-    expect(KANBAN).toContain('const encolhida = terminal && itens.length === 0 && !arrastado;');
+    expect(KANBAN).not.toContain('const encolhida');
   });
 
   /** E cheias não viram depósito: teto com saída explícita. */

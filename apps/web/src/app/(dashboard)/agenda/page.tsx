@@ -388,39 +388,15 @@ function AgendaConteudo() {
           podeExcluir={ehAdmin}
           apontado={destacado}
           /*
-            O QUADRO VAZIO DIZ POR QUE ESTÁ VAZIO, e como sair.
-            A aba padrão é "Hoje": num dia sem prazo, o quadro repetia "Sem
-            atividades" quatro vezes e não dava pista de que o mês inteiro está
-            logo abaixo, no calendário.
+            A COLUNA VAZIA DE "PENDENTE" OFERECE CRIAR.
+
+            Eu tinha trocado as quatro colunas vazias por uma mensagem central,
+            e estava errado: sem os contêineres à vista, o quadro deixa de ser
+            um lugar onde trabalho cabe e vira um aviso de que não há trabalho.
+            Num acervo em que quatro dos nove advogados têm zero atividades e
+            mais de oitenta processos, isso confirma a crença errada.
           */
-          vazio={
-            <div className="max-w-sm space-y-2">
-              <p className="text-sm font-medium">
-                {diaSelecionado
-                  ? `Nada em ${diaSelecionado.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}.`
-                  : aba === 'hoje'
-                    ? 'Nada marcado para hoje.'
-                    : aba === 'urgentes'
-                      ? 'Nenhuma atividade urgente.'
-                      : aba === '7dias'
-                        ? 'Nada nos próximos 7 dias.'
-                        : 'Nenhuma atividade com estes filtros.'}
-              </p>
-              <p className="text-xs leading-snug text-muted-foreground">
-                O calendário abaixo mostra o mês inteiro — clique num dia para trazer as
-                atividades dele para cá.
-              </p>
-              {(diaSelecionado || aba !== 'todos') && (
-                <button
-                  type="button"
-                  onClick={() => { setDiaSelecionado(null); setAba('todos'); }}
-                  className="text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
-                >
-                  Ver todas as atividades
-                </button>
-              )}
-            </div>
-          }
+          onNovo={onNovo}
         />
       )}
 

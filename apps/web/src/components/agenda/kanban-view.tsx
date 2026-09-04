@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, ChevronDown } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import { CompromissoCard } from '@/components/agenda/compromisso-card';
 import { cn } from '@/lib/utils';
 import {
@@ -20,8 +20,10 @@ const COL_DOT: Record<StatusCompromisso, string> = {
  *
  * Elas continuam no quadro porque reabrir é permitido (`TRANSICOES` deixa
  * CONCLUIDO e CANCELADO voltarem para PENDENTE), e arrastar de volta exige ver
- * o cartão. Mas elas NÃO são trabalho, e é isso que muda o tratamento: vazias
- * viram uma faixa fina, e cheias mostram só as mais recentes.
+ * o cartão. O que muda nelas é só o TETO: cheias, mostram as mais recentes.
+ *
+ * VAZIAS, CONTINUAM DO TAMANHO NORMAL. Cheguei a encolhê-las e estava errado —
+ * ver o comentário do estado vazio abaixo.
  */
 const TERMINAIS: StatusCompromisso[] = ['CONCLUIDO', 'CANCELADO'];
 
@@ -46,7 +48,7 @@ const TETO_TERMINAL = 10;
  */
 export function KanbanView({
   compromissos, onAbrir, onEditar, onVerTriagem, onAcao,
-  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, apontado, vazio,
+  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, apontado, onNovo,
 }: {
   compromissos: Compromisso[];
   onAbrir: (c: Compromisso) => void;
@@ -61,14 +63,10 @@ export function KanbanView({
   /** Id do cartão para o qual a navegação apontou — ver `CompromissoCard`. */
   apontado?: string | null;
   /**
-   * O que dizer quando NÃO HÁ NADA no quadro inteiro.
-   *
-   * Quatro colunas escrevendo "Sem atividades" é a tela que a equipe mais vê:
-   * a aba padrão é "Hoje", e num dia sem prazo o quadro ocupa a altura toda
-   * para repetir a mesma frase quatro vezes — no celular, quatro telas de
-   * rolagem antes de chegar ao calendário, que é onde está o conteúdo.
+   * Abre o formulário de nova atividade — é o que a coluna vazia oferece.
+   * Ver o comentário do estado vazio, abaixo.
    */
-  vazio?: React.ReactNode;
+  onNovo?: () => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [sobre, setSobre] = useState<StatusCompromisso | null>(null);
@@ -96,19 +94,6 @@ export function KanbanView({
     onAcao(card.id, destino);
   }
 
-  /*
-    QUADRO VAZIO FALA UMA VEZ SÓ. Enquanto alguém arrasta, as colunas voltam —
-    senão não haveria onde soltar.
-  */
-  if (compromissos.length === 0 && vazio && !arrastado) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-14 text-center">
-        <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-        {vazio}
-      </div>
-    );
-  }
-
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
       {STATUS_ORDEM.map((s) => {
@@ -116,12 +101,6 @@ export function KanbanView({
         const podeSoltar = aceita(s);
         const bloqueada = !!arrastado && !podeSoltar && arrastado.status !== s;
         const terminal = TERMINAIS.includes(s);
-        /*
-          VAZIA E TERMINAL = FAIXA FINA. Ela precisa continuar existindo como
-          alvo de arraste, mas não precisa de um quarto da largura para dizer
-          que não há nada concluído hoje.
-        */
-        const encolhida = terminal && itens.length === 0 && !arrastado;
         const aberta = semTeto.includes(s);
         const visiveis = terminal && !aberta ? itens.slice(0, TETO_TERMINAL) : itens;
         const escondidas = itens.length - visiveis.length;
@@ -133,19 +112,13 @@ export function KanbanView({
             onDragLeave={() => setSobre((cur) => (cur === s ? null : cur))}
             onDrop={() => soltar(s)}
             className={cn(
-              'flex flex-col rounded-xl border bg-muted/30 transition-colors',
-              encolhida ? 'p-1.5' : 'p-2',
+              'flex flex-col rounded-xl border bg-muted/30 p-2 transition-colors',
               sobre === s && podeSoltar && 'border-brand-500 bg-brand-50/50 dark:bg-brand-900/20',
               bloqueada && 'opacity-50',
             )}
           >
-            <div className={cn('flex items-center justify-between px-1', !encolhida && 'mb-2')}>
-              <p
-                className={cn(
-                  'flex items-center gap-2 font-semibold',
-                  encolhida ? 'text-xs text-muted-foreground' : 'text-sm',
-                )}
-              >
+            <div className="mb-2 flex items-center justify-between px-1">
+              <p className="flex items-center gap-2 text-sm font-semibold">
                 <span className={`h-2.5 w-2.5 rounded-full ${COL_DOT[s]}`} /> {STATUS_LABEL[s]}
               </p>
               <span className="rounded-full bg-card px-2 py-0.5 text-xs font-medium text-muted-foreground">
@@ -153,8 +126,7 @@ export function KanbanView({
               </span>
             </div>
 
-            {!encolhida && (
-              <div className="min-h-[80px] flex-1 space-y-2">
+            <div className="min-h-[80px] flex-1 space-y-2">
                 {visiveis.map((c) => (
                   <CompromissoCard
                     key={c.id}
@@ -190,13 +162,44 @@ export function KanbanView({
                   </button>
                 )}
 
+                {/*
+                  A COLUNA VAZIA CONTINUA À VISTA — e eu já tentei o contrário.
+
+                  Cheguei a trocar as quatro colunas vazias por uma mensagem
+                  central ("nada marcado para hoje"). Estava errado, e a
+                  correção veio de quem usa: sem os contêineres, some o convite.
+                  O quadro deixa de ser um lugar onde trabalho CABE e vira um
+                  aviso de que não há trabalho — o que, num acervo em que quatro
+                  dos nove advogados têm ZERO atividades e mais de oitenta
+                  processos, confirma exatamente a crença errada. A frase dele
+                  foi "causa preguiça em cadastrar uma atividade", e é isso
+                  mesmo: uma tela que diz "está tudo em dia" não pede nada.
+
+                  Então a estrutura fica, e a coluna de PENDENTE — a única em
+                  que faz sentido começar algo — passa a oferecer o gesto. As
+                  outras três seguem discretas: ninguém cria uma atividade já
+                  concluída.
+                */}
                 {itens.length === 0 && (
-                  <div className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
-                    Sem atividades
-                  </div>
+                  s === 'PENDENTE' && onNovo ? (
+                    <button
+                      type="button"
+                      onClick={onNovo}
+                      className="flex w-full flex-col items-center gap-1 rounded-lg border border-dashed py-8 text-center transition hover:border-brand-400 hover:bg-brand-50/40 dark:hover:bg-brand-900/10"
+                    >
+                      <Plus className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs font-medium">Nova atividade</span>
+                      <span className="px-3 text-[11px] leading-snug text-muted-foreground">
+                        Prazo, audiência, contato — o que precisa de data e dono.
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
+                      Sem atividades
+                    </div>
+                  )
                 )}
-              </div>
-            )}
+            </div>
           </div>
         );
       })}
