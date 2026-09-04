@@ -33,6 +33,8 @@ import { corDesfecho, rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL } from '@/lib
 import { EtiquetasInput } from './etiquetas-input';
 import { PartesPanel } from './partes-panel';
 import { VincularFiliadoModal } from './vincular-filiado-modal';
+import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
+import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
 import {
   getDossie, excluirMovimentacao, listarTiposMovimentacao,
   rotuloTipoMov, corTipoMov, rotuloComplemento,
@@ -244,6 +246,10 @@ export function ProcessoDetalheSheet({
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'processos') === 'EDITAR';
+  const podeCadastrarFiliado = usePodeCadastrarFiliado();
+
+  /** Id do filiado sendo recadastrado no modal, quando há um. */
+  const [recadastrando, setRecadastrando] = useState<string | null>(null);
 
   const [aba, setAba] = useState<Aba>('timeline');
   /**
@@ -382,6 +388,22 @@ export function ProcessoDetalheSheet({
     retry: false,
     staleTime: 5 * 60_000,
   });
+
+  /**
+   * O QUE FALTA NA FICHA DO FILIADO deste processo.
+   *
+   * Medido em 04/09/2026: 98% dos filiados não têm telefone e 69% não têm CPF.
+   * Descobrir isso na hora de ligar para o cliente é tarde — e a ficha está a
+   * dois cliques daqui, com o dado que ninguém foi conferir.
+   */
+  const faltaNoCadastro = useMemo(() => {
+    const f = p?.filiado;
+    if (!f) return [] as string[];
+    const falta: string[] = [];
+    if (!f.telefonePrincipal) falta.push('telefone');
+    if (!f.cpf) falta.push('CPF');
+    return falta;
+  }, [p?.filiado]);
 
   const { data: publicacoes = [], isLoading: carregandoPublicacoes } = useQuery({
     queryKey: ['djen-publicacoes', processoId],
@@ -709,9 +731,37 @@ export function ProcessoDetalheSheet({
                         quando NINGUÉM representa o polo ativo — aí sim não se
                         sabe por quem se litiga. */}
                     {p.filiado ? (
-                      <span>
-                        Filiado: <strong className="text-foreground">{p.filiado.nomeCompleto}</strong>
-                        {p.totais.filiados > 1 && ` +${p.totais.filiados - 1}`}
+                      <span className="inline-flex flex-wrap items-center gap-x-1.5">
+                        <span>
+                          Filiado: <strong className="text-foreground">{p.filiado.nomeCompleto}</strong>
+                          {p.totais.filiados > 1 && ` +${p.totais.filiados - 1}`}
+                        </span>
+                        {/*
+                          O CADASTRO ESTÁ COMPLETO? — a pergunta que aparece
+                          quando alguém precisa ligar para o filiado.
+
+                          Medido em 04/09/2026: 7.137 dos 7.291 filiados não têm
+                          telefone (98%), e 5.028 não têm CPF. Descobrir isso na
+                          hora de ligar é tarde. O aviso é informação para
+                          todos; o botão só para quem pode gravar — a atualização
+                          cadastral é do balcão (`@Roles` de /filiados), e um
+                          botão que só falha depois do clique ensina a equipe a
+                          não confiar na tela.
+                        */}
+                        {faltaNoCadastro.length > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            sem {faltaNoCadastro.join(' e ')}
+                          </span>
+                        )}
+                        {podeCadastrarFiliado && (
+                          <button
+                            type="button"
+                            onClick={() => setRecadastrando(p.filiado!.id)}
+                            className="font-medium text-brand-800 hover:underline dark:text-brand-400"
+                          >
+                            {faltaNoCadastro.length > 0 ? 'Completar cadastro' : 'Recadastrar'}
+                          </button>
+                        )}
                       </span>
                     ) : !p.polos?.ativo?.length ? (
                       <span className="inline-flex items-center gap-1.5">
@@ -1804,6 +1854,18 @@ export function ProcessoDetalheSheet({
         </div>
       </div>
       </div>
+
+      {/*
+        RECADASTRAR SEM SAIR DO PROCESSO — o mesmo formulário completo da ficha,
+        em passos, dentro de um modal. Quem atende o telefone descobre o dado
+        faltando aqui, e é aqui que ele deveria poder corrigir.
+      */}
+      <CadastroFiliadoModal
+        open={!!recadastrando}
+        filiadoId={recadastrando}
+        onClose={() => setRecadastrando(null)}
+        onSalvo={() => { setRecadastrando(null); recarregar(); }}
+      />
 
       {/* Vincular/cadastrar filiado — resolve sem sair da tela */}
       {p && (
