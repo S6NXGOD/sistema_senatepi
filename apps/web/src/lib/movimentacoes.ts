@@ -122,6 +122,8 @@ export type ItemTimeline =
       descricao: string;
       tipo: string;
       notaInterna: boolean;
+      /** Anotação do próprio sistema, não de uma pessoa. Peso visual menor. */
+      origemSistema: boolean;
       statusAnterior: StatusProcesso | null;
       statusNovo: StatusProcesso | null;
       autor: PessoaRef | null;

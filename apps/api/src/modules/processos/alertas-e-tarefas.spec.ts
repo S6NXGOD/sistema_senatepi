@@ -278,10 +278,32 @@ describe('o robô nunca escreve urgência à mão', () => {
 
   const ehComentarioLinha = (l: string) => /^\s*(\*|\/\/|\/\*)/.test(l);
 
+  /**
+   * `urgente: true` dentro de um `select` é LEITURA, não escrita — e um select
+   * pode ocupar várias linhas, o que fazia o filtro por linha acusar inocente.
+   * Aqui o bloco inteiro sai do texto antes da varredura.
+   */
+  function semSelects(fonte: string): string {
+    let saida = '';
+    let i = 0;
+    for (;;) {
+      const inicio = fonte.indexOf('select: {', i);
+      if (inicio === -1) return saida + fonte.slice(i);
+      saida += fonte.slice(i, inicio);
+      let nivel = 0;
+      let j = inicio + 'select: '.length;
+      for (; j < fonte.length; j++) {
+        if (fonte[j] === '{') nivel++;
+        else if (fonte[j] === '}' && --nivel === 0) break;
+      }
+      i = j + 1;
+    }
+  }
+
   it.each(ROBOS)('%s marca urgência só via `montarUrgencia`', (_arquivo, fonte) => {
-    const atribuicoes = fonte
+    const atribuicoes = semSelects(fonte)
       .split('\n')
-      .filter((l) => /urgente:\s*(true|[a-z])/.test(l) && !/select:/.test(l) && !ehComentarioLinha(l));
+      .filter((l) => /urgente:\s*(true|[a-z])/.test(l) && !ehComentarioLinha(l));
     expect(atribuicoes).toEqual([]);
   });
 

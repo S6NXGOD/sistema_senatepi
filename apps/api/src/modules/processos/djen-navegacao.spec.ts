@@ -222,8 +222,40 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
     expect(CORRELACAO).toContain('const irma = await this.prisma.comunicacaoDjen.findFirst({');
     const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'));
     expect(bloco.slice(0, 700)).toContain('providencia: c.providencia');
-    expect(bloco.slice(0, 700)).toContain('dataDisponibilizacao: c.dataDisponibilizacao');
     expect(bloco.slice(0, 700)).toContain('compromissoId: { not: null }');
+  });
+
+  /**
+   * A CHAVE NÃO INCLUI O DIA — e essa foi a segunda correção, feita depois de
+   * ver a tela.
+   *
+   * A primeira versão usava (processo, providência, DIA) e só resolvia as
+   * cópias por destinatário. Sobrou o caso de atos DIFERENTES que pedem o
+   * MESMO trabalho: dois acórdãos do processo 0000542-92.2025.5.22.0005, de
+   * 12/08 e 27/08, geraram dois cartões "Avaliar recurso" com o mesmo título,
+   * o mesmo responsável e o mesmo horário — indistinguíveis na agenda, e uma
+   * decisão só a tomar. A atividade é unidade de TRABALHO, não de publicação.
+   */
+  it('a chave da irmã é (processo, providência) — sem o dia', () => {
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'), CORRELACAO.indexOf('(A3) PUBLICAÇÃO VELHA'));
+    expect(bloco).not.toContain('dataDisponibilizacao: c.dataDisponibilizacao');
+    // A mais recente primeiro: é a que descreve o estado atual do processo.
+    expect(bloco).toContain("orderBy: { dataDisponibilizacao: 'desc' }");
+  });
+
+  /**
+   * A CONSULTA POR NPU TRAZ O HISTÓRICO INTEIRO, não uma janela. Medido: a
+   * publicação mais antiga das 136 é de 14/05/2024 — 842 dias. Sem trava,
+   * cadastrar um processo antigo despeja na agenda prazos vencidos há dois
+   * anos. Classificar sim; fingir que é trabalho pendente, não.
+   */
+  it('publicação velha demais é classificada mas não vira tarefa', () => {
+    expect(CORRELACAO).toContain('const DIAS_LIMITE_TAREFA = 60;');
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('(A3) PUBLICAÇÃO VELHA'), CORRELACAO.indexOf('// (B) e (C)'));
+    expect(bloco).toContain('if (idadeDias > DIAS_LIMITE_TAREFA) {');
+    expect(bloco).toContain('providencia: c.providencia');
+    expect(bloco).not.toContain('criarAtividade');
+    expect(bloco).toContain('resumo.antigas++');
   });
 
   /** E não pode casar consigo mesma. */
@@ -237,8 +269,32 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
    * chave inclui a providência justamente para não colapsá-los.
    */
   it('atos diferentes no mesmo dia continuam separados', () => {
-    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'), CORRELACAO.indexOf('// (B) e (C)'));
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const irma = await'), CORRELACAO.indexOf('(A3) PUBLICAÇÃO VELHA'));
     expect(bloco).toContain('providencia: c.providencia');
+  });
+
+  /**
+   * O TEOR APARECIA TRÊS VEZES na gaveta: uma na descrição, onde o robô o
+   * copiava, e uma por publicação irmã vinculada — e cinco das seis atividades
+   * da produção tinham duas irmãs. A descrição diz o que fazer; o teor é do
+   * cartão da publicação, que agrupa as cópias e mostra uma vez só.
+   */
+  it('a descrição não carrega o teor da publicação', () => {
+    expect(CORRELACAO).not.toContain('blocoTeor');
+    expect(CORRELACAO).not.toContain('Publicação (DJEN)');
+    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('A DESCRIÇÃO DIZ O QUE FAZER'));
+    expect(bloco.slice(0, 900)).toContain('Processo ${NpuUtils.formatar(processo.numeroCNJ)');
+  });
+
+  /**
+   * O PRAZO MAIS CURTO MANDA. Uma tarefa aberta que recebe publicação nova com
+   * prazo mais apertado tem de antecipar: a agenda diria quinta enquanto o
+   * prazo real virou terça. Só encurta — adiar esconderia um vencimento.
+   */
+  it('publicação nova com prazo menor antecipa a tarefa', () => {
+    const fn = CORRELACAO.slice(CORRELACAO.indexOf('private async enriquecer('));
+    expect(fn.slice(0, 2500)).toContain('if (novo < atual.inicio) antecipar = novo;');
+    expect(fn.slice(0, 2500)).toContain('...(antecipar');
   });
 });
 

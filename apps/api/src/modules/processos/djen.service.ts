@@ -127,6 +127,11 @@ interface ItemBruto {
   data_disponibilizacao?: unknown;
   destinatarios?: unknown;
   destinatarioadvogados?: unknown;
+  /** Sinais de cancelamento pelo tribunal — ver o parser. */
+  ativo?: unknown;
+  status?: unknown;
+  motivo_cancelamento?: unknown;
+  data_cancelamento?: unknown;
 }
 
 /**
@@ -497,6 +502,26 @@ export class DjenService {
     const data = texto(item.data_disponibilizacao);
 
     if (!hash || !conteudo || numeroProcesso.length !== 20 || !data) return null;
+
+    /**
+     * COMUNICAÇÃO CANCELADA PELO TRIBUNAL NÃO VIRA PRAZO.
+     *
+     * O CNJ devolve `ativo`, `status` e, quando é o caso, `motivo_cancelamento`
+     * e `data_cancelamento` — e o parser ignorava os quatro. Uma intimação
+     * anulada entraria como qualquer outra: viraria tarefa, viraria urgência, e
+     * o advogado trabalharia sobre um ato que deixou de existir.
+     *
+     * Medido em 400 publicações reais deste acervo: todas com `ativo: true` e
+     * `status: 'P'`, nenhuma cancelada. É raro — e é exatamente por ser raro
+     * que ninguém perceberia o dia em que acontecesse. Ler o campo custa três
+     * linhas; descobrir na marra custa um prazo.
+     */
+    const ativo = item.ativo;
+    const cancelada =
+      ativo === false ||
+      !!texto(item.motivo_cancelamento) ||
+      !!texto(item.data_cancelamento);
+    if (cancelada) return null;
 
     const advogadosBrutos = Array.isArray(item.destinatarioadvogados)
       ? item.destinatarioadvogados

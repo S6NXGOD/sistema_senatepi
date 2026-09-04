@@ -6,6 +6,13 @@ const ler = (rel: string) => readFileSync(path.join(RAIZ, rel), 'utf8');
 
 const FICHA = ler('components/processos/processo-detalhe-sheet.tsx');
 const GAVETA = ler('components/agenda/compromisso-drawer.tsx');
+/**
+ * O cartão da publicação é UM SÓ nas duas telas, e é de propósito: a ficha do
+ * processo e a gaveta da atividade mostram o mesmo ato, e mostravam de dois
+ * jeitos diferentes. As asserções de conteúdo do cartão moram aqui; as de
+ * navegação continuam em quem monta o cartão.
+ */
+const CARTAO = ler('components/processos/publicacao-djen-card.tsx');
 const PAINEL = ler('app/(dashboard)/dashboard/page.tsx');
 
 /**
@@ -55,8 +62,18 @@ describe('salto entre linha do tempo e publicações', () => {
 
   /** Sem âncora, a rolagem não tem alvo. */
   it('os dois lados têm âncora no DOM', () => {
-    expect(FICHA).toContain('id={`pub-${pub.id}`}');
+    expect(CARTAO).toContain('id={`pub-${pub.id}`}');
     expect(FICHA).toContain('id={`mov-${item.id}`}');
+  });
+
+  /**
+   * O agrupamento de cópias tira do DOM as publicações irmãs — e o andamento
+   * guarda o id de UMA delas, que pode ser justamente a que sumiu. Sem âncora
+   * para a cópia, o salto trocaria de aba e não rolaria para lugar nenhum.
+   */
+  it('a cópia agrupada também tem âncora', () => {
+    expect(CARTAO).toContain('{grupo.copias.map((c) => (');
+    expect(CARTAO).toContain('id={`pub-${c.id}`}');
   });
 
   /**
@@ -75,7 +92,7 @@ describe('salto entre linha do tempo e publicações', () => {
 
   /** "Atividade criada na Agenda" era texto morto: não dizia qual nem abria. */
   it('a publicação abre a atividade que ela gerou', () => {
-    expect(FICHA).toContain('href={`/agenda?compromisso=${pub.compromissoId}`}');
+    expect(FICHA).toContain('href={`/agenda?compromisso=${grupo.principal.compromissoId}`}');
     expect(FICHA).toContain('Abrir a atividade na Agenda');
   });
 });
@@ -87,17 +104,32 @@ describe('salto entre linha do tempo e publicações', () => {
  */
 describe('a agenda mostra o teor que originou a atividade', () => {
   it('a gaveta renderiza a publicação vinculada', () => {
-    expect(GAVETA).toContain('c.origemComunicacoes ?? []');
-    expect(GAVETA).toContain('Teor da publicação');
+    expect(GAVETA).toContain('agruparPublicacoes(c.origemComunicacoes ?? [])');
+    expect(CARTAO).toContain('Teor da publicação');
   });
 
   it('com o prazo mencionado e a ressalva de que não é vencimento', () => {
-    expect(GAVETA).toContain('pub.prazoMencionadoDias');
-    expect(GAVETA).toContain('o sistema não calcula vencimento');
+    expect(CARTAO).toContain('pub.prazoMencionadoDias');
+    expect(CARTAO).toContain('o sistema não calcula vencimento');
   });
 
   it('e leva ao processo, onde estão as demais', () => {
-    expect(GAVETA).toContain('href={`/processos?processo=${pub.processoId}`}');
+    expect(GAVETA).toContain('href={`/processos?processo=${grupo.principal.processoId}`}');
+  });
+
+  /**
+   * O TEOR APARECIA TRÊS VEZES na mesma gaveta: uma na descrição, onde o robô o
+   * copiava, e uma por publicação irmã ligada à atividade — e cinco das seis
+   * atividades da produção tinham duas irmãs. A descrição passou a dizer só o
+   * que fazer; o teor vive no cartão, uma vez, agrupado.
+   */
+  it('a descrição não repete o teor que o cartão já mostra', () => {
+    const CORRELACAO = readFileSync(
+      path.resolve(RAIZ, '../../api/src/modules/processos/correlacao.service.ts'),
+      'utf8',
+    );
+    expect(CORRELACAO).not.toContain('blocoTeor');
+    expect(CORRELACAO).not.toContain('Publicação (DJEN)');
   });
 });
 

@@ -44,6 +44,8 @@ import {
   listarPublicacoes, sincronizarPublicacoes, statusDjen,
   PROVIDENCIA_LABEL, type PublicacaoDjen,
 } from '@/lib/djen';
+import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
+import { PublicacaoDjenCard } from './publicacao-djen-card';
 import { classesCor } from '@/lib/paleta-cores';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
@@ -2006,96 +2008,58 @@ function AbaPublicacoes({
         </div>
       ) : (
         <ul className="space-y-2">
-          {publicacoes.map((pub) => (
-            <li
-              key={pub.id}
-              id={`pub-${pub.id}`}
-              className={cn(
-                'rounded-lg border border-l-4 border-l-indigo-400 bg-card p-3 transition-colors',
-                // O destaque some depois que a pessoa interage; é sinalização de
-                // chegada, não um estado permanente da publicação.
-                destacada === pub.id &&
-                  'bg-brand-50 ring-2 ring-brand-500 dark:bg-brand-950/30',
-              )}
-            >
-              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <span className="flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
-                    <Newspaper className="mr-1 inline h-3 w-3" />
-                    {pub.tipoComunicacao ?? 'Publicação'}
-                  </span>
+          {agruparPublicacoes(publicacoes).map((grupo) => (
+            <PublicacaoDjenCard
+              key={grupo.principal.id}
+              como="li"
+              grupo={grupo}
+              destacada={destacada}
+              className="border-l-4 border-l-indigo-400"
+              chips={
+                <>
                   {/* A providência é o que o robô entendeu que precisa ser
                       feito — e é o título que a atividade da agenda recebeu. */}
-                  {pub.providencia && PROVIDENCIA_LABEL[pub.providencia] && (
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium">
-                      {PROVIDENCIA_LABEL[pub.providencia]}
-                    </span>
-                  )}
-                  <span className="text-[10px] text-muted-foreground/70">{pub.siglaTribunal}</span>
-                </span>
-                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                  {formatData(pub.dataDisponibilizacao)}
-                </span>
-              </div>
-
-              {pub.nomeOrgao && (
-                <p className="mb-1 truncate text-[11px] text-muted-foreground">{pub.nomeOrgao}</p>
-              )}
-
-              <TextoExpansivel texto={pub.texto} limite={300} />
-
-              {/* O prazo é o que o TEXTO diz. O sistema não calcula vencimento —
-                  a contagem oficial depende de dias úteis forenses, feriado da
-                  comarca e forma de intimação. */}
-              {pub.prazoMencionadoDias != null && (
-                <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-                  <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-                  <span>
-                    O texto menciona prazo de <strong>{pub.prazoMencionadoDias} dias</strong>.
-                    Confira a contagem oficial — o sistema não calcula vencimento.
+                  {grupo.principal.providencia &&
+                    PROVIDENCIA_LABEL[grupo.principal.providencia] && (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium">
+                        {PROVIDENCIA_LABEL[grupo.principal.providencia]}
+                      </span>
+                    )}
+                  <span className="text-[10px] text-muted-foreground/70">
+                    {grupo.principal.siglaTribunal}
                   </span>
-                </p>
-              )}
+                </>
+              }
+              acoes={
+                <>
+                  {/*
+                    OS VÍNCULOS, NOS DOIS SENTIDOS.
 
-              {/*
-                OS VÍNCULOS, NOS DOIS SENTIDOS.
-
-                A publicação já sabia, no banco, qual andamento descreve o mesmo
-                fato e qual atividade nasceu dela — e a tela mostrava isso como
-                texto morto ("Atividade criada na Agenda", sem dizer qual). São
-                os dois saltos que fecham o ciclo: do teor para o ato no
-                histórico, e do teor para o prazo na agenda.
-              */}
-              <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px]">
-                {pub.movimentacaoId && onVerAndamento && (
-                  <button
-                    type="button"
-                    onClick={() => onVerAndamento(pub.movimentacaoId!)}
-                    className="flex items-center gap-1 font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
-                  >
-                    <Landmark className="h-3 w-3" /> Ver o ato na linha do tempo
-                  </button>
-                )}
-                {pub.compromissoId && (
-                  <Link
-                    href={`/agenda?compromisso=${pub.compromissoId}`}
-                    className="flex items-center gap-1 font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
-                  >
-                    <Bot className="h-3 w-3" /> Abrir a atividade na Agenda
-                  </Link>
-                )}
-                {pub.link && (
-                  <a
-                    href={pub.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 font-medium text-brand-800 hover:underline dark:text-brand-400"
-                  >
-                    <ExternalLink className="h-3 w-3" /> Ver no tribunal
-                  </a>
-                )}
-              </div>
-            </li>
+                    A publicação já sabia, no banco, qual andamento descreve o
+                    mesmo fato e qual atividade nasceu dela — e a tela mostrava
+                    isso como texto morto ("Atividade criada na Agenda", sem
+                    dizer qual). São os dois saltos que fecham o ciclo.
+                  */}
+                  {grupo.principal.movimentacaoId && onVerAndamento && (
+                    <button
+                      type="button"
+                      onClick={() => onVerAndamento(grupo.principal.movimentacaoId!)}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
+                    >
+                      <Landmark className="h-3 w-3" /> Ver o ato na linha do tempo
+                    </button>
+                  )}
+                  {grupo.principal.compromissoId && (
+                    <Link
+                      href={`/agenda?compromisso=${grupo.principal.compromissoId}`}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
+                    >
+                      <Bot className="h-3 w-3" /> Abrir a atividade na Agenda
+                    </Link>
+                  )}
+                </>
+              }
+            />
           ))}
         </ul>
       )}
@@ -2329,6 +2293,45 @@ function ItemLinhaTempo({
             <p className="mt-1 truncate text-[10px] text-muted-foreground/70">{item.orgaoJulgador}</p>
           )}
         </div>
+      </li>
+    );
+  }
+
+  /**
+   * ANOTAÇÃO DO SISTEMA NÃO É TRABALHO DE ADVOGADO — e não pode ocupar a mesma
+   * altura na linha do tempo.
+   *
+   * Das 149 movimentações internas da produção, 54 foram escritas pelo próprio
+   * sistema ("Área jurídica definida automaticamente como Administrativo").
+   * Elas saíam com cartão inteiro, borda colorida e selo de tipo, ao lado de
+   * "A Autora é servidora pública municipal efetiva…" — que uma pessoa
+   * escreveu depois de ler o caso. Quem passa o olho lê as duas com o mesmo
+   * peso e a segunda se perde no meio das primeiras.
+   *
+   * Apagá-las seria pior: elas explicam por que o processo tem a área que tem,
+   * e é registro de auditoria. Ficam, em uma linha, sem cor e sem selo — quem
+   * procura, acha; quem está lendo o caso, passa por cima.
+   */
+  if (item.origemSistema) {
+    return (
+      <li className="flex items-start gap-2 rounded-lg border border-dashed border-border/70 bg-muted/30 px-3 py-2">
+        <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+        <p className="min-w-0 flex-1 text-[11px] leading-snug text-muted-foreground">
+          {item.descricao}
+        </p>
+        <span className="shrink-0 whitespace-nowrap text-[10px] text-muted-foreground/70">
+          {formatData(item.data)}
+        </span>
+        {podeExcluir && (
+          <button
+            type="button"
+            onClick={onExcluir}
+            title="Remover anotação do sistema"
+            className="-my-0.5 shrink-0 rounded p-1 text-muted-foreground/60 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
       </li>
     );
   }

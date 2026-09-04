@@ -455,6 +455,15 @@ export class AgendaService {
             id: true, texto: true, tipoComunicacao: true, nomeOrgao: true,
             dataDisponibilizacao: true, providencia: true, prazoMencionadoDias: true,
             link: true, processoId: true,
+            /**
+             * QUEM foi intimado, e por qual OAB.
+             *
+             * O DJEN manda uma cópia por destinatário, e é esta lista que
+             * permite dizer "mesma publicação, enviada a 8 advogados" em vez
+             * de repetir o teor oito vezes na gaveta. O `link` acima é a chave
+             * que agrupa; esta é a informação que o agrupamento resume.
+             */
+            advogados: true,
           },
         },
         // Triagem de origem: canal, demanda e QUEM registrou (atendente).

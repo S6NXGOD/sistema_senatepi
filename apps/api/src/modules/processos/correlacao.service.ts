@@ -60,7 +60,7 @@ export class CorrelacaoService {
    * Chamado depois de ingerir publicações de um processo.
    */
   async aplicarAposDjen(processoId: string): Promise<{ criadas: number; enriquecidas: number }> {
-    const resumo = { criadas: 0, enriquecidas: 0 };
+    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0 };
     try {
       const desde = new Date(Date.now() - this.JANELA_DIAS * 24 * 3_600_000);
 
@@ -163,37 +163,42 @@ export class CorrelacaoService {
         }
 
         /**
-         * (A2) OUTRA PUBLICAÇÃO DO MESMO ATO JÁ CRIOU A ATIVIDADE.
+         * (A2) JÁ EXISTE TAREFA ABERTA PARA ESTE TRABALHO NESTE PROCESSO.
          *
-         * O DJEN publica UMA comunicação POR DESTINATÁRIO. A mesma intimação,
-         * num processo com três advogados no polo, chega três vezes — com
-         * textos ligeiramente diferentes, porque cada uma nomeia o seu
-         * destinatário. Para o CNJ são três comunicações; para quem trabalha é
-         * um ato só.
+         * A ATIVIDADE É UMA UNIDADE DE TRABALHO, NÃO UMA UNIDADE DE PUBLICAÇÃO
+         * — e essa distinção é a diferença entre uma agenda que se usa e uma
+         * que se ignora.
          *
-         * Sem esta trava a agenda enchia de gêmeas: medido na produção em
-         * 03/09/2026, três "Avaliar recurso" do mesmo processo vencendo no
-         * mesmo dia, e mais dois pares iguais em outros dois processos. Cartões
-         * indistinguíveis na mesma coluna são o defeito que já apareceu neste
-         * sistema pela conclusão dupla de reunião — e a cura é a mesma: a
-         * segunda ocorrência ENRIQUECE a primeira em vez de empilhar.
+         * Dois fatos empurram na mesma direção. Primeiro, o DJEN publica UMA
+         * comunicação POR DESTINATÁRIO: a mesma intimação, num processo com
+         * sete advogados intimados (medido: até doze), chega sete vezes, com
+         * textos que só diferem em quem é nomeado. Segundo, atos DIFERENTES do
+         * mesmo processo pedem, muitas vezes, o mesmo trabalho: dois acórdãos
+         * em quinze dias, os dois pedindo "avaliar recurso".
          *
-         * A chave é (processo, providência, dia da disponibilização). Duas
-         * publicações do mesmo ato compartilham as três; dois atos diferentes
-         * no mesmo dia — que existem — diferem na providência, e aí nascem
-         * separados, como devem.
+         * A primeira versão desta trava usava (processo, providência, DIA), e
+         * só resolvia o primeiro caso. O resultado, na tela do jurídico em
+         * 03/09/2026: dois cartões "Avaliar recurso" do mesmo processo, mesmo
+         * horário, indistinguíveis — porque as publicações eram de 12/08 e
+         * 27/08. Tecnicamente dois atos; na prática, uma decisão só a tomar.
+         *
+         * A chave passou a ser (processo, providência) com atividade ABERTA. A
+         * segunda publicação anexa o seu teor à tarefa que já existe, e quem
+         * abrir lê as duas antes de decidir. Providências diferentes continuam
+         * separadas — "juntar documentos" e "avaliar recurso" são trabalhos
+         * distintos e merecem cartões distintos.
          */
         const irma = await this.prisma.comunicacaoDjen.findFirst({
           where: {
             processoId,
             id: { not: c.id },
             providencia: c.providencia,
-            dataDisponibilizacao: c.dataDisponibilizacao,
             compromissoId: { not: null },
             // Pelo mesmo motivo do cenário (A): irmã ligada a atividade
             // cancelada não serve de destino para esta.
             compromisso: { status: { in: ['PENDENTE', 'EM_ANDAMENTO'] } },
           },
+          orderBy: { dataDisponibilizacao: 'desc' },
           select: { compromissoId: true },
         });
         if (irma?.compromissoId) {
@@ -208,6 +213,43 @@ export class CorrelacaoService {
             },
           });
           resumo.enriquecidas++;
+          continue;
+        }
+
+        /**
+         * (A3) PUBLICAÇÃO VELHA DEMAIS PARA VIRAR TAREFA.
+         *
+         * A consulta por NPU não traz uma janela de dias: traz o HISTÓRICO
+         * INTEIRO do processo. Medido na produção em 03/09/2026 — a publicação
+         * mais antiga entre as 136 baixadas é de 14/05/2024, 842 dias atrás.
+         * Sem esta trava, cadastrar um processo antigo despeja na agenda a
+         * pilha de tudo que já foi publicado nele desde sempre, com prazos que
+         * venceram há dois anos.
+         *
+         * O corte é de sessenta dias, e ele não é redondo por acaso: é o dobro
+         * do maior prazo processual comum (trinta dias da Fazenda Pública, art.
+         * 183 do CPC). Dentro dele ainda é plausível que algo esteja correndo —
+         * prazo suspenso, intimação por outra via, contagem em dobro. Fora
+         * dele, o que havia a fazer já foi feito ou já se perdeu, e uma tarefa
+         * criada hoje não salva nada: só ocupa a agenda de quem tem prazo vivo.
+         *
+         * A publicação NÃO é descartada. Ela continua gravada, classificada e
+         * visível na aba Publicações do processo — o que ela não faz é fingir
+         * ser trabalho pendente.
+         */
+        const idadeDias = Math.floor(
+          (Date.now() - c.dataDisponibilizacao.getTime()) / 86_400_000,
+        );
+        if (idadeDias > DIAS_LIMITE_TAREFA) {
+          await this.prisma.comunicacaoDjen.update({
+            where: { id: c.id },
+            data: {
+              movimentacaoId,
+              providencia: c.providencia,
+              prazoMencionadoDias: c.prazoMencionadoDias,
+            },
+          });
+          resumo.antigas++;
           continue;
         }
 
@@ -235,10 +277,11 @@ export class CorrelacaoService {
       // O pareamento tardio — ver `parearAtrasadas`.
       await this.parearAtrasadas(processoId, desde, movimentacoes);
 
-      if (resumo.criadas || resumo.enriquecidas) {
+      if (resumo.criadas || resumo.enriquecidas || resumo.antigas) {
         this.logger.log(
           `[CORRELACAO] ${processo.numeroCNJ}: ${resumo.criadas} atividade(s) criada(s), ` +
-            `${resumo.enriquecidas} enriquecida(s) com o teor da publicação.`,
+            `${resumo.enriquecidas} enriquecida(s) com o teor da publicação` +
+            `${resumo.antigas ? `, ${resumo.antigas} publicação(ões) antiga(s) só classificada(s)` : ''}.`,
         );
       }
     } catch (err) {
@@ -405,28 +448,52 @@ export class CorrelacaoService {
    */
   private async enriquecer(
     compromissoId: string,
-    c: { texto: string; link: string | null; providencia: Providencia; prazoMencionadoDias: number | null },
+    c: {
+      texto: string;
+      link: string | null;
+      providencia: Providencia;
+      prazoMencionadoDias: number | null;
+      dataDisponibilizacao?: Date;
+    },
   ): Promise<void> {
     if (c.providencia === 'NENHUMA') return;
     const spec = PROVIDENCIAS[c.providencia];
 
     const atual = await this.prisma.compromisso.findUnique({
       where: { id: compromissoId },
-      select: { titulo: true, descricao: true, origemAutomatica: true, urgente: true },
+      select: {
+        titulo: true, descricao: true, origemAutomatica: true, urgente: true, inicio: true,
+      },
     });
     if (!atual) return;
 
-    const jaTemTeor = atual.descricao?.includes(BLOCO_PUBLICACAO) ?? false;
-    if (jaTemTeor) return; // idempotente: rodar duas vezes não empilha o texto
-
     const promoverTitulo =
       atual.origemAutomatica && atual.titulo === TITULO_PRAZO_GENERICO;
+
+    /**
+     * O PRAZO MAIS CURTO MANDA.
+     *
+     * Uma tarefa que já existe pode receber publicação nova com prazo mais
+     * apertado que o da primeira. Manter a data antiga faria a agenda dizer
+     * "quinta" enquanto o prazo real virou terça. Antecipar não perde nada;
+     * adiar, sim — por isso só encurta, nunca estica.
+     */
+    let antecipar: Date | null = null;
+    if (c.dataDisponibilizacao) {
+      const novo = proximoDiaUtil(
+        somarDiasUteis(c.dataDisponibilizacao, diasParaLembrete(spec, c.prazoMencionadoDias)),
+      );
+      novo.setHours(9, 0, 0, 0);
+      if (novo < atual.inicio) antecipar = novo;
+    }
 
     await this.prisma.compromisso.update({
       where: { id: compromissoId },
       data: {
         ...(promoverTitulo ? { titulo: spec.titulo } : {}),
-        descricao: `${atual.descricao ?? ''}\n\n${this.blocoTeor(c)}`.trim(),
+        ...(antecipar
+          ? { inicio: antecipar, fim: new Date(antecipar.getTime() + 3_600_000) }
+          : {}),
         /**
          * Prazo curto marca como urgente; NUNCA desmarca — por isso o `||` com
          * o valor atual, e por isso `montarUrgencia` só é chamada quando a
@@ -511,13 +578,23 @@ export class CorrelacaoService {
         status: StatusCompromisso.PENDENTE,
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
+        /**
+         * A DESCRIÇÃO DIZ O QUE FAZER. O TEOR MORA NO BLOCO PRÓPRIO.
+         *
+         * Ela embutia o texto integral da publicação — era a única saída
+         * quando a gaveta não tinha onde mostrá-lo. Agora que tem, embutir
+         * duplica: o mesmo teor aparecia na descrição E no bloco, e com duas
+         * publicações irmãs ligadas à mesma tarefa, três vezes. Foi o que o
+         * jurídico viu na tela em 03/09/2026, e a descrição chegou a 1.898
+         * caracteres de texto de tribunal antes de qualquer instrução.
+         */
         descricao:
-          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.\n` +
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}` +
+          `${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.` +
           (atrasado
-            ? `⚠ Publicação de ${idadeDias} dia(s) atrás — o prazo calculado já venceu. ` +
-              `${recente ? 'Confira com urgência.' : 'Confira sem alarme o que ficou pendente.'}\n`
-            : '') +
-          this.blocoTeor(c),
+            ? `\n⚠ Publicação de ${idadeDias} dia(s) atrás — o prazo calculado já venceu. ` +
+              `${recente ? 'Confira com urgência.' : 'Confira sem alarme o que ficou pendente.'}`
+            : ''),
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
@@ -534,31 +611,6 @@ export class CorrelacaoService {
       select: { id: true },
     });
     return compromisso.id;
-  }
-
-  /**
-   * Bloco de texto com o teor da publicação.
-   *
-   * O AVISO SOBRE O PRAZO É OBRIGATÓRIO e não é enfeite: o sistema NÃO calcula
-   * vencimento processual. A contagem depende de dias úteis forenses, feriado
-   * da comarca, forma de intimação e suspensão de prazo. O número que aparece
-   * aqui é o que o TEXTO diz — quem confere é uma pessoa.
-   */
-  private blocoTeor(c: {
-    texto: string;
-    link: string | null;
-    prazoMencionadoDias: number | null;
-  }): string {
-    const partes = [BLOCO_PUBLICACAO, recortar(c.texto)];
-    if (c.prazoMencionadoDias != null) {
-      partes.push(
-        `⚠ O texto menciona prazo de ${c.prazoMencionadoDias} dias. Confira a contagem ` +
-          'oficial (dias úteis, feriados da comarca, forma de intimação) — o sistema não ' +
-          'calcula vencimento.',
-      );
-    }
-    if (c.link) partes.push(`Documento no tribunal: ${c.link}`);
-    return partes.join('\n');
   }
 
   /** Processo + a quem atribuir. Mesma regra do robô de prazos. */
@@ -613,25 +665,13 @@ interface ProcessoAlvo {
   responsavelId: string;
 }
 
-/** Marcador do bloco — serve também de trava de idempotência no enriquecimento. */
-const BLOCO_PUBLICACAO = '— Publicação (DJEN) —';
-
 /**
- * Teto do teor copiado para a descrição.
+ * Idade máxima, em dias, de uma publicação que ainda pode virar tarefa.
  *
- * Publicação de edital chega com dezenas de milhares de caracteres (listas de
- * devedores, por exemplo) e transformaria o card da agenda numa parede de
- * texto. O teor completo continua em `comunicacoes_djen.texto`, e a tela do
- * processo mostra tudo.
+ * Dobro do maior prazo processual comum (30 dias da Fazenda Pública, art. 183
+ * do CPC). Ver o comentário do cenário (A3) para o porquê da trava existir.
  */
-const LIMITE_TEOR = 1500;
-
-function recortar(texto: string): string {
-  const limpo = texto.replace(/\s+/g, ' ').trim();
-  return limpo.length <= LIMITE_TEOR
-    ? limpo
-    : `${limpo.slice(0, LIMITE_TEOR)}… (teor completo na aba Publicações do processo)`;
-}
+const DIAS_LIMITE_TAREFA = 60;
 
 /** Próximo dia útil a partir de `base` (inclusive). */
 function proximoDiaUtil(base: Date): Date {

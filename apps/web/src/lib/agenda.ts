@@ -162,6 +162,8 @@ export interface Compromisso {
     prazoMencionadoDias: number | null;
     link: string | null;
     processoId: string | null;
+    /** Quem o tribunal intimou. O DJEN manda uma cópia por destinatário. */
+    advogados: { nome: string | null; numeroOab: string | null; ufOab: string | null }[] | null;
   }[];
   filiado: FiliadoCard | null;
   responsavel: Responsavel;

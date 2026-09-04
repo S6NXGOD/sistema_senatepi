@@ -359,6 +359,18 @@ export class MovimentacoesService {
         descricao: m.descricao,
         tipo: m.tipo,
         notaInterna: m.notaInterna,
+        /**
+         * ESCRITA POR ROBÔ, NÃO POR PESSOA.
+         *
+         * A bandeira já existia no banco e já era respeitada onde importava
+         * para o cálculo — `origemSistema` fica de fora de "movimentação
+         * recente" e da ordenação. O que faltava era a TELA saber: das 149
+         * movimentações internas da produção, 54 são anotações do próprio
+         * sistema ("Área jurídica definida automaticamente como…") e
+         * apareciam na linha do tempo com o mesmo peso da nota que um
+         * advogado escreveu sobre o caso.
+         */
+        origemSistema: m.origemSistema,
         statusAnterior: m.statusAnterior,
         statusNovo: m.statusNovo,
         autor: m.autor,
