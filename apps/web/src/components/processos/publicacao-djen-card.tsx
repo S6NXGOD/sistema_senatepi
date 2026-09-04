@@ -54,9 +54,14 @@ function IdentificacaoDoCaso({ pub }: { pub: PublicacaoExibivel }) {
   const autor = partes.find((x) => x.polo === 'ATIVO')?.nome;
   const reu = partes.find((x) => x.polo === 'PASSIVO')?.nome;
 
-  // Um destinatário por publicação é a regra do DJEN; as cópias já foram
-  // agrupadas, então mostrar mais de dois nomes aqui seria repetir o grupo.
-  const intimados = (pub.destinatarios ?? []).filter((d) => d.nome).slice(0, 2);
+  /*
+    O ATO COSTUMA TER MAIS DE UM DESTINATÁRIO — o tribunal intima os dois lados
+    no mesmo despacho. Cabem dois nomes na linha; o resto vira contagem, porque
+    cortar em silêncio faria a tela afirmar que só duas pessoas foram intimadas.
+  */
+  const todos = (pub.destinatarios ?? []).filter((d) => d.nome);
+  const intimados = todos.slice(0, 2);
+  const ocultos = todos.length - intimados.length;
 
   if (!autor && !reu && intimados.length === 0) return null;
 
@@ -79,6 +84,7 @@ function IdentificacaoDoCaso({ pub }: { pub: PublicacaoExibivel }) {
               {d.polo && POLO_LABEL[d.polo] ? ` (${POLO_LABEL[d.polo]})` : ''}
             </span>
           ))}
+          {ocultos > 0 && <span> e mais {ocultos}</span>}
         </p>
       )}
     </div>
