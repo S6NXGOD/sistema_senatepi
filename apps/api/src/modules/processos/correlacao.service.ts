@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
 import { somarDiasUteis, TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
-import { inicioDoDiaBR, proximoHorarioUtilBR } from './utils/data-br.util';
+import { diaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
 import {
   classificarProvidencia,
@@ -706,8 +706,17 @@ const DIAS_DE_TOLERANCIA = 3;
  * tudo que chega passa; na PRIMEIRA ingestão ele é agora, e o histórico inteiro
  * do processo — que a consulta por NPU traz de propósito — fica de fora.
  */
-function ehNoticiaVelha(dataDisponibilizacao: Date, vigiadoDesde: Date): boolean {
+export function ehNoticiaVelha(dataDisponibilizacao: Date, vigiadoDesde: Date): boolean {
   const limite = new Date(vigiadoDesde.getTime() - DIAS_DE_TOLERANCIA * 24 * 3_600_000);
-  return dataDisponibilizacao < inicioDoDiaBR(limite);
+  /**
+   * CALENDÁRIO CONTRA CALENDÁRIO, e não instante contra instante.
+   *
+   * `dataDisponibilizacao` é coluna DATE: chega como meia-noite UTC, sem hora.
+   * `vigiadoDesde` é um instante real. Comparar os dois direto embute três
+   * horas de diferença — a publicação do próprio dia-limite cairia do lado
+   * errado e seria arquivada. Peguei isso na simulação contra a produção, não
+   * no teste: com dado sintético os dois valores nascem no mesmo fuso.
+   */
+  return dataDisponibilizacao.toISOString().slice(0, 10) < diaBR(limite);
 }
 
