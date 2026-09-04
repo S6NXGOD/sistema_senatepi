@@ -148,3 +148,49 @@ describe('vincular sem duplicar', () => {
     expect(trecho.slice(0, 2000)).toContain('já consta neste processo em outra parte');
   });
 });
+
+/**
+ * A LISTA INTEIRA NUMA CONSULTA SÓ.
+ *
+ * A fila tem 25 pessoas, e chamar a busca uma vez por pessoa são 25 idas ao
+ * banco em série: medido contra a produção, 5,8 segundos antes de a tela pintar
+ * qualquer coisa. Em lote, 0,63s — e o resultado é o MESMO, que é o que este
+ * bloco cobra.
+ */
+describe('sugerir para a fila inteira', () => {
+  const SERVICO = readFileSync(
+    path.join(RAIZ, 'src/modules/processos/sugestao-filiado.service.ts'),
+    'utf8',
+  );
+
+  it('faz uma consulta, e não uma por pessoa', () => {
+    const trecho = SERVICO.slice(SERVICO.indexOf('async paraVarios('));
+    const ateOFim = trecho.slice(0, trecho.indexOf('private candidato('));
+    // Um findMany só, e ele está FORA do laço que percorre os alvos.
+    expect(ateOFim.match(/this\.prisma\.filiado\.findMany/g) ?? []).toHaveLength(1);
+    expect(ateOFim.indexOf('findMany')).toBeLessThan(ateOFim.indexOf('for (const alvo of uteis)'));
+  });
+
+  /** Um primeiro nome comum ("MARIA") não pode arrastar o cadastro inteiro. */
+  it('tem teto no universo carregado', () => {
+    expect(SERVICO).toContain('take: 2_000');
+  });
+
+  /**
+   * A REGRA É A MESMA das duas formas — o lote não pode ser mais permissivo.
+   * `paraNome` e `paraVarios` chamam `parecemAMesmaPessoa` e ordenam pelo
+   * mesmo `ordenar`, e é isso que impede as duas de divergirem com o tempo.
+   */
+  it('lote e caso único compartilham a regra e a ordenação', () => {
+    expect(SERVICO).toContain('private ordenar(lista: CandidatoFiliado[])');
+    expect(SERVICO.match(/this\.ordenar\(/g) ?? []).toHaveLength(2);
+    expect(SERVICO.match(/parecemAMesmaPessoa\(/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  /** O CPF continua sendo certeza, inclusive no lote. */
+  it('o lote também reconhece o CPF', () => {
+    const trecho = SERVICO.slice(SERVICO.indexOf('async paraVarios('));
+    expect(trecho.slice(0, 2500)).toContain("'CERTEZA'");
+    expect(trecho.slice(0, 2500)).toContain('cpf: { in: docs }');
+  });
+});

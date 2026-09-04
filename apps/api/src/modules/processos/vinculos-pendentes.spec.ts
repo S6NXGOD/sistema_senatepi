@@ -57,12 +57,21 @@ describe('separar quem tem filiado de quem não pode ter', () => {
    * sempre, porque não há filiado que corresponda a um grupo.
    */
   it('basta uma parte ativa ser entidade', () => {
-    expect(SERVICO).toContain('ativas.some((x) => RE_NAO_E_PESSOA.test(semAcento(x.nome)))');
+    // A leitura aparece nos dois lugares: ao montar os alvos da consulta em
+    // lote e ao classificar a linha. Se divergirem, um caso ganha candidato
+    // que a tela vai esconder.
+    expect(
+      (SERVICO.match(/ativas\.some\(\(x\) => RE_NAO_E_PESSOA\.test\(semAcento\(x\.nome\)\)\)/g) ?? []).length,
+    ).toBe(2);
   });
 
-  /** Procurar candidato para o próprio sindicato é gastar consulta para errar. */
+  /**
+   * Procurar candidato para o próprio sindicato é gastar consulta para oferecer
+   * uma resposta errada — a entidade nem entra na lista de alvos da busca.
+   */
   it('não procura filiado para entidade', () => {
-    expect(SERVICO).toContain('pareceEntidade || !nome ? [] : await this.sugestoes.paraNome(');
+    expect(SERVICO).toContain('if (!entidade && parte) {');
+    expect(SERVICO).toContain('candidatos: pareceEntidade || !nome ? [] : (candidatosPorProcesso.get(p.id) ?? [])');
   });
 });
 

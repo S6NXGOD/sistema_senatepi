@@ -91,6 +91,23 @@ export class VinculosPendentesService {
       orderBy: { createdAt: 'asc' },
     });
 
+    /*
+      OS CANDIDATOS SAEM DE UMA CONSULTA SÓ.
+      Uma chamada por caso são 25 idas ao banco em série — medido contra a
+      produção, 5,8 segundos antes de a tela pintar qualquer coisa.
+    */
+    const alvos: { chave: string; nome: string; documento?: string | null }[] = [];
+    for (const p of processos) {
+      const ativas = p.partes.filter((x) => x.polo === 'ATIVO');
+      const parte = ativas.find((x) => !x.filiadoId);
+      const entidade =
+        ativas.length === 0 || ativas.some((x) => RE_NAO_E_PESSOA.test(semAcento(x.nome)));
+      if (!entidade && parte) {
+        alvos.push({ chave: p.id, nome: parte.nome, documento: parte.documento });
+      }
+    }
+    const candidatosPorProcesso = await this.sugestoes.paraVarios(alvos);
+
     const casos: CasoSemFiliado[] = [];
     for (const p of processos) {
       const ativas = p.partes.filter((x) => x.polo === 'ATIVO');
@@ -119,8 +136,7 @@ export class VinculosPendentesService {
         especie: pareceEntidade ? 'ENTIDADE' : 'PESSOA',
         // Procurar candidato para o próprio sindicato seria gastar consulta
         // para oferecer uma resposta errada.
-        candidatos:
-          pareceEntidade || !nome ? [] : await this.sugestoes.paraNome(nome, parte?.documento),
+        candidatos: pareceEntidade || !nome ? [] : (candidatosPorProcesso.get(p.id) ?? []),
       });
     }
     return casos;

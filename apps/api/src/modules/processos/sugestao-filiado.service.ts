@@ -105,6 +105,91 @@ export class SugestaoFiliadoService {
     return this.paraNome(parte.nome, parte.documento);
   }
 
+  /**
+   * A MESMA REGRA, PARA UMA LISTA INTEIRA — e numa consulta só.
+   *
+   * A fila tem 25 pessoas. Chamar `paraNome` para cada uma são 25 idas ao
+   * banco em série: medido contra a produção, 5,8 segundos só nisso. Aqui os
+   * primeiros nomes de todas viram um único `OR`, e o casamento acontece em
+   * memória — o custo passa a ser de uma consulta, e a tela abre.
+   */
+  async paraVarios(
+    alvos: { chave: string; nome: string; documento?: string | null }[],
+  ): Promise<Map<string, CandidatoFiliado[]>> {
+    const saida = new Map<string, CandidatoFiliado[]>();
+    const uteis = alvos.filter((a) => tokensDoNome(a.nome).length >= 2);
+    if (!uteis.length) return saida;
+
+    const primeiros = [...new Set(uteis.map((a) => tokensDoNome(a.nome)[0].toLowerCase()))];
+    const docs = uteis
+      .map((a) => soDigitos(a.documento))
+      .filter((d) => d.length === 11);
+
+    const universo = await this.prisma.filiado.findMany({
+      where: {
+        OR: [
+          ...primeiros.map((t) => ({ buscaNormalizada: { contains: t } })),
+          ...(docs.length ? [{ cpf: { in: docs } }] : []),
+        ],
+      },
+      select: { id: true, nomeCompleto: true, cpf: true, situacao: true },
+      // Teto de segurança: um primeiro nome muito comum ("MARIA") pode trazer
+      // centenas, e varrer 7 mil linhas em memória não é o negócio daqui.
+      take: 2_000,
+    });
+
+    for (const alvo of uteis) {
+      const doc = soDigitos(alvo.documento);
+      const achados = new Map<string, CandidatoFiliado>();
+
+      if (doc.length === 11) {
+        for (const f of universo) {
+          if (soDigitos(f.cpf) !== doc) continue;
+          achados.set(f.id, this.candidato(f, 'CERTEZA', 'O CPF da parte é o mesmo deste cadastro.'));
+        }
+      }
+
+      const iguais = universo.filter((f) => parecemAMesmaPessoa(alvo.nome, f.nomeCompleto));
+      for (const f of iguais) {
+        if (achados.has(f.id)) continue;
+        achados.set(
+          f.id,
+          this.candidato(
+            f,
+            iguais.length === 1 ? 'PROVAVEL' : 'POSSIVEL',
+            iguais.length === 1
+              ? 'O nome do cadastro corresponde ao que consta nos autos.'
+              : `Há ${iguais.length} cadastros com nome parecido — confira antes de vincular.`,
+          ),
+        );
+      }
+      saida.set(alvo.chave, this.ordenar([...achados.values()]));
+    }
+    return saida;
+  }
+
+  private candidato(
+    f: { id: string; nomeCompleto: string; cpf: string | null; situacao: unknown },
+    confianca: Confianca,
+    motivo: string,
+  ): CandidatoFiliado {
+    return {
+      id: f.id,
+      nome: f.nomeCompleto,
+      cpfMascarado: mascararCpf(f.cpf),
+      situacao: String(f.situacao),
+      confianca,
+      motivo,
+    };
+  }
+
+  private ordenar(lista: CandidatoFiliado[]): CandidatoFiliado[] {
+    const ordem: Record<Confianca, number> = { CERTEZA: 0, PROVAVEL: 1, POSSIVEL: 2 };
+    return lista
+      .sort((a, b) => ordem[a.confianca] - ordem[b.confianca] || a.nome.localeCompare(b.nome, 'pt-BR'))
+      .slice(0, 8);
+  }
+
   async paraNome(nome: string, documento?: string | null): Promise<CandidatoFiliado[]> {
     const doc = soDigitos(documento);
     const achados = new Map<string, CandidatoFiliado>();
@@ -157,9 +242,6 @@ export class SugestaoFiliadoService {
       }
     }
 
-    const ordem: Record<Confianca, number> = { CERTEZA: 0, PROVAVEL: 1, POSSIVEL: 2 };
-    return [...achados.values()]
-      .sort((a, b) => ordem[a.confianca] - ordem[b.confianca] || a.nome.localeCompare(b.nome, 'pt-BR'))
-      .slice(0, 8);
+    return this.ordenar([...achados.values()]);
   }
 }
