@@ -51,6 +51,13 @@ export interface ParteResumo {
   papel: string | null;
   principal: boolean;
   nome: string;
+  /**
+   * É o próprio sindicato? Vem da flag do cadastro de partes.
+   *
+   * A lista precisa disto para NÃO esconder o autor quando o sindicato é o
+   * réu — ação institucional não quer dizer que somos nós que processamos.
+   */
+  institucional?: boolean;
 }
 
 /** O par que a tela mostra como "Autor × Réu". */

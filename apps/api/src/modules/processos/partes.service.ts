@@ -19,7 +19,20 @@ interface Ctx {
 export const PARTE_INCLUDE = {
   filiado: { select: { id: true, nomeCompleto: true, matricula: true, situacao: true } },
   parteExterna: {
-    select: { id: true, tipo: true, nome: true, nomeFantasia: true, documento: true, ativo: true },
+    /**
+     * `institucional` VIAJA ATÉ A TELA, e não é detalhe de cadastro.
+     *
+     * A lista de processos escondia o nome do autor em toda ação
+     * INSTITUCIONAL, na premissa de que o autor é sempre o sindicato — e o selo
+     * ao lado já diria isso. A premissa é falsa quando o sindicato é RÉU: hoje
+     * há três processos assim (SINSEP, SINDHOSPI e uma contabilidade nos
+     * processando). Sem esta flag, a tela não tem como distinguir, e a linha
+     * passa a esconder justamente quem está nos processando.
+     */
+    select: {
+      id: true, tipo: true, nome: true, nomeFantasia: true,
+      documento: true, ativo: true, institucional: true,
+    },
   },
 } satisfies Prisma.ParteProcessoInclude;
 
@@ -84,14 +97,21 @@ export class PartesService {
     const passivo = partes.filter((p) => p.polo === 'PASSIVO');
     const terceiros = partes.filter((p) => p.polo === 'TERCEIRO');
     const destaque = (lista: T[]) => lista.find((p) => p.principal) ?? lista[0] ?? null;
+    /** É o próprio sindicato? Sai da flag do cadastro, não do nome. */
+    const marcar = (p: T | null) =>
+      p && {
+        ...p,
+        institucional:
+          !!(p as { parteExterna?: { institucional?: boolean } }).parteExterna?.institucional,
+      };
     return {
       ativo,
       passivo,
       terceiros,
       /** Confronto resumido — o que a lista de processos mostra numa linha. */
       confronto: {
-        autor: destaque(ativo),
-        reu: destaque(passivo),
+        autor: marcar(destaque(ativo)),
+        reu: marcar(destaque(passivo)),
         outrosAtivo: Math.max(0, ativo.length - 1),
         outrosPassivo: Math.max(0, passivo.length - 1),
       },

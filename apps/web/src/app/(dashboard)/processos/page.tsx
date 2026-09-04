@@ -1111,8 +1111,14 @@ function CelulaPartes({ p }: { p: ProcessoLista }) {
    * Com autor omitido, o réu sobe para a linha principal. A exceção é o
    * litisconsórcio ativo (`+N`): aí há mais alguém no polo além do sindicato, e
    * isso é informação nova que o selo não carrega.
+   *
+   * MAS SÓ QUANDO O AUTOR É MESMO O SINDICATO, e essa parte faltava.
+   * "Institucional" quer dizer que o sindicato age em nome próprio — não que
+   * ele seja o AUTOR. Há três processos em que ele é o RÉU (SINSEP, SINDHOSPI
+   * e uma contabilidade), e ali esconder o autor escondia exatamente quem está
+   * nos processando: a linha lia-se como se fôssemos nós a processar.
    */
-  const autorRedundante = institucional && outrosAtivo === 0;
+  const autorRedundante = institucional && outrosAtivo === 0 && !!autor?.institucional;
 
   return (
     <div className="min-w-0 text-sm leading-snug">

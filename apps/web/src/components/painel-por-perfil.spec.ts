@@ -210,3 +210,42 @@ describe('nenhuma tela nova confunde falha com vazio', () => {
     expect(ler('app/(dashboard)/relatorios/page.tsx')).toContain('{data && !isError && (');
   });
 });
+
+/**
+ * "INSTITUCIONAL" NÃO QUER DIZER QUE O SINDICATO É O AUTOR.
+ *
+ * A lista de processos escondia o nome do autor em toda ação institucional, na
+ * premissa de que o selo ao lado já dizia quem era. A premissa é falsa quando o
+ * sindicato é RÉU — e há três processos assim na produção: SINSEP × SENATEPI,
+ * SINDHOSPI × SENATEPI e uma contabilidade × SINDICATO DOS ENFERMEIROS.
+ *
+ * Esconder o autor ali escondia exatamente quem está nos processando: a linha
+ * lia-se como se fôssemos nós a processar. O painel de vínculos oferece
+ * "marcar institucional" para esses três casos, então a premissa errada
+ * passaria a valer para eles no dia seguinte.
+ */
+describe('ação institucional com o sindicato no polo passivo', () => {
+  const LISTA = ler('app/(dashboard)/processos/page.tsx');
+  const PARTES_API = readFileSync(
+    resolve(__dirname, '../../../api/src/modules/processos/partes.service.ts'),
+    'utf8',
+  );
+
+  it('a lista só omite o autor quando o autor É o sindicato', () => {
+    expect(LISTA).toContain(
+      'const autorRedundante = institucional && outrosAtivo === 0 && !!autor?.institucional;',
+    );
+  });
+
+  /**
+   * A MARCA SAI DA FLAG DO CADASTRO, não de comparar nome. "SENATEPI",
+   * "SINDICATO DOS ENFERMEIROS…" e a razão social inteira são a mesma entidade
+   * escrita de três jeitos; só a flag sabe disso.
+   */
+  it('a API manda a marca institucional junto da parte', () => {
+    expect(PARTES_API).toContain('institucional: true,');
+    expect(PARTES_API).toContain('const marcar = (p: T | null)');
+    expect(PARTES_API).toContain('autor: marcar(destaque(ativo)),');
+    expect(PARTES_API).toContain('reu: marcar(destaque(passivo)),');
+  });
+});
