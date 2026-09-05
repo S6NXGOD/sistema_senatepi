@@ -21,7 +21,7 @@ import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
   primeiroNome, motivoFalhaDatajud,
-  type ResumoDashboard, type FalhaDatajud,
+  type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
@@ -805,16 +805,30 @@ function primeiroENome(p: { nome: string; nomeExibicao: string | null }): string
 }
 
 function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
-  const { situacao, processosMonitorados, ultimaSincronizacao, falhasProcessos } = robo;
+  const {
+    situacao, processosMonitorados, ultimaSincronizacao, falhasProcessos,
+    horasAteAtraso, desconhecidosNoCnj,
+  } = robo;
   const desde = ultimaSincronizacao
     ? idadeDoDado(new Date(ultimaSincronizacao).getTime())
     : null;
 
-  const falhasBar = falhasProcessos.length > 0 && <FalhasCNJ falhas={falhasProcessos} />;
+  const falhasBar = falhasProcessos.length > 0 && (
+    <FalhasCNJ falhas={falhasProcessos} horasAteAtraso={horasAteAtraso} />
+  );
+  const desconhecidosBar = !!desconhecidosNoCnj?.length && (
+    <DesconhecidosNoCnj itens={desconhecidosNoCnj} />
+  );
 
   // Ocioso ou em dia: nenhuma barra sobre o robô. Só as falhas, se houver.
   if (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA') {
-    return falhasBar || null;
+    if (!falhasBar && !desconhecidosBar) return null;
+    return (
+      <div className="space-y-2">
+        {falhasBar}
+        {desconhecidosBar}
+      </div>
+    );
   }
 
   const aviso =
@@ -842,6 +856,92 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
     <div className="space-y-2">
       {aviso}
       {falhasBar}
+      {desconhecidosBar}
+    </div>
+  );
+}
+
+/**
+ * O CNJ NÃO CONHECE ESTE NÚMERO — e o robô pergunta todo dia.
+ *
+ * ISTO ERA INVISÍVEL, e não por descuido de tela: a consulta é gravada como
+ * SUCESSO, porque ela de fato funcionou — o índice público é que não tem o
+ * processo. Como não é falha, nunca entrou na barra de falhas; e como ninguém
+ * vê, ninguém conserta. Medido na produção em 05/09/2026: **um único NPU
+ * consultado 151 vezes em 7 dias**, sempre com a mesma resposta.
+ *
+ * É conferência de cadastro, não problema de integração — por isso barra
+ * própria, em tom neutro: ou o número está digitado errado, ou o processo não
+ * foi distribuído. As duas coisas são trabalho de gente.
+ *
+ * SÓ DEPOIS DE TRÊS DIAS insistindo (corte na API): processo distribuído ontem
+ * ainda não está no índice, e cobrar isso seria acusar o tribunal de um atraso
+ * que é normal.
+ */
+function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
+  const [aberto, setAberto] = useState(false);
+  const n = itens.length;
+  const consultas = itens.reduce((s, i) => s + i.tentativas, 0);
+
+  return (
+    <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Info className="h-4 w-4 shrink-0 opacity-70" />
+          <span>
+            O CNJ não encontra <strong className="text-foreground">{n}</strong>{' '}
+            {n === 1 ? 'processo' : 'processos'} do acervo — e o robô já perguntou{' '}
+            <strong className="text-foreground">{consultas}</strong>{' '}
+            {consultas === 1 ? 'vez' : 'vezes'}. Confira o número, ou aguarde a
+            distribuição.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+          {aberto ? 'Ocultar' : 'Ver quais'}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
+        </span>
+      </button>
+
+      {aberto && (
+        <ul className="border-t border-input">
+          {itens.map((i) => {
+            const conteudo = (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-xs font-semibold text-foreground">
+                    {formatNPU(i.numeroCNJ)}
+                  </span>
+                  <span className="block truncate text-xs opacity-80">
+                    {i.filiado ?? 'Sem filiado vinculado'}
+                    {i.tribunal ? ` · ${i.tribunal}` : ''}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs">
+                  {i.tentativas}× desde {new Date(i.desde).toLocaleDateString('pt-BR')}
+                </span>
+              </>
+            );
+            const classe =
+              'flex items-center gap-3 border-t border-input/60 px-4 py-2.5 first:border-t-0 transition hover:bg-muted';
+            return (
+              <li key={i.numeroCNJ}>
+                {i.processoId ? (
+                  <Link href={`/processos?processo=${i.processoId}`} className={classe}>
+                    {conteudo}
+                  </Link>
+                ) : (
+                  <span className={classe}>{conteudo}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -862,7 +962,13 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
  * O que entra aqui é só sincronização de processo JÁ CADASTRADO (ver
  * `falhasDatajud24h` na API) — por isso todo item tem, de fato, para onde ir.
  */
-function FalhasCNJ({ falhas }: { falhas: FalhaDatajud[] }) {
+function FalhasCNJ({
+  falhas,
+  horasAteAtraso = 48,
+}: {
+  falhas: FalhaDatajud[];
+  horasAteAtraso?: number;
+}) {
   const [aberto, setAberto] = useState(false);
   const n = falhas.length;
   // Uma chave recusada ou um NPU que o CNJ não reconhece falham de novo
@@ -870,8 +976,44 @@ function FalhasCNJ({ falhas }: { falhas: FalhaDatajud[] }) {
   // quando ela não resolve.
   const persistentes = falhas.filter((f) => !motivoFalhaDatajud(f).passageiro).length;
 
+  /*
+    "TENTATIVA QUE FALHOU" NÃO É "PROCESSO DESATUALIZADO" — e a faixa dizia que
+    era.
+
+    Ela anunciava "a varredura não conseguiu atualizar 6 processos", em âmbar,
+    com seis linhas para clicar. Medido na produção: eram oito timeouts de
+    exatos 45s, todos da MESMA rodada, entre a 82ª e a 106ª consulta, com ZERO
+    timeouts nas nove noites anteriores. E os seis listados tinham sido lidos
+    com sucesso de 33 a 37 horas antes, sem nada novo no CNJ.
+
+    Ou seja: o texto mandava conferir seis processos que estavam em dia. Quem
+    conferiu — e foi o usuário quem percebeu — concluiu, com razão, que a faixa
+    estava errada. Alerta que o próprio leitor desmente ensina a ignorar todos
+    os outros.
+
+    Agora o alarme é só para quem está SEM LEITURA há tempo demais. O resto
+    continua visível, porque instabilidade do CNJ é informação — mas em tom de
+    informação.
+  */
+  const atrasado = (f: FalhaDatajud) => {
+    // Sem `ultimoSucesso` (API antiga na janela de troca), não dá para afirmar
+    // que está em dia: trata como atrasado, que é o lado seguro de errar.
+    if (f.ultimoSucesso === undefined) return true;
+    if (!f.ultimoSucesso) return true;
+    return Date.now() - new Date(f.ultimoSucesso).getTime() > horasAteAtraso * 3_600_000;
+  };
+  const atrasados = falhas.filter(atrasado).length;
+  const soTropeco = atrasados === 0;
+
   return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
+    <div
+      className={cn(
+        'rounded-xl border text-sm',
+        soTropeco
+          ? 'border-input bg-muted/40 text-muted-foreground'
+          : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200',
+      )}
+    >
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
@@ -879,22 +1021,44 @@ function FalhasCNJ({ falhas }: { falhas: FalhaDatajud[] }) {
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
       >
         <span className="flex items-center gap-2.5">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          {soTropeco ? (
+            <Info className="h-4 w-4 shrink-0 opacity-70" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          )}
           <span>
-            A varredura do DataJud não conseguiu atualizar <strong>{n}</strong>{' '}
-            {n === 1 ? 'processo' : 'processos'} nas últimas 24h.{' '}
-            {persistentes === 0 ? (
-              <>Costuma ser instabilidade passageira — a próxima varredura tenta de novo.</>
-            ) : persistentes === n ? (
+            {soTropeco ? (
+              /*
+                O CNJ TROPEÇOU, e nada ficou para trás. Dizer isso é útil (a
+                instabilidade é real e recorrente) e dizer que "não conseguiu
+                atualizar N processos" é falso — os N estão em dia.
+              */
               <>
-                {n === 1 ? 'A falha não é passageira' : 'As falhas não são passageiras'}:
-                tentar de novo não resolve sem alguém verificar.
+                O CNJ não respondeu a <strong>{n}</strong>{' '}
+                {n === 1 ? 'consulta' : 'consultas'} na última varredura.{' '}
+                <strong>Nenhum processo ficou para trás</strong> — todos foram lidos
+                nas últimas {horasAteAtraso}h.
               </>
             ) : (
               <>
-                <strong>{persistentes}</strong>{' '}
-                {persistentes === 1 ? 'não é passageira' : 'não são passageiras'} e
-                {persistentes === 1 ? ' pede' : ' pedem'} verificação.
+                <strong>{atrasados}</strong>{' '}
+                {atrasados === 1 ? 'processo está' : 'processos estão'} sem leitura do
+                CNJ há mais de {horasAteAtraso}h.{' '}
+                {persistentes === 0 ? (
+                  <>A próxima varredura tenta de novo; se insistir, alguém precisa olhar.</>
+                ) : (
+                  <>
+                    <strong>{persistentes}</strong>{' '}
+                    {persistentes === 1 ? 'não é problema passageiro' : 'não são problemas passageiros'}
+                    {persistentes === 1 ? ' e pede' : ' e pedem'} verificação.
+                  </>
+                )}
+                {n > atrasados && (
+                  <>
+                    {' '}Outros <strong>{n - atrasados}</strong> tropecaram nesta rodada mas
+                    seguem em dia.
+                  </>
+                )}
               </>
             )}
           </span>
@@ -906,7 +1070,7 @@ function FalhasCNJ({ falhas }: { falhas: FalhaDatajud[] }) {
       </button>
 
       {aberto && (
-        <ul className="border-t border-amber-300/70 dark:border-amber-900/50">
+        <ul className={cn('border-t', soTropeco ? 'border-input' : 'border-amber-300/70 dark:border-amber-900/50')}>
           {falhas.map((f) => {
             const motivo = motivoFalhaDatajud(f);
             const npu = formatNPU(f.numeroCNJ);
@@ -917,6 +1081,19 @@ function FalhasCNJ({ falhas }: { falhas: FalhaDatajud[] }) {
                   <span className="block truncate text-xs opacity-80">
                     {f.filiado ?? 'Sem filiado vinculado'}
                     {f.tribunal ? ` · ${f.tribunal}` : ''}
+                    {/*
+                      A LINHA QUE RESPONDE "MAS ESSE AQUI ESTÁ ATUALIZADO".
+
+                      Sem ela, cada item da lista é uma acusação sem defesa: o
+                      processo aparece como problema e nada na tela diz que ele
+                      foi lido com sucesso ontem. Foi exatamente essa dúvida que
+                      trouxe o usuário até aqui.
+                    */}
+                    {f.ultimoSucesso
+                      ? ` · lido ${tempoRelativo(f.ultimoSucesso)}`
+                      : f.ultimoSucesso === null
+                        ? ' · nunca lido com sucesso'
+                        : ''}
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2 text-xs">

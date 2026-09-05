@@ -177,6 +177,42 @@ interface FalhaDatajud {
   mensagemErro: string | null;
   createdAt: Date;
   filiado: string | null;
+  /**
+   * Quanto tempo a chamada durou. 45.000ms é o nosso teto de espera — com ele
+   * a tela distingue "o CNJ demorou demais" de "o CNJ não respondeu", que
+   * levam a conclusões diferentes.
+   */
+  duracaoMs: number | null;
+  /**
+   * QUANDO ESTE PROCESSO FOI LIDO COM SUCESSO PELA ÚLTIMA VEZ — e é esta a
+   * informação que faltava.
+   *
+   * A faixa dizia "a varredura não conseguiu atualizar 6 processos" e listava
+   * seis. Medido em 05/09/2026: os seis eram *timeouts de 45s* de UMA rodada, e
+   * todos tinham sido lidos com sucesso 33 a 37 horas antes, sem nada novo no
+   * CNJ. Nenhum estava desatualizado. A faixa acusava um problema de processo
+   * onde havia um soluço passageiro da rodada.
+   */
+  ultimoSucesso: Date | null;
+}
+
+/**
+ * Um NPU que o CNJ diz não conhecer — e que o robô continua perguntando.
+ *
+ * Este caso é gravado como `sucesso = true` (a consulta FUNCIONOU; o índice é
+ * que não tem o processo), e por isso era invisível. Medido: um único NPU
+ * consultado **151 vezes em 7 dias**, sempre com a mesma resposta. Ou o número
+ * está errado, ou o processo não foi distribuído — e as duas coisas são
+ * trabalho de gente, não de robô.
+ */
+interface ProcessoDesconhecidoNoCnj {
+  processoId: string | null;
+  numeroCNJ: string;
+  tribunal: string | null;
+  filiado: string | null;
+  tentativas: number;
+  desde: Date;
+  ultima: Date;
 }
 
 /** Campos mínimos de um compromisso para os cards da home (LGPD: só o essencial). */
@@ -339,6 +375,7 @@ export class DashboardService {
       // Saúde do robô de sincronização
       ultimaSync,
       falhasSync,
+      desconhecidosNoCnj,
       processosMonitorados,
       // Qualidade do dado e painéis por perfil
       filiadosSemDataFiliacao,
@@ -505,6 +542,8 @@ export class DashboardService {
         select: { createdAt: true, sucesso: true },
       }),
       this.falhasDatajud24h(new Date(agora.getTime() - DIA_MS)),
+      // NPUs que o CNJ não conhece — janela larga: o que importa é a INSISTÊNCIA.
+      this.processosDesconhecidosNoCnj(new Date(agora.getTime() - 30 * DIA_MS)),
       // Quantos processos o robô de fato varre — MESMO critério de
       // `ProcessosService.idsParaSincronizar`. É o denominador que faltava:
       // sem ele, "nunca rodou" virava alarme numa base sem processo nenhum,
@@ -987,7 +1026,7 @@ export class DashboardService {
        * sincronizar. Um estado não é um problema só por ser diferente do
        * ideal; virar alarme depende de haver trabalho pendente.
        */
-      robo: this.situacaoRobo(ultimaSync, falhasSync, processosMonitorados, agora),
+      robo: this.situacaoRobo(ultimaSync, falhasSync, desconhecidosNoCnj, processosMonitorados, agora),
       /**
        * AS FONTES EXTERNAS ESTÃO DE PÉ?
        *
@@ -1226,9 +1265,19 @@ export class DashboardService {
     });
   }
 
+  /**
+   * QUANTAS HORAS SEM LEITURA até um processo estar de fato ATRASADO.
+   *
+   * A varredura roda uma vez por dia. Perder UMA rodada é rotina do CNJ — o
+   * próprio índice público oscila. Perder DUAS já é outra coisa, e aí vale
+   * chamar alguém.
+   */
+  private static readonly HORAS_ATE_ATRASO = 48;
+
   private situacaoRobo(
     ultimaSync: { createdAt: Date; sucesso: boolean } | null,
     falhas: FalhaDatajud[],
+    desconhecidos: ProcessoDesconhecidoNoCnj[],
     processosMonitorados: number,
     agora: Date,
   ) {
@@ -1247,12 +1296,38 @@ export class DashboardService {
     // Falha só é notícia se houve varredura para falhar.
     const lista = situacao === 'SEM_OBJETO' ? [] : falhas;
 
+    /*
+      "TENTATIVA QUE FALHOU" NÃO É "PROCESSO DESATUALIZADO".
+
+      A faixa dizia "a varredura não conseguiu atualizar 6 processos" e listava
+      seis com cor de alerta. Medido na produção em 05/09/2026: eram OITO
+      timeouts de exatos 45s, todos da MESMA rodada, todos entre a 82ª e a 106ª
+      consulta — e nas nove noites anteriores houve ZERO. Não é defeito de seis
+      processos; é a rodada degradando no fim, provavelmente cota ou latência do
+      CNJ.
+
+      E o mais importante: os seis tinham sido lidos com sucesso de 33 a 37
+      horas antes, sem nada novo. Nenhum estava desatualizado. Foi o que o
+      usuário percebeu olhando a tela — "há processos atualizados que passaram
+      nessa lista".
+
+      Então a pergunta muda: não é "alguma tentativa falhou?", é "algum processo
+      está sem leitura há tempo demais?". Só esses pedem ação.
+    */
+    const limite = agora.getTime() - DashboardService.HORAS_ATE_ATRASO * HORA;
+    const atrasados = lista.filter(
+      (f) => !f.ultimoSucesso || f.ultimoSucesso.getTime() < limite,
+    );
+
     return {
       situacao,
       processosMonitorados,
       ultimaSincronizacao: ultimaSync?.createdAt ?? null,
       ultimaComSucesso: ultimaSync?.sucesso ?? null,
       falhas24h: lista.length,
+      /** Destes, quantos estão de fato sem leitura há mais de 48h. */
+      atrasados24h: atrasados.length,
+      horasAteAtraso: DashboardService.HORAS_ATE_ATRASO,
       /**
        * QUAIS processos o CNJ recusou. O número sozinho não era acionável: a
        * barra dizia "2 processos" e mandava para a lista inteira, onde nada
@@ -1260,6 +1335,12 @@ export class DashboardService {
        * cada item abre o processo que falhou.
        */
       falhasProcessos: lista,
+      /**
+       * NPUs QUE O CNJ NÃO CONHECE — lista própria, porque não é falha do robô.
+       * A consulta funciona; o índice é que não tem o processo. Ficava invisível
+       * (gravado como sucesso) enquanto o robô perguntava 151 vezes em 7 dias.
+       */
+      desconhecidosNoCnj: situacao === 'SEM_OBJETO' ? [] : desconhecidos,
     };
   }
 
@@ -1302,7 +1383,7 @@ export class DashboardService {
       WITH ultima AS (
         SELECT DISTINCT ON (COALESCE(l.processo_id, l.numero_cnj))
                l.processo_id, l.numero_cnj, l.tribunal, l.sucesso,
-               l.http_status, l.mensagem_erro, l.created_at
+               l.http_status, l.mensagem_erro, l.created_at, l.duracao_ms
           FROM logs_sincronizacao_datajud l
          WHERE l.created_at >= ${desde}
            AND l.fonte = 'DATAJUD'
@@ -1315,13 +1396,74 @@ export class DashboardService {
              u.http_status   AS "httpStatus",
              u.mensagem_erro AS "mensagemErro",
              u.created_at    AS "createdAt",
-             f.nome_completo AS "filiado"
+             u.duracao_ms    AS "duracaoMs",
+             f.nome_completo AS "filiado",
+             /*
+               5. A ÚLTIMA LEITURA BEM-SUCEDIDA, sem recorte de tempo.
+
+               Sem ela não dá para distinguir "o CNJ engasgou numa tentativa" de
+               "este processo está sem leitura há uma semana" — e a faixa
+               tratava os dois como a mesma coisa, com a mesma cor.
+             */
+             (SELECT max(s.created_at)
+                FROM logs_sincronizacao_datajud s
+               WHERE s.fonte = 'DATAJUD'
+                 AND s.sucesso = true
+                 AND (s.processo_id = u.processo_id
+                      OR (u.processo_id IS NULL AND s.numero_cnj = u.numero_cnj))
+             ) AS "ultimoSucesso"
         FROM ultima u
         LEFT JOIN processos p ON p.id = u.processo_id
         LEFT JOIN filiados  f ON f.id = p.filiado_id
        WHERE u.sucesso = false
        ORDER BY u.created_at DESC
        LIMIT 25
+    `;
+  }
+
+  /**
+   * OS NPUs QUE O CNJ NÃO CONHECE — e que o robô pergunta todo dia.
+   *
+   * Este caso é gravado como SUCESSO: a consulta funcionou, o índice é que não
+   * tem o processo. Por isso ele nunca apareceu em lugar nenhum, e o robô seguiu
+   * perguntando — um único NPU consumiu **151 consultas em 7 dias** na produção.
+   *
+   * NÃO É FALHA DO ROBÔ, e por isso não entra na mesma lista: é um dado da casa
+   * para conferir. Processo recém-distribuído leva dias para ser indexado (e aí
+   * some daqui sozinho); NPU digitado errado fica aqui para sempre. O corte de
+   * 3 dias separa um do outro.
+   */
+  private processosDesconhecidosNoCnj(desde: Date) {
+    return this.prisma.$queryRaw<ProcessoDesconhecidoNoCnj[]>`
+      WITH nao_achados AS (
+        SELECT l.processo_id, l.numero_cnj, max(l.tribunal) AS tribunal,
+               count(*)::int AS tentativas,
+               min(l.created_at) AS desde, max(l.created_at) AS ultima
+          FROM logs_sincronizacao_datajud l
+         WHERE l.fonte = 'DATAJUD'
+           AND l.sucesso = true
+           AND l.mensagem_erro ILIKE '%localizado no índice%'
+           AND l.created_at >= ${desde}
+         GROUP BY l.processo_id, l.numero_cnj
+      )
+      SELECT n.processo_id AS "processoId",
+             n.numero_cnj  AS "numeroCNJ",
+             n.tribunal,
+             f.nome_completo AS "filiado",
+             n.tentativas,
+             n.desde,
+             n.ultima
+        FROM nao_achados n
+        LEFT JOIN processos p ON p.id = n.processo_id
+        LEFT JOIN filiados  f ON f.id = p.filiado_id
+       /*
+         SÓ O QUE JÁ DUROU. Um processo distribuído ontem ainda não está no
+         índice, e avisar sobre ele seria acusar o tribunal de um atraso que é
+         normal. Depois de três dias insistindo, a hipótese muda de lado.
+       */
+       WHERE n.desde <= now() - interval '3 days'
+       ORDER BY n.tentativas DESC
+       LIMIT 10
     `;
   }
 

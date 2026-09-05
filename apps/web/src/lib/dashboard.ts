@@ -69,6 +69,34 @@ export interface FalhaDatajud {
   mensagemErro: string | null;
   createdAt: string;
   filiado: string | null;
+  /** Duração da chamada. 45.000ms é o teto de espera do nosso lado. */
+  duracaoMs?: number | null;
+  /**
+   * Quando este processo foi lido com SUCESSO pela última vez.
+   *
+   * É o que separa "o CNJ engasgou numa tentativa" de "este processo está sem
+   * leitura há dias". Opcional porque a API antiga não mandava — na janela de
+   * troca do deploy a tela nova conversa com o contêiner velho, e aí ela trata
+   * a ausência como "não sei", não como "nunca".
+   */
+  ultimoSucesso?: string | null;
+}
+
+/**
+ * Um NPU que o CNJ diz não conhecer — e que o robô continua perguntando.
+ *
+ * NÃO É FALHA: a consulta funciona, o índice é que não tem o processo. Por isso
+ * era gravado como sucesso e ficava invisível — enquanto um único número
+ * consumia 151 consultas em 7 dias.
+ */
+export interface ProcessoDesconhecidoNoCnj {
+  processoId: string | null;
+  numeroCNJ: string;
+  tribunal: string | null;
+  filiado: string | null;
+  tentativas: number;
+  desde: string;
+  ultima: string;
 }
 
 export interface ResumoDashboard {
@@ -216,8 +244,20 @@ export interface ResumoDashboard {
     ultimaComSucesso: boolean | null;
     /** Processos distintos recusados — `falhasProcessos.length`. */
     falhas24h: number;
+    /**
+     * Destes, quantos estão de fato SEM LEITURA há mais de `horasAteAtraso`.
+     *
+     * É o número que merece alarme. `falhas24h` conta tentativas que deram
+     * errado; este conta processos que ficaram para trás — e são coisas
+     * diferentes, como a produção mostrou: oito timeouts numa noite, zero
+     * processos atrasados.
+     */
+    atrasados24h?: number;
+    horasAteAtraso?: number;
     /** QUAIS processos falharam, para o aviso poder virar trabalho. */
     falhasProcessos: FalhaDatajud[];
+    /** NPUs que o CNJ não encontra — conferência de cadastro, não falha. */
+    desconhecidosNoCnj?: ProcessoDesconhecidoNoCnj[];
   };
   /**
    * Carga da equipe — quem está sobrecarregado e quem está atrasado.
@@ -400,6 +440,18 @@ export function motivoFalhaDatajud(f: FalhaDatajud): { texto: string; passageiro
   if (s === 400 || s === 422) return { texto: 'NPU recusado pelo CNJ', passageiro: false };
   if (s === 429) return { texto: 'limite de consultas atingido', passageiro: true };
   if (s && s >= 500) return { texto: 'tribunal fora do ar', passageiro: true };
-  // Sem status é erro de rede/timeout: a chamada nem chegou a ter resposta.
+  /*
+    SEM STATUS é rede ou TIMEOUT — e são coisas diferentes o bastante para
+    merecerem palavras diferentes.
+
+    "sem resposta do CNJ" é vago: soa como serviço fora do ar. Na produção de
+    05/09/2026 as oito falhas tinham duração de exatos 45.000ms — o teto de
+    espera do nosso lado. O CNJ não estava fora; estava lento demais para a
+    janela que damos a ele. Quem lê "demorou mais de 45s" sabe o que aconteceu;
+    quem lê "sem resposta" vai procurar defeito no processo.
+  */
+  if (f.duracaoMs != null && f.duracaoMs >= 40_000) {
+    return { texto: 'o CNJ demorou mais de 45s', passageiro: true };
+  }
   return { texto: s ? `erro ${s} no CNJ` : 'sem resposta do CNJ', passageiro: true };
 }

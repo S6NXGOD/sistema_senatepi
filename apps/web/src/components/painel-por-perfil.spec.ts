@@ -1,7 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const ler = (rel: string) => readFileSync(resolve(__dirname, '..', rel), 'utf8');
+/*
+  A LEITURA NORMALIZA A QUEBRA DE LINHA.
+
+  No Windows o git entrega os arquivos com CRLF, e uma asserção que cita duas
+  linhas com uma quebra deixa de casar — reprovando a formatação em vez da
+  regra. Aconteceu com o teste do `AlertBar` depois de uma edição que nem
+  tocou nele.
+*/
+const ler = (rel: string) =>
+  readFileSync(resolve(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
 
 const PAINEL = ler('app/(dashboard)/dashboard/page.tsx');
 const AGENDA = ler('app/(dashboard)/agenda/page.tsx');
