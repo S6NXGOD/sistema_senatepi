@@ -63,3 +63,4 @@ postgres-data/
 
 # Planilhas de carga — dado do cliente, não versionado.
 /importacao/
+.msg.tmp
