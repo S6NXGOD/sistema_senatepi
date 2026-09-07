@@ -1724,7 +1724,9 @@ function SaudeDasIntegracoes({
     minuto sem avisar é um clique que ninguém dá duas vezes.
   */
   const varrer = useMutation({
-    mutationFn: varrerDjenAgora,
+    // Sem argumento: a janela diária de sempre. O histórico é outro botão,
+    // noutra tela, porque é uma passada única e cara.
+    mutationFn: () => varrerDjenAgora(),
     onSuccess: (r) => {
       toast.success(
         r.ingeridas > 0

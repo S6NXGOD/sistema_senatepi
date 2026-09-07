@@ -103,15 +103,30 @@ export async function sincronizarPublicacoes(
  * CNJ dezenas de vezes, respeitando a cota. Pode levar minutos — por isso o
  * timeout longo.
  */
-export async function varrerDjenAgora(): Promise<{
+export async function varrerDjenAgora(
+  /**
+   * DIAS DE HISTÓRICO — só na colheita inicial.
+   *
+   * Sem isto, a varredura usa a janela diária (3 dias), que é o que basta para o
+   * fluxo: processo já cadastrado também é consultado por NPU, e essa consulta
+   * traz o histórico inteiro dele. A janela só limita a descoberta de ação NOVA,
+   * que aparece exclusivamente pela busca por OAB.
+   */
+  dias?: number,
+): Promise<{
   advogadosConsultados: number;
   processosConsultados: number;
   recebidas: number;
   ingeridas: number;
   descartadas: number;
+  /** Das descartadas, quantas eram ações NOSSAS ainda sem cadastro. */
+  sugeridas: number;
   falhas: number;
 }> {
-  const { data } = await api.post('/djen/sincronizar', undefined, { timeout: 600_000 });
+  const { data } = await api.post('/djen/sincronizar', undefined, {
+    timeout: 600_000,
+    ...(dias ? { params: { dias } } : {}),
+  });
   return data;
 }
 

@@ -105,6 +105,24 @@ export class DjenSyncService {
   async varrer(
     aguardar: () => Promise<void> = async () => {},
     origem: OrigemSincronizacao = OrigemSincronizacao.CRON,
+    /**
+     * JANELA ALARGADA, PARA UMA VARREDURA ÚnICA DE HISTÓRICO.
+     *
+     * A rodada diária olha 3 dias (`DJEN_JANELA_DIAS`), o que basta para o
+     * fluxo: quem já está cadastrado também é consultado por NPU, e essa consulta
+     * traz o histórico inteiro do processo.
+     *
+     * Só que ação NOVA — a que ainda não está no acervo — só pode ser descoberta
+     * pela busca por OAB, e essa é limitada pela janela. Um processo do sindicato
+     * distribuído há dois meses e que não publicou nos últimos três dias é
+     * invisível para sempre.
+     *
+     * Isto existe para a colheita inicial: uma passada larga que traz o que já
+     * estava lá. Não é para virar rotina — a rodada de 3 dias absorve fim de
+     * semana e feriado, e alargar todo dia só gastaria cota reprocessando o que
+     * o `hash` único já vai descartar.
+     */
+    diasDeHistorico?: number,
   ): Promise<ResumoVarreduraDjen> {
     const iniciadaEm = Date.now();
     const resumo: ResumoVarreduraDjen = {
@@ -118,7 +136,7 @@ export class DjenSyncService {
     };
     let quebrou: string | null = null;
     try {
-      await this.executarVarredura(resumo, aguardar);
+      await this.executarVarredura(resumo, aguardar, diasDeHistorico);
     } catch (err) {
       quebrou = (err as Error).message;
       throw err;
@@ -131,9 +149,22 @@ export class DjenSyncService {
   private async executarVarredura(
     resumo: ResumoVarreduraDjen,
     aguardar: () => Promise<void>,
+    diasDeHistorico?: number,
   ): Promise<void> {
     const ate = new Date();
-    const de = new Date(ate.getTime() - this.djen.janelaDias * 24 * 3_600_000);
+    /*
+      O TETO DE 180 DIAS não é timidez: a busca por OAB devolve a carteira
+      INTEIRA do advogado, e medimos ~113 publicações por dia somando os oito.
+      Meio ano seriam ~20 mil itens, ~200 páginas, uns 15 minutos de cota — e o
+      que passa disso quase nunca é ação "nova".
+    */
+    const dias = diasDeHistorico
+      ? Math.min(180, Math.max(1, Math.floor(diasDeHistorico)))
+      : this.djen.janelaDias;
+    const de = new Date(ate.getTime() - dias * 24 * 3_600_000);
+    if (diasDeHistorico) {
+      this.logger.log(`[DJEN-SYNC] Varredura de HISTÓRICO: ${dias} dias de publicações.`);
+    }
 
     // ---- 1) Por OAB de cada advogado ativo ----
     const advogados = await this.prisma.user.findMany({
@@ -351,7 +382,27 @@ export class DjenSyncService {
   private async sugerirAcoesNossas(foraDoAcervo: ComunicacaoDjenDto[]): Promise<number> {
     if (!foraDoAcervo.length) return 0;
     const sigla = await this.siglaDoSindicato();
-    if (!sigla) return 0;
+
+    /*
+      A SIGLA VEM DE UM CAMPO EDITÁVEL, e isso é um risco silencioso.
+
+      Ela sai do `nomeFantasia` da parte institucional — o mesmo registro que
+      aparece na tela de Organizações e que alguém pode renomear. Apagado ou
+      encurtado, a detecção simplesmente para de achar, e AUSÊNCIA DE ALERTA
+      PARECE CALMA: a fila fica vazia e ninguém desconfia de nada.
+
+      A regra desta casa é que zero não pode ser ambíguo. Então, quando a chave
+      não serve, o log DIZ — em `warn`, com o motivo e o conserto.
+    */
+    if (!sigla || sigla.trim().length < 4) {
+      this.logger.warn(
+        '[DJEN] Detecção de ação nova DESLIGADA: a parte institucional está sem sigla ' +
+          `utilizável (nome fantasia atual: ${sigla ? `"${sigla}"` : 'vazio'}). ` +
+          'Preencha o nome fantasia da organização do sindicato — é por ele que o ' +
+          'sistema reconhece o próprio nome nos autos.',
+      );
+      return 0;
+    }
 
     /*
       Agrupa por NPU ANTES de escrever: um lote traz várias publicações do mesmo

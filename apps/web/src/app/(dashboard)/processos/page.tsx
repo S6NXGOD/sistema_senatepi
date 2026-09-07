@@ -536,6 +536,12 @@ function ListaProcessos() {
       */}
       <AcoesEncontradas
         podeCadastrar={podeEditarProcessos}
+        /*
+          A varredura completa é `@Roles(ADMINISTRADOR)` na API — ela percorre a
+          OAB de todos os advogados. Botão que devolve 403 é pior que botão
+          ausente; já entreguei um assim neste projeto.
+        */
+        podeVarrerHistorico={user?.role === 'ADMINISTRADOR'}
         onCadastrar={(npu) => {
           setNpuSugerido(npu);
           setImportOpen(true);

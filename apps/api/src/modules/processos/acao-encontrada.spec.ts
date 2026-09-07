@@ -276,3 +276,78 @@ describe('o aviso de ação nova', () => {
     expect(PENDENCIAS).toContain('titulo: `${POLO_CURTO[a.nossoPolo]}');
   });
 });
+
+/**
+ * A VARREDURA DIÁRIA OLHA TRÊS DIAS — e isso deixava um buraco de descoberta.
+ *
+ * Processo JÁ cadastrado também é consultado por NPU, e essa consulta não tem
+ * filtro de data: traz o histórico inteiro dele (o acervo tem publicação desde
+ * maio de 2024 por causa disso). Mas ação NOVA só pode ser descoberta pela
+ * busca por OAB, que é limitada pela janela — um processo do sindicato
+ * distribuído há dois meses e quieto nesta semana era invisível para sempre.
+ */
+describe('a colheita de histórico', () => {
+  const CTRL = readFileSync(join(__dirname, 'djen.controller.ts'), 'utf8');
+
+  it('a varredura aceita uma janela alargada', () => {
+    expect(SYNC).toContain('diasDeHistorico?: number');
+    expect(SYNC).toContain('await this.executarVarredura(resumo, aguardar, diasDeHistorico);');
+  });
+
+  /**
+   * SEM O PARÂMETRO, NADA MUDA. A rodada de três dias absorve fim de semana e
+   * feriado; alargar todo dia só gastaria cota reprocessando o que o `hash`
+   * único descartaria.
+   */
+  it('sem o parâmetro, continua a janela de sempre', () => {
+    expect(SYNC).toContain('const dias = diasDeHistorico');
+    expect(SYNC).toContain(': this.djen.janelaDias;');
+  });
+
+  /**
+   * TETO DE 180 DIAS. A busca por OAB devolve a carteira INTEIRA do advogado —
+   * medido, ~113 publicações/dia somando os oito. Meio ano são ~20 mil itens.
+   */
+  it('e tem teto, porque a carteira inteira do advogado vem junto', () => {
+    expect(SYNC).toContain('Math.min(180, Math.max(1, Math.floor(diasDeHistorico)))');
+    expect(CTRL).toContain('@Max(180)');
+    expect(CTRL).toContain('@Min(1)');
+  });
+
+  /** A rota já era `@Roles(ADMINISTRADOR)` — a janela larga não afrouxa isso. */
+  it('continua restrita ao Administrador', () => {
+    const bloco = CTRL.slice(CTRL.indexOf("@Post('sincronizar')"), CTRL.indexOf('varrer('));
+    expect(bloco).toContain('@Roles(UserRole.ADMINISTRADOR)');
+  });
+});
+
+/**
+ * A CHAVE DE RECONHECIMENTO MORA NUM CAMPO EDITÁVEL — e some sem avisar.
+ *
+ * A sigla sai do `nomeFantasia` da parte institucional, o mesmo registro que
+ * aparece na tela de Organizações e que alguém pode renomear. Apagado ou
+ * encurtado, a detecção para de achar — e ausência de alerta parece calma: a
+ * fila fica vazia e ninguém desconfia.
+ *
+ * O usuário perguntou se não seria melhor configurar isso explicitamente (e
+ * buscar pelo CNPJ). Buscar por CNPJ é impossível: o endpoint do CNJ só aceita
+ * OAB+datas ou NPU, e o destinatário do ato chega sem documento. O que dá para
+ * fazer — e é o que falta num sistema que odeia zero ambíguo — é a chave
+ * quebrada DIZER que quebrou.
+ */
+describe('quando a chave de reconhecimento não serve', () => {
+  it('a detecção se desliga em voz alta, e não em silêncio', () => {
+    const fn = SYNC.slice(
+      SYNC.indexOf('private async sugerirAcoesNossas('),
+      SYNC.indexOf('private async ingerir('),
+    );
+    expect(fn).toContain('if (!sigla || sigla.trim().length < 4)');
+    expect(fn).toContain('this.logger.warn(');
+    expect(fn).toContain('DESLIGADA');
+  });
+
+  /** O aviso tem de dizer o CONSERTO, não só o defeito. */
+  it('e o aviso diz o que fazer', () => {
+    expect(SYNC).toContain('Preencha o nome fantasia da organiza');
+  });
+});

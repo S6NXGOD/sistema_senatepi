@@ -29,6 +29,31 @@ import { DjenBuscaService } from './djen-busca.service';
  * existe. Ligar ou desligar é mudar `DJEN_INTEGRACAO` no ambiente e reiniciar,
  * sem alterar código e sem novo build.
  */
+/**
+ * A JANELA DA COLHEITA DE HISTÓRICO.
+ *
+ * A varredura diária olha 3 dias, e basta: quem está no acervo também é
+ * consultado por NPU, e essa consulta traz o histórico inteiro do processo. Mas
+ * ação NOVA — a que ainda não está cadastrada — só aparece pela busca por OAB,
+ * que é limitada pela janela: um processo do sindicato distribuído há dois meses
+ * e quieto nos últimos três dias é invisível para sempre.
+ *
+ * O parâmetro existe para a passada única que corrige isso. Opcional de
+ * propósito: sem ele, o botão "Buscar agora" de sempre continua barato.
+ */
+class VarrerDjenQueryDto {
+  @ApiPropertyOptional({
+    description: 'Dias de histórico a varrer (1 a 180). Sem isto, usa a janela diária.',
+    example: 90,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(180)
+  dias?: number;
+}
+
 @Injectable()
 export class DjenAtivoGuard implements CanActivate {
   constructor(private readonly djen: DjenService) {}
@@ -212,13 +237,18 @@ export class DjenController {
   @Roles(UserRole.ADMINISTRADOR)
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Varredura completa do DJEN (OAB dos advogados + processos mudos).' })
-  varrer() {
+  varrer(@Query() q: VarrerDjenQueryDto) {
     /*
       MANUAL, e não CRON. O parâmetro existe para dizer QUEM disparou, e a
       rota deixava o padrão passar — a varredura clicada por alguém aparecia no
       log como se fosse a das 5h. Sem isto, a linha de resumo mentiria sobre a
       origem justamente na hora em que alguém está investigando.
     */
-    return this.sync.varrer(undefined, OrigemSincronizacao.MANUAL);
+    /*
+      `dias` só vem na colheita de HISTÓRICO — a passada única que descobre ação
+      do sindicato distribuída antes de o sistema existir. Sem ele, a janela é a
+      de sempre (3 dias), que é o que a rodada diária precisa.
+    */
+    return this.sync.varrer(undefined, OrigemSincronizacao.MANUAL, q.dias);
   }
 }

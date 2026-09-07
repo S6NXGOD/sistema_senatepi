@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ChevronDown, Radar, Scale, ShieldAlert, X } from 'lucide-react';
+import { ChevronDown, History, Loader2, Radar, Scale, ShieldAlert, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   formatNPU,
@@ -11,6 +11,41 @@ import {
   listarSugestoesDeProcesso,
   type SugestaoDeProcesso,
 } from '@/lib/processos';
+import { varrerDjenAgora } from '@/lib/djen';
+
+/**
+ * NOVENTA DIAS — o que cobre a distribuição recente sem pesar.
+ *
+ * A busca por OAB devolve a carteira INTEIRA do advogado: medido, ~113
+ * publicações por dia somando os oito. Noventa dias são ~10 mil itens, ~100
+ * páginas, uns oito minutos de cota — e cobrem o tempo em que um processo
+ * distribuído ainda é "novo". Meio ano dobraria o custo para achar quase nada:
+ * ação de um ano atrás que ninguém cadastrou não é novidade, é outro problema.
+ */
+const DIAS_DE_HISTORICO = 90;
+
+/**
+ * O botão diz quanto custa ANTES do clique. Oito minutos segurando a tela sem
+ * aviso é um clique que ninguém dá duas vezes — e este é para dar uma vez só.
+ */
+function BotaoHistorico({ m }: { m: { mutate: () => void; isPending: boolean } }) {
+  return (
+    <button
+      type="button"
+      onClick={() => m.mutate()}
+      disabled={m.isPending}
+      title={`Consulta ${DIAS_DE_HISTORICO} dias do Diário para todos os advogados`}
+      className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-semibold transition hover:bg-muted disabled:opacity-60 sm:h-8"
+    >
+      {m.isPending ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : (
+        <History className="h-3.5 w-3.5" />
+      )}
+      {m.isPending ? 'Buscando… (uns 8 min)' : `Buscar ${DIAS_DE_HISTORICO} dias atrás`}
+    </button>
+  );
+}
 
 /**
  * AÇÕES QUE O DIÁRIO REVELOU E O ACERVO NÃO CONHECE.
@@ -54,10 +89,13 @@ const POLO_ROTULO: Record<SugestaoDeProcesso['nossoPolo'], { texto: string; clas
 
 export function AcoesEncontradas({
   podeCadastrar,
+  podeVarrerHistorico,
   onCadastrar,
 }: {
   /** Quem só lê o acervo vê a fila, mas não decide — a API cobra o mesmo. */
   podeCadastrar?: boolean;
+  /** A varredura completa é `@Roles(ADMINISTRADOR)` na API. */
+  podeVarrerHistorico?: boolean;
   onCadastrar: (numeroCNJ: string) => void;
 }) {
   const qc = useQueryClient();
@@ -82,9 +120,56 @@ export function AcoesEncontradas({
       toast.error(e?.response?.data?.message ?? 'Não foi possível ignorar agora.'),
   });
 
+  /*
+    A COLHEITA DE HISTÓRICO — uma passada, não uma rotina.
+
+    A varredura diária olha TRÊS DIAS de publicações. Para quem já está no acervo
+    isso basta, porque o processo cadastrado também é consultado por NPU e essa
+    consulta traz o histórico inteiro dele. Mas ação NOVA só aparece pela busca
+    por OAB — e aí a janela manda. Um processo do sindicato distribuído há dois
+    meses e quieto nesta semana era invisível para sempre.
+
+    Não vira rotina: a rodada de três dias já absorve fim de semana e feriado, e
+    alargar todo dia só gastaria cota reprocessando o que o `hash` único
+    descartaria.
+  */
+  const historico = useMutation({
+    mutationFn: () => varrerDjenAgora(DIAS_DE_HISTORICO),
+    onSuccess: (r) => {
+      toast.success(
+        r.sugeridas > 0
+          ? `${r.sugeridas} ação(ões) do sindicato encontrada(s) sem cadastro.`
+          : 'Nenhuma ação nossa sem cadastro nos últimos meses.',
+      );
+      qc.invalidateQueries({ queryKey: ['processos', 'sugestoes'] });
+      qc.invalidateQueries({ queryKey: ['minhas-pendencias'] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível varrer o histórico agora.'),
+  });
+
   const itens = q.data ?? [];
-  // Sem nada na fila o bloco não existe — nem como moldura vazia.
-  if (!itens.length) return null;
+
+  /*
+    FILA VAZIA NÃO DESENHA MOLDURA — com uma exceção: quem pode fazer a colheita
+    de histórico precisa de um lugar para clicar, e o lugar é este. Uma linha
+    discreta, só para o Administrador, e só enquanto ele não rodou nesta sessão.
+  */
+  if (!itens.length) {
+    if (!podeVarrerHistorico || historico.isSuccess) return null;
+    return (
+      <div className="flex flex-col gap-2 rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <span className="flex items-start gap-2">
+          <Radar className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
+          <span>
+            A varredura diária olha os últimos 3 dias do Diário. Ação do sindicato
+            distribuída antes disso só aparece numa busca de histórico.
+          </span>
+        </span>
+        <BotaoHistorico m={historico} />
+      </div>
+    );
+  }
 
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20">
@@ -248,10 +333,12 @@ export function AcoesEncontradas({
           ) : (
             <Scale className="mt-px h-3.5 w-3.5 shrink-0" />
           )}
-          <span>
+          <span className="min-w-0 flex-1">
             Encontradas na varredura do Diário pela OAB dos advogados. Só aparecem
-            aqui as que citam o sindicato entre as partes.
+            aqui as que citam o sindicato entre as partes — a rodada diária cobre os
+            últimos 3 dias.
           </span>
+          {podeVarrerHistorico && !historico.isSuccess && <BotaoHistorico m={historico} />}
         </p>
       )}
     </section>

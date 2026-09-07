@@ -45,7 +45,10 @@ describe('a rodada grava que aconteceu', () => {
    * outro.
    */
   it('o resumo sai no finally, mesmo se a varredura estourar', () => {
-    expect(SYNC).toContain('await this.executarVarredura(resumo, aguardar);');
+    // A janela alargada entrou como TERCEIRO argumento (colheita de histórico).
+    // O que o teste guarda é a chamada estar DENTRO do try, com o `finally` logo
+    // abaixo — e não a assinatura, que cresce.
+    expect(SYNC).toContain('await this.executarVarredura(resumo, aguardar, diasDeHistorico);');
     expect(SYNC).toContain('} finally {');
     expect(SYNC).toContain('await this.registrarResumo(resumo, origem, iniciadaEm, quebrou);');
     expect(SYNC).toContain('sucesso: !quebrou && tentativas > 0 && !tudoFalhou');
@@ -80,7 +83,13 @@ describe('a rodada grava que aconteceu', () => {
   /** O manual precisa aparecer como manual — senão o log mente sobre a origem. */
   it('a varredura pedida por alguém entra como MANUAL', () => {
     const CTRL = lerCodigo('djen.controller.ts');
-    expect(CTRL).toContain('this.sync.varrer(undefined, OrigemSincronizacao.MANUAL)');
+    /*
+      A ORIGEM é o que o teste guarda — a assinatura cresceu (a janela de
+      histórico entrou como terceiro argumento) e crescerá de novo. Sem a origem
+      explícita, a varredura clicada por alguém aparece no log como se fosse a
+      das 5h, e a linha de resumo mente na hora em que se investiga.
+    */
+    expect(CTRL).toContain('this.sync.varrer(undefined, OrigemSincronizacao.MANUAL,');
   });
 });
 
