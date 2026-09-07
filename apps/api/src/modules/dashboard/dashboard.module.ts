@@ -316,6 +316,21 @@ export class DashboardService {
      */
     const veProcessos = nivelEfetivo(user.role, user.permissoes, 'processos') !== 'SEM_ACESSO';
     /**
+     * MESMA REGRA PARA A AGENDA — e ela faltava.
+     *
+     * As listas de compromisso carregam `filiado.nomeCompleto`, o nome do
+     * responsável e as partes do processo. Quem tem `agenda: SEM_ACESSO` via
+     * tudo isso chegar ao navegador; o que o impedia de ler era o `pode.agenda`
+     * da TELA. Hoje nenhum usuário da produção está nessa condição — mas 13 dos
+     * 14 têm permissão customizada, e a tela de usuários oferece o SEM_ACESSO
+     * como opção. Esconder no front é conforto, não controle de acesso: é a
+     * mesma frase que já está escrita acima para `veProcessos`.
+     *
+     * Os CONTADORES continuam vindo: são agregados sem dado pessoal, e a tela
+     * já decide quais cartões desenhar. O que passa a ser cortado é o conteúdo.
+     */
+    const veAgenda = nivelEfetivo(user.role, user.permissoes, 'agenda') !== 'SEM_ACESSO';
+    /**
      * Escopo pessoal do advogado: suas atividades e sua carteira. Demais perfis
      * enxergam a operação inteira.
      *
@@ -343,6 +358,50 @@ export class DashboardService {
       ? { advogados: { some: { advogadoId: user.id } } }
       : {};
 
+    /*
+      "AS MINHAS PUBLICAÇÕES" ERRAVA NOS DOIS SENTIDOS.
+
+      O recorte pessoal do Diário era só `processo: meuAcervo` — as publicações
+      dos processos em que o advogado está VINCULADO. Mas quem é intimado é quem
+      está NOMEADO no ato, e as duas listas são bem diferentes. Medido na
+      produção em 07/09/2026, janela de 30 dias com providência:
+
+        advogado           via acervo   que o citam
+        Dra. Jaqueline          0            4      <- não via nenhuma das suas
+        Dra. Morgana           32            6      <- 26 que não a citam
+        Dr. Tiago              30           21
+        Dr. Carlos Henrique    32           34      <- perdia 2
+
+      O falso negativo é o grave: prazo corre para quem foi intimado, e a
+      Dra. Jaqueline abria o painel e via zero. O falso positivo também custa —
+      uma fila com 26 itens que não são seus ensina a não olhar a fila.
+
+      A SOLUÇÃO É A UNIÃO, e não a troca: quem responde pelo caso precisa ver o
+      ato mesmo quando a intimação saiu no nome do colega. O que muda é a
+      ORDEM e a marca — `meCita` sobe primeiro e leva selo (ver `resumirPublicacoes`).
+
+      Por que SQL cru: `advogados` é um JSON de objetos e o `array_contains` do
+      Prisma exige o objeto INTEIRO igual, inclusive o `nome` — que vem do
+      tribunal em caixa alta e sem acento. A OAB é a única chave confiável.
+    */
+    const oabDoUsuario = souAdvogado
+      ? await this.prisma.user.findUnique({
+          where: { id: user.id },
+          select: { oab: true, oabUf: true },
+        })
+      : null;
+
+    // Sem o módulo de processos as consultas do Diário nem rodam — gastar uma
+    // varredura de JSON para um conjunto que ninguém vai usar é só desperdício.
+    const idsQueMeCitam = veProcessos
+      ? await this.publicacoesQueCitam(oabDoUsuario, seteDiasAtras)
+      : [];
+
+    /** Escopo pessoal do Diário: o meu acervo OU o ato que me nomeia. */
+    const meuDjen: Prisma.ComunicacaoDjenWhereInput = souAdvogado
+      ? { OR: [{ processo: meuAcervo }, ...(idsQueMeCitam.length ? [{ id: { in: idsQueMeCitam } }] : [])] }
+      : {};
+
     const [
       // KPIs globais
       processosAtivos,
@@ -359,6 +418,7 @@ export class DashboardService {
       urgentesSemanaCount,
       // Listas
       atividadesHoje,
+      proximasAtividades,
       audienciasSemana,
       pendenciasAtivas,
       atendimentosPendentes,
@@ -433,21 +493,49 @@ export class DashboardService {
         where: { ...meu, status: ABERTOS, urgente: true, inicio: { gte: hojeIni, lt: em7dias } },
       }),
       // Atividades de hoje
-      this.prisma.compromisso.findMany({
+      !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
         where: { ...meu, inicio: { gte: hojeIni, lt: hojeFim } },
         orderBy: { inicio: 'asc' },
         take: 12,
         select: compSelect,
       }),
+      /*
+        O QUE VENCE NOS PRÓXIMOS DIAS — e que não aparecia em lugar nenhum.
+
+        A home tinha três janelas: vencido (Pendências), HOJE (Atividades) e
+        audiência dos 7 dias. Um PRAZO para amanhã não cabia em nenhuma delas: o
+        advogado via só o número no cartão "Prazos esta semana", sem uma linha
+        sequer dizendo qual é.
+
+        Medido na produção em 07/09/2026: dos compromissos abertos do sindicato
+        inteiro, **os seis** caíam exatamente nessa faixa — zero vencidos, zero
+        hoje, zero audiências na semana. A home do Dr. Carlos Henrique dizia
+        "nenhuma atividade agendada para hoje" enquanto ele tinha prazo para
+        amanhã e para depois.
+
+        Audiência fica de FORA porque já tem bloco próprio logo acima; repetir a
+        mesma audiência em dois cartões é o erro que a faixa do DJEN já cometeu.
+      */
+      !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
+        where: {
+          ...meu,
+          status: ABERTOS,
+          tipo: { not: TIPO_AUDIENCIA },
+          inicio: { gte: hojeFim, lt: em7dias },
+        },
+        orderBy: { inicio: 'asc' },
+        take: 8,
+        select: compSelect,
+      }),
       // Audiências da semana (próximos 7 dias)
-      this.prisma.compromisso.findMany({
+      !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
         where: { ...meu, tipo: TIPO_AUDIENCIA, status: ABERTOS, inicio: { gte: hojeIni, lt: em7dias } },
         orderBy: { inicio: 'asc' },
         take: 8,
         select: compSelect,
       }),
       // Pendências ativas: abertas e já vencidas (horário passou)
-      this.prisma.compromisso.findMany({
+      !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
         where: { ...meu, status: ABERTOS, inicio: { lt: agora } },
         orderBy: { inicio: 'asc' },
         take: 8,
@@ -611,7 +699,7 @@ export class DashboardService {
         : this.prisma.comunicacaoDjen.findMany({
             where: {
               dataDisponibilizacao: { gte: seteDiasAtras },
-              ...(souAdvogado ? { processo: meuAcervo } : {}),
+              ...meuDjen,
             },
             select: { link: true },
           }),
@@ -637,7 +725,7 @@ export class DashboardService {
             where: {
               dataDisponibilizacao: { gte: seteDiasAtras },
               providencia: { notIn: ['NENHUMA'] },
-              ...(souAdvogado ? { processo: meuAcervo } : {}),
+              ...meuDjen,
             },
             orderBy: { dataDisponibilizacao: 'desc' },
             take: 40,
@@ -977,6 +1065,8 @@ export class DashboardService {
        */
       tempoMedioTriagem,
       atividadesHoje,
+      /** O que vence de amanhã até +7 dias (audiência tem bloco próprio). */
+      proximasAtividades,
       audienciasSemana,
       pendenciasAtivas,
       atendimentosPendentes,
@@ -1009,6 +1099,7 @@ export class DashboardService {
         agora,
         souAdvogado ? 'PESSOAL' : 'GLOBAL',
         organizacaoDoSindicato?.id ?? null,
+        new Set(idsQueMeCitam),
       ),
       /**
        * Contra quem o sindicato mais litiga hoje. Vazio quando ninguém
@@ -1172,6 +1263,8 @@ export class DashboardService {
     agora: Date,
     escopo: 'GLOBAL' | 'PESSOAL',
     idDoSindicato: string | null,
+    /** Ids das publicações que NOMEIAM quem está olhando (só no escopo pessoal). */
+    idsQueMeCitam: ReadonlySet<string> = new Set(),
   ) {
     const HORA = 3_600_000;
     const horasSemNada = ultimaEm ? (agora.getTime() - ultimaEm.getTime()) / HORA : null;
@@ -1226,7 +1319,7 @@ export class DashboardService {
        * As que pedem providência — e só elas. Ver a consulta: edital e lista de
        * distribuição chegam às dezenas e afogariam a intimação com prazo.
        */
-      recentes: ativa ? this.resumirPublicacoes(recentesBrutas, idDoSindicato) : [],
+      recentes: ativa ? this.resumirPublicacoes(recentesBrutas, idDoSindicato, idsQueMeCitam) : [],
     };
   }
 
@@ -1234,7 +1327,48 @@ export class DashboardService {
    * Agrupa as cópias e resolve, para cada ato, a informação que a linha do
    * painel precisa: contra quem é, de quem é, e se já virou trabalho.
    */
-  private resumirPublicacoes(brutas: PublicacaoBruta[], idDoSindicato: string | null) {
+  /**
+   * OS IDS DAS PUBLICAÇÕES QUE NOMEIAM ESTA OAB.
+   *
+   * A ligação é pelo NÚMERO + UF, nunca pelo nome: o DJEN manda "ICARO SOL
+   * ALMONDES SANTOS" e o cadastro tem "Ícaro Sol Almondes Santos" — casar por
+   * texto perderia todo mundo com acento e ainda arriscaria homônimo. Mesma
+   * chave usada para mostrar a foto do advogado na aba de Publicações.
+   *
+   * Recortado pela janela ANTES do `jsonb_array_elements`: sem isso a expansão
+   * varreria as 1.408 publicações do acervo para responder sobre sete dias.
+   */
+  private async publicacoesQueCitam(
+    advogado: { oab: string | null; oabUf: string | null } | null,
+    desde: Date,
+  ): Promise<string[]> {
+    const numero = (advogado?.oab ?? '').replace(/\D/g, '');
+    const uf = (advogado?.oabUf ?? '').trim().toUpperCase();
+    // Advogado sem OAB no cadastro: o vínculo por citação simplesmente não
+    // existe, e o escopo cai para o acervo — que é o comportamento de antes.
+    if (!numero || !uf) return [];
+
+    const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT c."id"
+        FROM "comunicacoes_djen" c
+       WHERE c."data_disponibilizacao" >= ${desde}
+         AND c."advogados" IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+             FROM jsonb_array_elements(c."advogados"::jsonb) a
+            WHERE regexp_replace(a->>'numeroOab', '\D', '', 'g') = ${numero}
+              AND upper(a->>'ufOab') = ${uf}
+         )
+    `;
+    return linhas.map((l) => l.id);
+  }
+
+  private resumirPublicacoes(
+    brutas: PublicacaoBruta[],
+    idDoSindicato: string | null,
+    /** Ids que NOMEIAM quem está olhando — vazio fora do escopo pessoal. */
+    idsQueMeCitam: ReadonlySet<string> = new Set(),
+  ) {
     const porAto = new Map<string, PublicacaoBruta[]>();
     for (const pub of brutas) {
       const chave = pub.link ?? `id:${pub.id}`;
@@ -1243,10 +1377,35 @@ export class DashboardService {
       else porAto.set(chave, [pub]);
     }
 
-    return [...porAto.values()].slice(0, 6).map((grupo) => {
+    /*
+      O QUE ME INTIMA VEM PRIMEIRO.
+
+      A ordem era só por data, e o corte em seis itens fazia o resto sumir. Um
+      ato que NOMEIA o advogado — e cujo prazo, portanto, corre contra ele —
+      podia cair fora da lista por causa de três publicações do acervo que
+      chegaram um dia depois. Dentro de cada grupo a data continua mandando; o
+      que muda é quem disputa as seis vagas.
+    */
+    const grupos = [...porAto.values()].sort((a, b) => {
+      const citaA = a.some((p) => idsQueMeCitam.has(p.id)) ? 1 : 0;
+      const citaB = b.some((p) => idsQueMeCitam.has(p.id)) ? 1 : 0;
+      if (citaA !== citaB) return citaB - citaA;
+      return b[0].dataDisponibilizacao.getTime() - a[0].dataDisponibilizacao.getTime();
+    });
+
+    return grupos.slice(0, 6).map((grupo) => {
       const pub = grupo[0];
       return {
         id: pub.id,
+        /**
+         * O ATO NOMEIA QUEM ESTÁ OLHANDO?
+         *
+         * `false` para todo mundo fora do escopo pessoal — no painel da gestão
+         * a pergunta não faz sentido, e um selo que acende sempre não informa.
+         * Quem foi intimado é quem está nomeado no ato; o vínculo do processo diz
+         * outra coisa (quem responde pelo caso), e as duas divergem bastante.
+         */
+        meCita: grupo.some((p) => idsQueMeCitam.has(p.id)),
         tipoComunicacao: pub.tipoComunicacao,
         nomeOrgao: pub.nomeOrgao,
         providencia: pub.providencia,

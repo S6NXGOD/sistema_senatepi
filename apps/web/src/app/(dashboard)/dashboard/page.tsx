@@ -763,7 +763,14 @@ function PublicacoesDjen({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <Newspaper className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            {pessoal ? 'Publicações nos seus processos' : 'Publicações que pedem providência'}
+            {/*
+              O TÍTULO DIZIA "NOS SEUS PROCESSOS" e a lista passou a ser maior
+              que isso: entra também o ato que NOMEIA o advogado num processo
+              que não está vinculado a ele. Foi assim que a Dra. Jaqueline via
+              zero enquanto quatro intimações a citavam. "Suas publicações" cobre
+              as duas coisas sem prometer a errada.
+            */}
+            {pessoal ? 'Suas publicações' : 'Publicações que pedem providência'}
           </p>
           {/*
             "Ver todas" é a resposta à paginação: o painel é RESUMO — seis atos
@@ -810,6 +817,17 @@ function PublicacoesDjen({
                         ? PROVIDENCIA_LABEL[pub.providencia]
                         : (pub.tipoComunicacao ?? 'Publicação')}
                     </span>
+                    {/*
+                      O PRAZO CORRE PARA QUEM FOI INTIMADO — e a lista mistura
+                      duas coisas de peso diferente: o ato que NOMEIA você e o
+                      ato do processo que é seu mas intimou outro advogado. Sem
+                      a marca, as seis linhas parecem ter a mesma urgência.
+                    */}
+                    {pub.meCita && (
+                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                        Você foi intimado
+                      </span>
+                    )}
                     {/*
                       DE QUEM CONTRA QUEM.
 
@@ -1379,22 +1397,78 @@ function AudienciasSemana({ data }: { data: ResumoDashboard }) {
   );
 }
 
+/**
+ * HOJE E OS PRÓXIMOS DIAS, numa leitura só.
+ *
+ * O cartão mostrava SÓ hoje, e a home não tinha lugar nenhum para um prazo de
+ * amanhã: vencido ia para "Pendências", audiência da semana tinha bloco próprio,
+ * e o resto sumia. Medido na produção em 07/09/2026: dos compromissos abertos
+ * do sindicato inteiro, **os seis** caíam nessa faixa. A tela do advogado dizia
+ * "nenhuma atividade agendada para hoje" enquanto ele tinha prazo para amanhã.
+ *
+ * Duas listas separadas resolveriam o dado e piorariam a leitura — quem abre a
+ * agenda pensa em ordem de tempo, não em categoria de janela. Então é uma lista
+ * cronológica com um separador leve por dia, e "hoje" continua em primeiro.
+ */
 function AtividadesHoje({ data, pessoal }: { data: ResumoDashboard; pessoal: boolean }) {
-  const itens = data.atividadesHoje;
+  const hoje = data.atividadesHoje;
+  const proximas = data.proximasAtividades ?? [];
+  const total = hoje.length + proximas.length;
+
   return (
-    <SectionCard title={pessoal ? 'Minhas atividades de hoje' : 'Atividades de hoje'} icon={CalendarDays} count={itens.length} actionHref="/agenda">
-      {itens.length === 0 ? (
-        <EmptyState icon={CheckCircle2}>Nenhuma atividade agendada para hoje.</EmptyState>
+    <SectionCard
+      title={pessoal ? 'Minhas atividades' : 'Atividades'}
+      icon={CalendarDays}
+      count={total}
+      actionHref="/agenda"
+    >
+      {total === 0 ? (
+        <EmptyState icon={CheckCircle2}>
+          Nenhuma atividade para hoje nem para os próximos sete dias.
+        </EmptyState>
       ) : (
-        <ul className="divide-y divide-border/60">
-          {itens.map((c) => (
-            <li key={c.id}>
-              <CompromissoRow c={c} />
-            </li>
-          ))}
-        </ul>
+        <div className="space-y-3">
+          <BlocoDeDia titulo="Hoje" itens={hoje} vazio="Nada agendado para hoje." />
+          {proximas.length > 0 && (
+            <BlocoDeDia titulo="Próximos dias" itens={proximas} mostrarData />
+          )}
+        </div>
       )}
     </SectionCard>
+  );
+}
+
+/**
+ * Um trecho da lista com rótulo. O rótulo só aparece quando há dois trechos —
+ * "Hoje" sozinho sobre uma lista de hoje é ruído.
+ */
+function BlocoDeDia({
+  titulo, itens, mostrarData, vazio,
+}: {
+  titulo: string;
+  itens: ResumoDashboard['atividadesHoje'];
+  mostrarData?: boolean;
+  /** Texto curto quando o trecho está vazio mas o outro não — some se ausente. */
+  vazio?: string;
+}) {
+  if (itens.length === 0) {
+    return vazio ? (
+      <p className="px-2 py-1 text-xs text-muted-foreground">{vazio}</p>
+    ) : null;
+  }
+  return (
+    <div>
+      <p className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {titulo}
+      </p>
+      <ul className="divide-y divide-border/60">
+        {itens.map((c) => (
+          <li key={c.id}>
+            <CompromissoRow c={c} mostrarData={mostrarData} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

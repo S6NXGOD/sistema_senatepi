@@ -149,6 +149,16 @@ export interface ResumoDashboard {
   /** Amostra do radar de audiências (o total vem em `alertas`). */
   audienciasAAgendar: AudienciaAAgendar[];
   atividadesHoje: CompromissoCard[];
+  /**
+   * O QUE VENCE DE AMANHÃ ATÉ +7 DIAS — a janela que não existia.
+   *
+   * A home tinha vencido, hoje e audiência da semana. Um PRAZO para amanhã não
+   * cabia em nenhuma: aparecia só como número no cartão. Medido em 07/09/2026,
+   * os SEIS compromissos abertos do sindicato caíam todos nessa faixa — a tela
+   * dizia "nenhuma atividade agendada para hoje" e nada mais. Opcional porque a
+   * API antiga não manda.
+   */
+  proximasAtividades?: CompromissoCard[];
   audienciasSemana: CompromissoCard[];
   pendenciasAtivas: CompromissoCard[];
   atendimentosPendentes: AtendimentoPendente[];
@@ -203,6 +213,16 @@ export interface ResumoDashboard {
       semTarefa: boolean;
       /** Quantos destinatários receberam a MESMA comunicação. */
       copias: number;
+      /**
+       * O ATO NOMEIA QUEM ESTÁ OLHANDO?
+       *
+       * Só tem sentido no escopo PESSOAL. O prazo corre para quem foi
+       * INTIMADO, e isso é diferente de "o processo está vinculado a mim":
+       * medido em 07/09/2026, a Dra. Jaqueline era citada em 4 publicações e o
+       * painel dela mostrava zero, enquanto a Dra. Morgana via 32 das quais 6 a
+       * citavam. Opcional porque a API antiga não manda.
+       */
+      meCita?: boolean;
       processo: {
         id: string;
         numeroCNJ: string | null;

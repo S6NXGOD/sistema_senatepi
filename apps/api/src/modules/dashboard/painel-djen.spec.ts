@@ -34,7 +34,10 @@ describe('painel do DJEN na home', () => {
     );
     expect(consulta).toContain('take: 40,');
     const fn = PAINEL.slice(PAINEL.indexOf('private resumirPublicacoes('));
-    expect(fn.slice(0, 900)).toContain('.slice(0, 6)');
+    // O corte migrou do `[...porAto.values()]` para depois da ORDENAção (o que
+    // intima o advogado disputa as seis vagas na frente) — mas continua sendo
+    // seis, e continua sendo depois de agrupar.
+    expect(fn.slice(0, 2200)).toContain('grupos.slice(0, 6)');
   });
 
   /** O contador também conta ATOS: "4 publicações" onde havia 2 era mentira. */
@@ -45,16 +48,25 @@ describe('painel do DJEN na home', () => {
   });
 
   /**
-   * ESCOPO DO ADVOGADO. Nove advogados dividem o acervo; sem o recorte, cada um
-   * abre a home e vê publicação dos processos dos outros oito. Publicação
-   * alheia com cara de prazo ou é conferida uma a uma, ou ensina a ignorar o
-   * bloco — e aí some junto a que era dele.
+   * ESCOPO DO ADVOGADO — e ele mudou de definição.
+   *
+   * Era só "os processos vinculados a mim". Mas quem é INTIMADO é quem está
+   * nomeado no ato, e as duas listas divergem: medido em 07/09/2026, a
+   * Dra. Jaqueline era citada em 4 publicações e via ZERO, enquanto a
+   * Dra. Morgana via 32 das quais 6 a citavam. Hoje o recorte é a UNIÃO — quem
+   * responde pelo caso continua vendo o ato mesmo quando a intimação saiu no
+   * nome do colega. O detalhe está em `painel-do-advogado.spec.ts`.
+   *
+   * Sem recorte nenhum, cada advogado abriria a home vendo a publicação dos
+   * processos dos outros sete: publicação alheia com cara de prazo ou é
+   * conferida uma a uma, ou ensina a ignorar o bloco — e aí some junto a que
+   * era dele.
    */
-  it('o advogado só vê publicação do próprio acervo', () => {
+  it('o advogado vê o próprio acervo E o que o nomeia', () => {
     expect(PAINEL).toContain('const meuAcervo: Prisma.ProcessoWhereInput = souAdvogado');
     expect(PAINEL).toContain('? { advogados: { some: { advogadoId: user.id } } }');
-    // As três consultas do DJEN respeitam o recorte.
-    const usos = PAINEL.match(/souAdvogado \? \{ processo: meuAcervo \} : \{\}/g) ?? [];
+    // As duas consultas do DJEN respeitam o MESMO recorte.
+    const usos = PAINEL.match(/\.\.\.meuDjen,/g) ?? [];
     expect(usos.length).toBeGreaterThanOrEqual(2);
     expect(PAINEL).toContain("escopo: 'GLOBAL' | 'PESSOAL',");
   });
