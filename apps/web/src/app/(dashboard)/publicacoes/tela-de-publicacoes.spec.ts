@@ -153,3 +153,34 @@ describe('a leitura rápida da lista', () => {
     expect(CARTAO).toContain('Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())');
   });
 });
+
+/**
+ * O QUE A TELA DIZ QUANDO DÁ ERRADO.
+ *
+ * A importação em lote consulta o CNJ uma vez por ação: é normal que 27 passem
+ * e 3 falhem. A versão anterior listava os NPUs e parava — e sem o motivo não
+ * há o que fazer com a informação: tentar de novo? corrigir o número? esperar
+ * o CNJ voltar? São três ações diferentes.
+ */
+describe('o aviso de falha parcial no cadastro em lote', () => {
+  const FILA = readFileSync(
+    join(__dirname, '../../../components/processos/acoes-encontradas.tsx'),
+    'utf8',
+  );
+
+  it('agrupa as falhas pelo motivo, não por item', () => {
+    expect(FILA).toContain('const porMotivo = new Map<string, string[]>();');
+    expect(FILA).toContain('${npus.join(\', \')} — ${motivo}');
+  });
+
+  /** Doze segundos de aviso não comportam cinco parágrafos. */
+  it('mostra dois motivos e conta o resto', () => {
+    expect(FILA).toContain('.slice(0, 2)');
+    expect(FILA).toContain('e mais ${porMotivo.size - 2} motivo(s)');
+  });
+
+  /** Backend que não explicou não pode virar string vazia na tela. */
+  it('tem texto para o motivo ausente', () => {
+    expect(FILA).toContain("'motivo não informado'");
+  });
+});

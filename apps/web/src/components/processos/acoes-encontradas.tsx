@@ -199,9 +199,34 @@ export function AcoesEncontradas({
           o CNJ: um NPU que o índice não conhece falha sozinho e as outras passam.
           Um "27 cadastrados" sem mencionar as três que ficaram esconde trabalho.
         */
+        /*
+          E TEM DE DIZER POR QUÊ, agrupado pelo motivo.
+
+          A versão anterior listava os NPUs que falharam e parava aí — "3 não:
+          0001…, 0002…, 0003…". Sem o motivo não há o que fazer com a
+          informação: tentar de novo? corrigir o número? esperar o CNJ voltar?
+          São três ações diferentes e a tela não dizia qual.
+
+          Agrupado porque a falha real quase sempre é UMA: o CNJ recusou, e os
+          três NPUs falharam pela mesma razão. Repetir a frase três vezes num
+          aviso de doze segundos é o mesmo que não dizer nada.
+        */
+        const falhas = r.resultados.filter((x) => !x.ok);
+        const porMotivo = new Map<string, string[]>();
+        for (const f of falhas) {
+          const motivo = (f.motivo ?? 'motivo não informado').trim();
+          porMotivo.set(motivo, [...(porMotivo.get(motivo) ?? []), formatNPU(f.numeroCNJ)]);
+        }
+        const detalhe = [...porMotivo.entries()]
+          // Dois motivos cabem num aviso; a partir do terceiro a pessoa vai
+          // reconferir a fila de qualquer jeito, e ela continua lá.
+          .slice(0, 2)
+          .map(([motivo, npus]) => `${npus.join(', ')} — ${motivo}`)
+          .join(' · ');
+        const resto = porMotivo.size > 2 ? ` · e mais ${porMotivo.size - 2} motivo(s)` : '';
+
         toast.warning(
-          `${r.cadastrados} cadastrado(s), ${r.falhas} não: ` +
-            r.resultados.filter((x) => !x.ok).map((x) => formatNPU(x.numeroCNJ)).join(', '),
+          `${r.cadastrados} cadastrado(s), ${r.falhas} não. ${detalhe}${resto}`,
           { duration: 12_000 },
         );
       }
