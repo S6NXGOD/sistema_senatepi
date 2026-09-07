@@ -2141,6 +2141,17 @@ enum StatusSugestaoProcesso {
   PENDENTE /// esperando alguém decidir
   CADASTRADO /// virou processo no acervo
   IGNORADO /// alguém olhou e disse que não é para acompanhar
+  /// O CNJ diz que o processo já foi BAIXADO em todas as instâncias.
+  ///
+  /// Não é decisão de ninguém: o sistema conferiu no DataJud e o processo
+  /// acabou. Encher a fila de ação encerrada é o jeito mais rápido de a equipe
+  /// parar de olhar a fila — e a maior parte do que a primeira colheita trouxe
+  /// eram justamente atos de encerramento (é o último ato que um processo morto
+  /// publica).
+  ///
+  /// Continua visível para quem quiser importar à mão: o cadastro por NPU nunca
+  /// dependeu desta fila.
+  ENCERRADO
 }
 
 /// AÇÃO NOVA QUE O DIÁRIO REVELOU — e que o acervo ainda não conhece.
@@ -2188,6 +2199,14 @@ model SugestaoProcesso {
   decididoPor    String?                @map("decidido_por")
   decididoEm     DateTime?              @map("decidido_em")
   motivoDescarte String?                @map("motivo_descarte")
+
+  /// Quando conferimos no DataJud se o processo ainda corre.
+  ///
+  /// Nulo = não deu para conferir (o CNJ não conhece o número, ou a consulta
+  /// falhou). Aí a ação FICA na fila: na dúvida, mostrar é o lado seguro de
+  /// errar — esconder um processo vivo custa prazo; mostrar um morto custa um
+  /// clique.
+  verificadoNoCnjEm DateTime? @map("verificado_no_cnj_em")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

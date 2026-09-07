@@ -402,3 +402,163 @@ describe('o ano de distribuição', () => {
     expect(bloco.indexOf('.sort(')).toBeLessThan(bloco.indexOf('.slice(0, 50)'));
   });
 });
+
+/**
+ * NÃO ENCHER A FILA COM PROCESSO QUE JÁ ACABOU.
+ *
+ * A primeira colheita trouxe 32 ações e boa parte era de processo encerrado — o
+ * que faz sentido: o ATO DE ENCERRAMENTO é justamente a última coisa que um
+ * processo morto publica no Diário, e é por ele que a varredura o encontra.
+ * Fila cheia de trabalho que não existe é o jeito mais rápido de a equipe parar
+ * de olhar a fila.
+ *
+ * O critério é ESTADO, e não idade — o usuário foi explícito: "não me importo
+ * se é uma ação de 2014, contanto que ainda esteja rolando".
+ */
+describe('a ação que já acabou', () => {
+  const MIG = readFileSync(
+    join(
+      __dirname, '..', '..', '..', 'prisma', 'migrations',
+      '20260907190000_sugestao_encerrada', 'migration.sql',
+    ),
+    'utf8',
+  );
+
+  it('a varredura confere no CNJ se o processo ainda corre', () => {
+    expect(SYNC).toContain('private async marcarSeJaEncerrado(');
+    expect(SYNC).toContain('await this.datajud.buscarInstanciasPorNPU(numeroCNJ, siglaTribunal)');
+  });
+
+  /** A MESMA regra do resto do módulo — códigos TPU, desarquivamento, e movimento
+   * posterior à baixa. Uma segunda definição de "encerrado" divergiria da
+   * primeira no dia em que uma delas fosse corrigida. */
+  it('e usa a regra de baixa que já existia', () => {
+    expect(SYNC).toContain('instancias.every((i) => instanciaBaixada(i.movimentacoes))');
+  });
+
+  /** TODAS as instâncias: baixar o 1º grau com recurso em curso não é o fim. */
+  it('exige que TODAS as instâncias estejam baixadas', () => {
+    expect(SYNC).toContain('.every(');
+    expect(SYNC).not.toContain('.some((i) => instanciaBaixada');
+  });
+
+  /**
+   * NA DÚVIDA, MOSTRA. Sem instância nenhuma, o CNJ não sabe do processo — o que
+   * não é o mesmo que dizer que ele acabou. Esconder um caso vivo custa prazo;
+   * mostrar um morto custa um clique.
+   */
+  it('CNJ que não conhece o número não vira "encerrado"', () => {
+    expect(SYNC).toContain('if (!instancias.length) return;');
+  });
+
+  /** A conferência é bônus: falhar nela não pode derrubar a ingestão. */
+  it('a falha da conferência não perde a sugestão', () => {
+    const fn = SYNC.slice(
+      SYNC.indexOf('private async marcarSeJaEncerrado('),
+      SYNC.indexOf('private async ingerir('),
+    );
+    expect(fn).toContain('} catch (err) {');
+    expect(fn).toContain('this.logger.warn(');
+  });
+
+  /** SÓ AS NOVAS: reconferir a fila toda noite gastaria cota para nada. */
+  it('só confere ação nova, e a fila antiga por lotes', () => {
+    expect(SYNC).toContain('await this.marcarSeJaEncerrado(numeroCNJ, item.c.siglaTribunal);');
+    expect(SYNC).toContain('private async conferirFilaSemVerificacao()');
+    expect(SYNC).toContain('verificadoNoCnjEm: null');
+    expect(SYNC).toContain('const TETO = 20;');
+  });
+
+  /**
+   * JANELA DE TROCA: o contêiner ANTIGO só consulta `status = 'PENDENTE'`, então
+   * nunca lê uma linha ENCERRADO — e não tem como falhar ao interpretar um valor
+   * de enum que ele desconhece.
+   */
+  it('a migração é aditiva', () => {
+    expect(MIG).toContain(`ALTER TYPE "StatusSugestaoProcesso" ADD VALUE IF NOT EXISTS 'ENCERRADO'`);
+    expect(MIG).toContain('ADD COLUMN IF NOT EXISTS "verificado_no_cnj_em"');
+    expect(MIG).not.toMatch(/\bDROP\b/i);
+  });
+
+  /** E a fila continua entregando só o que espera decisão. */
+  it('a fila não lista o que foi encerrado', () => {
+    expect(SUGESTOES).toContain('where: { status: StatusSugestaoProcesso.PENDENTE }');
+  });
+});
+
+/**
+ * CADASTRAR VÁRIAS DE UMA VEZ.
+ *
+ * A colheita trouxe dezenas. Uma a uma é abrir o diálogo, conferir, confirmar e
+ * fechar — vezes trinta — e o que o diálogo pede que se confira é exatamente o
+ * que a linha da fila já mostra.
+ */
+describe('o cadastro em lote', () => {
+  /**
+   * A MESMA rotina de importação do botão individual. Uma segunda divergiria da
+   * primeira no dia em que uma delas ganhasse uma regra.
+   */
+  it('delega a importação de cada uma ao serviço de sempre', () => {
+    expect(CONTROLLER).toContain("@Post('sugestoes/importar-lote')");
+    expect(CONTROLLER).toContain('this.service.importar(item as never, this.ctx(req, userId))');
+  });
+
+  /**
+   * UMA POR VEZ, e não em transação única: cada importação consulta o CNJ, e um
+   * NPU que o índice não conhece não pode derrubar as outras vinte e nove.
+   */
+  it('a falha de uma não derruba as outras', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    expect(fn).toContain('} catch (err) {');
+    expect(fn).toContain('resultados.push({');
+    expect(fn).toContain('ok: false');
+  });
+
+  /**
+   * ENTRA O QUE O TRIBUNAL DISSE; fica de fora o que exige julgamento — filiado,
+   * advogado, etiqueta. O sistema já tem fila para esses ("Sem filiado
+   * vinculado", "Sem réu cadastrado"), e o processo cai nelas sozinho. Inventar
+   * um assistente de conclusão seria uma terceira fila para o mesmo trabalho.
+   */
+  it('leva as partes do Diário e nada que exija julgamento', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    expect(fn).toContain('partesContrarias: nomes');
+    expect(fn).not.toContain('filiadoId');
+    expect(fn).not.toContain('advogadoId');
+    expect(fn).not.toContain('etiquetas');
+  });
+
+  /**
+   * AS PARTES ENTRAM COMO NOME, e não como vínculo. Medido: das 78 partes
+   * não-sindicato encontradas, **76 não existem no cadastro** — não há o que
+   * vincular. E onde existe, existe em quatro variantes (HAPVIDA): escolher uma
+   * seria cara ou coroa que agrupa processos sob a empresa errada.
+   */
+  it('as partes entram como nome, não como vínculo adivinhado', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    expect(fn).toContain("{ tipo: 'AVULSA' as const, nome }");
+    expect(fn).not.toContain('parteExternaId');
+  });
+
+  /** O sindicato tem tipo próprio nos dois polos — nunca entra como avulsa. */
+  it('e o sindicato entra como institucional', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    expect(fn).toContain("ehNos(nome) ? { tipo: 'INSTITUCIONAL' as const }");
+    expect(fn).toContain('.filter((nome) => !ehNos(nome))');
+  });
+
+  /** Só as que ainda esperam decisão: cadastrar de novo o que já entrou dá 409. */
+  it('só pega o que está pendente', () => {
+    expect(SUGESTOES).toContain('where: { id: { in: ids }, status: StatusSugestaoProcesso.PENDENTE }');
+  });
+
+  /**
+   * O TETO É DE COTA, não de banco: cada importação consulta o CNJ, a 14 por
+   * minuto. Cinquenta já são uns quatro minutos com a tela presa.
+   */
+  it('tem teto de 50 por lote', () => {
+    const DTO = readFileSync(join(__dirname, 'dto', 'sugestoes.dto.ts'), 'utf8');
+    expect(DTO).toContain('@ArrayMaxSize(50)');
+    expect(DTO).toContain('@ArrayNotEmpty()');
+  });
+});

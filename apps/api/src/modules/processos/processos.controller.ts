@@ -7,7 +7,7 @@ import { ProcessosService } from './processos.service';
 import { AudienciasService } from './audiencias.service';
 import { DossieProcessoService } from './dossie-processo.service';
 import { SugestoesService } from './sugestoes.service';
-import { IgnorarSugestaoDto } from './dto/sugestoes.dto';
+import { IgnorarSugestaoDto, ImportarLoteSugestoesDto } from './dto/sugestoes.dto';
 import { conteudoDisposto } from '@core/infra';
 import {
   AtualizarProcessoDto,
@@ -122,6 +122,28 @@ export class ProcessosController {
     @CurrentUser('id') userId: string,
   ) {
     return this.sugestoes.ignorar(id, userId, dto.motivo);
+  }
+
+  /**
+   * CADASTRAR VÁRIAS DE UMA VEZ.
+   *
+   * Delega a importação de cada uma ao MESMO `service.importar` do botão
+   * individual — uma segunda rotina de importação divergiria da primeira no dia
+   * em que uma delas ganhasse uma regra.
+   *
+   * A resposta vem linha a linha: cada importação consulta o CNJ, e um NPU que o
+   * índice não conhece não pode derrubar as outras vinte e nove.
+   */
+  @Post('sugestoes/importar-lote')
+  @ApiOperation({ summary: 'Cadastra em lote as ações encontradas no Diário.' })
+  importarSugestoesEmLote(
+    @Body() dto: ImportarLoteSugestoesDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.sugestoes.importarEmLote(dto.ids, (item) =>
+      this.service.importar(item as never, this.ctx(req, userId)),
+    );
   }
 
   /** Desfaz o "ignorar" — errar sem saída forçaria cadastrar para limpar a fila. */

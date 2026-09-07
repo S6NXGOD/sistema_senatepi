@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { ChevronDown, History, Loader2, Radar, Scale, ShieldAlert, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
+  cadastrarSugestoesEmLote,
   formatNPU,
   ignorarSugestao,
   listarSugestoesDeProcesso,
@@ -115,6 +116,15 @@ export function AcoesEncontradas({
   const qc = useQueryClient();
   const [aberto, setAberto] = useState(true);
   const [ignorando, setIgnorando] = useState<string | null>(null);
+  /*
+    SELEÇÃO PARA O LOTE — vazia por padrão.
+
+    A colheita trouxe dezenas. Cadastrar uma a uma é abrir o diálogo, conferir,
+    confirmar e fechar, vezes trinta — e o que o diálogo pede que se confira é
+    exatamente o que a linha já mostra. Começar com tudo marcado seria convidar
+    ao cadastro sem olhar, que é o oposto do que a fila serve.
+  */
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
 
   /*
     A MESMA CADÊNCIA DO SINO — senão os dois números brigam na mesma tela.
@@ -175,6 +185,32 @@ export function AcoesEncontradas({
       toast.error(e?.response?.data?.message ?? 'Não foi possível varrer o histórico agora.'),
   });
 
+  const lote = useMutation({
+    mutationFn: (ids: string[]) => cadastrarSugestoesEmLote(ids),
+    onSuccess: (r) => {
+      if (r.falhas === 0) {
+        toast.success(`${r.cadastrados} processo(s) cadastrado(s).`);
+      } else {
+        /*
+          O QUE FALHOU TEM DE SER DITO, e não só contado. Cada importação consulta
+          o CNJ: um NPU que o índice não conhece falha sozinho e as outras passam.
+          Um "27 cadastrados" sem mencionar as três que ficaram esconde trabalho.
+        */
+        toast.warning(
+          `${r.cadastrados} cadastrado(s), ${r.falhas} não: ` +
+            r.resultados.filter((x) => !x.ok).map((x) => formatNPU(x.numeroCNJ)).join(', '),
+          { duration: 12_000 },
+        );
+      }
+      setMarcadas(new Set());
+      qc.invalidateQueries({ queryKey: ['processos', 'sugestoes'] });
+      qc.invalidateQueries({ queryKey: ['processos'] });
+      qc.invalidateQueries({ queryKey: ['minhas-pendencias'] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível cadastrar em lote agora.'),
+  });
+
   const itens = q.data ?? [];
 
   /*
@@ -223,6 +259,39 @@ export function AcoesEncontradas({
         />
       </button>
 
+      {/*
+        A BARRA DO LOTE SÓ EXISTE COM ALGO MARCADO.
+
+        Uma barra permanente com "0 selecionadas" ocupa altura para dizer nada, e
+        no celular a altura é o recurso escasso. Ela aparece quando há escolha
+        feita, e some quando o lote roda.
+      */}
+      {aberto && podeCadastrar && marcadas.size > 0 && (
+        <div className="flex flex-col gap-2 border-t border-amber-200 bg-amber-100/60 px-4 py-2.5 dark:border-amber-900/40 dark:bg-amber-900/20 sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-xs font-medium text-amber-900 dark:text-amber-100">
+            {marcadas.size} selecionada{marcadas.size === 1 ? '' : 's'} ·{' '}
+            <button
+              type="button"
+              onClick={() => setMarcadas(new Set())}
+              className="underline underline-offset-2"
+            >
+              limpar
+            </button>
+          </span>
+          <button
+            type="button"
+            onClick={() => lote.mutate([...marcadas])}
+            disabled={lote.isPending}
+            className="flex h-10 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-3 text-xs font-semibold text-white transition hover:bg-brand-900 disabled:opacity-60 sm:h-8"
+          >
+            {lote.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {lote.isPending
+              ? 'Cadastrando…'
+              : `Cadastrar ${marcadas.size} com as partes do Diário`}
+          </button>
+        </div>
+      )}
+
       {aberto && (
         <ul className="border-t border-amber-200 dark:border-amber-900/40">
           {itens.map((s) => {
@@ -244,6 +313,24 @@ export function AcoesEncontradas({
                 className="border-t border-amber-200/60 px-4 py-3 first:border-t-0 dark:border-amber-900/30"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  {podeCadastrar && (
+                    <input
+                      type="checkbox"
+                      checked={marcadas.has(s.id)}
+                      onChange={(e) =>
+                        setMarcadas((atual) => {
+                          const novo = new Set(atual);
+                          if (e.target.checked) novo.add(s.id);
+                          else novo.delete(s.id);
+                          return novo;
+                        })
+                      }
+                      // 20px num alvo de 44px: o dedo acerta, e a caixa não
+                      // compete visualmente com o número do processo.
+                      className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-brand-800"
+                      aria-label={`Selecionar ${formatNPU(s.numeroCNJ)}`}
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="font-mono text-sm font-semibold">

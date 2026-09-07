@@ -4,6 +4,8 @@ import { OrigemSincronizacao, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CorrelacaoService } from './correlacao.service';
 import { ComunicacaoDjenDto, DjenService } from './djen.service';
+import { DatajudService } from './datajud.service';
+import { instanciaBaixada } from './utils/audiencia.util';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
@@ -82,6 +84,7 @@ export class DjenSyncService {
     private readonly djen: DjenService,
     private readonly logSync: SincronizacaoLogService,
     private readonly correlacao: CorrelacaoService,
+    private readonly datajud: DatajudService,
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
@@ -218,6 +221,7 @@ export class DjenSyncService {
 
     // ---- 3) Correlação de tudo que está pendente ----
     await this.correlacionarPendentes();
+    await this.conferirFilaSemVerificacao();
 
     this.logger.log(
       `[DJEN-SYNC] ${resumo.advogadosConsultados} advogado(s) + ${resumo.processosConsultados} processo(s) — ` +
@@ -462,7 +466,12 @@ export class DjenSyncService {
         },
         select: { createdAt: true, updatedAt: true },
       });
-      if (criada.createdAt.getTime() === criada.updatedAt.getTime()) novas++;
+      if (criada.createdAt.getTime() === criada.updatedAt.getTime()) {
+        novas++;
+        // Só as NOVAS: reconferir toda noite as que já estão na fila gastaria
+        // cota para responder o que não mudou.
+        await this.marcarSeJaEncerrado(numeroCNJ, item.c.siglaTribunal);
+      }
     }
 
     if (novas > 0) {
@@ -471,6 +480,89 @@ export class DjenSyncService {
       );
     }
     return novas;
+  }
+
+  /**
+   * A FILA QUE JÁ EXISTIA NÃO PASSOU POR ESTA CONFERÊNCIA.
+   *
+   * A checagem de "ainda corre?" entrou depois da primeira colheita — as 32
+   * ações que ela trouxe estão na fila sem carimbo. Sem isto, elas ficariam
+   * para sempre sem saber se o processo acabou, e a fila continuaria pedindo
+   * cadastro de coisa morta.
+   *
+   * Roda no fim da varredura, com teto: é uma consulta ao CNJ por ação, e a cota
+   * é a mesma que a varredura acabou de usar. Vinte por rodada esvaziam qualquer
+   * acúmulo real em poucos dias e não competem com o trabalho principal.
+   *
+   * Depois que todas têm carimbo, esta passada custa uma consulta ao banco e
+   * mais nada — e volta a custar só quando algo novo entra sem conferência.
+   */
+  private async conferirFilaSemVerificacao(): Promise<void> {
+    const TETO = 20;
+    const semCarimbo = await this.prisma.sugestaoProcesso.findMany({
+      where: { status: 'PENDENTE', verificadoNoCnjEm: null, siglaTribunal: { not: null } },
+      orderBy: { createdAt: 'asc' },
+      take: TETO,
+      select: { numeroCNJ: true, siglaTribunal: true },
+    });
+    if (!semCarimbo.length) return;
+
+    this.logger.log(
+      `[DJEN] Conferindo no CNJ se ${semCarimbo.length} ação(ões) da fila ainda correm…`,
+    );
+    for (const s of semCarimbo) {
+      await this.marcarSeJaEncerrado(s.numeroCNJ, s.siglaTribunal!);
+    }
+  }
+
+  /**
+   * O PROCESSO AINDA CORRE? — e se não corre, sai da fila antes de entrar nela.
+   *
+   * A primeira colheita trouxe 32 ações e boa parte era de processo encerrado.
+   * Faz sentido: o ATO DE ENCERRAMENTO é justamente a última coisa que um
+   * processo morto publica no Diário, e é por ele que a varredura o encontra.
+   * Fila cheia de trabalho que não existe é o jeito mais rápido de a equipe
+   * parar de olhar a fila.
+   *
+   * O critério é ESTADO, e não idade: uma ação de 2014 que ainda corre importa;
+   * uma de 2026 já baixada, não. Usa `instanciaBaixada`, a mesma regra de
+   * códigos TPU que o resto do módulo aplica — ela entende desarquivamento e
+   * movimento posterior à baixa.
+   *
+   * UMA CONSULTA POR AÇÃO NOVA, e só na primeira vez. No fluxo diário isso é
+   * quase nada; na colheita de histórico foram 32 chamadas, uns dois minutos e
+   * meio de cota.
+   *
+   * NA DÚVIDA, MOSTRA. Se o CNJ não conhece o número ou a consulta falha,
+   * `verificadoNoCnjEm` fica nulo e a ação permanece na fila: esconder processo
+   * vivo custa prazo; mostrar um morto custa um clique.
+   */
+  private async marcarSeJaEncerrado(numeroCNJ: string, siglaTribunal: string): Promise<void> {
+    if (!siglaTribunal || siglaTribunal === 'ND') return;
+    try {
+      const instancias = await this.datajud.buscarInstanciasPorNPU(numeroCNJ, siglaTribunal);
+      // Sem instância nenhuma o CNJ não sabe do processo — não é o mesmo que
+      // dizer que ele acabou, e tratar como encerrado esconderia um caso vivo.
+      if (!instancias.length) return;
+
+      const encerrado = instancias.every((i) => instanciaBaixada(i.movimentacoes));
+      await this.prisma.sugestaoProcesso.updateMany({
+        where: { numeroCNJ, status: 'PENDENTE' },
+        data: {
+          verificadoNoCnjEm: new Date(),
+          ...(encerrado ? { status: 'ENCERRADO' as const, decididoEm: new Date() } : {}),
+        },
+      });
+      if (encerrado) {
+        this.logger.log(`[DJEN] ${numeroCNJ} já baixado no CNJ — fora da fila de cadastro.`);
+      }
+    } catch (err) {
+      // A conferência é um bônus: falhar aqui não pode derrubar a ingestão nem
+      // perder a sugestão. Ela fica na fila sem carimbo, que é o lado seguro.
+      this.logger.warn(
+        `[DJEN] Não deu para conferir no CNJ se ${numeroCNJ} ainda corre: ${(err as Error).message}`,
+      );
+    }
   }
 
   private async ingerir(

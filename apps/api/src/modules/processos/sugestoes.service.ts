@@ -1,6 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { StatusSugestaoProcesso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { nossoPoloNoAto } from './utils/acao-nossa.util';
+
+/** O recorte do DTO de importação que o lote precisa preencher. */
+export interface ImportarEmLoteItem {
+  numeroCNJ: string;
+  tribunal?: string;
+  poloAtivo: {
+    tipo: 'INSTITUCIONAL' | 'FILIADOS' | 'OUTRA';
+    partes: { tipo: 'INSTITUCIONAL' | 'AVULSA'; nome?: string }[];
+  };
+  partesContrarias: { nome: string }[];
+}
 
 /**
  * A FILA DE AÇÕES QUE O DIÁRIO REVELOU E O ACERVO NÃO CONHECE.
@@ -122,6 +134,99 @@ export class SugestoesService {
     return this.prisma.sugestaoProcesso.count({
       where: { status: StatusSugestaoProcesso.PENDENTE },
     });
+  }
+
+  /**
+   * CADASTRAR VÁRIAS DE UMA VEZ — com o que o Diário já disse.
+   *
+   * A colheita trouxe dezenas. Cadastrar uma a uma é abrir o diálogo, conferir,
+   * confirmar e fechar — vezes trinta. E o que o diálogo pede que a pessoa
+   * confirme, nessas, é exatamente o que a fila já mostrou na linha.
+   *
+   * O QUE ENTRA: o número, o tribunal e as PARTES como o tribunal as escreveu.
+   * O que NÃO entra é o que exige julgamento — filiado vinculado, advogado
+   * responsável, etiqueta. Esses ficam para depois, e o sistema JÁ TEM fila para
+   * cada um: "Sem filiado vinculado" e "Sem réu cadastrado" na própria tela de
+   * Processos. Inventar um assistente de conclusão aqui seria construir uma
+   * terceira fila para o trabalho que as duas existentes já cobram.
+   *
+   * AS PARTES ENTRAM COMO NOME, e não como vínculo. Medido em 07/09/2026: das 78
+   * partes não-sindicato encontradas, **76 não existem no cadastro** — não há o
+   * que vincular. E onde existe, existe em quatro variantes (HAPVIDA), então
+   * escolher uma seria cara ou coroa que agrupa processos sob a empresa errada.
+   * Nome agora, vínculo quando gente olhar.
+   *
+   * UMA POR VEZ, e não em transação única: cada importação consulta o CNJ, e um
+   * NPU que o índice não conhece não pode derrubar as outras vinte e nove. O
+   * resultado volta linha a linha, dizendo o que entrou e o que não.
+   */
+  async importarEmLote(ids: string[], importarUma: (dto: ImportarEmLoteItem) => Promise<{ id: string }>) {
+    const sugestoes = await this.prisma.sugestaoProcesso.findMany({
+      where: { id: { in: ids }, status: StatusSugestaoProcesso.PENDENTE },
+      select: {
+        id: true, numeroCNJ: true, siglaTribunal: true, nossoPolo: true, partes: true,
+      },
+    });
+
+    const sigla = (
+      await this.prisma.parteExterna.findFirst({
+        where: { institucional: true },
+        select: { nomeFantasia: true },
+      })
+    )?.nomeFantasia;
+
+    const resultados: { numeroCNJ: string; ok: boolean; motivo?: string }[] = [];
+
+    for (const s of sugestoes) {
+      try {
+        const partes = Array.isArray(s.partes) ? (s.partes as { nome?: string; polo?: string }[]) : [];
+        const nomes = (polo: 'A' | 'P') =>
+          partes
+            .filter((x) => (x?.polo ?? '').trim().toUpperCase() === polo)
+            .map((x) => (x?.nome ?? '').trim())
+            .filter(Boolean)
+            .filter((n, i, todos) => todos.indexOf(n) === i);
+
+        const ehNos = (nome: string) => nossoPoloNoAto([{ nome, polo: 'A' }], sigla) !== null;
+
+        const processo = await importarUma({
+          numeroCNJ: s.numeroCNJ,
+          tribunal: s.siglaTribunal ?? undefined,
+          poloAtivo: {
+            // O sindicato tem tipo próprio; o resto entra como nome dos autos.
+            tipo: nomes('A').some(ehNos) ? 'INSTITUCIONAL' : 'OUTRA',
+            partes: nomes('A').map((nome) =>
+              ehNos(nome) ? { tipo: 'INSTITUCIONAL' as const } : { tipo: 'AVULSA' as const, nome },
+            ),
+          },
+          partesContrarias: nomes('P')
+            .filter((nome) => !ehNos(nome))
+            .map((nome) => ({ nome })),
+        });
+
+        await this.prisma.sugestaoProcesso.update({
+          where: { id: s.id },
+          data: {
+            status: StatusSugestaoProcesso.CADASTRADO,
+            processoId: processo.id,
+            decididoEm: new Date(),
+          },
+        });
+        resultados.push({ numeroCNJ: s.numeroCNJ, ok: true });
+      } catch (err) {
+        resultados.push({
+          numeroCNJ: s.numeroCNJ,
+          ok: false,
+          motivo: (err as Error).message,
+        });
+      }
+    }
+
+    return {
+      cadastrados: resultados.filter((r) => r.ok).length,
+      falhas: resultados.filter((r) => !r.ok).length,
+      resultados,
+    };
   }
 
   /**

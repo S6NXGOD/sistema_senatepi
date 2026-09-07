@@ -819,3 +819,21 @@ export async function ignorarSugestao(id: string, motivo?: string) {
 export async function reabrirSugestao(id: string) {
   return (await api.post(`/processos/sugestoes/${id}/reabrir`)).data;
 }
+
+/**
+ * CADASTRAR VÁRIAS AÇÕES DE UMA VEZ.
+ *
+ * Entra o número, o tribunal e as partes como o tribunal as escreveu. NÃO entra
+ * o que exige julgamento — filiado, advogado responsável, etiqueta — e isso é
+ * de propósito: o sistema já tem fila para cada um desses ("Sem filiado
+ * vinculado", "Sem réu cadastrado"), e o processo cadastrado cai nelas sozinho.
+ */
+export async function cadastrarSugestoesEmLote(ids: string[]): Promise<{
+  cadastrados: number;
+  falhas: number;
+  resultados: { numeroCNJ: string; ok: boolean; motivo?: string }[];
+}> {
+  // Cada importação consulta o CNJ, a 14 requisições por minuto: cinquenta são
+  // uns quatro minutos. O timeout tem de caber nisso.
+  return (await api.post('/processos/sugestoes/importar-lote', { ids }, { timeout: 600_000 })).data;
+}
