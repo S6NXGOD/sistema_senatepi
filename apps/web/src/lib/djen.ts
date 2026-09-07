@@ -91,6 +91,30 @@ export async function sincronizarPublicacoes(
 }
 
 /** O acompanhamento de todas as instâncias está ligado? */
+/**
+ * A VARREDURA COMPLETA, pedida por alguém — o botão "Buscar agora" da home.
+ *
+ * POR QUE A HOME PRECISA DELE. O aviso de que as publicações estão
+ * desatualizadas era só um aviso: dizia o diagnóstico e não dava saída nenhuma.
+ * Alarme sem alavanca é o que ensina a ignorar alarme — quem lê não pode fazer
+ * nada e aprende que a faixa é paisagem.
+ *
+ * SÓ ADMINISTRADOR: a rota percorre a OAB de todos os advogados e consulta o
+ * CNJ dezenas de vezes, respeitando a cota. Pode levar minutos — por isso o
+ * timeout longo.
+ */
+export async function varrerDjenAgora(): Promise<{
+  advogadosConsultados: number;
+  processosConsultados: number;
+  recebidas: number;
+  ingeridas: number;
+  descartadas: number;
+  falhas: number;
+}> {
+  const { data } = await api.post('/djen/sincronizar', undefined, { timeout: 600_000 });
+  return data;
+}
+
 export async function statusDatajud(): Promise<{ multiInstancia: boolean }> {
   const { data } = await api.get<{ multiInstancia: boolean }>('/datajud/status');
   return data;

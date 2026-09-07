@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { varrerDjenAgora } from '@/lib/djen';
 import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
@@ -63,6 +65,12 @@ export default function DashboardPage() {
       // Processo e cria o evento na Agenda) — sem os dois, as ações do painel
       // seriam recusadas pela API.
       radarAudiencias: podeEditar(role, perms, 'processos') && podeEditar(role, perms, 'agenda'),
+      /*
+        A VARREDURA COMPLETA DO DIÁRIO é `@Roles(ADMINISTRADOR)` na API: ela
+        percorre a OAB de todos os advogados e consulta o CNJ dezenas de vezes.
+        Botão que devolve 403 é pior que botão ausente — já entreguei um assim.
+      */
+      varrerDjen: role === 'ADMINISTRADOR',
     }),
     [role, perms],
   );
@@ -232,7 +240,10 @@ function Conteudo({
   role,
 }: {
   data: ResumoDashboard;
-  pode: Record<'processos' | 'atendimentos' | 'agenda' | 'filiados' | 'escalas' | 'radarAudiencias', boolean>;
+  pode: Record<
+    'processos' | 'atendimentos' | 'agenda' | 'filiados' | 'escalas' | 'radarAudiencias' | 'varrerDjen',
+    boolean
+  >;
   role: PerfilUsuario;
 }) {
   const { kpis, minhaCarteira, alertas } = data;
@@ -393,7 +404,7 @@ function Conteudo({
 
       {/* A fonte externa caiu? Vem antes de tudo que depende dela — inclusive
           antes do aviso do robô, que só diz se a varredura rodou. */}
-      <SaudeDasIntegracoes data={data} />
+      <SaudeDasIntegracoes data={data} podeVarrerDjen={pode.varrerDjen} />
 
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
@@ -560,7 +571,7 @@ function SectionTitle({ icon: Icon, texto }: { icon: typeof Briefcase; texto: st
  * depois do clique.
  */
 function AlertBar({
-  children, tom, href, acao = 'Ver',
+  children, tom, href, acao = 'Ver', aoAgir, rotuloAcao, agindo, detalhe,
 }: {
   children: React.ReactNode;
   tom: 'info' | 'atencao' | 'critico';
@@ -572,6 +583,24 @@ function AlertBar({
    */
   href?: string;
   acao?: string;
+  /**
+   * UMA ALAVANCA, e não só um destino.
+   *
+   * O aviso de que as publicações estão atrasadas dizia o diagnóstico e parava.
+   * Quem lia não podia fazer nada — e alarme sem saída é o que ensina a
+   * ignorar alarme. Com o botão, a faixa vira trabalho: "Buscar agora".
+   */
+  aoAgir?: () => void;
+  rotuloAcao?: string;
+  agindo?: boolean;
+  /**
+   * O DIAGNÓSTICO TÉCNICO, atrás de um clique.
+   *
+   * "nem bem-sucedida, nem com erro" e "não é o CNJ recusando" respondem a
+   * pergunta de quem vai INVESTIGAR. Na primeira linha, atrapalham quem só
+   * precisa saber se pode confiar no que está vendo.
+   */
+  detalhe?: React.ReactNode;
 }) {
   const estilo = {
     info: {
@@ -611,6 +640,37 @@ function AlertBar({
     estilo.cor,
     href && 'transition hover:brightness-[0.98]',
   );
+
+  // Com botão ou detalhe, a faixa deixa de ser uma linha e vira um bloco — e
+  // no celular o botão desce para baixo do texto em vez de espremer a frase.
+  if (aoAgir || detalhe) {
+    return (
+      <div className={cn('rounded-xl border px-4 py-3 text-sm', estilo.cor)}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <span className="flex items-start gap-2.5">
+            <Icone className={cn('mt-0.5 h-4 w-4 shrink-0', estilo.icone)} />
+            <span className="min-w-0">{children}</span>
+          </span>
+          {aoAgir && (
+            <button
+              type="button"
+              onClick={aoAgir}
+              disabled={agindo}
+              className={cn(
+                'flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-md border',
+                'border-current/30 bg-background/70 px-3 text-xs font-semibold',
+                'transition hover:bg-background disabled:opacity-60 sm:h-8',
+              )}
+            >
+              {agindo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              {rotuloAcao ?? 'Executar'}
+            </button>
+          )}
+        </div>
+        {detalhe && <div className="mt-2 pl-[26px] text-[11px] opacity-80">{detalhe}</div>}
+      </div>
+    );
+  }
 
   return href ? (
     <Link href={href} className={classe}>{corpo}</Link>
@@ -922,7 +982,6 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
 function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
   const [aberto, setAberto] = useState(false);
   const n = itens.length;
-  const consultas = itens.reduce((s, i) => s + i.tentativas, 0);
 
   return (
     <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
@@ -934,12 +993,31 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
       >
         <span className="flex items-center gap-2.5">
           <Info className="h-4 w-4 shrink-0 opacity-70" />
+          {/*
+            A CONSEQUÊNCIA, E NÃO A CONTAGEM.
+
+            Eu tinha escrito "o robô já perguntou 252 vezes" no título — que é eu
+            mostrando serviço. Ninguém decide nada com esse número; ele importa a
+            quem for investigar, e por isso desceu para o detalhe.
+
+            O que a pessoa precisa saber é o que está deixando de acontecer:
+            **este processo não recebe andamento nenhum**. E, quando é UM só, o
+            número cabe na frase — saber qual é vale mais que saber quantos são.
+          */}
           <span>
-            O CNJ não encontra <strong className="text-foreground">{n}</strong>{' '}
-            {n === 1 ? 'processo' : 'processos'} do acervo — e o robô já perguntou{' '}
-            <strong className="text-foreground">{consultas}</strong>{' '}
-            {consultas === 1 ? 'vez' : 'vezes'}. Confira o número, ou aguarde a
-            distribuição.
+            {n === 1 ? (
+              <>
+                <strong className="text-foreground">1 processo não recebe andamentos</strong>:
+                o CNJ não reconhece o número{' '}
+                <span className="font-mono text-foreground">{formatNPU(itens[0].numeroCNJ)}</span>.
+              </>
+            ) : (
+              <>
+                <strong className="text-foreground">{n} processos não recebem andamentos</strong>:
+                o CNJ não reconhece os números cadastrados.
+              </>
+            )}{' '}
+            Confira o número — ou aguarde, se a distribuição for recente.
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
@@ -963,7 +1041,8 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
                   </span>
                 </span>
                 <span className="shrink-0 text-xs">
-                  {i.tentativas}× desde {new Date(i.desde).toLocaleDateString('pt-BR')}
+                  consultado {i.tentativas}× desde{' '}
+                  {new Date(i.desde).toLocaleDateString('pt-BR')}
                 </span>
               </>
             );
@@ -1458,7 +1537,45 @@ function CadastrosACompletar({
  * NADA APARECE QUANDO ESTÁ TUDO BEM. Um selo verde permanente vira paisagem em
  * uma semana e some junto com ele o dia em que fica vermelho.
  */
-function SaudeDasIntegracoes({ data }: { data: ResumoDashboard }) {
+/** "DJEN" e "DATAJUD" são nomes de API. Quem lê a home quer o nome da coisa. */
+const O_QUE_A_FONTE_TRAZ: Record<string, { nome: string; oQue: string }> = {
+  DJEN: { nome: 'Diário de Justiça (DJEN)', oQue: 'as publicações' },
+  DATAJUD: { nome: 'DataJud (CNJ)', oQue: 'os andamentos dos processos' },
+};
+
+function SaudeDasIntegracoes({
+  data,
+  podeVarrerDjen,
+}: {
+  data: ResumoDashboard;
+  /** Só o Administrador dispara a varredura completa (a rota exige o perfil). */
+  podeVarrerDjen?: boolean;
+}) {
+  const qc = useQueryClient();
+  const [detalheAberto, setDetalheAberto] = useState<string | null>(null);
+
+  /*
+    O BOTÃO QUE FALTAVA.
+
+    A faixa dizia o diagnóstico — "não fez nenhuma consulta, nem bem-sucedida,
+    nem com erro; é a varredura que não executou" — e não dava saída nenhuma.
+    Quem lê não pode fazer nada com isso, e alarme sem alavanca é exatamente o
+    que ensina a equipe a ignorar alarme.
+  */
+  const varrer = useMutation({
+    mutationFn: varrerDjenAgora,
+    onSuccess: (r) => {
+      toast.success(
+        r.ingeridas > 0
+          ? `${r.ingeridas} publicação(ões) nova(s) do Diário.`
+          : 'Busca concluída — nada novo no Diário.',
+      );
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível buscar no Diário agora.'),
+  });
+
   const problemas = (data.integracoes ?? []).filter(
     (i) => i.situacao === 'PARADA' || i.situacao === 'INSTAVEL' || i.situacao === 'NAO_RODOU',
   );
@@ -1469,37 +1586,63 @@ function SaudeDasIntegracoes({ data }: { data: ResumoDashboard }) {
       {problemas.map((i) => {
         const parada = i.situacao === 'PARADA';
         const naoRodou = i.situacao === 'NAO_RODOU';
-        const desde = i.ultimoSucesso
-          ? new Date(i.ultimoSucesso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+        const fonte = O_QUE_A_FONTE_TRAZ[i.fonte] ?? { nome: i.fonte, oQue: 'os dados' };
+        const quando = i.ultimoSucesso
+          ? new Date(i.ultimoSucesso).toLocaleString('pt-BR', {
+              weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+            })
           : null;
+        const aberto = detalheAberto === i.fonte;
+
+        /*
+          A CONSEQUÊNCIA NA FRENTE, O DIAGNÓSTICO ATRÁS.
+
+          A frase anterior era escrita para quem ia consertar: "nem
+          bem-sucedida, nem com erro", "não é o CNJ recusando". Quem abre a home
+          de manhã precisa de outra coisa — saber se pode confiar no que está
+          vendo. O diagnóstico continua ali, atrás de um clique, para quem for
+          investigar.
+        */
         return (
-          <AlertBar key={i.fonte} tom={parada || naoRodou ? 'critico' : 'atencao'}>
-            <strong className="font-semibold">{i.fonte}</strong>{' '}
-            {naoRodou ? (
-              /*
-                NINGUÉM TENTOU — e dizer "consulta mal-sucedida" mandava a pessoa
-                investigar o lado errado. Isto aqui é o agendador, não o CNJ.
-              */
+          <AlertBar
+            key={i.fonte}
+            tom={parada ? 'critico' : 'atencao'}
+            aoAgir={i.fonte === 'DJEN' && podeVarrerDjen ? () => varrer.mutate() : undefined}
+            rotuloAcao="Buscar agora"
+            agindo={varrer.isPending}
+            detalhe={
               <>
-                não fez <strong>nenhuma consulta</strong> nas últimas 24h — nem
-                bem-sucedida, nem com erro.{' '}
-                {desde ? `A última foi em ${desde}. ` : ''}
-                Não é o CNJ recusando: é a varredura que não executou.
+                <button
+                  type="button"
+                  onClick={() => setDetalheAberto(aberto ? null : i.fonte)}
+                  className="font-medium underline-offset-2 hover:underline"
+                >
+                  {aberto ? 'Ocultar detalhe técnico' : 'Detalhe técnico'}
+                </button>
+                {aberto && (
+                  <p className="mt-1 leading-snug">
+                    {naoRodou
+                      ? 'Nenhuma chamada foi registrada nas últimas 24h — nem com erro. Isso aponta para a varredura agendada, e não para o CNJ.'
+                      : parada
+                        ? `${i.falhas24} chamada(s) com erro nas últimas 24h e nenhuma bem-sucedida.`
+                        : `${i.falhas24} de ${i.ok24 + i.falhas24} chamadas falharam nas últimas 24h.`}
+                    {i.ultimoErro ? ` Último erro: ${i.ultimoErro}` : ''}
+                  </p>
+                )}
               </>
-            ) : parada ? (
+            }
+          >
+            {naoRodou || parada ? (
               <>
-                tentou e não obteve resposta{' '}
-                {desde ? `desde ${desde}` : 'até agora'}. As varreduras rodam toda
-                madrugada — dois dias sem uma consulta que volte é defeito.
+                <strong className="font-semibold">{fonte.oQue}</strong> podem estar
+                desatualizadas.{' '}
+                {quando ? `A última busca foi ${quando}.` : 'Nenhuma busca ainda.'}
               </>
             ) : (
               <>
-                instável: {i.falhas24} de {i.ok24 + i.falhas24} consultas falharam nas últimas
-                24 horas.
+                <strong className="font-semibold">{fonte.nome}</strong> está respondendo
+                com falhas — parte {fonte.oQue} pode não ter chegado hoje.
               </>
-            )}
-            {i.ultimoErro && (
-              <span className="mt-0.5 block text-[11px] opacity-80">Último erro: {i.ultimoErro}</span>
             )}
           </AlertBar>
         );

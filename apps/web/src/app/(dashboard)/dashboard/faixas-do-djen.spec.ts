@@ -19,16 +19,19 @@ const TELA = lerCodigo('page.tsx');
  * domingo. Não havia defeito nenhum — era fim de semana.
  */
 describe('a faixa de integração parada', () => {
-  /** Ninguém tentou ≠ tentamos e não voltou. Manda em quem se procura. */
+  /**
+   * Ninguém tentou ≠ tentamos e não voltou. A distinção continua existindo —
+   * ela só mudou de lugar: da primeira linha para o detalhe técnico, porque é
+   * quem investiga que precisa dela.
+   */
   it('separa "não rodou" de "parada"', () => {
     expect(TELA).toContain("i.situacao === 'NAO_RODOU'");
     expect(TELA).toContain('const naoRodou =');
-    expect(TELA).toContain('nenhuma consulta');
-    expect(TELA).toContain('é a varredura que não executou');
+    expect(TELA).toContain('Nenhuma chamada foi registrada nas últimas 24h');
   });
 
-  it('e a de parada fala de tentativa sem resposta', () => {
-    expect(TELA).toContain('tentou e não obteve resposta');
+  it('e a de parada fala de chamada com erro', () => {
+    expect(TELA).toContain('chamada(s) com erro nas últimas 24h e nenhuma bem-sucedida');
   });
 });
 
@@ -57,5 +60,71 @@ describe('o silêncio de publicações', () => {
   /** Integração sem uso não é problema — não pode calar um aviso legítimo. */
   it('só cala por problema de verdade', () => {
     expect(TELA).toContain("i.situacao !== 'OK' && i.situacao !== 'SEM_USO'");
+  });
+});
+
+/**
+ * A FAIXA PRECISA DE UMA ALAVANCA, NÃO SÓ DE UM DIAGNÓSTICO.
+ *
+ * A versão anterior dizia "não fez nenhuma consulta nas últimas 24h — nem
+ * bem-sucedida, nem com erro. Não é o CNJ recusando: é a varredura que não
+ * executou." Está tecnicamente certo e é escrito para quem vai CONSERTAR —
+ * quem abre a home de manhã precisa saber se pode confiar no que está vendo, e
+ * não podia fazer nada com aquilo. Alarme sem saída ensina a ignorar alarme.
+ */
+describe('a faixa fala de consequência e oferece saída', () => {
+  it('lidera pela consequência, não pelo diagnóstico', () => {
+    expect(TELA).toContain('podem estar');
+    expect(TELA).toContain('desatualizadas.');
+    expect(TELA).toContain('const O_QUE_A_FONTE_TRAZ');
+    expect(TELA).toContain("oQue: 'as publicações'");
+  });
+
+  /** O jargão desceu para trás de um clique, para quem for investigar. */
+  it('o diagnóstico técnico vira detalhe', () => {
+    expect(TELA).toContain('Detalhe técnico');
+    expect(TELA).toContain('Isso aponta para a varredura agendada, e não para o CNJ');
+  });
+
+  it('e há um botão que resolve', () => {
+    expect(TELA).toContain('rotuloAcao="Buscar agora"');
+    expect(TELA).toContain('varrerDjenAgora');
+    expect(TELA).toContain("aoAgir={i.fonte === 'DJEN' && podeVarrerDjen");
+  });
+
+  /**
+   * `POST /djen/sincronizar` é `@Roles(ADMINISTRADOR)`. Botão que devolve 403 é
+   * pior que botão ausente — já entreguei um assim neste projeto.
+   */
+  it('o botão só aparece para quem a API deixa usar', () => {
+    expect(TELA).toContain("varrerDjen: role === 'ADMINISTRADOR'");
+    expect(TELA).toContain('podeVarrerDjen={pode.varrerDjen}');
+  });
+
+  /** "Não rodou" deixou de ser vermelho: o dado fica velho, nada quebrou. */
+  it('não rodar não é crítico', () => {
+    expect(TELA).toContain("tom={parada ? 'critico' : 'atencao'}");
+  });
+});
+
+/**
+ * A CONTAGEM NÃO É A NOTÍCIA.
+ *
+ * "o robô já perguntou 252 vezes" era eu mostrando serviço. Ninguém decide nada
+ * com esse número; quem lê precisa saber o que está deixando de acontecer.
+ */
+describe('a faixa do NPU desconhecido', () => {
+  it('lidera pela consequência', () => {
+    expect(TELA).toContain('não recebe andamentos');
+    expect(TELA).toContain('o CNJ não reconhece o número');
+  });
+
+  /** Sendo um só, o número cabe na frase — vale mais que a contagem. */
+  it('nomeia o processo quando é um só', () => {
+    expect(TELA).toContain('formatNPU(itens[0].numeroCNJ)');
+  });
+
+  it('e a contagem desce para a linha do detalhe', () => {
+    expect(TELA).toContain('consultado {i.tentativas}');
   });
 });

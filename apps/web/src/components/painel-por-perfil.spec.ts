@@ -82,8 +82,10 @@ describe('saúde das integrações', () => {
   /** Selo verde permanente vira paisagem — e some junto o dia em que fica vermelho. */
   it('não mostra nada quando está tudo bem', () => {
     const bloco = PAINEL.slice(PAINEL.indexOf('function SaudeDasIntegracoes('));
-    expect(bloco.slice(0, 1200)).toContain("i.situacao === 'PARADA' || i.situacao === 'INSTAVEL'");
-    expect(bloco.slice(0, 1200)).toContain('if (problemas.length === 0) return null;');
+    // A janela cresceu junto com o componente (o botão "Buscar agora" entrou
+    // no meio); casar por prefixo curto reprovaria a formatação, não a regra.
+    expect(bloco).toContain("i.situacao === 'PARADA' || i.situacao === 'INSTAVEL'");
+    expect(bloco).toContain('if (problemas.length === 0) return null;');
   });
 
   /**

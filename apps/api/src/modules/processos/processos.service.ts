@@ -1557,7 +1557,25 @@ export class ProcessosService {
     if (!instancias.length) {
       await this.prisma.processo.update({
         where: { id: proc.id },
-        data: { ultimaSincronizacao: new Date() },
+        data: {
+          ultimaSincronizacao: new Date(),
+          /*
+            O PROCESSO QUE O CNJ NÃO CONHECE SAI DA FILA DE RELEITURA.
+
+            `instanciasLidasEm` só era carimbado quando vinha instância, e a fila
+            "ainda não lidos" é exatamente `instanciasLidasEm IS NULL`. Resultado:
+            um NPU que o índice não tem ficava na fila PARA SEMPRE e era relido a
+            cada abertura da lista de processos. Medido na produção: **252
+            consultas em 12 dias** para um único número, sempre com a mesma
+            resposta.
+
+            Carimbar aqui não esconde nada: a varredura noturna ordena por
+            `ultimaSincronizacao`, não por este campo — então um processo
+            recém-distribuído continua sendo reconsultado todo dia e entra assim
+            que o tribunal o indexar. O que para é a insistência a cada clique.
+          */
+          ...(this.datajud.multiInstanciaAtiva ? { instanciasLidasEm: new Date() } : {}),
+        },
       });
       await this.logSync.registrar({
         processoId: proc.id, numeroCNJ, tribunal: sigla, origem,

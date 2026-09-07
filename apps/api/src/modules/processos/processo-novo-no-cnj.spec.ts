@@ -53,8 +53,17 @@ describe('processo novo que o CNJ ainda não publicou', () => {
       SERVICE.indexOf('A mesclagem por instância mora em InstanciasService'),
     );
     expect(trecho.length).toBeGreaterThan(200); // o teste não olha para o vazio
-    // Grava só o carimbo da tentativa…
-    expect(trecho).toContain('data: { ultimaSincronizacao: new Date() }');
+    // Grava só os carimbos da tentativa — nada do cache é tocado.
+    expect(trecho).toContain('ultimaSincronizacao: new Date()');
+    expect(trecho).not.toContain('movimentacao');
+    /*
+      E O CARIMBO DE LEITURA ENTROU JUNTO, para o processo sair da fila de
+      releitura: `instanciasLidasEm IS NULL` é essa fila, e um NPU que o índice
+      não tem ficava nela para sempre — 252 consultas em 12 dias na produção,
+      uma a cada abertura da lista. A varredura noturna, que ordena por
+      `ultimaSincronizacao`, segue reconsultando todo dia.
+    */
+    expect(trecho).toContain('instanciasLidasEm: new Date()');
     // …e registra como SUCESSO com zero novidades, não como erro.
     expect(trecho).toMatch(/sucesso: true, novasMovimentacoes: 0/);
     expect(trecho).toContain('Processo não localizado no índice do tribunal.');

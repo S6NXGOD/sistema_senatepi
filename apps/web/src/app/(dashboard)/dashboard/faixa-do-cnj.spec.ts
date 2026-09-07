@@ -97,15 +97,20 @@ describe('a faixa da varredura', () => {
  * não foi distribuído.
  */
 describe('a barra dos NPUs desconhecidos', () => {
-  it('existe e mostra a insistência', () => {
+  /**
+   * A CONTAGEM SAIU DO TÍTULO. "o robô já perguntou 252 vezes" era eu mostrando
+   * serviço — ninguém decide nada com o número. Ele desceu para a linha do
+   * detalhe, onde serve a quem for investigar.
+   */
+  it('existe e lidera pela consequência', () => {
     expect(TELA).toContain('function DesconhecidosNoCnj');
-    expect(TELA).toContain('O CNJ não encontra');
-    expect(TELA).toContain('e o robô já perguntou');
+    expect(TELA).toContain('não recebe andamentos');
+    expect(TELA).not.toContain('e o robô já perguntou');
   });
 
   /** Nome próprio no lugar de "erro": quem lê tem de saber o que fazer. */
   it('diz o que fazer', () => {
-    expect(TELA).toContain('Confira o número, ou aguarde a');
+    expect(TELA).toContain('Confira o número — ou aguarde, se a distribuição for recente');
   });
 
   /** Tom neutro — misturar com alerta ensina a ignorar o alerta. */

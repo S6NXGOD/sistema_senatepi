@@ -116,3 +116,55 @@ describe('o silêncio do DJEN', () => {
     expect(DASH).toContain('diasUteisSemNada,');
   });
 });
+
+/**
+ * 252 CONSULTAS PARA UM NÚMERO QUE O CNJ NUNCA TEVE.
+ *
+ * `instanciasLidasEm` só era carimbado quando vinha instância, e a fila "ainda
+ * não lidos" é exatamente `instanciasLidasEm IS NULL`. Um NPU que o índice não
+ * tem ficava nessa fila PARA SEMPRE e era relido a cada abertura da lista de
+ * processos — 252 consultas em 12 dias na produção, sempre com a mesma
+ * resposta, e o painel só mostrava o desperdício sem freá-lo.
+ */
+describe('o processo que o CNJ não conhece sai da fila de releitura', () => {
+  const PROC = lerCodigo('processos.service.ts');
+
+  /*
+    `if (!instancias.length)` aparece DUAS vezes no arquivo: na importação (que
+    recusa o processo) e na ressincronização (que apenas registra a tentativa).
+    O primeiro `indexOf` pegava a errada — ancorar pelo `ultimaSincronizacao`
+    identifica a que interessa.
+  */
+  const blocoSemInstancia = () => {
+    const i = PROC.indexOf('if (!instancias.length) {', PROC.indexOf('ressincronizarSilencioso'));
+    expect(i).toBeGreaterThan(-1);
+    return PROC.slice(i, i + 400);
+  };
+
+  it('carimba a leitura mesmo sem instância nenhuma', () => {
+    const bloco = blocoSemInstancia();
+    expect(bloco).toContain('ultimaSincronizacao: new Date()');
+    expect(bloco).toContain('instanciasLidasEm: new Date()');
+  });
+
+  /**
+   * E CONTINUA RESPEITANDO A FLAG: com o parser multi-instância desligado, o
+   * carimbo faria a reavaliação pular o processo justamente depois de a flag
+   * ser ligada — que é quando ele mais precisa ser relido.
+   */
+  it('mas só quando o parser multi-instância está ligado', () => {
+    expect(blocoSemInstancia()).toContain(
+      '...(this.datajud.multiInstanciaAtiva ? { instanciasLidasEm: new Date() } : {})',
+    );
+  });
+
+  /**
+   * NADA SE PERDE: a varredura noturna ordena por `ultimaSincronizacao`, não
+   * por este campo — um processo recém-distribuído continua sendo reconsultado
+   * todo dia e entra assim que o tribunal o indexar.
+   */
+  it('a varredura noturna não depende deste carimbo', () => {
+    const i = PROC.indexOf('idsParaSincronizar');
+    expect(PROC.slice(i, i + 900)).not.toContain('instanciasLidasEm');
+  });
+});
