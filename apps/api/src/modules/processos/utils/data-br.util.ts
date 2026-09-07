@@ -19,6 +19,27 @@ export function inicioDoDiaBR(base = new Date()): Date {
 }
 
 /**
+ * O DIA DO CALENDÁRIO em Teresina, na forma que uma coluna `date` guarda.
+ *
+ * IRMÃ DE `inicioDoDiaBR`, E DIFERENTE DELA — a confusão entre as duas custa
+ * caro, então: `inicioDoDiaBR` devolve o INSTANTE em que o dia começa em
+ * Teresina (03:00 UTC); esta devolve o DIA, à meia-noite UTC, que é exatamente
+ * como o Postgres materializa uma coluna `date`. Comparar uma coluna `date` com
+ * `inicioDoDiaBR` marca o vencimento de HOJE como vencido, porque 00:00 < 03:00.
+ *
+ * Use esta quando o outro lado da comparação for `date` (dia contra dia); use
+ * `inicioDoDiaBR` quando for `timestamp` (instante contra instante).
+ *
+ * Nasceu do robô de cobranças: ele usava `getUTCDate()` sobre o relógio do
+ * contêiner (UTC) e marcava as parcelas como VENCIDO às 21:00 do próprio dia do
+ * vencimento. As três parcelas VENCIDO da produção têm esse carimbo.
+ */
+export function diaDeCalendarioBR(base = new Date()): Date {
+  const br = new Date(base.getTime() - OFFSET_BR_MS);
+  return new Date(Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), br.getUTCDate()));
+}
+
+/**
  * Chave "dia em Teresina" (yyyy-mm-dd).
  *
  * É por ela que se decide se dois eventos caem no MESMO dia — comparar

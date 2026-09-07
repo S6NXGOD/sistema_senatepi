@@ -18,6 +18,7 @@ import {
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
 import { tenant } from '../../tenant/tenant.config';
+import { diaDeCalendarioBR } from '../processos/utils/data-br.util';
 
 /** Contexto de request para auditoria (ip/user-agent/usuário logado). */
 interface Ctx {
@@ -61,10 +62,6 @@ export class CobrancasService {
     return Array.from({ length: n }, (_, i) => (base + (i < resto ? 1 : 0)) / 100);
   }
 
-  private hojeUTC(): Date {
-    const n = new Date();
-    return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
-  }
 
   private arred(x: number): number {
     return Number(x.toFixed(2));
@@ -174,7 +171,7 @@ export class CobrancasService {
       },
     });
 
-    const resumo = this.resumoFinanceiro(cobrancas.flatMap((c) => c.parcelas), this.hojeUTC());
+    const resumo = this.resumoFinanceiro(cobrancas.flatMap((c) => c.parcelas), diaDeCalendarioBR());
     return { filiado, cobrancas, resumo };
   }
 
@@ -201,7 +198,7 @@ export class CobrancasService {
       select: { valor: true, status: true, dataVencimento: true },
     });
 
-    const resumo = this.resumoFinanceiro(parcelas, this.hojeUTC());
+    const resumo = this.resumoFinanceiro(parcelas, diaDeCalendarioBR());
     return {
       adimplente: resumo.qtdVencido === 0,
       parcelasVencidas: resumo.qtdVencido,
@@ -260,7 +257,7 @@ export class CobrancasService {
   // -------------------------------------------------------------------------
 
   async listarParcelas(filtro: ListarParcelasQueryDto) {
-    const hoje = this.hojeUTC();
+    const hoje = diaDeCalendarioBR();
     const and: Prisma.ParcelaCobrancaWhereInput[] = [];
 
     // "Vencida" = pendente cujo vencimento já passou; "pendente" = a vencer.
@@ -345,7 +342,7 @@ export class CobrancasService {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
     const offset = (page - 1) * pageSize;
-    const hoje = this.hojeUTC();
+    const hoje = diaDeCalendarioBR();
     const busca = q.busca?.trim();
 
     const buscaSql = busca
@@ -480,7 +477,7 @@ export class CobrancasService {
 
   async marcarParcelasVencidas() {
     const { count } = await this.prisma.parcelaCobranca.updateMany({
-      where: { status: StatusParcela.PENDENTE, dataVencimento: { lt: this.hojeUTC() } },
+      where: { status: StatusParcela.PENDENTE, dataVencimento: { lt: diaDeCalendarioBR() } },
       data: { status: StatusParcela.VENCIDO },
     });
     return count;
@@ -561,12 +558,18 @@ export class CobrancasService {
   // -------------------------------------------------------------------------
 
   async dashboard() {
-    const now = new Date();
-    const y = now.getUTCFullYear();
-    const m = now.getUTCMonth();
+    /*
+      O MÊS SAI DO DIA BRASILEIRO, pelo mesmo motivo que o dia.
+
+      Com `now.getUTCMonth()`, no dia 30 às 21:00 de Teresina o painel já
+      pulava para o mês seguinte — e mostrava as três últimas horas do mês
+      fechando com um mês vazio, todo santo mês.
+    */
+    const hoje = diaDeCalendarioBR();
+    const y = hoje.getUTCFullYear();
+    const m = hoje.getUTCMonth();
     const ini = new Date(Date.UTC(y, m, 1));
     const fim = new Date(Date.UTC(y, m + 1, 1));
-    const hoje = this.hojeUTC();
 
     const parcelas = await this.prisma.parcelaCobranca.findMany({
       where: { dataVencimento: { gte: ini, lt: fim }, status: { not: StatusParcela.CANCELADO } },
