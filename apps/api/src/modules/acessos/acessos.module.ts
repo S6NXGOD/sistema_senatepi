@@ -22,6 +22,7 @@ import {
   dependenteValidoParaEvento,
 } from '../dependentes/dependentes.module';
 import { situacaoDoTitular } from '../dependentes/titular.util';
+import { inicioDoDiaBR } from '../processos/utils/data-br.util';
 
 /**
  * PORTARIA — entrada no clube do sindicato.
@@ -306,8 +307,20 @@ export class AcessosService {
 
   /** Histórico da portaria — o padrão é o dia de hoje. */
   async listar(q: { de?: string; ate?: string; filiadoId?: string; limite?: string }) {
-    const inicio = q.de ? new Date(`${q.de}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0));
-    const fim = q.ate ? new Date(`${q.ate}T23:59:59`) : new Date();
+    /*
+      O DIA DA PORTARIA É O DIA DAQUI.
+
+      `new Date('2026-09-07T00:00:00')` sem offset é lido no fuso do PROCESSO:
+      no contêiner, em UTC, a janela começava às 21h do dia anterior e terminava
+      às 20h59 do dia pedido. O histórico do dia trazia três horas da véspera e
+      perdia as três últimas horas de expediente.
+    */
+    const inicio = q.de
+      ? inicioDoDiaBR(new Date(`${q.de}T12:00:00-03:00`))
+      : inicioDoDiaBR();
+    const fim = q.ate
+      ? new Date(inicioDoDiaBR(new Date(`${q.ate}T12:00:00-03:00`)).getTime() + 24 * 3_600_000 - 1)
+      : new Date();
     return this.prisma.registroAcesso.findMany({
       where: {
         registradoEm: { gte: inicio, lte: fim },

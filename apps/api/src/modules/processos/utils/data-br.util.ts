@@ -30,6 +30,48 @@ export function diaBR(d: Date): string {
 }
 
 /**
+ * PRIMEIRO DIA DO MÊS, à meia-noite daqui.
+ *
+ * `d.setDate(1); d.setHours(0,0,0,0)` resolvia no fuso do PROCESSO — no
+ * contêiner, em UTC, isso é 21h do último dia do mês ANTERIOR. O "novos no mês"
+ * do painel começava a contar três horas cedo e levava junto quem se filiou na
+ * virada.
+ *
+ * `Date.UTC` aceita mês negativo e vira o ano sozinho — por isso `mesesAtras`
+ * não precisa de conta de calendário aqui.
+ */
+export function inicioDoMesBR(base = new Date(), mesesAtras = 0): Date {
+  const [ano, mes] = diaBR(base).split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1 - mesesAtras, 1) + OFFSET_BR_MS);
+}
+
+/**
+ * Chave "mês em Teresina" (yyyy-mm), para agrupar gráfico.
+ *
+ * `getMonth()` responde no fuso do processo: um cadastro feito às 22h do dia 31
+ * caía no mês seguinte no ar e no mês certo aqui.
+ */
+export function mesBR(d: Date): string {
+  return diaBR(d).slice(0, 7);
+}
+
+/**
+ * IDADE EM ANOS COMPLETOS, pelo calendário daqui.
+ *
+ * Comparar `getMonth()/getDate()` dos dois lados mistura o fuso do processo com
+ * uma data de nascimento que é dia de calendário puro. Nas três últimas horas
+ * do dia, no ar, o servidor já estava no dia seguinte — e quem faz aniversário
+ * amanhã aparecia um ano mais velho hoje à noite.
+ */
+export function idadeEmAnosBR(nascimento: Date, referencia = new Date()): number {
+  const [a1, m1, d1] = diaBR(nascimento).split('-').map(Number);
+  const [a2, m2, d2] = diaBR(referencia).split('-').map(Number);
+  let idade = a2 - a1;
+  if (m2 < m1 || (m2 === m1 && d2 < d1)) idade--;
+  return idade;
+}
+
+/**
  * HORA EM QUE O ROBÔ AGENDA — nove da manhã de Teresina, sempre.
  *
  * Os robôs usavam `setHours(9, 0, 0, 0)`, que resolve no fuso do PROCESSO —

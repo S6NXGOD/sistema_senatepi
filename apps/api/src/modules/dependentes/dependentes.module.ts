@@ -32,6 +32,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { idadeEmAnosBR } from '../processos/utils/data-br.util';
 
 /**
  * Rótulo do parentesco.
@@ -49,11 +50,15 @@ export const PARENTESCO: Record<TipoDependente, string> = {
 };
 
 // ---- Regra de negócio compartilhável ----
+/**
+ * A idade sai do calendário DAQUI, e não do relógio do servidor: `getMonth()` e
+ * `getDate()` respondem no fuso do processo, que na produção é UTC. Das 21h à
+ * meia-noite o servidor já estava no dia seguinte — e quem faz aniversário
+ * amanhã aparecia um ano mais velho hoje à noite. Continua sendo uma linha só;
+ * ela agora mora em `data-br.util`, com o resto da regra de fuso.
+ */
 export function calcularIdade(dataNascimento: Date, referencia = new Date()): number {
-  let idade = referencia.getFullYear() - dataNascimento.getFullYear();
-  const m = referencia.getMonth() - dataNascimento.getMonth();
-  if (m < 0 || (m === 0 && referencia.getDate() < dataNascimento.getDate())) idade--;
-  return idade;
+  return idadeEmAnosBR(dataNascimento, referencia);
 }
 
 /**

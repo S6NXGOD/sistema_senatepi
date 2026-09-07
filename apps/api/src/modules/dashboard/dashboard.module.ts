@@ -1,5 +1,6 @@
 import { Controller, Get, Injectable, Module } from '@nestjs/common';
 import { diasUteisEntre } from './dias-uteis';
+import { inicioDoMesBR, mesBR } from '../processos/utils/data-br.util';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   StatusAtendimento,
@@ -1061,9 +1062,10 @@ export class DashboardService {
   // =========================================================================
 
   async indicadores() {
-    const inicioMes = new Date();
-    inicioMes.setDate(1);
-    inicioMes.setHours(0, 0, 0, 0);
+    // O mês começa à meia-noite DAQUI. `setHours(0)` no contêiner, que roda em
+    // UTC, é 21h do último dia do mês anterior — e "novos no mês" levava junto
+    // quem se filiou na virada.
+    const inicioMes = inicioDoMesBR();
 
     const [
       filiadosTotal,
@@ -1489,18 +1491,16 @@ export class DashboardService {
   }
 
   private seisMesesAtras(): Date {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 5);
-    d.setDate(1);
-    d.setHours(0, 0, 0, 0);
-    return d;
+    return inicioDoMesBR(new Date(), 5);
   }
 
   /** Agrupa datas por mês (YYYY-MM) para o gráfico de área. */
   private agruparPorMes(datas: Date[]): { mes: string; total: number }[] {
     const mapa = new Map<string, number>();
     for (const d of datas) {
-      const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      // `getMonth()` responde no fuso do processo: um cadastro das 22h do dia 31
+      // caía no mês seguinte no ar e no mês certo aqui.
+      const chave = mesBR(d);
       mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
     }
     return Array.from(mapa, ([mes, total]) => ({ mes, total })).sort((a, b) => a.mes.localeCompare(b.mes));

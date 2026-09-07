@@ -71,6 +71,29 @@ describe('nenhum horário nasce no fuso do contêiner', () => {
   });
 
   /**
+   * A JANELA DA PORTARIA é um dia de calendário daqui. Lida no fuso do processo,
+   * ela começava às 21h da véspera e terminava às 20h59 do dia pedido — trazia
+   * três horas da noite anterior e perdia as três últimas de expediente.
+   */
+  it('o histórico de acessos usa o dia daqui', () => {
+    const alvo = CODIGO.find((c) => c.arquivo === 'modules/acessos/acessos.module.ts')!;
+    expect(alvo.fonte).toContain('inicioDoDiaBR(');
+    expect(alvo.fonte).not.toContain('setHours(0, 0, 0, 0)');
+  });
+
+  /** Mês e idade também: o painel conta o mês de Brasília, não o do servidor. */
+  it('mês e idade vêm do calendário daqui', () => {
+    const painel = CODIGO.find((c) => c.arquivo === 'modules/dashboard/dashboard.module.ts')!;
+    expect(painel.fonte).toContain('inicioDoMesBR(');
+    expect(painel.fonte).toContain('mesBR(');
+    expect(painel.fonte).not.toContain('.getMonth()');
+
+    const dep = CODIGO.find((c) => c.arquivo === 'modules/dependentes/dependentes.module.ts')!;
+    expect(dep.fonte).toContain('idadeEmAnosBR(');
+    expect(dep.fonte).not.toContain('.getFullYear()');
+  });
+
+  /**
    * A conta de dias úteis não pode voltar a ler o relógio do processo: o dia
    * dela vem de `diaBR`, que é onde o offset do Brasil mora.
    */
