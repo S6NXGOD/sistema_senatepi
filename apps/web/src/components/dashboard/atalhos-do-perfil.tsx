@@ -95,7 +95,25 @@ export function AtalhosDoPerfil({
   if (!atalhos.length) return null;
 
   return (
-    <div className={cn('flex flex-wrap gap-2', className)}>
+    /*
+      UMA LINHA QUE ROLA, EM VEZ DE TRÊS QUE QUEBRAM.
+
+      Com `flex-wrap`, quatro pílulas de texto viravam duas ou três linhas no
+      telefone — mais altura que o cabeçalho inteiro, para atalhos que a barra
+      lateral também oferece. Rolando na horizontal, ocupam UMA linha sempre, e
+      o gesto (arrastar de lado) é o que já se usa em qualquer app.
+
+      `scrollbar-none` some com a barra no desktop; `-mx-1 px-1` deixa o foco do
+      teclado respirar sem cortar o anel. No desktop volta a quebrar, porque lá
+      cabe e rolagem horizontal com mouse é ruim.
+    */
+    <div
+      className={cn(
+        'flex gap-2 overflow-x-auto scrollbar-none -mx-1 px-1 pb-0.5',
+        'sm:flex-wrap sm:overflow-visible sm:mx-0 sm:px-0',
+        className,
+      )}
+    >
       {atalhos.map((a) => {
         const Icon = a.icon;
         return (
@@ -103,7 +121,7 @@ export function AtalhosDoPerfil({
             key={a.href}
             href={a.href}
             className={cn(
-              'inline-flex items-center gap-2 rounded-full border border-border bg-background',
+              'inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-background',
               'px-3 py-1.5 text-sm font-medium transition hover:bg-muted',
             )}
           >

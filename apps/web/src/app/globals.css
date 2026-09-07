@@ -85,3 +85,24 @@
     margin: 10mm;
   }
 }
+
+/*
+  ROLAGEM HORIZONTAL SEM BARRA.
+
+  Usada nas fileiras que precisam caber em UMA linha no telefone (os atalhos do
+  painel). A barra do navegador, nessas fileiras, some e reaparece conforme a
+  rolagem e faz a linha inteira pular alguns pixels — num elemento de 40px de
+  altura isso se lê como defeito.
+
+  Some só a BARRA, nunca a rolagem: o conteúdo continua acessível por gesto,
+  roda do mouse e teclado. Esconder a rolagem em si é que seria armadilha.
+*/
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Edge legado */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}

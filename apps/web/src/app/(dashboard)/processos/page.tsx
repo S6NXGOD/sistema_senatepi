@@ -38,6 +38,7 @@ import {
   STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_ORDEM, reavaliarInstancias,
   STATUS_PROCESSO_AJUDA, FASE_AJUDA,
   contadoresProcessos, ORDENS_LABEL, type OrdemProcesso,
+  listarSugestoesDeProcesso,
 } from '@/lib/processos';
 import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
 import { dataBr, desde } from '@/lib/dossie';
@@ -187,13 +188,51 @@ function ListaProcessos() {
     'cadastrar',
     (npu) => {
       if (!npu) return;
-      // Vindo do sino, só há o número na URL — as partes ficam para a pessoa,
-      // como sempre foi. Da fila, elas vêm junto.
+      // Abre JÁ, com o que a URL tem. O resto chega no efeito abaixo, assim que
+      // a fila responder — prender o diálogo esperando a rede seria trocar um
+      // formulário meio vazio por uma tela parada.
       setSugerido({ numeroCNJ: npu, partes: null, advogados: null });
       setImportOpen(true);
     },
     '/processos',
   );
+
+  /**
+   * A URL LEVA O NÚMERO; O RESTO A FILA JÁ SABE.
+   *
+   * Clicando "Cadastrar" DENTRO da fila, o diálogo vinha preenchido — partes do
+   * Diário, advogados marcados. Clicando no MESMO processo pelo painel ou pelo
+   * sino, vinha só o número: o formulário abria pedindo que a pessoa digitasse
+   * o que o sistema tinha na mão duas telas antes. Dois caminhos para a mesma
+   * ação, com resultados diferentes, e nada na tela explicando por quê.
+   *
+   * A causa era boba: um href não carrega objeto, então quem vinha de fora
+   * mandava só o NPU. A correção não é mandar mais na URL — é BUSCAR aqui. A
+   * fila já está carregada nesta tela (mesma chave de cache, sem requisição
+   * nova), e o NPU é a chave natural da sugestão.
+   *
+   * Só completa o que está VAZIO: se a pessoa já começou a mexer no formulário,
+   * a resposta tardia da rede não pode passar por cima do que ela escreveu.
+   */
+  const filaDeSugestoes = useQuery({
+    queryKey: ['processos', 'sugestoes'],
+    queryFn: listarSugestoesDeProcesso,
+    staleTime: 30_000,
+    enabled: podeEditarProcessos,
+  });
+
+  useEffect(() => {
+    if (!sugerido || sugerido.partes || sugerido.advogados) return;
+    const achada = (filaDeSugestoes.data ?? []).find(
+      (x) => x.numeroCNJ === sugerido.numeroCNJ,
+    );
+    if (!achada) return;
+    setSugerido({
+      numeroCNJ: achada.numeroCNJ,
+      partes: achada.partes,
+      advogados: (achada.advogadosNossos ?? []).map((a) => a.id),
+    });
+  }, [filaDeSugestoes.data, sugerido]);
 
   /**
    * `?rascunhos=1` (nome antigo do link) aplica o filtro rápido.

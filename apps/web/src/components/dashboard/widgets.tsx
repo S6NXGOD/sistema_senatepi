@@ -92,26 +92,52 @@ export interface KpiCardProps {
 
 export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: KpiCardProps) {
   const n = useCountUp(valor ?? 0);
+  /*
+    ZERO NÃO GRITA.
+
+    "Atendimentos pendentes 0" ocupava o mesmo cartão, com o mesmo número de
+    30px e o mesmo ícone colorido, que "Filiados ativos 7.279". Nenhum dos dois
+    ganhava destaque, porque destaque igual para tudo é destaque para nada — e
+    o zero é, das duas, a que não pede nada de ninguém.
+
+    O cartão FICA (a grade não pode dançar conforme o dia), mas recua: número em
+    peso normal e cinza, ícone sem a cor de fundo. Continua legível para quem
+    procura, e para de disputar o olho de quem não procura.
+  */
+  const zerado = valor === 0;
   const inner = (
     <Card
       className={cn(
         'group relative h-full overflow-hidden',
         href && 'cursor-pointer hover:border-brand-400',
-        destaque && 'border-brand-400/70 bg-brand-50/40 dark:bg-brand-900/10',
+        destaque && !zerado && 'border-brand-400/70 bg-brand-50/40 dark:bg-brand-900/10',
+        zerado && 'border-dashed',
       )}
     >
-      <CardContent className="flex items-start justify-between gap-3 p-5">
+      <CardContent className="flex items-start justify-between gap-3 p-4 sm:p-5">
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs">
             {label}
           </p>
-          <p className="mt-1.5 text-3xl font-bold tabular-nums leading-none">
+          <p
+            className={cn(
+              'mt-1.5 tabular-nums leading-none',
+              zerado
+                ? 'text-2xl font-semibold text-muted-foreground'
+                : 'text-2xl font-bold sm:text-3xl',
+            )}
+          >
             {valor === undefined ? '—' : n}
           </p>
-          {sub && <p className="mt-2 truncate text-xs text-muted-foreground">{sub}</p>}
+          {sub && <p className="mt-2 truncate text-[11px] text-muted-foreground sm:text-xs">{sub}</p>}
         </div>
-        <span className={cn('rounded-xl p-2.5 transition-transform group-hover:scale-110', cor)}>
-          <Icon className="h-5 w-5" />
+        <span
+          className={cn(
+            'rounded-xl p-2 transition-transform group-hover:scale-110 sm:p-2.5',
+            zerado ? 'bg-muted text-muted-foreground' : cor,
+          )}
+        >
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </span>
       </CardContent>
       {href && (

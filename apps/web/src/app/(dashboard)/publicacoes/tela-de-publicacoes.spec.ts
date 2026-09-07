@@ -91,12 +91,22 @@ describe('o cartão de publicação', () => {
  * cabeçalho, e cabeçalho ninguém lê. O painel é a primeira tela de todo login.
  */
 describe('o card de ações sem cadastro no painel', () => {
-  it('não usa requisição nova — a mesma chave do sino', () => {
-    expect(CARD_PAINEL).toContain("queryKey: ['minhas-pendencias']");
+  /**
+   * SAIU DE `minhas-pendencias` PARA A FILA DE VERDADE.
+   *
+   * A primeira versão reusava a consulta do sino para não gastar requisição, e
+   * a linha resultante era "Movemos · 08053442320218180031": vinte dígitos e
+   * uma palavra. O usuário pediu polo, partes e a foto do advogado — nada disso
+   * o sino carrega. A fila carrega, e é a MESMA chave de cache da tela de
+   * Processos, então quem for para lá em seguida não paga de novo.
+   */
+  it('lê a fila, que traz partes, polo e advogados', () => {
+    expect(CARD_PAINEL).toContain("queryKey: ['processos', 'sugestoes']");
+    expect(CARD_PAINEL).toContain('advogadosNossos');
   });
 
   it('some quando não há fila', () => {
-    expect(CARD_PAINEL).toContain('if (!acoes || acoes.total === 0) return null;');
+    expect(CARD_PAINEL).toContain('if (!permitido || !fila.length) return null;');
   });
 
   /** Vermelho é do que venceu. Isto é trabalho a fazer. */
@@ -105,16 +115,47 @@ describe('o card de ações sem cadastro no painel', () => {
     expect(CARD_PAINEL).not.toContain('bg-red-');
   });
 
-  /** Mesmo gate do sino: a rota é @Modulo('agenda'). */
-  it('respeita a permissão de quem vê', () => {
-    expect(CARD_PAINEL).toContain("podeVer(user?.role, user?.permissoes, 'agenda')");
+  /**
+   * QUEM CADASTRA, e não quem apenas vê. O card só oferece um botão —
+   * "Cadastrar" — e desenhá-lo para quem levaria 403 ao clicar é oferecer um
+   * caminho que não existe.
+   */
+  it('exige permissão de EDITAR processos, não de ver', () => {
+    expect(CARD_PAINEL).toContain("podeEditar(user?.role, user?.permissoes, 'processos')");
     expect(CARD_PAINEL).toContain('enabled: permitido,');
   });
 
-  /** Cada linha abre o cadastro já preenchido — vem pronto do backend. */
-  it('cada linha leva direto ao cadastro', () => {
-    expect(CARD_PAINEL).toContain('href={e.href}');
-    expect(CARD_PAINEL).toContain('Cadastrar');
+  it('cada linha leva ao cadastro daquele NPU', () => {
+    expect(CARD_PAINEL).toContain('href={`/processos?cadastrar=${s.numeroCNJ}`}');
+  });
+
+  /**
+   * O ADVERSÁRIO, e não "Autor × Réu": o nome do sindicato é o mesmo nas trinta
+   * linhas e gastaria a largura toda. O que muda — e decide se alguém abre — é
+   * quem está do outro lado.
+   */
+  it('mostra o adversário, nunca o próprio sindicato', () => {
+    expect(CARD_PAINEL).toContain("const oPoloDeles = s.nossoPolo === 'PASSIVO' ? 'A' : 'P';");
+    // Em recurso o sindicato figura nos dois polos: nunca é o adversário.
+    expect(CARD_PAINEL).toContain('!palavras(n).includes(nosso)');
+  });
+
+  /**
+   * Rodado contra a produção: 23 das 30 rendem um nome. Nas outras 7 a
+   * publicação listou só o nosso lado — e elas trazem a CLASSE, que informa
+   * mais ("Cumprimento de Sentença contra a Fazenda Pública") do que a verdade
+   * inútil "parte não informada".
+   */
+  it('cai para a classe da ação quando não há adversário no ato', () => {
+    expect(CARD_PAINEL).toContain('function descreverAcao');
+    expect(CARD_PAINEL).toContain('s.nomeClasse');
+    expect(CARD_PAINEL).toContain('capitalizar(classe)');
+  });
+
+  /** O rosto responde "esta é minha" numa fila coletiva de trinta. */
+  it('mostra a foto de quem foi citado no ato', () => {
+    expect(CARD_PAINEL).toContain('<AvatarPessoa');
+    expect(CARD_PAINEL).toContain('citado neste ato');
   });
 });
 

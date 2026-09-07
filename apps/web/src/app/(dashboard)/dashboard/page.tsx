@@ -39,6 +39,7 @@ import { AtalhosDoPerfil } from '@/components/dashboard/atalhos-do-perfil';
 import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
 import { AcoesSemCadastro } from '@/components/dashboard/acoes-sem-cadastro';
+import { OQueEstaLimpo, type CoisaLimpa } from '@/components/dashboard/o-que-esta-limpo';
 import {
   COR_SAIDA, COR_SALDO, PALETA_CATEGORICA, useCorDaMarca,
 } from '@/lib/cores-grafico';
@@ -204,10 +205,22 @@ function HeroHeader({
   atualizadoEm?: number;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+    /*
+      NO CELULAR O CABEÇALHO CABE EM DUAS LINHAS, NÃO EM QUATRO.
+
+      Saudação em 2xl, data embaixo, "atualizado há pouco" e o selo do perfil
+      quebrando para uma terceira linha: quase uma dobra inteira do telefone
+      gasta antes do primeiro dado. Nada aqui é decisão de ninguém — é cortesia
+      e contexto.
+
+      No telefone a saudação encolhe para xl e o selo do perfil some: quem está
+      logado sabe quem é, e o perfil já aparece na barra lateral e no menu. Fica
+      o que muda de verdade — a data e há quanto tempo o dado foi buscado.
+    */
+    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight">{saudacao(nome)}</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{saudacao(nome)}</h1>
+        <p className="mt-0.5 text-xs text-muted-foreground sm:text-sm">
           {dataPorExtenso()}
           {escopo === 'PESSOAL' && ' · sua carteira'}
         </p>
@@ -223,7 +236,7 @@ function HeroHeader({
         {/* O perfil muda o que a tela mostra, então continua à vista — mas como
             etiqueta discreta, e não como selo colorido disputando a atenção com
             os números. */}
-        <span className="rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+        <span className="hidden rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline">
           {PERFIL_LABEL[role]}
         </span>
       </div>
@@ -311,6 +324,49 @@ function Conteudo({
     },
   ].filter(Boolean) as { label: string; valor: number; sub: string; icon: typeof Briefcase; cor: string; href: string }[];
 
+  /*
+    O QUE ESTÁ VAZIO NÃO GANHA CARTÃO — GANHA UMA LINHA.
+
+    Só 3 dos 11 blocos deste painel somem sozinhos quando não têm conteúdo; os
+    outros 8 desenham cartão inteiro com título, ícone, moldura e um "nenhum
+    registro" no meio. Medido em 07/09/2026 no painel do administrador: quatro
+    seções vazias ao mesmo tempo. Metade da primeira tela era o sistema
+    informando que não tinha nada a informar.
+
+    Esconder de vez seria pior: "agenda de hoje vazia" É informação, e é a que
+    o advogado procura ao abrir. Ela só não vale um cartão. Vira uma linha, no
+    fim — depois do que precisa de gente, que é onde a boa notícia pertence.
+
+    A conta é feita AQUI, e não dentro de cada bloco, por dois motivos: os dados
+    já estão todos neste escopo, e assim a decisão de "isto está vazio" mora num
+    lugar só, do lado da decisão de renderizar.
+  */
+  const vazio = {
+    audienciasSemana: pode.agenda && (data.audienciasSemana ?? []).length === 0,
+    atividadesHoje:
+      pode.agenda &&
+      (data.atividadesHoje ?? []).length === 0 &&
+      (data.proximasAtividades ?? []).length === 0,
+    pendenciasAtivas: pode.agenda && (data.pendenciasAtivas ?? []).length === 0,
+    atendimentos:
+      pode.atendimentos && !ehTriagem && (data.atendimentosPendentes ?? []).length === 0,
+    movimentacoes: pode.processos && (data.movimentacoesRecentes ?? []).length === 0,
+    equipeHoje: pode.escalas && !data.equipeHoje?.plantaoHoje?.length,
+    contatos: ehGestao && (data.contatosHoje ?? []).length === 0,
+    cargaEquipe: ehGestao && (data.cargaEquipe ?? []).length === 0,
+  };
+
+  /* Frases AFIRMATIVAS: "Nada atrasado", nunca "0 atrasos". A pessoa lê a
+     linha para se tranquilizar, e número zero não tranquiliza ninguém. */
+  const limpo: CoisaLimpa[] = [
+    vazio.atividadesHoje && { texto: 'Nada na agenda de hoje', href: '/agenda' },
+    vazio.audienciasSemana && { texto: 'Sem audiências nos próximos 7 dias', href: '/agenda' },
+    vazio.pendenciasAtivas && { texto: 'Nenhuma pendência aberta', href: '/agenda' },
+    vazio.atendimentos && { texto: 'Nenhum atendimento na fila', href: '/atendimentos' },
+    vazio.movimentacoes && { texto: 'Sem movimentação nova nos processos', href: '/processos' },
+    vazio.equipeHoje && { texto: 'Ninguém de plantão hoje', href: '/escalas' },
+  ].filter(Boolean) as CoisaLimpa[];
+
   return (
     <>
       {/*
@@ -363,46 +419,24 @@ function Conteudo({
         </section>
       )}
 
-      {/* KPIs globais */}
-      {kpiCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {kpiCards.map((c, i) => (
-            <motion.div key={c.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-              <KpiCard {...c} />
-            </motion.div>
-          ))}
-        </div>
-      )}
+      {/*
+        ZONA 1 — O QUE PRECISA DE VOCÊ. Subiu para cima dos números.
 
-      {/* FILA DA TRIAGEM. Vem logo após os KPIs porque É o trabalho dela —
-          antes, a secretaria abria a home e via o painel do jurídico com
-          buracos, sem a própria fila em lugar nenhum. */}
-      {ehTriagem && (
-        <section>
-          <SectionTitle icon={Inbox} texto="Sua fila de hoje" />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <ContatosHoje data={data} />
-            {pode.atendimentos && <AtendimentosPendentes data={data} />}
-          </div>
-          {/* Aniversariantes logo abaixo da fila: é a secretaria quem faz o
-              contato, e o card só aparece quando há alguém. E ao lado, os
-              cadastros que dá para completar hoje — é o mesmo gesto (abrir a
-              ficha de alguém e preencher o que falta), e a mesma pessoa. */}
-          {pode.filiados && (
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Aniversariantes
-                data={data}
-                podeCompletar={podeEditarFiliado}
-                onCompletar={setRecadastrando}
-              />
-              {podeEditarFiliado && (
-                <CadastrosACompletar data={data} onCompletar={setRecadastrando} />
-              )}
-            </div>
-          )}
-        </section>
-      )}
+        A ordem anterior era: números primeiro, trabalho depois. Faz sentido num
+        relatório e não numa tela de trabalho — "129 processos ativos" é estado
+        do mundo, não decisão de ninguém; "30 ações do sindicato apareceram no
+        Diário" e "7 publicações pedem providência" são o dia da pessoa.
 
+        Medido no painel do administrador em 07/09/2026: das nove seções
+        principais, QUATRO estavam vazias. Com os números na frente, o que havia
+        de real começava abaixo da primeira dobra — no celular, depois de meia
+        dúzia de rolagens.
+
+        Todo bloco desta zona já se esconde sozinho quando não tem o que dizer
+        (integração sã, robô em dia, Diário calado, nada atrasado). Em dia
+        tranquilo a zona inteira desaparece e os números sobem naturalmente para
+        o topo, que é onde eles devem estar QUANDO não há trabalho urgente.
+      */}
       {/* A fonte externa caiu? Vem antes de tudo que depende dela — inclusive
           antes do aviso do robô, que só diz se a varredura rodou. */}
       <SaudeDasIntegracoes data={data} podeVarrerDjen={pode.varrerDjen} />
@@ -488,13 +522,59 @@ function Conteudo({
         </div>
       )}
 
+
+      {/* ZONA 2 — os números. Estado do mundo, depois do que precisa de gente. */}
+      {/* KPIs globais */}
+      {kpiCards.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {kpiCards.map((c, i) => (
+            <motion.div key={c.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+              <KpiCard {...c} />
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* FILA DA TRIAGEM. Vem logo após os KPIs porque É o trabalho dela —
+          antes, a secretaria abria a home e via o painel do jurídico com
+          buracos, sem a própria fila em lugar nenhum. */}
+      {ehTriagem && (
+        <section>
+          <SectionTitle icon={Inbox} texto="Sua fila de hoje" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {!vazio.contatos && <ContatosHoje data={data} />}
+            {pode.atendimentos && <AtendimentosPendentes data={data} />}
+          </div>
+          {/* Aniversariantes logo abaixo da fila: é a secretaria quem faz o
+              contato, e o card só aparece quando há alguém. E ao lado, os
+              cadastros que dá para completar hoje — é o mesmo gesto (abrir a
+              ficha de alguém e preencher o que falta), e a mesma pessoa. */}
+          {pode.filiados && (
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Aniversariantes
+                data={data}
+                podeCompletar={podeEditarFiliado}
+                onCompletar={setRecadastrando}
+              />
+              {podeEditarFiliado && (
+                <CadastrosACompletar data={data} onCompletar={setRecadastrando} />
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/*
+        ZONA 3 — O DIA. Cada bloco só aparece se tiver conteúdo; o que estiver
+        vazio é anunciado na linha única do fim (zona 4).
+      */}
       {/* Grade principal: equipe/audiências (1) + atividades de hoje (2) */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4">
-          {pode.escalas && <EquipeHoje data={data} />}
-          {pode.agenda && <AudienciasSemana data={data} />}
+          {pode.escalas && !vazio.equipeHoje && <EquipeHoje data={data} />}
+          {pode.agenda && !vazio.audienciasSemana && <AudienciasSemana data={data} />}
         </div>
-        {pode.agenda && (
+        {pode.agenda && !vazio.atividadesHoje && (
           <div className="lg:col-span-2">
             <AtividadesHoje data={data} pessoal={data.escopo === 'PESSOAL'} />
           </div>
@@ -512,8 +592,12 @@ function Conteudo({
       {/* Pendências ativas + atendimentos pendentes.
           A Triagem já viu os atendimentos no topo — não repete aqui. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {pode.agenda && <PendenciasAtivas data={data} pessoal={data.escopo === 'PESSOAL'} />}
-        {pode.atendimentos && !ehTriagem && <AtendimentosPendentes data={data} />}
+        {pode.agenda && !vazio.pendenciasAtivas && (
+          <PendenciasAtivas data={data} pessoal={data.escopo === 'PESSOAL'} />
+        )}
+        {pode.atendimentos && !ehTriagem && !vazio.atendimentos && (
+          <AtendimentosPendentes data={data} />
+        )}
       </div>
 
       {/* Carga da equipe — instrumento de GESTÃO, restrito a quem coordena.
@@ -521,7 +605,7 @@ function Conteudo({
           mas a lista de quem está sobrecarregado não é trabalho dela. */}
       {ehGestao && data.cargaEquipe && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <CargaEquipe data={data} />
+          {!vazio.cargaEquipe && <CargaEquipe data={data} />}
           {/* Ao lado: quem coordena precisa ver se o contato com o filiado está
               andando ANTES das audiências — é o que evita ausência na pauta. */}
           <ContatosHoje data={data} />
@@ -561,9 +645,18 @@ function Conteudo({
       {pode.processos && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <AdversariosRecorrentes data={data} />
-          <MovimentacoesRecentes data={data} />
+          {!vazio.movimentacoes && <MovimentacoesRecentes data={data} />}
         </div>
       )}
+
+      {/*
+        ZONA 4 — O QUE ESTÁ LIMPO, em uma linha, por último.
+
+        Substitui os cartões que existiam só para dizer "nenhum registro". A
+        posição é parte da mensagem: boa notícia depois do trabalho, nunca
+        antes. Em dia cheio a linha some sozinha.
+      */}
+      <OQueEstaLimpo itens={limpo} />
     </>
   );
 }
