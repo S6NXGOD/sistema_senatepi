@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
 import {
   buscarPublicacoes, facetasPublicacoes, statusDjen,
-  PROVIDENCIA_LABEL, type FiltroPublicacoes,
+  PROVIDENCIA_LABEL, PROVIDENCIA_COR, PROVIDENCIA_COR_PADRAO, type FiltroPublicacoes,
 } from '@/lib/djen';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from '@/components/processos/publicacao-djen-card';
@@ -523,7 +523,15 @@ export default function PublicacoesPage() {
               chips={
                 <>
                   {grupo.principal.providencia && PROVIDENCIA_LABEL[grupo.principal.providencia] && (
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium">
+                    <span
+                      className={cn(
+                        // 11px e semibold: é O campo que responde "o que eu
+                        // tenho de fazer aqui?" numa lista de 1.420 atos, e
+                        // estava do mesmo tamanho e peso da sigla do tribunal.
+                        'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                        PROVIDENCIA_COR[grupo.principal.providencia] ?? PROVIDENCIA_COR_PADRAO,
+                      )}
+                    >
                       {PROVIDENCIA_LABEL[grupo.principal.providencia]}
                     </span>
                   )}

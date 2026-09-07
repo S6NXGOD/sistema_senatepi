@@ -66,6 +66,45 @@ export const PROVIDENCIA_LABEL: Record<string, string> = {
 };
 
 /**
+ * A COR DA PROVIDÊNCIA — porque é por ela que se varre a lista.
+ *
+ * São 1.420 publicações e a pergunta de quem rola a tela é sempre a mesma: "o
+ * que eu tenho de FAZER aqui?". A resposta é a providência, e ela estava
+ * desenhada como todo o resto — pílula cinza de 10px, do mesmo peso do tribunal
+ * e do órgão. Nada puxava o olho para o único campo que muda a decisão.
+ *
+ * Três famílias, e a divisão é por ESFORÇO E RELÓGIO, não por assunto:
+ *
+ *  · ÂMBAR — tem peça a escrever ou data marcada. É o que consome dia de
+ *    trabalho: manifestação, recurso, documento a juntar, audiência a preparar.
+ *  · AZUL — é leitura e decisão. Não se resolve escrevendo; resolve-se lendo e
+ *    decidindo se vira outra coisa.
+ *  · VERDE — é contato com gente. Sai do jurídico e vai para a secretaria.
+ *
+ * Cinza é a rede: providência nova que alguém acrescentar aparece neutra em vez
+ * de quebrar a tela ou, pior, herdar a cor errada em silêncio.
+ */
+export const PROVIDENCIA_COR: Record<string, string> = {
+  ELABORAR_MANIFESTACAO:
+    'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+  AVALIAR_RECURSO: 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+  JUNTAR_DOCUMENTOS: 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+  PREPARAR_AUDIENCIA: 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+
+  ANALISAR_INTIMACAO: 'bg-sky-100 text-sky-900 dark:bg-sky-950/40 dark:text-sky-300',
+  ANALISAR_SENTENCA: 'bg-sky-100 text-sky-900 dark:bg-sky-950/40 dark:text-sky-300',
+
+  COMUNICAR_FILIADO:
+    'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
+  SOLICITAR_DOCUMENTOS_FILIADO:
+    'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300',
+};
+
+/** Neutro para o que ainda não tem cor — nunca herdar a de outra família. */
+export const PROVIDENCIA_COR_PADRAO =
+  'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+
+/**
  * Estado da integração. É a única rota que responde com o DJEN desligado — as
  * demais devolvem 404 de propósito.
  */

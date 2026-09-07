@@ -117,3 +117,39 @@ describe('o card de ações sem cadastro no painel', () => {
     expect(CARD_PAINEL).toContain('Cadastrar');
   });
 });
+
+/**
+ * A PROVIDÊNCIA É O CAMPO QUE SE VARRE, e estava desenhada como o resto.
+ *
+ * Numa lista de 1.420 atos a pergunta é sempre "o que eu tenho de FAZER aqui?".
+ * A resposta é a providência, e ela era uma pílula cinza de 10px, do mesmo peso
+ * da sigla do tribunal e do nome do órgão.
+ */
+describe('a leitura rápida da lista', () => {
+  it('a providência ganha cor por família de esforço', () => {
+    expect(PAGINA).toContain('PROVIDENCIA_COR[grupo.principal.providencia]');
+    // Providência nova aparece neutra em vez de herdar a cor errada em silêncio.
+    expect(PAGINA).toContain('?? PROVIDENCIA_COR_PADRAO');
+  });
+
+  /**
+   * "03/09/2026" obriga a fazer a subtração de cabeça, uma vez por cartão. A
+   * data exata continua no `title`, que é o que serve para citar num pedido.
+   */
+  it('a data vira "há N dias" enquanto isso ainda informa', () => {
+    expect(CARTAO).toContain('quandoSaiu(pub.dataDisponibilizacao)');
+    expect(CARTAO).toContain('title={formatData(pub.dataDisponibilizacao)}');
+    // Passado o limite, o relativo informa MENOS que a data.
+    expect(CARTAO).toContain('if (dias <= 60) return `há ${dias} dias`;');
+  });
+
+  /**
+   * `dataDisponibilizacao` é coluna DATE (meia-noite UTC). Contar por
+   * milissegundo faria a publicação de hoje virar "ontem" às 21h — o mesmo erro
+   * de fuso que mordeu o robô de cobranças.
+   */
+  it('compara dia de calendário, não instante', () => {
+    expect(CARTAO).toContain('const agoraBR = new Date(Date.now() - 3 * 3_600_000);');
+    expect(CARTAO).toContain('Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())');
+  });
+});

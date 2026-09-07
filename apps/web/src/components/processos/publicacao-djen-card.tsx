@@ -309,8 +309,23 @@ export function PublicacaoDjenCard({
             o olho desce quando a pessoa procura "as minhas publicações".
           */}
           <RostosDosNossos advogados={advogados} />
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            {formatData(pub.dataDisponibilizacao)}
+          {/*
+            QUÃO RECENTE, e a data por baixo.
+
+            Numa lista de 1.420 atos a pergunta é "isto é de ontem ou de
+            março?", e "03/09/2026" obriga a fazer a subtração de cabeça, uma
+            vez por cartão. O relativo responde de imediato; a data exata
+            continua ali no `title` e, no desktop, ao lado — porque para citar
+            num pedido o que serve é ela.
+
+            Para de contar em 60 dias: "há 214 dias" não é mais informação que
+            "12/02/2026", é menos.
+          */}
+          <span
+            className="whitespace-nowrap text-xs text-muted-foreground"
+            title={formatData(pub.dataDisponibilizacao)}
+          >
+            {quandoSaiu(pub.dataDisponibilizacao)}
           </span>
         </span>
       </div>
@@ -454,4 +469,25 @@ export function PublicacaoDjenCard({
       </div>
     </Tag>
   );
+}
+
+/**
+ * "ontem", "há 4 dias", ou a data quando já é história.
+ *
+ * `dataDisponibilizacao` é coluna DATE: chega como meia-noite UTC. Contar por
+ * milissegundo contra `Date.now()` faria a publicação de hoje aparecer como
+ * "há 0 dias" à tarde e "ontem" à noite — o mesmo erro de fuso que já mordeu o
+ * robô de cobranças. Compara-se DIA de calendário com DIA de calendário.
+ */
+function quandoSaiu(iso: string): string {
+  const dia = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const publicada = new Date(iso);
+  const agoraBR = new Date(Date.now() - 3 * 3_600_000);
+  const dias = Math.round((dia(agoraBR) - dia(publicada)) / 86_400_000);
+
+  if (dias < 0) return formatData(iso); // data futura: mostra o que veio
+  if (dias === 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  if (dias <= 60) return `há ${dias} dias`;
+  return formatData(iso);
 }
