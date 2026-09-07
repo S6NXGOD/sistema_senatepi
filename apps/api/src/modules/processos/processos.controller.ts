@@ -6,6 +6,8 @@ import { Request, Response } from 'express';
 import { ProcessosService } from './processos.service';
 import { AudienciasService } from './audiencias.service';
 import { DossieProcessoService } from './dossie-processo.service';
+import { SugestoesService } from './sugestoes.service';
+import { IgnorarSugestaoDto } from './dto/sugestoes.dto';
 import { conteudoDisposto } from '@core/infra';
 import {
   AtualizarProcessoDto,
@@ -25,6 +27,7 @@ export class ProcessosController {
     private readonly service: ProcessosService,
     private readonly audiencias: AudienciasService,
     private readonly dossieProcesso: DossieProcessoService,
+    private readonly sugestoes: SugestoesService,
   ) {}
 
   private ctx(req: Request, userId?: string) {
@@ -95,6 +98,39 @@ export class ProcessosController {
    * `count` extras por tecla pressionada. Vem ANTES de `@Get(':id')` pelo mesmo
    * motivo de `advogados`: a rota casa na ordem.
    */
+  /**
+   * AÇÕES QUE O DIÁRIO REVELOU E O ACERVO NÃO CONHECE.
+   *
+   * Vem ANTES de `@Get(':id')` pelo mesmo motivo de `advogados` e `contadores`:
+   * o Nest casa na ordem, e o parâmetro engoliria a palavra como se fosse um id.
+   *
+   * A permissão sai do verbo: `@Modulo('processos')` + GET exige VISUALIZAR.
+   * Quem só lê o acervo pode VER a fila; decidir exige POST, que o guard cobra
+   * como EDITAR.
+   */
+  @Get('sugestoes')
+  @ApiOperation({ summary: 'Ações do sindicato encontradas no Diário e ainda sem cadastro.' })
+  listarSugestoes() {
+    return this.sugestoes.listar();
+  }
+
+  @Post('sugestoes/:id/ignorar')
+  @ApiOperation({ summary: 'Marca a sugestão como "não é para acompanhar", com motivo.' })
+  ignorarSugestao(
+    @Param('id') id: string,
+    @Body() dto: IgnorarSugestaoDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.sugestoes.ignorar(id, userId, dto.motivo);
+  }
+
+  /** Desfaz o "ignorar" — errar sem saída forçaria cadastrar para limpar a fila. */
+  @Post('sugestoes/:id/reabrir')
+  @ApiOperation({ summary: 'Devolve a sugestão ignorada à fila.' })
+  reabrirSugestao(@Param('id') id: string) {
+    return this.sugestoes.reabrir(id);
+  }
+
   @Get('contadores')
   @ApiOperation({ summary: 'Contagem por filtro rápido, para os números das abas.' })
   contadores(@CurrentUser('id') userId: string) {

@@ -11,6 +11,7 @@ import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
 import { PadroesService } from './padroes.service';
 import { DossieProcessoService } from './dossie-processo.service';
+import { SugestoesService } from './sugestoes.service';
 import { PadroesController } from './padroes.controller';
 import { DjenCronService } from './djen-cron.service';
 import { DjenAtivoGuard, DjenController } from './djen.controller';
@@ -48,6 +49,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     PadroesController,
   ],
   providers: [
+    SugestoesService,
     ParteInstitucionalSeedService,
     OrganizacoesHerdadasService,
     ProcessosService,

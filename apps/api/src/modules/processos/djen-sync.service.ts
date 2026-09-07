@@ -6,6 +6,7 @@ import { CorrelacaoService } from './correlacao.service';
 import { ComunicacaoDjenDto, DjenService } from './djen.service';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { classificarProvidencia } from './utils/providencia.util';
+import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
 
 /** Resumo de uma varredura, para o log e para a rota manual. */
 export interface ResumoVarreduraDjen {
@@ -16,6 +17,14 @@ export interface ResumoVarreduraDjen {
   ingeridas: number;
   /** Descartadas por não haver processo cadastrado com aquele NPU. */
   descartadas: number;
+  /**
+   * Das descartadas, quantas eram AÇÕES NOSSAS ainda sem cadastro.
+   *
+   * Fica no resumo porque é o único lugar onde o volume aparece: a publicação
+   * de terceiro não é persistida, e sem este número ninguém saberia dizer se a
+   * detecção está achando alguma coisa.
+   */
+  sugeridas: number;
   falhas: number;
 }
 
@@ -104,6 +113,7 @@ export class DjenSyncService {
       recebidas: 0,
       ingeridas: 0,
       descartadas: 0,
+      sugeridas: 0,
       falhas: 0,
     };
     let quebrou: string | null = null;
@@ -139,6 +149,7 @@ export class DjenSyncService {
         const r = await this.ingerir(recebidas, OrigemSincronizacao.CRON);
         resumo.ingeridas += r.ingeridas;
         resumo.descartadas += r.descartadas;
+        resumo.sugeridas += r.sugeridas;
       } catch (err) {
         resumo.falhas++;
         // Isola a falha: um advogado com OAB inválida não pode derrubar a
@@ -159,6 +170,7 @@ export class DjenSyncService {
         const r = await this.ingerir(recebidas, OrigemSincronizacao.CRON);
         resumo.ingeridas += r.ingeridas;
         resumo.descartadas += r.descartadas;
+        resumo.sugeridas += r.sugeridas;
         // Carimba mesmo quando não veio nada: o rodízio mede QUANDO olhamos,
         // não se achamos. Sem isto, um processo silencioso seria reconsultado
         // toda noite e empurraria os outros para fora da rodada.
@@ -179,7 +191,8 @@ export class DjenSyncService {
     this.logger.log(
       `[DJEN-SYNC] ${resumo.advogadosConsultados} advogado(s) + ${resumo.processosConsultados} processo(s) — ` +
         `${resumo.recebidas} recebida(s), ${resumo.ingeridas} gravada(s), ` +
-        `${resumo.descartadas} descartada(s) (processo não cadastrado), ${resumo.falhas} falha(s).`,
+        `${resumo.descartadas} descartada(s) (processo não cadastrado, ` +
+        `${resumo.sugeridas} sugerida(s) para cadastro), ${resumo.falhas} falha(s).`,
     );
   }
 
@@ -300,11 +313,120 @@ export class DjenSyncService {
    * janela — o que a varredura faz de propósito todo dia, para absorver fim de
    * semana e feriado — não duplica nada e não exige leitura prévia.
    */
+  /**
+   * A SIGLA DO SINDICATO, LIDA DO CADASTRO E NÃO DE UMA CONSTANTE.
+   *
+   * São dois clientes no mesmo código. A parte marcada `institucional` guarda
+   * `nomeFantasia = tenant.sigla`, e é ela que o resto do módulo já usa para
+   * responder "somos nós?". Cacheada por rodada: a varredura chama a ingestão
+   * uma vez por advogado, e a sigla não muda no meio.
+   */
+  private siglaCache: { valor: string | null; em: number } | null = null;
+
+  private async siglaDoSindicato(): Promise<string | null> {
+    const UMA_HORA = 3_600_000;
+    if (this.siglaCache && Date.now() - this.siglaCache.em < UMA_HORA) {
+      return this.siglaCache.valor;
+    }
+    const institucional = await this.prisma.parteExterna.findFirst({
+      where: { institucional: true },
+      select: { nomeFantasia: true },
+    });
+    this.siglaCache = { valor: institucional?.nomeFantasia ?? null, em: Date.now() };
+    return this.siglaCache.valor;
+  }
+
+  /**
+   * AS PUBLICAÇÕES QUE SÃO NOSSAS MAS NÃO ESTÃO CADASTRADAS.
+   *
+   * Recebe o que seria descartado e guarda apenas o que nomeia o sindicato
+   * entre os destinatários. O texto do ato NÃO é guardado: para decidir se vale
+   * cadastrar bastam o número, o tribunal, a classe e quem está de cada lado.
+   * Guardar o teor de um processo que ainda não é nosso seria persistir mais do
+   * que a decisão exige.
+   *
+   * `upsert` por NPU: a mesma ação aparece em várias publicações e em várias
+   * rodadas, e não pode virar dez linhas na fila.
+   */
+  private async sugerirAcoesNossas(foraDoAcervo: ComunicacaoDjenDto[]): Promise<number> {
+    if (!foraDoAcervo.length) return 0;
+    const sigla = await this.siglaDoSindicato();
+    if (!sigla) return 0;
+
+    /*
+      Agrupa por NPU ANTES de escrever: um lote traz várias publicações do mesmo
+      processo, e dez `upsert` na mesma linha só gastam banco.
+    */
+    const porNpu = new Map<
+      string,
+      { c: ComunicacaoDjenDto; polo: PoloDetectado; n: number; de: Date; ate: Date }
+    >();
+
+    for (const c of foraDoAcervo) {
+      const polo = nossoPoloNoAto(c.destinatarios, sigla);
+      if (!polo) continue;
+      const quando = new Date(`${c.dataDisponibilizacao}T00:00:00Z`);
+      const atual = porNpu.get(c.numeroProcesso);
+      if (atual) {
+        atual.n++;
+        if (quando < atual.de) atual.de = quando;
+        if (quando > atual.ate) atual.ate = quando;
+      } else {
+        porNpu.set(c.numeroProcesso, { c, polo, n: 1, de: quando, ate: quando });
+      }
+    }
+    if (!porNpu.size) return 0;
+
+    let novas = 0;
+    for (const [numeroCNJ, item] of porNpu) {
+      /*
+        A DECISÃO DE QUEM JÁ OLHOU NÃO SE DESFAZ SOZINHA. Se alguém ignorou esta
+        ação, uma publicação nova amanhã não pode devolvê-la à fila — seria o
+        sistema discutindo com a pessoa. O contador sobe; o status, não.
+      */
+      const criada = await this.prisma.sugestaoProcesso.upsert({
+        where: { numeroCNJ },
+        create: {
+          numeroCNJ,
+          siglaTribunal: item.c.siglaTribunal ?? null,
+          nomeOrgao: item.c.nomeOrgao ?? null,
+          nomeClasse: item.c.nomeClasse ?? null,
+          nossoPolo: item.polo,
+          partes: (item.c.destinatarios ?? null) as unknown as Prisma.InputJsonValue,
+          advogados: (item.c.advogados ?? null) as unknown as Prisma.InputJsonValue,
+          primeiraEm: item.de,
+          ultimaEm: item.ate,
+          publicacoes: item.n,
+        },
+        update: {
+          publicacoes: { increment: item.n },
+          ultimaEm: item.ate,
+          /*
+            O POLO SÓ MELHORA, nunca piora. A primeira publicação de um recurso
+            pode listar só um lado e a seguinte listar os dois; o contrário
+            também acontece. Sobrescrever com `INDEFINIDO` apagaria informação
+            que já tínhamos.
+          */
+          ...(item.polo !== 'INDEFINIDO' ? { nossoPolo: item.polo } : {}),
+        },
+        select: { createdAt: true, updatedAt: true },
+      });
+      if (criada.createdAt.getTime() === criada.updatedAt.getTime()) novas++;
+    }
+
+    if (novas > 0) {
+      this.logger.log(
+        `[DJEN] ${novas} ação(ões) do ${sigla} encontrada(s) no Diário sem cadastro no acervo.`,
+      );
+    }
+    return novas;
+  }
+
   private async ingerir(
     comunicacoes: ComunicacaoDjenDto[],
     origem: OrigemSincronizacao,
-  ): Promise<{ ingeridas: number; descartadas: number }> {
-    if (!comunicacoes.length) return { ingeridas: 0, descartadas: 0 };
+  ): Promise<{ ingeridas: number; descartadas: number; sugeridas: number }> {
+    if (!comunicacoes.length) return { ingeridas: 0, descartadas: 0, sugeridas: 0 };
 
     // Uma consulta só resolve o casamento de todos os NPUs do lote.
     const npus = [...new Set(comunicacoes.map((c) => c.numeroProcesso))];
@@ -319,8 +441,27 @@ export class DjenSyncService {
     const porNpu = new Map(processos.map((p) => [p.numeroCNJ!, p]));
 
     const doAcervo = comunicacoes.filter((c) => porNpu.has(c.numeroProcesso));
-    const descartadas = comunicacoes.length - doAcervo.length;
-    if (!doAcervo.length) return { ingeridas: 0, descartadas };
+    const foraDoAcervo = comunicacoes.filter((c) => !porNpu.has(c.numeroProcesso));
+    const descartadas = foraDoAcervo.length;
+
+    /*
+      ANTES DE DESCARTAR, PERGUNTA SE É NOSSO.
+
+      O que não casa com um processo cadastrado é descartado — e isso continua
+      certo: a consulta por OAB devolve a carteira INTEIRA do advogado, e a
+      causa particular dele não é assunto do sindicato.
+
+      Só que junto ia o caso NOVO do próprio sindicato: ação recém-distribuída em
+      que um dos nossos já está no polo, ainda sem cadastro aqui. O Diário
+      anunciava e nós jogávamos fora. Agora ela vira SUGESTÃO.
+
+      O filtro segue estreito: só quando o sindicato figura entre os
+      destinatários. Nada de terceiro é persistido — a decisão de privacidade
+      continua de pé, e o que sobra é exatamente o que é nosso.
+    */
+    const sugeridas = await this.sugerirAcoesNossas(foraDoAcervo);
+
+    if (!doAcervo.length) return { ingeridas: 0, descartadas, sugeridas };
 
     const linhas = doAcervo.map((c) => {
       const processo = porNpu.get(c.numeroProcesso)!;
@@ -406,7 +547,7 @@ export class DjenSyncService {
       }
     }
 
-    return { ingeridas: count, descartadas };
+    return { ingeridas: count, descartadas, sugeridas };
   }
 
   /**
@@ -460,7 +601,13 @@ export class DjenSyncService {
             ? `Varredura sem resposta: as ${tentativas} consulta(s) falharam.`
             : resumo.falhas > 0
               ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha.`
-              : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s).`,
+              : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s)` +
+                // A ação nossa ainda sem cadastro só é mensurável aqui: a publicação
+                // de terceiro não é persistida, então sem esta frase ninguém saberia
+                // se a detecção achou algo. Só aparece quando achou.
+                (resumo.sugeridas > 0
+                  ? `, ${resumo.sugeridas} ação(ões) nossa(s) sem cadastro.`
+                  : '.'),
     });
   }
 

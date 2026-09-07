@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { ImportarProcessoDialog } from '@/components/processos/importar-processo-dialog';
+import { AcoesEncontradas } from '@/components/processos/acoes-encontradas';
 import { ImportarLoteDialog } from '@/components/processos/importar-lote-dialog';
 import { ProcessoDetalheSheet } from '@/components/processos/processo-detalhe-sheet';
 import { AjuizarCasoModal } from '@/components/processos/ajuizar-caso-modal';
@@ -76,6 +77,8 @@ function ListaProcessos() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   // O painel age nos dois módulos (resolve o alerta e cria o evento na agenda).
+  /** Cadastrar a ação encontrada é escrita — a API cobra EDITAR pelo verbo. */
+  const podeEditarProcessos = podeEditar(user?.role, user?.permissoes, 'processos');
   const podeRadar =
     podeEditar(user?.role, user?.permissoes, 'processos') &&
     podeEditar(user?.role, user?.permissoes, 'agenda');
@@ -140,6 +143,8 @@ function ListaProcessos() {
   const [page, setPage] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
+  /** NPU que veio de uma ação encontrada no Diário — abre o diálogo preenchido. */
+  const [npuSugerido, setNpuSugerido] = useState<string | null>(null);
   const [loteOpen, setLoteOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   /** Caso pré-processual escolhido para ajuizar (vindo de um desfecho da agenda). */
@@ -504,6 +509,19 @@ function ListaProcessos() {
       <ResolverVinculosPanel open={resolvendo} onClose={() => setResolvendo(false)} />
 
       {/*
+        AÇÕES QUE O DIÁRIO REVELOU — acima da busca porque pedem DECISÃO, e o
+        resto da tela só pede leitura. São poucas e o bloco some quando não há
+        nenhuma; enquanto houver, é a primeira coisa depois dos chips.
+      */}
+      <AcoesEncontradas
+        podeCadastrar={podeEditarProcessos}
+        onCadastrar={(npu) => {
+          setNpuSugerido(npu);
+          setImportOpen(true);
+        }}
+      />
+
+      {/*
         A BARRA: busca sempre visível, o resto atrás de um botão.
 
         Antes eram quatro controles em coluna no celular (busca, parte, situação,
@@ -783,9 +801,17 @@ function ListaProcessos() {
       <ImportarLoteDialog open={loteOpen} onClose={() => setLoteOpen(false)} />
       <ImportarProcessoDialog
         open={importOpen}
-        onClose={() => setImportOpen(false)}
+        npuInicial={npuSugerido}
+        onClose={() => {
+          setImportOpen(false);
+          setNpuSugerido(null);
+        }}
         onImported={(p) => {
           invalidar();
+          // A fila se fecha sozinha na leitura seguinte (o serviço reconcilia
+          // contra o acervo), mas só se a tela pedir de novo.
+          qc.invalidateQueries({ queryKey: ['processos', 'sugestoes'] });
+          setNpuSugerido(null);
           abrirDetalhe(p.id);
         }}
       />

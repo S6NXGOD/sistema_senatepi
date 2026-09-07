@@ -60,10 +60,17 @@ export function ImportarProcessoDialog({
   open,
   onClose,
   onImported,
+  npuInicial,
 }: {
   open: boolean;
   onClose: () => void;
   onImported: (p: ProcessoDetalhe) => void;
+  /**
+   * NÚMERO JÁ PREENCHIDO — quando o diálogo abre a partir de uma ação que o
+   * Diário revelou. Digitar à mão 20 dígitos que o sistema acabou de mostrar na
+   * linha de cima é a forma mais barata de introduzir um erro de cadastro.
+   */
+  npuInicial?: string | null;
 }) {
   const {
     control,
@@ -180,6 +187,18 @@ export function ImportarProcessoDialog({
     }
     return [...mapa.values()].sort((a, b) => b.confianca - a.confianca);
   }, [sugestoesDatajud, sugestoesHistorico.data]);
+
+  /*
+    ABRIU COM NÚMERO? JÁ VAI PREENCHIDO.
+
+    O efeito de pré-visão dispara sozinho aos 20 dígitos, então preencher o campo
+    é também disparar a consulta ao CNJ — a pessoa abre o diálogo e já vê as
+    partes do processo, sem digitar nada.
+  */
+  useEffect(() => {
+    if (!open || !npuInicial) return;
+    setValue('numeroCNJ', npuInicial, { shouldValidate: true });
+  }, [open, npuInicial, setValue]);
 
   useEffect(() => {
     if (open) return;

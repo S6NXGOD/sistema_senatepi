@@ -406,6 +406,35 @@ function Conteudo({
           antes do aviso do robô, que só diz se a varredura rodou. */}
       <SaudeDasIntegracoes data={data} podeVarrerDjen={pode.varrerDjen} />
 
+      {/*
+        AÇÃO NOVA CONTRA (OU DO) SINDICATO — antes de qualquer painel.
+
+        A varredura do Diário consulta por OAB e recebe a carteira inteira de
+        cada advogado; o que não casa com processo cadastrado é descartado. Junto
+        ia o caso NOVO do próprio sindicato. Aqui vai só o AVISO — a fila com as
+        ações e os botões mora na tela de Processos, que é onde se cadastra.
+        Duplicar o conteúdo criaria duas verdades para manter.
+      */}
+      {!!data.sugestoesDeProcesso && (
+        <AlertBar tom="atencao" href="/processos" acao="Ver e cadastrar">
+          {data.sugestoesDeProcesso === 1 ? (
+            <>
+              <strong className="font-semibold">
+                1 ação do {tenant.sigla} apareceu no Diário
+              </strong>{' '}
+              e ainda não está cadastrada no acervo.
+            </>
+          ) : (
+            <>
+              <strong className="font-semibold">
+                {data.sugestoesDeProcesso} ações do {tenant.sigla} apareceram no Diário
+              </strong>{' '}
+              e ainda não estão cadastradas no acervo.
+            </>
+          )}
+        </AlertBar>
+      )}
+
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
       {pode.processos && <AvisoRobo robo={data.robo} />}

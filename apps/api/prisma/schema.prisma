@@ -363,6 +363,8 @@ model User {
   movimentacoesInternas   MovimentacaoInterna[]    @relation("MovimentacaoAutor")
   contribuicoesAnalisadas ContribuicaoPatronal[]   @relation("ContribuicaoAnalista")
   compromissosHistorico   CompromissoHistorico[]   @relation("CompromissoHistoricoAutor")
+  /// Sugestões de cadastro que esta pessoa decidiu (cadastrou ou ignorou).
+  sugestoesDecididas      SugestaoProcesso[]       @relation("sugestaoDecidida")
 
   @@map("users")
 }
@@ -2121,6 +2123,82 @@ enum StatusProcesso {
 }
 
 /// Polo em que a parte figura no processo.
+/// O que fazer com uma ação que o Diário revelou e que ninguém cadastrou.
+/// De que lado o sindicato aparece no ato que o Diário publicou.
+///
+/// AMBOS não é defeito de leitura: em recurso o sindicato figura como recorrente
+/// E recorrido, e o tribunal lista os dois. Medido nas 1.408 publicações do
+/// acervo em 07/09/2026 — 754 só autor, 167 só réu e **113 nos dois** (11%).
+/// Escolher um deles ali seria um chute com cara de fato.
+enum PoloDaSugestao {
+  ATIVO /// o sindicato move a ação
+  PASSIVO /// movem contra o sindicato
+  AMBOS /// figura nos dois polos (típico de recurso)
+  INDEFINIDO /// está no ato, mas o tribunal não classificou o polo
+}
+
+enum StatusSugestaoProcesso {
+  PENDENTE /// esperando alguém decidir
+  CADASTRADO /// virou processo no acervo
+  IGNORADO /// alguém olhou e disse que não é para acompanhar
+}
+
+/// AÇÃO NOVA QUE O DIÁRIO REVELOU — e que o acervo ainda não conhece.
+///
+/// A varredura do DJEN consulta por OAB, e o CNJ devolve a carteira INTEIRA de
+/// cada advogado. Tudo que não casava com um `Processo.numeroCNJ` cadastrado era
+/// descartado na ingestão — decisão correta de privacidade: o processo
+/// particular de quem trabalha aqui não é assunto do sindicato, e não pode
+/// virar linha no banco.
+///
+/// Só que junto ia o caso NOVO do próprio sindicato: ação recém-distribuída em
+/// que um dos nossos advogados já está no polo, ainda sem cadastro aqui. O
+/// Diário anunciava e o sistema jogava fora.
+///
+/// A REGRA DE ENTRADA É ESTREITA de propósito: só vira sugestão quando o
+/// SINDICATO figura entre os destinatários do ato. Assim nada de terceiro é
+/// persistido — a decisão de privacidade continua de pé, e o que sobra é
+/// exatamente o que é nosso.
+model SugestaoProcesso {
+  id            String  @id @default(uuid())
+  /// Chave natural: o mesmo NPU não pode gerar duas sugestões.
+  numeroCNJ     String  @unique @map("numero_cnj")
+  siglaTribunal String? @map("sigla_tribunal")
+  nomeOrgao     String? @map("nome_orgao")
+  nomeClasse    String? @map("nome_classe")
+
+  /// Polo do SINDICATO no ato — "nós movemos" ou "movem contra nós".
+  nossoPolo PoloDaSugestao @map("nosso_polo")
+
+  /// Partes como o DJEN enviou. É o que a tela mostra para a pessoa decidir sem
+  /// precisar abrir o tribunal.
+  partes Json?
+
+  /// Advogados nomeados no ato.
+  advogados Json?
+
+  primeiraEm  DateTime @map("primeira_em")
+  ultimaEm    DateTime @map("ultima_em")
+  /// Quantas publicações já apareceram deste processo sem ele estar cadastrado.
+  publicacoes Int      @default(1)
+
+  status         StatusSugestaoProcesso @default(PENDENTE)
+  /// Preenchido quando a sugestão vira processo de verdade.
+  processoId     String?                @unique @map("processo_id")
+  decididoPor    String?                @map("decidido_por")
+  decididoEm     DateTime?              @map("decidido_em")
+  motivoDescarte String?                @map("motivo_descarte")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  processo Processo? @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  decisor  User?     @relation("sugestaoDecidida", fields: [decididoPor], references: [id], onDelete: SetNull)
+
+  @@index([status, ultimaEm])
+  @@map("sugestoes_processo")
+}
+
 enum PoloProcesso {
   ATIVO // quem PROPÔS a ação (autor / reclamante / exequente / impetrante)
   PASSIVO // contra quem a ação foi proposta (réu / reclamada / executada)
@@ -2298,6 +2376,7 @@ model Processo {
   instancias            ProcessoInstancia[]
   /// Publicações do DJEN casadas com este processo.
   comunicacoes          ComunicacaoDjen[]
+  sugestaoOrigem        SugestaoProcesso?
   movimentacoes         MovimentacaoProcessual[]
   movimentacoesInternas MovimentacaoInterna[]
   anexos                AnexoDocumento[]

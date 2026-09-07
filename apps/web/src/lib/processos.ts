@@ -762,3 +762,51 @@ export async function formalizarProcesso(
 export async function excluirProcesso(id: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/processos/${id}`)).data;
 }
+
+// ---------------------------------------------------------------------------
+// Ações que o Diário revelou e o acervo não conhece
+// ---------------------------------------------------------------------------
+
+/**
+ * UMA AÇÃO DO SINDICATO ENCONTRADA NO DIÁRIO, AINDA SEM CADASTRO.
+ *
+ * A varredura do DJEN consulta por OAB e o CNJ devolve a carteira inteira de
+ * cada advogado. O que não casa com um processo cadastrado é descartado — e
+ * junto ia o caso NOVO do próprio sindicato. Agora, quando o sindicato figura
+ * entre os destinatários do ato, ele vira sugestão em vez de ir para o lixo.
+ *
+ * O TEOR NÃO VEM. Para decidir se vale cadastrar bastam o número, o tribunal, a
+ * classe e quem está de cada lado; guardar o texto de um processo que ainda não
+ * é nosso seria persistir mais do que a decisão exige.
+ */
+export interface SugestaoDeProcesso {
+  id: string;
+  numeroCNJ: string;
+  siglaTribunal: string | null;
+  nomeOrgao: string | null;
+  nomeClasse: string | null;
+  /**
+   * De que lado estamos. `AMBOS` não é defeito de leitura: em recurso o
+   * sindicato figura como recorrente E recorrido, e o tribunal lista os dois —
+   * 11% dos casos medidos. Escolher um seria um chute com cara de fato.
+   */
+  nossoPolo: 'ATIVO' | 'PASSIVO' | 'AMBOS' | 'INDEFINIDO';
+  partes: { nome?: string | null; polo?: string | null }[] | null;
+  advogados: { nome?: string | null; numeroOab?: string | null; ufOab?: string | null }[] | null;
+  primeiraEm: string;
+  ultimaEm: string;
+  /** Quantas publicações já apareceram sem o processo estar cadastrado. */
+  publicacoes: number;
+}
+
+export async function listarSugestoesDeProcesso(): Promise<SugestaoDeProcesso[]> {
+  return (await api.get('/processos/sugestoes')).data;
+}
+
+export async function ignorarSugestao(id: string, motivo?: string) {
+  return (await api.post(`/processos/sugestoes/${id}/ignorar`, { motivo })).data;
+}
+
+export async function reabrirSugestao(id: string) {
+  return (await api.post(`/processos/sugestoes/${id}/reabrir`)).data;
+}

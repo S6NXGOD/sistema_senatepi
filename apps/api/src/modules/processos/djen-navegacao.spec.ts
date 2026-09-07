@@ -78,7 +78,28 @@ describe('a publicação viaja até a tela', () => {
 describe('só entra publicação de processo cadastrado', () => {
   it('a ingestão filtra pelo acervo antes de gravar', () => {
     expect(SYNC).toContain('const doAcervo = comunicacoes.filter((c) => porNpu.has(c.numeroProcesso));');
-    expect(SYNC).toContain('const descartadas = comunicacoes.length - doAcervo.length;');
+    expect(SYNC).toContain('const foraDoAcervo = comunicacoes.filter((c) => !porNpu.has(c.numeroProcesso));');
+    expect(SYNC).toContain('const descartadas = foraDoAcervo.length;');
+  });
+
+  /**
+   * O QUE FICA FORA PASSA A SER OLHADO — e continua não sendo gravado.
+   *
+   * Daquelas 116 não cadastradas, algumas são AÇÃO DO PRÓPRIO SINDICATO
+   * recém-distribuída: o Diário anunciava e nós jogávamos fora. Agora, quando o
+   * sindicato figura entre os destinatários, vira SUGESTÃO de cadastro.
+   *
+   * A peneira segue estreita: publicação de terceiro não entra em tabela
+   * nenhuma, e nem da nossa se guarda o teor. Ver `acao-encontrada.spec.ts`.
+   */
+  it('o descartado é examinado, mas só o que nos nomeia é guardado', () => {
+    expect(SYNC).toContain('const sugeridas = await this.sugerirAcoesNossas(foraDoAcervo);');
+    const fn = SYNC.slice(
+      SYNC.indexOf('private async sugerirAcoesNossas('),
+      SYNC.indexOf('private async ingerir('),
+    );
+    expect(fn).toContain('if (!polo) continue;');
+    expect(fn).not.toContain('texto');
   });
 
   it('e o que sobra nunca é gravado — nem o número do processo alheio', () => {
