@@ -466,7 +466,15 @@ describe('a ação que já acabou', () => {
     expect(SYNC).toContain('await this.marcarSeJaEncerrado(numeroCNJ, item.c.siglaTribunal);');
     expect(SYNC).toContain('private async conferirFilaSemVerificacao()');
     expect(SYNC).toContain('verificadoNoCnjEm: null');
-    expect(SYNC).toContain('const TETO = 20;');
+    /*
+      O NÚMERO em si não é a regra — que EXISTA teto é. Ele subiu de 20 para 40
+      quando a colheita de histórico deixou 30 pendentes numa noite só; travar o
+      valor exato aqui só produz um teste para atualizar junto. O que precisa
+      continuar verdade é que a fila é conferida POR LOTE e o lote cabe na cota.
+    */
+    const teto = Number(/const TETO = (\d+);/.exec(SYNC)?.[1]);
+    expect(teto).toBeGreaterThan(0);
+    expect(teto).toBeLessThanOrEqual(60);
   });
 
   /**

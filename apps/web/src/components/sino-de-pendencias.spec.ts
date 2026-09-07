@@ -125,8 +125,10 @@ describe('a gaveta', () => {
       — o sino anunciava um processo que nem existe e oferecia a agenda como
       saída. Cada grupo leva ao SEU lugar, e só quando há o que ver a mais.
     */
-    expect(SINO).toContain('const VER_TODAS: Record<TipoPendencia');
-    expect(SINO).toContain('{verTodas.texto}');
+    // O destino saiu daqui e foi para `PENDENCIA`, junto do rótulo: a faixa
+    // global usa a MESMA tabela, e duas listas divergiriam na primeira tela nova.
+    expect(SINO).toContain('const verTodas = PENDENCIA[p.tipo];');
+    expect(SINO).toContain('{verTodas.verTodas}');
     expect(SINO).not.toContain('Abrir minha agenda');
   });
 
@@ -159,8 +161,18 @@ describe('a faixa de atraso', () => {
 
   /** Faixa que aparece todo dia é cabeçalho, e cabeçalho ninguém lê. */
   it('só aparece para o que já venceu', () => {
-    expect(FAIXA).toContain('.filter((p) => PENDENCIA[p.tipo].urgente)');
-    expect(FAIXA).toContain('if (!urgentes.length) return null;');
+    /*
+      `naFaixa`, E NÃO `urgente` — viraram decisões diferentes.
+
+      `urgente` pinta o sino de vermelho; a faixa aparece em cima de TODA tela.
+      Eram a mesma coisa até a ação nova sem cadastro escancarar a diferença:
+      30 itens que levam dias para conferir, numa faixa cuja própria regra 1 diz
+      existir só para o que JÁ VENCEU. Ela ficaria semanas na tela — virando o
+      cabeçalho que ninguém lê, inclusive no dia do prazo perdido de verdade.
+    */
+    expect(FAIXA).toContain('.filter((p) => PENDENCIA[p.tipo].naFaixa)');
+    expect(FAIXA).not.toContain('PENDENCIA[p.tipo].urgente');
+    expect(FAIXA).toContain('if (!naFaixa.length) return null;');
   });
 
   /**

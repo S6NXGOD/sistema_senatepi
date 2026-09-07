@@ -535,7 +535,20 @@ export class DjenSyncService {
    * mais nada — e volta a custar só quando algo novo entra sem conferência.
    */
   private async conferirFilaSemVerificacao(): Promise<void> {
-    const TETO = 20;
+    /*
+      QUARENTA, e não vinte.
+
+      Vinte foi um chute. Medido: a primeira colheita de histórico deixou 30
+      ações pendentes e NENHUMA conferida — com teto de 20 a fila só ficaria
+      limpa na segunda noite, e é justamente na primeira que alguém vai olhar.
+      O acúmulo típico não é o fluxo diário (1–3 ações), é a colheita manual.
+
+      O teto continua existindo porque a cota é compartilhada: 40 conferências
+      são ~40–80 chamadas ao DataJud, uns 3 a 6 minutos a 14/min. A rodada do
+      DJEN leva 1–3 minutos hoje, então o pior caso termina por volta das 05:10
+      — três horas depois da varredura do DataJud, que se encerra às 02:07.
+    */
+    const TETO = 40;
     const semCarimbo = await this.prisma.sugestaoProcesso.findMany({
       where: { status: 'PENDENTE', verificadoNoCnjEm: null, siglaTribunal: { not: null } },
       orderBy: { createdAt: 'asc' },

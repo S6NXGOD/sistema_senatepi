@@ -41,18 +41,31 @@ export function FaixaDeAtraso() {
     retry: false,
   });
 
-  const urgentes = (data?.pendencias ?? []).filter((p) => PENDENCIA[p.tipo].urgente);
-  if (!urgentes.length) return null;
+  /*
+    `naFaixa`, E NÃO `urgente` — são decisões diferentes.
+
+    `urgente` pinta o sino de vermelho; esta faixa aparece em cima de TODA tela.
+    A ação nova sem cadastro é vermelha no sino (não aparece em mais lugar
+    nenhum) e NÃO entra aqui: são trinta itens que levam dias para serem
+    conferidos, e a regra 1 desta faixa é justamente não virar cabeçalho.
+  */
+  const naFaixa = (data?.pendencias ?? []).filter((p) => PENDENCIA[p.tipo].naFaixa);
+  if (!naFaixa.length) return null;
+
+  // O destino é o do PRIMEIRO item: a faixa mandava todo mundo para /agenda,
+  // fixo, e com a publicação sem tarefa — que vive em /publicacoes — o clique
+  // já levava ao lugar errado.
+  const destino = PENDENCIA[naFaixa[0].tipo].href;
 
   return (
     <div className="border-b border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
       <Link
-        href="/agenda"
+        href={destino}
         className="flex items-center gap-2 px-4 py-2 text-sm text-amber-900 transition hover:bg-amber-100/60 dark:text-amber-200 dark:hover:bg-amber-950/50 md:px-6"
       >
         <AlertTriangle className="h-4 w-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
-          {urgentes.map((p) => rotulo(p)).join(' · ')}
+          {naFaixa.map((p) => rotulo(p)).join(' · ')}
         </span>
         <ArrowRight className="h-4 w-4 shrink-0" />
       </Link>

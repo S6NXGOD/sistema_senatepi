@@ -116,10 +116,21 @@ describe('as partes que o Diário já disse', () => {
    * para evitar.
    */
   it('e o sindicato entra como institucional, não como avulsa', () => {
-    expect(DIALOGO).toContain('function ehOSindicato');
     expect(DIALOGO).toContain("tipo: 'INSTITUCIONAL', nome: tenant.nome");
-    // Pela SIGLA, como no servidor: o nome do tribunal não é o do cadastro.
-    expect(DIALOGO).toContain('normalizarNome(tenant.sigla)');
+    /*
+      A REGRA MORA FORA DAQUI, e o teste dela também.
+
+      Esta asserção já foi `toContain('normalizarNome(tenant.sigla)')` — conferia
+      que a linha existia, não que ela acertava. Ficou verde durante todo o tempo
+      em que a normalização importada era a errada (a de `editor-de-partes`, que
+      cola o nome inteiro num token só) e o SENATEPI entrava como parte AVULSA na
+      tela do usuário. Quem cobre o comportamento agora é
+      `lib/sigla-do-sindicato.spec.ts`, com os nomes reais do acervo; aqui fica
+      só o que é do diálogo: que ele CHAMA a regra em vez de ter a sua.
+    */
+    expect(DIALOGO).toContain("from '@/lib/sigla-do-sindicato'");
+    expect(DIALOGO).toContain('ehOSindicato(nome, tenant.sigla)');
+    expect(DIALOGO).not.toContain('function ehOSindicato');
   });
 
   /** O mesmo nome vem repetido em recurso — não pode virar duas linhas. */
@@ -166,5 +177,51 @@ describe('de quem é a ação encontrada', () => {
     expect(DIALOGO).toContain('advogadosIniciais?: string[] | null;');
     expect(DIALOGO).toContain("setValue('advogadoId', advogadosIniciais[0]);");
     expect(DIALOGO).toContain('setEquipeAdvogados(advogadosIniciais.length > 1 ? advogadosIniciais : []);');
+  });
+});
+
+/**
+ * A FOTO NUNCA APARECEU — e o próprio interceptor avisava.
+ *
+ * A foto enviada pelo perfil mora no STORAGE: o banco guarda `avatarKey` e
+ * `avatarUrl` fica nulo. Quem resolve uma na outra é o `AvataresInterceptor`,
+ * global — mas ele só mexe em objeto que CARREGA a chave. Pedindo só a URL, a
+ * resposta vem nula e a tela cai nas iniciais.
+ *
+ * Medido em 07/09/2026: os OITO advogados têm `avatarKey` e NENHUM tem
+ * `avatarUrl`. A fila mostrava "T CH" no lugar da cara das pessoas.
+ */
+describe('a foto tem de chegar até a tela', () => {
+  const SUGESTOES = readFileSync(
+    resolve(__dirname, '..', '..', '..', '..', 'api', 'src', 'modules', 'processos', 'sugestoes.service.ts'),
+    'utf8',
+  );
+
+  it('a consulta pede a CHAVE, e não só a URL', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('private async advogadosNossosPorSugestao('));
+    expect(fn.slice(0, 1800)).toContain('avatarUrl: true, avatarKey: true,');
+  });
+});
+
+/**
+ * COM TRINTA ITENS, clicar trinta caixinhas é o que faz ninguém usar o lote.
+ */
+describe('selecionar em bloco', () => {
+  const FILA = lerCodigo('acoes-encontradas.tsx');
+
+  it('dá para marcar todas de uma vez', () => {
+    expect(FILA).toContain('Desmarcar todas');
+    expect(FILA).toContain('Marcar todas (');
+  });
+
+  /** E o atalho que faz a fila compartilhada ser usável: as que me citam. */
+  it('e marcar só as que citam quem está olhando', () => {
+    expect(FILA).toContain('Marcar as minhas (');
+    expect(FILA).toContain('(i.advogadosNossos ?? []).some((a) => a.id === user?.id)');
+  });
+
+  /** Não oferece um botão que daria zero. */
+  it('o atalho some quando não há nenhuma minha', () => {
+    expect(FILA).toContain('!!minhas.length && minhas.length < itens.length');
   });
 });

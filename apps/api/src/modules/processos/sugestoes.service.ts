@@ -107,7 +107,25 @@ export class SugestoesService {
   ): Promise<Map<string, { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null }[]>> {
     const nossos = await this.prisma.user.findMany({
       where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
-      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, oab: true, oabUf: true },
+      /*
+        `avatarKey` JUNTO COM `avatarUrl`, e não só a URL.
+
+        A foto enviada pelo próprio perfil mora no STORAGE: o banco guarda a
+        chave, e `avatarUrl` fica nulo. Quem resolve uma na outra é o
+        `AvataresInterceptor`, global — mas ele só mexe em objeto que CARREGA a
+        chave. Pedindo só a URL, a resposta vem nula e a tela cai nas iniciais.
+
+        Medido em 07/09/2026: os OITO advogados têm `avatarKey` e NENHUM tem
+        `avatarUrl`. Eu tinha escrito esta consulta pedindo só a URL, e por isso
+        a fila mostrava "T CH" no lugar da cara das pessoas. O aviso estava
+        escrito no próprio interceptor: "o que isso exige de quem escreve uma
+        consulta nova é selecionar `avatarKey`".
+      */
+      select: {
+        id: true, nome: true, nomeExibicao: true,
+        avatarUrl: true, avatarKey: true,
+        oab: true, oabUf: true,
+      },
     });
     const chave = (numero: unknown, uf: unknown) =>
       `${String(uf ?? '').trim().toUpperCase()}-${String(numero ?? '').replace(/\D/g, '')}`;

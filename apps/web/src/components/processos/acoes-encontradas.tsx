@@ -14,6 +14,7 @@ import {
 } from '@/lib/processos';
 import { varrerDjenAgora } from '@/lib/djen';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { useAuth } from '@/lib/auth';
 
 /**
  * NOVENTA DIAS — o que cobre a distribuição recente sem pesar.
@@ -115,6 +116,7 @@ export function AcoesEncontradas({
   onCadastrar: (sugestao: SugestaoDeProcesso) => void;
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [aberto, setAberto] = useState(true);
   const [ignorando, setIgnorando] = useState<string | null>(null);
   /*
@@ -215,6 +217,17 @@ export function AcoesEncontradas({
   const itens = q.data ?? [];
 
   /*
+    AS QUE ME CITAM — o atalho que faz a fila compartilhada ser usável.
+
+    A fila mostra as trinta a todo advogado, de propósito: quem cadastrar
+    primeiro limpa para todos. Mas quem abre quer começar pelas suas, e são os
+    rostos na linha que dizem quais são. Este botão poupa o trabalho de caçar.
+  */
+  const minhas = itens
+    .filter((i) => (i.advogadosNossos ?? []).some((a) => a.id === user?.id))
+    .map((i) => i.id);
+
+  /*
     FILA VAZIA NÃO DESENHA MOLDURA — com uma exceção: quem pode fazer a colheita
     de histórico precisa de um lugar para clicar, e o lugar é este. Uma linha
     discreta, só para o Administrador, e só enquanto ele não rodou nesta sessão.
@@ -259,6 +272,42 @@ export function AcoesEncontradas({
           )}
         />
       </button>
+
+      {/*
+        MARCAR TODAS — com trinta itens, clicar trinta caixinhas é o que faz
+        ninguém usar o lote. Fica FORA do botão que recolhe a seção (um botão
+        dentro de outro não funciona no teclado nem no leitor de tela), e só
+        aparece com a lista aberta — marcar o que não se vê é pedir susto.
+      */}
+      {aberto && podeCadastrar && itens.length > 1 && (
+        <div className="flex items-center gap-3 border-t border-amber-200 px-4 py-1.5 dark:border-amber-900/40">
+          <button
+            type="button"
+            onClick={() =>
+              setMarcadas((atual) =>
+                atual.size === itens.length ? new Set() : new Set(itens.map((i) => i.id)),
+              )
+            }
+            className="text-[11px] font-medium text-amber-900 underline underline-offset-2 dark:text-amber-200"
+          >
+            {marcadas.size === itens.length ? 'Desmarcar todas' : `Marcar todas (${itens.length})`}
+          </button>
+          {/*
+            O ATALHO QUE O ADVOGADO USA: as que o citam. A fila é compartilhada e
+            mostra as trinta, mas quem abre quer começar pelas suas — e só
+            aparece se houver alguma, para não oferecer um botão que dá zero.
+          */}
+          {!!minhas.length && minhas.length < itens.length && (
+            <button
+              type="button"
+              onClick={() => setMarcadas(new Set(minhas))}
+              className="text-[11px] font-medium text-amber-900 underline underline-offset-2 dark:text-amber-200"
+            >
+              Marcar as minhas ({minhas.length})
+            </button>
+          )}
+        </div>
+      )}
 
       {/*
         A BARRA DO LOTE SÓ EXISTE COM ALGO MARCADO.

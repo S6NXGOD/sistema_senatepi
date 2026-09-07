@@ -29,6 +29,7 @@ import {
   formatDocumento, listarPartesExternas, TIPO_PARTE_LABEL, partesParecidas,
   MOTIVO_SEMELHANCA_LABEL, type ParteParecida,
 } from '@/lib/partes';
+import { ehOSindicato } from '@/lib/sigla-do-sindicato';
 import { cn } from '@/lib/utils';
 import {
   importarProcesso, mascararNPU, consultarDatajud, sugerirAdvogado,
@@ -59,19 +60,6 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
-/**
- * O NOME NOS AUTOS É O SINDICATO?
- *
- * Mesma chave que a detecção usa do lado do servidor: a SIGLA, e não o nome
- * completo. O tribunal escreve "SINDICATO DOS ENFERMEIROS, AUXILIARES E TECNICOS
- * EM ENFERMAGEM DO ESTADO DO PIAUI - SENATEPI"; o cadastro tem "...E TÉCNICOS DE
- * ENFERMAGEM...". Comparar nome com nome erraria em todas.
- */
-function ehOSindicato(nome: string): boolean {
-  const sigla = normalizarNome(tenant.sigla);
-  if (sigla.length < 4) return false;
-  return normalizarNome(nome).split(' ').includes(sigla);
-}
 
 export function ImportarProcessoDialog({
   open,
@@ -261,7 +249,7 @@ export function ImportarProcessoDialog({
         .map((x) => (x?.nome ?? '').trim())
         .filter(Boolean)
         .map((nome) =>
-          ehOSindicato(nome)
+          ehOSindicato(nome, tenant.sigla)
             ? ({ tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' } as const)
             : ({ tipo: 'AVULSA', nome, detalhe: 'Como consta no Diário' } as const),
         )

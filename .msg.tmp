@@ -1,0 +1,30 @@
+fix(processos): o SENATEPI voltava a entrar como parte avulsa no cadastro
+
+Clicando em "Cadastrar" na fila do Diario, o sindicato aparecia no polo
+ativo como "SINDICATO DOS ENFERMEIROS, AUXILIARES... - Como consta no
+Diario" em vez de "O proprio sindicato". Como o tipo da acao e DERIVADO
+da composicao do polo, isso tambem tirava dela o rotulo de acao da
+categoria (INSTITUCIONAL) e criava mais uma duplicata de organizacao.
+
+Causa: existem duas normalizarNome no projeto, com o mesmo nome e
+semanticas opostas. A de editor-de-partes REMOVE pontuacao e espaco
+(certo para comparar dois nomes inteiros); a do servidor troca por
+ESPACO. O dialogo importou a primeira e depois fez split(' ') --
+"SINDICATODOS...PIAUISENATEPI" e um token so, que nunca casa com a
+sigla.
+
+A regra saiu do dialogo para lib/sigla-do-sindicato, com nome que nao
+colide e teste de COMPORTAMENTO sobre os nomes reais do acervo. O teste
+que existia afirmava toContain('normalizarNome(tenant.sigla)') -- a
+presenca da chamada, nao o resultado dela -- e por isso ficou verde
+durante todo o tempo em que a chamada era a errada.
+
+Junto, medido em producao:
+- fila de sugestoes tinha 30 pendentes e ZERO conferidas no CNJ; o teto
+  de 20 por rodada deixaria a limpeza para a segunda noite, justo a que
+  ninguem olha. Subiu para 40 -- ~3 a 6 min de cota, e o pior caso da
+  rodada do DJEN termina 05:10, tres horas depois do DataJud (02:07).
+- o spec do teto passou a exigir que EXISTA teto dentro da cota, em vez
+  de travar o numero.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
