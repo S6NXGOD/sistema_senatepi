@@ -9,7 +9,12 @@ import { api } from './api';
  * ele só cresce se o trabalho pendente crescer.
  */
 
-export type TipoPendencia = 'ATRASADA' | 'HOJE' | 'AUDIENCIA' | 'PUBLICACAO_SEM_TAREFA';
+export type TipoPendencia =
+  | 'ATRASADA'
+  | 'HOJE'
+  | 'AUDIENCIA'
+  | 'PUBLICACAO_SEM_TAREFA'
+  | 'ACAO_NOVA';
 
 export interface Pendencia {
   tipo: TipoPendencia;
@@ -51,6 +56,17 @@ export const PENDENCIA: Record<
   PUBLICACAO_SEM_TAREFA: {
     um: 'publicação sua sem tarefa aberta',
     varios: 'publicações suas sem tarefa aberta',
+    urgente: true,
+  },
+  /*
+    URGENTE, e não por dramatização: é o único item do sino que não aparece em
+    NENHUMA outra lista do sistema. As demais telas falam do acervo, e uma ação
+    sem cadastro está, por definição, fora dele — se o sino não insistir, o
+    prazo dela corre sem que exista lugar algum onde ela apareça.
+  */
+  ACAO_NOVA: {
+    um: 'ação no Diário ainda sem cadastro',
+    varios: 'ações no Diário ainda sem cadastro',
     urgente: true,
   },
 };

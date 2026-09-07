@@ -202,3 +202,62 @@ describe('a migração', () => {
     expect(SCHEMA).toContain('@@map("sugestoes_processo")');
   });
 });
+
+/**
+ * COMO SOMOS AVISADOS — a pergunta que faltava responder.
+ *
+ * Não existe canal de saída neste sistema: nenhum email, push ou WhatsApp na
+ * API inteira. Tudo é o navegador perguntando. Então "ser notificado" aqui
+ * significa uma coisa só: o aviso tem de estar onde a pessoa já está.
+ *
+ * São três superfícies, com papéis distintos e sem duplicar conteúdo:
+ *   · o SINO — em toda tela, atualiza sozinho a cada minuto;
+ *   · o PAINEL — a contagem, ao abrir o sistema;
+ *   · a tela de PROCESSOS — a fila, com os botões que decidem.
+ */
+describe('o aviso de ação nova', () => {
+  const PENDENCIAS = readFileSync(
+    join(__dirname, '..', 'agenda', 'pendencias.service.ts'),
+    'utf8',
+  );
+  const PEND_CTRL = readFileSync(
+    join(__dirname, '..', 'agenda', 'pendencias.controller.ts'),
+    'utf8',
+  );
+
+  it('o sino conta a ação nova', () => {
+    expect(PENDENCIAS).toContain("'ACAO_NOVA'");
+    expect(PENDENCIAS).toContain('this.prisma.sugestaoProcesso.findMany({');
+    expect(PENDENCIAS).toContain("where: { status: 'PENDENTE' }");
+  });
+
+  /**
+   * A MAIS ANTIGA PRIMEIRO. Uma ação que já apareceu oito vezes no Diário sem
+   * cadastro não é novidade de ontem — é acompanhamento que não houve.
+   */
+  it('e mostra a que espera há mais tempo', () => {
+    expect(PENDENCIAS).toContain("orderBy: { primeiraEm: 'asc' }");
+  });
+
+  /**
+   * SÓ PARA QUEM PODE CADASTRAR: para quem não tem o botão, o item seria uma
+   * cobrança sem saída. E o nível é resolvido no CONTROLLER, onde a matriz do
+   * usuário está à mão — serviço que decide permissão sozinho é serviço que a
+   * próxima chamada esquece de perguntar.
+   */
+  it('só para quem pode cadastrar, e o nível vem do controller', () => {
+    expect(PENDENCIAS).toContain('cadastraProcesso = false');
+    expect(PENDENCIAS).toContain('!cadastraProcesso');
+    expect(PEND_CTRL).toContain("nivelEfetivo(user.role, user.permissoes, 'processos') === 'EDITAR'");
+    expect(PEND_CTRL).toContain('this.pendencias.minhas(user.id, cadastraProcesso)');
+  });
+
+  /**
+   * O ITEM LEVA À FILA, e não a um processo — que ainda não existe. Um link
+   * para `/processos?processo=` com id vazio abriria a lista sem dizer por quê.
+   */
+  it('o link vai para a fila, não para um processo inexistente', () => {
+    const bloco = PENDENCIAS.slice(PENDENCIAS.indexOf("tipo: 'ACAO_NOVA' as const"));
+    expect(bloco.slice(0, 700)).toContain("href: '/processos'");
+  });
+});

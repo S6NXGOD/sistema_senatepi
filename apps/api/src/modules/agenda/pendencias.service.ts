@@ -25,9 +25,25 @@ import { inicioDoDiaBR } from '../processos/utils/data-br.util';
  * pergunta só — "o que é MEU e está me esperando?".
  */
 
+/**
+ * O ESCOPO GANHOU UMA EXCEÇÃO, e ela é deliberada.
+ *
+ * Tudo aqui é pessoal — até a publicação sem tarefa é filtrada pelos processos
+ * do próprio advogado. `ACAO_NOVA` não é: ela não é de ninguém, porque o
+ * processo ainda não existe no acervo para ter dono.
+ *
+ * Ela entra pelo MESMO motivo que trouxe a publicação sem tarefa para cá, escrito
+ * ali em cima: "o ato chegou, ninguém pegou, e o silêncio parece calma". Uma
+ * ação contra o sindicato que ninguém cadastrou é a mesma falha um nível acima —
+ * e a única que não aparece em NENHUMA lista do sistema, porque o sistema não
+ * sabe que o processo existe.
+ *
+ * NÃO VIRA DIFUSÃO DE RESPONSABILIDADE: é uma fila compartilhada com resolução
+ * Única. Quem cadastrar (ou ignorar) primeiro limpa o item para todo mundo.
+ */
 /** Uma pendência: o que é, quantas são, e para onde ela leva. */
 export interface Pendencia {
-  tipo: 'ATRASADA' | 'HOJE' | 'AUDIENCIA' | 'PUBLICACAO_SEM_TAREFA';
+  tipo: 'ATRASADA' | 'HOJE' | 'AUDIENCIA' | 'PUBLICACAO_SEM_TAREFA' | 'ACAO_NOVA';
   total: number;
   /** Até três exemplos — o suficiente para reconhecer sem virar uma lista. */
   exemplos: { id: string; titulo: string; quando: string | null; href: string }[];
@@ -41,7 +57,14 @@ const DIAS_DE_AUDIENCIA = 7;
 export class PendenciasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async minhas(usuarioId: string): Promise<{ pendencias: Pendencia[]; total: number }> {
+  async minhas(
+    usuarioId: string,
+    /**
+     * Quem pode CADASTRAR processo. Só para esses o sino conta ação nova: para
+     * quem não tem o botão, o item seria uma cobrança sem saída.
+     */
+    cadastraProcesso = false,
+  ): Promise<{ pendencias: Pendencia[]; total: number }> {
     const agora = new Date();
     const inicioDeHoje = inicioDoDiaBR(agora);
     const fimDeHoje = new Date(inicioDeHoje.getTime() + 24 * 3_600_000);
@@ -64,7 +87,7 @@ export class PendenciasService {
       processo: { select: { numeroCNJ: true } },
     } as const;
 
-    const [atrasadas, hoje, audiencias, publicacoes] = await Promise.all([
+    const [atrasadas, hoje, audiencias, publicacoes, acoesNovas] = await Promise.all([
       this.prisma.compromisso.findMany({
         where: { ...meu, inicio: { lt: inicioDeHoje } },
         orderBy: { inicio: 'asc' },
@@ -103,6 +126,30 @@ export class PendenciasService {
           processo: { select: { numeroCNJ: true } },
         },
       }),
+      /**
+       * AÇÃO DO SINDICATO QUE O DIÁRIO REVELOU E NINGUÉM CADASTROU.
+       *
+       * O único item do sino que não é de ninguém — porque o processo ainda não
+       * existe no acervo para ter dono. E é o único que NÃO aparece em nenhuma
+       * outra lista do sistema: as demais telas falam do acervo, e este caso, por
+       * definição, está fora dele.
+       *
+       * Ordenado pela mais ANTIGA: uma ação que já apareceu oito vezes no Diário
+       * sem cadastro não é novidade de ontem — é acompanhamento que não houve, e
+       * é ela que precisa sair da fila primeiro.
+       */
+      !cadastraProcesso
+        ? Promise.resolve([])
+        : this.prisma.sugestaoProcesso.findMany({
+            where: { status: 'PENDENTE' },
+            orderBy: { primeiraEm: 'asc' },
+            select: {
+              id: true,
+              numeroCNJ: true,
+              nossoPolo: true,
+              primeiraEm: true,
+            },
+          }),
     ]);
 
     const daAgenda = (
@@ -135,6 +182,21 @@ export class PendenciasService {
               titulo: p.processo?.numeroCNJ ?? 'Publicação',
               quando: p.dataDisponibilizacao.toISOString(),
               href: `/processos?processo=${p.processoId ?? ''}`,
+            })),
+          }
+        : null,
+      acoesNovas.length
+        ? {
+            tipo: 'ACAO_NOVA' as const,
+            total: acoesNovas.length,
+            exemplos: acoesNovas.slice(0, MAX_EXEMPLOS).map((a) => ({
+              id: a.id,
+              titulo: a.numeroCNJ,
+              // A data da PRIMEIRA vez que ela apareceu — é há quanto tempo ela
+              // está sem cadastro, e não quando o robô olhou por último.
+              quando: a.primeiraEm.toISOString(),
+              // Leva à fila, e não a um processo que ainda não existe.
+              href: '/processos',
             })),
           }
         : null,

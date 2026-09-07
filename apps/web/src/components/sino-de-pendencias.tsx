@@ -36,6 +36,19 @@ export function SinoDePendencias() {
   const caixa = useRef<HTMLDivElement>(null);
   const caminho = usePathname();
 
+  /*
+    O GATE CONTINUA SENDO O DA AGENDA — e isso é escolha, não esquecimento.
+
+    O sino passou a contar também ação do sindicato sem cadastro, que é do
+    módulo de PROCESSOS. A tentação era alargar este `podeVer` para incluir
+    processos — só que a ROTA é `@Modulo('agenda')`, e o ícone passaria a ser
+    desenhado para quem receberia 403 ao clicar. Botão que erra é pior que botão
+    ausente; já entreguei um assim neste projeto.
+
+    Consequência assumida: quem tiver `agenda: SEM_ACESSO` e `processos: EDITAR`
+    (ninguém hoje, mas a tela de usuários permite) não vê o sino. Para essa
+    pessoa o aviso continua no painel e na fila da tela de Processos.
+  */
   const permitido = podeVer(user?.role, user?.permissoes, 'agenda');
 
   const { data } = useQuery({

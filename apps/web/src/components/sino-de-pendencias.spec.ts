@@ -38,15 +38,32 @@ describe('o sino não pode virar caixa de notificações', () => {
   });
 
   /**
-   * ESCOPO SEMPRE PESSOAL. O sino responde uma pergunta só — "o que é MEU e
-   * está me esperando?". Coordenador que queira a operação inteira tem o painel.
+   * ESCOPO PESSOAL, COM UMA EXCEÇÃO DECLARADA.
+   *
+   * O sino responde "o que é MEU e está me esperando?". A única coisa que não é
+   * de ninguém é `ACAO_NOVA` — ação do sindicato que o Diário revelou e que ainda
+   * não existe no acervo para ter dono. Ela entra pelo mesmo motivo da
+   * publicação sem tarefa: "o ato chegou, ninguém pegou, e o silêncio parece
+   * calma". É fila compartilhada com resolução única — quem decidir primeiro
+   * limpa para todos.
+   *
+   * O que NÃO pode mudar é de onde vem a identidade: do token, nunca da query.
    */
   it('o escopo é o usuário do token, sem modo global', () => {
     expect(SERVICO).toContain('OR: [{ responsavelId: usuarioId }, { equipe: { some: { usuarioId } } }]');
     expect(CONTROLLER).toContain('minhas(@CurrentUser() user: AuthUser)');
-    expect(CONTROLLER).toContain('this.pendencias.minhas(user.id)');
+    expect(CONTROLLER).toContain('this.pendencias.minhas(user.id,');
     // Nada de aceitar o id de outra pessoa pela query.
     expect(CONTROLLER).not.toContain('@Query');
+  });
+
+  /**
+   * O SEGUNDO ARGUMENTO É PERMISSÃO, NÃO IDENTIDADE. Se um dia virar "id de
+   * quem olhar", o sino deixa de ser pessoal sem que ninguém perceba.
+   */
+  it('e o que o controller passa junto é um nível, não outro usuário', () => {
+    expect(CONTROLLER).toContain("const cadastraProcesso = nivelEfetivo(user.role, user.permissoes, 'processos') === 'EDITAR';");
+    expect(CONTROLLER).toContain('this.pendencias.minhas(user.id, cadastraProcesso)');
   });
 
   /** Inclui o que a pessoa acompanha sem responder — mesma régua da agenda. */
