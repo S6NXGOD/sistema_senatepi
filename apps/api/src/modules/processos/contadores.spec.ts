@@ -51,21 +51,33 @@ describe('contadores das abas', () => {
   /**
    * Sem `agora` injetado, o teste dependeria do relógio de quem o roda.
    *
-   * O `OR` com a nota interna SAIU: o chip passou a contar só o andamento do
-   * tribunal, e o rótulo passou a dizer isso. Contar o trabalho da equipe sob o
-   * nome "movimentação" era o que fazia a tela listar processo de "há 1 ano"
-   * dentro de um filtro de dias.
+   * O `OR` com a nota interna SAIU há tempos: o chip conta o TRIBUNAL, não o
+   * trabalho da equipe. O `OR` que existe hoje é outro — entre as duas portas
+   * por onde o tribunal fala: o andamento do DataJud e a publicação no Diário.
    */
-  it('"recentes" recua exatamente a janela pedida', () => {
+  it('"recentes" recua exatamente a janela pedida, nas duas fontes', () => {
     const agora = new Date('2026-08-21T12:00:00Z');
     const w = FILTRO_RAPIDO.recentes(7, agora) as any;
-    const desde = w.movimentacoes.some.dataMovimento.gte as Date;
-    expect(desde.toISOString()).toBe('2026-08-14T12:00:00.000Z');
+    const [porAndamento, porPublicacao] = w.OR;
+
+    // A MESMA data nas duas pernas: dois cortes divergiriam na primeira edição,
+    // e o chip passaria a contar janelas diferentes conforme a fonte.
+    expect(porAndamento.movimentacoes.some.dataMovimento.gte.toISOString())
+      .toBe('2026-08-14T12:00:00.000Z');
+    expect(porPublicacao.comunicacoes.some.dataDisponibilizacao.gte.toISOString())
+      .toBe('2026-08-14T12:00:00.000Z');
   });
 
-  it('"recentes" olha SÓ o andamento do CNJ', () => {
+  /**
+   * ERA ZERO POR CONSTRUÇÃO olhando só o DataJud. Medido em 07/09/2026: o
+   * andamento mais novo do acervo inteiro tinha 30 dias, mediana de atraso 62.
+   * O Diário publica em D+0 — e é dele que sai a intimação com prazo.
+   */
+  it('"recentes" conta o tribunal pelas duas portas, e nunca a equipe', () => {
     const w = FILTRO_RAPIDO.recentes(30, new Date()) as any;
-    expect(w.movimentacoes).toBeDefined();
+    expect(w.OR).toHaveLength(2);
+    expect(w.OR[0].movimentacoes).toBeDefined();
+    expect(w.OR[1].comunicacoes).toBeDefined();
     expect(JSON.stringify(w)).not.toMatch(/movimentacoesInternas/);
   });
 

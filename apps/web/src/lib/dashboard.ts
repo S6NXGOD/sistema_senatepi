@@ -454,11 +454,37 @@ export function primeiroNome(p: PessoaResumo): string {
  */
 export function motivoFalhaDatajud(f: FalhaDatajud): { texto: string; passageiro: boolean } {
   const s = f.httpStatus;
-  if (s === 404) return { texto: 'NPU não encontrado no CNJ', passageiro: false };
-  if (s === 401 || s === 403) return { texto: 'chave da API recusada', passageiro: false };
-  if (s === 400 || s === 422) return { texto: 'NPU recusado pelo CNJ', passageiro: false };
-  if (s === 429) return { texto: 'limite de consultas atingido', passageiro: true };
-  if (s && s >= 500) return { texto: 'tribunal fora do ar', passageiro: true };
+  /*
+    ESCRITO PARA QUEM LÊ, NÃO PARA QUEM DEPURA.
+
+    Os textos anteriores eram etiquetas de log: "NPU recusado pelo CNJ", "chave
+    da API recusada", "erro 502 no CNJ". Quem abre o painel de manhã não decide
+    nada com isso — precisa saber se É COM ELE, e o que fazer.
+
+    Então cada motivo agora responde duas coisas na mesma frase: o que
+    aconteceu e de quem é a bola. `passageiro` continua separando o que a
+    próxima varredura resolve sozinha do que vai falhar de novo amanhã.
+  */
+  if (s === 404) {
+    return { texto: 'o CNJ ainda não publicou este processo', passageiro: false };
+  }
+  if (s === 401 || s === 403) {
+    return { texto: 'a chave de acesso ao CNJ foi recusada — é configuração nossa', passageiro: false };
+  }
+  if (s === 400 || s === 422) {
+    return { texto: 'o CNJ não aceitou o número — confira se está digitado certo', passageiro: false };
+  }
+  /*
+    429 É NOSSO, E O TEXTO DIZIA O CONTRÁRIO. "limite de consultas atingido"
+    soa como restrição do CNJ; na verdade é a nossa varredura passando do teto
+    de 20 req/min — foram 6 em 04/09/2026, antes do limitador entrar.
+  */
+  if (s === 429) {
+    return { texto: 'nossa varredura passou do limite de consultas do CNJ', passageiro: true };
+  }
+  if (s && s >= 500) {
+    return { texto: 'o sistema do tribunal estava fora do ar', passageiro: true };
+  }
   /*
     SEM STATUS é rede ou TIMEOUT — e são coisas diferentes o bastante para
     merecerem palavras diferentes.
@@ -470,7 +496,34 @@ export function motivoFalhaDatajud(f: FalhaDatajud): { texto: string; passageiro
     quem lê "sem resposta" vai procurar defeito no processo.
   */
   if (f.duracaoMs != null && f.duracaoMs >= 40_000) {
-    return { texto: 'o CNJ demorou mais de 45s', passageiro: true };
+    return { texto: 'o CNJ demorou demais para responder (mais de 45s)', passageiro: true };
   }
-  return { texto: s ? `erro ${s} no CNJ` : 'sem resposta do CNJ', passageiro: true };
+  return {
+    texto: s ? `o CNJ respondeu com erro ${s}` : 'o CNJ não respondeu',
+    passageiro: true,
+  };
+}
+
+/**
+ * "AINDA NÃO PUBLICADO" x "ALGUÉM PRECISA OLHAR" — a mesma tela, dois recados.
+ *
+ * O índice público do CNJ demora a receber processo novo. Medido em
+ * 07/09/2026: o único NPU que o CNJ não reconhece foi distribuído há 13 dias e
+ * está PENDENTE — não há nada errado, e mandar "confira o número" ali é mandar
+ * a equipe caçar um defeito que não existe.
+ *
+ * Passado um mês, a leitura vira ao contrário: aí o índice já deveria tê-lo, e
+ * o palpite mais provável é número digitado errado. O corte tem de existir,
+ * senão o aviso ou mente para tranquilizar ou mente para assustar.
+ */
+export const DIAS_ESPERA_RAZOAVEL_CNJ = 30;
+
+export function esperaAindaRazoavel(desde: string | Date): boolean {
+  const dias = (Date.now() - new Date(desde).getTime()) / 86_400_000;
+  return dias < DIAS_ESPERA_RAZOAVEL_CNJ;
+}
+
+/** Dias inteiros desde a primeira tentativa — o número que vai no texto. */
+export function diasEsperando(desde: string | Date): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(desde).getTime()) / 86_400_000));
 }

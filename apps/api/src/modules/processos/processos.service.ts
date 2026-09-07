@@ -191,30 +191,47 @@ export const FILTRO_RAPIDO = {
     partes: { none: { polo: 'PASSIVO' } },
   }),
   /**
-   * O TRIBUNAL SE MEXEU NA JANELA.
+   * O TRIBUNAL SE MEXEU NA JANELA — pelas DUAS portas por onde ele fala.
    *
-   * SÓ O CNJ, e o nome do chip passou a dizer isso. Antes ele também contava
-   * nota interna, e o resultado na tela era um filtro de "7 dias" listando
-   * processos com "há 1 ano" ao lado — porque a coluna mostrava o andamento do
-   * tribunal e o filtro contava outra coisa. Ampliar o significado sem trocar o
-   * rótulo foi meu erro; o certo era ajustar a JANELA.
+   * ESTE FILTRO ERA ZERO POR CONSTRUÇÃO, e já pela segunda vez.
    *
-   * POR QUE 30 E 60, e não 7 e 15: o índice público do CNJ atrasa. Medido em
-   * 31/08/2026 sobre o acervo inteiro — o andamento MAIS NOVO tinha 24 dias, e
-   * a mediana era 41. Em 7 e em 15 dias o filtro devolvia ZERO por construção,
-   * e um chip que nunca acende não é rigor, é enfeite. Em 30 e 60 ele devolve 7
-   * e 27, que é a carteira que a equipe precisa olhar.
+   * Ele olhava só `movimentacoes` (o andamento do DataJud). Medido em
+   * 07/09/2026 sobre o acervo inteiro: o andamento MAIS NOVO do DataJud tinha
+   * **30 dias** e a mediana de atraso era **62**. Ou seja, "30 dias" não podia
+   * devolver outra coisa que não zero — e foi exatamente o que o usuário viu,
+   * com a coluna ao lado anunciando movimento "há 6 dias".
    *
-   * O TRABALHO DA EQUIPE não sumiu: ele continua contando na ORDENAÇÃO
-   * ("Movimentação recente", via `ultimoMovimentoEm`), que responde outra
-   * pergunta — "o que mexeu por último", de qualquer origem. Duas perguntas,
-   * dois nomes; era ter UM nome para as duas que confundia.
+   * Da primeira vez eu tratei o sintoma: abri a janela de 7/15 para 30/60. O
+   * índice público atrasou mais, e o remendo venceu. Abrir de novo levaria a
+   * "seis meses", que não é filtro, é desistência.
+   *
+   * A CAUSA é outra: o DJEN, que é a fonte FRESCA, estava fora da conta. Na
+   * mesma medição, por janela e por fonte:
+   *
+   *      janela   só DataJud   só DJEN   as duas
+   *       7 dias        0           5         5
+   *      15 dias        0          21        21
+   *      30 dias        0          32        32
+   *      60 dias       56          41        64
+   *
+   * Publicação no Diário É o tribunal se manifestando — é dela que sai a
+   * intimação com prazo. Contar uma e ignorar a outra não era rigor, era um
+   * furo. Agora o chip responde "o tribunal falou?", venha por onde vier.
+   *
+   * O TRABALHO DA EQUIPE continua fora daqui de propósito: nota interna conta
+   * na ORDENAÇÃO ("Movimentação recente"), que responde outra pergunta — "o
+   * que mexeu por último, de qualquer origem". Duas perguntas, dois nomes.
    */
-  recentes: (dias: number, agora: Date): Prisma.ProcessoWhereInput => ({
-    movimentacoes: {
-      some: { dataMovimento: { gte: new Date(agora.getTime() - dias * 24 * 3600 * 1000) } },
-    },
-  }),
+  recentes: (dias: number, agora: Date): Prisma.ProcessoWhereInput => {
+    const corte = new Date(agora.getTime() - dias * 24 * 3600 * 1000);
+    return {
+      OR: [
+        { movimentacoes: { some: { dataMovimento: { gte: corte } } } },
+        { comunicacoes: { some: { dataDisponibilizacao: { gte: corte } } } },
+      ],
+    };
+  },
+
   /** Marcados como urgentes por uma pessoa. */
   urgentes: (): Prisma.ProcessoWhereInput => ({ urgente: true }),
 
@@ -1171,6 +1188,24 @@ export class ProcessosService {
               dispensadoEm: true,
             },
           },
+          /*
+            A ÚLTIMA PUBLICAÇÃO NO DIÁRIO — a terceira fonte da coluna.
+
+            Sem ela a coluna mostrava julho num processo publicado anteontem: o
+            DataJud atrasa (mediana de 62 dias, medida em 07/09/2026) e o DJEN
+            não. Uma linha por processo, pelo índice
+            `[processo_id, data_disponibilizacao]`.
+          */
+          comunicacoes: {
+            orderBy: { dataDisponibilizacao: 'desc' },
+            take: 1,
+            select: {
+              dataDisponibilizacao: true,
+              tipoComunicacao: true,
+              tipoDocumento: true,
+              nomeOrgao: true,
+            },
+          },
           // Existe ato de execução? Uma linha basta — a fase só pergunta "sim ou
           // não", e trazer o histórico inteiro de 200 movimentos por processo só
           // para responder isso custaria a página inteira.
@@ -1229,26 +1264,53 @@ export class ProcessosService {
          * sem isso, o andamento interno passaria por publicação oficial.
          */
         ultimaMovimentacao: (() => {
+          /*
+            TRÊS FONTES, E A MAIS NOVA VENCE.
+
+            Antes eram duas (DataJud e nota da equipe) e a tela mentia por
+            omissão: 37 processos tinham publicação no Diário mais nova do que
+            tudo o que a coluna sabia mostrar. O DJEN publica em D+0; o DataJud,
+            na mediana, 62 dias depois. Ignorar o Diário era ignorar justamente
+            o ato que corre prazo.
+          */
           const cnj = p.movimentacoes[0];
+          const pub = p.comunicacoes[0];
           const nota = p.movimentacoesInternas[0];
-          const dNota = dataDaNota(nota);
-          if (cnj && (!dNota || cnj.dataMovimento >= dNota)) {
-            return {
+
+          const candidatos = [
+            cnj && {
               data: cnj.dataMovimento,
               descricao: cnj.descricao,
               detalhe: cnj.detalhe,
               origem: 'TRIBUNAL' as const,
-            };
-          }
-          if (nota && dNota) {
-            return {
-              data: dNota,
-              descricao: nota.descricao,
-              detalhe: null,
-              origem: 'EQUIPE' as const,
-            };
-          }
-          return null;
+            },
+            pub && {
+              data: pub.dataDisponibilizacao,
+              // O tipo da comunicação é o que a pessoa precisa ler ("Intimação",
+              // "Sentença"); o órgão entra como detalhe, igual ao lado DataJud.
+              descricao: pub.tipoComunicacao || pub.tipoDocumento || 'Publicação no Diário',
+              detalhe: pub.nomeOrgao,
+              origem: 'DIARIO' as const,
+            },
+            (() => {
+              const d = dataDaNota(nota);
+              return nota && d
+                ? { data: d, descricao: nota.descricao, detalhe: null, origem: 'EQUIPE' as const }
+                : null;
+            })(),
+          ].filter(Boolean) as {
+            data: Date; descricao: string; detalhe: string | null;
+            origem: 'TRIBUNAL' | 'DIARIO' | 'EQUIPE';
+          }[];
+
+          if (!candidatos.length) return null;
+          /*
+            EMPATE VAI PARA O TRIBUNAL. `dataDisponibilizacao` é `@db.Date` —
+            chega à meia-noite — enquanto a nota interna tem hora cheia. Num
+            mesmo dia a nota ganharia sempre, e a tela diria "nós" onde quem
+            falou foi o juízo. A ordem do array desempata: DataJud, Diário, nota.
+          */
+          return candidatos.reduce((a, b) => (b.data > a.data ? b : a));
         })(),
         /**
          * Etiquetas que o sistema mantém sozinho. Derivadas AQUI, na leitura, e

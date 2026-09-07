@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Gavel, Plus, Search, Loader2, ChevronLeft, ChevronRight, User, Landmark, FileWarning, FileSpreadsheet,
   AlertTriangle, Swords, AlarmClock, Scale, Zap, CheckCircle2, Filter, Siren, Hourglass, PenLine,
+  Newspaper,
   ArrowUpDown, Users,
 } from 'lucide-react';
 import { ResolverVinculosPanel } from '@/components/processos/resolver-vinculos-panel';
@@ -125,7 +126,17 @@ function ListaProcessos() {
    * era 41. Em 7 dias o filtro devolvia zero por construção, e um chip que
    * nunca acende ninguém volta a clicar.
    */
-  const [janelaRecente, setJanelaRecente] = useState<'30' | '60'>('30');
+  /*
+    SETE DIAS VOLTOU A EXISTIR — e agora significa alguma coisa.
+
+    A janela começou em 7/15, foi para 30/60 porque o DataJud atrasa, e mesmo
+    assim "30 dias" dava ZERO: em 07/09/2026 o andamento mais novo do DataJud no
+    acervo inteiro tinha 30 dias. O filtro passou a contar também a publicação
+    no Diário, que é de D+0 — e com ela 7 dias devolve 5 processos, 30 devolve
+    32 e 60 devolve 64. Sete dias é a triagem da semana; 60 já é metade do
+    acervo, e só fica porque é a única que enxerga o atraso do DataJud.
+  */
+  const [janelaRecente, setJanelaRecente] = useState<'7' | '30' | '60'>('30');
   const [page, setPage] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -449,11 +460,11 @@ function ListaProcessos() {
             </button>
           );
         })}
-        {/* A janela só aparece com o filtro ligado: fora dele, dois botões de
-            "30/60 dias" soltos na barra não significam nada. */}
+        {/* A janela só aparece com o filtro ligado: fora dele, botões de
+            "7/30/60 dias" soltos na barra não significam nada. */}
         {rapido === 'recentes' && (
           <span className="flex items-center gap-1 rounded-full bg-muted px-1 py-1">
-            {(['30', '60'] as const).map((d) => (
+            {(['7', '30', '60'] as const).map((d) => (
               <button
                 key={d}
                 type="button"
@@ -925,7 +936,16 @@ function VazioContextual({
       ajuda: 'O DataJud não preenche o réu — esta fila existe para pescar o que ficou em branco.',
     },
     meus: { titulo: 'Nenhum processo na sua carteira', ajuda: 'Aparecem aqui os processos em que você consta como advogado.' },
-    recentes: { titulo: 'Nenhuma movimentação na janela', ajuda: 'Amplie para 15 dias ou volte para a lista completa.' },
+    /*
+      O TEXTO MANDAVA AMPLIAR PARA UMA JANELA QUE NÃO EXISTE MAIS — "15 dias",
+      com os botões oferecendo 30 e 60. Além de errado, apontava para BAIXO.
+      Agora a ajuda é a mesma frase para qualquer janela, e não cita número:
+      número em texto solto é exatamente o que envelhece sem ninguém ver.
+    */
+    recentes: {
+      titulo: 'O tribunal não se manifestou nesta janela',
+      ajuda: 'Amplie o período nos botões acima ou volte para a lista completa.',
+    },
   };
   const fila = rapido !== 'todos' && !filtrando ? FILAS[rapido] : undefined;
 
@@ -1033,7 +1053,6 @@ function CelulaUltimaMov({ p }: { p: ProcessoLista }) {
     return <span className="text-xs text-muted-foreground">Sem movimentação</span>;
   }
   const texto = ultima.detalhe?.trim() || ultima.descricao;
-  const daEquipe = ultima.origem === 'EQUIPE';
   const alerta = p.alerta;
   return (
     <div className="min-w-0 leading-snug">
@@ -1047,8 +1066,16 @@ function CelulaUltimaMov({ p }: { p: ProcessoLista }) {
           a mesma coisa: quem lê a coluna decide com base nisso se o tribunal se
           mexeu ou se fomos nós. O ícone carrega a distinção sem gastar linha.
         */}
-        {daEquipe ? (
+        {/*
+          TRÊS ORIGENS, TRÊS ÍCONES. Antes eram duas, e a publicação do Diário
+          — que é de onde sai a intimação com prazo — nem chegava aqui.
+          Newspaper é o Diário; Landmark, o andamento do processo no tribunal;
+          PenLine, nós. Sem isso, o que corre prazo se confunde com anotação.
+        */}
+        {ultima.origem === 'EQUIPE' ? (
           <PenLine className="h-3 w-3 shrink-0 text-brand-700 dark:text-brand-400" aria-label="registro da equipe" />
+        ) : ultima.origem === 'DIARIO' ? (
+          <Newspaper className="h-3 w-3 shrink-0 text-amber-700 dark:text-amber-400" aria-label="publicação no Diário" />
         ) : (
           <Landmark className="h-3 w-3 shrink-0" aria-label="andamento do tribunal" />
         )}

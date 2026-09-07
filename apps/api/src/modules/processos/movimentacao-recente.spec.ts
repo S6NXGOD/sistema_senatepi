@@ -36,7 +36,13 @@ describe('filtro "Andamento do tribunal"', () => {
   });
 
   /**
-   * O CHIP VOLTOU A SER SÓ DO TRIBUNAL, e o rótulo passou a dizer isso.
+   * O CHIP É DO TRIBUNAL — e passou a enxergar as DUAS portas por onde ele fala.
+   *
+   * Contar só o DataJud mantinha o chip em zero: em 07/09/2026 o andamento mais
+   * novo do acervo tinha 30 dias. O DJEN entrou ao lado (ver
+   * `andamento-do-tribunal.spec.ts`); nota interna continua de fora.
+   *
+   * O texto abaixo é o histórico do primeiro conserto, que segue valendo:
    *
    * Contar nota interna resolvia a papelada do robô mas mantinha o descompasso
    * de fundo: a coluna mostrava o andamento do CNJ e o filtro contava outra
@@ -44,7 +50,7 @@ describe('filtro "Andamento do tribunal"', () => {
    * JANELA, porque o índice público atrasa (mediana de 41 dias, medida em
    * 31/08/2026; o andamento mais novo do acervo tinha 24).
    */
-  it('conta SÓ o andamento do CNJ', () => {
+  it('conta o tribunal, e nunca a nota da equipe', () => {
     expect(recentes).toContain('movimentacoes: {');
     expect(recentes).toContain('dataMovimento: { gte:');
     expect(recentes).not.toContain('movimentacoesInternas');
@@ -74,8 +80,14 @@ describe('coluna "última movimentação"', () => {
     expect(bloco.length).toBeGreaterThan(300);
   });
 
-  it('escolhe a mais recente entre tribunal e equipe', () => {
-    expect(bloco).toMatch(/cnj && \(!dNota \|\| cnj\.dataMovimento >= dNota\)/);
+  /**
+   * A REGRA CRESCEU PARA TRÊS FONTES e mudou de forma: virou uma lista de
+   * candidatos com `reduce`, porque `if` encadeado com três datas era onde o
+   * próximo empate ia se esconder. O detalhe de cada fonte está em
+   * `andamento-do-tribunal.spec.ts`; aqui fica a propriedade que não muda.
+   */
+  it('escolhe a mais recente, seja de quem for', () => {
+    expect(bloco).toContain('candidatos.reduce((a, b) => (b.data > a.data ? b : a))');
   });
 
   it('diz de onde veio — publicação oficial não é anotação interna', () => {

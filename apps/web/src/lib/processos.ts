@@ -130,7 +130,14 @@ export interface ProcessoLista {
     data: string;
     descricao: string;
     detalhe: string | null;
-    origem: 'TRIBUNAL' | 'EQUIPE';
+    /**
+     * DE ONDE VEIO o ato mais recente. `DIARIO` entrou depois: a publicação do
+     * DJEN é a fonte mais fresca (D+0, contra 62 dias de mediana no DataJud) e
+     * não chegava à coluna — 37 processos mostravam julho tendo sido publicados
+     * na semana. É dela que sai a intimação com prazo, então ela tem ícone
+     * próprio: não pode se confundir nem com andamento nem com nota interna.
+     */
+    origem: 'TRIBUNAL' | 'DIARIO' | 'EQUIPE';
   } | null;
   movimentacoes?: {
     dataMovimento: string;

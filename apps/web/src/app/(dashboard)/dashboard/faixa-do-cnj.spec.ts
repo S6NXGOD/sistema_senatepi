@@ -24,25 +24,25 @@ const falha = (p: Partial<FalhaDatajud>): FalhaDatajud =>
 describe('o motivo da falha', () => {
   it('chama timeout de timeout', () => {
     expect(motivoFalhaDatajud(falha({ duracaoMs: 45001 }))).toEqual({
-      texto: 'o CNJ demorou mais de 45s',
+      texto: 'o CNJ demorou demais para responder (mais de 45s)',
       passageiro: true,
     });
   });
 
-  /** Erro de rede de verdade é rápido — e continua sendo "sem resposta". */
+  /** Erro de rede de verdade é rápido — e aí o CNJ simplesmente não respondeu. */
   it('mas erro de rede rápido continua sendo sem resposta', () => {
-    expect(motivoFalhaDatajud(falha({ duracaoMs: 120 })).texto).toBe('sem resposta do CNJ');
+    expect(motivoFalhaDatajud(falha({ duracaoMs: 120 })).texto).toBe('o CNJ não respondeu');
   });
 
   /** Sem a duração (API antiga na janela de troca) não inventa diagnóstico. */
   it('sem duração, não chuta', () => {
-    expect(motivoFalhaDatajud(falha({})).texto).toBe('sem resposta do CNJ');
+    expect(motivoFalhaDatajud(falha({})).texto).toBe('o CNJ não respondeu');
   });
 
   /** O status continua mandando: 429 é cota, não lentidão. */
   it('o status tem precedência sobre a duração', () => {
     expect(motivoFalhaDatajud(falha({ httpStatus: 429, duracaoMs: 45001 })).texto)
-      .toBe('limite de consultas atingido');
+      .toContain('nossa varredura');
     expect(motivoFalhaDatajud(falha({ httpStatus: 404, duracaoMs: 45001 })).passageiro).toBe(false);
   });
 });
@@ -108,9 +108,18 @@ describe('a barra dos NPUs desconhecidos', () => {
     expect(TELA).not.toContain('e o robô já perguntou');
   });
 
-  /** Nome próprio no lugar de "erro": quem lê tem de saber o que fazer. */
-  it('diz o que fazer', () => {
-    expect(TELA).toContain('Confira o número — ou aguarde, se a distribuição for recente');
+  /**
+   * MANDAR CONFERIR SEMPRE ERA MANDAR PROCURAR DEFEITO QUE NÃO EXISTE.
+   *
+   * O texto único era "Confira o número — ou aguarde, se a distribuição for
+   * recente", e as duas metades se anulavam. Medido em 07/09/2026: o único
+   * caso é um processo distribuído há 13 dias, PENDENTE. Agora são duas vozes,
+   * e o detalhe do corte está em `aviso-do-cnj.spec.ts`.
+   */
+  it('diz o que fazer — e quando não há o que fazer', () => {
+    expect(TELA).toContain('não é preciso fazer nada');
+    expect(TELA).toContain('vale conferir se o');
+    expect(TELA).toContain('esperaAindaRazoavel');
   });
 
   /** Tom neutro — misturar com alerta ensina a ignorar o alerta. */

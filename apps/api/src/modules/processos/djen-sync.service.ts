@@ -351,17 +351,48 @@ export class DjenSyncService {
     // Uma linha de log por processo que recebeu publicação NOVA — mesma
     // granularidade do lado DataJud, para o diagnóstico ser comparável.
     if (count > 0) {
-      const porProcesso = new Map<string, { npu: string; tribunal: string; n: number }>();
+      const porProcesso = new Map<
+        string,
+        { npu: string; tribunal: string; n: number; publicadaEm: Date }
+      >();
       for (const c of doAcervo) {
         const p = porNpu.get(c.numeroProcesso)!;
         const atual = porProcesso.get(p.id) ?? {
           npu: c.numeroProcesso,
           tribunal: c.siglaTribunal,
           n: 0,
+          publicadaEm: new Date(0),
         };
         atual.n++;
+        const quando = new Date(`${c.dataDisponibilizacao}T00:00:00Z`);
+        if (quando > atual.publicadaEm) atual.publicadaEm = quando;
         porProcesso.set(p.id, atual);
       }
+
+      /*
+        A PUBLICAÇÃO TAMBÉM MOVE A ORDENAÇÃO.
+
+        `ultimo_movimento_em` é a coluna que ordena "Movimentação recente", e ela
+        era mantida só pelo gatilho das notas internas e pelo lado DataJud. O
+        Diário não a tocava — medido em 07/09/2026: **37 processos tinham
+        publicação mais nova do que a própria coluna que os ordena**, e um
+        processo publicado anteontem aparecia abaixo de outro parado desde
+        julho, na tela cujo nome é "movimentação recente".
+
+        `updateMany` com `lt` no lugar de um `update` seco: a coluna SÓ AVANÇA.
+        Uma publicação antiga que chegue atrasada na varredura não pode puxar o
+        processo para trás.
+      */
+      for (const [processoId, info] of porProcesso) {
+        await this.prisma.processo.updateMany({
+          where: {
+            id: processoId,
+            OR: [{ ultimoMovimentoEm: null }, { ultimoMovimentoEm: { lt: info.publicadaEm } }],
+          },
+          data: { ultimoMovimentoEm: info.publicadaEm },
+        });
+      }
+
       for (const [processoId, info] of porProcesso) {
         await this.logSync.registrar({
           processoId,

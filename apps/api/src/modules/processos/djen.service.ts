@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { limparTextoPublicacao } from './utils/providencia.util';
 import { integracaoAtiva } from '../../tenant/tenant.config';
+import { CNJ_REQ_POR_MINUTO } from './utils/cota-cnj.util';
 
 /**
  * DjenService — cliente da API Comunica PJe (DJEN / CNJ).
@@ -170,7 +171,20 @@ const ITENS_POR_PAGINA = 100;
  * varredura noturna, o botão da tela e uma segunda réplica da API dividem a
  * mesma cota sem saber uma da outra.
  */
-const LIMITE_PADRAO_POR_MINUTO = 14;
+/*
+  O NÚMERO MORA EM `cota-cnj.util`, e não aqui.
+
+  O DataJud ganhou limitador próprio depois de estourar a cota (6× HTTP 429 em
+  04/09/2026). Dois serviços com o mesmo teto escrito em dois arquivos é a
+  receita conhecida deste projeto para divergir em silêncio — basta alguém
+  afrouxar um lado. A cota é por IP: os dois dividem UM saldo, então dividem UM
+  número.
+
+  O resto do limitador continua aqui de propósito: ler `X-RateLimit-Remaining` e
+  abrir o disjuntor no 403 por origem são particularidades do DJEN, não regras
+  gerais de cota.
+*/
+const LIMITE_PADRAO_POR_MINUTO = CNJ_REQ_POR_MINUTO;
 const JANELA_MS = 60_000;
 /** Abaixo disto, espera a janela virar em vez de gastar o resto do saldo. */
 const RESERVA_MINIMA = 2;

@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, ExternalLink, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatData } from '@/lib/agenda';
 import type { GrupoDePublicacoes } from '@/lib/publicacoes-irmas';
+import { listarAdvogadosDisponiveis, type AdvogadoDisponivel } from '@/lib/processos';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 
 /**
  * O cartão de UMA publicação do DJEN — o mesmo na gaveta da atividade e na aba
@@ -103,6 +106,97 @@ function capitalizar(nome: string): string {
     .join(' ');
 }
 
+/**
+ * QUAL DOS NOSSOS ADVOGADOS FOI INTIMADO — pelo rosto, antes da leitura.
+ *
+ * A publicação traz de quatro a oito advogados, e quase todos são da outra
+ * parte. Os nossos estavam a um clique de distância, dentro de uma lista
+ * fechada de nomes em caixa alta — para descobrir se a intimação era da Dra.
+ * Shérad ou do Dr. Murilo era preciso abrir e ler. Numa lista de 1.408 atos
+ * isso é o trabalho inteiro.
+ *
+ * O CASAMENTO É PELA OAB, NUNCA PELO NOME. O DJEN manda "ICARO SOL ALMONDES
+ * SANTOS" e o cadastro tem "Ícaro Sol Almondes Santos": casar por texto perderia
+ * todo mundo com acento e ainda arriscaria confundir homônimos. Número + UF é
+ * exato. Medido em 07/09/2026: **1.381 das 1.408 publicações** têm um advogado
+ * nosso identificado assim, e os oito do quadro têm foto.
+ */
+const soDigitos = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+
+/** Chave de casamento: "PI-9226". */
+const chaveOab = (numero: string | null | undefined, uf: string | null | undefined) =>
+  `${(uf ?? '').trim().toUpperCase()}-${soDigitos(numero)}`;
+
+function RostosDosNossos({
+  advogados,
+}: {
+  advogados: { nome: string | null; numeroOab: string | null; ufOab: string | null }[];
+}) {
+  /*
+    A MESMA CHAVE DE CACHE do painel de filtros: o React Query serve as duas
+    telas com UMA requisição, mesmo com dezenas destes cartões na página.
+  */
+  const equipe = useQuery({
+    queryKey: ['processos', 'advogados-disponiveis'],
+    queryFn: listarAdvogadosDisponiveis,
+    staleTime: 5 * 60_000,
+  });
+
+  const nossos = useMemo(() => {
+    const porOab = new Map<string, AdvogadoDisponivel>();
+    for (const a of equipe.data ?? []) {
+      if (a.oab) porOab.set(chaveOab(a.oab, a.oabUf), a);
+    }
+    // `Map` pela OAB também deduplica: o mesmo advogado citado duas vezes na
+    // publicação (acontece) não pode virar dois rostos iguais lado a lado.
+    const achados = new Map<string, AdvogadoDisponivel>();
+    for (const a of advogados) {
+      const k = chaveOab(a.numeroOab, a.ufOab);
+      const nosso = porOab.get(k);
+      if (nosso) achados.set(k, nosso);
+    }
+    return [...achados.values()];
+  }, [equipe.data, advogados]);
+
+  if (!nossos.length) return null;
+
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {/*
+        ATÉ TRÊS ROSTOS, e o resto vira contagem. Mais que isso empurra a data
+        para fora da linha no celular — e três já cobre todos os casos reais:
+        o máximo medido no acervo é dois advogados nossos na mesma publicação.
+      */}
+      <span className="flex -space-x-1.5">
+        {nossos.slice(0, 3).map((a) => (
+          <AvatarPessoa
+            key={a.id}
+            nome={a.nomeExibicao || a.nome}
+            url={a.avatarUrl}
+            titulo={`${a.nome} — OAB ${a.oab}/${a.oabUf ?? ''}`}
+            tamanho="xs"
+            className="ring-2 ring-indigo-50 dark:ring-indigo-950"
+          />
+        ))}
+      </span>
+      {/*
+        O NOME SÓ QUANDO É UM. Com dois rostos o nome de um só mentiria por
+        omissão, e os dois não cabem; aí o rosto basta e a lista completa
+        continua no expansor abaixo.
+      */}
+      {nossos.length === 1 ? (
+        <span className="hidden truncate text-[11px] font-medium text-muted-foreground sm:inline">
+          {nossos[0].nomeExibicao || nossos[0].nome}
+        </span>
+      ) : (
+        <span className="text-[11px] font-medium text-muted-foreground">
+          {nossos.length > 3 ? `+${nossos.length - 3}` : null}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function PublicacaoDjenCard({
   grupo,
   rotulo,
@@ -170,8 +264,15 @@ export function PublicacaoDjenCard({
           </span>
           {chips}
         </span>
-        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-          {formatData(pub.dataDisponibilizacao)}
+        <span className="flex shrink-0 items-center gap-2">
+          {/*
+            O ROSTO ANTES DA DATA, na mesma linha do topo: é por esta coluna que
+            o olho desce quando a pessoa procura "as minhas publicações".
+          */}
+          <RostosDosNossos advogados={advogados} />
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            {formatData(pub.dataDisponibilizacao)}
+          </span>
         </span>
       </div>
 

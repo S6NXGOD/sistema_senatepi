@@ -9,6 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { NpuUtils } from './utils/npu.util';
+import { CNJ_REQ_POR_MINUTO, CotaPorMinuto } from './utils/cota-cnj.util';
 
 /**
  * DatajudService — cliente da API Pública do DATAJUD (CNJ).
@@ -149,6 +150,22 @@ const GRAUS_QUE_SOBEM = new Set(['G2', 'G3', 'TR', 'G4']);
 @Injectable()
 export class DatajudService {
   private readonly logger = new Logger(DatajudService.name);
+
+  /*
+    A COTA DO CNJ, GOVERNADA NUM LUGAR SÓ.
+
+    Antes quem espaçava as chamadas era o `setTimeout` de 2–3 s dentro do laço
+    do cron — o que dá 20 a 30 req/min contra um teto de 20, não cobre a
+    SEGUNDA chamada que um processo em duas instâncias faz, e não enxerga o
+    botão da ficha nem o backfill consumindo a mesma cota. Resultado medido:
+    6 respostas HTTP 429 em 04/09/2026.
+
+    Aqui é o único ponto por onde toda requisição ao DataJud passa, então é
+    aqui que o teto vale para todos os chamadores de uma vez.
+  */
+  private readonly cota = new CotaPorMinuto(CNJ_REQ_POR_MINUTO, (ms) =>
+    this.logger.log(`[DATAJUD] Cota de ${CNJ_REQ_POR_MINUTO}/min atingida — pausando ${Math.ceil(ms / 1000)}s.`),
+  );
   private readonly baseUrl = 'https://api-publica.datajud.cnj.jus.br';
   private readonly apiKey: string;
   /**
@@ -267,7 +284,13 @@ export class DatajudService {
   }
 
   /** Uma consulta a UM índice do DataJud. */
-  private async consultarIndice(alias: string, numero: string): Promise<InstanciaDatajud[]> {
+  private consultarIndice(alias: string, numero: string): Promise<InstanciaDatajud[]> {
+    // Em série e dentro da cota. A fila também serializa as duas consultas de um
+    // processo que subiu de instância — elas contavam como uma só no log.
+    return this.cota.executar(() => this.consultarIndiceAgora(alias, numero));
+  }
+
+  private async consultarIndiceAgora(alias: string, numero: string): Promise<InstanciaDatajud[]> {
     const url = `${this.baseUrl}/${alias}/_search`;
 
     // LGPD: log apenas com dado público (NPU + tribunal), sem nada pessoal.

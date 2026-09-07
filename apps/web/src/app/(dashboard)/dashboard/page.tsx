@@ -22,7 +22,7 @@ import { podeEditar, podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/per
 import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
-  primeiroNome, motivoFalhaDatajud,
+  primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando,
   type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -952,17 +952,25 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
 }
 
 /**
- * O CNJ NÃO CONHECE ESTE NÚMERO — e o robô pergunta todo dia.
+ * O CNJ AINDA NÃO PUBLICOU — que é diferente de "deu erro".
  *
  * ISTO ERA INVISÍVEL, e não por descuido de tela: a consulta é gravada como
  * SUCESSO, porque ela de fato funcionou — o índice público é que não tem o
  * processo. Como não é falha, nunca entrou na barra de falhas; e como ninguém
- * vê, ninguém conserta. Medido na produção em 05/09/2026: **um único NPU
- * consultado 151 vezes em 7 dias**, sempre com a mesma resposta.
+ * vê, ninguém conserta.
  *
- * É conferência de cadastro, não problema de integração — por isso barra
- * própria, em tom neutro: ou o número está digitado errado, ou o processo não
- * foi distribuído. As duas coisas são trabalho de gente.
+ * O TEXTO MANDAVA CONFERIR O NÚMERO SEMPRE, e na maior parte das vezes não há
+ * nada a conferir. Medido na produção em 07/09/2026: o único caso é um
+ * processo **distribuído há 13 dias, status PENDENTE**. O índice do CNJ demora
+ * a receber processo novo — mandar a equipe caçar erro de digitação ali é
+ * mandar procurar defeito que não existe.
+ *
+ * Então o aviso agora tem DUAS vozes, separadas por
+ * `DIAS_ESPERA_RAZOAVEL_CNJ`:
+ *
+ *  · dentro do prazo → explica que é normal e que não é preciso fazer nada;
+ *  · passado dele    → fala franco: o índice já deveria ter publicado, e o
+ *                       palpite mais provável é número errado.
  *
  * SÓ DEPOIS DE TRÊS DIAS insistindo (corte na API): processo distribuído ontem
  * ainda não está no índice, e cobrar isso seria acusar o tribunal de um atraso
@@ -971,6 +979,12 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
 function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
   const [aberto, setAberto] = useState(false);
   const n = itens.length;
+  /*
+    BASTA UM FORA DO PRAZO para o aviso mudar de tom. Se há dez esperando e um
+    já passou de um mês, dizer "não é preciso fazer nada" esconderia o único
+    que precisa de gente — e é sempre esse que importa.
+  */
+  const esperando = itens.every((i) => esperaAindaRazoavel(i.desde));
 
   return (
     <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
@@ -994,19 +1008,55 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
             número cabe na frase — saber qual é vale mais que saber quantos são.
           */}
           <span>
-            {n === 1 ? (
+            {esperando ? (
               <>
-                <strong className="text-foreground">1 processo não recebe andamentos</strong>:
-                o CNJ não reconhece o número{' '}
-                <span className="font-mono text-foreground">{formatNPU(itens[0].numeroCNJ)}</span>.
+                {n === 1 ? (
+                  <>
+                    <strong className="text-foreground">
+                      O CNJ ainda não publicou 1 processo
+                    </strong>{' '}
+                    —{' '}
+                    <span className="font-mono text-foreground">
+                      {formatNPU(itens[0].numeroCNJ)}
+                    </span>
+                    , cadastrado há {diasEsperando(itens[0].desde)} dias.
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-foreground">
+                      O CNJ ainda não publicou {n} processos
+                    </strong>{' '}
+                    cadastrados recentemente.
+                  </>
+                )}{' '}
+                O índice público demora a receber processo recém-distribuído. O
+                sistema continua tentando todo dia — não é preciso fazer nada.
               </>
             ) : (
               <>
-                <strong className="text-foreground">{n} processos não recebem andamentos</strong>:
-                o CNJ não reconhece os números cadastrados.
+                {n === 1 ? (
+                  <>
+                    <strong className="text-foreground">
+                      1 processo não recebe andamentos há {diasEsperando(itens[0].desde)} dias
+                    </strong>
+                    : o CNJ não reconhece o número{' '}
+                    <span className="font-mono text-foreground">
+                      {formatNPU(itens[0].numeroCNJ)}
+                    </span>
+                    .
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-foreground">
+                      {n} processos não recebem andamentos
+                    </strong>
+                    : o CNJ não reconhece os números cadastrados.
+                  </>
+                )}{' '}
+                Já passou do tempo que o índice costuma levar — vale conferir se o
+                número está digitado certo.
               </>
-            )}{' '}
-            Confira o número — ou aguarde, se a distribuição for recente.
+            )}
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
