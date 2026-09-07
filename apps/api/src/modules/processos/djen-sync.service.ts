@@ -588,6 +588,23 @@ export class DjenSyncService {
     const porOab = await this.advogadosPorOab();
     let criadas = 0;
     let semDono = 0;
+    /*
+      CADA TAREFA GANHA O SEU MINUTO — e isto veio de simular a rodada.
+
+      Rodando a seleção contra a produção antes de subir: 7 ações qualificadas,
+      e QUATRO delas caindo na mesma pessoa (Morgana), todas com `inicio` no
+      mesmo instante — 09:00 de amanhã. Quatro linhas idênticas no mesmo minuto
+      da agenda não se leem como quatro trabalhos; leem-se como um defeito, e a
+      pessoa passa por cima das quatro.
+
+      Quinze minutos entre uma e outra, e o relógio para de andar depois de duas
+      horas: numa colheita grande vale mais empilhar às 11:00 do que agendar
+      tarefa para depois do almoço de um dia que nem começou.
+    */
+    const PASSO_MS = 15 * 60_000;
+    const MAX_PASSOS = 8;
+    const base = proximoHorarioUtilBR(noveDaManhaBR(new Date()));
+    let slot = 0;
 
     for (const s of recentes) {
       const responsavelId = this.primeiroAdvogadoNosso(s.advogados, porOab);
@@ -599,7 +616,7 @@ export class DjenSyncService {
         // Nove da manhã de Teresina, no próximo dia útil, e nunca no passado —
         // a mesma função que os outros robôs usam. Tarefa que nasce vencida
         // envenena o contador de atrasos no mesmo instante.
-        const inicio = proximoHorarioUtilBR(noveDaManhaBR(new Date()));
+        const inicio = new Date(base.getTime() + Math.min(slot, MAX_PASSOS) * PASSO_MS);
         const npu = NpuUtils.formatar(s.numeroCNJ) || s.numeroCNJ;
         const compromisso = await this.prisma.compromisso.create({
           data: {
@@ -633,6 +650,7 @@ export class DjenSyncService {
           data: { compromissoId: compromisso.id },
         });
         criadas++;
+        slot++;
       } catch (err) {
         // Falhar aqui não pode derrubar a varredura: a sugestão fica sem tarefa
         // e a próxima rodada tenta de novo, que é o lado seguro.

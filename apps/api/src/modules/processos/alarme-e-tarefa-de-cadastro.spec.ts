@@ -94,7 +94,28 @@ describe('a tarefa de cadastrar a ação do Diário', () => {
 
   /** Nenhuma tarefa nasce vencida — a mesma função dos outros robôs. */
   it('agenda nas nove de Teresina, no próximo dia útil', () => {
-    expect(SYNC).toContain('proximoHorarioUtilBR(noveDaManhaBR(new Date()))');
+    expect(SYNC).toContain('const base = proximoHorarioUtilBR(noveDaManhaBR(new Date()));');
+  });
+
+  /**
+   * QUATRO TAREFAS NO MESMO MINUTO PARECEM UM DEFEITO.
+   *
+   * Simulando a seleção contra a produção antes de subir: 7 ações qualificadas
+   * e QUATRO na mesma pessoa, todas com o mesmo `inicio`. Quatro linhas
+   * idênticas no mesmo minuto não se leem como quatro trabalhos — a pessoa
+   * passa por cima das quatro. O relógio para depois de duas horas: empilhar
+   * às 11:00 é melhor que agendar para depois do almoço de um dia que nem
+   * começou.
+   */
+  it('escalona os horários em vez de empilhar tudo às 9h', () => {
+    expect(SYNC).toContain('const PASSO_MS = 15 * 60_000;');
+    expect(SYNC).toContain('Math.min(slot, MAX_PASSOS) * PASSO_MS');
+    // O passo só anda quando a tarefa NASCE — falha não pode furar a fila.
+    const fn = SYNC.slice(
+      SYNC.indexOf('private async agendarCadastroDasRecentes'),
+      SYNC.indexOf('private async advogadosPorOab'),
+    );
+    expect(fn).toMatch(/criadas\+\+;\s+slot\+\+;/);
   });
 
   /** Roda DEPOIS da conferência: ação já baixada não vira tarefa de ninguém. */
