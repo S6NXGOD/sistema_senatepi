@@ -21,17 +21,13 @@ const TELA = lerCodigo('page.tsx');
 describe('a faixa de integração parada', () => {
   /**
    * Ninguém tentou ≠ tentamos e não voltou. A distinção continua existindo —
-   * ela só mudou de lugar: da primeira linha para o detalhe técnico, porque é
-   * quem investiga que precisa dela.
+   * mas agora ela troca a FRASE, em vez de virar um parágrafo técnico embaixo.
    */
-  it('separa "não rodou" de "parada"', () => {
+  it('separa "não rodou" de "parada" na própria frase', () => {
     expect(TELA).toContain("i.situacao === 'NAO_RODOU'");
     expect(TELA).toContain('const naoRodou =');
-    expect(TELA).toContain('Nenhuma chamada foi registrada nas últimas 24h');
-  });
-
-  it('e a de parada fala de chamada com erro', () => {
-    expect(TELA).toContain('chamada(s) com erro nas últimas 24h e nenhuma bem-sucedida');
+    expect(TELA).toContain('A busca automática, que roda toda madrugada, não executou.');
+    expect(TELA).toContain('não respondeu às últimas tentativas');
   });
 });
 
@@ -74,22 +70,55 @@ describe('o silêncio de publicações', () => {
  */
 describe('a faixa fala de consequência e oferece saída', () => {
   it('lidera pela consequência, não pelo diagnóstico', () => {
-    expect(TELA).toContain('podem estar');
-    expect(TELA).toContain('desatualizadas.');
     expect(TELA).toContain('const O_QUE_A_FONTE_TRAZ');
-    expect(TELA).toContain("oQue: 'as publicações'");
+    expect(TELA).toContain("oQue: 'as publicações do Diário'");
+    expect(TELA).toContain("{quando ? 'não recebe' : 'ainda não recebeu'}");
   });
 
-  /** O jargão desceu para trás de um clique, para quem for investigar. */
-  it('o diagnóstico técnico vira detalhe', () => {
-    expect(TELA).toContain('Detalhe técnico');
-    expect(TELA).toContain('Isso aponta para a varredura agendada, e não para o CNJ');
+  /**
+   * NOME GENÉRICO + ADJETIVO FIXO DÁ ERRO DE PORTUGUÊS. A versão anterior
+   * montava "{oQue} não são atualizadas" — certo para as publicações,
+   * "os andamentos não são atualiz*adas*" para o DataJud.
+   */
+  it('cada fonte traz a frase inteira, com a concordância certa', () => {
+    expect(TELA).toContain("incompleto: 'Algumas publicações podem não ter chegado.'");
+    expect(TELA).toContain("incompleto: 'Alguns andamentos podem não ter chegado.'");
+    expect(TELA).toContain('{fonte.incompleto}');
+    expect(TELA).not.toContain('atualizadas {quando');
+  });
+
+  /**
+   * O EXPANSOR VOLTOU A SAIR — e desta vez o motivo é outro.
+   *
+   * "Ocultar detalhe técnico" + "Nenhuma chamada foi registrada nas últimas
+   * 24h — nem com erro" era eu explicando MINHA telemetria. Quem leu entendeu
+   * defeito. O diagnóstico continua na tela, mas dito como fato do mundo
+   * ("a busca não executou"), não como leitura de contador.
+   */
+  it('não tem mais expansor de jargão', () => {
+    expect(TELA).not.toContain('Detalhe técnico');
+    expect(TELA).not.toContain('Nenhuma chamada foi registrada');
+    expect(TELA).not.toContain('nem com erro');
+    expect(TELA).not.toContain('detalhe={');
+    expect(TELA).not.toContain('detalhe?:');
   });
 
   it('e há um botão que resolve', () => {
-    expect(TELA).toContain('rotuloAcao="Buscar agora"');
+    expect(TELA).toContain("'Buscar agora'");
     expect(TELA).toContain('varrerDjenAgora');
     expect(TELA).toContain("aoAgir={i.fonte === 'DJEN' && podeVarrerDjen");
+  });
+
+  /**
+   * O BOTÃO DIZ QUANTO CUSTA. Medido em produção pelo clique do próprio
+   * usuário: 15 consultas, 62 segundos. Não é pesado, mas segura a tela — e
+   * um botão que trava sem avisar só é clicado uma vez na vida.
+   */
+  it('avisa o que o clique dispara e mostra que está rodando', () => {
+    expect(TELA).toContain('leva cerca');
+    expect(TELA).toContain('de um minuto');
+    expect(TELA).toContain("'Buscando…'");
+    expect(TELA).toContain('agindo={varrer.isPending}');
   });
 
   /**
@@ -101,9 +130,13 @@ describe('a faixa fala de consequência e oferece saída', () => {
     expect(TELA).toContain('podeVarrerDjen={pode.varrerDjen}');
   });
 
-  /** "Não rodou" deixou de ser vermelho: o dado fica velho, nada quebrou. */
-  it('não rodar não é crítico', () => {
-    expect(TELA).toContain("tom={parada ? 'critico' : 'atencao'}");
+  /**
+   * VERMELHO É PARA O QUE QUEBROU. Dado velho não quebrou nada: a faixa avisa,
+   * não alarma. O usuário leu a versão anterior como erro do sistema.
+   */
+  it('nenhuma das faixas de integração é crítica', () => {
+    expect(TELA).toContain('tom="atencao"');
+    expect(TELA).not.toContain("tom={parada ? 'critico' : 'atencao'}");
   });
 });
 

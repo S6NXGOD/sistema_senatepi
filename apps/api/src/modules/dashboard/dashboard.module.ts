@@ -1613,7 +1613,6 @@ export class DashboardService {
    */
   private async saudeDasFontes(agora: Date) {
     const desde24h = new Date(agora.getTime() - 24 * 3_600_000);
-    const desde48h = new Date(agora.getTime() - 48 * 3_600_000);
 
     const linhas = await this.prisma.$queryRaw<
       {
@@ -1640,7 +1639,22 @@ export class DashboardService {
       const ok24 = Number(l.ok24);
       const falhas24 = Number(l.falhas24);
       const chamadas24 = ok24 + falhas24;
-      const temSucessoRecente = !!l.ultimo_sucesso && l.ultimo_sucesso > desde48h;
+
+      /*
+        O ATRASO SE MEDE EM DIAS ÚTEIS — e antes bastavam 24 horas sem chamada.
+
+        Com uma varredura DIÁRIA, "24h sem consulta" dispara em qualquer soluço:
+        um domingo, um feriado, uma rodada que atrasou. Foi o que o usuário viu
+        numa segunda às 00h46 — faixa vermelha porque a última busca tinha sido
+        sexta às 16h35. Um dia útil. Nada tinha se perdido: o Diário não circula
+        no fim de semana e a edição de segunda ainda nem existia.
+
+        Dois dias ÚTEIS é outra coisa: aí há uma edição inteira que não entrou.
+      */
+      const diasUteisSemSucesso = l.ultimo_sucesso
+        ? diasUteisEntre(l.ultimo_sucesso, agora)
+        : null;
+      const atrasado = diasUteisSemSucesso === null || diasUteisSemSucesso >= 2;
 
       /*
         "NÃO RODOU" NÃO É "FALHOU" — e a tela dizia a segunda coisa.
@@ -1655,15 +1669,23 @@ export class DashboardService {
         investigações diferentes, e o dado para separá-las sempre esteve aqui:
         `chamadas24 === 0` com sucesso antigo significa que ninguém tentou.
       */
+      /*
+        A ORDEM DAS PERGUNTAS.
+
+        1. Nunca usada → SEM_USO (não é falha, é escolha; a tela não mostra nada).
+        2. Em dia (menos de 2 dias úteis desde o último sucesso) → só resta saber
+           se está INSTÁVEL. Antes esta pergunta vinha por último, e por isso um
+           fim de semana virava PARADA antes de qualquer coisa.
+        3. Atrasada e ninguém tentou → NAO_RODOU (agendador).
+        4. Atrasada e as tentativas falharam → PARADA (CNJ, ponte, certificado).
+      */
       const situacao = !l.ultimo_sucesso && chamadas24 === 0
         ? 'SEM_USO'
-        : chamadas24 === 0
-          ? 'NAO_RODOU'
-          : !temSucessoRecente
-            ? 'PARADA'
-            : falhas24 / chamadas24 > 0.2
-              ? 'INSTAVEL'
-              : 'OK';
+        : !atrasado
+          ? (chamadas24 > 0 && falhas24 / chamadas24 > 0.2 ? 'INSTAVEL' : 'OK')
+          : chamadas24 === 0
+            ? 'NAO_RODOU'
+            : 'PARADA';
 
       return {
         fonte: l.fonte,
@@ -1671,6 +1693,8 @@ export class DashboardService {
         ok24,
         falhas24,
         ultimoSucesso: l.ultimo_sucesso,
+        /** Dias ÚTEIS desde a última chamada que voltou — o critério do atraso. */
+        diasUteisSemSucesso,
         ultimaFalha: l.ultima_falha,
         /** A mensagem crua da última falha — é o que se cola num chamado. */
         ultimoErro: l.ultimo_erro,

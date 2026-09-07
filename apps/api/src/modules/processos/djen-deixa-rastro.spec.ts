@@ -97,6 +97,30 @@ describe('a saúde das fontes separa quem não tentou', () => {
     expect(DASH).toContain(': chamadas24 === 0');
   });
 
+  /**
+   * DOIS DIAS ÚTEIS, NÃO 24 HORAS.
+   *
+   * Com varredura DIÁRIA, "24h sem chamada" dispara em qualquer soluço. O
+   * usuário viu a faixa numa SEGUNDA às 00h46 porque a última busca fora
+   * sexta às 16h35 — UM dia útil, com o Diário fechado no fim de semana e a
+   * edição de segunda ainda inexistente. Nada tinha se perdido.
+   */
+  it('o atraso da fonte se mede em dias úteis', () => {
+    expect(DASH).toContain('const atrasado = diasUteisSemSucesso === null || diasUteisSemSucesso >= 2;');
+    expect(DASH).toContain('diasUteisSemSucesso,');
+  });
+
+  /**
+   * A ORDEM DAS PERGUNTAS importava: "em dia?" vinha DEPOIS de "parada?", e por
+   * isso um fim de semana virava PARADA antes de qualquer outra checagem.
+   */
+  it('pergunta "está em dia?" antes de "parou?"', () => {
+    const i = DASH.indexOf("const situacao = !l.ultimo_sucesso && chamadas24 === 0");
+    const bloco = DASH.slice(i, i + 400);
+    expect(bloco.indexOf('!atrasado')).toBeLessThan(bloco.indexOf("'NAO_RODOU'"));
+    expect(bloco.indexOf('!atrasado')).toBeLessThan(bloco.indexOf("'PARADA'"));
+  });
+
   /** Nunca ligada continua sendo SEM_USO — alarme sobre função desligada, não. */
   it('nunca usada continua SEM_USO', () => {
     expect(DASH).toContain("const situacao = !l.ultimo_sucesso && chamadas24 === 0\n        ? 'SEM_USO'");

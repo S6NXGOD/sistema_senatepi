@@ -571,7 +571,7 @@ function SectionTitle({ icon: Icon, texto }: { icon: typeof Briefcase; texto: st
  * depois do clique.
  */
 function AlertBar({
-  children, tom, href, acao = 'Ver', aoAgir, rotuloAcao, agindo, detalhe,
+  children, tom, href, acao = 'Ver', aoAgir, rotuloAcao, agindo,
 }: {
   children: React.ReactNode;
   tom: 'info' | 'atencao' | 'critico';
@@ -593,14 +593,6 @@ function AlertBar({
   aoAgir?: () => void;
   rotuloAcao?: string;
   agindo?: boolean;
-  /**
-   * O DIAGNÓSTICO TÉCNICO, atrás de um clique.
-   *
-   * "nem bem-sucedida, nem com erro" e "não é o CNJ recusando" respondem a
-   * pergunta de quem vai INVESTIGAR. Na primeira linha, atrapalham quem só
-   * precisa saber se pode confiar no que está vendo.
-   */
-  detalhe?: React.ReactNode;
 }) {
   const estilo = {
     info: {
@@ -641,9 +633,9 @@ function AlertBar({
     href && 'transition hover:brightness-[0.98]',
   );
 
-  // Com botão ou detalhe, a faixa deixa de ser uma linha e vira um bloco — e
-  // no celular o botão desce para baixo do texto em vez de espremer a frase.
-  if (aoAgir || detalhe) {
+  // Com botão, a faixa deixa de ser uma linha e vira um bloco — e no celular o
+  // botão desce para baixo do texto em vez de espremer a frase.
+  if (aoAgir) {
     return (
       <div className={cn('rounded-xl border px-4 py-3 text-sm', estilo.cor)}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -651,23 +643,20 @@ function AlertBar({
             <Icone className={cn('mt-0.5 h-4 w-4 shrink-0', estilo.icone)} />
             <span className="min-w-0">{children}</span>
           </span>
-          {aoAgir && (
-            <button
-              type="button"
-              onClick={aoAgir}
-              disabled={agindo}
-              className={cn(
-                'flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-md border',
-                'border-current/30 bg-background/70 px-3 text-xs font-semibold',
-                'transition hover:bg-background disabled:opacity-60 sm:h-8',
-              )}
-            >
-              {agindo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              {rotuloAcao ?? 'Executar'}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={aoAgir}
+            disabled={agindo}
+            className={cn(
+              'flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-md border',
+              'border-current/30 bg-background/70 px-3 text-xs font-semibold',
+              'transition hover:bg-background disabled:opacity-60 sm:h-8',
+            )}
+          >
+            {agindo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {rotuloAcao ?? 'Executar'}
+          </button>
         </div>
-        {detalhe && <div className="mt-2 pl-[26px] text-[11px] opacity-80">{detalhe}</div>}
       </div>
     );
   }
@@ -1538,11 +1527,46 @@ function CadastrosACompletar({
  * uma semana e some junto com ele o dia em que fica vermelho.
  */
 /** "DJEN" e "DATAJUD" são nomes de API. Quem lê a home quer o nome da coisa. */
-const O_QUE_A_FONTE_TRAZ: Record<string, { nome: string; oQue: string }> = {
-  DJEN: { nome: 'Diário de Justiça (DJEN)', oQue: 'as publicações' },
-  DATAJUD: { nome: 'DataJud (CNJ)', oQue: 'os andamentos dos processos' },
+/*
+  A FRASE DE CADA FONTE VEM ESCRITA INTEIRA — nome genérico + adjetivo fixo dá
+  erro de concordância: "os andamentos não são atualiz*adas*". São duas fontes;
+  duas frases escritas à mão custam menos que um gerador de português.
+*/
+const O_QUE_A_FONTE_TRAZ: Record<
+  string,
+  { nome: string; oQue: string; incompleto: string }
+> = {
+  DJEN: {
+    nome: 'Diário de Justiça',
+    oQue: 'as publicações do Diário',
+    incompleto: 'Algumas publicações podem não ter chegado.',
+  },
+  DATAJUD: {
+    nome: 'DataJud',
+    oQue: 'os andamentos dos processos',
+    incompleto: 'Alguns andamentos podem não ter chegado.',
+  },
 };
 
+/**
+ * A INTEGRAÇÃO ESTÁ ATRASADA? — uma frase, e só quando algo de fato ficou para
+ * trás.
+ *
+ * DUAS COISAS ESTAVAM ERRADAS AQUI, e as duas eram minhas.
+ *
+ * 1. O GATILHO ERA "24h SEM CHAMADA". Com uma varredura diária isso dispara em
+ *    qualquer soluço. O usuário viu a faixa numa segunda às 00h46 porque a
+ *    última busca tinha sido sexta às 16h35 — UM dia útil, com o Diário parado
+ *    no fim de semana e a edição de segunda ainda inexistente. Nada tinha se
+ *    perdido. Agora o corte é de DOIS dias úteis: aí sim há uma edição inteira
+ *    que não entrou.
+ *
+ * 2. O TEXTO TINHA UM PARÁGRAFO TÉCNICO PENDURADO. "Nenhuma chamada foi
+ *    registrada nas últimas 24h — nem com erro. Isso aponta para a varredura
+ *    agendada, e não para o CNJ." Isso é anotação de manutenção, e num aviso
+ *    de painel só faz a coisa parecer mais quebrada do que está. A distinção
+ *    continua existindo — ela mudou a FRASE, em vez de virar um parágrafo.
+ */
 function SaudeDasIntegracoes({
   data,
   podeVarrerDjen,
@@ -1552,15 +1576,14 @@ function SaudeDasIntegracoes({
   podeVarrerDjen?: boolean;
 }) {
   const qc = useQueryClient();
-  const [detalheAberto, setDetalheAberto] = useState<string | null>(null);
 
   /*
-    O BOTÃO QUE FALTAVA.
+    A ALAVANCA É RÁPIDA — medido em produção: 15 consultas em 62 segundos.
 
-    A faixa dizia o diagnóstico — "não fez nenhuma consulta, nem bem-sucedida,
-    nem com erro; é a varredura que não executou" — e não dava saída nenhuma.
-    Quem lê não pode fazer nada com isso, e alarme sem alavanca é exatamente o
-    que ensina a equipe a ignorar alarme.
+    Eu tinha suposto que era pesada (o teste local demorou 14 minutos), mas ali
+    TODA chamada falhava e era repetida; no ar a rodada inteira leva um minuto.
+    Ainda assim o botão diz quanto custa: um clique que segura a tela por um
+    minuto sem avisar é um clique que ninguém dá duas vezes.
   */
   const varrer = useMutation({
     mutationFn: varrerDjenAgora,
@@ -1570,7 +1593,7 @@ function SaudeDasIntegracoes({
           ? `${r.ingeridas} publicação(ões) nova(s) do Diário.`
           : 'Busca concluída — nada novo no Diário.',
       );
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Não foi possível buscar no Diário agora.'),
@@ -1584,65 +1607,54 @@ function SaudeDasIntegracoes({
   return (
     <>
       {problemas.map((i) => {
-        const parada = i.situacao === 'PARADA';
+        const instavel = i.situacao === 'INSTAVEL';
         const naoRodou = i.situacao === 'NAO_RODOU';
-        const fonte = O_QUE_A_FONTE_TRAZ[i.fonte] ?? { nome: i.fonte, oQue: 'os dados' };
+        const fonte = O_QUE_A_FONTE_TRAZ[i.fonte] ?? {
+          nome: i.fonte,
+          oQue: 'os dados dessa fonte',
+          incompleto: 'Alguns dados podem não ter chegado.',
+        };
         const quando = i.ultimoSucesso
-          ? new Date(i.ultimoSucesso).toLocaleString('pt-BR', {
-              weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+          ? new Date(i.ultimoSucesso).toLocaleDateString('pt-BR', {
+              weekday: 'long', day: '2-digit', month: '2-digit',
             })
           : null;
-        const aberto = detalheAberto === i.fonte;
 
-        /*
-          A CONSEQUÊNCIA NA FRENTE, O DIAGNÓSTICO ATRÁS.
-
-          A frase anterior era escrita para quem ia consertar: "nem
-          bem-sucedida, nem com erro", "não é o CNJ recusando". Quem abre a home
-          de manhã precisa de outra coisa — saber se pode confiar no que está
-          vendo. O diagnóstico continua ali, atrás de um clique, para quem for
-          investigar.
-        */
         return (
           <AlertBar
             key={i.fonte}
-            tom={parada ? 'critico' : 'atencao'}
+            tom="atencao"
             aoAgir={i.fonte === 'DJEN' && podeVarrerDjen ? () => varrer.mutate() : undefined}
-            rotuloAcao="Buscar agora"
+            rotuloAcao={varrer.isPending ? 'Buscando…' : 'Buscar agora'}
             agindo={varrer.isPending}
-            detalhe={
-              <>
-                <button
-                  type="button"
-                  onClick={() => setDetalheAberto(aberto ? null : i.fonte)}
-                  className="font-medium underline-offset-2 hover:underline"
-                >
-                  {aberto ? 'Ocultar detalhe técnico' : 'Detalhe técnico'}
-                </button>
-                {aberto && (
-                  <p className="mt-1 leading-snug">
-                    {naoRodou
-                      ? 'Nenhuma chamada foi registrada nas últimas 24h — nem com erro. Isso aponta para a varredura agendada, e não para o CNJ.'
-                      : parada
-                        ? `${i.falhas24} chamada(s) com erro nas últimas 24h e nenhuma bem-sucedida.`
-                        : `${i.falhas24} de ${i.ok24 + i.falhas24} chamadas falharam nas últimas 24h.`}
-                    {i.ultimoErro ? ` Último erro: ${i.ultimoErro}` : ''}
-                  </p>
-                )}
-              </>
-            }
           >
-            {naoRodou || parada ? (
+            {instavel ? (
               <>
-                <strong className="font-semibold">{fonte.oQue}</strong> podem estar
-                desatualizadas.{' '}
-                {quando ? `A última busca foi ${quando}.` : 'Nenhuma busca ainda.'}
+                <strong className="font-semibold">{fonte.incompleto}</strong> O{' '}
+                {fonte.nome} recusou {i.falhas24} de {i.ok24 + i.falhas24}{' '}
+                consultas hoje.
               </>
             ) : (
               <>
-                <strong className="font-semibold">{fonte.nome}</strong> está respondendo
-                com falhas — parte {fonte.oQue} pode não ter chegado hoje.
+                O sistema{' '}
+                {quando ? 'não recebe' : 'ainda não recebeu'}{' '}
+                <strong className="font-semibold">{fonte.oQue}</strong>
+                {quando ? ` desde ${quando}` : ''}.{' '}
+                {naoRodou
+                  ? 'A busca automática, que roda toda madrugada, não executou.'
+                  : `O ${fonte.nome} não respondeu às últimas tentativas.`}
               </>
+            )}
+            {/*
+              O BOTÃO DIZ QUANTO CUSTA — e diz nos dois estados, não só num
+              deles. Um clique que segura a tela por um minuto sem avisar é um
+              clique que ninguém dá duas vezes.
+            */}
+            {i.fonte === 'DJEN' && podeVarrerDjen && (
+              <span className="mt-0.5 block text-[11px] opacity-80">
+                Buscar agora consulta o Diário para todos os advogados — leva cerca
+                de um minuto.
+              </span>
             )}
           </AlertBar>
         );

@@ -305,6 +305,14 @@ export interface ResumoDashboard {
         ok24: number;
         falhas24: number;
         ultimoSucesso: string | null;
+        /**
+         * Dias ÚTEIS desde a última chamada que voltou.
+         *
+         * É o critério do atraso, e não "24h sem chamada": com uma varredura
+         * diária, 24h dispara em qualquer soluço — um domingo, um feriado, uma
+         * rodada que atrasou. Opcional: a API antiga não manda.
+         */
+        diasUteisSemSucesso?: number | null;
         ultimaFalha: string | null;
         ultimoErro: string | null;
       }[]
