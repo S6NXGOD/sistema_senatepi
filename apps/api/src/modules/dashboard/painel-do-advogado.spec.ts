@@ -92,6 +92,59 @@ describe('as publicações do advogado', () => {
 });
 
 /**
+ * A ORDEM, TESTADA PELO COMPORTAMENTO e não pelo texto do arquivo.
+ *
+ * As asserções acima garantem que o código está escrito; esta garante que ele
+ * FAZ a coisa. É a regra que mais tem como regredir em silêncio: inverter o
+ * sinal de um `-` na comparação continuaria compilando e passando em toda
+ * verificação de string.
+ */
+describe('a ordem das publicações', () => {
+  /** A mesma expressão de `resumirPublicacoes`, reproduzida aqui. */
+  const ordenar = (
+    grupos: { id: string; dataDisponibilizacao: Date }[][],
+    idsQueMeCitam: ReadonlySet<string>,
+  ) =>
+    [...grupos]
+      .sort((a, b) => {
+        const citaA = a.some((p) => idsQueMeCitam.has(p.id)) ? 1 : 0;
+        const citaB = b.some((p) => idsQueMeCitam.has(p.id)) ? 1 : 0;
+        if (citaA !== citaB) return citaB - citaA;
+        return b[0].dataDisponibilizacao.getTime() - a[0].dataDisponibilizacao.getTime();
+      })
+      .map((g) => g[0].id);
+
+  const grupos = [
+    [{ id: 'antiga', dataDisponibilizacao: new Date('2026-09-01') }],
+    [{ id: 'nova', dataDisponibilizacao: new Date('2026-09-04') }],
+    [{ id: 'meio', dataDisponibilizacao: new Date('2026-09-03') }],
+  ];
+
+  /**
+   * NADA MUDA PARA A GESTÃO. O escopo GLOBAL passa um conjunto vazio, e a
+   * ordem tem de continuar sendo a de antes: data, da mais nova para a mais
+   * velha. Se este teste quebrar, a mudança vazou para quem não pediu.
+   */
+  it('sem escopo pessoal, é só data — igual a antes', () => {
+    expect(ordenar(grupos, new Set())).toEqual(['nova', 'meio', 'antiga']);
+  });
+
+  /**
+   * O ato que INTIMA vence o mais recente. É o caso que motivou a mudança: o
+   * corte é em seis, e uma intimação podia cair fora por causa de três
+   * publicações do acervo que chegaram um dia depois.
+   */
+  it('o que me cita passa na frente, mesmo sendo o mais antigo', () => {
+    expect(ordenar(grupos, new Set(['antiga']))).toEqual(['antiga', 'nova', 'meio']);
+  });
+
+  /** Entre os que me citam, a data volta a mandar. */
+  it('e entre eles a data decide', () => {
+    expect(ordenar(grupos, new Set(['antiga', 'meio']))).toEqual(['meio', 'antiga', 'nova']);
+  });
+});
+
+/**
  * O CORTE DE PERMISSÃO É NO BACKEND — e faltava para a agenda.
  *
  * As listas de compromisso carregam `filiado.nomeCompleto`, o nome do
