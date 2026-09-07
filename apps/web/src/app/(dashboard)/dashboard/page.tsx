@@ -359,9 +359,24 @@ function Conteudo({
   /* Frases AFIRMATIVAS: "Nada atrasado", nunca "0 atrasos". A pessoa lê a
      linha para se tranquilizar, e número zero não tranquiliza ninguém. */
   const limpo: CoisaLimpa[] = [
-    vazio.atividadesHoje && { texto: 'Nada na agenda de hoje', href: '/agenda' },
+    /*
+      A FRASE TEM DE DIZER O QUE A GUARDA MEDIU.
+
+      Eu tinha escrito "Nada na agenda de hoje" — e o bloco só colapsa quando
+      HOJE **e os próximos sete dias** estão vazios (ele mostra as duas listas).
+      A frase afirmava menos do que era verdade e, pior, deixava a pessoa achando
+      que amanhã podia ter algo escondido ali.
+
+      E `pendenciasAtivas` é `inicio < agora` entre as abertas: são as VENCIDAS,
+      não as abertas. "Nenhuma pendência aberta" com seis compromissos pendentes
+      na semana seria uma tela mentindo com todas as letras.
+
+      Peguei as duas simulando o painel por usuário contra a produção, não lendo
+      o que eu tinha acabado de escrever.
+    */
+    vazio.atividadesHoje && { texto: 'Nada na agenda desta semana', href: '/agenda' },
     vazio.audienciasSemana && { texto: 'Sem audiências nos próximos 7 dias', href: '/agenda' },
-    vazio.pendenciasAtivas && { texto: 'Nenhuma pendência aberta', href: '/agenda' },
+    vazio.pendenciasAtivas && { texto: 'Nada atrasado', href: '/agenda' },
     vazio.atendimentos && { texto: 'Nenhum atendimento na fila', href: '/atendimentos' },
     vazio.movimentacoes && { texto: 'Sem movimentação nova nos processos', href: '/processos' },
     vazio.equipeHoje && { texto: 'Ninguém de plantão hoje', href: '/escalas' },

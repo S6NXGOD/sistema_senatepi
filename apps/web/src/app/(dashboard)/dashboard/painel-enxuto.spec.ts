@@ -68,8 +68,22 @@ describe('o painel não gasta cartão para dizer "nada aqui"', () => {
 
   /** Frases afirmativas: número zero não tranquiliza ninguém. */
   it('fala em frases, não em zeros', () => {
-    expect(CONTEUDO).toContain("texto: 'Nada na agenda de hoje'");
+    expect(CONTEUDO).toContain("texto: 'Nada atrasado'");
     expect(CONTEUDO).not.toContain("texto: '0 ");
+  });
+
+  /**
+   * E A FRASE TEM DE DIZER O QUE A GUARDA MEDIU.
+   *
+   * `atividadesHoje` só colapsa quando hoje E os próximos 7 dias estão vazios —
+   * o bloco mostra as duas listas. "Nada na agenda de hoje" afirmava menos do
+   * que era verdade. E `pendenciasAtivas` é `inicio < agora`: são as VENCIDAS,
+   * então "nenhuma pendência aberta" seria mentira com seis pendentes na semana.
+   */
+  it('a frase corresponde ao que a guarda mede', () => {
+    expect(CONTEUDO).toContain('(data.proximasAtividades ?? []).length === 0');
+    expect(CONTEUDO).toContain("texto: 'Nada na agenda desta semana'");
+    expect(CONTEUDO).not.toContain("texto: 'Nenhuma pendência aberta'");
   });
 });
 
