@@ -1,3 +1,16 @@
+/*
+  O TESTE RODA NO FUSO DA PRODUÇÃO — e a produção do web é o NAVEGADOR.
+
+  Ao contrário da API, este código executa na máquina de quem abre a tela, e
+  quem abre a tela está no Brasil. Rótulos como "hoje"/"ontem" (`desde()`) são
+  calculados com a hora local de propósito — é o que a pessoa espera ler.
+
+  Sem esta linha a suíte passava aqui (UTC-3) e falhava no CI, que é ubuntu em
+  UTC: oito testes de `desde.spec.ts` viravam vermelhos por um fuso que nenhum
+  usuário tem. Fixar o fuso do Brasil faz o teste reproduzir o navegador real.
+*/
+process.env.TZ = 'America/Fortaleza';
+
 /**
  * O front passa a ter testes.
  *

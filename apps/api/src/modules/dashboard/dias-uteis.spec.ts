@@ -45,6 +45,37 @@ describe('dias úteis entre duas datas', () => {
   });
 
   /**
+   * O TESTE QUE FALTAVA — e sem ele o defeito viajou para a produção.
+   *
+   * Todos os casos acima usam meio-dia, longe da virada do dia em qualquer
+   * fuso plausível. A conta era feita com `getDate()`/`getDay()`, que leem o
+   * fuso do PROCESSO: no contêiner do Railway, que roda em UTC, o dia virava
+   * às 21h de Brasília. Das 21h à meia-noite a função devolvia um dia a mais
+   * e a faixa disparava uma noite inteira antes da hora.
+   *
+   * Aqui isto passava despercebido porque a máquina de desenvolvimento também
+   * é UTC-3. É por isso que o caso abaixo força o horário: último sucesso na
+   * segunda às 5h (o horário real do cron do DJEN) e "agora" na terça às 22h.
+   * Passou UM dia útil — e um dia útil não pode virar dois por causa do fuso
+   * em que o servidor foi hospedado.
+   */
+  it('conta o dia daqui, e não o dia do contêiner', () => {
+    const segundaCedo = new Date('2026-09-07T05:00:00-03:00');
+    const tercaANoite = new Date('2026-09-08T22:00:00-03:00');
+    expect(diasUteisEntre(segundaCedo, tercaANoite)).toBe(1);
+  });
+
+  /** A mesma armadilha do outro lado da virada: 23h30 de sexta ainda é sexta. */
+  it('a virada do dia é à meia-noite de Brasília, não às 21h', () => {
+    const sextaQuaseMeiaNoite = new Date('2026-09-04T23:30:00-03:00');
+    const domingoANoite = new Date('2026-09-06T23:30:00-03:00');
+    expect(diasUteisEntre(sextaQuaseMeiaNoite, domingoANoite)).toBe(0);
+
+    const segundaANoite = new Date('2026-09-07T23:30:00-03:00');
+    expect(diasUteisEntre(sextaQuaseMeiaNoite, segundaANoite)).toBe(1);
+  });
+
+  /**
    * Conta DIAS de calendário, e não blocos de 24h: o que interessa é quantos
    * dias de expediente passaram. Sexta 23h → segunda 01h é um dia útil
    * (a segunda), ainda que sejam só 26 horas de relógio.

@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { montarUrgencia, sincronizarEquipe } from '../agenda/equipe.util';
+import { proximoHorarioUtilBR } from '../processos/utils/data-br.util';
 import {
   CreateAtendimentoDto, ListAtendimentosQueryDto,
   MudarStatusAtendimentoDto, RegistrarDesfechoDto,
@@ -112,15 +113,27 @@ export class AtendimentosService {
       if (!processo) throw new BadRequestException('Processo inválido.');
     }
 
-    // Data da consulta: informada ou amanhã às 09:00.
+    /*
+      "AMANHÃ ÀS 09:00" ERA ÀS 06:00 — e o comentário aqui jurava que não.
+
+      `setHours(9)` resolve no fuso do PROCESSO, e o contêiner do Railway roda em
+      UTC: nove da manhã lá são seis da manhã aqui. Medido na produção em
+      07/09/2026: 16 compromissos gravados às 06:00 de Brasília, quatro deles
+      "Consulta Jurídica" nascidas por esta linha. O advogado chega às oito e a
+      consulta já está duas horas atrasada na agenda.
+
+      Este defeito já tinha sido diagnosticado e corrigido nos robôs do DJEN em
+      03/09 — `data-br.util` nasceu disso. Este caminho passou batido, e o teste
+      que proíbe `setHours(9` só olhava dois arquivos.
+
+      `proximoHorarioUtilBR` faz as três coisas: nove da manhã DAQUI, nunca no
+      fim de semana (consulta marcada para sábado é consulta que ninguém atende)
+      e nunca no passado. Data escolhida à mão passa intacta: aí quem marcou foi
+      gente.
+    */
     const inicio = dto.dataConsulta
       ? new Date(dto.dataConsulta)
-      : (() => {
-          const d = new Date();
-          d.setDate(d.getDate() + 1);
-          d.setHours(9, 0, 0, 0);
-          return d;
-        })();
+      : proximoHorarioUtilBR(new Date(Date.now() + 24 * 3_600_000));
     const fim = new Date(inicio.getTime() + 3600_000);
     const tituloBase =
       dto.tipoEncaminhamento === TipoEncaminhamento.ANDAMENTO_PROCESSO

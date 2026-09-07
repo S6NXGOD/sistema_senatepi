@@ -1,3 +1,18 @@
+/*
+  O TESTE RODA NO FUSO DA PRODUÇÃO — e a produção da API é UTC.
+
+  O contêiner do Railway não define `TZ` em lugar nenhum, então o processo roda
+  em UTC. Esta máquina de desenvolvimento é UTC-3, e a diferença já custou um
+  defeito: `diasUteisEntre` contava o dia com `getDate()`/`getDay()`, virava o
+  dia às 21h de Brasília no ar e disparava a faixa do painel uma noite antes.
+  Passou por 1.300 testes verdes porque aqui o fuso coincidia com o certo.
+
+  Fixar UTC aqui não é preferência de formatação: é fazer o teste rodar onde o
+  código roda. Código que precisa do dia DAQUI tem de dizer isso explicitamente
+  (`data-br.util`), e agora o teste cobra.
+*/
+process.env.TZ = 'UTC';
+
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
   moduleFileExtensions: ['js', 'json', 'ts'],
