@@ -1912,14 +1912,14 @@ model Compromisso {
   /// "urgente" — a marca deixa de significar prioridade e vira ruído. Os três
   /// campos abaixo respondem POR QUE e DESDE QUANDO, que é o que permite
   /// revisar a fila depois.
-  urgente         Boolean   @default(false)
+  urgente            Boolean           @default(false)
   /// Obrigatório quando quem marca é uma PESSOA. A automação preenche o dela
   /// ("prazo em 3 dias", "audiência sem data confirmada") — antes, os eventos
   /// criados pelo robô nasciam urgentes sem nenhuma explicação na tela.
-  urgenteMotivo   String?   @map("urgente_motivo")
-  urgenteEm       DateTime? @map("urgente_em")
-  urgentePor      String?   @map("urgente_por")
-  iniciadoEm      DateTime? @map("iniciado_em") // quando entrou EM_ANDAMENTO (timer/alertas)
+  urgenteMotivo      String?           @map("urgente_motivo")
+  urgenteEm          DateTime?         @map("urgente_em")
+  urgentePor         String?           @map("urgente_por")
+  iniciadoEm         DateTime?         @map("iniciado_em") // quando entrou EM_ANDAMENTO (timer/alertas)
   /// RESPONSÁVEL — ATALHO DENORMALIZADO da linha `principal` em
   /// [CompromissoResponsavel]. Mesmo desenho de `Processo.advogadoId`, e pelos
   /// mesmos dois motivos: (1) "minha agenda", carga da equipe e o painel filtram
@@ -1928,17 +1928,21 @@ model Compromisso {
   ///
   /// REGRA: quem escreve aqui é APENAS `AgendaService.sincronizarEquipe()`, na
   /// mesma transação da escrita em `compromisso_responsaveis`. Nunca por fora.
-  responsavelId   String    @map("responsavel_id")
-  filiadoId       String?   @map("filiado_id")
-  atendimentoId   String?   @map("atendimento_id")
-  processoId      String?   @map("processo_id")
+  responsavelId      String            @map("responsavel_id")
+  filiadoId          String?           @map("filiado_id")
+  atendimentoId      String?           @map("atendimento_id")
+  processoId         String?           @map("processo_id")
+  /// Lado inverso de [SugestaoProcesso.compromisso] — a tarefa "cadastre esta
+  /// ação" nasce sem processo (ele ainda não existe) e é por aqui que se chega
+  /// à sugestão que a originou.
+  sugestaoDeCadastro SugestaoProcesso? @relation("sugestaoCadastro")
   // Trilha de auditoria: 1ª data agendada, gravada e TRAVADA na 1ª remarcação.
-  dataOriginal    DateTime? @map("data_original")
+  dataOriginal       DateTime?         @map("data_original")
   /// Quantas vezes já foi remarcado — um evento remarcado 4x é um sinal de gestão,
   /// não um detalhe. Precomputado para a lista não ter de varrer a auditoria.
-  remarcacoes     Int       @default(0)
+  remarcacoes        Int               @default(0)
   /// Motivo da ÚLTIMA remarcação (o histórico completo fica na Auditoria).
-  remarcadoMotivo String?   @map("remarcado_motivo")
+  remarcadoMotivo    String?           @map("remarcado_motivo")
 
   // ---- Conclusão: o que aconteceu com a demanda ----
   /// Slug do desfecho, definido pelo TIPO da atividade (ver desfechos.catalogo.ts).
@@ -2200,6 +2204,14 @@ model SugestaoProcesso {
   decididoEm     DateTime?              @map("decidido_em")
   motivoDescarte String?                @map("motivo_descarte")
 
+  /// A TAREFA DE CADASTRAR ESTA AÇÃO, quando o robô criou uma.
+  ///
+  /// Só ações RECENTES viram tarefa, e só quando há advogado citado no ato para
+  /// receber. Sem isto a fila do Diário morava no sino e numa lista — nada
+  /// entrava na agenda de ninguém. Único por construção: é o que impede uma
+  /// segunda tarefa na varredura de amanhã.
+  compromissoId String? @unique @map("compromisso_id")
+
   /// Quando conferimos no DataJud se o processo ainda corre.
   ///
   /// Nulo = não deu para conferir (o CNJ não conhece o número, ou a consulta
@@ -2211,8 +2223,9 @@ model SugestaoProcesso {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  processo Processo? @relation(fields: [processoId], references: [id], onDelete: SetNull)
-  decisor  User?     @relation("sugestaoDecidida", fields: [decididoPor], references: [id], onDelete: SetNull)
+  processo    Processo?    @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  compromisso Compromisso? @relation("sugestaoCadastro", fields: [compromissoId], references: [id], onDelete: SetNull)
+  decisor     User?        @relation("sugestaoDecidida", fields: [decididoPor], references: [id], onDelete: SetNull)
 
   @@index([status, ultimaEm])
   @@map("sugestoes_processo")
@@ -2852,10 +2865,18 @@ model ComunicacaoDjen {
   prazoMencionadoDias Int?    @map("prazo_mencionado_dias")
 
   /// Atividade criada ou enriquecida por esta publicação.
-  compromissoId  String? @map("compromisso_id")
+  compromissoId      String?   @map("compromisso_id")
+  /// O ROBÔ OLHOU E DECIDIU NÃO CRIAR TAREFA — e quando.
+  ///
+  /// Nulo junto com `compromissoId` significa coisa MUITO diferente de nulo
+  /// sozinho: sem tarefa e sem dispensa é falha da automação (alarme legítimo);
+  /// com dispensa é "notícia velha", a decisão deliberada de `ehNoticiaVelha`.
+  /// O sino lia só `compromissoId` e tratava as duas como emergência — 1.243
+  /// falsos positivos, barra vermelha permanente para nove advogados.
+  tarefaDispensadaEm DateTime? @map("tarefa_dispensada_em")
   /// Movimentação do DataJud que descreve o MESMO fato. É o vínculo que impede
   /// as duas fontes de gerarem duas atividades para um ato só.
-  movimentacaoId String? @map("movimentacao_id")
+  movimentacaoId     String?   @map("movimentacao_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 

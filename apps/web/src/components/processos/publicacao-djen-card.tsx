@@ -8,6 +8,7 @@ import { formatData } from '@/lib/agenda';
 import type { GrupoDePublicacoes } from '@/lib/publicacoes-irmas';
 import { listarAdvogadosDisponiveis, type AdvogadoDisponivel } from '@/lib/processos';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { separarTimbre } from '@/lib/timbre-do-tribunal';
 
 /**
  * O cartão de UMA publicação do DJEN — o mesmo na gaveta da atividade e na aba
@@ -63,10 +64,41 @@ function IdentificacaoDoCaso({ pub }: { pub: PublicacaoExibivel }) {
     cortar em silêncio faria a tela afirmar que só duas pessoas foram intimadas.
   */
   const todos = (pub.destinatarios ?? []).filter((d) => d.nome);
-  const intimados = todos.slice(0, 2);
-  const ocultos = todos.length - intimados.length;
 
-  if (!autor && !reu && intimados.length === 0) return null;
+  /*
+    A MESMA INFORMAÇÃO DUAS VEZES OCUPAVA DUAS LINHAS.
+
+    A linha de baixo enumerava "Intimado: Instituto Saúde e Cidadania - Isac
+    (polo passivo), Sindicato dos Enfermeiros, Auxiliares e Técnicos Em
+    Enfermagem do Estado do Piauí - Senatepi (polo ativo)" — os MESMOS dois
+    nomes da linha de cima, em outra grafia, truncados no meio. Duas linhas para
+    dizer o que uma já dizia.
+
+    Medido nas 1.420 publicações: 92% intimam os DOIS polos. Nesses casos a
+    enumeração não informa nada — "os dois lados" informa igual e cabe. Casar
+    por NOME não servia: só 1% dos destinatários bate com o nome do cadastro,
+    porque o tribunal escreve de outro jeito (é o mesmo motivo de a detecção de
+    ação nossa ser pela sigla). O POLO é confiável.
+
+    A minoria é o caso que importa: quando o tribunal intimou UM lado só, isso
+    muda a leitura do ato — e aí o nome aparece.
+  */
+  const polos = new Set(todos.map((d) => (d.polo ?? '').trim().toUpperCase()));
+  const dosDoisLados = polos.has('A') && polos.has('P');
+  const resumoDosIntimados = !todos.length
+    ? null
+    : dosDoisLados
+      ? `Intimados: os dois lados${polos.has('T') ? ' e terceiro' : ''}`
+      : `Intimado: ${todos
+          .slice(0, 2)
+          .map((d) => capitalizar(d.nome as string))
+          .join(', ')}${todos.length > 2 ? ` e mais ${todos.length - 2}` : ''}${
+          polos.size === 1 && POLO_LABEL[[...polos][0]]
+            ? ` (${POLO_LABEL[[...polos][0]]})`
+            : ''
+        }`;
+
+  if (!autor && !reu && !todos.length) return null;
 
   return (
     <div className="mb-1.5 space-y-0.5">
@@ -77,18 +109,8 @@ function IdentificacaoDoCaso({ pub }: { pub: PublicacaoExibivel }) {
           <span className="text-foreground">{reu ? capitalizar(reu) : 'Réu não cadastrado'}</span>
         </p>
       )}
-      {intimados.length > 0 && (
-        <p className="truncate text-[11px] text-muted-foreground">
-          Intimado:{' '}
-          {intimados.map((d, i) => (
-            <span key={`${d.nome}-${i}`}>
-              {i > 0 && ', '}
-              {capitalizar(d.nome as string)}
-              {d.polo && POLO_LABEL[d.polo] ? ` (${POLO_LABEL[d.polo]})` : ''}
-            </span>
-          ))}
-          {ocultos > 0 && <span> e mais {ocultos}</span>}
-        </p>
+      {resumoDosIntimados && (
+        <p className="truncate text-[11px] text-muted-foreground">{resumoDosIntimados}</p>
       )}
     </div>
   );
@@ -230,9 +252,26 @@ export function PublicacaoDjenCard({
   const apontada =
     !!destacada && (destacada === pub.id || grupo.copias.some((c) => c.id === destacada));
 
+  /*
+    O TIMBRE DO TRIBUNAL SAI DO RESUMO.
+
+    Medido nas 1.420 publicações da produção: 1.185 (83%) começam com o mesmo
+    cabeçalho institucional — "PODER JUDICIÁRIO … TRIBUNAL … VARA … AUTOR: …
+    RÉU: …" — de 302 caracteres em média. O cartão mostra ~600 antes do "Ler
+    tudo", então METADE do que se lia numa lista de 1.420 atos era órgão,
+    número e partes que este mesmo cartão já exibe acima, estruturado e com os
+    nomes capitalizados.
+
+    Ele não é jogado fora: "Ler tudo" mostra o documento inteiro, timbre
+    incluído, porque é o texto oficial e alguém pode precisar conferir a vara.
+  */
+  const { timbre, corpo } = useMemo(() => separarTimbre(pub.texto), [pub.texto]);
+  const textoVisivel = inteiro ? pub.texto : corpo;
+
   // Seis linhas cabem sem empurrar o resto da tela; ~90 caracteres por linha
-  // no desktop, menos no celular — por isso o corte é generoso.
-  const longo = pub.texto.length > 600;
+  // no desktop, menos no celular — por isso o corte é generoso. Mede o CORPO:
+  // com o timbre fora, um ato de 700 caracteres pode caber sem "Ler tudo".
+  const longo = corpo.length > 600 || !!timbre;
 
   return (
     <Tag
@@ -299,7 +338,7 @@ export function PublicacaoDjenCard({
             longo && !inteiro && 'line-clamp-6',
           )}
         >
-          {pub.texto}
+          {textoVisivel}
         </p>
         {longo && !inteiro && (
           <div
@@ -315,16 +354,27 @@ export function PublicacaoDjenCard({
           className="mt-1 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline dark:text-brand-300"
         >
           {/*
-            "NO TOTAL" NÃO É REDUNDÂNCIA.
-            "Ler tudo (822 caracteres)" se lê como "há mais 822 caracteres", e
-            o jurídico leu exatamente assim. O número é o tamanho do texto
-            inteiro, não do que está escondido — e o escondido não dá para
-            contar, porque o corte é por LINHA (line-clamp), não por caractere.
-            Duas palavras resolvem o que uma reescrita do corte não resolveria.
+            O NÚMERO DE CARACTERES SAIU DAQUI.
+
+            Já foi "Ler tudo (822 caracteres)", que se lia como "há mais 822";
+            depois "(822 no total)", que consertava a frase e não o problema —
+            ninguém decide abrir um documento pelo tamanho dele. Agora o botão
+            diz O QUE está escondido, e só passou a haver o que dizer porque o
+            resumo perdeu o timbre do tribunal.
           */}
           {inteiro
             ? 'Recolher'
-            : `Ler tudo (${pub.texto.length.toLocaleString('pt-BR')} caracteres no total)`}
+            : timbre
+              ? /*
+                  DIZ O QUE ESTÁ ESCONDIDO, e não quantos caracteres tem.
+
+                  "Ler tudo (2.476 caracteres no total)" é uma métrica de
+                  desenvolvedor: ninguém decide abrir um documento por causa do
+                  tamanho dele. Com o timbre fora, dá para dizer o que falta em
+                  português — o cabeçalho do tribunal e o resto do ato.
+                */
+                'Ler o documento inteiro, com o cabeçalho do tribunal'
+              : 'Ler o documento inteiro'}
         </button>
       )}
 

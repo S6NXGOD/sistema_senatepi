@@ -9,6 +9,31 @@ import { instanciaBaixada } from './utils/audiencia.util';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
+import { noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
+import { NpuUtils } from './utils/npu.util';
+import { fecharTarefaDeCadastro } from './utils/tarefa-de-cadastro.util';
+
+/**
+ * Até quando uma ação do Diário ainda merece virar TAREFA de cadastro.
+ *
+ * Trinta dias — a mesma régua da correlação (`JANELA_DIAS`) e do robô de
+ * prazos, e pela mesma razão: mais velho que isso, a tarefa nasce como eco.
+ * Medido em 07/09/2026: das 30 sugestões pendentes, 7 estão nesta janela. As
+ * outras 23 continuam na fila da tela, que é coletiva e não cobra ninguém.
+ */
+const DIAS_PARA_AGENDAR_CADASTRO = 30;
+
+/** Como o polo aparece na descrição da tarefa — frase, não sigla. */
+const POLO_NA_TAREFA: Record<string, string> = {
+  ATIVO: 'Ação movida pelo sindicato',
+  PASSIVO: 'Ação movida CONTRA o sindicato',
+  AMBOS: 'O sindicato está nos dois polos',
+  INDEFINIDO: 'Ação do sindicato (polo não informado no ato)',
+};
+
+/** Chave de casamento da OAB: "PI-9226". Número e UF, nunca o nome. */
+const chaveOab = (numero: unknown, uf: unknown) =>
+  `${String(uf ?? '').trim().toUpperCase()}-${String(numero ?? '').replace(/\D/g, '')}`;
 
 /** Resumo de uma varredura, para o log e para a rota manual. */
 export interface ResumoVarreduraDjen {
@@ -259,6 +284,9 @@ export class DjenSyncService {
     // ---- 3) Correlação de tudo que está pendente ----
     await this.correlacionarPendentes();
     await this.conferirFilaSemVerificacao();
+    // DEPOIS da conferência, de propósito: uma ação já baixada saiu da fila
+    // acima e não vira tarefa para ninguém.
+    await this.agendarCadastroDasRecentes();
 
     this.logger.log(
       `[DJEN-SYNC] ${resumo.advogadosConsultados} advogado(s) + ${resumo.processosConsultados} processo(s) — ` +
@@ -520,6 +548,142 @@ export class DjenSyncService {
   }
 
   /**
+   * A AÇÃO NOVA E RECENTE VIRA TAREFA DO ADVOGADO CITADO NO ATO.
+   *
+   * A fila do Diário morava em dois lugares: o sino e uma lista na tela de
+   * Processos. Nenhum dos dois é onde o jurídico trabalha — a agenda é. Uma
+   * ação nova contra o sindicato dependia de alguém lembrar de abrir uma lista,
+   * e "lembrar de olhar" é exatamente o que a automação existe para dispensar.
+   *
+   * TRÊS TRAVAS, e cada uma responde a um jeito conhecido de isto virar ruído:
+   *
+   *  1. SÓ AS RECENTES. Trinta dias, a mesma régua do robô de prazos e da
+   *     correlação. Medido em 07/09/2026: das 30 pendentes, 7 são recentes.
+   *     Sem o corte seriam 30 tarefas de uma vez, várias de ações de 2014 —
+   *     a agenda vira lixeira e ninguém confia nela de novo.
+   *  2. SÓ COM DESTINATÁRIO. Sem advogado nosso citado no ato não há a quem
+   *     atribuir, e tarefa que cai no colo do primeiro administrativo é tarefa
+   *     de ninguém. Sem ele a ação continua na fila da tela, que é coletiva.
+   *  3. UMA SÓ, PARA SEMPRE. `sugestao.compromissoId` é único: a varredura de
+   *     amanhã encontra a mesma sugestão e não cria a segunda tarefa. Sem isso
+   *     seriam trinta tarefas em trinta dias para a mesma ação.
+   *
+   * NUNCA URGENTE. É cadastro, não prazo: o prazo, se houver, corre no processo
+   * de verdade e só passa a ser vigiado depois que ele existir aqui. Marcar
+   * urgente competiria com prazo real — e o próprio módulo já aprendeu que sete
+   * urgências simultâneas são zero urgências.
+   */
+  private async agendarCadastroDasRecentes(): Promise<void> {
+    const corte = new Date(Date.now() - DIAS_PARA_AGENDAR_CADASTRO * 24 * 3_600_000);
+    const recentes = await this.prisma.sugestaoProcesso.findMany({
+      where: { status: 'PENDENTE', compromissoId: null, primeiraEm: { gte: corte } },
+      orderBy: { primeiraEm: 'asc' },
+      select: {
+        id: true, numeroCNJ: true, nossoPolo: true, nomeOrgao: true,
+        nomeClasse: true, advogados: true, primeiraEm: true, publicacoes: true,
+      },
+    });
+    if (!recentes.length) return;
+
+    const porOab = await this.advogadosPorOab();
+    let criadas = 0;
+    let semDono = 0;
+
+    for (const s of recentes) {
+      const responsavelId = this.primeiroAdvogadoNosso(s.advogados, porOab);
+      if (!responsavelId) {
+        semDono++;
+        continue;
+      }
+      try {
+        // Nove da manhã de Teresina, no próximo dia útil, e nunca no passado —
+        // a mesma função que os outros robôs usam. Tarefa que nasce vencida
+        // envenena o contador de atrasos no mesmo instante.
+        const inicio = proximoHorarioUtilBR(noveDaManhaBR(new Date()));
+        const npu = NpuUtils.formatar(s.numeroCNJ) || s.numeroCNJ;
+        const compromisso = await this.prisma.compromisso.create({
+          data: {
+            titulo: `Cadastrar ação do Diário — ${npu}`,
+            // DILIGÊNCIA, e não PRAZO: é trabalho administrativo nosso. PRAZO
+            // entraria na contagem de vencimentos processuais e mentiria sobre
+            // haver um prazo do tribunal correndo.
+            tipo: 'DILIGENCIA',
+            status: 'PENDENTE',
+            inicio,
+            fim: new Date(inicio.getTime() + 3_600_000),
+            descricao:
+              `${POLO_NA_TAREFA[s.nossoPolo] ?? 'Ação do sindicato'} · ${npu}` +
+              `${s.nomeClasse ? `\n${s.nomeClasse}` : ''}` +
+              `${s.nomeOrgao ? ` — ${s.nomeOrgao}` : ''}` +
+              `\n\nApareceu no Diário e ainda não está no acervo` +
+              `${s.publicacoes > 1 ? ` (${s.publicacoes} publicações até agora)` : ''}.` +
+              `\nCadastre pela tela de Processos — o formulário já abre preenchido` +
+              ` com as partes e os advogados que vieram do ato.`,
+            responsavelId,
+            // Sem processo: ele é justamente o que ainda não existe. A coluna é
+            // nula e a agenda já lida com tarefa sem processo.
+            processoId: null,
+            origemAutomatica: true,
+            criadoPor: null,
+          },
+          select: { id: true },
+        });
+        await this.prisma.sugestaoProcesso.update({
+          where: { id: s.id },
+          data: { compromissoId: compromisso.id },
+        });
+        criadas++;
+      } catch (err) {
+        // Falhar aqui não pode derrubar a varredura: a sugestão fica sem tarefa
+        // e a próxima rodada tenta de novo, que é o lado seguro.
+        this.logger.warn(
+          `[DJEN] Não deu para agendar o cadastro de ${s.numeroCNJ}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (criadas || semDono) {
+      this.logger.log(
+        `[DJEN] Cadastro agendado para ${criadas} ação(ões) recente(s)` +
+          `${semDono ? `; ${semDono} sem advogado nosso citado ficaram só na fila` : ''}.`,
+      );
+    }
+  }
+
+  /** Nossos advogados ativos, indexados por "UF-numero" da OAB. */
+  private async advogadosPorOab(): Promise<Map<string, string>> {
+    const nossos = await this.prisma.user.findMany({
+      where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
+      select: { id: true, oab: true, oabUf: true },
+    });
+    return new Map(nossos.map((a) => [chaveOab(a.oab, a.oabUf), a.id]));
+  }
+
+  /**
+   * O PRIMEIRO NOSSO CITADO NO ATO.
+   *
+   * Pela OAB, nunca pelo nome: o DJEN manda "ICARO SOL ALMONDES SANTOS" e o
+   * cadastro tem "Ícaro Sol Almondes Santos". Número + UF é exato.
+   *
+   * O primeiro, e não todos: a tarefa tem UM responsável, e quem receber pode
+   * repassar. Distribuir a mesma tarefa para três pessoas é como não distribuir
+   * para nenhuma.
+   */
+  private primeiroAdvogadoNosso(
+    advogados: unknown,
+    porOab: Map<string, string>,
+  ): string | null {
+    const lista = Array.isArray(advogados)
+      ? (advogados as { numeroOab?: unknown; ufOab?: unknown }[])
+      : [];
+    for (const a of lista) {
+      const id = porOab.get(chaveOab(a?.numeroOab, a?.ufOab));
+      if (id) return id;
+    }
+    return null;
+  }
+
+  /**
    * A FILA QUE JÁ EXISTIA NÃO PASSOU POR ESTA CONFERÊNCIA.
    *
    * A checagem de "ainda corre?" entrou depois da primeira colheita — as 32
@@ -596,6 +760,10 @@ export class DjenSyncService {
       if (!instancias.length) return;
 
       const encerrado = instancias.every((i) => instanciaBaixada(i.movimentacoes));
+      const alvo = await this.prisma.sugestaoProcesso.findUnique({
+        where: { numeroCNJ },
+        select: { id: true },
+      });
       await this.prisma.sugestaoProcesso.updateMany({
         where: { numeroCNJ, status: 'PENDENTE' },
         data: {
@@ -603,6 +771,10 @@ export class DjenSyncService {
           ...(encerrado ? { status: 'ENCERRADO' as const, decididoEm: new Date() } : {}),
         },
       });
+      // QUARTO caminho de saída da fila — e o único fora deste arquivo de
+      // sugestões. Sem isto, a ação já baixada sumia da fila e a tarefa de
+      // cadastrá-la continuava viva na agenda de alguém.
+      if (encerrado && alvo) await fecharTarefaDeCadastro(this.prisma, alvo.id, 'DESCARTADO');
       if (encerrado) {
         this.logger.log(`[DJEN] ${numeroCNJ} já baixado no CNJ — fora da fila de cadastro.`);
       }

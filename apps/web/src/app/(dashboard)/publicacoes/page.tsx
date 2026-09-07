@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Newspaper, Search, Loader2, Inbox, ChevronLeft, ChevronRight, Bot, Gavel, X,
+  SlidersHorizontal, ChevronDown,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
@@ -33,6 +34,14 @@ import { useAuth } from '@/lib/auth';
  * servidor deles); aqui, sim, porque a parte vem dentro de cada publicação.
  */
 
+/** Rótulos curtos para as etiquetas de filtro ativo. */
+const ONDE_LABEL: Record<string, string> = {
+  TUDO: 'tudo', AUTOR: 'autor', REU: 'réu', NUMERO: 'nº do processo', TEOR: 'teor',
+};
+const SITUACAO_LABEL: Record<string, string> = {
+  COM_TAREFA: 'Já virou tarefa', SEM_TAREFA: 'Sem tarefa na agenda',
+};
+
 const inputCls =
   'h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ' +
   'ring-offset-background focus-visible:ring-2 focus-visible:ring-ring';
@@ -55,6 +64,18 @@ export default function PublicacoesPage() {
    */
   const [citaAdvogado, setCitaAdvogado] = useState('');
   const [pagina, setPagina] = useState(1);
+  /*
+    NO CELULAR OS FILTROS COMEÇAM FECHADOS.
+
+    Somados, o seletor de escopo, a busca, os cinco botões de "procurar em" e os
+    quatro selects ocupavam a tela inteira do telefone: rolava-se um aparelho
+    inteiro de controles antes da primeira publicação. Quem abre esta tela quer
+    LER as publicações; filtrar é o segundo gesto, não o primeiro.
+
+    No desktop continuam abertos (`lg:` ignora este estado): lá o espaço existe
+    e escondê-los só acrescentaria um clique.
+  */
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
 
   /**
    * O ADVOGADO ABRE NA PRÓPRIA CARTEIRA.
@@ -134,7 +155,43 @@ export default function PublicacoesPage() {
       ),
     [data],
   );
-  const temFiltro = !!(busca || providencia || tribunal || situacao || onde !== 'TUDO');
+  /*
+    O FILTRO DE ADVOGADO FICAVA PRESO — e em silêncio.
+
+    `citaAdvogado` não entrava nem em `temFiltro` nem em `limpar()`: escolher
+    "Intimou Dra. Shérad" e depois clicar em "Limpar filtros" devolvia a lista
+    ainda filtrada por ela, com o botão de limpar já sumido. A pessoa concluía
+    que o acervo tinha 4 publicações.
+
+    A lista de filtros ativos abaixo é a defesa estrutural contra isso voltar:
+    filtro que não aparece como etiqueta é filtro que ninguém sabe que aplicou.
+  */
+  const ativos: { chave: string; texto: string; limpar: () => void }[] = [
+    busca && { chave: 'q', texto: `"${busca}"`, limpar: () => setTermo('') },
+    onde !== 'TUDO' && {
+      chave: 'onde',
+      texto: `Procurando em ${ONDE_LABEL[onde]}`,
+      limpar: () => setOnde('TUDO'),
+    },
+    providencia && {
+      chave: 'prov',
+      texto: PROVIDENCIA_LABEL[providencia] ?? providencia,
+      limpar: () => setProvidencia(''),
+    },
+    tribunal && { chave: 'trib', texto: tribunal, limpar: () => setTribunal('') },
+    situacao && { chave: 'sit', texto: SITUACAO_LABEL[situacao], limpar: () => setSituacao('') },
+    citaAdvogado && {
+      chave: 'adv',
+      texto: `Intimou ${
+        (advogados.data ?? []).find((a) => a.id === citaAdvogado)?.nomeExibicao ??
+        (advogados.data ?? []).find((a) => a.id === citaAdvogado)?.nome ??
+        'advogado'
+      }`,
+      limpar: () => setCitaAdvogado(''),
+    },
+  ].filter(Boolean) as { chave: string; texto: string; limpar: () => void }[];
+
+  const temFiltro = ativos.length > 0;
 
   function limpar() {
     setTermo('');
@@ -142,6 +199,7 @@ export default function PublicacoesPage() {
     setProvidencia('');
     setTribunal('');
     setSituacao('');
+    setCitaAdvogado('');
     setOnde('TUDO');
     setPagina(1);
   }
@@ -233,6 +291,34 @@ export default function PublicacoesPage() {
           )}
         </div>
 
+        {/*
+          O BOTÃO QUE ABRE OS FILTROS — só no celular, e com o número de ativos.
+
+          Sem o número, fechar os filtros esconderia o motivo de a lista estar
+          curta, e a pessoa não teria como saber que há algo aplicado. Com ele,
+          fechado continua sendo honesto.
+        */}
+        <button
+          type="button"
+          onClick={() => setFiltrosAbertos((v) => !v)}
+          aria-expanded={filtrosAbertos}
+          className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted lg:hidden"
+        >
+          <span className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+            Filtros
+            {ativos.length > 0 && (
+              <span className="rounded-full bg-brand-700 px-1.5 text-[10px] font-bold leading-[18px] text-white dark:bg-brand-600">
+                {ativos.length}
+              </span>
+            )}
+          </span>
+          <ChevronDown
+            className={cn('h-4 w-4 text-muted-foreground transition-transform', filtrosAbertos && 'rotate-180')}
+          />
+        </button>
+
+        <div className={cn('space-y-3', !filtrosAbertos && 'hidden lg:block')}>
         {/*
           ONDE PROCURAR — colado no campo, porque muda o SENTIDO do que foi
           digitado, e não a lista. "Hapvida" em Réu é "processos contra a
@@ -353,22 +439,61 @@ export default function PublicacoesPage() {
           </select>
         </div>
 
+        </div>
+
+        {/*
+          O QUE ESTÁ APLICADO, EM ETIQUETAS — e cada uma sai sozinha.
+
+          Antes só havia "Limpar filtros", tudo ou nada: para trocar o tribunal
+          mantendo a providência era preciso reencontrar o select certo entre
+          quatro. E, no celular com os filtros fechados, nada dizia o que estava
+          filtrando. Fica FORA do bloco colapsável de propósito.
+        */}
+        {ativos.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ativos.map((f) => (
+              <button
+                key={f.chave}
+                type="button"
+                onClick={() => {
+                  f.limpar();
+                  setPagina(1);
+                }}
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-brand-900 transition hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-200 dark:hover:bg-brand-900/40"
+              >
+                <span className="truncate">{f.texto}</span>
+                <X className="h-3 w-3 shrink-0 opacity-70" />
+              </button>
+            ))}
+            {ativos.length > 1 && (
+              <button
+                type="button"
+                onClick={limpar}
+                className="px-1.5 text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
+              >
+                Limpar tudo
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>
+            {/*
+              O PLURAL ENTRE PARÊNTESES é jeito de programador escapar da
+              escolha. A tela sabe o número; decidir a palavra custa um ternário.
+
+              (O comentário não escreve a forma antiga de propósito: o teste
+              proíbe aquela string, e citá-la aqui reprovaria o arquivo já
+              corrigido — armadilha em que este projeto já caiu três vezes.)
+            */}
             {isLoading
               ? 'Procurando…'
-              : `${(data?.total ?? 0).toLocaleString('pt-BR')} publicação(ões)`}
+              : `${(data?.total ?? 0).toLocaleString('pt-BR')} ${
+                  (data?.total ?? 0) === 1 ? 'publicação' : 'publicações'
+                }`}
             {isFetching && !isLoading && <Loader2 className="ml-1.5 inline h-3 w-3 animate-spin" />}
           </span>
-          {temFiltro && (
-            <button
-              type="button"
-              onClick={limpar}
-              className="font-medium text-brand-800 hover:underline dark:text-brand-300"
-            >
-              Limpar filtros
-            </button>
-          )}
         </div>
       </Card>
 

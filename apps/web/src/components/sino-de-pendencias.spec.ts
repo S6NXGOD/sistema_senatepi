@@ -145,8 +145,46 @@ describe('a gaveta', () => {
     expect(SINO).toContain('enabled: permitido,');
   });
 
-  it('cabe na tela do celular', () => {
-    expect(SINO).toContain('w-[min(22rem,calc(100vw-2rem))]');
+  /**
+   * NO CELULAR VIROU FOLHA DE BAIXO, e não uma gaveta mais estreita.
+   *
+   * Ancorada no botão, a caixa nascia com ~328px num aparelho de 360 — e cada
+   * linha traz NPU, polo e espera, que não cabem nisso sem truncar as três. E
+   * o botão fica no alto da tela, então a lista descia para longe do polegar.
+   */
+  it('no celular abre encostada embaixo, na largura toda', () => {
+    expect(SINO).toContain('fixed inset-x-2 bottom-2');
+    // Altura VISÍVEL: com `vh`, a barra do navegador móvel corta o rodapé.
+    expect(SINO).toContain('max-h-[70svh]');
+  });
+
+  it('e volta a ser gaveta ancorada no desktop', () => {
+    expect(SINO).toContain('sm:absolute');
+    expect(SINO).toContain('sm:right-0');
+    expect(SINO).toContain('sm:w-[min(24rem,calc(100vw-2rem))]');
+  });
+
+  /** Folha cobrindo meia tela precisa de fechar explícito: "fora" fica ambíguo. */
+  it('a folha tem botão de fechar, a gaveta não precisa', () => {
+    expect(SINO).toContain('aria-label="Fechar"');
+    expect(SINO).toContain('sm:hidden');
+  });
+
+  /**
+   * O SINO DIZ QUANDO O ITEM NÃO É SEU.
+   *
+   * Tudo nele é pessoal menos a ação nova, que não tem dono porque o processo
+   * ainda não existe. Sob o título "o que precisa de você", 30 itens coletivos
+   * fazem o contador mentir sobre a carga da pessoa.
+   */
+  it('marca a fila da equipe como coletiva', () => {
+    expect(SINO).toContain('verTodas.compartilhada &&');
+    expect(SINO).toContain('Fila da equipe');
+  });
+
+  /** Na fila coletiva a data é "desde quando espera", não "quando vence". */
+  it('mostra espera na fila da equipe e prazo nas tarefas', () => {
+    expect(SINO).toContain('verTodas.compartilhada ? esperaCurta(e.quando) : formatarDia(e.quando)');
   });
 });
 

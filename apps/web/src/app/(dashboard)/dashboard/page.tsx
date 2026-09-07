@@ -38,6 +38,7 @@ import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agenda
 import { AtalhosDoPerfil } from '@/components/dashboard/atalhos-do-perfil';
 import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
+import { AcoesSemCadastro } from '@/components/dashboard/acoes-sem-cadastro';
 import {
   COR_SAIDA, COR_SALDO, PALETA_CATEGORICA, useCorDaMarca,
 } from '@/lib/cores-grafico';
@@ -407,17 +408,30 @@ function Conteudo({
       <SaudeDasIntegracoes data={data} podeVarrerDjen={pode.varrerDjen} />
 
       {/*
-        A FAIXA DE "AÇÃO NOVA" SAIU DAQUI — e o motivo é a regra desta própria tela.
+        A FILA DO DIÁRIO VOLTOU AO PAINEL — COMO CARD, e nunca como faixa.
 
-        Ela dizia "3 ações apareceram no Diário" com um link para /processos. O
-        SINO, que fica no topo de TODA tela (esta inclusive), já mostra o mesmo
-        número em vermelho — e mostra melhor: lista os NPUs, diz de que lado
-        estamos em cada um, e cada linha abre o cadastro já preenchido. A faixa
-        era o caminho pior para a mesma decisão.
+        A distinção é o assunto inteiro. A FAIXA anunciava o mesmo número em
+        cima de toda tela do sistema: virava cabeçalho, e cabeçalho ninguém lê.
+        O CARD aparece uma vez, no lugar onde a pessoa vai ver o dia dela, e não
+        a persegue até Cobranças.
 
-        "A MESMA COISA DUAS VEZES NÃO SÃO DOIS AVISOS" — está escrito algumas
-        linhas abaixo, sobre o DJEN, e vale igual aqui. Cada faixa a menos é uma
-        chance a mais de as que ficaram serem lidas.
+        E o sino não substitui isto, ao contrário do que eu tinha escrito abaixo:
+        ele é uma gaveta que precisa ser ABERTA. A dashboard é a primeira tela
+        de todo login — é aqui que se fica sabendo sem procurar.
+
+        Só aparece quando há fila; não usa requisição nova (mesma chave do sino);
+        e herda o recorte de permissão do backend.
+      */}
+      {pode.processos && <AcoesSemCadastro />}
+
+      {/*
+        A FAIXA de "ação nova" continua fora — o que voltou acima é um CARD.
+
+        A faixa dizia "3 ações apareceram no Diário" numa barra de alerta, ao
+        lado das que anunciam prazo vencido. Misturar backlog com emergência
+        gasta o vermelho das duas. O card diz a mesma coisa sem fingir urgência,
+        e cada linha dele abre o cadastro já preenchido — que era a única
+        vantagem real que o sino tinha sobre a faixa.
       */}
 
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não

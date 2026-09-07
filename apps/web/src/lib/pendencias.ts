@@ -53,7 +53,23 @@ export async function minhasPendencias(): Promise<MinhasPendencias> {
  */
 export const PENDENCIA: Record<
   TipoPendencia,
-  { um: string; varios: string; urgente: boolean; naFaixa: boolean; href: string; verTodas: string }
+  {
+    um: string;
+    varios: string;
+    urgente: boolean;
+    naFaixa: boolean;
+    href: string;
+    verTodas: string;
+    /**
+     * É fila DA EQUIPE, e não trabalho atribuído a quem está olhando.
+     *
+     * O sino se chama "o que precisa de você" e tudo nele é pessoal — menos a
+     * ação nova, que não é de ninguém porque o processo ainda não existe para
+     * ter dono. Mostrar 30 itens coletivos sob esse título faz o contador
+     * mentir sobre a carga da pessoa; ela abre esperando 30 tarefas suas.
+     */
+    compartilhada?: boolean;
+  }
 > = {
   ATRASADA: {
     um: 'atividade com prazo vencido',
@@ -102,6 +118,7 @@ export const PENDENCIA: Record<
     naFaixa: false,
     href: '/processos',
     verTodas: 'Ver todas as ações encontradas',
+    compartilhada: true,
   },
 };
 

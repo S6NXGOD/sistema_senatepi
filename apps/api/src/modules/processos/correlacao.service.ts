@@ -268,6 +268,20 @@ export class CorrelacaoService {
               movimentacaoId,
               providencia: c.providencia,
               prazoMencionadoDias: c.prazoMencionadoDias,
+              /*
+                A DECISÃO FICA GRAVADA — antes ela só existia neste `continue`.
+
+                Vista de fora, a linha resultante era idêntica à de uma falha da
+                automação: classificada, sem tarefa. O sino não tinha como
+                distinguir e tratava as duas como pendência. Medido na produção
+                em 07/09/2026: 1.243 publicações nessa situação, 1.243 delas
+                notícia velha, e nove advogados com barra vermelha permanente
+                anunciando "1003 publicações suas sem tarefa aberta".
+
+                Com o carimbo, sem tarefa E sem dispensa passa a significar uma
+                coisa só: o robô devia ter criado e não criou.
+              */
+              tarefaDispensadaEm: new Date(),
             },
           });
           resumo.antigas++;

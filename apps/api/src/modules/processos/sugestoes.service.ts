@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { StatusSugestaoProcesso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { nossoPoloNoAto } from './utils/acao-nossa.util';
+import { fecharTarefaDeCadastro } from './utils/tarefa-de-cadastro.util';
 
 /** O recorte do DTO de importação que o lote precisa preencher. */
 export interface ImportarEmLoteItem {
@@ -65,6 +66,8 @@ export class SugestoesService {
           decididoEm: new Date(),
         },
       });
+      // A tarefa "cadastre esta ação" perdeu o objeto — ver o util.
+      await fecharTarefaDeCadastro(this.prisma, s.id, 'CADASTRADO');
     }
   }
 
@@ -301,6 +304,7 @@ export class SugestoesService {
             decididoEm: new Date(),
           },
         });
+        await fecharTarefaDeCadastro(this.prisma, s.id, 'CADASTRADO');
         resultados.push({ numeroCNJ: s.numeroCNJ, ok: true });
       } catch (err) {
         resultados.push({
@@ -336,7 +340,7 @@ export class SugestoesService {
       throw new BadRequestException('Esta sugestão já foi decidida.');
     }
 
-    return this.prisma.sugestaoProcesso.update({
+    const ignorada = await this.prisma.sugestaoProcesso.update({
       where: { id },
       data: {
         status: StatusSugestaoProcesso.IGNORADO,
@@ -346,6 +350,8 @@ export class SugestoesService {
       },
       select: { id: true, status: true },
     });
+    await fecharTarefaDeCadastro(this.prisma, id, 'DESCARTADO');
+    return ignorada;
   }
 
   /**
@@ -370,6 +376,14 @@ export class SugestoesService {
         decididoPor: null,
         decididoEm: null,
         motivoDescarte: null,
+        /*
+          SOLTA A TAREFA ANTIGA — ela foi CANCELADA quando a ação saiu da fila.
+          Sem zerar o vínculo, a sugestão volta para PENDENTE apontando para uma
+          tarefa morta, e `agendarCadastroDasRecentes` (que só olha
+          `compromissoId: null`) nunca criaria a substituta. Reabrir daria uma
+          fila sem cobrança nenhuma — silenciosamente.
+        */
+        compromissoId: null,
       },
       select: { id: true, status: true },
     });

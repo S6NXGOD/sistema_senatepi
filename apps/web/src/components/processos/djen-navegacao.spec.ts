@@ -238,21 +238,43 @@ describe('o painel', () => {
 });
 
 /**
- * "LER TUDO (822 CARACTERES)" SE LÊ COMO "HÁ MAIS 822".
+ * O NÚMERO DE CARACTERES SAIU DO BOTÃO.
  *
- * Foi assim que o jurídico leu, e a leitura é razoável: em toda interface, o
- * número ao lado de "ver mais" é o que FALTA. Aqui é o tamanho do texto
- * inteiro. O que falta não dá para contar — o corte é por linha (`line-clamp`),
- * que depende da largura da tela.
+ * "Ler tudo (822 caracteres)" se lia como "há mais 822" — foi assim que o
+ * jurídico leu, e a leitura é razoável: em toda interface, o número ao lado de
+ * "ver mais" é o que FALTA. A correção anterior foi acrescentar "no total",
+ * que consertava a frase sem consertar o problema: ninguém decide abrir um
+ * documento pelo tamanho dele. É métrica de quem escreveu o código.
+ *
+ * Agora o botão diz o que está escondido — e passou a haver o que dizer,
+ * porque o resumo perdeu o timbre do tribunal (83% das publicações, 302
+ * caracteres em média). "com o cabeçalho do tribunal" é uma promessa
+ * verificável; "2.476 caracteres" não era nada.
  */
 describe('o rótulo de expandir', () => {
   const CARTAO = ler('components/processos/publicacao-djen-card.tsx');
 
-  it('diz que o número é o total', () => {
-    expect(CARTAO).toContain('caracteres no total)`}');
+  it('diz o que falta ler, não quantos caracteres tem', () => {
+    expect(CARTAO).toContain("'Ler o documento inteiro, com o cabeçalho do tribunal'");
+    expect(CARTAO).toContain("'Ler o documento inteiro'");
+    /*
+      A ASSERÇÃO NEGATIVA MIRA O CÓDIGO, NUNCA A FRASE.
+
+      Escrita como `not.toContain('caracteres no total')`, ela reprovava o
+      arquivo CORRIGIDO — o comentário que explica por que o número saiu cita a
+      frase antiga. É a terceira vez neste projeto que uma negativa em português
+      bate no comentário em vez de no comportamento. O que precisa ter sumido é
+      a EXPRESSÃO que montava o número.
+    */
+    expect(CARTAO).not.toContain("pub.texto.length.toLocaleString('pt-BR')");
   });
 
   it('e o botão volta a recolher', () => {
     expect(CARTAO).toContain("? 'Recolher'");
+  });
+
+  /** Expandido mostra o documento OFICIAL, timbre incluído — nada se perde. */
+  it('o timbre volta inteiro quando se expande', () => {
+    expect(CARTAO).toContain('const textoVisivel = inteiro ? pub.texto : corpo;');
   });
 });

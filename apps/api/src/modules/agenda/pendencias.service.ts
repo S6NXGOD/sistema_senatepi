@@ -127,6 +127,28 @@ export class PendenciasService {
       this.prisma.comunicacaoDjen.findMany({
         where: {
           compromissoId: null,
+          /*
+            SEM TAREFA **E SEM DISPENSA** — a segunda metade faltava, e sem ela
+            este alarme era 100% falso positivo.
+
+            O robô decide não criar tarefa quando o ato é anterior ao momento em
+            que passamos a olhar aquele processo (`ehNoticiaVelha`): o
+            escritório soube pelo PJe e cuidou, ou não cuidou, e nos dois casos
+            uma tarefa criada semanas depois é eco. Essa decisão não deixava
+            rastro, então a linha ficava idêntica à de uma falha de automação.
+
+            Medido na produção em 07/09/2026: 1.243 publicações classificadas
+            sem tarefa, 1.243 delas notícia velha — nenhuma dos últimos 7 dias,
+            1.063 com mais de 90. O sino contava as 1.243. Carlos Henrique via
+            "1003 publicações suas sem tarefa aberta", em VERMELHO, na barra que
+            cobre toda tela do sistema, todo dia. Nove dos doze usuários viviam
+            assim; o administrador não, e é por isso que ninguém reportou.
+
+            Agora só entra o que o robô DEVERIA ter transformado em tarefa e não
+            transformou. Hoje isso dá zero — e zero é a resposta certa: a
+            automação não está falhando.
+          */
+          tarefaDispensadaEm: null,
           providencia: { not: null },
           NOT: { providencia: 'NENHUMA' },
           processo: { advogados: { some: { advogadoId: usuarioId } } },
@@ -183,15 +205,33 @@ export class PendenciasService {
           }
         : null;
 
+    /** Um ato = (processo, providência); as cópias da mesma publicação colapsam. */
+    const atosSemTarefa = publicacoes.filter(
+      (p, i, todas) =>
+        todas.findIndex((o) => o.processoId === p.processoId && o.providencia === p.providencia) === i,
+    );
+
     const pendencias = [
       daAgenda('ATRASADA', atrasadas),
       daAgenda('HOJE', hoje),
       daAgenda('AUDIENCIA', audiencias),
-      publicacoes.length
+      /*
+        UM ATO, UMA LINHA — e não uma por destinatário.
+
+        O tribunal manda a MESMA publicação para cada intimado; no banco viram
+        linhas distintas com o mesmo (processo, providência). O robô já cria uma
+        tarefa só para o conjunto, mas a contagem daqui somava as cópias:
+        medido em 07/09/2026, 39 linhas recentes eram 23 atos — 41% de inflação
+        num número que existe justamente para dimensionar trabalho.
+
+        A chave é a MESMA que o robô usa para agrupar, de propósito: duas
+        definições de "o mesmo ato" divergiriam na primeira publicação irmã.
+      */
+      atosSemTarefa.length
         ? {
             tipo: 'PUBLICACAO_SEM_TAREFA' as const,
-            total: publicacoes.length,
-            exemplos: publicacoes.slice(0, MAX_EXEMPLOS).map((p) => ({
+            total: atosSemTarefa.length,
+            exemplos: atosSemTarefa.slice(0, MAX_EXEMPLOS).map((p) => ({
               id: p.id,
               titulo: p.processo?.numeroCNJ ?? 'Publicação',
               quando: p.dataDisponibilizacao.toISOString(),

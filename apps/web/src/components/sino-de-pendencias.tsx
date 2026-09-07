@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Bell, CheckCircle2, ChevronRight, Users, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { podeVer } from '@/lib/permissoes';
@@ -110,15 +110,54 @@ export function SinoDePendencias() {
           role="dialog"
           aria-label="Suas pendências"
           className={cn(
-            // No celular ocupa quase a largura toda; no desktop, uma coluna fixa.
-            'absolute right-0 z-50 mt-1 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border bg-card shadow-lg',
+            'z-50 overflow-hidden border bg-card shadow-lg',
+            /*
+              FOLHA NO CELULAR, GAVETA NO DESKTOP.
+
+              Ancorada no botão, a caixa nascia com ~328px num aparelho de 360 —
+              e cada linha traz NPU, polo e data, que não cabem em 328px sem
+              truncar as três. Presa ao canto direito, ainda deixava o polegar
+              longe: o botão fica no alto da tela e a lista descia dali.
+
+              No telefone ela passa a ocupar a largura toda, encostada embaixo,
+              onde a mão está. `max-h-[70svh]` usa a altura VISÍVEL (svh), não a
+              do documento — com `vh`, a barra do navegador móvel cortava o
+              rodapé da lista.
+            */
+            'fixed inset-x-2 bottom-2 max-h-[70svh] rounded-2xl',
+            'sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:mt-1 sm:max-h-none sm:w-[min(24rem,calc(100vw-2rem))] sm:rounded-xl',
           )}
         >
-          <div className="border-b px-4 py-2.5">
-            <p className="text-sm font-semibold">O que precisa de você</p>
-            <p className="text-[11px] text-muted-foreground">
-              Some sozinho quando você resolve — não há o que marcar como lido.
-            </p>
+          <div className="flex items-start justify-between gap-2 border-b px-4 py-2.5">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">O que precisa de você</p>
+              {/*
+                A EXPLICAÇÃO DO MECANISMO SÓ NA PRIMEIRA VEZ QUE FAZ DIFERENÇA.
+
+                "Some sozinho quando você resolve — não há o que marcar como
+                lido" é uma boa frase e estava em TODA abertura, inclusive nas
+                mil seguintes. Ela responde a uma pergunta que só se faz quando
+                há algo na lista; com a lista vazia é o sistema falando de si
+                mesmo para quem não perguntou.
+              */}
+              {pendencias.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Some sozinho quando você resolve — não há o que marcar como lido.
+                </p>
+              )}
+            </div>
+            {/*
+              FECHAR EXPLÍCITO — no celular a folha cobre metade da tela e
+              "clicar fora" vira adivinhação sobre onde é fora.
+            */}
+            <button
+              type="button"
+              onClick={() => setAberto(false)}
+              aria-label="Fechar"
+              className="-mr-1 -mt-0.5 shrink-0 rounded p-1 text-muted-foreground transition hover:bg-muted sm:hidden"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
           {pendencias.length === 0 ? (
@@ -127,7 +166,7 @@ export function SinoDePendencias() {
               Nada em aberto no seu nome.
             </div>
           ) : (
-            <ul className="max-h-[60vh] divide-y overflow-y-auto">
+            <ul className="max-h-[calc(70svh-3.5rem)] divide-y overflow-y-auto sm:max-h-[60vh]">
               {pendencias.map((p) => (
                 <Grupo key={p.tipo} p={p} />
               ))}
@@ -166,6 +205,21 @@ function Grupo({ p }: { p: Pendencia }) {
       >
         {rotulo(p)}
       </p>
+      {/*
+        DIZER QUANDO NÃO É SEU.
+
+        O sino se chama "o que precisa de você" e tudo nele é pessoal — menos a
+        ação nova, que não tem dono porque o processo ainda não existe. Sem esta
+        linha, o administrador abria o sino, lia "30" sob aquele título e
+        concluía que tinha trinta tarefas suas. Tem zero: é a fila da equipe, e
+        o primeiro que cadastrar limpa o item para todo mundo.
+      */}
+      {verTodas.compartilhada && (
+        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Users className="h-3 w-3 shrink-0" />
+          Fila da equipe — quem resolver primeiro limpa para todos
+        </p>
+      )}
       <ul className="mt-1 space-y-0.5">
         {p.exemplos.map((e) => (
           <li key={e.id}>
@@ -176,10 +230,18 @@ function Grupo({ p }: { p: Pendencia }) {
               <span className="truncate">{e.titulo}</span>
               {e.quando && (
                 <span className="shrink-0 tabular-nums">
-                  {new Date(e.quando).toLocaleDateString('pt-BR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                  })}
+                  {/*
+                    ESPERA, E NÃO DATA, na fila da equipe.
+
+                    Nas tarefas a data é o PRAZO — "08/06" responde "quando
+                    vence". Na ação nova ela é quando o Diário publicou pela
+                    primeira vez, e aí "08/06" obriga a fazer a subtração de
+                    cabeça para chegar ao que importa: há quanto tempo isto
+                    está parado. No print do usuário eram três linhas "08/06",
+                    "08/06", "09/06" — três meses de espera escritos de um jeito
+                    que não parecia espera nenhuma.
+                  */}
+                  {verTodas.compartilhada ? esperaCurta(e.quando) : formatarDia(e.quando)}
                 </span>
               )}
             </Link>
@@ -204,4 +266,17 @@ function Grupo({ p }: { p: Pendencia }) {
       </ul>
     </li>
   );
+}
+
+/** "12/08" — a data do prazo, que é o que a tarefa quer dizer. */
+function formatarDia(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+/** "há 91d" — quanto tempo o item está parado. Cabe na linha e é a pergunta. */
+function esperaCurta(iso: string): string {
+  const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (dias <= 0) return 'hoje';
+  if (dias === 1) return 'ontem';
+  return `há ${dias}d`;
 }
