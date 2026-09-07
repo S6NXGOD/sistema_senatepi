@@ -143,8 +143,17 @@ function ListaProcessos() {
   const [page, setPage] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
-  /** NPU que veio de uma ação encontrada no Diário — abre o diálogo preenchido. */
-  const [npuSugerido, setNpuSugerido] = useState<string | null>(null);
+  /**
+   * A AÇÃO ENCONTRADA NO DIÁRIO que abriu o diálogo.
+   *
+   * Guarda a sugestão INTEIRA, e não só o número: o Diário já disse quem está em
+   * cada polo, e a fila mostra esses nomes na tela anterior. Pedir que a pessoa
+   * os digite de novo é ter a informação na mão e fingir que não tem.
+   */
+  const [sugerido, setSugerido] = useState<{
+    numeroCNJ: string;
+    partes: { nome?: string | null; polo?: string | null }[] | null;
+  } | null>(null);
   const [loteOpen, setLoteOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
   /** Caso pré-processual escolhido para ajuizar (vindo de um desfecho da agenda). */
@@ -176,7 +185,9 @@ function ListaProcessos() {
     'cadastrar',
     (npu) => {
       if (!npu) return;
-      setNpuSugerido(npu);
+      // Vindo do sino, só há o número na URL — as partes ficam para a pessoa,
+      // como sempre foi. Da fila, elas vêm junto.
+      setSugerido({ numeroCNJ: npu, partes: null });
       setImportOpen(true);
     },
     '/processos',
@@ -542,8 +553,8 @@ function ListaProcessos() {
           ausente; já entreguei um assim neste projeto.
         */
         podeVarrerHistorico={user?.role === 'ADMINISTRADOR'}
-        onCadastrar={(npu) => {
-          setNpuSugerido(npu);
+        onCadastrar={(s) => {
+          setSugerido({ numeroCNJ: s.numeroCNJ, partes: s.partes });
           setImportOpen(true);
         }}
       />
@@ -828,17 +839,18 @@ function ListaProcessos() {
       <ImportarLoteDialog open={loteOpen} onClose={() => setLoteOpen(false)} />
       <ImportarProcessoDialog
         open={importOpen}
-        npuInicial={npuSugerido}
+        npuInicial={sugerido?.numeroCNJ ?? null}
+        partesIniciais={sugerido?.partes ?? null}
         onClose={() => {
           setImportOpen(false);
-          setNpuSugerido(null);
+          setSugerido(null);
         }}
         onImported={(p) => {
           invalidar();
           // A fila se fecha sozinha na leitura seguinte (o serviço reconcilia
           // contra o acervo), mas só se a tela pedir de novo.
           qc.invalidateQueries({ queryKey: ['processos', 'sugestoes'] });
-          setNpuSugerido(null);
+          setSugerido(null);
           abrirDetalhe(p.id);
         }}
       />

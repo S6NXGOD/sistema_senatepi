@@ -87,6 +87,19 @@ const POLO_ROTULO: Record<SugestaoDeProcesso['nossoPolo'], { texto: string; clas
   },
 };
 
+/**
+ * DISTRIBUÍDA HÁ POUCO?
+ *
+ * O corte é o ano corrente e o anterior: nesse intervalo o processo ainda está
+ * na fase em que perder um prazo custa caro, e a ação é "cadastre agora". Mais
+ * velho que isso, o caso já corre há tempo sem nós — continua valendo cadastrar,
+ * mas é arrumação de acervo, não emergência. Marcar tudo de âmbar faria o âmbar
+ * deixar de significar alguma coisa.
+ */
+function ehRecente(ano: number): boolean {
+  return ano >= new Date().getFullYear() - 1;
+}
+
 export function AcoesEncontradas({
   podeCadastrar,
   podeVarrerHistorico,
@@ -96,16 +109,28 @@ export function AcoesEncontradas({
   podeCadastrar?: boolean;
   /** A varredura completa é `@Roles(ADMINISTRADOR)` na API. */
   podeVarrerHistorico?: boolean;
-  onCadastrar: (numeroCNJ: string) => void;
+  /** A sugestão INTEIRA: o diálogo aproveita as partes que o Diário já disse. */
+  onCadastrar: (sugestao: SugestaoDeProcesso) => void;
 }) {
   const qc = useQueryClient();
   const [aberto, setAberto] = useState(true);
   const [ignorando, setIgnorando] = useState<string | null>(null);
 
+  /*
+    A MESMA CADÊNCIA DO SINO — senão os dois números brigam na mesma tela.
+
+    A fila tinha `staleTime` e nenhuma revalidação; o sino recarrega a cada
+    minuto. Durante a colheita de histórico, que leva minutos e vai somando, o
+    sino subia para 28 enquanto a fila continuava mostrando os 24 do primeiro
+    carregamento. Dois números diferentes para o mesmo fato fazem os DOIS
+    parecerem errados — e foi exatamente o que o usuário viu no print.
+  */
   const q = useQuery({
     queryKey: ['processos', 'sugestoes'],
     queryFn: listarSugestoesDeProcesso,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const ignorar = useMutation({
@@ -113,7 +138,9 @@ export function AcoesEncontradas({
     onSuccess: () => {
       toast.success('Ação marcada como "não é para acompanhar".');
       qc.invalidateQueries({ queryKey: ['processos', 'sugestoes'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+      // O sino conta a mesma fila: sem isto ele fica com o número de antes até
+      // a próxima revalidação, e a tela mostra dois totais diferentes.
+      qc.invalidateQueries({ queryKey: ['minhas-pendencias'] });
       setIgnorando(null);
     },
     onError: (e: any) =>
@@ -233,6 +260,31 @@ export function AcoesEncontradas({
                       {s.siglaTribunal && (
                         <span className="text-xs text-muted-foreground">{s.siglaTribunal}</span>
                       )}
+                      {/*
+                        O ANO SEPARA DUAS COISAS QUE ESTAVAM NA MESMA LISTA.
+
+                        Medido na primeira colheita: das 32 encontradas, só 4 eram
+                        de 2026 — havia seis de 2015. Ação recém-distribuída tem
+                        prazo correndo e ninguém olhando; processo de dez anos que
+                        nunca foi cadastrado é passivo de acervo, importante e não
+                        urgente. Sem o ano, as duas pareciam a mesma urgência — e o
+                        ano estava ali o tempo todo, escondido no meio de vinte
+                        dígitos que ninguém lê.
+                      */}
+                      {s.anoDistribuicao != null && (
+                        <span
+                          className={cn(
+                            'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                            ehRecente(s.anoDistribuicao)
+                              ? 'bg-amber-200 text-amber-950 dark:bg-amber-800/60 dark:text-amber-100'
+                              : 'text-muted-foreground',
+                          )}
+                        >
+                          {ehRecente(s.anoDistribuicao)
+                            ? `distribuída em ${s.anoDistribuicao}`
+                            : `de ${s.anoDistribuicao}`}
+                        </span>
+                      )}
                     </div>
                     {outraParte && (
                       <p className="mt-0.5 truncate text-xs text-muted-foreground" title={outraParte}>
@@ -258,7 +310,7 @@ export function AcoesEncontradas({
                     <div className="flex shrink-0 items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => onCadastrar(s.numeroCNJ)}
+                        onClick={() => onCadastrar(s)}
                         className="h-9 rounded-md bg-brand-800 px-3 text-xs font-semibold text-white transition hover:bg-brand-900 sm:h-8"
                       >
                         Cadastrar

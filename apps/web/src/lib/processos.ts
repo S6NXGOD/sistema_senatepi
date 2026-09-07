@@ -797,6 +797,15 @@ export interface SugestaoDeProcesso {
   ultimaEm: string;
   /** Quantas publicações já apareceram sem o processo estar cadastrado. */
   publicacoes: number;
+  /**
+   * O ANO EM QUE FOI DISTRIBUÍDO, lido do próprio NPU.
+   *
+   * Separa a ação recém-distribuída — onde há prazo correndo e ninguém olhando —
+   * do passivo de cadastro. Medido na primeira colheita: das 32 encontradas, só
+   * 4 eram de 2026; havia seis de 2015. As duas coisas pedem reações diferentes
+   * e estavam na mesma lista, sem distinção.
+   */
+  anoDistribuicao?: number | null;
 }
 
 export async function listarSugestoesDeProcesso(): Promise<SugestaoDeProcesso[]> {

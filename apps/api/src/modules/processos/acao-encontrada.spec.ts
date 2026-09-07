@@ -351,3 +351,54 @@ describe('quando a chave de reconhecimento não serve', () => {
     expect(SYNC).toContain('Preencha o nome fantasia da organiza');
   });
 });
+
+/**
+ * A PRIMEIRA COLHEITA REAL MOSTROU O QUE A FILA DE FATO É.
+ *
+ * 32 ações encontradas, e **só 4 de 2026**: o resto vai de 2014 a 2025, seis
+ * delas de 2015. Ou seja, isto não é (só) "ação nova" — é o passivo de cadastro
+ * do acervo. As duas coisas pedem reações diferentes e estavam na mesma lista,
+ * sem distinção nenhuma.
+ */
+describe('o ano de distribuição', () => {
+  it('sai do próprio NPU', () => {
+    expect(SUGESTOES).toContain('private anoDoNpu(numeroCNJ: string)');
+    expect(SUGESTOES).toContain('numeroCNJ.slice(9, 13)');
+  });
+
+  /** A conta tem de valer, e não só estar escrita. */
+  it('e a extração acerta', () => {
+    const ano = (n: string) => {
+      const a = Number(n.slice(9, 13));
+      return Number.isFinite(a) && a > 1990 ? a : null;
+    };
+    expect(ano('00010236720255220001')).toBe(2025);
+    expect(ano('00000375020155220103')).toBe(2015);
+    expect(ano('08002016720238180036')).toBe(2023);
+    expect(ano('lixo')).toBeNull();
+  });
+
+  /**
+   * ORDENAR PELO NPU NÃO SERVE, e o engano é fácil: o número começa pelo
+   * SEQUENCIAL, não pelo ano. `0009999…2015` viria antes de `0000001…2026`.
+   */
+  it('a ordem é por ano, e não pelo número — que começa pelo sequencial', () => {
+    expect(SUGESTOES).toContain('if (anoA !== anoB) return anoB - anoA;');
+    expect(SUGESTOES).not.toContain("orderBy: [{ numeroCNJ: 'desc' }]");
+
+    // A armadilha, demonstrada: ordenar pela string erra o ano.
+    const porNpu = ['00000019920265220001', '00099990020155220001'].sort().reverse();
+    expect(porNpu[0].slice(9, 13)).toBe('2015'); // o de 2015 vem primeiro — errado
+  });
+
+  /** Dentro do mesmo ano, a que publicou por último: sinal de que anda. */
+  it('empate de ano vai para a publicação mais recente', () => {
+    expect(SUGESTOES).toContain('return b.ultimaEm.getTime() - a.ultimaEm.getTime();');
+  });
+
+  /** O corte tem de ser feito DEPOIS de ordenar, senão trunca as erradas. */
+  it('o corte de 50 vem depois da ordenação', () => {
+    const bloco = SUGESTOES.slice(SUGESTOES.indexOf('async listar()'));
+    expect(bloco.indexOf('.sort(')).toBeLessThan(bloco.indexOf('.slice(0, 50)'));
+  });
+});

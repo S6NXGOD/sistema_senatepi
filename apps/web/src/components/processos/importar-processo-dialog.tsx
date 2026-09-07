@@ -15,7 +15,10 @@ import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-mod
 import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
 import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
 import { CadastroRapidoOrganizacaoModal } from '@/components/organizacoes/cadastro-rapido-modal';
-import { EditorDePartes, jaEstaNaLista, type ParteEditavel } from './editor-de-partes';
+import {
+  EditorDePartes, jaEstaNaLista, normalizarNome,
+  type ParteEditavel,
+} from './editor-de-partes';
 import { EtiquetasInput } from './etiquetas-input';
 import { SeletorAdvogados } from './seletor-advogados';
 import { Button } from '@/components/ui/button';
@@ -56,11 +59,26 @@ const schema = z.object({
 });
 type FormData = z.infer<typeof schema>;
 
+/**
+ * O NOME NOS AUTOS É O SINDICATO?
+ *
+ * Mesma chave que a detecção usa do lado do servidor: a SIGLA, e não o nome
+ * completo. O tribunal escreve "SINDICATO DOS ENFERMEIROS, AUXILIARES E TECNICOS
+ * EM ENFERMAGEM DO ESTADO DO PIAUI - SENATEPI"; o cadastro tem "...E TÉCNICOS DE
+ * ENFERMAGEM...". Comparar nome com nome erraria em todas.
+ */
+function ehOSindicato(nome: string): boolean {
+  const sigla = normalizarNome(tenant.sigla);
+  if (sigla.length < 4) return false;
+  return normalizarNome(nome).split(' ').includes(sigla);
+}
+
 export function ImportarProcessoDialog({
   open,
   onClose,
   onImported,
   npuInicial,
+  partesIniciais,
 }: {
   open: boolean;
   onClose: () => void;
@@ -71,6 +89,18 @@ export function ImportarProcessoDialog({
    * linha de cima é a forma mais barata de introduzir um erro de cadastro.
    */
   npuInicial?: string | null;
+  /**
+   * AS PARTES, QUANDO O DIÁRIO JÁ AS DISSE.
+   *
+   * O aviso ao lado — "o CNJ não divulga as partes na API pública" — é verdade
+   * sobre o DATAJUD, que é de onde vem a prévia. Não é verdade sobre o DJEN: a
+   * publicação traz `destinatarios` com nome e polo, e é exatamente essa lista
+   * que a fila de ações encontradas mostra na tela anterior.
+   *
+   * Sem isto, o sistema exibia os nomes numa tela e pedia que a pessoa os
+   * DIGITASSE na seguinte — tendo a informação na mão.
+   */
+  partesIniciais?: { nome?: string | null; polo?: string | null }[] | null;
 }) {
   const {
     control,
@@ -94,6 +124,8 @@ export function ImportarProcessoDialog({
    * de como a parte consta nos autos.
    */
   const [poloAtivo, setPoloAtivo] = useState<ParteEditavel[]>([]);
+  /** Abriu a partir de uma ação do Diário? Aí as partes já vieram. */
+  const veioDoDiario = !!partesIniciais?.length;
 
   /** Cadastro completo por cima do formulário, sem perder o que já foi digitado. */
   const [cadastrando, setCadastrando] = useState(false);
@@ -199,6 +231,37 @@ export function ImportarProcessoDialog({
     if (!open || !npuInicial) return;
     setValue('numeroCNJ', npuInicial, { shouldValidate: true });
   }, [open, npuInicial, setValue]);
+
+  /*
+    AS PARTES DO DIÁRIO ENTRAM COMO RASCUNHO — editável, nunca definitivo.
+
+    Entram como `AVULSA`: são o nome como o TRIBUNAL escreveu, e não um vínculo
+    de cadastro. Quem confere pode trocar por um filiado ou por uma organização
+    já cadastrada com um clique, que é o que o editor de partes já faz.
+
+    O SINDICATO NÃO ENTRA como avulsa: ele tem tipo próprio (`INSTITUCIONAL`), e
+    duplicá-lo pelo nome criaria uma segunda "parte SENATEPI" solta no cadastro
+    — exatamente a duplicata que o gate de organizações existe para evitar.
+  */
+  useEffect(() => {
+    if (!open || !partesIniciais?.length) return;
+
+    const doDiario = (poloBuscado: 'A' | 'P'): ParteEditavel[] =>
+      partesIniciais
+        .filter((x) => (x?.polo ?? '').trim().toUpperCase() === poloBuscado)
+        .map((x) => (x?.nome ?? '').trim())
+        .filter(Boolean)
+        .map((nome) =>
+          ehOSindicato(nome)
+            ? ({ tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' } as const)
+            : ({ tipo: 'AVULSA', nome, detalhe: 'Como consta no Diário' } as const),
+        )
+        // Um mesmo nome pode vir repetido no ato (recurso lista de novo).
+        .filter((parte, i, todas) => todas.findIndex((o) => o.nome === parte.nome) === i);
+
+    setPoloAtivo(doDiario('A'));
+    setReus(doDiario('P'));
+  }, [open, partesIniciais]);
 
   useEffect(() => {
     if (open) return;
@@ -609,9 +672,20 @@ export function ImportarProcessoDialog({
                      que nunca vai ser diferente. Alarme que sempre soa é alarme
                      que ninguém lê. Virou o que sempre foi: uma explicação. */
                   <p className="rounded-md bg-muted px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
-                    {previa.tribunalNaoExpoePartes
-                      ? 'O CNJ não divulga as partes na API pública — quem move a ação e contra quem é você que informa, ao lado.'
-                      : 'Nenhuma das partes informadas pelo tribunal bate com um filiado cadastrado — informe ao lado quem é o polo ativo.'}
+                    {/*
+                      A FRASE PASSOU A DEPENDER DO QUE NÓS SABEMOS, e não só do que
+                      o DataJud entrega. Ela dizia "o CNJ não divulga as partes"
+                      mesmo quando o diálogo tinha acabado de ser aberto por uma
+                      ação do Diário, que traz as partes — e cujos nomes a fila
+                      mostrava na tela anterior. Verdade sobre o DataJud, mentira
+                      ali; e o efeito era pedir que a pessoa digitasse o que o
+                      sistema já tinha.
+                    */}
+                    {veioDoDiario
+                      ? 'Partes preenchidas com o que o Diário publicou — confira e troque por um cadastro quando houver.'
+                      : previa.tribunalNaoExpoePartes
+                        ? 'O CNJ não divulga as partes na API pública — quem move a ação e contra quem é você que informa, ao lado.'
+                        : 'Nenhuma das partes informadas pelo tribunal bate com um filiado cadastrado — informe ao lado quem é o polo ativo.'}
                   </p>
                 )}
               </div>
@@ -955,11 +1029,19 @@ export function ImportarProcessoDialog({
                 },
               ]}
               ajuda={
-                <>
-                  A API Pública do DataJud <strong>não divulga as partes</strong> do processo —
-                  este dado é da casa. Reaproveitar um cadastro mantém todos os processos
-                  contra a mesma empresa juntos.
-                </>
+                veioDoDiario ? (
+                  <>
+                    Estes nomes vieram do <strong>Diário</strong>, como o tribunal os
+                    escreveu. Trocar por um cadastro mantém todos os processos contra a
+                    mesma empresa juntos.
+                  </>
+                ) : (
+                  <>
+                    A API Pública do DataJud <strong>não divulga as partes</strong> do processo —
+                    este dado é da casa. Reaproveitar um cadastro mantém todos os processos
+                    contra a mesma empresa juntos.
+                  </>
+                )
               }
             />
           </div>

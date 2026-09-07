@@ -60,12 +60,22 @@ export class SugestoesService {
    * esconder a ação por causa disso seria perder justamente o caso em que a
    * informação está incompleta — que é quando alguém precisa olhar.
    */
+  /**
+   * O ANO DE DISTRIBUIÇÃO, lido do próprio número.
+   *
+   * O NPU é `NNNNNNN-DD.AAAA.J.TR.OOOO`: sem pontuação, o ano ocupa as posições
+   * 10 a 13. É informação que sempre esteve na tela e que ninguém lê — vinte
+   * dígitos seguidos não se leem, se conferem.
+   */
+  private anoDoNpu(numeroCNJ: string): number | null {
+    const ano = Number(numeroCNJ.slice(9, 13));
+    return Number.isFinite(ano) && ano > 1990 ? ano : null;
+  }
+
   async listar() {
     await this.reconciliar();
-    return this.prisma.sugestaoProcesso.findMany({
+    const pendentes = await this.prisma.sugestaoProcesso.findMany({
       where: { status: StatusSugestaoProcesso.PENDENTE },
-      orderBy: [{ ultimaEm: 'desc' }, { numeroCNJ: 'asc' }],
-      take: 50,
       select: {
         id: true,
         numeroCNJ: true,
@@ -80,6 +90,30 @@ export class SugestoesService {
         publicacoes: true,
       },
     });
+
+    /*
+      A MAIS RECENTEMENTE DISTRIBUÍDA PRIMEIRO — e não a de publicação mais nova.
+
+      A primeira colheita trouxe 32 ações e **só 4 são de 2026**: o resto vai de
+      2014 a 2025, seis delas de 2015. Ordenar por publicação misturava a ação
+      recém-distribuída — onde há prazo correndo e ninguém olhando — com o passivo
+      de cadastro de dez anos atrás, que é importante e não é urgente.
+
+      ORDENAR PELO NPU NÃO SERVE, e o engano é fácil: o número começa pelo
+      SEQUENCIAL, não pelo ano. `0009999...2015` viria antes de `0000001...2026`.
+      Por isso a ordenação é feita aqui, sobre o ano extraído — são dezenas de
+      linhas, e o banco não tem coluna de ano para indexar.
+    */
+    return pendentes
+      .map((s) => ({ ...s, anoDistribuicao: this.anoDoNpu(s.numeroCNJ) }))
+      .sort((a, b) => {
+        const anoA = a.anoDistribuicao ?? 0;
+        const anoB = b.anoDistribuicao ?? 0;
+        if (anoA !== anoB) return anoB - anoA;
+        // Dentro do mesmo ano, a que publicou por último — sinal de que anda.
+        return b.ultimaEm.getTime() - a.ultimaEm.getTime();
+      })
+      .slice(0, 50);
   }
 
   /** Quantas esperam decisão — o número do selo, sem carregar a lista. */
