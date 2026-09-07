@@ -162,6 +162,27 @@ function ListaProcessos() {
   useAbrirPorUrl('processo', setDetalheId, '/processos');
 
   /**
+   * `?cadastrar=<NPU>` abre o cadastro JÁ PREENCHIDO.
+   *
+   * É o clique que vem do sino, quando o Diário revelou uma ação do sindicato
+   * sem cadastro. Antes o item levava para `/processos` puro e a pessoa caía na
+   * lista tendo de procurar a fila e clicar em "Cadastrar" — três passos para
+   * uma decisão que o sino já tinha apresentado.
+   *
+   * Preencher o campo também dispara a prévia do CNJ sozinha (o diálogo consulta
+   * aos 20 dígitos): abre e já mostra as partes, sem digitar nada.
+   */
+  useAbrirPorUrl(
+    'cadastrar',
+    (npu) => {
+      if (!npu) return;
+      setNpuSugerido(npu);
+      setImportOpen(true);
+    },
+    '/processos',
+  );
+
+  /**
    * `?rascunhos=1` (nome antigo do link) aplica o filtro rápido.
    *
    * O sistema JÁ gerava este link — o aviso ao concluir uma

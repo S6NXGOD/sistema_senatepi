@@ -331,12 +331,6 @@ export class DashboardService {
      */
     const veAgenda = nivelEfetivo(user.role, user.permissoes, 'agenda') !== 'SEM_ACESSO';
     /**
-     * A fila de ações encontradas no Diário só interessa a quem pode CADASTRAR.
-     * Para quem só lê o acervo, o número seria uma cobrança sem botão — e o
-     * botão, se existisse, devolveria 403.
-     */
-    const cadastraProcesso = nivelEfetivo(user.role, user.permissoes, 'processos') === 'EDITAR';
-    /**
      * Escopo pessoal do advogado: suas atividades e sua carteira. Demais perfis
      * enxergam a operação inteira.
      *
@@ -460,7 +454,6 @@ export class DashboardService {
       djenRecentes,
       organizacaoDoSindicato,
       adversariosRaw,
-      sugestoesDeProcesso,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
       /**
@@ -811,23 +804,6 @@ export class DashboardService {
             },
             _count: { processoId: true },
           }),
-      /*
-        AÇÕES DO SINDICATO QUE O DIÁRIO REVELOU E NINGUÉM CADASTROU.
-
-        O número, e não a lista: a fila com as ações mora na tela de Processos,
-        que é onde se cadastra. Aqui é só o aviso de que ela existe — duplicar o
-        conteúdo nas duas telas só cria duas verdades para manter.
-
-        A reconciliação (fechar o que já virou processo) NÃO acontece aqui: ela
-        é escrita, e o painel é leitura. O número pode ficar um clique
-        desatualizado até alguém abrir a fila — barato, e evita que abrir a home
-        dispare `update` no banco.
-      */
-      !cadastraProcesso
-        ? Promise.resolve(0)
-        : this.prisma.sugestaoProcesso.count({
-            where: { status: 'PENDENTE' },
-          }),
     ]);
 
     /**
@@ -1152,13 +1128,6 @@ export class DashboardService {
        * `robo` nem com `djen`.
        */
       integracoes: ehGestao ? saudeSincronizacao : null,
-      /**
-       * Quantas ações do sindicato o Diário revelou e ninguém cadastrou.
-       *
-       * Zero para quem não pode cadastrar: cobrar quem não tem o botão é ruído.
-       * A fila em si vive na tela de Processos — aqui é só o aviso.
-       */
-      sugestoesDeProcesso,
       graficos: {
         atendimentosPorCanal: canalGroup.map((c) => ({ canal: c.canal, total: c._count._all })),
         atendimentos14dias: this.bucketDiario(atendimentos14Raw.map((a) => a.createdAt), 14),

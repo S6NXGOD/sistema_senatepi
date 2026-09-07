@@ -159,14 +159,6 @@ export interface ResumoDashboard {
    * API antiga não manda.
    */
   proximasAtividades?: CompromissoCard[];
-  /**
-   * Ações do sindicato que o Diário revelou e ninguém cadastrou.
-   *
-   * Só o número — a fila mora na tela de Processos, que é onde se cadastra.
-   * Zero para quem não pode cadastrar: cobrar quem não tem o botão é ruído.
-   * Opcional porque a API antiga não manda.
-   */
-  sugestoesDeProcesso?: number;
   audienciasSemana: CompromissoCard[];
   pendenciasAtivas: CompromissoCard[];
   atendimentosPendentes: AtendimentoPendente[];

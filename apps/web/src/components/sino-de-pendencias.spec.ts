@@ -115,7 +115,19 @@ describe('a gaveta', () => {
   /** Três exemplos bastam para reconhecer; o resto está na agenda. */
   it('mostra poucos exemplos e diz quantos faltam', () => {
     expect(SERVICO).toContain('const MAX_EXEMPLOS = 3;');
-    expect(SINO).toContain('{p.total > p.exemplos.length && (');
+    expect(SINO).toContain('const sobra = p.total - p.exemplos.length;');
+    expect(SINO).toContain('{sobra > 0 && (');
+    /*
+      A SOBRA DEIXOU DE SER BECO SEM SAÍDA. "e mais 4" dizia que havia mais e
+      não levava a lugar nenhum — quem quisesse ver tinha de adivinhar a tela.
+      E o rodapé fixo "Abrir minha agenda" era pior: com publicação sem tarefa
+      já era estranho (ela vive em Processos) e com ação nova virou não-sequitur
+      — o sino anunciava um processo que nem existe e oferecia a agenda como
+      saída. Cada grupo leva ao SEU lugar, e só quando há o que ver a mais.
+    */
+    expect(SINO).toContain('const VER_TODAS: Record<TipoPendencia');
+    expect(SINO).toContain('{verTodas.texto}');
+    expect(SINO).not.toContain('Abrir minha agenda');
   });
 
   it('fecha ao navegar, ao clicar fora e no Escape', () => {

@@ -50,6 +50,20 @@ export interface Pendencia {
 }
 
 const MAX_EXEMPLOS = 3;
+
+/**
+ * De que lado estamos, em duas palavras.
+ *
+ * O sino tem uma linha por item e ela já carrega o NPU — "Movem contra nós" é o
+ * máximo que cabe e o mínimo que informa. `AMBOS` acontece em recurso (11% dos
+ * casos medidos) e não pode virar um dos dois: seria escolher por chute.
+ */
+const POLO_CURTO: Record<string, string> = {
+  ATIVO: 'Movemos',
+  PASSIVO: 'Movem contra nós',
+  AMBOS: 'Nos dois polos',
+  INDEFINIDO: 'Polo não informado',
+};
 /** Uma semana de pauta: o que cabe em "me preparar". */
 const DIAS_DE_AUDIENCIA = 7;
 
@@ -191,12 +205,24 @@ export class PendenciasService {
             total: acoesNovas.length,
             exemplos: acoesNovas.slice(0, MAX_EXEMPLOS).map((a) => ({
               id: a.id,
-              titulo: a.numeroCNJ,
+              /*
+                O POLO VEM NO TÍTULO porque é a única coisa que muda a reação.
+                "Movem contra nós" e "movemos" pedem urgências diferentes, e o
+                NPU sozinho não distingue uma da outra — obrigaria a abrir para
+                descobrir, que é o que o sino existe para evitar.
+              */
+              titulo: `${POLO_CURTO[a.nossoPolo]} · ${a.numeroCNJ}`,
               // A data da PRIMEIRA vez que ela apareceu — é há quanto tempo ela
               // está sem cadastro, e não quando o robô olhou por último.
               quando: a.primeiraEm.toISOString(),
-              // Leva à fila, e não a um processo que ainda não existe.
-              href: '/processos',
+              /*
+                LEVA DIRETO AO CADASTRO PREENCHIDO, e não à lista.
+                Mandar para `/processos` deixava a pessoa procurando a fila na
+                tela para clicar em "Cadastrar" — três passos para uma decisão que
+                o sino já apresentou. O parâmetro abre o diálogo de importação com
+                o NPU dentro, o que dispara sozinho a prévia do CNJ.
+              */
+              href: `/processos?cadastrar=${a.numeroCNJ}`,
             })),
           }
         : null,

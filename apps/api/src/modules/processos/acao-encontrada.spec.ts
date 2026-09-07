@@ -253,11 +253,26 @@ describe('o aviso de ação nova', () => {
   });
 
   /**
-   * O ITEM LEVA À FILA, e não a um processo — que ainda não existe. Um link
-   * para `/processos?processo=` com id vazio abriria a lista sem dizer por quê.
+   * O ITEM ABRE O CADASTRO JÁ PREENCHIDO — e não larga a pessoa na lista.
+   *
+   * A primeira versão mandava para `/processos` puro: quem clicava caía na lista
+   * inteira e ainda tinha de achar a fila e apertar "Cadastrar" — três passos
+   * para uma decisão que o sino já tinha apresentado. Com o NPU no parâmetro, o
+   * diálogo abre preenchido e a prévia do CNJ dispara sozinha.
    */
-  it('o link vai para a fila, não para um processo inexistente', () => {
+  it('o link abre o cadastro com o número dentro', () => {
     const bloco = PENDENCIAS.slice(PENDENCIAS.indexOf("tipo: 'ACAO_NOVA' as const"));
-    expect(bloco.slice(0, 700)).toContain("href: '/processos'");
+    expect(bloco.slice(0, 1400)).toContain('href: `/processos?cadastrar=${a.numeroCNJ}`');
+  });
+
+  /**
+   * O POLO VEM NO TÍTULO: "movem contra nós" e "movemos" pedem urgências
+   * diferentes, e o NPU sozinho obrigaria a abrir para descobrir qual é — que é
+   * exatamente o que o sino existe para evitar.
+   */
+  it('e a linha diz de que lado estamos', () => {
+    expect(PENDENCIAS).toContain('const POLO_CURTO');
+    expect(PENDENCIAS).toContain("PASSIVO: 'Movem contra nós'");
+    expect(PENDENCIAS).toContain('titulo: `${POLO_CURTO[a.nossoPolo]}');
   });
 });

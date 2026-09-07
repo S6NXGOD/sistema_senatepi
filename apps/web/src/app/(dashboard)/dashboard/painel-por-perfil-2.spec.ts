@@ -115,3 +115,24 @@ describe('a ordem por perfil', () => {
     expect(TELA).toContain('{ehGestao && data.cargaEquipe && (');
   });
 });
+
+/**
+ * A FAIXA DE "AÇÃO NOVA" SAIU DO PAINEL — e o motivo é a regra desta própria tela.
+ *
+ * Ela dizia "3 ações apareceram no Diário" com um link para /processos. O SINO,
+ * que fica no topo de TODA tela (esta inclusive), já mostra o mesmo número em
+ * vermelho — e mostra melhor: lista os NPUs, diz de que lado estamos em cada um,
+ * e cada linha abre o cadastro já preenchido. A faixa era o caminho pior para a
+ * mesma decisão.
+ *
+ * "A mesma coisa duas vezes não são dois avisos" está escrito no próprio arquivo,
+ * sobre o DJEN. Cada faixa a menos é uma chance a mais de as que ficaram serem
+ * lidas.
+ */
+describe('o painel não repete o sino', () => {
+  it('não há faixa de ação nova no painel', () => {
+    expect(TELA).not.toContain('apareceu no Diário');
+    expect(TELA).not.toContain('apareceram no Diário');
+    expect(TELA).not.toContain('sugestoesDeProcesso');
+  });
+});

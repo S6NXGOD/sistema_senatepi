@@ -407,33 +407,18 @@ function Conteudo({
       <SaudeDasIntegracoes data={data} podeVarrerDjen={pode.varrerDjen} />
 
       {/*
-        AÇÃO NOVA CONTRA (OU DO) SINDICATO — antes de qualquer painel.
+        A FAIXA DE "AÇÃO NOVA" SAIU DAQUI — e o motivo é a regra desta própria tela.
 
-        A varredura do Diário consulta por OAB e recebe a carteira inteira de
-        cada advogado; o que não casa com processo cadastrado é descartado. Junto
-        ia o caso NOVO do próprio sindicato. Aqui vai só o AVISO — a fila com as
-        ações e os botões mora na tela de Processos, que é onde se cadastra.
-        Duplicar o conteúdo criaria duas verdades para manter.
+        Ela dizia "3 ações apareceram no Diário" com um link para /processos. O
+        SINO, que fica no topo de TODA tela (esta inclusive), já mostra o mesmo
+        número em vermelho — e mostra melhor: lista os NPUs, diz de que lado
+        estamos em cada um, e cada linha abre o cadastro já preenchido. A faixa
+        era o caminho pior para a mesma decisão.
+
+        "A MESMA COISA DUAS VEZES NÃO SÃO DOIS AVISOS" — está escrito algumas
+        linhas abaixo, sobre o DJEN, e vale igual aqui. Cada faixa a menos é uma
+        chance a mais de as que ficaram serem lidas.
       */}
-      {!!data.sugestoesDeProcesso && (
-        <AlertBar tom="atencao" href="/processos" acao="Ver e cadastrar">
-          {data.sugestoesDeProcesso === 1 ? (
-            <>
-              <strong className="font-semibold">
-                1 ação do {tenant.sigla} apareceu no Diário
-              </strong>{' '}
-              e ainda não está cadastrada no acervo.
-            </>
-          ) : (
-            <>
-              <strong className="font-semibold">
-                {data.sugestoesDeProcesso} ações do {tenant.sigla} apareceram no Diário
-              </strong>{' '}
-              e ainda não estão cadastradas no acervo.
-            </>
-          )}
-        </AlertBar>
-      )}
 
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
