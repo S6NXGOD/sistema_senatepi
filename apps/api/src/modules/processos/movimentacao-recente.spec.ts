@@ -56,9 +56,16 @@ describe('filtro "Andamento do tribunal"', () => {
     expect(recentes).not.toContain('movimentacoesInternas');
   });
 
-  it('a janela padrão é de 30 dias — em 7 o filtro era zero por construção', () => {
+  /**
+   * SETE DIAS DEIXOU DE SER IMPOSSÍVEL. Enquanto o chip olhava só o DataJud,
+   * qualquer janela curta dava zero — o andamento mais novo do acervo tinha 30
+   * dias. Com o Diário na conta, 7 dias devolve 5 processos. O PADRÃO continua
+   * 30, que é o recorte da tela; a validação do parâmetro mora em
+   * `andamento-do-tribunal.spec.ts`.
+   */
+  it('a janela padrão é de 30 dias, no contador e na lista', () => {
     expect(SERVICE).toMatch(/FILTRO_RAPIDO\.recentes\(30, agora\)/);
-    expect(SERVICE).toMatch(/Number\(q\.movimentacaoRecente\) \|\| 30/);
+    expect(SERVICE).toContain('const dias = pedida > 0 ? Math.min(365, pedida) : 30;');
   });
 
 });

@@ -60,6 +60,40 @@ describe('o filtro conta as duas portas do tribunal', () => {
 });
 
 /**
+ * A JANELA VEM DA BARRA DE ENDEREÇOS — e tem de aguentar qualquer coisa.
+ *
+ * A tela oferece 7, 30 e 60, mas o parâmetro é texto livre. `Number('abc')`
+ * já caía no padrão; `-5` não: é truthy, e o corte ia parar no FUTURO,
+ * devolvendo lista vazia sem explicação nenhuma.
+ */
+describe('a janela pedida na URL', () => {
+  const listar = SERVICE.slice(
+    SERVICE.indexOf('async listar('),
+    SERVICE.indexOf('async detalhe('),
+  );
+
+  it('valor inválido cai no padrão de 30 dias, não num extremo', () => {
+    expect(listar).toContain('const pedida = Math.floor(Number(q.movimentacaoRecente));');
+    expect(listar).toContain('const dias = pedida > 0 ? Math.min(365, pedida) : 30;');
+  });
+
+  /** A regra tem de valer de verdade, e não só estar escrita. */
+  it('e a conta se comporta', () => {
+    const janela = (v: string) => {
+      const pedida = Math.floor(Number(v));
+      return pedida > 0 ? Math.min(365, pedida) : 30;
+    };
+    expect(janela('7')).toBe(7);
+    expect(janela('60')).toBe(60);
+    expect(janela('abc')).toBe(30);
+    expect(janela('')).toBe(30);
+    expect(janela('-5')).toBe(30);
+    expect(janela('0')).toBe(30);
+    expect(janela('99999')).toBe(365);
+  });
+});
+
+/**
  * A COLUNA MOSTRA O QUE O FILTRO CONTA — a regra que já custou duas correções.
  *
  * Se o filtro passa a enxergar o Diário e a coluna não, o descompasso volta ao

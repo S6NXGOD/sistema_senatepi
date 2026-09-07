@@ -1066,9 +1066,23 @@ export class ProcessosService {
     if (!pediuPreProcessual) {
       and.push({ statusInterno: { notIn: PRE_PROCESSUAIS } });
     }
-    // "Com movimentação recente": houve andamento (do CNJ ou interno) na janela.
+    // "Andamento do tribunal": o juízo se manifestou na janela, por qualquer das
+    // duas portas — andamento do DataJud ou publicação no Diário. Nota interna
+    // NÃO conta aqui; ela responde à ordenação, que é outra pergunta.
     if (q.movimentacaoRecente) {
-      and.push(FILTRO_RAPIDO.recentes(Number(q.movimentacaoRecente) || 30, new Date()));
+      /*
+        A JANELA VEM DA BARRA DE ENDEREÇOS, então precisa aguentar qualquer coisa.
+        `Number('abc')` já caía no padrão, mas `-5` é truthy: o corte ia parar no
+        FUTURO e a lista voltava vazia sem explicação.
+
+        Valor inválido cai no PADRÃO, e não num extremo: prender `-5` em "1 dia"
+        obedeceria a um pedido que ninguém fez. Um link velho nos favoritos tem
+        de abrir a lista, não devolver uma tela vazia — mesma regra de
+        `ordemValida`.
+      */
+      const pedida = Math.floor(Number(q.movimentacaoRecente));
+      const dias = pedida > 0 ? Math.min(365, pedida) : 30;
+      and.push(FILTRO_RAPIDO.recentes(dias, new Date()));
     }
     const busca = q.busca?.trim();
     /**
