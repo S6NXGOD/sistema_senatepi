@@ -20,6 +20,14 @@ export interface ResumoVarreduraDjen {
   /** Descartadas por não haver processo cadastrado com aquele NPU. */
   descartadas: number;
   /**
+   * Advogados ATIVOS sem OAB no cadastro — invisíveis para a varredura.
+   *
+   * A busca é por OAB: sem o número, a pessoa não entra na consulta e as
+   * intimações dela nunca chegam. Fica no resumo porque é uma falha que, de
+   * outro modo, se manifesta como silêncio.
+   */
+  advogadosSemOab: number;
+  /**
    * Das descartadas, quantas eram AÇÕES NOSSAS ainda sem cadastro.
    *
    * Fica no resumo porque é o único lugar onde o volume aparece: a publicação
@@ -135,6 +143,7 @@ export class DjenSyncService {
       ingeridas: 0,
       descartadas: 0,
       sugeridas: 0,
+      advogadosSemOab: 0,
       falhas: 0,
     };
     let quebrou: string | null = null;
@@ -174,6 +183,34 @@ export class DjenSyncService {
       where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
       select: { id: true, oab: true, oabUf: true },
     });
+
+    /*
+      ADVOGADO SEM OAB É INVISÍVEL PARA O DIÁRIO — e a falha era silenciosa.
+
+      A varredura consulta POR OAB: quem não tem o número no cadastro simplesmente
+      não entra na lista acima. As publicações que intimam essa pessoa nunca
+      chegam, o sino dela nunca acende, e nada na tela sugere que falta algo —
+      ausência de alerta parece calma.
+
+      Medido em 07/09/2026: a Dra. Lara Cortez é ADVOGADA ativa, tem 2 processos
+      vinculados e está sem OAB. Dois processos cujo prazo não é anunciado.
+    */
+    const semOab = await this.prisma.user.findMany({
+      where: {
+        ativo: true,
+        role: 'ADVOGADO',
+        OR: [{ oab: null }, { oabUf: null }],
+      },
+      select: { nome: true, nomeExibicao: true },
+    });
+    if (semOab.length) {
+      resumo.advogadosSemOab = semOab.length;
+      this.logger.warn(
+        `[DJEN] ${semOab.length} advogado(s) SEM OAB no cadastro — o Diário não é ` +
+          `consultado para: ${semOab.map((a) => a.nomeExibicao || a.nome).join(', ')}. ` +
+          'Preencha OAB e UF na ficha para que as intimações deles cheguem.',
+      );
+    }
 
     for (const adv of advogados) {
       try {
@@ -745,6 +782,11 @@ export class DjenSyncService {
             : resumo.falhas > 0
               ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha.`
               : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s)` +
+                // Advogado sem OAB não é consultado — e isso precisa aparecer onde
+                // alguém olha, não só no log da aplicação.
+                (resumo.advogadosSemOab > 0
+                  ? `. ATENÇÃO: ${resumo.advogadosSemOab} advogado(s) sem OAB não foram consultados`
+                  : '') +
                 // A ação nossa ainda sem cadastro só é mensurável aqui: a publicação
                 // de terceiro não é persistida, então sem esta frase ninguém saberia
                 // se a detecção achou algo. Só aparece quando achou.

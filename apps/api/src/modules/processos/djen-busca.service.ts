@@ -27,6 +27,18 @@ export interface FiltroBuscaDjen {
   /** COM_TAREFA | SEM_TAREFA — separa o que já virou trabalho do que não. */
   situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
   /**
+   * QUEM FOI INTIMADO — e não "de quem é o processo".
+   *
+   * `meusProcessosDe` filtra pelo ACERVO do advogado (a tabela de vínculo).
+   * Este filtra por CITAÇÃO: o nome dele está no ato. São perguntas diferentes e
+   * as respostas divergem muito — medido em 07/09/2026, a Dra. Jaqueline tinha
+   * 0 publicações pelo acervo e 4 que a citavam; a Dra. Morgana, 32 pelo acervo
+   * e 6 que a citavam.
+   *
+   * O prazo corre para quem foi INTIMADO. Por isso o filtro da tela é este.
+   */
+  citaAdvogado?: string;
+  /**
    * ONDE procurar o termo — e isto é escolha de PERGUNTA, não filtro.
    *
    * A primeira versão tratava o polo como filtro sobre a busca ampla, e o
@@ -83,6 +95,15 @@ export class DjenBuscaService {
     if (filtro.situacao === 'SEM_TAREFA') where.push({ compromissoId: null });
     if (filtro.meusProcessosDe) {
       where.push({ processo: { advogados: { some: { advogadoId: filtro.meusProcessosDe } } } });
+    }
+    if (filtro.citaAdvogado) {
+      /*
+        PELA OAB, e não pelo nome: o tribunal escreve "ICARO SOL ALMONDES SANTOS"
+        e o cadastro tem "Ícaro Sol Almondes Santos". É a mesma chave que traz a
+        foto do advogado no cartão e que descobre ação nova no Diário.
+      */
+      const ids = await this.idsQueCitamAdvogado(filtro.citaAdvogado);
+      where.push({ id: { in: ids } });
     }
 
     const termo = (filtro.q ?? '').trim();
@@ -182,6 +203,35 @@ export class DjenBuscaService {
                WHERE upper(coalesce(a->>'nome', '')) LIKE ${likeSemAcento}
                   OR a->>'numeroOab' = ${oab}))
       LIMIT 5000
+    `;
+    return linhas.map((l) => l.id);
+  }
+
+  /**
+   * As publicações que NOMEIAM este advogado.
+   *
+   * Advogado sem OAB no cadastro não pode ser casado, e devolver "tudo" seria
+   * pior que devolver nada: o filtro pareceria ligado e não filtraria. Lista
+   * vazia é uma resposta honesta — a tela mostra zero e a pessoa entende.
+   */
+  private async idsQueCitamAdvogado(advogadoId: string): Promise<string[]> {
+    const adv = await this.prisma.user.findUnique({
+      where: { id: advogadoId },
+      select: { oab: true, oabUf: true },
+    });
+    const numero = (adv?.oab ?? '').replace(/\D/g, '');
+    const uf = (adv?.oabUf ?? '').trim().toUpperCase();
+    if (!numero || !uf) return [];
+
+    const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT c."id" FROM "comunicacoes_djen" c
+       WHERE c."advogados" IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(c."advogados"::jsonb) a
+            WHERE regexp_replace(a->>'numeroOab', '\D', '', 'g') = ${numero}
+              AND upper(a->>'ufOab') = ${uf}
+         )
+       LIMIT 5000
     `;
     return linhas.map((l) => l.id);
   }

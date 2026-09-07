@@ -520,11 +520,18 @@ describe('o cadastro em lote', () => {
    * vinculado", "Sem réu cadastrado"), e o processo cai nelas sozinho. Inventar
    * um assistente de conclusão seria uma terceira fila para o mesmo trabalho.
    */
-  it('leva as partes do Diário e nada que exija julgamento', () => {
+  it('leva o que o tribunal disse e nada que exija julgamento', () => {
     const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
     expect(fn).toContain('partesContrarias: nomes');
+    /*
+      O ADVOGADO ENTROU, e não é exceção à regra: ele NÃO é julgamento nosso, é
+      fato do ato. A ação chegou até a fila PORQUE a OAB dele estava na
+      publicação. Medido: 30 das 30 têm advogado nosso identificável, e mesmo
+      assim os processos nasciam com "⚠ Sem advogado".
+    */
+    expect(fn).toContain('advogadoId: nossosAdvogados[0]?.id');
+    // Estes seguem de fora: dependem de decisão de gente.
     expect(fn).not.toContain('filiadoId');
-    expect(fn).not.toContain('advogadoId');
     expect(fn).not.toContain('etiquetas');
   });
 
@@ -560,5 +567,34 @@ describe('o cadastro em lote', () => {
     const DTO = readFileSync(join(__dirname, 'dto', 'sugestoes.dto.ts'), 'utf8');
     expect(DTO).toContain('@ArrayMaxSize(50)');
     expect(DTO).toContain('@ArrayNotEmpty()');
+  });
+});
+
+/**
+ * ADVOGADO SEM OAB É INVISÍVEL PARA O DIÁRIO — e a falha era silenciosa.
+ *
+ * A varredura consulta POR OAB: quem não tem o número no cadastro não entra na
+ * lista, as publicações que o intimam nunca chegam, o sino dele nunca acende e
+ * nada na tela sugere que falta algo.
+ *
+ * Medido em 07/09/2026: a Dra. Lara Cortez é ADVOGADA ativa, tem 2 processos
+ * vinculados e está sem OAB. Dois processos cujo prazo não é anunciado.
+ */
+describe('o advogado que a varredura não enxerga', () => {
+  it('a varredura conta quem ficou de fora', () => {
+    expect(SYNC).toContain("role: 'ADVOGADO',");
+    expect(SYNC).toContain('OR: [{ oab: null }, { oabUf: null }]');
+    expect(SYNC).toContain('resumo.advogadosSemOab = semOab.length;');
+  });
+
+  /** O aviso nomeia QUEM e diz o CONSERTO — contagem sozinha não resolve nada. */
+  it('e diz quem é e o que fazer', () => {
+    expect(SYNC).toContain('a.nomeExibicao || a.nome');
+    expect(SYNC).toContain('Preencha OAB e UF na ficha');
+  });
+
+  /** No log da aplicação ninguém olha: o resumo gravado é o que sobrevive. */
+  it('o resumo persistido também avisa', () => {
+    expect(SYNC).toContain('advogado(s) sem OAB n\u00e3o foram consultados');
   });
 });

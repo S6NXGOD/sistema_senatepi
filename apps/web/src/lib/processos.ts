@@ -806,6 +806,20 @@ export interface SugestaoDeProcesso {
    * e estavam na mesma lista, sem distinção.
    */
   anoDistribuicao?: number | null;
+  /**
+   * OS NOSSOS ADVOGADOS CITADOS NO ATO.
+   *
+   * Não é palpite: a ação chegou até a fila PORQUE a OAB de um deles estava na
+   * publicação. Medido em 07/09/2026: **30 das 30** têm advogado nosso
+   * identificável — e mesmo assim os processos cadastrados nasciam com
+   * "⚠ Sem advogado", pedindo que alguém escolhesse o que o tribunal já disse.
+   */
+  advogadosNossos?: {
+    id: string;
+    nome: string;
+    nomeExibicao: string | null;
+    avatarUrl: string | null;
+  }[];
 }
 
 export async function listarSugestoesDeProcesso(): Promise<SugestaoDeProcesso[]> {

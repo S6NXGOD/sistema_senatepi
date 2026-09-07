@@ -133,3 +133,38 @@ describe('as partes que o Diário já disse', () => {
     expect(DIALOGO).toContain('Partes preenchidas com o que o Diário publicou');
   });
 });
+
+/**
+ * A FILA DE AÇÕES É GLOBAL — e por isso precisa dizer de quem é cada uma.
+ *
+ * Todo advogado com permissão de editar processos vê as trinta, e só algumas o
+ * citam. Esconder as dos outros seria pior: é fila compartilhada com resolução
+ * única, e quem cadastrar primeiro limpa para todos. Mas sem a cara, achar as
+ * suas exige abrir uma a uma — e lista alheia com cara de prazo ensina a
+ * ignorar a lista.
+ *
+ * O rosto vem do advogado NOMEADO NO ATO (a OAB que trouxe a ação até a fila),
+ * e não de um palpite: medido em 07/09/2026, 30 das 30 têm.
+ */
+describe('de quem é a ação encontrada', () => {
+  const FILA = lerCodigo('acoes-encontradas.tsx');
+
+  it('a linha mostra o rosto de quem o ato nomeia', () => {
+    expect(FILA).toContain('s.advogadosNossos?.length');
+    expect(FILA).toContain('<AvatarPessoa');
+    expect(FILA).toContain('citado neste ato');
+  });
+
+  /** Três cabem ao lado do número no celular; mais empurram a linha. */
+  it('limita a três rostos', () => {
+    expect(FILA).toContain('s.advogadosNossos.slice(0, 3)');
+  });
+
+  /** E o cadastro em lote não pergunta o que o ato já respondeu. */
+  it('o advogado do ato vai junto no cadastro', () => {
+    const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+    expect(DIALOGO).toContain('advogadosIniciais?: string[] | null;');
+    expect(DIALOGO).toContain("setValue('advogadoId', advogadosIniciais[0]);");
+    expect(DIALOGO).toContain('setEquipeAdvogados(advogadosIniciais.length > 1 ? advogadosIniciais : []);');
+  });
+});

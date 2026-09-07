@@ -79,6 +79,7 @@ export function ImportarProcessoDialog({
   onImported,
   npuInicial,
   partesIniciais,
+  advogadosIniciais,
 }: {
   open: boolean;
   onClose: () => void;
@@ -101,6 +102,14 @@ export function ImportarProcessoDialog({
    * DIGITASSE na seguinte — tendo a informação na mão.
    */
   partesIniciais?: { nome?: string | null; polo?: string | null }[] | null;
+  /**
+   * OS ADVOGADOS QUE O PRÓPRIO ATO NOMEIA.
+   *
+   * A ação chegou até a fila PORQUE a OAB de um deles estava na publicação —
+   * então "quem responde por este processo" é a única pergunta do formulário
+   * cuja resposta já está no banco. Medido: 30 das 30 ações da fila têm.
+   */
+  advogadosIniciais?: string[] | null;
 }) {
   const {
     control,
@@ -262,6 +271,19 @@ export function ImportarProcessoDialog({
     setPoloAtivo(doDiario('A'));
     setReus(doDiario('P'));
   }, [open, partesIniciais]);
+
+  /*
+    O ADVOGADO QUE O ATO NOMEIA JÁ VEM MARCADO.
+
+    O primeiro responde e os demais entram como equipe — quem é o principal
+    entre dois citados no mesmo ato o tribunal não diz, e a ordem do ato é o
+    único critério disponível. Trocar é um clique na estrela.
+  */
+  useEffect(() => {
+    if (!open || !advogadosIniciais?.length) return;
+    setValue('advogadoId', advogadosIniciais[0]);
+    setEquipeAdvogados(advogadosIniciais.length > 1 ? advogadosIniciais : []);
+  }, [open, advogadosIniciais, setValue]);
 
   useEffect(() => {
     if (open) return;

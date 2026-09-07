@@ -153,6 +153,8 @@ function ListaProcessos() {
   const [sugerido, setSugerido] = useState<{
     numeroCNJ: string;
     partes: { nome?: string | null; polo?: string | null }[] | null;
+    /** Ids dos NOSSOS advogados citados no ato — o primeiro responde. */
+    advogados: string[] | null;
   } | null>(null);
   const [loteOpen, setLoteOpen] = useState(false);
   const [detalheId, setDetalheId] = useState<string | null>(null);
@@ -187,7 +189,7 @@ function ListaProcessos() {
       if (!npu) return;
       // Vindo do sino, só há o número na URL — as partes ficam para a pessoa,
       // como sempre foi. Da fila, elas vêm junto.
-      setSugerido({ numeroCNJ: npu, partes: null });
+      setSugerido({ numeroCNJ: npu, partes: null, advogados: null });
       setImportOpen(true);
     },
     '/processos',
@@ -554,7 +556,11 @@ function ListaProcessos() {
         */
         podeVarrerHistorico={user?.role === 'ADMINISTRADOR'}
         onCadastrar={(s) => {
-          setSugerido({ numeroCNJ: s.numeroCNJ, partes: s.partes });
+          setSugerido({
+            numeroCNJ: s.numeroCNJ,
+            partes: s.partes,
+            advogados: (s.advogadosNossos ?? []).map((a) => a.id),
+          });
           setImportOpen(true);
         }}
       />
@@ -841,6 +847,7 @@ function ListaProcessos() {
         open={importOpen}
         npuInicial={sugerido?.numeroCNJ ?? null}
         partesIniciais={sugerido?.partes ?? null}
+        advogadosIniciais={sugerido?.advogados ?? null}
         onClose={() => {
           setImportOpen(false);
           setSugerido(null);

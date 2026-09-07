@@ -104,6 +104,23 @@ export class BuscaPublicacoesDto {
   @IsIn(['true', 'false'])
   meus?: 'true' | 'false';
 
+  /**
+   * FILTRAR PELO ADVOGADO CITADO NO ATO — e por que aqui o id na query pode.
+   *
+   * A nota do `meus` diz que aceitar um `advogadoId` deixaria qualquer um ler o
+   * acervo de um colega mudando a URL. Vale para AQUELE parâmetro, que ESCOPA a
+   * consulta — ele decide o universo.
+   *
+   * Este RECORTA dentro do universo que a pessoa já pode ver: a lista completa
+   * das publicações do acervo, com o nome e a foto dos advogados citados
+   * impressos em cada cartão. Filtrar por um deles não revela nada que rolar a
+   * página não revelasse — só evita rolar.
+   */
+  @ApiPropertyOptional({ description: 'Só as publicações que CITAM este advogado (por OAB).' })
+  @IsOptional()
+  @IsString()
+  citaAdvogado?: string;
+
   @ApiPropertyOptional({
     enum: ['TUDO', 'AUTOR', 'REU', 'NUMERO', 'TEOR'],
     description: 'ONDE procurar o termo. Padrão TUDO. Ver o comentário do serviço.',

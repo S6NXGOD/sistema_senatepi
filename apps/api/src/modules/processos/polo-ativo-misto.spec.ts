@@ -50,7 +50,19 @@ describe('a relação ordenada do polo ativo', () => {
    * mostrá-lo, e é ela que o painel conta.
    */
   it('o sindicato ao lado de um filiado não torna a ação institucional', () => {
-    expect(SERVICO).toContain('return { institucional: filiados.length === 0, filiados, avulso: null, partes };');
+    /*
+      A REGRA GANHOU UMA SEGUNDA CONDIÇÃO, e esta continua valendo: havendo
+      filiado no polo, a ação é DELE, mesmo com o sindicato ao lado.
+
+      O que entrou depois foi o outro lado — sem filiado E sem o sindicato no
+      polo, também não é institucional. Era o caso do terceiro que processa o
+      sindicato, que a detecção de ação nova no Diário trouxe e que entrava
+      marcado como "ação institucional (SENATEPI)" — o oposto do que aconteceu.
+    */
+    expect(SERVICO).toContain('institucional: filiados.length === 0 && sindicatoNoPolo,');
+    expect(SERVICO).toContain(
+      'const sindicatoNoPolo = !!sindicato && partes.some((x) => x.parteExternaId === sindicato.id);',
+    );
   });
 
   it('recusa um polo ativo vazio', () => {

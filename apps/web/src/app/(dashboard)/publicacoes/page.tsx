@@ -17,7 +17,8 @@ import {
 } from '@/lib/djen';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from '@/components/processos/publicacao-djen-card';
-import { formatNPU } from '@/lib/processos';
+import {
+  listarAdvogadosDisponiveis, formatNPU } from '@/lib/processos';
 import { STATUS_LABEL, type StatusCompromisso } from '@/lib/agenda';
 import { useAuth } from '@/lib/auth';
 
@@ -43,6 +44,16 @@ export default function PublicacoesPage() {
   const [tribunal, setTribunal] = useState('');
   const [situacao, setSituacao] = useState<'' | 'COM_TAREFA' | 'SEM_TAREFA'>('');
   const [onde, setOnde] = useState<'TUDO' | 'AUTOR' | 'REU' | 'NUMERO' | 'TEOR'>('TUDO');
+  /**
+   * QUEM FOI INTIMADO NO ATO — e não de quem é o processo.
+   *
+   * `soMeus` filtra pelo ACERVO (a tabela de vínculo). Este filtra por CITAÇÃO:
+   * o nome do advogado está na publicação. São perguntas diferentes e as
+   * respostas divergem — medido em 07/09/2026, a Dra. Jaqueline tinha 0
+   * publicações pelo acervo e 4 que a citavam. O prazo corre para quem foi
+   * intimado.
+   */
+  const [citaAdvogado, setCitaAdvogado] = useState('');
   const [pagina, setPagina] = useState(1);
 
   /**
@@ -72,6 +83,14 @@ export default function PublicacoesPage() {
   }, [termo]);
 
   const { data: status } = useQuery({ queryKey: ['djen-status'], queryFn: statusDjen });
+
+  /* A MESMA chave de cache do painel de filtros e do cartão de publicação: uma
+     requisição serve as três telas. */
+  const advogados = useQuery({
+    queryKey: ['processos', 'advogados-disponiveis'],
+    queryFn: listarAdvogadosDisponiveis,
+    staleTime: 5 * 60_000,
+  });
   const ligado = status?.ativo !== false;
 
   const { data: facetas } = useQuery({
@@ -88,9 +107,10 @@ export default function PublicacoesPage() {
       situacao: situacao || undefined,
       onde,
       meus: soMeus ? ('true' as const) : undefined,
+      citaAdvogado: citaAdvogado || undefined,
       pagina,
     }),
-    [busca, providencia, tribunal, situacao, onde, soMeus, pagina],
+    [busca, providencia, tribunal, situacao, onde, soMeus, citaAdvogado, pagina],
   );
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
@@ -250,7 +270,19 @@ export default function PublicacoesPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {/*
+          QUATRO FILTROS, e o quarto é o que faltava: POR ADVOGADO CITADO.
+
+          A busca livre já achava por nome ou OAB, mas exigia saber e digitar. A
+          pergunta real — "o que intimou a Dra. Shérad?" — é de escolher, não de
+          escrever. E é por CITAÇÃO, não por acervo: o prazo corre para quem foi
+          intimado, e as duas listas divergem muito (a Dra. Jaqueline tinha 0
+          pelo acervo e 4 que a citavam).
+
+          Quatro colunas no desktop, uma no celular — select nativo, que no
+          celular abre a roda do sistema e não um menu que ninguém consegue rolar.
+        */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <select
             value={providencia}
             onChange={(e) => {
@@ -297,6 +329,27 @@ export default function PublicacoesPage() {
             <option value="">Com ou sem tarefa</option>
             <option value="COM_TAREFA">Já virou tarefa</option>
             <option value="SEM_TAREFA">Sem tarefa na agenda</option>
+          </select>
+
+          <select
+            value={citaAdvogado}
+            onChange={(e) => {
+              setCitaAdvogado(e.target.value);
+              setPagina(1);
+            }}
+            className={inputCls}
+            aria-label="Filtrar por advogado citado no ato"
+          >
+            <option value="">Qualquer advogado</option>
+            {(advogados.data ?? [])
+              // Sem OAB no cadastro não há como casar — oferecer a opção daria
+              // sempre zero, e um filtro que só sabe dar zero é uma armadilha.
+              .filter((a) => a.oab)
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  Intimou {a.nomeExibicao || a.nome}
+                </option>
+              ))}
           </select>
         </div>
 

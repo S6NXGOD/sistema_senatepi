@@ -13,6 +13,7 @@ import {
   type SugestaoDeProcesso,
 } from '@/lib/processos';
 import { varrerDjenAgora } from '@/lib/djen';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 
 /**
  * NOVENTA DIAS — o que cobre a distribuição recente sem pesar.
@@ -346,6 +347,32 @@ export function AcoesEncontradas({
                       </span>
                       {s.siglaTribunal && (
                         <span className="text-xs text-muted-foreground">{s.siglaTribunal}</span>
+                      )}
+                      {/*
+                        DE QUEM É ESTA AÇÃO — pelo rosto, antes da leitura.
+
+                        A fila é GLOBAL: todo advogado vê as trinta, e só algumas o
+                        citam. Sem a cara, achar as suas exige abrir uma a uma —
+                        e lista alheia com cara de prazo ensina a ignorar a lista.
+                        Esconder as dos outros seria pior: é fila compartilhada,
+                        e quem cadastrar primeiro limpa para todos.
+
+                        O rosto vem do advogado NOMEADO NO ATO (a OAB que trouxe a
+                        ação até aqui), não de um palpite: 30 das 30 têm.
+                      */}
+                      {!!s.advogadosNossos?.length && (
+                        <span className="flex -space-x-1.5">
+                          {s.advogadosNossos.slice(0, 3).map((a) => (
+                            <AvatarPessoa
+                              key={a.id}
+                              nome={a.nomeExibicao || a.nome}
+                              url={a.avatarUrl}
+                              titulo={`${a.nome} — citado neste ato`}
+                              tamanho="xs"
+                              className="ring-2 ring-amber-50 dark:ring-amber-950"
+                            />
+                          ))}
+                        </span>
                       )}
                       {/*
                         O ANO SEPARA DUAS COISAS QUE ESTAVAM NA MESMA LISTA.

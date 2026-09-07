@@ -148,6 +148,11 @@ export async function statusDatajud(): Promise<{ multiInstancia: boolean }> {
  * então procurar por parte é impossível na origem e trivial no acervo.
  */
 export interface FiltroPublicacoes {
+  /**
+   * Só o que CITA este advogado (por OAB) — diferente de `meus`, que é por
+   * acervo. O prazo corre para quem foi INTIMADO, e as duas listas divergem.
+   */
+  citaAdvogado?: string;
   q?: string;
   providencia?: string;
   tribunal?: string;

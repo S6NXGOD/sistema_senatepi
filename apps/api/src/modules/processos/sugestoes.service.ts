@@ -7,6 +7,9 @@ import { nossoPoloNoAto } from './utils/acao-nossa.util';
 export interface ImportarEmLoteItem {
   numeroCNJ: string;
   tribunal?: string;
+  /** O advogado que o próprio ato nomeia — o primeiro responde. */
+  advogadoId?: string;
+  advogadosIds?: string[];
   poloAtivo: {
     tipo: 'INSTITUCIONAL' | 'FILIADOS' | 'OUTRA';
     partes: { tipo: 'INSTITUCIONAL' | 'AVULSA'; nome?: string }[];
@@ -84,6 +87,48 @@ export class SugestoesService {
     return Number.isFinite(ano) && ano > 1990 ? ano : null;
   }
 
+  /**
+   * OS NOSSOS ADVOGADOS CITADOS NO ATO.
+   *
+   * A publicação do DJEN traz `advogados` com número e UF da OAB — e a varredura
+   * ACHOU essa ação justamente porque uma dessas OABs é nossa. Guardávamos o
+   * dado e não o usávamos: os processos cadastrados a partir da fila nasciam com
+   * "⚠ Sem advogado", pedindo que alguém escolhesse o que o próprio tribunal
+   * tinha acabado de dizer.
+   *
+   * Medido em 07/09/2026: **30 das 30** ações da fila têm advogado nosso
+   * identificável. Não é palpite — é a chave que trouxe a ação até aqui.
+   *
+   * Pela OAB, nunca pelo nome: o tribunal escreve "ICARO SOL ALMONDES SANTOS" e
+   * o cadastro tem "Ícaro Sol Almondes Santos".
+   */
+  private async advogadosNossosPorSugestao(
+    sugestoes: { id: string; advogados: unknown }[],
+  ): Promise<Map<string, { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null }[]>> {
+    const nossos = await this.prisma.user.findMany({
+      where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
+      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, oab: true, oabUf: true },
+    });
+    const chave = (numero: unknown, uf: unknown) =>
+      `${String(uf ?? '').trim().toUpperCase()}-${String(numero ?? '').replace(/\D/g, '')}`;
+    const porOab = new Map(nossos.map((a) => [chave(a.oab, a.oabUf), a]));
+
+    const saida = new Map<string, typeof nossos>();
+    for (const s of sugestoes) {
+      const lista = Array.isArray(s.advogados)
+        ? (s.advogados as { numeroOab?: unknown; ufOab?: unknown }[])
+        : [];
+      const achados = new Map<string, (typeof nossos)[number]>();
+      for (const a of lista) {
+        const nosso = porOab.get(chave(a?.numeroOab, a?.ufOab));
+        // Mesmo advogado citado duas vezes no ato não vira dois.
+        if (nosso) achados.set(nosso.id, nosso);
+      }
+      saida.set(s.id, [...achados.values()]);
+    }
+    return saida as never;
+  }
+
   async listar() {
     await this.reconciliar();
     const pendentes = await this.prisma.sugestaoProcesso.findMany({
@@ -116,8 +161,15 @@ export class SugestoesService {
       Por isso a ordenação é feita aqui, sobre o ano extraído — são dezenas de
       linhas, e o banco não tem coluna de ano para indexar.
     */
+    const advogados = await this.advogadosNossosPorSugestao(pendentes);
+
     return pendentes
-      .map((s) => ({ ...s, anoDistribuicao: this.anoDoNpu(s.numeroCNJ) }))
+      .map((s) => ({
+        ...s,
+        anoDistribuicao: this.anoDoNpu(s.numeroCNJ),
+        /** Os NOSSOS citados no ato — o que o cadastro pode já vir preenchido. */
+        advogadosNossos: advogados.get(s.id) ?? [],
+      }))
       .sort((a, b) => {
         const anoA = a.anoDistribuicao ?? 0;
         const anoB = b.anoDistribuicao ?? 0;
@@ -164,9 +216,18 @@ export class SugestoesService {
     const sugestoes = await this.prisma.sugestaoProcesso.findMany({
       where: { id: { in: ids }, status: StatusSugestaoProcesso.PENDENTE },
       select: {
-        id: true, numeroCNJ: true, siglaTribunal: true, nossoPolo: true, partes: true,
+        id: true, numeroCNJ: true, siglaTribunal: true, nossoPolo: true,
+        partes: true, advogados: true,
       },
     });
+
+    /*
+      O ADVOGADO VEM JUNTO, e não é palpite: a ação chegou até aqui PORQUE a OAB
+      dele estava no ato. Sem isto, cada processo cadastrado em lote nascia com
+      "⚠ Sem advogado" — trinta fichas pedindo que alguém escolhesse o que o
+      tribunal já tinha dito. Medido: 30 das 30 têm advogado nosso identificável.
+    */
+    const advogadosPorSugestao = await this.advogadosNossosPorSugestao(sugestoes);
 
     const sigla = (
       await this.prisma.parteExterna.findFirst({
@@ -189,9 +250,19 @@ export class SugestoesService {
 
         const ehNos = (nome: string) => nossoPoloNoAto([{ nome, polo: 'A' }], sigla) !== null;
 
+        const nossosAdvogados = advogadosPorSugestao.get(s.id) ?? [];
+
         const processo = await importarUma({
           numeroCNJ: s.numeroCNJ,
           tribunal: s.siglaTribunal ?? undefined,
+          /*
+            O PRIMEIRO responde; os demais entram como equipe. Quem é o
+            "principal" entre dois citados no mesmo ato o tribunal não diz — a
+            ordem do ato é o único critério disponível, e trocar depois é um
+            clique na ficha.
+          */
+          advogadoId: nossosAdvogados[0]?.id,
+          advogadosIds: nossosAdvogados.length > 1 ? nossosAdvogados.map((a) => a.id) : undefined,
           poloAtivo: {
             // O sindicato tem tipo próprio; o resto entra como nome dos autos.
             tipo: nomes('A').some(ehNos) ? 'INSTITUCIONAL' : 'OUTRA',

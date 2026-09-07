@@ -2002,17 +2002,36 @@ export class ProcessosService {
     if (!partes.length) throw new BadRequestException('Informe ao menos uma parte no polo ativo.');
 
     /*
-      A AÇÃO É INSTITUCIONAL QUANDO NÃO HÁ FILIADO NELA.
+      A AÇÃO É INSTITUCIONAL QUANDO O SINDICATO A MOVE SOZINHO.
 
-      Não é "o sindicato está no polo": em litisconsórcio o sindicato entra AO
-      LADO do filiado, e aí a ação continua sendo daquela pessoa — é a ficha
-      dela que precisa mostrar o processo, e é ela que o painel conta.
+      SÃO DUAS CONDIÇÕES, e por muito tempo aqui só havia a primeira:
+
+      1. NÃO HÁ FILIADO no polo. Em litisconsórcio o sindicato entra AO LADO do
+         filiado, e aí a ação continua sendo daquela pessoa — é a ficha dela que
+         precisa mostrar o processo, e é ela que o painel conta.
+
+      2. O SINDICATO ESTÁ no polo ativo. Faltava esta, e sem ela "institucional"
+         significava apenas "sem filiado" — o que era inofensivo enquanto todo
+         processo entrava pela mão de alguém que punha o filiado ou o sindicato.
+
+      A detecção de ação nova no Diário quebrou essa premissa: entram processos
+      em que o polo ativo é um TERCEIRO — alguém processando o sindicato. Medido
+      em 07/09/2026: o processo 0805944-21.2026.8.18.0176, em que CARLOS ALBERTO
+      move ação e o SENATEPI é réu, entrou marcado "Ação institucional (SENATEPI)".
+      É o oposto do que aconteceu, e contamina o filtro "nosso papel", a fila de
+      "sem filiado vinculado" e o painel.
     */
     const filiados = partes
       .filter((x) => x.filiadoId)
       .map((x) => porId.get(x.filiadoId!)!)
       .filter(Boolean);
-    return { institucional: filiados.length === 0, filiados, avulso: null, partes };
+    const sindicatoNoPolo = !!sindicato && partes.some((x) => x.parteExternaId === sindicato.id);
+    return {
+      institucional: filiados.length === 0 && sindicatoNoPolo,
+      filiados,
+      avulso: null,
+      partes,
+    };
   }
 
   /**
