@@ -9,7 +9,11 @@ export const FONTE_DJEN = 'DJEN';
 
 export interface EntradaLogSync {
   processoId?: string | null;
-  numeroCNJ: string;
+  /**
+   * NULO só na linha de RESUMO da varredura — ela fala da rodada, não de um
+   * processo. Toda chamada a processo continua obrigada a informar o número.
+   */
+  numeroCNJ?: string | null;
   tribunal?: string | null;
   /** Omitido = DATAJUD, que era a única fonte quando esta tabela nasceu. */
   fonte?: string;
@@ -44,7 +48,7 @@ export class SincronizacaoLogService {
       await this.prisma.logSincronizacaoDatajud.create({
         data: {
           processoId: e.processoId ?? null,
-          numeroCNJ: e.numeroCNJ,
+          numeroCNJ: e.numeroCNJ ?? null,
           tribunal: e.tribunal ?? null,
           fonte: e.fonte ?? FONTE_DATAJUD,
           origem: e.origem,

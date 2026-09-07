@@ -2786,7 +2786,9 @@ enum OrigemSincronizacao {
 model LogSincronizacaoDatajud {
   id         String  @id @default(uuid())
   processoId String? @map("processo_id")
-  numeroCNJ  String  @map("numero_cnj")
+  /// NULO na linha de RESUMO da varredura — ela fala da rodada, não de um
+  /// processo. Ver a migração `log_de_varredura_sem_npu`.
+  numeroCNJ  String? @map("numero_cnj")
   tribunal   String?
   /// QUAL API foi chamada: "DATAJUD" ou "DJEN".
   ///

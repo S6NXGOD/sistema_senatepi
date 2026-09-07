@@ -141,7 +141,10 @@ describe('a agenda mostra o teor que originou a atividade', () => {
 describe('o painel', () => {
   it('tem bloco de publicações', () => {
     expect(PAINEL).toContain('function PublicacoesDjen(');
-    expect(PAINEL).toContain('<PublicacoesDjen djen={data.djen} />');
+    // `calado` entrou para o bloco não repetir o que a barra de integrações
+    // já disse — duas faixas para o mesmo fato ensinam a ignorar as duas.
+    expect(PAINEL).toContain('<PublicacoesDjen djen={data.djen}');
+    expect(PAINEL).toContain('calado={integracaoDjenComProblema(data)}');
   });
 
   /** Integração desligada não desenha nada — bloco permanente seria ruído. */
@@ -160,9 +163,15 @@ describe('o painel', () => {
    * Silêncio curto tem explicação inocente — fim de semana, recesso. O aviso
    * informa em vez de acusar.
    */
+  /**
+   * O aviso continua em tom de atenção — mas a frase mudou: ela dizia "fim de
+   * semana e recesso explicam silêncio curto" e aparecia JUSTAMENTE por causa
+   * do fim de semana, porque o corte era em horas. Agora conta dia útil e o
+   * texto diz isso.
+   */
   it('o aviso de silêncio não grita', () => {
     const bloco = BLOCO_DJEN;
-    expect(bloco).toContain('Fim de semana e recesso');
+    expect(bloco).toContain('O Diário não circula no fim de semana');
     expect(bloco).not.toMatch(/tom="critico"/);
   });
 

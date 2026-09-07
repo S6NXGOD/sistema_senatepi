@@ -398,7 +398,18 @@ function Conteudo({
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
       {pode.processos && <AvisoRobo robo={data.robo} />}
-      {pode.processos && <PublicacoesDjen djen={data.djen} />}
+      {/*
+        A MESMA COISA DUAS VEZES NÃO É DOIS AVISOS.
+
+        Quando a barra de integrações já diz que o DJEN parou ou não rodou, o
+        "nenhuma publicação nova" logo abaixo é a CONSEQUÊNCIA disso —
+        apresentada como se fosse um achado independente. Foi o que a tela do
+        usuário mostrou: duas faixas sobre o DJEN, uma vermelha e uma âmbar,
+        dizendo o mesmo fato de dois ângulos.
+      */}
+      {pode.processos && (
+        <PublicacoesDjen djen={data.djen} calado={integracaoDjenComProblema(data)} />
+      )}
 
       {/* Audiências a agendar (DataJud → Agenda) — o alerta mais acionável da
           home: vem antes das barras porque cada item tem um "próximo passo". */}
@@ -641,7 +652,21 @@ function AlertBar({
  * DESLIGADA não desenha nada. Um bloco permanente dizendo "integração
  * desativada" seria ruído numa instalação que escolheu não usar o DJEN.
  */
-function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
+/** A barra de integrações já está falando do DJEN? */
+function integracaoDjenComProblema(data: ResumoDashboard): boolean {
+  return (data.integracoes ?? []).some(
+    (i) => i.fonte === 'DJEN' && i.situacao !== 'OK' && i.situacao !== 'SEM_USO',
+  );
+}
+
+function PublicacoesDjen({
+  djen,
+  calado,
+}: {
+  djen: ResumoDashboard['djen'];
+  /** A barra de integrações já explicou o silêncio — não repita. */
+  calado?: boolean;
+}) {
   if (!djen.ativa) return null;
 
   const desde = djen.ultimaEm ? idadeDoDado(new Date(djen.ultimaEm).getTime()) : null;
@@ -657,10 +682,26 @@ function PublicacoesDjen({ djen }: { djen: ResumoDashboard['djen'] }) {
   }
 
   if (djen.situacao === 'SILENCIOSA') {
+    // A barra de integrações já disse por quê; repetir aqui é a mesma notícia
+    // com outra cor, e duas faixas para um fato ensinam a ignorar as duas.
+    if (calado) return null;
+    /*
+      A FRASE CONTRADIZIA A PRÓPRIA FAIXA.
+
+      Ela dizia "fim de semana e recesso explicam silêncio curto" — e aparecia
+      justamente no domingo, por causa do fim de semana. O corte era em 48
+      HORAS; agora é em dias ÚTEIS, e o texto conta dia útil, que é a unidade
+      em que o Diário existe.
+    */
+    const uteis = djen.diasUteisSemNada;
     return (
       <AlertBar tom="atencao" href="/processos" acao="Ver processos">
-        Nenhuma publicação nova do DJEN {desde}. Fim de semana e recesso
-        explicam silêncio curto — mais que isso, vale conferir a integração.
+        Nenhuma publicação nova do DJEN{' '}
+        {uteis != null
+          ? `há ${uteis} dia${uteis === 1 ? '' : 's'} útil${uteis === 1 ? '' : 'eis'}`
+          : desde}
+        . O Diário não circula no fim de semana, então a conta já pula sábado e
+        domingo — vale conferir a integração.
       </AlertBar>
     );
   }
@@ -1419,7 +1460,7 @@ function CadastrosACompletar({
  */
 function SaudeDasIntegracoes({ data }: { data: ResumoDashboard }) {
   const problemas = (data.integracoes ?? []).filter(
-    (i) => i.situacao === 'PARADA' || i.situacao === 'INSTAVEL',
+    (i) => i.situacao === 'PARADA' || i.situacao === 'INSTAVEL' || i.situacao === 'NAO_RODOU',
   );
   if (problemas.length === 0) return null;
 
@@ -1427,17 +1468,29 @@ function SaudeDasIntegracoes({ data }: { data: ResumoDashboard }) {
     <>
       {problemas.map((i) => {
         const parada = i.situacao === 'PARADA';
+        const naoRodou = i.situacao === 'NAO_RODOU';
         const desde = i.ultimoSucesso
           ? new Date(i.ultimoSucesso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
           : null;
         return (
-          <AlertBar key={i.fonte} tom={parada ? 'critico' : 'atencao'}>
+          <AlertBar key={i.fonte} tom={parada || naoRodou ? 'critico' : 'atencao'}>
             <strong className="font-semibold">{i.fonte}</strong>{' '}
-            {parada ? (
+            {naoRodou ? (
+              /*
+                NINGUÉM TENTOU — e dizer "consulta mal-sucedida" mandava a pessoa
+                investigar o lado errado. Isto aqui é o agendador, não o CNJ.
+              */
               <>
-                sem nenhuma consulta bem-sucedida{' '}
-                {desde ? `desde ${desde}` : 'até agora'}. As duas varreduras rodam toda
-                madrugada — dois dias em silêncio é defeito, não folga.
+                não fez <strong>nenhuma consulta</strong> nas últimas 24h — nem
+                bem-sucedida, nem com erro.{' '}
+                {desde ? `A última foi em ${desde}. ` : ''}
+                Não é o CNJ recusando: é a varredura que não executou.
+              </>
+            ) : parada ? (
+              <>
+                tentou e não obteve resposta{' '}
+                {desde ? `desde ${desde}` : 'até agora'}. As varreduras rodam toda
+                madrugada — dois dias sem uma consulta que volte é defeito.
               </>
             ) : (
               <>

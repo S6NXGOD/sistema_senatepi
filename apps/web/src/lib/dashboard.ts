@@ -173,10 +173,16 @@ export interface ResumoDashboard {
     /**
      * DESLIGADA   integração off — escolha, não falha
      * PRIMEIRA    ligada, nunca trouxe nada
-     * EM_DIA      trouxe publicação nas últimas 48h
-     * SILENCIOSA  já trouxe antes e parou há mais de 48h
+     * EM_DIA      trouxe publicação há menos de 2 DIAS ÚTEIS
+     * SILENCIOSA  já trouxe antes e parou há 2+ dias úteis
+     *
+     * DIAS ÚTEIS, e não horas: o Diário não circula no fim de semana — das
+     * 1.408 publicações da produção, ZERO são de sábado ou domingo. Com corte
+     * em horas, todo domingo a home acusava silêncio.
      */
     situacao: 'DESLIGADA' | 'PRIMEIRA' | 'EM_DIA' | 'SILENCIOSA';
+    /** Dias úteis desde a última publicação. Opcional: API antiga não manda. */
+    diasUteisSemNada?: number | null;
     /** ATOS dos últimos 7 dias — já sem as cópias por destinatário. */
     publicacoes7d: number;
     ultimaEm: string | null;
@@ -290,7 +296,12 @@ export interface ResumoDashboard {
   integracoes:
     | {
         fonte: string;
-        situacao: 'OK' | 'INSTAVEL' | 'PARADA' | 'SEM_USO';
+        /**
+         * `NAO_RODOU` é diferente de `PARADA`, e a diferença manda em quem se
+         * procura: PARADA é "tentamos e não voltou" (CNJ, ponte, certificado);
+         * NAO_RODOU é "ninguém tentou" (agendador, flag desligada).
+         */
+        situacao: 'OK' | 'INSTAVEL' | 'PARADA' | 'NAO_RODOU' | 'SEM_USO';
         ok24: number;
         falhas24: number;
         ultimoSucesso: string | null;

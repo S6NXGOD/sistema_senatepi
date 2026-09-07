@@ -85,7 +85,19 @@ export class DjenSyncService {
    * chamadas) fique com o cron, que é quem conhece o rate limit — e para que a
    * rota manual possa rodar sem espera.
    */
-  async varrer(aguardar: () => Promise<void> = async () => {}): Promise<ResumoVarreduraDjen> {
+  /**
+   * A VARREDURA, com a garantia de deixar rastro até quando quebra.
+   *
+   * O resumo é gravado num `finally`: se `varrer` estourar no meio — banco
+   * fora, correlação com defeito — a rodada teria acontecido e o log ficaria
+   * vazio, e a tela diria "não rodou" sobre uma rodada que rodou e explodiu.
+   * Seria trocar um diagnóstico errado por outro.
+   */
+  async varrer(
+    aguardar: () => Promise<void> = async () => {},
+    origem: OrigemSincronizacao = OrigemSincronizacao.CRON,
+  ): Promise<ResumoVarreduraDjen> {
+    const iniciadaEm = Date.now();
     const resumo: ResumoVarreduraDjen = {
       advogadosConsultados: 0,
       processosConsultados: 0,
@@ -94,7 +106,22 @@ export class DjenSyncService {
       descartadas: 0,
       falhas: 0,
     };
+    let quebrou: string | null = null;
+    try {
+      await this.executarVarredura(resumo, aguardar);
+    } catch (err) {
+      quebrou = (err as Error).message;
+      throw err;
+    } finally {
+      await this.registrarResumo(resumo, origem, iniciadaEm, quebrou);
+    }
+    return resumo;
+  }
 
+  private async executarVarredura(
+    resumo: ResumoVarreduraDjen,
+    aguardar: () => Promise<void>,
+  ): Promise<void> {
     const ate = new Date();
     const de = new Date(ate.getTime() - this.djen.janelaDias * 24 * 3_600_000);
 
@@ -154,7 +181,6 @@ export class DjenSyncService {
         `${resumo.recebidas} recebida(s), ${resumo.ingeridas} gravada(s), ` +
         `${resumo.descartadas} descartada(s) (processo não cadastrado), ${resumo.falhas} falha(s).`,
     );
-    return resumo;
   }
 
   /** Varredura de UM processo — usada pelo botão da ficha. */
@@ -350,6 +376,61 @@ export class DjenSyncService {
     }
 
     return { ingeridas: count, descartadas };
+  }
+
+  /**
+   * A RODADA GRAVA QUE ELA ACONTECEU — mesmo sem trazer nada, mesmo quebrando.
+   *
+   * Este log só ganhava linha quando havia publicação NOVA para gravar (uma por
+   * processo contemplado). Numa varredura de fim de semana, quando o Diário não
+   * circula, a rodada corria inteira, consultava as oito OABs, não achava nada —
+   * e não deixava rastro nenhum.
+   *
+   * A tela lia "nenhuma consulta bem-sucedida em 48h" e anunciava a integração
+   * como PARADA, em vermelho. Foi o que o usuário viu num domingo à noite: as
+   * 1.408 publicações do acervo não têm UMA de sábado ou domingo, e mesmo assim
+   * o painel acusava defeito.
+   *
+   * O DataJud sempre registrou toda tentativa, frutífera ou não. Isto devolve a
+   * simetria: uma linha por rodada, sem NPU — ela fala da rodada, não de um
+   * processo.
+   */
+  private async registrarResumo(
+    resumo: ResumoVarreduraDjen,
+    origem: OrigemSincronizacao,
+    iniciadaEm: number,
+    quebrou: string | null,
+  ): Promise<void> {
+    /*
+      TENTATIVAS, e não consultas BEM-SUCEDIDAS.
+
+      Eu somava `advogadosConsultados + processosConsultados`, e os dois só são
+      incrementados quando a chamada VOLTA. Rodando de verdade contra uma rede
+      onde o CNJ recusa tudo, o resultado foi uma linha dizendo "varredura sem
+      alvo" depois de 14 minutos consultando — a mensagem exata que se escreve
+      para "não havia o que consultar". Só apareceu porque eu rodei.
+    */
+    const tentativas =
+      resumo.advogadosConsultados + resumo.processosConsultados + resumo.falhas;
+    const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;
+    await this.logSync.registrar({
+      fonte: FONTE_DJEN,
+      origem,
+      // Uma rodada em que TUDO falhou não é bem-sucedida. Uma que consultou e
+      // não achou nada é — e é o caso normal de fim de semana.
+      sucesso: !quebrou && tentativas > 0 && !tudoFalhou,
+      novasMovimentacoes: resumo.ingeridas,
+      duracaoMs: Date.now() - iniciadaEm,
+      mensagemErro: quebrou
+        ? `Varredura interrompida: ${quebrou}`
+        : tentativas === 0
+          ? 'Varredura sem alvo: nenhum advogado com OAB e nenhum processo elegível.'
+          : tudoFalhou
+            ? `Varredura sem resposta: as ${tentativas} consulta(s) falharam.`
+            : resumo.falhas > 0
+              ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha.`
+              : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s).`,
+    });
   }
 
   /**

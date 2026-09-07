@@ -1,0 +1,118 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const lerCodigo = (rel: string) =>
+  readFileSync(resolve(__dirname, rel), 'utf8')
+    .replace(/\r\n/g, '\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+
+const SYNC = lerCodigo('djen-sync.service.ts');
+const DASH = lerCodigo('../dashboard/dashboard.module.ts');
+
+/**
+ * A VARREDURA DO DJEN NÃO DEIXAVA RASTRO DE TER RODADO.
+ *
+ * `logSync.registrar` só era chamado quando havia publicação NOVA para gravar —
+ * uma linha por processo contemplado. Numa varredura de fim de semana, quando o
+ * Diário não circula, a rodada corria inteira, consultava as oito OABs, não
+ * achava nada e não gravava linha nenhuma.
+ *
+ * A home então lia "nenhuma consulta bem-sucedida em 48h" e anunciava a
+ * integração como PARADA, em vermelho, num domingo à noite. Medido na produção:
+ * 100 chamadas ao DJEN desde que a ponte subiu, ZERO falhas. A integração
+ * estava perfeita.
+ */
+describe('a rodada grava que aconteceu', () => {
+  it('escreve uma linha de resumo ao fim da varredura', () => {
+    expect(SYNC).toContain('await this.logSync.registrar({');
+    expect(SYNC).toContain('novasMovimentacoes: resumo.ingeridas');
+    expect(SYNC).toContain('duracaoMs: Date.now() - iniciadaEm');
+  });
+
+  /** A linha fala da RODADA, não de um processo — daí o NPU ausente. */
+  it('a linha de resumo não carrega NPU', () => {
+    const i = SYNC.indexOf('const tentativas =');
+    const bloco = SYNC.slice(i, i + 900);
+    expect(bloco).not.toContain('numeroCNJ');
+    expect(bloco).toContain('fonte: FONTE_DJEN');
+  });
+
+  /**
+   * E GRAVA ATÉ QUANDO A RODADA QUEBRA. Sem o `finally`, uma varredura que
+   * estourasse no meio não deixaria linha — e a tela diria "não rodou" sobre
+   * uma rodada que rodou e explodiu. Seria trocar um diagnóstico errado por
+   * outro.
+   */
+  it('o resumo sai no finally, mesmo se a varredura estourar', () => {
+    expect(SYNC).toContain('await this.executarVarredura(resumo, aguardar);');
+    expect(SYNC).toContain('} finally {');
+    expect(SYNC).toContain('await this.registrarResumo(resumo, origem, iniciadaEm, quebrou);');
+    expect(SYNC).toContain('sucesso: !quebrou && tentativas > 0 && !tudoFalhou');
+    expect(SYNC).toContain('`Varredura interrompida: ${quebrou}`');
+  });
+
+  /** E o erro continua subindo — engolir a exceção esconderia a quebra. */
+  it('e o erro continua propagando', () => {
+    expect(SYNC).toContain('quebrou = (err as Error).message;');
+    expect(SYNC).toContain('throw err;');
+  });
+
+  /**
+   * TENTATIVAS, e não consultas bem-sucedidas. `advogadosConsultados` e
+   * `processosConsultados` só sobem quando a chamada VOLTA — somar só os dois
+   * fazia uma rodada de 14 minutos em que tudo falhou ser registrada como
+   * "varredura sem alvo". Só apareceu rodando de verdade.
+   */
+  it('conta tentativas, e não sucessos', () => {
+    expect(SYNC).toContain(
+      'resumo.advogadosConsultados + resumo.processosConsultados + resumo.falhas',
+    );
+    expect(SYNC).toContain('const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;');
+  });
+
+  /** Rodar e não achar nada é SUCESSO — é o caso normal de fim de semana. */
+  it('não achar nada não é falha', () => {
+    expect(SYNC).toContain('tentativas > 0 && !tudoFalhou');
+    expect(SYNC).toContain('const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;');
+  });
+
+  /** O manual precisa aparecer como manual — senão o log mente sobre a origem. */
+  it('a varredura pedida por alguém entra como MANUAL', () => {
+    const CTRL = lerCodigo('djen.controller.ts');
+    expect(CTRL).toContain('this.sync.varrer(undefined, OrigemSincronizacao.MANUAL)');
+  });
+});
+
+/**
+ * "NÃO RODOU" NÃO É "FALHOU" — e a faixa dizia a segunda coisa.
+ *
+ * Quem lê "consulta mal-sucedida" vai atrás do CNJ, da ponte, do certificado.
+ * Quem lê "o robô não rodou" vai atrás do agendador. São investigações
+ * diferentes, e o dado para separá-las sempre esteve no log.
+ */
+describe('a saúde das fontes separa quem não tentou', () => {
+  it('zero chamadas com sucesso antigo vira NAO_RODOU', () => {
+    expect(DASH).toContain("? 'NAO_RODOU'");
+    expect(DASH).toContain(': chamadas24 === 0');
+  });
+
+  /** Nunca ligada continua sendo SEM_USO — alarme sobre função desligada, não. */
+  it('nunca usada continua SEM_USO', () => {
+    expect(DASH).toContain("const situacao = !l.ultimo_sucesso && chamadas24 === 0\n        ? 'SEM_USO'");
+  });
+});
+
+/**
+ * O SILÊNCIO SE MEDE EM DIAS ÚTEIS.
+ */
+describe('o silêncio do DJEN', () => {
+  it('conta dia útil, não hora', () => {
+    expect(DASH).toContain('const diasUteisSemNada = ultimaEm ? diasUteisEntre(ultimaEm, agora) : null;');
+    expect(DASH).toContain('diasUteisSemNada! < 2');
+  });
+
+  it('e devolve o número para a tela poder dizê-lo', () => {
+    expect(DASH).toContain('diasUteisSemNada,');
+  });
+});

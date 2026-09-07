@@ -12,7 +12,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { UserRole } from '@prisma/client';
+import { OrigemSincronizacao, UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -213,6 +213,12 @@ export class DjenController {
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Varredura completa do DJEN (OAB dos advogados + processos mudos).' })
   varrer() {
-    return this.sync.varrer();
+    /*
+      MANUAL, e não CRON. O parâmetro existe para dizer QUEM disparou, e a
+      rota deixava o padrão passar — a varredura clicada por alguém aparecia no
+      log como se fosse a das 5h. Sem isto, a linha de resumo mentiria sobre a
+      origem justamente na hora em que alguém está investigando.
+    */
+    return this.sync.varrer(undefined, OrigemSincronizacao.MANUAL);
   }
 }

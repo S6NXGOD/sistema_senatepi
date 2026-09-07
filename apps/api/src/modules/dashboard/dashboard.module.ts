@@ -1,4 +1,5 @@
 import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { diasUteisEntre } from './dias-uteis';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   StatusAtendimento,
@@ -1173,11 +1174,29 @@ export class DashboardService {
     const HORA = 3_600_000;
     const horasSemNada = ultimaEm ? (agora.getTime() - ultimaEm.getTime()) / HORA : null;
 
+    /*
+      O SILÊNCIO SE MEDE EM DIAS ÚTEIS — e antes se media em horas.
+
+      Conferido nas 1.408 publicações da produção: **nenhuma** tem data de
+      disponibilização de sábado ou domingo. Segunda 339, terça 201, quarta 322,
+      quinta 271, sexta 275, fim de semana ZERO. O Diário não circula.
+
+      Com o corte em 48 HORAS, todo domingo à noite a home acusava a integração
+      de silenciosa — e o texto ainda dizia, contradizendo a própria faixa,
+      "fim de semana e recesso explicam silêncio curto". Foi o que o usuário viu:
+      54h de silêncio que eram sexta à noite, sábado e domingo.
+
+      Contando dia útil, esse mesmo intervalo dá ZERO e a faixa não aparece. Dois
+      dias ÚTEIS sem publicação nenhuma, esse sim é estranho num acervo de 122
+      processos.
+    */
+    const diasUteisSemNada = ultimaEm ? diasUteisEntre(ultimaEm, agora) : null;
+
     const situacao = !ativa
       ? 'DESLIGADA'
       : !ultimaEm
         ? 'PRIMEIRA'
-        : horasSemNada! <= 48
+        : diasUteisSemNada! < 2
           ? 'EM_DIA'
           : 'SILENCIOSA';
 
@@ -1194,6 +1213,8 @@ export class DashboardService {
     return {
       ativa,
       situacao,
+      /** Dias ÚTEIS desde a última publicação — é o que a frase precisa dizer. */
+      diasUteisSemNada,
       /** ATOS disponibilizados nos últimos 7 dias, já sem as cópias. */
       publicacoes7d: atos.size,
       ultimaEm,
@@ -1621,13 +1642,28 @@ export class DashboardService {
       const chamadas24 = ok24 + falhas24;
       const temSucessoRecente = !!l.ultimo_sucesso && l.ultimo_sucesso > desde48h;
 
+      /*
+        "NÃO RODOU" NÃO É "FALHOU" — e a tela dizia a segunda coisa.
+
+        A faixa anunciava "DJEN sem nenhuma consulta bem-sucedida desde … —
+        dois dias em silêncio é defeito", em vermelho, num domingo à noite. As
+        duas frases estavam erradas: não houve consulta NENHUMA (nem falha), e
+        o silêncio era sábado e domingo.
+
+        Quem lê "consulta mal-sucedida" vai atrás do CNJ, da ponte, do
+        certificado. Quem lê "o robô não rodou" vai atrás do agendador. São
+        investigações diferentes, e o dado para separá-las sempre esteve aqui:
+        `chamadas24 === 0` com sucesso antigo significa que ninguém tentou.
+      */
       const situacao = !l.ultimo_sucesso && chamadas24 === 0
         ? 'SEM_USO'
-        : !temSucessoRecente
-          ? 'PARADA'
-          : chamadas24 > 0 && falhas24 / chamadas24 > 0.2
-            ? 'INSTAVEL'
-            : 'OK';
+        : chamadas24 === 0
+          ? 'NAO_RODOU'
+          : !temSucessoRecente
+            ? 'PARADA'
+            : falhas24 / chamadas24 > 0.2
+              ? 'INSTAVEL'
+              : 'OK';
 
       return {
         fonte: l.fonte,
