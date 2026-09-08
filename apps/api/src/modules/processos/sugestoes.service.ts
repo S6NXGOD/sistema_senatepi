@@ -262,12 +262,49 @@ export class SugestoesService {
     for (const s of sugestoes) {
       try {
         const partes = Array.isArray(s.partes) ? (s.partes as { nome?: string; polo?: string }[]) : [];
-        const nomes = (polo: 'A' | 'P') =>
+        const cru = (polo: 'A' | 'P') =>
           partes
             .filter((x) => (x?.polo ?? '').trim().toUpperCase() === polo)
             .map((x) => (x?.nome ?? '').trim())
             .filter(Boolean)
             .filter((n, i, todos) => todos.indexOf(n) === i);
+
+        /*
+          RECURSO NÃO ENTRA NO LOTE — sai da fila com o motivo escrito.
+
+          Em recurso os dois lados recorrem, e o tribunal lista a mesma parte
+          como recorrente E recorrida. A sugestão acumula as partes de TODAS as
+          publicações do processo (24 no 0001023-67.2025.5.22.0001), então a
+          mesma empresa acaba com polo `A` numas e `P` noutras.
+
+          Sem trava nenhuma, o lote gravava um processo em que a EBSERH processa
+          a EBSERH. Só descartar a parte ambígua também não serve: medido nas 30
+          da fila, o único caso ficaria com autor e NENHUM réu — um processo pela
+          metade, criado em silêncio, que ninguém revisa porque parece pronto.
+
+          E não dá para adivinhar o lado: o polo de um recurso é a posição
+          RECURSAL, não a da ação original. Chutar seria palpite com cara de
+          fato — a mesma regra que o `AMBOS` da varredura já respeita.
+
+          Então o lote RECUSA e explica. A recusa aparece agrupada por motivo no
+          aviso da tela, a sugestão continua PENDENTE, e o cadastro pela tela
+          pergunta o lado de cada parte com um clique. Um caso em trinta.
+        */
+        const chaveNome = (n: string) =>
+          n.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+        const noPassivo = new Set(cru('P').map(chaveNome));
+        const ambiguos = cru('A').filter((n) => noPassivo.has(chaveNome(n)));
+        if (ambiguos.length) {
+          resultados.push({
+            numeroCNJ: s.numeroCNJ,
+            ok: false,
+            motivo:
+              `é recurso e o Diário lista ${ambiguos.length} parte(s) nos dois polos; ` +
+              'cadastre pela tela para escolher o lado de cada uma',
+          });
+          continue;
+        }
+        const nomes = (polo: 'A' | 'P') => cru(polo);
 
         const ehNos = (nome: string) => nossoPoloNoAto([{ nome, polo: 'A' }], sigla) !== null;
 

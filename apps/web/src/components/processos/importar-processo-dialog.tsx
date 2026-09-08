@@ -202,6 +202,14 @@ export function ImportarProcessoDialog({
    * com o aviso de parecidos ainda na tela convidando a repetir.
    */
   const [reus, setReus] = useState<ParteEditavel[]>([]);
+  /**
+   * AS PARTES QUE O DIÁRIO PÔS NOS DOIS POLOS.
+   *
+   * Só acontece em recurso, quando os dois lados recorreram — 11% dos casos
+   * medidos na varredura. Elas não entram em polo nenhum até alguém escolher:
+   * ver o comentário do efeito que preenche as partes.
+   */
+  const [nosDoisPolos, setNosDoisPolos] = useState<ParteEditavel[]>([]);
   const sugestoesHistorico = useQuery({
     queryKey: ['sugestao-advogado', filiadoSelecionado],
     queryFn: () => sugerirAdvogado(filiadoSelecionado as string),
@@ -241,23 +249,68 @@ export function ImportarProcessoDialog({
     — exatamente a duplicata que o gate de organizações existe para evitar.
   */
   useEffect(() => {
-    if (!open || !partesIniciais?.length) return;
+    if (!open) return;
+    if (!partesIniciais?.length) {
+      // Abrir a mão (sem vir da fila) não pode herdar a ambiguidade da última.
+      setNosDoisPolos([]);
+      return;
+    }
 
-    const doDiario = (poloBuscado: 'A' | 'P'): ParteEditavel[] =>
+    /*
+      NINGUÉM ENTRA NOS DOIS POLOS. Nem que o Diário diga que sim.
+
+      Em RECURSO os dois lados recorrem, e aí o tribunal lista a mesma parte
+      como recorrente E como recorrida. A sugestão acumula as partes ao longo de
+      todas as publicações do processo — no 0001023-67.2025.5.22.0001 foram 24 —
+      então a EBSERH aparece com polo `A` numas e `P` noutras, e o SENATEPI
+      também.
+
+      Preenchendo os dois polos com o que veio, o formulário montava um processo
+      em que **a EBSERH processa a EBSERH** e o sindicato é autor e réu de si
+      mesmo. Ficava com cara de dado conferido, e ia poluir adversários
+      recorrentes, o filtro de réu e a própria detecção de polo dos atos futuros.
+
+      E não dá para adivinhar o lado certo: o polo que o Diário informa num
+      recurso é a posição RECURSAL, não a da ação original. Chutar seria um
+      palpite com cara de fato — o módulo já tem essa regra escrita para o
+      `AMBOS` da varredura, e vale igual aqui.
+
+      Então a parte ambígua não entra em polo nenhum: vai para uma faixa própria
+      que explica o porquê e pede um clique. Um clique é barato; um cadastro
+      errado que ninguém desconfia, não.
+    */
+    const porPolo = (poloBuscado: 'A' | 'P') =>
       partesIniciais
         .filter((x) => (x?.polo ?? '').trim().toUpperCase() === poloBuscado)
         .map((x) => (x?.nome ?? '').trim())
-        .filter(Boolean)
-        .map((nome) =>
-          ehOSindicato(nome, tenant.sigla)
-            ? ({ tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' } as const)
-            : ({ tipo: 'AVULSA', nome, detalhe: 'Como consta no Diário' } as const),
-        )
+        .filter(Boolean);
+
+    const nosAtivos = porPolo('A');
+    const nosPassivos = porPolo('P');
+    const chave = (n: string) => normalizarNome(n);
+    const passivosNormalizados = new Set(nosPassivos.map(chave));
+    const ambos = new Set(nosAtivos.filter((n) => passivosNormalizados.has(chave(n))).map(chave));
+
+    const paraParte = (nome: string): ParteEditavel =>
+      ehOSindicato(nome, tenant.sigla)
+        ? ({ tipo: 'INSTITUCIONAL', nome: tenant.nome, detalhe: 'O próprio sindicato' } as const)
+        : ({ tipo: 'AVULSA', nome, detalhe: 'Como consta no Diário' } as const);
+
+    const semAmbiguas = (nomes: string[]): ParteEditavel[] =>
+      nomes
+        .filter((n) => !ambos.has(chave(n)))
+        .map(paraParte)
         // Um mesmo nome pode vir repetido no ato (recurso lista de novo).
         .filter((parte, i, todas) => todas.findIndex((o) => o.nome === parte.nome) === i);
 
-    setPoloAtivo(doDiario('A'));
-    setReus(doDiario('P'));
+    setPoloAtivo(semAmbiguas(nosAtivos));
+    setReus(semAmbiguas(nosPassivos));
+    setNosDoisPolos(
+      [...ambos]
+        .map((k) => nosAtivos.find((n) => chave(n) === k))
+        .filter(Boolean)
+        .map((nome) => paraParte(nome as string)),
+    );
   }, [open, partesIniciais]);
 
   /*
@@ -479,6 +532,18 @@ export function ImportarProcessoDialog({
   function acrescentarNoPolo(polo: 'ATIVO' | 'PASSIVO', nova: ParteEditavel) {
     const por = polo === 'ATIVO' ? setPoloAtivo : setReus;
     por((atual) => (jaEstaNaLista(atual, nova) ? atual : [...atual, nova]));
+  }
+
+  /**
+   * Coloca a parte ambígua no lado escolhido e a tira da faixa.
+   *
+   * `jaEstaNaLista` porque a pessoa pode ter acrescentado o mesmo nome à mão
+   * antes de decidir — dois cliques não podem virar duas linhas iguais.
+   */
+  function resolverAmbigua(parte: ParteEditavel, lado: 'A' | 'P') {
+    const por = lado === 'A' ? setPoloAtivo : setReus;
+    por((atual) => (jaEstaNaLista(atual, parte) ? atual : [...atual, parte]));
+    setNosDoisPolos((atual) => atual.filter((x) => x.nome !== parte.nome));
   }
 
   const sindicatoNoPolo = poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL');
@@ -841,6 +906,64 @@ export function ImportarProcessoDialog({
 
           {/* ================= COLUNA 2 — PARTES DO PROCESSO ================= */}
           <div className="space-y-4">
+
+          {/*
+            RECURSO: A MESMA PARTE NOS DOIS LADOS.
+
+            Vem ANTES dos dois polos de propósito — é a decisão que precisa ser
+            tomada primeiro, e escondê-la abaixo faria a pessoa montar os polos
+            e só depois descobrir que faltava alguém.
+          */}
+          {nosDoisPolos.length > 0 && (
+            <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900/60 dark:bg-amber-950/20">
+              <p className="flex items-start gap-1.5 text-sm font-medium text-amber-900 dark:text-amber-200">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {nosDoisPolos.length === 1
+                    ? 'O Diário lista uma parte nos dois polos'
+                    : `O Diário lista ${nosDoisPolos.length} partes nos dois polos`}
+                </span>
+              </p>
+              <p className="text-[11px] leading-snug text-amber-900/80 dark:text-amber-200/80">
+                É recurso: os dois lados recorreram, então o tribunal marca cada
+                um como recorrente <strong>e</strong> recorrido. Isso não diz de
+                que lado eles estavam na ação original — por isso não preenchi
+                sozinho. Escolha o lado de cada um:
+              </p>
+              <ul className="space-y-1.5">
+                {nosDoisPolos.map((parte) => (
+                  <li
+                    key={parte.nome}
+                    className="flex flex-col gap-1.5 rounded-md border border-amber-200 bg-background p-2 dark:border-amber-900/50 sm:flex-row sm:items-center sm:gap-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-xs" title={parte.nome}>
+                      {parte.nome}
+                      {parte.tipo === 'INSTITUCIONAL' && (
+                        <span className="ml-1 text-muted-foreground">· o próprio sindicato</span>
+                      )}
+                    </span>
+                    <span className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => resolverAmbigua(parte, 'A')}
+                        className="h-8 flex-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:flex-none"
+                      >
+                        Polo ativo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => resolverAmbigua(parte, 'P')}
+                        className="h-8 flex-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:flex-none"
+                      >
+                        Polo passivo
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* ---- POLO ATIVO: quem pede ---- */}
           <div className="space-y-2 rounded-xl border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1148,10 +1271,30 @@ export function ImportarProcessoDialog({
         />
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 p-4">
-          <p className="hidden text-[11px] text-muted-foreground sm:block">
-            <kbd className="rounded border bg-card px-1 font-mono">Enter</kbd> importa ·{' '}
-            <kbd className="rounded border bg-card px-1 font-mono">Esc</kbd> fecha
-          </p>
+          {/*
+            O QUE FICA DE FORA TEM DE SER DITO NA HORA DE DECIDIR.
+
+            A faixa das partes ambíguas fica no alto da coluna 2 — depois de
+            rolar até o rodapé, ela saiu da tela. Importar sem resolver não é
+            erro (dá para completar depois, na aba Partes), mas não pode ser
+            silencioso: a pessoa clica achando que levou tudo.
+          */}
+          {nosDoisPolos.length > 0 ? (
+            <p className="flex items-start gap-1.5 text-[11px] leading-snug text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>
+                {nosDoisPolos.length === 1
+                  ? '1 parte ainda sem lado escolhido — vai ficar de fora'
+                  : `${nosDoisPolos.length} partes ainda sem lado escolhido — vão ficar de fora`}
+                . Dá para completar depois, na aba Partes.
+              </span>
+            </p>
+          ) : (
+            <p className="hidden text-[11px] text-muted-foreground sm:block">
+              <kbd className="rounded border bg-card px-1 font-mono">Enter</kbd> importa ·{' '}
+              <kbd className="rounded border bg-card px-1 font-mono">Esc</kbd> fecha
+            </p>
+          )}
           <div className="ml-auto flex gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={importar.isPending}>
               Cancelar

@@ -225,3 +225,55 @@ describe('o aviso de falha parcial no cadastro em lote', () => {
     expect(FILA).toContain("'motivo não informado'");
   });
 });
+
+/**
+ * O DIÁLOGO NÃO PODE PÔR NINGUÉM NOS DOIS POLOS.
+ *
+ * Caso real do print, 0001023-67.2025.5.22.0001: recurso com 24 publicações, e
+ * o formulário abriu com a EBSERH no polo ativo E no passivo, o SENATEPI
+ * idem — um processo em que a empresa processa a si mesma, com cara de dado
+ * conferido.
+ */
+describe('o diálogo de importar diante de um recurso', () => {
+  const DIALOGO = readFileSync(
+    join(__dirname, '../../../components/processos/importar-processo-dialog.tsx'),
+    'utf8',
+  );
+
+  it('detecta a parte repetida nos dois polos e não a distribui', () => {
+    expect(DIALOGO).toContain('const ambos = new Set(');
+    expect(DIALOGO).toContain('.filter((n) => !ambos.has(chave(n)))');
+    expect(DIALOGO).toContain('setPoloAtivo(semAmbiguas(nosAtivos));');
+    expect(DIALOGO).toContain('setNosDoisPolos(');
+  });
+
+  /**
+   * Não adivinha o lado: o polo de um recurso é a posição RECURSAL, não a da
+   * ação original. A faixa pergunta, com um clique por parte.
+   */
+  it('pergunta o lado em vez de chutar', () => {
+    expect(DIALOGO).toContain('function resolverAmbigua');
+    expect(DIALOGO).toContain('Polo ativo');
+    expect(DIALOGO).toContain('Polo passivo');
+    expect(DIALOGO).toContain('não diz de');
+  });
+
+  /** Dois cliques não podem virar duas linhas iguais. */
+  it('não duplica se a pessoa já tinha acrescentado o nome à mão', () => {
+    expect(DIALOGO).toContain('jaEstaNaLista(atual, parte) ? atual : [...atual, parte]');
+  });
+
+  /**
+   * A faixa fica no alto da coluna das partes; ao rolar até o rodapé ela sai da
+   * tela. Importar sem resolver é permitido, mas não pode ser silencioso.
+   */
+  it('avisa no rodapé o que vai ficar de fora', () => {
+    expect(DIALOGO).toContain('ainda sem lado escolhido');
+    expect(DIALOGO).toContain('Dá para completar depois, na aba Partes');
+  });
+
+  /** Abrir o diálogo na mão não pode herdar a ambiguidade do último aberto. */
+  it('limpa a ambiguidade quando não vem da fila', () => {
+    expect(DIALOGO).toContain('setNosDoisPolos([]);');
+  });
+});

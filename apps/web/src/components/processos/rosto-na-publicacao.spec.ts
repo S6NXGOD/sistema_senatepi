@@ -97,8 +97,13 @@ describe('as partes que o Diário já disse', () => {
 
   it('o diálogo aceita as partes de quem o abriu', () => {
     expect(DIALOGO).toContain('partesIniciais?: { nome?: string | null; polo?: string | null }[] | null;');
-    expect(DIALOGO).toContain("setPoloAtivo(doDiario('A'));");
-    expect(DIALOGO).toContain("setReus(doDiario('P'));");
+    /*
+      `doDiario` virou `semAmbiguas`: a mesma função, agora tirando a parte que
+      o Diário lista nos DOIS polos (recurso). O que este teste garante continua
+      sendo o mesmo — que os dois polos são semeados a partir do que veio.
+    */
+    expect(DIALOGO).toContain('setPoloAtivo(semAmbiguas(nosAtivos));');
+    expect(DIALOGO).toContain('setReus(semAmbiguas(nosPassivos));');
   });
 
   /**
