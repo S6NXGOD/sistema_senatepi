@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { deQuemEAOrdem } from './de-quem-e-a-ordem.util';
 
 /**
@@ -138,5 +140,41 @@ describe('de quem é a ordem do ato', () => {
     expect(deQuemEAOrdem('Intime-se a parte reclamada para pagar.', 'ATIVO', SIGLA)).toBe(
       'DA_OUTRA_PARTE',
     );
+  });
+});
+
+/**
+ * A REGRA TEM UM ARQUIVO E DOIS CONSUMIDORES — o robô e a leitura.
+ *
+ * O robô grava o que decidiu NO DIA (`tarefaDispensadaMotivo`); a busca calcula
+ * `ordemEhNossa` na leitura. São perguntas diferentes e podem discordar sem
+ * contradição: um ato pode ter sido dispensado por ser ANTIGO e, ao mesmo
+ * tempo, trazer ordem da parte contrária.
+ *
+ * Carimbar o acervo inteiro com a regra nova seria reescrever a decisão que o
+ * robô tomou — 59 publicações da produção já têm motivo gravado, e este projeto
+ * não reescreve registro histórico.
+ */
+describe('quem usa a regra', () => {
+  const BUSCA = readFileSync(join(__dirname, '../djen-busca.service.ts'), 'utf8');
+  const CORRELACAO = readFileSync(join(__dirname, '../correlacao.service.ts'), 'utf8');
+
+  it('a busca calcula na leitura, sem tocar no carimbo do robô', () => {
+    expect(BUSCA).toContain("import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util'");
+    expect(BUSCA).toContain('private async comTitularidade<');
+    expect(BUSCA).toContain('ordemEhNossa');
+    // Não escreve nada: leitura é leitura.
+    const fn = BUSCA.slice(BUSCA.indexOf('private async comTitularidade<'));
+    expect(fn.slice(0, 2500)).not.toContain('.update(');
+  });
+
+  it('o robô usa o mesmo util', () => {
+    expect(CORRELACAO).toContain("import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util'");
+  });
+
+  /** O polo sai do VÍNCULO institucional, nunca do nome — nos dois lados. */
+  it('os dois leem o polo do cadastro institucional', () => {
+    expect(BUSCA).toContain('parteExterna: { institucional: true }');
+    expect(CORRELACAO).toContain('parteExterna: { institucional: true }');
   });
 });

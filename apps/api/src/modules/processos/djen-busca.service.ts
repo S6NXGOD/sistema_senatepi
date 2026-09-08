@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
+import { tenant } from '../../tenant/tenant.config';
 
 /**
  * BUSCA NO ACERVO DE PUBLICAÇÕES JÁ BAIXADAS.
@@ -156,7 +158,56 @@ export class DjenBuscaService {
       }),
     ]);
 
-    return { total, pagina, limite, paginas: Math.max(Math.ceil(total / limite), 1), itens };
+    return {
+      total,
+      pagina,
+      limite,
+      paginas: Math.max(Math.ceil(total / limite), 1),
+      itens: await this.comTitularidade(itens),
+    };
+  }
+
+  /**
+   * DE QUEM É A ORDEM — calculado na LEITURA, e de propósito.
+   *
+   * `tarefaDispensadaMotivo` guarda o que o ROBÔ decidiu, no dia em que
+   * decidiu. São perguntas diferentes: uma publicação pode ter sido dispensada
+   * por ser NOTÍCIA VELHA e, ao mesmo tempo, trazer ordem da parte contrária. E
+   * as 1.433 publicações do acervo foram processadas antes de a regra existir —
+   * carimbá-las agora reescreveria a decisão que o robô tomou, que é justamente
+   * o que este projeto não faz com registro histórico.
+   *
+   * Então o campo do robô fica intacto e a tela ganha um dado NOVO, derivado do
+   * mesmo util que a automação usa. Uma regra, um arquivo, dois consumidores.
+   *
+   * CUSTO: uma consulta por página (dezenas de linhas), e um regex por texto.
+   * O polo sai do VÍNCULO com o cadastro institucional, nunca do nome.
+   */
+  private async comTitularidade<
+    T extends { texto: string; processo: { id: string } | null },
+  >(itens: T[]): Promise<(T & { ordemEhNossa: boolean | null })[]> {
+    const ids = [...new Set(itens.map((i) => i.processo?.id).filter(Boolean))] as string[];
+    if (!ids.length) return itens.map((i) => ({ ...i, ordemEhNossa: null }));
+
+    const nossas = await this.prisma.parteProcesso.findMany({
+      where: { processoId: { in: ids }, parteExterna: { institucional: true } },
+      select: { processoId: true, polo: true },
+    });
+    const polos = new Map<string, 'ATIVO' | 'PASSIVO' | null>();
+    for (const id of ids) {
+      const meus = nossas.filter((x) => x.processoId === id);
+      const ativo = meus.some((x) => x.polo === 'ATIVO');
+      const passivo = meus.some((x) => x.polo === 'PASSIVO');
+      // Nos dois polos (recurso) não há papel a comparar.
+      polos.set(id, ativo && !passivo ? 'ATIVO' : passivo && !ativo ? 'PASSIVO' : null);
+    }
+
+    return itens.map((i) => {
+      const lado = deQuemEAOrdem(i.texto, polos.get(i.processo?.id ?? '') ?? null, tenant.sigla);
+      // `null` = indefinido: a tela não afirma nada, que é o certo quando o
+      // texto não permite decidir.
+      return { ...i, ordemEhNossa: lado === 'INDEFINIDO' ? null : lado === 'NOSSA' };
+    });
   }
 
   /**

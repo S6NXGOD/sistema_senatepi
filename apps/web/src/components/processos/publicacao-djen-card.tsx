@@ -35,6 +35,8 @@ export interface PublicacaoExibivel {
   prazoMencionadoDias?: number | null;
   /** POR QUE o robô não criou tarefa — `NOTICIA_VELHA`, `ORDEM_DA_OUTRA_PARTE`. */
   tarefaDispensadaMotivo?: string | null;
+  /** A ordem do ato é nossa? Calculado na leitura; `null` = indefinido. */
+  ordemEhNossa?: boolean | null;
   compromissoId?: string | null;
   advogados?: { nome: string | null; numeroOab: string | null; ufOab: string | null }[] | null;
   /** Quem o tribunal intimou, com o polo — vem dentro da própria publicação. */
@@ -417,7 +419,15 @@ export function PublicacaoDjenCard({
         dias é útil), mas para de sugerir que alguém aqui precisa agir.
       */}
       {pub.prazoMencionadoDias != null &&
-        (pub.tarefaDispensadaMotivo === 'ORDEM_DA_OUTRA_PARTE' ? (
+        (/*
+          O CAMPO CALCULADO MANDA; o carimbo do robô é reforço.
+
+          `tarefaDispensadaMotivo` só existe nas publicações que o robô
+          processou DEPOIS da regra. As 1.433 do acervo vieram antes, e
+          carimbá-las agora reescreveria a decisão dele. `ordemEhNossa` é
+          derivado na leitura e vale para todas.
+        */
+        pub.ordemEhNossa === false || pub.tarefaDispensadaMotivo === 'ORDEM_DA_OUTRA_PARTE' ? (
           <p className="mt-2 flex items-start gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-[11px] leading-snug text-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
             <Bot className="mt-px h-3.5 w-3.5 shrink-0" />
             <span>

@@ -37,6 +37,15 @@ export interface PublicacaoDjen {
    * não criou. É o que separa decisão de falha, e é o que a faixa lê.
    */
   tarefaDispensadaMotivo: string | null;
+  /**
+   * A ordem do ato é NOSSA? Calculado na leitura, pela mesma regra do robô.
+   *
+   * `null` = indefinido, e a tela não afirma nada. Diferente de
+   * `tarefaDispensadaMotivo`, que guarda o que o robô decidiu NO DIA — as duas
+   * podem discordar sem contradição: um ato pode ter sido dispensado por ser
+   * antigo E trazer ordem da parte contrária.
+   */
+  ordemEhNossa?: boolean | null;
   /** Movimentação do DataJud que descreve o mesmo fato. */
   movimentacaoId: string | null;
   destinatarios: { nome: string | null; polo: string | null }[] | null;
