@@ -127,6 +127,9 @@ export class DjenBuscaService {
           tipoDocumento: true, nomeOrgao: true, nomeClasse: true, meio: true,
           link: true, texto: true, dataDisponibilizacao: true, providencia: true,
           prazoMencionadoDias: true, compromissoId: true, movimentacaoId: true,
+          // POR QUE não há tarefa. Sem isto a tela só sabe que não há, e
+          // "sem tarefa" tanto pode ser decisão do robô quanto falha dele.
+          tarefaDispensadaMotivo: true,
           destinatarios: true, advogados: true,
           /*
             AS PARTES VÊM JUNTO, e é o que faltava para a tela fazer sentido.

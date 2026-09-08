@@ -229,6 +229,8 @@ export class DjenController {
         tipoDocumento: true, nomeOrgao: true, nomeClasse: true, meio: true,
         link: true, texto: true, dataDisponibilizacao: true, providencia: true,
         prazoMencionadoDias: true, compromissoId: true, movimentacaoId: true,
+        // POR QUE não há tarefa — ver o comentário da coluna no schema.
+        tarefaDispensadaMotivo: true,
         destinatarios: true, advogados: true,
       },
     });

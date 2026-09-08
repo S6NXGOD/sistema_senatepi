@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ExternalLink, Users } from 'lucide-react';
+import { AlertTriangle, Bot, ChevronDown, ExternalLink, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatData } from '@/lib/agenda';
+import { MOTIVO_SEM_TAREFA } from '@/lib/djen';
 import type { GrupoDePublicacoes } from '@/lib/publicacoes-irmas';
 import { listarAdvogadosDisponiveis, type AdvogadoDisponivel } from '@/lib/processos';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -32,6 +33,9 @@ export interface PublicacaoExibivel {
   tipoComunicacao?: string | null;
   nomeOrgao?: string | null;
   prazoMencionadoDias?: number | null;
+  /** POR QUE o robô não criou tarefa — `NOTICIA_VELHA`, `ORDEM_DA_OUTRA_PARTE`. */
+  tarefaDispensadaMotivo?: string | null;
+  compromissoId?: string | null;
   advogados?: { nome: string | null; numeroOab: string | null; ufOab: string | null }[] | null;
   /** Quem o tribunal intimou, com o polo — vem dentro da própria publicação. */
   destinatarios?: { nome: string | null; polo: string | null }[] | null;
@@ -398,15 +402,56 @@ export function PublicacaoDjenCard({
         oficial depende de dias úteis forenses, feriado da comarca e forma de
         intimação, e o sistema não os conhece.
       */}
-      {pub.prazoMencionadoDias != null && (
-        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
-          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-          <span>
-            O texto menciona prazo de <strong>{pub.prazoMencionadoDias} dias</strong>. Confira a
-            contagem oficial — o sistema não calcula vencimento.
-          </span>
-        </p>
-      )}
+      {/*
+        DE QUEM É O PRAZO — a pergunta que faltava.
+
+        O aviso dizia "o texto menciona prazo de 15 dias" e parava aí. Só que o
+        tribunal publica o MESMO ato para todos os intimados, e a ordem costuma
+        ser de um lado só: no 0000978-59.2022.5.22.0004 o teor manda a
+        RECLAMADA recolher em 15 dias, e o robô criou "Elaborar manifestação"
+        na agenda de um advogado nosso. Cinco das quatorze tarefas que ele criou
+        já tinham sido canceladas à mão.
+
+        Quando o robô conclui que a ordem é da outra parte, o aviso muda de cor
+        e de frase: continua informando o prazo (saber que o adversário tem 15
+        dias é útil), mas para de sugerir que alguém aqui precisa agir.
+      */}
+      {pub.prazoMencionadoDias != null &&
+        (pub.tarefaDispensadaMotivo === 'ORDEM_DA_OUTRA_PARTE' ? (
+          <p className="mt-2 flex items-start gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-[11px] leading-snug text-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+            <Bot className="mt-px h-3.5 w-3.5 shrink-0" />
+            <span>
+              Prazo de <strong>{pub.prazoMencionadoDias} dias</strong> dirigido à{' '}
+              <strong>parte contrária</strong> — nenhuma tarefa foi criada. Se discordar, crie a
+              atividade à mão na Agenda.
+            </span>
+          </p>
+        ) : (
+          <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+            <span>
+              O texto menciona prazo de <strong>{pub.prazoMencionadoDias} dias</strong>. Confira a
+              contagem oficial — o sistema não calcula vencimento.
+            </span>
+          </p>
+        ))}
+
+      {/*
+        E quando NÃO há prazo no texto, a ausência de tarefa continua precisando
+        de explicação — "sem tarefa" calado se lê como falha da automação.
+      */}
+      {pub.prazoMencionadoDias == null &&
+        !pub.compromissoId &&
+        pub.tarefaDispensadaMotivo &&
+        MOTIVO_SEM_TAREFA[pub.tarefaDispensadaMotivo] && (
+          <p
+            className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground"
+            title={MOTIVO_SEM_TAREFA[pub.tarefaDispensadaMotivo].ajuda}
+          >
+            <Bot className="mt-px h-3.5 w-3.5 shrink-0 opacity-60" />
+            <span>Sem tarefa · {MOTIVO_SEM_TAREFA[pub.tarefaDispensadaMotivo].curto}</span>
+          </p>
+        )}
 
       {(copias > 0 || advogados.length > 0) && (
         <div className="mt-2 border-t border-indigo-200/70 pt-2 dark:border-indigo-900/40">

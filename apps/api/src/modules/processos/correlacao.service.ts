@@ -6,6 +6,8 @@ import { montarUrgencia } from '../agenda/equipe.util';
 import { somarDiasUteis, TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
 import { diaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
+import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
+import { tenant } from '../../tenant/tenant.config';
 import {
   classificarProvidencia,
   diasParaLembrete,
@@ -61,7 +63,7 @@ export class CorrelacaoService {
    * Chamado depois de ingerir publicações de um processo.
    */
   async aplicarAposDjen(processoId: string): Promise<{ criadas: number; enriquecidas: number }> {
-    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0 };
+    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0, deOutraParte: 0 };
     try {
       const desde = new Date(Date.now() - this.JANELA_DIAS * 24 * 3_600_000);
 
@@ -282,9 +284,52 @@ export class CorrelacaoService {
                 coisa só: o robô devia ter criado e não criou.
               */
               tarefaDispensadaEm: new Date(),
+              tarefaDispensadaMotivo: 'NOTICIA_VELHA',
             },
           });
           resumo.antigas++;
+          continue;
+        }
+
+        /*
+          O PRAZO É NOSSO, OU DA PARTE CONTRÁRIA?
+
+          O tribunal publica o MESMO ato para todos os intimados, e a ordem
+          costuma ser de um lado só. O robô lia "no prazo de 15 dias" e criava
+          tarefa para o advogado do sindicato sem perguntar de quem era a
+          obrigação. Caso real (0000978-59.2022.5.22.0004):
+
+            "INTIME-SE A RECLAMADA PARA RECOLHIMENTO NO PRAZO DE 15 DIAS"
+
+          Não há uma linha para nós no ato inteiro, e mesmo assim nasceu
+          "Elaborar manifestação" na agenda. Medido em 07/09/2026: das 14
+          atividades que o robô criou, CINCO já tinham sido canceladas à mão —
+          a equipe vinha limpando isso toda semana, sem reportar.
+
+          A trava é deliberadamente tímida: só barra quando ACHA ordem e TODAS
+          são atribuíveis à outra parte. Sem ordem legível, ou com uma ordem
+          que não dê para atribuir, a tarefa nasce como sempre nasceu.
+          Conferido nas 1.433 publicações do acervo: 4,1% seriam barradas,
+          90,4% seguem indefinidas e intocadas — e as 2 tarefas erradas que
+          existiam hoje estão entre as barradas.
+
+          A ASSIMETRIA DECIDE O DESENHO: deixar de avisar um prazo custa o
+          prazo; avisar um que não era nosso custa um clique.
+        */
+        if (deQuemEAOrdem(c.texto, processo.nossoPolo, tenant.sigla) === 'DA_OUTRA_PARTE') {
+          await this.prisma.comunicacaoDjen.update({
+            where: { id: c.id },
+            data: {
+              movimentacaoId,
+              providencia: c.providencia,
+              prazoMencionadoDias: c.prazoMencionadoDias,
+              // A decisão fica GRAVADA, com o motivo: sem tarefa e sem dispensa
+              // continua significando "o robô devia ter criado e não criou".
+              tarefaDispensadaEm: new Date(),
+              tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE',
+            },
+          });
+          resumo.deOutraParte++;
           continue;
         }
 
@@ -312,11 +357,14 @@ export class CorrelacaoService {
       // O pareamento tardio — ver `parearAtrasadas`.
       await this.parearAtrasadas(processoId, desde, movimentacoes);
 
-      if (resumo.criadas || resumo.enriquecidas || resumo.antigas) {
+      if (resumo.criadas || resumo.enriquecidas || resumo.antigas || resumo.deOutraParte) {
         this.logger.log(
           `[CORRELACAO] ${processo.numeroCNJ}: ${resumo.criadas} atividade(s) criada(s), ` +
             `${resumo.enriquecidas} enriquecida(s) com o teor da publicação` +
-            `${resumo.antigas ? `, ${resumo.antigas} anterior(es) ao acompanhamento — só classificada(s)` : ''}.`,
+            `${resumo.antigas ? `, ${resumo.antigas} anterior(es) ao acompanhamento — só classificada(s)` : ''}` +
+            // Sai no log porque é a decisão MAIS nova do robô: se ela começar a
+            // barrar demais, é aqui que se vê antes de alguém reclamar.
+            `${resumo.deOutraParte ? `, ${resumo.deOutraParte} com ordem dirigida à parte contrária — sem tarefa` : ''}.`,
         );
       }
     } catch (err) {
@@ -655,7 +703,18 @@ export class CorrelacaoService {
   private async carregarProcesso(processoId: string): Promise<ProcessoAlvo | null> {
     const p = await this.prisma.processo.findUnique({
       where: { id: processoId },
-      select: { id: true, numeroCNJ: true, advogadoId: true, filiadoId: true },
+      select: {
+        id: true,
+        numeroCNJ: true,
+        advogadoId: true,
+        filiadoId: true,
+        // O polo do sindicato sai do VÍNCULO com o cadastro institucional, não
+        // do nome: as 96 partes que são o sindicato estão todas ligadas a ele.
+        partes: {
+          where: { parteExterna: { institucional: true } },
+          select: { polo: true },
+        },
+      },
     });
     if (!p) return null;
 
@@ -664,7 +723,15 @@ export class CorrelacaoService {
       this.logger.warn('[CORRELACAO] Nenhum usuário ativo para atribuir tarefas — nada criado.');
       return null;
     }
-    return { ...p, responsavelId };
+
+    const noAtivo = p.partes.some((x) => x.polo === 'ATIVO');
+    const noPassivo = p.partes.some((x) => x.polo === 'PASSIVO');
+    // Nos DOIS polos (recurso) não há papel a comparar — fica indefinido, e
+    // indefinido cria tarefa, como sempre.
+    const nossoPolo = noAtivo && !noPassivo ? 'ATIVO' : noPassivo && !noAtivo ? 'PASSIVO' : null;
+
+    const { partes: _partes, ...resto } = p;
+    return { ...resto, responsavelId, nossoPolo };
   }
 
   /** Advogado do processo; sem ele, o primeiro Administrador ativo. */
@@ -701,6 +768,15 @@ interface ProcessoAlvo {
   advogadoId: string | null;
   filiadoId: string | null;
   responsavelId: string;
+  /**
+   * De que lado o SINDICATO está NESTE processo.
+   *
+   * É o que permite ler "intime-se a executada" como ordem nossa quando somos
+   * nós a executada. `null` quando o sindicato não é parte (a ação é do
+   * filiado e nós só patrocinamos) ou quando está nos dois polos — nos dois
+   * casos não dá para atribuir papéis, e a trava não decide nada.
+   */
+  nossoPolo: 'ATIVO' | 'PASSIVO' | null;
 }
 
 /**

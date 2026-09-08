@@ -30,6 +30,13 @@ export interface PublicacaoDjen {
   prazoMencionadoDias: number | null;
   /** Atividade da agenda criada ou enriquecida por esta publicação. */
   compromissoId: string | null;
+  /**
+   * POR QUE o robô não criou tarefa — `NOTICIA_VELHA` ou `ORDEM_DA_OUTRA_PARTE`.
+   *
+   * Sem tarefa E sem motivo significa uma coisa só: o robô devia ter criado e
+   * não criou. É o que separa decisão de falha, e é o que a faixa lê.
+   */
+  tarefaDispensadaMotivo: string | null;
   /** Movimentação do DataJud que descreve o mesmo fato. */
   movimentacaoId: string | null;
   destinatarios: { nome: string | null; polo: string | null }[] | null;
@@ -103,6 +110,27 @@ export const PROVIDENCIA_COR: Record<string, string> = {
 /** Neutro para o que ainda não tem cor — nunca herdar a de outra família. */
 export const PROVIDENCIA_COR_PADRAO =
   'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+
+/**
+ * O QUE DIZER QUANDO NÃO HÁ TAREFA.
+ *
+ * "Sem tarefa" era silêncio, e silêncio numa tela jurídica se lê como falha.
+ * São duas decisões diferentes do robô, e a diferença muda o que a pessoa faz:
+ * notícia velha ela ignora; ordem da outra parte ela pode querer conferir, e
+ * um prazo perdido do adversário às vezes é o que ela está esperando.
+ */
+export const MOTIVO_SEM_TAREFA: Record<string, { curto: string; ajuda: string }> = {
+  NOTICIA_VELHA: {
+    curto: 'Anterior ao acompanhamento',
+    ajuda:
+      'O ato saiu antes de este processo entrar no sistema — não havia como avisar na época, e uma tarefa criada agora nasceria vencida.',
+  },
+  ORDEM_DA_OUTRA_PARTE: {
+    curto: 'Prazo da parte contrária',
+    ajuda:
+      'O ato manda a outra parte fazer algo e não há ordem dirigida a nós. Se você discordar, a atividade pode ser criada à mão na Agenda.',
+  },
+};
 
 /**
  * Estado da integração. É a única rota que responde com o DJEN desligado — as

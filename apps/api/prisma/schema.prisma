@@ -2874,6 +2874,18 @@ model ComunicacaoDjen {
   /// O sino lia só `compromissoId` e tratava as duas como emergência — 1.243
   /// falsos positivos, barra vermelha permanente para nove advogados.
   tarefaDispensadaEm DateTime? @map("tarefa_dispensada_em")
+  /// POR QUE o robô dispensou — sem isto, "dispensada" é uma caixa-preta.
+  ///
+  /// `NOTICIA_VELHA`: o ato é anterior ao momento em que passamos a olhar o
+  /// processo. `ORDEM_DA_OUTRA_PARTE`: o teor manda a parte contrária fazer
+  /// algo e não há uma linha para nós — o caso do
+  /// 0000978-59.2022.5.22.0004, "INTIME-SE A RECLAMADA PARA RECOLHIMENTO NO
+  /// PRAZO DE 15 DIAS", que virou "Elaborar manifestação" na agenda de um
+  /// advogado nosso.
+  ///
+  /// Nulo nas linhas gravadas antes desta coluna existir; a tela trata nulo
+  /// como "notícia velha", que é o que 100% delas eram.
+  tarefaDispensadaMotivo String? @map("tarefa_dispensada_motivo")
   /// Movimentação do DataJud que descreve o MESMO fato. É o vínculo que impede
   /// as duas fontes de gerarem duas atividades para um ato só.
   movimentacaoId     String?   @map("movimentacao_id")

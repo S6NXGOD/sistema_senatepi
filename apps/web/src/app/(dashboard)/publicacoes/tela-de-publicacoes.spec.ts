@@ -277,3 +277,41 @@ describe('o diálogo de importar diante de um recurso', () => {
     expect(DIALOGO).toContain('setNosDoisPolos([]);');
   });
 });
+
+/**
+ * DE QUEM É O PRAZO — a pergunta que o aviso não fazia.
+ *
+ * "O texto menciona prazo de 15 dias" e ponto. Mas o tribunal publica o MESMO
+ * ato para todos os intimados e a ordem costuma ser de um lado só: no
+ * 0000978-59.2022.5.22.0004 o teor manda a RECLAMADA recolher em 15 dias, e o
+ * robô criou "Elaborar manifestação" na agenda de um advogado nosso. Das 14
+ * tarefas que o robô criou, CINCO já tinham sido canceladas à mão.
+ */
+describe('o aviso de prazo na publicação', () => {
+  it('muda de tom quando a ordem é da parte contrária', () => {
+    expect(CARTAO).toContain("pub.tarefaDispensadaMotivo === 'ORDEM_DA_OUTRA_PARTE'");
+    expect(CARTAO).toContain('dirigido à');
+    expect(CARTAO).toContain('parte contrária');
+  });
+
+  /**
+   * Continua mostrando o número: saber que o adversário tem 15 dias é útil. O
+   * que muda é parar de sugerir que alguém aqui precisa agir.
+   */
+  it('mas não esconde o prazo', () => {
+    const trecho = CARTAO.slice(CARTAO.indexOf("=== 'ORDEM_DA_OUTRA_PARTE'"));
+    expect(trecho).toContain('{pub.prazoMencionadoDias} dias');
+    expect(trecho).toContain('crie a');
+  });
+
+  /** Sem prazo no texto, a ausência de tarefa ainda precisa de explicação. */
+  it('explica a ausência de tarefa mesmo sem prazo citado', () => {
+    expect(CARTAO).toContain('MOTIVO_SEM_TAREFA[pub.tarefaDispensadaMotivo]');
+    expect(CARTAO).toContain('Sem tarefa ·');
+  });
+
+  /** Publicação COM tarefa não ganha aviso de ausência — seria contraditório. */
+  it('não explica ausência quando a tarefa existe', () => {
+    expect(CARTAO).toContain('!pub.compromissoId &&');
+  });
+});
