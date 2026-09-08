@@ -177,6 +177,19 @@ export interface Compromisso {
   equipe?: { principal: boolean; usuario: Responsavel }[];
   /** Quem REGISTROU a demanda (com foto). Nulo em eventos do robô. */
   criador: Responsavel | null;
+  /**
+   * QUEM FECHOU a atividade — com nome e foto.
+   *
+   * As colunas guardavam o id desde sempre; sem a chave estrangeira a API não
+   * conseguia trazer o nome, e o desfecho aparecia na tela sem autor ("Peça
+   * protocolada às 16:52", por quem ninguém sabia). Num histórico jurídico isso
+   * é registro pela metade.
+   *
+   * `null` quando quem fechou foi o robô — e aí a tela DIZ que foi o sistema,
+   * em vez de deixar o espaço em branco.
+   */
+  concluidoPorUsuario?: Responsavel | null;
+  canceladoPorUsuario?: Responsavel | null;
   processo: ProcessoRef | null;
 }
 

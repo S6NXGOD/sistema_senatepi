@@ -6,9 +6,10 @@ import { toast } from 'sonner';
 import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
-  Ban, CheckCircle2, Play, RotateCcw, PenLine, Newspaper,
+  Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { Button } from '@/components/ui/button';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import { AnexosSection } from '@/components/anexos/anexos-section';
@@ -170,6 +171,39 @@ export function CompromissoDrawer({
                 )}
                 {c.concluidoEm && (
                   <span className="text-xs text-muted-foreground">· {formatDataHora(c.concluidoEm)}</span>
+                )}
+              </p>
+              {/*
+                POR QUEM — a metade que faltava do registro.
+
+                "Peça protocolada às 16:52" sem autor é um fato sem responsável:
+                dá para saber O QUE foi feito e não POR QUEM. Numa atividade
+                jurídica isso é o que separa histórico de boato.
+
+                Quando foi o robô (a tarefa de cadastro que fecha sozinha ao o
+                processo entrar no acervo), a linha DIZ que foi o sistema em vez
+                de ficar em branco — ausência de nome se lê como dado perdido.
+              */}
+              <p className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                {c.concluidoPorUsuario ? (
+                  <>
+                    <AvatarPessoa
+                      nome={c.concluidoPorUsuario.nomeExibicao || c.concluidoPorUsuario.nome}
+                      url={c.concluidoPorUsuario.avatarUrl}
+                      tamanho="xs"
+                    />
+                    <span>
+                      por{' '}
+                      <strong className="font-semibold text-foreground">
+                        {c.concluidoPorUsuario.nomeExibicao || c.concluidoPorUsuario.nome}
+                      </strong>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Bot className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    <span>concluída pelo sistema</span>
+                  </>
                 )}
               </p>
               {/*

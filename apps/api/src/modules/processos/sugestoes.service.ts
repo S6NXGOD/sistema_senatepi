@@ -248,7 +248,12 @@ export class SugestoesService {
    * NPU que o índice não conhece não pode derrubar as outras vinte e nove. O
    * resultado volta linha a linha, dizendo o que entrou e o que não.
    */
-  async importarEmLote(ids: string[], importarUma: (dto: ImportarEmLoteItem) => Promise<{ id: string }>) {
+  async importarEmLote(
+    ids: string[],
+    importarUma: (dto: ImportarEmLoteItem) => Promise<{ id: string }>,
+    /** Quem clicou. Vai para o `concluidoPor` da tarefa de cadastro. */
+    usuarioId?: string | null,
+  ) {
     const sugestoes = await this.prisma.sugestaoProcesso.findMany({
       where: { id: { in: ids }, status: StatusSugestaoProcesso.PENDENTE },
       select: {
@@ -420,7 +425,7 @@ export class SugestoesService {
             decididoEm: new Date(),
           },
         });
-        await fecharTarefaDeCadastro(this.prisma, s.id, 'CADASTRADO');
+        await fecharTarefaDeCadastro(this.prisma, s.id, 'CADASTRADO', usuarioId);
         resultados.push({ numeroCNJ: s.numeroCNJ, ok: true });
       } catch (err) {
         resultados.push({
@@ -466,7 +471,8 @@ export class SugestoesService {
       },
       select: { id: true, status: true },
     });
-    await fecharTarefaDeCadastro(this.prisma, id, 'DESCARTADO');
+    // Quem descartou é quem clicou — o id já está aqui, e ficava fora.
+    await fecharTarefaDeCadastro(this.prisma, id, 'DESCARTADO', usuarioId);
     return ignorada;
   }
 

@@ -354,6 +354,8 @@ model User {
   compromissos            Compromisso[]            @relation("CompromissoResponsavel")
   /// Eventos que este usuário REGISTROU (≠ dos que ele é responsável).
   compromissosCriados     Compromisso[]            @relation("CompromissoCriador")
+  compromissosConcluidos Compromisso[] @relation("CompromissoConcluidoPor")
+  compromissosCancelados Compromisso[] @relation("CompromissoCanceladoPor")
   processos               Processo[]               @relation("ProcessoAdvogado")
   /// Processos em que atua (N:N) — inclui os que responde como principal.
   processosEquipe         ProcessoAdvogado[]       @relation("ProcessoAdvogadoEquipe")
@@ -1987,6 +1989,12 @@ model Compromisso {
 
   responsavel         User                     @relation("CompromissoResponsavel", fields: [responsavelId], references: [id])
   criador             User?                    @relation("CompromissoCriador", fields: [criadoPor], references: [id], onDelete: SetNull)
+  /// QUEM FECHOU. As colunas existiam desde sempre; a relação, não — e por isso
+  /// o desfecho aparecia na tela sem nome nenhum ao lado. "Peça protocolada às
+  /// 16:52" sem dizer por quem transforma o histórico da atividade em boato.
+  /// `SetNull` como no criador: apagar o usuário não pode apagar a atividade.
+  concluidoPorUsuario User?                    @relation("CompromissoConcluidoPor", fields: [concluidoPor], references: [id], onDelete: SetNull)
+  canceladoPorUsuario User?                    @relation("CompromissoCanceladoPor", fields: [canceladoPor], references: [id], onDelete: SetNull)
   filiado             Filiado?                 @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   atendimento         Atendimento?             @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
   processo            Processo?                @relation(fields: [processoId], references: [id], onDelete: SetNull)

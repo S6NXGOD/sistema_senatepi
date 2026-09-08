@@ -431,6 +431,20 @@ export class AgendaService {
         // Quem REGISTROU a demanda — agora é uma FK, então vem com nome E FOTO
         // numa consulta só (antes era só um id solto, sem como exibir avatar).
         criador: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
+        /*
+          QUEM FECHOU — e por que estas duas faltavam.
+
+          `concluido_por` e `cancelado_por` guardavam o id desde sempre, mas sem
+          FK não havia como trazer o nome; o desfecho aparecia na tela como
+          "Peça protocolada às 16:52", sem autor. Num histórico jurídico isso é
+          um registro pela metade: dá para saber o QUE foi feito e não POR QUEM.
+
+          `avatarKey` entra junto porque o interceptor global só resolve a foto
+          de quem carrega a chave — selecionar só a URL devolveria rosto vazio,
+          erro que este módulo já cometeu antes.
+        */
+        concluidoPorUsuario: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
+        canceladoPorUsuario: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
         /**
          * O DETALHE MOSTRA OS POLOS INTEIROS, não só a parte principal.
          *

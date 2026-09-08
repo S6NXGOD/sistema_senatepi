@@ -141,8 +141,11 @@ export class ProcessosController {
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    return this.sugestoes.importarEmLote(dto.ids, (item) =>
-      this.service.importar(item as never, this.ctx(req, userId)),
+    return this.sugestoes.importarEmLote(
+      dto.ids,
+      (item) => this.service.importar(item as never, this.ctx(req, userId)),
+      // Quem cadastrou é creditado no desfecho da tarefa "Cadastrar ação".
+      userId,
     );
   }
 

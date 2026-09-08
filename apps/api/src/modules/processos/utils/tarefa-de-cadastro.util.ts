@@ -29,10 +29,29 @@ const MOTIVO: Record<DesfechoDaFila, string> = {
   DESCARTADO: 'A ação saiu da fila do Diário sem virar processo.',
 };
 
+/**
+ * QUEM FEZ O TRABALHO É CREDITADO — e por muito tempo não era.
+ *
+ * A tarefa fechava com `concluidoPor: null` e o comentário dizia "o robô
+ * concluiu; não há autor humano a quem creditar". Está errado: o robô só
+ * PERCEBEU. Quem cadastrou o processo foi uma pessoa, autenticada, cujo id o
+ * sistema tinha na mão naquele instante — e jogava fora.
+ *
+ * O efeito na tela é o do print do usuário: "Cadastrar ação do Diário —
+ * 0001432-74.2024.5.22.0002 · Desfecho não informado", sem nome nenhum. A
+ * atividade fica com cara de coisa que se fechou sozinha, e ninguém sabe se
+ * alguém realmente cadastrou ou se o sistema desistiu.
+ *
+ * `null` continua valendo para os caminhos que são MESMO do robô: a
+ * reconciliação na leitura e a conferência no CNJ que descobre o processo já
+ * baixado. Ali não há pessoa, e inventar uma seria pior que não ter.
+ */
 export async function fecharTarefaDeCadastro(
   prisma: Pick<PrismaClient, 'sugestaoProcesso' | 'compromisso'>,
   sugestaoId: string,
   desfecho: DesfechoDaFila,
+  /** Quem agiu, quando houve alguém. Nulo nos caminhos automáticos. */
+  porUsuarioId?: string | null,
 ): Promise<void> {
   const s = await prisma.sugestaoProcesso.findUnique({
     where: { id: sugestaoId },
@@ -49,8 +68,17 @@ export async function fecharTarefaDeCadastro(
         ? {
             status: 'CONCLUIDO',
             concluidoEm: new Date(),
-            // O robô concluiu; não há autor humano a quem creditar.
-            concluidoPor: null,
+            concluidoPor: porUsuarioId ?? null,
+            /*
+              DESFECHO EXPLÍCITO, e não vazio.
+
+              Sem ele a tela mostra "Desfecho não informado" numa tarefa que
+              terminou do jeito certo — a leitura é de trabalho abandonado.
+              `DILIGENCIA_CUMPRIDA` é o desfecho que o catálogo já tem para
+              DILIGENCIA, que é o tipo desta tarefa.
+            */
+            desfecho: 'DILIGENCIA_CUMPRIDA',
+            desfechoObs: MOTIVO.CADASTRADO,
             // O processo agora existe — a tarefa passa a apontar para ele, e
             // deixa de ser a única do sistema órfã de processo.
             ...(s.processoId ? { processoId: s.processoId } : {}),
@@ -58,6 +86,8 @@ export async function fecharTarefaDeCadastro(
         : {
             status: 'CANCELADO',
             canceladoEm: new Date(),
+            canceladoPor: porUsuarioId ?? null,
+            canceladoCategoria: 'DUPLICIDADE',
             canceladoMotivo: MOTIVO.DESCARTADO,
           },
   });
