@@ -17,10 +17,28 @@ const CONTROLLER = ler('src/modules/processos/djen.controller.ts');
  * "Juntar documentos" duas vezes seguidas — quatro linhas para dois atos.
  */
 describe('painel do DJEN na home', () => {
-  it('agrupa as cópias pelo link do documento', () => {
+  /**
+   * O LINK VIROU ATALHO, NÃO MAIS A CHAVE.
+   *
+   * A regra antiga agrupava só por link, e o tribunal passou a emitir um código
+   * de validação POR DESTINATÁRIO — o mesmo ato aparecia duas vezes no painel.
+   * Medido em 08/09/2026 sobre 1.433 publicações: entre pares do mesmo processo
+   * e dia com links DIFERENTES, a mediana de semelhança é 0,973 e 262 de 303
+   * passam de 0,9.
+   *
+   * A regra daqui é ESPELHO de `ehCopia` em `web/src/lib/publicacoes-irmas.ts`:
+   * se as duas divergirem, o painel e a aba mostram números diferentes do mesmo
+   * acervo e ninguém sabe em qual acreditar.
+   */
+  it('agrupa as cópias por dia + link OU semelhança de texto', () => {
     expect(PAINEL).toContain('private resumirPublicacoes(');
-    const fn = PAINEL.slice(PAINEL.indexOf('private resumirPublicacoes('));
-    expect(fn.slice(0, 600)).toContain('const chave = pub.link ?? `id:${pub.id}`;');
+    expect(PAINEL).toContain('function ehCopiaDePublicacao(');
+    const cmp = PAINEL.slice(PAINEL.indexOf('function ehCopiaDePublicacao('));
+    // Mesmo dia é obrigatório: atos de dias diferentes chegaram a 0,921.
+    expect(cmp).toContain('diaDaPublicacao(a.dataDisponibilizacao) !== diaDaPublicacao(b.dataDisponibilizacao)');
+    // Link igual continua sendo aceite imediato — cópias reais chegam a 0,634.
+    expect(cmp).toContain('if (a.link && b.link && a.link === b.link) return true;');
+    expect(cmp).toContain('>= 0.9');
   });
 
   /**
@@ -34,10 +52,15 @@ describe('painel do DJEN na home', () => {
     );
     expect(consulta).toContain('take: 40,');
     const fn = PAINEL.slice(PAINEL.indexOf('private resumirPublicacoes('));
-    // O corte migrou do `[...porAto.values()]` para depois da ORDENAção (o que
-    // intima o advogado disputa as seis vagas na frente) — mas continua sendo
-    // seis, e continua sendo depois de agrupar.
-    expect(fn.slice(0, 2200)).toContain('grupos.slice(0, 6)');
+    /*
+      O corte é DEPOIS de agrupar — e a asserção prova a ORDEM, não a distância.
+
+      Antes ela olhava `fn.slice(0, 2200)`: um comentário novo no meio da função
+      empurrava a linha para fora da janela e o teste caía sem que nada tivesse
+      mudado de comportamento. Comparar as posições diz o que importa.
+    */
+    expect(fn).toContain('grupos.slice(0, 6)');
+    expect(fn.indexOf('grupos_.push([pub])')).toBeLessThan(fn.indexOf('grupos.slice(0, 6)'));
   });
 
   /** O contador também conta ATOS: "4 publicações" onde havia 2 era mentira. */
@@ -161,5 +184,37 @@ describe('escopo pessoal na busca de publicações', () => {
   it('o id de "meus" vem do usuário autenticado', () => {
     expect(CONTROLLER).toContain("meusProcessosDe: filtro.meus === 'true' ? user.id : undefined,");
     expect(CONTROLLER).not.toContain('advogadoId?: string');
+  });
+});
+
+/**
+ * "PEDE PROVIDÊNCIA" É "PEDE DE NÓS".
+ *
+ * Um ato cuja ordem é da reclamada tem providência classificada — o texto
+ * realmente pede algo — mas pede de OUTRA PESSOA. Deixá-lo no bloco é a mesma
+ * confusão que fazia o robô criar tarefa: "o ato pede algo" não é "o ato pede
+ * algo de nós".
+ */
+describe('o bloco não lista o que é da parte contrária', () => {
+  it('respeita o carimbo que o robô já grava', () => {
+    const consulta = PAINEL.slice(
+      PAINEL.indexOf('As últimas com PROVIDÊNCIA'),
+      PAINEL.indexOf('A ORGANIZAÇÃO DO PRÓPRIO SINDICATO'),
+    );
+    expect(consulta).toContain("NOT: { tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE' }");
+  });
+
+  /**
+   * E só esse motivo: `NOTICIA_VELHA` e `FORA_DA_JANELA` continuam aparecendo.
+   * Elas não têm tarefa por serem ANTIGAS, não por serem de outro — e ler o
+   * que saiu no Diário sobre o próprio acervo continua sendo trabalho nosso.
+   */
+  it('mas não esconde as antigas', () => {
+    const consulta = PAINEL.slice(
+      PAINEL.indexOf('As últimas com PROVIDÊNCIA'),
+      PAINEL.indexOf('A ORGANIZAÇÃO DO PRÓPRIO SINDICATO'),
+    );
+    expect(consulta).not.toContain('NOTICIA_VELHA');
+    expect(consulta).not.toContain('FORA_DA_JANELA');
   });
 });

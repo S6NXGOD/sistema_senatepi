@@ -42,6 +42,14 @@ const DIA_MS = 24 * 3_600_000;
 interface PublicacaoBruta {
   id: string;
   link: string | null;
+  /**
+   * O TEOR — carregado só para AGRUPAR as cópias.
+   *
+   * Custa a janela de 7 dias (dezenas de linhas, não o acervo). Sem ele o
+   * painel voltaria a agrupar só por link, e o tribunal emite um código de
+   * validação por destinatário: o mesmo ato aparecia duas vezes.
+   */
+  texto: string;
   tipoComunicacao: string | null;
   nomeOrgao: string | null;
   providencia: string | null;
@@ -725,12 +733,29 @@ export class DashboardService {
             where: {
               dataDisponibilizacao: { gte: seteDiasAtras },
               providencia: { notIn: ['NENHUMA'] },
+              /*
+                O QUE É DA PARTE CONTRÁRIA NÃO "PEDE PROVIDÊNCIA" NOSSA.
+
+                O bloco se chama "Publicações que pedem providência" e é lido
+                como lista de trabalho. Um ato cuja ordem é da reclamada tem
+                providência classificada — o texto realmente pede algo — mas
+                pede de OUTRA PESSOA. Deixá-lo aqui é a mesma confusão que fazia
+                o robô criar tarefa: confundir "o ato pede algo" com "o ato pede
+                algo de nós".
+
+                O robô já carimba a decisão em `tarefaDispensadaMotivo`; aqui
+                basta respeitá-la. A publicação continua visível na aba
+                Publicações, com o aviso explicando de quem é o prazo.
+              */
+              NOT: { tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE' },
               ...meuDjen,
             },
             orderBy: { dataDisponibilizacao: 'desc' },
             take: 40,
             select: {
               id: true, link: true, tipoComunicacao: true, nomeOrgao: true, providencia: true,
+              // `texto` entra só para agrupar as cópias — ver `PublicacaoBruta`.
+              texto: true,
               prazoMencionadoDias: true, dataDisponibilizacao: true, compromissoId: true,
               compromisso: { select: { status: true } },
               processo: {
@@ -1369,13 +1394,32 @@ export class DashboardService {
     /** Ids que NOMEIAM quem está olhando — vazio fora do escopo pessoal. */
     idsQueMeCitam: ReadonlySet<string> = new Set(),
   ) {
-    const porAto = new Map<string, PublicacaoBruta[]>();
+    /*
+      AGRUPAR POR LINK NÃO BASTA MAIS — e o painel mostrava o mesmo ato duas
+      vezes por causa disso.
+
+      O tribunal passou a emitir um código de validação POR DESTINATÁRIO, então
+      as cópias de um mesmo ato chegam com links diferentes. Medido em
+      08/09/2026 sobre as 1.433 publicações, entre pares do mesmo processo e
+      dia: com links diferentes a mediana de semelhança é 0,973, e 262 de 303
+      passam de 0,9 — são cópias. Só 34 ficam abaixo de 0,4, e essas são atos
+      distintos de verdade.
+
+      ESPELHO de `ehCopia` em `web/src/lib/publicacoes-irmas.ts`. As duas
+      precisam concordar: se o painel agrupa e a aba não (ou o contrário), o
+      mesmo acervo mostra dois números e ninguém sabe qual acreditar. O corte e
+      a ordem das decisões são idênticos, e o comentário de lá tem a medição
+      completa.
+    */
+    const grupos_: PublicacaoBruta[][] = [];
     for (const pub of brutas) {
-      const chave = pub.link ?? `id:${pub.id}`;
-      const grupo = porAto.get(chave);
-      if (grupo) grupo.push(pub);
-      else porAto.set(chave, [pub]);
+      const irmao = grupos_.find((g) => ehCopiaDePublicacao(g[0], pub));
+      if (irmao) irmao.push(pub);
+      else grupos_.push([pub]);
     }
+    const porAto = new Map<string, PublicacaoBruta[]>(
+      grupos_.map((g, i) => [`g${i}`, g]),
+    );
 
     /*
       O QUE ME INTIMA VEM PRIMEIRO.
@@ -2016,3 +2060,42 @@ class DashboardController {
   providers: [DashboardService],
 })
 export class DashboardModule {}
+
+/** Só a data, sem hora — o DJEN disponibiliza por dia. */
+function diaDaPublicacao(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Jaccard sobre o conjunto de palavras, igual ao `semelhanca` da web. */
+function semelhancaDeTexto(a: string, b: string): number {
+  const conj = (t: string) =>
+    new Set(
+      (t || '')
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toUpperCase()
+        .split(/[^A-Z0-9]+/)
+        .filter((w) => w.length > 2),
+    );
+  const A = conj(a);
+  const B = conj(b);
+  if (!A.size && !B.size) return 1;
+  let comuns = 0;
+  for (const w of A) if (B.has(w)) comuns++;
+  return comuns / (A.size + B.size - comuns);
+}
+
+/**
+ * Duas publicações são CÓPIAS do mesmo ato?
+ *
+ * Espelho de `ehCopia` em `web/src/lib/publicacoes-irmas.ts` — ver lá a
+ * medição que justifica cada linha. Mesmo dia é obrigatório; link igual é
+ * atalho barato; senão, o texto decide com corte de 0,9.
+ */
+function ehCopiaDePublicacao(a: PublicacaoBruta, b: PublicacaoBruta): boolean {
+  if (diaDaPublicacao(a.dataDisponibilizacao) !== diaDaPublicacao(b.dataDisponibilizacao)) {
+    return false;
+  }
+  if (a.link && b.link && a.link === b.link) return true;
+  return semelhancaDeTexto(a.texto ?? '', b.texto ?? '') >= 0.9;
+}

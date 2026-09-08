@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect} from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronDown, History, Loader2, Radar, Scale, ShieldAlert, X } from 'lucide-react';
@@ -103,6 +103,9 @@ function ehRecente(ano: number): boolean {
   return ano >= new Date().getFullYear() - 1;
 }
 
+/** Preferência de quem usa, por navegador. */
+const CHAVE_FILA_ABERTA = 'senatepi:fila-do-diario-aberta';
+
 export function AcoesEncontradas({
   podeCadastrar,
   podeVarrerHistorico,
@@ -117,7 +120,42 @@ export function AcoesEncontradas({
 }) {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const [aberto, setAberto] = useState(true);
+  /*
+    RECOLHIDA POR PADRÃO, E A ESCOLHA FICA GUARDADA.
+
+    Abrir a tela de Processos e receber 27 linhas antes do acervo empurrava a
+    lista de verdade para fora da primeira dobra — no celular, várias rolagens
+    para chegar aos processos que a pessoa veio ver. A fila é trabalho de
+    passivo: importa, e não é o motivo de ninguém abrir Processos.
+
+    O cabeçalho continua contando ("27 ações do sindicato apareceram no
+    Diário"), então nada some — muda quem decide abrir.
+
+    `localStorage` guarda a preferência por navegador: quem trabalha a fila
+    todo dia abre uma vez e ela continua aberta. Falha silenciosa de propósito
+    (janela anônima, storage bloqueado) — perder a preferência é irrelevante, e
+    quebrar a tela por causa dela não.
+  */
+  const [aberto, setAberto] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(CHAVE_FILA_ABERTA) === '1') setAberto(true);
+    } catch {
+      // Sem storage, fica recolhida — o padrão.
+    }
+  }, []);
+
+  function alternarAberto() {
+    setAberto((v) => {
+      try {
+        localStorage.setItem(CHAVE_FILA_ABERTA, v ? '0' : '1');
+      } catch {
+        // idem
+      }
+      return !v;
+    });
+  }
   const [ignorando, setIgnorando] = useState<string | null>(null);
   /*
     SELEÇÃO PARA O LOTE — vazia por padrão.
@@ -277,7 +315,7 @@ export function AcoesEncontradas({
     <section className="rounded-xl border border-amber-300 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20">
       <button
         type="button"
-        onClick={() => setAberto((v) => !v)}
+        onClick={alternarAberto}
         aria-expanded={aberto}
         className="flex w-full items-center gap-2.5 px-4 py-3 text-left"
       >

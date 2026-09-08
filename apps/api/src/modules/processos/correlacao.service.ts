@@ -125,7 +125,10 @@ export class CorrelacaoService {
            * no painel quanto na aba, levava a uma tarefa que ninguém executaria.
            * Enriquecer o que foi descartado é escrever num papel jogado fora.
            */
-          compromisso: { select: { status: true } },
+          // `origemAutomatica` decide se a atividade PODE ser cancelada quando o
+          // teor revelar que a ordem é da outra parte: o robô desfaz o que o
+          // robô fez, nunca o que uma pessoa marcou.
+          compromisso: { select: { status: true, origemAutomatica: true } },
         },
       });
 
@@ -166,6 +169,48 @@ export class CorrelacaoService {
           movimentacao?.compromisso?.status === 'PENDENTE' ||
           movimentacao?.compromisso?.status === 'EM_ANDAMENTO';
         if (movimentacao?.compromissoId && atividadeAberta) {
+          /*
+            O TEOR CHEGOU DEPOIS — E DESMENTE A TAREFA.
+
+            O robô do DataJud cria atividade CEGA: o índice público entrega o
+            rótulo do movimento ("Disponibilização no Diário", "Publicação") e
+            nada mais, então ele não tem como saber de quem é a ordem. Quando o
+            DJEN traz o teor do MESMO ato, aqui é o primeiro instante em que dá
+            para responder — e enriquecer sem perguntar era carimbar de detalhe
+            uma tarefa que não devia existir.
+
+            SÓ DESFAZ O QUE O ROBÔ FEZ. `origemAutomatica` é a linha: tarefa que
+            uma pessoa marcou permanece, mesmo que a ordem seja da outra parte —
+            ela pode ter marcado sabendo de algo que o teor não diz.
+          */
+          if (
+            deQuemEAOrdem(c.texto, processo.nossoPolo, tenant.sigla) === 'DA_OUTRA_PARTE' &&
+            movimentacao.compromisso?.origemAutomatica
+          ) {
+            await this.prisma.compromisso.update({
+              where: { id: movimentacao.compromissoId },
+              data: {
+                status: 'CANCELADO',
+                canceladoEm: new Date(),
+                canceladoCategoria: 'DUPLICIDADE',
+                canceladoMotivo:
+                  'O teor da publicação mostra que a ordem é da parte contrária — a atividade tinha sido criada a partir da movimentação, antes de o texto estar disponível.',
+              },
+            });
+            await this.prisma.comunicacaoDjen.update({
+              where: { id: c.id },
+              data: {
+                movimentacaoId,
+                providencia: c.providencia,
+                prazoMencionadoDias: c.prazoMencionadoDias,
+                tarefaDispensadaEm: new Date(),
+                tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE',
+              },
+            });
+            resumo.deOutraParte++;
+            continue;
+          }
+
           await this.enriquecer(movimentacao.compromissoId, c);
           await this.prisma.comunicacaoDjen.update({
             where: { id: c.id },

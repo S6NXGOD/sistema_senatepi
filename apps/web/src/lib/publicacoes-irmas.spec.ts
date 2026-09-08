@@ -43,15 +43,54 @@ describe('agrupamento de publicações irmãs do DJEN', () => {
     expect(grupos[0].copias).toHaveLength(1);
   });
 
-  it('separa dois atos do mesmo dia com links diferentes', () => {
-    // Medido: 11 pares (processo, dia) da produção têm links distintos — são
-    // atos distintos publicados juntos, e agrupá-los esconderia um deles.
+  /**
+   * A FIXTURE ANTIGA ERA UMA FICÇÃO, e por isso mudou.
+   *
+   * Ela punha dois atos com TEXTO IDÊNTICO e links diferentes, e exigia
+   * separação — o que só o link podia decidir. Mas texto idêntico no mesmo dia
+   * e no mesmo processo não é "dois atos": é a mesma coisa duas vezes, e foi
+   * exatamente o que apareceu em dobro no painel do usuário.
+   *
+   * Medido em 08/09/2026 sobre as 1.433 publicações: entre pares do mesmo
+   * processo e dia com links DIFERENTES, a mediana de semelhança é 0,973 e 262
+   * de 303 passam de 0,9 — são cópias, não atos distintos. Os genuinamente
+   * distintos ficam abaixo de 0,4.
+   *
+   * A fixture agora tem a forma que a produção tem: dois atos diferentes falam
+   * de coisas diferentes.
+   */
+  it('separa dois atos DIFERENTES do mesmo dia, ainda que os links difiram', () => {
     const grupos = agruparPublicacoes([
-      pub('desp', '2026-08-24', `${CABECALHO} Vista à parte contrária.`, `${LINK}#a`),
-      pub('sent', '2026-08-24', `${CABECALHO} Vista à parte contrária.`, `${LINK}#b`),
+      pub(
+        'desp',
+        '2026-08-24',
+        `${CABECALHO} DESPACHO. Intime-se a parte autora para apresentar réplica no prazo de 15 dias, sob pena de preclusão.`,
+        `${LINK}#a`,
+      ),
+      pub(
+        'sent',
+        '2026-08-24',
+        'SENTENÇA. Julgo procedente em parte o pedido para condenar a reclamada ao pagamento do adicional de insalubridade em grau médio, com reflexos.',
+        `${LINK}#b`,
+      ),
     ]);
 
     expect(grupos).toHaveLength(2);
+  });
+
+  /**
+   * O CASO QUE ESTAVA QUEBRADO: o tribunal emite um código de validação POR
+   * DESTINATÁRIO, então as cópias do MESMO ato chegam com links distintos. Só
+   * o texto as reconhece.
+   */
+  it('junta cópias do mesmo ato quando o tribunal deu um link a cada destinatário', () => {
+    const grupos = agruparPublicacoes([
+      pub('c1', '2026-09-04', `${FUNDAMENTACAO} Intimado: MURILO MARCONES OAB 9226/PI.`, `${LINK}#1`),
+      pub('c2', '2026-09-04', `${FUNDAMENTACAO} Intimado: MORGANA NUALLA OAB 5124/PI.`, `${LINK}#2`),
+    ]);
+
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0].copias).toHaveLength(1);
   });
 
   it('sem link, junta as cópias do mesmo dia num texto de tamanho real', () => {

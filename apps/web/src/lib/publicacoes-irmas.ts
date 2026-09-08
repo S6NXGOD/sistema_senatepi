@@ -67,12 +67,36 @@ function dia(iso: string): string {
   return iso.slice(0, 10);
 }
 
+/**
+ * O LINK VIROU ATALHO, NÃO MAIS A REGRA — e isto saiu de medir de novo.
+ *
+ * A regra antiga era: se os dois têm link, o link DECIDE. Valia quando o acervo
+ * tinha 136 publicações. Com 1.433, o tribunal passou a emitir um código de
+ * validação POR DESTINATÁRIO, e a premissa caiu:
+ *
+ *   pares do mesmo processo, no mesmo dia (produção, 08/09/2026)
+ *   ├─ mesmo link ........ 404 pares, mediana 1,000, mínimo 0,634
+ *   └─ links DIFERENTES .. 303 pares, mediana 0,973 — e 262 deles ≥ 0,9
+ *
+ * Eram 262 pares de cópias legítimas sendo mostradas duas vezes. É o que o
+ * usuário viu no painel: o mesmo 0001404-31.2023.5.22.0006 em duas linhas
+ * seguidas.
+ *
+ * A ordem agora é: MESMO DIA sempre (obrigatório — atos de dias diferentes
+ * chegaram a 0,921, acima da irmã real mais divergente); link igual é atalho
+ * barato que aceita de imediato; senão, semelhança de texto decide.
+ *
+ * O atalho do link CONTINUA existindo porque a menor semelhança entre cópias de
+ * mesmo link é 0,634 — abaixo do corte. Trocar o link por semelhança pura
+ * separaria irmãs reais.
+ *
+ * E o corte de 0,9 segue seguro: só 7 dos 303 pares caem na zona de 0,4 a 0,9.
+ * Abaixo disso são atos genuinamente diferentes do mesmo processo e dia.
+ */
 function ehCopia(a: PublicacaoAgrupavel, b: PublicacaoAgrupavel): boolean {
-  if (a.link && b.link) return a.link === b.link;
-  return (
-    dia(a.dataDisponibilizacao) === dia(b.dataDisponibilizacao) &&
-    semelhanca(a.texto, b.texto) >= SEMELHANCA_MINIMA
-  );
+  if (dia(a.dataDisponibilizacao) !== dia(b.dataDisponibilizacao)) return false;
+  if (a.link && b.link && a.link === b.link) return true;
+  return semelhanca(a.texto, b.texto) >= SEMELHANCA_MINIMA;
 }
 
 export function agruparPublicacoes<T extends PublicacaoAgrupavel>(

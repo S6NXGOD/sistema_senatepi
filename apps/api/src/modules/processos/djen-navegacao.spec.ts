@@ -372,7 +372,9 @@ describe('só atividade aberta recebe a publicação', () => {
   const CORRELACAO = ler('src/modules/processos/correlacao.service.ts');
 
   it('a movimentação traz o status da atividade, não só o id', () => {
-    expect(CORRELACAO).toContain('compromisso: { select: { status: true } }');
+    // `origemAutomatica` entrou junto: ela decide se a atividade PODE ser
+    // cancelada quando o teor revelar que a ordem é da outra parte.
+    expect(CORRELACAO).toContain('compromisso: { select: { status: true, origemAutomatica: true } }');
   });
 
   it('o cenário A exige atividade aberta', () => {
