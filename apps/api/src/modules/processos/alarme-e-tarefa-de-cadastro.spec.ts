@@ -165,3 +165,47 @@ describe('o fechamento da tarefa quando a ação sai da fila', () => {
     expect(fn).toContain('compromissoId: null');
   });
 });
+
+/**
+ * TODO CAMINHO QUE DECIDE NÃO CRIAR TAREFA CARIMBA O PORQUÊ.
+ *
+ * O conserto dos 1.243 falsos positivos ensinou o robô a gravar a decisão em
+ * `ehNoticiaVelha` — e eu não vi um SEGUNDO caminho que também decide:
+ * `rotularForaDaJanela` classifica ato antigo "para leitura" e nunca cria
+ * tarefa. Sem carimbo, a linha fica idêntica à de uma falha.
+ *
+ * No dia seguinte ao conserto apareceram 7 publicações assim — atos de março a
+ * junho de dois processos recém-cadastrados. Passaram despercebidas só porque
+ * os dois estão sem advogado; com advogado, seriam barra vermelha na cara dele.
+ */
+describe('as três decisões do robô ficam gravadas', () => {
+  const SYNC_SRC = readFileSync(join(__dirname, 'djen-sync.service.ts'), 'utf8');
+  const CORREL = readFileSync(join(__dirname, 'correlacao.service.ts'), 'utf8');
+
+  it('rotular fora da janela carimba a dispensa', () => {
+    const fn = SYNC_SRC.slice(SYNC_SRC.indexOf('private async rotularForaDaJanela'));
+    expect(fn).toContain('tarefaDispensadaEm: new Date(),');
+    expect(fn).toContain("tarefaDispensadaMotivo: 'FORA_DA_JANELA',");
+  });
+
+  it('notícia velha carimba o dela', () => {
+    expect(CORREL).toContain("tarefaDispensadaMotivo: 'NOTICIA_VELHA',");
+  });
+
+  it('e a ordem da outra parte também', () => {
+    expect(CORREL).toContain("tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE',");
+  });
+
+  /**
+   * A REGRA GERAL, e o que impede o próximo caminho de esquecer: quem escreve
+   * `tarefaDispensadaEm` escreve o motivo junto. Se um dia divergirem, é aqui
+   * que aparece.
+   */
+  it('nenhum caminho grava a dispensa sem o motivo', () => {
+    for (const fonte of [SYNC_SRC, CORREL]) {
+      const carimbos = (fonte.match(/tarefaDispensadaEm: new Date\(\),/g) ?? []).length;
+      const motivos = (fonte.match(/tarefaDispensadaMotivo: '/g) ?? []).length;
+      expect(motivos).toBe(carimbos);
+    }
+  });
+});

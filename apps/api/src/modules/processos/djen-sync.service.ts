@@ -393,7 +393,28 @@ export class DjenSyncService {
       const { providencia } = classificarProvidencia(c.texto, c.tipoComunicacao);
       await this.prisma.comunicacaoDjen.update({
         where: { id: c.id },
-        data: { providencia },
+        data: {
+          providencia,
+          /*
+            A DECISÃO FICA GRAVADA AQUI TAMBÉM — e faltava.
+
+            Rotular fora da janela É uma decisão: "classifica para leitura,
+            nunca vira tarefa". Sem carimbo, a linha resultante fica idêntica à
+            de uma falha do robô (com providência, sem tarefa, sem dispensa) e
+            o alarme a conta como pendência.
+
+            Foi exatamente o bug dos 1.243 falsos positivos, num SEGUNDO caminho
+            que eu não vi ao consertar o primeiro: no dia seguinte apareceram 7
+            publicações nessa situação — atos de março a junho de dois processos
+            recém-cadastrados. Ninguém viu porque os dois estão sem advogado; com
+            advogado, seriam barra vermelha na cara dele.
+
+            Regra que fica: TODO caminho que decide não criar tarefa carimba o
+            porquê. Ausência nunca é sinal.
+          */
+          tarefaDispensadaEm: new Date(),
+          tarefaDispensadaMotivo: 'FORA_DA_JANELA',
+        },
       });
       rotuladas++;
     }

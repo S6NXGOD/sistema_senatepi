@@ -125,6 +125,11 @@ export const MOTIVO_SEM_TAREFA: Record<string, { curto: string; ajuda: string }>
     ajuda:
       'O ato saiu antes de este processo entrar no sistema — não havia como avisar na época, e uma tarefa criada agora nasceria vencida.',
   },
+  FORA_DA_JANELA: {
+    curto: 'Ato antigo, só classificado',
+    ajuda:
+      'A publicação é anterior à janela de acompanhamento diário. Ela foi lida e classificada para consulta, mas não gera tarefa — uma atividade criada agora nasceria vencida.',
+  },
   ORDEM_DA_OUTRA_PARTE: {
     curto: 'Prazo da parte contrária',
     ajuda:
