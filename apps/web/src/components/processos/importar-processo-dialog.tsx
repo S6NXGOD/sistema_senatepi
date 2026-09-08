@@ -323,7 +323,27 @@ export function ImportarProcessoDialog({
   useEffect(() => {
     if (!open || !advogadosIniciais?.length) return;
     setValue('advogadoId', advogadosIniciais[0]);
-    setEquipeAdvogados(advogadosIniciais.length > 1 ? advogadosIniciais : []);
+    /*
+      A LISTA INTEIRA, INCLUSIVE QUANDO É UM SÓ.
+
+      Era `advogadosIniciais.length > 1 ? advogadosIniciais : []`, e o `[]`
+      apagava o advogado da TELA. O seletor desenha a partir de `ids`; com a
+      lista vazia ele mostra "Selecionar advogado(s)…" mesmo com `advogadoId`
+      preenchido por baixo. O dado ia certo para o servidor e a tela dizia que
+      não havia ninguém — o pior tipo de erro, porque convida a pessoa a
+      escolher de novo o que já estava escolhido.
+
+      Medido na fila em 07/09/2026: 11 das 30 ações têm EXATAMENTE um advogado
+      nosso citado. Um terço da fila abria sem advogado à vista, e as com dois
+      ou três abriam certas — o que fazia parecer aleatório.
+
+      A causa foi confundir estado de TELA com formato de ENVIO: o `advogadoId`
+      sozinho basta para o servidor, e alguém traduziu isso como "não precisa
+      pôr na lista". São coisas diferentes, e a lista é o que a pessoa vê.
+      Escolher um advogado à mão sempre produziu `ids: [ele]` — agora o
+      preenchimento automático faz igual.
+    */
+    setEquipeAdvogados(advogadosIniciais);
   }, [open, advogadosIniciais, setValue]);
 
   useEffect(() => {

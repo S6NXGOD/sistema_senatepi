@@ -26,6 +26,21 @@ export interface ImportarEmLoteItem {
  * o sindicato entre os destinatários. Este serviço é só a leitura e as duas
  * decisões possíveis — cadastrar ou ignorar.
  */
+/**
+ * Nome comparável — MESMA régua do `comparavel` de `PartesService`.
+ *
+ * Sem acento, sem pontuação, sem caixa e sem espaço. Os dois lados precisam
+ * concordar sobre o que é "a mesma parte": se a régua daqui fosse mais frouxa,
+ * o lote reaproveitaria um cadastro que a tela consideraria outro.
+ */
+function comparavelNome(nome: string): string {
+  return (nome || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
 @Injectable()
 export class SugestoesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -257,6 +272,46 @@ export class SugestoesService {
       })
     )?.nomeFantasia;
 
+    /*
+      Índice das organizações já cadastradas, montado UMA vez.
+
+      São dezenas de sugestões e 75 organizações; consultar por nome dentro do
+      laço seria uma ida ao banco por réu. O `nomeFantasia` também entra: o
+      Diário costuma escrever a sigla ("ITACOR"), e o cadastro guarda a razão
+      social por extenso.
+    */
+    const orgsCadastradas = await this.prisma.parteExterna.findMany({
+      where: { institucional: false },
+      select: { id: true, nome: true, nomeFantasia: true },
+    });
+    /*
+      CHAVE AMBÍGUA NÃO VINCULA — e esta trava é o que separa isto de um chute.
+
+      O teste que existia aqui proibia vincular, e a razão era boa: a HAPVIDA
+      está no cadastro em QUATRO variantes, e escolher uma seria cara ou coroa
+      que agrupa processos sob a empresa errada.
+
+      O casamento aqui é EXATO sobre o nome normalizado, não aproximado — as
+      quatro HAPVIDA dão quatro chaves diferentes ("HAPVIDA",
+      "HAPVIDAHOSPITALRIOPOTY"…), e "HAPVIDA ASSISTENCIA MEDICA LTDA" que o
+      Diário escreve não casa com nenhuma. Conferido nas 74 organizações da
+      produção: ZERO chaves colidem hoje.
+
+      Mas "hoje" não é garantia. Se duas organizações passarem a normalizar
+      igual, a chave é DESCARTADA e a parte volta a entrar como nome — o
+      comportamento antigo, que é o lado seguro de errar.
+    */
+    const orgsPorNome = new Map<string, string>();
+    const ambiguas = new Set<string>();
+    for (const o of orgsCadastradas) {
+      for (const chave of [o.nome, o.nomeFantasia].filter(Boolean).map((x) => comparavelNome(x!))) {
+        if (!chave) continue;
+        if (orgsPorNome.has(chave) && orgsPorNome.get(chave) !== o.id) ambiguas.add(chave);
+        orgsPorNome.set(chave, o.id);
+      }
+    }
+    for (const chave of ambiguas) orgsPorNome.delete(chave);
+
     const resultados: { numeroCNJ: string; ok: boolean; motivo?: string }[] = [];
 
     for (const s of sugestoes) {
@@ -328,9 +383,33 @@ export class SugestoesService {
               ehNos(nome) ? { tipo: 'INSTITUCIONAL' as const } : { tipo: 'AVULSA' as const, nome },
             ),
           },
+          /*
+            RÉU QUE JÁ TEM CADASTRO ENTRA PELO CADASTRO, não como nome solto.
+
+            O lote mandava só `{ nome }`, e `semearNaImportacao` cria parte
+            avulsa quando não recebe `parteExternaId`. Resultado: a mesma
+            empresa vira uma organização cadastrada E várias partes soltas com
+            o mesmo nome — e aí "todos os processos contra a mesma empresa
+            juntos" deixa de ser verdade, que é a razão de a tabela de
+            organizações existir.
+
+            O ITACOR do 0001000-26.2022.5.22.0002 é exatamente isso: a
+            organização existe e está ligada em outros dois processos, e o
+            terceiro entrou solto. Medido nas 30 da fila: 2 das 31 partes
+            adversas já têm cadastro — inclusive PRONTOCARE, que o comentário
+            de `semearNaImportacao` cita como o caso de duplicata que ele
+            aprendeu a evitar do outro lado.
+
+            O casamento é pelo NOME NORMALIZADO (sem acento, sem pontuação), a
+            mesma régua de `comparavel` no serviço de partes — o Diário escreve
+            em caixa alta e sem acento, o cadastro não.
+          */
           partesContrarias: nomes('P')
             .filter((nome) => !ehNos(nome))
-            .map((nome) => ({ nome })),
+            .map((nome) => {
+              const org = orgsPorNome.get(comparavelNome(nome));
+              return org ? { nome, parteExternaId: org } : { nome };
+            }),
         });
 
         await this.prisma.sugestaoProcesso.update({

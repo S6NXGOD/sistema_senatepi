@@ -176,12 +176,31 @@ describe('de quem é a ação encontrada', () => {
     expect(FILA).toContain('s.advogadosNossos.slice(0, 3)');
   });
 
-  /** E o cadastro em lote não pergunta o que o ato já respondeu. */
-  it('o advogado do ato vai junto no cadastro', () => {
+  /**
+   * E O CADASTRO NÃO PERGUNTA O QUE O ATO JÁ RESPONDEU — inclusive quando o ato
+   * nomeia UM advogado só.
+   *
+   * Este teste travava `advogadosIniciais.length > 1 ? advogadosIniciais : []`,
+   * e aquele `[]` apagava o advogado da TELA: o seletor desenha a partir de
+   * `ids`, então com a lista vazia ele mostrava "Selecionar advogado(s)…"
+   * mesmo com `advogadoId` preenchido por baixo. O dado ia certo para o
+   * servidor e a tela dizia que não havia ninguém.
+   *
+   * Medido na fila em 07/09/2026: 11 das 30 ações têm EXATAMENTE um advogado
+   * nosso citado. Um terço abria sem advogado à vista; as com dois ou três
+   * abriam certas, o que fazia o defeito parecer aleatório.
+   *
+   * A causa foi confundir estado de TELA com formato de ENVIO. Escolher um
+   * advogado à mão sempre produziu `ids: [ele]`; o preenchimento automático
+   * agora faz igual.
+   */
+  it('o advogado do ato vai junto no cadastro, mesmo sendo um só', () => {
     const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
     expect(DIALOGO).toContain('advogadosIniciais?: string[] | null;');
     expect(DIALOGO).toContain("setValue('advogadoId', advogadosIniciais[0]);");
-    expect(DIALOGO).toContain('setEquipeAdvogados(advogadosIniciais.length > 1 ? advogadosIniciais : []);');
+    expect(DIALOGO).toContain('setEquipeAdvogados(advogadosIniciais);');
+    // O ternário que apagava o único advogado da tela não pode voltar.
+    expect(DIALOGO).not.toContain('advogadosIniciais.length > 1 ? advogadosIniciais : []');
   });
 });
 

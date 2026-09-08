@@ -544,15 +544,32 @@ describe('o cadastro em lote', () => {
   });
 
   /**
-   * AS PARTES ENTRAM COMO NOME, e não como vínculo. Medido: das 78 partes
-   * não-sindicato encontradas, **76 não existem no cadastro** — não há o que
-   * vincular. E onde existe, existe em quatro variantes (HAPVIDA): escolher uma
-   * seria cara ou coroa que agrupa processos sob a empresa errada.
+   * AS PARTES ENTRAM COMO NOME — exceto quando o cadastro JÁ EXISTE com o mesmo
+   * nome exato.
+   *
+   * A regra original era "nunca vincular", e a razão era boa: das 78 partes
+   * não-sindicato encontradas, 76 não existem no cadastro, e onde existe existe
+   * em quatro variantes (HAPVIDA) — escolher uma seria cara ou coroa que agrupa
+   * processos sob a empresa errada.
+   *
+   * O que mudou não é a régua, é a precisão dela. A auditoria dos 129 processos
+   * achou o ITACOR do 0001000-26.2022.5.22.0002 entrando SOLTO enquanto a
+   * organização já estava ligada em outros dois processos — e "todos os
+   * processos contra a mesma empresa juntos" é a razão de a tabela existir.
+   *
+   * O casamento é EXATO sobre o nome normalizado, não aproximado: conferido na
+   * produção, as quatro HAPVIDA dão quatro chaves distintas, e o
+   * "HAPVIDA ASSISTENCIA MEDICA LTDA" do Diário não casa com nenhuma. Vincular
+   * um nome idêntico a um cadastro que existe não é adivinhar — é reconhecer.
    */
-  it('as partes entram como nome, não como vínculo adivinhado', () => {
+  it('reaproveita o cadastro só no nome exato, e nunca no ambíguo', () => {
     const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    // O polo ativo continua entrando como nome — ali não há casamento nenhum.
     expect(fn).toContain("{ tipo: 'AVULSA' as const, nome }");
-    expect(fn).not.toContain('parteExternaId');
+    // O réu passa pelo índice, e só vincula quando a chave existe.
+    expect(fn).toContain('org ? { nome, parteExternaId: org } : { nome }');
+    // Chave que aponta para duas organizações é DESCARTADA: volta a ser nome.
+    expect(fn).toContain('for (const chave of ambiguas) orgsPorNome.delete(chave);');
   });
 
   /** O sindicato tem tipo próprio nos dois polos — nunca entra como avulsa. */
