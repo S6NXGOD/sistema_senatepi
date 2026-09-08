@@ -103,6 +103,32 @@ describe('de quem é a ordem do ato', () => {
     expect(deQuemEAOrdem(teor, polo, SIGLA)).toBe('NOSSA');
   });
 
+  /**
+   * "A PARTE CONTRÁRIA" É RELATIVA A QUEM AGIU.
+   *
+   * Dois despachos abertos na produção: "RECEBO OS EMBARGOS OPOSTOS PELA
+   * RECLAMADA, FICANDO A PARTE CONTRÁRIA DEVIDAMENTE INTIMADA PARA SE
+   * MANIFESTAR NO PRAZO DE CINCO DIAS". Quem embargou foi a reclamada, então a
+   * parte contrária é o SINDICATO — e as duas tarefas estão certas.
+   *
+   * A expressão é ambígua por natureza: nunca pode bloquear.
+   */
+  it('"parte contrária" nunca bloqueia — ela pode ser nós', () => {
+    expect(deQuemEAOrdem('INTIME-SE A PARTE CONTRARIA PARA SE MANIFESTAR EM 5 DIAS.', 'ATIVO', SIGLA)).toBe(
+      'INDEFINIDO',
+    );
+    expect(deQuemEAOrdem('INTIME-SE A PARTE CONTRARIA PARA SE MANIFESTAR EM 5 DIAS.', 'PASSIVO', SIGLA)).toBe(
+      'INDEFINIDO',
+    );
+  });
+
+  /** Mas uma ordem nossa ao lado ainda decide. */
+  it('e não impede o reconhecimento de uma ordem nossa no mesmo ato', () => {
+    const teor =
+      'INTIME-SE A PARTE CONTRARIA PARA SE MANIFESTAR. INTIME-SE O SINDICATO AUTOR PARA CIENCIA.';
+    expect(deQuemEAOrdem(teor, 'ATIVO', SIGLA)).toBe('NOSSA');
+  });
+
   it('texto vazio não quebra', () => {
     expect(deQuemEAOrdem('', 'ATIVO', SIGLA)).toBe('INDEFINIDO');
   });

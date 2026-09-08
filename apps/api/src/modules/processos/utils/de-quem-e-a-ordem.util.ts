@@ -111,6 +111,21 @@ function ladoDoDestinatario(
   */
   const ehSindicatoGenerico = /\bSINDICATO\b/.test(d);
 
+  /*
+    "A PARTE CONTRÁRIA" É RELATIVA A QUEM AGIU — e muitas vezes somos nós.
+
+    Dois despachos abertos na produção dizem: "RECEBO OS EMBARGOS OPOSTOS PELA
+    RECLAMADA, FICANDO A PARTE CONTRÁRIA DEVIDAMENTE INTIMADA PARA SE
+    MANIFESTAR NO PRAZO DE CINCO DIAS". Quem embargou foi a reclamada, então a
+    "parte contrária" é o sindicato — e as duas tarefas estão certas.
+
+    Hoje a regex nem casa essa construção ("FICANDO", com palavras no meio) e o
+    caso cai em INDEFINIDO, que cria a tarefa. Deu certo por acaso. Esta guarda
+    existe para que continue certo quando alguém ampliar a regex: a expressão é
+    ambígua por natureza e NUNCA pode bloquear.
+  */
+  if (/\bPARTE[S]? CONTRARIA[S]?\b/.test(d)) return 'INDEFINIDO';
+
   const ativo = PAPEL_ATIVO.test(d);
   const passivo = PAPEL_PASSIVO.test(d);
   // "reclamante e reclamada" na mesma ordem: é para os dois.
