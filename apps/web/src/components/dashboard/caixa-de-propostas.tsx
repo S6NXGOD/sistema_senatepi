@@ -195,18 +195,27 @@ function LinhaDaProposta({
         </span>
       </div>
 
-      <p className="mt-1 truncate text-sm">
-        {adversario ? (
-          <>
-            <span className="text-muted-foreground">× </span>
-            {adversario}
-          </>
-        ) : (
-          <span className="text-muted-foreground">{p.nomeClasse ?? 'Publicação'}</span>
-        )}
-      </p>
-      <p className="font-mono text-[11px] text-muted-foreground">
-        {formatNPU(p.numeroProcesso) || p.numeroProcesso}
+      {/*
+        UMA LINHA, NÃO DUAS. Medido no telefone: cada proposta custava 192px, e
+        quatro delas somavam 898px — mais que a dobra inteira (600px). O NPU
+        ocupava uma linha inteira para si; agora divide com o adversário, que é
+        quem a pessoa lê primeiro. O número trunca antes do nome porque vinte
+        dígitos não decidem nada.
+      */}
+      <p className="mt-1 flex min-w-0 items-baseline gap-1.5 text-sm">
+        <span className="min-w-0 flex-1 truncate">
+          {adversario ? (
+            <>
+              <span className="text-muted-foreground">× </span>
+              {adversario}
+            </>
+          ) : (
+            <span className="text-muted-foreground">{p.nomeClasse ?? 'Publicação'}</span>
+          )}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {(formatNPU(p.numeroProcesso) || p.numeroProcesso).slice(0, 11)}…
+        </span>
       </p>
 
       {/*
@@ -219,7 +228,13 @@ function LinhaDaProposta({
         Sem ordem legível cai para o começo do teor: 29,9% dos atos não têm
         ordem nenhuma escrita, e inventar uma seria pior que mostrar o texto.
       */}
-      <p className="mt-1.5 rounded-md bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
+      {/*
+        DUAS LINHAS DE PRÉVIA, NÃO TRÊS. 180 caracteres a 319px de largura
+        ocupam três linhas; `line-clamp-2` corta em duas e o resto está a um
+        toque, na publicação. A frase da ordem começa pelo verbo, então as duas
+        primeiras linhas já dizem de quem é.
+      */}
+      <p className="mt-1.5 line-clamp-2 rounded-md bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
         {p.ordem ?? previaSemTimbre(p.texto)}
       </p>
 

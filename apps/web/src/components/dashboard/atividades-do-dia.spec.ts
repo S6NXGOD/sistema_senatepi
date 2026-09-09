@@ -177,3 +177,49 @@ describe('o que saiu do painel do advogado', () => {
     expect(topo).toContain('<Aniversariantes');
   });
 });
+
+/**
+ * A DOBRA DO TELEFONE — 600px, e o que cabe nela.
+ *
+ * Medido por leitura do CSS: `SectionCard` custa 73px de moldura antes de
+ * qualquer conteúdo, `KpiCard` 100px, `EmptyState` 124px. A "Minha carteira"
+ * com seis KPIs em `grid-cols-2` dava três fileiras = 364px, e vinha ANTES das
+ * atividades: o advogado rolava 446px para ver o primeiro prazo.
+ */
+describe('o que o advogado vê sem rolar', () => {
+  it('as atividades vêm antes até da carteira', () => {
+    const atividades = PAINEL.indexOf('{escopoPessoal && pode.agenda && !vazio.atividadesHoje && (');
+    const carteira = PAINEL.indexOf('{minhaCarteira && (');
+    expect(atividades).toBeGreaterThan(-1);
+    expect(atividades).toBeLessThan(carteira);
+  });
+
+  /** Seis KPIs em duas fileiras, não três: 364px viram ~216px. */
+  it('a carteira cabe em duas fileiras no telefone', () => {
+    expect(PAINEL).toContain('grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6');
+    expect(PAINEL).not.toContain('grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6');
+  });
+});
+
+/**
+ * A CAIXA DE PROPOSTAS COM QUATRO ITENS DAVA 898px — mais que a dobra inteira.
+ * Cada proposta custava 192px: NPU numa linha só para si, prévia em três linhas.
+ */
+describe('a proposta encolheu', () => {
+  const CAIXA = readFileSync(join(__dirname, 'caixa-de-propostas.tsx'), 'utf8');
+
+  it('o NPU divide a linha com o adversário', () => {
+    expect(CAIXA).toContain('flex min-w-0 items-baseline gap-1.5 text-sm');
+  });
+
+  it('e a prévia para em duas linhas', () => {
+    expect(CAIXA).toContain('line-clamp-2');
+  });
+
+  /** O nome do adversário é o que decide — ele trunca por último. */
+  it('o número trunca antes do nome', () => {
+    const linha = CAIXA.slice(CAIXA.indexOf('items-baseline'), CAIXA.indexOf('line-clamp-2'));
+    expect(linha).toContain('min-w-0 flex-1 truncate');
+    expect(linha).toContain('.slice(0, 11)');
+  });
+});

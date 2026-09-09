@@ -397,10 +397,30 @@ function Conteudo({
         somem: o caso pré-processual, que sai da lista padrão de propósito, e o
         processo parado há trinta dias, que ninguém percebe porque nada vence.
       */}
+      {escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
+        <AtividadesDoDia
+          hoje={data.atividadesHoje}
+          proximas={data.proximasAtividades ?? []}
+          pessoal
+          href={(id) => `/agenda?compromisso=${id}`}
+        />
+      )}
+
       {minhaCarteira && (
         <section>
           <SectionTitle icon={FolderKanban} texto="Minha carteira" />
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+          {/*
+            TRÊS FILEIRAS DE NÚMERO ANTES DO PRIMEIRO PRAZO.
+
+            Medido no telefone de 375px: seis `KpiCard` em `grid-cols-2` custam
+            364px — mais da metade da dobra útil (600px) gasta em contagem, e o
+            advogado abriu o painel para trabalhar, não para contar.
+
+            `grid-cols-3` põe os seis em DUAS fileiras e o cartão fica mais
+            estreito; com o `KpiCard` já compacto (número em 2xl no telefone, o
+            zero recuado), o rótulo ainda cabe. Passa de 364 para ~216px.
+          */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6">
             <KpiCard label="Meus processos" valor={minhaCarteira.meusProcessos} sub="vinculados a mim"
               icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos?meus=1" destaque />
             <KpiCard label="Minhas audiências" valor={minhaCarteira.minhasAudiencias} sub="esta semana"
@@ -450,14 +470,6 @@ function Conteudo({
         contexto, e o que precisa de decisão vem primeiro. Por isso o bloco
         aparece em DOIS lugares, nunca nos dois ao mesmo tempo.
       */}
-      {escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
-        <AtividadesDoDia
-          hoje={data.atividadesHoje}
-          proximas={data.proximasAtividades ?? []}
-          pessoal
-          href={(id) => `/agenda?compromisso=${id}`}
-        />
-      )}
 
       {/*
         ZONA 1 — O QUE PRECISA DE VOCÊ. Subiu para cima dos números.
