@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { contar } from '@/lib/plural';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -213,7 +214,7 @@ export default function OrganizacoesPage() {
           <IdCard className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400 sm:mt-0" />
           <span className="min-w-0 flex-1 text-sm">
             <span className="font-medium">
-              {quantasSemDocumento} organização{quantasSemDocumento === 1 ? '' : 'ões'} sem CPF/CNPJ
+              {contar(quantasSemDocumento, 'organização', 'organizações')} sem CPF/CNPJ
             </span>
             <span className="block text-xs text-muted-foreground">
               {soSemDocumento

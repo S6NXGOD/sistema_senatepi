@@ -137,9 +137,13 @@ describe('a ordem por perfil', () => {
     expect(TELA).not.toContain('{!ehTriagem && pode.filiados && (');
   });
 
-  /** Carga da equipe é instrumento de gestão — e o dado nem chega ao advogado. */
+  /**
+   * Carga da equipe é instrumento de gestão — e o dado nem chega ao advogado.
+   * Ficou em largura inteira quando "Contatos a fazer", que dividia a grade
+   * com ela, saiu do painel.
+   */
   it('a carga da equipe é só de quem coordena', () => {
-    expect(TELA).toContain('{ehGestao && data.cargaEquipe && (');
+    expect(TELA).toContain('{ehGestao && data.cargaEquipe && !vazio.cargaEquipe && <CargaEquipe');
   });
 });
 

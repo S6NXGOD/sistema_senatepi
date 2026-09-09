@@ -257,8 +257,16 @@ export function AcoesSemCadastro() {
         })}
       </ul>
 
+      {/*
+        O LINK LEVA À FILA ABERTA — `?fila=acoes`.
+
+        Antes ia para `/processos` puro e a seção chegava recolhida: quem
+        clicou em "ver as outras 22" tinha de procurar o cabeçalho e clicar de
+        novo. Só este link abre; chegar por outro caminho mantém o padrão
+        recolhido.
+      */}
       <Link
-        href="/processos"
+        href={sobra > 0 ? '/processos?fila=acoes' : '/processos'}
         className="flex items-center justify-between gap-2 border-t border-indigo-100 px-4 py-2.5 text-xs font-medium text-brand-800 transition hover:bg-muted/60 dark:border-indigo-900/30 dark:text-brand-300"
       >
         {sobra > 0 ? `Ver as outras ${sobra} na fila` : 'Abrir a fila em Processos'}

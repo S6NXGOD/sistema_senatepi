@@ -19,7 +19,7 @@ describe('o bloco de atividades encolheu', () => {
     expect(BLOCO).not.toContain('<SectionCard');
     expect(BLOCO).not.toContain('BlocoDeDia');
     // Cabeçalho de uma linha: py-2, não a barra de 56px do SectionCard.
-    expect(BLOCO).toContain('border-b px-3 py-2');
+    expect(BLOCO).toContain('border-b bg-muted/30 px-3 py-2');
   });
 
   it('e o painel passou a usar o bloco novo', () => {
@@ -27,9 +27,24 @@ describe('o bloco de atividades encolheu', () => {
     expect(PAINEL).toContain('proximas={data.proximasAtividades ?? []}');
   });
 
-  /** Hoje e próximos dias na MESMA lista — a separação custava uma moldura. */
-  it('junta hoje e próximos dias numa lista só', () => {
-    expect(BLOCO).toContain('const todas = [...hoje, ...proximas];');
+  /**
+   * UMA FILA, TRÊS FONTES — e a terceira entrou depois, por redundância medida.
+   *
+   * O painel mostrava as atrasadas em TRÊS lugares: barra amarela com o número,
+   * esta lista marcando-as, e um cartão "Pendências ativas" no rodapé. Em
+   * 08/09/2026, das 8 pendências, AS 8 já estavam na lista de hoje. Agora
+   * `atrasadas` (dias anteriores) entra na mesma fila e a ordem cronológica
+   * põe o atrasado no topo sozinho.
+   */
+  it('junta atrasadas, hoje e próximos dias numa lista só', () => {
+    expect(BLOCO).toContain('const todas = [...atrasadas, ...hoje, ...proximas]');
+    // Reordena: as três consultas são independentes e podem intercalar.
+    expect(BLOCO).toContain("new Date(a.inicio).getTime() - new Date(b.inicio).getTime()");
+  });
+
+  /** As duas chamadas do painel passam a lista de atrasadas. */
+  it('o painel alimenta a fila com as atrasadas de dias anteriores', () => {
+    expect(PAINEL.match(/atrasadas=\{data\.pendenciasAtivas \?\? \[\]\}/g) ?? []).toHaveLength(2);
   });
 });
 
@@ -77,7 +92,7 @@ describe('resolver sem sair do painel', () => {
  */
 describe('o bloco no celular', () => {
   it('a linha quebra no telefone e alinha no desktop', () => {
-    expect(BLOCO).toContain('flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center');
+    expect(BLOCO).toContain('flex flex-col gap-2 px-3 py-2.5 transition sm:flex-row sm:flex-wrap sm:items-center');
   });
 
   /** Hover não existe no telefone: esconder ação atrás dele é escondê-la. */
@@ -110,16 +125,71 @@ describe('o bloco no celular', () => {
 
 /** O horário vencido precisa saltar — 8 das 15 abertas já venceram. */
 describe('o que já venceu', () => {
-  it('a linha vencida se distingue', () => {
-    expect(BLOCO).toContain('venceu && ');
-    expect(BLOCO).toContain('bg-amber-50/50');
+  it('a linha vencida se distingue, e ganha etiqueta', () => {
+    expect(BLOCO).toContain('const atrasada = estaAtrasada(c);');
+    expect(BLOCO).toContain('bg-amber-50/60');
+    expect(BLOCO).toContain('Atrasada');
   });
 
-  /** Âmbar, não vermelho: o sistema não calcula vencimento processual. */
+  /**
+   * ÂMBAR, NÃO VERMELHO — decisão de 2026-09-08 que sobreviveu a uma tentativa
+   * minha de trocar por rose no redesenho.
+   *
+   * O sistema não calcula vencimento processual: sabe só que o horário passou.
+   * Das 8 atrasadas da produção, 7 eram "Cadastrar ação do Diário" marcadas
+   * para as 15h do MESMO dia. Vermelho afirmaria perda de prazo que não houve.
+   */
   it('em âmbar, não em vermelho', () => {
-    const linha = BLOCO.slice(BLOCO.indexOf('const venceu'), BLOCO.indexOf('</li>'));
+    const linha = BLOCO.slice(BLOCO.indexOf('const atrasada ='), BLOCO.indexOf('</li>'));
     expect(linha).not.toContain('bg-red-');
     expect(linha).not.toContain('text-red-');
+    expect(linha).not.toContain('bg-rose-');
+    expect(linha).not.toContain('text-rose-');
+  });
+
+  /** O número saiu da barra amarela e veio para o cabeçalho da fila. */
+  it('o contador de atrasadas fica no cabeçalho, não numa barra separada', () => {
+    expect(BLOCO).toContain("contar(quantasAtrasadas, 'atrasada', 'atrasadas')");
+    expect(PAINEL).not.toContain('atividades com horário vencido');
+  });
+});
+
+/**
+ * O QUE A LINHA VOLTOU A DIZER.
+ *
+ * A crítica foi "a UI ficou muito feia", e o diagnóstico foi mais fundo que
+ * estética: ao achatar o bloco antigo eu apaguei tudo que distinguia uma
+ * atividade da outra. Duas linhas com o mesmo título e horários próximos
+ * ficavam idênticas na tela.
+ */
+describe('a linha informa de novo', () => {
+  it('mostra tipo, com a cor da Agenda', () => {
+    expect(BLOCO).toContain('corDeTipo(c.tipo, tipos).ponto');
+    expect(BLOCO).toContain('rotuloTipo(c.tipo, tipos)');
+  });
+
+  it('mostra contra quem é o processo — é o que separa dois títulos iguais', () => {
+    expect(BLOCO).toContain('parteContrariaDoProcesso(c.processo)');
+  });
+
+  it('mostra o rosto de quem responde, só na visão de equipe', () => {
+    expect(BLOCO).toContain('{!pessoal && c.responsavel && <AvatarMini pessoa={c.responsavel}');
+  });
+
+  it('mostra o selo de urgência da Agenda, não uma tarja própria', () => {
+    expect(BLOCO).toContain('<SeloUrgente motivo={c.urgenteMotivo}');
+  });
+
+  /**
+   * O BOTÃO NÃO PODE SER O ASSUNTO. Cinco botões sólidos empilhados pesavam
+   * mais que os títulos; em tom claro ele continua achável e para de competir.
+   */
+  it('o botão de um toque é tom claro, não bloco sólido', () => {
+    expect(BLOCO).toContain('border border-brand-200 bg-brand-50');
+    expect(BLOCO).toContain('text-brand-900');
+    // O sólido só no hover, nunca em repouso.
+    expect(BLOCO).toContain('hover:bg-brand-800 hover:text-white');
+    expect(BLOCO).not.toContain('rounded-md bg-brand-800 px-2.5');
   });
 });
 

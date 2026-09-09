@@ -347,16 +347,27 @@ function Conteudo({
   */
   const vazio = {
     audienciasSemana: pode.agenda && (data.audienciasSemana ?? []).length === 0,
+    /* A fila é UMA: atrasado de dias anteriores + hoje + próximos sete. Só
+       colapsa quando as três estão vazias. */
     atividadesHoje:
       pode.agenda &&
+      (data.pendenciasAtivas ?? []).length === 0 &&
       (data.atividadesHoje ?? []).length === 0 &&
       (data.proximasAtividades ?? []).length === 0,
-    pendenciasAtivas: pode.agenda && (data.pendenciasAtivas ?? []).length === 0,
+    /*
+      "NADA ATRASADO" TEM DE OLHAR O CONTADOR, NÃO A LISTA.
+
+      `pendenciasAtivas` passou a trazer só o que venceu em DIA ANTERIOR — as
+      de hoje vivem na lista de hoje. Continuar medindo por essa lista faria a
+      tela anunciar "Nada atrasado" com oito atrasadas de hoje na página. O
+      contador `alertas.atrasadas` é `inicio < agora` inteiro, que é o que a
+      frase promete.
+    */
+    atrasadas: pode.agenda && alertas.atrasadas === 0,
     atendimentos:
       pode.atendimentos && !ehTriagem && (data.atendimentosPendentes ?? []).length === 0,
     movimentacoes: pode.processos && (data.movimentacoesRecentes ?? []).length === 0,
     equipeHoje: pode.escalas && !data.equipeHoje?.plantaoHoje?.length,
-    contatos: ehGestao && (data.contatosHoje ?? []).length === 0,
     cargaEquipe: ehGestao && (data.cargaEquipe ?? []).length === 0,
   };
 
@@ -371,16 +382,16 @@ function Conteudo({
       A frase afirmava menos do que era verdade e, pior, deixava a pessoa achando
       que amanhã podia ter algo escondido ali.
 
-      E `pendenciasAtivas` é `inicio < agora` entre as abertas: são as VENCIDAS,
-      não as abertas. "Nenhuma pendência aberta" com seis compromissos pendentes
-      na semana seria uma tela mentindo com todas as letras.
+      E "atrasada" é `inicio < agora` entre as abertas — as VENCIDAS, não as
+      abertas. "Nenhuma pendência aberta" com seis compromissos pendentes na
+      semana seria uma tela mentindo com todas as letras.
 
       Peguei as duas simulando o painel por usuário contra a produção, não lendo
       o que eu tinha acabado de escrever.
     */
     vazio.atividadesHoje && { texto: 'Nada na agenda desta semana', href: '/agenda' },
     vazio.audienciasSemana && { texto: 'Sem audiências nos próximos 7 dias', href: '/agenda' },
-    vazio.pendenciasAtivas && { texto: 'Nada atrasado', href: '/agenda' },
+    vazio.atrasadas && { texto: 'Nada atrasado', href: '/agenda' },
     vazio.atendimentos && { texto: 'Nenhum atendimento na fila', href: '/atendimentos' },
     vazio.movimentacoes && { texto: 'Sem movimentação nova nos processos', href: '/processos' },
     vazio.equipeHoje && { texto: 'Ninguém de plantão hoje', href: '/escalas' },
@@ -399,6 +410,7 @@ function Conteudo({
       */}
       {escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
         <AtividadesDoDia
+          atrasadas={data.pendenciasAtivas ?? []}
           hoje={data.atividadesHoje}
           proximas={data.proximasAtividades ?? []}
           pessoal
@@ -553,17 +565,25 @@ function Conteudo({
       )}
 
       {/* Barras de alerta (agenda) */}
-      {pode.agenda && (alertas.atrasadas > 0 || alertas.semMovimentacao > 0) && (
+      {/*
+        A BARRA "N ATIVIDADES COM HORÁRIO VENCIDO" FOI EMBORA — era a terceira
+        cópia do mesmo fato.
+
+        Medido em 08/09/2026: as 8 atrasadas apareciam (1) contadas nesta
+        barra, (2) marcadas de âmbar na lista de atividades logo abaixo e
+        (3) listadas outra vez no bloco "Pendências ativas" no rodapé. Três
+        renderizações, zero informação nova nas duas últimas — e a barra era a
+        pior das três, porque dá o NÚMERO sem dizer QUAIS: para agir era
+        preciso descer a página de qualquer jeito.
+
+        A fila de atividades agora abre pelas atrasadas, com etiqueta e cor.
+        O número está lá, em cima do trabalho, onde dá para resolver.
+
+        A de "paradas há mais de 7 dias" FICA: essa não está em lista nenhuma
+        do painel (é `updatedAt`, não `inicio`) e some sozinha em dia limpo.
+      */}
+      {pode.agenda && alertas.semMovimentacao > 0 && (
         <div className="space-y-2">
-          {alertas.atrasadas > 0 && (
-            <AlertBar tom="atencao" href="/agenda" acao="Abrir agenda">
-              <strong>{alertas.atrasadas}</strong>{' '}
-              {alertas.atrasadas === 1
-                ? 'atividade com horário vencido'
-                : 'atividades com horário vencido'}{' '}
-              e ainda em aberto.
-            </AlertBar>
-          )}
           {/* Passou de vermelho sólido para info, e ganhou o número.
               "Atenção!" com fundo vermelho para uma atividade parada há uma
               semana competia visualmente com falha de sistema — e a frase
@@ -602,7 +622,6 @@ function Conteudo({
         <section>
           <SectionTitle icon={Inbox} texto="Sua fila de hoje" />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {!vazio.contatos && <ContatosHoje data={data} />}
             {pode.atendimentos && <AtendimentosPendentes data={data} />}
           </div>
           {/* Aniversariantes logo abaixo da fila: é a secretaria quem faz o
@@ -637,6 +656,7 @@ function Conteudo({
         {!escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
           <div className="lg:col-span-2">
             <AtividadesDoDia
+              atrasadas={data.pendenciasAtivas ?? []}
               hoje={data.atividadesHoje}
               proximas={data.proximasAtividades ?? []}
               pessoal={false}
@@ -668,28 +688,36 @@ function Conteudo({
         </div>
       )}
 
-      {/* Pendências ativas + atendimentos pendentes.
-          A Triagem já viu os atendimentos no topo — não repete aqui. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {pode.agenda && !vazio.pendenciasAtivas && (
-          <PendenciasAtivas data={data} pessoal={data.escopo === 'PESSOAL'} />
-        )}
-        {pode.atendimentos && !ehTriagem && !vazio.atendimentos && (
-          <AtendimentosPendentes data={data} />
-        )}
-      </div>
+      {/*
+        "PENDÊNCIAS ATIVAS" SAIU — virou o topo da fila de atividades.
+
+        Uma pendência é uma atividade cujo horário passou; não é outra coisa,
+        não vive noutro lugar e não merece outro cartão. Das 8 do dia da
+        medição, 8 já estavam na lista de cima. O bloco existia para dar
+        destaque ao atrasado, e destaque se dá com ORDEM e COR, não com um
+        segundo cartão duzentos pixels abaixo.
+
+        Só os atendimentos da triagem continuam aqui.
+      */}
+      {pode.atendimentos && !ehTriagem && !vazio.atendimentos && (
+        <AtendimentosPendentes data={data} />
+      )}
 
       {/* Carga da equipe — instrumento de GESTÃO, restrito a quem coordena.
           O advogado não recebe o dado da API; a Triagem tem acesso à agenda,
           mas a lista de quem está sobrecarregado não é trabalho dela. */}
-      {ehGestao && data.cargaEquipe && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {!vazio.cargaEquipe && <CargaEquipe data={data} />}
-          {/* Ao lado: quem coordena precisa ver se o contato com o filiado está
-              andando ANTES das audiências — é o que evita ausência na pauta. */}
-          <ContatosHoje data={data} />
-        </div>
-      )}
+      {/*
+        "CONTATOS A FAZER" SAIU DO PAINEL — pedido direto, e ele estava certo.
+
+        CONTATO é um tipo de atividade como os outros: já entra na fila de
+        atividades, com horário, responsável e botão de resolver. Ter um cartão
+        próprio para um dos dez tipos era privilégio sem critério — e o cartão
+        não fazia nada que a fila não faça melhor, porque nem botão de concluir
+        tinha.
+
+        A carga da equipe continua, sozinha e em largura inteira.
+      */}
+      {ehGestao && data.cargaEquipe && !vazio.cargaEquipe && <CargaEquipe data={data} />}
 
       {/* Cadastros a completar para quem edita filiado e não é Triagem (esta
           já viu no topo) — a coordenação também trabalha essa fila. */}
@@ -1527,43 +1555,135 @@ function FalhasCNJ({
   );
 }
 
+/**
+ * A EQUIPE DE HOJE, POR TURNO.
+ *
+ * Era uma lista corrida: quatro nomes com "08:00 – 12:00", "08:00 – 12:00",
+ * "14:00 – 18:00", "14:00 – 18:00". A informação que importa — QUEM está de
+ * plantão AGORA — só saía comparando quatro pares de horários de cabeça.
+ *
+ * Agrupado por turno, a pergunta se responde de relance: MANHÃ tem estes,
+ * TARDE tem aqueles. O cabeçalho do turno só aparece quando há MAIS DE UM —
+ * com um turno só ele repetiria o que o intervalo de horas já diz.
+ *
+ * O ponto colorido à direita é redundante de propósito: ele distingue à
+ * distância (verde = tem gente atendendo agora) sem precisar ler a etiqueta.
+ */
 function EquipeHoje({ data }: { data: ResumoDashboard }) {
   const { plantaoHoje, proximoPlantao } = data.equipeHoje;
-  const agoraHM = new Date().toTimeString().slice(0, 5);
+
+  /*
+    A HORA DE TERESINA, não a do navegador.
+
+    `toTimeString()` devolve a hora local de quem abre a tela. Coincide no
+    Brasil e coincidiu comigo (UTC-3), mas as horas da escala são de Teresina:
+    quem abrisse o painel de outro fuso veria "No horário" na hora errada. O
+    resto do sistema já resolve isso pelo deslocamento fixo — aqui também.
+  */
+  const agoraHM = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(11, 16);
+
   const statusPlantao = (ini: string, fim: string) =>
-    agoraHM > fim ? { t: 'Encerrado', c: 'text-muted-foreground' }
-      : agoraHM >= ini ? { t: 'No horário', c: 'text-emerald-600 dark:text-emerald-400' }
-        : { t: 'Aguardando', c: 'text-amber-600 dark:text-amber-400' };
+    agoraHM > fim
+      ? { t: 'Encerrado', chip: 'bg-muted text-muted-foreground', ponto: 'bg-muted-foreground/30' }
+      : agoraHM >= ini
+        ? {
+            t: 'No horário',
+            chip: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+            ponto: 'bg-emerald-500',
+          }
+        : {
+            t: 'Aguardando',
+            chip: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+            ponto: 'bg-amber-400',
+          };
+
+  /*
+    TRÊS BALDES, e o do meio existe porque plantão de dia inteiro existe.
+    Sem ele, 08:00–18:00 cairia em "manhã" e a tarde ficaria mentindo vazia.
+  */
+  const turnoDe = (ini: string, fim: string) =>
+    fim <= '13:00' ? 'MANHÃ' : ini >= '12:00' ? 'TARDE' : 'DIA INTEIRO';
+
+  const ordemTurno = { 'MANHÃ': 0, 'DIA INTEIRO': 1, 'TARDE': 2 } as const;
+  const porTurno = new Map<string, typeof plantaoHoje>();
+  for (const p of [...plantaoHoje].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio))) {
+    const t = turnoDe(p.horaInicio, p.horaFim);
+    porTurno.set(t, [...(porTurno.get(t) ?? []), p]);
+  }
+  const turnos = [...porTurno.entries()].sort(
+    (a, b) => ordemTurno[a[0] as keyof typeof ordemTurno] - ordemTurno[b[0] as keyof typeof ordemTurno],
+  );
+  const mostrarCabecalhoDeTurno = turnos.length > 1;
 
   return (
-    <SectionCard title="Equipe disponível hoje" icon={UserCheck} count={plantaoHoje.length} actionHref="/escalas" actionLabel="Escalas">
+    <SectionCard
+      title="Equipe disponível hoje"
+      icon={UserCheck}
+      count={plantaoHoje.length}
+      actionHref="/escalas"
+      actionLabel="Escalas"
+    >
       {plantaoHoje.length === 0 ? (
         <EmptyState icon={UserCheck}>Ninguém de plantão hoje.</EmptyState>
       ) : (
-        <ul className="space-y-1">
-          {plantaoHoje.map((p) => {
-            const st = statusPlantao(p.horaInicio, p.horaFim);
-            return (
-              <li key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-2">
-                <AvatarMini pessoa={p.advogado} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{primeiroNome(p.advogado)}</p>
-                  <p className="text-xs text-muted-foreground">{p.horaInicio} – {p.horaFim}</p>
-                </div>
-                <span className={cn('text-xs font-medium', st.c)}>{st.t}</span>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="space-y-3">
+          {turnos.map(([turno, pessoas]) => (
+            <div key={turno}>
+              {mostrarCabecalhoDeTurno && (
+                <p className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {turno}
+                </p>
+              )}
+              <ul className="space-y-0.5">
+                {pessoas.map((p) => {
+                  const st = statusPlantao(p.horaInicio, p.horaFim);
+                  return (
+                    <li key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
+                      <AvatarMini pessoa={p.advogado} size={32} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{primeiroNome(p.advogado)}</p>
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Clock className="h-3 w-3 shrink-0" aria-hidden />
+                          <span className="tabular-nums">
+                            {p.horaInicio} – {p.horaFim}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded px-1.5 py-px text-[10px] font-medium',
+                              st.chip,
+                            )}
+                          >
+                            {st.t}
+                          </span>
+                        </p>
+                      </div>
+                      <span
+                        className={cn('h-2 w-2 shrink-0 rounded-full', st.ponto)}
+                        aria-hidden
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
       {proximoPlantao && (
-        <div className="mt-2 border-t pt-3">
+        <div className="mt-3 border-t pt-2.5">
           <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Próximo plantão · {new Date(proximoPlantao.data).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+            {new Date(proximoPlantao.data).toLocaleDateString('pt-BR', {
+              weekday: 'long',
+              day: '2-digit',
+              month: '2-digit',
+            })}
           </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 px-2">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-2">
             {proximoPlantao.advogados.map((a) => (
-              <span key={a.id} className="flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2.5 text-xs">
+              <span
+                key={a.id}
+                className="flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2.5 text-xs"
+              >
                 <AvatarMini pessoa={a} size={20} />
                 {primeiroNome(a)}
               </span>
@@ -1601,25 +1721,6 @@ function AudienciasSemana({ data }: { data: ResumoDashboard }) {
                   </p>
                 </div>
               </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </SectionCard>
-  );
-}
-
-function PendenciasAtivas({ data, pessoal }: { data: ResumoDashboard; pessoal: boolean }) {
-  const itens = data.pendenciasAtivas;
-  return (
-    <SectionCard title="Pendências ativas" icon={AlarmClock} count={itens.length} actionHref="/agenda">
-      {itens.length === 0 ? (
-        <EmptyState icon={CheckCircle2}>{pessoal ? 'Tudo em dia! Nenhuma pendência pessoal.' : 'Nenhuma pendência em aberto.'}</EmptyState>
-      ) : (
-        <ul className="divide-y divide-border/60">
-          {itens.map((c) => (
-            <li key={c.id}>
-              <CompromissoRow c={c} mostrarData />
             </li>
           ))}
         </ul>
@@ -1675,39 +1776,6 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
                   />
                 </div>
               </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </SectionCard>
-  );
-}
-
-/**
- * FILA DA TRIAGEM — as tarefas de contato com o filiado (as que o robô cria
- * antes de cada audiência). A secretaria via o painel do jurídico com buracos;
- * este é o trabalho dela.
- */
-function ContatosHoje({ data }: { data: ResumoDashboard }) {
-  const itens = data.contatosHoje ?? [];
-  return (
-    <SectionCard title="Contatos a fazer" icon={UserCheck} count={itens.length} actionHref="/agenda" actionLabel="Agenda">
-      {itens.length === 0 ? (
-        <EmptyState icon={CheckCircle2}>Nenhum contato pendente. Tudo em dia.</EmptyState>
-      ) : (
-        <ul className="divide-y divide-border/60">
-          {itens.map((c) => (
-            <li key={c.id}>
-              <Link href={`/agenda?compromisso=${c.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
-                <span className={cn('w-1 shrink-0 self-stretch rounded-full',
-                  new Date(c.inicio) < new Date() ? 'bg-rose-500' : 'bg-cyan-400')} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{c.titulo}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {c.filiado?.nomeCompleto ?? 'Sem filiado'} · {horaCurta(c.inicio)}
-                  </p>
-                </div>
-              </Link>
             </li>
           ))}
         </ul>

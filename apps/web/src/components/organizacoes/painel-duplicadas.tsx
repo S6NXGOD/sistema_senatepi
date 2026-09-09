@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { contar } from '@/lib/plural';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CopyCheck, ChevronDown, ChevronRight, ArrowRight, CheckCircle2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -69,8 +70,7 @@ export function PainelDuplicadas({
         <span className="flex items-center gap-2">
           <CopyCheck className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
           <span className="text-sm font-semibold text-amber-900 dark:text-amber-300">
-            {pares.length} possível{pares.length === 1 ? '' : 'is'} duplicata
-            {pares.length === 1 ? '' : 's'} no cadastro
+            {contar(pares.length, 'possível duplicata', 'possíveis duplicatas')} no cadastro
           </span>
           <span className="hidden text-xs text-amber-800/80 sm:inline dark:text-amber-300/70">
             — cada uma divide em duas a contagem de processos daquela organização

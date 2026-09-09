@@ -542,9 +542,23 @@ export class DashboardService {
         take: 8,
         select: compSelect,
       }),
-      // Pendências ativas: abertas e já vencidas (horário passou)
+      /*
+        O QUE FICOU PARA TRÁS — e só isso.
+
+        Esta lista era `inicio < agora` sem piso, e alimentava um bloco
+        "Pendências ativas" no fim do painel. Medido em 08/09/2026: das 8
+        pendências, **as 8** já estavam em `atividadesHoje` (nenhuma de dia
+        anterior). O painel renderizava o mesmo trabalho TRÊS vezes — a barra
+        amarela contando 8, a lista de atividades marcando as 8 de âmbar, e o
+        bloco de baixo listando as 8 de novo.
+
+        Agora o piso é o INÍCIO DE HOJE: aqui só entra o que venceu em dia
+        anterior, que é justamente o que a lista de hoje não mostrava. As duas
+        viram uma fila só na tela, com o atrasado no topo. Nada se perde e
+        nada se repete.
+      */
       !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
-        where: { ...meu, status: ABERTOS, inicio: { lt: agora } },
+        where: { ...meu, status: ABERTOS, inicio: { lt: hojeIni } },
         orderBy: { inicio: 'asc' },
         take: 8,
         select: compSelect,

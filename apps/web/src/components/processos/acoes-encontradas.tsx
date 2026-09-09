@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect} from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ChevronDown, History, Loader2, Radar, Scale, ShieldAlert, X } from 'lucide-react';
@@ -138,13 +139,35 @@ export function AcoesEncontradas({
   */
   const [aberto, setAberto] = useState(false);
 
+  /*
+    QUEM PEDIU PARA VER A FILA, VÊ A FILA ABERTA.
+
+    O painel mostra as duas primeiras ações e um rodapé "Ver as outras 22 na
+    fila". O link levava a `/processos` e parava no cabeçalho recolhido: a
+    pessoa clicou EM VER e teve de clicar de novo. Um clique explícito não pode
+    terminar no mesmo estado de quem chegou por acaso.
+
+    `?fila=acoes` na URL abre — e só nesse caso. Chegar em Processos por
+    qualquer outro caminho continua recolhido, que é o padrão medido: a fila é
+    trabalho de passivo e não é o motivo de ninguém abrir o módulo.
+
+    Não grava no `localStorage`: vir por este link é uma intenção DESTA visita,
+    não uma preferência. Marcar a preferência aqui deixaria a fila aberta para
+    sempre por causa de um clique.
+  */
+  const abrirPelaUrl = useSearchParams().get('fila') === 'acoes';
+
   useEffect(() => {
+    if (abrirPelaUrl) {
+      setAberto(true);
+      return;
+    }
     try {
       if (localStorage.getItem(CHAVE_FILA_ABERTA) === '1') setAberto(true);
     } catch {
       // Sem storage, fica recolhida — o padrão.
     }
-  }, []);
+  }, [abrirPelaUrl]);
 
   function alternarAberto() {
     setAberto((v) => {

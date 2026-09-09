@@ -33,11 +33,18 @@ describe('o painel não gasta cartão para dizer "nada aqui"', () => {
       '!vazio.equipeHoje && <EquipeHoje',
       '!vazio.audienciasSemana && <AudienciasSemana',
       '!vazio.atividadesHoje && (',
-      '!vazio.pendenciasAtivas && (',
       '!vazio.atendimentos && (',
       '!vazio.movimentacoes && <MovimentacoesRecentes',
       '!vazio.cargaEquipe && <CargaEquipe',
-      '!vazio.contatos && <ContatosHoje',
+      /*
+        "Pendências ativas" e "Contatos a fazer" SAÍRAM do painel — não é que
+        deixaram de ter guarda de vazio, é que deixaram de existir.
+
+        Pendência é atividade com o horário passado: as 8 medidas em 08/09/2026
+        já estavam, todas, na lista de atividades. Contato é um dos dez tipos de
+        atividade e ganhava cartão próprio sem critério, sem sequer um botão de
+        resolver. Ver `atividades-do-dia.spec.ts`.
+      */
     ]) {
       expect(CONTEUDO).toContain(guarda);
     }
@@ -186,7 +193,6 @@ describe('as guardas de vazio não mexem em permissão', () => {
     expect(CONTEUDO).toContain('pode.escalas && !vazio.equipeHoje');
     expect(CONTEUDO).toContain('pode.agenda && !vazio.audienciasSemana');
     expect(CONTEUDO).toContain('pode.agenda && !vazio.atividadesHoje');
-    expect(CONTEUDO).toContain('pode.agenda && !vazio.pendenciasAtivas');
     expect(CONTEUDO).toContain('pode.atendimentos && !ehTriagem && !vazio.atendimentos');
   });
 
@@ -197,5 +203,58 @@ describe('as guardas de vazio não mexem em permissão', () => {
     expect(CONTEUDO).toContain('movimentacoes: pode.processos &&');
     expect(CONTEUDO).toContain('equipeHoje: pode.escalas &&');
     expect(CONTEUDO).toContain('cargaEquipe: ehGestao &&');
+  });
+});
+
+
+/**
+ * AS TRÊS CÓPIAS DA MESMA ATRASADA — e por que só uma sobreviveu.
+ *
+ * Medido em 08/09/2026, painel do administrador: 8 atividades abertas com
+ * horário passado. Elas apareciam:
+ *
+ *   1. na barra amarela  "8 atividades com horário vencido e ainda em aberto"
+ *   2. na lista de atividades, marcadas de âmbar
+ *   3. no cartão "Pendências ativas" do rodapé, listadas de novo
+ *
+ * Das 8, AS 8 estavam na lista de hoje — nenhuma vinha de dia anterior. A barra
+ * era a pior das três porque dá o número sem dizer QUAIS: para agir era preciso
+ * descer a página de qualquer jeito. Sobrou a lista, com o contador no próprio
+ * cabeçalho dela.
+ */
+describe('o mesmo atraso não se repete no painel', () => {
+  it('não existe mais barra amarela de atividades vencidas', () => {
+    expect(CONTEUDO).not.toContain('atividades com horário vencido');
+    expect(CONTEUDO).not.toContain('atividade com horário vencido');
+  });
+
+  it('não existe mais o bloco "Pendências ativas"', () => {
+    expect(CONTEUDO).not.toContain('<PendenciasAtivas');
+    expect(CONTEUDO).not.toContain('function PendenciasAtivas');
+  });
+
+  it('não existe mais o cartão "Contatos a fazer"', () => {
+    expect(CONTEUDO).not.toContain('<ContatosHoje');
+    expect(CONTEUDO).not.toContain('function ContatosHoje');
+  });
+
+  /**
+   * A BARRA DE "PARADAS HÁ 7 DIAS" FICA — ela mede `updatedAt`, não `inicio`,
+   * e não está em lista nenhuma do painel. Tirar as duas juntas seria perder
+   * informação, não remover repetição.
+   */
+  it('a barra de atividades paradas continua', () => {
+    expect(CONTEUDO).toContain('alertas.semMovimentacao > 0');
+    expect(CONTEUDO).toContain('há mais de 7 dias.');
+  });
+
+  /**
+   * "NADA ATRASADO" TEM DE OLHAR O CONTADOR, não a lista que agora só traz
+   * dias anteriores — senão a tela anuncia dia limpo com 8 atrasadas de hoje
+   * na página.
+   */
+  it('a frase "Nada atrasado" mede o contador, não a lista', () => {
+    expect(CONTEUDO).toContain('atrasadas: pode.agenda && alertas.atrasadas === 0');
+    expect(CONTEUDO).toContain("vazio.atrasadas && { texto: 'Nada atrasado'");
   });
 });
