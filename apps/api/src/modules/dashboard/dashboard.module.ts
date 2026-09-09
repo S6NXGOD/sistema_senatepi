@@ -422,6 +422,7 @@ export class DashboardService {
       prazosSemana,
       // Alertas (escopo do perfil)
       atrasadasCount,
+      passaramDaHoraCount,
       semMovimentacaoCount,
       urgentesSemanaCount,
       // Listas
@@ -495,7 +496,26 @@ export class DashboardService {
           inicio: { gte: hojeIni, lt: em7dias },
         },
       }),
-      this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, inicio: { lt: agora } } }),
+      /*
+        ATRASADA = FICOU PARA TRÁS, o dia já virou. Era `inicio < agora`.
+
+        O sistema tinha DUAS definições da palavra mais grave que ele usa, e
+        elas discordavam na cara do usuário: o sino (`pendencias.service.ts`)
+        conta o que sobrou de DIA ANTERIOR, o painel contava tudo com a HORA
+        passada. Em 08/09/2026 isso dava sino = 0 e painel = "8 atrasadas",
+        para a mesma pessoa no mesmo instante.
+
+        Venceu a do sino, porque é a que não admite discussão: ninguém defende
+        que uma tarefa de ontem por fazer esteja em dia. O que é de HOJE com a
+        hora passada virou o contador de baixo — informação, não alarme. Ver
+        `estadoDoPrazo` em `lib/agenda.ts` (web) para o argumento inteiro.
+      */
+      this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, inicio: { lt: hojeIni } } }),
+      /* Passou da hora marcada, mas ainda é HOJE — o robô agenda para as 15:00
+         do próprio dia, e às 15:01 isso não é prazo perdido. */
+      this.prisma.compromisso.count({
+        where: { ...meu, status: ABERTOS, inicio: { gte: hojeIni, lt: agora } },
+      }),
       this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, updatedAt: { lt: menos7dias } } }),
       this.prisma.compromisso.count({
         where: { ...meu, status: ABERTOS, urgente: true, inicio: { gte: hojeIni, lt: em7dias } },
@@ -676,10 +696,11 @@ export class DashboardService {
         where: { status: ABERTOS },
         _count: { _all: true },
       }),
-      // Recorte das atrasadas, para separar volume de problema.
+      /* Recorte das atrasadas, para separar volume de problema — e pela mesma
+         régua do sino e do resto do painel: ficou para trás, o dia virou. */
       this.prisma.compromisso.groupBy({
         by: ['responsavelId'],
-        where: { status: ABERTOS, inicio: { lt: agora } },
+        where: { status: ABERTOS, inicio: { lt: hojeIni } },
         _count: { _all: true },
       }),
 
@@ -1080,6 +1101,8 @@ export class DashboardService {
       minhaTriagem,
       alertas: {
         atrasadas: atrasadasCount,
+        /** De HOJE, com a hora marcada já passada. Informação, não alarme. */
+        passaramDaHora: passaramDaHoraCount,
         semMovimentacao: semMovimentacaoCount,
         urgentes: urgentesSemanaCount,
         audienciasAAgendar: audienciasAAgendar.total,

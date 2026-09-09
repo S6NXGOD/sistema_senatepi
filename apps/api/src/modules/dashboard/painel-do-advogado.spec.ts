@@ -170,7 +170,37 @@ describe('a agenda também se corta no servidor', () => {
    * decide quais cartões desenhar. O que passa a ser cortado é o conteúdo.
    */
   it('e os contadores continuam — número não identifica ninguém', () => {
-    expect(DASH).toContain('this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, inicio: { lt: agora } } })');
+    expect(DASH).toContain('this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, inicio: { lt: hojeIni } } })');
+  });
+
+  /**
+   * ATRASADA = FICOU PARA TRÁS, e o contador tem de bater com o do sino.
+   *
+   * O sistema tinha DUAS definições da palavra mais grave que usa: o sino
+   * (`pendencias.service.ts`) conta o que sobrou de DIA ANTERIOR, o painel
+   * contava tudo com a HORA passada. Em 08/09/2026 isso dava sino = 0 e painel
+   * = "8 atrasadas", para a mesma pessoa no mesmo instante.
+   */
+  it('o contador de atrasadas usa o início do DIA, como o sino', () => {
+    const sino = readFileSync(
+      join(__dirname, '../agenda/pendencias.service.ts'),
+      'utf8',
+    );
+    expect(sino).toContain('inicio: { lt: inicioDeHoje }');
+    // O painel não pode mais chamar de atraso o que é de hoje.
+    expect(DASH).not.toContain('status: ABERTOS, inicio: { lt: agora } } })');
+  });
+
+  /** O que é de hoje com a hora passada virou contador PRÓPRIO — informação. */
+  it('"passou da hora" é um contador separado, e chega na resposta', () => {
+    expect(DASH).toContain('inicio: { gte: hojeIni, lt: agora }');
+    expect(DASH).toContain('passaramDaHora: passaramDaHoraCount');
+  });
+
+  /** A carga da equipe segue a mesma régua — senão a gestão vê outro número. */
+  it('a carga da equipe usa a mesma definição', () => {
+    const trecho = DASH.slice(DASH.indexOf('Recorte das atrasadas'));
+    expect(trecho.slice(0, 420)).toContain('inicio: { lt: hojeIni }');
   });
 
   /** Sem módulo de processos, nem a varredura de JSON do Diário roda. */

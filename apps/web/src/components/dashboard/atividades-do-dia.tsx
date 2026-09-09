@@ -12,13 +12,14 @@ import {
   formatHora,
   corDeTipo,
   rotuloTipo,
+  estadoDoPrazo,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { STATUS_COMP_COR, STATUS_COMP_LABEL } from '@/lib/dashboard';
 import { AvatarMini } from '@/components/dashboard/widgets';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
-import { contar } from '@/lib/plural';
+import { contar, plural } from '@/lib/plural';
 import type { CompromissoCard } from '@/lib/dashboard';
 
 /**
@@ -99,6 +100,8 @@ export function AtividadesDoDia({
   atrasadas,
   hoje,
   proximas,
+  totalAtrasadas,
+  totalPassaramDaHora,
   pessoal,
   href,
 }: {
@@ -106,6 +109,16 @@ export function AtividadesDoDia({
   atrasadas: CompromissoCard[];
   hoje: CompromissoCard[];
   proximas: CompromissoCard[];
+  /**
+   * OS CONTADORES VÊM DA API, NÃO DO TAMANHO DA LISTA — e a diferença importa.
+   *
+   * As três consultas têm `take:` (8, 12 e 8). Contar as linhas que chegaram
+   * diria "3 atrasadas" quando existem 14, e o painel estaria mentindo para
+   * menos justamente no número que não pode errar. Estes vêm de `count()` sem
+   * teto, no mesmo escopo (`meu`) das listas.
+   */
+  totalAtrasadas: number;
+  totalPassaramDaHora: number;
   /** Carteira própria: sem nome de responsável repetido e sem teto de linhas. */
   pessoal: boolean;
   /**
@@ -154,11 +167,10 @@ export function AtividadesDoDia({
     },
   });
 
-  const agora = Date.now();
   const estaAberta = (c: CompromissoCard) =>
     c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO';
-  const estaAtrasada = (c: CompromissoCard) =>
-    estaAberta(c) && new Date(c.inicio).getTime() < agora;
+  /** Ficou para trás (dia virado) ou passou da hora de hoje — ver `estadoDoPrazo`. */
+  const pedeAtencao = (c: CompromissoCard) => estadoDoPrazo(c) !== 'EM_DIA';
 
   /*
     O QUE AINDA PEDE AÇÃO PRIMEIRO; DEPOIS, CRONOLÓGICO.
@@ -206,7 +218,23 @@ export function AtividadesDoDia({
   });
   if (!todas.length) return null;
 
-  const quantasAtrasadas = todas.filter(estaAtrasada).length;
+  /*
+    O CORTE NUNCA PODE ESCONDER O QUE PRECISA DE GENTE — e escondia.
+
+    Medido em 09/09/2026 no painel do administrador: 8 atrasadas na fila,
+    `TETO_EQUIPE = 5`, e o rodapé dizia "Mais 14 da equipe na agenda". TRÊS
+    atrasadas ficavam invisíveis, e nada na tela avisava que o que sumiu era
+    justamente o que estava vencido. Truncar por posição trata a última
+    atrasada como se fosse a última tarefa de sexta que vem.
+
+    A regra passa a ser: tudo que pede atenção aparece; o teto vale só para o
+    que está EM DIA. E há um teto duro de segurança — se um dia houver 40
+    atrasadas, o painel não vira uma tela de rolagem: mostra as mais antigas e
+    o rodapé DIZ quantas atrasadas ficaram de fora, com todas as letras.
+  */
+  const TETO_ATENCAO = 12;
+  const precisamDeGente = todas.filter(pedeAtencao);
+  const emDia = todas.filter((c) => !pedeAtencao(c));
 
   /*
     A AGENDA DA EQUIPE NÃO CABE NUM PAINEL — e era o bloco mais alto de todos.
@@ -223,8 +251,39 @@ export function AtividadesDoDia({
     agenda, onde elas estão inteiras e filtráveis.
   */
   const TETO_EQUIPE = 5;
-  const visiveis = pessoal ? todas : todas.slice(0, TETO_EQUIPE);
+  const atencaoVisivel = precisamDeGente.slice(0, TETO_ATENCAO);
+  const vagasRestantes = pessoal
+    ? emDia.length
+    : Math.max(0, TETO_EQUIPE - atencaoVisivel.length);
+  const visiveis = [...atencaoVisivel, ...emDia.slice(0, vagasRestantes)];
   const ocultas = todas.length - visiveis.length;
+  /** Atrasadas que o teto duro deixou de fora — o rodapé tem de nomeá-las. */
+  const atencaoOculta = precisamDeGente.length - atencaoVisivel.length;
+
+  /*
+    DE QUEM É O ATRASO — a pergunta da coordenação, que a lista não respondia.
+
+    Quem coordena não cumpre o prazo de ninguém: o que ele faz com "8 atrasadas"
+    é COBRAR, e para cobrar precisa de um nome. A lista trazia isso num avatar
+    de 24px por linha, o que obriga a ler linha por linha e somar de cabeça —
+    e pior, só nas cinco linhas visíveis.
+
+    Esta tira conta a fila INTEIRA, inclusive o que o teto escondeu, e ordena
+    por quem tem mais. Medido em 09/09/2026: Morgana 4, Carlos 3, Ícaro 1.
+
+    Só na visão de equipe: na carteira própria seria o mesmo rosto uma vez só.
+  */
+  const porPessoa = pessoal
+    ? []
+    : [...precisamDeGente
+        .reduce((acc, c) => {
+          const r = c.responsavel;
+          if (!r) return acc;
+          const atual = acc.get(r.id);
+          acc.set(r.id, { pessoa: r, quantas: (atual?.quantas ?? 0) + 1 });
+          return acc;
+        }, new Map<string, { pessoa: NonNullable<CompromissoCard['responsavel']>; quantas: number }>())
+        .values()].sort((a, b) => b.quantas - a.quantas);
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
@@ -236,12 +295,36 @@ export function AtividadesDoDia({
         aviso duzentos pixels antes do trabalho.
       */}
       <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
-        <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+        <h2 className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
           {pessoal ? 'Minhas atividades' : 'Atividades'}
           <span className="font-normal text-muted-foreground">{todas.length}</span>
-          {quantasAtrasadas > 0 && (
-            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
-              {contar(quantasAtrasadas, 'atrasada', 'atrasadas')}
+          {/*
+            DOIS CONTADORES, DOIS PESOS — e antes eram um só, somando coisas
+            diferentes.
+
+            "8 atrasadas" no painel com o sino calado era o sintoma: o painel
+            chamava de atraso o que é de HOJE com a hora passada. Agora o
+            vermelho-âmbar sólido é só para o que ficou para trás de verdade
+            (dia virado), e o que passou da hora entra em cinza, ao lado. Se um
+            dia os dois forem zero, nenhum aparece.
+          */}
+          {totalAtrasadas > 0 && (
+            <span className="shrink-0 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white dark:bg-amber-600">
+              {contar(totalAtrasadas, 'atrasada', 'atrasadas')}
+            </span>
+          )}
+          {totalPassaramDaHora > 0 && (
+            /*
+              VISÍVEL NO TELEFONE TAMBÉM — a primeira versão tinha `hidden
+              sm:inline` aqui, e no celular o cabeçalho ficava só "Minhas
+              atividades 5", sem sinal nenhum de urgência. Num sistema
+              mobile-first, esconder o aviso na tela pequena é esconder o aviso:
+              7 das 8 atividades medidas estão num telefone antes de estarem
+              num monitor. O cabeçalho quebra linha em vez de perder o número.
+            */
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
+              {totalPassaramDaHora}{' '}
+              {plural(totalPassaramDaHora, 'passou da hora', 'passaram da hora')}
             </span>
           )}
         </h2>
@@ -253,11 +336,33 @@ export function AtividadesDoDia({
         </Link>
       </div>
 
+      {porPessoa.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b bg-amber-50/40 px-3 py-1.5 text-xs dark:bg-amber-950/10">
+          <span className="mr-0.5 shrink-0 font-medium text-muted-foreground">
+            Esperando por:
+          </span>
+          {porPessoa.map(({ pessoa, quantas }) => (
+            <Link
+              key={pessoa.id}
+              href={`/agenda?responsavel=${pessoa.id}`}
+              title={`Ver a agenda de ${pessoa.nome}`}
+              className="flex items-center gap-1 rounded-full bg-background/80 py-0.5 pl-0.5 pr-2 transition hover:bg-background"
+            >
+              <AvatarMini pessoa={pessoa} size={18} />
+              <span className="max-w-[9rem] truncate">{pessoa.nome.split(' ')[0]}</span>
+              <span className="font-semibold tabular-nums">{quantas}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
       <ul className="divide-y">
         {visiveis.map((c) => {
           const rapido = DESFECHO_RAPIDO[c.tipo];
-          const aberta = c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO';
-          const atrasada = estaAtrasada(c);
+          const aberta = estaAberta(c);
+          const estado = estadoDoPrazo(c);
+          const atrasada = estado === 'ATRASADA';
+          const passouDaHora = estado === 'PASSOU_DA_HORA';
           const ocupado = agindo === c.id;
           const emAndamento = c.status === 'EM_ANDAMENTO';
           const contra = parteContrariaDoProcesso(c.processo);
@@ -294,12 +399,16 @@ export function AtividadesDoDia({
                     /*
                       ÂMBAR, NUNCA VERMELHO — e a razão é factual, não estética.
 
-                      O sistema NÃO calcula vencimento processual: ele sabe
-                      apenas que o horário agendado passou. Das 8 "atrasadas"
-                      medidas na produção, 7 eram "Cadastrar ação do Diário"
-                      marcadas para as 15h do próprio dia — nenhuma delas é
-                      perda de prazo. Vermelho afirma falha; âmbar chama atenção,
-                      que é tudo o que o dado sustenta.
+                      O sistema NÃO calcula vencimento processual: sabe apenas
+                      que a data agendada passou. Vermelho afirmaria prazo
+                      perdido; âmbar chama atenção, que é o que o dado sustenta.
+
+                      E a etiqueta só sai aqui para o que FICOU PARA TRÁS (dia
+                      virado). O que é de hoje com a hora passada leva a marca
+                      discreta na hora, logo abaixo — antes as duas coisas
+                      usavam esta mesma etiqueta, e o painel ficava âmbar todo
+                      fim de tarde por causa das tarefas que o robô agenda para
+                      as 15:00 do próprio dia.
                     */
                     <span className="shrink-0 rounded bg-amber-500 px-1.5 py-px text-[10px] font-bold uppercase leading-4 text-white dark:bg-amber-600">
                       Atrasada
@@ -321,7 +430,18 @@ export function AtividadesDoDia({
                     mostrando apenas a hora, "09:00" numa linha de amanhã se lê
                     exatamente como um atraso de hoje.
                   */}
-                  <span className="shrink-0 tabular-nums">
+                  {/*
+                    A MARCA DISCRETA DO "PASSOU DA HORA": a própria hora em
+                    âmbar. Sem etiqueta, sem fundo na linha — é informação, não
+                    alarme, e o alarme já tem dono aqui em cima.
+                  */}
+                  <span
+                    className={cn(
+                      'shrink-0 tabular-nums',
+                      passouDaHora && 'font-semibold text-amber-700 dark:text-amber-400',
+                    )}
+                    title={passouDaHora ? 'A hora marcada já passou — ainda é de hoje.' : undefined}
+                  >
                     {ehDeHoje(c.inicio) ? formatHora(c.inicio) : etiquetaDeDia(c.inicio)}
                   </span>
                   {c.filiado && <span className="truncate">· {c.filiado.nomeCompleto}</span>}
@@ -463,12 +583,33 @@ export function AtividadesDoDia({
       </ul>
 
       {ocultas > 0 && (
+        /*
+          O RODAPÉ TEM DE DIZER SE O QUE SUMIU ESTAVA VENCIDO.
+
+          Antes dizia só "Mais 14 da equipe na agenda" — e naquele dia três das
+          catorze eram atrasadas. Esconder é aceitável; esconder sem avisar que
+          o escondido está vencido é o contrário do que este painel existe para
+          fazer.
+        */
         <Link
-          href="/agenda"
-          className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-medium text-brand-800 transition hover:bg-muted/60 dark:text-brand-300"
+          href={atencaoOculta > 0 ? '/agenda?aba=aberto' : '/agenda'}
+          className={cn(
+            'flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-medium transition hover:bg-muted/60',
+            atencaoOculta > 0
+              ? 'bg-amber-50/60 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200'
+              : 'text-brand-800 dark:text-brand-300',
+          )}
         >
-          Mais {ocultas} da equipe na agenda
-          <ChevronRight className="h-3.5 w-3.5" />
+          <span>
+            Mais {ocultas} {pessoal ? 'na agenda' : 'da equipe na agenda'}
+            {atencaoOculta > 0 && (
+              <strong className="font-semibold">
+                {' '}
+                — {contar(atencaoOculta, 'delas atrasada', 'delas atrasadas')}
+              </strong>
+            )}
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         </Link>
       )}
     </section>

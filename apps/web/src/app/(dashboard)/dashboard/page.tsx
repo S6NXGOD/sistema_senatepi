@@ -413,6 +413,8 @@ function Conteudo({
           atrasadas={data.pendenciasAtivas ?? []}
           hoje={data.atividadesHoje}
           proximas={data.proximasAtividades ?? []}
+          totalAtrasadas={alertas.atrasadas}
+          totalPassaramDaHora={alertas.passaramDaHora ?? 0}
           pessoal
           href={(id) => `/agenda?compromisso=${id}`}
         />
@@ -437,7 +439,7 @@ function Conteudo({
               icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos?meus=1" destaque />
             <KpiCard label="Minhas audiências" valor={minhaCarteira.minhasAudiencias} sub="esta semana"
               icon={Gavel} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400" href="/agenda" destaque />
-            <KpiCard label="Atrasadas" valor={minhaCarteira.atrasadas} sub="pendentes agora"
+            <KpiCard label="Atrasadas" valor={minhaCarteira.atrasadas} sub="de dias anteriores"
               icon={AlertTriangle} cor="bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" href="/agenda" destaque />
             <KpiCard label="Urgentes" valor={minhaCarteira.urgentes} sub="próximos 7 dias"
               icon={Flame} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" href="/agenda" destaque />
@@ -659,6 +661,8 @@ function Conteudo({
               atrasadas={data.pendenciasAtivas ?? []}
               hoje={data.atividadesHoje}
               proximas={data.proximasAtividades ?? []}
+              totalAtrasadas={alertas.atrasadas}
+              totalPassaramDaHora={alertas.passaramDaHora ?? 0}
               pessoal={false}
               href={(id) => `/agenda?compromisso=${id}`}
             />

@@ -422,10 +422,74 @@ export function formatHora(iso: string | null | undefined): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-/** Atrasado = início já passou e ainda está Pendente/Em andamento. */
+/**
+ * EM QUE PÉ ESTÁ O PRAZO — uma palavra, um significado, em toda a aplicação.
+ *
+ * O SISTEMA SE CONTRADIZIA. Havia DUAS definições de "atrasada" no ar ao mesmo
+ * tempo, e elas discordavam na cara do usuário:
+ *
+ *   sino (`pendencias.service.ts`) ... aberta de DIA ANTERIOR      → 0 hoje
+ *   painel / agenda / KPI ........... aberta com a HORA passada    → 8 hoje
+ *
+ * A mesma pessoa, no mesmo instante, via "8 atrasadas" no painel e um sino
+ * calado. Duas telas discordando sobre a palavra mais grave do sistema é o jeito
+ * mais rápido de ensinar alguém a não confiar em nenhuma das duas — e aí o
+ * alarme que importa passa junto com o resto.
+ *
+ * QUAL DAS DUAS VENCEU, E POR QUÊ. A do sino, que é a que separa as coisas:
+ *
+ *  · `ATRASADA` — aberta e o DIA já virou. Não há discussão possível: ninguém
+ *    defende que uma tarefa de ontem ainda por fazer esteja em dia. É o alarme,
+ *    e por isso nunca pode ser truncada nem calada.
+ *
+ *  · `PASSOU_DA_HORA` — aberta, é de HOJE, e o horário marcado já passou. É
+ *    informação, não falha. O robô agenda "Cadastrar ação do Diário" para as
+ *    15:00 do próprio dia (foram 7 das 8 medidas em 08/09/2026): às 15:01 elas
+ *    viravam "atrasada" em vermelho. Uma tarefa nascida de manhã e vencida à
+ *    tarde não é prazo perdido — é o relógio que o robô escolheu.
+ *
+ *  · `EM_DIA` — o resto: hoje ainda por vir, e os próximos dias.
+ *
+ * O GANHO NÃO É SEMÂNTICO, É DE CONFIANÇA. Com as duas coladas, todo fim de
+ * tarde o painel ficava vermelho e a pessoa aprendia que vermelho é o normal.
+ * Separadas, o alarme só toca quando alguma coisa REALMENTE ficou para trás — e
+ * aí ele é levado a sério.
+ *
+ * O dia é o de Teresina, como todo o resto: o contêiner roda em UTC e viraria o
+ * dia às 21h, marcando de atrasado o que ainda é de hoje.
+ */
+export type EstadoDoPrazo = 'ATRASADA' | 'PASSOU_DA_HORA' | 'EM_DIA';
+
+/** O dia de calendário de Teresina, para comparar dia com dia. */
+function diaBR(instante: number): string {
+  return new Date(instante - 3 * 3_600_000).toISOString().slice(0, 10);
+}
+
+export function estadoDoPrazo(c: {
+  inicio: string;
+  status: StatusCompromisso;
+}): EstadoDoPrazo {
+  if (c.status === 'CONCLUIDO' || c.status === 'CANCELADO') return 'EM_DIA';
+  const inicio = new Date(c.inicio).getTime();
+  const agora = Date.now();
+  if (diaBR(inicio) < diaBR(agora)) return 'ATRASADA';
+  return inicio < agora ? 'PASSOU_DA_HORA' : 'EM_DIA';
+}
+
+/**
+ * Atrasado = FICOU PARA TRÁS, o dia já virou.
+ *
+ * Era "a hora passou", e mudou junto com a separação acima. Quem quiser o
+ * antigo comportamento quer, na verdade, `estadoDoPrazo(c) !== 'EM_DIA'` — e
+ * deve dizer isso, para a tela poder distinguir os dois tons.
+ */
 export function estaAtrasado(c: { inicio: string; status: StatusCompromisso }): boolean {
-  if (c.status === 'CONCLUIDO' || c.status === 'CANCELADO') return false;
-  return new Date(c.inicio).getTime() < Date.now();
+  return estadoDoPrazo(c) === 'ATRASADA';
+}
+
+/** Precisa de atenção AGORA: ficou para trás ou já passou da hora marcada. */
+export function pedeAtencao(c: { inicio: string; status: StatusCompromisso }): boolean {
+  return estadoDoPrazo(c) !== 'EM_DIA';
 }
 
 /** ISO → valor de <input type="datetime-local"> (horário local). */

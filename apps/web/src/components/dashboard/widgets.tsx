@@ -16,7 +16,7 @@ import {
   primeiroNome,
 } from '@/lib/dashboard';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
-import { corDeTipo, rotuloTipo } from '@/lib/agenda';
+import { corDeTipo, rotuloTipo, estaAtrasado } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 // ---------------------------------------------------------------------------
@@ -210,8 +210,10 @@ export function EmptyState({ icon: Icon, children }: { icon: LucideIcon; childre
 
 export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrarData?: boolean }) {
   const { tipos } = useTiposEvento();
-  const atrasada =
-    (c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO') && new Date(c.inicio).getTime() < Date.now();
+  /* A MESMA régua do resto do sistema: ficou para trás, o dia virou. Este
+     componente tinha a conta escrita à mão (`inicio < Date.now()`), que era a
+     terceira definição de "atrasada" no ar. Ver `estadoDoPrazo`. */
+  const atrasada = estaAtrasado(c);
   const quando = mostrarData
     ? new Date(c.inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     : horaCurta(c.inicio);

@@ -181,6 +181,22 @@ function AgendaConteudo() {
     (v) => { if (ABAS.some((a) => a.key === v)) setAba(v as Aba); },
     '/agenda',
   );
+  /*
+    `?responsavel=<id>` — o destino da tira "Esperando por" do painel.
+
+    Quem coordena vê "Morgana 4" no painel e clica: tem de cair na agenda JÁ
+    filtrada nela, não na agenda inteira com o nome para procurar. Vem junto com
+    a aba "Em aberto", porque o que se foi ver é o que falta fazer.
+
+    Id desconhecido não quebra nada: o filtro simplesmente não casa com
+    ninguém e a lista vem vazia, que é a leitura correta de "essa pessoa não
+    tem nada".
+  */
+  useFiltroPorUrl(
+    'responsavel',
+    (v) => { setResponsaveis([v]); setAba('aberto'); },
+    '/agenda',
+  );
 
   const consultaResponsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis });
   const responsaveisLista = consultaResponsaveis.data ?? [];

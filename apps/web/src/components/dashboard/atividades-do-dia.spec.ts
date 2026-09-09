@@ -6,6 +6,10 @@ const PAINEL = readFileSync(
   join(__dirname, '../../app/(dashboard)/dashboard/page.tsx'),
   'utf8',
 );
+const AGENDA = readFileSync(
+  join(__dirname, '../../app/(dashboard)/agenda/page.tsx'),
+  'utf8',
+);
 
 /**
  * "ESSA PARTE DE ATIVIDADES OCUPA MUITO ESPAÇO" — a queixa literal do usuário.
@@ -126,6 +130,24 @@ describe('o bloco no celular', () => {
     expect(BLOCO).not.toContain('opacity-0');
   });
 
+  /**
+   * O AVISO NÃO PODE SUMIR NA TELA PEQUENA — foi o que eu fiz na primeira
+   * versão (`hidden sm:inline` no contador de "passou da hora"), deixando o
+   * cabeçalho do celular sem sinal nenhum de urgência.
+   */
+  it('os contadores do cabeçalho sobrevivem ao telefone', () => {
+    const cabecalho = BLOCO.slice(BLOCO.indexOf('<h2 className='), BLOCO.indexOf('Abrir agenda'));
+    expect(cabecalho).toContain('flex-wrap');
+    /*
+      A NEGATIVA MIRA A CLASSE, NÃO A PALAVRA. Escrita como
+      `not.toContain('hidden')` ela reprovava o arquivo CORRIGIDO, porque o
+      comentário que explica a remoção cita `hidden sm:inline`. É a quarta vez
+      que esta base cai nisso — negativa em português bate no comentário.
+    */
+    expect(cabecalho).not.toContain('className="hidden');
+    expect(cabecalho).not.toContain(' hidden shrink-0 rounded-full');
+  });
+
   /** O rótulo longo do desfecho não cabe em 375px — vira "Concluir". */
   it('o rótulo do botão encolhe no telefone', () => {
     expect(BLOCO).toContain('hidden sm:inline');
@@ -151,9 +173,24 @@ describe('o bloco no celular', () => {
 /** O horário vencido precisa saltar — 8 das 15 abertas já venceram. */
 describe('o que já venceu', () => {
   it('a linha vencida se distingue, e ganha etiqueta', () => {
-    expect(BLOCO).toContain('const atrasada = estaAtrasada(c);');
+    expect(BLOCO).toContain("const atrasada = estado === 'ATRASADA';");
     expect(BLOCO).toContain('bg-amber-50/60');
     expect(BLOCO).toContain('Atrasada');
+  });
+
+  /**
+   * DOIS ESTADOS, DOIS TONS — e antes eram um só, somando coisas diferentes.
+   *
+   * O robô agenda "Cadastrar ação do Diário" para as 15:00 do PRÓPRIO dia: às
+   * 15:01 elas viravam etiqueta âmbar de "Atrasada". Eram 7 das 8 medidas.
+   * Agora a etiqueta é só do que ficou para trás; o que passou da hora leva a
+   * hora em âmbar, sem fundo na linha.
+   */
+  it('"passou da hora" é marca discreta, não etiqueta', () => {
+    expect(BLOCO).toContain("const passouDaHora = estado === 'PASSOU_DA_HORA';");
+    expect(BLOCO).toContain("passouDaHora && 'font-semibold text-amber-700");
+    // O fundo da linha continua reservado ao atraso de verdade.
+    expect(BLOCO).toContain("atrasada ? 'bg-amber-50/60");
   });
 
   /**
@@ -174,8 +211,52 @@ describe('o que já venceu', () => {
 
   /** O número saiu da barra amarela e veio para o cabeçalho da fila. */
   it('o contador de atrasadas fica no cabeçalho, não numa barra separada', () => {
-    expect(BLOCO).toContain("contar(quantasAtrasadas, 'atrasada', 'atrasadas')");
+    expect(BLOCO).toContain("contar(totalAtrasadas, 'atrasada', 'atrasadas')");
     expect(PAINEL).not.toContain('atividades com horário vencido');
+  });
+
+  /**
+   * O CONTADOR VEM DA API, NÃO DO TAMANHO DA LISTA.
+   *
+   * As três consultas têm `take:` (8, 12, 8). Contar as linhas recebidas diria
+   * "3 atrasadas" quando existem 14 — mentindo para menos justamente no número
+   * que não pode errar.
+   */
+  it('o número de atrasadas vem do count da API', () => {
+    expect(BLOCO).toContain('totalAtrasadas: number;');
+    expect(PAINEL).toContain('totalAtrasadas={alertas.atrasadas}');
+    expect(PAINEL).toContain('totalPassaramDaHora={alertas.passaramDaHora ?? 0}');
+  });
+});
+
+/**
+ * DE QUEM É O ATRASO — a pergunta de quem coordena.
+ *
+ * Quem coordena não cumpre o prazo de ninguém: com "8 atrasadas" ele COBRA, e
+ * para cobrar precisa de um nome. A lista trazia isso num avatar de 24px por
+ * linha — obriga a ler linha por linha, somar de cabeça, e só nas cinco
+ * visíveis. Medido em 09/09/2026: Morgana 4, Carlos 3, Ícaro 1.
+ */
+describe('a tira "Esperando por"', () => {
+  it('conta a fila inteira, não só o que está visível', () => {
+    expect(BLOCO).toContain('const porPessoa = pessoal');
+    expect(BLOCO).toContain('.reduce((acc, c) => {');
+    expect(BLOCO).not.toContain('atencaoVisivel.reduce(');
+  });
+
+  it('ordena por quem tem mais', () => {
+    expect(BLOCO).toContain('.sort((a, b) => b.quantas - a.quantas)');
+  });
+
+  /** Na carteira própria seria o mesmo rosto uma vez só. */
+  it('não aparece na carteira pessoal nem com uma pessoa só', () => {
+    expect(BLOCO).toContain('{porPessoa.length > 1 && (');
+  });
+
+  it('cada nome leva à agenda já filtrada nele', () => {
+    expect(BLOCO).toContain('href={`/agenda?responsavel=${pessoa.id}`}');
+    expect(AGENDA).toContain("'responsavel',");
+    expect(AGENDA).toContain("setResponsaveis([v]); setAba('aberto');");
   });
 });
 
@@ -329,18 +410,38 @@ describe('a proposta encolheu', () => {
 describe('a agenda da equipe tem teto', () => {
   it('corta em cinco na visão de equipe', () => {
     expect(BLOCO).toContain('const TETO_EQUIPE = 5;');
-    expect(BLOCO).toContain('pessoal ? todas : todas.slice(0, TETO_EQUIPE)');
+    expect(BLOCO).toContain('Math.max(0, TETO_EQUIPE - atencaoVisivel.length)');
   });
 
   /** Na carteira própria não há corte: é exatamente o que a pessoa veio ver. */
   it('mas a carteira pessoal mostra tudo', () => {
-    expect(BLOCO).toContain('const visiveis = pessoal ? todas :');
+    expect(BLOCO).toContain('const vagasRestantes = pessoal');
+    expect(BLOCO).toContain('? emDia.length');
+  });
+
+  /**
+   * O CORTE NUNCA PODE ESCONDER O QUE PRECISA DE GENTE — e escondia.
+   *
+   * Medido em 09/09/2026 no painel do administrador: 8 atrasadas, teto de 5,
+   * rodapé dizendo "Mais 14 da equipe na agenda". TRÊS atrasadas invisíveis, e
+   * nada na tela avisando que o que sumiu era o que estava vencido.
+   */
+  it('o teto vale só para o que está EM DIA', () => {
+    expect(BLOCO).toContain('const precisamDeGente = todas.filter(pedeAtencao);');
+    expect(BLOCO).toContain('const emDia = todas.filter((c) => !pedeAtencao(c));');
+    expect(BLOCO).toContain('const visiveis = [...atencaoVisivel, ...emDia.slice(0, vagasRestantes)];');
+  });
+
+  /** Teto duro de segurança: 40 atrasadas não podem virar 40 linhas. */
+  it('há um teto duro para o que pede atenção, e ele é nomeado', () => {
+    expect(BLOCO).toContain('const TETO_ATENCAO = 12;');
+    expect(BLOCO).toContain('const atencaoOculta = precisamDeGente.length - atencaoVisivel.length;');
   });
 
   /** Esconder sem contar seria mentir sobre o tamanho da fila. */
-  it('e diz quantas ficaram de fora', () => {
+  it('e diz quantas ficaram de fora, dizendo se estavam atrasadas', () => {
     expect(BLOCO).toContain('const ocultas = todas.length - visiveis.length;');
-    expect(BLOCO).toContain('Mais {ocultas} da equipe na agenda');
+    expect(BLOCO).toContain("contar(atencaoOculta, 'delas atrasada', 'delas atrasadas')");
   });
 });
 

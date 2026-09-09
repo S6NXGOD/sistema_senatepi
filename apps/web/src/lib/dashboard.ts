@@ -140,7 +140,15 @@ export interface ResumoDashboard {
     filiadosHoje: number;
   } | null;
   alertas: {
+    /** FICOU PARA TRÁS: aberta e o dia já virou. É o alarme. */
     atrasadas: number;
+    /**
+     * De HOJE, com a hora marcada já passada — informação, não alarme.
+     *
+     * Opcional porque a API pode ser a de antes durante a janela de troca do
+     * deploy: web e API sobem em serviços separados.
+     */
+    passaramDaHora?: number;
     semMovimentacao: number;
     urgentes: number;
     /** Audiências designadas no DataJud e ainda fora da Agenda. */
