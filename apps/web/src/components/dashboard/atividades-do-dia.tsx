@@ -124,6 +124,25 @@ export function AtividadesDoDia({
 
   const agora = Date.now();
 
+  /*
+    A AGENDA DA EQUIPE NÃO CABE NUM PAINEL — e era o bloco mais alto de todos.
+
+    No escopo GLOBAL (administrador e coordenação) a API manda a agenda de todo
+    mundo: medido, 8 de hoje + 6 dos próximos dias = 14 linhas, ≈1.230px. Mais
+    de duas dobras de telefone com o trabalho ALHEIO, no painel de quem não vai
+    executar nenhuma delas.
+
+    Na carteira pessoal não há corte: as próprias atividades são exatamente o
+    que a pessoa veio ver, e Morgana no pior dia tem cinco.
+
+    O corte é de EXIBIÇÃO, não de dado: o rodapé diz quantas ficaram e leva à
+    agenda, onde elas estão inteiras e filtráveis. Esconder sem contar seria
+    mentir sobre o tamanho da fila.
+  */
+  const TETO_EQUIPE = 5;
+  const visiveis = pessoal ? todas : todas.slice(0, TETO_EQUIPE);
+  const ocultas = todas.length - visiveis.length;
+
   return (
     <section className="rounded-xl border">
       {/*
@@ -147,7 +166,7 @@ export function AtividadesDoDia({
       </div>
 
       <ul className="divide-y">
-        {todas.map((c) => {
+        {visiveis.map((c) => {
           const rapido = DESFECHO_RAPIDO[c.tipo];
           const venceu = new Date(c.inicio).getTime() < agora;
           const ocupado = agindo === c.id;
@@ -256,6 +275,16 @@ export function AtividadesDoDia({
           );
         })}
       </ul>
+
+      {ocultas > 0 && (
+        <Link
+          href="/agenda"
+          className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-medium text-brand-800 transition hover:bg-muted/60 dark:text-brand-300"
+        >
+          Mais {ocultas} da equipe na agenda
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Link>
+      )}
     </section>
   );
 }

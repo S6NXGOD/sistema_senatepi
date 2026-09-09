@@ -223,3 +223,49 @@ describe('a proposta encolheu', () => {
     expect(linha).toContain('.slice(0, 11)');
   });
 });
+
+/**
+ * OS 1.230px DE AGENDA ALHEIA.
+ *
+ * No escopo GLOBAL a API manda a agenda de todo mundo. Medido pelo leitor do
+ * workflow: administrador com 8 de hoje + 6 dos próximos = 14 linhas, ≈1.230px
+ * — o bloco mais alto do painel inteiro, com o trabalho de outras pessoas.
+ */
+describe('a agenda da equipe tem teto', () => {
+  it('corta em cinco na visão de equipe', () => {
+    expect(BLOCO).toContain('const TETO_EQUIPE = 5;');
+    expect(BLOCO).toContain('pessoal ? todas : todas.slice(0, TETO_EQUIPE)');
+  });
+
+  /** Na carteira própria não há corte: é exatamente o que a pessoa veio ver. */
+  it('mas a carteira pessoal mostra tudo', () => {
+    expect(BLOCO).toContain('const visiveis = pessoal ? todas :');
+  });
+
+  /** Esconder sem contar seria mentir sobre o tamanho da fila. */
+  it('e diz quantas ficaram de fora', () => {
+    expect(BLOCO).toContain('const ocultas = todas.length - visiveis.length;');
+    expect(BLOCO).toContain('Mais {ocultas} da equipe na agenda');
+  });
+});
+
+/**
+ * A CAIXA DE PROPOSTAS ERA INVISÍVEL PARA QUEM COORDENA.
+ *
+ * O painel pedia sempre a caixa pessoal. Administrador e coordenação não têm
+ * OAB, então nenhuma proposta é endereçada a eles: os três admins e a
+ * coordenação abriam o painel e a caixa não existia — inclusive para a proposta
+ * ÓRFÃ, que foi a razão de o parâmetro `todas` ter sido escrito.
+ */
+describe('a caixa de quem coordena', () => {
+  const CAIXA = readFileSync(join(__dirname, 'caixa-de-propostas.tsx'), 'utf8');
+
+  it('gestão pede o escopo ampliado', () => {
+    expect(CAIXA).toContain('listarPropostas(ehGestao)');
+  });
+
+  /** Chave distinta por escopo: senão o cache de um vaza para o outro. */
+  it('e o cache separa os dois escopos', () => {
+    expect(CAIXA).toContain("ehGestao ? 'com-orfas' : 'minhas'");
+  });
+});

@@ -122,7 +122,10 @@ export function AtalhosDoPerfil({
             href={a.href}
             className={cn(
               'inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-background',
-              'px-3 py-1.5 text-sm font-medium transition hover:bg-muted',
+              // 44px no telefone: a pílula tinha 32px de altura, abaixo do
+              // mínimo de alvo de toque. No desktop volta a 32, onde o ponteiro
+              // acerta e a altura conta.
+              'h-11 px-3.5 text-sm font-medium transition hover:bg-muted sm:h-8 sm:px-3',
             )}
           >
             <Icon className="h-4 w-4 text-brand-800 dark:text-brand-400" />

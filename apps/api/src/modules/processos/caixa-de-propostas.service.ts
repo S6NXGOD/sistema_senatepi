@@ -56,11 +56,23 @@ export class CaixaDePropostasService {
         compromissoId: null,
         tarefaDispensadaEm: null,
         /*
-          VER TODAS é da coordenação, e existe por causa das órfãs: proposta
-          cujo dono saiu da equipe some do mundo se ninguém puder enxergá-la.
-          Para o advogado, o filtro é o próprio id — a caixa dele é dele.
+          A CAIXA DA COORDENAÇÃO É A DELA MAIS AS ÓRFÃS — nunca a de todo mundo.
+
+          `verTodas` foi escrito como "sem filtro", e isso estava errado nas
+          duas pontas. Para quem coordena, despejar as 40 propostas/mês da
+          equipe é entregar uma caixa que ninguém abre — e ainda deixa a pessoa
+          decidir sobre prazo de processo que não acompanha.
+
+          O que justificou este parâmetro foi outra coisa: a proposta ÓRFÃ, cujo
+          dono foi desligado ou que o robô não soube endereçar. Essa some do
+          mundo se ninguém puder vê-la, e o prazo dela corre igual.
+
+          Então o escopo ampliado é `minhas OU sem dono`. O advogado continua
+          vendo só as dele.
         */
-        ...(verTodas ? {} : { tarefaPropostaPara: usuarioId }),
+        ...(verTodas
+          ? { OR: [{ tarefaPropostaPara: usuarioId }, { tarefaPropostaPara: null }] }
+          : { tarefaPropostaPara: usuarioId }),
       },
       orderBy: [
         // Com prazo primeiro, e dentro disso o mais antigo — é a ordem em que o
@@ -109,7 +121,10 @@ export class CaixaDePropostasService {
         tarefaPropostaEm: { not: null },
         compromissoId: null,
         tarefaDispensadaEm: null,
-        ...(verTodas ? {} : { tarefaPropostaPara: usuarioId }),
+        // Mesmo escopo da listagem: o selo não pode contar o que a lista não mostra.
+        ...(verTodas
+          ? { OR: [{ tarefaPropostaPara: usuarioId }, { tarefaPropostaPara: null }] }
+          : { tarefaPropostaPara: usuarioId }),
       },
     });
   }

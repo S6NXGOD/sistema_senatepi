@@ -106,7 +106,9 @@ describe('aceitar e recusar', () => {
    * matriz de permissões em silêncio.
    */
   it('cada um vê a própria caixa', () => {
-    expect(CAIXA).toContain('...(verTodas ? {} : { tarefaPropostaPara: usuarioId })');
+    // O escopo ampliado deixou de ser "sem filtro" — ver o bloco `o escopo
+    // ampliado` no fim deste arquivo. O advogado continua no próprio id.
+    expect(CAIXA).toContain(': { tarefaPropostaPara: usuarioId }),');
     expect(CONTROLLER).toContain('function podeVerTodasAsPropostas(');
     expect(CONTROLLER).not.toContain("@Roles('ADMINISTRADOR')\n  listarPropostas");
   });
@@ -171,5 +173,29 @@ describe('o trecho da ordem', () => {
   /** Um recorte de duas palavras não ajuda ninguém a decidir. */
   it('ignora recorte curto demais para informar', () => {
     expect(trechoDaOrdem('INTIMO.')).toBeNull();
+  });
+});
+
+/**
+ * A CAIXA DA COORDENAÇÃO É A DELA MAIS AS ÓRFÃS — nunca a de todo mundo.
+ *
+ * `verTodas` estava escrito como "sem filtro", e isso errava nas duas pontas:
+ * o painel nunca pedia (logo administrador e coordenação NÃO VIAM NADA, nem as
+ * órfãs), e se pedisse despejaria as 40 propostas/mês da equipe em quem não
+ * acompanha aqueles processos.
+ */
+describe('o escopo ampliado', () => {
+  it('é "minhas OU sem dono", não "todas"', () => {
+    expect(CAIXA).toContain('OR: [{ tarefaPropostaPara: usuarioId }, { tarefaPropostaPara: null }]');
+  });
+
+  /** O selo não pode contar o que a lista não mostra. */
+  it('a contagem usa o mesmo escopo da listagem', () => {
+    const contar = CAIXA.slice(CAIXA.indexOf('contar(usuarioId: string'));
+    expect(contar.slice(0, 700)).toContain('tarefaPropostaPara: null');
+  });
+
+  it('e o advogado continua vendo só as dele', () => {
+    expect(CAIXA).toContain(': { tarefaPropostaPara: usuarioId }),');
   });
 });

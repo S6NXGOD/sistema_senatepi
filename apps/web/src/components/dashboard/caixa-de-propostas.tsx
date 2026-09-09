@@ -57,17 +57,32 @@ export function CaixaDePropostas() {
     caminho que não existe.
   */
   const permitido = podeEditar(user?.role, user?.permissoes, 'processos');
+  /*
+    QUEM COORDENA VÊ AS ÓRFÃS — e sem isto não via NADA.
+
+    O painel pedia sempre a caixa pessoal. Como administrador e coordenação não
+    têm OAB, nenhuma proposta é endereçada a eles: os três admins e a
+    coordenação abriam o painel e a caixa simplesmente não existia — inclusive
+    para a proposta ÓRFÃ, que foi a razão de o parâmetro `todas` ter sido
+    escrito. Um prazo sem dono corria sem ninguém para vê-lo.
+
+    O escopo ampliado é "minhas OU sem dono", nunca a caixa da equipe inteira:
+    despejar 40 propostas/mês no coordenador é entregar uma caixa que ninguém
+    abre, e ainda o faz decidir sobre processo que não acompanha.
+  */
+  const ehGestao = user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO';
   const [aberta, setAberta] = useState<string | null>(null);
 
   const q = useQuery({
-    queryKey: ['djen', 'propostas'],
-    queryFn: () => listarPropostas(false),
+    queryKey: ['djen', 'propostas', ehGestao ? 'com-orfas' : 'minhas'],
+    queryFn: () => listarPropostas(ehGestao),
     enabled: permitido,
     staleTime: 30_000,
     retry: false,
   });
 
   const invalidar = () => {
+    // Prefixo: alcança tanto 'minhas' quanto 'com-orfas'.
     qc.invalidateQueries({ queryKey: ['djen', 'propostas'] });
     qc.invalidateQueries({ queryKey: ['agenda'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
