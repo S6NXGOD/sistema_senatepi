@@ -47,7 +47,7 @@ describe('resolver sem sair do painel', () => {
 
   /** `desfecho` é o único campo obrigatório — conferido no DTO da API. */
   it('conclui com um toque, sem modal', () => {
-    expect(BLOCO).toContain('concluirCompromisso(id, { desfecho })');
+    expect(BLOCO).toContain('concluirCompromisso(id, { desfecho');
   });
 
   /** Iniciar é a única transição que não pede dado nenhum. */
@@ -77,7 +77,7 @@ describe('resolver sem sair do painel', () => {
  */
 describe('o bloco no celular', () => {
   it('a linha quebra no telefone e alinha no desktop', () => {
-    expect(BLOCO).toContain('flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center');
+    expect(BLOCO).toContain('flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center');
   });
 
   /** Hover não existe no telefone: esconder ação atrás dele é escondê-la. */
@@ -267,5 +267,33 @@ describe('a caixa de quem coordena', () => {
   /** Chave distinta por escopo: senão o cache de um vaza para o outro. */
   it('e o cache separa os dois escopos', () => {
     expect(CAIXA).toContain("ehGestao ? 'com-orfas' : 'minhas'");
+  });
+});
+
+/**
+ * "09:00" NUMA LINHA DE AMANHÃ SE LÊ COMO ATRASO DE HOJE.
+ *
+ * A lista junta hoje e os próximos sete dias numa leitura cronológica só. O
+ * bloco antigo separava em duas e ligava a data apenas na de baixo; ao achatar
+ * a lista eu mostrei só a hora, e as atividades de amanhã passaram a parecer de
+ * hoje. Foi um teste ANTIGO, do bloco removido, que apontou isso ao cair.
+ */
+describe('a data na linha', () => {
+  it('hoje mostra só a hora; o resto ganha o dia', () => {
+    expect(BLOCO).toContain('ehDeHoje(c.inicio) ? formatHora(c.inicio) : etiquetaDeDia(c.inicio)');
+  });
+
+  it('amanhã ganha a palavra, o resto ganha o dia da semana', () => {
+    expect(BLOCO).toContain('if (dias === 1) return `amanhã ${hora}`;');
+    expect(BLOCO).toContain("toLocaleDateString('pt-BR', { weekday: 'short' })");
+  });
+
+  /**
+   * Fuso de Teresina: `new Date()` cru no contêiner UTC vira o dia às 21h e
+   * mostraria "amanhã" a noite inteira. É o mesmo erro que já custou o robô de
+   * cobranças marcar parcela vencida às 21:00 do dia dela.
+   */
+  it('compara dia de calendário brasileiro, não instante', () => {
+    expect(BLOCO).toContain('new Date(iso).getTime() - 3 * 3_600_000');
   });
 });

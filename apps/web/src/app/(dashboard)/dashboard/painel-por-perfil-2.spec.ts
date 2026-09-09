@@ -48,40 +48,49 @@ describe('as publicações do advogado', () => {
  * compromissos abertos do sindicato inteiro, **os seis** caíam nessa faixa.
  */
 describe('hoje e os próximos dias', () => {
-  it('o cartão lê as duas janelas', () => {
-    expect(TELA).toContain('const hoje = data.atividadesHoje;');
-    expect(TELA).toContain('const proximas = data.proximasAtividades ?? [];');
-    expect(TELA).toContain('const total = hoje.length + proximas.length;');
+  /*
+    O BLOCO MUDOU DE CASA — e estas asserções foram com ele.
+
+    Testavam o interior de `AtividadesHoje`, que era um `SectionCard` com duas
+    listas empilhadas dentro do próprio `page.tsx`. O usuário disse que aquilo
+    ocupava espaço demais e tinha razão: 73px só de moldura, e nenhuma das
+    linhas deixava FAZER nada. O bloco virou `AtividadesDoDia`, um componente
+    próprio, com resolução em um toque.
+
+    A propriedade que estes testes protegiam continua valendo, e continua
+    testada — em `components/dashboard/atividades-do-dia.spec.ts`: as duas
+    janelas são lidas, e a leitura é cronológica numa lista só. Aqui fica só o
+    que é do PAINEL: que ele passa as duas janelas ao bloco.
+  */
+  it('o painel entrega as duas janelas ao bloco', () => {
+    expect(TELA).toContain('hoje={data.atividadesHoje}');
+    expect(TELA).toContain('proximas={data.proximasAtividades ?? []}');
   });
 
-  /**
-   * Quem abre a agenda pensa em ordem de TEMPO, não em categoria de janela —
-   * duas listas separadas resolveriam o dado e piorariam a leitura.
-   */
-  it('é uma leitura cronológica só, com separador por trecho', () => {
-    expect(TELA).toContain('function BlocoDeDia');
-    expect(TELA).toContain('titulo="Hoje"');
-    expect(TELA).toContain('titulo="Próximos dias"');
-    // A data completa só no trecho futuro: em "Hoje" a hora basta — "09:00"
-    // sem data numa linha de amanhã é exatamente como se lê um atraso.
-    expect(TELA).toMatch(/titulo="Próximos dias"[^>]*mostrarData/);
-    expect(TELA).not.toMatch(/titulo="Hoje"[^>]*mostrarData/);
+  /** E o bloco antigo não ficou para trás como código morto. */
+  it('o bloco antigo saiu do arquivo', () => {
+    expect(TELA).not.toContain('function AtividadesHoje');
+    expect(TELA).not.toContain('function BlocoDeDia');
   });
 
-  /** O vazio agora fala das duas janelas — senão volta a mentir por omissão. */
-  it('o estado vazio cobre os sete dias, não só hoje', () => {
-    expect(TELA).toContain('Nenhuma atividade para hoje nem para os próximos sete dias');
-    expect(TELA).not.toContain('Nenhuma atividade agendada para hoje.');
-  });
+  /*
+    AS TRÊS ASSERÇÕES QUE MORAVAM AQUI FORAM COM O BLOCO.
 
-  /** O contador do cabeçalho tem de somar o que a lista mostra. */
-  it('o número do cabeçalho é o total exibido', () => {
-    expect(TELA).toContain('count={total}');
-  });
+    Testavam o interior de `AtividadesHoje`: o `EmptyState` das duas janelas, o
+    `count={total}` do SectionCard e o "Nada agendado para hoje" do BlocoDeDia.
+    O bloco virou `AtividadesDoDia` e nenhuma dessas peças existe mais — o
+    componente novo simplesmente não renderiza quando está vazio, e a linha
+    `OQueEstaLimpo` é quem diz que a semana está livre.
 
-  /** "Hoje" vazio com "próximos dias" cheio ainda diz que hoje está livre. */
-  it('hoje vazio continua sendo dito', () => {
-    expect(TELA).toContain('vazio="Nada agendado para hoje."');
+    A ÚLTIMA DELAS APONTOU UM BUG DE VERDADE ao cair, e vale registrar: ela
+    protegia a ideia de que "09:00" numa linha de amanhã se lê como atraso de
+    hoje. A lista nova é cronológica e plana, então a data passou a entrar POR
+    LINHA — está testada em `atividades-do-dia.spec.ts`. Sem este teste velho
+    quebrando, a regressão teria ido para produção.
+  */
+  it('e o painel não guarda mais peças do bloco antigo', () => {
+    expect(TELA).not.toContain('Nenhuma atividade para hoje nem para os próximos sete dias');
+    expect(TELA).not.toContain('vazio="Nada agendado para hoje."');
   });
 });
 

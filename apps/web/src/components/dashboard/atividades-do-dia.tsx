@@ -56,13 +56,29 @@ import type { CompromissoCard } from '@/lib/dashboard';
  * deliberado: um botão que fecha com o desfecho errado é pior que um clique a
  * mais, porque o desfecho é o que alimenta o relatório e o seguimento.
  */
-const DESFECHO_RAPIDO: Record<string, { slug: string; label: string }> = {
+const DESFECHO_RAPIDO: Record<string, { slug: string; label: string; exigeObs?: boolean }> = {
   PRAZO: { slug: 'PRAZO_CUMPRIDO', label: 'Peça protocolada' },
-  CONSULTA_JURIDICA: { slug: 'DUVIDA_ESCLARECIDA', label: 'Dúvida esclarecida' },
   DILIGENCIA: { slug: 'DILIGENCIA_CUMPRIDA', label: 'Cumprida' },
-  ACOMPANHAMENTO: { slug: 'ACOMPANHAMENTO_CUMPRIDO', label: 'Cumprido' },
-  REUNIAO: { slug: 'REUNIAO_COM_ENCAMINHAMENTOS', label: 'Com encaminhamentos' },
-  DESPACHO: { slug: 'DESPACHO_OBTIDO', label: 'Despacho obtido' },
+  /*
+    OS QUE PEDEM UMA LINHA — e a primeira versão deste bloco os quebrava.
+
+    Quatro desfechos do catálogo têm `exigeObs`, e o serviço RECUSA a conclusão
+    sem observação (`agenda.service.ts`: "if (opcao.exigeObs && !obs) throw").
+    Eu montei o botão de um toque para os seis sem conferir essa flag — e o
+    mais usado do sistema, "Dúvida esclarecida" (15 das 41 conclusões), era um
+    dos quatro. O botão mais apertado seria o que devolvia 400.
+
+    A regra existe por um bom motivo: nesses desfechos a observação É o
+    registro. "Dúvida esclarecida" sem dizer qual dúvida não serve a ninguém
+    que abrir o processo depois.
+
+    Então eles não perdem o atalho — ganham um campo de uma linha ali mesmo.
+    Continua sem sair do painel, sem modal, sem navegação.
+  */
+  CONSULTA_JURIDICA: { slug: 'DUVIDA_ESCLARECIDA', label: 'Dúvida esclarecida', exigeObs: true },
+  ACOMPANHAMENTO: { slug: 'ACOMPANHAMENTO_CUMPRIDO', label: 'Cumprido', exigeObs: true },
+  REUNIAO: { slug: 'REUNIAO_COM_ENCAMINHAMENTOS', label: 'Com encaminhamentos', exigeObs: true },
+  DESPACHO: { slug: 'DESPACHO_OBTIDO', label: 'Despacho obtido', exigeObs: true },
 };
 
 export function AtividadesDoDia({
@@ -87,6 +103,8 @@ export function AtividadesDoDia({
 }) {
   const qc = useQueryClient();
   const [agindo, setAgindo] = useState<string | null>(null);
+  /** Id da linha com o campo de observação aberto — só uma por vez. */
+  const [anotando, setAnotando] = useState<string | null>(null);
 
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -94,8 +112,8 @@ export function AtividadesDoDia({
   };
 
   const concluir = useMutation({
-    mutationFn: ({ id, desfecho }: { id: string; desfecho: string }) =>
-      concluirCompromisso(id, { desfecho }),
+    mutationFn: ({ id, desfecho, obs }: { id: string; desfecho: string; obs?: string }) =>
+      concluirCompromisso(id, { desfecho, ...(obs ? { desfechoObs: obs } : {}) }),
     onSuccess: () => {
       toast.success('Concluída.');
       setAgindo(null);
@@ -176,7 +194,7 @@ export function AtividadesDoDia({
             <li
               key={c.id}
               className={cn(
-                'flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:gap-3',
+                'flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3',
                 venceu && 'bg-amber-50/50 dark:bg-amber-950/10',
               )}
             >
@@ -188,13 +206,23 @@ export function AtividadesDoDia({
                 href={href(c.id)}
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
               >
+                {/*
+                  A DATA APARECE QUANDO NÃO É HOJE — e a falta dela era um bug.
+
+                  A lista junta hoje e os próximos sete dias numa leitura
+                  cronológica só. Mostrando apenas a hora, "09:00" numa linha de
+                  amanhã se lê exatamente como um atraso de hoje: a pessoa acha
+                  que perdeu o horário. O bloco antigo separava em duas listas e
+                  ligava a data só na de baixo; aqui a lista é uma, então a data
+                  entra por LINHA.
+                */}
                 <span
                   className={cn(
                     'shrink-0 text-[11px] tabular-nums',
                     venceu ? 'font-semibold text-amber-800 dark:text-amber-400' : 'text-muted-foreground',
                   )}
                 >
-                  {formatHora(c.inicio)}
+                  {ehDeHoje(c.inicio) ? formatHora(c.inicio) : etiquetaDeDia(c.inicio)}
                 </span>
                 {venceu && (
                   <AlertTriangle
@@ -241,6 +269,10 @@ export function AtividadesDoDia({
                   <button
                     type="button"
                     onClick={() => {
+                      if (rapido.exigeObs) {
+                        setAnotando(anotando === c.id ? null : c.id);
+                        return;
+                      }
                       setAgindo(c.id);
                       concluir.mutate({ id: c.id, desfecho: rapido.slug });
                     }}
@@ -271,6 +303,37 @@ export function AtividadesDoDia({
                   </Link>
                 )}
               </div>
+
+              {/*
+                O CAMPO DE UMA LINHA — para os desfechos em que a observação É o
+                registro. Fica na própria linha: sem modal, sem navegação.
+                `Enter` conclui, que é o gesto de quem digita uma frase curta.
+              */}
+              {anotando === c.id && rapido?.exigeObs && (
+                <div className="flex w-full gap-2 pt-1 sm:pl-16">
+                  <input
+                    autoFocus
+                    placeholder={`${rapido.label} — o que houve?`}
+                    disabled={ocupado}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter') return;
+                      const obs = (e.target as HTMLInputElement).value.trim();
+                      if (!obs) return;
+                      setAgindo(c.id);
+                      setAnotando(null);
+                      concluir.mutate({ id: c.id, desfecho: rapido.slug, obs });
+                    }}
+                    className="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm sm:h-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAnotando(null)}
+                    className="h-11 shrink-0 rounded-md px-2.5 text-xs text-muted-foreground transition hover:bg-muted sm:h-9"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
             </li>
           );
         })}
@@ -287,4 +350,35 @@ export function AtividadesDoDia({
       )}
     </section>
   );
+}
+
+/** O dia de Teresina do instante, para comparar dia com dia. */
+function diaBR(iso: string): string {
+  return new Date(new Date(iso).getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function ehDeHoje(iso: string): boolean {
+  return diaBR(iso) === diaBR(new Date().toISOString());
+}
+
+/**
+ * "AMANHÃ 09:00", "QUI 09:00" — a data mínima que impede a leitura errada.
+ *
+ * Dia inteiro por extenso gastaria a largura que o título precisa no telefone;
+ * a hora sozinha faz amanhã parecer atraso. Três letras do dia da semana
+ * resolvem, e "amanhã" ganha a palavra porque é o caso mais frequente.
+ *
+ * Fuso de Teresina, como o resto do sistema: `new Date()` cru no contêiner UTC
+ * vira o dia às 21h e mostraria "amanhã" a noite inteira.
+ */
+function etiquetaDeDia(iso: string): string {
+  const hora = formatHora(iso);
+  const dias = Math.round(
+    (new Date(diaBR(iso)).getTime() - new Date(diaBR(new Date().toISOString())).getTime()) /
+      86_400_000,
+  );
+  if (dias === 1) return `amanhã ${hora}`;
+  if (dias < 0) return `${new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hora}`;
+  const semana = new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+  return `${semana} ${hora}`;
 }
