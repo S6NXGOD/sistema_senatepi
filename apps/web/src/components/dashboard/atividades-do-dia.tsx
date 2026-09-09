@@ -182,7 +182,24 @@ export function AtividadesDoDia({
     Dentro de cada grupo a ordem continua cronológica — o atrasado é o mais
     antigo, então sobe sozinho, sem cabeçalho de seção e sem um segundo bloco.
   */
-  const todas = [...atrasadas, ...hoje, ...proximas].sort((a, b) => {
+  /*
+    DEDUPLICA POR ID — a janela de troca do deploy exige isto.
+
+    A API passou a mandar em `pendenciasAtivas` só o que venceu em DIA
+    ANTERIOR; antes mandava tudo com `inicio < agora`, incluindo as de hoje. Web
+    e API sobem em serviços separados e não trocam no mesmo segundo: enquanto a
+    web nova falar com a API antiga, a MESMA atividade chega nas duas listas e
+    apareceria duas vezes na fila.
+
+    A defesa fica no cliente, não no acordo entre as duas versões — é uma linha,
+    vale para qualquer atraso de deploy futuro, e o `Map` preserva a primeira
+    ocorrência, que é a ordem em que concatenamos.
+  */
+  const semRepetir = [...new Map(
+    [...atrasadas, ...hoje, ...proximas].map((c) => [c.id, c]),
+  ).values()];
+
+  const todas = semRepetir.sort((a, b) => {
     const porEstado = Number(!estaAberta(a)) - Number(!estaAberta(b));
     if (porEstado !== 0) return porEstado;
     return new Date(a.inicio).getTime() - new Date(b.inicio).getTime();

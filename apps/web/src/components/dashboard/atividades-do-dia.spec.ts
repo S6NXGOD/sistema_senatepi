@@ -37,7 +37,7 @@ describe('o bloco de atividades encolheu', () => {
    * põe o atrasado no topo sozinho.
    */
   it('junta atrasadas, hoje e próximos dias numa lista só', () => {
-    expect(BLOCO).toContain('const todas = [...atrasadas, ...hoje, ...proximas]');
+    expect(BLOCO).toContain('[...atrasadas, ...hoje, ...proximas]');
     // Reordena: as três consultas são independentes e podem intercalar.
     expect(BLOCO).toContain("new Date(a.inicio).getTime() - new Date(b.inicio).getTime()");
   });
@@ -50,6 +50,18 @@ describe('o bloco de atividades encolheu', () => {
    * corte de cinco da visão de equipe, DUAS das cinco linhas visíveis eram
    * trabalho já feito (medido contra a produção em 09/09/2026, antes de subir).
    */
+  /**
+   * A JANELA DE TROCA DO DEPLOY — web e API sobem em serviços separados.
+   *
+   * A API passou a mandar em `pendenciasAtivas` só o que venceu em dia
+   * anterior; antes mandava tudo com `inicio < agora`. Enquanto a web nova
+   * falar com a API antiga, a MESMA atividade chega nas duas listas.
+   */
+  it('deduplica por id, para a janela de troca do deploy', () => {
+    expect(BLOCO).toContain('new Map(');
+    expect(BLOCO).toContain('.map((c) => [c.id, c]),');
+  });
+
   it('as abertas vêm antes das já fechadas', () => {
     expect(BLOCO).toContain('const porEstado = Number(!estaAberta(a)) - Number(!estaAberta(b));');
     expect(BLOCO).toContain('if (porEstado !== 0) return porEstado;');
