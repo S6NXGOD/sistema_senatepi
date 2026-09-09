@@ -32,13 +32,22 @@ describe('o que vai direto e o que vira proposta', () => {
   });
 
   /**
-   * A ordem dos degraus importa: o advogado que o ATO nomeia é sinal mais forte
-   * que o responsável pelo processo — a publicação chegou porque a OAB dele
-   * estava nela.
+   * A ORDEM DOS DEGRAUS — e ela já esteve invertida, com este teste guardando o
+   * erro.
+   *
+   * O raciocínio antigo era "o ato é mais específico que o cadastro: a
+   * publicação chegou porque a OAB dele estava nela". A premissa escondida era
+   * que o ato nomeia UM advogado. Não nomeia: intima a equipe inteira, e são 4
+   * advogados em 80 dos 131 processos da produção. Pegar o primeiro é sorteio.
+   *
+   * Medido nas 1.424 publicações com processo e responsável ativo:
+   *   primeiro citado = responsável .... 694
+   *   primeiro citado ≠ responsável .... 614  ← o responsável ESTÁ citado
+   *   o escolhido nem é da equipe ...... 51
    */
-  it('prefere quem o ato nomeia ao responsável pelo processo', () => {
+  it('prefere o RESPONSÁVEL pelo processo a quem o ato cita primeiro', () => {
     const fn = CORRELACAO.slice(CORRELACAO.indexOf('private async donoDaProposta('));
-    expect(fn.indexOf('porOab.get(')).toBeLessThan(fn.indexOf('processo.advogadoId'));
+    expect(fn.indexOf('processo.advogadoId')).toBeLessThan(fn.indexOf('porOab.get('));
   });
 
   /** Sem dono a proposta fica órfã e visível, nunca sumida. */

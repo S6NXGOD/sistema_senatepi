@@ -392,10 +392,15 @@ export class CorrelacaoService {
           aprovação para um prazo já provado é cerimônia, e cerimônia é o que faz
           gente parar de ler aviso. São 7 dos 49 atos de um mês.
 
-          O RESTO VIRA PROPOSTA, endereçada a UMA pessoa: o advogado que o ato
-          nomeia pela OAB; sem ele, o responsável pelo processo. Proposta de
-          todos é proposta de ninguém. Medido: 40 por mês na equipe, 2,6 por
-          semana no pior caso individual, e zero sem dono.
+          O RESTO VIRA PROPOSTA, endereçada a UMA pessoa: o RESPONSÁVEL pelo
+          processo; sem ele, um advogado nosso que o ato cite pela OAB. Proposta
+          de todos é proposta de ninguém. Medido: 40 por mês na equipe, 2,6 por
+          semana no pior caso individual, e 2 sem dono em 1.433.
+
+          A ordem entre os dois critérios NÃO é indiferente e já foi ao
+          contrário: o ato intima a equipe inteira (4 advogados em 80 dos 131
+          processos), então "o primeiro que o ato cita" é sorteio. Ver
+          `donoDaProposta` para os números.
 
           A publicação continua visível em Publicações o tempo todo — a caixa
           não esconde nada, só decide o que entra na agenda.
@@ -876,10 +881,54 @@ export class CorrelacaoService {
     return compromissoId;
   }
 
+  /**
+   * DE QUEM É A PROPOSTA — o dono do CASO, não o primeiro nome da lista.
+   *
+   * A primeira versão perguntava ao ato: "que advogado nosso você cita?", e
+   * pegava o primeiro que casasse por OAB. O raciocínio parecia bom (o ato é
+   * mais específico que o cadastro) e estava errado, porque parte de uma
+   * premissa falsa: a de que o ato nomeia UM advogado.
+   *
+   * MEDIDO NA PRODUÇÃO (1.424 publicações com processo e responsável ativo):
+   *
+   *   advogados que o ato cita .......... 3 a 5 na maioria (só 39 atos citam 1)
+   *   tamanho da equipe do processo ..... 4 em 80 dos 131 processos
+   *   primeiro citado = responsável ..... 694
+   *   primeiro citado ≠ responsável ..... 614  ← e o responsável ESTÁ citado
+   *   o escolhido nem é da equipe ....... 51
+   *
+   * O ato intima a equipe inteira; a ordem em que o DJEN devolve os nomes não
+   * significa nada. Escolher o primeiro é sortear entre quatro colegas — 43%
+   * das propostas iriam para a pessoa errada, e o mesmo processo
+   * (0000814-61.2026.5.22.0002) rendia propostas para dois advogados, nenhum
+   * deles o responsável.
+   *
+   * O CADASTRO SABE, E O RESTO DO SISTEMA JÁ O USA
+   * `processos_advogados` tem um `principal` marcado à mão, e o atalho
+   * `processo.advogadoId` bate com ele em 131 de 131 processos. O caminho que
+   * cria ATIVIDADE direto (`responsavel(p.advogadoId)`) sempre usou isso. Só a
+   * proposta divergia — de modo que a MESMA publicação caía com pessoas
+   * diferentes conforme mencionasse prazo ou não. Uma regra, um dono.
+   *
+   * A OAB CITADA CONTINUA VALENDO — como segunda opção, para o processo sem
+   * responsável ativo (2 na produção). Aí um nome da equipe é melhor que nada.
+   *
+   * `null` é resposta legítima: a proposta órfã aparece na fila comum de quem
+   * coordena. São 2 em 1.433 — mas proposta endereçada a quem saiu do sindicato
+   * seria pior, porque ninguém a veria.
+   */
   private async donoDaProposta(
     processo: ProcessoAlvo,
     comunicacaoId: string,
   ): Promise<string | null> {
+    if (processo.advogadoId) {
+      const ativo = await this.prisma.user.findFirst({
+        where: { id: processo.advogadoId, ativo: true },
+        select: { id: true },
+      });
+      if (ativo) return ativo.id;
+    }
+
     const c = await this.prisma.comunicacaoDjen.findUnique({
       where: { id: comunicacaoId },
       select: { advogados: true },
@@ -899,15 +948,6 @@ export class CorrelacaoService {
         const achado = porOab.get(chave(a?.numeroOab, a?.ufOab));
         if (achado) return achado;
       }
-    }
-    // O responsável só vale se ainda estiver ativo — proposta para quem saiu é
-    // proposta perdida, e o `null` ao menos a mostra como órfã.
-    if (processo.advogadoId) {
-      const ativo = await this.prisma.user.findFirst({
-        where: { id: processo.advogadoId, ativo: true },
-        select: { id: true },
-      });
-      if (ativo) return ativo.id;
     }
     return null;
   }
