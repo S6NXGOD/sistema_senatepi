@@ -101,13 +101,31 @@ describe('a ordem por perfil', () => {
     expect(TELA.indexOf('texto="Meu balcão hoje"')).toBeLessThan(TELA.indexOf('KpiCard {...c}'));
   });
 
-  /** Aniversariantes ficam junto da fila da Triagem — é ela quem liga. */
+  /**
+   * Aniversariantes ficam junto da fila da Triagem — é ela quem liga.
+   *
+   * A guarda do rodapé ganhou `ehGestao`: parabenizar filiado é relacionamento,
+   * função de quem atende e de quem coordena, não de quem litiga. O advogado
+   * recebia a lista todo dia entre os prazos dele. A propriedade testada aqui
+   * não mudou — o bloco da Triagem continua NA FILA dela, antes do rodapé.
+   */
   it('e vê os aniversariantes junto da própria fila, não no rodapé', () => {
     const filaTriagem = TELA.indexOf('texto="Sua fila de hoje"');
     const aniversarioNaFila = TELA.indexOf('<Aniversariantes', filaTriagem);
-    const rodape = TELA.indexOf('{!ehTriagem && pode.filiados && (');
+    const rodape = TELA.indexOf('{!ehTriagem && ehGestao && pode.filiados && (');
+    expect(rodape).toBeGreaterThan(-1);
     expect(aniversarioNaFila).toBeGreaterThan(filaTriagem);
     expect(aniversarioNaFila).toBeLessThan(rodape);
+  });
+
+  /**
+   * E O ADVOGADO DEIXOU DE RECEBÊ-LOS — não é o trabalho dele.
+   *
+   * A guarda antiga (`!ehTriagem && pode.filiados`) entregava a lista a todo
+   * advogado com acesso a filiados, que é a maioria deles.
+   */
+  it('mas o advogado não recebe mais a lista', () => {
+    expect(TELA).not.toContain('{!ehTriagem && pode.filiados && (');
   });
 
   /** Carga da equipe é instrumento de gestão — e o dado nem chega ao advogado. */

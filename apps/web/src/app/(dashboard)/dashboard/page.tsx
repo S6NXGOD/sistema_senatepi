@@ -41,6 +41,7 @@ import { tenant } from '@/tenant.config';
 import { AcoesSemCadastro } from '@/components/dashboard/acoes-sem-cadastro';
 import { OQueEstaLimpo, type CoisaLimpa } from '@/components/dashboard/o-que-esta-limpo';
 import { CaixaDePropostas } from '@/components/dashboard/caixa-de-propostas';
+import { AtividadesDoDia } from '@/components/dashboard/atividades-do-dia';
 import {
   COR_SAIDA, COR_SALDO, PALETA_CATEGORICA, useCorDaMarca,
 } from '@/lib/cores-grafico';
@@ -280,6 +281,8 @@ function Conteudo({
    * buracos onde faltava permissão — nunca o próprio trabalho em destaque.
    */
   const ehTriagem = role === 'TRIAGEM';
+  /** Carteira própria (advogado) — muda a ORDEM do painel, nunca o acesso. */
+  const escopoPessoal = data.escopo === 'PESSOAL';
 
   // KPIs globais, filtrados pelo que o perfil pode ver.
   const kpiCards = [
@@ -433,6 +436,27 @@ function Conteudo({
               icon={Users} cor="bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400" href="/filiados" destaque />
           </div>
         </section>
+      )}
+
+
+      {/*
+        NA CARTEIRA PESSOAL, A AGENDA VEM ANTES DE TUDO.
+
+        O advogado abre o painel para saber o que ELE tem de fazer hoje. Isso
+        estava depois da carteira, da zona de trabalho do Diário E da grade de
+        números — no telefone, meia dúzia de rolagens antes do primeiro prazo.
+
+        Para quem coordena a ordem continua a outra: a agenda da equipe é
+        contexto, e o que precisa de decisão vem primeiro. Por isso o bloco
+        aparece em DOIS lugares, nunca nos dois ao mesmo tempo.
+      */}
+      {escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
+        <AtividadesDoDia
+          hoje={data.atividadesHoje}
+          proximas={data.proximasAtividades ?? []}
+          pessoal
+          href={(id) => `/agenda?compromisso=${id}`}
+        />
       )}
 
       {/*
@@ -598,20 +622,39 @@ function Conteudo({
           {pode.escalas && !vazio.equipeHoje && <EquipeHoje data={data} />}
           {pode.agenda && !vazio.audienciasSemana && <AudienciasSemana data={data} />}
         </div>
-        {pode.agenda && !vazio.atividadesHoje && (
+        {!escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
           <div className="lg:col-span-2">
-            <AtividadesHoje data={data} pessoal={data.escopo === 'PESSOAL'} />
+            <AtividadesDoDia
+              hoje={data.atividadesHoje}
+              proximas={data.proximasAtividades ?? []}
+              pessoal={false}
+              href={(id) => `/agenda?compromisso=${id}`}
+            />
           </div>
         )}
       </div>
 
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <GraficoTendencia data={data} podeAtend={pode.atendimentos} podeFil={pode.filiados} />
+      {/*
+        GRÁFICO É INSTRUMENTO DE GESTÃO — e não era de ninguém.
+
+        Tendência de atendimentos e de filiados ao longo do mês responde "como
+        vai o sindicato". É a pergunta de quem coordena; não é a de quem tem
+        prazo amanhã. O advogado recebia 135 linhas de gráfico entre a agenda
+        dele e o acervo dele, todo dia, sem nunca precisar.
+
+        A guarda é por PERFIL, e aqui isso é correto: ela decide ÊNFASE, não
+        acesso. O advogado continua podendo ver o mesmo dado em Relatórios se
+        tiver permissão — o que muda é que a home dele para de assumir que ele
+        quer. Nenhuma guarda deste arquivo alarga permissão; todas só escondem.
+      */}
+      {ehGestao && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <GraficoTendencia data={data} podeAtend={pode.atendimentos} podeFil={pode.filiados} />
+          </div>
+          {pode.atendimentos && <GraficoCanais data={data} />}
         </div>
-        {pode.atendimentos && <GraficoCanais data={data} />}
-      </div>
+      )}
 
       {/* Pendências ativas + atendimentos pendentes.
           A Triagem já viu os atendimentos no topo — não repete aqui. */}
@@ -644,7 +687,19 @@ function Conteudo({
 
       {/* Aniversariantes para os demais perfis (a Triagem já viu no topo).
           O card se esconde sozinho em dia sem aniversário. */}
-      {!ehTriagem && pode.filiados && (
+      {/*
+        ANIVERSARIANTE É TRABALHO DE QUEM ATENDE, não de quem litiga.
+
+        Parabenizar filiado é relacionamento — função da secretaria e da
+        coordenação. O advogado recebia a lista todo dia entre os prazos dele e
+        o acervo dele; medido hoje, são 2 aniversariantes e 8 na semana, e
+        nenhum deles muda o que ele faz.
+
+        A Triagem vê a lista LÁ EM CIMA, junto com a fila de atendimento, que é
+        onde ela trabalha — por isso `!ehTriagem` aqui: não é exclusão, é não
+        repetir. Ênfase, nunca acesso: `pode.filiados` continua mandando.
+      */}
+      {!ehTriagem && ehGestao && pode.filiados && (
         <Aniversariantes
           data={data}
           podeCompletar={podeEditarFiliado}
