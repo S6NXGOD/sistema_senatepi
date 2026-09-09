@@ -214,7 +214,7 @@ function Grupo({ p }: { p: Pendencia }) {
         concluía que tinha trinta tarefas suas. Tem zero: é a fila da equipe, e
         o primeiro que cadastrar limpa o item para todo mundo.
       */}
-      {verTodas.compartilhada && (
+      {p.compartilhada && (
         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
           <Users className="h-3 w-3 shrink-0" />
           Fila da equipe — quem resolver primeiro limpa para todos
@@ -241,7 +241,7 @@ function Grupo({ p }: { p: Pendencia }) {
                     "08/06", "09/06" — três meses de espera escritos de um jeito
                     que não parecia espera nenhuma.
                   */}
-                  {verTodas.compartilhada ? esperaCurta(e.quando) : formatarDia(e.quando)}
+                  {p.compartilhada ? esperaCurta(e.quando) : formatarDia(e.quando)}
                 </span>
               )}
             </Link>

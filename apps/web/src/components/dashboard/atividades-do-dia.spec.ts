@@ -318,13 +318,16 @@ describe('a posição do bloco muda com o escopo', () => {
   });
 
   it('e na visão de equipe fica na grade, como contexto', () => {
-    expect(PAINEL).toContain('{!escopoPessoal && pode.agenda && !vazio.atividadesHoje && (');
+    expect(PAINEL).toContain(
+      'const mostrarAtividadesDaEquipe = !escopoPessoal && pode.agenda && !vazio.atividadesHoje;',
+    );
+    expect(PAINEL).toContain('{mostrarAtividadesDaEquipe && (');
   });
 
   /** Nunca nos dois lugares ao mesmo tempo. */
   it('as duas posições são mutuamente exclusivas', () => {
     expect(PAINEL).toContain('{escopoPessoal && pode.agenda');
-    expect(PAINEL).toContain('{!escopoPessoal && pode.agenda');
+    expect(PAINEL).toContain('!escopoPessoal && pode.agenda');
   });
 });
 
@@ -340,7 +343,7 @@ describe('o que saiu do painel do advogado', () => {
   it('gráficos ficam com quem coordena', () => {
     expect(PAINEL).toContain('{ehGestao && (');
     const trecho = PAINEL.slice(PAINEL.indexOf('GRÁFICO É INSTRUMENTO DE GESTÃO'));
-    expect(trecho.slice(0, 900)).toContain('<GraficoTendencia');
+    expect(trecho.slice(0, 1400)).toContain('<GraficoTendencia');
   });
 
   it('aniversariantes idem, e o gate de módulo continua', () => {

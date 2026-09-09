@@ -371,6 +371,18 @@ function Conteudo({
     cargaEquipe: ehGestao && (data.cargaEquipe ?? []).length === 0,
   };
 
+  /*
+    O QUE A GRADE DA ZONA 3 VAI CONTER — calculado antes de desenhar.
+
+    Guarda de vazio dentro de grade de largura fixa esconde o conteúdo e deixa
+    o espaço: era um terço de tela em branco ao lado das atividades sempre que
+    não havia plantão nem audiência na semana. A grade precisa saber o que vai
+    receber ANTES de escolher quantas colunas ter.
+  */
+  const temColunaLateral =
+    (pode.escalas && !vazio.equipeHoje) || (pode.agenda && !vazio.audienciasSemana);
+  const mostrarAtividadesDaEquipe = !escopoPessoal && pode.agenda && !vazio.atividadesHoje;
+
   /* Frases AFIRMATIVAS: "Nada atrasado", nunca "0 atrasos". A pessoa lê a
      linha para se tranquilizar, e número zero não tranquiliza ninguém. */
   const limpo: CoisaLimpa[] = [
@@ -623,15 +635,26 @@ function Conteudo({
       {ehTriagem && (
         <section>
           <SectionTitle icon={Inbox} texto="Sua fila de hoje" />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {pode.atendimentos && <AtendimentosPendentes data={data} />}
-          </div>
+          {/*
+            SEM GRADE PARA UM CARTÃO SÓ — e isto era regressão minha.
+
+            Aqui havia dois cartões lado a lado ("Contatos a fazer" e a fila de
+            atendimentos). Removi o primeiro e deixei a grade de duas colunas
+            com um filho: o cartão ficava com metade da largura e a outra metade
+            em branco, no painel de quem abre o sistema para trabalhar essa fila.
+          */}
+          {pode.atendimentos && <AtendimentosPendentes data={data} />}
           {/* Aniversariantes logo abaixo da fila: é a secretaria quem faz o
               contato, e o card só aparece quando há alguém. E ao lado, os
               cadastros que dá para completar hoje — é o mesmo gesto (abrir a
               ficha de alguém e preencher o que falta), e a mesma pessoa. */}
           {pode.filiados && (
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div
+              className={cn(
+                'mt-4 grid grid-cols-1 gap-4',
+                podeEditarFiliado && 'lg:grid-cols-2',
+              )}
+            >
               <Aniversariantes
                 data={data}
                 podeCompletar={podeEditarFiliado}
@@ -649,26 +672,53 @@ function Conteudo({
         ZONA 3 — O DIA. Cada bloco só aparece se tiver conteúdo; o que estiver
         vazio é anunciado na linha única do fim (zona 4).
       */}
-      {/* Grade principal: equipe/audiências (1) + atividades de hoje (2) */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="space-y-4">
-          {pode.escalas && !vazio.equipeHoje && <EquipeHoje data={data} />}
-          {pode.agenda && !vazio.audienciasSemana && <AudienciasSemana data={data} />}
+      {/*
+        A GRADE SE ADAPTA AO QUE EXISTE — antes reservava a coluna vazia.
+
+        A coluna da esquerda (equipe + audiências) era um `<div>` renderizado
+        SEMPRE, mesmo com os dois filhos escondidos pelas guardas de vazio. Como
+        a grade é `lg:grid-cols-3`, ela continuava alocando um terço da largura
+        para um div sem nada dentro: as atividades ficavam empurradas para a
+        direita com um buraco branco do tamanho de um cartão ao lado.
+
+        É o mesmo erro do "bloco vazio não renderiza", um nível acima: não basta
+        o BLOCO sumir, a CÉLULA que o segurava tem de sumir junto. Guarda de
+        vazio dentro de grade fixa esconde o conteúdo e deixa o espaço.
+
+        Três arranjos, um por combinação real:
+          os dois     → 1/3 lateral + 2/3 atividades (como antes)
+          só lateral  → as duas cartas lado a lado, aproveitando a largura
+          só a fila   → largura inteira
+      */}
+      {(temColunaLateral || mostrarAtividadesDaEquipe) && (
+        <div
+          className={cn(
+            'grid grid-cols-1 gap-4',
+            temColunaLateral && mostrarAtividadesDaEquipe && 'lg:grid-cols-3',
+            temColunaLateral && !mostrarAtividadesDaEquipe && 'lg:grid-cols-2',
+          )}
+        >
+          {temColunaLateral && (
+            <div className="space-y-4">
+              {pode.escalas && !vazio.equipeHoje && <EquipeHoje data={data} />}
+              {pode.agenda && !vazio.audienciasSemana && <AudienciasSemana data={data} />}
+            </div>
+          )}
+          {mostrarAtividadesDaEquipe && (
+            <div className={cn(temColunaLateral && 'lg:col-span-2')}>
+              <AtividadesDoDia
+                atrasadas={data.pendenciasAtivas ?? []}
+                hoje={data.atividadesHoje}
+                proximas={data.proximasAtividades ?? []}
+                totalAtrasadas={alertas.atrasadas}
+                totalPassaramDaHora={alertas.passaramDaHora ?? 0}
+                pessoal={false}
+                href={(id) => `/agenda?compromisso=${id}`}
+              />
+            </div>
+          )}
         </div>
-        {!escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
-          <div className="lg:col-span-2">
-            <AtividadesDoDia
-              atrasadas={data.pendenciasAtivas ?? []}
-              hoje={data.atividadesHoje}
-              proximas={data.proximasAtividades ?? []}
-              totalAtrasadas={alertas.atrasadas}
-              totalPassaramDaHora={alertas.passaramDaHora ?? 0}
-              pessoal={false}
-              href={(id) => `/agenda?compromisso=${id}`}
-            />
-          </div>
-        )}
-      </div>
+      )}
 
       {/*
         GRÁFICO É INSTRUMENTO DE GESTÃO — e não era de ninguém.
@@ -684,8 +734,13 @@ function Conteudo({
         quer. Nenhuma guarda deste arquivo alarga permissão; todas só escondem.
       */}
       {ehGestao && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
+        <div
+          className={cn(
+            'grid grid-cols-1 gap-4',
+            pode.atendimentos && 'lg:grid-cols-3',
+          )}
+        >
+          <div className={cn(pode.atendimentos && 'lg:col-span-2')}>
             <GraficoTendencia data={data} podeAtend={pode.atendimentos} podeFil={pode.filiados} />
           </div>
           {pode.atendimentos && <GraficoCanais data={data} />}
@@ -766,7 +821,12 @@ function Conteudo({
       {/* Leitura de acervo: com quem brigamos, e o que andou nos processos.
           As duas são contexto, não alerta — por isso ficam no rodapé. */}
       {pode.processos && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div
+          className={cn(
+            'grid grid-cols-1 gap-4',
+            !vazio.movimentacoes && 'lg:grid-cols-2',
+          )}
+        >
           <AdversariosRecorrentes data={data} />
           {!vazio.movimentacoes && <MovimentacoesRecentes data={data} />}
         </div>

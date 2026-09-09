@@ -47,7 +47,41 @@ export interface Pendencia {
   total: number;
   /** Até três exemplos — o suficiente para reconhecer sem virar uma lista. */
   exemplos: { id: string; titulo: string; quando: string | null; href: string }[];
+  /**
+   * FILA DA EQUIPE, e não trabalho de quem está olhando.
+   *
+   * Vive aqui, e não só no mapa de rótulos do web, porque é o que decide o
+   * NÚMERO DO CRACHÁ — e essa conta é feita neste arquivo. Com a regra nos dois
+   * lugares, o crachá somava o que o rótulo dizia não ser da pessoa.
+   */
+  compartilhada?: boolean;
 }
+
+/**
+ * O QUE NÃO ENTRA NO CRACHÁ — e por que o crachá estava mentindo para todos.
+ *
+ * Medido em 09/09/2026, nos 14 usuários ativos:
+ *
+ *   Tiago, Margareth, Lara, Jaqueline, Shérad ... 0 tarefas suas, crachá = 25
+ *   Ícaro, Murilo ............................... 1 tarefa,  crachá = 26 (96% alheio)
+ *   Morgana ..................................... 5 tarefas, crachá = 30 (83% alheio)
+ *   Administradores / coordenação / triagem ..... 11,        crachá = 36 (69% alheio)
+ *
+ * As 25 são a fila COMPARTILHADA de ações que o Diário revelou e ninguém
+ * cadastrou. O mesmo 25 para os catorze, todo dia, sem mudar — porque não é de
+ * ninguém. Cinco pessoas sem nada a fazer viam "25" em vermelho no topo de toda
+ * tela do sistema.
+ *
+ * O comentário do próprio `ACAO_NOVA` já previa isto ("faz o contador mentir
+ * sobre a carga da pessoa; ela abre esperando 30 tarefas suas") e o flag
+ * `compartilhada` existia no web — mas a SOMA acontecia aqui, sem conhecê-lo.
+ *
+ * Um crachá que não zera nunca é papel de parede. Agora ele responde uma
+ * pergunta só: "quantas coisas MINHAS estão esperando?" — e zerar é a melhor
+ * notícia que ele pode dar. A fila da equipe continua na lista, marcada, e
+ * continua no painel e em Processos, que é onde se trabalha um backlog.
+ */
+const NAO_CONTA_NO_CRACHA: ReadonlySet<Pendencia['tipo']> = new Set(['ACAO_NOVA']);
 
 const MAX_EXEMPLOS = 3;
 
@@ -261,6 +295,7 @@ export class PendenciasService {
       acoesNovas.length
         ? {
             tipo: 'ACAO_NOVA' as const,
+            compartilhada: true,
             total: acoesNovas.length,
             exemplos: acoesNovas.slice(0, MAX_EXEMPLOS).map((a) => ({
               id: a.id,
@@ -287,6 +322,13 @@ export class PendenciasService {
         : null,
     ].filter((p): p is Pendencia => p !== null);
 
-    return { pendencias, total: pendencias.reduce((s, p) => s + p.total, 0) };
+    return {
+      pendencias,
+      /* Só o que é DELA. Ver `NAO_CONTA_NO_CRACHA` para os números que
+         motivaram isto — cinco pessoas com zero tarefas viam 25. */
+      total: pendencias
+        .filter((p) => !NAO_CONTA_NO_CRACHA.has(p.tipo))
+        .reduce((s, p) => s + p.total, 0),
+    };
   }
 }

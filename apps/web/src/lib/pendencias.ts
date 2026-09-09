@@ -21,6 +21,18 @@ export interface Pendencia {
   tipo: TipoPendencia;
   total: number;
   exemplos: { id: string; titulo: string; quando: string | null; href: string }[];
+  /**
+   * FILA DA EQUIPE — vem da API, e não de um mapa aqui.
+   *
+   * Esta bandeira decide DUAS coisas: a linha "quem resolver primeiro limpa
+   * para todos" nesta tela, e se o item entra no número do crachá. A segunda
+   * conta é feita na API. Com a regra escrita nos dois lugares, o crachá somava
+   * 25 itens que o rótulo, logo abaixo, dizia não serem da pessoa — cinco dos
+   * catorze usuários tinham ZERO tarefas e viam "25" em vermelho.
+   *
+   * Opcional porque a API pode ser a de antes durante a janela de troca.
+   */
+  compartilhada?: boolean;
 }
 
 export interface MinhasPendencias {
@@ -61,15 +73,6 @@ export const PENDENCIA: Record<
     naFaixa: boolean;
     href: string;
     verTodas: string;
-    /**
-     * É fila DA EQUIPE, e não trabalho atribuído a quem está olhando.
-     *
-     * O sino se chama "o que precisa de você" e tudo nele é pessoal — menos a
-     * ação nova, que não é de ninguém porque o processo ainda não existe para
-     * ter dono. Mostrar 30 itens coletivos sob esse título faz o contador
-     * mentir sobre a carga da pessoa; ela abre esperando 30 tarefas suas.
-     */
-    compartilhada?: boolean;
   }
 > = {
   /*
@@ -147,7 +150,6 @@ export const PENDENCIA: Record<
     naFaixa: false,
     href: '/processos',
     verTodas: 'Ver todas as ações encontradas',
-    compartilhada: true,
   },
 };
 

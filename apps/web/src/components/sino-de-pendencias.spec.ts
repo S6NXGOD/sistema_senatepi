@@ -212,13 +212,13 @@ describe('a gaveta', () => {
    * fazem o contador mentir sobre a carga da pessoa.
    */
   it('marca a fila da equipe como coletiva', () => {
-    expect(SINO).toContain('verTodas.compartilhada &&');
+    expect(SINO).toContain('p.compartilhada &&');
     expect(SINO).toContain('Fila da equipe');
   });
 
   /** Na fila coletiva a data é "desde quando espera", não "quando vence". */
   it('mostra espera na fila da equipe e prazo nas tarefas', () => {
-    expect(SINO).toContain('verTodas.compartilhada ? esperaCurta(e.quando) : formatarDia(e.quando)');
+    expect(SINO).toContain('p.compartilhada ? esperaCurta(e.quando) : formatarDia(e.quando)');
   });
 });
 
@@ -267,5 +267,47 @@ describe('a faixa de atraso', () => {
     // `<main className=` e não `<main`: o próprio comentário do arquivo cita
     // "<main>" ao explicar a decisão, e a busca crua casaria com ele.
     expect(SHELL.indexOf('<FaixaDeAtraso />')).toBeLessThan(SHELL.indexOf('<main className='));
+  });
+});
+
+
+/**
+ * O CRACHÁ MENTIA PARA OS CATORZE.
+ *
+ * Medido em 09/09/2026, nos 14 usuários ativos: as 25 "ações do Diário sem
+ * cadastro" são fila COMPARTILHADA e entravam na soma do crachá pessoal.
+ *
+ *   Tiago, Margareth, Lara, Jaqueline, Shérad ... 0 tarefas suas, crachá = 25
+ *   Ícaro, Murilo ............................... 1,  crachá = 26 (96% alheio)
+ *   Morgana ..................................... 5,  crachá = 30 (83% alheio)
+ *   Admin / coordenação / triagem ............... 11, crachá = 36 (69% alheio)
+ *
+ * O mesmo 25 para todos, todo dia, sem mudar. Um crachá que nunca zera é papel
+ * de parede — e cinco pessoas sem nada a fazer viam vermelho no topo de toda
+ * tela do sistema.
+ */
+describe('o número do crachá é só o que é seu', () => {
+  const SERVICO = readFileSync(
+    path.resolve(RAIZ, '../../../apps/api/src/modules/agenda/pendencias.service.ts'),
+    'utf8',
+  );
+
+  it('a fila da equipe não entra na soma', () => {
+    expect(SERVICO).toContain("const NAO_CONTA_NO_CRACHA: ReadonlySet<Pendencia['tipo']> = new Set(['ACAO_NOVA']);");
+    expect(SERVICO).toContain('.filter((p) => !NAO_CONTA_NO_CRACHA.has(p.tipo))');
+  });
+
+  /**
+   * UMA CASA PARA A REGRA. O flag vivia no mapa de rótulos do web, e a SOMA
+   * acontecia na API, que não o conhecia: o crachá contava o que o rótulo, uma
+   * linha abaixo, dizia não ser da pessoa.
+   */
+  it('a bandeira vem da API, não de um mapa no web', () => {
+    expect(SERVICO).toContain('compartilhada: true,');
+    expect(SINO).toContain('{p.compartilhada && (');
+    // O mapa de apresentação não pode ter uma segunda cópia da regra.
+    const mapa = readFileSync(path.join(RAIZ, 'lib/pendencias.ts'), 'utf8');
+    const presentacao = mapa.slice(mapa.indexOf('export const PENDENCIA'));
+    expect(presentacao).not.toContain('compartilhada: true');
   });
 });
