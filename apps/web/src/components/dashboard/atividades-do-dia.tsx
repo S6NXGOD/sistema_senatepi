@@ -154,23 +154,41 @@ export function AtividadesDoDia({
     },
   });
 
-  /*
-    ORDEM CRONOLÓGICA PURA, e ela já resolve a prioridade.
+  const agora = Date.now();
+  const estaAberta = (c: CompromissoCard) =>
+    c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO';
+  const estaAtrasada = (c: CompromissoCard) =>
+    estaAberta(c) && new Date(c.inicio).getTime() < agora;
 
-    O atrasado é, por definição, o mais antigo — ordenar por `inicio` põe as
-    pendências no topo sem cabeçalho de seção e sem um segundo bloco. As três
-    listas vêm de consultas separadas, então a concatenação pode intercalar:
-    reordena-se uma vez, aqui.
+  /*
+    O QUE AINDA PEDE AÇÃO PRIMEIRO; DEPOIS, CRONOLÓGICO.
+
+    A primeira versão desta fila ordenava só por `inicio`, e a simulação contra
+    a produção mostrou o estrago: `atividadesHoje` traz o dia INTEIRO, qualquer
+    status, então as concluídas de hoje se intercalavam entre as pendentes pelo
+    horário em que começaram. No corte de cinco da visão de equipe, as cinco
+    linhas visíveis eram
+
+        15:00 ATRASADA  Cadastrar ação do Diário
+        15:00 ATRASADA  Juntar documentos
+        15:00           Avaliar recurso            ← CONCLUÍDO
+        15:00           Encaminhamento da reunião  ← CONCLUÍDO
+        15:15 ATRASADA  Cadastrar ação do Diário
+
+    DUAS DAS CINCO VAGAS eram trabalho já feito, competindo por espaço com o
+    que ainda precisa de alguém. O painel é fila de TRABALHO; o que fechou é
+    registro do dia e vale a última posição, nunca a terceira.
+
+    Dentro de cada grupo a ordem continua cronológica — o atrasado é o mais
+    antigo, então sobe sozinho, sem cabeçalho de seção e sem um segundo bloco.
   */
-  const todas = [...atrasadas, ...hoje, ...proximas].sort(
-    (a, b) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime(),
-  );
+  const todas = [...atrasadas, ...hoje, ...proximas].sort((a, b) => {
+    const porEstado = Number(!estaAberta(a)) - Number(!estaAberta(b));
+    if (porEstado !== 0) return porEstado;
+    return new Date(a.inicio).getTime() - new Date(b.inicio).getTime();
+  });
   if (!todas.length) return null;
 
-  const agora = Date.now();
-  const estaAtrasada = (c: CompromissoCard) =>
-    (c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO') &&
-    new Date(c.inicio).getTime() < agora;
   const quantasAtrasadas = todas.filter(estaAtrasada).length;
 
   /*

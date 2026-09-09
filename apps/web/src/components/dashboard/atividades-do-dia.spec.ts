@@ -42,6 +42,19 @@ describe('o bloco de atividades encolheu', () => {
     expect(BLOCO).toContain("new Date(a.inicio).getTime() - new Date(b.inicio).getTime()");
   });
 
+  /**
+   * O QUE JÁ FECHOU NÃO DISPUTA VAGA COM O QUE FALTA FAZER.
+   *
+   * `atividadesHoje` traz o dia inteiro, QUALQUER status. Com ordenação só por
+   * horário, as concluídas de hoje se intercalavam entre as pendentes — e no
+   * corte de cinco da visão de equipe, DUAS das cinco linhas visíveis eram
+   * trabalho já feito (medido contra a produção em 09/09/2026, antes de subir).
+   */
+  it('as abertas vêm antes das já fechadas', () => {
+    expect(BLOCO).toContain('const porEstado = Number(!estaAberta(a)) - Number(!estaAberta(b));');
+    expect(BLOCO).toContain('if (porEstado !== 0) return porEstado;');
+  });
+
   /** As duas chamadas do painel passam a lista de atrasadas. */
   it('o painel alimenta a fila com as atrasadas de dias anteriores', () => {
     expect(PAINEL.match(/atrasadas=\{data\.pendenciasAtivas \?\? \[\]\}/g) ?? []).toHaveLength(2);
