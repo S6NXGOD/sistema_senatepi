@@ -99,9 +99,43 @@ describe('o rótulo', () => {
   const p = (tipo: keyof typeof PENDENCIA, total: number) => ({ tipo, total, exemplos: [] });
 
   it('faz concordância', () => {
-    expect(rotulo(p('ATRASADA', 1))).toBe('1 atividade com prazo vencido');
-    expect(rotulo(p('ATRASADA', 3))).toBe('3 atividades com prazo vencido');
+    expect(rotulo(p('ATRASADA', 1))).toBe('1 atividade atrasada, de dia anterior');
+    expect(rotulo(p('ATRASADA', 3))).toBe('3 atividades atrasadas, de dias anteriores');
     expect(rotulo(p('AUDIENCIA', 1))).toBe('1 audiência nos próximos 7 dias');
+  });
+
+  /**
+   * "PRAZO VENCIDO" SAIU — o sistema não sabe disso.
+   *
+   * Ele conhece a data que alguém marcou na agenda, não o prazo processual.
+   * Dizer "prazo vencido" afirma perda de prazo, a acusação mais grave que
+   * este sistema pode fazer a um advogado, e ele não tem como sustentá-la.
+   */
+  it('não afirma perda de prazo processual', () => {
+    for (const chave of Object.keys(PENDENCIA) as (keyof typeof PENDENCIA)[]) {
+      expect(PENDENCIA[chave].um).not.toMatch(/prazo vencido|prazo perdido/i);
+      expect(PENDENCIA[chave].varios).not.toMatch(/prazo vencido|prazo perdido/i);
+    }
+  });
+
+  /**
+   * A ESCALA DENTRO DO DIA. "5 atividades para hoje" às 09:00 e a MESMA frase
+   * às 22:00 descrevem situações opostas — e o sino é o único aviso que aparece
+   * em todas as telas.
+   */
+  it('separa o que passou da hora do que ainda vem hoje', () => {
+    expect(rotulo(p('PASSOU_DA_HORA', 4))).toBe('4 atividades de hoje que passaram da hora');
+    expect(rotulo(p('HOJE', 1))).toBe('1 atividade ainda por vir hoje');
+  });
+
+  /**
+   * INFORMAÇÃO, NÃO ALARME: o robô agenda tarefa para as 15:00 do próprio dia,
+   * e às 15:01 nada foi perdido. Vermelho só para o que ficou para trás.
+   */
+  it('"passou da hora" não é urgente nem vai para a faixa', () => {
+    expect(PENDENCIA.PASSOU_DA_HORA.urgente).toBe(false);
+    expect(PENDENCIA.PASSOU_DA_HORA.naFaixa).toBe(false);
+    expect(PENDENCIA.ATRASADA.urgente).toBe(true);
   });
 
   it('fala de prazo e de audiência em português de escritório', () => {

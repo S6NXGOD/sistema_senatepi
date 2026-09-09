@@ -11,6 +11,7 @@ import { api } from './api';
 
 export type TipoPendencia =
   | 'ATRASADA'
+  | 'PASSOU_DA_HORA'
   | 'HOJE'
   | 'AUDIENCIA'
   | 'PUBLICACAO_SEM_TAREFA'
@@ -71,17 +72,45 @@ export const PENDENCIA: Record<
     compartilhada?: boolean;
   }
 > = {
+  /*
+    "PRAZO VENCIDO" SAIU DO RÓTULO — o sistema não sabe disso.
+
+    Ele conhece a data que alguém marcou na agenda, não o prazo processual.
+    Dizer "prazo vencido" afirma perda de prazo, que é a acusação mais grave
+    que este sistema pode fazer a um advogado, e ele não tem como sustentá-la.
+    "Ficou para trás" é exatamente o que o dado diz: a data passou e a
+    atividade continua aberta.
+  */
   ATRASADA: {
-    um: 'atividade com prazo vencido',
-    varios: 'atividades com prazo vencido',
+    um: 'atividade atrasada, de dia anterior',
+    varios: 'atividades atrasadas, de dias anteriores',
     urgente: true,
     naFaixa: true,
     href: '/agenda',
     verTodas: 'Ver todas na agenda',
   },
+  /*
+    A ESCALA DENTRO DO DIA, que faltava.
+
+    "5 atividades para hoje" às 09:00 e a MESMA frase às 22:00 descrevem
+    situações opostas. O sino é o único aviso presente em todas as telas — se
+    ele não escala, ninguém percebe o dia acabando exceto quem abre o painel.
+
+    Não é urgente e não vai para a faixa: o robô agenda tarefa para as 15:00 do
+    próprio dia, e às 15:01 nada foi perdido. Alarme só para o que ficou para
+    trás de verdade; aqui é informação. Mesmas palavras do painel.
+  */
+  PASSOU_DA_HORA: {
+    um: 'atividade de hoje que passou da hora',
+    varios: 'atividades de hoje que passaram da hora',
+    urgente: false,
+    naFaixa: false,
+    href: '/agenda',
+    verTodas: 'Ver todas na agenda',
+  },
   HOJE: {
-    um: 'atividade para hoje',
-    varios: 'atividades para hoje',
+    um: 'atividade ainda por vir hoje',
+    varios: 'atividades ainda por vir hoje',
     urgente: false,
     naFaixa: false,
     href: '/agenda',

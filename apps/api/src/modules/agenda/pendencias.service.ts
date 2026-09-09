@@ -43,7 +43,7 @@ import { inicioDoDiaBR } from '../processos/utils/data-br.util';
  */
 /** Uma pendência: o que é, quantas são, e para onde ela leva. */
 export interface Pendencia {
-  tipo: 'ATRASADA' | 'HOJE' | 'AUDIENCIA' | 'PUBLICACAO_SEM_TAREFA' | 'ACAO_NOVA';
+  tipo: 'ATRASADA' | 'PASSOU_DA_HORA' | 'HOJE' | 'AUDIENCIA' | 'PUBLICACAO_SEM_TAREFA' | 'ACAO_NOVA';
   total: number;
   /** Até três exemplos — o suficiente para reconhecer sem virar uma lista. */
   exemplos: { id: string; titulo: string; quando: string | null; href: string }[];
@@ -101,14 +101,32 @@ export class PendenciasService {
       processo: { select: { numeroCNJ: true } },
     } as const;
 
-    const [atrasadas, hoje, audiencias, publicacoes, acoesNovas] = await Promise.all([
+    const [atrasadas, passaramDaHora, hoje, audiencias, publicacoes, acoesNovas] = await Promise.all([
       this.prisma.compromisso.findMany({
         where: { ...meu, inicio: { lt: inicioDeHoje } },
         orderBy: { inicio: 'asc' },
         select: selecao,
       }),
+      /*
+        O DIA DE HOJE VIROU DOIS, e o motivo é que o sino não escalava.
+
+        "5 atividades para hoje" às 09:00 e "5 atividades para hoje" às 22:00
+        são a mesma frase para situações opostas. Nada na tela dizia que o
+        tempo estava acabando — e o sino é o único aviso que aparece em TODAS
+        as telas, então é ele que decide se a pessoa lembra.
+
+        A hora já passada é informação, não alarme (`urgente: false`): o robô
+        agenda "Cadastrar ação do Diário" para as 15:00 do próprio dia, e às
+        15:01 nada foi perdido. Mesma régua do painel, mesmas três palavras —
+        ver `estadoDoPrazo` em `lib/agenda.ts`.
+      */
       this.prisma.compromisso.findMany({
-        where: { ...meu, inicio: { gte: inicioDeHoje, lt: fimDeHoje } },
+        where: { ...meu, inicio: { gte: inicioDeHoje, lt: agora } },
+        orderBy: { inicio: 'asc' },
+        select: selecao,
+      }),
+      this.prisma.compromisso.findMany({
+        where: { ...meu, inicio: { gte: agora, lt: fimDeHoje } },
         orderBy: { inicio: 'asc' },
         select: selecao,
       }),
@@ -213,6 +231,7 @@ export class PendenciasService {
 
     const pendencias = [
       daAgenda('ATRASADA', atrasadas),
+      daAgenda('PASSOU_DA_HORA', passaramDaHora),
       daAgenda('HOJE', hoje),
       daAgenda('AUDIENCIA', audiencias),
       /*
