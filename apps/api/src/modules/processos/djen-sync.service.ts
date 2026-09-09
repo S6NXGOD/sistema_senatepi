@@ -12,6 +12,7 @@ import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
 import { noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { NpuUtils } from './utils/npu.util';
 import { fecharTarefaDeCadastro } from './utils/tarefa-de-cadastro.util';
+import { CaixaDePropostasService } from './caixa-de-propostas.service';
 
 /**
  * Até quando uma ação do Diário ainda merece virar TAREFA de cadastro.
@@ -118,6 +119,7 @@ export class DjenSyncService {
     private readonly logSync: SincronizacaoLogService,
     private readonly correlacao: CorrelacaoService,
     private readonly datajud: DatajudService,
+    private readonly caixa: CaixaDePropostasService,
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
@@ -284,6 +286,17 @@ export class DjenSyncService {
     // ---- 3) Correlação de tudo que está pendente ----
     await this.correlacionarPendentes();
     await this.conferirFilaSemVerificacao();
+    /*
+      A REDE DA CAIXA DE ENTRADA — roda no fim, todo dia.
+
+      O modo de falhar da caixa é "ninguém abriu". Para proposta sem prazo isso
+      é inofensivo: ela espera. Para uma COM prazo é perder prazo, e nenhuma
+      melhoria de ruído vale isso. Depois de três dias a tarefa nasce sozinha,
+      identificada como escalada.
+
+      Custa uma consulta quando não há nada a escalar, que é o caso normal.
+    */
+    await this.caixa.escalarEsquecidas();
     // DEPOIS da conferência, de propósito: uma ação já baixada saiu da fila
     // acima e não vira tarefa para ninguém.
     await this.agendarCadastroDasRecentes();

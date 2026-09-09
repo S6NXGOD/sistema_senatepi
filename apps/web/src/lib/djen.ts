@@ -280,3 +280,68 @@ export async function facetasPublicacoes(): Promise<FacetasDjen> {
   const { data } = await api.get<FacetasDjen>('/djen/publicacoes/facetas');
   return data;
 }
+
+/**
+ * A CAIXA DE ENTRADA DO ADVOGADO — proposta de tarefa, não tarefa.
+ *
+ * O robô prova de quem é a ordem em 15,8% dos atos e prova que é da outra parte
+ * em 4,1%; nos 80% restantes não sabe. Criar tarefa nesses 80% enchia a agenda
+ * de trabalho alheio; não criar perderia prazo. Quem decide é o advogado, em um
+ * segundo, olhando o trecho da ordem.
+ *
+ * Só o INDECISO passa por aqui: ordem nossa provada com prazo escrito vira
+ * tarefa direto.
+ */
+export interface PropostaDeTarefa {
+  id: string;
+  numeroProcesso: string;
+  siglaTribunal: string | null;
+  nomeOrgao: string | null;
+  nomeClasse: string | null;
+  tipoComunicacao: string | null;
+  texto: string;
+  dataDisponibilizacao: string;
+  providencia: string | null;
+  prazoMencionadoDias: number | null;
+  tarefaPropostaEm: string;
+  link: string | null;
+  /** O trecho em que o juízo manda alguém fazer algo — a prévia que decide. */
+  ordem: string | null;
+  propostaPara: {
+    id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null;
+  } | null;
+  processo: {
+    id: string;
+    numeroCNJ: string | null;
+    partes: { nome: string; polo: string }[];
+  } | null;
+}
+
+export async function listarPropostas(todas = false): Promise<PropostaDeTarefa[]> {
+  return (await api.get('/djen/propostas', { params: todas ? { todas: '1' } : {} })).data;
+}
+
+export async function contarPropostas(todas = false): Promise<{ total: number }> {
+  return (await api.get('/djen/propostas/contagem', { params: todas ? { todas: '1' } : {} })).data;
+}
+
+export async function aceitarProposta(id: string) {
+  return (await api.post(`/djen/propostas/${id}/aceitar`)).data;
+}
+
+export async function recusarProposta(id: string, motivo?: string) {
+  return (await api.post(`/djen/propostas/${id}/recusar`, { motivo })).data;
+}
+
+/**
+ * MOTIVOS PRONTOS PARA RECUSAR — um toque em vez de um parágrafo.
+ *
+ * Campo livre numa tela de celular é o jeito mais rápido de o motivo vir vazio,
+ * e o motivo é o único dado que diz ONDE a regra erra. Três opções cobrem o que
+ * a auditoria encontrou; a quarta abre o texto livre para o que não couber.
+ */
+export const MOTIVOS_DE_RECUSA = [
+  { slug: 'OUTRA_PARTE', label: 'O prazo é da outra parte' },
+  { slug: 'JA_RESOLVIDO', label: 'Já foi resolvido' },
+  { slug: 'SEM_PROVIDENCIA', label: 'Não pede nada de nós' },
+] as const;

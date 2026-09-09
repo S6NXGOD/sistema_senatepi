@@ -63,7 +63,7 @@ export class CorrelacaoService {
    * Chamado depois de ingerir publicações de um processo.
    */
   async aplicarAposDjen(processoId: string): Promise<{ criadas: number; enriquecidas: number }> {
-    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0, deOutraParte: 0 };
+    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0, deOutraParte: 0, propostas: 0 };
     try {
       const desde = new Date(Date.now() - this.JANELA_DIAS * 24 * 3_600_000);
 
@@ -378,6 +378,47 @@ export class CorrelacaoService {
           continue;
         }
 
+        /*
+          O ROBÔ PROPÕE QUANDO NÃO TEM CERTEZA — em vez de decidir por ninguém.
+
+          Medido nas 1.433 publicações: ele PROVA que a ordem é nossa em 15,8%,
+          prova que é da outra parte em 4,1%, e nos 80% restantes não sabe. Criar
+          tarefa nesses 80% foi o que encheu a agenda de trabalho alheio, e
+          NÃO criar perderia prazo. As duas saídas são ruins porque a pergunta
+          está errada: quem tem de decidir isso é o advogado, não a heurística.
+
+          VAI DIRETO PARA A AGENDA só o que passa nas duas provas: ordem nossa
+          demonstrada E prazo escrito no ato. Aí não há o que perguntar — pedir
+          aprovação para um prazo já provado é cerimônia, e cerimônia é o que faz
+          gente parar de ler aviso. São 7 dos 49 atos de um mês.
+
+          O RESTO VIRA PROPOSTA, endereçada a UMA pessoa: o advogado que o ato
+          nomeia pela OAB; sem ele, o responsável pelo processo. Proposta de
+          todos é proposta de ninguém. Medido: 40 por mês na equipe, 2,6 por
+          semana no pior caso individual, e zero sem dono.
+
+          A publicação continua visível em Publicações o tempo todo — a caixa
+          não esconde nada, só decide o que entra na agenda.
+        */
+        const lado = deQuemEAOrdem(c.texto, processo.nossoPolo, tenant.sigla);
+        const provadaNossaComPrazo = lado === 'NOSSA' && c.prazoMencionadoDias != null;
+
+        if (!provadaNossaComPrazo) {
+          const dono = await this.donoDaProposta(processo, c.id);
+          await this.prisma.comunicacaoDjen.update({
+            where: { id: c.id },
+            data: {
+              movimentacaoId,
+              providencia: c.providencia,
+              prazoMencionadoDias: c.prazoMencionadoDias,
+              tarefaPropostaEm: new Date(),
+              tarefaPropostaPara: dono,
+            },
+          });
+          resumo.propostas++;
+          continue;
+        }
+
         // (B) e (C) — o DJEN cria a atividade. Em (B) ainda carimba a
         // movimentação, para o robô de prazos não gerar uma segunda depois.
         const compromissoId = await this.criarAtividade(processo, c);
@@ -402,14 +443,15 @@ export class CorrelacaoService {
       // O pareamento tardio — ver `parearAtrasadas`.
       await this.parearAtrasadas(processoId, desde, movimentacoes);
 
-      if (resumo.criadas || resumo.enriquecidas || resumo.antigas || resumo.deOutraParte) {
+      if (resumo.criadas || resumo.enriquecidas || resumo.antigas || resumo.deOutraParte || resumo.propostas) {
         this.logger.log(
           `[CORRELACAO] ${processo.numeroCNJ}: ${resumo.criadas} atividade(s) criada(s), ` +
             `${resumo.enriquecidas} enriquecida(s) com o teor da publicação` +
             `${resumo.antigas ? `, ${resumo.antigas} anterior(es) ao acompanhamento — só classificada(s)` : ''}` +
             // Sai no log porque é a decisão MAIS nova do robô: se ela começar a
             // barrar demais, é aqui que se vê antes de alguém reclamar.
-            `${resumo.deOutraParte ? `, ${resumo.deOutraParte} com ordem dirigida à parte contrária — sem tarefa` : ''}.`,
+            `${resumo.deOutraParte ? `, ${resumo.deOutraParte} com ordem dirigida à parte contrária — sem tarefa` : ''}` +
+            `${resumo.propostas ? `, ${resumo.propostas} proposta(s) na caixa do advogado` : ''}.`,
         );
       }
     } catch (err) {
@@ -654,6 +696,13 @@ export class CorrelacaoService {
       providencia: Providencia;
       prazoMencionadoDias: number | null;
     },
+    /**
+     * Quem ACEITOU a proposta, quando veio da caixa de entrada.
+     *
+     * Vence o responsável do processo de propósito: se o Murilo assume um item
+     * endereçado à Morgana, a tarefa é dele — foi ele quem disse "isto é meu".
+     */
+    responsavelForcado?: string | null,
   ): Promise<string> {
     const spec = PROVIDENCIAS[c.providencia as Exclude<Providencia, 'NENHUMA'>];
     const dias = diasParaLembrete(spec, c.prazoMencionadoDias);
@@ -698,9 +747,10 @@ export class CorrelacaoService {
 
     // Tarefa de contato é da secretaria; o resto é do advogado do processo.
     const responsavelId =
-      spec.tipo === 'CONTATO'
+      responsavelForcado ??
+      (spec.tipo === 'CONTATO'
         ? (await this.usuarioSecretaria()) ?? processo.responsavelId
-        : processo.responsavelId;
+        : processo.responsavelId);
 
     const compromisso = await this.prisma.compromisso.create({
       data: {
@@ -745,6 +795,123 @@ export class CorrelacaoService {
   }
 
   /** Processo + a quem atribuir. Mesma regra do robô de prazos. */
+  /**
+   * A QUEM ENDEREÇAR A PROPOSTA.
+   *
+   * Ordem de preferência, e cada degrau existe por um motivo:
+   *
+   *  1. O ADVOGADO QUE O ATO NOMEIA. É o mais forte que existe: a publicação
+   *     chegou até aqui porque a OAB dele estava nela. Medido nas 30 ações do
+   *     Diário, 30 das 30 tinham advogado nosso identificável.
+   *  2. O RESPONSÁVEL pelo processo. Quando o ato não nomeia ninguém nosso, quem
+   *     conhece o caso é quem responde por ele.
+   *  3. `null` — e aí a proposta fica órfã, visível para a coordenação. Medido:
+   *     ZERO casos hoje, mas advogado desligado ou processo sem responsável
+   *     produzem isto, e sumir com a publicação seria pior.
+   *
+   * NUNCA a equipe inteira: proposta endereçada a todos é proposta de ninguém, e
+   * a fila coletiva do Diário já mostrou que ninguém assume o que é de todos.
+   */
+  /**
+   * A PROPOSTA ACEITA VIRA TAREFA — o mesmo caminho de sempre, com um dono.
+   *
+   * Reusa `criarAtividade` inteiro em vez de duplicar a regra de horário,
+   * urgência e título: a tarefa que nasce de um clique tem de ser
+   * indistinguível da que o robô cria sozinho, senão passam a existir duas
+   * qualidades de tarefa no mesmo quadro.
+   *
+   * `escalada` marca a que nasceu porque NINGUÉM respondeu em três dias. Ela é
+   * legítima — prazo não espera triagem — mas a pessoa precisa saber que o
+   * sistema decidiu por ela, ou vai procurar quem aceitou e não vai achar.
+   */
+  async criarAtividadeDaProposta(
+    comunicacaoId: string,
+    responsavelId: string | null,
+    escalada = false,
+  ): Promise<string | null> {
+    const c = await this.prisma.comunicacaoDjen.findUnique({
+      where: { id: comunicacaoId },
+      select: {
+        id: true,
+        processoId: true,
+        texto: true,
+        link: true,
+        nomeOrgao: true,
+        dataDisponibilizacao: true,
+        providencia: true,
+        prazoMencionadoDias: true,
+      },
+    });
+    // Sem processo não há onde pendurar a tarefa — a publicação de uma ação que
+    // ainda não foi cadastrada pertence à outra fila, a do Diário.
+    if (!c?.processoId || !c.providencia || c.providencia === 'NENHUMA') return null;
+
+    const processo = await this.carregarProcesso(c.processoId);
+    if (!processo) return null;
+
+    const compromissoId = await this.criarAtividade(
+      processo,
+      {
+        texto: c.texto,
+        link: c.link,
+        nomeOrgao: c.nomeOrgao,
+        dataDisponibilizacao: c.dataDisponibilizacao,
+        providencia: c.providencia as Providencia,
+        prazoMencionadoDias: c.prazoMencionadoDias,
+      },
+      responsavelId,
+    );
+
+    if (escalada) {
+      await this.prisma.compromisso.update({
+        where: { id: compromissoId },
+        data: {
+          descricao: {
+            set:
+              'Criada automaticamente: a proposta mencionava prazo e ficou três dias sem resposta na caixa de entrada.',
+          },
+        },
+      });
+    }
+    return compromissoId;
+  }
+
+  private async donoDaProposta(
+    processo: ProcessoAlvo,
+    comunicacaoId: string,
+  ): Promise<string | null> {
+    const c = await this.prisma.comunicacaoDjen.findUnique({
+      where: { id: comunicacaoId },
+      select: { advogados: true },
+    });
+    const citados = Array.isArray(c?.advogados)
+      ? (c!.advogados as { numeroOab?: string; ufOab?: string }[])
+      : [];
+    if (citados.length) {
+      const chave = (n?: string | null, u?: string | null) =>
+        `${String(u ?? '').trim().toUpperCase()}-${String(n ?? '').replace(/\D/g, '')}`;
+      const nossos = await this.prisma.user.findMany({
+        where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
+        select: { id: true, oab: true, oabUf: true },
+      });
+      const porOab = new Map(nossos.map((a) => [chave(a.oab, a.oabUf), a.id]));
+      for (const a of citados) {
+        const achado = porOab.get(chave(a?.numeroOab, a?.ufOab));
+        if (achado) return achado;
+      }
+    }
+    // O responsável só vale se ainda estiver ativo — proposta para quem saiu é
+    // proposta perdida, e o `null` ao menos a mostra como órfã.
+    if (processo.advogadoId) {
+      const ativo = await this.prisma.user.findFirst({
+        where: { id: processo.advogadoId, ativo: true },
+        select: { id: true },
+      });
+      if (ativo) return ativo.id;
+    }
+    return null;
+  }
+
   private async carregarProcesso(processoId: string): Promise<ProcessoAlvo | null> {
     const p = await this.prisma.processo.findUnique({
       where: { id: processoId },

@@ -356,6 +356,7 @@ model User {
   compromissosCriados     Compromisso[]            @relation("CompromissoCriador")
   compromissosConcluidos Compromisso[] @relation("CompromissoConcluidoPor")
   compromissosCancelados Compromisso[] @relation("CompromissoCanceladoPor")
+  propostasDeTarefa      ComunicacaoDjen[] @relation("PropostaDeTarefa")
   processos               Processo[]               @relation("ProcessoAdvogado")
   /// Processos em que atua (N:N) — inclui os que responde como principal.
   processosEquipe         ProcessoAdvogado[]       @relation("ProcessoAdvogadoEquipe")
@@ -2894,6 +2895,32 @@ model ComunicacaoDjen {
   /// Nulo nas linhas gravadas antes desta coluna existir; a tela trata nulo
   /// como "notícia velha", que é o que 100% delas eram.
   tarefaDispensadaMotivo String? @map("tarefa_dispensada_motivo")
+
+  /// A CAIXA DE ENTRADA DO ADVOGADO — proposta de tarefa, não tarefa ainda.
+  ///
+  /// O robô acerta com CERTEZA em 15,8% dos atos e erra o dono em 4,1%; no
+  /// resto ele não sabe, e criar mesmo assim é o que enchia a agenda de
+  /// trabalho alheio. Em vez de adivinhar, ele PROPÕE: o advogado que o ato
+  /// nomeia decide num clique, com o trecho da ordem à vista.
+  ///
+  /// Medido em 08/09/2026: 40 propostas por mês na equipe inteira, no pior caso
+  /// 2,6 por semana para um advogado, e ZERO itens sem dono identificável.
+  ///
+  /// Só o que o robô NÃO conseguiu provar passa por aqui. Ordem nossa provada
+  /// com prazo no texto vira tarefa direto — pedir aprovação para um prazo já
+  /// demonstrado é cerimônia, e cerimônia faz gente parar de ler aviso.
+  tarefaPropostaEm   DateTime? @map("tarefa_proposta_em")
+  /// Quem decide. O advogado que o ATO nomeia (pela OAB); sem ele, o
+  /// responsável pelo processo. Nunca a equipe inteira: proposta de todos é
+  /// proposta de ninguém.
+  tarefaPropostaPara String?   @map("tarefa_proposta_para")
+  /// Por que o advogado recusou, com as palavras dele.
+  ///
+  /// Não é burocracia: é o único dado que diz ONDE a regra erra. Hoje o robô só
+  /// sabe que 80% dos atos são indefinidos; com o motivo passa a saber quantos
+  /// eram da outra parte, quantos já estavam resolvidos e quantos simplesmente
+  /// não pedem nada. É por aí que a heurística melhora sem palpite.
+  motivoDaRecusa     String?   @map("motivo_da_recusa")
   /// Movimentação do DataJud que descreve o MESMO fato. É o vínculo que impede
   /// as duas fontes de gerarem duas atividades para um ato só.
   movimentacaoId     String?   @map("movimentacao_id")
@@ -2904,6 +2931,10 @@ model ComunicacaoDjen {
   instancia    ProcessoInstancia?      @relation(fields: [instanciaId], references: [id], onDelete: SetNull)
   compromisso  Compromisso?            @relation(fields: [compromissoId], references: [id], onDelete: SetNull)
   movimentacao MovimentacaoProcessual? @relation(fields: [movimentacaoId], references: [id], onDelete: SetNull)
+  /// Quem recebeu a proposta — traz nome e foto para a caixa de entrada numa
+  /// consulta só. `SetNull`: desligar um advogado devolve a proposta ao limbo,
+  /// e a coordenação a vê como órfã, em vez de a publicação sumir com ele.
+  propostaPara User?                   @relation("PropostaDeTarefa", fields: [tarefaPropostaPara], references: [id], onDelete: SetNull)
 
   @@index([processoId, dataDisponibilizacao])
   @@index([numeroProcesso])

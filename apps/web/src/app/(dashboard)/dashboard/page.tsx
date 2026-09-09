@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 import { tenant } from '@/tenant.config';
 import { AcoesSemCadastro } from '@/components/dashboard/acoes-sem-cadastro';
 import { OQueEstaLimpo, type CoisaLimpa } from '@/components/dashboard/o-que-esta-limpo';
+import { CaixaDePropostas } from '@/components/dashboard/caixa-de-propostas';
 import {
   COR_SAIDA, COR_SALDO, PALETA_CATEGORICA, useCorDaMarca,
 } from '@/lib/cores-grafico';
@@ -471,6 +472,14 @@ function Conteudo({
         Só aparece quando há fila; não usa requisição nova (mesma chave do sino);
         e herda o recorte de permissão do backend.
       */}
+      {/*
+        A CAIXA DE ENTRADA VEM ANTES DA FILA DO DIÁRIO.
+
+        As duas são "trabalho a decidir", mas a caixa tem PRAZO dentro e a fila
+        de cadastro não: uma ação de 2015 que ninguém cadastrou espera mais uma
+        semana sem custo; uma publicação com quinze dias de prazo, não.
+      */}
+      {pode.processos && <CaixaDePropostas />}
       {pode.processos && <AcoesSemCadastro />}
 
       {/*

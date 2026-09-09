@@ -30,6 +30,7 @@ import { SugestaoFiliadoService } from './sugestao-filiado.service';
 import { VinculosPendentesService } from './vinculos-pendentes.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { CorrelacaoService } from './correlacao.service';
+import { CaixaDePropostasService } from './caixa-de-propostas.service';
 import { ParteInstitucionalSeedService } from './parte-institucional-seed.service';
 import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
 
@@ -73,6 +74,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     VinculosPendentesService,
     AutomacaoPrazosService,
     CorrelacaoService,
+    CaixaDePropostasService,
   ],
   exports: [ProcessosService, DatajudService, AudienciasService, PartesService],
 })

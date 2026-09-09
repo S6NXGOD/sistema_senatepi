@@ -84,7 +84,19 @@ export const PROVIDENCIAS: Record<Exclude<Providencia, 'NENHUMA'>, Especificacao
 
 /** Designação de pauta — mesma família de termos do classificador do DataJud. */
 const RE_AUDIENCIA = /\b(AUDIENCIA|SESSAO DE JULGAMENTO|SESSAO VIRTUAL)\b/;
-const RE_DESIGNACAO = /(DESIGNAD|APRAZAD|MARCAD|INCLUID[AO] EM PAUTA)/;
+/*
+  "INCLUÍDO NA PAUTA" — a preposição que faltava.
+
+  A regra só aceitava `EM PAUTA`, e o TRT22 escreve as duas: 9 atos com "em
+  pauta" e 11 com "na pauta". Dez dos onze casavam por outra palavra
+  ("designada", "marcada") e passavam; UM caiu direto em `RE_RECURSO`, que
+  também casa "sessão de julgamento" — o 0001335-13.2025.5.22.0108 virou
+  "Avaliar recurso" quando era aviso de pauta.
+
+  Uma preposição, um ato classificado errado. É o tipo de regra que só se
+  descobre olhando o acervo, nunca lendo o código.
+*/
+const RE_DESIGNACAO = /(DESIGNAD|APRAZAD|MARCAD|INCLUID[AO] (EM|NA) PAUTA)/;
 
 /**
  * Sentença: o ato que decide o mérito em 1º grau.

@@ -4,6 +4,7 @@ import {
   Get,
   Injectable,
   NotFoundException,
+  Body,
   Param,
   Post,
   Query,
@@ -20,6 +21,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
+import { CaixaDePropostasService } from './caixa-de-propostas.service';
 
 /**
  * Interruptor da integração com o DJEN.
@@ -155,7 +157,54 @@ export class DjenController {
     private readonly djen: DjenService,
     private readonly sync: DjenSyncService,
     private readonly busca: DjenBuscaService,
+    private readonly caixa: CaixaDePropostasService,
   ) {}
+
+  /*
+    A CAIXA DE ENTRADA DO ADVOGADO.
+
+    Vive em `@Modulo('processos')` como o resto do DJEN, e o ESCOPO é sempre o
+    usuário autenticado: `listar` filtra pelo id de quem pergunta. Quem coordena
+    pode pedir a caixa inteira, e isso é uma decisão de negócio, não de
+    permissão — a coordenação precisa ver a proposta órfã, cujo dono saiu da
+    equipe, ou ela some do mundo.
+  */
+  @Get('propostas')
+  @ApiOperation({ summary: 'Propostas de tarefa esperando decisão do advogado.' })
+  listarPropostas(
+    @CurrentUser() user: AuthUser,
+    @Query('todas') todas?: string,
+  ) {
+    return this.caixa.listar(user.id, todas === '1' && podeVerTodasAsPropostas(user));
+  }
+
+  @Get('propostas/contagem')
+  @ApiOperation({ summary: 'Quantas propostas esperam decisão — o número do selo.' })
+  async contarPropostas(@CurrentUser() user: AuthUser, @Query('todas') todas?: string) {
+    return { total: await this.caixa.contar(user.id, todas === '1' && podeVerTodasAsPropostas(user)) };
+  }
+
+  /**
+   * ACEITAR é POST porque CRIA a atividade — e o verbo importa para o
+   * `PermissionsGuard`, que resolve o nível por método HTTP: GET vira
+   * VISUALIZAR, POST vira EDITAR. Aceitar e recusar exigem EDITAR em processos,
+   * que é o certo: quem só consulta não mexe na agenda de ninguém.
+   */
+  @Post('propostas/:id/aceitar')
+  @ApiOperation({ summary: 'Aceita a proposta: vira atividade na agenda de quem aceitou.' })
+  aceitarProposta(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.caixa.aceitar(id, user.id);
+  }
+
+  @Post('propostas/:id/recusar')
+  @ApiOperation({ summary: 'Recusa a proposta: não vira atividade, e o motivo fica gravado.' })
+  recusarProposta(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { motivo?: string },
+  ) {
+    return this.caixa.recusar(id, user.id, dto?.motivo);
+  }
 
   /**
    * Estado da integração — a ÚNICA rota que responde com o DJEN desligado.
@@ -270,4 +319,19 @@ export class DjenController {
     */
     return this.sync.varrer(undefined, OrigemSincronizacao.MANUAL, q.dias);
   }
+}
+
+
+/**
+ * QUEM VÊ A CAIXA INTEIRA.
+ *
+ * Não é permissão de módulo — é escopo. O advogado vê a caixa DELE porque a
+ * proposta é endereçada a uma pessoa; a coordenação vê todas porque é ela que
+ * precisa notar a proposta órfã (dono desligado) antes de o prazo passar.
+ *
+ * Escrito como função e não como `@Roles`: `@Roles` numa rota ATROPELA a matriz
+ * de permissões em silêncio, e aqui o gate de módulo tem de continuar valendo.
+ */
+function podeVerTodasAsPropostas(user: { role?: string | null }): boolean {
+  return user.role === 'ADMINISTRADOR' || user.role === 'COORDENACAO';
 }

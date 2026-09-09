@@ -383,3 +383,29 @@ describe('prazo mencionado no texto', () => {
     expect(extrairPrazoDias(texto)).toBe(15);
   });
 });
+
+/**
+ * "INCLUÍDO NA PAUTA" — A PREPOSIÇÃO QUE FALTAVA.
+ *
+ * A regra aceitava só `EM PAUTA`. O TRT22 escreve as duas: medido no acervo, 9
+ * atos com "em pauta" e 11 com "na pauta". Dez dos onze passavam por casarem
+ * "designada"/"marcada" em outro ponto do texto; UM caiu em `RE_RECURSO` (que
+ * também casa "sessão de julgamento") e o 0001335-13.2025.5.22.0108 virou
+ * "Avaliar recurso" quando era aviso de pauta.
+ */
+describe('aviso de inclusão em pauta', () => {
+  it('reconhece as duas preposições', () => {
+    const naPauta =
+      'NOTIFICO PARA CIENCIA DE QUE O PROCESSO FOI INCLUIDO NA PAUTA DA SESSAO DE JULGAMENTO.';
+    const emPauta =
+      'NOTIFICO PARA CIENCIA DE QUE O PROCESSO FOI INCLUIDO EM PAUTA DA SESSAO DE JULGAMENTO.';
+    expect(classificarProvidencia(naPauta, 'Intimação').providencia).toBe('PREPARAR_AUDIENCIA');
+    expect(classificarProvidencia(emPauta, 'Intimação').providencia).toBe('PREPARAR_AUDIENCIA');
+  });
+
+  /** O acórdão continua sendo recurso — a pauta não pode engolir o julgado. */
+  it('e não rouba o que é acórdão de verdade', () => {
+    const acordao = 'ACORDAO. A TURMA DECIDIU, POR UNANIMIDADE, NEGAR PROVIMENTO AO RECURSO.';
+    expect(classificarProvidencia(acordao, 'Intimação').providencia).toBe('AVALIAR_RECURSO');
+  });
+});
