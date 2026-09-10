@@ -908,12 +908,44 @@ export class DashboardService {
         .filter((a): a is NonNullable<typeof a> => a !== null);
     })();
 
-    // "Próximo plantão": advogados da primeira data futura com escala.
-    let proximoPlantao: { data: Date; advogados: typeof proximasEscalas[number]['advogado'][] } | null = null;
+    /*
+      "PRÓXIMO PLANTÃO" — e ele passou a levar as HORAS junto.
+
+      A consulta já selecionava `horaInicio`/`horaFim`; o objeto as jogava fora
+      e o painel escrevia só "segunda-feira, 14/09". Medido na produção: o
+      próximo plantão costuma estar a QUATRO dias (a escala pula o fim de
+      semana), então a data sozinha não responde "quando alguém volta a estar
+      disponível" — nem a que horas.
+
+      `advogados` CONTINUA saindo, ao lado de `pessoas`. Web e API sobem em
+      serviços separados: durante a janela de troca, a web antiga ainda lê o
+      campo antigo. Quando ela tiver girado, este some.
+    */
+    type PessoaNoPlantao = {
+      horaInicio: string;
+      horaFim: string;
+      advogado: typeof proximasEscalas[number]['advogado'];
+    };
+    let proximoPlantao:
+      | {
+          data: Date;
+          pessoas: PessoaNoPlantao[];
+          /** @deprecated Use `pessoas` — mantido para a janela de troca. */
+          advogados: typeof proximasEscalas[number]['advogado'][];
+        }
+      | null = null;
     if (proximasEscalas.length) {
       const primeira = dateOnlyBR(proximasEscalas[0].data).getTime();
       const doDia = proximasEscalas.filter((e) => dateOnlyBR(e.data).getTime() === primeira);
-      proximoPlantao = { data: doDia[0].data, advogados: doDia.map((e) => e.advogado) };
+      proximoPlantao = {
+        data: doDia[0].data,
+        pessoas: doDia.map((e) => ({
+          horaInicio: e.horaInicio,
+          horaFim: e.horaFim,
+          advogado: e.advogado,
+        })),
+        advogados: doDia.map((e) => e.advogado),
+      };
     }
 
     /**

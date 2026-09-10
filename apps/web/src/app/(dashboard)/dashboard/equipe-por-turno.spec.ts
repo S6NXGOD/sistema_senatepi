@@ -1,5 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import * as path from 'node:path';
+
+/** Raiz de `apps/web/src` — para alcançar a API e conferir os dois lados. */
+const RAIZ_WEB = path.resolve(__dirname, '../../..');
 
 const TELA = readFileSync(join(__dirname, 'page.tsx'), 'utf8');
 const FILA = readFileSync(
@@ -55,6 +59,79 @@ describe('a equipe disponível é agrupada por turno', () => {
   it('o status do plantão usa o fuso de Teresina', () => {
     expect(TELA).toContain("new Date(Date.now() - 3 * 3_600_000).toISOString().slice(11, 16)");
     expect(TELA).not.toContain("new Date().toTimeString().slice(0, 5)");
+  });
+});
+
+/**
+ * O ESTADO NÃO SE ESCREVE DUAS VEZES.
+ *
+ * O cartão tinha um ponto colorido à direita E uma etiqueta ("No horário") ao
+ * lado da hora. Quando concordam — o caso normal — a etiqueta é ruído. Agora a
+ * COR da hora carrega o estado e a palavra só aparece quando ela não é óbvia.
+ */
+describe('o estado do plantão fala uma vez só', () => {
+  it('quem está no horário não ganha etiqueta de texto', () => {
+    expect(TELA).toContain('const estadoPlantao = (ini: string, fim: string) =>');
+    // `rotulo: null` é o ramo de quem está no horário.
+    expect(TELA).toContain("{ rotulo: null, hora: 'text-emerald-600");
+  });
+
+  it('encerrado e aguardando ganham, porque a cor não explica', () => {
+    expect(TELA).toContain("rotulo: 'encerrado'");
+    expect(TELA).toContain("rotulo: 'aguardando'");
+    expect(TELA).toContain('{st.rotulo && (');
+  });
+
+  /** Cor não é acessível sozinha: o ponto leva o estado no rótulo do leitor. */
+  it('o ponto colorido tem rótulo acessível', () => {
+    expect(TELA).toContain("aria-label={st.rotulo ?? 'no horário'}");
+  });
+});
+
+/**
+ * O PRÓXIMO PLANTÃO PASSOU A DIZER QUANDO E A QUE HORAS.
+ *
+ * A consulta já trazia `horaInicio`/`horaFim`; o objeto da API as descartava, e
+ * o cartão escrevia só "segunda-feira, 14/09". Medido em 10/09/2026: a escala
+ * pula o fim de semana, então o próximo plantão fica tipicamente a QUATRO dias
+ * — a data sozinha não responde quanto tempo ninguém está de plantão.
+ */
+describe('o próximo plantão informa', () => {
+  it('a API leva as horas junto, sem quebrar a forma antiga', () => {
+    const api = readFileSync(
+      path.resolve(RAIZ_WEB, '../../api/src/modules/dashboard/dashboard.module.ts'),
+      'utf8',
+    );
+    expect(api).toContain('pessoas: doDia.map((e) => ({');
+    expect(api).toContain('horaInicio: e.horaInicio,');
+    // `advogados` continua saindo: a web antiga ainda o lê na janela de troca.
+    expect(api).toContain('advogados: doDia.map((e) => e.advogado),');
+  });
+
+  it('e a tela cai para a forma antiga quando a API é a de antes', () => {
+    expect(TELA).toContain('proximoPlantao?.pessoas ??');
+    expect(TELA).toContain('(proximoPlantao?.advogados ?? []).map((a) => ({');
+  });
+
+  it('diz a que distância está, em dias de calendário', () => {
+    expect(TELA).toContain('-(diasDesdeDataPura(proximoPlantao.data) ?? 0)');
+    expect(TELA).toContain("emQuantosDias <= 1 ? 'amanhã'");
+    expect(TELA).toContain('`em ${emQuantosDias} dias`');
+  });
+
+  /**
+   * Faixa igual para todo mundo vai no CABEÇALHO; só quando as pessoas do dia
+   * divergem é que a hora se repete linha a linha.
+   */
+  it('a faixa única vai no cabeçalho, não por linha', () => {
+    expect(TELA).toContain('const faixaUnica =');
+    expect(TELA).toContain('{faixaUnica && (');
+    expect(TELA).toContain('{!faixaUnica && horaInicio && (');
+  });
+
+  /** A data continua sendo pura — foi ela que já apareceu um dia antes. */
+  it('a data do próximo plantão usa a regra de data pura', () => {
+    expect(TELA).toContain('formatDataPura(proximoPlantao.data, {');
   });
 });
 

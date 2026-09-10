@@ -173,7 +173,22 @@ export interface ResumoDashboard {
   movimentacoesRecentes: MovimentacaoRecente[];
   equipeHoje: {
     plantaoHoje: PlantaoItem[];
-    proximoPlantao: { data: string; advogados: PessoaResumo[] } | null;
+    proximoPlantao: {
+      data: string;
+      /**
+       * COM AS HORAS — e sem elas o cartão só dizia a data.
+       *
+       * Medido: o próximo plantão costuma estar a QUATRO dias (a escala pula o
+       * fim de semana), então "segunda-feira, 14/09" não responde a que horas
+       * alguém volta a estar disponível.
+       *
+       * Opcional porque a API pode ser a de antes durante a janela de troca —
+       * web e API sobem em serviços separados. Aí vale `advogados`, sem horas.
+       */
+      pessoas?: { horaInicio: string; horaFim: string; advogado: PessoaResumo }[];
+      /** @deprecated Use `pessoas`. Some quando a web tiver girado. */
+      advogados: PessoaResumo[];
+    } | null;
   };
   /**
    * Saúde do robô de sincronização do DataJud. Sem isto, "0 audiências a

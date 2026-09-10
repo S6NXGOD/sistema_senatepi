@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { formatDataPura } from '@/lib/data-pura';
+import { formatDataPura, diasDesdeDataPura } from '@/lib/data-pura';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -1621,18 +1621,26 @@ function FalhasCNJ({
 }
 
 /**
- * A EQUIPE DE HOJE, POR TURNO.
+ * A EQUIPE DE HOJE — quem está no balcão agora, e quando alguém volta.
  *
- * Era uma lista corrida: quatro nomes com "08:00 – 12:00", "08:00 – 12:00",
- * "14:00 – 18:00", "14:00 – 18:00". A informação que importa — QUEM está de
- * plantão AGORA — só saía comparando quatro pares de horários de cabeça.
+ * TRÊS COISAS QUE O CARTÃO NÃO DIZIA, e as três saíram de olhar o dado real:
  *
- * Agrupado por turno, a pergunta se responde de relance: MANHÃ tem estes,
- * TARDE tem aqueles. O cabeçalho do turno só aparece quando há MAIS DE UM —
- * com um turno só ele repetiria o que o intervalo de horas já diz.
+ *  1. O ESTADO ESTAVA ESCRITO DUAS VEZES. Havia um ponto colorido à direita E
+ *     uma etiqueta ("No horário") ao lado da hora. Quando concordam — que é o
+ *     caso normal — a etiqueta é ruído. Agora a COR da hora carrega o estado, e
+ *     a palavra só aparece quando ela não é óbvia: "encerrado" e "aguardando"
+ *     precisam de explicação, "no horário" não.
  *
- * O ponto colorido à direita é redundante de propósito: ele distingue à
- * distância (verde = tem gente atendendo agora) sem precisar ler a etiqueta.
+ *  2. O PRÓXIMO PLANTÃO NÃO DIZIA A QUE HORAS. A consulta já trazia
+ *     `horaInicio`/`horaFim`; o objeto da API as descartava.
+ *
+ *  3. NEM A QUE DISTÂNCIA ESTAVA. Medido na produção em 10/09/2026: a escala
+ *     pula o fim de semana, então o próximo plantão fica tipicamente a QUATRO
+ *     dias. "Segunda-feira, 14/09" obriga a fazer a conta de cabeça para
+ *     responder o que importa — quanto tempo ninguém está de plantão.
+ *
+ * A hora do plantão é TEXTO (`"09:00"`), não instante: comparar com o relógio
+ * de Teresina é comparar duas strings, e por isso não passa por `Date`.
  */
 function EquipeHoje({ data }: { data: ResumoDashboard }) {
   const { plantaoHoje, proximoPlantao } = data.equipeHoje;
@@ -1641,30 +1649,33 @@ function EquipeHoje({ data }: { data: ResumoDashboard }) {
     A HORA DE TERESINA, não a do navegador.
 
     `toTimeString()` devolve a hora local de quem abre a tela. Coincide no
-    Brasil e coincidiu comigo (UTC-3), mas as horas da escala são de Teresina:
-    quem abrisse o painel de outro fuso veria "No horário" na hora errada. O
-    resto do sistema já resolve isso pelo deslocamento fixo — aqui também.
+    Brasil, mas as horas da escala são de Teresina: quem abrisse de outro fuso
+    veria "no horário" na hora errada.
   */
   const agoraHM = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(11, 16);
 
-  const statusPlantao = (ini: string, fim: string) =>
+  /**
+   * O ESTADO DO PLANTÃO, em cor e — só quando precisa — em palavra.
+   *
+   * `rotulo` é `null` para quem está no horário: a hora verde e o ponto verde
+   * já dizem, e repetir em texto era a redundância que o cartão tinha.
+   */
+  const estadoPlantao = (ini: string, fim: string) =>
     agoraHM > fim
-      ? { t: 'Encerrado', chip: 'bg-muted text-muted-foreground', ponto: 'bg-muted-foreground/30' }
+      ? { rotulo: 'encerrado', hora: 'text-muted-foreground', ponto: 'bg-muted-foreground/30' }
       : agoraHM >= ini
-        ? {
-            t: 'No horário',
-            chip: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-            ponto: 'bg-emerald-500',
-          }
+        ? { rotulo: null, hora: 'text-emerald-600 dark:text-emerald-400', ponto: 'bg-emerald-500' }
         : {
-            t: 'Aguardando',
-            chip: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+            rotulo: 'aguardando',
+            hora: 'text-amber-600 dark:text-amber-400',
             ponto: 'bg-amber-400',
           };
 
   /*
-    TRÊS BALDES, e o do meio existe porque plantão de dia inteiro existe.
-    Sem ele, 08:00–18:00 cairia em "manhã" e a tarde ficaria mentindo vazia.
+    TRÊS BALDES, e o do meio existe porque plantão de dia inteiro existe: sem
+    ele, 08:00–18:00 cairia em "manhã" e a tarde ficaria mentindo vazia. Na
+    produção do SENATEPI quase toda escala é 09:00–12:00, então o cabeçalho de
+    turno praticamente nunca aparece — e é essa a intenção.
   */
   const turnoDe = (ini: string, fim: string) =>
     fim <= '13:00' ? 'MANHÃ' : ini >= '12:00' ? 'TARDE' : 'DIA INTEIRO';
@@ -1676,9 +1687,39 @@ function EquipeHoje({ data }: { data: ResumoDashboard }) {
     porTurno.set(t, [...(porTurno.get(t) ?? []), p]);
   }
   const turnos = [...porTurno.entries()].sort(
-    (a, b) => ordemTurno[a[0] as keyof typeof ordemTurno] - ordemTurno[b[0] as keyof typeof ordemTurno],
+    (a, b) =>
+      ordemTurno[a[0] as keyof typeof ordemTurno] - ordemTurno[b[0] as keyof typeof ordemTurno],
   );
   const mostrarCabecalhoDeTurno = turnos.length > 1;
+
+  /*
+    QUANTO FALTA PARA O PRÓXIMO PLANTÃO — por dia de calendário, não por horas.
+
+    Subtrair instantes daria "3,8 dias" e arredondaria errado na virada. A data
+    é `@db.Date` (meia-noite UTC), então a conta é de dia contra dia — é a mesma
+    régua de `diasDesdeDataPura`, com o sinal invertido.
+  */
+  const emQuantosDias = proximoPlantao ? -(diasDesdeDataPura(proximoPlantao.data) ?? 0) : 0;
+  const distancia =
+    emQuantosDias <= 1 ? 'amanhã' : emQuantosDias > 1 ? `em ${emQuantosDias} dias` : null;
+
+  /*
+    A API passou a mandar as horas em `pessoas`; `advogados` é a forma antiga,
+    que ainda chega durante a janela de troca do deploy (web e API sobem em
+    serviços separados). Sem horas, o cabeçalho simplesmente não as mostra.
+  */
+  const pessoasDoProximo =
+    proximoPlantao?.pessoas ??
+    (proximoPlantao?.advogados ?? []).map((a) => ({
+      horaInicio: '',
+      horaFim: '',
+      advogado: a,
+    }));
+
+  /** Uma faixa só para o dia inteiro? Então ela vai no cabeçalho, não por linha. */
+  const faixasDoProximo = [...new Set(pessoasDoProximo.map((p) => `${p.horaInicio}–${p.horaFim}`))];
+  const faixaUnica =
+    faixasDoProximo.length === 1 && faixasDoProximo[0] !== '–' ? faixasDoProximo[0] : null;
 
   return (
     <SectionCard
@@ -1701,30 +1742,34 @@ function EquipeHoje({ data }: { data: ResumoDashboard }) {
               )}
               <ul className="space-y-0.5">
                 {pessoas.map((p) => {
-                  const st = statusPlantao(p.horaInicio, p.horaFim);
+                  const st = estadoPlantao(p.horaInicio, p.horaFim);
                   return (
-                    <li key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-                      <AvatarMini pessoa={p.advogado} size={32} />
+                    <li
+                      key={p.id}
+                      className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-muted/40"
+                    >
+                      <AvatarMini pessoa={p.advogado} size={40} />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{primeiroNome(p.advogado)}</p>
-                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3 shrink-0" aria-hidden />
+                        <p className="truncate text-sm font-semibold">{primeiroNome(p.advogado)}</p>
+                        <p
+                          className={cn(
+                            'mt-0.5 flex items-center gap-1.5 text-xs font-medium',
+                            st.hora,
+                          )}
+                        >
+                          <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
                           <span className="tabular-nums">
                             {p.horaInicio} – {p.horaFim}
                           </span>
-                          <span
-                            className={cn(
-                              'rounded px-1.5 py-px text-[10px] font-medium',
-                              st.chip,
-                            )}
-                          >
-                            {st.t}
-                          </span>
+                          {/* Só o que a cor não explica sozinha. */}
+                          {st.rotulo && (
+                            <span className="font-normal text-muted-foreground">· {st.rotulo}</span>
+                          )}
                         </p>
                       </div>
                       <span
-                        className={cn('h-2 w-2 shrink-0 rounded-full', st.ponto)}
-                        aria-hidden
+                        className={cn('h-2.5 w-2.5 shrink-0 rounded-full', st.ponto)}
+                        aria-label={st.rotulo ?? 'no horário'}
                       />
                     </li>
                   );
@@ -1734,38 +1779,56 @@ function EquipeHoje({ data }: { data: ResumoDashboard }) {
           ))}
         </div>
       )}
-      {proximoPlantao && (
+
+      {proximoPlantao && pessoasDoProximo.length > 0 && (
         <div className="mt-3 border-t pt-2.5">
-          <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 px-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {/*
+                DATA PURA: `escalas_advogados.data` é `@db.Date` e chega como
+                meia-noite UTC. `new Date(...).toLocaleDateString` num navegador
+                UTC-3 puxava para 21h do dia anterior — a escala de SEGUNDA
+                aparecia como DOMINGO.
+              */}
+              {formatDataPura(proximoPlantao.data, {
+                weekday: 'long',
+                day: '2-digit',
+                month: '2-digit',
+              })}
+              {faixaUnica && (
+                <span className="font-normal normal-case tracking-normal"> · {faixaUnica}</span>
+              )}
+            </p>
             {/*
-              DATA PURA: `escalas_advogados.data` é `@db.Date` e chega como
-              meia-noite UTC. `new Date(...).toLocaleDateString` num navegador
-              UTC-3 puxava para 21h do dia anterior — a escala de SEGUNDA
-              aparecia como DOMINGO. Foi o bug relatado, e era meu.
+              A DISTÂNCIA é o que a data sozinha não responde: são QUATRO dias
+              sem ninguém de plantão, não um.
             */}
-            {formatDataPura(proximoPlantao.data, {
-              weekday: 'long',
-              day: '2-digit',
-              month: '2-digit',
-            })}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-2">
-            {proximoPlantao.advogados.map((a) => (
-              <span
-                key={a.id}
-                className="flex items-center gap-1.5 rounded-full bg-muted py-0.5 pl-0.5 pr-2.5 text-xs"
-              >
-                <AvatarMini pessoa={a} size={20} />
-                {primeiroNome(a)}
-              </span>
-            ))}
+            {distancia && (
+              <span className="shrink-0 text-[11px] text-muted-foreground/80">{distancia}</span>
+            )}
           </div>
+          <ul className="mt-1.5 space-y-0.5 px-2">
+            {pessoasDoProximo.map(({ advogado, horaInicio, horaFim }) => (
+              <li key={advogado.id} className="flex items-center gap-2 text-xs">
+                <AvatarMini pessoa={advogado} size={24} />
+                <span className="truncate">{primeiroNome(advogado)}</span>
+                {/*
+                  Horas por LINHA só quando as pessoas do dia divergem — senão a
+                  faixa já está no cabeçalho e repetir é ruído.
+                */}
+                {!faixaUnica && horaInicio && (
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {horaInicio} – {horaFim}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </SectionCard>
   );
 }
-
 function AudienciasSemana({ data }: { data: ResumoDashboard }) {
   const itens = data.audienciasSemana;
   return (
