@@ -32,6 +32,15 @@ export interface PublicacaoExibivel {
   dataDisponibilizacao: string;
   link?: string | null;
   tipoComunicacao?: string | null;
+  /**
+   * O TIPO DO DOCUMENTO — "Acórdão", "Decisão", "Notificação".
+   *
+   * A API sempre mandou e o cartão nunca mostrou. É o campo que separa os 252
+   * atos decisórios (17% do acervo) dos 927 avisos de rotina — o
+   * `tipoComunicacao` ao lado é "Intimação" em 88% dos casos e quase não
+   * informa.
+   */
+  tipoDocumento?: string | null;
   nomeOrgao?: string | null;
   prazoMencionadoDias?: number | null;
   /** POR QUE o robô não criou tarefa — `NOTICIA_VELHA`, `ORDEM_DA_OUTRA_PARTE`. */
@@ -255,6 +264,23 @@ export function PublicacaoDjenCard({
   const [verAdvogados, setVerAdvogados] = useState(false);
   const pub = grupo.principal;
   const copias = grupo.copias.length;
+
+  /*
+    O DOCUMENTO só entra quando diz algo que o tipo de comunicação não disse.
+    "Intimação" + "Intimação" é a mesma palavra duas vezes.
+  */
+  const documento = (pub.tipoDocumento ?? '').trim();
+  const documentoVisivel =
+    documento && documento.toLowerCase() !== (pub.tipoComunicacao ?? '').trim().toLowerCase()
+      ? documento
+      : null;
+  /** Acórdão, decisão e sentença mudam o rumo — o resto é andamento. */
+  const ehDecisao = /ac[óo]rd[ãa]o|decis[ãa]o|senten[çc]a/i.test(documento);
+  /*
+    `quandoSaiu` já devolve a data cheia quando passa de 60 dias — repetir ali
+    seria escrever "12/02/2026 12/02/2026".
+  */
+  const ehDataCurta = /^\d{2}\/\d{2}\/\d{4}$/.test(quandoSaiu(pub.dataDisponibilizacao));
   const advogados = (pub.advogados ?? []).filter((a) => a.nome);
   const apontada =
     !!destacada && (destacada === pub.id || grupo.copias.some((c) => c.id === destacada));
@@ -308,6 +334,40 @@ export function PublicacaoDjenCard({
           <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
             {pub.tipoComunicacao ?? 'Publicação'}
           </span>
+          {/*
+            O TIPO DE DOCUMENTO — guardado desde sempre, nunca mostrado.
+
+            A API já mandava `tipoDocumento` e o cartão o ignorava. Medido nas
+            1.490 publicações da produção, ele está 100% preenchido e é o campo
+            que separa o rotineiro do que muda o caso:
+
+              Notificação ............ 927
+              Distribuição ........... 160
+              Intimação ...............  90
+              Acórdão ................ 192  ← julgou
+              DECISÃO MONOCRÁTICA ....  35  ← julgou
+              Decisão .................  25  ← julgou
+
+            São 252 atos decisórios (17%) com o mesmo peso visual de uma lista
+            de distribuição. O `tipoComunicacao` que o cartão já mostrava é
+            "Intimação" em 88% dos casos — quase constante, quase sem
+            informação.
+
+            Só aparece quando ACRESCENTA: "Intimação/Intimação" seria ruído.
+          */}
+          {documentoVisivel && (
+            <span
+              className={cn(
+                'rounded-full px-2 py-0.5 text-[11px]',
+                ehDecisao
+                  ? 'bg-violet-100 font-semibold text-violet-800 dark:bg-violet-950/40 dark:text-violet-300'
+                  : 'bg-muted font-medium text-muted-foreground',
+              )}
+              title={ehDecisao ? 'Ato decisório — muda o rumo do caso' : undefined}
+            >
+              {documentoVisivel}
+            </span>
+          )}
           {chips}
         </span>
         <span className="flex shrink-0 items-center gap-2">
@@ -328,11 +388,25 @@ export function PublicacaoDjenCard({
             Para de contar em 60 dias: "há 214 dias" não é mais informação que
             "12/02/2026", é menos.
           */}
-          <span
-            className="whitespace-nowrap text-xs text-muted-foreground"
-            title={formatDataPura(pub.dataDisponibilizacao)}
-          >
+          {/*
+            O RELATIVO E A DATA, JUNTOS — e o comentário acima prometia isso
+            ("a data exata continua no `title` e, no desktop, ao lado") sem
+            nunca ter sido implementado: a data só existia na dica do mouse, que
+            no telefone não existe.
+
+            NÃO HÁ HORA. O Diário publica por DIA: o CNJ devolve
+            `data_disponibilizacao` como `yyyy-mm-dd`, e a coluna é `@db.Date`.
+            O único carimbo com hora do sistema é `createdAt`, que é quando o
+            NOSSO robô baixou — mostrá-lo como "hora da publicação" seria
+            inventar precisão que o tribunal não deu.
+          */}
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {quandoSaiu(pub.dataDisponibilizacao)}
+            {!ehDataCurta && (
+              <span className="ml-1.5 tabular-nums text-muted-foreground/70">
+                {formatDataPura(pub.dataDisponibilizacao)}
+              </span>
+            )}
           </span>
         </span>
       </div>

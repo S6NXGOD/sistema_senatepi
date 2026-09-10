@@ -1,7 +1,7 @@
 import {
   BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, PoloProcesso, Prisma, UserRole } from '@prisma/client';
+import { AcaoAuditoria, PoloProcesso, Prisma, TipoAcaoProcesso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import {
@@ -510,11 +510,43 @@ export class PartesService {
           select: { advogadoId: true },
         });
 
+    /*
+      `tipoAcao` TAMBÉM É DERIVADO — e ficou de fora desta casa.
+
+      O relato: "coloquei o SENATEPI como polo ativo e não mostra como ação
+      institucional". Estava certo. A regra existe (`processos.service.ts`:
+      `tipoAcao: polo.institucional ? INSTITUCIONAL : INDIVIDUAL`), mas só roda
+      no `create`. Adicionar, trocar ou remover a parte institucional DEPOIS não
+      recalculava nada, e o campo ficava com o valor do dia do cadastro.
+
+      É o mesmo formato dos outros defeitos desta base: a regra roda num caminho
+      e não no irmão. `filiadoId` e `advogadoId` já tinham sido trazidos para
+      cá justamente por isso; `tipoAcao` é o terceiro derivado e faltava.
+
+      Medido na produção em 10/09/2026: 1 processo em 134
+      (0000736-77.2016.8.18.0067, SENATEPI × Município de Piracuruca) com a
+      parte institucional no polo ATIVO, sem filiado, e marcado INDIVIDUAL.
+      Todo sinal dizia institucional; só o campo discordava — e é ele que
+      decide o selo na listagem e o filtro "ação institucional".
+
+      A REGRA: institucional é ser PARTE, em qualquer polo. O sindicato tanto
+      move ação pela categoria quanto é processado por ela; nos dois casos não
+      há filiado dono, que é o que a distinção significa. O selo da tela já
+      sabe diferenciar os dois lados (`SENATEPI é réu` × `Ação institucional`).
+    */
+    const temInstitucional = await tx.parteProcesso.findFirst({
+      where: { processoId, parteExterna: { institucional: true } },
+      select: { id: true },
+    });
+
     await tx.processo.update({
       where: { id: processoId },
       data: {
         filiadoId: partesFiliado[0]?.filiadoId ?? null,
         advogadoId: advPrincipal?.advogadoId ?? advQualquer?.advogadoId ?? null,
+        tipoAcao: temInstitucional
+          ? TipoAcaoProcesso.INSTITUCIONAL
+          : TipoAcaoProcesso.INDIVIDUAL,
       },
     });
   }

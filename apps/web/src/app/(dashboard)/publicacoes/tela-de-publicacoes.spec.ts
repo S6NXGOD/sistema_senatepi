@@ -180,11 +180,20 @@ describe('a leitura rápida da lista', () => {
   it('a data vira "há N dias" enquanto isso ainda informa', () => {
     expect(CARTAO).toContain('quandoSaiu(pub.dataDisponibilizacao)');
     /*
+      A DATA SAIU DA DICA DO MOUSE E FOI PARA A TELA.
+
+      O comentário do cartão prometia "a data exata continua no `title` e, no
+      desktop, ao lado" — e o "ao lado" nunca existiu. No telefone não há hover,
+      então a data simplesmente não estava em lugar nenhum.
+
       `formatDataPura`, e não `formatData`: `data_disponibilizacao` é `@db.Date`
       e chega como meia-noite UTC. Com `formatData` a tela mostrava um dia a
       menos em TODAS as 500 publicações medidas — e é dela que se conta prazo.
     */
-    expect(CARTAO).toContain('title={formatDataPura(pub.dataDisponibilizacao)}');
+    expect(CARTAO).toContain('{formatDataPura(pub.dataDisponibilizacao)}');
+    // E não se repete quando o relativo JÁ é a data (acima de 60 dias).
+    expect(CARTAO).toContain('const ehDataCurta =');
+    expect(CARTAO).toContain('{!ehDataCurta && (');
     // Passado o limite, o relativo informa MENOS que a data.
     expect(CARTAO).toContain('if (dias <= 60) return `há ${dias} dias`;');
   });
@@ -318,5 +327,40 @@ describe('o aviso de prazo na publicação', () => {
   /** Publicação COM tarefa não ganha aviso de ausência — seria contraditório. */
   it('não explica ausência quando a tarefa existe', () => {
     expect(CARTAO).toContain('!pub.compromissoId &&');
+  });
+});
+
+/**
+ * O QUE ESTAVA GUARDADO E NUNCA CHEGAVA À TELA.
+ *
+ * A API sempre mandou `tipoDocumento`; o cartão o ignorava. Medido nas 1.490
+ * publicações da produção — 100% preenchido:
+ *
+ *   Notificação ............ 927      Acórdão ................ 192
+ *   Distribuição ........... 160      DECISÃO MONOCRÁTICA ....  35
+ *   Intimação ..............  90      Decisão .................  25
+ *
+ * São 252 atos decisórios (17%) que apareciam com o mesmo peso visual de uma
+ * lista de distribuição. E o `tipoComunicacao` que o cartão já mostrava é
+ * "Intimação" em 88% dos casos — quase constante, quase sem informação.
+ */
+describe('o tipo de documento chega à tela', () => {
+  it('o cartão mostra o documento guardado', () => {
+    expect(CARTAO).toContain('const documento = (pub.tipoDocumento ?? ');
+    expect(CARTAO).toContain('{documentoVisivel}');
+  });
+
+  /** Acórdão e decisão mudam o rumo; notificação é rotina. */
+  it('e destaca o que é ato decisório', () => {
+    expect(CARTAO).toContain('const ehDecisao = /ac[óo]rd[ãa]o|decis[ãa]o|senten[çc]a/i.test(documento)');
+    expect(CARTAO).toContain('Ato decisório — muda o rumo do caso');
+  });
+
+  /**
+   * SÓ QUANDO ACRESCENTA: "Intimação" no tipo de comunicação e "Intimação" no
+   * documento é a mesma palavra duas vezes.
+   */
+  it('não repete o que o tipo de comunicação já disse', () => {
+    expect(CARTAO).toContain("documento.toLowerCase() !== (pub.tipoComunicacao ?? '').trim().toLowerCase()");
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Search, Loader2, User, Save, CalendarClock, MapPin, Gavel, AlertTriangle, Users,
+  X, Search, Loader2, User, Save, CalendarClock, MapPin, Gavel, AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import {
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { V } from '@/lib/vocabulario';
+import { SeletorDePessoas } from '@/components/agenda/seletor-de-pessoas';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -182,77 +183,33 @@ export function CompromissoFormModal({
             <Input placeholder="Ex: Audiência inaugural — João Silva x Município" value={titulo} onChange={(e) => setTitulo(e.target.value)} autoFocus />
           </div>
 
-          {/* Tipo + Responsável */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Tipo *</label>
-              <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as TipoCompromisso)}>
-                {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-1.5 text-sm font-medium"><Users className="h-4 w-4 text-muted-foreground" /> Responsável *</label>
-              <select className={inputCls} value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
-                <option value="">Selecione…</option>
-                {(responsaveis.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.nome}</option>)}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                Quem <strong>responde</strong> pela atividade. Só ele conclui.
-              </p>
-            </div>
+          {/* Tipo */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Tipo *</label>
+            <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as TipoCompromisso)}>
+              {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
+            </select>
           </div>
 
           {/*
-            EQUIPE — o segundo advogado da audiência, quem protocola o prazo,
-            o estagiário que acompanha a diligência.
+            UM CONTROLE SÓ PARA "QUEM TRABALHA NISTO".
 
-            Separado do responsável de propósito: se todos forem responsáveis,
-            ninguém é, e a cobrança deixa de ter destinatário. Quem está aqui vê
-            a atividade na própria agenda e conta na carga de trabalho.
+            Eram dois: um `<select>` de Responsável, sem foto, e uma caixa com os
+            dezesseis colaboradores como chips de texto, sem busca e sem avatar.
+            Para pôr duas pessoas numa audiência era preciso entender que
+            "Responsável" e "Também atuam" são listas diferentes da mesma coisa.
+
+            Ver `SeletorDePessoas` para o porquê de continuar havendo UM
+            responsável — e para o que a tela dizia de errado sobre concluir.
           */}
-          <div className="space-y-1.5">
-            <label className="flex items-center gap-1.5 text-sm font-medium">
-              <Users className="h-4 w-4 text-muted-foreground" /> Também atuam nesta atividade
-            </label>
-            <div className="flex flex-wrap gap-1.5 rounded-lg border p-2">
-              {(responsaveis.data ?? [])
-                .filter((r) => r.id !== responsavelId)
-                .map((r) => {
-                  const dentro = participantes.includes(r.id);
-                  return (
-                    <button
-                      key={r.id}
-                      type="button"
-                      aria-pressed={dentro}
-                      onClick={() =>
-                        setParticipantes((ps) =>
-                          dentro ? ps.filter((i) => i !== r.id) : [...ps, r.id],
-                        )
-                      }
-                      className={cn(
-                        'rounded-full border px-2.5 py-1 text-xs transition-colors',
-                        dentro
-                          ? 'border-brand-600 bg-brand-50 font-medium text-brand-800 dark:bg-brand-900/30 dark:text-brand-300'
-                          : 'text-muted-foreground hover:bg-muted',
-                      )}
-                    >
-                      {r.nome}
-                    </button>
-                  );
-                })}
-              {(responsaveis.data ?? []).filter((r) => r.id !== responsavelId).length === 0 && (
-                <span className="px-1 py-0.5 text-xs text-muted-foreground">
-                  Não há outros colaboradores para incluir.
-                </span>
-              )}
-            </div>
-            {participantes.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {participantes.length === 1 ? '1 participante' : `${participantes.length} participantes`}
-                {' '}veem esta atividade na própria agenda.
-              </p>
-            )}
-          </div>
+          <SeletorDePessoas
+            pessoas={responsaveis.data ?? []}
+            carregando={responsaveis.isLoading}
+            responsavelId={responsavelId}
+            participantes={participantes}
+            onResponsavel={setResponsavelId}
+            onParticipantes={setParticipantes}
+          />
 
           {/* Data e Hora */}
           <div className="space-y-1.5">
