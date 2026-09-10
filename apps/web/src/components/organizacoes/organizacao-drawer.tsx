@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { getParteExterna, formatDocumento, TIPO_PARTE_LABEL, type ParteExterna } from '@/lib/partes';
 import { formatNPU, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_COR, type StatusProcesso } from '@/lib/processos';
 import { V } from '@/lib/vocabulario';
+import { SITUACAO_FISCAL, percentualBR } from '@/lib/municipios';
 
 const moeda = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
@@ -111,6 +112,56 @@ export function OrganizacaoDrawer({
                 texto={r!.valorTotalEmCausa > 0 ? moeda(r!.valorTotalEmCausa) : '—'}
               />
             </div>
+
+            {/*
+              O ENTE PÚBLICO POR TRÁS DESTA ORGANIZAÇÃO — e o que o Tesouro diz
+              das contas dele.
+
+              É a informação que muda a conversa antes de uma negociação: acima
+              do limite prudencial da LRF, o ente está PROIBIDO por lei de
+              conceder aumento (art. 22, parágrafo único) — e essa é a primeira
+              alegação que a prefeitura faz na mesa. Abaixo dele, a alegação cai.
+
+              Só aparece quando o vínculo é PROVADO: o nome declara o ente
+              ("MUNICÍPIO DE CORRENTE") ou alguém escolheu à mão. Endereço não
+              conta — o Hospital Getúlio Vargas fica em Teresina e quem paga a
+              folha é o Estado.
+            */}
+            {data.poderPublico && (
+              <Link
+                href="/municipios"
+                className="block rounded-lg border p-3 transition hover:bg-muted/40"
+              >
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Landmark className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="text-sm font-semibold">
+                    {data.poderPublico.esfera === 'M'
+                      ? `Município de ${data.poderPublico.nome}`
+                      : data.poderPublico.esfera === 'E'
+                        ? `Governo do Estado — ${data.poderPublico.nome}`
+                        : data.poderPublico.nome}
+                  </span>
+                  {data.poderPublico.fiscal && (
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                        SITUACAO_FISCAL[data.poderPublico.fiscal.situacao].cor,
+                      )}
+                    >
+                      {data.poderPublico.fiscal.situacao === 'INCONSISTENTE' ||
+                      data.poderPublico.fiscal.percentualRcl == null
+                        ? SITUACAO_FISCAL[data.poderPublico.fiscal.situacao].rotulo
+                        : `${percentualBR(data.poderPublico.fiscal.percentualRcl)} da receita em pessoal · ${SITUACAO_FISCAL[data.poderPublico.fiscal.situacao].curto}`}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {data.poderPublico.fiscal
+                    ? `Relatório de Gestão Fiscal do ${data.poderPublico.fiscal.quadrimestre}º quadrimestre de ${data.poderPublico.fiscal.exercicio}, declarado ao Tesouro Nacional.`
+                    : 'Este ente ainda não teve os indicadores buscados no Tesouro Nacional.'}
+                </p>
+              </Link>
+            )}
 
             {/*
               O VÍNCULO COM O PATRONAL, quando existe.

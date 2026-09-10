@@ -1,5 +1,6 @@
 import { api } from './api';
 import type { StatusProcesso } from './processos';
+import type { SituacaoFiscal } from '@/lib/municipios';
 
 // ---------------------------------------------------------------------------
 // Tipos (espelham a API — partes do processo e cadastro de partes externas)
@@ -309,6 +310,27 @@ export async function listarPartesExternas(f: {
 
 /** Dossiê da parte: cadastro + todos os processos em que ela figura. */
 export interface DossieParteExterna extends ParteExterna {
+  /**
+   * O ENTE PÚBLICO que responde pelo orçamento desta organização, com a
+   * leitura fiscal já feita pelo servidor. Nulo quando o vínculo não foi
+   * provado — ver `vinculo-de-ente.service.ts` na API.
+   */
+  poderPublico: {
+    codigo: number;
+    nome: string;
+    uf: string;
+    esfera: string;
+    populacao: number | null;
+    origem: string | null;
+    fiscal: {
+      situacao: SituacaoFiscal;
+      percentualRcl: number | null;
+      limiteMaximo: number | null;
+      limitePrudencial: number | null;
+      exercicio: number;
+      quadrimestre: number;
+    } | null;
+  } | null;
   participacoes: {
     id: string;
     polo: PoloProcesso;

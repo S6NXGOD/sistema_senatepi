@@ -12,6 +12,11 @@ import { PRE_PROCESSUAIS } from './processos.service';
 import {
   AtualizarParteExternaDto, CriarParteExternaDto, ListParteExternaQueryDto,
 } from './dto/partes.dto';
+import { situacaoFiscal } from '../municipios/leitura-fiscal.util';
+
+/** `Decimal` do Prisma vira number — o classificador fiscal é aritmética pura. */
+const numeroOuNulo = (v: { toString(): string } | null | undefined): number | null =>
+  v === null || v === undefined ? null : Number(v.toString());
 
 interface Ctx {
   userId?: string;
@@ -387,6 +392,33 @@ export class PartesExternasService {
         dossiePatronal: {
           select: { id: true, razaoSocial: true, cnpj: true, primeiroAcesso: true },
         },
+        /**
+         * O ENTE PÚBLICO POR TRÁS DESTA ORGANIZAÇÃO — quem responde pelo
+         * orçamento dela, com o que o Tesouro diz sobre as contas.
+         *
+         * Presente só quando o NOME declara o ente ("MUNICÍPIO DE CORRENTE",
+         * "ESTADO DO PIAUÍ") ou quando alguém escolheu à mão. Endereço não
+         * serve de prova: o Hospital Getúlio Vargas fica em Teresina e quem
+         * paga a folha dele é o Estado — ver `vinculo-de-ente.service.ts`.
+         *
+         * É isto que transforma "vamos negociar com a prefeitura de Alto Longá"
+         * em "a prefeitura de Alto Longá está acima do teto da LRF e, pelo art.
+         * 22, não pode conceder aumento até recompor".
+         */
+        enteOrigem: true,
+        ente: {
+          select: {
+            codigo: true,
+            nome: true,
+            uf: true,
+            esfera: true,
+            populacao: true,
+            indicadoresPessoal: {
+              orderBy: [{ exercicio: 'desc' }, { quadrimestre: 'desc' }],
+              take: 1,
+            },
+          },
+        },
         _count: { select: { vinculos: true } },
       },
     });
@@ -436,8 +468,42 @@ export class PartesExternasService {
       return acc;
     }, {});
 
+    /*
+      O ENTE, já traduzido: a tela não classifica nada. Quem decide se o ente
+      está acima do limite é o servidor, porque a regra tem base legal e não
+      pode existir em duas versões — já houve neste sistema duas definições de
+      "atrasada" no ar ao mesmo tempo, discordando na própria tela.
+    */
+    const ind = parte.ente?.indicadoresPessoal?.[0] ?? null;
+    const poderPublico = parte.ente
+      ? {
+          codigo: parte.ente.codigo,
+          nome: parte.ente.nome,
+          uf: parte.ente.uf,
+          esfera: parte.ente.esfera,
+          populacao: parte.ente.populacao,
+          origem: parte.enteOrigem,
+          fiscal: ind
+            ? {
+                situacao: situacaoFiscal({
+                  percentualRcl: numeroOuNulo(ind.percentualRcl),
+                  limiteMaximo: numeroOuNulo(ind.limiteMaximo),
+                  limitePrudencial: numeroOuNulo(ind.limitePrudencial),
+                  limiteAlerta: numeroOuNulo(ind.limiteAlerta),
+                }),
+                percentualRcl: numeroOuNulo(ind.percentualRcl),
+                limiteMaximo: numeroOuNulo(ind.limiteMaximo),
+                limitePrudencial: numeroOuNulo(ind.limitePrudencial),
+                exercicio: ind.exercicio,
+                quadrimestre: ind.quadrimestre,
+              }
+            : null,
+        }
+      : null;
+
     return {
       ...parte,
+      poderPublico,
       participacoes,
       vinculos,
       resumo: {
