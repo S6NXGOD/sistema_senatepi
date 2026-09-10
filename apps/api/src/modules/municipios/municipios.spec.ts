@@ -508,76 +508,21 @@ describe('a migração dos entes é segura na janela de troca', () => {
 });
 
 /**
- * A ESCOLHA DE UMA PESSOA NÃO SE DESFAZ SOZINHA.
+ * A ESCOLHA DE UMA PESSOA NÃO SE DESFAZ SOZINHA — e este contrato mudou de casa.
  *
- * O robô só consegue provar 21 das 77 organizações; as outras 56 dependem de
- * alguém que sabe que o Hospital Getúlio Vargas é do Estado. Se a varredura da
- * madrugada passasse por cima dessa escolha, o trabalho de quem preencheu
- * sumiria toda noite — e ninguém saberia por quê.
+ * Aqui existiam três testes que conferiam o FORMATO do filtro contra um Prisma
+ * falso (`expect(filtro).toEqual({ enteOrigem: { not: MANUAL } })`). Eles ficaram
+ * VERDES enquanto a varredura ligava ZERO de 3.150 filiados na produção: o
+ * formato estava exatamente como escrito, e o que estava errado era o que aquele
+ * formato SELECIONA — `origem <> 'MANUAL'` não traz linha com origem nula.
  *
- * O teste não olha o código: chama a varredura com um Prisma falso e confere o
- * FILTRO que ela mandou para o banco.
+ * Pior que inúteis, eles eram um obstáculo: consertar o serviço fazia os três
+ * reprovarem, empurrando quem consertasse de volta para o defeito.
+ *
+ * O contrato agora vive em `filtro-de-tres-valores.spec.ts`, que captura o filtro
+ * REAL e o aplica a linhas de mentira com as regras do SQL — inclusive a linha de
+ * origem NULA, que é 100% da base no primeiro dia. Aquele arquivo reprova com a
+ * forma ingênua; este nunca reprovou.
+ *
+ * NÃO traga um teste de formato de volta para cá.
  */
-describe('a varredura respeita quem foi decidido à mão', () => {
-  it('as organizações marcadas MANUAL ficam fora da consulta', async () => {
-    let filtro: unknown = null;
-    const prismaFalso = {
-      ente: { findMany: async () => [] },
-      parteExterna: {
-        findMany: async (args: { where: unknown }) => {
-          filtro = args.where;
-          return [];
-        },
-        update: async () => ({}),
-      },
-    };
-    const servico = new VinculoDeEnteService(prismaFalso as never);
-    await servico.casarOrganizacoes();
-
-    expect(filtro).toEqual({ enteOrigem: { not: OrigemDaLigacao.MANUAL } });
-  });
-
-  it('e os filiados também — o updateMany carrega a mesma exclusão', async () => {
-    const filtros: unknown[] = [];
-    const prismaFalso = {
-      ente: { findMany: async () => [{ codigo: 2211001, uf: 'PI', esfera: 'M', nomeNormalizado: 'teresina' }] },
-      filiado: {
-        groupBy: async () => [{ cidade: 'Teresina', estado: 'PI', _count: { _all: 3 } }],
-        updateMany: async (args: { where: unknown }) => {
-          filtros.push(args.where);
-          return { count: 3 };
-        },
-      },
-    };
-    const servico = new VinculoDeEnteService(prismaFalso as never);
-    const r = await servico.casarFiliados();
-
-    expect(r.ligados).toBe(3);
-    expect(filtros).toHaveLength(1);
-    expect(filtros[0]).toMatchObject({ municipioOrigem: { not: OrigemDaLigacao.MANUAL } });
-  });
-
-  /**
-   * E NÃO GASTA ESCRITA no que já está certo — o `NOT` do mesmo par (código,
-   * origem) é o que impede a varredura de reescrever 3.107 linhas toda noite
-   * para não mudar nada.
-   */
-  it('não regrava o que já está com o mesmo valor', async () => {
-    let onde: Record<string, unknown> = {};
-    const prismaFalso = {
-      ente: { findMany: async () => [{ codigo: 2211001, uf: 'PI', esfera: 'M', nomeNormalizado: 'teresina' }] },
-      filiado: {
-        groupBy: async () => [{ cidade: 'Teresina', estado: 'PI', _count: { _all: 1 } }],
-        updateMany: async (args: { where: Record<string, unknown> }) => {
-          onde = args.where;
-          return { count: 0 };
-        },
-      },
-    };
-    await new VinculoDeEnteService(prismaFalso as never).casarFiliados();
-    expect(onde.NOT).toEqual({
-      municipioCodigo: 2211001,
-      municipioOrigem: OrigemDaLigacao.UF_E_NOME,
-    });
-  });
-});

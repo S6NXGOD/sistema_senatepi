@@ -111,6 +111,61 @@ interface Candidato {
   esfera: string;
 }
 
+/**
+ * "TUDO QUE NÃO FOI DECIDIDO À MÃO" — e por que isto não é `{ not: MANUAL }`.
+ *
+ * Em SQL, `origem <> 'MANUAL'` NÃO é verdadeiro quando a coluna é NULA: é NULO,
+ * e `WHERE nulo` não seleciona a linha. O Prisma traduz `{ not: X }` para
+ * exatamente esse `<>`, então a forma ingênua exclui em silêncio justamente as
+ * linhas que ninguém tocou — que são todas, no primeiro dia.
+ *
+ * MEDIDO NA PRODUÇÃO, com o defeito no ar (10/09/2026):
+ *
+ *   prisma.filiado.count({ where: { municipioOrigem: { not: 'MANUAL' } } })  ->  0
+ *   select count(*) where (municipio_origem is null or <> 'MANUAL')          ->  3.150
+ *
+ * A varredura rodou, o log gravou sucesso, e ligou ZERO de 3.150. Não houve
+ * erro em lugar nenhum — foi a consulta respondendo com honestidade a uma
+ * pergunta que eu formulei errado.
+ *
+ * O teste que eu tinha escrito conferia o FORMATO do filtro contra um Prisma
+ * falso: provou que a chamada acontece, não que ela seleciona. É o mesmo defeito
+ * de método que já custou caro nesta base — teste que afirma a chamada.
+ */
+function NAO_E_MANUAL(campo: 'municipioOrigem' | 'enteOrigem') {
+  return {
+    OR: [{ [campo]: null }, { [campo]: { not: OrigemDaLigacao.MANUAL } }],
+  } as Record<string, unknown>;
+}
+
+/**
+ * "ESTA LINHA AINDA NÃO ESTÁ ASSIM" — a mesma armadilha, na forma composta.
+ *
+ * O objetivo é não gastar escrita no que já está certo: sem isso, a varredura
+ * reescreveria 3.107 linhas toda noite para não mudar nada.
+ *
+ * A forma óbvia — `NOT: { municipioCodigo: X, municipioOrigem: Y }` — tem o
+ * MESMO defeito da comparação simples, e pior escondido: com as duas colunas
+ * nulas, `NOT (nulo = X AND nulo = Y)` é `NOT (desconhecido)`, que é
+ * desconhecido, e a linha não entra. Medido na produção com a correção do
+ * `NAO_E_MANUAL` já aplicada: 2.138 filiados em Teresina, e o `NOT` composto
+ * derrubava para ZERO. Consertar só metade não consertou nada.
+ *
+ * Escrito como disjunção explícita, cada ramo responde sim ou não e o nulo entra
+ * pela primeira porta: "não tem código" já basta para a linha precisar de
+ * escrita.
+ */
+function AINDA_NAO_ESTA_ASSIM(codigo: number, origem: OrigemDaLigacao) {
+  return {
+    OR: [
+      { municipioCodigo: null },
+      { municipioCodigo: { not: codigo } },
+      { municipioOrigem: null },
+      { municipioOrigem: { not: origem } },
+    ],
+  } as Record<string, unknown>;
+}
+
 @Injectable()
 export class VinculoDeEnteService {
   private readonly logger = new Logger(VinculoDeEnteService.name);
@@ -269,9 +324,17 @@ export class VinculoDeEnteService {
         where: {
           cidade: g.cidade,
           estado: g.estado,
-          // Nunca desfaz escolha de gente, e não gasta escrita no que já está certo.
-          municipioOrigem: { not: OrigemDaLigacao.MANUAL },
-          NOT: { municipioCodigo: escolha.codigo, municipioOrigem: escolha.origem },
+          /*
+            AS DUAS CONDIÇÕES VÃO DENTRO DE `AND` porque as duas são um `OR`, e
+            duas chaves `OR` no mesmo objeto não somam: a segunda sobrescreve a
+            primeira, em silêncio.
+          */
+          AND: [
+            // Nunca desfaz escolha de gente...
+            NAO_E_MANUAL('municipioOrigem'),
+            // ...e não gasta escrita no que já está certo.
+            AINDA_NAO_ESTA_ASSIM(escolha.codigo, escolha.origem),
+          ],
         },
         data: { municipioCodigo: escolha.codigo, municipioOrigem: escolha.origem },
       });
@@ -294,7 +357,7 @@ export class VinculoDeEnteService {
   async casarOrganizacoes(): Promise<ResultadoVinculo> {
     const idx = await this.indice();
     const alvos = await this.prisma.parteExterna.findMany({
-      where: { enteOrigem: { not: OrigemDaLigacao.MANUAL } },
+      where: NAO_E_MANUAL('enteOrigem'),
       select: { id: true, nome: true, enteCodigo: true },
     });
 

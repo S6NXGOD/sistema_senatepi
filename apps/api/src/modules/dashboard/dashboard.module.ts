@@ -781,9 +781,30 @@ export class DashboardService {
                 O robô já carimba a decisão em `tarefaDispensadaMotivo`; aqui
                 basta respeitá-la. A publicação continua visível na aba
                 Publicações, com o aviso explicando de quem é o prazo.
+
+                E O NULO PRECISA ENTRAR. `NOT: { motivo: 'X' }` vira
+                `motivo <> 'X'` no SQL, que é NULO — não verdadeiro — quando a
+                coluna é nula, e `WHERE nulo` descarta a linha. Nulo aqui
+                significa "o robô nunca dispensou esta publicação", ou seja
+                exatamente a intimação nova que o bloco existe para mostrar.
+                Medido na produção em 10/09/2026: 37 das 1.488 sumiam assim, e
+                eram as mais recentes.
+
+                E VAI DENTRO DE `AND` por um motivo que quase passou: `meuDjen`
+                também traz uma chave `OR` (o acervo do advogado OU o ato que o
+                nomeia). Duas chaves `OR` no MESMO objeto não somam — a segunda
+                sobrescreve a primeira. Espalhado depois, `...meuDjen` apagaria
+                esta exclusão inteira, e só para quem é advogado.
               */
-              NOT: { tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE' },
-              ...meuDjen,
+              AND: [
+                {
+                  OR: [
+                    { tarefaDispensadaMotivo: null },
+                    { tarefaDispensadaMotivo: { not: 'ORDEM_DA_OUTRA_PARTE' } },
+                  ],
+                },
+                meuDjen,
+              ],
             },
             orderBy: { dataDisponibilizacao: 'desc' },
             take: 40,

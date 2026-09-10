@@ -27,10 +27,20 @@ describe('as publicações do advogado', () => {
     expect(DASH).toContain('{ id: { in: idsQueMeCitam } }');
   });
 
-  /** As duas consultas do Diário usam o MESMO escopo — duas contas divergiriam. */
+  /**
+   * As duas consultas do Diário usam o MESMO escopo — duas contas divergiriam.
+   *
+   * A contagem NÃO exige mais a forma `...meuDjen,` espalhada: uma das duas
+   * passou a entrar dentro de um `AND`, porque `meuDjen` traz uma chave `OR` e
+   * duas chaves `OR` no mesmo objeto não somam — a segunda sobrescreve a
+   * primeira, em silêncio. Cobrar a sintaxe empurraria quem consertasse de volta
+   * para o defeito; o que importa é que as duas consultas apliquem o recorte.
+   */
   it('o contador e a lista usam o mesmo recorte', () => {
-    const usos = DASH.match(/\.\.\.meuDjen,/g) ?? [];
-    expect(usos.length).toBe(2);
+    const usados = (DASH.match(/meuDjen/g) ?? []).length;
+    const declaracoes = (DASH.match(/const meuDjen/g) ?? []).length;
+    expect(declaracoes).toBe(1);
+    expect(usados - declaracoes).toBeGreaterThanOrEqual(2);
     // E o recorte antigo, por acervo apenas, não pode ter sobrado em lugar nenhum.
     expect(DASH).not.toContain('souAdvogado ? { processo: meuAcervo } : {}');
   });

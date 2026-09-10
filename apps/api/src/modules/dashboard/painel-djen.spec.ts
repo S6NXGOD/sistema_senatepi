@@ -88,9 +88,15 @@ describe('painel do DJEN na home', () => {
   it('o advogado vê o próprio acervo E o que o nomeia', () => {
     expect(PAINEL).toContain('const meuAcervo: Prisma.ProcessoWhereInput = souAdvogado');
     expect(PAINEL).toContain('? { advogados: { some: { advogadoId: user.id } } }');
-    // As duas consultas do DJEN respeitam o MESMO recorte.
-    const usos = PAINEL.match(/\.\.\.meuDjen,/g) ?? [];
-    expect(usos.length).toBeGreaterThanOrEqual(2);
+    /*
+      As duas consultas do DJEN respeitam o MESMO recorte. A contagem não exige
+      a forma espalhada `...meuDjen,`: uma delas passou a entrar dentro de um
+      `AND`, porque `meuDjen` traz uma chave `OR` e duas chaves `OR` no mesmo
+      objeto não somam — a segunda sobrescreve a primeira, em silêncio.
+    */
+    const usados = (PAINEL.match(/meuDjen/g) ?? []).length;
+    const declaracoes = (PAINEL.match(/const meuDjen/g) ?? []).length;
+    expect(usados - declaracoes).toBeGreaterThanOrEqual(2);
     expect(PAINEL).toContain("escopo: 'GLOBAL' | 'PESSOAL',");
   });
 
@@ -201,7 +207,17 @@ describe('o bloco não lista o que é da parte contrária', () => {
       PAINEL.indexOf('As últimas com PROVIDÊNCIA'),
       PAINEL.indexOf('A ORGANIZAÇÃO DO PRÓPRIO SINDICATO'),
     );
-    expect(consulta).toContain("NOT: { tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE' }");
+    expect(consulta).toContain("tarefaDispensadaMotivo: { not: 'ORDEM_DA_OUTRA_PARTE' }");
+
+    /*
+      E O NULO TEM DE ENTRAR JUNTO. `NOT: { motivo: 'X' }` vira `motivo <> 'X'`
+      no SQL, que é NULO — não verdadeiro — quando a coluna é nula; a linha some.
+      Nulo aqui significa "o robô nunca dispensou", ou seja a intimação NOVA,
+      que é justamente o que o bloco existe para mostrar. Medido na produção em
+      10/09/2026: 37 das 1.488 sumiam assim, e eram as mais recentes.
+    */
+    expect(consulta).toContain('{ tarefaDispensadaMotivo: null }');
+    expect(consulta).not.toMatch(/NOT: \{ tarefaDispensadaMotivo:/);
   });
 
   /**
