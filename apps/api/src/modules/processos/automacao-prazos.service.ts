@@ -5,7 +5,15 @@ import { NpuUtils } from './utils/npu.util';
 import { AgendaService } from '../agenda/agenda.service';
 import { classificarMovimentacao, type GatilhoMovimentacao } from './utils/audiencia.util';
 import { montarUrgencia } from '../agenda/equipe.util';
-import { diaBR, noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
+import {
+  diaBR,
+  diaDeCalendarioBR,
+  formatarDataBR,
+  formatarDataHoraBR,
+  noveDaManhaBR,
+  proximoHorarioUtilBR,
+  somarDiasUteisEmCalendario,
+} from './utils/data-br.util';
 
 /** Dias úteis padrão para conferir uma intimação/citação. */
 const PRAZO_PADRAO_DIAS_UTEIS = 5;
@@ -68,22 +76,21 @@ export const TITULO_PRAZO_GENERICO = 'Verificação de Intimação / Prazo';
 const TITULO_CONFIRMAR_AUDIENCIA = 'Confirmar data da audiência designada';
 
 /**
- * Soma dias ÚTEIS a uma data (pula sábado e domingo).
+ * Soma dias ÚTEIS — agora com contrato explícito, em `data-br.util`.
  *
- * Feriados não entram: a lista varia por comarca e o prazo aqui é um LEMBRETE
- * de conferência, não a contagem oficial do processo — errar para menos seria
- * pior do que lembrar um dia antes.
+ * A versão que morava aqui pulava o fim de semana com `d.getDay()`, que
+ * responde no fuso do PROCESSO. No contêiner (UTC) isso acertava por acidente
+ * para uma coluna `date` e errava para instante de verdade: medido com
+ * `TZ=UTC`, **113 de 2.000 movimentações** (5,7%) davam um prazo diferente do
+ * correto, e o exemplo medido erra por DOIS dias.
+ *
+ * A ambiguidade era a doença — a mesma função recebia os dois tipos de valor.
+ * `somarDiasUteisEmCalendario` exige um DIA DE CALENDÁRIO (meia-noite UTC), e
+ * quem tem um instante converte com `diaDeCalendarioBR` antes de chamar.
+ *
+ * O nome antigo fica como ponte para não quebrar quem importa daqui.
  */
-export function somarDiasUteis(base: Date, dias: number): Date {
-  const d = new Date(base);
-  let restantes = dias;
-  while (restantes > 0) {
-    d.setDate(d.getDate() + 1);
-    const diaSemana = d.getDay();
-    if (diaSemana !== 0 && diaSemana !== 6) restantes--;
-  }
-  return d;
-}
+export const somarDiasUteis = somarDiasUteisEmCalendario;
 
 interface MovimentacaoParaAutomacao {
   id: string;
@@ -276,11 +283,20 @@ export class AutomacaoPrazosService {
     responsavelId: string,
   ): Promise<boolean> {
     const detalhe = [mov.descricao, mov.detalhe].filter(Boolean).join(' — ');
-    const linha = `• ${mov.dataMovimento.toLocaleDateString('pt-BR')}: ${detalhe}`;
+    const linha = `• ${formatarDataBR(mov.dataMovimento)}: ${detalhe}`;
 
     // Andamento antigo geraria tarefa já vencida (a janela de captura é de 30
     // dias). Puxa para o próximo dia útil e avisa que chegou atrasado.
-    const calculado = somarDiasUteis(mov.dataMovimento, PRAZO_PADRAO_DIAS_UTEIS);
+    /*
+      `dataMovimento` é INSTANTE (`DateTime`), não dia de calendário: um
+      andamento das 23h de Teresina já é o dia seguinte em UTC. Converter antes
+      é o que faz a contagem de dias úteis começar no dia certo — sem isto, 5,7%
+      dos prazos saíam com data errada, alguns por dois dias.
+    */
+    const calculado = somarDiasUteisEmCalendario(
+      diaDeCalendarioBR(mov.dataMovimento),
+      PRAZO_PADRAO_DIAS_UTEIS,
+    );
     const hoje = new Date();
     const atrasado = calculado < hoje;
     /**
@@ -354,7 +370,7 @@ export class AutomacaoPrazosService {
           `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}. Conferir o teor no sistema do tribunal e o prazo aplicável.\n` +
           (atrasado
             ? `⚠ Andamento recebido com atraso (${idadeDoAtoDias} dias) — o prazo de conferência venceria em ` +
-              `${calculado.toLocaleDateString('pt-BR')}. ` +
+              `${formatarDataBR(calculado)}. ` +
               (urgente
                 ? 'Chegou agora: confira hoje.\n'
                 : 'O prazo processual, se havia, já correu — confira sem alarme o que ficou pendente.\n')
@@ -381,7 +397,7 @@ export class AutomacaoPrazosService {
           urgente,
           urgente
             ? `Andamento de ${idadeDoAtoDias} dia(s) chegou com o prazo de conferência já vencido ` +
-              `(venceria em ${calculado.toLocaleDateString('pt-BR')}).`
+              `(venceria em ${formatarDataBR(calculado)}).`
             : null,
           { origem: 'AUTOMACAO' },
         ),
@@ -519,7 +535,7 @@ export class AutomacaoPrazosService {
         fim: new Date(inicio.getTime() + 3_600_000),
         descricao:
           `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'} — o tribunal registrou audiência DESIGNADA em ` +
-          `${mov.dataMovimento.toLocaleDateString('pt-BR')}, mas a base pública do CNJ não publica a data ` +
+          `${formatarDataBR(mov.dataMovimento)}, mas a base pública do CNJ não publica a data ` +
           `da sessão.
 
 ` +
@@ -637,7 +653,7 @@ export class AutomacaoPrazosService {
             inicio: inicioAviso,
             fim: new Date(inicioAviso.getTime() + 1800_000),
             descricao:
-              `Confirmar presença do filiado na ${rotulo.toLowerCase()} de ${inicio.toLocaleString('pt-BR')}.\n` +
+              `Confirmar presença do filiado na ${rotulo.toLowerCase()} de ${formatarDataHoraBR(inicio)}.\n` +
               `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}.`,
             responsavelId: secretariaId,
             processoId: processo.id,

@@ -35,6 +35,7 @@ import {
 
 import { tenant } from '../../tenant/tenant.config';
 import { nomeDeArquivo, type DocumentoGerado } from '@core/infra';
+import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
 
 const INCLUDE = {
   cargo: { select: { id: true, nome: true } },
@@ -373,7 +374,7 @@ export class ColaboradoresService {
         if (!dto.dataDesligamento) throw new BadRequestException('Informe a data do desligamento.');
         data.dataDesligamento = dataCalendario(dto.dataDesligamento);
         if (dto.motivo?.trim()) data.statusMotivo = dto.motivo.trim();
-        detalhe = ` Desligado em ${new Date(dto.dataDesligamento).toLocaleDateString('pt-BR')}.`;
+        detalhe = ` Desligado em ${formatarDataBR(new Date(dto.dataDesligamento))}.`;
         break;
       }
       case StatusColaborador.FERIAS: {
@@ -384,7 +385,7 @@ export class ColaboradoresService {
         if (fim <= inicio) throw new BadRequestException('A data de fim deve ser posterior à de início.');
         data.feriasInicio = inicio;
         data.feriasRetornoEm = fim;
-        detalhe = ` De ${inicio.toLocaleDateString('pt-BR')} a ${fim.toLocaleDateString('pt-BR')} — retorno automático a ATIVO.`;
+        detalhe = ` De ${formatarDataBR(inicio)} a ${formatarDataBR(fim)} — retorno automático a ATIVO.`;
         break;
       }
       default:

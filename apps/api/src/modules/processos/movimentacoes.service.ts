@@ -11,6 +11,7 @@ import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './p
 import {
   CORES_ANDAMENTO, CriarTipoAndamentoDto, AtualizarTipoAndamentoDto, RegistrarMovimentacaoDto,
 } from './dto/movimentacoes.dto';
+import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
 
 interface Ctx {
   userId?: string;
@@ -172,7 +173,7 @@ export class MovimentacoesService {
 
     await this.auditar(AcaoAuditoria.CREATE, 'MovimentacaoInterna', mov.id, ctx,
       `Movimentação "${tipo.nome}" registrada no processo ${processo.numeroCNJ}` +
-        (dataFato ? ` (fato em ${dataFato.toLocaleDateString('pt-BR')})` : '') +
+        (dataFato ? ` (fato em ${formatarDataBR(dataFato)})` : '') +
         (mudaStatus ? ` (status ${processo.statusInterno} → ${dto.novoStatus})` : ''),
       {
         processoId, tipo: tipo.slug, notaInterna: mov.notaInterna, mudouStatus: mudaStatus,

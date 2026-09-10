@@ -1,4 +1,5 @@
 import { Controller, Get, Injectable, Module, Query, Res } from '@nestjs/common';
+import { formatarDataHoraBR } from '../../modules/processos/utils/data-br.util';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { AcaoAuditoria, Prisma, UserRole } from '@prisma/client';
 import { IsEnum, IsISO8601, IsInt, IsOptional, IsString, Min } from 'class-validator';
@@ -207,7 +208,7 @@ export function csvDaAuditoria(linhas: LinhaExport[]): string {
   const cab = ['Quando', 'Quem', 'Ação', 'Entidade', 'Id do alvo', 'Descrição', 'O que mudou', 'IP'];
   const corpo = linhas.map((l) =>
     [
-      new Date(l.createdAt).toLocaleString('pt-BR'),
+      formatarDataHoraBR(l.createdAt),
       l.user?.nomeExibicao || l.user?.nome || '(sistema)',
       l.acao,
       l.entidade ?? '',

@@ -1,4 +1,5 @@
 import { mascararCpf, termosDeBusca } from '@core/infra';
+import { formatarDataHoraBR } from '../../modules/processos/utils/data-br.util';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   AcaoAuditoria, ModoVotacao, SituacaoFiliado, StatusPauta, TipoHistoricoFiliado,
@@ -255,7 +256,7 @@ export class PresencaListaService {
         pessoa.nome,
         pessoa.matricula,
         pessoa.cpf,
-        new Date(pessoa.registradoEm).toLocaleString('pt-BR'),
+        formatarDataHoraBR(pessoa.registradoEm),
         pessoa.origem.replace(/_/g, ' ').toLowerCase(),
         String(votouEm.length),
         ...porPauta,

@@ -1,4 +1,5 @@
 import { QrCodeService } from '@core/infra';
+import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   AcaoAuditoria,
@@ -95,7 +96,7 @@ export class FolhaPrefeituraService {
     if (anterior && !opts.permitirReenvio)
       throw new BadRequestException(
         `Este arquivo já foi importado em ` +
-          `${anterior.createdAt.toLocaleDateString('pt-BR')} como "${anterior.nomeArquivo}" ` +
+          `${formatarDataBR(anterior.createdAt)} como "${anterior.nomeArquivo}" ` +
           `(${anterior.importados} cadastrados). Se quiser processar de novo, ` +
           `marque "importar mesmo assim".`,
       );

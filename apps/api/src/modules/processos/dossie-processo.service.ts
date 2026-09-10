@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { formatarDataBR, formatarDataHoraBR } from '../../modules/processos/utils/data-br.util';
 import PDFDocument from 'pdfkit';
 import { dataParaNome, nomeDeArquivo, type DocumentoGerado } from '@core/infra';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -105,7 +106,7 @@ export class DossieProcessoService {
 
       const X = doc.page.margins.left;
       const W = doc.page.width - X - doc.page.margins.right;
-      const data = (v: Date | null) => (v ? new Date(v).toLocaleDateString('pt-BR') : '—');
+      const data = (v: Date | null) => (v ? formatarDataBR(v) : '—');
 
       // ---- Faixa institucional (a logo é branca; exige fundo escuro) ----
       const ALT = 74;
@@ -168,7 +169,7 @@ export class DossieProcessoService {
         const oab = p.advogado.oab ? ` (OAB ${p.advogado.oab}/${p.advogado.oabUf ?? ''})` : '';
         linha('Advogado responsável', `${p.advogado.nomeExibicao || p.advogado.nome}${oab}`);
       }
-      linha('Emitido em', new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }));
+      linha('Emitido em', formatarDataHoraBR(new Date()));
       if (autor) linha('Emitido por', autor);
 
       // ---- Andamentos do tribunal ----

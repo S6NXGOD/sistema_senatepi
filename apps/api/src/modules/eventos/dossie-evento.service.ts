@@ -1,4 +1,5 @@
 import { StorageService, mascararCpf } from '@core/infra';
+import { formatarDataHoraBR } from '../../modules/processos/utils/data-br.util';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import PDFDocument from 'pdfkit';
@@ -171,7 +172,7 @@ export class DossieEventoService {
       const X = doc.page.margins.left;
       const W = doc.page.width - X - doc.page.margins.right;
       const dataHora = (v: Date | string | null) =>
-        v ? new Date(v).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+        v ? formatarDataHoraBR(new Date(v)) : '—';
 
       // ---- Faixa institucional (a logo é branca; exige fundo escuro) ----
       const ALT = 74;

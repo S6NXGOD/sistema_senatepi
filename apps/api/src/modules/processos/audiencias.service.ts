@@ -6,7 +6,7 @@ import { AgendaService } from '../agenda/agenda.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { AgendarAudienciaDto } from './dto/audiencias.dto';
 import { classificarAudiencia, classificarMovimentacao } from './utils/audiencia.util';
-import { diaBR, inicioDoDiaBR } from './utils/data-br.util';
+import { diaBR, formatarDataHoraBR, inicioDoDiaBR } from './utils/data-br.util';
 
 interface Ctx {
   ip?: string;
@@ -288,7 +288,7 @@ export class AudienciasService {
      */
     await this.automacao.fecharConfirmacaoDeData(
       mov.processo.id,
-      `${rotulo} agendada para ${inicio.toLocaleString('pt-BR')} a partir do radar.`,
+      `${rotulo} agendada para ${formatarDataHoraBR(inicio)} a partir do radar.`,
     );
 
     await this.auditar(

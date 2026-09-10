@@ -137,3 +137,139 @@ export function ehFimDeSemanaBR(d: Date): boolean {
   const dia = new Date(d.getTime() - OFFSET_BR_MS).getUTCDay();
   return dia === 0 || dia === 6;
 }
+
+/**
+ * O FUSO OFICIAL DO SISTEMA, escrito uma vez.
+ *
+ * Havia duas grafias no ar — `America/Sao_Paulo` na agenda e
+ * `America/Fortaleza` nos anexos. Dão o mesmo resultado hoje (os dois são
+ * UTC-3 e o Brasil não tem horário de verão desde 2019), mas duas grafias são
+ * duas regras: no dia em que uma delas mudar, metade do sistema muda junto e a
+ * outra metade não. Os crons já usam Fortaleza; o resto passa a usar também.
+ */
+export const FUSO_BR = 'America/Fortaleza';
+
+/**
+ * FORMATAR NO SERVIDOR — e por que isto precisou existir.
+ *
+ * `d.toLocaleDateString('pt-BR')` sem `timeZone` resolve no fuso do PROCESSO. O
+ * contêiner do Railway roda em UTC, então tudo que o servidor escreve sai três
+ * horas adiantado — e, entre 21h e 23h59 de Teresina, no DIA ERRADO.
+ *
+ * Auditado em 10/09/2026: das 28 formatações de data no servidor, **26 não
+ * passavam `timeZone`**. Não era tela: era o que fica gravado —
+ *
+ *   PDF de carteirinha ......... data de filiação e validade
+ *   PDF de certificado ......... datas do evento
+ *   dossiê do processo ......... "emitido em", datas das peças
+ *   CSV da auditoria ........... hora de cada registro
+ *   lista de presença .......... hora do check-in
+ *   descrição de tarefa do robô  data do andamento
+ *
+ * Um `toLocaleString` desses mostrava 17:04 num certificado emitido às 14:04.
+ *
+ * Para coluna `@db.Date` (data pura, sem hora) NÃO use estas: elas aplicariam
+ * o offset a um valor que já é meia-noite UTC e voltariam um dia. Data pura no
+ * servidor se compara com `diaBR`, que recorta o texto. No lado web a regra
+ * equivalente é `lib/data-pura.ts`.
+ */
+export function formatarDataBR(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('pt-BR', { timeZone: FUSO_BR });
+}
+
+/**
+ * "10 de setembro de 2026" — a data por extenso dos DOCUMENTOS.
+ *
+ * A ficha de filiação e o termo de recadastramento assinam com a data do dia.
+ * Sem `timeZone`, das 21h em diante o PDF saía assinado com a data de amanhã.
+ */
+export function formatarDataExtensoBR(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('pt-BR', {
+    timeZone: FUSO_BR,
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** "10/09/2026 14:04" no fuso de Teresina. */
+export function formatarDataHoraBR(d: Date | null | undefined): string {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('pt-BR', {
+    timeZone: FUSO_BR,
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+}
+
+/**
+ * SOMA DIAS ÚTEIS A UM DIA DE CALENDÁRIO — e a assinatura mudou de propósito.
+ *
+ * Ela morava em `automacao-prazos.service.ts` e pulava o fim de semana com
+ * `d.getDay()`, que responde no fuso do PROCESSO. No contêiner (UTC) isso
+ * significava:
+ *
+ *   · para uma coluna `date` (meia-noite UTC) ....... CERTO por acidente
+ *   · para um instante de verdade .................... ERRADO na faixa
+ *     00:00–03:00 UTC, que é 21h–23h59 de Teresina do dia anterior
+ *
+ * Medido na produção com `TZ=UTC` (o do contêiner): **113 de 2.000
+ * movimentações** (5,7%) davam um prazo diferente do correto — e o exemplo
+ * medido erra por DOIS dias, não um: `2026-08-03T02:20Z` devolvia 09/08 em vez
+ * de 07/08.
+ *
+ * A ambiguidade era a doença: a mesma função recebia os dois tipos de valor e
+ * não tinha como saber qual era. Agora o contrato é explícito — ela recebe um
+ * DIA DE CALENDÁRIO à meia-noite UTC (o que `diaDeCalendarioBR` devolve, e o
+ * que uma coluna `date` já é) e lê o dia da semana com `getUTCDay()`. Quem tem
+ * um instante converte antes; quem tem uma coluna `date` passa direto.
+ *
+ * Feriado não entra: a lista varia por comarca e este prazo é um LEMBRETE de
+ * conferência, não a contagem oficial — errar para menos seria pior do que
+ * lembrar um dia antes.
+ */
+export function somarDiasUteisEmCalendario(diaBase: Date, dias: number): Date {
+  const d = new Date(diaBase);
+  let restantes = dias;
+  while (restantes > 0) {
+    d.setTime(d.getTime() + 24 * 3_600_000);
+    const semana = d.getUTCDay();
+    if (semana !== 0 && semana !== 6) restantes--;
+  }
+  return d;
+}
+
+/**
+ * O ANO CORRENTE EM TERESINA — e não o do contêiner.
+ *
+ * `new Date().getFullYear()` no contêiner (UTC) vira o ano às 21h de 31 de
+ * dezembro. A carteirinha emitida às 22h daquele dia sairia numerada
+ * `CART-2027-...` estando ainda em 2026, e com validade um ano deslocada. É uma
+ * janela de três horas por ano — e é exatamente o tipo de erro que ninguém
+ * consegue explicar quando aparece.
+ */
+export function anoBR(base = new Date()): number {
+  return new Date(base.getTime() - OFFSET_BR_MS).getUTCFullYear();
+}
+
+/**
+ * UM ANO A PARTIR DE AGORA, contado pelo calendário daqui.
+ *
+ * `d.setFullYear(d.getFullYear() + 1)` lê e escreve no fuso do processo. Na
+ * virada do ano isso desloca a validade da carteirinha em doze meses.
+ */
+export function daquiAUmAnoBR(base = new Date()): Date {
+  const br = new Date(base.getTime() - OFFSET_BR_MS);
+  return new Date(
+    Date.UTC(
+      br.getUTCFullYear() + 1,
+      br.getUTCMonth(),
+      br.getUTCDate(),
+      br.getUTCHours(),
+      br.getUTCMinutes(),
+      br.getUTCSeconds(),
+    ) + OFFSET_BR_MS,
+  );
+}

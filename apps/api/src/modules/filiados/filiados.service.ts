@@ -57,6 +57,7 @@ import {
 import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
 import { carimbarRodape } from '../../common/pdf-rodape.util';
 import { nomeDeArquivo, dataParaNome, type DocumentoGerado } from '@core/infra';
+import { formatarDataBR, formatarDataExtensoBR } from '../../modules/processos/utils/data-br.util';
 
 /**
  * Formatos aceitos — e a EXTENSÃO que cada um recebe ao ser gravado.
@@ -1079,7 +1080,7 @@ export class FiliadosService {
         const s = v == null ? '' : String(v).trim();
         return s ? s : LINHA_VAZIA;
       };
-      const fmt = (d?: Date | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : null);
+      const fmt = (d?: Date | null) => (d ? formatarDataBR(d) : null);
 
       // Linha com um ou mais pares Rótulo (negrito) + valor (normal).
       const par = (pares: Array<[string, string]>) => {
@@ -1179,7 +1180,7 @@ export class FiliadosService {
 
       // ---- Data + assinatura ----
       doc.moveDown(1.4);
-      const dataFmt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+      const dataFmt = formatarDataExtensoBR(new Date());
       doc.font('Times-Roman').fontSize(10.5).fillColor('#1f2937')
         .text(`${pracaDaAssinatura()}, ${dataFmt}.`, X, doc.y, { width: W });
       doc.moveDown(2.4);
@@ -1407,11 +1408,7 @@ export class FiliadosService {
         );
       doc.moveDown(1.6);
 
-      const dataFmt = new Date().toLocaleDateString('pt-BR', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric',
-      });
+      const dataFmt = formatarDataExtensoBR(new Date());
       doc
         .font('Times-Roman')
         .fontSize(10.5)

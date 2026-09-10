@@ -1,4 +1,5 @@
 import { StorageService } from '@core/infra';
+import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AcaoAuditoria, AnexoDocumento, Prisma } from '@prisma/client';
@@ -552,7 +553,7 @@ export class AnexosService {
   }
 
   private dataBr(d: Date): string {
-    return d.toLocaleDateString('pt-BR', { timeZone: 'America/Fortaleza' });
+    return formatarDataBR(d);
   }
 
   /** Nome exibível seguro: remove diretórios e caracteres de controle. */

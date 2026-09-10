@@ -1,4 +1,5 @@
 import { QrCodeService, StorageService, mascararCpf } from '@core/infra';
+import { anoBR, daquiAUmAnoBR, formatarDataBR } from '../../modules/processos/utils/data-br.util';
 import {
   BadRequestException,
   Controller,
@@ -54,13 +55,14 @@ export class CarteirinhasService {
     if (existente) return existente;
 
     const total = await this.prisma.carteirinha.count();
-    const validaAte = new Date();
-    validaAte.setFullYear(validaAte.getFullYear() + 1);
+    /* Um ano pelo calendário DAQUI — `setFullYear` lê o relógio do contêiner,
+       que às 21h de 31/12 já virou o ano. Ver `daquiAUmAnoBR`. */
+    const validaAte = daquiAUmAnoBR();
 
     const carteirinha = await this.prisma.carteirinha.create({
       data: {
         filiadoId,
-        numero: `CART-${new Date().getFullYear()}-${String(total + 1).padStart(6, '0')}`,
+        numero: `CART-${anoBR()}-${String(total + 1).padStart(6, '0')}`,
         validaAte,
         status: StatusCarteirinha.ATIVA,
       },
@@ -129,7 +131,7 @@ export class CarteirinhasService {
     const W = 520;
     const H = 320;
     const PANEL = 150; // largura do painel lateral verde
-    const dataFiliacao = (filiado.aprovadoEm ?? filiado.createdAt).toLocaleDateString('pt-BR');
+    const dataFiliacao = formatarDataBR(filiado.aprovadoEm ?? filiado.createdAt);
 
     const pdf = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: [W, H], margin: 0 });
@@ -175,7 +177,7 @@ export class CarteirinhasService {
       const sy = H - 40;
       doc.moveTo(x, sy).lineTo(x + 180, sy).strokeColor('#9CA3AF').lineWidth(0.8).stroke();
       doc.fillColor('#6B7280').font('Helvetica').fontSize(7).text('Assinatura do(a) Presidente', x, sy + 4);
-      doc.fillColor('#9CA3AF').fontSize(6).text(`Nº ${carteirinha.numero}  ·  Válida até ${carteirinha.validaAte?.toLocaleDateString('pt-BR') ?? '-'}`, x, sy + 16);
+      doc.fillColor('#9CA3AF').fontSize(6).text(`Nº ${carteirinha.numero}  ·  Válida até ${formatarDataBR(carteirinha.validaAte)}`, x, sy + 16);
 
       // ----- Painel lateral (verde) -----
       doc.rect(W - PANEL, 0, PANEL, H).fill(VERDE_ESCURO);

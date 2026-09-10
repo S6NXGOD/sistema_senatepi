@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { formatarDataHoraBR } from '../../modules/processos/utils/data-br.util';
 import {
   AcaoAuditoria, Prisma, StatusCompromisso, StatusProcesso,
 } from '@prisma/client';
@@ -115,7 +116,7 @@ const TRANSICOES: Record<StatusCompromisso, StatusCompromisso[]> = {
 
 /** Data/hora no formato que o histórico mostra. */
 const fmt = (d: Date) =>
-  d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+  formatarDataHoraBR(d);
 
 /**
  * Tipo do andamento interno gravado no processo quando a atividade é concluída.

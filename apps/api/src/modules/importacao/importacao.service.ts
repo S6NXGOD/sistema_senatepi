@@ -34,6 +34,7 @@ import {
   mapearSituacao,
   parseData,
 } from './mapeamento.util';
+import { anoBR, daquiAUmAnoBR } from '../processos/utils/data-br.util';
 
 const CHUNK = 500;
 
@@ -558,7 +559,7 @@ export class ImportacaoService {
     // Base para gerar matrículas/números de carteirinha sequenciais
     let seqFiliado = await this.prisma.filiado.count();
     let seqCarteira = await this.prisma.carteirinha.count();
-    const ano = new Date().getFullYear();
+    const ano = anoBR(); // calendário daqui: o contêiner vira o ano às 21h de 31/12
     // Matrículas já usadas (no sistema + as criadas durante esta importação) — garante unicidade
     const usadas = new Set(
       (await this.prisma.filiado.findMany({ select: { matricula: true } })).map((f) => f.matricula),
@@ -719,7 +720,7 @@ export class ImportacaoService {
           ? {
               create: {
                 numero: proximoNumeroCarteira(),
-                validaAte: new Date(new Date().setFullYear(new Date().getFullYear() + 1)),
+                validaAte: daquiAUmAnoBR(),
                 status: StatusCarteirinha.ATIVA,
               },
             }

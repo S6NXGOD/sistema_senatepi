@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { formatarDataHoraBR } from '../../modules/processos/utils/data-br.util';
 import { Importacao, PerfilImportacao } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 import ExcelJS from 'exceljs';
@@ -101,7 +102,7 @@ export class RelatorioImportacaoService {
         linha('Estratégia p/ matrícula', imp.estrategiaMatricula, y); y += 20;
       }
       linha('Tempo de execução', fmtDuracao(imp.duracaoMs), y); y += 20;
-      linha('Data', imp.createdAt.toLocaleString('pt-BR'), y); y += 20;
+      linha('Data', formatarDataHoraBR(imp.createdAt), y); y += 20;
 
       if (naoEntraram.length > 0) {
         y += 14;
@@ -185,7 +186,7 @@ export class RelatorioImportacaoService {
             { k: 'Vínculos atualizados', v: imp.vinculosAtualizados },
             { k: 'Deixados de fora', v: imp.ignorados },
             { k: 'Tempo de execução', v: fmtDuracao(imp.duracaoMs) },
-            { k: 'Data', v: imp.createdAt.toLocaleString('pt-BR') },
+            { k: 'Data', v: formatarDataHoraBR(imp.createdAt) },
           ]
         : [
             { k: 'Arquivo', v: imp.nomeArquivo },
@@ -200,7 +201,7 @@ export class RelatorioImportacaoService {
             { k: 'Estratégia p/ CPF duplicado', v: imp.estrategia },
             { k: 'Estratégia p/ matrícula', v: imp.estrategiaMatricula },
             { k: 'Tempo de execução', v: fmtDuracao(imp.duracaoMs) },
-            { k: 'Data', v: imp.createdAt.toLocaleString('pt-BR') },
+            { k: 'Data', v: formatarDataHoraBR(imp.createdAt) },
           ],
     );
     resumo.getRow(1).font = { bold: true };

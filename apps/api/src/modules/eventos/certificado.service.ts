@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
 import { createHmac } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -147,8 +148,8 @@ export class CertificadoService {
 
       doc.moveDown(0.6);
       const periodo = presenca.evento.dataFim
-        ? `de ${presenca.evento.dataInicio.toLocaleDateString('pt-BR')} a ${presenca.evento.dataFim.toLocaleDateString('pt-BR')}`
-        : `em ${presenca.evento.dataInicio.toLocaleDateString('pt-BR')}`;
+        ? `de ${formatarDataBR(presenca.evento.dataInicio)} a ${formatarDataBR(presenca.evento.dataFim)}`
+        : `em ${formatarDataBR(presenca.evento.dataInicio)}`;
 
       doc.font('Times-Roman').fontSize(12.5).fillColor('#111827').text(
         `participou de ${presenca.evento.nome}, realizado ${periodo}` +

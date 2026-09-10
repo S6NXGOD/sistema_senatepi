@@ -1,4 +1,5 @@
 import { QrCodeService, dataCalendario, gerarMatricula } from '@core/infra';
+import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   AcaoAuditoria,
@@ -97,7 +98,7 @@ export class ColaboradoresLegadoService {
     });
     if (anterior && !opts.permitirReenvio)
       throw new BadRequestException(
-        `Este arquivo já foi importado em ${anterior.createdAt.toLocaleDateString('pt-BR')} ` +
+        `Este arquivo já foi importado em ${formatarDataBR(anterior.createdAt)} ` +
           `como "${anterior.nomeArquivo}" (${anterior.importados} cadastrados). ` +
           'Se quiser processar de novo, marque "importar mesmo assim".',
       );

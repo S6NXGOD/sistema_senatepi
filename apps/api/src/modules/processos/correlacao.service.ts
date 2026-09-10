@@ -3,8 +3,8 @@ import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
-import { somarDiasUteis, TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
-import { diaBR, proximoHorarioUtilBR } from './utils/data-br.util';
+import { TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
+import { diaBR, proximoHorarioUtilBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
 import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
 import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
 import { tenant } from '../../tenant/tenant.config';
@@ -656,7 +656,7 @@ export class CorrelacaoService {
     let antecipar: Date | null = null;
     if (c.dataDisponibilizacao) {
       const novo = proximoHorarioUtilBR(
-        somarDiasUteis(c.dataDisponibilizacao, diasParaLembrete(spec, c.prazoMencionadoDias)),
+        somarDiasUteisEmCalendario(c.dataDisponibilizacao, diasParaLembrete(spec, c.prazoMencionadoDias)),
       );
       if (novo < atual.inicio) antecipar = novo;
     }
@@ -713,7 +713,13 @@ export class CorrelacaoService {
     const dias = diasParaLembrete(spec, c.prazoMencionadoDias);
 
     // Publicação antiga geraria tarefa já vencida. Puxa para hoje e avisa.
-    const calculado = somarDiasUteis(c.dataDisponibilizacao, dias);
+    /*
+      `dataDisponibilizacao` é `@db.Date`: JÁ é um dia de calendário à meia-noite
+      UTC, que é exatamente o que `somarDiasUteisEmCalendario` espera. NÃO passe
+      por `diaDeCalendarioBR` aqui — isso trataria a meia-noite UTC como
+      instante e voltaria um dia, que é o mesmo erro do cartão da escala.
+    */
+    const calculado = somarDiasUteisEmCalendario(c.dataDisponibilizacao, dias);
     const hoje = new Date();
     const atrasado = calculado < hoje;
     /**
