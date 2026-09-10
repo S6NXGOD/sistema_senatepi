@@ -2,10 +2,8 @@ import { Body, Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { UserRole } from '@prisma/client';
 import { DuplicidadeService } from './duplicidade.service';
 import { DuplicidadeAtivaGuard, duplicidadeAtiva } from './duplicidade.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -52,7 +50,6 @@ export class DuplicidadeController {
    * resolvido, sem ninguém precisar lembrar de desligar nada.
    */
   @Get('status')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   async status() {
     const ativo = duplicidadeAtiva();
     return { ativo, pendentes: ativo ? await this.service.pendentes() : 0 };
@@ -60,7 +57,6 @@ export class DuplicidadeController {
 
   @Get()
   @UseGuards(DuplicidadeAtivaGuard)
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   listar() {
     return this.service.varrer();
   }
@@ -68,7 +64,6 @@ export class DuplicidadeController {
   /** Prévia do lote: o que seria consolidado, para conferência antes de agir. */
   @Get('lote')
   @UseGuards(DuplicidadeAtivaGuard)
-  @Roles(UserRole.ADMINISTRADOR)
   async previaLote() {
     const itens = await this.service.elegiveisParaLote();
     return { total: itens.length, amostra: itens.slice(0, 25) };
@@ -83,14 +78,12 @@ export class DuplicidadeController {
    */
   @Delete('lote')
   @UseGuards(DuplicidadeAtivaGuard)
-  @Roles(UserRole.ADMINISTRADOR)
   executarLote(@Body() dto: LoteDto, @CurrentUser('nome') autor: string) {
     return this.service.executarLote(dto.limite ?? 25, autor);
   }
 
   @Post('distintos')
   @UseGuards(DuplicidadeAtivaGuard)
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   distintos(@Body() dto: ParFiliadosDto, @CurrentUser('nome') autor: string) {
     return this.service.marcarDistintos(dto.idA, dto.idB, autor);
   }
@@ -104,7 +97,6 @@ export class DuplicidadeController {
    */
   @Delete('fundir')
   @UseGuards(DuplicidadeAtivaGuard)
-  @Roles(UserRole.ADMINISTRADOR)
   fundir(@Body() dto: FundirDto, @CurrentUser('nome') autor: string) {
     return this.service.fundir(dto.manterId, dto.descartarId, autor);
   }

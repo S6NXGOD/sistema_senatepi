@@ -110,11 +110,23 @@ describe('as rotas novas moram no módulo certo', () => {
    * ADMINISTRADOR/COORDENAÇÃO/TRIAGEM, e a tela do processo esconde o botão
    * para quem não tem — botão que devolve 403 é pior que botão ausente.
    */
-  it('recadastrar continua sendo do balcão', () => {
+  it('recadastrar continua sendo do balcão — agora pela MATRIZ', () => {
     const link = ler('recadastramento/link-recadastramento.controller.ts');
-    expect(link).toContain('@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)');
+    /*
+      A ASSERÇÃO MUDOU DE LUGAR, NÃO DE CONTEÚDO.
+
+      Ela conferia `@Roles(ADMIN, COORDENACAO, TRIAGEM)` na rota. Esse decorador
+      era uma SEGUNDA política, invisível na tela e impossível de sobrepor pela
+      matriz — o mesmo mecanismo que barrava a coordenação em `usuarios` com um
+      "Forbidden resource" inexplicável. A regra continua idêntica, só que
+      escrita onde quem administra a enxerga e a edita.
+    */
+    expect(link).toContain("@Modulo('filiados')");
+    expect(link).not.toContain('@Roles(');
+    // Gerar link é escrita: o advogado não alcança, o balcão sim.
     expect(PRESETS_PERFIL.ADVOGADO.filiados).toBe('VISUALIZAR');
     expect(PRESETS_PERFIL.TRIAGEM.filiados).toBe('EDITAR');
+    expect(PRESETS_PERFIL.COORDENACAO.filiados).toBe('EDITAR');
   });
 
   /**
@@ -135,13 +147,17 @@ describe('as rotas novas moram no módulo certo', () => {
    * continua alcançando, e quem lia a auditoria continua lendo. O que muda é o
    * conteúdo — e por isso o cuidado está no que NÃO pode entrar nele.
    */
-  it('a edição de filiado continua sendo do balcão', () => {
+  it('a edição de filiado continua sendo do balcão — agora pela MATRIZ', () => {
     const src = ler('filiados/filiados.controller.ts');
-    const i = src.indexOf("@Patch(':id')");
-    expect(src.slice(i, i + 200)).toContain(
-      '@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)',
-    );
+    expect(src).toContain("@Modulo('filiados')");
+    expect(src).not.toContain('@Roles(');
+    /*
+      O PATCH exige EDITAR; o preset do advogado é VISUALIZAR. É a mesma
+      conclusão de antes, tirada da matriz — que é o que o administrador vê e
+      pode mudar, caso decida o contrário para um advogado específico.
+    */
     expect(PRESETS_PERFIL.ADVOGADO.filiados).toBe('VISUALIZAR');
+    expect(PRESETS_PERFIL.TRIAGEM.filiados).toBe('EDITAR');
   });
 
   /**

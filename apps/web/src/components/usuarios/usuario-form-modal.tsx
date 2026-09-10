@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import {
   MODULOS, PERFIS, PRESETS_PERFIL, NIVEL_LABEL, ModuloKey, NivelPermissao, PerfilUsuario,
+  RANK_NIVEL, podeAtribuirPerfilAdmin, podeMexerNoUsuario, tetoQuePossoConceder,
 } from '@/lib/permissoes';
 import {
   criarUsuario, atualizarUsuario, enviarAvatarUsuario, removerAvatarUsuario, UsuarioSistema,
@@ -111,6 +112,24 @@ export function UsuarioFormModal({
   }
 
   const adminLock = role === 'ADMINISTRADOR';
+
+  /*
+    O TETO DE QUEM ESTÁ CADASTRANDO — espelho das travas do servidor.
+
+    O módulo `usuarios` deixou de ser trancado no perfil, então quem chega aqui
+    pode ser uma coordenação com `usuarios: EDITAR`. A tela precisa refletir o
+    que a API vai aceitar; oferecer e depois recusar com 403 é o defeito que
+    originou tudo isto ("Forbidden resource" ao clicar em Novo usuário).
+
+    A segurança é do servidor — ver `quem-pode-mexer-em-quem.ts` na API. Aqui é
+    honestidade da interface.
+  */
+  const souAdmin = podeAtribuirPerfilAdmin(user?.role as PerfilUsuario | undefined);
+  /** Editando um Administrador sem ser um: nada nesta tela deve salvar. */
+  const alvoBloqueado =
+    !!editar && !podeMexerNoUsuario(user?.role as PerfilUsuario | undefined, editar.role);
+  const tetoDoModulo = (mod: ModuloKey) =>
+    tetoQuePossoConceder(user?.role as PerfilUsuario | undefined, user?.permissoes, mod);
   const secoes = useMemo(() => {
     const grupos = ['Principal', 'Operacional', 'Administração'] as const;
     return grupos.map((g) => ({ grupo: g, itens: MODULOS.filter((m) => m.grupo === g) }));
@@ -204,13 +223,22 @@ export function UsuarioFormModal({
             {PERFIS.map((p) => {
               const Icone = ICONE_PERFIL[p.key];
               const ativoCard = role === p.key;
+              /* Só um Administrador cria ou promove outro Administrador. */
+              const vetado = p.key === 'ADMINISTRADOR' && !souAdmin;
               return (
                 <button
                   key={p.key}
                   type="button"
+                  disabled={vetado}
+                  title={
+                    vetado
+                      ? 'Apenas um Administrador pode criar ou promover outro Administrador.'
+                      : undefined
+                  }
                   onClick={() => selecionarPerfil(p.key)}
                   className={cn(
                     'rounded-xl border p-3 text-left transition-colors',
+                    vetado && 'cursor-not-allowed opacity-50 hover:border-input hover:bg-transparent',
                     ativoCard
                       ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300 dark:bg-brand-900/20'
                       : 'border-input hover:border-brand-300 hover:bg-muted/40',
@@ -225,11 +253,26 @@ export function UsuarioFormModal({
                     )}
                   </div>
                   <p className="text-sm font-semibold">{p.label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{p.descricao}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {vetado
+                      ? 'Só outro Administrador pode atribuir este perfil.'
+                      : p.descricao}
+                  </p>
                 </button>
               );
             })}
           </div>
+          {/*
+            DIZER O PORQUÊ, e não só desabilitar. Cartão apagado sem explicação
+            é a mesma classe de problema do "Forbidden resource": a pessoa vê
+            que não pode e não descobre por quê.
+          */}
+          {!souAdmin && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Você pode gerenciar usuários, mas o perfil de Administrador é
+              atribuído apenas por outro Administrador.
+            </p>
+          )}
         </div>
 
         {/* PASSO 2 em diante — liberado após escolher a função */}
@@ -348,11 +391,25 @@ export function UsuarioFormModal({
                     <div className="grid grid-cols-3 gap-1">
                       {NIVEIS.map((n) => {
                         const sel = (adminLock ? 'EDITAR' : matriz[mod.key]) === n;
+                        /*
+                          NINGUÉM CONCEDE O QUE NÃO TEM. Uma coordenação com
+                          `auditoria: VISUALIZAR` não oferece `EDITAR` ali —
+                          senão fabricaria um colega com poder acima do dela, que
+                          é o furo clássico de RBAC (escalada por interposta
+                          pessoa). O servidor recusa de qualquer forma.
+                        */
+                        const acimaDoMeuTeto =
+                          RANK_NIVEL[n] > RANK_NIVEL[tetoDoModulo(mod.key)];
                         return (
                           <button
                             key={n}
                             type="button"
-                            disabled={adminLock}
+                            disabled={adminLock || acimaDoMeuTeto || alvoBloqueado}
+                            title={
+                              acimaDoMeuTeto
+                                ? 'Você não pode conceder um nível maior do que o seu.'
+                                : undefined
+                            }
                             onClick={() => setNivel(mod.key, n)}
                             className={cn(
                               'rounded-md px-2 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',

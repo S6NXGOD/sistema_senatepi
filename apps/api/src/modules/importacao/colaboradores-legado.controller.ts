@@ -13,14 +13,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 
 import { ColaboradoresLegadoService } from './colaboradores-legado.service';
 import {
   ConfirmarColaboradoresLegadoDto,
   ListarLinhasColaboradoresQueryDto,
 } from './colaboradores-legado.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -44,7 +42,6 @@ import { importadorAtivo } from '../../tenant/tenant.config';
 @ModuloTenant('colaboradores')
 @Modulo('colaboradores')
 @Controller('importacoes/colaboradores')
-@Roles(UserRole.ADMINISTRADOR)
 export class ColaboradoresLegadoController {
   constructor(private readonly service: ColaboradoresLegadoService) {}
 

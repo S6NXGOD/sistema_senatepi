@@ -314,10 +314,19 @@ describe('a colheita de histórico', () => {
     expect(CTRL).toContain('@Min(1)');
   });
 
-  /** A rota já era `@Roles(ADMINISTRADOR)` — a janela larga não afrouxa isso. */
-  it('continua restrita ao Administrador', () => {
+  /**
+   * CONTINUA DO ADMINISTRADOR, por OUTRO mecanismo.
+   *
+   * Era `@Roles(ADMINISTRADOR)`, um decorador que também trancava módulos
+   * inteiros em silêncio e devolvia "Forbidden resource". Virou
+   * `@OperacaoDeSistema()`: mesma restrição, mensagem que explica, e uma lista
+   * curta e contada — varrer o DJEN queima a cota do CNJ do sindicato inteiro,
+   * não é "editar um processo".
+   */
+  it('continua restrita ao Administrador, como operação de sistema', () => {
     const bloco = CTRL.slice(CTRL.indexOf("@Post('sincronizar')"), CTRL.indexOf('varrer('));
-    expect(bloco).toContain('@Roles(UserRole.ADMINISTRADOR)');
+    expect(bloco).toContain('@OperacaoDeSistema()');
+    expect(CTRL).not.toContain('@Roles(');
   });
 });
 

@@ -15,12 +15,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsOptional } from 'class-validator';
 import { Request, Response } from 'express';
-import { UserRole } from '@prisma/client';
 
 import { conteudoDisposto, nomeDeArquivo } from '@core/infra';
 import { modeloDePlanilha } from './processos-csv.util';
 import { ProcessosCsvService } from './processos-csv.service';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -60,7 +58,6 @@ export class ConfirmarImportacaoProcessosDto {
 @ModuloTenant('processos')
 @Modulo('processos')
 @Controller('importacoes/processos')
-@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
 export class ProcessosCsvController {
   constructor(private readonly service: ProcessosCsvService) {}
 

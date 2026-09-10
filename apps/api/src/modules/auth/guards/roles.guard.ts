@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../../../common/decorators/roles.decorator';
@@ -22,6 +22,21 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true;
 
     const { user } = context.switchToHttp().getRequest();
-    return !!user && required.includes(user.role);
+    if (user && required.includes(user.role)) return true;
+
+    /*
+      NUNCA MAIS "Forbidden resource".
+
+      Retornar `false` de um guarda faz o Nest responder com a mensagem padrão
+      dele, que não diz nada. Foi exatamente o que o administrador viu ao dar
+      `usuarios: EDITAR` à coordenação: marcou a permissão na tela, tomou um
+      403 sem explicação, e não havia como descobrir que existia um `@Roles`
+      por cima da matriz. Diagnóstico é parte da autorização.
+    */
+    const perfis = required.join(', ');
+    throw new ForbiddenException(
+      `Esta rota é exclusiva do(s) perfil(is): ${perfis}. ` +
+        'Ela não passa pela matriz de permissões.',
+    );
   }
 }

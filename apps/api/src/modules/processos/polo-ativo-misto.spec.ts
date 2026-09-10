@@ -152,7 +152,16 @@ describe('quem pode procurar no cadastro de filiados', () => {
       getAllAndOverride: (chave: string) =>
         chave === ROLES_KEY ? ['ADMINISTRADOR', 'COORDENACAO'] : undefined,
     } as never);
-    expect(comLista.canActivate(contexto('ADVOGADO'))).toBe(false);
+    /*
+      LANÇA, NÃO DEVOLVE `false` — e a diferença é o diagnóstico.
+
+      Retornar `false` fazia o Nest responder "Forbidden resource", que não diz
+      nada. Foi literalmente o que o administrador viu ao dar `usuarios: EDITAR`
+      à coordenação: marcou na tela, tomou 403, sem pista de que existia um
+      `@Roles` por cima da matriz. Agora a recusa nomeia os perfis exigidos e
+      avisa que aquela rota não passa pela matriz.
+    */
+    expect(() => comLista.canActivate(contexto('ADVOGADO'))).toThrow(/perfil/i);
     expect(comLista.canActivate(contexto('COORDENACAO'))).toBe(true);
 
     // Sem lista, quem decide é o `PermissionsGuard` — que é o estado novo da rota.

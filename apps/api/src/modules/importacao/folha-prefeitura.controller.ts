@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 import { FolhaPrefeituraService } from './folha-prefeitura.service';
 import {
   ConfirmarFolhaDto,
@@ -9,7 +8,6 @@ import {
   DecidirEmLoteDto,
   ListarLinhasFolhaQueryDto,
 } from './folha-prefeitura.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -33,7 +31,6 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 @ModuloTenant('filiados')
 @Modulo('filiados')
 @Controller('importacoes/folha')
-@Roles(UserRole.ADMINISTRADOR)
 export class FolhaPrefeituraController {
   constructor(private readonly service: FolhaPrefeituraService) {}
 

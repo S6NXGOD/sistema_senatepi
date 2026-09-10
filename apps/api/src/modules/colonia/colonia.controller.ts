@@ -13,7 +13,6 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
-import { UserRole } from '@prisma/client';
 import { ColoniaService } from './colonia.service';
 import {
   AlocacaoManualDto,
@@ -25,7 +24,6 @@ import {
   StatusTemporadaDto,
 } from './dto/colonia.dto';
 import { Public } from '../../common/decorators/public.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -68,14 +66,12 @@ export class ColoniaController {
   // -------- Administrativo (Diretoria) --------
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/temporadas')
   temporadas() {
     return this.service.listarTemporadas();
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Patch('admin/temporadas/:id/status')
   statusTemporada(
     @Param('id') id: string,
@@ -87,7 +83,6 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Patch('admin/temporadas/:id/sorteio')
   dataSorteio(
     @Param('id') id: string,
@@ -99,7 +94,6 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/painel')
   painel(@Query('temporadaId') temporadaId?: string) {
     return this.service.painelAdmin(temporadaId);
@@ -108,14 +102,12 @@ export class ColoniaController {
   // ---- Sincronização de cadastro (Colônia → Filiado) ----
   // Candidatos por nome exatamente igual (para escolher quando há vários).
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/reservas/:id/candidatos-filiado')
   candidatosReserva(@Param('id') id: string) {
     return this.service.candidatosPorNome('reserva', id);
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/inscricoes/:id/candidatos-filiado')
   candidatosInscricao(@Param('id') id: string) {
     return this.service.candidatosPorNome('inscricao', id);
@@ -123,14 +115,12 @@ export class ColoniaController {
 
   // Prévia (antes/depois) antes de aplicar. `filiadoId` opcional (candidato escolhido).
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/reservas/:id/comparar-filiado')
   compararReserva(@Param('id') id: string, @Query('filiadoId') filiadoId?: string) {
     return this.service.preverSincronizacao('reserva', id, filiadoId);
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/inscricoes/:id/comparar-filiado')
   compararInscricao(@Param('id') id: string, @Query('filiadoId') filiadoId?: string) {
     return this.service.preverSincronizacao('inscricao', id, filiadoId);
@@ -138,7 +128,6 @@ export class ColoniaController {
 
   // Aplica apenas os campos escolhidos.
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Patch('admin/reservas/:id/sincronizar-filiado')
   sincronizarReserva(
     @Param('id') id: string,
@@ -151,7 +140,6 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Patch('admin/inscricoes/:id/sincronizar-filiado')
   sincronizarInscricao(
     @Param('id') id: string,
@@ -164,7 +152,6 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/relatorio.csv')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   async relatorioCsv(@Query('temporadaId') temporadaId: string, @Res() res: Response) {
@@ -176,14 +163,12 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Get('admin/reservas')
   listar(@Query('temporadaId') temporadaId?: string) {
     return this.service.listarReservas(temporadaId);
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Post('admin/alocacao-manual')
   alocacaoManual(
     @Body() dto: AlocacaoManualDto,
@@ -194,7 +179,6 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Patch('admin/reservas/:id/cancelar')
   cancelar(
     @Param('id') id: string,
@@ -206,7 +190,6 @@ export class ColoniaController {
   }
 
   @ApiBearerAuth()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Post('admin/lotes/:loteId/sorteio/realizar')
   realizarSorteio(
     @Param('loteId') loteId: string,

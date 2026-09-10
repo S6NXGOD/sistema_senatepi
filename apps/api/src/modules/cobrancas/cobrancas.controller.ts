@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 import { CobrancasService } from './cobrancas.service';
 import {
   BaixarParcelaDto,
@@ -22,14 +21,12 @@ import {
   ListarPorFiliadoQueryDto,
   SimularCobrancaDto,
 } from './dto/cobrancas.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('cobrancas')
 @ApiBearerAuth()
-@Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
 @ModuloTenant('cobrancas')
 @Modulo('cobrancas')
 @Controller('cobrancas')

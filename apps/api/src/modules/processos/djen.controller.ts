@@ -13,10 +13,10 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { OrigemSincronizacao, UserRole } from '@prisma/client';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { OrigemSincronizacao } from '@prisma/client';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { OperacaoDeSistema } from '../../common/permissions/operacao-de-sistema.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
@@ -302,7 +302,7 @@ export class DjenController {
    * completa pode demorar minutos, e é melhor assim que levar 403 no meio.
    */
   @Post('sincronizar')
-  @Roles(UserRole.ADMINISTRADOR)
+  @OperacaoDeSistema()
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Varredura completa do DJEN (OAB dos advogados + processos mudos).' })
   varrer(@Query() q: VarrerDjenQueryDto) {

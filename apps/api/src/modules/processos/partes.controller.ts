@@ -13,8 +13,7 @@ import {
 } from './dto/partes.dto';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { OperacaoDeSistema } from '../../common/permissions/operacao-de-sistema.decorator';
 
 function ctxDe(req: Request, user?: AuthUser) {
   return { ip: req.ip, userAgent: req.headers['user-agent'], userId: user?.id, role: user?.role };
@@ -244,7 +243,7 @@ export class PartesExternasController {
    * auditoria.
    */
   @Post(':id/mesclar')
-  @Roles(UserRole.ADMINISTRADOR)
+  @OperacaoDeSistema()
   @ApiOperation({ summary: 'Mescla a organização duplicada dentro desta.' })
   mesclar(
     @Param('id') id: string,

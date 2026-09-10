@@ -17,7 +17,6 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
-import { UserRole } from '@prisma/client';
 import { FiliadosService } from './filiados.service';
 import { DossieService } from './dossie.service';
 import {
@@ -28,7 +27,6 @@ import {
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { ctxDaRequisicao } from '../../common/audit/audit.contexto-http';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
@@ -47,7 +45,6 @@ export class FiliadosController {
   ) {}
 
   @Post()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   create(@Body() dto: CreateFiliadoDto, @CurrentUser('nome') autor: string) {
     return this.service.create(dto, autor);
   }
@@ -87,7 +84,6 @@ export class FiliadosController {
    * auditoria; por isso não passa pela proteção de campos.
    */
   @Patch(':id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateFiliadoDto,
@@ -109,7 +105,6 @@ export class FiliadosController {
    * naturalidade que já estejam preenchidos.
    */
   @Patch(':id/atualizacao-cadastral')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   atualizacaoCadastral(
     @Param('id') id: string,
     @Body() dto: UpdateFiliadoDto,
@@ -119,7 +114,6 @@ export class FiliadosController {
   }
 
   @Patch(':id/situacao')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   changeSituacao(
     @Param('id') id: string,
     @Body() dto: ChangeSituacaoDto,
@@ -133,7 +127,6 @@ export class FiliadosController {
    * Leitura pura; o modal chama ao abrir. Ver `levantarVinculos`.
    */
   @Get(':id/vinculos')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   vinculos(@Param('id') id: string) {
     return this.service.levantarVinculos(id);
   }
@@ -144,7 +137,6 @@ export class FiliadosController {
    * não existe mais.
    */
   @Patch(':id/reativar')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   reativar(
     @Param('id') id: string,
     @Body() dto: ReativarDto,
@@ -154,7 +146,6 @@ export class FiliadosController {
   }
 
   @Patch(':id/desfiliar')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   desfiliar(
     @Param('id') id: string,
     @Body() dto: DesfiliarDto,
@@ -190,7 +181,6 @@ export class FiliadosController {
   }
 
   @Post(':id/foto')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('foto', { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
   foto(
@@ -203,7 +193,6 @@ export class FiliadosController {
   }
 
   @Post(':id/documentos')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 15 * 1024 * 1024, files: 1 } }))
   addDocumento(
@@ -220,7 +209,6 @@ export class FiliadosController {
   }
 
   @Delete(':id/documentos/:documentoId')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   removeDocumento(@Param('id') id: string, @Param('documentoId') documentoId: string) {
     return this.service.removeDocumento(id, documentoId);
   }
@@ -238,7 +226,6 @@ export class FiliadosController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   remove(@Param('id') id: string) {
     return this.service.remove(id);
   }

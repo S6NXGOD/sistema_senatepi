@@ -4,7 +4,7 @@ import { Response } from 'express';
 import {
   IsArray, IsInt, IsOptional, IsString, IsBoolean, IsEnum, Max, Min, MaxLength,
 } from 'class-validator';
-import { ModoVotacao, UserRole } from '@prisma/client';
+import { ModoVotacao } from '@prisma/client';
 import { VotacaoService } from './votacao.service';
 import { SorteioService } from './sorteio.service';
 import { DossieEventoService } from './dossie-evento.service';
@@ -12,7 +12,6 @@ import { CertificadoService } from './certificado.service';
 import { EncerramentoService } from './encerramento.service';
 import { PresencaListaService } from './presenca-lista.service';
 import { IntegridadeAssembleiaService } from './integridade.service';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
@@ -70,13 +69,11 @@ export class PlenarioAdminController {
   ) {}
 
   @Get('pautas')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   listarPautas(@Param('eventoId') eventoId: string) {
     return this.votacao.listar(eventoId);
   }
 
   @Post('pautas')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   criarPauta(
     @Param('eventoId') eventoId: string,
     @Body() dto: CriarPautaDto,
@@ -86,26 +83,22 @@ export class PlenarioAdminController {
   }
 
   @Post('pautas/:pautaId/abrir')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   abrir(@Param('pautaId') pautaId: string, @CurrentUser('nome') autor: string) {
     return this.votacao.abrir(pautaId, autor);
   }
 
   /** Encerra e devolve a apuração — é o momento em que o resultado existe. */
   @Post('pautas/:pautaId/encerrar')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   encerrar(@Param('pautaId') pautaId: string, @CurrentUser('nome') autor: string) {
     return this.votacao.encerrar(pautaId, autor);
   }
 
   @Get('pautas/:pautaId/apuracao')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   apurar(@Param('pautaId') pautaId: string) {
     return this.votacao.apurar(pautaId);
   }
 
   @Post('sorteios')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   sortear(
     @Param('eventoId') eventoId: string,
     @Body() dto: SortearDto,
@@ -115,27 +108,23 @@ export class PlenarioAdminController {
   }
 
   @Get('sorteios')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   listarSorteios(@Param('eventoId') eventoId: string) {
     return this.sorteio.listar(eventoId);
   }
 
   /** Reexecuta a seed e confirma que o resultado gravado é o que ela produz. */
   @Get('sorteios/:sorteioId/conferir')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   conferir(@Param('sorteioId') sorteioId: string) {
     return this.sorteio.conferir(sorteioId);
   }
 
   /** Emite (ou reemite) o dossiê e o arquiva no storage. */
   @Post('dossie')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   emitirDossie(@Param('eventoId') eventoId: string, @CurrentUser('nome') autor: string) {
     return this.dossie.gerar(eventoId, autor);
   }
 
   @Get('dossie.pdf')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Header('Content-Type', 'application/pdf')
   async baixarDossie(@Param('eventoId') eventoId: string, @Res() res: Response) {
     const { pdf, nomeArquivo } = await this.dossie.baixar(eventoId);
@@ -149,7 +138,6 @@ export class PlenarioAdminController {
 
   /** O que vai acontecer se encerrar agora — alimenta a confirmação. */
   @Get('encerramento/previa')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   previaEncerramento(@Param('eventoId') eventoId: string) {
     return this.encerramento.previa(eventoId);
   }
@@ -159,7 +147,6 @@ export class PlenarioAdminController {
    * dossiê. É POST, e não DELETE, porque não apaga nada — consolida.
    */
   @Post('encerrar')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   encerrarAssembleia(
     @Param('eventoId') eventoId: string,
     @CurrentUser('nome') autor: string,
@@ -169,7 +156,6 @@ export class PlenarioAdminController {
 
   /** Resumo do que aconteceu — a resposta para "e aí, o que eu tenho agora?". */
   @Get('resumo')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   resumo(@Param('eventoId') eventoId: string) {
     return this.encerramento.resumo(eventoId);
   }
@@ -183,7 +169,6 @@ export class PlenarioAdminController {
    * necessidade).
    */
   @Get('presencas')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   presencas(@Param('eventoId') eventoId: string) {
     return this.presencaLista.listar(eventoId);
   }
@@ -196,7 +181,6 @@ export class PlenarioAdminController {
    * se faz numa planilha, não num PDF.
    */
   @Get('presencas.csv')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Header('Content-Type', 'text/csv; charset=utf-8')
   async presencasCsv(@Param('eventoId') eventoId: string, @Res() res: Response) {
     const { conteudo, nomeArquivo } = await this.presencaLista.csv(eventoId);
@@ -213,14 +197,12 @@ export class PlenarioAdminController {
    * dar o voto de alguém a outra pessoa. Aqui um humano decide.
    */
   @Get('presencas/:presencaId/candidatos')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   candidatos(@Param('eventoId') eventoId: string, @Param('presencaId') presencaId: string) {
     return this.presencaLista.candidatos(eventoId, presencaId);
   }
 
   /** Confirma de quem é a presença — habilita voto e quórum. */
   @Post('presencas/:presencaId/vincular')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   vincular(
     @Param('eventoId') eventoId: string,
     @Param('presencaId') presencaId: string,
@@ -241,26 +223,22 @@ export class PlenarioAdminController {
    * Restrito à mesa: é lista de gente com IP e horário, não vai ao telão.
    */
   @Get('integridade')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   resumoIntegridade(@Param('eventoId') eventoId: string) {
     return this.integridade.resumoIntegridade(eventoId);
   }
 
   @Get('integridade/presencas-por-origem')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   presencasPorOrigem(@Param('eventoId') eventoId: string) {
     return this.integridade.presencasPorOrigem(eventoId);
   }
 
   /** Quem tem direito a certificado, já com o código de verificação. */
   @Get('certificados')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   certificados(@Param('eventoId') eventoId: string) {
     return this.certificado.elegiveis(eventoId);
   }
 
   @Get('certificados/:presencaId.pdf')
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO)
   @Header('Content-Type', 'application/pdf')
   async baixarCertificado(
     @Param('eventoId') eventoId: string,

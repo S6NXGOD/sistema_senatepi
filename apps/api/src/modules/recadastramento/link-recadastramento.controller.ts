@@ -5,10 +5,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
 import { LinkRecadastramentoService } from './link-recadastramento.service';
 import { UpdateFiliadoDto } from '../filiados/dto/filiado.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
@@ -30,7 +28,6 @@ export class LinkRecadastramentoAdminController {
 
   /** Gera um link de 24h para o filiado se recadastrar sozinho. */
   @Post()
-  @Roles(UserRole.ADMINISTRADOR, UserRole.COORDENACAO, UserRole.TRIAGEM)
   gerar(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.gerar(id, this.ctx(req, user));
   }

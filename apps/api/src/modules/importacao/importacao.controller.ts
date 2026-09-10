@@ -16,7 +16,6 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
-import { UserRole } from '@prisma/client';
 import { ImportacaoService } from './importacao.service';
 import { RelatorioImportacaoService } from './relatorio.service';
 import { FolhaPrefeituraService } from './folha-prefeitura.service';
@@ -24,7 +23,6 @@ import { lerCabecalhos } from './planilha.util';
 import { pareceFolhaPrefeitura } from './folha-prefeitura.util';
 import { detectarMapeamento } from './mapeamento.util';
 import { ConfirmarImportacaoDto, EditarLinhaDto } from './dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -35,7 +33,6 @@ import { conteudoDisposto } from '@core/infra';
 @ModuloTenant('filiados')
 @Modulo('filiados')
 @Controller('importacoes')
-@Roles(UserRole.ADMINISTRADOR) // importação de filiados: apenas administradores
 export class ImportacaoController {
   constructor(
     private readonly service: ImportacaoService,

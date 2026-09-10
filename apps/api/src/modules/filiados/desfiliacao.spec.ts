@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { PRESETS_PERFIL } from '../../common/permissions/permissoes.constants';
 import * as path from 'node:path';
 
 import { MOTIVO_DESFILIACAO_LABEL, formatarMesCorte, pracaDaAssinatura } from './filiados.service';
@@ -183,16 +184,45 @@ describe('endpoints da desfiliação', () => {
     expect(CONTROLLER).toMatch(/@Patch\(':id\/reativar'\)/);
   });
 
-  /** Saída e volta são decisão de gestão — triagem não decide quadro social. */
-  it.each(["':id/desfiliar'", "':id/reativar'", "':id/vinculos'"])(
-    '%s é restrito a ADMINISTRADOR e COORDENACAO',
-    (rota) => {
-      const i = CONTROLLER.indexOf(rota);
-      expect(i).toBeGreaterThan(0);
-      const bloco = CONTROLLER.slice(i, i + 200);
-      expect(bloco).toContain('UserRole.ADMINISTRADOR, UserRole.COORDENACAO');
-    },
-  );
+  /**
+   * A REGRA MUDOU DE MECANISMO, E ISSO MUDOU O ALCANCE — de propósito e
+   * anotado, porque é a única decisão de produto que a limpeza dos `@Roles`
+   * alterou de verdade.
+   *
+   * ANTES: `@Roles(ADMINISTRADOR, COORDENACAO)` nas três rotas, com a
+   * justificativa "saída e volta são decisão de gestão; triagem não decide
+   * quadro social". Era uma segunda política, invisível na tela de permissões e
+   * impossível de sobrepor — o mesmo mecanismo que barrava a coordenação em
+   * `usuarios` com um "Forbidden resource" sem explicação.
+   *
+   * AGORA: vale a matriz. `desfiliar` e `reativar` são PATCH (exigem EDITAR) e
+   * `vinculos` é GET (exige VISUALIZAR). O preset da Triagem em `filiados` é
+   * EDITAR — logo ela ALCANÇA as três, o que antes não acontecia.
+   *
+   * Por que aceitar a mudança: o balcão É quem recebe o filiado que vem
+   * cancelar. E se o sindicato discordar, agora existe UM lugar para dizer isso
+   * (a matriz, `filiados: VISUALIZAR` para a Triagem) em vez de uma linha de
+   * código que ninguém vê. Se a granularidade "editar ficha ≠ decidir quadro
+   * social" for necessária de verdade, o caminho é uma chave de módulo própria,
+   * não um `@Roles` de volta.
+   */
+  it('as três rotas passam pela matriz de filiados, sem lista de perfis', () => {
+    expect(CONTROLLER).toContain("@Modulo('filiados')");
+    expect(CONTROLLER).not.toContain('@Roles(');
+    for (const rota of ["':id/desfiliar'", "':id/reativar'", "':id/vinculos'"]) {
+      expect(CONTROLLER.indexOf(rota)).toBeGreaterThan(0);
+    }
+  });
+
+  /** O alcance efetivo, escrito por extenso para ninguém mudar sem perceber. */
+  it('quem alcança a desfiliação, pelo preset', () => {
+    expect(PRESETS_PERFIL.ADMINISTRADOR.filiados).toBe('EDITAR');
+    expect(PRESETS_PERFIL.COORDENACAO.filiados).toBe('EDITAR');
+    // A mudança: a Triagem passou a alcançar.
+    expect(PRESETS_PERFIL.TRIAGEM.filiados).toBe('EDITAR');
+    // O advogado continua fora: só lê.
+    expect(PRESETS_PERFIL.ADVOGADO.filiados).toBe('VISUALIZAR');
+  });
 });
 
 /**

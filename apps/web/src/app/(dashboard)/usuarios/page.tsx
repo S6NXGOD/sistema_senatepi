@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { UsuarioFormModal } from '@/components/usuarios/usuario-form-modal';
 import { listarUsuarios, excluirUsuario, UsuarioSistema } from '@/lib/usuarios';
-import { PERFIL_LABEL, PerfilUsuario } from '@/lib/permissoes';
+import { PERFIL_LABEL, PerfilUsuario, podeMexerNoUsuario } from '@/lib/permissoes';
 
 const PERFIL_COR: Record<PerfilUsuario, string> = {
   ADMINISTRADOR: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
@@ -29,6 +29,7 @@ export default function UsuariosPage() {
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [formOpen, setFormOpen] = useState(false);
+  const souAdmin = user?.role === 'ADMINISTRADOR';
   const [editar, setEditar] = useState<UsuarioSistema | null>(null);
   const [excluirAlvo, setExcluirAlvo] = useState<UsuarioSistema | null>(null);
 
@@ -116,7 +117,7 @@ export default function UsuariosPage() {
                       <StatusPill ativo={u.ativo} />
                     </div>
                   </div>
-                  <Acoes u={u} onEditar={() => editarUsuario(u)} onExcluir={() => setExcluirAlvo(u)} ehProprio={u.id === user?.id} />
+                  <Acoes u={u} onEditar={() => editarUsuario(u)} onExcluir={() => setExcluirAlvo(u)} ehProprio={u.id === user?.id} souAdmin={souAdmin} />
                 </div>
               </Card>
             ))}
@@ -157,7 +158,7 @@ export default function UsuariosPage() {
                       <td className="px-4 py-3"><StatusPill ativo={u.ativo} /></td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end">
-                          <Acoes u={u} onEditar={() => editarUsuario(u)} onExcluir={() => setExcluirAlvo(u)} ehProprio={u.id === user?.id} />
+                          <Acoes u={u} onEditar={() => editarUsuario(u)} onExcluir={() => setExcluirAlvo(u)} ehProprio={u.id === user?.id} souAdmin={souAdmin} />
                         </div>
                       </td>
                     </tr>
@@ -211,9 +212,43 @@ function StatusPill({ ativo }: { ativo: boolean }) {
   );
 }
 
+/**
+ * AS AÇÕES DA LINHA — e uma conta de Administrador não aceita nenhuma delas
+ * vinda de quem está abaixo.
+ *
+ * O módulo `usuarios` deixou de ser trancado no perfil (era
+ * `@Roles(ADMINISTRADOR)` no controller inteiro, e por isso a coordenação com
+ * `usuarios: EDITAR` tomava "Forbidden resource"). Agora ela entra — e aqui
+ * está o teto: editar, excluir e trocar a foto de um Administrador continua
+ * sendo coisa de Administrador.
+ *
+ * O botão SOME em vez de desabilitar, e o cadeado explica a linha inteira. Um
+ * ícone apagado num canto não diz por quê; o rótulo diz.
+ *
+ * Quem barra de verdade é a API (`quem-pode-mexer-em-quem.ts`). Isto evita o
+ * clique que voltaria 403.
+ */
 function Acoes({
-  u, onEditar, onExcluir, ehProprio,
-}: { u: UsuarioSistema; onEditar: () => void; onExcluir: () => void; ehProprio: boolean }) {
+  u, onEditar, onExcluir, ehProprio, souAdmin,
+}: {
+  u: UsuarioSistema;
+  onEditar: () => void;
+  onExcluir: () => void;
+  ehProprio: boolean;
+  souAdmin: boolean;
+}) {
+  const intocavel = !podeMexerNoUsuario(souAdmin ? 'ADMINISTRADOR' : null, u.role);
+  if (intocavel) {
+    return (
+      <span
+        className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground"
+        title="Contas de Administrador só podem ser alteradas por outro Administrador."
+      >
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+        <span className="hidden sm:inline">Só Administrador</span>
+      </span>
+    );
+  }
   return (
     <div className="flex shrink-0 items-center gap-1">
       <button

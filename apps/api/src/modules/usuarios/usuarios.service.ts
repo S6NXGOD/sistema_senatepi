@@ -8,10 +8,27 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 
 import { PRESETS_PERFIL, sanitizarPermissoes } from '../../common/permissions/permissoes.constants';
+import {
+  garantirQuePodeAtribuirPerfil,
+  garantirQuePodeMexerNoAlvo,
+  garantirQueNaoEscalaPrivilegio,
+} from './quem-pode-mexer-em-quem';
 import { CriarUsuarioDto, AtualizarUsuarioDto } from './dto/usuarios.dto';
 
+/**
+ * QUEM ESTÁ AGINDO — e o perfil dele passou a importar.
+ *
+ * Enquanto o controller inteiro era `@Roles(ADMINISTRADOR)`, todo autor era
+ * administrador e o serviço não precisava perguntar. Com o módulo respeitando a
+ * matriz, uma coordenação pode chegar aqui — e aí "quem" define o que pode.
+ *
+ * `role` e `permissoes` vêm do TOKEN, nunca do corpo. Ver
+ * `quem-pode-mexer-em-quem.ts` para as quatro travas.
+ */
 interface Ctx {
   userId?: string;
+  role?: UserRole;
+  permissoes?: unknown;
   ip?: string;
   userAgent?: string;
 }
@@ -70,10 +87,20 @@ export class UsuariosService {
     return this.apresentar(user);
   }
 
-  /** Envia/substitui a foto de perfil de um usuário (upload). Só Administrador. */
+  /**
+   * Envia/substitui a foto de perfil de um usuário (upload).
+   *
+   * A TRAVA 3 VALE AQUI TAMBÉM, e é o tipo de porta que se esquece: proteger
+   * `atualizar` e deixar o avatar aberto deixaria a coordenação trocar a foto
+   * de um Administrador. É pequeno, e é exatamente por isso que passa.
+   */
   async atualizarAvatar(id: string, arquivo: Buffer, ctx: Ctx) {
-    const atual = await this.prisma.user.findUnique({ where: { id }, select: { avatarKey: true } });
+    const atual = await this.prisma.user.findUnique({
+      where: { id },
+      select: { avatarKey: true, role: true },
+    });
     if (!atual) throw new NotFoundException('Usuário não encontrado.');
+    garantirQuePodeMexerNoAlvo(ctx, atual.role);
 
     const avatarKey = await this.image.processarAvatar(arquivo, `usuarios/${id}`);
     if (atual.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
@@ -90,10 +117,14 @@ export class UsuariosService {
     return this.apresentar(user);
   }
 
-  /** Remove a foto de perfil de um usuário. Só Administrador. */
+  /** Remove a foto de perfil de um usuário. Mesma trava do upload. */
   async removerAvatar(id: string, ctx: Ctx) {
-    const atual = await this.prisma.user.findUnique({ where: { id }, select: { avatarKey: true } });
+    const atual = await this.prisma.user.findUnique({
+      where: { id },
+      select: { avatarKey: true, role: true },
+    });
     if (!atual) throw new NotFoundException('Usuário não encontrado.');
+    garantirQuePodeMexerNoAlvo(ctx, atual.role);
     if (atual.avatarKey) void this.storage.delete(atual.avatarKey).catch(() => undefined);
 
     const user = await this.prisma.user.update({
@@ -109,6 +140,9 @@ export class UsuariosService {
   }
 
   async criar(dto: CriarUsuarioDto, ctx: Ctx) {
+    // Trava 1: só Administrador cria Administrador.
+    garantirQuePodeAtribuirPerfil(ctx, dto.role);
+
     const email = dto.email.trim().toLowerCase();
     await this.garantirEmailUnico(email);
 
@@ -116,6 +150,13 @@ export class UsuariosService {
     const permissoes = dto.permissoes
       ? sanitizarPermissoes(dto.permissoes)
       : PRESETS_PERFIL[dto.role];
+
+    /*
+      Trava 4, aplicada sobre a matriz JÁ RESOLVIDA — inclusive quando ela veio
+      do preset. Sem isto, bastaria omitir `permissoes` e escolher um perfil
+      cujo preset seja mais forte que o de quem está criando.
+    */
+    garantirQueNaoEscalaPrivilegio(ctx, permissoes);
 
     const user = await this.prisma.user.create({
       data: {
@@ -148,6 +189,13 @@ export class UsuariosService {
     });
     if (!alvo) throw new NotFoundException('Usuário não encontrado.');
 
+    // Trava 3: conta de Administrador só é alterada por Administrador. Checa o
+    // perfil ATUAL do alvo, não o que vem no corpo — senão bastaria mandar
+    // `role: COORDENACAO` no mesmo PATCH para destravar.
+    garantirQuePodeMexerNoAlvo(ctx, alvo.role);
+    // Trava 2: promover a Administrador é ato de Administrador.
+    garantirQuePodeAtribuirPerfil(ctx, dto.role);
+
     const ehProprio = ctx.userId === id;
     // Trava anti-lockout: o admin não pode rebaixar/desativar a si mesmo.
     if (ehProprio && dto.role && dto.role !== UserRole.ADMINISTRADOR) {
@@ -175,7 +223,9 @@ export class UsuariosService {
     };
     if (dto.senha) data.senhaHash = await bcrypt.hash(dto.senha, 12);
     if (dto.permissoes !== undefined) {
-      data.permissoes = sanitizarPermissoes(dto.permissoes) as Prisma.InputJsonValue;
+      const pedidas = sanitizarPermissoes(dto.permissoes);
+      garantirQueNaoEscalaPrivilegio(ctx, pedidas); // Trava 4.
+      data.permissoes = pedidas as Prisma.InputJsonValue;
     }
 
     const user = await this.prisma.user.update({ where: { id }, data, select: USER_SELECT });
@@ -193,6 +243,7 @@ export class UsuariosService {
     }
     const alvo = await this.prisma.user.findUnique({ where: { id }, select: { id: true, nome: true, role: true } });
     if (!alvo) throw new NotFoundException('Usuário não encontrado.');
+    garantirQuePodeMexerNoAlvo(ctx, alvo.role); // Trava 3.
     if (alvo.role === UserRole.ADMINISTRADOR) await this.garantirNaoEUltimoAdmin(id);
 
     await this.prisma.user.delete({ where: { id } });

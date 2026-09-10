@@ -9,8 +9,8 @@ import {
   ListAudienciasQueryDto,
 } from './dto/audiencias.dto';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { OperacaoDeSistema } from '../../common/permissions/operacao-de-sistema.decorator';
 import { RANK_NIVEL, nivelEfetivo } from '../../common/permissions/permissoes.constants';
 
 /**
@@ -85,7 +85,7 @@ export class AudienciasController {
    * códigos TPU em `utils/audiencia.util.ts`.
    */
   @Post('reclassificar')
-  @Roles(UserRole.ADMINISTRADOR)
+  @OperacaoDeSistema()
   @ApiOperation({ summary: 'Reprocessa o radar sobre todas as movimentações já sincronizadas.' })
   reclassificar(@CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.reclassificar(this.ctx(req, userId));

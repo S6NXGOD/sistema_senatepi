@@ -163,3 +163,50 @@ export function podeEditar(
 export function podeExcluir(role: PerfilUsuario | string | null | undefined): boolean {
   return role === 'ADMINISTRADOR';
 }
+
+/**
+ * QUEM PODE MEXER EM QUEM — o espelho, na tela, das travas do servidor.
+ *
+ * O servidor decide (`quem-pode-mexer-em-quem.ts` na API). Isto existe para a
+ * tela NÃO OFERECER o que o servidor vai recusar — a mesma regra que já vale no
+ * resto do sistema: botão que devolve 403 é pior que botão ausente, porque
+ * ensina a pessoa a desconfiar da tela inteira.
+ *
+ * Foi exatamente o modo de falhar do relato original: o administrador marcou
+ * `usuarios: EDITAR` para a coordenação, a tela mostrou "Novo usuário", e o
+ * clique voltou "Forbidden resource".
+ *
+ * NÃO É A SEGURANÇA. Se estas funções sumissem, nada se abriria: a API barra
+ * igual. São conforto e honestidade da interface.
+ */
+
+/** Só um Administrador cria ou promove outro Administrador. */
+export function podeAtribuirPerfilAdmin(role?: PerfilUsuario | null): boolean {
+  return role === 'ADMINISTRADOR';
+}
+
+/** Conta de Administrador só é alterada (ou excluída) por outro Administrador. */
+export function podeMexerNoUsuario(
+  meuPerfil: PerfilUsuario | null | undefined,
+  perfilDoAlvo: PerfilUsuario,
+): boolean {
+  if (perfilDoAlvo !== 'ADMINISTRADOR') return true;
+  return meuPerfil === 'ADMINISTRADOR';
+}
+
+/**
+ * O TETO QUE POSSO CONCEDER num módulo: o meu próprio nível efetivo.
+ *
+ * Sem isto, a coordenação montaria uma matriz com `auditoria: EDITAR` tendo
+ * `auditoria: VISUALIZAR` — escalada de privilégio por interposta pessoa, que é
+ * o furo clássico de RBAC. O servidor recusa; a tela nem oferece.
+ */
+export function tetoQuePossoConceder(
+  meuPerfil: PerfilUsuario | null | undefined,
+  minhasPermissoes: unknown,
+  modulo: ModuloKey,
+): NivelPermissao {
+  if (!meuPerfil) return 'SEM_ACESSO';
+  if (meuPerfil === 'ADMINISTRADOR') return 'EDITAR';
+  return nivelEfetivo(meuPerfil, minhasPermissoes, modulo);
+}
