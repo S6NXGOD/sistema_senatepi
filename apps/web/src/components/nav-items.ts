@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
-  Building2, Landmark, BarChart3, type LucideIcon,
+  Building2, Landmark, MapPinned, BarChart3, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
@@ -58,6 +58,10 @@ export const NAV_SECOES: NavSecao[] = [
       // `@Modulo('processos')` na API, porque é ele que alimenta o seletor de
       // partes e o combobox de empregador em TODO cliente.
       { href: '/organizacoes', label: 'Organizações', icon: Landmark, modulo: 'organizacoes' },
+      // Ícone PRÓPRIO: `Landmark` já é Organizações e `Building2` é Empresas.
+      // Repetir ícone com nome sinônimo foi metade do motivo pelo qual duas
+      // telas eram lidas como a mesma coisa.
+      { href: '/municipios', label: 'Municípios', icon: MapPinned, modulo: 'municipios' },
     ],
   },
   {

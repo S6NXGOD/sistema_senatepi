@@ -32,6 +32,7 @@ import { AcessosModule } from './modules/acessos/acessos.module';
 import { CarteirinhasModule } from './modules/carteirinhas/carteirinhas.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RelatoriosModule } from './modules/relatorios/relatorios.module';
+import { MunicipiosModule } from './modules/municipios/municipios.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
 import { HealthModule } from './modules/health/health.module';
 
@@ -77,6 +78,7 @@ import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-v
     CarteirinhasModule,
     DashboardModule,
     RelatoriosModule,
+    MunicipiosModule,
     AuditoriaModule,
     HealthModule,
   ],

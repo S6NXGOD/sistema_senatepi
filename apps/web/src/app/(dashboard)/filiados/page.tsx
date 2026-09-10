@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -51,8 +52,27 @@ export default function FiliadosPage() {
   const { user } = useAuth();
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'filiados') === 'EDITAR';
   // rascunho = o que está sendo digitado; aplicado = o que de fato consulta a API
-  const [rascunho, setRascunho] = useState<Filtros>(VAZIO);
-  const [aplicado, setAplicado] = useState<Filtros>(VAZIO);
+  /**
+   * OS FILTROS PODEM CHEGAR PELA URL — e é o que faz um número virar uma lista.
+   *
+   * A ficha do município mostra "2.639 filiados" e leva para cá com
+   * `?cidade=Teresina`. Sem isto o clique abriria a tela SEM filtro nenhum e a
+   * pessoa veria 7.321 filiados, tendo pedido 2.639 — pior que não ter link.
+   *
+   * `useState` com função inicializadora: lê uma vez, na montagem. Depois disso
+   * quem manda são os controles da tela, e mexer no filtro não reescreve a URL
+   * — a intenção era desta chegada, não uma preferência a guardar.
+   */
+  const paramsDaUrl = useSearchParams();
+  const daUrl = (): Filtros => ({
+    ...VAZIO,
+    busca: paramsDaUrl.get('busca') ?? '',
+    cidade: paramsDaUrl.get('cidade') ?? '',
+    situacao: paramsDaUrl.get('situacao') ?? '',
+  });
+
+  const [rascunho, setRascunho] = useState<Filtros>(daUrl);
+  const [aplicado, setAplicado] = useState<Filtros>(daUrl);
   // A ordenação NÃO é filtro: "Limpar filtros" não a desfaz, e mudá-la não
   // depende de clicar em "Aplicar". São dois controles com ritmos diferentes.
   const [ordenar, setOrdenar] = useState<OrdenacaoFiliado>('recentes');

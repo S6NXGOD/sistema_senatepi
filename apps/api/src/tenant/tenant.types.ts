@@ -52,7 +52,18 @@ export type IntegracaoExterna =
    * permite desligar um cliente sozinho quando o CNJ estiver fora do ar, sem
    * derrubar a consulta dos outros.
    */
-  | 'djen';
+  | 'djen'
+  /**
+   * Indicadores fiscais do SICONFI (Tesouro Nacional): quanto o município
+   * gasta com pessoal contra o teto da Lei de Responsabilidade Fiscal, e
+   * quanto do orçamento cai na função Saúde.
+   *
+   * É consulta a dado PÚBLICO, sem chave e sem cota — não há motivo de custo
+   * para desligar. A chave existe pelo outro motivo: a API do Tesouro sai do
+   * ar em manutenção, e quando sai é melhor calar o job de madrugada do que
+   * encher o log de erro até alguém reparar.
+   */
+  | 'siconfi';
 
 /**
  * MIGRAÇÕES DE SISTEMA ANTIGO que esta instalação tem à disposição.

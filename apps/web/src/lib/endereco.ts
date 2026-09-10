@@ -70,12 +70,21 @@ export async function buscarCep(cepBruto: string): Promise<EnderecoViaCep | null
 }
 
 /**
- * Municípios de uma UF (IBGE), para o autocomplete da cidade.
+ * Municípios de uma UF, para o autocomplete da cidade.
  *
- * São 5.570 municípios no Brasil — embutir tudo no bundle seria peso morto.
- * Buscar por UF traz algumas centenas, e o cache em memória evita repetir a
- * chamada enquanto a aba estiver aberta. Falhou? Devolve lista vazia e o campo
- * vira texto livre.
+ * PASSOU A LER O CATÁLOGO DO PRÓPRIO SISTEMA, e não mais a API do IBGE direto
+ * do navegador. A razão não é desempenho — é que a chamada antiga devolvia só o
+ * NOME, e nome não identifica município no Brasil: 240 nomes se repetem entre
+ * estados. O catálogo local é o mesmo dado do IBGE, carregado no boot, com o
+ * código junto e a grafia oficial.
+ *
+ * E a grafia oficial é o que conserta o problema pela raiz: o cadastro tem sete
+ * escritas de Teresina porque o campo aceitava qualquer coisa. Escolhendo desta
+ * lista, o que entra no banco já casa com o catálogo na primeira tentativa.
+ *
+ * A QUEDA PARA O IBGE CONTINUA existindo para o caso de a instalação não ter o
+ * módulo `municipios` ligado (a rota responde 404) — aí o campo funciona como
+ * sempre funcionou, em vez de ficar vazio.
  */
 const cacheMunicipios = new Map<string, string[]>();
 
@@ -84,6 +93,19 @@ export async function municipiosDaUF(uf: string): Promise<string[]> {
   if (sigla.length !== 2) return [];
   const cacheado = cacheMunicipios.get(sigla);
   if (cacheado) return cacheado;
+
+  try {
+    const { municipiosDaUFPelaApi } = await import('@/lib/municipios');
+    const doCatalogo = await municipiosDaUFPelaApi(sigla);
+    if (doCatalogo.length) {
+      const nomes = doCatalogo.map((m) => m.nome);
+      cacheMunicipios.set(sigla, nomes);
+      return nomes;
+    }
+  } catch {
+    /* Sem módulo, sem sessão ou API fora: cai para a fonte pública abaixo. */
+  }
+
   try {
     const res = await fetch(
       `https://servicodados.ibge.gov.br/api/v1/localidades/estados/${sigla}/municipios`,

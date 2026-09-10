@@ -354,9 +354,9 @@ model User {
   compromissos            Compromisso[]            @relation("CompromissoResponsavel")
   /// Eventos que este usuário REGISTROU (≠ dos que ele é responsável).
   compromissosCriados     Compromisso[]            @relation("CompromissoCriador")
-  compromissosConcluidos Compromisso[] @relation("CompromissoConcluidoPor")
-  compromissosCancelados Compromisso[] @relation("CompromissoCanceladoPor")
-  propostasDeTarefa      ComunicacaoDjen[] @relation("PropostaDeTarefa")
+  compromissosConcluidos  Compromisso[]            @relation("CompromissoConcluidoPor")
+  compromissosCancelados  Compromisso[]            @relation("CompromissoCanceladoPor")
+  propostasDeTarefa       ComunicacaoDjen[]        @relation("PropostaDeTarefa")
   processos               Processo[]               @relation("ProcessoAdvogado")
   /// Processos em que atua (N:N) — inclui os que responde como principal.
   processosEquipe         ProcessoAdvogado[]       @relation("ProcessoAdvogadoEquipe")
@@ -430,6 +430,11 @@ model Filiado {
   bairro             String?
   cidade             String?
   estado             String?
+  /// O município do IBGE por trás de `cidade`/`estado`. Mesmo contrato da
+  /// `ParteExterna`: o texto continua sendo o que a pessoa informou, o código
+  /// é a leitura do sistema, e MANUAL nunca é sobrescrito pela varredura.
+  municipioCodigo    Int?                  @map("municipio_codigo")
+  municipioOrigem    OrigemDaLigacao?      @map("municipio_origem")
   // Dados profissionais
   formacao           FormacaoProfissional?
   formacaoOutro      String?               @map("formacao_outro") // texto livre quando formacao = OUTRO
@@ -507,6 +512,9 @@ model Filiado {
   historico            FiliadoHistorico[]
   registrosAcesso      RegistroAcesso[]
 
+  municipio Ente? @relation(fields: [municipioCodigo], references: [codigo], onDelete: SetNull)
+
+  @@index([municipioCodigo])
   @@index([situacao])
   @@index([cpf])
   @@map("filiados")
@@ -2579,6 +2587,16 @@ model ParteExterna {
   telefone      String?
   cidade        String?
   uf            String?
+  /// O MUNICÍPIO DO IBGE por trás do texto livre acima.
+  ///
+  /// `cidade`/`uf` continuam existindo e continuam mandando na tela: são o
+  /// que a secretaria digitou. Este código é a leitura do sistema sobre
+  /// aquele texto, e as duas coisas podem discordar — quando discordam, quem
+  /// está errado costuma ser o texto ("TERESINA-PI", "tersina").
+  enteCodigo    Int?             @map("ente_codigo")
+  /// COMO o município foi descoberto. Serve para uma coisa só, e ela é
+  /// importante: a varredura automática NUNCA sobrescreve MANUAL.
+  enteOrigem    OrigemDaLigacao? @map("ente_origem")
   observacoes   String?
   ativo         Boolean          @default(true)
   /// Marca a parte que É o próprio sindicato, usada como polo ativo das ações
@@ -2590,6 +2608,8 @@ model ParteExterna {
   institucional Boolean          @default(false)
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  ente Ente? @relation(fields: [enteCodigo], references: [codigo], onDelete: SetNull)
 
   participacoes  ParteProcesso[]
   /// Filiados que trabalham nesta organização. A mesma entidade serve de
@@ -2611,6 +2631,7 @@ model ParteExterna {
   naoDuplicadaA ParteExternaNaoDuplicada[] @relation("naoDuplicadaA")
   naoDuplicadaB ParteExternaNaoDuplicada[] @relation("naoDuplicadaB")
 
+  @@index([enteCodigo])
   @@index([tipo])
   @@index([ativo])
   @@map("partes_externas")
@@ -2874,7 +2895,7 @@ model ComunicacaoDjen {
   prazoMencionadoDias Int?    @map("prazo_mencionado_dias")
 
   /// Atividade criada ou enriquecida por esta publicação.
-  compromissoId      String?   @map("compromisso_id")
+  compromissoId          String?   @map("compromisso_id")
   /// O ROBÔ OLHOU E DECIDIU NÃO CRIAR TAREFA — e quando.
   ///
   /// Nulo junto com `compromissoId` significa coisa MUITO diferente de nulo
@@ -2882,7 +2903,7 @@ model ComunicacaoDjen {
   /// com dispensa é "notícia velha", a decisão deliberada de `ehNoticiaVelha`.
   /// O sino lia só `compromissoId` e tratava as duas como emergência — 1.243
   /// falsos positivos, barra vermelha permanente para nove advogados.
-  tarefaDispensadaEm DateTime? @map("tarefa_dispensada_em")
+  tarefaDispensadaEm     DateTime? @map("tarefa_dispensada_em")
   /// POR QUE o robô dispensou — sem isto, "dispensada" é uma caixa-preta.
   ///
   /// `NOTICIA_VELHA`: o ato é anterior ao momento em que passamos a olhar o
@@ -2894,7 +2915,7 @@ model ComunicacaoDjen {
   ///
   /// Nulo nas linhas gravadas antes desta coluna existir; a tela trata nulo
   /// como "notícia velha", que é o que 100% delas eram.
-  tarefaDispensadaMotivo String? @map("tarefa_dispensada_motivo")
+  tarefaDispensadaMotivo String?   @map("tarefa_dispensada_motivo")
 
   /// A CAIXA DE ENTRADA DO ADVOGADO — proposta de tarefa, não tarefa ainda.
   ///
@@ -3236,4 +3257,175 @@ model IdentidadeVisual {
   atualizadoPor String?  @map("atualizado_por")
 
   @@map("identidade_visual")
+}
+
+// ============================================================================
+// MUNICÍPIOS (IBGE) E INDICADORES FISCAIS (SICONFI / Tesouro Nacional)
+// ============================================================================
+
+/// COMO O ENTE FOI DESCOBERTO — e por que isto é uma coluna e não um palpite.
+///
+/// O cadastro guarda cidade como TEXTO LIVRE desde sempre. Medido na produção
+/// em 10/09/2026: 3.150 filiados têm cidade preenchida, e só 546 têm o estado.
+/// Sete grafias de Teresina convivem ("teresina", "TERESINA", "Teresina-PI",
+/// "TERSINA", "teesina", "teresiina", "tersina").
+///
+/// Casar isso com o IBGE dá certo quase sempre — mas "quase" é o problema. Sem
+/// registrar COMO cada ligação foi feita, uma varredura futura reescreveria por
+/// cima da correção que alguém fez à mão, e ninguém saberia distinguir o que o
+/// robô chutou do que uma pessoa conferiu.
+enum OrigemDaLigacao {
+  /// Alguém escolheu na tela. A varredura automática NUNCA encosta nisto.
+  MANUAL
+  /// Veio de um código IBGE que já existia no registro (ex.: DataJud).
+  CODIGO_IBGE
+  /// O NOME da organização declara o ente: "MUNICÍPIO DE CORRENTE", "ESTADO DO
+  /// PIAUÍ", "UNIÃO FEDERAL". É a ÚNICA prova aceita para organização, e o
+  /// motivo está em `vinculo-de-ente.service.ts`: endereço não prova quem paga.
+  /// O Hospital Getúlio Vargas fica em Teresina e é o Estado que responde por
+  /// ele.
+  NOME_DE_ENTE
+  /// O cadastro tinha UF **e** nome, e os dois casaram. É a ligação mais forte
+  /// que a varredura consegue: dentro de uma mesma UF não existe nome repetido
+  /// (conferido nos 5.571 municípios — zero colisões).
+  UF_E_NOME
+  /// O cadastro só tinha o nome, e esse nome é único no Brasil inteiro.
+  /// Cobre 2.564 dos 2.613 filiados sem UF.
+  NOME_UNICO
+  /// O nome se repete no Brasil, mas só um dos candidatos fica na UF em que o
+  /// sindicato atua. É a ligação mais fraca — é ela que a tela de conferência
+  /// mostra primeiro.
+  PREFERENCIA_UF
+}
+
+/// O CATÁLOGO DE MUNICÍPIOS DO IBGE — a tabela de referência que faltava.
+///
+/// A CHAVE É O CÓDIGO DO IBGE, e isso é uma decisão, não uma economia. Nome de
+/// município NÃO identifica município no Brasil: 240 nomes se repetem entre
+/// estados (Bom Jesus existe em cinco). Qualquer junção por nome sem UF é um
+/// erro esperando data para acontecer.
+///
+/// Por que `Int @id` e não o `uuid()` do resto do schema: o código do IBGE já é
+/// uma chave natural, estável e publicada — é o mesmo caso de `TravaJob.nome`.
+/// Inventar um uuid ao lado criaria duas identidades para a mesma coisa e
+/// obrigaria toda junção a passar por esta tabela.
+///
+/// A carga é NACIONAL, não do Piauí. Parece exagero para um sindicato piauiense
+/// e não é: o cadastro tem filiados em Timon, Caxias e Barão de Grajaú (MA), e
+/// processos em Brasília. Um catálogo só do PI faria esses registros parecerem
+/// dado sujo.
+model Ente {
+  /// Código do IBGE, 7 dígitos. Ex.: 2211001 = Teresina.
+  codigo              Int      @id
+  nome                String
+  uf                  String   @db.Char(2)
+  /// U = União, E = Estado ou Distrito Federal, M = município.
+  ///
+  /// A esfera existe porque o SICONFI trata os três do mesmo jeito — a chave
+  /// dele É este código — mas os LIMITES da Lei de Responsabilidade Fiscal
+  /// são outros: o Executivo municipal tem teto de 54% da receita corrente
+  /// líquida, o estadual tem 49% (medido no Governo do Piauí em 2026/Q1:
+  /// 37,00% contra alerta 44,10, prudencial 46,55 e teto 49,00).
+  ///
+  /// É também o que separa as duas leituras da `uf`: para o município ela é
+  /// onde ele fica; para o Estado é ele próprio; para a União é "BR", que não
+  /// é sigla de estado nenhum e não deve ser lida como tal.
+  esfera              String   @db.Char(1)
+  /// Minúsculo e sem acento — é por aqui que o texto livre do cadastro casa.
+  /// Existe como coluna (e não como `lower(unaccent(...))` na consulta) porque
+  /// precisa de índice único junto com a UF.
+  nomeNormalizado     String   @map("nome_normalizado")
+  /// Recortes do IBGE de 2017 em diante. Servem para agrupar a base por
+  /// região ("os filiados do litoral") sem inventar regionalização própria.
+  regiaoImediata      String?  @map("regiao_imediata")
+  regiaoIntermediaria String?  @map("regiao_intermediaria")
+  /// População estimada. NÃO vem do catálogo de localidades (que não a
+  /// publica): vem de carona no cabeçalho dos relatórios do SICONFI, que a
+  /// carrega em todo item. De graça, e é o que transforma "R$ 1,8 bi em saúde"
+  /// em "R$ 1.987 por habitante".
+  populacao           Int?
+  populacaoAno        Int?     @map("populacao_ano")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  indicadoresPessoal IndicadorPessoalEnte[]
+  indicadoresSaude   IndicadorSaudeEnte[]
+  partesExternas     ParteExterna[]
+  filiados           Filiado[]
+
+  /// O índice único de verdade é PARCIAL (só `esfera = M`) e está escrito à
+  /// mão na migração — o Prisma não declara índice parcial. Sem o recorte,
+  /// QUATRO estados colidiriam com um município do mesmo nome na própria UF:
+  /// Amapá, Rio de Janeiro, São Paulo e Goiás.
+  @@index([uf, nomeNormalizado])
+  @@index([esfera, uf, nome])
+  @@index([nomeNormalizado])
+  @@map("entes")
+}
+
+/// DESPESA COM PESSOAL CONTRA A RECEITA — o RGF, Anexo 01, quadrimestral.
+///
+/// POR QUE UM SINDICATO QUER ISTO. A Lei de Responsabilidade Fiscal põe teto na
+/// folha do município (54% da receita corrente líquida, no Executivo). Passando
+/// do limite PRUDENCIAL (95% do teto), o art. 22, parágrafo único, PROÍBE o
+/// ente de conceder aumento, criar cargo ou contratar — e essa proibição é a
+/// primeira coisa que a prefeitura alega na mesa de negociação.
+///
+/// Ter o número medido, com data e fonte, muda a conversa dos dois lados: quando
+/// o município está mesmo acima do limite, o sindicato sabe antes de sentar; e
+/// quando NÃO está, a alegação cai.
+///
+/// Os limites vêm da própria API (`LimiteMaximo...`, `LimitePrudencial...`,
+/// `LimiteDeAlerta...`) em vez de ficarem cravados em 54/51,3/48,6 — eles mudam
+/// conforme esfera e poder, e um número chumbado envelheceria em silêncio.
+model IndicadorPessoalEnte {
+  id                     String   @id @default(uuid())
+  enteCodigo             Int      @map("ente_codigo")
+  ente                   Ente     @relation(fields: [enteCodigo], references: [codigo], onDelete: Cascade)
+  exercicio              Int
+  /// Quadrimestre: 1, 2 ou 3.
+  quadrimestre           Int
+  /// Despesa total com pessoal, em % da RCL ajustada.
+  percentualRcl          Decimal? @map("percentual_rcl") @db.Decimal(6, 2)
+  limiteMaximo           Decimal? @map("limite_maximo") @db.Decimal(6, 2)
+  limitePrudencial       Decimal? @map("limite_prudencial") @db.Decimal(6, 2)
+  limiteAlerta           Decimal? @map("limite_alerta") @db.Decimal(6, 2)
+  despesaPessoal         Decimal? @map("despesa_pessoal") @db.Decimal(18, 2)
+  receitaCorrenteLiquida Decimal? @map("receita_corrente_liquida") @db.Decimal(18, 2)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([enteCodigo, exercicio, quadrimestre])
+  @@index([enteCodigo])
+  @@map("indicadores_pessoal_ente")
+}
+
+/// QUANTO DO ORÇAMENTO VAI PARA A FUNÇÃO SAÚDE — o RREO, Anexo 02, bimestral.
+///
+/// ATENÇÃO AO QUE ESTE NÚMERO É E AO QUE ELE NÃO É. É a fatia da despesa
+/// LIQUIDADA que caiu na função "Saúde" (Teresina, 6º bimestre de 2024: 33,96%).
+/// NÃO é o mínimo constitucional de 15%, que tem outra base (impostos, não
+/// despesa total) e sai no Anexo 12 — o qual esta API simplesmente não publica
+/// (conferido: o endpoint devolve 200 com zero linhas, e o Anexo 12 não consta
+/// da lista de anexos do serviço).
+///
+/// A tela precisa dizer isso com todas as letras. Um sindicato da saúde exibindo
+/// "33,96%" ao lado da palavra "mínimo" estaria afirmando algo falso numa
+/// negociação — e seria desmentido pela outra parte.
+model IndicadorSaudeEnte {
+  id                String   @id @default(uuid())
+  enteCodigo        Int      @map("ente_codigo")
+  ente              Ente     @relation(fields: [enteCodigo], references: [codigo], onDelete: Cascade)
+  exercicio         Int
+  /// Bimestre: 1 a 6.
+  bimestre          Int
+  /// Despesa liquidada na função Saúde, em % da despesa liquidada total.
+  percentualDespesa Decimal? @map("percentual_despesa") @db.Decimal(6, 2)
+  despesaLiquidada  Decimal? @map("despesa_liquidada") @db.Decimal(18, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([enteCodigo, exercicio, bimestre])
+  @@index([enteCodigo])
+  @@map("indicadores_saude_ente")
 }

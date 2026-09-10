@@ -74,10 +74,11 @@ export const senatepi: TenantConfig = {
   // qualquer organização, o outro é o TRABALHO patronal sobre as que
   // contribuem. Por isso a linha voltou.
   // As duas fontes do jurídico.
-  integracoes: ['datajud', 'djen'],
+  integracoes: ['datajud', 'djen', 'siconfi'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
-    'empresas', 'organizacoes', 'relatorios', 'auditoria', 'usuarios',
+    'empresas', 'organizacoes', 'municipios',
+    'relatorios', 'auditoria', 'usuarios',
   ],
 };

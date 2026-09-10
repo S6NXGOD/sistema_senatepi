@@ -34,6 +34,7 @@ export type ModuloKey =
   | 'cobrancas'
   | 'empresas'
   | 'organizacoes'
+  | 'municipios'
   | 'relatorios'
   | 'auditoria'
   | 'usuarios';
@@ -74,6 +75,7 @@ export const MODULOS: ModuloInfo[] = [
    * cadastros não forem unificados, a tela fica só onde não há ambiguidade.
    */
   { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
+  { key: 'municipios', label: 'Municípios e indicadores públicos', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos são listas de apoio de
   // Colaboradores e seguem a permissão DELE. Uma linha só para editar duas
   // listas não se pagava — e não valia nada, porque o controller checava
@@ -124,6 +126,9 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     // outra porta. Divergir daria o absurdo de quem edita a parte dentro do
     // processo não poder corrigir o nome dela na tela de cadastro.
     organizacoes: 'EDITAR',
+    // Quem senta na mesa de negociação com a prefeitura é quem precisa poder
+    // mandar buscar o número atualizado no Tesouro e corrigir uma ligação errada.
+    municipios: 'EDITAR',
     relatorios: 'VISUALIZAR',
     auditoria: 'VISUALIZAR',
     usuarios: 'SEM_ACESSO',
@@ -145,6 +150,9 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     // O advogado edita partes dentro do processo; corrigir o cadastro delas
     // é a mesma atribuição.
     organizacoes: 'EDITAR',
+    // Consulta: o dado fiscal entra na peça e na audiência. Curar o catálogo
+    // não é atribuição de quem litiga.
+    municipios: 'VISUALIZAR',
     /**
      * VÊ RELATÓRIOS, mas só com os NÚMEROS DELE.
      *
@@ -189,6 +197,10 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     empresas: 'EDITAR',
     // Acompanha `processos`, que a Triagem não vê.
     organizacoes: 'SEM_ACESSO',
+    // VISUALIZAR, e não SEM_ACESSO: é o balcão que cadastra filiado, e o seletor
+    // de município lê deste módulo. Sem isto o campo Cidade quebraria com 403
+    // justamente para quem mais o usa.
+    municipios: 'VISUALIZAR',
     // Relatório de equipe é instrumento de gestão jurídica; o balcão tem a
     // própria fila no painel.
     relatorios: 'SEM_ACESSO',

@@ -103,7 +103,7 @@ export const sindserm: TenantConfig = {
    * mudar para o Brasil, `djen` passa a ser padrão em todos os clientes — é
    * acrescentar a palavra nesta lista.
    */
-  integracoes: ['datajud'],
+  integracoes: ['datajud', 'siconfi'],
   /**
    * MIGRAÇÃO EM ANDAMENTO — a equipe do sindicato (funcionários, prestadores e
    * dependentes) vem do sistema anterior num JSON/CSV.
@@ -136,6 +136,7 @@ export const sindserm: TenantConfig = {
     // são escolhidos no combobox do vínculo. Consequência aceita: réus de
     // processo acumulam em `partes_externas` sem tela para administrá-los —
     // exatamente como era no SENATEPI antes desta tela existir.
+    'municipios',
     'relatorios', 'auditoria', 'usuarios',
   ],
 };

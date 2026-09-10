@@ -20,7 +20,7 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
-  | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'organizacoes'
+  | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'organizacoes' | 'municipios'
   | 'relatorios' | 'auditoria' | 'usuarios';
 
 export interface ModuloInfo {
@@ -47,6 +47,7 @@ export const MODULOS: ModuloInfo[] = [
   // isso o controller da API continua em `@Modulo('processos')`. Ver a nota
   // longa no espelho do backend.
   { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
+  { key: 'municipios', label: 'Municípios e indicadores públicos', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos passaram a viver dentro de
   // Colaboradores e seguem a permissão dele.
   /**
@@ -78,12 +79,14 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     // por outra porta. Divergir daria o absurdo de quem edita a parte dentro
     // do processo não poder corrigir o nome dela no cadastro.
     acessos: 'EDITAR', cobrancas: 'EDITAR', empresas: 'EDITAR', organizacoes: 'EDITAR',
+    municipios: 'EDITAR',
     relatorios: 'VISUALIZAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
     acessos: 'SEM_ACESSO', cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', organizacoes: 'EDITAR',
+    municipios: 'VISUALIZAR',
     // Vê relatórios, mas só com os NÚMEROS DELE — o recorte é no serviço.
     relatorios: 'VISUALIZAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
@@ -96,6 +99,7 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     // A secretaria (Triagem) cadastra a empresa e define a senha provisória.
     // `organizacoes` acompanha `processos`, que a Triagem não vê.
     cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', organizacoes: 'SEM_ACESSO',
+    municipios: 'VISUALIZAR',
     relatorios: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
   },
 };

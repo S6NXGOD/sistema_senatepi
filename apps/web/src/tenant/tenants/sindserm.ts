@@ -74,6 +74,7 @@ export const sindserm: TenantConfigWeb = {
     // são escolhidos no combobox do vínculo. Consequência aceita: réus de
     // processo acumulam em `partes_externas` sem tela para administrá-los —
     // exatamente como era no SENATEPI antes desta tela existir.
+    'municipios',
     'relatorios', 'auditoria', 'usuarios',
   ],
   // Escala de enfermagem e registro no conselho de enfermagem. Precisam sair

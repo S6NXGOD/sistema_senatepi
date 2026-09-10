@@ -38,6 +38,7 @@ import { PrismaClient } from '@prisma/client';
 
 export const JOB_DATAJUD_SYNC = 'datajud-sync';
 export const JOB_DJEN_SYNC = 'djen-sync';
+export const JOB_SICONFI_SYNC = 'siconfi-sync';
 
 /** Identidade desta instância da API. Sobrevive ao job, não ao processo. */
 const INSTANCIA_ID = randomUUID();

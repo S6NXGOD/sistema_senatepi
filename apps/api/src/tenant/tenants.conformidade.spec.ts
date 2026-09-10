@@ -218,7 +218,7 @@ describe('paleta da marca', () => {
 });
 
 describe('integrações externas', () => {
-  const CONHECIDAS = ['datajud', 'djen'];
+  const CONHECIDAS = ['datajud', 'djen', 'siconfi'];
 
   it.each(ids)('%s: só declara integração que existe', (id) => {
     for (const i of TENANTS[id].integracoes ?? []) expect(CONHECIDAS).toContain(i);
