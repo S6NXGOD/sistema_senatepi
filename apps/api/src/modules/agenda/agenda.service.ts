@@ -213,7 +213,7 @@ export class AgendaService {
       // linha que não existe.
       await sincronizarEquipe(tx, criado.id, {
         principalId: dto.responsavelId,
-        participantesIds: equipeIds,
+        participantesIds: equipeIds.map((e) => e.id),
       });
       return tx.compromisso.findUniqueOrThrow({ where: { id: criado.id }, select: cardSelect });
     });
@@ -233,13 +233,18 @@ export class AgendaService {
    * Devolve a lista sem o responsável repetido — quem normaliza de verdade é
    * `normalizarEquipe`, aqui é só a checagem de existência.
    */
-  private async validarEquipe(responsavelId: string, outros?: string[]): Promise<string[]> {
+  private async validarEquipe(
+    responsavelId: string,
+    outros?: string[],
+  ): Promise<{ id: string; nome: string }[]> {
     const ids = [...new Set((outros ?? []).map((i) => i.trim()).filter(Boolean))]
       .filter((id) => id !== responsavelId);
     if (!ids.length) return [];
     const achados = await this.prisma.user.findMany({
       where: { id: { in: ids }, ativo: true },
-      select: { id: true },
+      // O NOME vem junto porque o histórico nomeia quem entrou — ver
+      // `narrarCriacao`. É a mesma consulta; não custa uma ida a mais.
+      select: { id: true, nome: true, nomeExibicao: true },
     });
     if (achados.length !== ids.length) {
       const validos = new Set(achados.map((u) => u.id));
@@ -249,13 +254,26 @@ export class AgendaService {
           'Remova quem saiu do sistema e tente de novo.',
       );
     }
-    return ids;
+    // Preserva a ordem em que vieram do formulário.
+    const porId = new Map(achados.map((u) => [u.id, u.nomeExibicao || u.nome]));
+    return ids.map((id) => ({ id, nome: porId.get(id)! }));
   }
 
-  /** A narrativa do histórico já nasce dizendo quem ficou responsável. */
-  private narrarCriacao(dto: CreateCompromissoDto, equipe: string[]): string {
+  /**
+   * A NARRATIVA NOMEIA QUEM ENTROU — antes só contava.
+   *
+   * "Atividade criada com equipe de 2 pessoas" não diz QUEM, e o histórico é o
+   * único lugar onde isso fica: a equipe muda depois (há na produção um
+   * registro de "3 pessoas" numa atividade que hoje tem 2). Quem abrir o
+   * histórico para entender uma decisão antiga encontrava um número.
+   *
+   * Registros antigos não se reescrevem — log é log. Isto vale de agora em
+   * diante.
+   */
+  private narrarCriacao(dto: CreateCompromissoDto, equipe: { nome: string }[]): string {
     if (!equipe.length) return 'Atividade criada.';
-    return `Atividade criada com equipe de ${equipe.length + 1} pessoas.`;
+    const nomes = equipe.map((e) => e.nome).join(', ');
+    return `Atividade criada com equipe de ${equipe.length + 1} pessoas — também atuam: ${nomes}.`;
   }
 
   // -------------------------------------------------------------------------
@@ -429,6 +447,29 @@ export class AgendaService {
           },
         },
         responsavel: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
+        /*
+          A EQUIPE — e a falta dela aqui fazia o DETALHE mostrar MENOS que a
+          lista, que é o contrário do que se espera de uma tela de detalhe.
+
+          `compromissoSelect` (a listagem) pede `equipe`; este `include` não
+          pedia. O cartão da agenda empilhava os avatares certos e a gaveta, ao
+          abrir o MESMO compromisso, mostrava só o responsável — porque
+          `c.equipe` chegava `undefined` e o bloco "Também atuam" nunca
+          renderizava. O componente estava pronto; o dado é que não vinha.
+
+          Medido na produção em 10/09/2026: das 89 atividades, **9 têm alguém na
+          equipe além do responsável** — nove pessoas que sumiam ao abrir o
+          detalhe. O comentário do select da lista já avisava: "sem isto, uma
+          audiência com três advogados apareceria como se fosse de um".
+
+          Regra que fica: relação que a LISTA devolve, o DETALHE também devolve.
+          Conferi as outras (`filiado`, `responsavel`, `criador`, `processo`) —
+          `equipe` era a única que faltava.
+        */
+        equipe: {
+          select: { principal: true, usuario: responsavelSel },
+          orderBy: EQUIPE_ORDER,
+        },
         // Quem REGISTROU a demanda — agora é uma FK, então vem com nome E FOTO
         // numa consulta só (antes era só um id solto, sem como exibir avatar).
         criador: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true, role: true } },
@@ -581,7 +622,7 @@ export class AgendaService {
                 where: { compromissoId: id },
                 select: { usuarioId: true },
               })).map((e) => e.usuarioId)
-            : equipeIds,
+            : equipeIds.map((e) => e.id),
         });
       }
       return tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelect });

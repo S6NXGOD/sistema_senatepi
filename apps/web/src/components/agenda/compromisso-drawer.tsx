@@ -372,7 +372,16 @@ export function CompromissoDrawer({
 
           {/* Responsável + criação/triagem */}
           <div className="grid grid-cols-1 gap-3">
-            <Bloco titulo="Advogado(a) responsável">
+            {/*
+              "RESPONSÁVEL", e não "Advogado(a) responsável".
+
+              O rótulo afirmava uma profissão que o sistema não garante: das 89
+              atividades da produção, 4 respondem a quem não é advogado (2
+              coordenação, 1 triagem, 1 administrador) — e uma delas é a que o
+              usuário abriu para relatar isto. O perfil real já aparece na linha
+              de baixo, então o rótulo só precisa dizer o PAPEL na atividade.
+            */}
+            <Bloco titulo="Responsável">
               <div className="flex items-center gap-2">
                 <Avatar nome={c.responsavel.nomeExibicao || c.responsavel.nome} url={c.responsavel.avatarUrl} />
                 <div className="min-w-0">
