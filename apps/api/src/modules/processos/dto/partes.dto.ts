@@ -36,6 +36,24 @@ export class AtualizarParteExternaDto extends PartialType(CriarParteExternaDto) 
   @ApiPropertyOptional({ description: 'Desativar preserva o histórico e some dos seletores.' })
   @IsOptional() @IsBoolean()
   ativo?: boolean;
+
+  /**
+   * O ENTE PÚBLICO que responde pelo orçamento desta organização — escolhido à
+   * mão, na tela.
+   *
+   * A varredura da madrugada só consegue provar o vínculo quando o NOME declara
+   * o ente ("MUNICÍPIO DE CORRENTE"): 21 das 77 organizações da produção. As
+   * outras 56 — hospitais, clínicas, cooperativas — dependem de alguém que sabe.
+   * O Hospital Getúlio Vargas é do Estado do Piauí, e não há texto no cadastro
+   * que prove isso.
+   *
+   * Gravar por aqui carimba `enteOrigem = MANUAL`, e a partir daí NENHUMA
+   * varredura encosta. `null` desfaz a escolha e devolve a organização para a
+   * fila do robô.
+   */
+  @ApiPropertyOptional({ description: 'Código do ente no catálogo (IBGE/SICONFI). null desfaz.' })
+  @IsOptional() @IsInt()
+  enteCodigo?: number | null;
 }
 
 export class ListParteExternaQueryDto {

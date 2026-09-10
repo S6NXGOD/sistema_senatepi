@@ -20,6 +20,8 @@ import {
 import { BuscaCnpj } from '@/components/organizacoes/busca-cnpj';
 import { AvisoDuplicatas } from '@/components/organizacoes/aviso-duplicatas';
 import { OrganizacaoDrawer } from '@/components/organizacoes/organizacao-drawer';
+import { SeletorDeEnte } from '@/components/municipios/seletor-de-ente';
+import type { EnteResumido } from '@/lib/municipios';
 import { MesclarModal } from '@/components/organizacoes/mesclar-modal';
 import { PainelDuplicadas } from '@/components/organizacoes/painel-duplicadas';
 
@@ -366,6 +368,11 @@ function FormOrganizacao({
     cidade: inicial?.cidade ?? '',
     uf: inicial?.uf ?? '',
   });
+  /*
+    O ENTE fica FORA de `f` porque não é texto: é um código, e o que a tela
+    guarda é o objeto inteiro para poder mostrar o nome sem outra consulta.
+  */
+  const [ente, setEnte] = useState<EnteResumido | null>(inicial?.ente ?? null);
   const [salvando, setSalvando] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
 
@@ -403,6 +410,11 @@ function FormOrganizacao({
         documento: f.documento.replace(/\D/g, '') || undefined,
         cidade: f.cidade.trim() || undefined,
         uf: f.uf.trim().toUpperCase() || undefined,
+        /*
+          `null` desfaz a escolha e devolve a organização para a fila do robô;
+          um código carimba MANUAL e a varredura nunca mais encosta.
+        */
+        enteCodigo: ente ? ente.codigo : null,
       };
       if (inicial) await atualizarParteExterna(inicial.id, dto);
       else await criarParteExterna(dto);
@@ -517,6 +529,14 @@ function FormOrganizacao({
               <Input maxLength={2} value={f.uf} onChange={(e) => set('uf', e.target.value)} />
             </div>
           </div>
+
+          {/*
+            QUEM PAGA A FOLHA — e por que fica ao lado de Cidade, e não dentro
+            dela: são perguntas diferentes. Cidade é onde a organização fica;
+            o ente é quem responde pelo orçamento. Para a Secretaria de Estado
+            da Saúde as duas respostas são "Teresina" e "Estado do Piauí".
+          */}
+          <SeletorDeEnte valor={ente} onEscolher={setEnte} />
 
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={onFechar}>Cancelar</Button>

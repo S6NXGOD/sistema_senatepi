@@ -93,6 +93,28 @@ export class MunicipiosService {
     });
   }
 
+  /**
+   * BUSCA CURTA PARA SELETOR — atravessa as três esferas.
+   *
+   * A listagem paginada mostra só municípios de propósito (ver `listar`).
+   * Um seletor precisa do contrário: quem vai dizer que o Hospital Getúlio
+   * Vargas é do Estado do Piauí precisa achar o Estado digitando "piaui".
+   *
+   * Ordem: União e Estado antes dos municípios. São 28 contra 5.571, e quem
+   * digita "piaui" quase sempre quer o governo estadual, não um dos oito
+   * municípios cujo nome contém a palavra.
+   */
+  async buscar(termo?: string) {
+    const chave = chaveDeEnte(termo);
+    if (chave.length < 2) return [];
+    return this.prisma.ente.findMany({
+      where: { nomeNormalizado: { contains: chave } },
+      select: { codigo: true, nome: true, uf: true, esfera: true },
+      orderBy: [{ esfera: 'asc' }, { nome: 'asc' }],
+      take: 20,
+    });
+  }
+
   async listar(f: FiltrosMunicipio) {
     const page = Math.max(1, Number(f.page) || 1);
     const pageSize = Math.min(PAGINA_MAXIMA, Math.max(1, Number(f.pageSize) || PAGINA_PADRAO));

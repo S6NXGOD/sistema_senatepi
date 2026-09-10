@@ -189,6 +189,23 @@ export async function getMunicipio(codigo: number): Promise<MunicipioDetalhe> {
  * 5.599 colocaria "Piauí" entre "Picos" e "Pimenteiras", onde ninguém
  * procuraria um governo estadual.
  */
+/** O mínimo para identificar um ente num seletor. */
+export interface EnteResumido {
+  codigo: number;
+  nome: string;
+  uf: string;
+  /** 'M' município, 'E' estado ou DF, 'U' União. */
+  esfera: string;
+}
+
+/**
+ * Busca curta para seletor, atravessando as três esferas — digitar "piauí"
+ * tem de achar o Governo do Estado, não só os municípios com a palavra no nome.
+ */
+export async function buscarEntes(termo: string): Promise<EnteResumido[]> {
+  return (await api.get('/municipios/buscar', { params: { q: termo } })).data;
+}
+
 export async function destaquesDeEntes(): Promise<MunicipioLinha[]> {
   return (await api.get('/municipios/destaques')).data;
 }

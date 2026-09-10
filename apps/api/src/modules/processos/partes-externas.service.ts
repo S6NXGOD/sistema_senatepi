@@ -1,7 +1,9 @@
 import {
   BadRequestException, ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, Prisma, StatusProcesso, TipoParteExterna, UserRole } from '@prisma/client';
+import {
+  AcaoAuditoria, OrigemDaLigacao, Prisma, StatusProcesso, TipoParteExterna, UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import {
@@ -29,6 +31,14 @@ const SELECT = {
   id: true, tipo: true, nome: true, nomeFantasia: true, documento: true,
   email: true, telefone: true, cidade: true, uf: true, observacoes: true,
   ativo: true, createdAt: true, updatedAt: true,
+  /*
+    O ENTE vem junto na listagem para que o formulário de edição já abra com a
+    escolha atual selecionada. Sem isto, editar qualquer campo da organização
+    apagaria a ligação da tela sem ninguém perceber.
+  */
+  enteCodigo: true,
+  enteOrigem: true,
+  ente: { select: { codigo: true, nome: true, uf: true, esfera: true } },
 } satisfies Prisma.ParteExternaSelect;
 
 /** Acento e caixa fora — a comparação de substring precisa ignorar os dois. */
@@ -865,6 +875,19 @@ export class PartesExternasService {
         uf: dto.uf === undefined ? undefined : dto.uf?.trim().toUpperCase() || null,
         observacoes: dto.observacoes === undefined ? undefined : dto.observacoes?.trim() || null,
         ativo: dto.ativo,
+        /*
+          A ESCOLHA DE GENTE FICA CARIMBADA COMO MANUAL, e a varredura da
+          madrugada nunca mais encosta nela — é a mesma disciplina do log de
+          auditoria: o que uma pessoa afirmou não se reescreve sozinho.
+
+          `null` explícito devolve a organização para a fila do robô; `undefined`
+          (campo ausente no corpo) não mexe em nada.
+        */
+        ...(dto.enteCodigo === undefined
+          ? {}
+          : dto.enteCodigo === null
+            ? { enteCodigo: null, enteOrigem: null }
+            : { enteCodigo: dto.enteCodigo, enteOrigem: OrigemDaLigacao.MANUAL }),
       },
       select: SELECT,
     });

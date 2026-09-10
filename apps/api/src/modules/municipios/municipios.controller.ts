@@ -44,6 +44,15 @@ export class MunicipiosController {
    * O Estado da casa e a União — os entes que não são município e que
    * merecem bloco próprio na tela. Literal, portanto ANTES de `:codigo`.
    */
+  /**
+   * Busca curta para seletor, atravessando as três esferas. Literal,
+   * portanto ANTES de `:codigo`.
+   */
+  @Get('buscar')
+  buscar(@Query('q') q?: string) {
+    return this.service.buscar(q);
+  }
+
   @Get('destaques')
   destaques() {
     return this.service.destaques();

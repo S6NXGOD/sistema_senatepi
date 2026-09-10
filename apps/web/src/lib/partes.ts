@@ -10,6 +10,10 @@ export type PoloProcesso = 'ATIVO' | 'PASSIVO' | 'TERCEIRO';
 export type TipoParteExterna = 'FISICA' | 'JURIDICA' | 'ORGAO_PUBLICO';
 
 export interface ParteExterna {
+  /** O ente público responsável — ver `poderPublico` no dossiê. */
+  enteCodigo?: number | null;
+  enteOrigem?: string | null;
+  ente?: { codigo: number; nome: string; uf: string; esfera: string } | null;
   id: string;
   tipo: TipoParteExterna;
   nome: string;
