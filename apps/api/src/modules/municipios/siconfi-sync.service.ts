@@ -100,7 +100,7 @@ export class SiconfiSyncService {
   }
 
   /** Os defasados, do mais antigo para o mais novo, limitados pelo teto da rodada. */
-  private async defasados(codigos: number[], agora: Date): Promise<number[]> {
+  private async defasados(codigos: number[], agora: Date, comTeto: boolean): Promise<number[]> {
     if (!codigos.length) return [];
     const corte = new Date(agora.getTime() - SiconfiSyncService.DIAS_ATE_DEFASAR * 86_400_000);
     const recentes = await this.prisma.indicadorPessoalEnte.findMany({
@@ -109,7 +109,18 @@ export class SiconfiSyncService {
       distinct: ['enteCodigo'],
     });
     const emDia = new Set(recentes.map((r) => r.enteCodigo));
-    return codigos.filter((c) => !emDia.has(c)).slice(0, SiconfiSyncService.POR_RODADA);
+    const fila = codigos.filter((c) => !emDia.has(c));
+    /*
+      O TETO É DO JOB DA MADRUGADA, não de quem clicou.
+
+      Ele existe para o cron não virar uma varredura longa: a base se renova em
+      poucas noites e depois o job passa quase todo dia sem fazer nada. Mas quem
+      aperta "atualizar do Tesouro" espera que atualize — receber "30 de 71" e
+      ter de clicar três vezes é a tela mentindo sobre o que o botão faz. São 71
+      entes; a chamada manual leva o tempo que levar, com o tempo limite
+      estendido que a tela já usa para o CNJ.
+    */
+    return comTeto ? fila.slice(0, SiconfiSyncService.POR_RODADA) : fila;
   }
 
   /**
@@ -124,7 +135,11 @@ export class SiconfiSyncService {
     const inicio = Date.now();
     const alvo = codigosExplicitos?.length
       ? codigosExplicitos
-      : await this.defasados(await this.codigosDeInteresse(), agora);
+      : await this.defasados(
+          await this.codigosDeInteresse(),
+          agora,
+          origem === OrigemSincronizacao.CRON,
+        );
 
     const r: ResultadoSync = {
       municipios: alvo.length,

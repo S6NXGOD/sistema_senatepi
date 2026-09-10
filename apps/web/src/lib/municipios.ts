@@ -219,12 +219,18 @@ export async function municipiosDaUFPelaApi(uf: string): Promise<Array<{ codigo:
 }
 
 /**
- * Buscar os indicadores no Tesouro agora. Pode demorar — a varredura fala com
- * uma API externa, um município por vez — por isso o tempo limite estendido, o
- * mesmo que as consultas ao CNJ usam.
- */
+ * Buscar os indicadores no Tesouro AGORA.
+ *
+ * Demora, e o tempo limite é dimensionado por medição, não por chute: são ~71
+ * entes no universo do sindicato, duas chamadas cada (RGF e RREO) mais um
+ * respiro de 250 ms entre eles. Cinco minutos cobre o caso ruim em que boa
+ * parte não publicou e a janela de períodos precisa ser percorrida inteira.
+ *
+ * Estourar aqui seria pior que demorar: o servidor continuaria trabalhando e a
+ * tela mostraria erro sobre um trabalho que deu certo.
+*/
 export async function sincronizarSiconfi(codigos?: number[]) {
-  return (await api.post('/municipios/sincronizar', { codigos }, { timeout: 180_000 })).data as {
+  return (await api.post('/municipios/sincronizar', { codigos }, { timeout: 300_000 })).data as {
     municipios: number;
     comPessoal: number;
     comSaude: number;

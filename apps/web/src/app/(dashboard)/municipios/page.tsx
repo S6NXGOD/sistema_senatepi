@@ -88,7 +88,7 @@ export default function MunicipiosPage() {
       toast.success(
         r.municipios === 0
           ? 'Todos os indicadores já estavam atualizados.'
-          : `${r.municipios} municípios consultados: ${r.comPessoal} com despesa de pessoal, ${r.semPublicacao} sem publicação.`,
+          : `${r.municipios} entes consultados: ${r.comPessoal} com despesa de pessoal, ${r.semPublicacao} não publicaram no período.`,
       );
       qc.invalidateQueries({ queryKey: ['municipios'] });
     } catch (e) {
@@ -144,7 +144,11 @@ export default function MunicipiosPage() {
               )}
               Ligar cadastros
             </Button>
-            <Button onClick={atualizarDoTesouro} disabled={trabalhando !== null}>
+            <Button
+              onClick={atualizarDoTesouro}
+              disabled={trabalhando !== null}
+              title="Busca no SICONFI os indicadores dos entes onde o sindicato atua. Leva alguns minutos."
+            >
               {trabalhando === 'siconfi' ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
