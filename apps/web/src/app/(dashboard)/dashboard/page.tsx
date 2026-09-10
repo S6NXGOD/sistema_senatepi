@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { formatDataPura } from '@/lib/data-pura';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -1150,7 +1151,7 @@ function PublicacoesDjen({
                     )}
                   </span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                    <span>{new Date(pub.dataDisponibilizacao).toLocaleDateString('pt-BR')}</span>
+                    <span>{formatDataPura(pub.dataDisponibilizacao)}</span>
                     {pub.processo?.numeroCNJ && (
                       <span className="font-mono text-[11px]">
                         · {formatNPU(pub.processo.numeroCNJ)}
@@ -1736,7 +1737,13 @@ function EquipeHoje({ data }: { data: ResumoDashboard }) {
       {proximoPlantao && (
         <div className="mt-3 border-t pt-2.5">
           <p className="px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {new Date(proximoPlantao.data).toLocaleDateString('pt-BR', {
+            {/*
+              DATA PURA: `escalas_advogados.data` é `@db.Date` e chega como
+              meia-noite UTC. `new Date(...).toLocaleDateString` num navegador
+              UTC-3 puxava para 21h do dia anterior — a escala de SEGUNDA
+              aparecia como DOMINGO. Foi o bug relatado, e era meu.
+            */}
+            {formatDataPura(proximoPlantao.data, {
               weekday: 'long',
               day: '2-digit',
               month: '2-digit',

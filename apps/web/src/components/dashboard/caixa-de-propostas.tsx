@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { diasDesdeDataPura } from '@/lib/data-pura';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -176,10 +177,14 @@ function LinhaDaProposta({
 }) {
   const [livre, setLivre] = useState('');
   const adversario = (p.processo?.partes ?? []).find((x) => x.polo === 'PASSIVO')?.nome;
-  const dias = Math.max(
-    0,
-    Math.floor((Date.now() - new Date(p.dataDisponibilizacao).getTime()) / 86_400_000),
-  );
+  /*
+    DIAS POR CALENDÁRIO, não por milissegundos.
+
+    `dataDisponibilizacao` é `@db.Date`: chega como meia-noite UTC. Subtrair um
+    instante disso erra por até um dia inteiro — e "há 2 dias" numa publicação
+    de ontem é o tipo de número que faz alguém tratar como velho o que é novo.
+  */
+  const dias = Math.max(0, diasDesdeDataPura(p.dataDisponibilizacao) ?? 0);
 
   return (
     <li className="px-4 py-3">

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { formatDataPura } from '@/lib/data-pura';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Wallet, Plus, CalendarClock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -81,7 +82,7 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium tabular-nums">{formatBRL(p.valor)}</p>
                         <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <CalendarClock className="h-3 w-3" /> {formatData(p.dataVencimento)} · {TIPO_LABEL[p.tipo]}
+                          <CalendarClock className="h-3 w-3" /> {formatDataPura(p.dataVencimento)} · {TIPO_LABEL[p.tipo]}
                         </p>
                       </div>
                       <Badge className={`${STATUS_COR[st]} shrink-0`}>{STATUS_LABEL[st]}</Badge>

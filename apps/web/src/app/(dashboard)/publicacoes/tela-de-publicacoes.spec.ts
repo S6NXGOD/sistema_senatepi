@@ -179,7 +179,12 @@ describe('a leitura rápida da lista', () => {
    */
   it('a data vira "há N dias" enquanto isso ainda informa', () => {
     expect(CARTAO).toContain('quandoSaiu(pub.dataDisponibilizacao)');
-    expect(CARTAO).toContain('title={formatData(pub.dataDisponibilizacao)}');
+    /*
+      `formatDataPura`, e não `formatData`: `data_disponibilizacao` é `@db.Date`
+      e chega como meia-noite UTC. Com `formatData` a tela mostrava um dia a
+      menos em TODAS as 500 publicações medidas — e é dela que se conta prazo.
+    */
+    expect(CARTAO).toContain('title={formatDataPura(pub.dataDisponibilizacao)}');
     // Passado o limite, o relativo informa MENOS que a data.
     expect(CARTAO).toContain('if (dias <= 60) return `há ${dias} dias`;');
   });

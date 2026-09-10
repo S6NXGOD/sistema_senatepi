@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { formatDataPura } from '@/lib/data-pura';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -23,6 +24,19 @@ type Visao = 'calendario' | 'lista';
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const inputCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
 
+/**
+ * A ASSIMETRIA AQUI É DE PROPÓSITO — não "conserte" para `getUTC*` dos dois
+ * lados.
+ *
+ * `a` é a data da escala vinda da API: `@db.Date`, ou seja meia-noite UTC, e
+ * por isso se lê com `getUTC*`. `b` é a célula do calendário, construída
+ * localmente com `new Date(ano, mes, dia)`, e por isso se lê com `get*`.
+ * Uniformizar os dois lados quebra um deles.
+ *
+ * É esta assimetria que faz o CALENDÁRIO acertar enquanto o cartão do painel
+ * errava: lá eu tinha usado `new Date(x).toLocaleDateString` direto, e a escala
+ * de segunda aparecia no domingo. Ver `lib/data-pura.ts`.
+ */
 function mesmaData(a: Date, b: Date) {
   return a.getUTCFullYear() === b.getFullYear() && a.getUTCMonth() === b.getMonth() && a.getUTCDate() === b.getDate();
 }
@@ -219,7 +233,9 @@ export default function EscalasPage() {
                 <tbody className="divide-y">
                   {escalas.map((e) => (
                     <tr key={e.id} className="hover:bg-muted/30">
-                      <td className="whitespace-nowrap px-4 py-2.5">{new Date(e.data).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' })}</td>
+                      {/* Esta linha já estava certa (`timeZone: 'UTC'` à mão) — passou a usar a
+       regra única para não depender de alguém lembrar do detalhe. */}
+                      <td className="whitespace-nowrap px-4 py-2.5">{formatDataPura(e.data, { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
                       <td className="px-4 py-2.5">
                         <span className="inline-flex items-center gap-2">
                           <span className={cn('h-2.5 w-2.5 rounded-full', cores[e.advogado.id]?.dot ?? 'bg-slate-500')} />

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { formatDataPura } from '@/lib/data-pura';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Bot, ChevronDown, ExternalLink, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -329,7 +330,7 @@ export function PublicacaoDjenCard({
           */}
           <span
             className="whitespace-nowrap text-xs text-muted-foreground"
-            title={formatData(pub.dataDisponibilizacao)}
+            title={formatDataPura(pub.dataDisponibilizacao)}
           >
             {quandoSaiu(pub.dataDisponibilizacao)}
           </span>
@@ -540,9 +541,15 @@ function quandoSaiu(iso: string): string {
   const agoraBR = new Date(Date.now() - 3 * 3_600_000);
   const dias = Math.round((dia(agoraBR) - dia(publicada)) / 86_400_000);
 
-  if (dias < 0) return formatData(iso); // data futura: mostra o que veio
+  /*
+    A CONTA acima já estava certa (`getUTC*` dos dois lados). Os FALLBACKS não:
+    caíam em `formatData`, que constrói o instante e escorrega um dia para trás
+    num fuso negativo. Só apareciam na data futura e na publicação com mais de
+    60 dias — os dois cantos que ninguém olha.
+  */
+  if (dias < 0) return formatDataPura(iso); // data futura: mostra o que veio
   if (dias === 0) return 'hoje';
   if (dias === 1) return 'ontem';
   if (dias <= 60) return `há ${dias} dias`;
-  return formatData(iso);
+  return formatDataPura(iso);
 }

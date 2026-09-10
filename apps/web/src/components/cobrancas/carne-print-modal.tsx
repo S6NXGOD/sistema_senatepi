@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { formatDataPura } from '@/lib/data-pura';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
@@ -94,7 +95,7 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
         <MiniLinha rotulo={V.Filiado} valor={filiado.nomeCompleto} />
         <MiniLinha rotulo="Matrícula" valor={filiado.matricula} />
         <MiniLinha rotulo="Parcela" valor={posicao} />
-        <MiniLinha rotulo="Vencimento" valor={formatData(parcela.dataVencimento)} />
+        <MiniLinha rotulo="Vencimento" valor={formatDataPura(parcela.dataVencimento)} />
         <div className="mt-1 border-t pt-1">
           <p className="text-[8px] uppercase text-gray-500">Valor</p>
           <p className="text-sm font-bold">{formatBRL(parcela.valor)}</p>
@@ -125,8 +126,8 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
         <div className="mt-2 grid grid-cols-4 gap-x-3 gap-y-1 border-y py-2">
           <Campo rotulo={V.Filiado} valor={filiado.nomeCompleto} className="col-span-2" />
           <Campo rotulo="CPF" valor={formatCpf(filiado.cpf)} />
-          <Campo rotulo="Vencimento" valor={formatData(parcela.dataVencimento)} />
-          <Campo rotulo="Competência" valor={formatData(parcela.dataCompetencia)} />
+          <Campo rotulo="Vencimento" valor={formatDataPura(parcela.dataVencimento)} />
+          <Campo rotulo="Competência" valor={formatDataPura(parcela.dataCompetencia)} />
           <Campo rotulo="Valor" valor={formatBRL(parcela.valor)} destaque className="col-span-3" />
         </div>
 

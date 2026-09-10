@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { formatDataPura } from '@/lib/data-pura';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -146,7 +147,7 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{p.numero}</span>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium tabular-nums">{formatBRL(p.valor)}</p>
-                            <p className="text-xs text-muted-foreground">Vence {formatData(p.dataVencimento)}</p>
+                            <p className="text-xs text-muted-foreground">Vence {formatDataPura(p.dataVencimento)}</p>
                           </div>
                           <Badge className={`${STATUS_COR[st]} shrink-0`}>{STATUS_LABEL[st]}</Badge>
                           <ParcelaAcoes
