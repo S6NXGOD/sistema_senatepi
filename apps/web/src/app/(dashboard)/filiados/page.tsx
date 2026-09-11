@@ -29,7 +29,23 @@ import { FiliadoRowActions } from '@/components/filiados/filiado-row-actions';
 import { campoVisivel } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
 
-const VAZIO = { busca: '', coren: '', cidade: '', situacao: '', dataInicio: '', dataFim: '' };
+/**
+ * `municipioCodigo` e `enteCodigo` são FILTROS ESCONDIDOS — não há campo para
+ * eles no painel; chegam só pelos links de Contas Públicas ("moram aqui",
+ * "trabalham para o Estado"). Por isso a ficha deles na fila de filtros ativos
+ * é obrigatória: filtro escondido que não se anuncia faz a contagem parecer
+ * errada.
+ */
+const VAZIO = {
+  busca: '',
+  coren: '',
+  cidade: '',
+  situacao: '',
+  dataInicio: '',
+  dataFim: '',
+  municipioCodigo: '',
+  enteCodigo: '',
+};
 type Filtros = typeof VAZIO;
 
 /** Rótulo de cada filtro nas fichas de "filtros ativos". */
@@ -40,6 +56,8 @@ const ROTULO: Record<keyof Filtros, string> = {
   situacao: 'Situação',
   dataInicio: 'Filiação a partir de',
   dataFim: 'Filiação até',
+  municipioCodigo: 'Mora em',
+  enteCodigo: 'Trabalha para',
 };
 
 export default function FiliadosPage() {
@@ -69,10 +87,23 @@ export default function FiliadosPage() {
     busca: paramsDaUrl.get('busca') ?? '',
     cidade: paramsDaUrl.get('cidade') ?? '',
     situacao: paramsDaUrl.get('situacao') ?? '',
+    // Pelo CÓDIGO, não pelo texto: "TERSINA" ligado à mão a Teresina conta no
+    // número da ficha, e a lista tem de trazer a mesma gente.
+    municipioCodigo: paramsDaUrl.get('municipio') ?? '',
+    enteCodigo: paramsDaUrl.get('ente') ?? '',
   });
 
   const [rascunho, setRascunho] = useState<Filtros>(daUrl);
   const [aplicado, setAplicado] = useState<Filtros>(daUrl);
+  /*
+    O NOME viaja na URL junto com o código para a ficha do filtro dizer "Mora
+    em: Teresina" sem outra chamada. Nome de município e de governo não muda —
+    ao contrário do nome de uma organização, que muda numa mesclagem.
+  */
+  const [nomesDaUrl] = useState(() => ({
+    municipioCodigo: paramsDaUrl.get('municipioNome') ?? '',
+    enteCodigo: paramsDaUrl.get('enteNome') ?? '',
+  }));
   // A ordenação NÃO é filtro: "Limpar filtros" não a desfaz, e mudá-la não
   // depende de clicar em "Aplicar". São dois controles com ritmos diferentes.
   const [ordenar, setOrdenar] = useState<OrdenacaoFiliado>('recentes');
@@ -227,7 +258,11 @@ export default function FiliadosPage() {
                 className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1 text-xs text-brand-900 dark:border-brand-800 dark:bg-brand-900/30 dark:text-brand-100"
               >
                 <span className="opacity-70">{ROTULO[k]}:</span>
-                <strong>{valorLegivel(k, aplicado[k])}</strong>
+                <strong>
+                  {k === 'municipioCodigo' || k === 'enteCodigo'
+                    ? nomesDaUrl[k] || aplicado[k]
+                    : valorLegivel(k, aplicado[k])}
+                </strong>
                 <button
                   type="button"
                   aria-label={`Remover filtro ${ROTULO[k]}`}

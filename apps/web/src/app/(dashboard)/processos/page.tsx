@@ -128,6 +128,12 @@ function ListaProcessos() {
    * nome de município não muda.
    */
   const [comarca, setComarca] = useState<{ codigo: number; nome: string } | null>(null);
+  /**
+   * O ENTE COMO RÉU, vindo de Contas Públicas (`?enteContra=<código>`) — "8
+   * ações contra o Governo do Estado". Não é a comarca: o Estado é réu em ações
+   * que tramitam em qualquer fórum.
+   */
+  const [enteContra, setEnteContra] = useState<{ codigo: number; nome: string } | null>(null);
   const [rapido, setRapido] = useState<
     'todos' | 'preProcessuais' | 'meus' | 'semFiliado' | 'semReu' | 'recentes'
   >('todos');
@@ -308,6 +314,19 @@ function ListaProcessos() {
     '/processos',
   );
 
+  /** `?enteContra=<código>&enteNome=<nome>` — o link "ações contra" de Contas Públicas. */
+  useFiltroPorUrl(
+    'enteContra',
+    (valor) => {
+      const codigo = Number(valor);
+      if (!Number.isInteger(codigo) || codigo <= 0) return;
+      const nome = new URLSearchParams(window.location.search).get('enteNome');
+      setEnteContra({ codigo, nome: nome || String(codigo) });
+      setPage(1);
+    },
+    '/processos',
+  );
+
   /**
    * `?parteExternaId=<id>` filtra pela parte contrária.
    *
@@ -386,6 +405,7 @@ function ListaProcessos() {
       ...(parte ? { parteExternaId: parte.id } : {}),
       ...(assunto ? { assunto } : {}),
       ...(comarca ? { municipioIBGE: comarca.codigo } : {}),
+      ...(enteContra ? { enteContra: enteContra.codigo } : {}),
       ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
       ...(rapido === 'preProcessuais' ? { statusInterno: 'PRE_PROCESSUAL' as const } : {}),
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
@@ -400,11 +420,24 @@ function ListaProcessos() {
       page,
       pageSize: 20,
     }),
-    [buscaDeb, filtros, rapido, janelaRecente, page, parte, ordem],
+    /*
+      TODA VARIÁVEL LIDA ACIMA ESTÁ AQUI — e faltavam duas. `assunto` e
+      `comarca` entravam no objeto mas não na lista de dependências: o memo
+      devolvia o filtro VELHO. Chegando pelo link "processos da comarca", a
+      ficha dizia "Comarca: Teresina" e a lista trazia o acervo inteiro; o
+      mesmo com o link de assunto do Panorama. Há teste cobrando esta lista.
+    */
+    [buscaDeb, filtros, rapido, janelaRecente, page, parte, ordem, assunto, comarca, enteContra],
   );
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['processos', buscaDeb, filtros, rapido, janelaRecente, page, parte?.id, ordem, comarca?.codigo],
+    /*
+      A CHAVE É O PRÓPRIO FILTRO. Ela era uma segunda lista escrita à mão, e as
+      duas listas discordavam: a chave tinha a comarca e o memo não. Com o
+      objeto na chave, o que se pede e o que se guarda em cache são a mesma
+      coisa por construção.
+    */
+    queryKey: ['processos', 'lista', filtro],
     queryFn: () => listarProcessos(filtro),
   });
   const items = data?.items ?? [];
@@ -697,16 +730,18 @@ function ListaProcessos() {
           busca={buscaDeb}
           assunto={assunto}
           comarca={comarca}
+          enteContra={enteContra}
           onLimparCampo={(campo) => {
             setPage(1);
             if (campo === 'busca') { setBusca(''); setBuscaDeb(''); return; }
             if (campo === 'assunto') { setAssunto(''); return; }
             if (campo === 'comarca') { setComarca(null); return; }
+            if (campo === 'enteContra') { setEnteContra(null); return; }
             if (campo === 'parte') { setParte(null); return; }
             setFiltros((f) => ({ ...f, [campo]: '' }));
           }}
           onLimparTudo={() => {
-            setBusca(''); setBuscaDeb(''); setParte(null); setAssunto(''); setComarca(null);
+            setBusca(''); setBuscaDeb(''); setParte(null); setAssunto(''); setComarca(null); setEnteContra(null);
             setFiltros(FILTROS_VAZIOS); setPage(1);
           }}
         />

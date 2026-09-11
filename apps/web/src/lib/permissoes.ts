@@ -47,7 +47,8 @@ export const MODULOS: ModuloInfo[] = [
   // isso o controller da API continua em `@Modulo('processos')`. Ver a nota
   // longa no espelho do backend.
   { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
-  { key: 'municipios', label: 'Municípios e indicadores públicos', grupo: 'Operacional' },
+  // A chave continua `municipios` (identificador); o rótulo é o nome da tela.
+  { key: 'municipios', label: 'Contas públicas (LRF e saúde)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos passaram a viver dentro de
   // Colaboradores e seguem a permissão dele.
   /**

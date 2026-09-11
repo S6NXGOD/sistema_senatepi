@@ -6,28 +6,40 @@ import { BuscaSelect, type ItemBusca } from '@/components/ui/busca-select';
 import { buscarEntes, type EnteResumido } from '@/lib/municipios';
 
 /**
- * QUEM RESPONDE PELO ORÇAMENTO DESTA ORGANIZAÇÃO.
+ * QUEM RESPONDE PELO ORÇAMENTO DESTA ORGANIZAÇÃO — ou, com `soMunicipios`,
+ * qual é o município certo de uma cidade escrita torta.
  *
  * POR QUE ISTO PRECISA DE GENTE. A varredura da madrugada só liga o que o NOME
- * prova ("MUNICÍPIO DE CORRENTE", "ESTADO DO PIAUÍ") — 21 das 77 organizações da
- * produção. As outras 56 são hospitais, clínicas e cooperativas cujo nome não
- * diz nada sobre o orçamento: o Hospital Getúlio Vargas fica em Teresina e quem
- * paga a folha dele é o Estado do Piauí. Não há texto no cadastro que prove
- * isso; há alguém no sindicato que sabe.
+ * prova ("MUNICÍPIO DE CORRENTE", "ESTADO DO PIAUÍ"). Hospitais, clínicas e
+ * cooperativas não dizem no nome quem paga a folha: o Hospital Getúlio Vargas
+ * fica em Teresina e quem responde por ele é o Estado do Piauí. Não há texto no
+ * cadastro que prove isso; há alguém no sindicato que sabe.
  *
  * Escolher aqui carimba a ligação como MANUAL, e a partir daí nenhuma varredura
  * encosta nela. É o mesmo contrato da caixa de propostas: o robô sugere o que
  * consegue provar, a pessoa decide o resto, e a decisão dela não é desfeita.
  *
- * ATRAVESSA AS TRÊS ESFERAS de propósito — digitar "piauí" tem de achar o
- * Governo do Estado, e não só os municípios cujo nome contém a palavra.
+ * ATRAVESSA AS TRÊS ESFERAS por padrão — digitar "piauí" tem de achar o
+ * Governo do Estado. Para cidade de filiado, `soMunicipios`: pessoa mora em
+ * município, e o banco recusaria um Estado.
  */
 export function SeletorDeEnte({
   valor,
   onEscolher,
+  rotulo = 'Ente público responsável',
+  rodape = 'Quem paga a folha desta organização. O Hospital Getúlio Vargas fica em Teresina e quem responde por ele é o Estado — por isso o endereço não serve de resposta.',
+  placeholder = 'Prefeitura, Governo do Estado, União…',
+  soMunicipios = false,
+  autoFocus,
 }: {
   valor: EnteResumido | null;
   onEscolher: (ente: EnteResumido | null) => void;
+  /** Vazio esconde o rótulo — para quando o contexto já diz o que se escolhe. */
+  rotulo?: string;
+  rodape?: string;
+  placeholder?: string;
+  soMunicipios?: boolean;
+  autoFocus?: boolean;
 }) {
   const [trocando, setTrocando] = useState(false);
 
@@ -39,7 +51,7 @@ export function SeletorDeEnte({
         : e.nome;
 
   async function procurar(termo: string): Promise<ItemBusca[]> {
-    const achados = await buscarEntes(termo);
+    const achados = (await buscarEntes(termo)).filter((e) => !soMunicipios || e.esfera === 'M');
     return achados.map((e) => ({
       id: String(e.codigo),
       rotulo: nomeCompleto(e),
@@ -51,7 +63,7 @@ export function SeletorDeEnte({
   if (valor && !trocando) {
     return (
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">Ente público responsável</label>
+        {rotulo && <label className="text-sm font-medium">{rotulo}</label>}
         <div className="flex items-center gap-2 rounded-md border px-3 py-2">
           <Landmark className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate text-sm">{nomeCompleto(valor)}</span>
@@ -77,7 +89,7 @@ export function SeletorDeEnte({
 
   return (
     <div className="space-y-1.5">
-      <label className="text-sm font-medium">Ente público responsável</label>
+      {rotulo && <label className="text-sm font-medium">{rotulo}</label>}
       <BuscaSelect
         onBuscar={procurar}
         onEscolher={(item) => {
@@ -94,8 +106,9 @@ export function SeletorDeEnte({
           });
           setTrocando(false);
         }}
-        placeholder="Prefeitura, Governo do Estado, União…"
-        rodape="Quem paga a folha desta organização. O Hospital Getúlio Vargas fica em Teresina e quem responde por ele é o Estado — por isso o endereço não serve de resposta."
+        placeholder={placeholder}
+        rodape={rodape}
+        autoFocus={autoFocus}
       />
       {trocando && (
         <button

@@ -16,6 +16,23 @@ export interface Usuario {
   role: PerfilUsuario;
   permissoes?: MatrizPermissoes | null;
   avatarUrl?: string | null;
+  /**
+   * Guias de primeiro acesso já vistos. Só existe quando veio DO SERVIDOR nesta
+   * sessão — nunca é guardado no navegador (ver `paraGuardar`). Ausente quer
+   * dizer "ainda não sei", e o guia espera; ver `lib/guias.ts`.
+   */
+  guiasVistos?: string[];
+}
+
+/**
+ * O QUE VAI PARA O `localStorage`: o usuário SEM o que só vale se for fresco.
+ * Um `guiasVistos` de ontem, lido no celular, reabriria o guia que a pessoa
+ * fechou hoje no computador.
+ */
+function paraGuardar(u: Usuario): string {
+  const copia: Usuario = { ...u };
+  delete copia.guiasVistos;
+  return JSON.stringify(copia);
 }
 
 interface AuthContextValue {
@@ -65,8 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: data.role,
             permissoes: data.permissoes ?? null,
             avatarUrl: data.avatarUrl ?? null,
+            // Ausente se a API ainda for a anterior (janela de troca): aí o
+            // guia simplesmente não abre sozinho, em vez de abrir sempre.
+            guiasVistos: Array.isArray(data.guiasVistos) ? data.guiasVistos : undefined,
           };
-          persistentStore.set(USER_KEY, JSON.stringify(atual));
+          persistentStore.set(USER_KEY, paraGuardar(atual));
           setUser(atual);
         })
         .catch(() => {
@@ -100,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // ela não pode ler o cache do anterior nem por um render.
     qc.clear();
     tokenStore.set(data.accessToken, data.refreshToken);
-    persistentStore.set(USER_KEY, JSON.stringify(data.user));
+    persistentStore.set(USER_KEY, paraGuardar(data.user));
     setUser(data.user);
     router.push('/dashboard');
   }
@@ -122,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((atual) => {
       if (!atual) return atual;
       const novo = { ...atual, ...parcial };
-      persistentStore.set(USER_KEY, JSON.stringify(novo));
+      persistentStore.set(USER_KEY, paraGuardar(novo));
       return novo;
     });
   }

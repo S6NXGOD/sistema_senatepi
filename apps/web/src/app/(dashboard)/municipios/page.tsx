@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, Building2, FileDown, Gavel, Landmark, Link2, Loader2, RefreshCw, Search, Users,
+  ArrowUpDown, CircleHelp, FileDown, HandCoins, Landmark, Link2, Loader2, RefreshCw, Scale, Search,
+  Users, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,72 +16,181 @@ import { podeEditar } from '@/lib/permissoes';
 import { UFS } from '@/lib/endereco';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { baixarPdf } from '@/lib/pdf';
+import { GuiaRapido, type PassoDoGuia } from '@/components/guia-rapido';
+import { useGuiaDePrimeiroAcesso } from '@/lib/guias';
 import { MunicipioDrawer } from '@/components/municipios/municipio-drawer';
+import { PendenciasDeLigacao } from '@/components/municipios/pendencias-de-ligacao';
 import {
-  casarCadastrosComIBGE, destaquesDeEntes, listarMunicipios, numeroBR,
-  pendenciasDeMunicipio, percentualBR,
-  PESO_SITUACAO, SITUACAO_FISCAL, sincronizarSiconfi, type MunicipioLinha,
+  casarCadastrosComIBGE, CHIP_SITUACAO, destaquesDeEntes, frasesDaPresenca, listarMunicipios,
+  numeroBR, ORDENS_LISTA, pendenciasDeMunicipio, percentualBR, PESO_SITUACAO, presencaDe,
+  rotuloDoEscopo, SITUACAO_FISCAL, sincronizarSiconfi,
+  type EscopoLista, type FiltroSituacao, type MunicipioLinha, type OrdemLista, type PaginaMunicipios,
 } from '@/lib/municipios';
 
 /**
- * MUNICÍPIOS E INDICADORES PÚBLICOS.
+ * CONTAS PÚBLICAS (rota `/municipios`, módulo `municipios`).
  *
- * POR QUE ESTA TELA EXISTE. Quase toda contraparte do sindicato é um município:
- * ele emprega o filiado, figura como réu no processo e é com ele que se negocia.
- * Até aqui o sistema guardava essa contraparte como TEXTO — sete grafias de
- * Teresina conviviam no cadastro. Agora ela tem código do IBGE, e junto vêm os
- * números que o próprio município declarou ao Tesouro.
+ * PARA QUE SERVE, na frase que abre a tela: conferir, antes de sentar à mesa,
+ * se a prefeitura ou o Governo do Estado pode dar aumento — com os números que
+ * o próprio ente declarou ao Tesouro. O nome antigo ("Municípios") dizia o que
+ * a tela LISTA; ninguém procura "catálogo do IBGE" no menu quando quer saber se
+ * a Prefeitura de Timon está no limite prudencial.
  *
- * A ABERTURA PADRÃO É "ONDE O SINDICATO ESTÁ", e não o catálogo inteiro. São
- * 5.571 municípios no Brasil e 72 onde há filiado, organização ou processo.
- * Abrir em 5.571 seria abrir numa lista de nomes sem relação com o trabalho —
- * quem quiser o Brasil todo desmarca uma caixa.
+ * ABRE EM "ONDE ATUAMOS": 64 municípios onde há filiado morando, gente
+ * trabalhando para a prefeitura, ação contra ela ou organização cadastrada. A
+ * comarca NÃO põe ninguém na lista — Brasília entrava por 12 ações que só
+ * tramitam lá. O estado inteiro e o Brasil ficam a um toque.
  *
- * A COLUNA QUE IMPORTA É A DA LRF. Acima do limite prudencial o município está
- * proibido por lei de conceder aumento; abaixo, não está. É a resposta que a
- * mesa de negociação começa perguntando.
+ * O FILTRO É DE UM TOQUE, e mostra quanto há em cada opção antes de apertar.
+ * A versão anterior tinha duas caixas de marcar, um seletor com 27 estados e
+ * um botão "Buscar" — três controles de ritmos diferentes para uma pergunta só.
  */
-export default function MunicipiosPage() {
+
+const PASSOS: PassoDoGuia[] = [
+  {
+    icone: HandCoins,
+    titulo: 'Para que serve esta tela',
+    texto: (
+      <>
+        <p>
+          Antes de negociar com uma prefeitura ou com o Governo do Estado, confira aqui se a lei deixa
+          dar aumento — e quanto a folha ainda pode crescer.
+        </p>
+        <p>Os números são o que o próprio governo declarou ao Tesouro Nacional. É difícil ele desmentir.</p>
+      </>
+    ),
+  },
+  {
+    icone: Scale,
+    titulo: 'A cor responde: pode dar aumento?',
+    texto: (
+      <>
+        <p>
+          <strong className="text-foreground">Verde</strong>: dentro do limite — a Lei de
+          Responsabilidade Fiscal não impede. <strong className="text-foreground">Amarelo</strong>: em
+          alerta, mas ainda pode.
+        </p>
+        <p>
+          <strong className="text-foreground">Laranja ou vermelho</strong>: proibido de dar aumento —
+          mas a revisão geral anual e o que vem de sentença ou de lei continuam permitidos.{' '}
+          <strong className="text-foreground">Cinza</strong>: não há número para levar à mesa.
+        </p>
+      </>
+    ),
+  },
+  {
+    icone: Users,
+    titulo: '"Nossa presença" diz o que temos ali',
+    texto: (
+      <>
+        <p>
+          <strong className="text-foreground">Moram</strong>: filiados com endereço no município.{' '}
+          <strong className="text-foreground">Trabalham</strong>: filiados com vínculo num órgão daquele
+          governo. <strong className="text-foreground">Ações contra</strong>: processos do sindicato em
+          que ele é réu.
+        </p>
+        <p>Na ficha, cada número abre a lista de pessoas ou de processos.</p>
+      </>
+    ),
+  },
+  {
+    icone: Search,
+    titulo: 'Filtre com um toque',
+    texto: (
+      <p>
+        A tela abre em <strong className="text-foreground">Onde atuamos</strong>; troque para o estado
+        inteiro ou o Brasil quando precisar. Os botões de situação mostram, por exemplo, só quem está
+        proibido de dar aumento — com a quantidade ao lado.
+      </p>
+    ),
+  },
+  {
+    icone: FileDown,
+    titulo: 'Leve para a reunião',
+    texto: (
+      <>
+        <p>
+          Na ficha de cada governo há a <strong className="text-foreground">ficha para negociação</strong>{' '}
+          em PDF: a resposta da lei, quanto a folha pode crescer e como ele está perto dos vizinhos.
+        </p>
+        <p>
+          Para rever este guia, toque em <strong className="text-foreground">Como ler</strong>, no alto
+          da tela.
+        </p>
+      </>
+    ),
+  },
+];
+
+const ESCOPOS: EscopoLista[] = ['atuacao', 'uf', 'brasil'];
+
+export default function ContasPublicasPage() {
   const { user } = useAuth();
   const podeMexer = podeEditar(user?.role, user?.permissoes, 'municipios');
   const qc = useQueryClient();
+  const guia = useGuiaDePrimeiroAcesso('contas-publicas');
 
   const [busca, setBusca] = useState('');
-  const [aplicado, setAplicado] = useState('');
+  const [buscaAplicada, setBuscaAplicada] = useState('');
+  const [escopo, setEscopo] = useState<EscopoLista>('atuacao');
   const [uf, setUf] = useState('');
-  const [soComVinculo, setSoComVinculo] = useState(true);
-  const [soAcimaDoLimite, setSoAcimaDoLimite] = useState(false);
+  const [situacao, setSituacao] = useState<FiltroSituacao | ''>('');
+  const [ordem, setOrdem] = useState<OrdemLista>('presenca');
   const [page, setPage] = useState(1);
   const [abrindo, setAbrindo] = useState<MunicipioLinha | null>(null);
   const [trabalhando, setTrabalhando] = useState<'siconfi' | 'casar' | 'pdf' | null>(null);
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['municipios', aplicado, uf, soComVinculo, soAcimaDoLimite, page],
+  /*
+    A BUSCA ANDA SOZINHA, com 300 ms de respiro — sem botão "Buscar". O botão
+    era um terceiro controle com ritmo próprio: quem digitava "picos" e mudava
+    o estado via a lista antiga até lembrar de apertar.
+  */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setBuscaAplicada(busca.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [busca]);
+
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ['municipios', 'lista', escopo, uf, situacao, ordem, buscaAplicada, page],
     queryFn: () =>
-      listarMunicipios({ busca: aplicado, uf, soComVinculo, soAcimaDoLimite, page, pageSize: 25 }),
+      listarMunicipios({
+        escopo,
+        uf: escopo === 'brasil' ? uf : undefined,
+        situacao,
+        ordem,
+        busca: buscaAplicada,
+        page,
+        pageSize: 25,
+      }),
     placeholderData: (anterior) => anterior,
   });
 
+  /* A faixa de pendências é trabalho de quem pode editar — não se busca para quem só consulta. */
   const { data: pend } = useQuery({
     queryKey: ['municipios', 'pendencias'],
     queryFn: pendenciasDeMunicipio,
+    enabled: podeMexer,
   });
 
-  /**
-   * O ESTADO E A UNIÃO vêm por fora da paginação — ver `destaquesDeEntes`.
-   * Para um sindicato da enfermagem do Piauí o Governo do Estado não é mais um
-   * item de uma lista: é o segundo maior empregador da base (42 vínculos, 19
-   * deles no Hospital Getúlio Vargas) e tem teto de LRF diferente do municipal.
-   */
   const { data: destaques } = useQuery({
     queryKey: ['municipios', 'destaques'],
     queryFn: destaquesDeEntes,
   });
 
-  function aplicarBusca() {
-    setAplicado(busca.trim());
+  const recarregar = () => qc.invalidateQueries({ queryKey: ['municipios'] });
+  const mudar = (f: () => void) => {
+    f();
     setPage(1);
-  }
+  };
+
+  const ufDaCasa = data?.ufDaCasa ?? pend?.ufDaCasa ?? '';
+  const nomeDaUF = UFS.find((u) => u.sigla === ufDaCasa)?.nome ?? ufDaCasa;
+  const contagens = data?.contagens;
+  const itens = data?.items ?? [];
+  const temFiltro = !!buscaAplicada || !!situacao || escopo !== 'atuacao';
 
   async function atualizarDoTesouro() {
     setTrabalhando('siconfi');
@@ -88,10 +198,10 @@ export default function MunicipiosPage() {
       const r = await sincronizarSiconfi();
       toast.success(
         r.municipios === 0
-          ? 'Todos os indicadores já estavam atualizados.'
-          : `${r.municipios} entes consultados: ${r.comPessoal} com despesa de pessoal, ${r.semPublicacao} não publicaram no período.`,
+          ? 'Todos os números já estavam atualizados.'
+          : `${r.municipios} consultados: ${r.comPessoal} com despesa de pessoal, ${r.semPublicacao} não publicaram no período.`,
       );
-      qc.invalidateQueries({ queryKey: ['municipios'] });
+      recarregar();
     } catch (e) {
       toast.error((e as Error).message || 'Não foi possível falar com o Tesouro Nacional.');
     } finally {
@@ -107,9 +217,9 @@ export default function MunicipiosPage() {
         `${r.filiados.ligados} filiados e ${r.organizacoes.ligados} organizações ligados ao IBGE.` +
           (r.filiados.semResolver ? ` ${r.filiados.semResolver} ficaram para conferência.` : ''),
       );
-      qc.invalidateQueries({ queryKey: ['municipios'] });
+      recarregar();
     } catch (e) {
-      toast.error((e as Error).message || 'Não foi possível casar os cadastros.');
+      toast.error((e as Error).message || 'Não foi possível ligar os cadastros.');
     } finally {
       setTrabalhando(null);
     }
@@ -118,7 +228,7 @@ export default function MunicipiosPage() {
   async function baixarRelatorio() {
     setTrabalhando('pdf');
     try {
-      await baixarPdf('/municipios/relatorio.pdf', 'entes-publicos.pdf');
+      await baixarPdf('/municipios/relatorio.pdf', 'contas-publicas.pdf');
     } catch {
       toast.error('Não foi possível gerar o relatório.');
     } finally {
@@ -126,250 +236,260 @@ export default function MunicipiosPage() {
     }
   }
 
-  const itens = data?.items ?? [];
+  function limparFiltros() {
+    setBusca('');
+    setBuscaAplicada('');
+    setSituacao('');
+    setEscopo('atuacao');
+    setUf('');
+    setPage(1);
+  }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* ------------------------------------------------------- cabeçalho */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Landmark className="h-6 w-6 shrink-0 text-brand-800 dark:text-brand-400" />
-            Municípios
+            <HandCoins className="h-6 w-6 shrink-0 text-brand-800 dark:text-brand-400" />
+            Contas Públicas
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Catálogo do IBGE com os indicadores que o município declarou ao Tesouro Nacional.
+            Quanto cada prefeitura e o Governo do Estado gastam com pessoal — e se a lei deixa dar
+            aumento.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={guia.abrir}>
+            <CircleHelp className="h-4 w-4" /> Como ler
+          </Button>
           {/*
-            O PDF É PARA QUEM NÃO TEM LOGIN. A diretoria discute em reunião, o
-            advogado leva a pasta para a audiência e a assembleia recebe cópia —
-            três portas por onde a tela não passa. Por isso é `GET` e basta
-            VISUALIZAR: quem consulta precisa poder imprimir.
+            O PDF É PARA QUEM NÃO TEM LOGIN: a diretoria discute em reunião, o
+            advogado leva a pasta, a assembleia recebe cópia. `GET`, e basta
+            VISUALIZAR — quem consulta precisa poder imprimir.
           */}
           <Button
             variant="outline"
             onClick={baixarRelatorio}
             disabled={trabalhando !== null}
-            title="Uma folha com a legenda em português, a tabela dos entes e as ressalvas. Serve para levar à reunião."
+            title="Uma folha com a legenda em português, a tabela de onde atuamos e as ressalvas."
           >
-            {trabalhando === 'pdf' ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FileDown className="mr-2 h-4 w-4" />
-            )}
+            {trabalhando === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
             Relatório em PDF
           </Button>
-          {podeMexer && (
-            <>
-              <Button
-                variant="outline"
-                onClick={casarCadastros}
-                disabled={trabalhando !== null}
-                title="Reconhece o município por trás da cidade digitada no cadastro"
-              >
-                {trabalhando === 'casar' ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Link2 className="mr-2 h-4 w-4" />
-                )}
-                Ligar cadastros
-              </Button>
-              <Button
-                onClick={atualizarDoTesouro}
-                disabled={trabalhando !== null}
-                title="Busca no SICONFI os indicadores dos entes onde o sindicato atua. Leva alguns minutos."
-              >
-                {trabalhando === 'siconfi' ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Atualizar do Tesouro
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
-      {/*
-        A PENDÊNCIA APARECE COMO UMA LINHA, e só quando existe. Um bloco fixo
-        dizendo "0 pendências" gasta uma dobra para não informar nada; e esconder
-        que 20 filiados moram numa cidade que o sistema não soube identificar
-        seria fingir que o casamento fechou.
-      */}
-      {/*
-        "AINDA NÃO RODOU" NÃO É "NÃO BATE" — e a faixa dizia a segunda coisa.
-
-        Ela anunciava "3.016 filiados com cidade que não bate com o catálogo do
-        IBGE: Teresina (2.138)...". Teresina bate. O que havia era o casamento
-        nunca ter sido executado, e o sistema estava acusando o cadastro de um
-        defeito que era dele. Agora são dois avisos diferentes, e o primeiro
-        oferece o botão em vez de apontar o dedo.
-      */}
-      {pend && !pend.jaRodou && pend.totalComCidade > 0 && (
+      {/* -------------------------------------------- pendências (editores) */}
+      {podeMexer && pend && !pend.jaRodou && pend.totalComCidade > 0 && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm dark:border-sky-900 dark:bg-sky-950/30">
           <Link2 className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
           <span className="min-w-0">
             Os cadastros ainda não foram ligados ao catálogo do IBGE.{' '}
             <span className="text-muted-foreground">
-              {pend.totalComCidade.toLocaleString('pt-BR')} filiados têm cidade preenchida e estão
-              esperando.
+              {numeroBR(pend.totalComCidade)} filiados têm cidade preenchida e estão esperando.
             </span>
           </span>
-          {podeMexer && (
-            <button
-              type="button"
-              onClick={casarCadastros}
-              disabled={trabalhando !== null}
-              className="font-semibold text-sky-800 underline underline-offset-2 hover:no-underline disabled:opacity-50 dark:text-sky-300"
-            >
-              ligar agora
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={casarCadastros}
+            disabled={trabalhando !== null}
+            className="inline-flex min-h-9 items-center font-semibold text-sky-800 underline underline-offset-2 hover:no-underline disabled:opacity-50 dark:text-sky-300"
+          >
+            ligar agora
+          </button>
         </div>
       )}
+      {podeMexer && pend && <PendenciasDeLigacao pend={pend} onMudou={recarregar} />}
 
-      {pend && pend.jaRodou && pend.filiadosSemMunicipio.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span className="min-w-0">
-            <strong className="font-semibold">
-              {pend.filiadosSemMunicipio.reduce((a, p) => a + p.quantos, 0)} filiados
-            </strong>{' '}
-            com cidade que não bate com o catálogo do IBGE:{' '}
-            <span className="text-muted-foreground">
-              {pend.filiadosSemMunicipio
-                .slice(0, 4)
-                .map((p) => `${p.cidade}${p.estado ? '/' + p.estado : ''} (${p.quantos})`)
-                .join(', ')}
-              {pend.filiadosSemMunicipio.length > 4 ? '…' : ''}
+      {/* ------------------------------------------ o Governo do Estado */}
+      {destaques?.map((e) => (
+        <button
+          key={e.codigo}
+          type="button"
+          onClick={() => setAbrindo(e)}
+          className="flex w-full flex-col gap-2 rounded-xl border bg-card p-3 text-left transition hover:bg-muted/40 sm:flex-row sm:items-center sm:gap-4"
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-300">
+              <Landmark className="h-5 w-5" />
             </span>
-          </span>
-        </div>
-      )}
-
-      {/* ------------------------------------------- Estado e União, fixos */}
-      {destaques && destaques.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {destaques.map((e) => (
-            <button
-              key={e.codigo}
-              type="button"
-              onClick={() => setAbrindo(e)}
-              className="flex items-start gap-3 rounded-xl border bg-card p-3 text-left transition hover:bg-muted/40"
-            >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-300">
-                <Landmark className="h-4.5 w-4.5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {e.esfera === 'U' ? e.nome : `Governo do Estado — ${e.nome}`}
-                </p>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <SeloFiscal m={e} />
-                </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Governo do Estado — {e.nome}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <SeloFiscal m={e} />
                 {/*
                   O TETO DO ESTADO É OUTRO (49% da receita, contra 54% do
                   município). Sem dizer isso, quem comparasse os dois números
                   lado a lado tiraria a conclusão errada.
                 */}
-                {e.esfera === 'E' && e.fiscal.limiteMaximo != null && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Teto estadual de {percentualBR(e.fiscal.limiteMaximo)} — o municipal é outro.
-                  </p>
+                {e.fiscal.limiteMaximo != null && (
+                  <span className="text-[11px] text-muted-foreground">
+                    teto estadual de {percentualBR(e.fiscal.limiteMaximo)} — o municipal é outro
+                  </span>
                 )}
-                <Presenca m={e} />
               </div>
-            </button>
-          ))}
-        </div>
-      )}
+              {/*
+                O SELO VERDE NÃO BASTA NO FIM DO MANDATO. Em setembro de 2026 o
+                Governo do Piauí estava em 37% — e, desde julho, qualquer aumento
+                seria nulo pelo art. 21 da LRF. O cartão diz isso na cara.
+              */}
+              {e.calendario && (
+                <p className="mt-1.5 text-[11px] font-medium leading-snug text-amber-800 dark:text-amber-300">
+                  {e.calendario.fimDeMandato
+                    ? 'Fim de mandato: aumento concedido agora é nulo pela LRF (art. 21), mesmo dentro do limite.'
+                    : 'Ano de eleição: a revisão geral não pode passar da inflação do ano.'}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 pl-[52px] text-xs sm:block sm:pl-0 sm:text-right">
+            <Presenca m={e} />
+            <span className="font-medium text-brand-800 dark:text-brand-400 sm:mt-0.5 sm:block">ver ficha →</span>
+          </div>
+        </button>
+      ))}
 
       {/* --------------------------------------------------------- filtros */}
       <Card>
-        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <CardContent className="space-y-3 p-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && aplicarBusca()}
               placeholder="Buscar município…"
-              className="pl-8"
+              aria-label="Buscar município"
+              enterKeyHint="search"
+              className="pl-9 pr-11"
             />
+            {busca && (
+              <button
+                type="button"
+                aria-label="Limpar busca"
+                onClick={() => setBusca('')}
+                className="absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
-          <select
-            value={uf}
-            onChange={(e) => {
-              setUf(e.target.value);
-              setPage(1);
-            }}
-            aria-label="Estado"
-            className="h-12 rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm"
-          >
-            <option value="">Todos os estados</option>
-            {UFS.map((u) => (
-              <option key={u.sigla} value={u.sigla}>
-                {u.sigla} — {u.nome}
-              </option>
+
+          {/*
+            ONDE PROCURAR — três opções, com a quantidade de cada uma. Com busca,
+            a quantidade é do que a busca achou ali: "Onde atuamos 0 · Piauí 2 ·
+            Brasil 54" diz onde está o que se procura sem precisar adivinhar.
+          */}
+          <div role="group" aria-label="Onde procurar" className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+            {ESCOPOS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                aria-pressed={escopo === e}
+                onClick={() => mudar(() => setEscopo(e))}
+                className={cn(
+                  'min-h-11 rounded-md px-1.5 py-1 text-sm font-medium leading-tight transition',
+                  escopo === e
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <span className="block truncate">{rotuloDoEscopo(e, nomeDaUF)}</span>
+                {contagens && (
+                  <span className="block text-[11px] font-normal tabular-nums text-muted-foreground">
+                    {numeroBR(contagens.escopos[e])}
+                  </span>
+                )}
+              </button>
             ))}
-          </select>
-          <Button variant="outline" onClick={aplicarBusca} className="sm:w-auto">
-            Buscar
-          </Button>
-        </CardContent>
-        <CardContent className="flex flex-wrap gap-x-4 gap-y-2 border-t p-3 pt-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={soComVinculo}
-              onChange={(e) => {
-                setSoComVinculo(e.target.checked);
-                setPage(1);
-              }}
-              className="h-4 w-4"
+          </div>
+
+          {escopo === 'brasil' && (
+            <select
+              value={uf}
+              onChange={(e) => mudar(() => setUf(e.target.value))}
+              aria-label="Estado"
+              className="h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm"
+            >
+              <option value="">Todos os estados</option>
+              {UFS.map((u) => (
+                <option key={u.sigla} value={u.sigla}>
+                  {u.sigla} — {u.nome}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/*
+            A SITUAÇÃO, em português de quem negocia. Rola de lado no celular em
+            vez de quebrar em três linhas; tocar de novo no chip ativo desliga.
+          */}
+          <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none]">
+            <ChipSituacao
+              ativo={situacao === ''}
+              rotulo="Todas"
+              n={contagens?.situacao.todas}
+              onClick={() => mudar(() => setSituacao(''))}
             />
-            Só onde o sindicato atua
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={soAcimaDoLimite}
-              onChange={(e) => {
-                setSoAcimaDoLimite(e.target.checked);
-                setPage(1);
-              }}
-              className="h-4 w-4"
-            />
-            Só quem está no limite da LRF
-          </label>
+            {(Object.keys(CHIP_SITUACAO) as FiltroSituacao[]).map((k) => (
+              <ChipSituacao
+                key={k}
+                ativo={situacao === k}
+                rotulo={CHIP_SITUACAO[k].rotulo}
+                ponto={CHIP_SITUACAO[k].ponto}
+                titulo={CHIP_SITUACAO[k].ajuda}
+                n={contagens?.situacao[k]}
+                onClick={() => mudar(() => setSituacao(situacao === k ? '' : k))}
+              />
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+              {data && (
+                <span>
+                  <strong className="text-foreground">{numeroBR(data.total)}</strong>{' '}
+                  {data.total === 1 ? 'município' : 'municípios'}
+                </span>
+              )}
+              {isFetching && !isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-label="Atualizando" />}
+            </p>
+            <label className="relative">
+              <span className="sr-only">Ordenar</span>
+              <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <select
+                value={ordem}
+                onChange={(e) => mudar(() => setOrdem(e.target.value as OrdemLista))}
+                className="h-11 rounded-md border border-input bg-background pl-9 pr-3 text-sm md:h-9"
+              >
+                {ORDENS_LISTA.map((o) => (
+                  <option key={o.valor} value={o.valor}>
+                    {o.rotulo}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </CardContent>
       </Card>
 
       {/* ---------------------------------------------------------- lista */}
       {error ? (
-        <FalhaAoCarregar erro={error} onTentarDeNovo={refetch} oQue="os municípios" />
+        <FalhaAoCarregar erro={error} onTentarDeNovo={refetch} oQue="as contas públicas" />
       ) : isLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-7 w-7 animate-spin text-brand-800 dark:text-brand-400" />
         </div>
       ) : itens.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <p className="text-sm text-muted-foreground">
-              {aplicado || uf || soAcimaDoLimite
-                ? 'Nenhum município com esses filtros.'
-                : 'O catálogo do IBGE ainda não foi carregado nesta instalação.'}
-            </p>
-            {soComVinculo && !aplicado && (
-              <Button variant="ghost" className="mt-2" onClick={() => setSoComVinculo(false)}>
-                Ver o catálogo inteiro
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+        <Vazio
+          escopo={escopo}
+          busca={buscaAplicada}
+          contagens={contagens}
+          temFiltro={temFiltro}
+          nomeDaUF={nomeDaUF}
+          onEscopo={(e) => mudar(() => setEscopo(e))}
+          onLimpar={limparFiltros}
+        />
       ) : (
         <Card>
           {/* ------ desktop ------ */}
@@ -378,22 +498,19 @@ export default function MunicipiosPage() {
               <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 font-semibold">Município</th>
-                  <th className="px-3 py-2 font-semibold">Despesa com pessoal</th>
+                  <th className="px-3 py-2 font-semibold">Gasto com pessoal</th>
                   <th className="px-3 py-2 font-semibold">Saúde</th>
-                  <th className="px-3 py-2 text-right font-semibold">O sindicato ali</th>
+                  <th className="px-3 py-2 text-right font-semibold">Nossa presença</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {itens.map((m) => (
-                  <tr
-                    key={m.codigo}
-                    onClick={() => setAbrindo(m)}
-                    className="cursor-pointer transition hover:bg-muted/40"
-                  >
+                  <tr key={m.codigo} onClick={() => setAbrindo(m)} className="cursor-pointer transition hover:bg-muted/40">
                     <td className="px-3 py-2.5">
-                      <p className="font-medium">
-                        {m.nome} <span className="text-muted-foreground">{m.uf}</span>
-                      </p>
+                      <button type="button" onClick={() => setAbrindo(m)} className="text-left font-medium hover:underline">
+                        {m.nome}
+                        <SiglaDeFora m={m} />
+                      </button>
                       <p className="text-xs text-muted-foreground">
                         {m.populacao ? `${numeroBR(m.populacao)} hab.` : `IBGE ${m.codigo}`}
                       </p>
@@ -408,8 +525,8 @@ export default function MunicipiosPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5">
-                      <Presenca m={m} alinharDireita />
+                    <td className="px-3 py-2.5 text-right">
+                      <Presenca m={m} />
                     </td>
                   </tr>
                 ))}
@@ -429,7 +546,8 @@ export default function MunicipiosPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-medium">
-                        {m.nome} <span className="text-muted-foreground">{m.uf}</span>
+                        {m.nome}
+                        <SiglaDeFora m={m} />
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {m.populacao ? `${numeroBR(m.populacao)} hab.` : `IBGE ${m.codigo}`}
@@ -440,7 +558,9 @@ export default function MunicipiosPage() {
                     </div>
                     <SeloFiscal m={m} />
                   </div>
-                  <Presenca m={m} />
+                  <div className="mt-1.5 text-xs">
+                    <Presenca m={m} />
+                  </div>
                 </button>
               </li>
             ))}
@@ -450,20 +570,12 @@ export default function MunicipiosPage() {
           {data && data.totalPaginas > 1 && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t p-3 text-sm">
               <span className="text-muted-foreground">
-                {data.total.toLocaleString('pt-BR')} municípios
+                página {data.page} de {data.totalPaginas}
               </span>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                   Anterior
                 </Button>
-                <span className="tabular-nums">
-                  {data.page} de {data.totalPaginas}
-                </span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -485,8 +597,144 @@ export default function MunicipiosPage() {
       */}
       {itens.length > 0 && <LegendaDoQueEstaNaTela itens={itens} />}
 
+      {/*
+        MANUTENÇÃO NO FIM, e não no cabeçalho. Os dois botões rodam sozinhos
+        toda madrugada; no topo, eles eram três quartos das ações da tela e a
+        coisa menos usada dela.
+      */}
+      {podeMexer && (
+        <div className="flex flex-col gap-2 rounded-lg border border-dashed p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted-foreground">
+            <strong className="font-medium text-foreground">Os números se atualizam sozinhos</strong> toda
+            madrugada: a consulta ao Tesouro e a ligação dos cadastros. Use os botões só se precisar agora.
+          </p>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={casarCadastros}
+              disabled={trabalhando !== null}
+              title="Reconhece o município por trás da cidade digitada no cadastro"
+            >
+              {trabalhando === 'casar' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              Ligar cadastros
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={atualizarDoTesouro}
+              disabled={trabalhando !== null}
+              title="Busca no Tesouro os números de onde o sindicato atua. Leva alguns minutos."
+            >
+              {trabalhando === 'siconfi' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Atualizar do Tesouro
+            </Button>
+          </div>
+        </div>
+      )}
+
       {abrindo && <MunicipioDrawer municipio={abrindo} onFechar={() => setAbrindo(null)} />}
+      <GuiaRapido titulo="Guia rápido" passos={PASSOS} aberto={guia.aberto} onFechar={guia.fechar} />
     </div>
+  );
+}
+
+/** A UF só aparece para quem é de FORA do estado da casa — "Teresina PI" 64 vezes é ruído. */
+function SiglaDeFora({ m }: { m: MunicipioLinha }) {
+  if (!m.foraDaUF) return null;
+  return (
+    <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 align-middle text-[10px] font-semibold text-muted-foreground">
+      {m.uf}
+    </span>
+  );
+}
+
+function ChipSituacao({
+  ativo,
+  rotulo,
+  n,
+  ponto,
+  titulo,
+  onClick,
+}: {
+  ativo: boolean;
+  rotulo: string;
+  n?: number;
+  ponto?: string;
+  titulo?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={ativo}
+      title={titulo}
+      onClick={onClick}
+      className={cn(
+        'inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition',
+        ativo
+          ? 'border-brand-800 bg-brand-800 text-white dark:border-brand-400 dark:bg-brand-400 dark:text-brand-900'
+          : 'bg-background hover:bg-muted',
+      )}
+    >
+      {ponto && <span className={cn('h-2 w-2 rounded-full', ponto)} aria-hidden />}
+      {rotulo}
+      {n != null && (
+        <span className={cn('tabular-nums', ativo ? 'opacity-80' : 'text-muted-foreground')}>{numeroBR(n)}</span>
+      )}
+    </button>
+  );
+}
+
+function Vazio({
+  escopo,
+  busca,
+  contagens,
+  temFiltro,
+  nomeDaUF,
+  onEscopo,
+  onLimpar,
+}: {
+  escopo: EscopoLista;
+  busca: string;
+  contagens: PaginaMunicipios['contagens'];
+  temFiltro: boolean;
+  nomeDaUF: string;
+  onEscopo: (e: EscopoLista) => void;
+  onLimpar: () => void;
+}) {
+  /* A busca achou algo em outro recorte? Então a resposta é um botão, não "nada encontrado". */
+  const outros = busca && contagens ? ESCOPOS.filter((e) => e !== escopo && contagens.escopos[e] > 0) : [];
+  return (
+    <Card>
+      <CardContent className="py-12 text-center">
+        <p className="text-sm text-muted-foreground">
+          {busca
+            ? `Nada com "${busca}" em ${rotuloDoEscopo(escopo, nomeDaUF)}.`
+            : temFiltro
+              ? 'Nenhum município com esses filtros.'
+              : 'O catálogo do IBGE ainda não foi carregado nesta instalação.'}
+        </p>
+        {outros.length > 0 && contagens && (
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {outros.map((e) => (
+              <Button key={e} variant="outline" size="sm" onClick={() => onEscopo(e)}>
+                Ver {numeroBR(contagens.escopos[e])} em {rotuloDoEscopo(e, nomeDaUF)}
+              </Button>
+            ))}
+          </div>
+        )}
+        {temFiltro && (
+          <Button variant="ghost" className="mt-2" onClick={onLimpar}>
+            Limpar filtros
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -501,10 +749,8 @@ function SeloFiscal({ m }: { m: MunicipioLinha }) {
   return (
     <span
       /*
-        A EXPLICAÇÃO VIAJA COM O SELO. Antes ela só existia no detalhe: quem
-        varria a lista via "prudencial" e precisava abrir a ficha para saber o
-        que isso muda. `title=` é o tooltip deste projeto — mesmo padrão de
-        `STATUS_PROCESSO_AJUDA` na tela de Processos.
+        A EXPLICAÇÃO VIAJA COM O SELO. `title=` é o tooltip deste projeto —
+        mesmo padrão de `STATUS_PROCESSO_AJUDA` na tela de Processos.
       */
       title={est.ajuda}
       className={cn(
@@ -525,35 +771,18 @@ function SeloFiscal({ m }: { m: MunicipioLinha }) {
   );
 }
 
-/** Filiados, organizações e processos — só o que existe vira chip. */
-function Presenca({ m, alinharDireita }: { m: MunicipioLinha; alinharDireita?: boolean }) {
-  const chips = [
-    { icone: Users, n: m.vinculos.filiados, titulo: 'filiados' },
-    { icone: Building2, n: m.vinculos.organizacoes, titulo: 'organizações' },
-    { icone: Gavel, n: m.vinculos.processos, titulo: 'processos que tramitam aqui' },
-  ].filter((c) => c.n > 0);
-
-  if (!chips.length) {
-    return alinharDireita ? (
-      <span className="block text-right text-xs text-muted-foreground">—</span>
-    ) : null;
-  }
-
-  return (
-    <div
-      className={cn(
-        'mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground',
-        alinharDireita && 'mt-0 justify-end',
-      )}
-    >
-      {chips.map((c) => (
-        <span key={c.titulo} className="inline-flex items-center gap-1" title={c.titulo}>
-          <c.icone className="h-3.5 w-3.5" />
-          <span className="tabular-nums">{c.n}</span>
-        </span>
-      ))}
-    </div>
-  );
+/**
+ * NOSSA PRESENÇA, POR EXTENSO — "2.632 moram · 8 ações contra".
+ *
+ * Substitui a coluna "O sindicato ali", que mostrava três ícones com números.
+ * Ícone com número não diz o que conta: o martelo com "114" no cartão do Estado
+ * foi lido como "114 processos contra o Estado", e eram os que tramitam em
+ * qualquer fórum do Piauí.
+ */
+function Presenca({ m }: { m: MunicipioLinha }) {
+  const frases = frasesDaPresenca(presencaDe(m));
+  if (!frases.length) return <span className="text-xs text-muted-foreground">—</span>;
+  return <span className="text-xs text-muted-foreground">{frases.join(' · ')}</span>;
 }
 
 /**
@@ -561,11 +790,7 @@ function Presenca({ m, alinharDireita }: { m: MunicipioLinha; alinharDireita?: b
  *
  * O sindicato tem gente que nunca ouviu "limite prudencial", e o selo sozinho
  * ("52,33% · prudencial") não ensina nada. Aqui a palavra ganha a CONSEQUÊNCIA,
- * que é o que muda a conversa: não "o que a sigla quer dizer", mas "o que o
- * ente pode ou não pode fazer".
- *
- * Nunca uma caixa "Legenda" fixa no topo: situação que não aparece na página
- * não entra, senão a faixa vira decoração e as pessoas param de ler.
+ * que é o que muda a conversa.
  */
 function LegendaDoQueEstaNaTela({ itens }: { itens: MunicipioLinha[] }) {
   const presentes = [...new Set(itens.map((m) => m.fiscal.situacao))].sort(
@@ -595,11 +820,13 @@ function LegendaDoQueEstaNaTela({ itens }: { itens: MunicipioLinha[] }) {
         ))}
       </dl>
       <p className="mt-2.5 border-t pt-2 text-[11px] leading-relaxed text-muted-foreground">
-        <strong className="font-semibold">Despesa com pessoal</strong> é quanto da receita do ente
-        vai para a folha, do Relatório de Gestão Fiscal (RGF).{' '}
-        <strong className="font-semibold">Saúde</strong> é a fatia da despesa que caiu nessa função,
-        do Relatório Resumido da Execução Orçamentária (RREO) — não é o mínimo constitucional de 15%.
-        Os dois são declarações do próprio ente ao Tesouro Nacional.
+        <strong className="font-semibold">Gasto com pessoal</strong> é quanto da receita do ente vai para a
+        folha, do Relatório de Gestão Fiscal (RGF).{' '}
+        <strong className="font-semibold">Saúde</strong> é a fatia da despesa que caiu nessa função, do
+        Relatório Resumido da Execução Orçamentária (RREO) — não é o mínimo constitucional de 15%.{' '}
+        <strong className="font-semibold">Nossa presença</strong>: <em>moram</em> são filiados com endereço no
+        município; <em>trabalham</em>, com vínculo num órgão daquele governo; <em>ações contra</em>, processos
+        do sindicato em que ele é réu. Ação que só tramita no fórum da cidade não conta.
       </p>
     </div>
   );

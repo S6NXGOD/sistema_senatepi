@@ -302,6 +302,7 @@ export function FichasDeFiltro({
   busca,
   assunto,
   comarca,
+  enteContra,
   onLimparCampo,
   onLimparTudo,
 }: {
@@ -312,7 +313,11 @@ export function FichasDeFiltro({
   assunto?: string;
   /** A comarca, vinda da ficha do município. Guarda o NOME para a ficha poder dizê-lo. */
   comarca?: { codigo: number; nome: string } | null;
-  onLimparCampo: (campo: keyof FiltrosProcesso | 'parte' | 'busca' | 'assunto' | 'comarca') => void;
+  /** O ente público que é RÉU, vindo de Contas Públicas. */
+  enteContra?: { codigo: number; nome: string } | null;
+  onLimparCampo: (
+    campo: keyof FiltrosProcesso | 'parte' | 'busca' | 'assunto' | 'comarca' | 'enteContra',
+  ) => void;
   onLimparTudo: () => void;
 }) {
   const { data: advogados = [] } = useQuery({
@@ -353,6 +358,17 @@ export function FichasDeFiltro({
         rotulo="Comarca"
         valor={comarca.nome}
         onRemover={() => onLimparCampo('comarca')}
+      />,
+    );
+  }
+  if (enteContra) {
+    /* "Contra", e o nome inteiro: "Contra: Governo do Estado — Piauí" não deixa dúvida de lado. */
+    fichas.push(
+      <Ficha
+        key="enteContra"
+        rotulo="Contra"
+        valor={enteContra.nome}
+        onRemover={() => onLimparCampo('enteContra')}
       />,
     );
   }
