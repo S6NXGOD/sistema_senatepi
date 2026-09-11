@@ -1,0 +1,11 @@
+-- PREFERÊNCIAS DA INTERFACE, POR USUÁRIO.
+--
+-- Hoje guarda uma coisa só: quais guias de primeiro acesso a pessoa já viu
+-- ({"guias": {"contas-publicas": "2026-09-11T..."}}). O guia "aparece uma vez e
+-- depois não aparece mais" — e isso precisa valer no computador do escritório E
+-- no celular, por isso fica no servidor e não no navegador.
+--
+-- ADITIVA E NULÁVEL, e é regra (ver a memória da janela de troca do deploy): o
+-- contêiner antigo continua atendendo contra o banco já migrado e cria usuário
+-- sem citar esta coluna. IF NOT EXISTS porque roda em um banco por sindicato.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "preferencias" JSONB;

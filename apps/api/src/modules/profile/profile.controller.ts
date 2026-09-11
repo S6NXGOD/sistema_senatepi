@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Param,
   Patch,
   Post,
   Req,
@@ -56,6 +57,16 @@ export class ProfileController {
     @Req() req: Request,
   ) {
     return this.service.changePassword(userId, dto, this.ctx(req));
+  }
+
+  /**
+   * "JÁ VI ESTE GUIA" — o guia de primeiro acesso aparece uma vez e depois não
+   * aparece mais, em nenhum aparelho. Fora da auditoria (ver `NAO_AUDITAR`):
+   * ver uma explicação não é ato sobre dado de ninguém.
+   */
+  @Post('guias/:chave')
+  marcarGuia(@CurrentUser('id') userId: string, @Param('chave') chave: string) {
+    return this.service.marcarGuiaVisto(userId, chave);
   }
 
   @Post('avatar')

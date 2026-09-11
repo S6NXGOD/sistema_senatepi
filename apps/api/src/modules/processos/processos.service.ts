@@ -1002,6 +1002,12 @@ export class ProcessosService {
     if (q.tribunal) and.push({ tribunal: { equals: q.tribunal, mode: 'insensitive' } });
     /* A COMARCA. Ver o comentário no DTO — é o órgão julgador, não a parte. */
     if (q.municipioIBGE) and.push({ municipioIBGE: q.municipioIBGE });
+    /* O ENTE COMO RÉU — a mesma regra que conta "ações contra" em Contas Públicas. */
+    if (q.enteContra) {
+      and.push({
+        partes: { some: { polo: 'PASSIVO', parteExterna: { enteCodigo: Number(q.enteContra) } } },
+      });
+    }
     // Filiado/advogado casam com QUALQUER vínculo, não só o principal: numa ação
     // plúrima o filiado buscado costuma ser o terceiro da lista, e num processo
     // com dois advogados o segundo também precisa achá-lo.

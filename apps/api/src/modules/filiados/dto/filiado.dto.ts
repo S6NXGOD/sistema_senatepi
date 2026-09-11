@@ -6,6 +6,7 @@ import {
   IsEmail,
   IsEnum,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
@@ -222,6 +223,17 @@ export class ListFiliadosQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() cpf?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() coren?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() cidade?: string;
+  /**
+   * MUNICÍPIO LIGADO AO CADASTRO (código IBGE) — o link "moram aqui" de Contas
+   * Públicas. Pelo código, e não pelo texto: "TERSINA" ligado à mão a Teresina
+   * conta no número da ficha, e a lista tem de trazer a mesma gente.
+   */
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() municipioCodigo?: number;
+  /**
+   * ENTE PÚBLICO PARA O QUAL O FILIADO TRABALHA — vínculo numa organização
+   * ligada a ele. É o link "trabalham para o Estado".
+   */
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() enteCodigo?: number;
   @ApiPropertyOptional({ enum: SituacaoFiliado })
   @IsOptional() @IsEnum(SituacaoFiliado) situacao?: SituacaoFiliado;
   @ApiPropertyOptional({ description: 'Data de filiação inicial (YYYY-MM-DD)' })

@@ -11,6 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 
 import { ChangePasswordDto, UpdateProfileDto } from './dto/profile.dto';
+import { CHAVE_DE_GUIA, guiasVistosDe } from './guias.util';
 
 interface Ctx {
   ip?: string;
@@ -27,6 +28,7 @@ const PERFIL_SELECT = {
   avatarKey: true,
   role: true,
   permissoes: true,
+  preferencias: true,
   ativo: true,
   ultimoLoginEm: true,
   createdAt: true,
@@ -50,11 +52,38 @@ export class ProfileService {
    * é interno e não é exposto.
    */
   private async apresentar(user: UserRaw) {
-    const { avatarKey, ...resto } = user;
+    // `preferencias` é o JSON cru; a tela recebe só o que usa, já interpretado.
+    const { avatarKey, preferencias, ...resto } = user;
     const avatarUrl = avatarKey
       ? await this.storage.getSignedUrl(avatarKey).catch(() => resto.avatarUrl)
       : resto.avatarUrl;
-    return { ...resto, avatarUrl };
+    return { ...resto, avatarUrl, guiasVistos: guiasVistosDe(preferencias) };
+  }
+
+  /**
+   * "JÁ VI ESTE GUIA" — para ele não aparecer de novo, em aparelho nenhum.
+   *
+   * UMA INSTRUÇÃO SÓ NO BANCO, e não ler-mexer-gravar: com o sistema aberto no
+   * computador e no celular, duas marcações ao mesmo tempo fariam a segunda
+   * apagar a primeira. O `||` do JSONB junta as chaves dentro do próprio UPDATE.
+   *
+   * Não mexe em `updated_at` de propósito: ver uma explicação não é alterar o
+   * perfil, e "alterado em" passaria a mentir sobre a última edição de verdade.
+   */
+  async marcarGuiaVisto(userId: string, chave: string) {
+    if (!CHAVE_DE_GUIA.test(chave)) throw new BadRequestException('Guia desconhecido.');
+    const alterados = await this.prisma.$executeRaw`
+      UPDATE users
+         SET preferencias = COALESCE(preferencias, '{}'::jsonb)
+               || jsonb_build_object(
+                    'guias',
+                    COALESCE(preferencias -> 'guias', '{}'::jsonb)
+                      || jsonb_build_object(${chave}::text, to_jsonb(now()))
+                  )
+       WHERE id = ${userId}`;
+    if (!alterados) throw new NotFoundException('Usuário não encontrado.');
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { preferencias: true } });
+    return { guiasVistos: guiasVistosDe(u?.preferencias) };
   }
 
   /** Dados do usuário logado (sem a senha). */

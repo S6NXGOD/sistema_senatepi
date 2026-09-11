@@ -339,6 +339,16 @@ export class ListProcessosQueryDto {
   @ApiPropertyOptional({ description: 'Código IBGE da COMARCA (município do órgão julgador).' })
   @IsOptional() @Type(() => Number) @IsInt() municipioIBGE?: number;
 
+  /**
+   * AÇÕES CONTRA UM ENTE PÚBLICO — o link "8 ações contra" de Contas Públicas.
+   *
+   * Casa o processo em que uma organização LIGADA ao ente (a Secretaria de
+   * Saúde, o próprio Estado) está no polo PASSIVO. Não é a comarca: a ação
+   * contra o Estado do Piauí pode tramitar em qualquer fórum.
+   */
+  @ApiPropertyOptional({ description: 'Código do ente público (IBGE/SICONFI) que é RÉU no processo.' })
+  @IsOptional() @Type(() => Number) @IsInt() enteContra?: number;
+
   @ApiPropertyOptional({
     description:
       'Assunto do CNJ, casamento EXATO, inclusive quando for secundário. É o link do Panorama.',

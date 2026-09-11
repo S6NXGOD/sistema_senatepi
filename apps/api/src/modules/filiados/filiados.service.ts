@@ -357,6 +357,12 @@ export class FiliadosService {
       cidadeNormalizada: query.cidade
         ? { contains: normalizarBusca(query.cidade) }
         : undefined,
+      // Os dois links de Contas Públicas — pelo CÓDIGO, para a lista trazer
+      // exatamente quem o número da ficha contou.
+      municipioCodigo: query.municipioCodigo ? Number(query.municipioCodigo) : undefined,
+      vinculos: query.enteCodigo
+        ? { some: { parteExterna: { enteCodigo: Number(query.enteCodigo), ativo: true } } }
+        : undefined,
       AND: [
         ...termos.map((t) => ({ buscaNormalizada: { contains: t } })),
         ...termosNome.map((t) => ({ buscaNormalizada: { contains: t } })),

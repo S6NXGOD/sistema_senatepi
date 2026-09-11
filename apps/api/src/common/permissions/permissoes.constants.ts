@@ -75,7 +75,10 @@ export const MODULOS: ModuloInfo[] = [
    * cadastros não forem unificados, a tela fica só onde não há ambiguidade.
    */
   { key: 'organizacoes', label: 'Organizações (órgãos e partes)', grupo: 'Operacional' },
-  { key: 'municipios', label: 'Municípios e indicadores públicos', grupo: 'Operacional' },
+  // Rótulo "Contas públicas": é o nome da tela no menu. A CHAVE continua
+  // `municipios` — chave de permissão é identificador, e trocá-la apagaria o
+  // nível de quem já tem matriz própria.
+  { key: 'municipios', label: 'Contas públicas (LRF e saúde)', grupo: 'Operacional' },
   // "Cadastros Base" saiu: cargos e departamentos são listas de apoio de
   // Colaboradores e seguem a permissão DELE. Uma linha só para editar duas
   // listas não se pagava — e não valia nada, porque o controller checava

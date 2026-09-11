@@ -330,6 +330,8 @@ model User {
   role               UserRole  @default(TRIAGEM)
   // Matriz de permissões por módulo (override do preset do perfil): { "processos": "EDITAR", ... }
   permissoes         Json?
+  /// Preferências da interface. Hoje: guias de primeiro acesso já vistos ({ guias: { chave: quando } }).
+  preferencias       Json?     @map("preferencias")
   ativo              Boolean   @default(true)
   ultimoLoginEm      DateTime? @map("ultimo_login_em")
   /// CORTE DE SESSÃO: todo token de acesso emitido ANTES deste instante é

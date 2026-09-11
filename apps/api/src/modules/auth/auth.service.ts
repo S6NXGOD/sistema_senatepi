@@ -15,6 +15,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { LoginDto, ResetPasswordDto } from './dto/auth.dto';
 import { tenant } from '../../tenant/tenant.config';
+import { guiasVistosDe } from '../profile/guias.util';
 
 interface RequestContext {
   ip?: string;
@@ -232,6 +233,9 @@ export class AuthService {
         role: user.role,
         avatarUrl: await this.resolverAvatar(user.avatarKey, user.avatarUrl),
         permissoes: user.permissoes,
+        // O mesmo que `/profile/me` devolve — senão o guia já visto reaparece
+        // logo depois do login, até a revalidação da sessão chegar.
+        guiasVistos: guiasVistosDe(user.preferencias),
       },
     };
   }

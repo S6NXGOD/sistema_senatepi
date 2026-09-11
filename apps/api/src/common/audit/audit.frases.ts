@@ -43,6 +43,10 @@ export const VERBO_HTTP: Record<string, string> = {
 export const NAO_AUDITAR: RegExp[] = [
   /\/auth\/refresh/,
   /\/processos\/instancias\/reavaliar/,
+  // Fechar o guia de primeiro acesso. Acontece uma vez por pessoa e por tela, e
+  // "Fulano viu a explicação de Contas Públicas" não responde a pergunta
+  // nenhuma que traga alguém à auditoria.
+  /\/profile\/guias\//,
 ];
 
 /** Esta requisição merece registro? */
@@ -78,6 +82,10 @@ export const O_QUE_A_ROTA_FAZ: { padrao: RegExp; frase: string }[] = [
   { padrao: /\/importacoes/, frase: 'Mexeu numa importação em lote' },
   { padrao: /\/escalas/, frase: 'Mexeu na escala dos advogados' },
   { padrao: /\/empresas/, frase: 'Mexeu numa empresa contribuinte' },
+  { padrao: /\/municipios\/sincronizar/, frase: 'Buscou os indicadores no Tesouro Nacional' },
+  { padrao: /\/municipios\/casar-cadastros/, frase: 'Ligou os cadastros ao catálogo do IBGE' },
+  { padrao: /\/municipios\/ligar-cidade/, frase: 'Ligou uma grafia de cidade a um município' },
+  { padrao: /\/municipios\/ligar-organizacao/, frase: 'Disse de qual governo é uma organização' },
   { padrao: /\/profile\/change-password/, frase: 'Trocou a própria senha' },
   { padrao: /\/profile\/avatar/, frase: 'Trocou a própria foto' },
   { padrao: /\/profile/, frase: 'Alterou o próprio perfil' },

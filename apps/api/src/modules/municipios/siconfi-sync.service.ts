@@ -3,7 +3,7 @@ import { OrigemSincronizacao } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SincronizacaoLogService } from '../processos/sincronizacao-log.service';
 import { SiconfiService, SiconfiIndisponivelError } from './siconfi.service';
-import { pareceCodigoIBGE } from './chave-de-ente.util';
+import { ondeAtuamos, presencaPorEnte } from './presenca.util';
 import { tenant } from '../../tenant/tenant.config';
 
 /** A coluna `fonte` do log é TEXTO justamente para caber uma fonte nova sem migração. */
@@ -46,8 +46,15 @@ export class SiconfiSyncService {
    * cobre o pior caso do RREO (bimestral) sem perseguir dado que não mudou.
    */
   private static readonly DIAS_ATE_DEFASAR = 25;
-  /** Teto por rodada, para o job da madrugada não virar uma varredura longa. */
-  private static readonly POR_RODADA = 30;
+  /**
+   * Teto por rodada, para o job da madrugada não virar uma varredura longa.
+   *
+   * Sessenta, e não trinta, desde que a madrugada passou a cobrir o estado
+   * inteiro (~236 entes no Piauí): a ~2,7 s cada, são menos de três minutos por
+   * noite, e a base se completa em quatro noites em vez de oito. A trava do job
+   * é de uma hora.
+   */
+  private static readonly POR_RODADA = 60;
   /** Respiro entre municípios — a API é pública e gratuita; não se abusa. */
   private static readonly PAUSA_MS = 250;
 
@@ -68,54 +75,68 @@ export class SiconfiSyncService {
    * filtro, esse número seria consultado no Tesouro, que responderia 200 com o
    * conteúdo de outro ente.
    */
-  async codigosDeInteresse(): Promise<number[]> {
-    const [filiados, partes, processos] = await Promise.all([
-      this.prisma.filiado.findMany({
-        where: { municipioCodigo: { not: null } },
-        select: { municipioCodigo: true },
-        distinct: ['municipioCodigo'],
+  async codigosDeInteresse(amplo = false): Promise<number[]> {
+    const uf = (tenant.endereco?.uf ?? '').toUpperCase();
+    /*
+      O ESTADO DA CASA ENTRA SEMPRE, sem depender de ligação.
+
+      Eles são contraparte permanente. Antes disto havia um nó: o Estado só
+      entraria na varredura se alguma organização estivesse ligada a ele, e a
+      ligação só ficaria interessante depois de ele ter indicador. A ficha dele
+      ficava vazia, dizendo que "não publicou" — sobre um ente que publica todo
+      quadrimestre.
+
+      AMPLO (só o job da madrugada) acrescenta TODOS os municípios do estado da
+      casa. É o que dá sentido a "a mediana do Piauí": com 55 dos 224, a
+      comparação era com quem por acaso tem filiado. O botão da tela não faz
+      isso — são ~2,7 s por ente e o pedido tem cinco minutos; a madrugada
+      preenche em poucas noites.
+    */
+    const [presenca, permanentes, daUF] = await Promise.all([
+      presencaPorEnte(this.prisma),
+      this.prisma.ente.findMany({
+        where: { esfera: 'E', uf },
+        select: { codigo: true, esfera: true },
       }),
-      this.prisma.parteExterna.findMany({
-        where: { enteCodigo: { not: null } },
-        select: { enteCodigo: true },
-        distinct: ['enteCodigo'],
-      }),
-      this.prisma.processo.findMany({
-        where: { municipioIBGE: { not: null } },
-        select: { municipioIBGE: true },
-        distinct: ['municipioIBGE'],
-      }),
+      amplo && uf
+        ? this.prisma.ente.findMany({
+            where: { esfera: 'M', uf },
+            select: { codigo: true },
+            orderBy: { nome: 'asc' },
+          })
+        : Promise.resolve([] as Array<{ codigo: number }>),
     ]);
 
-    const brutos = new Set<number>();
-    for (const f of filiados) if (f.municipioCodigo) brutos.add(f.municipioCodigo);
-    for (const p of partes) if (p.enteCodigo) brutos.add(p.enteCodigo);
-    for (const p of processos) if (pareceCodigoIBGE(p.municipioIBGE)) brutos.add(p.municipioIBGE!);
+    /*
+      A ORDEM IMPORTA porque o job tem teto por rodada: o Estado primeiro,
+      depois onde o sindicato atua, e só então o resto do estado. Assim a
+      primeira noite depois de um filiado novo é gasta com quem interessa.
+
+      ONDE ATUAMOS NÃO INCLUI COMARCA — ver `ondeAtuamos`. Consultar o Tesouro
+      sobre Brasília porque 12 ações tramitam lá é gastar consulta com um fórum.
+    */
+    const ordem = new Set<number>();
+    for (const e of permanentes.sort((a, b) => a.esfera.localeCompare(b.esfera))) ordem.add(e.codigo);
+    for (const c of ondeAtuamos(presenca)) ordem.add(c);
+    for (const e of daUF) ordem.add(e.codigo);
+    if (!ordem.size) return [];
 
     /*
-      O ESTADO DA CASA E A UNIÃO ENTRAM SEMPRE, sem depender de ligação.
-
-      Eles são contraparte permanente: o Estado do Piauí é o segundo maior
-      empregador do cadastro (42 vínculos) e figura em 10 processos. Antes
-      disto havia um nó: o Estado só entraria na varredura se alguma
-      organização estivesse ligada a ele, e a ligação só ficaria interessante
-      depois de ele ter indicador. A ficha dele ficava permanentemente vazia,
-      dizendo que "não publicou" — sobre um ente que publica todo quadrimestre.
+      A UNIÃO NÃO É CONSULTADA. O RGF dela vem aberto por órgão, em outro
+      formato, e este leitor devolvia "não publicou" — acusação falsa. Ver
+      `MunicipiosService.destaques`. Ela ainda entra em "onde atuamos" (é ré em
+      ações nossas); só não se pergunta ao Tesouro o que ele não sabe responder
+      no formato que lemos.
     */
-    const permanentes = await this.prisma.ente.findMany({
-      where: {
-        OR: [{ esfera: 'E', uf: (tenant.endereco?.uf ?? '').toUpperCase() }, { esfera: 'U' }],
-      },
-      select: { codigo: true },
-    });
-    for (const e of permanentes) brutos.add(e.codigo);
-
-    if (!brutos.size) return [];
-    const existentes = await this.prisma.ente.findMany({
-      where: { codigo: { in: [...brutos] } },
-      select: { codigo: true },
-    });
-    return existentes.map((m) => m.codigo);
+    const existentes = new Set(
+      (
+        await this.prisma.ente.findMany({
+          where: { codigo: { in: [...ordem] }, esfera: { not: 'U' } },
+          select: { codigo: true },
+        })
+      ).map((e) => e.codigo),
+    );
+    return [...ordem].filter((c) => existentes.has(c));
   }
 
   /**
@@ -148,6 +169,23 @@ export class SiconfiSyncService {
     return comTeto ? fila.slice(0, SiconfiSyncService.POR_RODADA) : fila;
   }
   /**
+   * O PEDIDO EXPLÍCITO TAMBÉM NÃO CONSULTA A UNIÃO — mesma razão de
+   * `codigosDeInteresse`. Sem isto, um POST com o código dela carimbaria a
+   * consulta e a ficha voltaria a dizer que ela "não publicou".
+   */
+  private async semAUniao(codigos: number[]): Promise<number[]> {
+    const validos = new Set(
+      (
+        await this.prisma.ente.findMany({
+          where: { codigo: { in: codigos }, esfera: { not: 'U' } },
+          select: { codigo: true },
+        })
+      ).map((e) => e.codigo),
+    );
+    return codigos.filter((c) => validos.has(c));
+  }
+
+  /**
    * A VARREDURA. `codigosExplicitos` vem do botão "atualizar agora" da tela; sem
    * ele, o job escolhe sozinho quem está defasado.
    */
@@ -158,9 +196,9 @@ export class SiconfiSyncService {
   ): Promise<ResultadoSync> {
     const inicio = Date.now();
     const alvo = codigosExplicitos?.length
-      ? codigosExplicitos
+      ? await this.semAUniao(codigosExplicitos)
       : await this.defasados(
-          await this.codigosDeInteresse(),
+          await this.codigosDeInteresse(origem === OrigemSincronizacao.CRON),
           agora,
           origem === OrigemSincronizacao.CRON,
         );
