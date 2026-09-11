@@ -1,9 +1,14 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import {
+  Body, Controller, Get, Header, Param, ParseIntPipe, Post, Query, Res,
+} from '@nestjs/common';
+import { Response } from 'express';
+import { conteudoDisposto } from '@core/infra';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OrigemSincronizacao } from '@prisma/client';
 import { MunicipiosService } from './municipios.service';
 import { SiconfiSyncService } from './siconfi-sync.service';
 import { VinculoDeEnteService } from './vinculo-de-ente.service';
+import { RelatorioEntesService } from './relatorio-entes.service';
 import { ListarMunicipiosQueryDto, SincronizarSiconfiDto } from './dto/municipios.dto';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
@@ -28,6 +33,7 @@ export class MunicipiosController {
     private readonly service: MunicipiosService,
     private readonly siconfi: SiconfiSyncService,
     private readonly vinculo: VinculoDeEnteService,
+    private readonly relatorio: RelatorioEntesService,
   ) {}
 
   /** Catálogo, com os indicadores e a presença do sindicato em cada município. */
@@ -51,6 +57,23 @@ export class MunicipiosController {
   @Get('buscar')
   buscar(@Query('q') q?: string) {
     return this.service.buscar(q);
+  }
+
+  /**
+   * O RELATÓRIO EM PDF — a folha que se leva para a reunião.
+   *
+   * `GET` e não `POST`: é leitura, não muda nada, e por isso basta
+   * VISUALIZAR na matriz. Quem só consulta precisa poder imprimir.
+   *
+   * Literal, portanto ANTES de `:codigo` — e com ponto no nome, que `:codigo`
+   * casaria alegremente antes de o ParseIntPipe reclamar.
+   */
+  @Get('relatorio.pdf')
+  @Header('Content-Type', 'application/pdf')
+  async relatorioPdf(@Res() res: Response) {
+    const { pdf, nomeArquivo } = await this.relatorio.gerar();
+    res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
+    res.send(pdf);
   }
 
   @Get('destaques')

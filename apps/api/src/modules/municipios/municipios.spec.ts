@@ -155,9 +155,30 @@ describe('o que o percentual de despesa com pessoal significa', () => {
     expect(PERCENTUAL_IMPOSSIVEL).toBeGreaterThan(54);
   });
 
-  it('sem número não é zero, é ausência', () => {
-    expect(situacaoFiscal({ percentualRcl: null, ...LIMITES })).toBe('SEM_DADO');
-    expect(situacaoFiscal(null)).toBe('SEM_DADO');
+  /**
+   * SEM NÚMERO NÃO É ZERO — e existem DUAS ausências diferentes, que a ficha do
+   * Governo do Piauí chegou a confundir numa frase falsa: "o município não
+   * publicou o Relatório de Gestão Fiscal". Ele não é município e tinha
+   * publicado 37,00%; o que faltava era a varredura ter perguntado.
+   *
+   * "Não publicou" acusa o ente e é argumento de mesa. "Não perguntamos" é
+   * tarefa nossa. O que separa as duas é o carimbo da consulta.
+   */
+  it('sem número, o carimbo decide se a culpa é do ente ou nossa', () => {
+    const ontem = new Date('2026-09-10T12:00:00Z');
+    expect(situacaoFiscal({ percentualRcl: null, ...LIMITES }, ontem)).toBe('SEM_DADO');
+    expect(situacaoFiscal(null, ontem)).toBe('SEM_DADO');
+
+    expect(situacaoFiscal({ percentualRcl: null, ...LIMITES }, null)).toBe('NAO_CONSULTADO');
+    expect(situacaoFiscal(null)).toBe('NAO_CONSULTADO');
+  });
+
+  /** E as duas frases dizem coisas opostas sobre de quem é a falha. */
+  it('cada ausência explica de quem é a responsabilidade', () => {
+    expect(oQueIssoSignifica('SEM_DADO')).toContain('não publicou');
+    expect(oQueIssoSignifica('SEM_DADO')).toContain('irregularidade');
+    expect(oQueIssoSignifica('NAO_CONSULTADO')).toContain('ainda não foram buscados');
+    expect(oQueIssoSignifica('NAO_CONSULTADO')).toContain('não é falha do ente');
   });
 
   /** A tela mostra a CONSEQUÊNCIA; quem negocia precisa da resposta, não da sigla. */

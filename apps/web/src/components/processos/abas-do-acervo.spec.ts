@@ -59,16 +59,61 @@ describe('o menu não carrega as vistas do acervo', () => {
   });
 
   /**
-   * A SEÇÃO JURÍDICA CABE EM CINCO LINHAS, e é ela que mede o inchaço.
+   * O QUE A TRAVA DE CINCO LINHAS REALMENTE PROTEGIA: a lista não cabendo.
    *
-   * Travar o TOTAL do menu seria travar contra evolução: qualquer módulo novo
-   * quebraria o teste sem que nada tivesse piorado. O que não pode voltar a
-   * crescer é a seção de trabalho diário — foi onde as três vistas do mesmo
-   * acervo competiam como se fossem três lugares.
+   * O número 5 era um proxy. A seção Jurídico foi para SEIS quando Municípios
+   * entrou — e Municípios não é uma quarta vista do mesmo acervo, que era o
+   * defeito original; é outro assunto, e é onde o advogado procura a
+   * contraparte antes da audiência.
+   *
+   * Em vez de subir o número e seguir, a conta que ele representava passou a
+   * ser feita: quanto a lista MEDE contra o que a tela oferece. A densidade da
+   * barra foi reduzida junto (item de 40 para 36px, espaço entre seções de 16
+   * para 12), o que devolveu ~120px.
+   *
+   * Medido: `100vh − 238px` de área útil (logo 64 + perfil 65 + rodapé 109).
+   * Num Chrome maximizado em 1080p o viewport é ~937px, logo ~699px de lista.
    */
-  it('a seção Jurídico não volta a inchar', () => {
+  const ALTURA = { item: 36, gapItem: 2, titulo: 16, gapSecao: 12, padding: 24 };
+
+  const alturaDaLista = (secoes: ReturnType<typeof filtrarNav>) => {
+    const itens = secoes.reduce((n, s) => n + s.itens.length, 0);
+    return (
+      ALTURA.padding +
+      itens * (ALTURA.item + ALTURA.gapItem) +
+      secoes.length * ALTURA.titulo +
+      Math.max(0, secoes.length - 1) * ALTURA.gapSecao
+    );
+  };
+
+  /**
+   * OS DOIS PERFIS QUE MAIS USAM A LATERAL CABEM SEM ROLAR. Advogado e triagem
+   * abrem o sistema todo dia e nunca deveriam procurar um item atrás do scroll.
+   */
+  it.each(['ADVOGADO', 'TRIAGEM'] as const)('a lateral cabe inteira para %s', (perfil) => {
+    expect(alturaDaLista(filtrarNav(perfil, null))).toBeLessThanOrEqual(699);
+  });
+
+  /**
+   * O ADMINISTRADOR AINDA ROLA UM POUCO, e isso é aceito: são dezesseis itens,
+   * ele é quem menos usa a lateral para trabalhar, e o item aceso passou a se
+   * trazer para a vista sozinho (`scrollIntoView` em `sidebar.tsx`). O teto
+   * abaixo é o que impede a rolagem de voltar a esconder cinco linhas.
+   */
+  it('e para o administrador a rolagem fica curta', () => {
+    const altura = alturaDaLista(filtrarNav('ADMINISTRADOR', null));
+    expect(altura).toBeGreaterThan(699);
+    expect(altura - 699).toBeLessThanOrEqual(120);
+  });
+
+  /**
+   * E A SEÇÃO DE TRABALHO DIÁRIO continua sem virar depósito. O limite subiu de
+   * cinco para seis com a densidade paga; o que não pode voltar são as VISTAS
+   * do mesmo acervo, cobradas nos testes acima.
+   */
+  it('a seção Jurídico não vira depósito', () => {
     const juridico = NAV_SECOES.find((s) => s.titulo === 'Jurídico')!;
-    expect(juridico.itens.length).toBeLessThanOrEqual(5);
+    expect(juridico.itens.length).toBeLessThanOrEqual(6);
   });
 });
 

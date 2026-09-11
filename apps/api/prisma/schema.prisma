@@ -3316,9 +3316,9 @@ enum OrigemDaLigacao {
 /// dado sujo.
 model Ente {
   /// Código do IBGE, 7 dígitos. Ex.: 2211001 = Teresina.
-  codigo              Int      @id
+  codigo              Int       @id
   nome                String
-  uf                  String   @db.Char(2)
+  uf                  String    @db.Char(2)
   /// U = União, E = Estado ou Distrito Federal, M = município.
   ///
   /// A esfera existe porque o SICONFI trata os três do mesmo jeito — a chave
@@ -3330,23 +3330,32 @@ model Ente {
   /// É também o que separa as duas leituras da `uf`: para o município ela é
   /// onde ele fica; para o Estado é ele próprio; para a União é "BR", que não
   /// é sigla de estado nenhum e não deve ser lida como tal.
-  esfera              String   @db.Char(1)
+  esfera              String    @db.Char(1)
   /// Minúsculo e sem acento — é por aqui que o texto livre do cadastro casa.
   /// Existe como coluna (e não como `lower(unaccent(...))` na consulta) porque
   /// precisa de índice único junto com a UF.
-  nomeNormalizado     String   @map("nome_normalizado")
+  nomeNormalizado     String    @map("nome_normalizado")
   /// Recortes do IBGE de 2017 em diante. Servem para agrupar a base por
   /// região ("os filiados do litoral") sem inventar regionalização própria.
-  regiaoImediata      String?  @map("regiao_imediata")
-  regiaoIntermediaria String?  @map("regiao_intermediaria")
+  regiaoImediata      String?   @map("regiao_imediata")
+  regiaoIntermediaria String?   @map("regiao_intermediaria")
   /// População estimada. NÃO vem do catálogo de localidades (que não a
   /// publica): vem de carona no cabeçalho dos relatórios do SICONFI, que a
   /// carrega em todo item. De graça, e é o que transforma "R$ 1,8 bi em saúde"
   /// em "R$ 1.987 por habitante".
   populacao           Int?
-  populacaoAno        Int?     @map("populacao_ano")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  populacaoAno        Int?      @map("populacao_ano")
+  /// QUANDO A VARREDURA PERGUNTOU AO TESOURO por este ente — e o motivo de a
+  /// coluna existir: sem ela, "não publicou" e "ainda não perguntamos" ficam
+  /// indistinguíveis, porque nos dois casos não há linha de indicador.
+  ///
+  /// A ficha do Governo do Piauí chegou a afirmar "o município não publicou o
+  /// Relatório de Gestão Fiscal" — ele não é município e tinha publicado
+  /// (37,00%, 1º quadrimestre de 2026). Nulo aqui significa nunca consultado, e
+  /// é a tela que precisa dizer isso em vez de acusar o ente.
+  siconfiConsultadoEm DateTime? @map("siconfi_consultado_em")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   indicadoresPessoal IndicadorPessoalEnte[]
   indicadoresSaude   IndicadorSaudeEnte[]

@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { Logo } from '@/components/logo';
-import { filtrarNav } from '@/components/nav-items';
+import { filtrarNav, ehItemAtivo } from '@/components/nav-items';
 import { useAuth } from '@/lib/auth';
 
 /** Hamburger + Sheet lateral com a navegação — visível só no mobile (md:hidden). */
@@ -38,12 +38,13 @@ export function MobileNav() {
                 {secao.titulo}
               </p>
               {secao.itens.map((item) => {
-                const ativo = pathname === item.href || pathname.startsWith(item.href + '/');
+                const ativo = ehItemAtivo(pathname, item.href);
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={ativo ? 'page' : undefined}
                     onClick={() => setAberto(false)}
                     className={cn(
                       'flex h-12 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',

@@ -449,6 +449,8 @@ export function formatMoeda(v: string | number | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export interface FiltroProcessos {
+  /** Código IBGE da COMARCA (município do órgão julgador), não da parte. */
+  municipioIBGE?: number;
   busca?: string;
   statusInterno?: StatusProcesso;
   tribunal?: string;

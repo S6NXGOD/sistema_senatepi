@@ -62,6 +62,20 @@ export function parteContrariaDoProcesso(
   return processo?.titulo || null;
 }
 
+/**
+ * DE QUE LADO ESTAMOS — a pergunta que o cabeçalho do processo não responde.
+ *
+ * Um cartão dizendo "SINDICATO DOS EN... × MUNICIPIO DE ELESBÃO VELOSO-PI"
+ * mostra o confronto, não o dono do prazo. Quem bate o olho pode concluir que
+ * a tarefa é do município — e a intimação que gerou aquela tarefa mandava
+ * "intimem-se AS PARTES", ou seja, nós também.
+ *
+ * Nós somos a parte que é o próprio sindicato (`institucional`) ou um filiado.
+ * Em toda ação do acervo um dos dois responde.
+ */
+const ehONossoLado = (p: { filiadoId?: string | null; parteExterna?: { institucional: boolean } | null }) =>
+  !!p.filiadoId || !!p.parteExterna?.institucional;
+
 export function IdentidadeDoProcesso({
   processo,
   className,
@@ -103,10 +117,12 @@ export function IdentidadeDoProcesso({
     );
   }
 
+  const nosso = autor && ehONossoLado(autor) ? 'autor' : reu && ehONossoLado(reu) ? 'réu' : null;
   const completo = [
     autor?.nome ?? 'Autor não informado',
     '×',
     reu?.nome ?? 'réu não cadastrado',
+    nosso ? `(somos ${nosso})` : '',
     npu ? `· ${npu}` : '',
   ]
     .filter(Boolean)
@@ -129,6 +145,16 @@ export function IdentidadeDoProcesso({
       <span className="min-w-0 truncate">
         {autor?.nome ?? <span className="italic">autor não informado</span>}
       </span>
+      {/*
+        A MARCA "nós" É DISCRETA DE PROPÓSITO: ela responde uma dúvida rápida,
+        não compete com o nome da parte contrária, que é o que identifica o
+        caso. Só aparece quando dá para provar de que lado estamos.
+      */}
+      {autor && ehONossoLado(autor) && (
+        <span className="shrink-0 rounded bg-brand-100 px-1 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+          nós
+        </span>
+      )}
 
       <span className="shrink-0 font-semibold">×</span>
 
@@ -141,6 +167,11 @@ export function IdentidadeDoProcesso({
         {reu?.nome ?? <span className="font-normal not-italic text-amber-700 dark:text-amber-400">réu não cadastrado</span>}
         {outrosPassivo > 0 && <span className="font-normal text-muted-foreground"> +{outrosPassivo}</span>}
       </span>
+      {reu && ehONossoLado(reu) && (
+        <span className="shrink-0 rounded bg-brand-100 px-1 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+          nós
+        </span>
+      )}
     </p>
   );
 }

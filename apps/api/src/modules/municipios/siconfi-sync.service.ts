@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SincronizacaoLogService } from '../processos/sincronizacao-log.service';
 import { SiconfiService, SiconfiIndisponivelError } from './siconfi.service';
 import { pareceCodigoIBGE } from './chave-de-ente.util';
+import { tenant } from '../../tenant/tenant.config';
 
 /** A coluna `fonte` do log é TEXTO justamente para caber uma fonte nova sem migração. */
 export const FONTE_SICONFI = 'SICONFI';
@@ -91,6 +92,24 @@ export class SiconfiSyncService {
     for (const p of partes) if (p.enteCodigo) brutos.add(p.enteCodigo);
     for (const p of processos) if (pareceCodigoIBGE(p.municipioIBGE)) brutos.add(p.municipioIBGE!);
 
+    /*
+      O ESTADO DA CASA E A UNIÃO ENTRAM SEMPRE, sem depender de ligação.
+
+      Eles são contraparte permanente: o Estado do Piauí é o segundo maior
+      empregador do cadastro (42 vínculos) e figura em 10 processos. Antes
+      disto havia um nó: o Estado só entraria na varredura se alguma
+      organização estivesse ligada a ele, e a ligação só ficaria interessante
+      depois de ele ter indicador. A ficha dele ficava permanentemente vazia,
+      dizendo que "não publicou" — sobre um ente que publica todo quadrimestre.
+    */
+    const permanentes = await this.prisma.ente.findMany({
+      where: {
+        OR: [{ esfera: 'E', uf: (tenant.endereco?.uf ?? '').toUpperCase() }, { esfera: 'U' }],
+      },
+      select: { codigo: true },
+    });
+    for (const e of permanentes) brutos.add(e.codigo);
+
     if (!brutos.size) return [];
     const existentes = await this.prisma.ente.findMany({
       where: { codigo: { in: [...brutos] } },
@@ -99,30 +118,35 @@ export class SiconfiSyncService {
     return existentes.map((m) => m.codigo);
   }
 
-  /** Os defasados, do mais antigo para o mais novo, limitados pelo teto da rodada. */
+  /**
+   * QUEM MERECE NOVA CONSULTA — pelo CARIMBO da consulta, não pela existência
+   * de indicador.
+   *
+   * A primeira versão olhava `indicadorPessoalEnte.updatedAt`. Quem não publica
+   * nunca ganha linha de indicador, então os 14 entes que não publicam eram
+   * reconsultados TODA noite, para sempre, e ainda ocupavam o teto da rodada no
+   * lugar de quem tinha dado novo. Com o carimbo, quem foi perguntado ontem fica
+   * quieto por 25 dias mesmo tendo respondido vazio.
+   */
   private async defasados(codigos: number[], agora: Date, comTeto: boolean): Promise<number[]> {
     if (!codigos.length) return [];
     const corte = new Date(agora.getTime() - SiconfiSyncService.DIAS_ATE_DEFASAR * 86_400_000);
-    const recentes = await this.prisma.indicadorPessoalEnte.findMany({
-      where: { enteCodigo: { in: codigos }, updatedAt: { gte: corte } },
-      select: { enteCodigo: true },
-      distinct: ['enteCodigo'],
+    const emDia = await this.prisma.ente.findMany({
+      where: { codigo: { in: codigos }, siconfiConsultadoEm: { gte: corte } },
+      select: { codigo: true },
     });
-    const emDia = new Set(recentes.map((r) => r.enteCodigo));
-    const fila = codigos.filter((c) => !emDia.has(c));
+    const quietos = new Set(emDia.map((e) => e.codigo));
+    const fila = codigos.filter((c) => !quietos.has(c));
     /*
       O TETO É DO JOB DA MADRUGADA, não de quem clicou.
 
       Ele existe para o cron não virar uma varredura longa: a base se renova em
       poucas noites e depois o job passa quase todo dia sem fazer nada. Mas quem
       aperta "atualizar do Tesouro" espera que atualize — receber "30 de 71" e
-      ter de clicar três vezes é a tela mentindo sobre o que o botão faz. São 71
-      entes; a chamada manual leva o tempo que levar, com o tempo limite
-      estendido que a tela já usa para o CNJ.
+      ter de clicar três vezes é a tela mentindo sobre o que o botão faz.
     */
     return comTeto ? fila.slice(0, SiconfiSyncService.POR_RODADA) : fila;
   }
-
   /**
    * A VARREDURA. `codigosExplicitos` vem do botão "atualizar agora" da tela; sem
    * ele, o job escolhe sozinho quem está defasado.
@@ -214,6 +238,17 @@ export class SiconfiSyncService {
         }
 
         if (!pessoal && !saude) r.semPublicacao += 1;
+
+        /*
+          O CARIMBO DA CONSULTA VAI SEMPRE, tenha vindo dado ou não. É ele que
+          separa "o ente não publicou" de "ainda não perguntamos" — sem ele as
+          duas situações são a mesma ausência de linha, e a tela acaba acusando
+          o ente de uma falha que é nossa.
+        */
+        await this.prisma.ente.update({
+          where: { codigo },
+          data: { siconfiConsultadoEm: agora },
+        });
 
         /*
           A POPULAÇÃO vem de carona nos dois relatórios e é a única fonte dela

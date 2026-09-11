@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import {
-  dinheiroCurto, getMunicipio, numeroBR, percentualBR, periodoRGF, periodoRREO,
+  acumuladoAte, dinheiroCurto, getMunicipio, numeroBR, percentualBR, periodoRGF, periodoRREO,
   SITUACAO_FISCAL, type MunicipioLinha,
 } from '@/lib/municipios';
 
@@ -42,6 +42,13 @@ export function MunicipioDrawer({
 }) {
   const ehEstado = municipio.esfera === 'E';
   const ehMunicipio = municipio.esfera === 'M';
+  /**
+   * COMO SE REFERIR A ESTE ENTE numa frase. A ficha do Governo do Piauí dizia
+   * "O município não publicou o Relatório de Gestão Fiscal" — duas coisas
+   * erradas de uma vez: ele não é município e tinha publicado 37,00%.
+   */
+  const comoChamar = ehMunicipio ? 'O município' : ehEstado ? 'O Estado' : 'A União';
+  const esteEnte = ehMunicipio ? 'deste município' : ehEstado ? 'deste Estado' : 'da União';
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['municipio', municipio.codigo],
@@ -140,9 +147,16 @@ export function MunicipioDrawer({
             {/* -------------------------------------------- 2. saúde */}
             <Secao titulo="Orçamento da saúde" icone={HeartPulse}>
               {!data.saude ? (
+                /*
+                  DUAS AUSÊNCIAS DIFERENTES, e a frase antiga só conhecia uma —
+                  além de chamar o Governo do Estado de "município". Dizer que um
+                  ente não publicou quando ninguém perguntou é acusá-lo de uma
+                  falha que é nossa.
+                */
                 <p className="text-sm text-muted-foreground">
-                  O município não publicou o Relatório Resumido da Execução Orçamentária no período
-                  consultado.
+                  {data.consultadoEm
+                    ? `${comoChamar} não publicou o Relatório Resumido da Execução Orçamentária no período consultado.`
+                    : `Os indicadores ${esteEnte} ainda não foram buscados no Tesouro Nacional.`}
                 </p>
               ) : (
                 <>
@@ -155,14 +169,30 @@ export function MunicipioDrawer({
                     </span>
                   </div>
                   <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <Numero rotulo="Gasto em saúde" valor={dinheiroCurto(data.saude.despesaLiquidada)} />
+                    <Numero
+                      rotulo="Gasto em saúde"
+                      valor={dinheiroCurto(data.saude.despesaLiquidada)}
+                      nota={acumuladoAte(data.saude.exercicio, data.saude.bimestre)}
+                    />
                     {data.saudePorHabitante != null && (
                       <Numero
                         rotulo="Por habitante"
                         valor={`R$ ${numeroBR(data.saudePorHabitante, 2)}`}
+                        nota={acumuladoAte(data.saude.exercicio, data.saude.bimestre)}
                       />
                     )}
                   </dl>
+                  {/*
+                    O AVISO EXISTE PORQUE O NÚMERO CONVIDA À COMPARAÇÃO ERRADA.
+                    O RREO é acumulado dentro do ano: o 3º bimestre traz seis
+                    meses e o 6º traz doze. Sem isto, um município medido em
+                    junho parece gastar metade de um medido em dezembro.
+                  */}
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Só compare estes valores em reais entre entes no{' '}
+                    <strong className="font-semibold">mesmo bimestre</strong> — o relatório é
+                    acumulado no ano. O percentual acima pode ser comparado livremente.
+                  </p>
                   {/*
                     ESTA RESSALVA NÃO É RODAPÉ JURÍDICO — é o que impede alguém de
                     ir para uma negociação afirmando algo que a outra parte
@@ -184,6 +214,19 @@ export function MunicipioDrawer({
               titulo={ehEstado ? `O sindicato no ${data.nome}` : `O sindicato em ${data.nome}`}
               icone={Users}
             >
+              {/*
+                ZERO POR NÃO TER e zero POR NÃO TER PERGUNTADO são coisas
+                diferentes. Enquanto "Ligar cadastros" não roda, todo contador dá
+                zero — e a ficha do Governo do Piauí dizia "0 filiados" havendo
+                mais de três mil no estado.
+              */}
+              {data.ligacaoJaRodou === false && (
+                <p className="mb-2 rounded-md bg-sky-50 p-2 text-[11px] leading-relaxed text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                  Os cadastros ainda não foram ligados ao catálogo do IBGE, então estes contadores
+                  ainda não valem. Use <strong className="font-semibold">Ligar cadastros</strong> na
+                  tela de Municípios.
+                </p>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 <Kpi
                   icone={Users}
@@ -198,7 +241,18 @@ export function MunicipioDrawer({
                   href={ehMunicipio ? `/filiados?cidade=${encodeURIComponent(data.nome)}` : undefined}
                 />
                 <Kpi icone={Building2} n={data.vinculos.organizacoes} rotulo="organizações" />
-                <Kpi icone={Gavel} n={data.vinculos.processos} rotulo="processos" />
+                <Kpi
+                  icone={Gavel}
+                  n={data.vinculos.processos}
+                  rotulo="processos"
+                  /*
+                    O NÚMERO VIRA LISTA. Perguntar "quais são esses 4?" e não ter
+                    resposta é o tipo de beco que faz o painel parecer enfeite.
+                    O nome viaja na URL para a ficha do filtro poder dizer
+                    "Comarca: Altos" sem outra chamada.
+                  */
+                  href={`/processos?comarca=${data.codigo}&comarcaNome=${encodeURIComponent(data.nome)}`}
+                />
               </div>
 
               {data.organizacoes.length > 0 && (
@@ -383,11 +437,21 @@ function Secao({
   );
 }
 
-function Numero({ rotulo, valor }: { rotulo: string; valor: string }) {
+function Numero({
+  rotulo,
+  valor,
+  nota,
+}: {
+  rotulo: string;
+  valor: string;
+  /** O período do acumulado. Valor em reais sem período convida a comparar errado. */
+  nota?: string;
+}) {
   return (
     <div className="rounded-lg border px-2.5 py-1.5">
       <dt className="text-[11px] text-muted-foreground">{rotulo}</dt>
       <dd className="font-semibold tabular-nums">{valor}</dd>
+      {nota && <dd className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{nota}</dd>}
     </div>
   );
 }

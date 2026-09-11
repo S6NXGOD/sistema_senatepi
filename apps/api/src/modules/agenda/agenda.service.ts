@@ -61,7 +61,24 @@ const processoSel = {
     statusInterno: true,
     titulo: true,
     tipoAcao: true,
-    partes: { select: { nome: true, polo: true }, orderBy: PARTE_ORDER },
+    /*
+      DE QUE LADO ESTAMOS vai junto com o nome.
+
+      O cartão mostrava "SINDICATO DOS EN... × MUNICIPIO DE ELESBÃO VELOSO" e
+      quem batia o olho não sabia se a tarefa era nossa ou do município — o
+      cabeçalho de um processo não diz de quem é o prazo. `institucional`
+      marca a parte que É o sindicato; `filiadoId` marca a parte que é
+      filiado nosso. Um dos dois responde a pergunta em toda ação do acervo.
+    */
+    partes: {
+      select: {
+        nome: true,
+        polo: true,
+        filiadoId: true,
+        parteExterna: { select: { institucional: true } },
+      },
+      orderBy: PARTE_ORDER,
+    },
   },
 } as const;
 

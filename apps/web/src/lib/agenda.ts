@@ -73,7 +73,14 @@ export interface ProcessoRef {
    * `find(polo === 'ATIVO')` sem reimplementar a regra de qual parte é a
    * principal — se a ordenação mudar lá, o cartão passa a mostrar outra parte.
    */
-  partes?: { nome: string; polo: 'ATIVO' | 'PASSIVO' | 'TERCEIRO' }[];
+  partes?: {
+    nome: string;
+    polo: 'ATIVO' | 'PASSIVO' | 'TERCEIRO';
+    /** Preenchido quando a parte é um filiado nosso. */
+    filiadoId?: string | null;
+    /** `institucional` marca a parte que É o próprio sindicato. */
+    parteExterna?: { institucional: boolean } | null;
+  }[];
 }
 
 /**

@@ -6,6 +6,7 @@ import { MunicipiosCronService } from './municipios-cron.service';
 import { SiconfiService } from './siconfi.service';
 import { SiconfiSyncService } from './siconfi-sync.service';
 import { VinculoDeEnteService } from './vinculo-de-ente.service';
+import { RelatorioEntesService } from './relatorio-entes.service';
 import { SincronizacaoLogService } from '../processos/sincronizacao-log.service';
 
 /**
@@ -29,6 +30,7 @@ import { SincronizacaoLogService } from '../processos/sincronizacao-log.service'
     SiconfiService,
     SiconfiSyncService,
     VinculoDeEnteService,
+    RelatorioEntesService,
     SincronizacaoLogService,
   ],
   exports: [MunicipiosService, VinculoDeEnteService],

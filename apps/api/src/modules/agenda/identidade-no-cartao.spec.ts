@@ -66,20 +66,59 @@ describe('as partes chegam aos cartões', () => {
   });
 
   /**
-   * LGPD: o cartão precisa do NOME de quem litiga contra, não do documento
-   * nem do endereço. Puxar a parte inteira encheria a resposta de dado pessoal
-   * que a tela não usa — e uma agenda cheia carrega dezenas delas.
+   * LGPD: O CARTÃO LEVA O MÍNIMO — e o mínimo cresceu por um motivo, não por
+   * descuido.
+   *
+   * Continua sem documento e sem endereço: puxar a parte inteira encheria a
+   * resposta de dado pessoal que a tela não usa, e uma agenda cheia carrega
+   * dezenas delas.
+   *
+   * Entraram DOIS campos, e nenhum é dado pessoal: `filiadoId` (um id interno)
+   * e `parteExterna.institucional` (um booleano). Eles respondem a pergunta que
+   * o cartão não respondia — DE QUE LADO ESTAMOS. "SINDICATO DOS EN... ×
+   * MUNICIPIO DE ELESBÃO VELOSO-PI" mostra o confronto, não o dono do prazo, e
+   * quem batia o olho podia concluir que a tarefa era do município.
+   *
+   * A LISTA É FECHADA: o teste reprova qualquer campo além destes quatro. Assim
+   * o próximo acréscimo precisa ser deliberado, que é o que a versão anterior
+   * deste teste protegia.
    */
-  it('só nome e polo viajam — nada de documento no cartão', () => {
+  it('o cartão leva só o mínimo, e nada de dado pessoal', () => {
+    /* `select` é estrutural: aparece no aninhado `parteExterna: { select: ... }`. */
+    const PERMITIDOS = ['select', 'nome', 'polo', 'filiadoId', 'parteExterna', 'institucional'];
     for (const fonte of [AGENDA, DASHBOARD]) {
-      const sel = fonte.slice(fonte.indexOf('partes: { select:'));
-      const bloco = sel.slice(0, sel.indexOf('}'));
+      /*
+        A ÂNCORA EXIGE O `select`. No painel existe um `partes: {` que é
+        DECLARAÇÃO DE TIPO, não consulta — mirar só em `partes: {` fazia o teste
+        ler a interface e reprovar por causa do campo `advogado` que vem depois.
+      */
+      const m = /partes:\s*\{\s*select:\s*\{/.exec(fonte);
+      expect(m).not.toBeNull();
+
+      /* Do `select: {` até a chave que o fecha — contando os pares. */
+      let i = fonte.indexOf('{', m!.index + m![0].length - 1);
+      let prof = 0;
+      let fim = i;
+      for (let k = i; k < fonte.length; k += 1) {
+        if (fonte[k] === '{') prof += 1;
+        else if (fonte[k] === '}') {
+          prof -= 1;
+          if (prof === 0) { fim = k; break; }
+        }
+      }
+      const bloco = fonte.slice(i, fim + 1);
+
       expect(bloco).toContain('nome: true');
       expect(bloco).toContain('polo: true');
-      expect(bloco).not.toContain('documento');
+      for (const proibido of ['documento', 'cpf', 'email', 'telefone', 'endereco', 'observacao']) {
+        expect(bloco).not.toContain(proibido);
+      }
+
+      const campos = [...bloco.matchAll(/(\w+):\s*(true|\{)/g)].map((x) => x[1]);
+      expect(campos.length).toBeGreaterThan(0);
+      for (const campo of campos) expect(PERMITIDOS).toContain(campo);
     }
-  });
-});
+  });});
 
 /**
  * O DETALHE MOSTRA OS POLOS INTEIROS.

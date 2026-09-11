@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, Building2, Gavel, Landmark, Link2, Loader2, RefreshCw, Search, Users,
+  AlertTriangle, Building2, FileDown, Gavel, Landmark, Link2, Loader2, RefreshCw, Search, Users,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,11 +14,12 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import { UFS } from '@/lib/endereco';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
+import { baixarPdf } from '@/lib/pdf';
 import { MunicipioDrawer } from '@/components/municipios/municipio-drawer';
 import {
   casarCadastrosComIBGE, destaquesDeEntes, listarMunicipios, numeroBR,
   pendenciasDeMunicipio, percentualBR,
-  SITUACAO_FISCAL, sincronizarSiconfi, type MunicipioLinha,
+  PESO_SITUACAO, SITUACAO_FISCAL, sincronizarSiconfi, type MunicipioLinha,
 } from '@/lib/municipios';
 
 /**
@@ -51,7 +52,7 @@ export default function MunicipiosPage() {
   const [soAcimaDoLimite, setSoAcimaDoLimite] = useState(false);
   const [page, setPage] = useState(1);
   const [abrindo, setAbrindo] = useState<MunicipioLinha | null>(null);
-  const [trabalhando, setTrabalhando] = useState<'siconfi' | 'casar' | null>(null);
+  const [trabalhando, setTrabalhando] = useState<'siconfi' | 'casar' | 'pdf' | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['municipios', aplicado, uf, soComVinculo, soAcimaDoLimite, page],
@@ -114,6 +115,17 @@ export default function MunicipiosPage() {
     }
   }
 
+  async function baixarRelatorio() {
+    setTrabalhando('pdf');
+    try {
+      await baixarPdf('/municipios/relatorio.pdf', 'entes-publicos.pdf');
+    } catch {
+      toast.error('Não foi possível gerar o relatório.');
+    } finally {
+      setTrabalhando(null);
+    }
+  }
+
   const itens = data?.items ?? [];
 
   return (
@@ -129,35 +141,56 @@ export default function MunicipiosPage() {
             Catálogo do IBGE com os indicadores que o município declarou ao Tesouro Nacional.
           </p>
         </div>
-        {podeMexer && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={casarCadastros}
-              disabled={trabalhando !== null}
-              title="Reconhece o município por trás da cidade digitada no cadastro"
-            >
-              {trabalhando === 'casar' ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Link2 className="mr-2 h-4 w-4" />
-              )}
-              Ligar cadastros
-            </Button>
-            <Button
-              onClick={atualizarDoTesouro}
-              disabled={trabalhando !== null}
-              title="Busca no SICONFI os indicadores dos entes onde o sindicato atua. Leva alguns minutos."
-            >
-              {trabalhando === 'siconfi' ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Atualizar do Tesouro
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {/*
+            O PDF É PARA QUEM NÃO TEM LOGIN. A diretoria discute em reunião, o
+            advogado leva a pasta para a audiência e a assembleia recebe cópia —
+            três portas por onde a tela não passa. Por isso é `GET` e basta
+            VISUALIZAR: quem consulta precisa poder imprimir.
+          */}
+          <Button
+            variant="outline"
+            onClick={baixarRelatorio}
+            disabled={trabalhando !== null}
+            title="Uma folha com a legenda em português, a tabela dos entes e as ressalvas. Serve para levar à reunião."
+          >
+            {trabalhando === 'pdf' ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="mr-2 h-4 w-4" />
+            )}
+            Relatório em PDF
+          </Button>
+          {podeMexer && (
+            <>
+              <Button
+                variant="outline"
+                onClick={casarCadastros}
+                disabled={trabalhando !== null}
+                title="Reconhece o município por trás da cidade digitada no cadastro"
+              >
+                {trabalhando === 'casar' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="mr-2 h-4 w-4" />
+                )}
+                Ligar cadastros
+              </Button>
+              <Button
+                onClick={atualizarDoTesouro}
+                disabled={trabalhando !== null}
+                title="Busca no SICONFI os indicadores dos entes onde o sindicato atua. Leva alguns minutos."
+              >
+                {trabalhando === 'siconfi' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Atualizar do Tesouro
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/*
@@ -166,7 +199,39 @@ export default function MunicipiosPage() {
         que 20 filiados moram numa cidade que o sistema não soube identificar
         seria fingir que o casamento fechou.
       */}
-      {pend && pend.filiadosSemMunicipio.length > 0 && (
+      {/*
+        "AINDA NÃO RODOU" NÃO É "NÃO BATE" — e a faixa dizia a segunda coisa.
+
+        Ela anunciava "3.016 filiados com cidade que não bate com o catálogo do
+        IBGE: Teresina (2.138)...". Teresina bate. O que havia era o casamento
+        nunca ter sido executado, e o sistema estava acusando o cadastro de um
+        defeito que era dele. Agora são dois avisos diferentes, e o primeiro
+        oferece o botão em vez de apontar o dedo.
+      */}
+      {pend && !pend.jaRodou && pend.totalComCidade > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm dark:border-sky-900 dark:bg-sky-950/30">
+          <Link2 className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
+          <span className="min-w-0">
+            Os cadastros ainda não foram ligados ao catálogo do IBGE.{' '}
+            <span className="text-muted-foreground">
+              {pend.totalComCidade.toLocaleString('pt-BR')} filiados têm cidade preenchida e estão
+              esperando.
+            </span>
+          </span>
+          {podeMexer && (
+            <button
+              type="button"
+              onClick={casarCadastros}
+              disabled={trabalhando !== null}
+              className="font-semibold text-sky-800 underline underline-offset-2 hover:no-underline disabled:opacity-50 dark:text-sky-300"
+            >
+              ligar agora
+            </button>
+          )}
+        </div>
+      )}
+
+      {pend && pend.jaRodou && pend.filiadosSemMunicipio.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="min-w-0">
@@ -413,6 +478,13 @@ export default function MunicipiosPage() {
         </Card>
       )}
 
+      {/*
+        A LEGENDA EXPLICA O QUE ESTÁ NA TELA, e só isso — mesma regra do
+        calendário da agenda. Listar as sete situações sempre ensinaria a
+        ignorar a faixa; listar as que aparecem faz dela uma resposta.
+      */}
+      {itens.length > 0 && <LegendaDoQueEstaNaTela itens={itens} />}
+
       {abrindo && <MunicipioDrawer municipio={abrindo} onFechar={() => setAbrindo(null)} />}
     </div>
   );
@@ -428,6 +500,13 @@ function SeloFiscal({ m }: { m: MunicipioLinha }) {
   const temNumero = m.fiscal.percentualRcl != null && m.fiscal.situacao !== 'INCONSISTENTE';
   return (
     <span
+      /*
+        A EXPLICAÇÃO VIAJA COM O SELO. Antes ela só existia no detalhe: quem
+        varria a lista via "prudencial" e precisava abrir a ficha para saber o
+        que isso muda. `title=` é o tooltip deste projeto — mesmo padrão de
+        `STATUS_PROCESSO_AJUDA` na tela de Processos.
+      */
+      title={est.ajuda}
       className={cn(
         'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold',
         est.cor,
@@ -473,6 +552,55 @@ function Presenca({ m, alinharDireita }: { m: MunicipioLinha; alinharDireita?: b
           <span className="tabular-nums">{c.n}</span>
         </span>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A LEGENDA — uma faixa, colada no bloco, só com o que está na tela.
+ *
+ * O sindicato tem gente que nunca ouviu "limite prudencial", e o selo sozinho
+ * ("52,33% · prudencial") não ensina nada. Aqui a palavra ganha a CONSEQUÊNCIA,
+ * que é o que muda a conversa: não "o que a sigla quer dizer", mas "o que o
+ * ente pode ou não pode fazer".
+ *
+ * Nunca uma caixa "Legenda" fixa no topo: situação que não aparece na página
+ * não entra, senão a faixa vira decoração e as pessoas param de ler.
+ */
+function LegendaDoQueEstaNaTela({ itens }: { itens: MunicipioLinha[] }) {
+  const presentes = [...new Set(itens.map((m) => m.fiscal.situacao))].sort(
+    (a, b) => PESO_SITUACAO[a] - PESO_SITUACAO[b],
+  );
+  if (presentes.length < 2) return null;
+
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        O que cada marca quer dizer
+      </p>
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+        {presentes.map((sit) => (
+          <div key={sit} className="flex gap-2">
+            <span
+              className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', SITUACAO_FISCAL[sit].ponto)}
+              aria-hidden
+            />
+            <div className="min-w-0">
+              <dt className="text-xs font-semibold">{SITUACAO_FISCAL[sit].rotulo}</dt>
+              <dd className="text-[11px] leading-snug text-muted-foreground">
+                {SITUACAO_FISCAL[sit].ajuda}
+              </dd>
+            </div>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2.5 border-t pt-2 text-[11px] leading-relaxed text-muted-foreground">
+        <strong className="font-semibold">Despesa com pessoal</strong> é quanto da receita do ente
+        vai para a folha, do Relatório de Gestão Fiscal (RGF).{' '}
+        <strong className="font-semibold">Saúde</strong> é a fatia da despesa que caiu nessa função,
+        do Relatório Resumido da Execução Orçamentária (RREO) — não é o mínimo constitucional de 15%.
+        Os dois são declarações do próprio ente ao Tesouro Nacional.
+      </p>
     </div>
   );
 }

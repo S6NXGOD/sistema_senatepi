@@ -301,6 +301,7 @@ export function FichasDeFiltro({
   parte,
   busca,
   assunto,
+  comarca,
   onLimparCampo,
   onLimparTudo,
 }: {
@@ -309,7 +310,9 @@ export function FichasDeFiltro({
   busca: string;
   /** Assunto do CNJ, vindo do Panorama. */
   assunto?: string;
-  onLimparCampo: (campo: keyof FiltrosProcesso | 'parte' | 'busca' | 'assunto') => void;
+  /** A comarca, vinda da ficha do município. Guarda o NOME para a ficha poder dizê-lo. */
+  comarca?: { codigo: number; nome: string } | null;
+  onLimparCampo: (campo: keyof FiltrosProcesso | 'parte' | 'busca' | 'assunto' | 'comarca') => void;
   onLimparTudo: () => void;
 }) {
   const { data: advogados = [] } = useQuery({
@@ -334,6 +337,22 @@ export function FichasDeFiltro({
         rotulo="Assunto"
         valor={assunto}
         onRemover={() => onLimparCampo('assunto')}
+      />,
+    );
+  }
+  if (comarca) {
+    /*
+      "Comarca", não "Município": o que o processo carrega é o município do
+      ÓRGÃO JULGADOR. A ação contra o Município de Ilha Grande tramita em
+      Parnaíba, e uma ficha escrita "Município: Parnaíba" faria a pessoa
+      concluir a coisa errada sobre a parte contrária.
+    */
+    fichas.push(
+      <Ficha
+        key="comarca"
+        rotulo="Comarca"
+        valor={comarca.nome}
+        onRemover={() => onLimparCampo('comarca')}
       />,
     );
   }

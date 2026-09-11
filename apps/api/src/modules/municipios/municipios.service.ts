@@ -46,6 +46,22 @@ export class MunicipiosService {
    * chip e o número de linhas divergiriam, que é exatamente o defeito que já
    * apareceu nas filas de Processos.
    */
+  /**
+   * A VARREDURA JÁ PASSOU POR AQUI? — sem isto, "0 filiados" é uma mentira.
+   *
+   * Enquanto o casamento não roda, TODO contador de filiado e de organização
+   * dá zero, e a ficha do Governo do Piauí dizia "0 filiados" havendo mais de
+   * três mil no estado. Zero por não ter e zero por não ter perguntado são
+   * coisas diferentes, e só uma delas é culpa de alguém.
+   */
+  private async ligacaoJaRodou(): Promise<boolean> {
+    const [f, o] = await Promise.all([
+      this.prisma.filiado.count({ where: { municipioOrigem: { not: null } } }),
+      this.prisma.parteExterna.count({ where: { enteOrigem: { not: null } } }),
+    ]);
+    return f + o > 0;
+  }
+
   private async codigosComVinculo(): Promise<number[]> {
     const [filiados, partes, processos] = await Promise.all([
       this.prisma.filiado.findMany({
@@ -151,7 +167,7 @@ export class MunicipiosService {
     if (f.soAcimaDoLimite) {
       const comIndicador = await this.ultimosPessoal(comVinculo ?? []);
       const acima = [...comIndicador.entries()]
-        .filter(([, i]) => ['PRUDENCIAL', 'ACIMA_DO_TETO'].includes(situacaoFiscal(this.paraLeitura(i))))
+        .filter(([, i]) => ['PRUDENCIAL', 'ACIMA_DO_TETO'].includes(situacaoFiscal(this.paraLeitura(i), i.updatedAt)))
         .map(([codigo]) => codigo);
       where.codigo = { in: acima };
     }
@@ -175,12 +191,13 @@ export class MunicipiosService {
 
     const items = itens.map((m) => {
       const p = pessoal.get(m.codigo) ?? null;
-      const s = situacaoFiscal(this.paraLeitura(p));
+      const s = situacaoFiscal(this.paraLeitura(p), m.siconfiConsultadoEm);
       return {
         codigo: m.codigo,
         nome: m.nome,
         uf: m.uf,
         esfera: m.esfera,
+        consultadoEm: m.siconfiConsultadoEm,
         regiaoImediata: m.regiaoImediata,
         populacao: m.populacao,
         fiscal: p
@@ -192,7 +209,7 @@ export class MunicipiosService {
               exercicio: p.exercicio,
               quadrimestre: p.quadrimestre,
             }
-          : { situacao: 'SEM_DADO' as SituacaoFiscal },
+          : { situacao: (m.siconfiConsultadoEm ? 'SEM_DADO' : 'NAO_CONSULTADO') as SituacaoFiscal },
         saude: this.mapSaude(saude.get(m.codigo)),
         vinculos: contagens.get(m.codigo) ?? { filiados: 0, organizacoes: 0, processos: 0 },
       };
@@ -231,13 +248,14 @@ export class MunicipiosService {
     ]);
 
     const p = seriePessoal[0] ?? null;
-    const s = situacaoFiscal(this.paraLeitura(p));
+    const s = situacaoFiscal(this.paraLeitura(p), m.siconfiConsultadoEm);
 
     return {
       codigo: m.codigo,
       nome: m.nome,
       uf: m.uf,
       esfera: m.esfera,
+      consultadoEm: m.siconfiConsultadoEm,
       regiaoImediata: m.regiaoImediata,
       regiaoIntermediaria: m.regiaoIntermediaria,
       populacao: m.populacao,
@@ -256,12 +274,15 @@ export class MunicipiosService {
             quadrimestre: p.quadrimestre,
             atualizadoEm: p.updatedAt,
           }
-        : { situacao: 'SEM_DADO' as SituacaoFiscal, explicacao: oQueIssoSignifica('SEM_DADO') },
+        : {
+            situacao: (m.siconfiConsultadoEm ? 'SEM_DADO' : 'NAO_CONSULTADO') as SituacaoFiscal,
+            explicacao: oQueIssoSignifica(m.siconfiConsultadoEm ? 'SEM_DADO' : 'NAO_CONSULTADO'),
+          },
       seriePessoal: seriePessoal.map((i) => ({
         exercicio: i.exercicio,
         quadrimestre: i.quadrimestre,
         percentualRcl: this.dec(i.percentualRcl),
-        situacao: situacaoFiscal(this.paraLeitura(i)),
+        situacao: situacaoFiscal(this.paraLeitura(i), i.updatedAt),
       })),
       saude: this.mapSaude(serieSaude[0]),
       /**
@@ -289,6 +310,7 @@ export class MunicipiosService {
           ? await this.presencaNaUF(m.uf, codigo)
           : (contagens.get(codigo) ?? { filiados: 0, organizacoes: 0, processos: 0 }),
       contagemPorUF: m.esfera === 'E',
+      ligacaoJaRodou: await this.ligacaoJaRodou(),
       organizacoes,
       fonte: {
         catalogo: 'IBGE — Localidades',
@@ -325,6 +347,7 @@ export class MunicipiosService {
       this.ultimosSaude(codigos),
       this.contarVinculos(codigos),
     ]);
+    const jaRodou = await this.ligacaoJaRodou();
     /* O Estado se conta pela UF inteira; a União, pela ligação direta. */
     const naUF = new Map(
       await Promise.all(
@@ -341,24 +364,26 @@ export class MunicipiosService {
         nome: m.nome,
         uf: m.uf,
         esfera: m.esfera,
+        consultadoEm: m.siconfiConsultadoEm,
         regiaoImediata: null,
         populacao: m.populacao,
         fiscal: pp
           ? {
-              situacao: situacaoFiscal(this.paraLeitura(pp)),
+              situacao: situacaoFiscal(this.paraLeitura(pp), m.siconfiConsultadoEm),
               percentualRcl: this.dec(pp.percentualRcl),
               limiteMaximo: this.dec(pp.limiteMaximo),
               limitePrudencial: this.dec(pp.limitePrudencial),
               exercicio: pp.exercicio,
               quadrimestre: pp.quadrimestre,
             }
-          : { situacao: 'SEM_DADO' as SituacaoFiscal },
+          : { situacao: (m.siconfiConsultadoEm ? 'SEM_DADO' : 'NAO_CONSULTADO') as SituacaoFiscal },
         saude: this.mapSaude(saude.get(m.codigo)),
         vinculos:
           naUF.get(m.codigo) ??
           contagens.get(m.codigo) ?? { filiados: 0, organizacoes: 0, processos: 0 },
         /** Só o Estado conta pela UF — a tela precisa dizer isso ao lado do número. */
         contagemPorUF: naUF.has(m.codigo),
+        ligacaoJaRodou: jaRodou,
       };
     });
   }
@@ -373,7 +398,26 @@ export class MunicipiosService {
    * sozinho, e nenhuma tela devia esconder que ficou por decidir.
    */
   async pendencias() {
-    const [semMunicipio, porPreferencia, orgsSem] = await Promise.all([
+    /*
+      "AINDA NÃO RODOU" NÃO É "NÃO BATE" — e a tela dizia a segunda coisa.
+
+      A faixa amarela anunciava "3.016 filiados com cidade que não bate com o
+      catálogo do IBGE: Teresina (2.138), TERESINA (186)...". Teresina bate,
+      obviamente. O que havia era o casamento nunca ter sido executado: a
+      consulta pedia `municipioCodigo: null`, e no primeiro dia isso é todo
+      mundo. O sistema estava acusando o cadastro de um defeito que era dele.
+
+      `jaRodou` é derivado, não uma flag guardada: se existe ao menos um
+      registro com origem preenchida, a varredura já passou por aqui. Flag
+      guardada envelheceria sozinha.
+    */
+    const [comOrigemFiliado, comOrigemOrg] = await Promise.all([
+      this.prisma.filiado.count({ where: { municipioOrigem: { not: null } } }),
+      this.prisma.parteExterna.count({ where: { enteOrigem: { not: null } } }),
+    ]);
+    const jaRodou = comOrigemFiliado + comOrigemOrg > 0;
+
+    const [semMunicipio, porPreferencia, orgsSem, totalComCidade] = await Promise.all([
       this.prisma.filiado.groupBy({
         by: ['cidade', 'estado'],
         where: { municipioCodigo: null, cidade: { not: null } },
@@ -389,24 +433,29 @@ export class MunicipiosService {
         take: 20,
       }),
       this.prisma.parteExterna.count({ where: { enteCodigo: null, ativo: true } }),
+      this.prisma.filiado.count({ where: { cidade: { not: null } } }),
     ]);
 
     return {
       ufDaCasa: (tenant.endereco?.uf ?? '').toUpperCase(),
-      filiadosSemMunicipio: semMunicipio.map((g) => ({
-        cidade: g.cidade,
-        estado: g.estado,
-        quantos: g._count._all,
-      })),
+      /** Falso = o botão "Ligar cadastros" nunca foi usado. A tela avisa isso, e não acusa o cadastro. */
+      jaRodou,
+      totalComCidade,
+      filiadosSemMunicipio: jaRodou
+        ? semMunicipio.map((g) => ({
+            cidade: g.cidade,
+            estado: g.estado,
+            quantos: g._count._all,
+          }))
+        : [],
       ligadosPorPreferencia: porPreferencia.map((g) => ({
         cidade: g.cidade,
         estado: g.estado,
         quantos: g._count._all,
       })),
-      organizacoesSemMunicipio: orgsSem,
+      organizacoesSemMunicipio: jaRodou ? orgsSem : 0,
     };
   }
-
   // ------------------------------------------------------------------ apoio
 
   private async ultimosPessoal(codigos: number[]) {

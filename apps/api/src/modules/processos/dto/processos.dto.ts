@@ -326,6 +326,19 @@ export class ListProcessosQueryDto {
   @ApiPropertyOptional({ description: 'Todos os processos de uma parte cadastrada (ex.: uma empresa ré).' })
   @IsOptional() @IsString() parteExternaId?: string;
 
+  /**
+   * A COMARCA — o município do ÓRGÃO JULGADOR, não o endereço da parte.
+   *
+   * É o link da ficha do município ("4 processos"). O nome do campo é o da
+   * coluna de propósito: chamá-lo de `municipio` sugeriria endereço, e a ação
+   * contra o Município de Ilha Grande tramita em Parnaíba.
+   *
+   * Sem esta linha o filtro viraria 400, não seria ignorado: o
+   * `ValidationPipe` global usa `forbidNonWhitelisted`.
+   */
+  @ApiPropertyOptional({ description: 'Código IBGE da COMARCA (município do órgão julgador).' })
+  @IsOptional() @Type(() => Number) @IsInt() municipioIBGE?: number;
+
   @ApiPropertyOptional({
     description:
       'Assunto do CNJ, casamento EXATO, inclusive quando for secundário. É o link do Panorama.',

@@ -159,6 +159,21 @@ export function moduloDaRota(pathname: string): ModuloKey | null {
 }
 
 /** Filtra as seções/itens de navegação segundo as permissões do usuário. */
+/**
+ * O ITEM ACESO — uma regra, um lugar.
+ *
+ * Esta linha estava COPIADA LITERALMENTE em `sidebar.tsx` e em
+ * `mobile-nav.tsx`. Mexer numa e esquecer a outra dá lateral e gaveta
+ * discordando na mesma tela — o defeito que este projeto já teve com duas
+ * definições de "atrasada" e duas `normalizarNome`.
+ *
+ * `startsWith(href + '/')` e não `startsWith(href)`: sem a barra, /processos
+ * acenderia em /processos-antigos.
+ */
+export function ehItemAtivo(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(href + '/');
+}
+
 export function filtrarNav(
   role: string | null | undefined,
   permissoes: unknown,

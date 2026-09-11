@@ -41,8 +41,21 @@ export type SituacaoFiscal =
   | 'ACIMA_DO_TETO'
   /** A declaração não fecha — ver o cabeçalho deste arquivo. */
   | 'INCONSISTENTE'
-  /** O município não publicou o relatório no período consultado. */
-  | 'SEM_DADO';
+  /**
+   * PERGUNTAMOS E O ENTE NÃO PUBLICOU o relatório no período. É uma
+   * irregularidade DELE — e um argumento, não uma lacuna nossa.
+   */
+  | 'SEM_DADO'
+  /**
+   * AINDA NÃO PERGUNTAMOS. Tarefa nossa, não falha do ente.
+   *
+   * Os dois casos são indistinguíveis no banco — em ambos falta a linha de
+   * indicador. A ficha do Governo do Piauí chegou a afirmar "o município não
+   * publicou" sobre um ente que não é município e que tinha publicado 37,00%.
+   * Confundir os dois é o sistema acusando alguém no lugar de admitir o
+   * próprio atraso.
+   */
+  | 'NAO_CONSULTADO';
 
 /**
  * Acima disto a declaração é aritmeticamente impossível de sustentar: gastar
@@ -71,9 +84,15 @@ export interface LeituraPessoal {
  * número chumbado no código classificaria errado no dia em que o módulo passasse
  * a ler câmara municipal, e o erro seria silencioso.
  */
-export function situacaoFiscal(l: LeituraPessoal | null | undefined): SituacaoFiscal {
+export function situacaoFiscal(
+  l: LeituraPessoal | null | undefined,
+  /** Quando o Tesouro foi perguntado. Nulo = nunca. Ver `NAO_CONSULTADO`. */
+  consultadoEm?: Date | null,
+): SituacaoFiscal {
   const pct = l?.percentualRcl;
-  if (pct === null || pct === undefined) return 'SEM_DADO';
+  if (pct === null || pct === undefined) {
+    return consultadoEm ? 'SEM_DADO' : 'NAO_CONSULTADO';
+  }
   if (pct > PERCENTUAL_IMPOSSIVEL) return 'INCONSISTENTE';
   if (l?.limiteMaximo != null && pct >= l.limiteMaximo) return 'ACIMA_DO_TETO';
   if (l?.limitePrudencial != null && pct >= l.limitePrudencial) return 'PRUDENCIAL';
@@ -99,8 +118,10 @@ export function oQueIssoSignifica(s: SituacaoFiscal): string {
     case 'INCONSISTENTE':
       return 'A declaração enviada ao Tesouro não fecha: a despesa com pessoal informada supera a receita do período. O número não serve de argumento para nenhum dos dois lados enquanto o município não retificar.';
     case 'SEM_DADO':
+      return 'Este ente não publicou o Relatório de Gestão Fiscal no período consultado — deixar de publicar é, por si, uma irregularidade prevista na Lei de Responsabilidade Fiscal.';
+    case 'NAO_CONSULTADO':
     default:
-      return 'O município não publicou o Relatório de Gestão Fiscal no período consultado.';
+      return 'Os indicadores deste ente ainda não foram buscados no Tesouro Nacional. Use "Atualizar do Tesouro" — não é falha do ente.';
   }
 }
 
@@ -112,4 +133,5 @@ export const PESO_SITUACAO: Record<SituacaoFiscal, number> = {
   INCONSISTENTE: 3,
   REGULAR: 4,
   SEM_DADO: 5,
+  NAO_CONSULTADO: 6,
 };

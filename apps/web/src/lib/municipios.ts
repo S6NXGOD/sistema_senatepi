@@ -16,7 +16,8 @@ export type SituacaoFiscal =
   | 'PRUDENCIAL'
   | 'ACIMA_DO_TETO'
   | 'INCONSISTENTE'
-  | 'SEM_DADO';
+  | 'SEM_DADO'
+  | 'NAO_CONSULTADO';
 
 export interface FiscalResumo {
   situacao: SituacaoFiscal;
@@ -46,6 +47,10 @@ export interface MunicipioLinha {
   uf: string;
   /** 'M' município, 'E' estado ou DF, 'U' União. */
   esfera: string;
+  /** Quando o Tesouro foi perguntado. Nulo = nunca — não é o mesmo que "não publicou". */
+  consultadoEm?: string | null;
+  /** Falso enquanto "Ligar cadastros" nunca rodou: os contadores ainda não valem. */
+  ligacaoJaRodou?: boolean;
   regiaoImediata: string | null;
   populacao: number | null;
   fiscal: FiscalResumo;
@@ -103,6 +108,9 @@ export interface FiltrosMunicipios {
 
 export interface Pendencias {
   ufDaCasa: string;
+  /** Falso = o botão "Ligar cadastros" nunca foi usado. */
+  jaRodou: boolean;
+  totalComCidade: number;
   filiadosSemMunicipio: Array<{ cidade: string | null; estado: string | null; quantos: number }>;
   ligadosPorPreferencia: Array<{ cidade: string | null; estado: string | null; quantos: number }>;
   organizacoesSemMunicipio: number;
@@ -119,43 +127,72 @@ export interface Pendencias {
  */
 export const SITUACAO_FISCAL: Record<
   SituacaoFiscal,
-  { rotulo: string; curto: string; cor: string; ponto: string }
+  { rotulo: string; curto: string; cor: string; ponto: string; ajuda: string }
 > = {
   ACIMA_DO_TETO: {
     rotulo: 'Acima do teto da LRF',
     curto: 'acima do teto',
     cor: 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300',
     ponto: 'bg-red-500',
+    ajuda:
+      'Passou dos 54% da receita que a Lei de Responsabilidade Fiscal permite gastar com pessoal. Além de não poder conceder aumento, o ente tem prazo para recompor a folha e perde transferências voluntárias e crédito.',
   },
   PRUDENCIAL: {
     rotulo: 'No limite prudencial',
     curto: 'prudencial',
     cor: 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300',
     ponto: 'bg-amber-500',
+    ajuda:
+      'Passou de 95% do teto. Pelo art. 22, parágrafo único, da LRF, está PROIBIDO de conceder aumento, criar cargo e contratar — exceto reposição em saúde, educação e segurança.',
   },
   ALERTA: {
     rotulo: 'No limite de alerta',
     curto: 'alerta',
     cor: 'bg-yellow-100 text-yellow-900 dark:bg-yellow-950/40 dark:text-yellow-300',
     ponto: 'bg-yellow-400',
+    ajuda:
+      'Passou de 90% do teto. Ainda pode conceder aumento, mas o Tribunal de Contas já é obrigado a alertar formalmente.',
   },
   REGULAR: {
     rotulo: 'Dentro do limite',
     curto: 'dentro do limite',
     cor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300',
     ponto: 'bg-emerald-500',
+    ajuda:
+      'Abaixo do limite prudencial: não há impedimento fiscal para conceder aumento. É o número que derruba a alegação mais comum na mesa de negociação.',
   },
   INCONSISTENTE: {
     rotulo: 'Declaração inconsistente',
     curto: 'declaração não fecha',
     cor: 'bg-muted text-muted-foreground',
     ponto: 'bg-muted-foreground/40',
+    ajuda:
+      'O próprio ente declarou ao Tesouro uma folha maior que a receita do período. O número não serve de argumento para nenhum dos dois lados enquanto ele não retificar.',
   },
+  /**
+   * PERGUNTAMOS E O ENTE NÃO PUBLICOU. É irregularidade DELE — e por isso o
+   * rótulo acusa, com todas as letras.
+   */
   SEM_DADO: {
     rotulo: 'Não publicou o relatório',
-    curto: 'sem publicação',
+    curto: 'não publicou',
+    cor: 'bg-orange-100 text-orange-900 dark:bg-orange-950/40 dark:text-orange-300',
+    ponto: 'bg-orange-400',
+    ajuda:
+      'O ente não publicou o Relatório de Gestão Fiscal no período. Deixar de publicar é, por si, uma irregularidade prevista na LRF.',
+  },
+  /**
+   * AINDA NÃO PERGUNTAMOS. Tarefa nossa, e o rótulo não pode parecer acusação.
+   * A ficha do Governo do Piauí chegou a dizer que ele "não publicou" — ele
+   * tinha publicado 37,00%; faltava a varredura passar por lá.
+   */
+  NAO_CONSULTADO: {
+    rotulo: 'Ainda não consultado',
+    curto: 'a consultar',
     cor: 'bg-muted text-muted-foreground',
     ponto: 'bg-muted-foreground/25',
+    ajuda:
+      'Os indicadores deste ente ainda não foram buscados no Tesouro. Não é falha do ente — use \"Atualizar do Tesouro\".',
   },
 };
 
@@ -167,6 +204,7 @@ export const PESO_SITUACAO: Record<SituacaoFiscal, number> = {
   INCONSISTENTE: 3,
   REGULAR: 4,
   SEM_DADO: 5,
+  NAO_CONSULTADO: 6,
 };
 
 const limpar = (f: FiltrosMunicipios) =>
@@ -273,5 +311,29 @@ export function dinheiroCurto(n: number | null | undefined): string {
 export const periodoRGF = (exercicio?: number, quadrimestre?: number) =>
   exercicio && quadrimestre ? `${quadrimestre}º quadrimestre de ${exercicio}` : '—';
 
+/**
+ * O RREO É ACUMULADO DENTRO DO ANO — e sem dizer isso o número engana.
+ *
+ * O 3º bimestre traz janeiro a JUNHO; o 6º traz o ano inteiro. Então
+ * "R$ 888/hab" de Teresina (3º bimestre de 2026, seis meses) ao lado de
+ * "R$ 1.267/hab" de Oeiras (6º bimestre de 2025, doze meses) faz Oeiras
+ * parecer o dobro do que é — quando, anualizado, Teresina gasta mais.
+ *
+ * O percentual não sofre disso, porque é razão entre dois acumulados iguais.
+ * O valor em reais sofre, e por isso nunca aparece sem este rótulo.
+ */
+const MES_FINAL = ['', 'fevereiro', 'abril', 'junho', 'agosto', 'outubro', 'dezembro'];
+
+export function acumuladoAte(exercicio?: number, bimestre?: number): string {
+  if (!exercicio || !bimestre) return '';
+  const meses = bimestre * 2;
+  return `acumulado de ${meses} ${meses === 1 ? 'mês' : 'meses'} (janeiro a ${MES_FINAL[bimestre]} de ${exercicio})`;
+}
+
+/** Só para comparar duas fichas: mesmo exercício E mesmo bimestre. */
+export const mesmoPeriodoRREO = (
+  a: { exercicio: number; bimestre: number } | null | undefined,
+  b: { exercicio: number; bimestre: number } | null | undefined,
+) => !!a && !!b && a.exercicio === b.exercicio && a.bimestre === b.bimestre;
 export const periodoRREO = (exercicio?: number, bimestre?: number) =>
   exercicio && bimestre ? `${bimestre}º bimestre de ${exercicio}` : '—';

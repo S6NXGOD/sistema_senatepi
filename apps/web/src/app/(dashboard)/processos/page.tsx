@@ -119,6 +119,15 @@ function ListaProcessos() {
    * chip poder ser removido sem mexer nos demais filtros.
    */
   const [assunto, setAssunto] = useState('');
+  /**
+   * A COMARCA vinda da ficha do município (`?comarca=<código IBGE>`).
+   *
+   * Guarda código E nome: a ficha precisa dizer "Comarca: Altos", e buscar o
+   * nome de novo seria uma chamada para repetir o que a tela de origem já
+   * sabia. O nome viaja na URL junto porque, ao contrário do id de uma parte,
+   * nome de município não muda.
+   */
+  const [comarca, setComarca] = useState<{ codigo: number; nome: string } | null>(null);
   const [rapido, setRapido] = useState<
     'todos' | 'preProcessuais' | 'meus' | 'semFiliado' | 'semReu' | 'recentes'
   >('todos');
@@ -284,6 +293,22 @@ function ListaProcessos() {
   useFiltroPorUrl('assunto', (valor) => setAssunto(valor), '/processos');
 
   /**
+   * `?comarca=<código IBGE>&comarcaNome=<nome>` — o link de "N processos" da
+   * ficha do município. É a COMARCA (município do órgão julgador), nunca o
+   * endereço da parte.
+   */
+  useFiltroPorUrl(
+    'comarca',
+    (valor) => {
+      const codigo = Number(valor);
+      if (!Number.isInteger(codigo) || codigo <= 0) return;
+      const nome = new URLSearchParams(window.location.search).get('comarcaNome');
+      setComarca({ codigo, nome: nome || String(codigo) });
+    },
+    '/processos',
+  );
+
+  /**
    * `?parteExternaId=<id>` filtra pela parte contrária.
    *
    * É o link do bloco "Contra quem litigamos" da home. O chip do filtro
@@ -360,6 +385,7 @@ function ListaProcessos() {
       // Filtros rápidos (mutuamente exclusivos).
       ...(parte ? { parteExternaId: parte.id } : {}),
       ...(assunto ? { assunto } : {}),
+      ...(comarca ? { municipioIBGE: comarca.codigo } : {}),
       ...(rapido === 'meus' ? { meus: 'true' as const } : {}),
       ...(rapido === 'preProcessuais' ? { statusInterno: 'PRE_PROCESSUAL' as const } : {}),
       ...(rapido === 'semFiliado' ? { semFiliado: 'true' as const } : {}),
@@ -378,7 +404,7 @@ function ListaProcessos() {
   );
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['processos', buscaDeb, filtros, rapido, janelaRecente, page, parte?.id, ordem],
+    queryKey: ['processos', buscaDeb, filtros, rapido, janelaRecente, page, parte?.id, ordem, comarca?.codigo],
     queryFn: () => listarProcessos(filtro),
   });
   const items = data?.items ?? [];
@@ -670,15 +696,17 @@ function ListaProcessos() {
           parte={parte ? { id: parte.id, nome: parte.nome } : null}
           busca={buscaDeb}
           assunto={assunto}
+          comarca={comarca}
           onLimparCampo={(campo) => {
             setPage(1);
             if (campo === 'busca') { setBusca(''); setBuscaDeb(''); return; }
             if (campo === 'assunto') { setAssunto(''); return; }
+            if (campo === 'comarca') { setComarca(null); return; }
             if (campo === 'parte') { setParte(null); return; }
             setFiltros((f) => ({ ...f, [campo]: '' }));
           }}
           onLimparTudo={() => {
-            setBusca(''); setBuscaDeb(''); setParte(null); setAssunto('');
+            setBusca(''); setBuscaDeb(''); setParte(null); setAssunto(''); setComarca(null);
             setFiltros(FILTROS_VAZIOS); setPage(1);
           }}
         />
