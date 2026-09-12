@@ -350,6 +350,7 @@ export type MotivoSemelhanca =
   | 'MESMO_DOCUMENTO'
   | 'MESMO_NOME'
   | 'CONTIDO'
+  | 'SIGLA'
   | 'PALAVRAS_EM_COMUM'
   | 'CONTEM';
 
@@ -357,6 +358,7 @@ export const MOTIVO_SEMELHANCA_LABEL: Record<MotivoSemelhanca, string> = {
   MESMO_DOCUMENTO: 'mesmo CNPJ/CPF',
   MESMO_NOME: 'mesmo nome',
   CONTIDO: 'nome contido',
+  SIGLA: 'sigla da outra, na mesma cidade',
   PALAVRAS_EM_COMUM: 'nome parecido',
   CONTEM: 'contém o que você digitou',
 };
@@ -556,8 +558,30 @@ export interface ResultadoMesclagem {
   vinculosMovidos: number;
   dossiePatronalMovido: boolean;
   camposCompletados: string[];
+  /** Os campos em que a pessoa escolheu outro valor que não o da que fica. */
+  camposEscolhidos?: string[];
   ficaId: string;
   removida: { id: string; nome: string };
+}
+
+/**
+ * O VALOR QUE FICA, CAMPO A CAMPO — quando as duas têm valores diferentes para o
+ * mesmo campo, ou quando a Receita diz outra coisa.
+ *
+ * Sem isto a mesclagem só completava o que estava em branco, e "sem perder
+ * dado" virava "ficar com o nome e o tipo errados de quem sobrou": a FMS/THE,
+ * com o CNPJ da Fundação Municipal de Saúde, continuaria cadastrada como
+ * Empresa.
+ */
+export interface CamposDaMesclagem {
+  nome?: string;
+  nomeFantasia?: string;
+  tipo?: TipoParteExterna;
+  email?: string;
+  telefone?: string;
+  cidade?: string;
+  uf?: string;
+  enteCodigo?: number;
 }
 
 /**
@@ -567,8 +591,45 @@ export interface ResultadoMesclagem {
 export async function mesclarOrganizacoes(
   ficaId: string,
   duplicadaId: string,
+  campos?: CamposDaMesclagem,
 ): Promise<ResultadoMesclagem> {
-  return (await api.post(`/partes-externas/${ficaId}/mesclar`, { duplicadaId })).data;
+  return (
+    await api.post(`/partes-externas/${ficaId}/mesclar`, {
+      duplicadaId,
+      ...(campos && Object.keys(campos).length ? { campos } : {}),
+    })
+  ).data;
+}
+
+/** Uma organização na comparação: o cadastro e o que está preso a ela. */
+export interface LadoDaComparacao extends ParteExterna {
+  institucional: boolean;
+  dossiePatronal: { id: string } | null;
+  _count: { participacoes: number; vinculos: number };
+}
+
+export interface ComparacaoOrganizacoes {
+  a: LadoDaComparacao;
+  b: LadoDaComparacao;
+  /** O id da que a API sugere manter: a de mais peso (sindicato, dossiê, CNPJ, processos). */
+  sugestaoFica: string;
+  /**
+   * A recusa de cada sentido, pela MESMA regra do servidor: `a` é a mensagem
+   * se A ficar e B sumir. Nulo = pode.
+   */
+  recusaSeFicar: { a: string | null; b: string | null };
+  /** Alguém já marcou as duas como organizações diferentes. */
+  descartada: { em: string; por: string | null } | null;
+  /** O que a Receita diz do CNPJ de uma delas; nulo quando nenhuma tem CNPJ. */
+  receita: DadosDaReceita | null;
+  /** Havia CNPJ, mas a Receita não respondeu — a tela diz isso em vez de calar. */
+  receitaFalhou: boolean;
+}
+
+export type DadosDaReceita = Omit<ConsultaCnpj, 'jaCadastrada' | 'parecidas'>;
+
+export async function compararOrganizacoes(idA: string, idB: string): Promise<ComparacaoOrganizacoes> {
+  return (await api.get(`/partes-externas/${idA}/comparar/${idB}`)).data;
 }
 
 /**

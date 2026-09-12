@@ -32,6 +32,8 @@ import {
 } from '@/lib/atendimentos';
 import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
 import { formatNPU } from '@/lib/processos';
+import { baixarCsvDaProdutividade } from '@/lib/produtividade';
+import { UsoEProdutividade } from '@/components/relatorios/uso-e-produtividade';
 
 /**
  * RELATÓRIOS — o que a equipe entregou, o que ficou, e como o sindicato está na
@@ -60,6 +62,13 @@ const TOM_DO_RESULTADO: Record<ResultadoSentenca, string> = {
   IMPROCEDENTE: 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
 };
 
+type Aba = 'sindicato' | 'uso';
+
+const ABAS: { id: Aba; texto: string }[] = [
+  { id: 'sindicato', texto: 'O sindicato' },
+  { id: 'uso', texto: 'Uso e produtividade' },
+];
+
 export default function RelatoriosPage() {
   const { user } = useAuth();
   const hoje = useMemo(() => new Date(), []);
@@ -73,12 +82,28 @@ export default function RelatoriosPage() {
    * não uma ordenação que se impõe.
    */
   const [foco, setFoco] = useState('');
+  /**
+   * DUAS PERGUNTAS, DUAS ABAS. "Como o sindicato está" é o documento da
+   * diretoria; "quem usa o sistema e o que registra" é ferramenta de quem
+   * coordena. Na mesma rolagem, uma afogaria a outra.
+   */
+  const [aba, setAba] = useState<Aba>('sindicato');
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+  const {
+    data: relatorio, isLoading, isFetching, isError: falhou, error, refetch,
+  } = useQuery({
     queryKey: ['relatorio', de, ate, foco],
     queryFn: () => carregarRelatorio(de, ate, foco || undefined),
     placeholderData: keepPreviousData,
+    // Na aba de uso, as somas do sindicato não são pedidas: ninguém está olhando.
+    enabled: aba === 'sindicato',
   });
+  /*
+    O RELATÓRIO DO SINDICATO SÓ EXISTE NA ABA DELE. Com o dado em cache, trocar
+    de aba deixaria os cartões desenhados embaixo do uso do sistema.
+  */
+  const data = aba === 'sindicato' ? relatorio : undefined;
+  const isError = aba === 'sindicato' && falhou;
 
   /* O tipo de atividade é cadastrável: o nome vem do catálogo, não de um mapa. */
   const { data: tiposEvento } = useQuery({
@@ -121,7 +146,8 @@ export default function RelatoriosPage() {
   async function baixarPlanilha() {
     setBaixando(true);
     try {
-      await baixarCsvDaEquipe(de, ate, foco || undefined);
+      if (aba === 'uso') await baixarCsvDaProdutividade(de, ate);
+      else await baixarCsvDaEquipe(de, ate, foco || undefined);
     } catch {
       toast.error('Não foi possível gerar a planilha agora.');
     } finally {
@@ -152,24 +178,57 @@ export default function RelatoriosPage() {
             Relatórios
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            {pessoal
-              ? 'Os seus números no período, e como o sindicato está na Justiça.'
-              : data?.focoUsuario
-                ? `Os números de ${data.focoUsuario.nome} no período.`
-                : 'O que a equipe entregou, o que continua aberto e como o sindicato está na Justiça. Sem posição e sem nota — os casos não são comparáveis entre si.'}
+            {aba === 'uso'
+              ? 'Quem usa o sistema e o que cada pessoa registrou nele, por perfil. Sem posição e sem nota.'
+              : pessoal
+                ? 'Os seus números no período, e como o sindicato está na Justiça.'
+                : data?.focoUsuario
+                  ? `Os números de ${data.focoUsuario.nome} no período.`
+                  : 'O que a equipe entregou, o que continua aberto e como o sindicato está na Justiça. Sem posição e sem nota — os casos não são comparáveis entre si.'}
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={baixarPlanilha} disabled={baixando || !data}>
+          <Button
+            variant="outline"
+            onClick={baixarPlanilha}
+            disabled={baixando || (aba === 'sindicato' && !data)}
+          >
             {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Planilha
           </Button>
-          <Button onClick={() => setPdfAberto(true)} disabled={!data || isError}>
-            <FileText className="h-4 w-4" />
-            Baixar PDF
-          </Button>
+          {/* O PDF é o documento da diretoria; o uso do sistema não vai para a assembleia. */}
+          {aba === 'sindicato' && (
+            <Button onClick={() => setPdfAberto(true)} disabled={!data || isError}>
+              <FileText className="h-4 w-4" />
+              Baixar PDF
+            </Button>
+          )}
         </div>
       </header>
+
+      <div
+        role="tablist"
+        aria-label="Que relatório ver"
+        className="grid grid-cols-2 gap-1 rounded-xl bg-muted/70 p-1 sm:inline-grid"
+      >
+        {ABAS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="tab"
+            aria-selected={aba === a.id}
+            onClick={() => setAba(a.id)}
+            className={cn(
+              'rounded-lg px-4 py-2 text-sm font-medium transition',
+              aba === a.id
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {a.texto}
+          </button>
+        ))}
+      </div>
 
       {/* PERÍODO: atalhos primeiro, datas depois. Quem quer "o mês" clica uma
           vez; quem quer um intervalo específico digita. */}
@@ -212,7 +271,7 @@ export default function RelatoriosPage() {
             relatório já é o dele — mostrar um seletor de pessoas que a API
             ignora seria prometer o espelho do colega.
           */}
-          {!pessoal && pessoas.length > 1 && (
+          {aba === 'sindicato' && !pessoal && pessoas.length > 1 && (
             <label className="w-full space-y-1 sm:w-auto">
               <span className="block text-xs font-medium text-muted-foreground">Pessoa</span>
               <select
@@ -232,6 +291,8 @@ export default function RelatoriosPage() {
           )}
         </div>
       </Card>
+
+      {aba === 'uso' && <UsoEProdutividade de={de} ate={ate} />}
 
       {isLoading && (
         <p className="py-10 text-center text-sm text-muted-foreground">Somando o período…</p>

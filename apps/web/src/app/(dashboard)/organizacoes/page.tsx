@@ -5,7 +5,7 @@ import { contar } from '@/lib/plural';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, IdCard,
+  Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, IdCard, GitMerge,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -280,6 +280,23 @@ export default function OrganizacoesPage() {
                   </div>
                   {editavel && (
                     <div className="flex shrink-0 items-center gap-1">
+                      {/*
+                        JUNTAR A PARTIR DA PRÓPRIA LINHA. A fila de duplicatas só
+                        mostra o que a varredura acha e ninguém descartou — e o
+                        par da FMS tinha sido descartado por engano. Sem esta
+                        porta, a saída era abrir o dossiê e achar o botão lá dentro.
+                      */}
+                      {podeMesclar && (
+                        <button
+                          type="button"
+                          title="Juntar com uma organização duplicada"
+                          aria-label={`Juntar ${rotulo(p)} com uma organização duplicada`}
+                          onClick={() => setMesclando({ fica: p })}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <GitMerge className="h-4 w-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         title="Editar"

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
+import { useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -41,7 +42,22 @@ const inputCls =
 const dia = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+/**
+ * `useSearchParams` (dos links "Ver o que fez", do relatório de uso) obriga a um
+ * limite de Suspense — sem ele o build do Next falha ao pré-renderizar a rota.
+ */
 export default function AuditoriaPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>}>
+      <Auditoria />
+    </Suspense>
+  );
+}
+
+/** "AAAA-MM-DD" de verdade — link velho ou colado à mão não vira filtro quebrado. */
+const ehDia = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+function Auditoria() {
   const hoje = useMemo(() => new Date(), []);
   const [de, setDe] = useState(() => dia(new Date(hoje.getTime() - 30 * 86_400_000)));
   const [ate, setAte] = useState(() => dia(hoje));
@@ -52,6 +68,14 @@ export default function AuditoriaPage() {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [baixando, setBaixando] = useState(false);
+
+  /*
+    "VER O QUE FEZ", vindo do relatório de uso: a pessoa e o período chegam pela
+    URL. O número do relatório resume; aqui se confere, ato por ato.
+  */
+  useFiltroPorUrl('usuario', (v) => { setUserId(v); setPage(1); }, '/auditoria');
+  useFiltroPorUrl('de', (v) => { if (ehDia(v)) setDe(v); }, '/auditoria');
+  useFiltroPorUrl('ate', (v) => { if (ehDia(v)) setAte(v); }, '/auditoria');
 
   const filtros = { de, ate, acao, userId, entidade, q, page };
 
@@ -137,6 +161,10 @@ export default function AuditoriaPage() {
               {(opcoes?.usuarios ?? []).map((u) => (
                 <option key={u.id} value={u.id}>{u.nome}</option>
               ))}
+              {/* Quem nunca gravou nada não está na lista — e pode chegar pelo link do relatório de uso. */}
+              {userId && opcoes && !opcoes.usuarios.some((u) => u.id === userId) && (
+                <option value={userId}>Pessoa escolhida no relatório</option>
+              )}
             </select>
           </label>
           <label className="space-y-1">

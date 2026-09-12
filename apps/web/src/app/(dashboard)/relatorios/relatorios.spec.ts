@@ -161,7 +161,7 @@ describe('a tela de relatórios', () => {
   /** Com o foco numa pessoa, a API manda uma linha só — e o seletor sumia junto. */
   it('o seletor de pessoa não some quando há foco', () => {
     expect(TELA).toContain("if (data && data.escopo === 'GLOBAL' && !data.focoUsuario) {");
-    expect(TELA).toContain('{!pessoal && pessoas.length > 1 && (');
+    expect(TELA).toContain("{aba === 'sindicato' && !pessoal && pessoas.length > 1 && (");
   });
 
   /** Número que muda quando se clica nele é pior que número nenhum. */
