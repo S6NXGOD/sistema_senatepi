@@ -59,7 +59,16 @@ describe('carteira do advogado', () => {
    * "simplificar" de volta, o segundo advogado da audiência some do painel dele.
    */
   it('a agenda também soma quem acompanha sem ser o responsável', () => {
-    expect(DASHBOARD).toMatch(/equipe: \{ some: \{ usuarioId: user\.id \} \}/);
+    /*
+      A régua mora em `daPessoa` desde 12/09/2026 — a mesma do sino e do
+      relatório. Ela inclui quem foi posto na atividade por gente e deixa de fora
+      só a reserva do robô, que o painel do advogado passara a contar como sua.
+    */
+    const EQUIPE = readFileSync(path.join(__dirname, '../agenda/equipe.util.ts'), 'utf8');
+    expect(DASHBOARD).toContain(
+      'const meu: Prisma.CompromissoWhereInput = souAdvogado ? daPessoa(user.id) : {};',
+    );
+    expect(EQUIPE).toContain('{ equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },');
   });
 });
 

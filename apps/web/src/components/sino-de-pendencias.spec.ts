@@ -54,8 +54,13 @@ describe('o sino não pode virar caixa de notificações', () => {
    * O que NÃO pode mudar é de onde vem a identidade: do token, nunca da query.
    */
   it('o escopo é o usuário do token, sem modo global', () => {
-    expect(SERVICO).toContain('{ responsavelId: usuarioId },');
-    expect(SERVICO).toContain('{ equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },');
+    // A régua mora em `daPessoa` desde 12/09/2026 — sino, painel e relatório
+    // passaram a usar a mesma, porque o painel tinha esquecido a reserva.
+    expect(SERVICO).toContain(
+      'const meu: Prisma.CompromissoWhereInput = { ...abertas, ...daPessoa(usuarioId) };',
+    );
+    expect(EQUIPE_UTIL).toContain('{ responsavelId: usuarioId },');
+    expect(EQUIPE_UTIL).toContain('{ equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },');
     expect(CONTROLLER).toContain('minhas(@CurrentUser() user: AuthUser)');
     expect(CONTROLLER).toContain('this.pendencias.minhas(user.id,');
     // Nada de aceitar o id de outra pessoa pela query.
@@ -73,7 +78,7 @@ describe('o sino não pode virar caixa de notificações', () => {
 
   /** Inclui o que a pessoa acompanha sem responder — mesma régua da agenda. */
   it('inclui o segundo advogado da atividade', () => {
-    expect(SERVICO).toContain('equipe: { some: { usuarioId');
+    expect(EQUIPE_UTIL).toContain('equipe: { some: { usuarioId');
   });
 
   /**
@@ -89,9 +94,14 @@ describe('o sino não pode virar caixa de notificações', () => {
    * A comparação PRECISA do OR com nulo: `{ not: 'AUTOMATICA' }` sozinho
    * descarta as linhas antigas, que têm origem NULA — o erro que já ligou ZERO
    * de 3.150 registros com o log dizendo sucesso.
+   *
+   * ...ENQUANTO A TAREFA ESTÁ EM DIA. Desde 12/09/2026, atrasou e ninguém fez, a
+   * reserva fica sabendo — num grupo próprio, com o nome de quem responde.
    */
-  it('mas a reserva do robô não conta como pendência de ninguém', () => {
-    expect(SERVICO).toContain('NAO_E_RESERVA');
+  it('mas a reserva do robô não conta como pendência enquanto a tarefa está em dia', () => {
+    expect(SERVICO).toContain('...daPessoa(usuarioId)');
+    expect(EQUIPE_UTIL).toContain('...NAO_E_RESERVA');
+    expect(SERVICO).toContain('...reservaAtrasada(usuarioId, inicioDeHoje)');
     expect(EQUIPE_UTIL).toContain(
       'OR: [{ origem: null }, { origem: { not: ORIGEM_RESERVA } }]',
     );

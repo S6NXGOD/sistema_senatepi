@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { NAO_E_RESERVA } from './equipe.util';
+import { daPessoa, reservaAtrasada } from './equipe.util';
 import { Prisma, StatusCompromisso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { inicioDoDiaBR } from '../processos/utils/data-br.util';
@@ -44,7 +44,14 @@ import { inicioDoDiaBR } from '../processos/utils/data-br.util';
  */
 /** Uma pendência: o que é, quantas são, e para onde ela leva. */
 export interface Pendencia {
-  tipo: 'ATRASADA' | 'PASSOU_DA_HORA' | 'HOJE' | 'AUDIENCIA' | 'PUBLICACAO_SEM_TAREFA' | 'ACAO_NOVA';
+  tipo:
+    | 'ATRASADA'
+    | 'ATRASADA_NA_EQUIPE'
+    | 'PASSOU_DA_HORA'
+    | 'HOJE'
+    | 'AUDIENCIA'
+    | 'PUBLICACAO_SEM_TAREFA'
+    | 'ACAO_NOVA';
   total: number;
   /** Até três exemplos — o suficiente para reconhecer sem virar uma lista. */
   exemplos: { id: string; titulo: string; quando: string | null; href: string }[];
@@ -81,6 +88,10 @@ export interface Pendencia {
  * pergunta só: "quantas coisas MINHAS estão esperando?" — e zerar é a melhor
  * notícia que ele pode dar. A fila da equipe continua na lista, marcada, e
  * continua no painel e em Processos, que é onde se trabalha um backlog.
+ *
+ * `ATRASADA_NA_EQUIPE` ENTRA NA SOMA, e não é contradição: ela é pequena (a
+ * tarefa atrasada do caso em que a pessoa é reserva), some quando alguém resolve,
+ * e é exatamente o que espera por ela quando o responsável não aparece.
  */
 const NAO_CONTA_NO_CRACHA: ReadonlySet<Pendencia['tipo']> = new Set(['ACAO_NOVA']);
 
@@ -119,25 +130,21 @@ export class PendenciasService {
     const fimDeHoje = new Date(inicioDeHoje.getTime() + 24 * 3_600_000);
     const fimDaSemana = new Date(inicioDeHoje.getTime() + DIAS_DE_AUDIENCIA * 24 * 3_600_000);
 
+    const abertas: Prisma.CompromissoWhereInput = {
+      status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+    };
+
     /**
      * MEU inclui o que acompanho sem responder — mesma régua da agenda e do
      * painel. O segundo advogado de uma audiência precisa vê-la no sino tanto
      * quanto o primeiro.
+     *
+     * RESERVA DO ROBÔ NÃO TOCA O SINO enquanto a tarefa está em dia.
+     * Participante escolhido por gente conta como seu; a equipe que o robô
+     * anexa à tarefa automática, não — senão o mesmo prazo vira alarme de quatro
+     * pessoas. A régua mora em `daPessoa`, e é a MESMA do painel e do relatório.
      */
-    const meu: Prisma.CompromissoWhereInput = {
-      status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
-      /*
-        RESERVA DO ROBÔ NÃO TOCA O SINO. Participante escolhido por gente conta
-        como seu; a equipe que o robô anexa à tarefa automática, não — senão o
-        mesmo prazo vira alarme de quatro pessoas. `origem` é anulável, e por
-        isso a comparação precisa do OR: `{ not: 'AUTOMATICA' }` sozinho
-        deixaria de fora justamente as linhas antigas, que têm origem NULA.
-      */
-      OR: [
-        { responsavelId: usuarioId },
-        { equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },
-      ],
-    };
+    const meu: Prisma.CompromissoWhereInput = { ...abertas, ...daPessoa(usuarioId) };
 
     const selecao = {
       id: true,
@@ -146,11 +153,28 @@ export class PendenciasService {
       processo: { select: { numeroCNJ: true } },
     } as const;
 
-    const [atrasadas, passaramDaHora, hoje, audiencias, publicacoes, acoesNovas] = await Promise.all([
+    const [atrasadas, equipeAtrasada, passaramDaHora, hoje, audiencias, publicacoes, acoesNovas] =
+      await Promise.all([
       this.prisma.compromisso.findMany({
         where: { ...meu, inicio: { lt: inicioDeHoje } },
         orderBy: { inicio: 'asc' },
         select: selecao,
+      }),
+      /*
+        A RESERVA QUE FICOU PARA TRÁS — o único momento em que ser reserva vira
+        pendência.
+
+        Enquanto a tarefa está em dia, só o responsável é avisado. Quando o dia
+        vira e ninguém fez, os advogados do caso ficam sabendo: em 12/09/2026,
+        duas das três atrasadas da casa eram de alguém que não acessava o sistema
+        havia 39 dias, e os colegas do mesmo caso não tinham como saber. O nome
+        de quem responde vai junto, porque é com ele que se combina antes de
+        assumir.
+      */
+      this.prisma.compromisso.findMany({
+        where: { ...abertas, ...reservaAtrasada(usuarioId, inicioDeHoje) },
+        orderBy: { inicio: 'asc' },
+        select: { ...selecao, responsavel: { select: { nome: true, nomeExibicao: true } } },
       }),
       /*
         O DIA DE HOJE VIROU DOIS, e o motivo é que o sino não escalava.
@@ -276,6 +300,23 @@ export class PendenciasService {
 
     const pendencias = [
       daAgenda('ATRASADA', atrasadas),
+      /*
+        LOGO ABAIXO DAS SUAS, e com o nome de quem responde no próprio item:
+        "Juntar documentos" sob "você é reserva" obrigaria a abrir a atividade
+        só para descobrir de quem cobrar ou com quem combinar.
+      */
+      equipeAtrasada.length
+        ? {
+            tipo: 'ATRASADA_NA_EQUIPE' as const,
+            total: equipeAtrasada.length,
+            exemplos: equipeAtrasada.slice(0, MAX_EXEMPLOS).map((c) => ({
+              id: c.id,
+              titulo: `${c.titulo} · ${c.responsavel.nomeExibicao || c.responsavel.nome}`,
+              quando: c.inicio.toISOString(),
+              href: `/agenda?compromisso=${c.id}`,
+            })),
+          }
+        : null,
       daAgenda('PASSOU_DA_HORA', passaramDaHora),
       daAgenda('HOJE', hoje),
       daAgenda('AUDIENCIA', audiencias),

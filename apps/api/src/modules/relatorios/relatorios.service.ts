@@ -10,6 +10,7 @@ import {
   IMPROCEDENCIA, PROCEDENCIA, PROCEDENCIA_PARCIAL, baseDoAcervo,
 } from '../processos/padroes.service';
 import { ESPERANDO_DECISAO } from '../processos/djen-busca.service';
+import { daPessoa } from '../agenda/equipe.util';
 import { adversarioDoProcesso } from '../dashboard/dashboard.module';
 import {
   anosDaSerie, resultadoDoCodigo, rotuloDaComarca, serieDeAjuizadas, serieDeSentencas,
@@ -296,9 +297,13 @@ export class RelatoriosService {
     const daCasa = !alvo && veProcessos;
     const djenLigado = integracaoAtiva('djen', process.env.DJEN_INTEGRACAO);
 
-    const soMeu: Prisma.CompromissoWhereInput = alvo
-      ? { OR: [{ responsavelId: alvo }, { equipe: { some: { usuarioId: alvo } } }] }
-      : {};
+    /*
+      A RÉGUA DO SINO, e não uma cópia dela. Escrita à mão aqui, o espelho do
+      advogado contava como sua a tarefa em que o robô o pôs de reserva: "em
+      aberto", "canceladas" e "próximos 30 dias" inflavam com o trabalho do
+      colega. Ver `daPessoa`.
+    */
+    const soMeu: Prisma.CompromissoWhereInput = alvo ? daPessoa(alvo) : {};
 
     const noPeriodo = { gte: inicio, lt: fim };
 

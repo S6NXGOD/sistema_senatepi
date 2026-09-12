@@ -28,6 +28,7 @@ import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import { ultimoUsoReal } from './ultimo-acesso.util';
+import { daPessoa, reservaAtrasada } from '../agenda/equipe.util';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -362,9 +363,15 @@ export class DashboardService {
      * semana" no dia em que tem uma. O atalho fica no OR junto com a tabela
      * pelo mesmo motivo documentado em `AgendaService.listar`.
      */
-    const meu: Prisma.CompromissoWhereInput = souAdvogado
-      ? { OR: [{ responsavelId: user.id }, { equipe: { some: { usuarioId: user.id } } }] }
-      : {};
+    /*
+      A RÉGUA DO SINO, e não uma cópia dela. Escrito à mão aqui, o recorte
+      incluía a reserva que o robô anexa à tarefa automática: desde 11/09/2026 o
+      painel do advogado contava como sua a tarefa do colega em que ele é
+      reserva, enquanto o sino dizia o contrário. A tarefa atrasada em que ele é
+      reserva aparece à parte, com o nome de quem responde — ver
+      `reservasAtrasadas` em `alertas`.
+    */
+    const meu: Prisma.CompromissoWhereInput = souAdvogado ? daPessoa(user.id) : {};
 
     /**
      * O ACERVO DO ADVOGADO — mesma régua do filtro "meus" da tela de
@@ -1256,6 +1263,41 @@ export class DashboardService {
             })
           : [],
         urgentes: urgentesSemanaCount,
+        /*
+          A TAREFA DO CASO QUE FICOU PARA TRÁS, em que o advogado é reserva.
+
+          Não entra em `atrasadas`, que é o que é dele (a régua de `daPessoa`).
+          Vem à parte, com o nome de quem responde, e só para o advogado: na
+          visão da casa a gestão já vê a atrasada de todo mundo. É a mesma
+          consulta do sino (`reservaAtrasada`), então painel e sino nunca
+          discordam sobre ela.
+        */
+        reservasAtrasadas:
+          souAdvogado && veAgenda
+            ? await (async () => {
+                const onde: Prisma.CompromissoWhereInput = {
+                  status: ABERTOS,
+                  ...reservaAtrasada(user.id, hojeIni),
+                };
+                const [total, itens] = await Promise.all([
+                  this.prisma.compromisso.count({ where: onde }),
+                  this.prisma.compromisso.findMany({
+                    where: onde,
+                    orderBy: { inicio: 'asc' },
+                    take: 10,
+                    select: {
+                      id: true,
+                      titulo: true,
+                      inicio: true,
+                      responsavel: {
+                        select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
+                      },
+                    },
+                  }),
+                ]);
+                return { total, itens };
+              })()
+            : undefined,
         audienciasAAgendar: audienciasAAgendar.total,
       },
       audienciasAAgendar: audienciasAAgendar.items,

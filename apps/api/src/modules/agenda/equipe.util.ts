@@ -216,6 +216,47 @@ export const NAO_E_RESERVA: Prisma.CompromissoResponsavelWhereInput = {
   OR: [{ origem: null }, { origem: { not: ORIGEM_RESERVA } }],
 };
 
+/**
+ * O QUE É DE UMA PESSOA NA AGENDA — a régua do sino, do painel e do relatório.
+ *
+ * Responde pela atividade, ou foi posta nela por gente. A reserva do robô fica
+ * de fora (`NAO_E_RESERVA`).
+ *
+ * Esta conta morava escrita à mão em três lugares, e dois tinham esquecido a
+ * reserva: desde 11/09/2026 o painel do advogado e o espelho dele no relatório
+ * contavam como sua a tarefa em que o robô o pôs de reserva, enquanto o sino
+ * dizia o contrário. A mesma pessoa, no mesmo instante, com dois números para
+ * "atrasadas" — o defeito que já tinha acontecido uma vez entre sino e painel.
+ */
+export function daPessoa(usuarioId: string): Prisma.CompromissoWhereInput {
+  return {
+    OR: [
+      { responsavelId: usuarioId },
+      { equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },
+    ],
+  };
+}
+
+/**
+ * ...E A EXCEÇÃO: A RESERVA QUE FICOU PARA TRÁS.
+ *
+ * Reserva não é pendência enquanto a tarefa está em dia — um prazo não pode
+ * virar alarme de quatro advogados. Mas quando o dia vira e ninguém fez, esperar
+ * pelo responsável deixou de ser opção. Em 12/09/2026, duas das três atividades
+ * atrasadas da casa eram de alguém que não acessava o sistema havia 39 dias, e
+ * os três colegas do caso não sabiam de nada.
+ *
+ * O corte é o de "atrasada" do sino — o dia virou —, nunca a hora. E só vale
+ * para quem é reserva: o responsável já vê a tarefa como sua.
+ */
+export function reservaAtrasada(usuarioId: string, inicioDeHoje: Date): Prisma.CompromissoWhereInput {
+  return {
+    inicio: { lt: inicioDeHoje },
+    responsavelId: { not: usuarioId },
+    equipe: { some: { usuarioId, principal: false, origem: ORIGEM_RESERVA } },
+  };
+}
+
 /** Anota participantes de reserva. Não mexe em quem já está na equipe. */
 export async function anotarReserva(
   tx: Prisma.TransactionClient,
