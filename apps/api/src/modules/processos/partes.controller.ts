@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
+import { PartesDoDiarioService } from './partes-do-diario.service';
 
 import { SugestaoFiliadoService } from './sugestao-filiado.service';
 
@@ -38,6 +39,7 @@ export class PartesController {
     private readonly sugestoes: SugestaoFiliadoService,
     private readonly pendentes: VinculosPendentesService,
     private readonly vinculo: VinculoDeAdvogadoService,
+    private readonly partesDoDiario: PartesDoDiarioService,
   ) {}
 
   /*
@@ -163,6 +165,14 @@ export class PartesController {
    * se recusa a escolher — e é esta rota que mostra à ficha o que ficou por
    * decidir, para alguém apontar em um toque.
    */
+  @Get(':id/partes-do-ato')
+  @ApiOperation({
+    summary: 'Partes que o Diário nomeia e que o sistema não soube posicionar sozinho.',
+  })
+  partesDoAto(@Param('id') processoId: string) {
+    return this.partesDoDiario.emDuvida(processoId);
+  }
+
   @Get(':id/advogados-do-ato')
   @ApiOperation({ summary: 'Advogados citados no Diário que ainda não foram atribuídos a uma parte.' })
   advogadosDoAtoSemLado(@Param('id') processoId: string) {

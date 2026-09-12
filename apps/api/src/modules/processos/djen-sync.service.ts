@@ -11,6 +11,7 @@ import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
 import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
+import { PartesDoDiarioService } from './partes-do-diario.service';
 import { anotarReserva } from '../agenda/equipe.util';
 import { noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { NpuUtils } from './utils/npu.util';
@@ -120,6 +121,7 @@ export class DjenSyncService {
     private readonly datajud: DatajudService,
     private readonly caixa: CaixaDePropostasService,
     private readonly vinculoDeAdvogado: VinculoDeAdvogadoService,
+    private readonly partesDoDiario: PartesDoDiarioService,
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
@@ -286,6 +288,7 @@ export class DjenSyncService {
     // ---- 3) Correlação de tudo que está pendente ----
     await this.correlacionarPendentes();
     await this.ligarAdvogadosDoAto();
+    await this.reporPartesDoAto();
     await this.conferirFilaSemVerificacao();
     /*
       A REDE DA CAIXA DE ENTRADA — roda no fim, todo dia.
@@ -349,6 +352,22 @@ export class DjenSyncService {
       select: { id: true },
     });
     await this.vinculoDeAdvogado.aplicarNosProcessos(comPublicacao.map((p) => p.id));
+  }
+
+  /**
+   * AS PARTES QUE O ATO NOMEIA E A FICHA NÃO TINHA.
+   *
+   * Irmã de `ligarAdvogadosDoAto`, e pelo mesmo motivo: o dado está na
+   * publicação desde sempre e nunca saía dali. Medido em 12/09/2026: das 108
+   * fichas com publicação, 43 tinham parte que o tribunal nomeia e que ninguém
+   * cadastrou — 51 partes. Não é descuido de quem digita; é que o DataJud não
+   * devolve partes e copiar 30 nomes de um litisconsórcio à mão ninguém faz.
+   *
+   * Repõe só o que não tem dúvida de lado. O resto vira lista na ficha, para
+   * uma pessoa resolver num toque — a mesma ideia da caixa de propostas.
+   */
+  private async reporPartesDoAto(): Promise<void> {
+    await this.partesDoDiario.reconciliarTodos();
   }
 
   /**

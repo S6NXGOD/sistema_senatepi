@@ -245,6 +245,31 @@ export class PartesService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.parteProcesso.delete({ where: { id: parteId } });
+      /*
+        A LÁPIDE — sem ela, apagar é inútil.
+
+        A varredura da madrugada repõe toda parte que o Diário nomeia e a ficha
+        não tem. Quem tira uma à mão está dizendo "esta não é do processo", e
+        sem marca essa decisão duraria até as 5h. É a mesma regra dos advogados
+        dispensados, e o mesmo defeito que o alarme já cometeu contra o robô:
+        deduzir intenção pela ausência de linha nunca funciona — grave a
+        decisão.
+
+        A chave é o NOME NORMALIZADO porque a linha deixou de existir; o que
+        volta na próxima rodada é o nome que o tribunal repete.
+      */
+      await tx.parteProcessoDispensada.upsert({
+        where: {
+          processoId_nomeChave: { processoId: parte.processoId, nomeChave: this.comparavel(parte.nome) },
+        },
+        create: {
+          processoId: parte.processoId,
+          nomeChave: this.comparavel(parte.nome),
+          nome: parte.nome,
+          dispensadoPor: ctx.userId ?? null,
+        },
+        update: { dispensadoEm: new Date(), dispensadoPor: ctx.userId ?? null },
+      });
       // Removida a principal, a próxima do polo assume — o processo não fica
       // com partes cadastradas e nenhum destaque.
       const proxima = await tx.parteProcesso.findFirst({

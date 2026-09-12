@@ -31,6 +31,7 @@ import { VinculosPendentesService } from './vinculos-pendentes.service';
 import { AutomacaoPrazosService } from './automacao-prazos.service';
 import { CorrelacaoService } from './correlacao.service';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
+import { PartesDoDiarioService } from './partes-do-diario.service';
 import { CaixaDePropostasService } from './caixa-de-propostas.service';
 import { ParteInstitucionalSeedService } from './parte-institucional-seed.service';
 import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
@@ -76,6 +77,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     AutomacaoPrazosService,
     CorrelacaoService,
     VinculoDeAdvogadoService,
+    PartesDoDiarioService,
     CaixaDePropostasService,
   ],
   exports: [ProcessosService, DatajudService, AudienciasService, PartesService],

@@ -363,6 +363,7 @@ model User {
   /// Processos em que atua (N:N) — inclui os que responde como principal.
   processosEquipe         ProcessoAdvogado[]       @relation("ProcessoAdvogadoEquipe")
   equipesDispensadas      ProcessoAdvogadoDispensado[] @relation("ProcessoAdvogadoDispensado")
+  partesDispensadas       ParteProcessoDispensada[]    @relation("PartesDispensadas")
   /// Atividades da agenda em que atua (N:N) — inclui as que responde.
   agendaEquipe            CompromissoResponsavel[] @relation("CompromissoEquipe")
   escalas                 EscalaAdvogado[]
@@ -2443,6 +2444,7 @@ model Processo {
   /// Advogados da casa que atuam no processo (N:N). O `principal` é o responsável.
   advogados             ProcessoAdvogado[]
   advogadosDispensados  ProcessoAdvogadoDispensado[]
+  partesDispensadas     ParteProcessoDispensada[]
   /// Atividade da agenda que originou este processo (quando veio de um desfecho).
   origemCompromisso     Compromisso?              @relation("ProcessoOrigemCompromisso", fields: [origemCompromissoId], references: [id], onDelete: SetNull)
 
@@ -2679,6 +2681,13 @@ model ParteProcesso {
 
   /// Advogados da parte adversa informados pela equipe ([{nome, oab}]).
   advogados  Json?
+  /// DE ONDE VEIO ESTA PARTE: "DJEN" (a varredura leu no ato) ou "MANUAL".
+  ///
+  /// Nulo é o histórico — anterior à distinção, e presumidamente digitado por
+  /// gente, já que o robô nunca havia escrito aqui. A marca é o que permite à
+  /// tela dizer "veio do Diário, confira" sem tratar como palpite o que uma
+  /// pessoa afirmou.
+  origem     String?
   observacao String?
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
@@ -2691,6 +2700,32 @@ model ParteProcesso {
   @@index([filiadoId])
   @@index([parteExternaId])
   @@map("partes_processo")
+}
+
+/// A PARTE QUE UMA PESSOA TIROU — para o robô não repor na madrugada seguinte.
+///
+/// A varredura repõe o que o Diário nomeia e a ficha não tem. Sem lápide, apagar
+/// à mão é inútil: o ato continua nomeando a parte, e ela volta. É a mesma
+/// regra de `ProcessoAdvogadoDispensado`, pelo mesmo motivo — decisão de gente
+/// tem de deixar marca, senão o robô a desfaz achando que ajuda.
+///
+/// A chave é o NOME NORMALIZADO, não o id: a linha apagada não existe mais, e o
+/// que precisa ser reconhecido na próxima rodada é o nome que o tribunal repete.
+model ParteProcessoDispensada {
+  processoId    String   @map("processo_id")
+  /// Nome sem acento, sem pontuação e sem espaço — a mesma régua de `comparavel`.
+  nomeChave     String   @map("nome_chave")
+  /// Como o Diário escreveu, para a tela poder explicar o que foi dispensado.
+  nome          String
+  dispensadoEm  DateTime @default(now()) @map("dispensado_em")
+  dispensadoPor String?  @map("dispensado_por")
+
+  processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  autor    User?    @relation("PartesDispensadas", fields: [dispensadoPor], references: [id], onDelete: SetNull)
+
+  @@id([processoId, nomeChave])
+  @@index([processoId])
+  @@map("partes_processo_dispensadas")
 }
 
 /// Advogado da CASA que atua no processo (N:N com `users`).
