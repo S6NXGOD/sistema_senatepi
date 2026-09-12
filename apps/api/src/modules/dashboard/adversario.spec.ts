@@ -1,4 +1,15 @@
 import { adversarioDoProcesso } from './dashboard.module';
+import { tenant } from '../../tenant/tenant.config';
+
+/**
+ * A SIGLA VEM DO CLIENTE, NÃO DO TESTE.
+ *
+ * Escrita "SENATEPI" à mão, este teste reprovava a suíte inteira do SINDSERM na
+ * CI sem que houvesse nada errado no código — a função lê a sigla do cadastro
+ * institucional, e o teste tem de ler da mesma fonte. Ver o mesmo conserto em
+ * `vinculos-pendentes.spec.ts`.
+ */
+const SIGLA = tenant.sigla;
 
 /**
  * CONTRA QUEM É O PROCESSO — a pergunta que o painel precisa responder em uma
@@ -78,7 +89,7 @@ describe('adversário do processo', () => {
    */
   it('reconhece pela sigla quando não há organização vinculada', () => {
     const partes = [
-      parte('SINDICATO DOS ENFERMEIROS DO ESTADO DO PIAUI - SENATEPI', 'ATIVO'),
+      parte(`SINDICATO DOS ENFERMEIROS DO ESTADO DO PIAUI - ${SIGLA}`, 'ATIVO'),
       parte('MUNICIPIO DE PARNAIBA-PI', 'PASSIVO'),
     ];
     expect(adversarioDoProcesso(partes, null)).toBe('MUNICIPIO DE PARNAIBA-PI');

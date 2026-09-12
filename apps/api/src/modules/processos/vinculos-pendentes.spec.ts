@@ -1,6 +1,17 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { autorQueInforma, nossoPolo } from '../dashboard/dashboard.module';
+import { tenant } from '../../tenant/tenant.config';
+
+/**
+ * A SIGLA VEM DO CLIENTE, NÃO DO TESTE.
+ *
+ * Estava escrita "SENATEPI" à mão, e por isso a suíte inteira do SINDSERM ficava
+ * vermelha na CI — em três testes que não têm nada de errado. O código lê a
+ * sigla do cadastro institucional do cliente; o teste precisa ler da mesma
+ * fonte, senão ele afirma o cliente de quem o escreveu, e não a regra.
+ */
+const SIGLA = tenant.sigla;
 
 const RAIZ = path.resolve(__dirname, '../../..');
 const SERVICO = readFileSync(
@@ -132,7 +143,7 @@ describe('de quem é o processo, no painel', () => {
    */
   it('cala quando o autor é o próprio sindicato', () => {
     const p = partes([
-      ['SINDICATO DOS ENFERMEIROS ... DO PIAUI - SENATEPI', 'ATIVO', true],
+      [`SINDICATO DOS ENFERMEIROS ... DO PIAUI - ${SIGLA}`, 'ATIVO', true],
       ['HAPVIDA ASSISTENCIA MEDICA LTDA', 'PASSIVO', true],
     ]);
     expect(autorQueInforma(p, null)).toBeNull();
@@ -155,7 +166,7 @@ describe('de quem é o processo, no painel', () => {
       nossoPolo(
         partes([
           ['HAPVIDA ASSISTENCIA MEDICA LTDA', 'ATIVO', true],
-          ['SINDICATO DOS ENFERMEIROS - SENATEPI', 'PASSIVO', true],
+          [`SINDICATO DOS ENFERMEIROS - ${SIGLA}`, 'PASSIVO', true],
         ]),
         null,
       ),

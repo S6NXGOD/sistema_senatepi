@@ -577,14 +577,26 @@ export class ColaboradoresService {
     return gerarMatricula('FUNC', proximoSequencial('FUNC', emitidas.map((c) => c.matricula)));
   }
 
+  /**
+   * A FOTO DO CRACHÁ — com prazo, como toda ida à rede.
+   *
+   * Era o único `fetch` da API sem `AbortController`. Numa rota que gera
+   * documento, uma leitura que não volta prende a requisição até o proxy
+   * desistir, e quem pediu o crachá fica olhando "gerando…" sem fim. O crachá
+   * sai sem foto em oito segundos; a alternativa era não sair.
+   */
   private async baixarFoto(key: string): Promise<Buffer | null> {
+    const controle = new AbortController();
+    const prazo = setTimeout(() => controle.abort(), 8_000);
     try {
       const url = await this.storage.getSignedUrl(key);
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controle.signal });
       if (!res.ok) return null;
       return Buffer.from(await res.arrayBuffer());
     } catch {
       return null;
+    } finally {
+      clearTimeout(prazo);
     }
   }
 }

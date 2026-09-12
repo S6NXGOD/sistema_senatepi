@@ -42,12 +42,22 @@ describe('o menu não carrega as vistas do acervo', () => {
   });
 
   /**
-   * SEIS SEÇÕES, e não sete. O número de ITENS depende do cliente — cada
-   * sindicato contrata os módulos que quer, e travar um total aqui quebraria o
-   * teste na primeira instalação diferente. O que vale travar é a estrutura.
+   * SEIS SEÇÕES NO MÁXIMO, e não sete.
+   *
+   * O comentário original já dizia a regra certa — "o número depende do
+   * cliente, travar um total quebraria na primeira instalação diferente" — e
+   * mesmo assim travava a igualdade em 6. Quebrou exatamente como previsto: o
+   * SINDSERM não contrata o Financeiro, tem CINCO seções, e a suíte inteira
+   * dele ficava vermelha na CI por um menu que está correto.
+   *
+   * O que vale travar é o TETO (o menu não cresce) e a ausência de seção vazia
+   * (título sem conteúdo é ruído em qualquer cliente).
    */
   it('o menu cabe em seis seções', () => {
-    expect(filtrarNav('ADMINISTRADOR', null)).toHaveLength(6);
+    const secoes = filtrarNav('ADMINISTRADOR', null);
+    expect(secoes.length).toBeGreaterThan(0);
+    expect(secoes.length).toBeLessThanOrEqual(6);
+    expect(secoes.filter((s) => s.itens.length === 0)).toEqual([]);
   });
 
   /** O advogado é quem mais usa a lateral — nele o corte pesa mais. */
@@ -95,14 +105,18 @@ describe('o menu não carrega as vistas do acervo', () => {
   });
 
   /**
-   * O ADMINISTRADOR AINDA ROLA UM POUCO, e isso é aceito: são dezesseis itens,
-   * ele é quem menos usa a lateral para trabalhar, e o item aceso passou a se
-   * trazer para a vista sozinho (`scrollIntoView` em `sidebar.tsx`). O teto
-   * abaixo é o que impede a rolagem de voltar a esconder cinco linhas.
+   * O ADMINISTRADOR AINDA ROLA UM POUCO, e isso é aceito: no cliente com todos
+   * os módulos são dezesseis itens, ele é quem menos usa a lateral para
+   * trabalhar, e o item aceso passou a se trazer para a vista sozinho
+   * (`scrollIntoView` em `sidebar.tsx`). O teto abaixo é o que impede a
+   * rolagem de voltar a esconder cinco linhas.
+   *
+   * NÃO se exige que haja rolagem: havia um `toBeGreaterThan(699)` aqui, isto
+   * é, o teste OBRIGAVA o menu a não caber. Num cliente com menos módulos ele
+   * cabe — e caber é melhor, não é defeito.
    */
   it('e para o administrador a rolagem fica curta', () => {
     const altura = alturaDaLista(filtrarNav('ADMINISTRADOR', null));
-    expect(altura).toBeGreaterThan(699);
     expect(altura - 699).toBeLessThanOrEqual(120);
   });
 
