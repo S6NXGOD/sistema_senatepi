@@ -148,6 +148,46 @@ describe('a parte que o Diário nomeia entra na ficha', () => {
     expect(r.duvida[0].porque).toContain('nos dois polos');
   });
 
+  /**
+   * O CNJ MANDA "T" — E O CHUTE VIROU DADO NA PRODUÇÃO.
+   *
+   * A primeira versão desta leitura fazia `=== 'P' ? 'PASSIVO' : 'ATIVO'`. O
+   * `else` era um palpite gravado como fato, e o palpite aconteceu: no
+   * 0001335-13.2025.5.22.0108 o Diário classificou o MINISTÉRIO PÚBLICO DO
+   * TRABALHO como `T` e a reconciliação escreveu o MPT como AUTOR do processo.
+   * Uma ocorrência em 3.970 destinatários — rara e errada do mesmo jeito,
+   * porque quem lê a ficha não tem como desconfiar.
+   */
+  it('"T" é terceiro, e entra como terceiro', () => {
+    const r = ler(
+      [pub([{ nome: 'MINISTERIO PUBLICO DO TRABALHO', polo: 'T' }, { nome: NOS, polo: 'A' }])],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([{ nome: 'MINISTERIO PUBLICO DO TRABALHO', polo: 'TERCEIRO' }]);
+  });
+
+  it('polo que o CNJ não classificou NÃO vira ativo — vira pergunta', () => {
+    for (const polo of ['', ' ', 'X', 'RECORRIDO']) {
+      const r = ler(
+        [pub([{ nome: 'PERITO FULANO DE TAL', polo }, { nome: NOS, polo: 'A' }])],
+        naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+      );
+      expect(r.repor).toEqual([]);
+      expect(r.duvida).toHaveLength(1);
+      expect(r.duvida[0].polo).toBeNull();
+      expect(r.duvida[0].porque).toContain('sem dizer de que lado');
+    }
+  });
+
+  it('destinatário sem o campo polo também vira pergunta', () => {
+    const r = ler(
+      [{ destinatarios: [{ nome: 'ALGUEM SEM LADO' }], advogados: [] }],
+      naFicha([[NOS_CADASTRO, 'ATIVO', true]]),
+    );
+    expect(r.repor).toEqual([]);
+    expect(r.duvida[0].polo).toBeNull();
+  });
+
   /** Quem foi tirado à mão não volta na madrugada seguinte. */
   it('respeita a lápide', () => {
     const dispensada = new Set([comparavelParte('CLINICA SANTA FE LTDA')]);

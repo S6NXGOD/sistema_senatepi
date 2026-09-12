@@ -1134,8 +1134,29 @@ export class DjenSyncService {
     return this.prisma.processo.findMany({
       where: {
         numeroCNJ: { not: null },
+        /*
+          LISTA DE EXCLUSAO, e nao de inclusao -- a diferenca nao e de estilo.
+
+          A regra era `ATIVO ou PENDENTE ou (ENCERRADO com instancia viva)`, uma
+          lista de quem ENTRA. Toda vez que o enum ganha um estado, ele nasce de
+          fora sem ninguem perceber: era o caso de GANHO_EXECUCAO ("procedente,
+          em fase de execucao") e de SUSPENSO. Processo em execucao tem prazo,
+          tem penhora e tem audiencia -- e era exatamente ele que o Diario
+          deixava de consultar, em silencio.
+
+          Hoje o acervo nao tem nenhum nesses dois estados, entao nao houve
+          prejuizo medido; o defeito estava armado para o dia em que alguem
+          marcasse a primeira execucao ganha.
+
+          Dizer de quem NAO se cuida e a forma honesta: arquivado e improcedente
+          nao andam mais, e pre-processual nao tem numero para consultar. Todo
+          estado novo passa a nascer VIGIADO, que e o lado seguro de errar. E a
+          mesma regra que a varredura do DataJud ja usava em `FORA_DA_VARREDURA`.
+        */
         OR: [
-          { statusInterno: { in: ['ATIVO', 'PENDENTE'] } },
+          { statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'ENCERRADO', 'PRE_PROCESSUAL', 'RASCUNHO'] } },
+          // Encerrado so continua vigiado enquanto algum grau nao baixou: a
+          // baixa e de uma instancia, nao do processo.
           { statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } } },
         ],
         comunicacoes: { none: { createdAt: { gte: desde } } },

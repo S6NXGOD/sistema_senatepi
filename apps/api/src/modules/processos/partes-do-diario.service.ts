@@ -46,14 +46,24 @@ import { normalizarNome } from './utils/acao-nossa.util';
 /** Quantas publicações do processo alimentam a leitura. As mais novas primeiro. */
 const PUBLICACOES_POR_PROCESSO = 60;
 
-export type PoloDaParte = 'ATIVO' | 'PASSIVO';
+/** Os três lados que o schema conhece — TERCEIRO existe e não pode ser ignorado. */
+export type PoloDaParte = 'ATIVO' | 'PASSIVO' | 'TERCEIRO';
 
 export interface ParteDoAto {
   nome: string;
   polo: PoloDaParte;
 }
 
-export interface ParteEmDuvida extends ParteDoAto {
+export interface ParteEmDuvida {
+  nome: string;
+  /**
+   * O lado que o ato sugere — NULO quando o CNJ não classificou.
+   *
+   * Nulo aqui é informação, não falta dela: significa "o tribunal nomeou esta
+   * parte e não disse de que lado". A tela mostra os três lados sem nenhum
+   * realçado, porque não há sugestão a dar.
+   */
+  polo: PoloDaParte | null;
   /** Em português, o que impede o sistema de decidir sozinho. */
   porque: string;
 }
@@ -78,8 +88,34 @@ export function comparavelParte(nome: unknown): string {
     .replace(/[^A-Z0-9]+/g, '');
 }
 
-const poloDoAto = (bruto: unknown): PoloDaParte =>
-  String(bruto ?? '').trim().toUpperCase() === 'P' ? 'PASSIVO' : 'ATIVO';
+/**
+ * O LADO QUE O ATO DIZ — e NULO quando ele não diz.
+ *
+ * Esta função já foi `=== 'P' ? 'PASSIVO' : 'ATIVO'`, e esse `else` era um
+ * chute gravado como fato. O CNJ manda mesmo outra coisa: no
+ * 0001335-13.2025.5.22.0108 ele mandou `T` para o MINISTÉRIO PÚBLICO DO
+ * TRABALHO, e a primeira rodada da reconciliação escreveu o MPT como AUTOR do
+ * processo. Uma ocorrência em 3.970 destinatários — rara, e errada do mesmo
+ * jeito, porque quem lê a ficha não tem como desconfiar.
+ *
+ * Os dois irmãos que leem este mesmo campo já se recusavam a chutar
+ * (`nossoPoloNoAto` devolve INDEFINIDO; o lote de sugestões filtra A/P estrito).
+ * Eram três leitores do mesmo dado com três regras, e só a que chutava
+ * escrevia no banco.
+ */
+const poloDoAto = (bruto: unknown): PoloDaParte | null => {
+  switch (String(bruto ?? '').trim().toUpperCase()) {
+    case 'A':
+      return 'ATIVO';
+    case 'P':
+      return 'PASSIVO';
+    // O schema tem o lugar certo para isto: assistente, litisconsorte, MP, perito.
+    case 'T':
+      return 'TERCEIRO';
+    default:
+      return null;
+  }
+};
 
 interface PublicacaoLida {
   destinatarios: unknown;
@@ -143,14 +179,16 @@ export function lerPartesDoAto(
   }
 
   // 2. O ato inteiro, agrupado por nome, guardando TODOS os polos em que apareceu.
-  const doAto = new Map<string, { nome: string; polos: Set<PoloDaParte> }>();
+  const doAto = new Map<string, { nome: string; polos: Set<PoloDaParte>; semLado: boolean }>();
   for (const p of publicacoes) {
     for (const d of Array.isArray(p.destinatarios) ? (p.destinatarios as { nome?: string; polo?: string }[]) : []) {
       const nome = String(d?.nome ?? '').trim();
       const k = comparavelParte(nome);
       if (!k || advogados.has(k)) continue;
-      const atual = doAto.get(k) ?? { nome, polos: new Set<PoloDaParte>() };
-      atual.polos.add(poloDoAto(d?.polo));
+      const atual = doAto.get(k) ?? { nome, polos: new Set<PoloDaParte>(), semLado: false };
+      const polo = poloDoAto(d?.polo);
+      if (polo) atual.polos.add(polo);
+      else atual.semLado = true;
       doAto.set(k, atual);
     }
   }
@@ -200,7 +238,23 @@ export function lerPartesDoAto(
     // Já estamos na ficha com o nome do CADASTRO: o nome do tribunal é o mesmo
     // sindicato escrito de outro jeito, e entraria como uma segunda parte.
     if (nossaNaFicha && ehONossoSindicato(e.nome, sigla)) continue;
-    const polo = [...e.polos][0];
+    const polo = [...e.polos][0] ?? null;
+    /*
+      O CNJ NÃO CLASSIFICOU — então o sistema também não classifica.
+
+      Vem antes das outras recusas de propósito: sem lado, nem faz sentido
+      perguntar se os polos divergem.
+    */
+    if (!polo || e.semLado) {
+      duvida.push({
+        nome: e.nome,
+        polo,
+        porque:
+          'o Diário nomeia esta parte sem dizer de que lado ela está — acontece com ' +
+          'Ministério Público, assistente e perito',
+      });
+      continue;
+    }
     if (e.polos.size > 1) {
       duvida.push({
         nome: e.nome,

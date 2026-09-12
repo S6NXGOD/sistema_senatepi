@@ -232,9 +232,23 @@ export function formatarDataHoraBR(d: Date | null | undefined): string {
  */
 export function somarDiasUteisEmCalendario(diaBase: Date, dias: number): Date {
   const d = new Date(diaBase);
-  let restantes = dias;
+  /*
+    ANDA PARA TRÁS TAMBÉM — e não andava.
+
+    O laço era `while (restantes > 0)`: com um número negativo ele simplesmente
+    não rodava e a função devolvia o dia base, sem erro e sem aviso. Quem pedia
+    "dois dias úteis ANTES" recebia o próprio dia.
+
+    Isso não era teórico: a tarefa "Preparar audiência", criada em 12/09/2026
+    justamente para dar antecedência a quem vai atuar, nascia no dia da pauta —
+    ou não nascia, quando a audiência era de manhã e a guarda de "nunca no
+    passado" a descartava. A única antecedência que a esmagadora maioria das
+    pautas teria, perdida por um sinal.
+  */
+  const passo = dias < 0 ? -1 : 1;
+  let restantes = Math.abs(dias);
   while (restantes > 0) {
-    d.setTime(d.getTime() + 24 * 3_600_000);
+    d.setTime(d.getTime() + passo * 24 * 3_600_000);
     const semana = d.getUTCDay();
     if (semana !== 0 && semana !== 6) restantes--;
   }

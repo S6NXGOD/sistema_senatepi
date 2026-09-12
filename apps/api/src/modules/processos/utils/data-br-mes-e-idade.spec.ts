@@ -1,4 +1,4 @@
-import { idadeEmAnosBR, inicioDoMesBR, mesBR } from './data-br.util';
+import { idadeEmAnosBR, inicioDoMesBR, mesBR, somarDiasUteisEmCalendario } from './data-br.util';
 
 /**
  * OS QUATRO QUE SOBRARAM DA VARREDURA DE FUSO.
@@ -73,5 +73,50 @@ describe('idade em anos completos', () => {
     const bissexto = new Date('2000-02-29T00:00:00-03:00');
     expect(idadeEmAnosBR(bissexto, new Date('2026-02-28T22:00:00-03:00'))).toBe(25);
     expect(idadeEmAnosBR(bissexto, new Date('2026-03-01T09:00:00-03:00'))).toBe(26);
+  });
+});
+
+/**
+ * DIAS ÚTEIS PARA TRÁS — o sinal que passava batido.
+ *
+ * O laço era `while (restantes > 0)`: com número negativo ele não rodava e a
+ * função devolvia o dia base, sem erro e sem aviso. Quem pedia "dois dias úteis
+ * ANTES" recebia o próprio dia.
+ *
+ * Isso queimou a tarefa "Preparar audiência", criada em 12/09/2026 justamente
+ * para dar antecedência a quem vai atuar: ela nascia no dia da pauta — ou não
+ * nascia, quando a audiência era de manhã e a guarda de "nunca no passado" a
+ * descartava. Era a única antecedência que a maioria das pautas teria.
+ */
+describe('somarDiasUteisEmCalendario anda nos dois sentidos', () => {
+  const dia = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+  const so = (d: Date) => d.toISOString().slice(0, 10);
+
+  it('para frente, pulando o fim de semana', () => {
+    // Sexta 11/09/2026 + 1 útil = segunda 14.
+    expect(so(somarDiasUteisEmCalendario(dia('2026-09-11'), 1))).toBe('2026-09-14');
+    expect(so(somarDiasUteisEmCalendario(dia('2026-09-11'), 3))).toBe('2026-09-16');
+  });
+
+  it('para TRÁS, pulando o fim de semana', () => {
+    // Quarta 16/09/2026 − 2 úteis = segunda 14.
+    expect(so(somarDiasUteisEmCalendario(dia('2026-09-16'), -2))).toBe('2026-09-14');
+    // Segunda 14 − 2 úteis atravessa o fim de semana e cai na quinta 10.
+    expect(so(somarDiasUteisEmCalendario(dia('2026-09-14'), -2))).toBe('2026-09-10');
+    // Terça 15 − 1 útil = segunda 14.
+    expect(so(somarDiasUteisEmCalendario(dia('2026-09-15'), -1))).toBe('2026-09-14');
+  });
+
+  it('nunca cai em sábado ou domingo, para nenhum dos lados', () => {
+    for (let base = 1; base <= 28; base++) {
+      for (const n of [-3, -2, -1, 1, 2, 3]) {
+        const d = somarDiasUteisEmCalendario(dia(`2026-09-${String(base).padStart(2, '0')}`), n);
+        expect([0, 6]).not.toContain(d.getUTCDay());
+      }
+    }
+  });
+
+  it('zero não anda', () => {
+    expect(so(somarDiasUteisEmCalendario(dia('2026-09-13'), 0))).toBe('2026-09-13');
   });
 });

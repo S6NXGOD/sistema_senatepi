@@ -377,13 +377,42 @@ export class AutomacaoPrazosService {
         status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
         inicio: { gte: inicio, lt: new Date(inicio.getTime() + 24 * 3_600_000) },
       },
-      select: { id: true, descricao: true },
+      // Só `urgente` — o suficiente para saber se há o que escalar. Ler
+      // `urgentePor`/`urgenteEm` aqui faria a trava de urgência reprovar, com
+      // razão: quem lê os quatro campos costuma ser quem vai escrevê-los à mão.
+      select: { id: true, descricao: true, urgente: true },
     });
 
     if (existente) {
+      /*
+        AGRUPAR NAO PODE ENGOLIR A URGENCIA.
+
+        Andamentos chegam em lote e a tarefa do dia absorve os seguintes -- o
+        que esta certo, senao a agenda vira pilha de lembrete igual. Mas so a
+        DESCRICAO era mesclada: a urgencia calculada para ESTE andamento (ato
+        recente cujo prazo de conferencia ja venceu -- talvez ainda de para
+        salvar) era descartada em silencio. Bastava um andamento manso ter
+        chegado primeiro no mesmo dia para a tarja vermelha nunca aparecer.
+
+        So SOBE, nunca desce: se a tarefa ja esta urgente, o motivo dela fica.
+        Rebaixar seria o robo desfazendo marca que talvez uma pessoa tenha
+        posto -- e a urgencia e justamente a marca que nao pode oscilar so.
+      */
+      const escalar =
+        urgente && !existente.urgente
+          ? montarUrgencia(
+              true,
+              `Andamento de ${idadeDoAtoDias} dia(s) chegou com o prazo de conferência já vencido ` +
+                `(venceria em ${formatarDataBR(calculado)}).`,
+              { origem: 'AUTOMACAO' },
+              // Sem o 4º argumento de propósito: ele só serve para preservar o
+              // motivo de quem JÁ estava urgente, e este ramo só roda quando
+              // não estava.
+            )
+          : {};
       await this.prisma.compromisso.update({
         where: { id: existente.id },
-        data: { descricao: `${existente.descricao ?? ''}\n${linha}`.trim() },
+        data: { descricao: `${existente.descricao ?? ''}\n${linha}`.trim(), ...escalar },
       });
       await this.prisma.movimentacaoProcessual.update({
         where: { id: mov.id },
@@ -674,13 +703,32 @@ export class AutomacaoPrazosService {
       // não o próximo dia útil, que poderia cair depois da própria audiência.
       const inicioAviso = aviso > new Date() ? noveDaManhaBR(aviso) : new Date();
 
-      // Mesma regra da pauta: um aviso por pauta. Sem esta checagem, uma pauta
-      // duplicada gerava dois "Avisar filiado", e a secretaria ligava duas vezes.
-      const avisoExistente = await this.pautaDoDia(processo.id, TIPO_CONTATO, inicioAviso);
+      /*
+        UM AVISO POR PAUTA -- mas a checagem era larga demais.
+
+        `pautaDoDia(processo, TIPO_CONTATO, dia)` pergunta "existe QUALQUER
+        contato automatico deste processo neste dia?". Qualquer outro contato do
+        robo no mesmo dia -- e o desfecho "Ligar para o filiado" cria um --
+        suprimia o unico aviso de que existe audiencia. Sumia sem log, sem
+        contagem (`tarefa` fica false) e sem marca nenhuma no compromisso.
+
+        E o mesmo defeito que o preparo da pauta ja documenta: quando a tarefa
+        divide o TIPO com outras, a chave de duplicidade tem de ser o TITULO.
+      */
+      const tituloAviso = `Avisar filiado — ${rotulo.toLowerCase()} de ${nomeFiliado}`;
+      const avisoExistente = await this.prisma.compromisso.findFirst({
+        where: {
+          processoId: processo.id,
+          titulo: tituloAviso,
+          origemAutomatica: true,
+          status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        },
+        select: { id: true },
+      });
       if (!avisoExistente) {
         await this.prisma.compromisso.create({
           data: {
-            titulo: `Avisar filiado — ${rotulo.toLowerCase()} de ${nomeFiliado}`,
+            titulo: tituloAviso,
             tipo: TIPO_CONTATO,
             status: StatusCompromisso.PENDENTE,
             inicio: inicioAviso,

@@ -135,3 +135,73 @@ describe('a conferência de prazo chega com margem', () => {
     expect(AUTOMACAO).toContain('proximoHorarioUtilBR(atrasado ? hoje : calculado)');
   });
 });
+
+const DJEN = readFileSync(join(__dirname, 'djen-sync.service.ts'), 'utf8');
+const DATABR = readFileSync(join(__dirname, 'utils/data-br.util.ts'), 'utf8');
+
+/**
+ * TRÊS BURACOS QUE UMA AUDITORIA ADVERSARIAL DO PRÓPRIO CÓDIGO ACHOU — dois
+ * deles em código escrito HORAS antes, e um latente havia meses.
+ */
+describe('o que a auditoria de perda silenciosa achou', () => {
+  /**
+   * `somarDiasUteisEmCalendario` tinha `while (restantes > 0)`: número negativo
+   * não andava e devolvia o dia base. O "Preparar audiência" — criado no mesmo
+   * dia para dar antecedência a quem vai atuar — nascia no dia da pauta, ou não
+   * nascia. Era a única antecedência que a maioria das pautas teria.
+   */
+  it('dias úteis andam para trás', () => {
+    expect(DATABR).toContain('const passo = dias < 0 ? -1 : 1;');
+    expect(DATABR).toContain('let restantes = Math.abs(dias);');
+  });
+
+  /**
+   * Agrupar andamentos na tarefa do dia está certo; engolir a urgência do
+   * andamento agrupado, não. Bastava um ato manso chegar primeiro para a tarja
+   * vermelha nunca aparecer.
+   */
+  it('agrupar um andamento urgente ESCALA a tarefa que o absorveu', () => {
+    // Só o corpo do método: sem o limite o `slice` varre o resto do arquivo e a
+    // negativa reprova por causa de OUTRO método.
+    const i = AUTOMACAO.indexOf('private async criarPrazo(');
+    const fn = AUTOMACAO.slice(i, AUTOMACAO.indexOf('async fecharConfirmacaoDeData(', i));
+    expect(fn).toContain('const escalar =');
+    expect(fn).toContain('urgente && !existente.urgente');
+    expect(fn).toContain('...escalar');
+    /*
+      SÓ SOBE. A condição é a prova: `urgente && !existente.urgente` nunca roda
+      quando a tarefa já está urgente, então o motivo de quem escalou antes —
+      pessoa ou robô — fica intacto. Um `montarUrgencia(false, …)` aqui dentro
+      seria o robô apagando marca alheia.
+      (Ele existe no arquivo, em `fecharConfirmacaoDeData`, e ali está certo: a
+      tarefa foi CONCLUÍDA e a urgência sai junto.)
+    */
+    expect(fn).not.toContain('montarUrgencia(false');
+  });
+
+  /**
+   * `pautaDoDia(processo, CONTATO, dia)` pergunta "existe QUALQUER contato
+   * automático hoje?" — e o desfecho "Ligar para o filiado" cria um. O único
+   * aviso de que existe audiência sumia sem log e sem contagem.
+   */
+  it('o aviso ao filiado é único por PAUTA, não por tipo do dia', () => {
+    const i = AUTOMACAO.indexOf('private async criarPauta(');
+    const fn = AUTOMACAO.slice(i, AUTOMACAO.indexOf('private async criarPreparoDaPauta(', i));
+    expect(fn).toContain('const tituloAviso =');
+    expect(fn).toContain('titulo: tituloAviso,');
+    // A checagem larga saiu: ela suprimia por tipo, não por pauta.
+    expect(fn).not.toContain('pautaDoDia(processo.id, TIPO_CONTATO');
+  });
+
+  /**
+   * A consulta do Diário listava quem ENTRA. Todo estado novo do enum nascia de
+   * fora — foi o caso de GANHO_EXECUCAO ("em fase de execução") e SUSPENSO.
+   * Execução tem prazo, penhora e audiência.
+   */
+  it('o Diário vigia por exclusão — estado novo nasce vigiado', () => {
+    const fn = DJEN.slice(DJEN.indexOf('private processosSemPublicacaoRecente()'));
+    expect(fn).toContain("statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'ENCERRADO', 'PRE_PROCESSUAL', 'RASCUNHO'] }");
+    // Encerrado segue vigiado só enquanto um grau não baixou.
+    expect(fn).toContain("statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } }");
+  });
+});
