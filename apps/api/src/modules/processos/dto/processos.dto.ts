@@ -160,6 +160,46 @@ export class ImportarProcessoDto {
   etiquetas?: string[];
 
   /**
+   * CADASTRAR MESMO QUE O CNJ AINDA NÃO CONHEÇA O PROCESSO.
+   *
+   * O DataJud é um índice, e índice atrasa: a mediana medida aqui é de 62 dias
+   * entre o ato e a aparição — contra D+0 do Diário. O resultado é um beco sem
+   * saída que o próprio sistema criava: a varredura acha a ação no Diário, põe
+   * o aviso "4 ações do sindicato apareceram no Diário e ainda não estão
+   * cadastradas aqui", e o cadastro RECUSA porque o CNJ não confirma.
+   *
+   * Foi o que aconteceu com o 0000895-95.2026.5.22.0103 (TRT22, distribuído em
+   * 2026): SEIS tentativas em quatro dias, todas com "não localizado no índice
+   * do tribunal", enquanto o Diário já tinha DOZE publicações do processo e
+   * dois advogados nossos citados nele.
+   *
+   * Com esta opção o processo entra com o que o Diário sabe — que é dado do
+   * tribunal, não palpite — e fica sem movimentações até o índice acordar. A
+   * varredura noturna ordena por `ultimaSincronizacao`, e ela nasce nula: este
+   * processo é o PRIMEIRO da fila todo dia, e se completa sozinho.
+   */
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Cria o processo mesmo que o DATAJUD não o tenha indexado ainda. As movimentações entram ' +
+      'quando o tribunal publicar o índice — a varredura noturna já tenta todo dia.',
+  })
+  @IsOptional() @IsBoolean()
+  mesmoSemDatajud?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Classe processual, quando conhecida por fora do DATAJUD (ex.: o Diário).',
+  })
+  @IsOptional() @IsString()
+  classeProcessual?: string;
+
+  @ApiPropertyOptional({
+    description: 'Órgão julgador (vara/gabinete), quando conhecido por fora do DATAJUD.',
+  })
+  @IsOptional() @IsString()
+  orgaoJulgador?: string;
+
+  /**
    * O ROBÔ DE PRAZOS DEVE OLHAR ESTE PROCESSO NA ENTRADA?
    *
    * Padrão SIM, que é o caso do cadastro avulso: o advogado acabou de ajuizar

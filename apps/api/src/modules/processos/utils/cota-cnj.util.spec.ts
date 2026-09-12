@@ -96,3 +96,70 @@ describe('cota do CNJ por minuto', () => {
     expect(CNJ_REQ_POR_MINUTO).toBeLessThan(20);
   });
 });
+
+/**
+ * QUEM ESTÁ NA TELA PASSA NA FRENTE — a faixa que faltava.
+ *
+ * A fila era FIFO pura, e isso apareceu como "o sistema travou": o backfill de
+ * instâncias dispara ao abrir a lista de Processos e enfileira até 20
+ * requisições; a consulta do formulário de cadastro entrava atrás delas. Medido
+ * na produção em 11/09/2026: 36s, 38s e 45s para uma consulta com gente parada
+ * olhando, enquanto o robô era atendido primeiro.
+ */
+describe('a cota atende gente antes de robô', () => {
+  it('o pedido da tela fura a fila do robô', async () => {
+    const cota = new CotaPorMinuto(50);
+    const ordem: string[] = [];
+    const tarefa = (nome: string) => async () => {
+      ordem.push(nome);
+      return nome;
+    };
+
+    // Um robô já em execução prende a fila; os outros entram enquanto isso.
+    const primeiro = cota.executar(tarefa('robo-1'), 'ROBO');
+    const roboDois = cota.executar(tarefa('robo-2'), 'ROBO');
+    const roboTres = cota.executar(tarefa('robo-3'), 'ROBO');
+    const pessoa = cota.executar(tarefa('pessoa'), 'PESSOA');
+
+    await Promise.all([primeiro, roboDois, roboTres, pessoa]);
+
+    expect(ordem[0]).toBe('robo-1'); // já tinha começado: ninguém tira a vez de quem está no ar
+    expect(ordem[1]).toBe('pessoa'); // e a partir daí a gente vem primeiro
+    expect(ordem).toEqual(['robo-1', 'pessoa', 'robo-2', 'robo-3']);
+  });
+
+  it('sem dizer nada, o pedido é tratado como robô', async () => {
+    const cota = new CotaPorMinuto(50);
+    const ordem: string[] = [];
+    const p1 = cota.executar(async () => void ordem.push('a'));
+    const p2 = cota.executar(async () => void ordem.push('b'), 'PESSOA');
+    await Promise.all([p1, p2]);
+    // 'a' começou primeiro; o que importa é que o padrão NÃO é PESSOA.
+    expect(ordem).toEqual(['a', 'b']);
+  });
+
+  it('o erro de um pedido não derruba a fila nem some para quem chamou', async () => {
+    const cota = new CotaPorMinuto(50);
+    const quebrado = cota.executar(async () => {
+      throw new Error('CNJ fora');
+    });
+    await expect(quebrado).rejects.toThrow('CNJ fora');
+    await expect(cota.executar(async () => 'segue')).resolves.toBe('segue');
+  });
+
+  /**
+   * 429 é aviso de janela estourada, não erro isolado.
+   *
+   * A cota é por IP e o IP de saída do Railway é compartilhado: o teto de
+   * 14/min é respeitado do nosso lado e mesmo assim vieram CINCO 429 seguidos.
+   * Sem recuo, cada chamada seguinte sai só para tomar a mesma recusa.
+   */
+  it('depois de um 429 a fila espera antes de tentar de novo', async () => {
+    const cota = new CotaPorMinuto(50);
+    await cota.executar(async () => 'ok');
+    cota.penalizar(120);
+    const t0 = Date.now();
+    await cota.executar(async () => 'depois');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
+  });
+});

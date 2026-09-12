@@ -52,10 +52,52 @@ const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * passam. Contador sem serialização é um contador que erra exatamente quando
  * importa — sob concorrência.
  */
+/**
+ * QUEM ESTÁ ESPERANDO NA TELA PASSA NA FRENTE DO ROBÔ.
+ *
+ * Esta é a metade que faltava, e a falta apareceu como "o sistema travou".
+ *
+ * A cota é uma fila SERIAL: 14 requisições por minuto, uma de cada vez. Toda a
+ * casa passa por ela — a varredura da madrugada, o backfill de instâncias que
+ * dispara ao abrir a lista de processos, o botão "Sincronizar" e a consulta que
+ * o cadastro faz enquanto alguém olha para o formulário.
+ *
+ * Sendo FIFO, o backfill de 10 processos (que pode custar 20 requisições)
+ * entrava na frente de quem acabou de digitar o número na tela. Medido na
+ * produção em 11/09/2026: a consulta do cadastro levou 36s, 38s, 45s — e o
+ * usuário, com razão, chamou aquilo de travamento. Não era lentidão do CNJ: era
+ * a nossa própria fila, atendendo o robô primeiro.
+ *
+ * Com duas faixas, o robô continua andando e cede a vez. Ele não perde nada: a
+ * releitura dele não tem ninguém olhando.
+ */
+export type PrioridadeCnj = 'PESSOA' | 'ROBO';
+
+interface Pedido<T = unknown> {
+  fn: () => Promise<T>;
+  resolver: (v: T) => void;
+  rejeitar: (e: unknown) => void;
+}
+
 export class CotaPorMinuto {
   /** Instantes das requisições que ainda estão dentro da janela. */
   private readonly historico: number[] = [];
-  private fila: Promise<unknown> = Promise.resolve();
+  /** Duas faixas: quem está na tela e quem não está. */
+  private readonly aguardando: Record<PrioridadeCnj, Pedido[]> = { PESSOA: [], ROBO: [] };
+  private bombeando = false;
+  /**
+   * ATÉ QUANDO A FILA ESTÁ DE CASTIGO — o que o 429 nos ensina.
+   *
+   * O teto de 14/min é nosso e é respeitado; mesmo assim o CNJ devolveu 429
+   * cinco vezes seguidas em 11/09/2026. A explicação é que a cota é por IP e o
+   * IP de saída do Railway é COMPARTILHADO: o vizinho gasta a mesma cota, e
+   * nenhum contador nosso enxerga isso.
+   *
+   * Contra o que não se pode medir, o que resta é recuar. Sem isto, a primeira
+   * recusa vira uma sequência: cada chamada seguinte encontra a janela ainda
+   * estourada e falha igual, queimando a fila inteira em erros.
+   */
+  private deCastigoAte = 0;
 
   constructor(
     private readonly limite: number = CNJ_REQ_POR_MINUTO,
@@ -70,19 +112,62 @@ export class CotaPorMinuto {
   }
 
   /**
+   * O CNJ RECUSOU POR COTA: para a fila até a janela virar.
+   *
+   * Quem chamou já recebeu o erro — isto não repete a chamada, só evita que as
+   * próximas saiam para tomar a mesma recusa.
+   */
+  penalizar(ms: number = CNJ_JANELA_MS): void {
+    this.deCastigoAte = Math.max(this.deCastigoAte, Date.now() + ms);
+  }
+
+  /** Quantos pedidos esperam vez, por faixa — para o log dizer o porquê da espera. */
+  get naFila(): { pessoa: number; robo: number } {
+    return { pessoa: this.aguardando.PESSOA.length, robo: this.aguardando.ROBO.length };
+  }
+
+  /**
    * Executa `fn` respeitando a cota, em série com todas as outras.
    *
-   * O `catch` no encadeamento existe só para a fila não morrer com a primeira
-   * falha; o erro segue íntegro para quem chamou.
+   * `prioridade` decide quem passa quando há mais de um esperando. O padrão é
+   * `ROBO` de propósito: quem não disser que tem gente esperando, não tem.
    */
-  executar<T>(fn: () => Promise<T>): Promise<T> {
-    const proxima = this.fila.then(async () => {
-      await this.aguardarVaga();
-      this.historico.push(Date.now());
-      return fn();
+  executar<T>(fn: () => Promise<T>, prioridade: PrioridadeCnj = 'ROBO'): Promise<T> {
+    return new Promise<T>((resolver, rejeitar) => {
+      this.aguardando[prioridade].push({ fn, resolver, rejeitar } as Pedido);
+      void this.bombear();
     });
-    this.fila = proxima.catch(() => undefined);
-    return proxima;
+  }
+
+  /** Tira o próximo da fila: a faixa da gente primeiro, sempre. */
+  private proximo(): Pedido | undefined {
+    return this.aguardando.PESSOA.shift() ?? this.aguardando.ROBO.shift();
+  }
+
+  /**
+   * O laço que atende a fila — um de cada vez, e um só laço.
+   *
+   * `bombeando` é o que garante a serialização: sem ele, duas chamadas
+   * simultâneas abririam dois laços e as duas gastariam a mesma vaga.
+   */
+  private async bombear(): Promise<void> {
+    if (this.bombeando) return;
+    this.bombeando = true;
+    try {
+      for (let pedido = this.proximo(); pedido; pedido = this.proximo()) {
+        await this.aguardarVaga();
+        this.historico.push(Date.now());
+        try {
+          pedido.resolver(await pedido.fn());
+        } catch (err) {
+          pedido.rejeitar(err);
+        }
+      }
+    } finally {
+      this.bombeando = false;
+    }
+    // Alguém entrou na fila enquanto o laço se encerrava: recomeça.
+    if (this.aguardando.PESSOA.length || this.aguardando.ROBO.length) void this.bombear();
   }
 
   private expirar(agora: number): void {
@@ -92,6 +177,13 @@ export class CotaPorMinuto {
   }
 
   private async aguardarVaga(): Promise<void> {
+    // Castigo primeiro: de nada adianta ter vaga na janela se o CNJ acabou de
+    // dizer que não tem.
+    const falta = this.deCastigoAte - Date.now();
+    if (falta > 0) {
+      this.aoEsperar?.(falta);
+      await dormir(falta);
+    }
     this.expirar(Date.now());
     if (this.historico.length < this.limite) return;
 

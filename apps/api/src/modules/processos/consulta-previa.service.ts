@@ -116,7 +116,8 @@ export class ConsultaPreviaService {
     const t0 = Date.now();
     let dados;
     try {
-      dados = await this.datajud.buscarProcessoPorNPU(numero, sigla);
+      // A consulta prévia é literalmente alguém olhando a tela digitar o número.
+      dados = await this.datajud.buscarProcessoPorNPU(numero, sigla, 'PESSOA');
     } catch (err) {
       await this.logSync.registrar({
         numeroCNJ: numero, tribunal: sigla, origem: OrigemSincronizacao.IMPORTACAO,

@@ -15,8 +15,23 @@ import {
   somarDiasUteisEmCalendario,
 } from './utils/data-br.util';
 
-/** Dias úteis padrão para conferir uma intimação/citação. */
-const PRAZO_PADRAO_DIAS_UTEIS = 5;
+/**
+ * Dias úteis até a tarefa de CONFERIR uma intimação/citação.
+ *
+ * Eram 5, e 5 é justamente o prazo processual mais comum depois de uma
+ * publicação (embargos de declaração, entre outros). A tarefa que existe para
+ * PERGUNTAR "isto tem prazo?" chegava no último dia da janela — a resposta
+ * "tem, e vence hoje" não sobra tempo para nada.
+ *
+ * Três deixa dois dias úteis de margem dentro da janela curta, sem encher a
+ * agenda de lembrete prematuro. O prazo processual em si NÃO é isto: quem o
+ * define é o ato, e o sistema nunca afirma data de vencimento que não leu.
+ *
+ * Andamento que chega atrasado (a janela de captura é de 30 dias e o DataJud
+ * atrasa) continua caindo no próximo dia útil — não há como conferir no
+ * passado, e antecipar aqui não muda isso.
+ */
+const PRAZO_PADRAO_DIAS_UTEIS = 3;
 
 /**
  * Até quantos dias um andamento chegado com atraso ainda pode ter PRAZO VIVO.
@@ -55,6 +70,24 @@ const TIPO_AUDIENCIA = 'AUDIENCIA';
 const TIPO_PERICIA = 'PERICIA';
 /** Aviso ao filiado: tipo próprio, com desfechos que perguntam se ele soube. */
 const TIPO_CONTATO = 'CONTATO';
+
+/**
+ * O preparo entra como DILIGÊNCIA — um tipo que já existe e já tem cor e nome.
+ *
+ * Criar um tipo novo para uma tarefa do robô sairia caro em toda a casa (seed
+ * nos dois sindicatos, filtro, legenda, cor) para dizer o que o título já diz.
+ * "Preparar audiência — Fulano" é uma diligência, e é assim que se lê na tela.
+ */
+const TIPO_PREPARO = 'DILIGENCIA';
+
+/**
+ * DIAS ÚTEIS DE PREPARO ANTES DA PAUTA.
+ *
+ * Dois, e não um: com um só, a audiência de segunda avisa na sexta à tarde —
+ * que na prática é avisar no dia. Com dois há uma manhã inteira para pedir
+ * documento ao filiado, falar com testemunha e ler o processo.
+ */
+const DIAS_UTEIS_DE_PREPARO = 2;
 const TIPO_ACOMPANHAMENTO = 'ACOMPANHAMENTO';
 /**
  * TÍTULO GENÉRICO DA TAREFA DE PRAZO — e uma SENTINELA, não só um rótulo.
@@ -664,7 +697,83 @@ export class AutomacaoPrazosService {
         tarefa = true;
       }
     }
+
+    await this.criarPreparoDaPauta(processo, rotulo, nomeFiliado, inicio, responsavelId);
     return { compromisso: true, tarefa };
+  }
+
+  /**
+   * PREPARAR ANTES — a antecedência que não existia para quem vai à audiência.
+   *
+   * O que havia era o "Avisar filiado", e ele é outra coisa: é a secretaria
+   * telefonando, e só nasce quando há `secretariaId` E `filiadoId`. Filiado
+   * vinculado é raro no acervo (4 processos em 127 quando isto foi medido), e
+   * ação institucional não tem filiado nenhum por definição. Resultado prático:
+   * a esmagadora maioria das pautas não gerava aviso NENHUM, e a primeira coisa
+   * que a equipe via era a audiência no dia dela.
+   *
+   * Esta tarefa é para quem vai atuar, não para o filiado, e por isso não
+   * depende de haver filiado. Ela NÃO substitui a pauta e NÃO mexe na data
+   * dela: a audiência continua marcada quando o juiz marcou — mover isso seria
+   * o sistema mentindo sobre a data do ato.
+   *
+   * Se a designação chegar em cima da hora (o tribunal intima na véspera, e
+   * acontece), o preparo não é criado: uma tarefa que nasce vencida é ruído, e
+   * a pauta do dia já está na agenda de quem responde.
+   */
+  private async criarPreparoDaPauta(
+    processo: ProcessoAlvo,
+    rotulo: string,
+    nomeFiliado: string,
+    inicioDaPauta: Date,
+    responsavelId: string,
+  ): Promise<boolean> {
+    const quando = noveDaManhaBR(
+      somarDiasUteisEmCalendario(diaDeCalendarioBR(inicioDaPauta), -DIAS_UTEIS_DE_PREPARO),
+    );
+    // Nunca no passado e nunca depois da própria pauta.
+    if (quando <= new Date() || quando >= inicioDaPauta) return false;
+
+    /*
+      Uma por pauta — e a checagem é pelo TÍTULO, não pelo tipo do dia.
+
+      A mesma audiência chega em duas movimentações (código TPU e texto), e as
+      duas passariam por aqui. `pautaDoDia` não serve: o preparo divide o tipo
+      DILIGENCIA com outras tarefas, e uma diligência qualquer no mesmo dia
+      faria o preparo ser pulado em silêncio.
+    */
+    const titulo = `Preparar ${rotulo.toLowerCase()} — ${nomeFiliado}`;
+    const jaExiste = await this.prisma.compromisso.findFirst({
+      where: {
+        processoId: processo.id,
+        titulo,
+        origemAutomatica: true,
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+      },
+      select: { id: true },
+    });
+    if (jaExiste) return false;
+
+    await this.prisma.compromisso.create({
+      data: {
+        titulo,
+        tipo: TIPO_PREPARO,
+        status: StatusCompromisso.PENDENTE,
+        inicio: quando,
+        fim: new Date(quando.getTime() + 1800_000),
+        descricao:
+          `${rotulo} marcada para ${formatarDataHoraBR(inicioDaPauta)}.
+` +
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}.
+` +
+          'Conferir peças, contatar quem vai depor e confirmar a presença.',
+        responsavelId,
+        processoId: processo.id,
+        filiadoId: processo.filiadoId,
+        origemAutomatica: true,
+      },
+    });
+    return true;
   }
 
   /**

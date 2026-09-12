@@ -539,7 +539,7 @@ describe('o cadastro em lote', () => {
    */
   it('leva o que o tribunal disse e nada que exija julgamento', () => {
     const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
-    expect(fn).toContain('partesContrarias: nomes');
+    expect(fn).toContain("nomes('P')");
     /*
       O ADVOGADO ENTROU, e não é exceção à regra: ele NÃO é julgamento nosso, é
       fato do ato. A ação chegou até a fila PORQUE a OAB dele estava na
@@ -550,6 +550,43 @@ describe('o cadastro em lote', () => {
     // Estes seguem de fora: dependem de decisão de gente.
     expect(fn).not.toContain('filiadoId');
     expect(fn).not.toContain('etiquetas');
+  });
+
+  /**
+   * O SINDICATO NÃO PODE SUMIR DO PRÓPRIO PROCESSO.
+   *
+   * O filtro `!ehNos` no polo passivo tinha uma intenção correta — não somos a
+   * parte contrária de nós mesmos — e uma consequência que ninguém viu: o polo
+   * ATIVO só acolhe o sindicato quando o Diário o lista em `A`. Estando em `P`
+   * (ação movida CONTRA o sindicato), ele saía do passivo e não entrava em
+   * lugar nenhum.
+   *
+   * Medido na produção em 11/09/2026: no 0000724-10.2017.5.10.0000 a sugestão
+   * guardava 12 partes e o processo ficou com 11 — faltando exatamente a nossa.
+   * Quem abriu a ficha concluiu que o Diário havia recomendado processo alheio.
+   * No acervo: 142 partes nossas no polo ativo contra 3 no passivo.
+   */
+  it('quando o réu somos nós, o sindicato entra no polo passivo', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    // Entra ligado ao CADASTRO institucional, não como mais um nome solto.
+    expect(fn).toContain("nomes('P').some(ehNos)");
+    expect(fn).toContain('parteExternaId: nos.id');
+    // E os outros réus continuam entrando sem nós no meio.
+    expect(fn).toContain(".filter((nome) => !ehNos(nome))");
+  });
+
+  /**
+   * O ÍNDICE DO CNJ ATRASA; A FILA DO DIÁRIO NÃO PODE PARAR POR CAUSA DISSO.
+   *
+   * "Cadastrar" falhava com "não localizado no DATAJUD" justamente nos
+   * processos novos — os que mais importam. Seis tentativas em quatro dias no
+   * 0000895-95.2026.5.22.0103, com DOZE publicações do Diário na mão.
+   */
+  it('cadastra mesmo sem o DataJud, com classe e órgão do próprio ato', () => {
+    const fn = SUGESTOES.slice(SUGESTOES.indexOf('async importarEmLote('));
+    expect(fn).toContain('mesmoSemDatajud: true');
+    expect(fn).toContain('classeProcessual: s.nomeClasse');
+    expect(fn).toContain('orgaoJulgador: s.nomeOrgao');
   });
 
   /**

@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { NpuUtils } from './utils/npu.util';
-import { CNJ_REQ_POR_MINUTO, CotaPorMinuto } from './utils/cota-cnj.util';
+import { CNJ_REQ_POR_MINUTO, CotaPorMinuto, type PrioridadeCnj } from './utils/cota-cnj.util';
 
 /**
  * DatajudService — cliente da API Pública do DATAJUD (CNJ).
@@ -246,13 +246,24 @@ export class DatajudService {
    * acervo atual isso significa 4 chamadas extras por varredura, e 2 delas
    * encontram algo.
    */
-  async buscarInstanciasPorNPU(npu: string, siglaTribunal: string): Promise<InstanciaDatajud[]> {
+  async buscarInstanciasPorNPU(
+    npu: string,
+    siglaTribunal: string,
+    /**
+     * TEM GENTE ESPERANDO? Diga, e a consulta passa na frente do robô.
+     *
+     * O padrão é `ROBO` porque quem esquecer de dizer não tem ninguém olhando —
+     * errar para o lado de ceder a vez custa segundos ao robô; errar para o
+     * outro lado custa minutos a uma pessoa parada na tela.
+     */
+    prioridade: PrioridadeCnj = 'ROBO',
+  ): Promise<InstanciaDatajud[]> {
     const numero = (npu || '').replace(/\D/g, '');
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
     }
 
-    const instancias = await this.consultarIndice(this.aliasTribunal(siglaTribunal), numero);
+    const instancias = await this.consultarIndice(this.aliasTribunal(siglaTribunal), numero, prioridade);
     if (!this.multiInstancia) return instancias;
 
     const superior = NpuUtils.tribunalSuperior(numero);
@@ -261,7 +272,7 @@ export class DatajudService {
     if (!superior || !subiu) return instancias;
 
     try {
-      const noSuperior = await this.consultarIndice(this.aliasTribunal(superior), numero);
+      const noSuperior = await this.consultarIndice(this.aliasTribunal(superior), numero, prioridade);
       if (noSuperior.length) {
         this.logger.log(`[DATAJUD] NPU ${numero}: +${noSuperior.length} instância(s) em ${superior}.`);
       }
@@ -284,10 +295,14 @@ export class DatajudService {
   }
 
   /** Uma consulta a UM índice do DataJud. */
-  private consultarIndice(alias: string, numero: string): Promise<InstanciaDatajud[]> {
+  private consultarIndice(
+    alias: string,
+    numero: string,
+    prioridade: PrioridadeCnj = 'ROBO',
+  ): Promise<InstanciaDatajud[]> {
     // Em série e dentro da cota. A fila também serializa as duas consultas de um
     // processo que subiu de instância — elas contavam como uma só no log.
-    return this.cota.executar(() => this.consultarIndiceAgora(alias, numero));
+    return this.cota.executar(() => this.consultarIndiceAgora(alias, numero), prioridade);
   }
 
   private async consultarIndiceAgora(alias: string, numero: string): Promise<InstanciaDatajud[]> {
@@ -317,6 +332,14 @@ export class DatajudService {
 
       if (!res.ok) {
         this.logger.warn(`[DATAJUD] HTTP ${res.status} ao consultar ${alias} (NPU ${numero})`);
+        /*
+          429 NÃO É UM ERRO ISOLADO — é o aviso de que a janela acabou.
+
+          Sem recuar, a fila inteira sai atrás e toma a mesma recusa: foram
+          CINCO 429 seguidos em 11/09/2026. O castigo vale para todos os
+          chamadores, porque a cota é do IP e não de quem chamou.
+        */
+        if (res.status === 429) this.cota.penalizar();
         throw new DatajudIndisponivelError(
           `O DATAJUD retornou HTTP ${res.status}. Tente novamente em instantes.`,
           res.status,
@@ -389,8 +412,12 @@ export class DatajudService {
    * metadados (consulta prévia do modal de importação, formalização de
    * rascunho). Quem precisa gravar o processo usa `buscarInstanciasPorNPU`.
    */
-  async buscarProcessoPorNPU(npu: string, siglaTribunal: string): Promise<ProcessoDatajud | null> {
-    const instancias = await this.buscarInstanciasPorNPU(npu, siglaTribunal);
+  async buscarProcessoPorNPU(
+    npu: string,
+    siglaTribunal: string,
+    prioridade: PrioridadeCnj = 'ROBO',
+  ): Promise<ProcessoDatajud | null> {
+    const instancias = await this.buscarInstanciasPorNPU(npu, siglaTribunal, prioridade);
     if (!instancias.length) return null;
     // A escolha completa (baixa, último movimento) exige os dados já gravados;
     // aqui basta a instância que mais recentemente teve andamento.

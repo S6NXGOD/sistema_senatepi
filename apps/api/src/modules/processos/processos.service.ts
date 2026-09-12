@@ -365,7 +365,8 @@ export class ProcessosService {
     const t0 = Date.now();
     let instancias: InstanciaDatajud[];
     try {
-      instancias = await this.datajud.buscarInstanciasPorNPU(numero, sigla);
+      // Tem gente parada no formulário esperando isto: passa na frente do robô.
+      instancias = await this.datajud.buscarInstanciasPorNPU(numero, sigla, 'PESSOA');
     } catch (err) {
       await this.logSync.registrar({
         numeroCNJ: numero, tribunal: sigla, origem: OrigemSincronizacao.IMPORTACAO,
@@ -380,7 +381,23 @@ export class ProcessosService {
         sucesso: false, mensagemErro: 'Não localizado no índice do tribunal.',
         duracaoMs: Date.now() - t0,
       });
-      throw new NotFoundException('Processo não localizado no DATAJUD para o tribunal informado.');
+      /*
+        O ÍNDICE DO CNJ ATRASA; O PROCESSO EXISTE ASSIM MESMO.
+
+        Recusar aqui era transformar o atraso do tribunal em impedimento nosso —
+        e o sistema chegava a se contradizer, avisando na tela que a ação
+        precisava ser cadastrada e recusando o cadastro em seguida. Quem pediu
+        para cadastrar mesmo assim recebe o processo com o que se sabe, e o
+        resto entra quando o índice acordar.
+      */
+      if (!dto.mesmoSemDatajud) {
+        throw new NotFoundException(
+          'Processo não localizado no DATAJUD para o tribunal informado. ' +
+            'O índice do CNJ costuma demorar semanas para publicar processos novos — ' +
+            'dá para cadastrar assim mesmo e as movimentações entram quando ele publicar.',
+        );
+      }
+      return this.importarSemDatajud(numero, sigla, dto, polo, ctx);
     }
 
     const dados = instanciaProvisoria(instancias);
@@ -419,6 +436,24 @@ export class ProcessosService {
           // vira nulo em vez de gravar um valor que nenhum filtro encontra.
           categoria: normalizarCategoria(dto.categoria),
           statusInterno: dto.statusInterno ?? undefined,
+          /*
+            QUEM ACABOU DE LER NÃO PRECISA RELER — e a falta disto travava o
+            cadastro inteiro.
+
+            `instanciasLidasEm` nulo significa "o parser multi-instância ainda
+            não viu este processo", e é essa a fila que a tela de Processos
+            manda reler no CNJ ao abrir. A importação lê TODAS as instâncias
+            (é `buscarInstanciasPorNPU`, a mesma chamada da releitura) e não
+            carimbava: cada processo importado nascia devendo ao CNJ uma
+            consulta do que tinha acabado de ser lido, segundos antes.
+
+            O efeito medido em 11/09/2026, depois de o usuário cadastrar vários
+            processos seguidos: 10 na fila, 10 chamadas ao CNJ a cada abertura
+            da lista, cota estourada (14 respostas 429) e a consulta do próprio
+            formulário de cadastro esperando 36s, 38s, 45s atrás delas. A tela
+            ficava girando, e a explicação era esta linha que não existia.
+          */
+          ...(this.datajud.multiInstanciaAtiva ? { instanciasLidasEm: new Date() } : {}),
           // `instancias` inteiro: os assuntos são a união de todos os graus.
           ...this.metadados(dados, sigla, instancias),
         },
@@ -539,6 +574,85 @@ export class ProcessosService {
   // Sincronização silenciosa (usada pelo robô de madrugada). NÃO audita nem
   // desmascara — apenas mescla as movimentações novas. Pode lançar (o cron trata).
   // -------------------------------------------------------------------------
+
+  /**
+   * O PROCESSO QUE O DIÁRIO CONHECE E O ÍNDICE DO CNJ AINDA NÃO.
+   *
+   * Cria o registro com o pouco que se sabe com CERTEZA — número, tribunal e,
+   * quando quem chamou informou, classe e órgão julgador (o Diário publica os
+   * dois). Nada é deduzido: sem movimentações, sem data de distribuição
+   * inventada a partir do ano do número, sem instância eleita.
+   *
+   * `ultimaSincronizacao` fica NULA de propósito: é a chave de ordenação da
+   * varredura noturna, então este processo encabeça a fila todos os dias até o
+   * tribunal publicá-lo. Ninguém precisa lembrar de voltar aqui.
+   */
+  private async importarSemDatajud(
+    numero: string,
+    sigla: string,
+    dto: ImportarProcessoDto,
+    polo: Awaited<ReturnType<ProcessosService['resolverPoloAtivo']>>,
+    ctx: Ctx,
+  ) {
+    const filiado =
+      !polo.institucional && !polo.filiados.length && dto.filiadoId
+        ? await this.prisma.filiado.findUnique({
+            where: { id: dto.filiadoId },
+            select: { nomeCompleto: true, cpf: true },
+          })
+        : null;
+    const filiadoPrincipal = polo.institucional
+      ? null
+      : (polo.filiados[0]?.id ?? dto.filiadoId ?? null);
+
+    const processo = await this.prisma.$transaction(async (tx) => {
+      const p = await tx.processo.create({
+        data: {
+          numeroCNJ: numero,
+          filiadoId: filiadoPrincipal,
+          advogadoId: dto.advogadoId || null,
+          tipoAcao: polo.institucional
+            ? TipoAcaoProcesso.INSTITUCIONAL
+            : TipoAcaoProcesso.INDIVIDUAL,
+          etiquetas: this.normalizarEtiquetas(dto.etiquetas),
+          categoria: normalizarCategoria(dto.categoria),
+          statusInterno: dto.statusInterno ?? undefined,
+          tribunal: sigla.toUpperCase(),
+          // Só o que veio de fonte oficial (o Diário). Nulo continua nulo.
+          classeProcessual: dto.classeProcessual?.trim() || null,
+          orgaoJulgador: dto.orgaoJulgador?.trim() || null,
+        },
+      });
+      await this.partes.semearNaImportacao(tx, p.id, {
+        filiadoId: dto.filiadoId,
+        advogadoId: dto.advogadoId,
+        advogadosIds: dto.advogadosIds,
+        filiado,
+        filiadosAtivos: polo.filiados,
+        institucional: polo.institucional,
+        poloAtivoAvulso: polo.avulso,
+        poloAtivoPartes: polo.partes,
+        parteContraria: dto.parteContraria ?? null,
+        partesContrarias: dto.partesContrarias ?? null,
+      });
+      return p;
+    });
+
+    await this.audit.registrar({
+      userId: ctx.userId ?? null,
+      acao: AcaoAuditoria.CREATE,
+      entidade: 'Processo',
+      entidadeId: processo.id,
+      descricao:
+        `Processo ${numero} cadastrado SEM o DATAJUD (${sigla.toUpperCase()}) — ` +
+        'o índice do CNJ ainda não o publicou; as movimentações entram na próxima varredura que o encontrar',
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { numeroCNJ: numero, tribunal: sigla.toUpperCase(), semIndiceNoCnj: true },
+    });
+
+    return this.detalhe(processo.id);
+  }
 
   async ressincronizarSilencioso(id: string): Promise<{ novas: number }> {
     const proc = await this.carregarParaSync(id);
@@ -1622,7 +1736,18 @@ export class ProcessosService {
     const t0 = Date.now();
     let instancias: InstanciaDatajud[];
     try {
-      instancias = await this.datajud.buscarInstanciasPorNPU(numeroCNJ, sigla);
+      /*
+        O BOTÃO "SINCRONIZAR" TEM DONO OLHANDO; a varredura, não.
+
+        A mesma função serve aos dois, e o que os distingue é a `origem` que
+        já chega aqui. Sem esta linha, um clique na ficha entrava atrás de
+        vinte releituras do robô e demorava minutos.
+      */
+      instancias = await this.datajud.buscarInstanciasPorNPU(
+        numeroCNJ,
+        sigla,
+        origem === OrigemSincronizacao.CRON ? 'ROBO' : 'PESSOA',
+      );
     } catch (err) {
       await this.logSync.registrar({
         processoId: proc.id,

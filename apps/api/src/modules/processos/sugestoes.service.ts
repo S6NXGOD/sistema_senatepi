@@ -15,7 +15,23 @@ export interface ImportarEmLoteItem {
     tipo: 'INSTITUCIONAL' | 'FILIADOS' | 'OUTRA';
     partes: { tipo: 'INSTITUCIONAL' | 'AVULSA'; nome?: string }[];
   };
-  partesContrarias: { nome: string }[];
+  /**
+   * O polo passivo. `parteExternaId` liga ao CADASTRO (organização já
+   * conhecida, ou o próprio sindicato quando o réu somos nós) em vez de
+   * gravar mais um nome solto que não se agrupa com nada.
+   */
+  partesContrarias: { nome: string; documento?: string; parteExternaId?: string }[];
+  /**
+   * O ÍNDICE DO CNJ NÃO É CONDIÇÃO PARA CADASTRAR O QUE O DIÁRIO JÁ PROVOU.
+   *
+   * A sugestão só existe porque o ato nomeia o sindicato — é dado do tribunal.
+   * Exigir que o DataJud confirme põe o sistema para se contradizer: ele avisa
+   * na tela que a ação precisa ser cadastrada e recusa o cadastro em seguida.
+   */
+  mesmoSemDatajud?: boolean;
+  /** Classe e órgão como o Diário os escreveu — para o processo não nascer vazio. */
+  classeProcessual?: string;
+  orgaoJulgador?: string;
 }
 
 /**
@@ -258,7 +274,7 @@ export class SugestoesService {
       where: { id: { in: ids }, status: StatusSugestaoProcesso.PENDENTE },
       select: {
         id: true, numeroCNJ: true, siglaTribunal: true, nossoPolo: true,
-        partes: true, advogados: true,
+        partes: true, advogados: true, nomeClasse: true, nomeOrgao: true,
       },
     });
 
@@ -270,12 +286,18 @@ export class SugestoesService {
     */
     const advogadosPorSugestao = await this.advogadosNossosPorSugestao(sugestoes);
 
-    const sigla = (
-      await this.prisma.parteExterna.findFirst({
-        where: { institucional: true },
-        select: { nomeFantasia: true },
-      })
-    )?.nomeFantasia;
+    /*
+      O CADASTRO DO PRÓPRIO SINDICATO — e agora ele é usado nos DOIS polos.
+
+      Antes só a sigla era lida daqui, para reconhecer "somos nós" no polo
+      ativo. O id e o nome passaram a fazer falta quando ficou claro o que
+      acontecia do outro lado: ver `partesContrarias`, abaixo.
+    */
+    const nos = await this.prisma.parteExterna.findFirst({
+      where: { institucional: true },
+      select: { id: true, nome: true, documento: true, nomeFantasia: true },
+    });
+    const sigla = nos?.nomeFantasia;
 
     /*
       Índice das organizações já cadastradas, montado UMA vez.
@@ -381,6 +403,16 @@ export class SugestoesService {
           */
           advogadoId: nossosAdvogados[0]?.id,
           advogadosIds: nossosAdvogados.length > 1 ? nossosAdvogados.map((a) => a.id) : undefined,
+          /*
+            O DIÁRIO JÁ PROVOU QUE O PROCESSO EXISTE — o índice do CNJ que se
+            atualize depois. Sem isto, "Cadastrar" no aviso da tela falhava com
+            "não localizado no DATAJUD" justamente nos processos novos, que são
+            os que mais interessam. Classe e órgão vêm do próprio ato, então o
+            processo não nasce como um número solto.
+          */
+          mesmoSemDatajud: true,
+          classeProcessual: s.nomeClasse ?? undefined,
+          orgaoJulgador: s.nomeOrgao ?? undefined,
           poloAtivo: {
             // O sindicato tem tipo próprio; o resto entra como nome dos autos.
             tipo: nomes('A').some(ehNos) ? 'INSTITUCIONAL' : 'OUTRA',
@@ -409,12 +441,41 @@ export class SugestoesService {
             mesma régua de `comparavel` no serviço de partes — o Diário escreve
             em caixa alta e sem acento, o cadastro não.
           */
-          partesContrarias: nomes('P')
-            .filter((nome) => !ehNos(nome))
-            .map((nome) => {
-              const org = orgsPorNome.get(comparavelNome(nome));
-              return org ? { nome, parteExternaId: org } : { nome };
-            }),
+          /*
+            QUANDO O RÉU SOMOS NÓS — o defeito que apagava o sindicato do
+            processo, e o motivo de alguém abrir a ficha e não achar o SENATEPI
+            em lugar nenhum.
+
+            A linha anterior era `.filter((nome) => !ehNos(nome))`, com uma
+            intenção correta: não somos a parte contrária de nós mesmos. Só que
+            o polo ativo só acolhe o sindicato quando o Diário o lista em `A`.
+            Quando ele aparece em `P` — e aparece: ação movida CONTRA o
+            sindicato — ele era tirado do polo passivo e não entrava em nenhum
+            outro. Sumia.
+
+            Medido em 11/09/2026 no 0000724-10.2017.5.10.0000 (FASUBRA contra
+            onze sindicatos, o SENATEPI entre eles): a sugestão guardava 12
+            partes, o processo cadastrado ficou com 11, e a que faltava era
+            justamente a nossa. Quem abriu a ficha concluiu, com razão, que o
+            Diário tinha recomendado um processo alheio. No acervo inteiro só
+            3 partes nossas estavam no polo passivo contra 142 no ativo.
+
+            Agora o sindicato entra no polo em que o Diário o pôs, LIGADO ao
+            cadastro institucional (e não como um nome solto), e vem primeiro:
+            é ele que o "Autor × Réu" da lista precisa mostrar para a linha
+            dizer a verdade do caso do nosso ponto de vista.
+          */
+          partesContrarias: [
+            ...(nomes('P').some(ehNos) && nos
+              ? [{ nome: nos.nome, documento: nos.documento ?? undefined, parteExternaId: nos.id }]
+              : []),
+            ...nomes('P')
+              .filter((nome) => !ehNos(nome))
+              .map((nome) => {
+                const org = orgsPorNome.get(comparavelNome(nome));
+                return org ? { nome, parteExternaId: org } : { nome };
+              }),
+          ],
         });
 
         await this.prisma.sugestaoProcesso.update({
