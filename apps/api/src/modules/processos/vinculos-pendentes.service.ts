@@ -199,25 +199,71 @@ export class VinculosPendentesService {
   private async marcarInstitucional(processoId: string, ctx: Ctx) {
     const proc = await this.prisma.processo.findUnique({
       where: { id: processoId },
-      select: { id: true, numeroCNJ: true, tipoAcao: true, partes: { select: { polo: true } } },
+      select: {
+        id: true,
+        numeroCNJ: true,
+        tipoAcao: true,
+        partes: {
+          select: { polo: true, parteExterna: { select: { institucional: true } } },
+        },
+      },
     });
     if (!proc) throw new Error('Processo não encontrado.');
 
-    await this.prisma.processo.update({
-      where: { id: processoId },
-      data: { tipoAcao: TipoAcaoProcesso.INSTITUCIONAL },
-    });
+    /*
+      A DECISÃO VIRA FATO NA FONTE, e não só no campo derivado.
 
-    if (!proc.partes.some((x) => x.polo === 'ATIVO')) {
+      Antes isto gravava `tipoAcao: INSTITUCIONAL` direto no processo e só
+      acrescentava a parte institucional QUANDO O POLO ATIVO ESTAVA VAZIO — que
+      é justamente o caso raro. No caso comum (o polo ativo já tem a entidade
+      lançada como nome solto), a decisão ficava apenas no campo derivado.
+
+      E `tipoAcao` É DERIVADO: `sincronizarAtalhos` o recalcula a partir de "a
+      parte institucional está no processo?" a cada edição de parte. Ou seja, a
+      próxima vez que alguém mexesse numa parte, a reclassificação feita aqui
+      voltava sozinha para INDIVIDUAL — sem erro, sem log, sem ninguém entender
+      por quê. É o mesmo modo de falhar da lápide dos advogados e das partes:
+      decisão de gente que não deixa marca na fonte é decisão que o robô desfaz.
+
+      Agora o sindicato ENTRA como parte quando ainda não é — que é exatamente o
+      que "esta ação é institucional" afirma. Aí a derivação concorda com a
+      decisão em vez de brigar com ela, e nenhuma coluna nova precisa existir.
+
+      NUNCA DESBANCA quem já é principal: acrescentar não é reordenar. E se o
+      sindicato já for parte de QUALQUER polo (inclusive réu, quando movem
+      contra nós), não há o que acrescentar — a derivação já responderia
+      INSTITUCIONAL sozinha.
+    */
+    const jaSomosParte = proc.partes.some((x) => x.parteExterna?.institucional);
+    if (!jaSomosParte) {
       const institucional = await this.partes.parteInstitucional();
       if (institucional) {
         await this.partes.adicionar(
           processoId,
-          { polo: 'ATIVO', parteExternaId: institucional.id, principal: true },
+          {
+            polo: 'ATIVO',
+            parteExternaId: institucional.id,
+            // Principal só quando o polo estava vazio — o "Autor × Réu" da
+            // lista é de quem já estava lá.
+            principal: !proc.partes.some((x) => x.polo === 'ATIVO'),
+          },
           ctx,
         );
       }
     }
+
+    /*
+      O CAMPO DERIVADO VEM DEPOIS DA FONTE.
+
+      `partes.adicionar` já dispara `sincronizarAtalhos`, que recalcula
+      `tipoAcao` a partir da parte recém-criada. Esta escrita é o cinto de
+      segurança para o caso de `parteInstitucional()` não existir (instalação
+      sem o cadastro semeado): sem ela, o botão não faria nada.
+    */
+    await this.prisma.processo.update({
+      where: { id: processoId },
+      data: { tipoAcao: TipoAcaoProcesso.INSTITUCIONAL },
+    });
 
     await this.audit.registrar({
       userId: ctx.userId ?? null,

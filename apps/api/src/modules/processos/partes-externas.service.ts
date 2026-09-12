@@ -659,12 +659,29 @@ export class PartesExternasService {
         },
         select: { id: true, processoId: true, polo: true, principal: true },
       });
-      const jaTem = new Map(doFica.map((x) => [x.processoId, x]));
+      /*
+        A CHAVE É (PROCESSO, POLO) — e era só o processo.
+
+        Indexada só por `processoId`, uma linha da duplicada no polo PASSIVO
+        casava com a linha da que fica no polo ATIVO do MESMO processo. A
+        promoção se protegia (`linha.polo === existente.polo`), mas o
+        `delete` logo abaixo não: a participação no outro polo era APAGADA —
+        com o papel, o nome como consta nos autos, os advogados da parte e a
+        observação junto. A organização sumia de um lado do processo, sem erro
+        e sem log, e a mesclagem é irreversível.
+
+        Com o polo na chave, a linha do outro polo deixa de ter par e cai no
+        ramo de cima: é REPONTADA para a organização que fica. Uma mesma
+        organização nos dois polos é situação real (reconvenção, litisconsórcio
+        cruzado) — e, sendo errado, alguém tira pela tela. Apagar não se desfaz.
+      */
+      const chave = (x: { processoId: string; polo: string }) => `${x.processoId}|${x.polo}`;
+      const jaTem = new Map(doFica.map((x) => [chave(x), x]));
 
       let repontados = 0;
       let absorvidos = 0;
       for (const linha of doDup) {
-        const existente = jaTem.get(linha.processoId);
+        const existente = jaTem.get(chave(linha));
         if (!existente) {
           // O nome gravado na parte do processo é SNAPSHOT do que consta nos
           // autos; ao repontar, passa a valer o da organização que fica, senão
@@ -679,8 +696,8 @@ export class PartesExternasService {
         // Já figura no mesmo processo: a linha da duplicada é ABSORVIDA, e o
         // que ela tinha de melhor passa para a que fica — `papel` costuma estar
         // preenchido só em um dos dois cadastros.
-        const promover =
-          linha.principal && !existente.principal && linha.polo === existente.polo;
+        // O polo já vem garantido pela chave; sobra a regra que interessa.
+        const promover = linha.principal && !existente.principal;
 
         /*
          * APAGAR VEM PRIMEIRO, E A ORDEM NÃO É ESTILO.

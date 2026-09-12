@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   CanActivate,
   Controller,
   Get,
@@ -22,6 +23,7 @@ import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
 import { CaixaDePropostasService } from './caixa-de-propostas.service';
+import { CorrelacaoService } from './correlacao.service';
 
 /**
  * Interruptor da integração com o DJEN.
@@ -158,6 +160,7 @@ export class DjenController {
     private readonly sync: DjenSyncService,
     private readonly busca: DjenBuscaService,
     private readonly caixa: CaixaDePropostasService,
+    private readonly correlacao: CorrelacaoService,
   ) {}
 
   /*
@@ -262,6 +265,96 @@ export class DjenController {
   @ApiOperation({ summary: 'Valores disponíveis para filtrar a busca.' })
   facetas() {
     return this.busca.facetas();
+  }
+
+  /**
+   * UMA PUBLICAÇÃO, COM O TEOR — para ler sem sair de onde se está.
+   *
+   * O painel listava "Analisar intimação · somos autor · sem tarefa" e, ao
+   * clicar, jogava a pessoa na ficha do processo. O ato em si — o que o juiz
+   * escreveu, que é a única coisa capaz de responder "isto é urgente?" — ficava
+   * a mais dois cliques de distância. Quem lê o painel de manhã quer decidir
+   * ali: é sério, vira tarefa, ou é despacho de expediente.
+   *
+   * DEPOIS de `publicacoes/facetas` na ordem de declaração, senão o Nest casa
+   * "facetas" como se fosse um id — o mesmo cuidado que o comentário de
+   * `publicacoes` já documenta.
+   */
+  @Get('publicacoes/:id')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'Uma publicação com o teor completo.' })
+  async umaPublicacao(@Param('id') id: string) {
+    const c = await this.prisma.comunicacaoDjen.findUnique({
+      where: { id },
+      select: {
+        id: true, siglaTribunal: true, tipoComunicacao: true, tipoDocumento: true,
+        nomeOrgao: true, nomeClasse: true, meio: true, link: true, texto: true,
+        dataDisponibilizacao: true, providencia: true, prazoMencionadoDias: true,
+        compromissoId: true, tarefaDispensadaMotivo: true,
+        numeroProcesso: true, destinatarios: true, advogados: true,
+        processo: { select: { id: true, numeroCNJ: true } },
+        compromisso: { select: { id: true, titulo: true, status: true, inicio: true } },
+      },
+    });
+    if (!c) throw new NotFoundException('Publicação não encontrada.');
+    return c;
+  }
+
+  /**
+   * "ISTO PRECISA VIRAR TAREFA" — em um toque, de onde a pessoa já está.
+   *
+   * O robô só agenda o que consegue provar: publicação com providência
+   * reconhecida e dentro da janela. O resto fica marcado "sem tarefa" no painel
+   * e dependia de alguém abrir o processo, ir na agenda e digitar tudo de novo
+   * — quatro telas para uma decisão de um segundo, que é como uma intimação
+   * vira prazo perdido.
+   *
+   * REUSA `criarAtividadeDaProposta`, o mesmo caminho da caixa de entrada: a
+   * regra de título, prazo e descrição mora num lugar só. Escrever a criação
+   * aqui de novo seria a quinta cópia de uma regra que já divergiu antes.
+   *
+   * O DONO É O DO CASO, não quem clicou. Clicar aqui é dizer "isto precisa ser
+   * feito", não "eu faço" — e o dono do caso é o `principal` de
+   * `processos_advogados`, que bate em 131 de 131 processos. Quem quiser puxar
+   * para si tem o botão "Assumir" na própria atividade.
+   *
+   * IDEMPOTENTE: se a publicação já tem tarefa aberta, devolve a que existe em
+   * vez de criar a segunda. Dois toques no mesmo item são a coisa mais provável
+   * de acontecer numa lista.
+   */
+  @Post('publicacoes/:id/tarefa')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'Cria (ou devolve) a atividade da publicação, para o dono do caso.' })
+  async tarefaDaPublicacao(@Param('id') id: string) {
+    const c = await this.prisma.comunicacaoDjen.findUnique({
+      where: { id },
+      select: {
+        id: true, processoId: true, providencia: true,
+        compromisso: { select: { id: true, status: true } },
+      },
+    });
+    if (!c) throw new NotFoundException('Publicação não encontrada.');
+    if (!c.processoId) {
+      throw new BadRequestException(
+        'Esta publicação ainda não está ligada a um processo do acervo — cadastre a ação primeiro.',
+      );
+    }
+    // Já tem tarefa em aberto: devolve a mesma. Concluída ou cancelada não
+    // conta, porque aí o trabalho voltou a existir.
+    if (c.compromisso && !['CONCLUIDO', 'CANCELADO'].includes(c.compromisso.status)) {
+      return { compromissoId: c.compromisso.id, criada: false };
+    }
+    if (!c.providencia || c.providencia === 'NENHUMA') {
+      throw new BadRequestException(
+        'O sistema não reconheceu uma providência neste ato — crie a atividade pela agenda, ' +
+          'descrevendo o que precisa ser feito.',
+      );
+    }
+    const compromissoId = await this.correlacao.criarAtividadeDaProposta(c.id, null);
+    if (!compromissoId) {
+      throw new BadRequestException('Não foi possível criar a atividade para esta publicação.');
+    }
+    return { compromissoId, criada: true };
   }
 
   /** Publicações de um processo, mais recentes primeiro. */

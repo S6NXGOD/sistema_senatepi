@@ -198,10 +198,31 @@ describe('o que a auditoria de perda silenciosa achou', () => {
    * fora — foi o caso de GANHO_EXECUCAO ("em fase de execução") e SUSPENSO.
    * Execução tem prazo, penhora e audiência.
    */
-  it('o Diário vigia por exclusão — estado novo nasce vigiado', () => {
-    const fn = DJEN.slice(DJEN.indexOf('private processosSemPublicacaoRecente()'));
-    expect(fn).toContain("statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'ENCERRADO', 'PRE_PROCESSUAL', 'RASCUNHO'] }");
-    // Encerrado segue vigiado só enquanto um grau não baixou.
-    expect(fn).toContain("statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } }");
+  it('o Diário usa a MESMA definição de "vivo" que o DataJud', () => {
+    // Só o corpo do método, e sem os comentários: a negativa abaixo mira o
+    // CÓDIGO, e a explicação legitimamente cita o carimbo do outro lado.
+    const i = DJEN.indexOf('private processosSemPublicacaoRecente()');
+    const fn = DJEN.slice(i, DJEN.indexOf('function normalizar(', i))
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n');
+    // Reusa as listas, em vez de repetir os nomes dos status à mão — era a
+    // duplicação que deixava GANHO_EXECUCAO de fora sem ninguém notar.
+    expect(fn).toContain('statusInterno: { in: STATUS_VIVOS }');
+    expect(fn).toContain('statusInterno: { in: DORMENTES }');
+    expect(DJEN).toContain("} from './utils/varredura.util';");
+    // A baixa é de um GRAU: encerrado com instância viva continua na faixa rápida.
+    expect(fn).toContain('statusInterno: StatusProcesso.ENCERRADO, instancias: { some: { baixada: false } }');
+    /*
+      E a faixa lenta usa o carimbo DO DIÁRIO, não o do DataJud.
+
+      A negativa aqui era `not.toContain('ultimaSincronizacao')` e reprovava o
+      arquivo CORRIGIDO: a explicação do método cita, com razão, o carimbo do
+      outro lado. Mirar prosa é o defeito que esta base já catalogou. A forma
+      certa é afirmar o campo dentro do `where`, que só existe como código.
+    */
+    expect(fn).toContain('{ ultimaConsultaDjen: null }');
+    expect(fn).toContain('{ ultimaConsultaDjen: { lt:');
+    expect(fn).not.toContain('ultimaSincronizacao:');
   });
 });

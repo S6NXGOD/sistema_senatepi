@@ -3,6 +3,7 @@ import { PerfilImportacao, StatusImportacao, TipoParteExterna } from '@prisma/cl
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProcessosService } from '../processos/processos.service';
+import { PartesService } from '../processos/partes.service';
 import { pareceOrgaoPublico } from '../processos/utils/orgao-publico.util';
 import { tenant } from '../../tenant/tenant.config';
 import { lerPlanilha } from './planilha.util';
@@ -66,6 +67,15 @@ export class ProcessosCsvService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly processos: ProcessosService,
+    /*
+      A SEGUNDA PASSADA COMPLETA VÍNCULO, e vínculo se escreve pelo serviço.
+
+      `PartesService` é quem sincroniza os atalhos derivados (`filiadoId`,
+      `advogadoId`, `tipoAcao`), dispara o gatilho da equipe e audita. A
+      importação em lote não escreve processo à mão justamente por isto — o
+      mesmo motivo pelo qual ela já usa `ProcessosService.importar`.
+    */
+    private readonly partes: PartesService,
   ) {}
 
   // ==========================================================================
@@ -413,9 +423,18 @@ export class ProcessosCsvService {
   ): Promise<'IMPORTADO' | 'COMPLETADO' | 'JA_EXISTIA'> {
     const jaExiste = await this.prisma.processo.findUnique({
       where: { numeroCNJ: l.npu },
-      select: { id: true, categoria: true, etiquetas: true },
+      select: {
+        id: true,
+        categoria: true,
+        etiquetas: true,
+        // O que a segunda passada pode completar além dos três campos de
+        // sempre — ver `oQueCompletar`.
+        filiadoId: true,
+        _count: { select: { advogados: true } },
+        partes: { where: { polo: 'PASSIVO' }, select: { id: true }, take: 1 },
+      },
     });
-    if (jaExiste) return this.completarExistente(jaExiste, l, ctx.userId);
+    if (jaExiste) return this.completarExistente(jaExiste, l, ctx);
 
     const advogadoId = l.advogadoEmail ? await this.acharUsuario(l.advogadoEmail) : null;
     const equipeIds = (
@@ -430,10 +449,29 @@ export class ProcessosCsvService {
      * descoberto quando alguém recebe a intimação de um caso que não é seu.
      */
     const filiadoId = l.filiadoCpf ? await this.acharFiliado(l.filiadoCpf) : null;
+    /*
+      O CPF VEIO NA PLANILHA E IDENTIFICA — mesmo sem filiado cadastrado.
+
+      Quando `acharFiliado` não encontra ninguém, o processo entrava com o NOME
+      e o CPF era descartado em silêncio: `partes_processo.documento` ficava
+      nulo. E o CPF é a ÚNICA chave que vincula sozinha nesta base (o nome dos
+      autos não é o nome do cadastro — é a razão de a fila "sem filiado
+      vinculado" existir). Jogá-lo fora significa que, no dia em que a pessoa
+      for cadastrada, a fila vai oferecer palpite por nome em vez de certeza.
+
+      Gravar o documento na parte é o que o cadastro manual já faz, e não afirma
+      vínculo nenhum: é o número que os autos trazem.
+    */
+    if (l.filiadoCpf && !filiadoId) {
+      l.avisos.push(
+        'O CPF do autor não corresponde a nenhum filiado cadastrado — o processo entra sem ' +
+          'vínculo, com o CPF gravado na parte para casar quando o cadastro existir.',
+      );
+    }
 
     const partesContrarias: { parteExternaId: string }[] = [];
     for (const reu of l.reus) {
-      const parteExternaId = await this.acharOuCriarParte(reu.nome, reu.cnpj);
+      const parteExternaId = await this.acharOuCriarParte(reu.nome, reu.cnpj, l.avisos);
       if (parteExternaId) partesContrarias.push({ parteExternaId });
     }
 
@@ -452,7 +490,13 @@ export class ProcessosCsvService {
                  * que é verdade incompleta em vez de verdade trocada.
                  */
                 l.poloAtivo === 'FILIADOS'
-                ? { tipo: 'OUTRA' as const, nome: l.filiadoNome || 'Autor não identificado' }
+                ? {
+                    tipo: 'OUTRA' as const,
+                    nome: l.filiadoNome || 'Autor não identificado',
+                    // O CPF segue junto: sem ele, a fila de vínculos só teria
+                    // o nome para oferecer, e nome só sugere.
+                    ...(l.filiadoCpf ? { documento: l.filiadoCpf } : {}),
+                  }
                 : { tipo: 'INSTITUCIONAL' as const },
         partesContrarias,
         ...(advogadoId ? { advogadoId } : {}),
@@ -492,10 +536,18 @@ export class ProcessosCsvService {
    * não substituída, pela mesma razão.
    */
   private async completarExistente(
-    processo: { id: string; categoria: string | null; etiquetas: string[] },
+    processo: {
+      id: string;
+      categoria: string | null;
+      etiquetas: string[];
+      filiadoId: string | null;
+      _count: { advogados: number };
+      partes: { id: string }[];
+    },
     l: LinhaProcesso,
-    autorId?: string,
+    ctx: Ctx,
   ): Promise<'COMPLETADO' | 'JA_EXISTIA'> {
+    const autorId = ctx.userId;
     /**
      * A nota do jurídico só entra se ainda NÃO houver nenhuma igual — rodar a
      * planilha três vezes não pode empilhar o mesmo texto três vezes.
@@ -509,7 +561,14 @@ export class ProcessosCsvService {
 
     // A MESMA função que a prévia usou para prometer. Ver `oQueCompletar`.
     const faltas = oQueCompletar(
-      { categoria: processo.categoria, etiquetas: processo.etiquetas, andamentos },
+      {
+        categoria: processo.categoria,
+        etiquetas: processo.etiquetas,
+        andamentos,
+        temReu: processo.partes.length > 0,
+        temFiliado: !!processo.filiadoId,
+        temEquipe: processo._count.advogados > 0,
+      },
       l,
     );
     if (!faltas.length) return 'JA_EXISTIA';
@@ -532,6 +591,58 @@ export class ProcessosCsvService {
       });
     }
     if (faltaNota) await this.registrarAndamento(l, autorId);
+
+    /*
+      OS VÍNCULOS QUE A PLANILHA TRAZ E O PROCESSO NÃO TEM.
+
+      Passam pelos MESMOS serviços do cadastro avulso (`partes.adicionar`,
+      `partes.definirAdvogados`) e não por escrita direta: são eles que
+      sincronizam os atalhos derivados, disparam o gatilho da equipe e auditam.
+      Escrever aqui na mão seria a quinta cópia de uma regra que já divergiu.
+    */
+    if (faltas.includes('REU')) {
+      for (const reu of l.reus) {
+        const parteExternaId = await this.acharOuCriarParte(reu.nome, reu.cnpj, l.avisos);
+        if (parteExternaId) {
+          await this.partes.adicionar(
+            processo.id,
+            { polo: 'PASSIVO', parteExternaId, principal: true },
+            ctx,
+          );
+        }
+      }
+    }
+
+    if (faltas.includes('FILIADO')) {
+      const filiadoId = await this.acharFiliado(l.filiadoCpf);
+      if (filiadoId) {
+        await this.partes.adicionar(
+          processo.id,
+          { polo: 'ATIVO', filiadoId, principal: true },
+          ctx,
+        );
+      } else {
+        l.avisos.push(
+          'O CPF do autor não corresponde a nenhum filiado cadastrado — o vínculo continua pendente.',
+        );
+      }
+    }
+
+    if (faltas.includes('EQUIPE')) {
+      const responsavel = l.advogadoEmail ? await this.acharUsuario(l.advogadoEmail) : null;
+      const equipe = (
+        await Promise.all(l.equipeEmails.map((e) => this.acharUsuario(e)))
+      ).filter((x): x is string => !!x);
+      const todos = [...new Set([responsavel, ...equipe].filter((x): x is string => !!x))];
+      if (todos.length) {
+        await this.partes.definirAdvogados(
+          processo.id,
+          { advogadoIds: todos, principalId: responsavel ?? todos[0] },
+          ctx,
+        );
+      }
+    }
+
     return 'COMPLETADO';
   }
 
@@ -632,7 +743,12 @@ export class ProcessosCsvService {
    * pela Receita. É melhor que não cadastrar — sem réu o processo não diz
    * contra quem litiga — mas não é bom, e a prévia avisa linha a linha.
    */
-  private async acharOuCriarParte(nome: string, cnpj: string): Promise<string | null> {
+  private async acharOuCriarParte(
+    nome: string,
+    cnpj: string,
+    /** Avisos da LINHA — o que não dá para resolver sozinho vira texto na tela. */
+    avisos?: string[],
+  ): Promise<string | null> {
     const limpo = nome.trim();
     if (!limpo) return null;
 
@@ -668,9 +784,36 @@ export class ProcessosCsvService {
 
     const porNome = await this.prisma.parteExterna.findFirst({
       where: { nome: { contains: limpo, mode: 'insensitive' } },
-      select: { id: true },
+      select: { id: true, documento: true },
     });
-    if (porNome) return porNome.id;
+    if (porNome) {
+      /*
+        O CADASTRO EM BRANCO GANHA O DOCUMENTO QUE A PLANILHA TROUXE.
+
+        Casar pelo nome e devolver o id era jogar fora o CNPJ: a organização
+        continuava sem documento, e o documento é o que permite casar as
+        PRÓXIMAS linhas com certeza em vez de por semelhança de nome — que é
+        justamente onde a HAPVIDA em quatro variantes se confunde.
+
+        Só COMPLETA o que está vazio. Divergência entre a planilha e o cadastro
+        é conflito de dois dados afirmados, e sobrescrever seria decidir por
+        quem cadastrou; a linha diz o que viu e a pessoa resolve.
+      */
+      if (cnpj && (cnpj.length === 14 || cnpj.length === 11)) {
+        if (!porNome.documento) {
+          await this.prisma.parteExterna.update({
+            where: { id: porNome.id },
+            data: { documento: cnpj },
+          });
+        } else if (porNome.documento !== cnpj) {
+          avisos?.push(
+            `"${limpo}" já está cadastrada com outro documento (${porNome.documento}) — ` +
+              `a planilha trouxe ${cnpj}. O processo foi ligado ao cadastro existente; confira qual está certo.`,
+          );
+        }
+      }
+      return porNome.id;
+    }
 
     /**
      * ENTE PÚBLICO ENTRA COMO ENTE PÚBLICO.

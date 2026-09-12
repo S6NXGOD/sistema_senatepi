@@ -105,11 +105,28 @@ describe('aplicar as decisões', () => {
    * sindicato — senão o processo sai de uma fila e cai em outra ("sem parte"),
    * o que não é progresso.
    */
-  it('reclassificar não deixa o processo sem polo ativo', () => {
+  /**
+   * A DECISÃO VIRA FATO NA FONTE — não só no campo derivado.
+   *
+   * A versão anterior gravava `tipoAcao: INSTITUCIONAL` e só acrescentava a
+   * parte institucional QUANDO O POLO ATIVO ESTAVA VAZIO — o caso raro. No caso
+   * comum a decisão ficava apenas no derivado, e `sincronizarAtalhos` recalcula
+   * `tipoAcao` a cada edição de parte: a reclassificação voltava sozinha para
+   * INDIVIDUAL na primeira mexida, sem erro e sem log.
+   */
+  it('reclassificar põe o sindicato NA FONTE, não só no campo derivado', () => {
     const trecho = SERVICO.slice(SERVICO.indexOf('private async marcarInstitucional('));
-    expect(trecho).toContain("if (!proc.partes.some((x) => x.polo === 'ATIVO'))");
+    // A condição passou a ser "já somos parte?", em qualquer polo.
+    expect(trecho).toContain('const jaSomosParte = proc.partes.some((x) => x.parteExterna?.institucional)');
+    expect(trecho).toContain('if (!jaSomosParte)');
     expect(trecho).toContain('this.partes.parteInstitucional()');
     expect(trecho).toContain('TipoAcaoProcesso.INSTITUCIONAL');
+  });
+
+  /** Acrescentar não é reordenar: quem já era principal continua sendo. */
+  it('e nunca desbanca quem já é a parte principal do polo', () => {
+    const trecho = SERVICO.slice(SERVICO.indexOf('private async marcarInstitucional('));
+    expect(trecho).toContain("principal: !proc.partes.some((x) => x.polo === 'ATIVO')");
   });
 
   it('a reclassificação fica auditada', () => {

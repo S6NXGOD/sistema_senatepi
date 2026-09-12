@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OrigemSincronizacao, Prisma } from '@prisma/client';
+import { OrigemSincronizacao, Prisma, StatusProcesso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CorrelacaoService } from './correlacao.service';
 import { ComunicacaoDjenDto, DjenService } from './djen.service';
@@ -12,6 +12,11 @@ import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
 import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
 import { PartesDoDiarioService } from './partes-do-diario.service';
+import {
+  DIAS_RECHECAGEM_DORMENTE,
+  DORMENTES,
+  STATUS_VIVOS,
+} from './utils/varredura.util';
 import { anotarReserva } from '../agenda/equipe.util';
 import { noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { NpuUtils } from './utils/npu.util';
@@ -1135,29 +1140,40 @@ export class DjenSyncService {
       where: {
         numeroCNJ: { not: null },
         /*
-          LISTA DE EXCLUSAO, e nao de inclusao -- a diferenca nao e de estilo.
+          AS MESMAS DUAS FAIXAS DO LADO DATAJUD — e pela mesma razão.
 
-          A regra era `ATIVO ou PENDENTE ou (ENCERRADO com instancia viva)`, uma
-          lista de quem ENTRA. Toda vez que o enum ganha um estado, ele nasce de
-          fora sem ninguem perceber: era o caso de GANHO_EXECUCAO ("procedente,
-          em fase de execucao") e de SUSPENSO. Processo em execucao tem prazo,
-          tem penhora e tem audiencia -- e era exatamente ele que o Diario
-          deixava de consultar, em silencio.
+          A regra aqui era uma lista de quem ENTRA (`ATIVO`, `PENDENTE`, e
+          `ENCERRADO` com instância viva), escrita à mão. Toda vez que o enum
+          ganha um estado, ele nasce de FORA sem ninguém perceber: foi o caso de
+          GANHO_EXECUCAO ("procedente, em fase de execução") e de SUSPENSO.
+          Processo em execução tem prazo, penhora e audiência — e era exatamente
+          ele que o Diário deixava de consultar, em silêncio.
 
-          Hoje o acervo nao tem nenhum nesses dois estados, entao nao houve
-          prejuizo medido; o defeito estava armado para o dia em que alguem
-          marcasse a primeira execucao ganha.
+          `varredura.util` já resolvia isso do outro lado, com a lista viva e a
+          dormente separadas. O DJEN não pode reusar `filtroDeVarredura` inteiro
+          porque o carimbo dele é outro (`ultimaConsultaDjen`, e não
+          `ultimaSincronizacao`), mas pode — e deve — reusar as DEFINIÇÕES. Era
+          a duplicação dos nomes que produzia a divergência.
 
-          Dizer de quem NAO se cuida e a forma honesta: arquivado e improcedente
-          nao andam mais, e pre-processual nao tem numero para consultar. Todo
-          estado novo passa a nascer VIGIADO, que e o lado seguro de errar. E a
-          mesma regra que a varredura do DataJud ja usava em `FORA_DA_VARREDURA`.
+          Faixa rápida: o que está vivo, toda noite. Faixa lenta: o dormente, a
+          cada `DIAS_RECHECAGEM_DORMENTE` dias, porque a cota do CNJ não
+          comporta reconsultar o acervo inteiro por um evento raro — e "raro"
+          não é "nunca": a execução recomeça, o arquivado é desarquivado.
         */
         OR: [
-          { statusInterno: { notIn: ['ARQUIVADO', 'IMPROCEDENTE', 'ENCERRADO', 'PRE_PROCESSUAL', 'RASCUNHO'] } },
-          // Encerrado so continua vigiado enquanto algum grau nao baixou: a
-          // baixa e de uma instancia, nao do processo.
-          { statusInterno: 'ENCERRADO', instancias: { some: { baixada: false } } },
+          { statusInterno: { in: STATUS_VIVOS } },
+          // A baixa é de um GRAU, não do processo: encerrado com instância viva
+          // ainda anda (é o cumprimento de sentença correndo no 1º grau).
+          { statusInterno: StatusProcesso.ENCERRADO, instancias: { some: { baixada: false } } },
+          {
+            statusInterno: { in: DORMENTES },
+            // Sem carimbo não há como afirmar que já foi olhado; silêncio não
+            // vale por "está em dia".
+            OR: [
+              { ultimaConsultaDjen: null },
+              { ultimaConsultaDjen: { lt: new Date(Date.now() - DIAS_RECHECAGEM_DORMENTE * 24 * 3_600_000) } },
+            ],
+          },
         ],
         comunicacoes: { none: { createdAt: { gte: desde } } },
       },

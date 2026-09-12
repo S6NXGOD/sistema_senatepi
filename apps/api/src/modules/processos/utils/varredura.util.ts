@@ -69,7 +69,15 @@ export const STATUS_VIVOS: StatusProcesso[] = [
   StatusProcesso.GANHO_EXECUCAO,
 ];
 
-const DORMENTES: StatusProcesso[] = [
+/**
+ * O que está DORMENTE — quase nunca se move, mas "quase nunca" não é "nunca".
+ *
+ * Exportado porque o DJEN precisa da mesma lista: ele tem carimbo próprio
+ * (`ultimaConsultaDjen`) e por isso não pode reusar `filtroDeVarredura` inteiro,
+ * mas repetir os NOMES dos status à mão foi exatamente o que deixou
+ * GANHO_EXECUCAO fora da consulta do Diário sem ninguém notar.
+ */
+export const DORMENTES: StatusProcesso[] = [
   StatusProcesso.ENCERRADO,
   StatusProcesso.ARQUIVADO,
   StatusProcesso.SUSPENSO,

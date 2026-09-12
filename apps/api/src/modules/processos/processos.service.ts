@@ -427,7 +427,21 @@ export class ProcessosService {
         data: {
           numeroCNJ: numero,
           filiadoId: filiadoPrincipal,
-          advogadoId: dto.advogadoId || null,
+          /*
+            O ATALHO SEGUE A MESMA REGRA DA FONTE.
+
+            Era `dto.advogadoId || null`. Quando a planilha (ou a fila do
+            Diário) manda só a EQUIPE, sem responsável explícito,
+            `semearNaImportacao` grava `principal: true` no primeiro da lista
+            — e o atalho nascia NULO. Os robôs leem o atalho: um processo com
+            dono na fonte e sem dono no atalho não recebe tarefa endereçada.
+
+            `equipe[0]` é exatamente o critério que a fonte usa duas linhas
+            adiante (`principal: advogadoId === (entradas.advogadoId ??
+            equipe[0])`); repetir a regra aqui é o mínimo, e é o que impede os
+            dois de discordarem no instante da criação.
+          */
+          advogadoId: dto.advogadoId || dto.advogadosIds?.[0] || null,
           tipoAcao: polo.institucional
             ? TipoAcaoProcesso.INSTITUCIONAL
             : TipoAcaoProcesso.INDIVIDUAL,
@@ -610,7 +624,21 @@ export class ProcessosService {
         data: {
           numeroCNJ: numero,
           filiadoId: filiadoPrincipal,
-          advogadoId: dto.advogadoId || null,
+          /*
+            O ATALHO SEGUE A MESMA REGRA DA FONTE.
+
+            Era `dto.advogadoId || null`. Quando a planilha (ou a fila do
+            Diário) manda só a EQUIPE, sem responsável explícito,
+            `semearNaImportacao` grava `principal: true` no primeiro da lista
+            — e o atalho nascia NULO. Os robôs leem o atalho: um processo com
+            dono na fonte e sem dono no atalho não recebe tarefa endereçada.
+
+            `equipe[0]` é exatamente o critério que a fonte usa duas linhas
+            adiante (`principal: advogadoId === (entradas.advogadoId ??
+            equipe[0])`); repetir a regra aqui é o mínimo, e é o que impede os
+            dois de discordarem no instante da criação.
+          */
+          advogadoId: dto.advogadoId || dto.advogadosIds?.[0] || null,
           tipoAcao: polo.institucional
             ? TipoAcaoProcesso.INSTITUCIONAL
             : TipoAcaoProcesso.INDIVIDUAL,

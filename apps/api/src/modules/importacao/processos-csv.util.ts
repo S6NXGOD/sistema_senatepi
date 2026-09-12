@@ -318,7 +318,20 @@ export function conferirPlanilha(
 // ===========================================================================
 
 /** O que a planilha ainda tem a acrescentar a um processo já cadastrado. */
-export type Pendencia = 'CATEGORIA' | 'ETIQUETAS' | 'ANDAMENTO';
+/**
+ * O QUE UM PROCESSO JÁ CADASTRADO PODE RECEBER DA PLANILHA.
+ *
+ * Eram três, e a planilha traz sete colunas de vínculo. Réu, filiado e equipe
+ * ficavam de fora: `importarLinha` retorna para `completarExistente` ANTES de
+ * resolver qualquer um deles, e a linha inteira era jogada fora com a mensagem
+ * "já cadastrado". Quem roda a planilha de novo depois de completar o cadastro
+ * de um filiado — o motivo número um de rodar de novo — não ganhava nada.
+ *
+ * A regra que já valia continua valendo e é o que torna isto seguro: SÓ
+ * PREENCHE O QUE ESTÁ VAZIO. A planilha é a origem do dado, não a autoridade
+ * sobre ele.
+ */
+export type Pendencia = 'CATEGORIA' | 'ETIQUETAS' | 'ANDAMENTO' | 'REU' | 'FILIADO' | 'EQUIPE';
 
 /** Retrato do processo como ele está hoje no banco. */
 export interface EstadoNoBanco {
@@ -326,12 +339,21 @@ export interface EstadoNoBanco {
   etiquetas: string[];
   /** Descrições das notas internas já gravadas — para não repetir o andamento. */
   andamentos: string[];
+  /** Já há parte no polo passivo? Sem isto o réu da planilha se perde. */
+  temReu?: boolean;
+  /** Já há filiado vinculado ao processo? */
+  temFiliado?: boolean;
+  /** Já há advogado nosso na equipe do caso? */
+  temEquipe?: boolean;
 }
 
 export const PENDENCIA_LABEL: Record<Pendencia, string> = {
   CATEGORIA: 'área jurídica',
   ETIQUETAS: 'etiquetas',
   ANDAMENTO: 'andamento do jurídico',
+  REU: 'parte contrária',
+  FILIADO: 'filiado',
+  EQUIPE: 'advogado responsável',
 };
 
 /**
@@ -354,6 +376,17 @@ export function oQueCompletar(atual: EstadoNoBanco, l: LinhaProcesso): Pendencia
   if (!atual.categoria && l.categoria) faltas.push('CATEGORIA');
   if (l.etiquetas.some((e) => !atual.etiquetas.includes(e))) faltas.push('ETIQUETAS');
   if (l.andamento && !atual.andamentos.includes(l.andamento)) faltas.push('ANDAMENTO');
+  /*
+    OS TRÊS QUE FALTAVAM. Cada um só entra quando a planilha TEM o dado e o
+    processo NÃO tem — a mesma régua dos de cima.
+
+    `temX` é opcional para não quebrar quem monta o estado sem eles (a prévia
+    antiga); ausente é tratado como "tem", que é o lado seguro de errar: no
+    máximo deixa de prometer algo que seria preenchido.
+  */
+  if (l.reus.length && atual.temReu === false) faltas.push('REU');
+  if (l.filiadoCpf && atual.temFiliado === false) faltas.push('FILIADO');
+  if ((l.advogadoEmail || l.equipeEmails.length) && atual.temEquipe === false) faltas.push('EQUIPE');
   return faltas;
 }
 

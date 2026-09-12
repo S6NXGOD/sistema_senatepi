@@ -240,12 +240,29 @@ export class VinculoDeAdvogadoService {
   ): Promise<{ naParte: number; semLado: number }> {
     if (!outros.length) return { naParte: 0, semLado: 0 };
 
-    const nossoLado = processo.partes.filter((p) => p.filiadoId || p.parteExterna?.institucional);
-    const polos = new Set(nossoLado.map((p) => p.polo));
-    if (polos.size !== 1) return { naParte: 0, semLado: outros.length };
+    /*
+      "O OUTRO LADO" É QUEM NÃO É NOSSO — e não o polo invertido.
 
-    const outroPolo = polos.has('ATIVO') ? 'PASSIVO' : 'ATIVO';
-    const contrarias = processo.partes.filter((p) => p.polo === outroPolo);
+      A regra era binária: achar o polo do nosso lado e pegar todo mundo do polo
+      oposto. Só que `PoloProcesso` tem TRÊS valores, e a tela cadastra terceiro
+      interessado desde sempre. Num processo com autor (nós), um réu e um
+      terceiro, a inversão enxergava UMA parte contrária e gravava ali os
+      advogados dos DOIS — o procurador do terceiro passava a constar como
+      advogado do réu na ficha, com `origem: 'DJEN'` e cara de fato apurado.
+
+      Contar "quem não é nosso" corrige as duas pontas de uma vez: o terceiro
+      passa a ser candidato legítimo quando é o único do outro lado, e deixa de
+      ser invisível quando divide a cena com o réu — aí são dois candidatos, o
+      sistema não escolhe, e os advogados vão para a lista de "sem lado" que a
+      ficha mostra. Mesma disciplina do resto: com dúvida, pergunta.
+    */
+    const ehNossa = (p: { filiadoId: string | null; parteExterna: { institucional: boolean } | null }) =>
+      !!(p.filiadoId || p.parteExterna?.institucional);
+
+    // Sem reconhecer o nosso lado não há "outro lado" para apontar.
+    if (!processo.partes.some(ehNossa)) return { naParte: 0, semLado: outros.length };
+
+    const contrarias = processo.partes.filter((p) => !ehNossa(p));
     if (contrarias.length !== 1) return { naParte: 0, semLado: outros.length };
 
     const alvo = contrarias[0];
