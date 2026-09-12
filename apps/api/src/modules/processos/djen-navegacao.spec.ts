@@ -205,6 +205,15 @@ describe('publicação espera a movimentação atrasada', () => {
 describe('a primeira ingestão não pode inundar a agenda', () => {
   const CORRELACAO = ler('src/modules/processos/correlacao.service.ts');
   const PRAZOS = ler('src/modules/processos/automacao-prazos.service.ts');
+  /*
+    A REGRA SAIU DO SERVIÇO E VIROU FUNÇÃO PURA.
+
+    Motivo: a tela passou a mostrar uma PRÉVIA da tarefa antes de criá-la, e
+    prévia que recalcula por conta própria é uma segunda implementação da regra
+    — o defeito que esta base já pagou três vezes. Agora há um cálculo só, e é
+    aqui que as asserções de conteúdo passam a morar.
+  */
+  const PLANO = ler('src/modules/processos/utils/plano-da-atividade.util.ts');
 
   /**
    * SETE atividades urgentes de uma vez, todas com o mesmo motivo e todas
@@ -213,13 +222,34 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
    * Sete urgências simultâneas não são sete prioridades; são zero.
    */
   it('urgência exige que a publicação seja recente', () => {
-    expect(CORRELACAO).toContain('const recente = idadeDias <= DIAS_ATO_RECENTE;');
-    expect(CORRELACAO).toContain('const urgente = recente && (atrasado || prazoCurto);');
+    expect(PLANO).toContain('const recente = idadeDias <= diasAtoRecente;');
+    expect(PLANO).toContain('const urgente = recente && (atrasado || prazoCurto);');
+  });
+
+  /**
+   * UM CÁLCULO SÓ — é o que impede a prévia de prometer o que a criação não faz.
+   */
+  it('a criação e a prévia leem o MESMO plano', () => {
+    expect(CORRELACAO).toContain("from './utils/plano-da-atividade.util'");
+    // A criação monta o registro a partir do plano...
+    expect(CORRELACAO).toContain('titulo: plano.titulo');
+    expect(CORRELACAO).toContain('descricao: plano.descricao');
+    expect(CORRELACAO).toContain('montarUrgencia(plano.urgente, plano.urgenteMotivo');
+    // ...e a prévia devolve o mesmo objeto, sem escrever nada.
+    const previa = CORRELACAO.slice(
+      CORRELACAO.indexOf('async previaDaAtividade('),
+      CORRELACAO.indexOf('/** Processo + a quem atribuir'),
+    );
+    expect(previa).toContain('planejarAtividade(');
+    expect(previa).not.toContain('.create(');
+    // E o dono mostrado é o mesmo que a criação usaria.
+    expect(previa).toContain('this.donoDaTarefa(plano.tipo, processo)');
+    expect(CORRELACAO).toContain('responsavelForcado ?? (await this.donoDaTarefa(plano.tipo, processo))');
   });
 
   /** Publicação velha que mencionava 5 dias também não é urgente — é história. */
   it('o prazo curto também passa pela régua da idade', () => {
-    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('const recente = idadeDias'));
+    const bloco = PLANO.slice(PLANO.indexOf('const recente = idadeDias'));
     expect(bloco.slice(0, 300)).toContain('const prazoCurto = (c.prazoMencionadoDias ?? 99) <= 5;');
     expect(bloco.slice(0, 300)).not.toMatch(/urgente = \(atrasado \|\| prazoCurto\)/);
   });
@@ -314,7 +344,10 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
 
     expect(semComentarios(CORRELACAO)).not.toContain('setHours(9');
     expect(semComentarios(PRAZOS)).not.toContain('setHours(9');
-    expect(CORRELACAO).toContain('proximoHorarioUtilBR(atrasado ? hoje : calculado)');
+    expect(semComentarios(PLANO)).not.toContain('setHours(9');
+    // O cálculo do horário mora no plano; `agora` entra por parâmetro, que é o
+    // que torna a regra testável sem depender do relógio de quem roda.
+    expect(PLANO).toContain('proximoHorarioUtilBR(atrasado ? agora : calculado)');
     expect(PRAZOS).toContain('proximoHorarioUtilBR(');
   });
 
@@ -340,10 +373,10 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
    * cartão da publicação, que agrupa as cópias e mostra uma vez só.
    */
   it('a descrição não carrega o teor da publicação', () => {
-    expect(CORRELACAO).not.toContain('blocoTeor');
-    expect(CORRELACAO).not.toContain('Publicação (DJEN)');
-    const bloco = CORRELACAO.slice(CORRELACAO.indexOf('A DESCRIÇÃO DIZ O QUE FAZER'));
-    expect(bloco.slice(0, 900)).toContain('Processo ${NpuUtils.formatar(processo.numeroCNJ)');
+    expect(PLANO).not.toContain('blocoTeor');
+    expect(PLANO).not.toContain('Publicação (DJEN)');
+    const bloco = PLANO.slice(PLANO.indexOf('A DESCRIÇÃO DIZ O QUE FAZER'));
+    expect(bloco.slice(0, 900)).toContain('Processo ${NpuUtils.formatar(numeroCNJ)');
   });
 
   /**

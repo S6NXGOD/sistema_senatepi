@@ -322,6 +322,24 @@ export class DjenController {
    * vez de criar a segunda. Dois toques no mesmo item são a coisa mais provável
    * de acontecer numa lista.
    */
+  /**
+   * A PRÉVIA DA TAREFA — o que a publicação VAI virar, sem virar.
+   *
+   * "Ao clicar em Criar tarefa vai direto para criar tarefa mas não tenho nem um
+   * preview de como ela vai ficar." Data, urgência e dono são decididos pelo
+   * sistema; criar às cegas é pedir confiança e depois conferência.
+   *
+   * Devolve o MESMO objeto que a criação usa (`planejarAtividade`), então o que
+   * a tela mostra é literalmente o que vai ser gravado. `null` significa "não há
+   * o que planejar" — a tela explica em vez de oferecer um botão que falharia.
+   */
+  @Get('publicacoes/:id/previa-da-tarefa')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'O que a publicação vira, sem criar nada.' })
+  previaDaTarefa(@Param('id') id: string) {
+    return this.correlacao.previaDaAtividade(id);
+  }
+
   @Post('publicacoes/:id/tarefa')
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Cria (ou devolve) a atividade da publicação, para o dono do caso.' })

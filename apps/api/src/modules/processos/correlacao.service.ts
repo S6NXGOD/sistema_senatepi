@@ -7,6 +7,7 @@ import { TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.serv
 import { diaBR, proximoHorarioUtilBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
 import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
 import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
+import { planejarAtividade, type PlanoDaAtividade } from './utils/plano-da-atividade.util';
 import { tenant } from '../../tenant/tenant.config';
 import {
   classificarProvidencia,
@@ -709,100 +710,108 @@ export class CorrelacaoService {
      */
     responsavelForcado?: string | null,
   ): Promise<string> {
-    const spec = PROVIDENCIAS[c.providencia as Exclude<Providencia, 'NENHUMA'>];
-    const dias = diasParaLembrete(spec, c.prazoMencionadoDias);
-
-    // Publicação antiga geraria tarefa já vencida. Puxa para hoje e avisa.
     /*
-      `dataDisponibilizacao` é `@db.Date`: JÁ é um dia de calendário à meia-noite
-      UTC, que é exatamente o que `somarDiasUteisEmCalendario` espera. NÃO passe
-      por `diaDeCalendarioBR` aqui — isso trataria a meia-noite UTC como
-      instante e voltaria um dia, que é o mesmo erro do cartão da escala.
-    */
-    const calculado = somarDiasUteisEmCalendario(c.dataDisponibilizacao, dias);
-    const hoje = new Date();
-    const atrasado = calculado < hoje;
-    /**
-     * `proximoHorarioUtilBR` faz duas coisas que o `setHours(9)` não fazia:
-     * fixa as nove da manhã de TERESINA (e não do fuso do contêiner) e garante
-     * que o horário seja futuro. Ver o comentário da função.
-     */
-    const inicio = proximoHorarioUtilBR(atrasado ? hoje : calculado);
+      O CÁLCULO MORA EM `planejarAtividade`, e não mais aqui.
 
-    /**
-     * URGÊNCIA EXIGE QUE A PUBLICAÇÃO SEJA RECENTE — e esta trava veio de uma
-     * medição, não de teoria.
-     *
-     * Na primeira ingestão de um processo o DJEN entrega o histórico inteiro
-     * dele, não só o dia. Em 03/09/2026, quatro processos trouxeram 136
-     * publicações de uma vez; catorze estavam na janela de classificação e
-     * SETE viraram atividade urgente, todas com o mesmo motivo ("o prazo pode
-     * já estar correndo") e todas vencendo no mesmo dia. Sete urgências
-     * simultâneas não são sete prioridades — são zero, e a próxima urgência de
-     * verdade chega numa tela onde ninguém mais olha a tarja vermelha.
-     *
-     * Quinze dias é a mesma régua do robô de prazos (`DIAS_ATO_RECENTE`), e
-     * pelo mesmo motivo: é o prazo recursal do art. 1.003 do CPC. Passado ele,
-     * o que havia a perder já se perdeu — a tarefa continua existindo, para
-     * alguém conferir o que ficou pendente, mas sem gritar.
-     *
-     * A mesma régua vale para o prazo curto: uma publicação de vinte dias
-     * atrás que mencionava cinco dias não é urgente, é história.
-     */
-    const idadeDias = Math.floor(
-      (hoje.getTime() - c.dataDisponibilizacao.getTime()) / 86_400_000,
-    );
-    const recente = idadeDias <= DIAS_ATO_RECENTE;
-    const prazoCurto = (c.prazoMencionadoDias ?? 99) <= 5;
-    const urgente = recente && (atrasado || prazoCurto);
+      A tela passou a mostrar uma PRÉVIA da tarefa antes de criá-la, e prévia
+      que recalcula por conta própria é uma segunda implementação da regra —
+      exatamente o defeito que esta base já pagou três vezes (o `polo` com três
+      leitores, o `tipoAcao` derivado num caminho e não no irmão, a lista de
+      status do Diário ao lado da canônica). Uma prévia que erra por pouco é
+      pior que nenhuma: ela promete.
+
+      Agora há um cálculo só. Aqui sobra o que depende do banco: quem responde,
+      os vínculos e a escrita.
+    */
+    const plano = planejarAtividade(c, processo.numeroCNJ, new Date(), DIAS_ATO_RECENTE);
+    const { atrasado, idadeDias, inicio } = plano;
 
     // Tarefa de contato é da secretaria; o resto é do advogado do processo.
-    const responsavelId =
-      responsavelForcado ??
-      (spec.tipo === 'CONTATO'
-        ? (await this.usuarioSecretaria()) ?? processo.responsavelId
-        : processo.responsavelId);
+    const responsavelId = responsavelForcado ?? (await this.donoDaTarefa(plano.tipo, processo));
 
     const compromisso = await this.prisma.compromisso.create({
       data: {
-        titulo: spec.titulo,
-        tipo: spec.tipo,
+        titulo: plano.titulo,
+        tipo: plano.tipo,
         status: StatusCompromisso.PENDENTE,
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
-        /**
-         * A DESCRIÇÃO DIZ O QUE FAZER. O TEOR MORA NO BLOCO PRÓPRIO.
-         *
-         * Ela embutia o texto integral da publicação — era a única saída
-         * quando a gaveta não tinha onde mostrá-lo. Agora que tem, embutir
-         * duplica: o mesmo teor aparecia na descrição E no bloco, e com duas
-         * publicações irmãs ligadas à mesma tarefa, três vezes. Foi o que o
-         * jurídico viu na tela em 03/09/2026, e a descrição chegou a 1.898
-         * caracteres de texto de tribunal antes de qualquer instrução.
-         */
-        descricao:
-          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}` +
-          `${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.` +
-          (atrasado
-            ? `\n⚠ Publicação de ${idadeDias} dia(s) atrás — o prazo calculado já venceu. ` +
-              `${recente ? 'Confira com urgência.' : 'Confira sem alarme o que ficou pendente.'}`
-            : ''),
+        descricao: plano.descricao,
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
-        ...montarUrgencia(
-          urgente,
-          atrasado
-            ? `Publicação de ${idadeDias} dia(s) atrás e o prazo já venceu — confira o que ficou pendente.`
-            : `A publicação menciona prazo de ${c.prazoMencionadoDias} dia(s).`,
-          { origem: 'AUTOMACAO' },
-        ),
+        ...montarUrgencia(plano.urgente, plano.urgenteMotivo, { origem: 'AUTOMACAO' }),
         origemAutomatica: true,
         criadoPor: null, // sem autor humano — é o robô
       },
       select: { id: true },
     });
     return compromisso.id;
+  }
+
+  /**
+   * A QUEM A TAREFA VAI — contato é da secretaria, o resto é do dono do caso.
+   *
+   * Virou método porque a PRÉVIA precisa da mesma resposta: mostrar "vai para
+   * a Morgana" e criar para outra pessoa seria pior que não mostrar nada.
+   */
+  private async donoDaTarefa(tipo: string, processo: ProcessoAlvo): Promise<string> {
+    // `responsavelId` do processo não é nulo aqui (ver `ProcessoAlvo`): a
+    // secretaria é uma PREFERÊNCIA para o contato, não uma condição.
+    if (tipo === 'CONTATO') return (await this.usuarioSecretaria()) ?? processo.responsavelId;
+    return processo.responsavelId;
+  }
+
+  /**
+   * A PRÉVIA — o que a publicação VAI virar, sem virar.
+   *
+   * "Ao clicar em Criar tarefa vai direto para criar tarefa mas não tenho nem
+   * um preview de como ela vai ficar." Tem razão: data, urgência e dono são
+   * decididos pelo sistema, e criar às cegas é pedir confiança e depois
+   * conferência.
+   *
+   * Devolve o MESMO objeto que a criação usa (`planejarAtividade`) mais o nome
+   * de quem vai receber. `null` quando não há o que planejar — a tela então
+   * explica em vez de oferecer um botão que falharia.
+   */
+  async previaDaAtividade(comunicacaoId: string): Promise<
+    (PlanoDaAtividade & { responsavel: { id: string; nome: string; nomeExibicao: string | null } | null }) | null
+  > {
+    const c = await this.prisma.comunicacaoDjen.findUnique({
+      where: { id: comunicacaoId },
+      select: {
+        processoId: true,
+        nomeOrgao: true,
+        dataDisponibilizacao: true,
+        providencia: true,
+        prazoMencionadoDias: true,
+      },
+    });
+    if (!c?.processoId || !c.providencia || c.providencia === 'NENHUMA') return null;
+
+    const processo = await this.carregarProcesso(c.processoId);
+    if (!processo) return null;
+
+    const plano = planejarAtividade(
+      {
+        nomeOrgao: c.nomeOrgao,
+        dataDisponibilizacao: c.dataDisponibilizacao,
+        providencia: c.providencia as Providencia,
+        prazoMencionadoDias: c.prazoMencionadoDias,
+      },
+      processo.numeroCNJ,
+      new Date(),
+      DIAS_ATO_RECENTE,
+    );
+
+    const donoId = await this.donoDaTarefa(plano.tipo, processo);
+    const responsavel = donoId
+      ? await this.prisma.user.findUnique({
+          where: { id: donoId },
+          select: { id: true, nome: true, nomeExibicao: true },
+        })
+      : null;
+    return { ...plano, responsavel };
   }
 
   /** Processo + a quem atribuir. Mesma regra do robô de prazos. */
