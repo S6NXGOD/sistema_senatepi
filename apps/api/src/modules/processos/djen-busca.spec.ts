@@ -120,4 +120,34 @@ describe('busca no acervo de publicações', () => {
     expect(trecho.slice(0, 400)).toContain('where: { principal: true }');
     expect(trecho.slice(0, 400)).toContain('select: { nome: true, polo: true }');
   });
+
+  /**
+   * "18 EM 7 DIAS · VER TODAS" ABRIA AS 2.066 — medido em 12/09/2026.
+   *
+   * O painel conta a semana e a tela não sabia recortar por data: o clique caía
+   * no acervo inteiro. A janela é a MESMA conta do painel, e valor inválido da
+   * barra de endereços é ignorado em vez de virar um corte no futuro.
+   */
+  it('recorta pelos últimos N dias, com a conta do painel', () => {
+    expect(BUSCA).toContain('const dias = Math.floor(Number(filtro.dias));');
+    expect(BUSCA).toContain('if (dias > 0) {');
+    expect(BUSCA).toContain(
+      'dataDisponibilizacao: { gte: new Date(Date.now() - Math.min(dias, 3650) * DIA_MS) }',
+    );
+    expect(CONTROLLER).toContain('@Max(3650)');
+  });
+
+  /**
+   * "SEM TAREFA" NÃO É FILA. Junta o que o robô dispensou com motivo (66 das 102
+   * do último mês) e o que ninguém decidiu (7). A fila é o segundo grupo, e a
+   * regra mora num lugar só — o relatório conta a mesma.
+   */
+  it('SEM_DECISAO é providência sem tarefa e sem motivo de dispensa', () => {
+    expect(BUSCA).toContain("if (filtro.situacao === 'SEM_DECISAO') where.push(ESPERANDO_DECISAO);");
+    const regra = BUSCA.slice(BUSCA.indexOf('export const ESPERANDO_DECISAO'));
+    expect(regra.slice(0, 240)).toContain("providencia: { not: null, notIn: ['NENHUMA'] },");
+    expect(regra.slice(0, 240)).toContain('compromissoId: null,');
+    expect(regra.slice(0, 240)).toContain('tarefaDispensadaEm: null,');
+    expect(CONTROLLER).toContain("@IsIn(['COM_TAREFA', 'SEM_TAREFA', 'SEM_DECISAO'])");
+  });
 });

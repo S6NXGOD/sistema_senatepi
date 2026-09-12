@@ -98,10 +98,21 @@ export class BuscaPublicacoesDto {
   @MaxLength(12)
   tribunal?: string;
 
-  @ApiPropertyOptional({ enum: ['COM_TAREFA', 'SEM_TAREFA'] })
+  @ApiPropertyOptional({
+    enum: ['COM_TAREFA', 'SEM_TAREFA', 'SEM_DECISAO'],
+    description: 'SEM_DECISAO: com providência, sem tarefa e sem motivo de dispensa.',
+  })
   @IsOptional()
-  @IsIn(['COM_TAREFA', 'SEM_TAREFA'])
-  situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+  @IsIn(['COM_TAREFA', 'SEM_TAREFA', 'SEM_DECISAO'])
+  situacao?: 'COM_TAREFA' | 'SEM_TAREFA' | 'SEM_DECISAO';
+
+  @ApiPropertyOptional({ description: 'Só as disponibilizadas nos últimos N dias (1 a 3650).' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  dias?: number;
 
   @ApiPropertyOptional({ description: 'Só as publicações dos processos de quem está pedindo.' })
   @IsOptional()

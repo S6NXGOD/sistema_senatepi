@@ -52,11 +52,12 @@ export class RelatoriosController {
   }
 
   /**
-   * CSV, e não PDF, para os NÚMEROS.
+   * CSV para os NÚMEROS da equipe.
    *
-   * Quem pede relatório de equipe quer somar, cruzar e colar numa apresentação.
-   * PDF de tabela é bonito e inútil para isso — obriga a redigitar. O PDF fica
-   * para o que é documento: o dossiê do processo, que se entrega ao filiado.
+   * Quem pede a tabela quer somar, cruzar e colar numa planilha — PDF obriga a
+   * redigitar. O PDF do relatório existe, mas é para outro público: é o
+   * documento da diretoria e da assembleia, com as seções que a pessoa escolhe,
+   * e sai montado no navegador a partir da mesma resposta de `montar`.
    */
   @Get('equipe.csv')
   @ApiOperation({ summary: 'A tabela da equipe em CSV, para abrir no Excel.' })

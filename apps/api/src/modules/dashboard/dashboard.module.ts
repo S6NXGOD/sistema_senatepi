@@ -27,6 +27,7 @@ import { ProcessosModule } from '../processos/processos.module';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
+import { ultimoUsoReal } from './ultimo-acesso.util';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -86,8 +87,21 @@ export function adversarioDoProcesso(
   const nosso = partes.find((p) => ehONossoSindicato(p, idDoSindicato));
 
   // Em qual polo estamos? Autor na esmagadora maioria, réu em alguns — e aí o
-  // adversário está do outro lado. Sem nos achar, sobra tudo.
-  const candidatos = nosso ? partes.filter((p) => p.polo !== nosso.polo) : partes;
+  // adversário está do outro lado.
+  //
+  // SEM NOS ACHAR, O ADVERSÁRIO É O POLO PASSIVO — e não "a primeira parte".
+  // Sindicato fora das partes é a ação do FILIADO que representamos, e quem
+  // move a ação é ele. A regra antiga devolvia a primeira parte, que era a
+  // própria pessoa: em 12/09/2026, 20 das 26 ações assim no acervo ativo saíam
+  // no painel com a filiada no lugar do réu. E nenhuma das 26 tinha parte
+  // ligada a filiado no polo passivo. Sem passivo nenhum, sobra tudo — um nome
+  // ainda informa mais que a linha vazia.
+  const passivo = partes.filter((p) => p.polo === 'PASSIVO');
+  const candidatos = nosso
+    ? partes.filter((p) => p.polo !== nosso.polo)
+    : passivo.length
+      ? passivo
+      : partes;
   if (!candidatos.length) return null;
 
   // A parte PRINCIPAL do polo, quando marcada; senão a primeira.
@@ -1000,23 +1014,54 @@ export class DashboardService {
     const cargaEquipe = !ehGestao
       ? null
       : await (async () => {
-          const ids = [...new Set(cargaPorAdvogadoRaw.map((c) => c.responsavelId))].filter(Boolean);
+          const ids = [...new Set(cargaPorAdvogadoRaw.map((c) => c.responsavelId))].filter(Boolean) as string[];
           if (!ids.length) return [];
-          const pessoas = await this.prisma.user.findMany({
-            where: { id: { in: ids as string[] }, ativo: true },
-            select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
-          });
+          /*
+            QUANDO CADA UM ESTEVE AQUI PELA ÚLTIMA VEZ — o dado que faltava para
+            cobrar quem some.
+
+            O sino, a faixa e o painel avisam quem ABRE o sistema. A medição de
+            12/09/2026 mostrou o furo: das três atividades atrasadas da casa,
+            duas eram de uma pessoa que não entrava havia 39 dias. Aviso dentro
+            do sistema não alcança quem não entra; quem alcança é a coordenação,
+            e ela precisa ver isso ao lado do atraso. Ver `ultimoUsoReal`.
+          */
+          const [pessoas, sessoes, acoes] = await Promise.all([
+            this.prisma.user.findMany({
+              where: { id: { in: ids }, ativo: true },
+              select: {
+                id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true,
+                ultimoLoginEm: true,
+              },
+            }),
+            this.prisma.refreshToken.groupBy({
+              by: ['userId'],
+              where: { userId: { in: ids } },
+              _max: { createdAt: true },
+            }),
+            this.prisma.auditoria.groupBy({
+              by: ['userId'],
+              where: { userId: { in: ids }, acao: { not: 'LOGIN' } },
+              _max: { createdAt: true },
+            }),
+          ]);
+          const sessaoPorId = new Map(sessoes.map((s) => [s.userId, s._max.createdAt]));
+          const acaoPorId = new Map(acoes.map((a) => [a.userId, a._max.createdAt]));
           const atrasoPorId = new Map(
             atrasadasPorAdvogadoRaw.map((a) => [a.responsavelId, a._count._all]),
           );
           return cargaPorAdvogadoRaw
             .map((c) => {
-              const p = pessoas.find((u) => u.id === c.responsavelId);
-              if (!p) return null; // usuário inativo/removido não entra no painel
+              const achada = pessoas.find((u) => u.id === c.responsavelId);
+              if (!achada) return null; // usuário inativo/removido não entra no painel
+              const { ultimoLoginEm, ...p } = achada;
               return {
                 advogado: p,
                 abertas: c._count._all,
                 atrasadas: atrasoPorId.get(c.responsavelId) ?? 0,
+                ultimoAcesso:
+                  ultimoUsoReal(ultimoLoginEm, sessaoPorId.get(p.id), acaoPorId.get(p.id))?.toISOString() ??
+                  null,
               };
             })
             .filter(Boolean)
@@ -1025,6 +1070,7 @@ export class DashboardService {
             advogado: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null };
             abertas: number;
             atrasadas: number;
+            ultimoAcesso: string | null;
           }[];
         })();
 

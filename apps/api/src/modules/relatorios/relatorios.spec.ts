@@ -115,6 +115,95 @@ describe('"novo" não é "cadastrado"', () => {
   });
 });
 
+describe('as contas que estavam erradas', () => {
+  /**
+   * ATRASADA É O DIA QUE VIROU. O relatório usava a hora passada — a conta que
+   * o painel e o sino já tinham abandonado — e a tela escrevia "prazo vencido"
+   * sobre a tarefa das 15h às 15h01.
+   */
+  it('atrasada usa o início do dia, e não o relógio', () => {
+    expect(SERVICO).toContain('const hojeIni = inicioDoDiaBR(agora);');
+    expect(SERVICO).toContain('if (a.inicio < hojeIni) atual.atrasadas++;');
+    expect(SERVICO).toContain('atrasadas: abertas.filter((a) => a.inicio < hojeIni).length');
+    expect(SERVICO).not.toContain('a.inicio < agora');
+  });
+
+  /** "Encerrados no período" contava qualquer atualização do cadastro, inclusive a do robô. */
+  it('encerrados é o estoque de hoje, e não um fluxo por data de atualização', () => {
+    expect(SERVICO).toContain(
+      'this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ENCERRADO } })',
+    );
+    expect(SERVICO).not.toContain('updatedAt: noPeriodo');
+  });
+
+  /** O zero de "ajuizadas" precisa dizer quantos ainda não têm data no CNJ. */
+  it('diz quantos ativos estão sem data de distribuição', () => {
+    expect(SERVICO).toContain('where: { statusInterno: StatusProcesso.ATIVO, dataDistribuicao: null },');
+  });
+});
+
+describe('o sindicato na Justiça', () => {
+  const JUSTICA = SERVICO.slice(
+    SERVICO.indexOf('private async justica('),
+    SERVICO.indexOf('private async proximos('),
+  );
+
+  /**
+   * RECORTAR SENTENÇA POR ADVOGADO seria publicar taxa de vitória de colega — o
+   * placar que este módulo recusa, entrando por outra porta.
+   */
+  it('não recebe nem usa o recorte de pessoa', () => {
+    expect(JUSTICA).toContain('private async justica(inicio: Date, fim: Date, agora: Date)');
+    for (const proibido of ['alvo', 'soMeu', 'responsavelId', 'advogadoId']) {
+      expect(`${proibido}: ${JUSTICA.includes(proibido)}`).toBe(`${proibido}: false`);
+    }
+  });
+
+  /** Os códigos de julgamento vêm do Panorama: duas listas divergiriam em silêncio. */
+  it('conta com os mesmos carimbos e as mesmas CTEs do Panorama', () => {
+    expect(SERVICO).toContain("} from '../processos/padroes.service';");
+    expect(SERVICO).toContain('const base = baseDoAcervo(cnpj);');
+    expect(JUSTICA).not.toMatch(/\b(219|220|221)\b/);
+  });
+
+  it('só vai para quem vê processos; os próximos dias, para quem vê a agenda', () => {
+    expect(SERVICO).toContain(
+      "const veProcessos = nivelEfetivo(role, usuario.permissoes, 'processos') !== 'SEM_ACESSO';",
+    );
+    expect(SERVICO).toContain('veProcessos ? this.justica(inicio, fim, agora) : null,');
+    expect(SERVICO).toContain(
+      "const veAgenda = nivelEfetivo(role, usuario.permissoes, 'agenda') !== 'SEM_ACESSO';",
+    );
+    expect(SERVICO).toContain('veAgenda ? this.proximos(soMeu, hojeIni) : null,');
+  });
+});
+
+describe('publicações e robô', () => {
+  /** Leitura da casa: o advogado e o espelho de uma pessoa não recebem. */
+  it('só na visão da casa', () => {
+    expect(SERVICO).toContain('const daCasa = !alvo && veProcessos;');
+    expect(SERVICO).toContain('daCasa && djenLigado ? this.publicacoes(inicio, fim) : null,');
+    expect(SERVICO).toContain('daCasa ? this.robo(inicio, fim) : null,');
+  });
+
+  /**
+   * A FILA É ESTADO, NÃO PERÍODO — e a regra é a da busca de publicações.
+   * Cortar pela data esconderia justamente o que espera há mais tempo.
+   */
+  it('a fila de decisão usa a regra da busca, sem corte de data', () => {
+    expect(SERVICO).toContain("import { ESPERANDO_DECISAO } from '../processos/djen-busca.service';");
+    expect(SERVICO).toContain('this.prisma.comunicacaoDjen.count({ where: ESPERANDO_DECISAO }),');
+  });
+
+  /** Tarefa cancelada pelo próprio robô não é trabalho que ele deu a alguém. */
+  it('separa o que o robô cancelou do que uma pessoa teve de cancelar', () => {
+    expect(SERVICO).toContain('status: StatusCompromisso.CANCELADO, canceladoPor: null');
+    expect(SERVICO).toContain(
+      'canceladasPorPessoas: doStatus(StatusCompromisso.CANCELADO) - canceladasPeloRobo,',
+    );
+  });
+});
+
 describe('o CSV', () => {
   const relatorio = {
     periodo: { de: '2026-08-01T03:00:00.000Z', ate: '2026-09-01T03:00:00.000Z' },
@@ -134,11 +223,18 @@ describe('o CSV', () => {
       concluidas: 15, canceladas: 0, abertas: 2, atrasadas: 1,
       porDesfecho: [], porTipo: [], automaticas: 0, manuais: 15,
     },
-    processos: { cadastrados: 0, distribuidos: 0, ativos: 0, encerrados: 0, porArea: [], porTribunal: [] },
+    processos: {
+      cadastrados: 0, distribuidos: 0, ativos: 0, encerrados: 0, semDataDeDistribuicao: 0,
+      porArea: [], porTribunal: [],
+    },
     atendimentos: {
-      registrados: 0, concluidos: 0, porCanal: [], porAtendente: [],
+      registrados: 0, concluidos: 0, filiadosAtendidos: 0, porCanal: [], porAtendente: [],
       porAssunto: [], assuntoNaoInformado: 0, porSetor: [],
     },
+    justica: null,
+    proximos: null,
+    publicacoes: null,
+    robo: null,
     geradoEm: '2026-09-04T00:00:00.000Z',
   };
 

@@ -27,10 +27,14 @@ import { tenant } from '../../tenant/tenant.config';
  *    empregadores DIFERENTES — o oposto: não é um réu, é a categoria.
  */
 
-/** Códigos TPU de julgamento. É o CNJ que os carimba; não inferimos desfecho. */
-const PROCEDENCIA = 219;
-const IMPROCEDENCIA = 220;
-const PROCEDENCIA_PARCIAL = 221;
+/**
+ * Códigos TPU de julgamento. É o CNJ que os carimba; não inferimos desfecho.
+ * Exportados porque o relatório conta as mesmas sentenças — dois arquivos com a
+ * própria lista de códigos divergiriam em silêncio.
+ */
+export const PROCEDENCIA = 219;
+export const IMPROCEDENCIA = 220;
+export const PROCEDENCIA_PARCIAL = 221;
 
 /**
  * ASSUNTOS QUE SÃO RITO, NÃO PEDIDO — e esta lista salvou a funcionalidade de
@@ -55,7 +59,7 @@ const PROCEDENCIA_PARCIAL = 221;
  * É uma decisão de domínio jurídico, não uma dedução do dado — está aqui, curta
  * e nomeada, para poder ser discutida e corrigida.
  */
-const ASSUNTOS_DE_RITO = [
+export const ASSUNTOS_DE_RITO = [
   8843, // Assistência Judiciária Gratuita
   8867, // Substituição Processual
   8934, // Valor da Causa
@@ -382,14 +386,26 @@ export class PadroesService {
    */
   private async deQueLadoEstamos() {
     const somosNos = { parteExterna: { institucional: true } };
+    /*
+      SÓ O ACERVO ATIVO — o mesmo recorte do resto desta tela.
+
+      Contava TODOS os status, e a tela dizia outra coisa: o rodapé fala em
+      "149 processos ativos" e os três cartões somavam 184 em 12/09/2026
+      (autor 144, representando 31, réu 9) — encerrados, pré-processuais e o
+      rascunho juntos. E o clique mudava o número: "31 representando" abria
+      uma lista de 27, porque a listagem deixa o pré-processual de fora. Hoje o
+      cartão conta o ativo e o link leva `status=ATIVO`: número e lista
+      respondem à mesma pergunta.
+    */
+    const ativo = { statusInterno: 'ATIVO' as const };
     const [autor, reu, representando] = await Promise.all([
-      this.prisma.processo.count({ where: { partes: { some: { polo: 'ATIVO', ...somosNos } } } }),
-      this.prisma.processo.count({ where: { partes: { some: { polo: 'PASSIVO', ...somosNos } } } }),
+      this.prisma.processo.count({ where: { ...ativo, partes: { some: { polo: 'ATIVO', ...somosNos } } } }),
+      this.prisma.processo.count({ where: { ...ativo, partes: { some: { polo: 'PASSIVO', ...somosNos } } } }),
       // `some: {}` junto: processo sem parte nenhuma não é "representamos o
       // filiado", é processo com cadastro incompleto. Ver o comentário gêmeo
       // em `FILTRO_RAPIDO.nossoPapel`.
       this.prisma.processo.count({
-        where: { AND: [{ partes: { some: {} } }, { partes: { none: somosNos } }] },
+        where: { ...ativo, AND: [{ partes: { some: {} } }, { partes: { none: somosNos } }] },
       }),
     ]);
     return { autor, reu, representando };
@@ -415,6 +431,16 @@ export class PadroesService {
    * os dois contaria uma improcedência já reformada como se ainda valesse.
    */
   private comBase(cnpj: string): Prisma.Sql {
+    return baseDoAcervo(cnpj);
+  }
+}
+
+/**
+ * As mesmas CTEs, fora da classe: o relatório conta adversários e assuntos com
+ * a régua do Panorama. Duas cópias desta consulta discordariam sobre quem é o
+ * réu de um processo — e a leitura de cada tela ficaria em dúvida.
+ */
+export function baseDoAcervo(cnpj: string): Prisma.Sql {
     return Prisma.sql`
       WITH nosso AS (
         SELECT id FROM partes_externas WHERE documento = ${cnpj}
@@ -442,5 +468,4 @@ export class PadroesService {
         ORDER BY m.processo_id, m.data_movimento DESC
       )
     `;
-  }
 }

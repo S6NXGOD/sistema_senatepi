@@ -94,4 +94,18 @@ describe('a leitura no panorama', () => {
     expect(PADROES).toContain('nossoPapel: { autor: number; reu: number; representando: number };');
     expect(PADROES).toContain('this.deQueLadoEstamos(),');
   });
+
+  /**
+   * O CARTÃO CONTA O ACERVO ATIVO — o mesmo recorte do resto da tela.
+   *
+   * Contava todos os status numa tela que fala em "149 processos ativos": os
+   * três cartões somavam 184 em 12/09/2026, e "31 representando" abria uma
+   * lista de 27. Número que muda quando se clica nele é pior que número nenhum.
+   */
+  it('os três papéis contam só o acervo ativo', () => {
+    const trecho = PADROES.slice(PADROES.indexOf('private async deQueLadoEstamos()'));
+    const corpo = trecho.slice(0, trecho.indexOf('return { autor, reu, representando };'));
+    expect(corpo).toContain("const ativo = { statusInterno: 'ATIVO' as const };");
+    expect(corpo.match(/where: \{ \.\.\.ativo,/g)?.length).toBe(3);
+  });
 });

@@ -26,8 +26,23 @@ export interface FiltroBuscaDjen {
   q?: string;
   providencia?: string;
   tribunal?: string;
-  /** COM_TAREFA | SEM_TAREFA — separa o que já virou trabalho do que não. */
-  situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+  /**
+   * COM_TAREFA | SEM_TAREFA — separa o que já virou trabalho do que não.
+   *
+   * SEM_DECISAO é o pedaço de SEM_TAREFA que pede gente. "Sem tarefa" junta a
+   * publicação que o robô dispensou COM motivo (66 das 102 do último mês, em
+   * 12/09/2026) com a que ninguém decidiu ainda (10). A primeira está
+   * resolvida; a segunda é a fila. Ver `ESPERANDO_DECISAO`.
+   */
+  situacao?: 'COM_TAREFA' | 'SEM_TAREFA' | 'SEM_DECISAO';
+  /**
+   * Só as disponibilizadas nos últimos N dias — "o que chegou esta semana".
+   *
+   * A MESMA CONTA do painel (`agora - N × 24h` contra a data de
+   * disponibilização). O link "18 em 7 dias" abria as 2.066 publicações do
+   * acervo, e a semana tinha de ser achada rolando a lista.
+   */
+  dias?: number;
   /**
    * QUEM FOI INTIMADO — e não "de quem é o processo".
    *
@@ -68,6 +83,24 @@ export interface FiltroBuscaDjen {
 
 const LIMITE_PADRAO = 20;
 const LIMITE_MAXIMO = 100;
+const DIA_MS = 24 * 3_600_000;
+
+/**
+ * A FILA DE PUBLICAÇÕES QUE ESPERAM GENTE — a regra num lugar só.
+ *
+ * Pede providência, não virou tarefa e o robô não a dispensou com motivo. A
+ * busca chama isto de SEM_DECISAO e o relatório conta como "esperando decisão":
+ * duas telas com duas definições discordariam sobre o tamanho da fila.
+ *
+ * NENHUMA fica de fora: é a classificação de "não há o que fazer". Medido em
+ * 12/09/2026, a conta crua dava 10 — 7 propostas esperando o advogado e 3 atos
+ * que não pediam nada.
+ */
+export const ESPERANDO_DECISAO: Prisma.ComunicacaoDjenWhereInput = {
+  providencia: { not: null, notIn: ['NENHUMA'] },
+  compromissoId: null,
+  tarefaDispensadaEm: null,
+};
 
 /**
  * O CNJ MANDA NOME SEM ACENTO — "SHERAD", "PIAUI", "MINISTERIO PUBLICO".
@@ -95,6 +128,16 @@ export class DjenBuscaService {
     if (filtro.tribunal) where.push({ siglaTribunal: filtro.tribunal.toUpperCase() });
     if (filtro.situacao === 'COM_TAREFA') where.push({ compromissoId: { not: null } });
     if (filtro.situacao === 'SEM_TAREFA') where.push({ compromissoId: null });
+    if (filtro.situacao === 'SEM_DECISAO') where.push(ESPERANDO_DECISAO);
+    /*
+      A JANELA VEM DA BARRA DE ENDEREÇOS, então aguenta qualquer coisa: valor
+      inválido ou negativo é ignorado (lista inteira), e não vira um corte no
+      futuro que devolve tela vazia sem explicação.
+    */
+    const dias = Math.floor(Number(filtro.dias));
+    if (dias > 0) {
+      where.push({ dataDisponibilizacao: { gte: new Date(Date.now() - Math.min(dias, 3650) * DIA_MS) } });
+    }
     if (filtro.meusProcessosDe) {
       where.push({ processo: { advogados: { some: { advogadoId: filtro.meusProcessosDe } } } });
     }

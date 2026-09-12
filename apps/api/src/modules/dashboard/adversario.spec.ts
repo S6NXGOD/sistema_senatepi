@@ -95,8 +95,23 @@ describe('adversário do processo', () => {
     expect(adversarioDoProcesso(partes, null)).toBe('MUNICIPIO DE PARNAIBA-PI');
   });
 
-  it('sem conseguir se achar, devolve a primeira parte em vez de mentir', () => {
-    const partes = [parte('EMPRESA A', 'ATIVO'), parte('EMPRESA B', 'PASSIVO')];
+  /**
+   * SINDICATO FORA DAS PARTES É AÇÃO DO FILIADO — e o filiado é quem move a ação.
+   *
+   * A regra antiga devolvia "a primeira parte", e a primeira parte era a
+   * própria pessoa que representamos: em 12/09/2026, 20 das 26 ações assim no
+   * acervo ativo apareciam no painel com a filiada escrita no lugar do réu.
+   */
+  it('sem o sindicato entre as partes, devolve o polo passivo', () => {
+    const partes = [
+      parte('MARIA DAS DORES DA SILVA', 'ATIVO', { principal: true }),
+      parte('HAPVIDA ASSISTENCIA MEDICA LTDA', 'PASSIVO', { principal: true }),
+    ];
+    expect(adversarioDoProcesso(partes, SINDICATO)).toBe('HAPVIDA ASSISTENCIA MEDICA LTDA');
+  });
+
+  it('sem o sindicato e sem polo passivo, devolve a primeira parte em vez de nada', () => {
+    const partes = [parte('EMPRESA A', 'ATIVO'), parte('EMPRESA B', 'TERCEIRO')];
     expect(adversarioDoProcesso(partes, SINDICATO)).toBe('EMPRESA A');
   });
 
