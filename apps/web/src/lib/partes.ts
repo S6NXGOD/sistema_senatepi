@@ -67,6 +67,14 @@ export interface ParteDoProcesso {
   filiadoId: string | null;
   parteExternaId: string | null;
   advogados: AdvogadoDaParte[] | null;
+  /**
+   * QUEM PÔS ESTA PARTE AQUI: "DJEN" (a varredura leu no ato) ou vazio/MANUAL.
+   *
+   * Sem esta marca a parte que o robô acrescentou fica visualmente idêntica à
+   * que uma pessoa digitou — e a ficha é o documento que responde "de quem é
+   * este prazo". Quem lê tem direito de saber o que é leitura de máquina.
+   */
+  origem: string | null;
   observacao: string | null;
   filiado: { id: string; nomeCompleto: string; matricula: string; situacao: string } | null;
   parteExterna: {
@@ -274,8 +282,14 @@ export async function advogadosDoAtoSemLado(processoId: string): Promise<Advogad
  */
 export interface ParteEmDuvida {
   nome: string;
-  /** O lado que o ato diz — é sugestão, não afirmação. */
-  polo: 'ATIVO' | 'PASSIVO';
+  /**
+   * O lado que o ato sugere — NULO quando o CNJ não classificou.
+   *
+   * Nulo é informação, não falta dela: o tribunal nomeou a parte e não disse o
+   * lado (acontece com Ministério Público, assistente e perito). Aí a tela não
+   * realça nenhuma opção, porque não há sugestão a dar.
+   */
+  polo: PoloProcesso | null;
   /** Em português: o que impediu o sistema de decidir. */
   porque: string;
 }

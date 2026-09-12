@@ -108,8 +108,9 @@ describe('a parte do Diário sem lado vira um toque, não um mistério', () => {
   it('a ficha pergunta o lado em vez de esconder a parte', () => {
     expect(PANEL).toContain('function PartesEmDuvida');
     expect(PANEL).toContain('partesDoAtoEmDuvida(processoId)');
-    // Os dois lados são oferecidos; nenhum vem escolhido.
-    expect(PANEL).toContain("(['ATIVO', 'PASSIVO'] as const)");
+    // Os lados são oferecidos; nenhum vem escolhido. São TRÊS — o schema tem
+    // TERCEIRO, e é justamente quem chega sem lado do Diário.
+    expect(PANEL).toContain("(['ATIVO', 'PASSIVO', 'TERCEIRO'] as const)");
   });
 
   it('mostra o motivo em português, vindo da API', () => {
@@ -130,5 +131,40 @@ describe('a parte do Diário sem lado vira um toque, não um mistério', () => {
   it('e o contrato com a API está declarado', () => {
     expect(LIB).toContain('export async function partesDoAtoEmDuvida');
     expect(LIB).toContain('/partes-do-ato');
+  });
+});
+
+/**
+ * A PARTE QUE A MÁQUINA LEU NÃO PODE PARECER DIGITADA POR GENTE.
+ *
+ * A ficha é o documento que responde "de quem é este prazo". Quando o robô
+ * passou a acrescentar partes lendo o Diário, elas ficaram visualmente
+ * idênticas às que alguém conferiu e digitou — e quem lê não tinha como
+ * desconfiar. É a mesma marca que o advogado do Diário já tinha.
+ */
+describe('a ficha diz o que veio de máquina', () => {
+  const PANEL = readFileSync(join(__dirname, 'partes-panel.tsx'), 'utf8');
+  const LIB = readFileSync(join(__dirname, '../../lib/partes.ts'), 'utf8');
+
+  it('a parte acrescentada pela varredura leva o selo', () => {
+    expect(PANEL).toContain("parte.origem === 'DJEN'");
+    expect(PANEL).toContain('do Diário');
+  });
+
+  it('e o tipo carrega a origem — sem isso o selo nunca apareceria', () => {
+    const tipo = LIB.slice(LIB.indexOf('export interface ParteDoProcesso'), LIB.indexOf('export interface ParteResumo'));
+    expect(tipo).toContain('origem: string | null;');
+  });
+
+  /**
+   * O CNJ manda "T" (terceiro) e às vezes não manda nada. Oferecer só autor e
+   * réu obrigaria quem decide a escolher errado.
+   */
+  it('a escolha de lado oferece os três polos', () => {
+    expect(PANEL).toContain("(['ATIVO', 'PASSIVO', 'TERCEIRO'] as const)");
+  });
+
+  it('e o lado pode vir nulo do servidor — é informação, não falta dela', () => {
+    expect(LIB).toContain('polo: PoloProcesso | null;');
   });
 });

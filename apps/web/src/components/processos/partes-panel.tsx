@@ -384,6 +384,23 @@ function CardParte({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="truncate text-sm font-medium">{parte.nome}</p>
+            {/*
+              QUEM PÔS ESTA PARTE AQUI.
+
+              A varredura da madrugada acrescenta partes lendo o ato do Diário.
+              Sem esta marca, o que a máquina leu fica visualmente idêntico ao
+              que uma pessoa digitou — e a ficha é o documento que responde "de
+              quem é este prazo". Discreto de propósito: informa quem procura,
+              não compete com o nome.
+            */}
+            {parte.origem === 'DJEN' && (
+              <span
+                title="Acrescentada pela varredura do Diário: o tribunal nomeou esta parte no ato. Confira, e remova se não for do processo."
+                className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground"
+              >
+                do Diário
+              </span>
+            )}
             {parte.principal && (
               <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-400">
                 <Star className="h-3 w-3" /> Principal
@@ -703,7 +720,13 @@ function PartesEmDuvida({
             <p className="text-sm font-medium leading-snug">{p.nome}</p>
             {podeEditar && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {(['ATIVO', 'PASSIVO'] as const).map((polo) => (
+                {/*
+                  TRÊS lados, e não dois. O schema tem TERCEIRO desde sempre
+                  (assistente, litisconsorte, Ministério Público, perito) — e é
+                  exatamente quem costuma chegar sem lado do Diário. Oferecer só
+                  autor e réu obrigaria a escolher errado.
+                */}
+                {(['ATIVO', 'PASSIVO', 'TERCEIRO'] as const).map((polo) => (
                   <button
                     key={polo}
                     type="button"
