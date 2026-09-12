@@ -617,6 +617,17 @@ function Conteudo({
         A de "paradas há mais de 7 dias" FICA: essa não está em lista nenhuma
         do painel (é `updatedAt`, não `inicio`) e some sozinha em dia limpo.
       */}
+      {/*
+        A RESERVA QUE FICOU PARA TRÁS vem antes da parada: é tarefa vencida de um
+        caso em que a pessoa atua, e não "alguém esqueceu disto?". Só existe no
+        painel do advogado — a API manda o bloco só para ele.
+      */}
+      {pode.agenda && (alertas.reservasAtrasadas?.total ?? 0) > 0 && (
+        <ReservasAtrasadas
+          total={alertas.reservasAtrasadas!.total}
+          itens={alertas.reservasAtrasadas!.itens}
+        />
+      )}
       {pode.agenda && alertas.semMovimentacao > 0 && (
         <div className="space-y-2">
           {/* Passou de vermelho sólido para info, e ganhou o número.
@@ -1776,6 +1787,130 @@ function AudienciasSemana({ data }: { data: ResumoDashboard }) {
         </ul>
       )}
     </SectionCard>
+  );
+}
+
+/**
+ * A TAREFA DO CASO QUE FICOU PARA TRÁS — e você é reserva dela.
+ *
+ * Só no painel do advogado, e só quando existe. A reserva do robô não é
+ * pendência enquanto a tarefa está em dia; quando o dia vira e ninguém fez, a
+ * equipe do caso precisa saber. Em 12/09/2026, duas das três atrasadas da casa
+ * eram de alguém que não acessava o sistema havia 39 dias, e os três colegas do
+ * caso não tinham como saber.
+ *
+ * NÃO ENTRA NO "ATRASADAS" DA CARTEIRA, que é o que é seu. É uma faixa à parte,
+ * com o nome de quem responde em cada linha — é com essa pessoa que se combina
+ * antes de assumir, e assumir é um toque dentro da atividade.
+ *
+ * Âmbar, e não vermelho: não é culpa de quem lê. Mesmo desenho da faixa de
+ * paradas — uma abre direto; várias abrem no lugar.
+ */
+function ReservasAtrasadas({
+  total,
+  itens,
+}: {
+  total: number;
+  itens: NonNullable<ResumoDashboard['alertas']['reservasAtrasadas']>['itens'];
+}) {
+  const [aberto, setAberto] = useState(false);
+  if (!itens.length) return null;
+
+  const nomeDe = (r: (typeof itens)[number]['responsavel']) =>
+    r ? primeiroENome(r) : 'sem responsável';
+  const diasAtrasada = (iso: string) =>
+    Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  const casca =
+    'rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-900 ' +
+    'dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200';
+
+  if (total === 1) {
+    const a = itens[0];
+    return (
+      <Link
+        href={`/agenda?compromisso=${a.id}`}
+        className={cn(
+          casca,
+          'flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-amber-100/70 dark:hover:bg-amber-950/50',
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-2.5">
+          <Users className="h-4 w-4 shrink-0 opacity-80" />
+          <span className="min-w-0">
+            <strong>{a.titulo}</strong>, de {nomeDe(a.responsavel)}, ficou para trás
+            <span className="hidden sm:inline"> — você é reserva no caso e pode assumir</span>.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold">
+          Abrir <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className={casca}>
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Users className="h-4 w-4 shrink-0 opacity-80" />
+          <span>
+            <strong>{total} atividades ficaram para trás</strong> em casos em que você é reserva.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold">
+          {aberto ? 'Ocultar' : 'Ver quais'}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
+        </span>
+      </button>
+
+      {aberto && (
+        <ul className="border-t border-amber-200 dark:border-amber-900/50">
+          {itens.map((a) => (
+            <li key={a.id}>
+              <Link
+                href={`/agenda?compromisso=${a.id}`}
+                className="flex items-center gap-3 border-t border-amber-200/70 px-4 py-2.5 transition first:border-t-0 hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
+              >
+                {a.responsavel ? (
+                  <AvatarPessoa
+                    nome={a.responsavel.nomeExibicao || a.responsavel.nome}
+                    url={a.responsavel.avatarUrl}
+                    tamanho="xs"
+                  />
+                ) : (
+                  <span className="h-5 w-5 shrink-0 rounded-full bg-amber-200/60" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold">{a.titulo}</span>
+                  <span className="block truncate text-xs opacity-80">
+                    de {nomeDe(a.responsavel)} · era para {formatDataHora(a.inicio)}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs">há {diasAtrasada(a.inicio)}d</span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+              </Link>
+            </li>
+          ))}
+          {/* O teto é de dez; dizer quantas ficaram fora impede a lista de parecer o todo. */}
+          {total > itens.length && (
+            <li>
+              <Link
+                href="/agenda"
+                className="flex items-center justify-between gap-3 border-t border-amber-200/70 px-4 py-2.5 text-xs font-medium transition hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
+              >
+                e mais {total - itens.length} — abrir a agenda
+                <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+              </Link>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
 

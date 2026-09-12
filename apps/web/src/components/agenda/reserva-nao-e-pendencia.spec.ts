@@ -28,9 +28,15 @@ describe('reserva do robô', () => {
     expect(ehReserva({ origem: 'MANUAL' })).toBe(false);
   });
 
-  it('a gaveta diz que reserva não vira pendência de ninguém', () => {
+  /*
+    ...ATÉ ATRASAR. Desde 12/09/2026 a reserva é avisada quando a tarefa fica
+    para trás, e a gaveta tem de dizer as duas metades — senão promete um
+    silêncio que o sino não cumpre.
+  */
+  it('a gaveta diz que reserva não vira pendência enquanto está em dia', () => {
     expect(GAVETA).toContain('ehReserva(e)');
-    expect(GAVETA).toContain('Não entra na lista de pendências deles');
+    expect(GAVETA).toContain('Enquanto está em dia, não entra nas pendências deles');
+    expect(GAVETA).toContain('o sino deles avisa');
   });
 
   it('e o cartão marca a reserva no próprio nome', () => {

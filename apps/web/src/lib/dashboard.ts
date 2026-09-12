@@ -184,6 +184,21 @@ export interface ResumoDashboard {
       updatedAt: string;
       responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null } | null;
     }[];
+    /**
+     * TAREFAS DO ROBÔ QUE FICARAM PARA TRÁS em casos em que a pessoa é reserva.
+     *
+     * Só no painel do advogado. Não entram em `atrasadas`, que é o que é dele:
+     * são do colega, e o painel diz de quem. Opcional pela janela de troca.
+     */
+    reservasAtrasadas?: {
+      total: number;
+      itens: {
+        id: string;
+        titulo: string;
+        inicio: string;
+        responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null } | null;
+      }[];
+    };
     urgentes: number;
     /** Audiências designadas no DataJud e ainda fora da Agenda. */
     audienciasAAgendar: number;

@@ -11,6 +11,7 @@ import { api } from './api';
 
 export type TipoPendencia =
   | 'ATRASADA'
+  | 'ATRASADA_NA_EQUIPE'
   | 'PASSOU_DA_HORA'
   | 'HOJE'
   | 'AUDIENCIA'
@@ -40,8 +41,22 @@ export interface MinhasPendencias {
   total: number;
 }
 
+/**
+ * TIPO QUE A TELA NÃO CONHECE NÃO ENTRA — defesa da janela de troca.
+ *
+ * O sino, a faixa e o rótulo leem `PENDENCIA[p.tipo]` sem rede: um tipo novo
+ * vindo de uma API mais nova que a tela quebraria o cabeçalho de TODAS as
+ * páginas por alguns minutos, justamente o componente que aparece em todas. Foi
+ * o risco concreto quando nasceu `ATRASADA_NA_EQUIPE`. Filtrar aqui, na porta,
+ * protege todo mundo que consome a lista — inclusive o próximo tipo.
+ */
+export function soConhecidas(pendencias: Pendencia[]): Pendencia[] {
+  return pendencias.filter((p) => Object.prototype.hasOwnProperty.call(PENDENCIA, p.tipo));
+}
+
 export async function minhasPendencias(): Promise<MinhasPendencias> {
-  return (await api.get<MinhasPendencias>('/minhas-pendencias')).data;
+  const { data } = await api.get<MinhasPendencias>('/minhas-pendencias');
+  return { ...data, pendencias: soConhecidas(data.pendencias ?? []) };
 }
 
 /**
@@ -89,6 +104,22 @@ export const PENDENCIA: Record<
     varios: 'atividades atrasadas, de dias anteriores',
     urgente: true,
     naFaixa: true,
+    href: '/agenda',
+    verTodas: 'Ver todas na agenda',
+  },
+  /*
+    A TAREFA DO CASO QUE FICOU PARA TRÁS — e a pessoa é reserva dela.
+
+    Vermelho no sino, porque já venceu. FORA DA FAIXA, porque a faixa em cima de
+    toda tela é para o que é seu: pôr ali a tarefa de um colega leria como
+    cobrança pública, e não é isso. O rótulo diz o papel ("você é reserva") e
+    cada item traz o nome de quem responde.
+  */
+  ATRASADA_NA_EQUIPE: {
+    um: 'atividade atrasada num caso em que você é reserva',
+    varios: 'atividades atrasadas em casos em que você é reserva',
+    urgente: true,
+    naFaixa: false,
     href: '/agenda',
     verTodas: 'Ver todas na agenda',
   },

@@ -466,18 +466,20 @@ export function CompromissoDrawer({
                     ))}
                 </ul>
                 {/*
-                  A HONESTIDADE QUE FALTAVA: reserva não é aviso.
+                  A HONESTIDADE QUE FALTAVA: reserva não é aviso — até atrasar.
 
                   Quem lê "também atuam" supõe que a outra pessoa foi avisada.
-                  A reserva do robô não vai para o sino de ninguém — de
-                  propósito, senão um prazo tocaria em quatro agendas. Dizer
-                  isso aqui é o que separa uma lista de nomes de uma combinação
-                  de trabalho.
+                  Enquanto a tarefa está em dia, a reserva do robô não vai para o
+                  sino de ninguém — de propósito, senão um prazo tocaria em quatro
+                  agendas. Quando o dia vira e ninguém fez, o sino dos advogados
+                  do caso passa a avisar. Dizer isso aqui é o que separa uma lista
+                  de nomes de uma combinação de trabalho.
                 */}
                 {(c.equipe ?? []).some((e) => !e.principal && ehReserva(e)) && (
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                     Reserva é quem pode tocar isto se o responsável não puder — são os advogados do
-                    caso. Não entra na lista de pendências deles; quem assumir vira o responsável.
+                    caso. Enquanto está em dia, não entra nas pendências deles; se ficar para trás,
+                    o sino deles avisa. Quem assumir vira o responsável.
                   </p>
                 )}
               </Bloco>

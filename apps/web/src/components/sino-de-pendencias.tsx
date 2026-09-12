@@ -220,6 +220,17 @@ function Grupo({ p }: { p: Pendencia }) {
           Fila da equipe — quem resolver primeiro limpa para todos
         </p>
       )}
+      {/*
+        E QUANDO É DE UM COLEGA. A reserva só chega ao sino depois que a tarefa
+        ficou para trás, e o nome no item é o de quem responde por ela. A linha
+        diz o resto: ninguém resolveu ainda, e assumir é um toque dentro dela.
+      */}
+      {p.tipo === 'ATRASADA_NA_EQUIPE' && (
+        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Users className="h-3 w-3 shrink-0" />
+          Ninguém resolveu ainda — quem assumir vira o responsável
+        </p>
+      )}
       <ul className="mt-1 space-y-0.5">
         {p.exemplos.map((e) => (
           <li key={e.id}>
