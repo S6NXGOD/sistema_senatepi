@@ -277,7 +277,20 @@ export class PartesExternasController {
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
-    return this.service.mesclar(id, dto.duplicadaId, ctxDe(req, user));
+    return this.service.mesclar(id, dto.duplicadaId, ctxDe(req, user), dto.campos);
+  }
+
+  /**
+   * AS DUAS ORGANIZAÇÕES LADO A LADO, antes de juntar.
+   *
+   * Só leitura. Junta o que a pessoa precisa para escolher sem chutar: o que
+   * cada uma tem preso nela, se alguém já disse que eram diferentes, e o que a
+   * Receita diz do CNPJ.
+   */
+  @Get(':id/comparar/:outraId')
+  @ApiOperation({ summary: 'Compara duas organizações antes de mesclar: uso, descarte e Receita.' })
+  comparar(@Param('id') id: string, @Param('outraId') outraId: string) {
+    return this.service.comparar(id, outraId);
   }
 
   @Get(':id')

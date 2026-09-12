@@ -82,27 +82,41 @@ interface PublicacaoBruta {
  * FMS/THE, Unimed, Hapvida.
  */
 export function adversarioDoProcesso(
-  partes: { nome: string; polo: string; principal: boolean; parteExternaId: string | null }[],
+  partes: {
+    nome: string;
+    polo: string;
+    principal: boolean;
+    parteExternaId: string | null;
+    /** Parte ligada a um filiado: o lado de quem representamos, quando o sindicato não é parte. */
+    filiadoId?: string | null;
+  }[],
   idDoSindicato: string | null,
 ): string | null {
   const nosso = partes.find((p) => ehONossoSindicato(p, idDoSindicato));
 
-  // Em qual polo estamos? Autor na esmagadora maioria, réu em alguns — e aí o
-  // adversário está do outro lado.
-  //
-  // SEM NOS ACHAR, O ADVERSÁRIO É O POLO PASSIVO — e não "a primeira parte".
-  // Sindicato fora das partes é a ação do FILIADO que representamos, e quem
-  // move a ação é ele. A regra antiga devolvia a primeira parte, que era a
-  // própria pessoa: em 12/09/2026, 20 das 26 ações assim no acervo ativo saíam
-  // no painel com a filiada no lugar do réu. E nenhuma das 26 tinha parte
-  // ligada a filiado no polo passivo. Sem passivo nenhum, sobra tudo — um nome
-  // ainda informa mais que a linha vazia.
-  const passivo = partes.filter((p) => p.polo === 'PASSIVO');
-  const candidatos = nosso
-    ? partes.filter((p) => p.polo !== nosso.polo)
-    : passivo.length
-      ? passivo
-      : partes;
+  /*
+    DE QUE LADO ESTAMOS — e quem está do outro. Quatro casos, nesta ordem:
+
+    1. O sindicato é parte: o adversário é o outro polo. Autor na esmagadora
+       maioria, réu em alguns.
+    2. O sindicato não é parte, mas uma parte está LIGADA A UM FILIADO: é a
+       ação dele, que conduzimos, e o adversário é o outro polo. É o que acerta
+       quando o filiado é o RÉU — o inquérito para apuração de falta grave que a
+       empresa move contra o dirigente sindical, a cobrança contra o empregado.
+    3. Sem nenhuma das duas marcas, o adversário é o polo PASSIVO: quem move a
+       ação que o sindicato conduz é a pessoa. Conferido em 12/09/2026 nas 31
+       ações em que só representamos: em todas, a pessoa no ativo e a empresa ou
+       o ente no passivo, e nenhuma pessoa no passivo. A regra antiga devolvia
+       "a primeira parte", que era a própria filiada em 20 de 26 ações ativas.
+    4. Sem passivo nenhum, NINGUÉM. Era "sobra tudo" — e sobrava a filiada: 4
+       casos pré-processuais, ainda sem réu cadastrado, diriam que a pessoa que
+       defendemos é a parte contrária. Linha vazia é honesta; nome errado, não.
+  */
+  const doFiliado = nosso ? undefined : partes.find((p) => p.filiadoId);
+  const nossoLado = nosso?.polo ?? doFiliado?.polo;
+  const candidatos = nossoLado
+    ? partes.filter((p) => p.polo !== nossoLado)
+    : partes.filter((p) => p.polo === 'PASSIVO');
   if (!candidatos.length) return null;
 
   // A parte PRINCIPAL do polo, quando marcada; senão a primeira.
@@ -870,7 +884,7 @@ export class DashboardService {
                     * Hapvida — informa.
                     */
                   partes: {
-                    select: { nome: true, polo: true, principal: true, parteExternaId: true },
+                    select: { nome: true, polo: true, principal: true, parteExternaId: true, filiadoId: true },
                   },
                   /*
                     O AVATAR VAI JUNTO. Numa lista de seis publicações, o nome

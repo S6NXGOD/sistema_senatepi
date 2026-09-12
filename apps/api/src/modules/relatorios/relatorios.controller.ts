@@ -6,6 +6,7 @@ import { conteudoDisposto, nomeDeArquivo } from '@core/infra';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { RelatoriosService, type Relatorio } from './relatorios.service';
+import { ProdutividadeService, csvDaProdutividade } from './produtividade.service';
 
 /**
  * DTO ANTES DO CONTROLLER — armadilha de TDZ do `emitDecoratorMetadata`, a
@@ -42,7 +43,10 @@ const DIAS_PADRAO = 30;
 @Modulo('relatorios')
 @Controller('relatorios')
 export class RelatoriosController {
-  constructor(private readonly relatorios: RelatoriosService) {}
+  constructor(
+    private readonly relatorios: RelatoriosService,
+    private readonly produtividade: ProdutividadeService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Números da equipe, dos processos e dos atendimentos no período.' })
@@ -71,6 +75,31 @@ export class RelatoriosController {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', conteudoDisposto(nome, 'attachment'));
     res.send(Buffer.from(csvDaEquipe(r), 'utf8'));
+  }
+
+  /**
+   * USO E PRODUTIVIDADE POR PESSOA — quem usa o sistema e o que registrou.
+   *
+   * O recorte é do serviço, e não da tela: administração e coordenação recebem
+   * todo mundo; qualquer outro perfil com acesso a relatórios recebe só a
+   * própria linha. Ver `ProdutividadeService`.
+   */
+  @Get('produtividade')
+  @ApiOperation({ summary: 'Uso do sistema e trabalho registrado por pessoa, no período.' })
+  usoEProdutividade(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser) {
+    const { de, ate } = this.periodo(q);
+    return this.produtividade.montar(de, ate, user);
+  }
+
+  @Get('produtividade.csv')
+  @ApiOperation({ summary: 'O uso do sistema por pessoa, em CSV.' })
+  async usoEProdutividadeCsv(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser, @Res() res: Response) {
+    const { de, ate } = this.periodo(q);
+    const p = await this.produtividade.montar(de, ate, user);
+    const nome = nomeDeArquivo(['uso do sistema', p.periodo.de.slice(0, 10), p.periodo.ate.slice(0, 10)], 'csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', conteudoDisposto(nome, 'attachment'));
+    res.send(Buffer.from(csvDaProdutividade(p), 'utf8'));
   }
 
   private periodo(q: PeriodoDto): { de: Date; ate: Date } {

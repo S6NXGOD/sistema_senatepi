@@ -40,6 +40,14 @@ const RUIDO_RAMO = new Set([
 ]);
 
 /**
+ * Conectivos — somem quando se compara um NOME INTEIRO com outro.
+ *
+ * Diferente do ruído de ramo: "hospital" continua fazendo parte do nome
+ * inteiro ("HOSPITAL SÃO PAULO" não é "SÃO PAULO"); "de" não faz.
+ */
+const CONECTIVOS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'para', 'com', 'a', 'o']);
+
+/**
  * TOPÔNIMO NÃO IDENTIFICA ORGANIZAÇÃO — e sozinho gera falso positivo.
  *
  * Medido no cadastro real em 21/08/2026: a varredura apontou "HOSPITAL DE
@@ -69,6 +77,9 @@ const RUIDO_GEOGRAFICO = new Set([
   'pa', 'pb', 'pr', 'pe', 'pi', 'rj', 'rn', 'rs', 'ro', 'rr', 'sc', 'sp', 'se', 'to',
 ]);
 
+/** Só as siglas de UF — o "-PI" que sobra no fim de nome de prefeitura. */
+const SIGLAS_DE_UF = new Set([...RUIDO_GEOGRAFICO].filter((p) => p.length === 2));
+
 function normalizar(texto: string): string {
   return texto
     .normalize('NFD')
@@ -85,6 +96,78 @@ export function palavrasSignificativas(nome: string, ruidoExtra?: Set<string>): 
     .filter(
       (p) =>
         p.length >= 2 &&
+        !RUIDO_SOCIETARIO.has(p) &&
+        !RUIDO_RAMO.has(p) &&
+        !RUIDO_GEOGRAFICO.has(p) &&
+        !ruidoExtra?.has(p),
+    );
+}
+
+/**
+ * O NOME INTEIRO, PRONTO PARA COMPARAR COM OUTRO NOME INTEIRO.
+ *
+ * Sem forma societária, sem conectivo e sem a sigla de UF no fim. Era a
+ * comparação crua, e ela deixava passar a duplicata mais simples de todas:
+ * "HOSPITAL SÃO PAULO" e "HOSPITAL SAO PAULO LTDA" — ambos da importação em
+ * lote, um processo cada — diferiam só no "LTDA". E nenhuma outra regra os via,
+ * porque todas as palavras dos dois são ruído ("hospital" é ramo; "são" e
+ * "paulo", lugar). Medido na produção em 12/09/2026.
+ */
+export function nomeComparavel(nome: string): string {
+  return normalizar(nome)
+    .split(' ')
+    .filter((p) => p && !RUIDO_SOCIETARIO.has(p) && !CONECTIVOS.has(p) && !SIGLAS_DE_UF.has(p))
+    .join(' ');
+}
+
+/**
+ * O MESMO NOME, COM OU SEM ESPAÇO.
+ *
+ * "PRONTO CARE", "PRONTO-CARE" e "PRONTOCARE" são a mesma empresa escrita por
+ * três pessoas — é o exemplo do topo deste arquivo, e nenhuma regra o pegava:
+ * por palavra, "pronto" e "care" não coincidem com "prontocare". Colados,
+ * coincidem. Na produção, "ITA'COR" é como a Receita grafa o ITACOR.
+ *
+ * O mínimo de cinco letras evita que duas siglas curtas ("A B" e "AB") virem a
+ * mesma coisa.
+ */
+function mesmoNomeInteiro(a: string, b: string): boolean {
+  if (a.length < 3 || b.length < 3) return false;
+  if (a === b) return true;
+  const colado = (s: string) => s.replace(/ /g, '');
+  return colado(a).length >= 5 && colado(a) === colado(b);
+}
+
+/**
+ * A SIGLA QUE O NOME FORMARIA — "FUNDAÇÃO MUNICIPAL DE SAÚDE" dá "fms".
+ *
+ * Iniciais das palavras que sobram sem forma societária, conectivo e LUGAR.
+ * O lugar sai de propósito: "HOSPITAL UNIMED TERESINA" formaria "HUT" e seria
+ * apontado como o HUT, que é o Hospital de Urgência de Teresina. Sem a cidade
+ * ele forma "hu" — curta demais para ser indício de qualquer coisa.
+ */
+export function siglaDoNome(nome: string, ruidoExtra?: Set<string>): string {
+  return normalizar(nome)
+    .split(' ')
+    .filter(
+      (p) =>
+        p.length >= 2 &&
+        !RUIDO_SOCIETARIO.has(p) &&
+        !CONECTIVOS.has(p) &&
+        !RUIDO_GEOGRAFICO.has(p) &&
+        !ruidoExtra?.has(p),
+    )
+    .map((p) => p[0])
+    .join('');
+}
+
+/** As palavras de um nome que PODEM ser uma sigla: nada de ramo, lugar ou "LTDA". */
+function candidatasASigla(nome: string, ruidoExtra?: Set<string>): string[] {
+  return normalizar(nome)
+    .split(' ')
+    .filter(
+      (p) =>
+        p.length >= 3 &&
         !RUIDO_SOCIETARIO.has(p) &&
         !RUIDO_RAMO.has(p) &&
         !RUIDO_GEOGRAFICO.has(p) &&
@@ -124,6 +207,7 @@ export type MotivoSemelhanca =
   | 'MESMO_DOCUMENTO'
   | 'MESMO_NOME'
   | 'CONTIDO'
+  | 'SIGLA'
   | 'PALAVRAS_EM_COMUM'
   | 'CONTEM';
 
@@ -148,6 +232,8 @@ export interface Candidato {
    */
   nomeFantasia?: string | null;
   documento?: string | null;
+  /** A cidade do cadastro — é o que torna uma sigla comparável (ver `SIGLA`). */
+  cidade?: string | null;
 }
 
 export interface Semelhante<T extends Candidato> {
@@ -163,9 +249,12 @@ export interface Semelhante<T extends Candidato> {
  * A ordem é do indício mais forte para o mais fraco, e o corte é deliberado:
  *
  *  MESMO_DOCUMENTO   CNPJ/CPF igual — é a mesma pessoa, ponto.
- *  MESMO_NOME        idênticos depois de tirar acento, pontuação e "LTDA".
+ *  MESMO_NOME        idênticos depois de tirar acento, pontuação, conectivo,
+ *                    "LTDA" e a sigla de UF — com ou sem espaço.
  *  CONTIDO           todas as palavras significativas de um estão no outro
  *                    ("PRONTOCARE" ⊂ "PRONTOCARE CLINICA E ATENDIMENTOS").
+ *  SIGLA             um é a sigla do outro, NA MESMA CIDADE ("FMS" e
+ *                    "FUNDAÇÃO MUNICIPAL DE SAÚDE", as duas de Teresina).
  *  PALAVRAS_EM_COMUM metade ou mais das palavras significativas coincidem.
  *
  * Nome sem NENHUMA palavra significativa (só "CLINICA LTDA") não gera aviso:
@@ -178,11 +267,21 @@ export function partesParecidas<T extends Candidato>(
   limite = 5,
   /** Palavras que neste cadastro não identificam ninguém (cidades, p. ex.). */
   ruidoExtra?: Set<string>,
+  /**
+   * A cidade de quem se está comparando. Sem ela, SIGLA não é avaliada — e isso
+   * é de propósito: sigla repete de cidade em cidade (toda prefeitura tem uma
+   * "SMS"), e só o lugar em comum separa a mesma fundação de duas homônimas.
+   */
+  cidadeDigitada?: string | null,
 ): Semelhante<T>[] {
   const nome = normalizar(nomeDigitado);
   if (nome.length < 3) return [];
 
+  const comparavel = nomeComparavel(nomeDigitado);
   const palavras = palavrasSignificativas(nomeDigitado, ruidoExtra);
+  const siglaDigitada = siglaDoNome(nomeDigitado, ruidoExtra);
+  const candidatasDigitadas = candidatasASigla(nomeDigitado, ruidoExtra);
+  const cidade = normalizar(cidadeDigitada ?? '');
   const doc = (documentoDigitado ?? '').replace(/\D/g, '');
   const achados: Semelhante<T>[] = [];
 
@@ -193,6 +292,8 @@ export function partesParecidas<T extends Candidato>(
       achados.push({ parte: c, motivo: 'MESMO_DOCUMENTO', forca: 1 });
       continue;
     }
+
+    const mesmaCidade = !!cidade && cidade === normalizar(c.cidade ?? '');
 
     /*
       CADA CANDIDATO TEM DOIS NOMES: a razão social e a sigla. O melhor
@@ -212,10 +313,24 @@ export function partesParecidas<T extends Candidato>(
     };
 
     for (const bruto of conhecidos) {
-      const cNome = normalizar(bruto);
-      if (cNome === nome) {
+      if (mesmoNomeInteiro(comparavel, nomeComparavel(bruto))) {
         considerar('MESMO_NOME', 0.95);
         continue;
+      }
+
+      /*
+        A SIGLA DE UM É O NOME DO OUTRO — e só vale na mesma cidade.
+
+        "FMS/THE" (com o CNPJ da Fundação Municipal de Saúde) e "Fundação
+        Municipal de Saúde." conviviam em Teresina, e nenhuma palavra dos dois
+        nomes coincide. A sigla é o único fio entre eles.
+      */
+      if (mesmaCidade) {
+        const siglaDoCandidato = siglaDoNome(bruto, ruidoExtra);
+        const umFormaOOutro =
+          (siglaDigitada.length >= 3 && candidatasASigla(bruto, ruidoExtra).includes(siglaDigitada)) ||
+          (siglaDoCandidato.length >= 3 && candidatasDigitadas.includes(siglaDoCandidato));
+        if (umFormaOOutro) considerar('SIGLA', 0.85);
       }
 
       const cPalavras = palavrasSignificativas(bruto, ruidoExtra);

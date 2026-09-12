@@ -570,7 +570,9 @@ export class RelatoriosService {
             select: {
               id: true,
               numeroCNJ: true,
-              partes: { select: { nome: true, polo: true, principal: true, parteExternaId: true } },
+              partes: {
+                select: { nome: true, polo: true, principal: true, parteExternaId: true, filiadoId: true },
+              },
             },
           },
         },

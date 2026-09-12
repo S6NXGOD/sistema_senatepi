@@ -110,9 +110,40 @@ describe('adversário do processo', () => {
     expect(adversarioDoProcesso(partes, SINDICATO)).toBe('HAPVIDA ASSISTENCIA MEDICA LTDA');
   });
 
-  it('sem o sindicato e sem polo passivo, devolve a primeira parte em vez de nada', () => {
-    const partes = [parte('EMPRESA A', 'ATIVO'), parte('EMPRESA B', 'TERCEIRO')];
-    expect(adversarioDoProcesso(partes, SINDICATO)).toBe('EMPRESA A');
+  /**
+   * SEM PASSIVO NENHUM, NINGUÉM — e não "a primeira parte".
+   *
+   * Em 12/09/2026, 4 casos pré-processuais tinham só a filiada cadastrada, ainda
+   * sem réu. "Sobra tudo" escrevia a pessoa que defendemos como parte contrária.
+   */
+  it('sem o sindicato e sem polo passivo, não aponta ninguém', () => {
+    expect(
+      adversarioDoProcesso([parte('MARIA DAS DORES DA SILVA', 'ATIVO', { principal: true })], SINDICATO),
+    ).toBeNull();
+    expect(
+      adversarioDoProcesso([parte('EMPRESA A', 'ATIVO'), parte('EMPRESA B', 'TERCEIRO')], SINDICATO),
+    ).toBeNull();
+  });
+
+  /**
+   * O FILIADO RÉU — o inquérito para apuração de falta grave que a empresa move
+   * contra o dirigente sindical. Olhar só o polo passivo apontaria o próprio
+   * dirigente como adversário.
+   */
+  it('com o filiado no polo passivo, o adversário é quem move a ação', () => {
+    const partes = [
+      { nome: 'HOSPITAL ALFA LTDA', polo: 'ATIVO', principal: true, parteExternaId: 'org-alfa', filiadoId: null },
+      { nome: 'JOSE DA SILVA', polo: 'PASSIVO', principal: true, parteExternaId: null, filiadoId: 'filiado-1' },
+    ];
+    expect(adversarioDoProcesso(partes, SINDICATO)).toBe('HOSPITAL ALFA LTDA');
+  });
+
+  it('com o filiado no polo ativo, continua sendo o passivo', () => {
+    const partes = [
+      { nome: 'JOSE DA SILVA', polo: 'ATIVO', principal: true, parteExternaId: null, filiadoId: 'filiado-1' },
+      { nome: 'MUNICIPIO DE CORRENTE', polo: 'PASSIVO', principal: true, parteExternaId: 'org-2', filiadoId: null },
+    ];
+    expect(adversarioDoProcesso(partes, SINDICATO)).toBe('MUNICIPIO DE CORRENTE');
   });
 
   it('sem partes, devolve nulo — a linha simplesmente não mostra o réu', () => {

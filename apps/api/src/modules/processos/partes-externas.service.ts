@@ -12,7 +12,7 @@ import {
 import { BrasilApiService, DadosCnpjReceita } from '../../common/receita/brasil-api.service';
 import { PRE_PROCESSUAIS } from './processos.service';
 import {
-  AtualizarParteExternaDto, CriarParteExternaDto, ListParteExternaQueryDto,
+  AtualizarParteExternaDto, CamposDaMesclagemDto, CriarParteExternaDto, ListParteExternaQueryDto,
 } from './dto/partes.dto';
 import { situacaoFiscal } from '../municipios/leitura-fiscal.util';
 
@@ -26,6 +26,23 @@ interface Ctx {
   ip?: string;
   userAgent?: string;
 }
+
+/**
+ * O que a pessoa escolheu na comparação, já limpo — ver `escolhasDaMesclagem`.
+ * `type`, e não `interface`: vai inteiro para o `metadata` da auditoria, que é
+ * JSON, e só o tipo literal ganha a assinatura de índice que o JSON exige.
+ */
+type EscolhaDaMesclagem = {
+  nome?: string;
+  nomeFantasia?: string | null;
+  tipo?: TipoParteExterna;
+  email?: string | null;
+  telefone?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  enteCodigo?: number;
+  enteOrigem?: OrigemDaLigacao;
+};
 
 const SELECT = {
   id: true, tipo: true, nome: true, nomeFantasia: true, documento: true,
@@ -118,6 +135,45 @@ export function tipoPelaNatureza(natureza?: string | null): TipoParteExterna {
   return PUBLICO.some((t) => n.includes(t))
     ? TipoParteExterna.ORGAO_PUBLICO
     : TipoParteExterna.JURIDICA;
+}
+
+/**
+ * POR QUE UMA MESCLAGEM É RECUSADA — uma regra só, para a recusa e para a tela.
+ *
+ * A comparação lado a lado precisa saber ANTES do clique que um dos sentidos
+ * não pode (o sindicato nunca é o que some); a mesclagem precisa recusar de
+ * novo no servidor, porque tela não é garantia de nada. Duas cópias da regra
+ * virariam duas regras diferentes em três meses — então as duas leem esta.
+ */
+export function recusaDaMesclagem(
+  fica: { documento: string | null; dossiePatronal: { id: string } | null },
+  dup: { documento: string | null; dossiePatronal: { id: string } | null; institucional: boolean },
+): { tipo: 'PEDIDO_INVALIDO' | 'CONFLITO'; mensagem: string } | null {
+  if (dup.institucional) {
+    return {
+      tipo: 'PEDIDO_INVALIDO',
+      mensagem:
+        'Esta é a organização institucional (o próprio sindicato) e não pode ser removida numa mesclagem. ' +
+        'Inverta a escolha: mescle a outra DENTRO dela.',
+    };
+  }
+  if (fica.dossiePatronal && dup.dossiePatronal) {
+    return {
+      tipo: 'CONFLITO',
+      mensagem:
+        'As duas têm dossiê patronal, com contribuições e acesso ao portal. ' +
+        'Junte primeiro os dados no módulo Patronal — mesclar aqui apagaria histórico financeiro.',
+    };
+  }
+  if (fica.documento && dup.documento && fica.documento !== dup.documento) {
+    return {
+      tipo: 'CONFLITO',
+      mensagem:
+        `Os documentos são diferentes (${fica.documento} e ${dup.documento}). ` +
+        'Se um estiver errado, corrija antes de mesclar — do jeito que está, podem ser organizações distintas.',
+    };
+  }
+  return null;
 }
 
 @Injectable()
@@ -356,7 +412,9 @@ export class PartesExternasService {
 
     for (const atual of todas) {
       const outros = todas.filter((c) => c.id !== atual.id);
-      for (const s of partesParecidas(atual.nome, atual.documento, outros, 3, ruido)) {
+      // A cidade vai junto: é o que torna uma SIGLA comparável — "FMS" e
+      // "FUNDAÇÃO MUNICIPAL DE SAÚDE" só são a mesma coisa no mesmo lugar.
+      for (const s of partesParecidas(atual.nome, atual.documento, outros, 3, ruido, atual.cidade)) {
         // O par (A,B) e (B,A) é a mesma dupla: a chave ordenada evita listar as
         // duas e fazer a pessoa decidir a mesma coisa duas vezes.
         const chave = [atual.id, s.parte.id].sort().join('|');
@@ -377,7 +435,7 @@ export class PartesExternasService {
     }
 
     // Documento igual primeiro: é o único indício que não admite dúvida.
-    const ordem: Record<string, number> = { MESMO_DOCUMENTO: 0, MESMO_NOME: 1, CONTIDO: 2 };
+    const ordem: Record<string, number> = { MESMO_DOCUMENTO: 0, MESMO_NOME: 1, CONTIDO: 2, SIGLA: 3 };
     pares.sort((a, b) => (ordem[a.motivo] ?? 9) - (ordem[b.motivo] ?? 9));
 
     return { pares, analisadas: todas.length, truncou };
@@ -530,6 +588,79 @@ export class PartesExternasService {
   }
 
   /**
+   * AS DUAS, LADO A LADO — o que a tela de mesclagem precisa para ninguém
+   * escolher no escuro.
+   *
+   * Junta numa chamada o que antes exigia quatro telas:
+   *  · o que cada uma tem preso nela (processos, vínculos, dossiê patronal, ente);
+   *  · se alguém já disse que eram DIFERENTES, quem e quando — o par da FMS
+   *    estava descartado desde 08/09/2026, e por isso sumiu da fila;
+   *  · o que a Receita diz do CNPJ, quando uma delas tem;
+   *  · em que sentido a mesclagem é recusada, pela mesma regra do servidor.
+   *
+   * Só leitura. A Receita é melhor esforço: fora do ar, a comparação sai sem ela
+   * e diz isso — em vez de travar a mesclagem por causa de um serviço de fora.
+   */
+  async comparar(idA: string, idB: string) {
+    if (idA === idB) throw new BadRequestException('Escolha duas organizações diferentes.');
+
+    const sel = {
+      ...SELECT,
+      institucional: true,
+      dossiePatronal: { select: { id: true } },
+      _count: { select: { participacoes: true, vinculos: true } },
+    } satisfies Prisma.ParteExternaSelect;
+    const [a, b] = await Promise.all([
+      this.prisma.parteExterna.findUnique({ where: { id: idA }, select: sel }),
+      this.prisma.parteExterna.findUnique({ where: { id: idB }, select: sel }),
+    ]);
+    if (!a || !b) throw new NotFoundException('Uma das organizações não foi encontrada.');
+
+    const [aId, bId] = [idA, idB].sort();
+    const descarte = await this.prisma.parteExternaNaoDuplicada.findUnique({
+      where: { aId_bId: { aId, bId } },
+      select: { createdAt: true, descartadoPor: true },
+    });
+    const quemDescartou = descarte?.descartadoPor
+      ? await this.prisma.user.findUnique({
+          where: { id: descarte.descartadoPor },
+          select: { nome: true, nomeExibicao: true },
+        })
+      : null;
+
+    const cnpj = [a.documento, b.documento].find((d) => d?.length === 14) ?? null;
+    let receita: (DadosCnpjReceita & { tipoSugerido: TipoParteExterna }) | null = null;
+    let receitaFalhou = false;
+    if (cnpj) {
+      try {
+        const dados = await this.receita.consultar(cnpj);
+        receita = { ...dados, tipoSugerido: tipoPelaNatureza(dados.naturezaJuridica) };
+      } catch {
+        receitaFalhou = true;
+      }
+    }
+
+    return {
+      a,
+      b,
+      // Empate fica com A — a organização que a pessoa abriu.
+      sugestaoFica: pesoDoCadastro(b) > pesoDoCadastro(a) ? b.id : a.id,
+      recusaSeFicar: {
+        a: recusaDaMesclagem(a, b)?.mensagem ?? null,
+        b: recusaDaMesclagem(b, a)?.mensagem ?? null,
+      },
+      descartada: descarte
+        ? {
+            em: descarte.createdAt.toISOString(),
+            por: quemDescartou ? quemDescartou.nomeExibicao || quemDescartou.nome : null,
+          }
+        : null,
+      receita,
+      receitaFalhou,
+    };
+  }
+
+  /**
    * "NÃO SÃO A MESMA" — a pessoa desfaz o palpite da varredura.
    *
    * Guardar a decisão é o que transforma a fila de duplicatas em algo que
@@ -579,7 +710,7 @@ export class PartesExternasService {
    * transferidos, ou nada acontece. Uma mesclagem parcial deixaria processo
    * apontando para cadastro inexistente.
    */
-  async mesclar(ficaId: string, duplicadaId: string, ctx: Ctx) {
+  async mesclar(ficaId: string, duplicadaId: string, ctx: Ctx, campos: CamposDaMesclagemDto = {}) {
     if (ficaId === duplicadaId) {
       throw new BadRequestException('Escolha duas organizações diferentes.');
     }
@@ -587,7 +718,7 @@ export class PartesExternasService {
     const sel = {
       id: true, nome: true, nomeFantasia: true, documento: true, tipo: true,
       email: true, telefone: true, cidade: true, uf: true, observacoes: true,
-      institucional: true, ativo: true,
+      institucional: true, ativo: true, enteCodigo: true, enteOrigem: true,
       dossiePatronal: { select: { id: true } },
       _count: { select: { participacoes: true, vinculos: true } },
     } satisfies Prisma.ParteExternaSelect;
@@ -599,24 +730,14 @@ export class PartesExternasService {
     if (!fica) throw new NotFoundException('A organização que deve permanecer não foi encontrada.');
     if (!dup) throw new NotFoundException('A organização duplicada não foi encontrada.');
 
-    if (dup.institucional) {
-      throw new BadRequestException(
-        'Esta é a organização institucional (o próprio sindicato) e não pode ser removida numa mesclagem. ' +
-          'Inverta a escolha: mescle a outra DENTRO dela.',
-      );
+    const recusa = recusaDaMesclagem(fica, dup);
+    if (recusa) {
+      throw recusa.tipo === 'CONFLITO'
+        ? new ConflictException(recusa.mensagem)
+        : new BadRequestException(recusa.mensagem);
     }
-    if (fica.dossiePatronal && dup.dossiePatronal) {
-      throw new ConflictException(
-        'As duas têm dossiê patronal, com contribuições e acesso ao portal. ' +
-          'Junte primeiro os dados no módulo Patronal — mesclar aqui apagaria histórico financeiro.',
-      );
-    }
-    if (fica.documento && dup.documento && fica.documento !== dup.documento) {
-      throw new ConflictException(
-        `Os documentos são diferentes (${fica.documento} e ${dup.documento}). ` +
-          'Se um estiver errado, corrija antes de mesclar — do jeito que está, podem ser organizações distintas.',
-      );
-    }
+
+    const escolha = await this.escolhasDaMesclagem(fica, fica.documento ?? dup.documento, campos);
 
     /**
      * A IDENTIDADE QUE VAI VALER DEPOIS DA MESCLAGEM — calculada ANTES de mexer
@@ -641,8 +762,9 @@ export class PartesExternasService {
      * cópias um documento nulo que, dois passos depois, deixa de ser nulo.
      */
     const identidade = {
-      nome: fica.nome,
-      nomeFantasia: fica.nomeFantasia ?? dup.nomeFantasia,
+      nome: escolha.nome ?? fica.nome,
+      nomeFantasia:
+        escolha.nomeFantasia !== undefined ? escolha.nomeFantasia : (fica.nomeFantasia ?? dup.nomeFantasia),
       documento: fica.documento ?? dup.documento,
     };
 
@@ -760,12 +882,22 @@ export class PartesExternasService {
       // ---- 4. o que estava em branco na que fica --------------------------
       // NUNCA sobrescreve o que já tem valor: a que fica é a escolhida, e o
       // objetivo é completá-la, não deixá-la refém do cadastro pior.
-      const completar: Prisma.ParteExternaUpdateInput = {};
+      const completar: Prisma.ParteExternaUncheckedUpdateInput = {};
       const CAMPOS = ['documento', 'nomeFantasia', 'email', 'telefone', 'cidade', 'uf'] as const;
       for (const campo of CAMPOS) {
         if (!fica[campo] && dup[campo]) {
           (completar as Record<string, unknown>)[campo] = dup[campo];
         }
+      }
+      /*
+        O ENTE TAMBÉM SE HERDA — e ficava de fora. A "Fundação Municipal de
+        Saúde." era a única das duas ligada a Teresina; mesclada dentro da
+        FMS/THE, a ligação sumiria com ela, e o dossiê perderia a leitura fiscal
+        de quem paga a folha. A origem vai junto: o que era MANUAL continua.
+      */
+      if (!fica.enteCodigo && dup.enteCodigo) {
+        completar.enteCodigo = dup.enteCodigo;
+        completar.enteOrigem = dup.enteOrigem;
       }
       // A observação é ACUMULADA, não substituída: são anotações de pessoas, e
       // a da duplicada costuma ser justamente o que explica a confusão.
@@ -785,8 +917,11 @@ export class PartesExternasService {
        */
       await tx.parteExterna.delete({ where: { id: duplicadaId } });
 
-      if (Object.keys(completar).length) {
-        await tx.parteExterna.update({ where: { id: ficaId }, data: completar });
+      // A escolha da pessoa vem por último e vale sobre a herança: se ela
+      // preferiu a sigla da outra, a sigla herdada não pode voltar por baixo.
+      const dados: Prisma.ParteExternaUncheckedUpdateInput = { ...completar, ...escolha };
+      if (Object.keys(dados).length) {
+        await tx.parteExterna.update({ where: { id: ficaId }, data: dados });
       }
 
       return {
@@ -794,7 +929,8 @@ export class PartesExternasService {
         participacoesAbsorvidas: absorvidos,
         vinculosMovidos: vinculos.count,
         dossiePatronalMovido: dossieMovido,
-        camposCompletados: Object.keys(completar),
+        camposCompletados: Object.keys(completar).filter((c) => c !== 'enteOrigem' && !(c in escolha)),
+        camposEscolhidos: Object.keys(escolha).filter((c) => c !== 'enteOrigem'),
       };
     });
 
@@ -807,12 +943,67 @@ export class PartesExternasService {
       acao: AcaoAuditoria.DELETE,
       entidade: 'ParteExterna',
       entidadeId: duplicadaId,
-      descricao: `Organização "${dup.nome}" mesclada em "${fica.nome}"`,
-      metadata: { mescladaEm: ficaId, apagada: dup, resultado: resumo },
+      descricao:
+        `Organização "${dup.nome}" mesclada em "${fica.nome}"` +
+        (escolha.nome ? `, que passa a se chamar "${escolha.nome}"` : ''),
+      // Com escolhas, a que FICOU também mudou: sem o retrato de antes, a troca
+      // de nome ou de tipo não teria como ser explicada depois.
+      metadata: { mescladaEm: ficaId, apagada: dup, antesDaQueFica: fica, escolhas: escolha, resultado: resumo },
       ...ctx,
     });
 
     return { ...resumo, ficaId, removida: { id: dup.id, nome: dup.nome } };
+  }
+
+  /**
+   * O QUE A PESSOA ESCOLHEU NA COMPARAÇÃO, já limpo e conferido.
+   *
+   * Só entra o que DIFERE do que a que fica já tem: mandar o mesmo valor não é
+   * escolha, e contá-lo como "escolhido" enganaria o resumo e a auditoria.
+   * Conferido ANTES da transação — recusar no meio dela faria o erro aparecer
+   * com a mesclagem pela metade.
+   */
+  private async escolhasDaMesclagem(
+    fica: {
+      nome: string; nomeFantasia: string | null; tipo: TipoParteExterna; email: string | null;
+      telefone: string | null; cidade: string | null; uf: string | null; enteCodigo: number | null;
+    },
+    documentoFinal: string | null,
+    campos: CamposDaMesclagemDto,
+  ): Promise<EscolhaDaMesclagem> {
+    const escolha: EscolhaDaMesclagem = {};
+
+    if (campos.nome !== undefined) {
+      const nome = campos.nome.trim();
+      if (!nome) throw new BadRequestException('O nome da organização não pode ficar em branco.');
+      if (nome !== fica.nome) escolha.nome = nome;
+    }
+    for (const campo of ['nomeFantasia', 'email', 'telefone', 'cidade'] as const) {
+      const bruto = campos[campo];
+      if (bruto === undefined) continue;
+      const valor = bruto.trim() || null;
+      if (valor !== fica[campo]) escolha[campo] = valor;
+    }
+    if (campos.uf !== undefined) {
+      const uf = campos.uf.trim().toUpperCase() || null;
+      if (uf !== fica.uf) escolha.uf = uf;
+    }
+    if (campos.tipo !== undefined && campos.tipo !== fica.tipo) {
+      // Órgão público com CPF, ou pessoa física com CNPJ, é cadastro quebrado.
+      if (documentoFinal) this.validarDocumento(documentoFinal, campos.tipo);
+      escolha.tipo = campos.tipo;
+    }
+    if (campos.enteCodigo != null && campos.enteCodigo !== fica.enteCodigo) {
+      const ente = await this.prisma.ente.findUnique({
+        where: { codigo: campos.enteCodigo },
+        select: { codigo: true },
+      });
+      if (!ente) throw new BadRequestException('O ente escolhido não está no cadastro do IBGE.');
+      // Escolha de gente: a varredura automática nunca mais encosta (ver `atualizar`).
+      escolha.enteCodigo = campos.enteCodigo;
+      escolha.enteOrigem = OrigemDaLigacao.MANUAL;
+    }
+    return escolha;
   }
 
   async criar(dto: CriarParteExternaDto, ctx: Ctx) {

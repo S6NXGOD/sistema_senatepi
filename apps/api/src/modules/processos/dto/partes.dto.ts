@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { PoloProcesso, TipoParteExterna } from '@prisma/client';
 
@@ -177,6 +178,48 @@ export class DefinirAdvogadosDto {
 // Mesclagem de organizações duplicadas
 // ---------------------------------------------------------------------------
 
+/**
+ * O VALOR QUE FICA EM CADA CAMPO, escolhido na comparação lado a lado.
+ *
+ * Tudo opcional: campo ausente segue a regra de sempre — vale o da que fica e,
+ * em branco nela, o da outra. Sem isto a mesclagem "sem perder dado" deixava a
+ * FMS/THE, com o CNPJ da Fundação Municipal de Saúde, cadastrada como Empresa
+ * e com o nome de apelido.
+ *
+ * O DOCUMENTO NÃO ESTÁ AQUI, e de propósito: CNPJ divergente recusa a
+ * mesclagem, e escolher um dos dois seria decidir no escuro qual organização é
+ * qual.
+ *
+ * Declarado ANTES de `MesclarOrganizacaoDto`: o `emitDecoratorMetadata` lê o
+ * tipo da propriedade `campos` na hora em que a classe nasce (armadilha de TDZ).
+ */
+export class CamposDaMesclagemDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500)
+  nome?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300)
+  nomeFantasia?: string;
+
+  @ApiPropertyOptional({ enum: TipoParteExterna }) @IsOptional() @IsEnum(TipoParteExterna)
+  tipo?: TipoParteExterna;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(320)
+  email?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100)
+  telefone?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200)
+  cidade?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20)
+  uf?: string;
+
+  @ApiPropertyOptional({ description: 'Código IBGE do ente que fica (ver `Ente`).' })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  enteCodigo?: number;
+}
+
 export class MesclarOrganizacaoDto {
   @ApiProperty({
     description:
@@ -185,4 +228,11 @@ export class MesclarOrganizacaoDto {
   })
   @IsString() @MinLength(10)
   duplicadaId: string;
+
+  @ApiPropertyOptional({
+    type: () => CamposDaMesclagemDto,
+    description: 'Quando as duas diferem num campo, qual valor fica. Ausente: vale o da que permanece.',
+  })
+  @IsOptional() @ValidateNested() @Type(() => CamposDaMesclagemDto)
+  campos?: CamposDaMesclagemDto;
 }
