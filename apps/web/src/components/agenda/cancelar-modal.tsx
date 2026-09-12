@@ -5,6 +5,8 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Ban, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import {
   cancelarCompromisso, listarCategoriasCancelamento,
@@ -32,6 +34,10 @@ export function CancelarModal({
   /** Pré-seleciona a categoria (ex.: veio do atalho de não comparecimento). */
   categoriaInicial?: string;
 }) {
+  const { user } = useAuth();
+  /** Vale a mesma regra do "Concluir": avisa de quem é, e não bloqueia. */
+  const ehDeOutro = !!compromisso && !!user?.id && compromisso.responsavel.id !== user.id;
+
   const [motivo, setMotivo] = useState('');
   const [categoria, setCategoria] = useState('');
 
@@ -91,6 +97,34 @@ export function CancelarModal({
         </div>
 
         <div className="space-y-4 p-5">
+          {/*
+            A ATIVIDADE É DE OUTRA PESSOA — e cancelar é mais forte que concluir.
+
+            Cancelar sempre foi permitido a quem edita a agenda, e continua: a
+            audiência foi adiada e quem soube primeiro é quem tira da fila. Mas
+            aqui o efeito é tirar trabalho do quadro de OUTRO — e o mínimo é
+            dizer de quem, antes, e não depois pelo histórico.
+
+            Mesmo bloco do "Concluir", de propósito: quem vê a marca âmbar num
+            lugar reconhece no outro.
+          */}
+          {ehDeOutro && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2.5 dark:border-amber-900/60 dark:bg-amber-950/25">
+              <AvatarPessoa
+                nome={compromisso.responsavel.nomeExibicao || compromisso.responsavel.nome}
+                url={compromisso.responsavel.avatarUrl}
+                tamanho="xs"
+              />
+              <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                Esta atividade é de{' '}
+                <strong className="font-semibold">
+                  {compromisso.responsavel.nomeExibicao || compromisso.responsavel.nome}
+                </strong>
+                . Ela vai sair do quadro dessa pessoa, e o cancelamento fica registrado com o{' '}
+                <strong className="font-semibold">seu nome</strong>.
+              </p>
+            </div>
+          )}
           <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>

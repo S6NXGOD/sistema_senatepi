@@ -10,6 +10,8 @@ import {
   Paperclip,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { useAuth } from '@/lib/auth';
 import { Input } from '@/components/ui/input';
 import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
 import { cn } from '@/lib/utils';
@@ -67,6 +69,24 @@ export function ConcluirModal({
   /** Leva ao cancelamento com "não compareceu" pré-selecionado. */
   onNaoCompareceu?: () => void;
 }) {
+  const { user } = useAuth();
+  /**
+   * A ATIVIDADE É DE OUTRA PESSOA?
+   *
+   * Concluir a tarefa de um colega sempre foi permitido — nem a API nem a tela
+   * jamais barraram, e está certo assim: quem cobriu a audiência é quem sabe o
+   * desfecho, e prender o registro ao dono faria o trabalho ficar sem registro
+   * ou virar recado de corredor.
+   *
+   * O que faltava era DIZER. O desfecho entra no histórico do processo com o
+   * nome de quem fechou (`concluidoPor`), e a pessoa merece saber duas coisas
+   * antes de gravar: que a atividade não é dela, e que o nome dela vai junto.
+   *
+   * Avisa, não bloqueia. Confirmação extra aqui só treinaria todo mundo a
+   * clicar em "sim" sem ler.
+   */
+  const ehDeOutro = !!compromisso && !!user?.id && compromisso.responsavel.id !== user.id;
+
   const [desfecho, setDesfecho] = useState<string>('');
   const [obs, setObs] = useState('');
   const [processoId, setProcessoId] = useState('');
@@ -244,6 +264,23 @@ export function ConcluirModal({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {ehDeOutro && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50/70 px-3 py-2.5 dark:border-amber-900/60 dark:bg-amber-950/25">
+              <AvatarPessoa
+                nome={compromisso.responsavel.nomeExibicao || compromisso.responsavel.nome}
+                url={compromisso.responsavel.avatarUrl}
+                tamanho="xs"
+              />
+              <p className="text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+                Esta atividade é de{' '}
+                <strong className="font-semibold">
+                  {compromisso.responsavel.nomeExibicao || compromisso.responsavel.nome}
+                </strong>
+                . Você pode concluir — e o desfecho vai para o histórico com o{' '}
+                <strong className="font-semibold">seu nome</strong> como quem fechou.
+              </p>
+            </div>
+          )}
           {compromisso.filiado && (
             <div className="rounded-lg bg-muted/50 px-3 py-2 text-sm">
               <span className="text-muted-foreground">{V.Filiado}: </span>

@@ -5,7 +5,9 @@ import { formatDataPura, diasDesdeDataPura } from '@/lib/data-pura';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { criarTarefaDaPublicacao, umaPublicacao, varrerDjenAgora } from '@/lib/djen';
+import {
+  criarTarefaDaPublicacao, previaDaTarefa, umaPublicacao, varrerDjenAgora,
+} from '@/lib/djen';
 import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
@@ -29,6 +31,9 @@ import {
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { formatNPU } from '@/lib/processos';
+// A prévia mostra QUANDO a tarefa cai na agenda — no fuso de Teresina,
+// como o resto do sistema (ver `data-br.util` do lado da API).
+import { formatDataHora } from '@/lib/agenda';
 import { PROVIDENCIA_LABEL } from '@/lib/djen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -2511,6 +2516,17 @@ function LinhaPublicacao({
   podeCriarTarefa?: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
+  /**
+   * A PRÉVIA VEM ANTES DA CRIAÇÃO — e não é firula.
+   *
+   * "Ao clicar em Criar tarefa vai direto para criar tarefa mas não tenho nem um
+   * preview de como ela vai ficar." Data, urgência e dono são decididos pelo
+   * sistema a partir da providência e da idade do ato; criar às cegas é pedir
+   * confiança agora e conferência depois. Mostrar antes é mais barato do que
+   * desfazer — e desfazer, aqui, significa cancelar uma tarefa que já apareceu
+   * na agenda de outra pessoa.
+   */
+  const [vendoPrevia, setVendoPrevia] = useState(false);
   const qc = useQueryClient();
 
   const { data: teor, isLoading: carregandoTeor } = useQuery({
@@ -2520,12 +2536,20 @@ function LinhaPublicacao({
     staleTime: 5 * 60_000,
   });
 
+  const { data: previa, isLoading: carregandoPrevia } = useQuery({
+    queryKey: ['publicacao', pub.id, 'previa'],
+    queryFn: () => previaDaTarefa(pub.id),
+    enabled: vendoPrevia,
+    staleTime: 60_000,
+  });
+
   const criar = useMutation({
     mutationFn: () => criarTarefaDaPublicacao(pub.id),
     onSuccess: (r) => {
       toast.success(
         r.criada ? 'Atividade criada para o dono do caso.' : 'Esta publicacao ja tinha atividade.',
       );
+      setVendoPrevia(false);
       for (const k of [['dashboard'], ['publicacao', pub.id], ['compromissos'], ['minhas-pendencias']]) {
         qc.invalidateQueries({ queryKey: k });
       }
@@ -2682,14 +2706,9 @@ function LinhaPublicacao({
               A ACAO PRINCIPAL E A QUE FALTAVA. So aparece quando ha o que fazer:
               sem tarefa, e para quem grava na agenda.
             */}
-            {!temTarefa && podeCriarTarefa && (
-              <Button size="sm" onClick={() => criar.mutate()} disabled={criar.isPending}>
-                {criar.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CalendarPlus className="h-4 w-4" />
-                )}
-                Criar tarefa
+            {!temTarefa && podeCriarTarefa && !vendoPrevia && (
+              <Button size="sm" onClick={() => setVendoPrevia(true)}>
+                <CalendarPlus className="h-4 w-4" /> Criar tarefa
               </Button>
             )}
             {temTarefa && idDaTarefa && (
@@ -2713,6 +2732,112 @@ function LinhaPublicacao({
               </a>
             )}
           </div>
+
+          {/*
+            A PRÉVIA. Não é um modal: a pessoa já está com a gaveta aberta e o
+            teor à vista — tirar isso da frente para perguntar "confirma?" seria
+            esconder justamente o que embasa a resposta.
+          */}
+          {vendoPrevia && (
+            <div className="mt-3 rounded-lg border border-brand-400/70 bg-brand-50/60 p-3 dark:border-brand-700 dark:bg-brand-900/15">
+              {carregandoPrevia ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Montando a tarefa…
+                </p>
+              ) : !previa ? (
+                /*
+                  O SISTEMA NÃO RECONHECEU PROVIDÊNCIA — e dizer isso é melhor
+                  que oferecer um botão que vai falhar. O caminho existe: a
+                  agenda, onde a pessoa descreve o que precisa ser feito.
+                */
+                <div className="space-y-2">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    O sistema não reconheceu uma providência neste ato, então não sabe que tarefa
+                    criar nem para quando. Dá para criar pela agenda, descrevendo o que precisa ser
+                    feito.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Link href="/agenda" className={ACAO_SECUNDARIA}>
+                      <CalendarPlus className="h-4 w-4" /> Ir para a agenda
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => setVendoPrevia(false)}
+                      className="min-h-9 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Vai entrar assim na agenda
+                  </p>
+                  <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
+                    {previa.titulo}
+                    {previa.urgente && (
+                      <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-800 dark:bg-red-900/40 dark:text-red-200">
+                        Urgente
+                      </span>
+                    )}
+                  </p>
+                  <dl className="mt-2 space-y-1 text-xs">
+                    <div className="flex gap-2">
+                      <dt className="shrink-0 text-muted-foreground">Quando</dt>
+                      <dd className="font-medium">{formatDataHora(previa.inicio)}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="shrink-0 text-muted-foreground">Para quem</dt>
+                      <dd className="font-medium">
+                        {previa.responsavel
+                          ? previa.responsavel.nomeExibicao || previa.responsavel.nome
+                          : 'sem responsável definido no processo'}
+                      </dd>
+                    </div>
+                  </dl>
+                  {/*
+                    O MOTIVO DA URGÊNCIA, por extenso. Tarja vermelha sem porquê
+                    é a marca que ensina todo mundo a ignorar a tarja.
+                  */}
+                  {previa.urgente && previa.urgenteMotivo && (
+                    <p className="mt-2 text-[11px] leading-relaxed text-red-800 dark:text-red-300">
+                      {previa.urgenteMotivo}
+                    </p>
+                  )}
+                  <p className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">
+                    {previa.descricao}
+                  </p>
+                  {/*
+                    QUEM CLICA NÃO VIRA DONO. Dizer isso aqui evita a surpresa de
+                    procurar a tarefa na própria agenda e não achar.
+                  */}
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                    A tarefa fica com o dono do caso, não com você. Para assumir, use o botão
+                    "Assumir" dentro dela.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={() => criar.mutate()} disabled={criar.isPending}>
+                      {criar.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CalendarPlus className="h-4 w-4" />
+                      )}
+                      Criar assim
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setVendoPrevia(false)}
+                      disabled={criar.isPending}
+                      className="min-h-9 px-2 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    >
+                      Agora não
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/*
             POR QUE NAO HA TAREFA -- quando o robo DECIDIU, e nao quando falhou.

@@ -170,6 +170,37 @@ export async function umaPublicacao(id: string): Promise<PublicacaoDjen & {
 }
 
 /**
+ * A PRÉVIA DA TAREFA — o que a publicação VAI virar, sem virar.
+ *
+ * Data, urgência e dono são decididos pelo sistema. Criar às cegas é pedir
+ * confiança e depois conferência; mostrar antes é mais barato que desfazer.
+ *
+ * Vem do MESMO cálculo que a criação usa (`planejarAtividade`, na API), então o
+ * que aparece aqui é literalmente o que vai ser gravado. `null` significa "não
+ * há o que planejar" — a tela explica em vez de oferecer um botão que falharia.
+ */
+export interface PreviaDaTarefa {
+  titulo: string;
+  /** Slug do tipo de evento (PRAZO, AUDIENCIA, CONTATO…). */
+  tipo: string;
+  /** Quando cai na agenda — 9h de Teresina, nunca no passado. */
+  inicio: string;
+  descricao: string;
+  urgente: boolean;
+  /** Nunca vazio quando `urgente`: marca sem motivo é a pior da tela. */
+  urgenteMotivo: string | null;
+  /** O prazo calculado já venceu quando a publicação chegou? */
+  atrasado: boolean;
+  idadeDias: number;
+  diasDoLembrete: number;
+  responsavel: { id: string; nome: string; nomeExibicao: string | null } | null;
+}
+
+export async function previaDaTarefa(id: string): Promise<PreviaDaTarefa | null> {
+  return (await api.get(`/djen/publicacoes/${id}/previa-da-tarefa`)).data;
+}
+
+/**
  * "ISTO PRECISA VIRAR TAREFA" — em um toque.
  *
  * A atividade nasce para o DONO DO CASO, não para quem clicou: clicar aqui é
