@@ -150,6 +150,20 @@ export interface ResumoDashboard {
      */
     passaramDaHora?: number;
     semMovimentacao: number;
+    /**
+     * QUAIS estão paradas — até 10, das mais antigas. É o que deixa a faixa
+     * abrir a atividade certa em vez de jogar a pessoa na agenda inteira.
+     *
+     * Opcional pela janela de troca do deploy: a API de antes não manda, e aí
+     * a faixa volta a ser só o número.
+     */
+    paradas?: {
+      id: string;
+      titulo: string;
+      inicio: string;
+      updatedAt: string;
+      responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null } | null;
+    }[];
     urgentes: number;
     /** Audiências designadas no DataJud e ainda fora da Agenda. */
     audienciasAAgendar: number;

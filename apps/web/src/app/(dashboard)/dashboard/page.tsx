@@ -626,13 +626,7 @@ function Conteudo({
               atendimento") repreendia sem informar. O que a pessoa precisa
               saber é QUANTAS são e onde estão. */}
           {alertas.semMovimentacao > 0 && (
-            <AlertBar tom="info" href="/agenda" acao="Abrir agenda">
-              <strong>{alertas.semMovimentacao}</strong>{' '}
-              {alertas.semMovimentacao === 1
-                ? 'atividade está parada'
-                : 'atividades estão paradas'}{' '}
-              há mais de 7 dias.
-            </AlertBar>
+            <AtividadesParadas total={alertas.semMovimentacao} itens={alertas.paradas ?? []} />
           )}
         </div>
       )}
@@ -2854,5 +2848,151 @@ function LinhaPublicacao({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * AS ATIVIDADES PARADAS — com nome, e a um toque de distância.
+ *
+ * O relato: "diz 'uma atividade parada há mais de 7 dias', eu clico e abre a
+ * agenda, mas não abre a atividade que está parada". Era isso mesmo. A faixa
+ * levava para `/agenda` puro, e a agenda abre na aba de HOJE: a pessoa caía num
+ * quadro vazio, com "92 em outras datas", e tinha de adivinhar qual era. O
+ * número sem o nome obriga a procurar — e aviso que obriga a procurar é aviso
+ * que se aprende a ignorar.
+ *
+ * A agenda já sabia abrir uma atividade por `?compromisso=<id>` (troca a aba,
+ * leva o calendário ao mês dela e marca o cartão). Só faltava a faixa saber
+ * QUAL mandar abrir.
+ *
+ * DOIS JEITOS, conforme quantas:
+ *
+ *  · UMA — a frase já diz qual é, de quem é e há quanto tempo, e a faixa
+ *    inteira é o atalho. "Ver quais" para um item só seria um clique a mais
+ *    para ver o que já cabia na frase.
+ *  · VÁRIAS — abre no lugar, como o aviso do CNJ logo acima: cada linha com o
+ *    rosto do responsável, e cada uma leva à própria atividade.
+ *
+ * Tom de informação, e não de alarme: parada não é atrasada. Atraso tem faixa
+ * própria na lista de atividades; aqui é "alguém esqueceu disto?".
+ */
+function AtividadesParadas({
+  total,
+  itens,
+}: {
+  total: number;
+  itens: NonNullable<ResumoDashboard['alertas']['paradas']>;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const diasParada = (iso: string) =>
+    Math.max(7, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  const nomeDe = (r: (typeof itens)[number]['responsavel']) =>
+    r ? primeiroENome(r) : 'sem responsável';
+
+  /*
+    A API DA JANELA DE TROCA não manda a lista. Sem itens, a faixa volta a ser o
+    que era — número e agenda — em vez de sumir ou quebrar enquanto os dois
+    serviços não sobem juntos.
+  */
+  if (!itens.length) {
+    return (
+      <AlertBar tom="info" href="/agenda" acao="Abrir agenda">
+        <strong>{total}</strong> {total === 1 ? 'atividade está parada' : 'atividades estão paradas'}{' '}
+        há mais de 7 dias.
+      </AlertBar>
+    );
+  }
+
+  const casca = 'rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground';
+
+  if (total === 1) {
+    const a = itens[0];
+    return (
+      <Link
+        href={`/agenda?compromisso=${a.id}`}
+        className={cn(casca, 'flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-muted')}
+      >
+        <span className="flex min-w-0 items-center gap-2.5">
+          <Info className="h-4 w-4 shrink-0 opacity-70" />
+          <span className="min-w-0">
+            <strong className="text-foreground">{a.titulo}</strong> está parada há{' '}
+            {diasParada(a.updatedAt)} dias
+            <span className="hidden sm:inline"> — de {nomeDe(a.responsavel)}</span>.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+          Abrir <ChevronRight className="h-3.5 w-3.5" />
+        </span>
+      </Link>
+    );
+  }
+
+  return (
+    <div className={casca}>
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+      >
+        <span className="flex items-center gap-2.5">
+          <Info className="h-4 w-4 shrink-0 opacity-70" />
+          <span>
+            <strong className="text-foreground">{total} atividades estão paradas</strong> há mais de 7
+            dias.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+          {aberto ? 'Ocultar' : 'Ver quais'}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
+        </span>
+      </button>
+
+      {aberto && (
+        <ul className="border-t border-input">
+          {itens.map((a) => (
+            <li key={a.id}>
+              <Link
+                href={`/agenda?compromisso=${a.id}`}
+                className="flex items-center gap-3 border-t border-input/60 px-4 py-2.5 transition first:border-t-0 hover:bg-muted"
+              >
+                {a.responsavel ? (
+                  <AvatarPessoa
+                    nome={a.responsavel.nomeExibicao || a.responsavel.nome}
+                    url={a.responsavel.avatarUrl}
+                    tamanho="xs"
+                  />
+                ) : (
+                  <span className="h-5 w-5 shrink-0 rounded-full bg-muted" aria-hidden />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-foreground">{a.titulo}</span>
+                  <span className="block truncate text-xs opacity-80">
+                    {nomeDe(a.responsavel)} · era para {formatDataHora(a.inicio)}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs">parada há {diasParada(a.updatedAt)}d</span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+              </Link>
+            </li>
+          ))}
+          {/*
+            O TETO É DE DEZ, e dizer isso é o que impede a lista de parecer o
+            todo. Acima disso o lugar de trabalhar é a agenda.
+          */}
+          {total > itens.length && (
+            <li>
+              <Link
+                href="/agenda"
+                className="flex items-center justify-between gap-3 border-t border-input/60 px-4 py-2.5 text-xs font-medium transition hover:bg-muted"
+              >
+                e mais {total - itens.length} — abrir a agenda
+                <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+              </Link>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }

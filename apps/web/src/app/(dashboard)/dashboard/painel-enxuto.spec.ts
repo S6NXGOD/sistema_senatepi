@@ -245,7 +245,14 @@ describe('o mesmo atraso não se repete no painel', () => {
    */
   it('a barra de atividades paradas continua', () => {
     expect(CONTEUDO).toContain('alertas.semMovimentacao > 0');
-    expect(CONTEUDO).toContain('há mais de 7 dias.');
+    /*
+      A FRASE MUDOU DE CASA, não sumiu. Ela era montada aqui dentro, num
+      `AlertBar` que levava para `/agenda` puro — e a faixa passou a abrir a
+      atividade parada pelo id, o que pediu um componente próprio. O corpo
+      do painel só decide SE a faixa aparece; o que ela diz mora nela.
+    */
+    expect(CONTEUDO).toContain('<AtividadesParadas');
+    expect(PAGINA.slice(PAGINA.indexOf('function AtividadesParadas('))).toContain('há mais de 7');
   });
 
   /**
