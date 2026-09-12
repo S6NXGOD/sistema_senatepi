@@ -30,6 +30,32 @@ export interface ParteExterna {
   _count?: { participacoes: number };
 }
 
+/**
+ * ADVOGADO DA OUTRA PARTE — digitado pela equipe ou trazido do Diário.
+ *
+ * `oab` é como se lê ("PI 11632"); os pedaços existem para o casamento com as
+ * publicações. `origem` diz quem pôs ali: sem ela, ninguém sabe se aquele nome
+ * é uma anotação conferida ou uma dedução do robô, e as duas coisas pesam
+ * diferente numa audiência.
+ */
+export interface AdvogadoDaParte {
+  nome: string | null;
+  oab: string | null;
+  numeroOab?: string | null;
+  ufOab?: string | null;
+  /** 'DJEN' = veio do Diário; 'MANUAL' = alguém digitou. */
+  origem?: string | null;
+  /** Última vez que o Diário nomeou este advogado (ISO). */
+  vistoEm?: string | null;
+}
+
+/** Advogado citado num ato que ainda não foi atribuído a nenhuma parte. */
+export interface AdvogadoCitadoNoAto {
+  nome: string;
+  numeroOab: string | null;
+  ufOab: string | null;
+}
+
 export interface ParteDoProcesso {
   id: string;
   polo: PoloProcesso;
@@ -40,7 +66,7 @@ export interface ParteDoProcesso {
   documento: string | null;
   filiadoId: string | null;
   parteExternaId: string | null;
-  advogados: { nome: string | null; oab: string | null }[] | null;
+  advogados: AdvogadoDaParte[] | null;
   observacao: string | null;
   filiado: { id: string; nomeCompleto: string; matricula: string; situacao: string } | null;
   parteExterna: {
@@ -87,6 +113,12 @@ export interface PolosProcesso {
 
 export interface AdvogadoDoProcesso {
   principal: boolean;
+  /**
+   * Quem o pôs na equipe: 'DJEN' (o ato do Diário o nomeou) ou nulo/'MANUAL'
+   * (uma pessoa). A ficha mostra a diferença — vínculo que o robô deduziu não
+   * tem o mesmo peso de um que alguém confirmou.
+   */
+  origem?: string | null;
   advogado: {
     id: string;
     nome: string;
@@ -179,7 +211,14 @@ export interface AdicionarParteInput {
   documento?: string;
   papel?: string;
   principal?: boolean;
-  advogados?: { nome?: string; oab?: string }[];
+  /**
+   * A LISTA COMPLETA de advogados da parte — o PATCH substitui a atual.
+   *
+   * Devolva os campos como vieram (`origem`, `numeroOab`…): é assim que o que o
+   * Diário trouxe continua marcado como do Diário depois de alguém salvar a
+   * parte, e é assim que a varredura reconhece quem já está na lista.
+   */
+  advogados?: AdvogadoDaParte[];
   observacao?: string;
 }
 
@@ -211,6 +250,17 @@ export async function removerParte(parteId: string): Promise<{ ok: boolean }> {
 
 export async function listarAdvogadosDoProcesso(processoId: string): Promise<AdvogadoDoProcesso[]> {
   return (await api.get(`/processos/${processoId}/advogados`)).data;
+}
+
+/**
+ * Os advogados que o Diário cita e de quem o sistema NÃO sabe o lado.
+ *
+ * Acontece quando há duas ou mais partes no polo contrário: o CNJ manda a lista
+ * de advogados sem dizer quem representa quem. Em vez de escolher no chute, a
+ * ficha mostra e alguém aponta em um toque.
+ */
+export async function advogadosDoAtoSemLado(processoId: string): Promise<AdvogadoCitadoNoAto[]> {
+  return (await api.get(`/processos/${processoId}/advogados-do-ato`)).data;
 }
 
 /** Envia a lista COMPLETA (substitui a atual) e quem é o responsável. */

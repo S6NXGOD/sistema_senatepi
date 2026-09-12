@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   AlertTriangle, Building2, ExternalLink, Landmark, Loader2, Plus, Scale,
-  Star, Swords, Trash2, User as UserIcon, Users,
+  Star, Swords, Trash2, User as UserIcon, Users, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -15,9 +15,11 @@ import { SeletorAdvogados, type ValorSeletorAdvogados } from './seletor-advogado
 import { classesCor } from '@/lib/paleta-cores';
 import { AdicionarParteForm } from './adicionar-parte-form';
 import {
+  advogadosDoAtoSemLado,
   atualizarParte, definirAdvogadosDoProcesso, formatDocumento, removerParte,
   POLO_COR, POLO_DESCRICAO, POLO_LABEL, TIPO_PARTE_LABEL,
-  type AdvogadoDoProcesso, type ParteDoProcesso, type PoloProcesso, type PolosProcesso,
+  type AdvogadoCitadoNoAto, type AdvogadoDaParte, type AdvogadoDoProcesso,
+  type ParteDoProcesso, type PoloProcesso, type PolosProcesso,
 } from '@/lib/partes';
 
 const ORDEM_POLOS: PoloProcesso[] = ['ATIVO', 'PASSIVO', 'TERCEIRO'];
@@ -59,6 +61,25 @@ export function PartesPanel({
     mutationFn: (id: string) => removerParte(id),
     onSuccess: () => { toast.success('Parte removida.'); setParteParaExcluir(null); onChanged(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível remover a parte.'),
+  });
+
+  /*
+    A LISTA DE ADVOGADOS DA PARTE vai inteira, como todo PATCH de parte. Os
+    campos voltam como vieram (`origem`, `numeroOab`), senão o que o Diário
+    trouxe viraria "digitado por gente" no primeiro salvamento.
+  */
+  const qc = useQueryClient();
+  const salvarAdvogadosDaParte = useMutation({
+    mutationFn: ({ id, advogados }: { id: string; advogados: AdvogadoDaParte[] }) =>
+      atualizarParte(id, { advogados }),
+    onSuccess: () => {
+      toast.success('Advogados da parte atualizados.');
+      // Quem acabou de ganhar dono sai da lista de "sem lado" na hora.
+      qc.invalidateQueries({ queryKey: ['processo', processoId, 'advogados-do-ato'] });
+      onChanged();
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível atualizar os advogados.'),
   });
 
   const promover = useMutation({
@@ -164,6 +185,9 @@ export function PartesPanel({
                     promovendo={promover.isPending}
                     onPromover={() => promover.mutate(parte.id)}
                     onExcluir={() => setParteParaExcluir(parte)}
+                    onAdvogados={(advogados) =>
+                      salvarAdvogadosDaParte.mutate({ id: parte.id, advogados })
+                    }
                   />
                 ))}
               </ul>
@@ -171,6 +195,28 @@ export function PartesPanel({
           </section>
         );
       })}
+
+      <AdvogadosSemLado
+        processoId={processoId}
+        partes={[...polos.ativo, ...polos.passivo, ...polos.terceiros]}
+        podeEditar={podeEditar}
+        onAtribuir={(parte, advogado) =>
+          salvarAdvogadosDaParte.mutate({
+            id: parte.id,
+            advogados: [
+              ...(parte.advogados ?? []),
+              {
+                nome: advogado.nome,
+                oab: [advogado.ufOab, advogado.numeroOab].filter(Boolean).join(' ') || null,
+                numeroOab: advogado.numeroOab,
+                ufOab: advogado.ufOab,
+                // Quem apontou foi gente: a marca tem de dizer isso.
+                origem: 'MANUAL',
+              },
+            ],
+          })
+        }
+      />
 
       {/* Equipe da casa */}
       <section>
@@ -285,7 +331,7 @@ function LadoConfronto({
 
 /** Card de uma parte, com o vínculo (filiado / cadastro / texto livre) explícito. */
 function CardParte({
-  parte, podeEditar, ehAdmin, promovendo, onPromover, onExcluir,
+  parte, podeEditar, ehAdmin, promovendo, onPromover, onExcluir, onAdvogados,
 }: {
   parte: ParteDoProcesso;
   podeEditar: boolean;
@@ -293,6 +339,7 @@ function CardParte({
   promovendo: boolean;
   onPromover: () => void;
   onExcluir: () => void;
+  onAdvogados: (lista: AdvogadoDaParte[]) => void;
 }) {
   const Icone =
     parte.filiado ? UserIcon
@@ -343,12 +390,11 @@ function CardParte({
             </span>
           )}
 
-          {(parte.advogados?.length ?? 0) > 0 && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Advogados da parte:{' '}
-              {parte.advogados!.map((a) => [a.nome, a.oab].filter(Boolean).join(' — ')).join('; ')}
-            </p>
-          )}
+          <AdvogadosDaParte
+            lista={parte.advogados ?? []}
+            podeEditar={podeEditar}
+            onRemover={(i) => onAdvogados((parte.advogados ?? []).filter((_, k) => k !== i))}
+          />
           {parte.observacao && (
             <p className="mt-1 text-[11px] italic text-muted-foreground">{parte.observacao}</p>
           )}
@@ -437,5 +483,136 @@ function EquipeEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * OS ADVOGADOS DA OUTRA PARTE — quem senta do outro lado da mesa.
+ *
+ * Isto era uma linha de texto que nunca teve conteúdo: das 345 partes da
+ * produção, ZERO tinham advogado anotado, porque só dava para digitar um a um e
+ * ninguém digita. A varredura do Diário agora preenche — e por isso cada nome
+ * carrega a marca de ONDE veio.
+ *
+ * A marca não é enfeite: o CNJ manda a lista de advogados do ato sem dizer de
+ * quem cada um é. O sistema atribui quando existe uma única parte no polo
+ * contrário; quem lê precisa saber que aquilo é dedução, e poder desfazer num
+ * toque.
+ */
+function AdvogadosDaParte({
+  lista,
+  podeEditar,
+  onRemover,
+}: {
+  lista: AdvogadoDaParte[];
+  podeEditar: boolean;
+  onRemover: (indice: number) => void;
+}) {
+  if (!lista.length) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-[11px] font-medium text-muted-foreground">
+        Advogados desta parte <span className="font-normal">({lista.length})</span>
+      </p>
+      <ul className="mt-1 flex flex-wrap gap-1.5">
+        {lista.map((a, i) => (
+          <li
+            key={`${a.numeroOab ?? ''}-${a.nome ?? ''}-${i}`}
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background py-1 pl-2.5 pr-1 text-[11px]"
+          >
+            <Scale className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="truncate font-medium">{a.nome || 'Sem nome'}</span>
+            {a.oab && <span className="shrink-0 text-muted-foreground">{a.oab}</span>}
+            {a.origem === 'DJEN' && (
+              <span
+                title="Veio do Diário: o ato citou este advogado e ele foi atribuído a esta parte porque ela é a única do polo contrário. Confira — e corrija se não for."
+                className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              >
+                do Diário
+              </span>
+            )}
+            {podeEditar && (
+              <button
+                type="button"
+                onClick={() => onRemover(i)}
+                aria-label={`Tirar ${a.nome ?? 'advogado'} desta parte`}
+                className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-red-600"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * O QUE O DIÁRIO CITA E NÃO DIZ DE QUEM É.
+ *
+ * Com duas ou mais partes no polo contrário, atribuir o advogado seria escolher
+ * no chute — e um nome no réu errado é pior que nome nenhum numa audiência.
+ * Então o sistema mostra o que sobrou e deixa alguém apontar. Um toque por
+ * advogado, e ele para de perguntar.
+ */
+function AdvogadosSemLado({
+  processoId,
+  partes,
+  podeEditar,
+  onAtribuir,
+}: {
+  processoId: string;
+  partes: ParteDoProcesso[];
+  podeEditar: boolean;
+  onAtribuir: (parte: ParteDoProcesso, advogado: AdvogadoCitadoNoAto) => void;
+}) {
+  const { data: semLado = [] } = useQuery({
+    queryKey: ['processo', processoId, 'advogados-do-ato'],
+    queryFn: () => advogadosDoAtoSemLado(processoId),
+  });
+
+  if (!semLado.length || !partes.length) return null;
+
+  return (
+    <section className="rounded-xl border border-amber-300 bg-amber-50/60 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+      <h4 className="flex items-center gap-2 text-sm font-semibold">
+        <Scale className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+        {semLado.length === 1
+          ? 'Um advogado do Diário sem parte definida'
+          : `${semLado.length} advogados do Diário sem parte definida`}
+      </h4>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+        O Diário traz a lista de advogados do ato, mas não diz quem cada um representa. Como este
+        processo tem mais de uma parte no polo contrário, o sistema não escolheu
+        {podeEditar ? ' — aponte você, e ele para de perguntar.' : '. Quem edita o processo pode apontar.'}
+      </p>
+      <ul className="mt-2 space-y-2">
+        {semLado.map((a) => (
+          <li key={`${a.ufOab ?? ''}-${a.numeroOab ?? a.nome}`} className="rounded-lg border bg-card p-2.5">
+            <p className="text-sm font-medium">{a.nome}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {[a.ufOab, a.numeroOab].filter(Boolean).join(' ') || 'sem OAB no ato'}
+            </p>
+            {podeEditar && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Representa:</span>
+                {partes.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onAtribuir(p, a)}
+                    className="inline-flex min-h-9 max-w-full items-center gap-1 rounded-full border px-3 text-[11px] font-medium transition hover:border-brand-400 hover:bg-muted"
+                  >
+                    <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', classesCor(POLO_COR[p.polo]).ponto)} />
+                    <span className="truncate">{p.nome}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Search, Loader2, User, Save, CalendarClock, MapPin, Gavel, AlertTriangle,
+  X, Search, Loader2, User, Save, CalendarClock, MapPin, Gavel, AlertTriangle, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AvisoDeChoque } from '@/components/agenda/aviso-de-choque';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { listarAdvogadosDoProcesso } from '@/lib/partes';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import { SeletorProcesso } from '@/components/processos/seletor-processo';
 import {
@@ -72,6 +73,30 @@ export function CompromissoFormModal({
 
   const { tipos } = useTiposEvento();
   const responsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis, enabled: open });
+
+  /*
+    A EQUIPE DO CASO, OFERECIDA — nunca imposta.
+
+    Quando o robô cria a tarefa, os advogados do processo entram sozinhos como
+    reserva (gatilho no banco). Aqui quem cria é gente, e gente escolhe: impor a
+    equipe do caso sobrescreveria a decisão de quem está preenchendo o
+    formulário — que é justamente o que o sistema promete não fazer.
+
+    Então a tela apenas AVISA quem mais atua no caso e deixa incluir num toque.
+    Some sozinha quando não há processo, quando todos já estão, ou quando o
+    único advogado do caso é o próprio responsável.
+  */
+  const equipeDoCaso = useQuery({
+    queryKey: ['processo-advogados', processoId],
+    queryFn: () => listarAdvogadosDoProcesso(processoId),
+    enabled: open && !!processoId,
+    // Quem não tem o módulo de processos leva 403 aqui: a sugestão some, e
+    // nada mais. Sem repetir a chamada e sem erro na tela.
+    retry: false,
+  });
+  const faltamDoCaso = (equipeDoCaso.data ?? []).filter(
+    (a) => a.advogado.id !== responsavelId && !participantes.includes(a.advogado.id),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -308,6 +333,28 @@ export function CompromissoFormModal({
               filiadoId={filiadoId || undefined}
               filiadoNome={filiadoNome || undefined}
             />
+            {faltamDoCaso.length > 0 && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-dashed px-3 py-2 text-xs">
+                <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="text-muted-foreground">
+                  {faltamDoCaso.length === 1 ? 'Também atua no caso:' : 'Também atuam no caso:'}{' '}
+                  <span className="font-medium text-foreground">
+                    {faltamDoCaso
+                      .map((a) => a.advogado.nomeExibicao || a.advogado.nome)
+                      .join(', ')}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setParticipantes([...participantes, ...faltamDoCaso.map((a) => a.advogado.id)])
+                  }
+                  className="ml-auto min-h-9 rounded-full border px-3 font-medium transition hover:bg-muted"
+                >
+                  Incluir na atividade
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Descrição + Obs internas */}

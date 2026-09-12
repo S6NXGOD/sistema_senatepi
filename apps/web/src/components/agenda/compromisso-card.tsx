@@ -11,7 +11,7 @@ import { IdentidadeDoProcesso } from '@/components/agenda/identidade-do-processo
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
-  Compromisso, StatusCompromisso, rotuloTipo, corDeTipo,
+  Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, ehReserva,
   formatData, formatHora, estaAtrasado,
   duracaoEntre,
   DESFECHO_LABEL, corDesfecho,
@@ -226,7 +226,11 @@ export function CompromissoCard({
               <span
                 className="flex items-center -space-x-1.5"
                 title={`Também atuam: ${participantes
-                  .map((e) => e.usuario.nomeExibicao || e.usuario.nome)
+                  .map((e) =>
+                    // Quem é reserva do robô não combinou de atuar — o cartão não
+                    // pode dar a entender que combinou.
+                    `${e.usuario.nomeExibicao || e.usuario.nome}${ehReserva(e) ? ' (reserva)' : ''}`,
+                  )
                   .join(', ')}`}
               >
                 {participantes.slice(0, 3).map((e) => (

@@ -181,7 +181,19 @@ export interface Compromisso {
    * é o que a maior parte da tela lê. Esta lista é o que permite mostrar os
    * avatares de quem mais atua.
    */
-  equipe?: { principal: boolean; usuario: Responsavel }[];
+  equipe?: {
+    principal: boolean;
+    /**
+     * COMO essa pessoa foi parar aqui. `AUTOMATICA` = reserva posta pelo robô
+     * (advogado do caso que não é o dono da tarefa); vazio = gente escolheu.
+     *
+     * A distinção é o que impede o sino de tocar quatro vezes pelo mesmo
+     * prazo — e é o que a tela precisa dizer, senão "também atuam" vira uma
+     * lista de nomes que ninguém sabe se combinou de atuar.
+     */
+    origem?: string | null;
+    usuario: Responsavel;
+  }[];
   /** Quem REGISTROU a demanda (com foto). Nulo em eventos do robô. */
   criador: Responsavel | null;
   /**
@@ -657,6 +669,9 @@ export function ehMinha(c: Compromisso, meuId?: string): boolean {
   if (!meuId) return false;
   return c.responsavel?.id === meuId || !!c.equipe?.some((e) => e.usuario.id === meuId);
 }
+
+/** Reserva do robô: aparece na atividade, mas não é pendência de ninguém. */
+export const ehReserva = (e: { origem?: string | null }): boolean => e.origem === 'AUTOMATICA';
 
 export interface FiltroCompromissos {
   status?: StatusCompromisso;

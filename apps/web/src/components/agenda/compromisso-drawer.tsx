@@ -1,12 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
-  Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper,
+  Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper, HandHelping,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -16,12 +16,14 @@ import { AnexosSection } from '@/components/anexos/anexos-section';
 import { cn, mascararCpf } from '@/lib/utils';
 import { MotivoUrgencia, SeloUrgente } from '@/components/ui/selo-urgente';
 import {
-  getCompromisso, formatData, formatHora, formatDataHora, estaAtrasado, duracaoEntre,
+  getCompromisso, atualizarCompromisso, ehReserva, estaFechado,
+  formatData, formatHora, formatDataHora, estaAtrasado, duracaoEntre,
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
+import { useAuth } from '@/lib/auth';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, nomeDeExibicao } from '@/lib/escalas';
 import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
@@ -78,6 +80,29 @@ export function CompromissoDrawer({
     enabled: open && !!dataPlantao,
   });
   const hoje = new Date().toISOString().slice(0, 10);
+
+  /*
+    ASSUMIR — o que a reserva existe para permitir.
+
+    O robô põe os advogados do caso como reserva justamente para o dia em que o
+    responsável está em audiência. Sem um botão, "assumir" seria: abrir a
+    edição, achar o campo de responsável, trocar, salvar — quatro passos para
+    uma decisão de um segundo. A rota é a mesma da edição, então o histórico
+    registra "Responsável alterado" com nome e hora, como sempre registrou.
+  */
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const assumir = useMutation({
+    mutationFn: (id: string) => atualizarCompromisso(id, { responsavelId: user!.id }),
+    onSuccess: () => {
+      toast.success('Atividade assumida — agora ela é sua.');
+      for (const k of [['compromissos'], ['compromisso'], ['agenda-alertas'], ['minhas-pendencias'], ['dashboard']]) {
+        qc.invalidateQueries({ queryKey: k });
+      }
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível assumir a atividade.'),
+  });
 
   const filiado = c?.filiado;
   const atrasado = c ? estaAtrasado(c) : false;
@@ -410,12 +435,51 @@ export function CompromissoDrawer({
                           nome={e.usuario.nomeExibicao || e.usuario.nome}
                           url={e.usuario.avatarUrl}
                         />
-                        <p className="truncate text-sm">
-                          {e.usuario.nomeExibicao || e.usuario.nome}
-                        </p>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm">
+                            {e.usuario.nomeExibicao || e.usuario.nome}
+                          </p>
+                          {ehReserva(e) && (
+                            <p className="text-[11px] text-muted-foreground">
+                              advogado do caso — entrou de reserva
+                            </p>
+                          )}
+                        </div>
+                        {/* Só aparece para quem pode agir: eu, e só se ainda não for meu. */}
+                        {user?.id === e.usuario.id && !estaFechado(c.status) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0"
+                            disabled={assumir.isPending}
+                            onClick={() => assumir.mutate(c.id)}
+                          >
+                            {assumir.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <HandHelping className="h-4 w-4" />
+                            )}
+                            Assumir
+                          </Button>
+                        )}
                       </li>
                     ))}
                 </ul>
+                {/*
+                  A HONESTIDADE QUE FALTAVA: reserva não é aviso.
+
+                  Quem lê "também atuam" supõe que a outra pessoa foi avisada.
+                  A reserva do robô não vai para o sino de ninguém — de
+                  propósito, senão um prazo tocaria em quatro agendas. Dizer
+                  isso aqui é o que separa uma lista de nomes de uma combinação
+                  de trabalho.
+                */}
+                {(c.equipe ?? []).some((e) => !e.principal && ehReserva(e)) && (
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                    Reserva é quem pode tocar isto se o responsável não puder — são os advogados do
+                    caso. Não entra na lista de pendências deles; quem assumir vira o responsável.
+                  </p>
+                )}
               </Bloco>
             )}
 
