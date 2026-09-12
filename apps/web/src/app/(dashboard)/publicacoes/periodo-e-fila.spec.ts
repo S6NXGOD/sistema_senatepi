@@ -22,7 +22,9 @@ describe('publicações por período e pela fila de decisão', () => {
   /** Link velho ou colado à mão não pode filtrar por um valor que não existe. */
   it('ignora valor desconhecido vindo da URL', () => {
     expect(TELA).toContain('if (JANELAS.some((j) => String(j.dias) === v)) {');
-    expect(TELA).toContain('if (v in SITUACAO_LABEL) {');
+    // `in` sobe no protótipo: `?situacao=toString` passaria e voltaria como 400.
+    expect(TELA).toContain('if (Object.prototype.hasOwnProperty.call(SITUACAO_LABEL, v)) {');
+    expect(TELA).not.toContain('if (v in SITUACAO_LABEL) {');
   });
 
   /** Filtro que não vira ficha é filtro que ninguém sabe que aplicou. */

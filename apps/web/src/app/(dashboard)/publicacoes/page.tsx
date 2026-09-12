@@ -133,7 +133,9 @@ function Publicacoes() {
   useFiltroPorUrl(
     'situacao',
     (v) => {
-      if (v in SITUACAO_LABEL) {
+      // `hasOwn`, e não `in`: `in` sobe no protótipo, e `?situacao=toString`
+      // passaria como filtro válido e voltaria da API como erro 400.
+      if (Object.prototype.hasOwnProperty.call(SITUACAO_LABEL, v)) {
         setSituacao(v as SituacaoDaPublicacao);
         setPagina(1);
       }
