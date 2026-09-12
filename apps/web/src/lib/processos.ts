@@ -661,6 +661,13 @@ export interface ImportarProcessoInput {
   advogadosIds?: string[];
   etiquetas?: string[];
   /**
+   * Cadastrar mesmo sem o processo estar no índice do CNJ.
+   *
+   * O DataJud atrasa semanas; o Diário publica no mesmo dia. Sem isto o
+   * sistema pedia o cadastro na tela e o recusava na API.
+   */
+  mesmoSemDatajud?: boolean;
+  /**
    * Réu informado já na importação — o DataJud não devolve as partes, e este é o
    * momento em que o operador tem o nome em mãos.
    */

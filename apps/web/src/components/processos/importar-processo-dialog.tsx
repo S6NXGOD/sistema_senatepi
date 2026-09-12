@@ -163,6 +163,33 @@ export function ImportarProcessoDialog({
    * seguintes imediatas — e voltaríamos a bater no CNJ a cada tecla.
    */
   const [consultaImediata, setConsultaImediata] = useState(0);
+  /**
+   * "O CNJ AINDA NÃO PUBLICOU — CADASTRAR ASSIM MESMO."
+   *
+   * O índice do DataJud atrasa semanas (mediana medida: 62 dias), enquanto o
+   * Diário publica no mesmo dia. Sem esta saída, o sistema avisava na tela que
+   * a ação precisava ser cadastrada e recusava o cadastro logo em seguida —
+   * seis tentativas em quatro dias no 0000895-95.2026.5.22.0103, todas em erro.
+   */
+  const [semCnj, setSemCnj] = useState(false);
+
+  /**
+   * O RELÓGIO DA ESPERA — o que faltava para "está lento" não virar "travou".
+   *
+   * A frase era fixa ("pode levar até 30s") e o cliente espera até 180s. Passados
+   * os 30, a tela continuava dizendo a mesma coisa, sem número e sem saída: quem
+   * olhava concluía, com toda a razão, que o sistema tinha entrado em loop.
+   *
+   * Um contador não acelera nada — mas transforma um travamento aparente numa
+   * espera com fim à vista, e é o que permite a pessoa decidir se espera ou
+   * desiste. O CNJ leva de 10 a 25 s no caso comum.
+   */
+  const [segundos, setSegundos] = useState(0);
+  useEffect(() => {
+    if (!consultando) { setSegundos(0); return; }
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [consultando]);
   const semEspera = useRef(false);
   /** Último NPU efetivamente consultado — evita repetir a chamada no blur. */
   const ultimoConsultado = useRef('');
@@ -415,13 +442,25 @@ export function ImportarProcessoDialog({
     if (!open || digitos.length !== 20) {
       setPrevia(null);
       setErroPrevia(null);
+      /*
+        ESTE ERA UM GIRO SEM FIM DE VERDADE.
+
+        Com a consulta em andamento (`consultando = true`), apagar um dígito do
+        número faz o efeito voltar por aqui e sair — e a bandeira ficava ligada
+        para sempre, porque quem a desliga é o `finally` da consulta, que este
+        caminho nunca alcança. A tela ficava "Consultando o DataJud…" até a
+        pessoa fechar o diálogo, sem nenhuma requisição no ar.
+      */
+      setConsultando(false);
       return;
     }
     // Sair e voltar ao campo sem mudar o número não consulta de novo: o CNJ tem
     // cota, e a resposta que está na tela é a mesma.
     const imediata = semEspera.current;
     semEspera.current = false;
-    if (imediata && ultimoConsultado.current === digitos) return;
+    // Mesmo cuidado do caminho acima: sair sem desligar a bandeira deixaria a
+    // tela girando sobre uma consulta que já terminou.
+    if (imediata && ultimoConsultado.current === digitos) { setConsultando(false); return; }
 
     let cancelado = false;
     setConsultando(true);
@@ -513,6 +552,9 @@ export function ImportarProcessoDialog({
         advogadoId: data.advogadoId || undefined,
         advogadosIds: equipeAdvogados.length ? equipeAdvogados : undefined,
         etiquetas: etiquetas.length ? etiquetas : undefined,
+        // Só vai quando a pessoa marcou — e a marca só aparece quando o CNJ
+        // realmente não tem o processo.
+        ...(semCnj ? { mesmoSemDatajud: true } : {}),
         // Réu: o DataJud não devolve as partes, então este é o único momento
         // barato de capturá-lo — depois vira tarefa na fila "Sem réu cadastrado".
         // RÉUS: a lista já montada mais o que estiver em edição. Enviar o
@@ -692,8 +734,21 @@ export function ImportarProcessoDialog({
 
           {/* ---- Auto-preenchimento a partir do DataJud ---- */}
           {consultando && (
-            <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Consultando o DataJud (pode levar até 30s)…
+            <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+              <p className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                <span>
+                  Consultando a base do CNJ…{' '}
+                  <span className="tabular-nums font-medium text-foreground">{segundos}s</span>
+                </span>
+              </p>
+              {segundos >= 20 && (
+                <p className="mt-1 pl-6 text-[11px] leading-relaxed">
+                  {segundos >= 60
+                    ? 'A base pública do CNJ está bem lenta agora. Você não precisa esperar: dá para preencher os campos abaixo e importar — a busca é refeita ao salvar.'
+                    : 'O CNJ costuma responder entre 10 e 25 segundos, mas às vezes passa disso. Pode ir preenchendo abaixo enquanto isso.'}
+                </p>
+              )}
             </div>
           )}
 
@@ -790,16 +845,33 @@ export function ImportarProcessoDialog({
                   <AlertTriangle className="h-3.5 w-3.5" /> Não localizado na base pública do CNJ
                   {previa.tribunalDerivado ? ` (${previa.tribunalDerivado})` : ''}
                 </p>
-                {/* HONESTIDADE COM O OPERADOR: sem o processo no DataJud, a
-                    importação FALHA — a API recusa. Prometer "importe assim
-                    mesmo" faria a pessoa perder o preenchimento inteiro num
-                    erro. As saídas reais são conferir o número e conferir a
-                    sigla; se nem assim, o tribunal ainda não alimentou a base
-                    do CNJ e não há o que importar hoje. */}
+                {/*
+                  ISTO ERA UM BECO SEM SAÍDA — e agora tem porta.
+
+                  O texto antigo dizia a verdade da época: "a importação depende
+                  de o tribunal já ter enviado o processo ao CNJ", porque a API
+                  recusava. Só que o índice do CNJ demora semanas e o Diário não:
+                  o sistema chegava a pedir na tela anterior que a ação fosse
+                  cadastrada e a recusar aqui. Agora dá para cadastrar com o que
+                  se sabe, e a varredura noturna completa quando o índice sair.
+                */}
                 <p className="text-amber-800/80 dark:text-amber-300/80">
-                  Confira o número — e, se estiver certo, defina a sigla do tribunal à mão logo
-                  abaixo. A importação depende de o tribunal já ter enviado o processo ao CNJ.
+                  Confira o número e a sigla do tribunal logo abaixo. Se estiverem certos, o
+                  tribunal ainda não enviou este processo ao CNJ — o que é comum em processo novo.
                 </p>
+                <label className="mt-1.5 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-400/70 bg-amber-100/60 p-2.5 dark:border-amber-800 dark:bg-amber-900/20">
+                  <input
+                    type="checkbox"
+                    checked={semCnj}
+                    onChange={(e) => setSemCnj(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700"
+                  />
+                  <span>
+                    <strong className="font-semibold">Cadastrar assim mesmo.</strong> O processo
+                    entra com o que você informar aqui e fica sem movimentações. A varredura da
+                    madrugada tenta todo dia e preenche o histórico sozinha quando o CNJ publicar.
+                  </span>
+                </label>
               </div>
             )
           )}

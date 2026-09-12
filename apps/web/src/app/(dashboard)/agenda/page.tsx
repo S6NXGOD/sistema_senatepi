@@ -303,15 +303,41 @@ function AgendaConteudo() {
     [compromissos, user?.id],
   );
 
-  /** Quantos recortes estão valendo agora — alimenta a barra de resumo. */
+  /**
+   * Quantos recortes estão valendo agora — alimenta a barra de resumo.
+   *
+   * A ABA CONTA. Ela não contava, e essa era a origem de "a busca não
+   * funciona": procurar "aval" com a aba **Hoje** ligada devolvia "1 filtro
+   * ativo · 0 atividades à vista" enquanto o calendário logo abaixo mostrava
+   * quatro "Avaliar recurso" em setembro. Havia DOIS filtros; o que zerou a
+   * lista não se anunciava, não aparecia na conta e o botão "Limpar filtros"
+   * não o soltava. A pessoa conclui que a busca está quebrada — e conclui
+   * certo, porque a tela mentiu sobre o próprio estado.
+   */
   const filtrosAtivos =
-    (buscaDeb ? 1 : 0) + (tipo ? 1 : 0) + (responsaveis.length ? 1 : 0) + (soUrgentes ? 1 : 0);
+    (buscaDeb ? 1 : 0) + (tipo ? 1 : 0) + (responsaveis.length ? 1 : 0) + (soUrgentes ? 1 : 0) +
+    (aba !== 'todos' ? 1 : 0);
+
+  /**
+   * QUANTOS A BUSCA ACHOU FORA DA ABA — o número que faltava dizer.
+   *
+   * A API já devolveu tudo que casa com a busca; a aba é um corte de data feito
+   * aqui. Comparar os dois é de graça e transforma um "0 resultados" que parece
+   * defeito em "não é hoje, é em outro dia" — que é a resposta verdadeira.
+   */
+  const foraDaAba = useMemo(
+    () => (aba === 'todos' || diaSelecionado ? 0 : compromissos.length - aplicarAba(compromissos, aba).length),
+    [compromissos, aba, diaSelecionado],
+  );
 
   function limparFiltros() {
     setBusca('');
     setTipo('');
     setResponsaveis([]);
     setSoUrgentes(false);
+    // A aba é filtro como os outros — deixá-la de fora fazia "Limpar" limpar
+    // pela metade, e a lista continuava vazia depois de limpar tudo.
+    setAba('todos');
   }
 
   const invalidar = () => {
@@ -497,6 +523,22 @@ function AgendaConteudo() {
               <strong className="text-foreground">{filtrados.length}</strong> atividade
               {filtrados.length === 1 ? '' : 's'} à vista
             </span>
+            {/*
+              A SAÍDA FICA ONDE O RESULTADO SUMIU.
+
+              Um toque em "ver todas" resolve o caso comum (o que se procura
+              existe, só não é hoje) sem obrigar ninguém a entender que a aba
+              também filtrava.
+            */}
+            {foraDaAba > 0 && filtrados.length === 0 && (
+              <button
+                type="button"
+                onClick={() => setAba('todos')}
+                className="rounded-full border border-brand-400 px-2.5 py-0.5 font-medium text-brand-800 transition hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-900/20"
+              >
+                {foraDaAba === 1 ? '1 em outra data' : `${foraDaAba} em outras datas`} — ver todas
+              </button>
+            )}
             <button
               type="button"
               onClick={limparFiltros}
