@@ -92,3 +92,43 @@ describe('quando o CNJ ainda não publicou, a tela oferece cadastrar', () => {
     expect(MODAL).toContain('...(semCnj ? { mesmoSemDatajud: true } : {})');
   });
 });
+
+/**
+ * O ROBÔ REPÕE O QUE PROVA E PROPÕE O RESTO.
+ *
+ * A varredura acrescenta sozinha toda parte do ato cujo lado não deixa dúvida
+ * (51 partes em 43 fichas na primeira passagem). O que sobra — 96 casos em 45
+ * processos — é dúvida honesta: o tribunal escreve a mesma parte nos dois polos,
+ * ou numera os polos do RECURSO. A tela existe para isso não virar mistério.
+ */
+describe('a parte do Diário sem lado vira um toque, não um mistério', () => {
+  const PANEL = readFileSync(join(__dirname, 'partes-panel.tsx'), 'utf8');
+  const LIB = readFileSync(join(__dirname, '../../lib/partes.ts'), 'utf8');
+
+  it('a ficha pergunta o lado em vez de esconder a parte', () => {
+    expect(PANEL).toContain('function PartesEmDuvida');
+    expect(PANEL).toContain('partesDoAtoEmDuvida(processoId)');
+    // Os dois lados são oferecidos; nenhum vem escolhido.
+    expect(PANEL).toContain("(['ATIVO', 'PASSIVO'] as const)");
+  });
+
+  it('mostra o motivo em português, vindo da API', () => {
+    // A explicação NÃO é escrita na tela: quem sabe por que não deu para
+    // decidir é quem tentou decidir. Duplicar a frase aqui a faria divergir.
+    expect(PANEL).toContain('const motivo = emDuvida[0].porque;');
+    expect(PANEL).toContain('{motivo}');
+  });
+
+  it('some quando não há nada a decidir', () => {
+    expect(PANEL).toContain('if (!emDuvida.length) return null;');
+  });
+
+  it('quem incluir some da lista na hora', () => {
+    expect(PANEL).toContain("queryKey: ['processo', processoId, 'partes-do-ato']");
+  });
+
+  it('e o contrato com a API está declarado', () => {
+    expect(LIB).toContain('export async function partesDoAtoEmDuvida');
+    expect(LIB).toContain('/partes-do-ato');
+  });
+});

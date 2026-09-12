@@ -15,11 +15,12 @@ import { SeletorAdvogados, type ValorSeletorAdvogados } from './seletor-advogado
 import { classesCor } from '@/lib/paleta-cores';
 import { AdicionarParteForm } from './adicionar-parte-form';
 import {
-  advogadosDoAtoSemLado,
+  adicionarParte,
+  advogadosDoAtoSemLado, partesDoAtoEmDuvida,
   atualizarParte, definirAdvogadosDoProcesso, formatDocumento, removerParte,
   POLO_COR, POLO_DESCRICAO, POLO_LABEL, TIPO_PARTE_LABEL,
   type AdvogadoCitadoNoAto, type AdvogadoDaParte, type AdvogadoDoProcesso,
-  type ParteDoProcesso, type PoloProcesso, type PolosProcesso,
+  type ParteDoProcesso, type ParteEmDuvida, type PoloProcesso, type PolosProcesso,
 } from '@/lib/partes';
 
 const ORDEM_POLOS: PoloProcesso[] = ['ATIVO', 'PASSIVO', 'TERCEIRO'];
@@ -80,6 +81,25 @@ export function PartesPanel({
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Não foi possível atualizar os advogados.'),
+  });
+
+  /*
+    INCLUIR A PARTE QUE O DIÁRIO NOMEIA E O ROBÔ NÃO POSICIONOU.
+
+    Entra como MANUAL porque quem escolheu o lado foi gente — a marca é o que
+    permite a tela dizer depois "isto alguém conferiu" em vez de tratar como
+    palpite do robô.
+  */
+  const incluirParteDoAto = useMutation({
+    mutationFn: ({ nome, polo }: { nome: string; polo: PoloProcesso }) =>
+      adicionarParte(processoId, { polo, nome }),
+    onSuccess: () => {
+      toast.success('Parte incluída.');
+      qc.invalidateQueries({ queryKey: ['processo', processoId, 'partes-do-ato'] });
+      onChanged();
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Não foi possível incluir a parte.'),
   });
 
   const promover = useMutation({
@@ -195,6 +215,13 @@ export function PartesPanel({
           </section>
         );
       })}
+
+      <PartesEmDuvida
+        processoId={processoId}
+        podeEditar={podeEditar}
+        onIncluir={(parte, polo) => incluirParteDoAto.mutate({ nome: parte.nome, polo })}
+        salvando={incluirParteDoAto.isPending}
+      />
 
       <AdvogadosSemLado
         processoId={processoId}
@@ -606,6 +633,93 @@ function AdvogadosSemLado({
                   >
                     <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', classesCor(POLO_COR[p.polo]).ponto)} />
                     <span className="truncate">{p.nome}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * O QUE O DIÁRIO NOMEIA E O ROBÔ NÃO POSICIONOU.
+ *
+ * A varredura da madrugada acrescenta sozinha toda parte cujo lado não deixa
+ * dúvida — foram 51 partes em 43 fichas na primeira passagem. Sobram duas
+ * situações, e as duas param aqui:
+ *
+ *  · o tribunal escreve a MESMA parte nos dois polos (é assim que ele publica
+ *    recurso: os dois lados recorrem);
+ *  · o ato numera os polos do RECURSO e não os da ação — a EBSERH aparece como
+ *    "A" porque foi ela quem recorreu, embora na ação seja a ré.
+ *
+ * Nos dois casos o sistema tem o NOME (que é fato do tribunal) e não tem o
+ * LADO. Mostrar o nome e deixar escolher em um toque é honesto; adivinhar
+ * colocaria a parte no lado errado da ficha para sempre, e a ficha é o que
+ * responde "de quem é este prazo".
+ */
+function PartesEmDuvida({
+  processoId,
+  podeEditar,
+  onIncluir,
+  salvando,
+}: {
+  processoId: string;
+  podeEditar: boolean;
+  onIncluir: (parte: ParteEmDuvida, polo: PoloProcesso) => void;
+  salvando: boolean;
+}) {
+  const { data: emDuvida = [] } = useQuery({
+    queryKey: ['processo', processoId, 'partes-do-ato'],
+    queryFn: () => partesDoAtoEmDuvida(processoId),
+  });
+  if (!emDuvida.length) return null;
+
+  // Todas as pendências deste processo têm o mesmo motivo: o que separa é o
+  // processo, não a parte. Uma explicação em cima vale por todas.
+  const motivo = emDuvida[0].porque;
+
+  return (
+    <section className="rounded-xl border border-sky-300 bg-sky-50/60 p-3 dark:border-sky-900 dark:bg-sky-950/20">
+      <h4 className="flex items-center gap-2 text-sm font-semibold">
+        <Users className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-400" />
+        {emDuvida.length === 1
+          ? 'Uma parte do Diário sem lado definido'
+          : `${emDuvida.length} partes do Diário sem lado definido`}
+      </h4>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+        O tribunal nomeia {emDuvida.length === 1 ? 'esta parte' : 'estas partes'} no processo, mas{' '}
+        {motivo}.{' '}
+        {podeEditar
+          ? 'Escolha o lado e ela entra na ficha.'
+          : 'Quem edita o processo pode definir o lado.'}
+      </p>
+      <ul className="mt-2 space-y-2">
+        {emDuvida.map((p) => (
+          <li key={p.nome} className="rounded-lg border bg-card p-2.5">
+            <p className="text-sm font-medium leading-snug">{p.nome}</p>
+            {podeEditar && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {(['ATIVO', 'PASSIVO'] as const).map((polo) => (
+                  <button
+                    key={polo}
+                    type="button"
+                    disabled={salvando}
+                    onClick={() => onIncluir(p, polo)}
+                    className={cn(
+                      'inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[11px] font-medium transition',
+                      'hover:bg-muted disabled:opacity-50',
+                      // A sugestão do ato fica em destaque leve: ajuda quem
+                      // conhece o caso e não decide por quem não conhece.
+                      p.polo === polo && 'border-sky-400 bg-sky-100/70 dark:bg-sky-900/30',
+                    )}
+                  >
+                    <span className={cn('h-2 w-2 rounded-full', classesCor(POLO_COR[polo]).ponto)} />
+                    {POLO_LABEL[polo]}
+                    {p.polo === polo && <span className="text-muted-foreground">· o ato diz este</span>}
                   </button>
                 ))}
               </div>

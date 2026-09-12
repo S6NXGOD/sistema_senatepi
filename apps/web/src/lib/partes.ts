@@ -263,6 +263,27 @@ export async function advogadosDoAtoSemLado(processoId: string): Promise<Advogad
   return (await api.get(`/processos/${processoId}/advogados-do-ato`)).data;
 }
 
+/**
+ * A PARTE QUE O DIÁRIO NOMEIA E O ROBÔ NÃO SOUBE POSICIONAR.
+ *
+ * A varredura da madrugada acrescenta sozinha toda parte do ato cujo lado não
+ * deixa dúvida. Sobram duas situações, e as duas viram esta lista: quando o
+ * tribunal escreve a mesma parte nos dois polos, e quando ele numera os polos
+ * do RECURSO em vez dos da ação — aí o lado do ato não serve para posicionar
+ * ninguém, e escolher seria trocar uma verdade por outra.
+ */
+export interface ParteEmDuvida {
+  nome: string;
+  /** O lado que o ato diz — é sugestão, não afirmação. */
+  polo: 'ATIVO' | 'PASSIVO';
+  /** Em português: o que impediu o sistema de decidir. */
+  porque: string;
+}
+
+export async function partesDoAtoEmDuvida(processoId: string): Promise<ParteEmDuvida[]> {
+  return (await api.get(`/processos/${processoId}/partes-do-ato`)).data;
+}
+
 /** Envia a lista COMPLETA (substitui a atual) e quem é o responsável. */
 export async function definirAdvogadosDoProcesso(
   processoId: string,
