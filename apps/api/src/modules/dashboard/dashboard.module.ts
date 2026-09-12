@@ -410,6 +410,27 @@ export class DashboardService {
       ? { OR: [{ processo: meuAcervo }, ...(idsQueMeCitam.length ? [{ id: { in: idsQueMeCitam } }] : [])] }
       : {};
 
+    /*
+      "PARADA" SÓ FAZ SENTIDO DEPOIS QUE A DATA CHEGOU.
+
+      A regra era `aberta E sem mexer há 7 dias`, e não olhava a data da
+      atividade. Uma audiência marcada para daqui a três semanas, que ninguém
+      tocou porque ainda não há o que fazer, contava como "parada" — e o
+      "Preparar audiência" que o robô passou a criar dias antes da pauta é
+      exatamente esse caso: nasce cedo e fica intocado de propósito. Sem este
+      corte, a faixa ia acusar de abandono o trabalho que ainda nem começou.
+
+      Medido na produção em 12/09/2026, antes do corte: 1 atividade parada, e
+      com a data já vencida — o corte não esconde nada do que existe hoje, só
+      impede o alarme falso que viria.
+    */
+    const paradaWhere: Prisma.CompromissoWhereInput = {
+      ...meu,
+      status: ABERTOS,
+      updatedAt: { lt: menos7dias },
+      inicio: { lte: agora },
+    };
+
     const [
       // KPIs globais
       processosAtivos,
@@ -516,7 +537,7 @@ export class DashboardService {
       this.prisma.compromisso.count({
         where: { ...meu, status: ABERTOS, inicio: { gte: hojeIni, lt: agora } },
       }),
-      this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, updatedAt: { lt: menos7dias } } }),
+      this.prisma.compromisso.count({ where: paradaWhere }),
       this.prisma.compromisso.count({
         where: { ...meu, status: ABERTOS, urgente: true, inicio: { gte: hojeIni, lt: em7dias } },
       }),
@@ -1157,6 +1178,37 @@ export class DashboardService {
         /** De HOJE, com a hora marcada já passada. Informação, não alarme. */
         passaramDaHora: passaramDaHoraCount,
         semMovimentacao: semMovimentacaoCount,
+        /*
+          QUAIS ESTÃO PARADAS — o que faltava para a faixa virar trabalho.
+
+          A faixa dizia "1 atividade está parada há mais de 7 dias" e levava
+          para `/agenda` puro: a pessoa caía no quadro inteiro, na aba de hoje,
+          e tinha de adivinhar qual era. O número sem o nome obriga a procurar,
+          e aviso que obriga a procurar é aviso que se aprende a ignorar.
+
+          Mesmo filtro da contagem (`paradaWhere`), então lista e número nunca
+          discordam. Das mais antigas primeiro — a que está parada há mais tempo
+          é a que mais precisa de alguém. Dez bastam: acima disso o caminho é a
+          agenda, e a faixa diz quantas ficaram de fora.
+
+          A consulta só roda quando há o que listar, que não é o caso normal.
+        */
+        paradas: semMovimentacaoCount
+          ? await this.prisma.compromisso.findMany({
+              where: paradaWhere,
+              orderBy: { updatedAt: 'asc' },
+              take: 10,
+              select: {
+                id: true,
+                titulo: true,
+                inicio: true,
+                updatedAt: true,
+                responsavel: {
+                  select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
+                },
+              },
+            })
+          : [],
         urgentes: urgentesSemanaCount,
         audienciasAAgendar: audienciasAAgendar.total,
       },
