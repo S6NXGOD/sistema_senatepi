@@ -25,7 +25,7 @@ import { podeEditar, podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/per
 import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
-  primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando,
+  primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando, diasSemAcesso,
   type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -1095,15 +1095,21 @@ function PublicacoesDjen({
             {pessoal ? 'Suas publicações' : 'Publicações que pedem providência'}
           </p>
           {/*
-            "Ver todas" é a resposta à paginação: o painel é RESUMO — seis atos
-            dos últimos sete dias. O acervo inteiro, procurável por parte,
-            advogado, OAB e teor, mora em /publicacoes.
+            O painel é RESUMO — seis atos dos últimos sete dias. O acervo
+            inteiro, procurável por parte, advogado, OAB e teor, mora em
+            /publicacoes.
+
+            E O LINK LEVA A SEMANA QUE O NÚMERO CONTOU. Abria `/publicacoes`
+            puro — as 2.066 do acervo, em 12/09/2026 — e os sete dias tinham de
+            ser achados rolando. A tela conta cópias (uma por intimado) e o
+            painel conta atos, então o total de lá pode ser um pouco maior; a
+            semana é a mesma.
           */}
           <Link
-            href="/publicacoes"
+            href="/publicacoes?dias=7"
             className="text-xs font-medium text-brand-800 hover:underline dark:text-brand-300"
           >
-            {djen.publicacoes7d} em 7 dias · ver todas
+            {djen.publicacoes7d} em 7 dias · ver a semana
           </Link>
         </div>
 
@@ -1779,6 +1785,16 @@ function AudienciasSemana({ data }: { data: ResumoDashboard }) {
  * O painel respondia "quantas atividades estão atrasadas na casa?", mas não
  * "de quem?". Sem esse recorte, a gestão via o número e não sabia onde agir.
  * Ordenado por atrasadas: é o gargalo que exige ação, não o volume.
+ *
+ * DUAS COISAS ENTRARAM EM 12/09/2026, e nenhuma é aviso novo:
+ *
+ *  · A LINHA ABRE A AGENDA DA PESSOA. Quem coordena não cumpre o prazo de
+ *    ninguém: cobra ou redistribui, e para isso precisa da lista dela aberta.
+ *
+ *  · O ÚLTIMO ACESSO, quando passa de uma semana. O sino e a faixa só alcançam
+ *    quem abre o sistema — das três atrasadas da casa, duas eram de alguém que
+ *    não entrava havia 39 dias. Âmbar quando há atraso junto, que é a soma que
+ *    pede uma ligação; cinza quando não há.
  */
 function CargaEquipe({ data }: { data: ResumoDashboard }) {
   const itens = data.cargaEquipe ?? [];
@@ -1789,39 +1805,61 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
       {itens.length === 0 ? (
         <EmptyState icon={CheckCircle2}>Nenhuma atividade em aberto na equipe.</EmptyState>
       ) : (
-        <ul className="space-y-2.5">
-          {itens.map(({ advogado, abertas, atrasadas }) => (
-            <li key={advogado.id} className="flex items-center gap-3">
-              {advogado.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={advogado.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
-              ) : (
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-800 text-xs font-bold text-white dark:bg-brand-900/40 dark:text-brand-200">
-                  {(advogado.nomeExibicao || advogado.nome).charAt(0)}
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center justify-between gap-2 text-sm font-medium">
-                  <span className="truncate">{advogado.nomeExibicao || advogado.nome}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {abertas} {abertas === 1 ? 'aberta' : 'abertas'}
-                    {atrasadas > 0 && (
-                      <span className="ml-1.5 font-semibold text-rose-600 dark:text-rose-400">
-                        · {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
+        <ul className="space-y-1">
+          {itens.map(({ advogado, abertas, atrasadas, ultimoAcesso }) => {
+            const ausencia = diasSemAcesso(ultimoAcesso);
+            return (
+              <li key={advogado.id}>
+                <Link
+                  href={`/agenda?responsavel=${advogado.id}`}
+                  className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
+                >
+                  {advogado.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={advogado.avatarUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-800 text-xs font-bold text-white dark:bg-brand-900/40 dark:text-brand-200">
+                      {(advogado.nomeExibicao || advogado.nome).charAt(0)}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center justify-between gap-2 text-sm font-medium">
+                      <span className="truncate">{advogado.nomeExibicao || advogado.nome}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {abertas} {abertas === 1 ? 'aberta' : 'abertas'}
+                        {atrasadas > 0 && (
+                          <span className="ml-1.5 font-semibold text-rose-600 dark:text-rose-400">
+                            · {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
+                          </span>
+                        )}
                       </span>
+                    </p>
+                    {/* Barra proporcional ao maior da equipe — a comparação é o dado */}
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn('h-full rounded-full', atrasadas > 0 ? 'bg-rose-500' : 'bg-brand-600')}
+                        style={{ width: `${Math.round((abertas / maior) * 100)}%` }}
+                      />
+                    </div>
+                    {ausencia !== null && (
+                      <p
+                        className={cn(
+                          'mt-1 text-[11px] leading-snug',
+                          atrasadas > 0
+                            ? 'font-medium text-amber-700 dark:text-amber-400'
+                            : 'text-muted-foreground',
+                        )}
+                      >
+                        {ausencia === 'NUNCA'
+                          ? 'Ainda não entrou no sistema'
+                          : `Último acesso há ${ausencia} dias`}
+                      </p>
                     )}
-                  </span>
-                </p>
-                {/* Barra proporcional ao maior da equipe — a comparação é o dado */}
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={cn('h-full rounded-full', atrasadas > 0 ? 'bg-rose-500' : 'bg-brand-600')}
-                    style={{ width: `${Math.round((abertas / maior) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            </li>
-          ))}
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </SectionCard>

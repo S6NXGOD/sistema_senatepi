@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
@@ -22,6 +22,7 @@ import {
   listarAdvogadosDisponiveis, formatNPU } from '@/lib/processos';
 import { STATUS_LABEL, type StatusCompromisso } from '@/lib/agenda';
 import { useAuth } from '@/lib/auth';
+import { useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 
 /**
  * O ACERVO DE PUBLICAÇÕES, PROCURÁVEL.
@@ -39,19 +40,51 @@ const ONDE_LABEL: Record<string, string> = {
   TUDO: 'tudo', AUTOR: 'autor', REU: 'réu', NUMERO: 'nº do processo', TEOR: 'teor',
 };
 const SITUACAO_LABEL: Record<string, string> = {
-  COM_TAREFA: 'Já virou tarefa', SEM_TAREFA: 'Sem tarefa na agenda',
+  COM_TAREFA: 'Já virou tarefa',
+  SEM_TAREFA: 'Sem tarefa na agenda',
+  SEM_DECISAO: 'Esperando decisão',
 };
+
+/**
+ * AS JANELAS DE DATA — as que alguém pede de verdade.
+ *
+ * "O que chegou esta semana" é a pergunta de segunda-feira; trinta e noventa
+ * dias servem a quem confere se algo passou. Data livre não entrou: quem procura
+ * um ato específico procura pelo número ou pela parte.
+ */
+const JANELAS: { dias: number; texto: string }[] = [
+  { dias: 7, texto: 'Últimos 7 dias' },
+  { dias: 30, texto: 'Últimos 30 dias' },
+  { dias: 90, texto: 'Últimos 90 dias' },
+];
 
 const inputCls =
   'h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ' +
   'ring-offset-background focus-visible:ring-2 focus-visible:ring-ring';
 
+/**
+ * `useSearchParams` (dos links `?dias=7` e `?situacao=`) obriga a um limite de
+ * Suspense — sem ele o build do Next falha ao pré-renderizar a rota. Mesmo
+ * padrão da lista de processos.
+ */
 export default function PublicacoesPage() {
+  return (
+    <Suspense
+      fallback={<p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>}
+    >
+      <Publicacoes />
+    </Suspense>
+  );
+}
+
+type SituacaoDaPublicacao = 'COM_TAREFA' | 'SEM_TAREFA' | 'SEM_DECISAO';
+
+function Publicacoes() {
   const [termo, setTermo] = useState('');
   const [busca, setBusca] = useState('');
   const [providencia, setProvidencia] = useState('');
   const [tribunal, setTribunal] = useState('');
-  const [situacao, setSituacao] = useState<'' | 'COM_TAREFA' | 'SEM_TAREFA'>('');
+  const [situacao, setSituacao] = useState<'' | SituacaoDaPublicacao>('');
   const [onde, setOnde] = useState<'TUDO' | 'AUTOR' | 'REU' | 'NUMERO' | 'TEOR'>('TUDO');
   /**
    * QUEM FOI INTIMADO NO ATO — e não de quem é o processo.
@@ -76,6 +109,37 @@ export default function PublicacoesPage() {
     e escondê-los só acrescentaria um clique.
   */
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  /** Janela por data de disponibilização; vazio é "qualquer data". */
+  const [dias, setDias] = useState('');
+
+  /*
+    OS LINKS DE FORA CHEGAM FILTRADOS.
+
+    O painel manda `?dias=7` ("18 em 7 dias") e o relatório manda
+    `?situacao=SEM_DECISAO` ("esperando decisão"). Sem ler a URL, os dois
+    atalhos abririam o acervo inteiro — o tipo de link quebrado de que ninguém
+    desconfia. Valor desconhecido é ignorado.
+  */
+  useFiltroPorUrl(
+    'dias',
+    (v) => {
+      if (JANELAS.some((j) => String(j.dias) === v)) {
+        setDias(v);
+        setPagina(1);
+      }
+    },
+    '/publicacoes',
+  );
+  useFiltroPorUrl(
+    'situacao',
+    (v) => {
+      if (v in SITUACAO_LABEL) {
+        setSituacao(v as SituacaoDaPublicacao);
+        setPagina(1);
+      }
+    },
+    '/publicacoes',
+  );
 
   /**
    * O ADVOGADO ABRE NA PRÓPRIA CARTEIRA.
@@ -129,9 +193,12 @@ export default function PublicacoesPage() {
       onde,
       meus: soMeus ? ('true' as const) : undefined,
       citaAdvogado: citaAdvogado || undefined,
+      dias: dias ? Number(dias) : undefined,
       pagina,
     }),
-    [busca, providencia, tribunal, situacao, onde, soMeus, citaAdvogado, pagina],
+    // `dias` na lista: filtro fora das dependências é ficha que aparece com a
+    // lista parada — a consulta nem sabe que ele mudou.
+    [busca, providencia, tribunal, situacao, onde, soMeus, citaAdvogado, dias, pagina],
   );
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
@@ -180,6 +247,11 @@ export default function PublicacoesPage() {
     },
     tribunal && { chave: 'trib', texto: tribunal, limpar: () => setTribunal('') },
     situacao && { chave: 'sit', texto: SITUACAO_LABEL[situacao], limpar: () => setSituacao('') },
+    dias && {
+      chave: 'dias',
+      texto: JANELAS.find((j) => String(j.dias) === dias)?.texto ?? `Últimos ${dias} dias`,
+      limpar: () => setDias(''),
+    },
     citaAdvogado && {
       chave: 'adv',
       texto: `Intimou ${
@@ -200,6 +272,7 @@ export default function PublicacoesPage() {
     setTribunal('');
     setSituacao('');
     setCitaAdvogado('');
+    setDias('');
     setOnde('TUDO');
     setPagina(1);
   }
@@ -357,18 +430,38 @@ export default function PublicacoesPage() {
         </div>
 
         {/*
-          QUATRO FILTROS, e o quarto é o que faltava: POR ADVOGADO CITADO.
+          CINCO FILTROS. O de advogado foi o primeiro que faltou: POR ADVOGADO
+          CITADO. A busca livre já achava por nome ou OAB, mas exigia saber e
+          digitar. A pergunta real — "o que intimou a Dra. Shérad?" — é de
+          escolher, não de escrever. E é por CITAÇÃO, não por acervo: o prazo
+          corre para quem foi intimado, e as duas listas divergem muito (a Dra.
+          Jaqueline tinha 0 pelo acervo e 4 que a citavam).
 
-          A busca livre já achava por nome ou OAB, mas exigia saber e digitar. A
-          pergunta real — "o que intimou a Dra. Shérad?" — é de escolher, não de
-          escrever. E é por CITAÇÃO, não por acervo: o prazo corre para quem foi
-          intimado, e as duas listas divergem muito (a Dra. Jaqueline tinha 0
-          pelo acervo e 4 que a citavam).
+          E A DATA, que entrou por último e vem primeiro: "o que chegou esta
+          semana" é a pergunta mais comum desta tela, e não tinha como ser feita
+          — o link "18 em 7 dias" do painel abria as 2.066 publicações do acervo.
 
-          Quatro colunas no desktop, uma no celular — select nativo, que no
-          celular abre a roda do sistema e não um menu que ninguém consegue rolar.
+          Select nativo, uma coluna no celular: ele abre a roda do sistema, e não
+          um menu que ninguém consegue rolar.
         */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <select
+            value={dias}
+            onChange={(e) => {
+              setDias(e.target.value);
+              setPagina(1);
+            }}
+            className={inputCls}
+            aria-label="Filtrar por data"
+          >
+            <option value="">Qualquer data</option>
+            {JANELAS.map((j) => (
+              <option key={j.dias} value={String(j.dias)}>
+                {j.texto}
+              </option>
+            ))}
+          </select>
+
           <select
             value={providencia}
             onChange={(e) => {
@@ -406,7 +499,7 @@ export default function PublicacoesPage() {
           <select
             value={situacao}
             onChange={(e) => {
-              setSituacao(e.target.value as '' | 'COM_TAREFA' | 'SEM_TAREFA');
+              setSituacao(e.target.value as '' | SituacaoDaPublicacao);
               setPagina(1);
             }}
             className={inputCls}
@@ -415,6 +508,8 @@ export default function PublicacoesPage() {
             <option value="">Com ou sem tarefa</option>
             <option value="COM_TAREFA">Já virou tarefa</option>
             <option value="SEM_TAREFA">Sem tarefa na agenda</option>
+            {/* "Sem tarefa" junta o que o robô dispensou com motivo; esta opção é só a fila. */}
+            <option value="SEM_DECISAO">Esperando decisão</option>
           </select>
 
           <select

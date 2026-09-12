@@ -11,6 +11,26 @@ import type { AudienciaAAgendar } from './audiencias';
 export type TipoCompromisso = string;
 export type StatusCompromisso = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDO' | 'CANCELADO';
 
+/**
+ * HÁ QUANTOS DIAS A PESSOA NÃO USA O SISTEMA — só quando isso diz alguma coisa.
+ *
+ * Abaixo de uma semana é folga, feriado prolongado, audiência fora: mostrar
+ * "há 3 dias" em toda linha viraria ruído e acusação. A partir de sete dias é
+ * informação para quem coordena. `undefined` é a API de antes do campo — aí não
+ * sabemos, e não afirmamos nada.
+ */
+export const DIAS_PARA_NOTAR_AUSENCIA = 7;
+
+export function diasSemAcesso(
+  ultimoAcesso: string | null | undefined,
+  agora = Date.now(),
+): number | 'NUNCA' | null {
+  if (ultimoAcesso === undefined) return null;
+  if (ultimoAcesso === null) return 'NUNCA';
+  const dias = Math.floor((agora - new Date(ultimoAcesso).getTime()) / 86_400_000);
+  return dias >= DIAS_PARA_NOTAR_AUSENCIA ? dias : null;
+}
+
 export interface PessoaResumo {
   id: string;
   nome: string;
@@ -330,6 +350,11 @@ export interface ResumoDashboard {
     advogado: PessoaResumo;
     abertas: number;
     atrasadas: number;
+    /**
+     * A última vez que a pessoa usou o sistema: entrou, renovou a sessão ou
+     * mexeu em alguma coisa. Opcional pela janela de troca do deploy.
+     */
+    ultimoAcesso?: string | null;
   }[] | null;
   /** Tarefas de contato com o filiado — a fila própria da Triagem. */
   contatosHoje: CompromissoCard[];

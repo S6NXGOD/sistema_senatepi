@@ -107,27 +107,31 @@ export default function PanoramaPage() {
               De que lado estamos
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              O papel do {tenant.sigla} em cada processo do acervo. Clique para ver a lista.
+              O papel do {tenant.sigla} em cada processo ativo. Clique para ver a lista.
             </p>
           </div>
+          {/*
+            O LINK LEVA O MESMO RECORTE QUE O CARTÃO CONTOU. Sem `status=ATIVO`
+            a lista trazia também os encerrados, e o número mudava na chegada.
+          */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <CartaoPapel
               titulo={`${tenant.sigla} é o autor`}
               valor={data.nossoPapel.autor}
               nota="Ação movida pela entidade em nome próprio ou da categoria."
-              href="/processos?nossoPapel=AUTOR"
+              href="/processos?nossoPapel=AUTOR&status=ATIVO"
             />
             <CartaoPapel
               titulo="Representamos o filiado"
               valor={data.nossoPapel.representando}
               nota="A parte é o filiado; a entidade não figura em polo nenhum."
-              href="/processos?nossoPapel=REPRESENTANDO"
+              href="/processos?nossoPapel=REPRESENTANDO&status=ATIVO"
             />
             <CartaoPapel
               titulo={`${tenant.sigla} é réu`}
               valor={data.nossoPapel.reu}
               nota="Ação contra a entidade — responde ela, não o filiado."
-              href="/processos?nossoPapel=REU"
+              href="/processos?nossoPapel=REU&status=ATIVO"
             />
           </div>
         </section>
@@ -215,8 +219,9 @@ function CartaoConcentracao({ c }: { c: Concentracao }) {
     <Card className={cn('border-l-4 p-4', TOM[principal.tom].borda)}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h3 className="text-base font-semibold">{c.adversario}</h3>
+        {/* `status=ATIVO`: o cartão conta o acervo ativo, e a lista tem de contar igual. */}
         <Link
-          href={`/processos?parteExternaId=${c.parteExternaId}`}
+          href={`/processos?parteExternaId=${c.parteExternaId}&status=ATIVO`}
           className="inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-300"
         >
           Ver os {c.processos} processos <ArrowRight className="h-3 w-3" />
@@ -312,7 +317,7 @@ function CartaoDispersao({ d }: { d: Dispersao }) {
 
       <div className="mt-auto pt-2.5">
         <Link
-          href={`/processos?assunto=${encodeURIComponent(d.assunto)}`}
+          href={`/processos?assunto=${encodeURIComponent(d.assunto)}&status=ATIVO`}
           className="inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-300"
         >
           Ver na listagem <ArrowRight className="h-3 w-3" />

@@ -297,7 +297,10 @@ export interface FiltroPublicacoes {
   q?: string;
   providencia?: string;
   tribunal?: string;
-  situacao?: 'COM_TAREFA' | 'SEM_TAREFA';
+  /** SEM_DECISAO: com providência, sem tarefa e sem motivo de dispensa — a fila. */
+  situacao?: 'COM_TAREFA' | 'SEM_TAREFA' | 'SEM_DECISAO';
+  /** Só as disponibilizadas nos últimos N dias — a mesma conta do painel. */
+  dias?: number;
   pagina?: number;
   limite?: number;
 }

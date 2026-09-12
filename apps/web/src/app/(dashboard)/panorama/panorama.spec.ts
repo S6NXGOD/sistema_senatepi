@@ -86,13 +86,20 @@ describe('resumo dos desfechos', () => {
  * metade, e quem clicasse concluiria que o painel mente.
  */
 describe('os links levam ao mesmo conjunto que o cartão contou', () => {
+  /*
+    E COM O MESMO STATUS. Este bloco travava o link sem `status=ATIVO` — provava
+    o filtro e não o conjunto: o cartão conta o acervo ativo, e a lista abria
+    com os encerrados junto (medido em 12/09/2026). Ver `links-do-panorama.spec`.
+  */
   it('a dispersão usa o filtro exato de assunto', () => {
-    expect(PAGINA).toContain('href={`/processos?assunto=${encodeURIComponent(d.assunto)}`}');
+    expect(PAGINA).toContain(
+      'href={`/processos?assunto=${encodeURIComponent(d.assunto)}&status=ATIVO`}',
+    );
     expect(PAGINA).not.toContain('/processos?busca=');
   });
 
   it('a concentração usa o filtro por parte', () => {
-    expect(PAGINA).toContain('href={`/processos?parteExternaId=${c.parteExternaId}`}');
+    expect(PAGINA).toContain('href={`/processos?parteExternaId=${c.parteExternaId}&status=ATIVO`}');
   });
 
   it('a listagem lê os dois parâmetros da URL', () => {

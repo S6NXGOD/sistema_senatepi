@@ -2,12 +2,17 @@ import { api } from './api';
 import { baixarArquivo } from './pdf';
 
 /**
- * RELATÓRIOS — o que a equipe entregou, e o que ficou.
+ * RELATÓRIOS — o que a equipe entregou, o que ficou, e como o sindicato está
+ * na Justiça.
  *
  * A API não devolve posição, nota nem "melhor do mês", e a tela não inventa
  * nenhum: são nove advogados que se conhecem pelo nome, e uma tabela ordenada
  * por volume vira comparação pública entre casos que não são comparáveis — uma
  * execução simples e uma ação civil pública contam "1" cada.
+ *
+ * Os blocos novos (`justica`, `proximos`, `publicacoes`, `robo`) são opcionais
+ * no tipo pela janela de troca do deploy: web e API sobem separadas, e a tela
+ * nova não pode quebrar diante da API de antes.
  */
 
 export interface LinhaEquipe {
@@ -16,6 +21,7 @@ export interface LinhaEquipe {
   papel: string;
   concluidas: number;
   abertas: number;
+  /** Abertas e de dia anterior — o dia virou. */
   atrasadas: number;
   /** Mediana em minutos; nulo quando ninguém usou o cronômetro. */
   medianaMinutos: number | null;
@@ -25,6 +31,84 @@ export interface LinhaEquipe {
 export interface Contagem {
   rotulo: string;
   total: number;
+}
+
+/** Contagem que vira link: `chave` é o id da parte ou o código da comarca. */
+export interface ContagemComChave extends Contagem {
+  chave: string;
+}
+
+export type ResultadoSentenca = 'PROCEDENTE' | 'PARCIAL' | 'IMPROCEDENTE';
+
+export interface SentencasDoAno {
+  ano: number;
+  procedentes: number;
+  parciais: number;
+  improcedentes: number;
+}
+
+export interface AjuizadasDoAno {
+  ano: number;
+  processos: number;
+}
+
+export interface SentencaNoPeriodo {
+  processoId: string;
+  numeroCNJ: string | null;
+  adversario: string | null;
+  resultado: ResultadoSentenca;
+  data: string;
+}
+
+export interface ItemDaAgenda {
+  id: string;
+  titulo: string;
+  tipo: string;
+  inicio: string;
+  processo: { id: string; numeroCNJ: string | null } | null;
+  responsavel: {
+    id: string;
+    nome: string;
+    nomeExibicao: string | null;
+    avatarUrl: string | null;
+  } | null;
+}
+
+export interface Justica {
+  nossoPapel: { autor: number; representando: number; reu: number };
+  institucionais: number;
+  individuais: number;
+  sentencasPorAno: SentencasDoAno[];
+  ajuizadasPorAno: AjuizadasDoAno[];
+  sentencasNoPeriodo: SentencaNoPeriodo[];
+  totalSentencasNoPeriodo: number;
+  adversarios: ContagemComChave[];
+  comarcas: ContagemComChave[];
+  temas: Contagem[];
+}
+
+export interface Proximos {
+  dias: number;
+  audiencias: ItemDaAgenda[];
+  totalAudiencias: number;
+  prazos: ItemDaAgenda[];
+  totalPrazos: number;
+}
+
+export interface Publicacoes {
+  recebidas: number;
+  viraramTarefa: number;
+  dispensadas: number;
+  /** Estado de agora, e não do período: o que espera decisão continua esperando. */
+  esperandoDecisao: number;
+}
+
+export interface Robo {
+  criadas: number;
+  concluidas: number;
+  canceladasPeloRobo: number;
+  canceladasPorPessoas: number;
+  abertas: number;
 }
 
 export interface Relatorio {
@@ -50,13 +134,18 @@ export interface Relatorio {
     /** Foram ajuizados no período. É o "caso novo" de verdade. */
     distribuidos: number;
     ativos: number;
+    /** Encerrados hoje — estoque, e não fluxo do período. */
     encerrados: number;
+    /** Ativos ainda sem data de distribuição no CNJ: ficam fora de "ajuizadas". */
+    semDataDeDistribuicao?: number;
     porArea: Contagem[];
     porTribunal: Contagem[];
   };
   atendimentos: {
     registrados: number;
     concluidos: number;
+    /** Pessoas diferentes atendidas. */
+    filiadosAtendidos?: number;
     porCanal: Contagem[];
     porAtendente: Contagem[];
     /** Sobre o que o filiado procurou — ver `ASSUNTO_LABEL`. */
@@ -65,6 +154,10 @@ export interface Relatorio {
     assuntoNaoInformado: number;
     porSetor: Contagem[];
   };
+  justica?: Justica | null;
+  proximos?: Proximos | null;
+  publicacoes?: Publicacoes | null;
+  robo?: Robo | null;
   geradoEm: string;
 }
 
@@ -80,7 +173,10 @@ export async function carregarRelatorio(
   ).data;
 }
 
-/** CSV e não PDF: quem pede número quer somar e cruzar, não imprimir. */
+/**
+ * A PLANILHA CONTINUA, ao lado do PDF: quem pede número quer somar e cruzar, e
+ * PDF obriga a redigitar. O PDF é o documento; a planilha é a matéria-prima.
+ */
 export async function baixarCsvDaEquipe(
   de: string,
   ate: string,
@@ -141,13 +237,91 @@ export function comoData(d: Date): string {
   ).padStart(2, '0')}`;
 }
 
+/** "2026-09-12" → "12/09/2026", sem passar por `Date` (e sem o dia andar para trás). */
+export function dataDoInput(valor: string): string {
+  const [ano, mes, dia] = valor.split('-');
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : valor;
+}
+
 /**
- * Os períodos que a coordenação realmente pede. Trimestre e ano não entram:
- * quem precisa deles muda as duas datas, e cada atalho a mais é uma escolha a
- * mais na frente de quem só queria ver o mês.
+ * OS PERÍODOS QUE REALMENTE SE PEDEM.
+ *
+ * Sete, trinta e noventa dias para o dia a dia; "este ano" para a prestação de
+ * contas — é o recorte da assembleia, e digitar 01/01 toda vez é o atrito que
+ * faz um relatório não ser usado. Trimestre não entrou: quem precisa dele muda
+ * as duas datas.
  */
-export const ATALHOS: { rotulo: string; dias: number }[] = [
-  { rotulo: '7 dias', dias: 7 },
-  { rotulo: '30 dias', dias: 30 },
-  { rotulo: '90 dias', dias: 90 },
+export const ATALHOS: { rotulo: string; inicio: (hoje: Date) => Date }[] = [
+  { rotulo: '7 dias', inicio: (hoje) => new Date(hoje.getTime() - 7 * 86_400_000) },
+  { rotulo: '30 dias', inicio: (hoje) => new Date(hoje.getTime() - 30 * 86_400_000) },
+  { rotulo: '90 dias', inicio: (hoje) => new Date(hoje.getTime() - 90 * 86_400_000) },
+  { rotulo: 'Este ano', inicio: (hoje) => new Date(hoje.getFullYear(), 0, 1) },
 ];
+
+export const RESULTADO_LABEL: Record<ResultadoSentenca, string> = {
+  PROCEDENTE: 'Procedente',
+  PARCIAL: 'Procedente em parte',
+  IMPROCEDENTE: 'Improcedente',
+};
+
+export function totalDoAno(a: SentencasDoAno): number {
+  return a.procedentes + a.parciais + a.improcedentes;
+}
+
+/**
+ * A FRASE DO ANO — a que a diretoria repete na assembleia.
+ *
+ * "A favor" é procedente por inteiro OU em parte, e a frase diz quantas de cada
+ * uma: juntar sem mostrar inflaria a vitória, e separar sem somar esconderia
+ * que a procedência parcial também é ganho. O ano é o último FECHADO com
+ * sentença — o corrente está pela metade e não se compara com um ano inteiro.
+ */
+export function fraseDasSentencas(serie: SentencasDoAno[], anoCorrente: number): string | null {
+  const fechados = serie.filter((a) => a.ano < anoCorrente && totalDoAno(a) > 0);
+  const ano = fechados[fechados.length - 1];
+  if (!ano) return null;
+  const total = totalDoAno(ano);
+  const aFavor = ano.procedentes + ano.parciais;
+  const sentencas = total === 1 ? 'sentença foi' : 'sentenças foram';
+  return (
+    `Em ${ano.ano}, ${aFavor} de ${total} ${sentencas} a favor, ao menos em parte ` +
+    `(${ano.procedentes} por inteiro e ${ano.parciais} em parte).`
+  );
+}
+
+/** "qua., 16/09" — o dia da semana decide se cabe na agenda de alguém. */
+export function diaCurto(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', {
+    weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Fortaleza',
+  });
+}
+
+export function horaDoItem(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'America/Fortaleza',
+  });
+}
+
+export function dataCurta(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Fortaleza',
+  });
+}
+
+/**
+ * OS LINKS DAS LISTAS DO ACERVO LEVAM `status=ATIVO` — o recorte que elas contam.
+ *
+ * Sem ele a listagem traz também os encerrados, e o "7" do relatório vira "9"
+ * na chegada. Atalho que muda o número ao ser clicado é pior que atalho nenhum.
+ */
+export function hrefDaComarca(c: ContagemComChave): string {
+  return `/processos?comarca=${c.chave}&comarcaNome=${encodeURIComponent(c.rotulo)}&status=ATIVO`;
+}
+
+export function hrefDaParteContraria(c: ContagemComChave): string {
+  return `/processos?parteExternaId=${c.chave}&status=ATIVO`;
+}
+
+export function hrefDoAssunto(c: Contagem): string {
+  return `/processos?assunto=${encodeURIComponent(c.rotulo)}&status=ATIVO`;
+}

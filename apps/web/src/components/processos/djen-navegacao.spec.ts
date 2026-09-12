@@ -235,9 +235,13 @@ describe('o painel', () => {
    * resposta: /publicacoes, com busca e paginação. Sem o link, o bloco seria um
    * beco: mostra cinco itens e não diz que existem cento e trinta.
    */
-  it('oferece o caminho para o acervo inteiro', () => {
-    expect(BLOCO_DJEN).toContain('href="/publicacoes"');
-    expect(BLOCO_DJEN).toContain('{djen.publicacoes7d} em 7 dias · ver todas');
+  /*
+    E O CAMINHO LEVA A SEMANA QUE O NÚMERO CONTOU: `/publicacoes` puro abria as
+    2.066 do acervo (12/09/2026), e os sete dias tinham de ser achados rolando.
+  */
+  it('oferece o caminho, já na semana que o número contou', () => {
+    expect(BLOCO_DJEN).toContain('href="/publicacoes?dias=7"');
+    expect(BLOCO_DJEN).toContain('{djen.publicacoes7d} em 7 dias · ver a semana');
   });
 
   /**

@@ -285,6 +285,23 @@ function ListaProcessos() {
     },
     '/processos',
   );
+  /*
+    `?status=ATIVO` — o recorte que os cartões do Panorama contam.
+
+    "De que lado estamos" conta o acervo ATIVO; sem o status no link, a lista
+    trazia também os encerrados e o número mudava na chegada. Status que não
+    existe é ignorado: link velho abre a lista, e não uma tela vazia.
+  */
+  useFiltroPorUrl(
+    'status',
+    (v) => {
+      if ((STATUS_PROCESSO_ORDEM as string[]).includes(v)) {
+        setFiltros((f) => ({ ...f, status: v as FiltrosProcesso['status'] }));
+        setPage(1);
+      }
+    },
+    '/processos',
+  );
   useFiltroPorUrl('semFiliado', () => setRapido('semFiliado'), '/processos');
   /** Painel que resolve a fila toda de uma vez. */
   const [resolvendo, setResolvendo] = useState(false);
