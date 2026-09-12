@@ -5,13 +5,13 @@ import { formatDataPura, diasDesdeDataPura } from '@/lib/data-pura';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { varrerDjenAgora } from '@/lib/djen';
+import { criarTarefaDaPublicacao, umaPublicacao, varrerDjenAgora } from '@/lib/djen';
 import { motion } from 'framer-motion';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
   CheckCircle2, ChevronRight, ChevronDown, FolderKanban, TrendingUp, Info, AlertCircle, Loader2,
-  Newspaper,
+  Newspaper, CalendarPlus, CalendarClock, ExternalLink,
   FileCheck2, Hourglass, Headset, Swords, UserCog,
 } from 'lucide-react';
 import {
@@ -568,7 +568,22 @@ function Conteudo({
         dizendo o mesmo fato de dois ângulos.
       */}
       {pode.processos && (
-        <PublicacoesDjen djen={data.djen} calado={integracaoDjenComProblema(data)} />
+        <PublicacoesDjen
+          djen={data.djen}
+          calado={integracaoDjenComProblema(data)}
+          /*
+            OS DOIS MÓDULOS, como o radar de audiências ao lado.
+
+            A rota vive em `@Modulo('processos')` e é um POST — quem tem
+            `processos: VISUALIZAR` toma 403 mesmo com a agenda liberada. Gatear
+            só pela agenda ofereceria um botão que a API recusa depois do
+            clique, que é o defeito que `podeExcluir` existe para não repetir.
+          */
+          podeCriarTarefa={
+            podeEditar(role, user?.permissoes, 'processos') &&
+            podeEditar(role, user?.permissoes, 'agenda')
+          }
+        />
       )}
 
       {/* Audiências a agendar (DataJud → Agenda) — o alerta mais acionável da
@@ -1016,10 +1031,13 @@ function integracaoDjenComProblema(data: ResumoDashboard): boolean {
 function PublicacoesDjen({
   djen,
   calado,
+  podeCriarTarefa,
 }: {
   djen: ResumoDashboard['djen'];
   /** A barra de integrações já explicou o silêncio — não repita. */
   calado?: boolean;
+  /** Grava na agenda? Só então o atalho "Criar tarefa" aparece. */
+  podeCriarTarefa?: boolean;
 }) {
   if (!djen.ativa) return null;
 
@@ -1092,119 +1110,12 @@ function PublicacoesDjen({
 
         <ul className="divide-y">
           {djen.recentes.map((pub) => (
-            <li key={pub.id} className="py-2 first:pt-0 last:pb-0">
-              <Link
-                href={
-                  pub.compromissoId && pub.temTarefaAberta
-                    ? `/agenda?compromisso=${pub.compromissoId}`
-                    : `/processos?processo=${pub.processo?.id ?? ''}`
-                }
-                className="-mx-2 flex items-start gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
-              >
-                {/*
-                  O PONTO DIZ SE ALGUÉM PEGOU. Sólido = já virou tarefa aberta
-                  na agenda; vazado = o ato pediu algo e ninguém pegou, que é o
-                  único estado desta lista que representa risco.
-                */}
-                <span
-                  aria-hidden
-                  className={cn(
-                    'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-                    pub.semTarefa
-                      ? 'border-2 border-amber-500 bg-transparent'
-                      : 'bg-indigo-500',
-                  )}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-sm font-medium">
-                      {pub.providencia && PROVIDENCIA_LABEL[pub.providencia]
-                        ? PROVIDENCIA_LABEL[pub.providencia]
-                        : (pub.tipoComunicacao ?? 'Publicação')}
-                    </span>
-                    {/*
-                      O PRAZO CORRE PARA QUEM FOI INTIMADO — e a lista mistura
-                      duas coisas de peso diferente: o ato que NOMEIA você e o
-                      ato do processo que é seu mas intimou outro advogado. Sem
-                      a marca, as seis linhas parecem ter a mesma urgência.
-                    */}
-                    {pub.meCita && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
-                        Você foi intimado
-                      </span>
-                    )}
-                    {/*
-                      DE QUEM CONTRA QUEM.
-
-                      "Contra quem" sempre distinguiu um processo do outro
-                      aqui. "De quem" foi acrescentado depois, e só aparece
-                      quando NÃO somos nós: o autor é o próprio sindicato em 93
-                      dos 127 processos, e repetir o nome dele em toda linha
-                      gastaria espaço para dizer o que já se sabia. Quando é a
-                      filiada, é a informação que faltava.
-                    */}
-                    {(pub.processo?.autor || pub.processo?.adversario) && (
-                      <span className="min-w-0 truncate text-xs text-muted-foreground">
-                        {pub.processo.autor ? `${pub.processo.autor} ` : ''}
-                        {pub.processo.adversario ? `× ${pub.processo.adversario}` : ''}
-                      </span>
-                    )}
-                  </span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                    <span>{formatDataPura(pub.dataDisponibilizacao)}</span>
-                    {pub.processo?.numeroCNJ && (
-                      <span className="font-mono text-[11px]">
-                        · {formatNPU(pub.processo.numeroCNJ)}
-                      </span>
-                    )}
-                    {/*
-                      EM QUE POLO ESTAMOS. A mesma "intimação para
-                      manifestar-se" é ataque quando somos autor e defesa
-                      quando somos réu — e a lista não dizia qual dos dois.
-                    */}
-                    {pub.processo?.nossoPolo && (
-                      <span>· somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}</span>
-                    )}
-                    {/*
-                      O RESPONSÁVEL, COM ROSTO.
-
-                      Numa lista de seis publicações, o nome é a coluna que se
-                      lê por último — a foto é reconhecida antes de qualquer
-                      texto e responde "isto é meu?" sem obrigar a ler. Só
-                      aparece para quem NÃO é o dono da lista: na tela do
-                      próprio advogado seria a cara dele em toda linha.
-                    */}
-                    {!pessoal && pub.processo?.advogado && (
-                      <span className="inline-flex min-w-0 items-center gap-1">
-                        ·
-                        <AvatarPessoa
-                          nome={pub.processo.advogado.nomeExibicao || pub.processo.advogado.nome}
-                          url={pub.processo.advogado.avatarUrl}
-                          tamanho="xs"
-                        />
-                        <span className="truncate">{primeiroENome(pub.processo.advogado)}</span>
-                      </span>
-                    )}
-                    {/*
-                      O prazo é o que o TEXTO menciona, não um vencimento
-                      calculado — a contagem oficial depende de dia útil
-                      forense e feriado de comarca, que o sistema não conhece.
-                    */}
-                    {pub.prazoMencionadoDias != null && (
-                      <span className="font-medium text-amber-700 dark:text-amber-400">
-                        · menciona {pub.prazoMencionadoDias} dias
-                      </span>
-                    )}
-                    {pub.semTarefa && (
-                      <span className="font-medium text-amber-700 dark:text-amber-400">
-                        · sem tarefa
-                      </span>
-                    )}
-                  </span>
-                </span>
-                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-              </Link>
-            </li>
+            <LinhaPublicacao
+              key={pub.id}
+              pub={pub}
+              pessoal={pessoal}
+              podeCriarTarefa={podeCriarTarefa}
+            />
           ))}
         </ul>
       </CardContent>
@@ -2560,5 +2471,263 @@ function SkeletonHome() {
         <div className="h-72 animate-pulse rounded-xl border bg-muted/40 lg:col-span-2" />
       </div>
     </div>
+  );
+}
+
+/**
+ * UMA LINHA DA LISTA DE PUBLICACOES -- que agora ABRE no lugar.
+ *
+ * O relato foi direto: "clico e abre o processo, normal, mas nao me mostrando o
+ * teor". E era isso mesmo: a linha mandava a pessoa para outra tela e deixava o
+ * ato -- o que o juiz escreveu, a unica coisa capaz de responder "isto e
+ * urgente?" -- a mais dois cliques de distancia.
+ *
+ * Ler o teor nao e navegar para lugar nenhum: e abrir a gaveta onde ja se esta.
+ * O texto vem sob demanda e so na primeira vez que a linha abre -- sao 1.498
+ * publicacoes no acervo, e carregar o teor de todas para mostrar seis seria
+ * pagar caro por nada.
+ *
+ * E A ACAO VEM JUNTO DO TEXTO, que e onde a decisao acontece. "Sem tarefa" era
+ * um diagnostico sem remedio: virar tarefa exigia abrir o processo, ir na
+ * agenda e digitar tudo de novo. Quatro telas para uma decisao de um segundo --
+ * que e exatamente como uma intimacao vira prazo perdido.
+ */
+/**
+ * Ação secundária em forma de link. O `Button` da casa não aceita `asChild`, e
+ * um `<button onClick={router.push}>` perderia o "abrir em nova aba" com o
+ * botão do meio — que é justamente o que se faz com "abrir o processo".
+ * Altura de 36px, como todo alvo tocável do sistema.
+ */
+const ACAO_SECUNDARIA =
+  'inline-flex min-h-9 items-center gap-1.5 rounded-lg border bg-card px-3 text-xs font-medium transition hover:bg-muted';
+
+function LinhaPublicacao({
+  pub,
+  pessoal,
+  podeCriarTarefa,
+}: {
+  pub: ResumoDashboard['djen']['recentes'][number];
+  pessoal: boolean;
+  podeCriarTarefa?: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const qc = useQueryClient();
+
+  const { data: teor, isLoading: carregandoTeor } = useQuery({
+    queryKey: ['publicacao', pub.id],
+    queryFn: () => umaPublicacao(pub.id),
+    enabled: aberto,
+    staleTime: 5 * 60_000,
+  });
+
+  const criar = useMutation({
+    mutationFn: () => criarTarefaDaPublicacao(pub.id),
+    onSuccess: (r) => {
+      toast.success(
+        r.criada ? 'Atividade criada para o dono do caso.' : 'Esta publicacao ja tinha atividade.',
+      );
+      for (const k of [['dashboard'], ['publicacao', pub.id], ['compromissos'], ['minhas-pendencias']]) {
+        qc.invalidateQueries({ queryKey: k });
+      }
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? 'Nao foi possivel criar a atividade.'),
+  });
+
+  const idDaTarefa = teor?.compromisso?.id ?? pub.compromissoId;
+  const temTarefa = !!teor?.compromisso || pub.temTarefaAberta;
+  const idDoProcesso = teor?.processo?.id ?? pub.processo?.id ?? '';
+
+  return (
+    <li className="py-2 first:pt-0 last:pb-0">
+<button
+              type="button"
+              onClick={() => setAberto((v) => !v)}
+              aria-expanded={aberto}
+              className="-mx-2 flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-muted/60"
+            >
+              {/*
+                O PONTO DIZ SE ALGUÉM PEGOU. Sólido = já virou tarefa aberta
+                na agenda; vazado = o ato pediu algo e ninguém pegou, que é o
+                único estado desta lista que representa risco.
+              */}
+              <span
+                aria-hidden
+                className={cn(
+                  'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                  pub.semTarefa
+                    ? 'border-2 border-amber-500 bg-transparent'
+                    : 'bg-indigo-500',
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-sm font-medium">
+                    {pub.providencia && PROVIDENCIA_LABEL[pub.providencia]
+                      ? PROVIDENCIA_LABEL[pub.providencia]
+                      : (pub.tipoComunicacao ?? 'Publicação')}
+                  </span>
+                  {/*
+                    O PRAZO CORRE PARA QUEM FOI INTIMADO — e a lista mistura
+                    duas coisas de peso diferente: o ato que NOMEIA você e o
+                    ato do processo que é seu mas intimou outro advogado. Sem
+                    a marca, as seis linhas parecem ter a mesma urgência.
+                  */}
+                  {pub.meCita && (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                      Você foi intimado
+                    </span>
+                  )}
+                  {/*
+                    DE QUEM CONTRA QUEM.
+
+                    "Contra quem" sempre distinguiu um processo do outro
+                    aqui. "De quem" foi acrescentado depois, e só aparece
+                    quando NÃO somos nós: o autor é o próprio sindicato em 93
+                    dos 127 processos, e repetir o nome dele em toda linha
+                    gastaria espaço para dizer o que já se sabia. Quando é a
+                    filiada, é a informação que faltava.
+                  */}
+                  {(pub.processo?.autor || pub.processo?.adversario) && (
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      {pub.processo.autor ? `${pub.processo.autor} ` : ''}
+                      {pub.processo.adversario ? `× ${pub.processo.adversario}` : ''}
+                    </span>
+                  )}
+                </span>
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span>{formatDataPura(pub.dataDisponibilizacao)}</span>
+                  {pub.processo?.numeroCNJ && (
+                    <span className="font-mono text-[11px]">
+                      · {formatNPU(pub.processo.numeroCNJ)}
+                    </span>
+                  )}
+                  {/*
+                    EM QUE POLO ESTAMOS. A mesma "intimação para
+                    manifestar-se" é ataque quando somos autor e defesa
+                    quando somos réu — e a lista não dizia qual dos dois.
+                  */}
+                  {pub.processo?.nossoPolo && (
+                    <span>· somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}</span>
+                  )}
+                  {/*
+                    O RESPONSÁVEL, COM ROSTO.
+
+                    Numa lista de seis publicações, o nome é a coluna que se
+                    lê por último — a foto é reconhecida antes de qualquer
+                    texto e responde "isto é meu?" sem obrigar a ler. Só
+                    aparece para quem NÃO é o dono da lista: na tela do
+                    próprio advogado seria a cara dele em toda linha.
+                  */}
+                  {!pessoal && pub.processo?.advogado && (
+                    <span className="inline-flex min-w-0 items-center gap-1">
+                      ·
+                      <AvatarPessoa
+                        nome={pub.processo.advogado.nomeExibicao || pub.processo.advogado.nome}
+                        url={pub.processo.advogado.avatarUrl}
+                        tamanho="xs"
+                      />
+                      <span className="truncate">{primeiroENome(pub.processo.advogado)}</span>
+                    </span>
+                  )}
+                  {/*
+                    O prazo é o que o TEXTO menciona, não um vencimento
+                    calculado — a contagem oficial depende de dia útil
+                    forense e feriado de comarca, que o sistema não conhece.
+                  */}
+                  {pub.prazoMencionadoDias != null && (
+                    <span className="font-medium text-amber-700 dark:text-amber-400">
+                      · menciona {pub.prazoMencionadoDias} dias
+                    </span>
+                  )}
+                  {pub.semTarefa && (
+                    <span className="font-medium text-amber-700 dark:text-amber-400">
+                      · sem tarefa
+                    </span>
+                  )}
+                </span>
+              </span>
+              <ChevronRight
+                className={cn(
+                  'mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                  aberto && 'rotate-90',
+                )}
+              />
+            </button>
+
+      {aberto && (
+        <div className="mt-2 rounded-lg border bg-muted/30 p-3">
+          {carregandoTeor ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando o teor...
+            </p>
+          ) : (
+            <>
+              {/*
+                O ATO COMO O TRIBUNAL ESCREVEU. Altura limitada com rolagem
+                propria: um despacho tem tres linhas, um acordao tem tres
+                paginas, e a lista nao pode virar nenhum dos dois.
+              */}
+              <p className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">
+                {teor?.texto?.trim() || 'O tribunal publicou este ato sem texto -- so o cabecalho.'}
+              </p>
+              {teor?.nomeOrgao && (
+                <p className="mt-2 text-[11px] text-muted-foreground">{teor.nomeOrgao}</p>
+              )}
+            </>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {/*
+              A ACAO PRINCIPAL E A QUE FALTAVA. So aparece quando ha o que fazer:
+              sem tarefa, e para quem grava na agenda.
+            */}
+            {!temTarefa && podeCriarTarefa && (
+              <Button size="sm" onClick={() => criar.mutate()} disabled={criar.isPending}>
+                {criar.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CalendarPlus className="h-4 w-4" />
+                )}
+                Criar tarefa
+              </Button>
+            )}
+            {temTarefa && idDaTarefa && (
+              <Link href={`/agenda?compromisso=${idDaTarefa}`} className={ACAO_SECUNDARIA}>
+                <CalendarClock className="h-4 w-4" /> Ver a tarefa
+              </Link>
+            )}
+            {idDoProcesso && (
+              <Link href={`/processos?processo=${idDoProcesso}`} className={ACAO_SECUNDARIA}>
+                <Gavel className="h-4 w-4" /> Abrir o processo
+              </Link>
+            )}
+            {teor?.link && (
+              <a
+                href={teor.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> No Diario
+              </a>
+            )}
+          </div>
+
+          {/*
+            POR QUE NAO HA TAREFA -- quando o robo DECIDIU, e nao quando falhou.
+            A distincao existe no dado (`tarefaDispensadaMotivo`) e e o que separa
+            "o sistema pensou nisto" de "o sistema deixou passar".
+          */}
+          {!temTarefa && teor?.tarefaDispensadaMotivo && (
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              {teor.tarefaDispensadaMotivo === 'NOTICIA_VELHA'
+                ? 'O robo nao agendou porque o ato ja estava fora da janela quando chegou -- se ainda vale, crie a tarefa aqui.'
+                : 'O robo entendeu que a ordem e para a outra parte, nao para nos -- se estiver errado, crie a tarefa aqui.'}
+            </p>
+          )}
+        </div>
+      )}
+    </li>
   );
 }

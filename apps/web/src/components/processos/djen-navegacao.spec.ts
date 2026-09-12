@@ -26,6 +26,13 @@ const BLOCO_DJEN = PAINEL.slice(
 );
 
 /**
+ * A LINHA saiu do bloco e virou componente próprio quando ganhou estado: ela
+ * abre no lugar e mostra o teor. As asserções sobre o CONTEÚDO da linha moram
+ * aqui; as sobre o bloco (título, silêncio, "ver todas") seguem em `BLOCO_DJEN`.
+ */
+const LINHA_PUB = PAINEL.slice(PAINEL.indexOf('function LinhaPublicacao('));
+
+/**
  * IDA E VOLTA ENTRE O ATO E O TEOR.
  *
  * O DataJud entrega o rótulo ("Expedição de documento") e o DJEN entrega o
@@ -143,7 +150,7 @@ describe('o painel', () => {
     expect(PAINEL).toContain('function PublicacoesDjen(');
     // `calado` entrou para o bloco não repetir o que a barra de integrações
     // já disse — duas faixas para o mesmo fato ensinam a ignorar as duas.
-    expect(PAINEL).toContain('<PublicacoesDjen djen={data.djen}');
+    expect(PAINEL).toContain('<PublicacoesDjen');
     expect(PAINEL).toContain('calado={integracaoDjenComProblema(data)}');
   });
 
@@ -175,10 +182,39 @@ describe('o painel', () => {
     expect(bloco).not.toMatch(/tom="critico"/);
   });
 
-  it('cada linha leva à atividade ou ao processo', () => {
-    const bloco = BLOCO_DJEN;
-    expect(bloco).toContain('`/agenda?compromisso=${pub.compromissoId}`');
-    expect(bloco).toContain("`/processos?processo=${pub.processo?.id ?? ''}`");
+  /**
+   * A LINHA PASSOU A ABRIR NO LUGAR — e os dois destinos continuam existindo,
+   * agora DENTRO dela.
+   *
+   * Levar direto para o processo era a metade errada da resposta: quem lê o
+   * painel de manhã quer saber o que o juiz escreveu, e o teor ficava a mais
+   * dois cliques. Agora o clique abre o ato ali, e os caminhos para a agenda e
+   * para a ficha ficam ao lado do texto, que é onde a decisão acontece.
+   */
+  it('a linha abre o teor no lugar, sem trocar de tela', () => {
+    expect(LINHA_PUB).toContain('setAberto((v) => !v)');
+    expect(LINHA_PUB).toContain('aria-expanded={aberto}');
+    // O teor só é buscado quando a gaveta abre.
+    expect(LINHA_PUB).toContain('enabled: aberto');
+    expect(LINHA_PUB).toContain('umaPublicacao(pub.id)');
+  });
+
+  it('e os dois destinos continuam a um toque, junto do texto', () => {
+    expect(LINHA_PUB).toContain('`/agenda?compromisso=${idDaTarefa}`');
+    expect(LINHA_PUB).toContain('`/processos?processo=${idDoProcesso}`');
+  });
+
+  /**
+   * "SEM TAREFA" ERA DIAGNÓSTICO SEM REMÉDIO: para virar tarefa era abrir o
+   * processo, ir na agenda e digitar tudo de novo.
+   */
+  it('o que não virou tarefa pode virar ali, e só para quem grava na agenda', () => {
+    expect(LINHA_PUB).toContain('criarTarefaDaPublicacao(pub.id)');
+    expect(LINHA_PUB).toContain('!temTarefa && podeCriarTarefa');
+    // A rota é POST em `@Modulo('processos')`: exige os DOIS módulos, senão a
+    // tela oferece um botão que a API recusa depois do clique.
+    expect(PAINEL).toContain("podeEditar(role, user?.permissoes, 'processos') &&");
+    expect(PAINEL).toContain("podeEditar(role, user?.permissoes, 'agenda')");
   });
 
   /**
@@ -188,8 +224,10 @@ describe('o painel', () => {
    * ou cancelada, e o link levaria a uma tarefa que ninguém vai executar. Nesse
    * caso o destino certo é o processo, onde está o teor e o histórico.
    */
-  it('tarefa fechada manda para o processo, não para a agenda', () => {
-    expect(BLOCO_DJEN).toContain('pub.compromissoId && pub.temTarefaAberta');
+  it('tarefa fechada não é oferecida como "ver a tarefa"', () => {
+    // `temTarefaAberta` (e não `compromissoId`) é o que decide: concluída ou
+    // cancelada, o trabalho voltou a existir e o atalho certo é criar de novo.
+    expect(LINHA_PUB).toContain('pub.temTarefaAberta');
   });
 
   /**
@@ -211,8 +249,8 @@ describe('o painel', () => {
    * dizer o que já se sabia. Quando é a filiada, é a informação que faltava.
    */
   it('cada linha diz de quem e contra quem é o processo', () => {
-    expect(BLOCO_DJEN).toContain('pub.processo.autor');
-    expect(BLOCO_DJEN).toContain('× ${pub.processo.adversario}');
+    expect(LINHA_PUB).toContain('pub.processo.autor');
+    expect(LINHA_PUB).toContain('× ${pub.processo.adversario}');
   });
 
   /**
@@ -220,8 +258,8 @@ describe('o painel', () => {
    * quando somos autor e defesa quando somos réu — e a lista não dizia qual.
    */
   it('cada linha diz em que polo o sindicato está', () => {
-    expect(BLOCO_DJEN).toContain('pub.processo?.nossoPolo');
-    expect(BLOCO_DJEN).toContain("somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}");
+    expect(LINHA_PUB).toContain('pub.processo?.nossoPolo');
+    expect(LINHA_PUB).toContain("somos {pub.processo.nossoPolo === 'ATIVO' ? 'autor' : 'réu'}");
   });
 
   /**
@@ -230,10 +268,9 @@ describe('o painel', () => {
    * humana registrada, e marcá-las como "sem tarefa" apagaria isso.
    */
   it('marca só a publicação que nunca virou tarefa', () => {
-    expect(BLOCO_DJEN).toContain('{pub.semTarefa && (');
-    expect(BLOCO_DJEN).toContain('· sem tarefa');
-    expect(BLOCO_DJEN).toContain('pub.semTarefa');
-    expect(BLOCO_DJEN).toContain('border-2 border-amber-500');
+    expect(LINHA_PUB).toContain('{pub.semTarefa && (');
+    expect(LINHA_PUB).toContain('· sem tarefa');
+    expect(LINHA_PUB).toContain('border-2 border-amber-500');
   });
 });
 

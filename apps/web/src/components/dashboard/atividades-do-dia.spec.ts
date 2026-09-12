@@ -350,10 +350,24 @@ describe('o que saiu do painel do advogado', () => {
     expect(PAINEL).toContain('{!ehTriagem && ehGestao && pode.filiados && (');
   });
 
-  /** A Triagem vê aniversariantes lá em cima — `!ehTriagem` é não repetir. */
+  /**
+   * A Triagem vê aniversariantes lá em cima — `!ehTriagem` abaixo é não repetir.
+   *
+   * A asserção era uma JANELA DE 8000 CARACTERES a partir de um marcador, e
+   * quebrou quando um comentário no meio empurrou o alvo para fora. Contar
+   * bytes é frágil por construção: o teste reprovava sem que nada de errado
+   * tivesse acontecido. Agora ancora na ESTRUTURA — a fila da Triagem, que é o
+   * que a regra realmente diz.
+   */
   it('a Triagem continua vendo os aniversariantes dela', () => {
-    const topo = PAINEL.slice(0, PAINEL.indexOf('ZONA 1 — O QUE PRECISA DE VOCÊ') + 8000);
-    expect(topo).toContain('<Aniversariantes');
+    // Da fila da Triagem até o bloco dos DEMAIS perfis: é exatamente o trecho
+    // que o `!ehTriagem` de baixo existe para não repetir.
+    const filaDaTriagem = PAINEL.slice(
+      PAINEL.indexOf('{pode.atendimentos && <AtendimentosPendentes data={data} />}'),
+      PAINEL.indexOf('{!ehTriagem && ehGestao && pode.filiados && ('),
+    );
+    expect(filaDaTriagem.length).toBeGreaterThan(100);
+    expect(filaDaTriagem).toContain('<Aniversariantes');
   });
 });
 

@@ -155,6 +155,35 @@ export async function statusDjen(): Promise<StatusDjen> {
   return data;
 }
 
+/**
+ * UMA PUBLICAÇÃO, COM O TEOR — para ler onde a pessoa já está.
+ *
+ * O painel listava "Analisar intimação · sem tarefa" e, ao clicar, levava para a
+ * ficha do processo: o que o juiz escreveu, que é a única coisa capaz de
+ * responder "isto é urgente?", ficava a mais dois cliques.
+ */
+export async function umaPublicacao(id: string): Promise<PublicacaoDjen & {
+  processo: { id: string; numeroCNJ: string | null } | null;
+  compromisso: { id: string; titulo: string; status: string; inicio: string } | null;
+}> {
+  return (await api.get(`/djen/publicacoes/${id}`)).data;
+}
+
+/**
+ * "ISTO PRECISA VIRAR TAREFA" — em um toque.
+ *
+ * A atividade nasce para o DONO DO CASO, não para quem clicou: clicar aqui é
+ * dizer "isto precisa ser feito", não "eu faço". Quem quiser puxar para si tem
+ * o botão "Assumir" na própria atividade.
+ *
+ * Idempotente: se já existe tarefa aberta, devolve a mesma (`criada: false`).
+ */
+export async function criarTarefaDaPublicacao(
+  id: string,
+): Promise<{ compromissoId: string; criada: boolean }> {
+  return (await api.post(`/djen/publicacoes/${id}/tarefa`)).data;
+}
+
 export async function listarPublicacoes(processoId: string): Promise<PublicacaoDjen[]> {
   const { data } = await api.get<PublicacaoDjen[]>(`/djen/processo/${processoId}`);
   return data;
