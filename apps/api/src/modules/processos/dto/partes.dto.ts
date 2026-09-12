@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, MinLength,
+  IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength,
 } from 'class-validator';
 import { PoloProcesso, TipoParteExterna } from '@prisma/client';
 
@@ -100,10 +100,22 @@ export class ListParteExternaQueryDto {
 // Partes do processo
 // ---------------------------------------------------------------------------
 
-/** Advogado da parte adversa, como a equipe anotou dos autos. */
+/**
+ * Advogado da outra parte — anotado pela equipe ou trazido do Diário.
+ *
+ * `oab` é o texto que a tela mostra ("PI 11632"); os pedaços (`numeroOab`,
+ * `ufOab`) são o que permite reconhecer o mesmo advogado quando a varredura
+ * volta amanhã, e `origem` é o que impede o robô de reescrever o que uma pessoa
+ * digitou. A tela devolve os campos como recebeu.
+ */
 export class AdvogadoDaParteDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(180) nome?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(40) oab?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) numeroOab?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2) ufOab?: string | null;
+  @ApiPropertyOptional({ enum: ['DJEN', 'MANUAL'] })
+  @IsOptional() @IsIn(['DJEN', 'MANUAL']) origem?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(40) vistoEm?: string;
 }
 
 export class AdicionarParteDto {

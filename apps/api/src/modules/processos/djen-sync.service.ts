@@ -9,6 +9,9 @@ import { instanciaBaixada } from './utils/audiencia.util';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { classificarProvidencia } from './utils/providencia.util';
 import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
+import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';
+import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
+import { anotarReserva } from '../agenda/equipe.util';
 import { noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { NpuUtils } from './utils/npu.util';
 import { fecharTarefaDeCadastro } from './utils/tarefa-de-cadastro.util';
@@ -31,10 +34,6 @@ const POLO_NA_TAREFA: Record<string, string> = {
   AMBOS: 'O sindicato está nos dois polos',
   INDEFINIDO: 'Ação do sindicato (polo não informado no ato)',
 };
-
-/** Chave de casamento da OAB: "PI-9226". Número e UF, nunca o nome. */
-const chaveOab = (numero: unknown, uf: unknown) =>
-  `${String(uf ?? '').trim().toUpperCase()}-${String(numero ?? '').replace(/\D/g, '')}`;
 
 /** Resumo de uma varredura, para o log e para a rota manual. */
 export interface ResumoVarreduraDjen {
@@ -120,6 +119,7 @@ export class DjenSyncService {
     private readonly correlacao: CorrelacaoService,
     private readonly datajud: DatajudService,
     private readonly caixa: CaixaDePropostasService,
+    private readonly vinculoDeAdvogado: VinculoDeAdvogadoService,
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
@@ -285,6 +285,7 @@ export class DjenSyncService {
 
     // ---- 3) Correlação de tudo que está pendente ----
     await this.correlacionarPendentes();
+    await this.ligarAdvogadosDoAto();
     await this.conferirFilaSemVerificacao();
     /*
       A REDE DA CAIXA DE ENTRADA — roda no fim, todo dia.
@@ -323,7 +324,31 @@ export class DjenSyncService {
     const r = await this.ingerir(recebidas, OrigemSincronizacao.MANUAL);
     // Quem clicou no botão espera ver a atividade criada agora, não amanhã.
     await this.correlacao.aplicarAposDjen(processoId);
+    // E espera ver a equipe do caso completa: o ato que acabou de chegar diz
+    // quem atua, e essa leitura custa duas consultas.
+    await this.vinculoDeAdvogado.aplicarNoProcesso(processoId);
     return { ingeridas: r.ingeridas, recebidas: recebidas.length };
+  }
+
+  /**
+   * OS ADVOGADOS QUE O DIÁRIO NOMEIA VIRAM VÍNCULO NO PROCESSO.
+   *
+   * Roda sobre TODO processo que tem publicação, e não só sobre os da rodada:
+   * o acervo inteiro já tinha 1.474 publicações com advogados quando isto
+   * passou a existir, e nenhuma delas viraria vínculo se a varredura só olhasse
+   * o que chegou hoje. São duas consultas por processo, 108 processos hoje — o
+   * custo de uma passada é irrisório perto de descobrir na mão quem atua em
+   * cada caso.
+   *
+   * É idempotente por construção: só acrescenta o que falta, e a lápide impede
+   * que o que uma pessoa tirou volte.
+   */
+  private async ligarAdvogadosDoAto(): Promise<void> {
+    const comPublicacao = await this.prisma.processo.findMany({
+      where: { comunicacoes: { some: {} } },
+      select: { id: true },
+    });
+    await this.vinculoDeAdvogado.aplicarNosProcessos(comPublicacao.map((p) => p.id));
   }
 
   /**
@@ -683,6 +708,17 @@ export class DjenSyncService {
           where: { id: s.id },
           data: { compromissoId: compromisso.id },
         });
+        /*
+          A RESERVA AQUI NÃO VEM DA EQUIPE DO PROCESSO — o processo é justamente
+          o que ainda não existe. Vem do ATO: os outros advogados nossos que o
+          Diário nomeou na mesma publicação. É a única tarefa de robô sem
+          processo, e por isso a única que o gatilho não alcança.
+        */
+        await anotarReserva(
+          this.prisma,
+          compromisso.id,
+          separarAdvogadosDoAto(s.advogados, porOab).nossos.filter((id) => id !== responsavelId),
+        );
         criadas++;
         slot++;
       } catch (err) {

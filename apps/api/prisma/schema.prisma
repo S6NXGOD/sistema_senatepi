@@ -362,6 +362,7 @@ model User {
   processos               Processo[]               @relation("ProcessoAdvogado")
   /// Processos em que atua (N:N) — inclui os que responde como principal.
   processosEquipe         ProcessoAdvogado[]       @relation("ProcessoAdvogadoEquipe")
+  equipesDispensadas      ProcessoAdvogadoDispensado[] @relation("ProcessoAdvogadoDispensado")
   /// Atividades da agenda em que atua (N:N) — inclui as que responde.
   agendaEquipe            CompromissoResponsavel[] @relation("CompromissoEquipe")
   escalas                 EscalaAdvogado[]
@@ -2063,6 +2064,8 @@ model CompromissoResponsavel {
   usuarioId     String   @map("usuario_id")
   /// O responsável. Os demais são participantes.
   principal     Boolean  @default(false)
+  /// 'AUTOMATICA' = o robô pôs a equipe do caso como reserva; nulo/'MANUAL' = alguém escolheu.
+  origem        String?
   createdAt     DateTime @default(now()) @map("created_at")
 
   compromisso Compromisso @relation(fields: [compromissoId], references: [id], onDelete: Cascade)
@@ -2439,6 +2442,7 @@ model Processo {
   partes                ParteProcesso[]
   /// Advogados da casa que atuam no processo (N:N). O `principal` é o responsável.
   advogados             ProcessoAdvogado[]
+  advogadosDispensados  ProcessoAdvogadoDispensado[]
   /// Atividade da agenda que originou este processo (quando veio de um desfecho).
   origemCompromisso     Compromisso?              @relation("ProcessoOrigemCompromisso", fields: [origemCompromissoId], references: [id], onDelete: SetNull)
 
@@ -2699,6 +2703,8 @@ model ProcessoAdvogado {
   processoId String   @map("processo_id")
   advogadoId String   @map("advogado_id")
   principal  Boolean  @default(false)
+  /// Quem pôs este advogado aqui: 'DJEN' (o ato do Diário o nomeou) ou nulo/'MANUAL' (uma pessoa).
+  origem     String?
   createdAt  DateTime @default(now()) @map("created_at")
 
   processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
@@ -2707,6 +2713,25 @@ model ProcessoAdvogado {
   @@id([processoId, advogadoId])
   @@index([advogadoId])
   @@map("processos_advogados")
+}
+
+/// A LÁPIDE DA EQUIPE — quem foi tirado à mão não volta pela varredura.
+///
+/// Sem ela, remover um advogado da equipe duraria até a madrugada: o robô o
+/// encontraria citado no ato e o recolocaria, desfazendo em silêncio a decisão
+/// de uma pessoa. Mesma regra da ligação MANUAL em Contas Públicas.
+model ProcessoAdvogadoDispensado {
+  processoId    String   @map("processo_id")
+  advogadoId    String   @map("advogado_id")
+  dispensadoEm  DateTime @default(now()) @map("dispensado_em")
+  dispensadoPor String?  @map("dispensado_por")
+
+  processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
+  advogado User     @relation("ProcessoAdvogadoDispensado", fields: [advogadoId], references: [id], onDelete: Cascade)
+
+  @@id([processoId, advogadoId])
+  @@index([advogadoId])
+  @@map("processos_advogados_dispensados")
 }
 
 /// Anexo (documento/laudo) vinculado a um Atendimento (triagem), a um Processo

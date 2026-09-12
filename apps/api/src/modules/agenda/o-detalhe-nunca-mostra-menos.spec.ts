@@ -60,13 +60,32 @@ describe('a gaveta recebe tudo que o cartão recebe', () => {
     expect(faltando).toEqual([]);
   });
 
-  /** O caso concreto do relato, escrito por extenso para não voltar. */
-  it('o detalhe pede a equipe, com o mesmo formato da lista', () => {
-    const i = SERVICO.indexOf('async detalhe(id: string)');
-    const detalhe = SERVICO.slice(i, SERVICO.indexOf('return {', i));
-    expect(detalhe).toContain('equipe: {');
-    expect(detalhe).toContain('select: { principal: true, usuario: responsavelSel }');
-    expect(detalhe).toContain('orderBy: EQUIPE_ORDER');
+  /**
+   * O caso concreto do relato — e agora CAMPO A CAMPO.
+   *
+   * A versão antiga fixava a linha por extenso, então bastava alguém acrescentar
+   * um campo na lista para os dois selects divergirem com o teste verde. Foi o
+   * que aconteceu com `origem` (a marca de reserva do robô): a lista passou a
+   * trazer, o detalhe não, e a gaveta — que é onde o botão "Assumir" mora — não
+   * tinha como saber quem era reserva.
+   */
+  it('a equipe do detalhe pede tudo o que a lista pede', () => {
+    const campos = (trecho: string) => {
+      const i = trecho.indexOf('equipe: {');
+      expect(i).toBeGreaterThan(-1);
+      const select = trecho.slice(trecho.indexOf('select: {', i), trecho.indexOf('orderBy', i));
+      return new Set(Array.from(select.matchAll(/(\w+):/g), (m) => m[1]).filter((c) => c !== 'select'));
+    };
+    const iCard = SERVICO.indexOf('const cardSelect = {');
+    const daLista = campos(SERVICO.slice(iCard, SERVICO.indexOf('} as const;', iCard)));
+    const iDet = SERVICO.indexOf('async detalhe(id: string)');
+    const doDetalhe = campos(SERVICO.slice(iDet, SERVICO.indexOf('return {', iDet)));
+
+    expect([...daLista].filter((c) => !doDetalhe.has(c))).toEqual([]);
+    // E a marca de reserva está nos dois — é o que a tela lê para não mentir.
+    expect(daLista.has('origem')).toBe(true);
+    expect(doDetalhe.has('origem')).toBe(true);
+    expect(SERVICO.slice(iDet, SERVICO.indexOf('return {', iDet))).toContain('orderBy: EQUIPE_ORDER');
   });
 
   /** E as duas telas leem a equipe do mesmo jeito: o principal não se repete. */

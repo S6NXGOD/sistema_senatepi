@@ -7,6 +7,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import {
   AdicionarParteDto, AtualizarParteDto, DefinirAdvogadosDto,
 } from './dto/partes.dto';
+import { lerOabDigitada, oabPorExtenso } from './utils/advogados-do-ato.util';
 
 interface Ctx {
   userId?: string;
@@ -320,8 +321,32 @@ export class PartesService {
       (principalAtual && ids.includes(principalAtual) ? principalAtual : ids[0]) ??
       null;
 
+    /*
+      QUEM SAI DA EQUIPE À MÃO GANHA UMA LÁPIDE — e o robô respeita.
+
+      A varredura do Diário passou a completar a equipe com quem o ato nomeia
+      (ver `VinculoDeAdvogadoService`). Sem registrar a remoção, tirar alguém
+      daqui duraria até a madrugada: o ato continua citando o nome, e ele
+      voltaria sozinho, todo dia, sem ninguém entender por quê. É a mesma regra
+      da ligação MANUAL em Contas Públicas — decisão de gente não se desfaz por
+      rotina.
+    */
+    const removidos = atuais.map((a) => a.advogadoId).filter((id) => !ids.includes(id));
+
     await this.prisma.$transaction(async (tx) => {
       await tx.processoAdvogado.deleteMany({ where: { processoId, advogadoId: { notIn: ids.length ? ids : ['-'] } } });
+      if (removidos.length) {
+        await tx.processoAdvogadoDispensado.createMany({
+          data: removidos.map((advogadoId) => ({ processoId, advogadoId, dispensadoPor: ctx.userId ?? null })),
+          skipDuplicates: true,
+        });
+      }
+      // Recolocar à mão desfaz a lápide: a última palavra é sempre de quem clicou.
+      if (ids.length) {
+        await tx.processoAdvogadoDispensado.deleteMany({
+          where: { processoId, advogadoId: { in: ids } },
+        });
+      }
       // Zera os principais antes de gravar o novo: o índice único parcial
       // (um principal por processo) não tolera dois verdadeiros nem por um
       // instante dentro da transação.
@@ -329,7 +354,9 @@ export class PartesService {
       for (const advogadoId of ids) {
         await tx.processoAdvogado.upsert({
           where: { processoId_advogadoId: { processoId, advogadoId } },
-          create: { processoId, advogadoId, principal: false },
+          create: { processoId, advogadoId, principal: false, origem: 'MANUAL' },
+          // `origem` não é tocada no update: um advogado que o Diário trouxe e
+          // que a coordenação confirmou continua contando a própria história.
           update: {},
         });
       }
@@ -966,12 +993,36 @@ export class PartesService {
     });
   }
 
+  /**
+   * O ADVOGADO DA PARTE, num formato só — digitado ou vindo do Diário.
+   *
+   * `oab` é o texto que a tela sempre mostrou ("PI 11632"); `numeroOab`/`ufOab`
+   * são o mesmo dado em pedaços, e é por eles que a varredura reconhece quem já
+   * está na lista (senão o robô regravaria em duplicata quem alguém anotou à
+   * mão). Ver `advogados-do-ato.util.ts`.
+   *
+   * `origem` só vira MANUAL quando a linha chega SEM origem: reenviar a lista
+   * inteira ao salvar a parte — que é como a tela funciona — não pode
+   * transformar em "digitado por gente" o que o Diário trouxe.
+   */
   private normalizarAdvogadosDaParte(
-    lista?: { nome?: string; oab?: string }[],
+    lista?: { nome?: string; oab?: string; numeroOab?: string | null; ufOab?: string | null; origem?: string; vistoEm?: string }[],
   ): Prisma.InputJsonValue | undefined {
     if (lista === undefined) return undefined;
     const limpos = (lista ?? [])
-      .map((a) => ({ nome: a?.nome?.trim() || null, oab: a?.oab?.trim() || null }))
+      .map((a) => {
+        const digitada = lerOabDigitada(a?.oab);
+        const numeroOab = (a?.numeroOab ?? digitada.numeroOab) || null;
+        const ufOab = (a?.ufOab ?? digitada.ufOab) || null;
+        return {
+          nome: a?.nome?.trim() || null,
+          oab: a?.oab?.trim() || oabPorExtenso(numeroOab, ufOab),
+          numeroOab,
+          ufOab,
+          origem: a?.origem ?? 'MANUAL',
+          ...(a?.vistoEm ? { vistoEm: a.vistoEm } : {}),
+        };
+      })
       .filter((a) => a.nome || a.oab)
       .slice(0, 20);
     return limpos as unknown as Prisma.InputJsonValue;

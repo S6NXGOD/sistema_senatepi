@@ -1,3 +1,4 @@
+import { chaveOab } from './utils/advogados-do-ato.util';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -62,13 +63,16 @@ describe('a tarefa de cadastrar a ação do Diário', () => {
   it('exige advogado nosso citado no ato, casado pela OAB', () => {
     expect(SYNC).toContain('const responsavelId = this.primeiroAdvogadoNosso(s.advogados, porOab);');
     expect(SYNC).toContain('if (!responsavelId) {');
-    // Pela OAB, nunca pelo nome: o DJEN manda "ICARO" e o cadastro tem "Ícaro".
-    expect(SYNC).toContain('const chaveOab = (numero: unknown, uf: unknown)');
+    /*
+      Pela OAB, nunca pelo nome: o DJEN manda "ICARO" e o cadastro tem "Icaro".
+      A chave saiu deste arquivo para `utils/advogados-do-ato.util.ts` quando a
+      varredura passou a ligar os advogados ao processo — duas copias da mesma
+      normalizacao e o defeito das duas `normalizarNome`. O teste segue a regra
+      ate o novo endereco e cobra o COMPORTAMENTO, nao o texto.
+    */
+    expect(SYNC).toContain("import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';");
     expect(SYNC).toContain('porOab.get(chaveOab(a?.numeroOab, a?.ufOab))');
-    // A chave normaliza o número (só dígitos) e a UF — nunca compara nome.
-    const fnChave = SYNC.slice(SYNC.indexOf('const chaveOab'), SYNC.indexOf('/** Resumo de uma varredura'));
-    expect(fnChave).toContain('toUpperCase()');
-    expect(fnChave).not.toContain('nome');
+    expect(chaveOab(' 9.226 ', 'pi')).toBe('PI-9226');
   });
 
   /** `compromissoId` único no banco; a consulta também só pega os sem tarefa. */

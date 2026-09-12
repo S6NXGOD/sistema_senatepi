@@ -92,6 +92,20 @@ export async function sincronizarEquipe(
     });
   }
 
+  /*
+    2.1 QUEM ASSUME DEIXA DE SER RESERVA.
+
+    O robô marca `AUTOMATICA` em quem entrou por tabela — advogado do caso que
+    não é o dono. No instante em que essa pessoa VIRA o dono, a marca passa a
+    mentir: ela some do sino como "reserva" e some da tela como "também atua",
+    mas a linha continuaria dizendo que foi o sistema quem a pôs ali. Dono é
+    decisão de gente, e o registro tem de dizer isso.
+  */
+  await tx.compromissoResponsavel.updateMany({
+    where: { compromissoId, principal: true, origem: ORIGEM_RESERVA },
+    data: { origem: null },
+  });
+
   // 3. O atalho, lido de volta da fonte de verdade.
   const gravadoPrincipal = await tx.compromissoResponsavel.findFirst({
     where: { compromissoId, principal: true },
@@ -172,4 +186,76 @@ export function montarUrgencia(
     urgenteEm: new Date(),
     urgentePor: ctx.userId ?? null,
   };
+}
+
+/**
+ * "TAMBÉM ATUAM" — a equipe do caso entra como RESERVA na tarefa do robô.
+ *
+ * O ato do Diário intima a equipe inteira (4 advogados em 80 dos 131
+ * processos), e quem abre a tarefa precisa saber quem mais pode tocá-la quando
+ * o responsável está em audiência, de férias ou doente. Até aqui a atividade
+ * automática nascia com uma pessoa e ponto: das 39 criadas por robô na
+ * produção, ZERO tinham participante.
+ *
+ * POR QUE A ORIGEM IMPORTA — e esta é a parte que evita estragar o sino.
+ *
+ * Participante escolhido por gente significa "isto é seu também", e a agenda, o
+ * painel e o SINO contam assim (`responsavelId OU equipe`). Se a reserva do
+ * robô entrasse pela mesma porta, cada prazo tocaria o sino de até quatro
+ * advogados — o mesmo alarme repetido, que é o caminho conhecido para ninguém
+ * mais olhar o sino (foi o defeito dos 1.243 falsos positivos).
+ *
+ * Então a reserva é marcada, aparece no cartão ("também atuam") e na ficha, dá
+ * para assumir com um toque — mas não vira pendência de quem não respondeu por
+ * ela.
+ */
+export const ORIGEM_RESERVA = 'AUTOMATICA';
+
+/** Só quem entrou pela mão de gente conta como "meu" no sino e nos contadores. */
+export const NAO_E_RESERVA: Prisma.CompromissoResponsavelWhereInput = {
+  OR: [{ origem: null }, { origem: { not: ORIGEM_RESERVA } }],
+};
+
+/** Anota participantes de reserva. Não mexe em quem já está na equipe. */
+export async function anotarReserva(
+  tx: Prisma.TransactionClient,
+  compromissoId: string,
+  participantesIds: (string | null | undefined)[],
+): Promise<number> {
+  const ids = [...new Set(participantesIds.filter((id): id is string => !!id))];
+  if (!ids.length) return 0;
+  const r = await tx.compromissoResponsavel.createMany({
+    data: ids.map((usuarioId) => ({
+      compromissoId,
+      usuarioId,
+      principal: false,
+      origem: ORIGEM_RESERVA,
+    })),
+    skipDuplicates: true,
+  });
+  return r.count;
+}
+
+/**
+ * A reserva de uma tarefa DE PROCESSO é a equipe dele, menos quem já responde.
+ *
+ * Só advogado ATIVO: quem saiu do sindicato não é reserva de nada. E nunca o
+ * próprio responsável — ele já está lá como principal, posto pelo gatilho.
+ */
+export async function anotarReservaDoProcesso(
+  tx: Prisma.TransactionClient,
+  compromissoId: string,
+  processoId: string | null | undefined,
+  principalId: string | null | undefined,
+): Promise<number> {
+  if (!processoId) return 0;
+  const equipe = await tx.processoAdvogado.findMany({
+    where: { processoId, advogado: { ativo: true } },
+    select: { advogadoId: true },
+  });
+  return anotarReserva(
+    tx,
+    compromissoId,
+    equipe.map((e) => e.advogadoId).filter((id) => id !== principalId),
+  );
 }

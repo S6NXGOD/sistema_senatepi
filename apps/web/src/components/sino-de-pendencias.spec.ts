@@ -8,6 +8,10 @@ const SERVICO = readFileSync(
   path.resolve(RAIZ, '../../api/src/modules/agenda/pendencias.service.ts'),
   'utf8',
 );
+const EQUIPE_UTIL = readFileSync(
+  path.resolve(RAIZ, '../../api/src/modules/agenda/equipe.util.ts'),
+  'utf8',
+);
 const CONTROLLER = readFileSync(
   path.resolve(RAIZ, '../../api/src/modules/agenda/pendencias.controller.ts'),
   'utf8',
@@ -50,7 +54,8 @@ describe('o sino não pode virar caixa de notificações', () => {
    * O que NÃO pode mudar é de onde vem a identidade: do token, nunca da query.
    */
   it('o escopo é o usuário do token, sem modo global', () => {
-    expect(SERVICO).toContain('OR: [{ responsavelId: usuarioId }, { equipe: { some: { usuarioId } } }]');
+    expect(SERVICO).toContain('{ responsavelId: usuarioId },');
+    expect(SERVICO).toContain('{ equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },');
     expect(CONTROLLER).toContain('minhas(@CurrentUser() user: AuthUser)');
     expect(CONTROLLER).toContain('this.pendencias.minhas(user.id,');
     // Nada de aceitar o id de outra pessoa pela query.
@@ -68,7 +73,30 @@ describe('o sino não pode virar caixa de notificações', () => {
 
   /** Inclui o que a pessoa acompanha sem responder — mesma régua da agenda. */
   it('inclui o segundo advogado da atividade', () => {
-    expect(SERVICO).toContain('{ equipe: { some: { usuarioId } } }');
+    expect(SERVICO).toContain('equipe: { some: { usuarioId');
+  });
+
+  /**
+   * MAS NÃO A RESERVA DO ROBÔ — e esta é a linha que separa um sino útil de um
+   * sino ignorado.
+   *
+   * O robô anexa os advogados do caso a cada tarefa automática, para que alguém
+   * possa assumir quando o responsável está em audiência. Se essa reserva
+   * contasse como "meu", um único prazo tocaria em até quatro agendas: o mesmo
+   * alarme repetido, que é exatamente como se ensina a ignorar o sininho (foi o
+   * defeito dos 1.243 falsos positivos).
+   *
+   * A comparação PRECISA do OR com nulo: `{ not: 'AUTOMATICA' }` sozinho
+   * descarta as linhas antigas, que têm origem NULA — o erro que já ligou ZERO
+   * de 3.150 registros com o log dizendo sucesso.
+   */
+  it('mas a reserva do robô não conta como pendência de ninguém', () => {
+    expect(SERVICO).toContain('NAO_E_RESERVA');
+    expect(EQUIPE_UTIL).toContain(
+      'OR: [{ origem: null }, { origem: { not: ORIGEM_RESERVA } }]',
+    );
+    // A reserva continua VISÍVEL na atividade — o que ela não faz é cobrar.
+    expect(EQUIPE_UTIL).toContain("export const ORIGEM_RESERVA = 'AUTOMATICA';");
   });
 });
 

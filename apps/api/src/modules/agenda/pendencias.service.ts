@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { NAO_E_RESERVA } from './equipe.util';
 import { Prisma, StatusCompromisso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { inicioDoDiaBR } from '../processos/utils/data-br.util';
@@ -125,7 +126,17 @@ export class PendenciasService {
      */
     const meu: Prisma.CompromissoWhereInput = {
       status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
-      OR: [{ responsavelId: usuarioId }, { equipe: { some: { usuarioId } } }],
+      /*
+        RESERVA DO ROBÔ NÃO TOCA O SINO. Participante escolhido por gente conta
+        como seu; a equipe que o robô anexa à tarefa automática, não — senão o
+        mesmo prazo vira alarme de quatro pessoas. `origem` é anulável, e por
+        isso a comparação precisa do OR: `{ not: 'AUTOMATICA' }` sozinho
+        deixaria de fora justamente as linhas antigas, que têm origem NULA.
+      */
+      OR: [
+        { responsavelId: usuarioId },
+        { equipe: { some: { usuarioId, ...NAO_E_RESERVA } } },
+      ],
     };
 
     const selecao = {

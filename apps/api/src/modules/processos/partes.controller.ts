@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
+import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
 
 import { SugestaoFiliadoService } from './sugestao-filiado.service';
 
@@ -36,6 +37,7 @@ export class PartesController {
     private readonly service: PartesService,
     private readonly sugestoes: SugestaoFiliadoService,
     private readonly pendentes: VinculosPendentesService,
+    private readonly vinculo: VinculoDeAdvogadoService,
   ) {}
 
   /*
@@ -151,6 +153,20 @@ export class PartesController {
   @ApiOperation({ summary: 'Remove a parte do processo (só Administrador, regra global).' })
   remover(@Param('parteId') parteId: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.remover(parteId, ctxDe(req, user));
+  }
+
+  /**
+   * OS ADVOGADOS DO ATO QUE FICARAM SEM LADO.
+   *
+   * O Diário manda a lista de advogados sem dizer de quem cada um é. Quando há
+   * uma parte só no polo contrário, a varredura atribui; com duas ou mais, ela
+   * se recusa a escolher — e é esta rota que mostra à ficha o que ficou por
+   * decidir, para alguém apontar em um toque.
+   */
+  @Get(':id/advogados-do-ato')
+  @ApiOperation({ summary: 'Advogados citados no Diário que ainda não foram atribuídos a uma parte.' })
+  advogadosDoAtoSemLado(@Param('id') processoId: string) {
+    return this.vinculo.semLadoNoProcesso(processoId);
   }
 
   @Get(':id/advogados')

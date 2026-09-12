@@ -109,7 +109,9 @@ const cardSelect = {
    * A EQUIPE, com o responsável marcado. O card mostra os avatares empilhados;
    * sem isto, uma audiência com três advogados apareceria como se fosse de um.
    */
-  equipe: { select: { principal: true, usuario: responsavelSel }, orderBy: EQUIPE_ORDER },
+  // `origem` viaja: a tela precisa distinguir quem foi escolhido por gente de
+  // quem o robô anexou como reserva da equipe do caso.
+  equipe: { select: { principal: true, origem: true, usuario: responsavelSel }, orderBy: EQUIPE_ORDER },
 } as const;
 
 /**
@@ -484,7 +486,7 @@ export class AgendaService {
           `equipe` era a única que faltava.
         */
         equipe: {
-          select: { principal: true, usuario: responsavelSel },
+          select: { principal: true, origem: true, usuario: responsavelSel },
           orderBy: EQUIPE_ORDER,
         },
         // Quem REGISTROU a demanda — agora é uma FK, então vem com nome E FOTO
