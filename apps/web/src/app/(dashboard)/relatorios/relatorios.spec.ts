@@ -4,6 +4,7 @@ import {
   ESCOLHAS_PADRAO, NOTA_DO_CNJ, planoDoPdf, secaoDisponivel,
   type BlocoDoPdf, type EscolhasDoPdf, type RotulosDoPdf,
 } from '@/lib/relatorio-pdf';
+import { foraDaFontePadrao } from '@/lib/pdf-graficos';
 import {
   fraseDasSentencas, hrefDaComarca, hrefDaParteContraria, hrefDoAssunto, type Relatorio,
 } from '@/lib/relatorios';
@@ -66,7 +67,19 @@ const base: Relatorio = {
 };
 
 const titulos = (blocos: BlocoDoPdf[]) =>
-  blocos.flatMap((b) => (b.tipo === 'secao' || b.tipo === 'tabela' ? [b.titulo] : []));
+  blocos.flatMap((b) =>
+    (b.tipo === 'secao' || b.tipo === 'tabela' || b.tipo === 'barras' || b.tipo === 'colunas') && b.titulo
+      ? [b.titulo]
+      : [],
+  );
+
+/** O tipo do bloco que tem este título — barra, coluna ou tabela. */
+const tipoDe = (blocos: BlocoDoPdf[], titulo: string) =>
+  blocos.find((b) => 'titulo' in b && b.titulo === titulo)?.tipo;
+
+const TUDO_DETALHADO = Object.fromEntries(
+  Object.keys(ESCOLHAS_PADRAO).map((k) => [k, { incluir: true, detalhar: true }]),
+) as EscolhasDoPdf;
 
 const com = (mudar: Partial<EscolhasDoPdf>): EscolhasDoPdf => ({ ...ESCOLHAS_PADRAO, ...mudar });
 
@@ -127,6 +140,87 @@ describe('o PDF do relatório', () => {
     const blocos = planoDoPdf(base, com({ proximos: { incluir: true, detalhar: true } }), rotulos, 2026);
     const notas = blocos.flatMap((b) => (b.tipo === 'nota' ? [b.texto] : []));
     expect(notas.some((t) => t.includes('não o prazo processual'))).toBe(true);
+  });
+
+  /**
+   * "SINTA-SE LIVRE PARA COLOCAR GRÁFICOS" — 12/09/2026. As contagens viram
+   * barras; as listas de gente, não: barra por pessoa é pódio desenhado.
+   */
+  it('com gráficos, contagem vira barra — e lista de pessoas continua tabela', () => {
+    const r: Relatorio = {
+      ...base,
+      justica: { ...base.justica!, adversarios: [{ chave: 'pi', rotulo: 'Estado do Piauí', total: 12 }] },
+      atendimentos: { ...base.atendimentos, porAtendente: [{ rotulo: 'Ivo', total: 4 }] },
+    };
+    const blocos = planoDoPdf(r, TUDO_DETALHADO, rotulos, 2026);
+    expect(tipoDe(blocos, 'Sentenças por ano')).toBe('barras');
+    expect(tipoDe(blocos, 'Contra quem')).toBe('barras');
+    expect(tipoDe(blocos, 'Por pessoa, em ordem alfabética')).toBe('tabela');
+    expect(tipoDe(blocos, 'Por atendente')).toBe('tabela');
+  });
+
+  it('sem gráficos, sai em tabela como antes', () => {
+    const blocos = planoDoPdf(base, TUDO_DETALHADO, rotulos, 2026, { graficos: false });
+    expect(tipoDe(blocos, 'Sentenças por ano')).toBe('tabela');
+    expect(blocos.some((b) => b.tipo === 'barras' || b.tipo === 'colunas')).toBe(false);
+  });
+
+  /** A barra não esconde número: o total e as três partes, na ordem da legenda. */
+  it('cada ano de sentença leva o total e as três partes', () => {
+    const barras = planoDoPdf(base, ESCOLHAS_PADRAO, rotulos, 2026).find(
+      (b) => b.tipo === 'barras' && b.titulo === 'Sentenças por ano',
+    );
+    expect(barras).toMatchObject({
+      series: [{ nome: 'Procedentes' }, { nome: 'Em parte' }, { nome: 'Improcedentes' }],
+      itens: [
+        { rotulo: '2025', partes: [9, 20, 5], texto: '34 (9 · 20 · 5)' },
+        { rotulo: '2026 (até agora)', partes: [6, 13, 8], texto: '27 (6 · 13 · 8)' },
+      ],
+    });
+  });
+});
+
+describe('o PDF comparado com o período anterior', () => {
+  const anterior: Relatorio = {
+    ...base,
+    atividades: { ...base.atividades, concluidas: 9, abertas: 99, atrasadas: 50 },
+    atendimentos: { ...base.atendimentos, registrados: 3, filiadosAtendidos: 3 },
+    publicacoes: { recebidas: 80, viraramTarefa: 20, dispensadas: 50, esperandoDecisao: 1 },
+  };
+  const extras = { anterior: { relatorio: anterior, periodo: { de: '2026-07-13', ate: '2026-08-12' } } };
+  const tabelaDaComparacao = (blocos: BlocoDoPdf[]) => {
+    const i = blocos.findIndex((b) => b.tipo === 'secao' && b.titulo === 'Comparado com o período anterior');
+    return i < 0 ? null : (blocos[i + 1] as Extract<BlocoDoPdf, { tipo: 'tabela' }>);
+  };
+
+  it('vem colada no resumo, com antes, agora e quanto mudou', () => {
+    const blocos = planoDoPdf(base, ESCOLHAS_PADRAO, rotulos, 2026, extras);
+    expect(titulos(blocos).slice(0, 2)).toEqual(['Resumo do período', 'Comparado com o período anterior']);
+    const linhas = tabelaDaComparacao(blocos)!.linhas;
+    expect(linhas).toContainEqual(['Atividades concluídas', '9', '12', '+3']);
+    expect(linhas).toContainEqual(['Publicações recebidas', '80', '102', '+28%']);
+    expect(linhas).toContainEqual(['Pessoas atendidas', '3', '7', '+4']);
+  });
+
+  /** Retrato de hoje pedido para o mês passado volta igual — e "igual" seria mentira. */
+  it('só compara o que se conta dentro do período', () => {
+    const rotulosDasLinhas = tabelaDaComparacao(planoDoPdf(base, ESCOLHAS_PADRAO, rotulos, 2026, extras))!
+      .linhas.map((l) => l[0]);
+    expect(rotulosDasLinhas.some((r) => /aberto|atrasad|ativos|esperando|encerrad/i.test(r))).toBe(false);
+  });
+
+  it('seção desmarcada não entra na comparação', () => {
+    const blocos = planoDoPdf(base, com({ publicacoes: { incluir: false, detalhar: false } }), rotulos, 2026, extras);
+    expect(tabelaDaComparacao(blocos)!.linhas.map((l) => l[0])).not.toContain('Publicações recebidas');
+  });
+
+  it('sem período anterior, não há comparação', () => {
+    expect(tabelaDaComparacao(planoDoPdf(base, ESCOLHAS_PADRAO, rotulos, 2026))).toBeNull();
+  });
+
+  it('nada no plano que a fonte do PDF não saiba desenhar', () => {
+    const plano = planoDoPdf(base, TUDO_DETALHADO, rotulos, 2026, extras);
+    expect(foraDaFontePadrao(JSON.stringify(plano))).toEqual([]);
   });
 });
 

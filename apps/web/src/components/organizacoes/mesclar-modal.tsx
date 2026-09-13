@@ -223,6 +223,12 @@ function Comparacao({
   });
   const [ficaEscolhida, setFicaEscolhida] = useState<string | null>(null);
   const [escolhas, setEscolhas] = useState<Escolhas>({});
+  /**
+   * A CONFIRMAÇÃO GUARDA QUEM FOI CONFERIDA, e não um "sim" solto: se a pessoa
+   * inverter depois de marcar, a organização que some passa a ser outra — e a
+   * confirmação dada para a primeira não vale para ela.
+   */
+  const [conferiuQueSome, setConferiuQueSome] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -254,7 +260,7 @@ function Comparacao({
     f === 'receita' ? 'receita' : (f === 'a' ? c.a.id : c.b.id) === continua.id ? 'continua' : 'some';
 
   async function juntar() {
-    if (recusa || mesclando) return;
+    if (recusa || mesclando || conferiuQueSome !== some.id) return;
     setMesclando(true);
     try {
       const r = await mesclarOrganizacoes(continua.id, some.id, campos);
@@ -431,6 +437,26 @@ function Comparacao({
             na auditoria.
           </p>
         )}
+        {/*
+          UM TOQUE A MAIS, DE PROPÓSITO. Juntar não tem desfazer na tela, e o
+          botão vermelho sozinho é fácil de apertar no embalo das escolhas acima.
+          A frase repete o nome de quem some — é ele que precisa ser lido.
+        */}
+        {!recusa && (
+          <label className="flex cursor-pointer items-start gap-2 text-xs leading-snug">
+            <input
+              type="checkbox"
+              checked={conferiuQueSome === some.id}
+              onChange={(e) => setConferiuQueSome(e.target.checked ? some.id : null)}
+              disabled={mesclando}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-red-600"
+            />
+            <span>
+              Conferi: <strong className="font-medium">{some.nome}</strong> é a mesma organização e pode
+              deixar de existir.
+            </span>
+          </label>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
@@ -446,7 +472,7 @@ function Comparacao({
             </Button>
             <Button
               onClick={juntar}
-              disabled={!!recusa || mesclando}
+              disabled={!!recusa || mesclando || conferiuQueSome !== some.id}
               className="bg-red-600 text-white hover:bg-red-700"
             >
               {mesclando ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitMerge className="h-4 w-4" />}

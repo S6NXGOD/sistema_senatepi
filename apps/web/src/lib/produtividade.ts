@@ -37,6 +37,17 @@ export interface LinhaDeUso {
   processos: { cadastrados: number; andamentos: number; documentos: number };
   filiados: { cadastrados: number; fichasAtualizadas: number };
   atendimentos: number;
+  /** Mês a mês, para o PDF de um ano. Opcional pela janela de troca do deploy. */
+  porMes?: MesDeUso[];
+}
+
+export interface MesDeUso {
+  /** AAAA-MM, em Teresina. */
+  mes: string;
+  diasComUso: number;
+  concluidas: number;
+  andamentos: number;
+  atendimentos: number;
 }
 
 export interface ResumoDoPerfil {
@@ -51,6 +62,8 @@ export interface Produtividade {
   periodo: { de: string; ate: string };
   escopo: 'GLOBAL' | 'PESSOAL';
   dias: string[];
+  /** Os meses do período (AAAA-MM). Opcional pela janela de troca do deploy. */
+  meses?: string[];
   perfis: ResumoDoPerfil[];
   pessoas: LinhaDeUso[];
   geradoEm: string;
@@ -165,6 +178,15 @@ export function faixaDeUso(dias: string[], diasAtivos: string[]): FaixaDeUso {
 export type Bloco = 'agenda' | 'publicacoes' | 'processos' | 'filiados' | 'atendimentos';
 
 const TODOS_OS_BLOCOS: Bloco[] = ['agenda', 'publicacoes', 'processos', 'filiados', 'atendimentos'];
+
+/** O nome de cada bloco — no cartão da aba e no PDF, o mesmo. */
+export const TITULO_DO_BLOCO: Record<Bloco, string> = {
+  agenda: 'Agenda',
+  publicacoes: 'Publicações',
+  processos: 'Processos',
+  filiados: 'Filiados',
+  atendimentos: 'Atendimento',
+};
 
 /** O que cada perfil faz no sistema, na ordem em que o cartão mostra. */
 export const BLOCOS_DO_PERFIL: Record<string, Bloco[]> = {

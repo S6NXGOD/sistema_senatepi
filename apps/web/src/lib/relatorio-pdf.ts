@@ -1,13 +1,15 @@
 import { tenant } from '@/tenant.config';
 import { chaveLocal } from './armazenamento';
-import {
-  CINZA, MARGEM, VERDE, carregarLogo, desenharCabecalhoSync, desenharRodapeGeracao,
-} from './pdf-institucional';
+import { baixarDocumento, type BlocoDoPdf } from './pdf-documento';
+import { PALETA, agruparResto, numero, variacao } from './pdf-graficos';
+import { presetValido, rotuloDoPeriodo, type Periodo, type PresetDoPeriodo } from './periodo-do-pdf';
 import { formatNPU } from './processos';
 import {
-  RESULTADO_LABEL, dataCurta, dataDoInput, diaCurto, duracao, fraseDasSentencas, horaDoItem,
+  RESULTADO_LABEL, dataCurta, diaCurto, duracao, fraseDasSentencas, horaDoItem,
   totalDoAno, type Contagem, type ItemDaAgenda, type Relatorio,
 } from './relatorios';
+
+export type { BlocoDoPdf } from './pdf-documento';
 
 /**
  * O PDF DO RELATÓRIO — o documento que vai para a diretoria e para a assembleia.
@@ -19,9 +21,16 @@ import {
  * equipe, pessoa por pessoa) não é o que se projeta numa assembleia.
  *
  * MONTADO EM DUAS ETAPAS, DE PROPÓSITO. `planoDoPdf` decide O QUE entra e é
- * função pura, testada sem navegador. `gerarPdfDoRelatorio` só desenha o plano.
+ * função pura, testada sem navegador. `pdf-documento.ts` só desenha o plano.
  * Assim a regra "a tabela por pessoa só sai se alguém pediu" é provada em
  * teste, e não conferida a olho num PDF.
+ *
+ * A SEGUNDA VERSÃO (12/09/2026 — "sinta-se livre para colocar gráficos,
+ * comparativos, personalizar na hora de gerar"): o período se escolhe no
+ * próprio diálogo, as contagens saem em barras, a comparação com o período
+ * anterior vem colada no resumo, e o papel leva título e observação de quem
+ * emitiu. PESSOA NÃO VIRA BARRA: a lista por pessoa e a por atendente ficam em
+ * tabela, em ordem alfabética — barra por pessoa é pódio desenhado.
  */
 
 export type SecaoDoPdf = 'justica' | 'proximos' | 'equipe' | 'publicacoes' | 'atendimentos';
@@ -92,20 +101,29 @@ export function secaoDisponivel(r: Relatorio, secao: SecaoDoPdf): boolean {
   return true;
 }
 
-export type BlocoDoPdf =
-  | { tipo: 'secao'; titulo: string }
-  | { tipo: 'numeros'; itens: { rotulo: string; valor: string; nota?: string }[] }
-  | { tipo: 'texto'; texto: string }
-  | { tipo: 'nota'; texto: string }
-  | {
-      tipo: 'tabela';
-      titulo: string;
-      cabecalho: string[];
-      linhas: string[][];
-      /** Índices das colunas de número, alinhadas à direita. */
-      numericas?: number[];
-      vazio?: string;
-    };
+/** Como o PDF sai — além de o que entra. Guardado no navegador, como as seções. */
+export interface OpcoesDoPdf {
+  preset: PresetDoPeriodo;
+  graficos: boolean;
+  comparar: boolean;
+}
+
+/**
+ * O PADRÃO: o período da tela, com gráficos e comparado com o anterior. Quem
+ * gera todo mês escolhe "Mês passado" uma vez, e o navegador lembra.
+ */
+export const OPCOES_PADRAO: OpcoesDoPdf = { preset: 'TELA', graficos: true, comparar: true };
+
+/** O que o plano recebe além das escolhas de seção. */
+export interface ExtrasDoPlano {
+  /** Barras no lugar das tabelas de contagem. Ligado, se não disser nada. */
+  graficos?: boolean;
+  /** O mesmo relatório no período anterior. */
+  anterior?: { relatorio: Relatorio; periodo: Periodo } | null;
+}
+
+/** Até quantas barras um gráfico de contagem mostra antes de somar o resto numa só. */
+export const BARRAS_POR_GRAFICO = 12;
 
 export interface RotulosDoPdf {
   tipo: (slug: string) => string;
@@ -124,10 +142,11 @@ export const NOTA_DO_CNJ =
   'levar cerca de dois meses para registrar um julgamento: os meses mais recentes ' +
   'aparecem incompletos. As ações por ano contam os processos cadastrados neste sistema.';
 
-const n = (v: number) => v.toLocaleString('pt-BR');
+const n = numero;
 const plural = (v: number, um: string, varios: string) => `${n(v)} ${v === 1 ? um : varios}`;
-const npu = (numero: string | null | undefined) => (numero ? formatNPU(numero) : '—');
+const npu = (numeroCnj: string | null | undefined) => (numeroCnj ? formatNPU(numeroCnj) : '—');
 
+/** A tabela de uma contagem. Para lista de PESSOAS é a única forma: pessoa nunca vira barra. */
 function tabelaDeContagem(
   titulo: string,
   cabecalho: [string, string],
@@ -145,14 +164,105 @@ function tabelaDeContagem(
   };
 }
 
+/** Contagem de COISAS — réu, comarca, assunto, canal: barras com gráficos, tabela sem. */
+function contagem(
+  graficos: boolean,
+  titulo: string,
+  cabecalho: [string, string],
+  itens: Contagem[],
+  rotular?: (r: string) => string,
+  vazio?: string,
+): BlocoDoPdf {
+  if (!graficos) return tabelaDeContagem(titulo, cabecalho, itens, rotular, vazio);
+  const rotulados = itens.map((i) => ({ rotulo: rotular ? rotular(i.rotulo) : i.rotulo, total: i.total }));
+  return {
+    tipo: 'barras',
+    titulo,
+    unidade: cabecalho[1].toLowerCase(),
+    series: [{ nome: cabecalho[1], cor: PALETA.verde }],
+    itens: agruparResto(rotulados, BARRAS_POR_GRAFICO).map((i) => ({
+      rotulo: i.rotulo,
+      partes: [i.total],
+      texto: n(i.total),
+    })),
+    vazio,
+  };
+}
+
+/**
+ * COMPARADO COM O PERÍODO ANTERIOR — só o que se conta DENTRO de um período.
+ *
+ * "Em aberto", "atrasadas", o acervo e a fila de publicações são retrato de
+ * agora: pedidos para o mês passado, a API devolve o mesmo retrato de hoje, e a
+ * tabela diria "igual" sobre algo que ninguém mediu. Ficam de fora, e a nota diz
+ * por quê. Seção desmarcada também não entra: o PDF não compara o que não mostra.
+ */
+function comparacao(
+  r: Relatorio,
+  anterior: { relatorio: Relatorio; periodo: Periodo },
+  quer: (s: SecaoDoPdf) => boolean,
+): BlocoDoPdf[] {
+  const a = anterior.relatorio;
+  const linhas: [string, number, number][] = [
+    ['Atividades concluídas', a.atividades.concluidas, r.atividades.concluidas],
+    ['Atividades canceladas', a.atividades.canceladas, r.atividades.canceladas],
+  ];
+  const comJustica = quer('justica') && !!r.justica && !!a.justica;
+  if (comJustica) {
+    linhas.push(['Ações ajuizadas', a.processos.distribuidos, r.processos.distribuidos]);
+    linhas.push([
+      'Sentenças registradas',
+      a.justica!.totalSentencasNoPeriodo,
+      r.justica!.totalSentencasNoPeriodo,
+    ]);
+  }
+  if (quer('publicacoes') && r.publicacoes && a.publicacoes) {
+    linhas.push(['Publicações recebidas', a.publicacoes.recebidas, r.publicacoes.recebidas]);
+    linhas.push(['Publicações que viraram tarefa', a.publicacoes.viraramTarefa, r.publicacoes.viraramTarefa]);
+  }
+  if (quer('publicacoes') && r.robo && a.robo) {
+    linhas.push(['Tarefas criadas pelo robô', a.robo.criadas, r.robo.criadas]);
+  }
+  linhas.push(['Atendimentos registrados', a.atendimentos.registrados, r.atendimentos.registrados]);
+  if (r.atendimentos.filiadosAtendidos !== undefined && a.atendimentos.filiadosAtendidos !== undefined) {
+    linhas.push(['Pessoas atendidas', a.atendimentos.filiadosAtendidos, r.atendimentos.filiadosAtendidos]);
+  }
+
+  return [
+    {
+      tipo: 'secao',
+      titulo: 'Comparado com o período anterior',
+      subtitulo: `O período anterior é ${rotuloDoPeriodo(anterior.periodo)}.`,
+    },
+    {
+      tipo: 'tabela',
+      cabecalho: ['', 'Período anterior', 'Este período', 'Variação'],
+      linhas: linhas.map(([rotulo, antes, agora]) => [rotulo, n(antes), n(agora), variacao(agora, antes)]),
+      numericas: [1, 2, 3],
+    },
+    {
+      tipo: 'nota',
+      texto:
+        'Só entram contagens feitas dentro do período. Em aberto, atrasadas, o acervo e a fila de ' +
+        'publicações são retrato de hoje e não têm “antes” para comparar.' +
+        (comJustica
+          ? ' As sentenças dos meses mais recentes ainda estão chegando à base do CNJ: a comparação ' +
+            'delas pode mostrar uma queda que não houve.'
+          : ''),
+    },
+  ];
+}
+
 /** O que entra no PDF, na ordem em que entra. Nenhum desenho aqui. */
 export function planoDoPdf(
   r: Relatorio,
   escolhas: EscolhasDoPdf,
   rotulos: RotulosDoPdf,
   anoCorrente: number,
+  extras: ExtrasDoPlano = {},
 ): BlocoDoPdf[] {
   const blocos: BlocoDoPdf[] = [];
+  const graficos = extras.graficos ?? true;
   const quer = (s: SecaoDoPdf) => !!escolhas[s]?.incluir && secaoDisponivel(r, s);
   const detalhar = (s: SecaoDoPdf) => quer(s) && !!escolhas[s]?.detalhar;
   const pessoal = r.escopo === 'PESSOAL';
@@ -192,6 +302,9 @@ export function planoDoPdf(
     ],
   });
 
+  // A COMPARAÇÃO VEM COLADA NO RESUMO: é a primeira pergunta de quem lê — "e antes?".
+  if (extras.anterior) blocos.push(...comparacao(r, extras.anterior, quer));
+
   if (quer('justica') && r.justica) {
     const j = r.justica;
     blocos.push({ tipo: 'secao', titulo: 'O sindicato na Justiça' });
@@ -207,22 +320,52 @@ export function planoDoPdf(
     const frase = fraseDasSentencas(j.sentencasPorAno, anoCorrente);
     if (frase) blocos.push({ tipo: 'texto', texto: frase });
     const rotuloDoAno = (ano: number) => (ano === anoCorrente ? `${ano} (até agora)` : String(ano));
-    blocos.push({
-      tipo: 'tabela',
-      titulo: 'Sentenças por ano',
-      cabecalho: ['Ano', 'Procedentes', 'Em parte', 'Improcedentes', 'Total'],
-      linhas: j.sentencasPorAno.map((a) => [
-        rotuloDoAno(a.ano), n(a.procedentes), n(a.parciais), n(a.improcedentes), n(totalDoAno(a)),
-      ]),
-      numericas: [1, 2, 3, 4],
-    });
-    blocos.push({
-      tipo: 'tabela',
-      titulo: 'Ações ajuizadas por ano',
-      cabecalho: ['Ano', 'Ações'],
-      linhas: j.ajuizadasPorAno.map((a) => [rotuloDoAno(a.ano), n(a.processos)]),
-      numericas: [1],
-    });
+    if (graficos) {
+      blocos.push({
+        tipo: 'barras',
+        titulo: 'Sentenças por ano',
+        series: [
+          { nome: 'Procedentes', cor: PALETA.verde },
+          { nome: 'Em parte', cor: PALETA.verdeClaro },
+          { nome: 'Improcedentes', cor: PALETA.ambar },
+        ],
+        // O total e as três partes, na ordem da legenda: a barra não esconde número nenhum.
+        itens: j.sentencasPorAno.map((a) => ({
+          rotulo: rotuloDoAno(a.ano),
+          partes: [a.procedentes, a.parciais, a.improcedentes],
+          texto: `${n(totalDoAno(a))} (${n(a.procedentes)} · ${n(a.parciais)} · ${n(a.improcedentes)})`,
+        })),
+        vazio: 'Nenhuma sentença registrada.',
+      });
+      blocos.push({
+        tipo: 'barras',
+        titulo: 'Ações ajuizadas por ano',
+        series: [{ nome: 'Ações', cor: PALETA.verde }],
+        itens: j.ajuizadasPorAno.map((a) => ({
+          rotulo: rotuloDoAno(a.ano),
+          partes: [a.processos],
+          texto: n(a.processos),
+        })),
+        vazio: 'Nenhuma ação com data de distribuição.',
+      });
+    } else {
+      blocos.push({
+        tipo: 'tabela',
+        titulo: 'Sentenças por ano',
+        cabecalho: ['Ano', 'Procedentes', 'Em parte', 'Improcedentes', 'Total'],
+        linhas: j.sentencasPorAno.map((a) => [
+          rotuloDoAno(a.ano), n(a.procedentes), n(a.parciais), n(a.improcedentes), n(totalDoAno(a)),
+        ]),
+        numericas: [1, 2, 3, 4],
+      });
+      blocos.push({
+        tipo: 'tabela',
+        titulo: 'Ações ajuizadas por ano',
+        cabecalho: ['Ano', 'Ações'],
+        linhas: j.ajuizadasPorAno.map((a) => [rotuloDoAno(a.ano), n(a.processos)]),
+        numericas: [1],
+      });
+    }
     blocos.push({ tipo: 'nota', texto: NOTA_DO_CNJ });
 
     if (detalhar('justica')) {
@@ -241,11 +384,11 @@ export function planoDoPdf(
           texto: `A lista mostra ${n(j.sentencasNoPeriodo.length)} de ${n(j.totalSentencasNoPeriodo)} sentenças.`,
         });
       }
-      blocos.push(tabelaDeContagem('Contra quem', ['Parte contrária', 'Processos ativos'], j.adversarios));
-      blocos.push(tabelaDeContagem('Onde tramitam', ['Comarca', 'Processos ativos'], j.comarcas));
-      blocos.push(tabelaDeContagem('Sobre o quê', ['Assunto', 'Processos ativos'], j.temas));
+      blocos.push(contagem(graficos, 'Contra quem', ['Parte contrária', 'Processos ativos'], j.adversarios));
+      blocos.push(contagem(graficos, 'Onde tramitam', ['Comarca', 'Processos ativos'], j.comarcas));
+      blocos.push(contagem(graficos, 'Sobre o quê', ['Assunto', 'Processos ativos'], j.temas));
       blocos.push(
-        tabelaDeContagem('Por área', ['Área', 'Processos ativos'], r.processos.porArea, rotulos.area),
+        contagem(graficos, 'Por área', ['Área', 'Processos ativos'], r.processos.porArea, rotulos.area),
       );
     }
   }
@@ -301,7 +444,7 @@ export function planoDoPdf(
     });
     if (r.atividades.porTipo.length) {
       blocos.push(
-        tabelaDeContagem('O que foi concluído', ['Tipo de atividade', 'Concluídas'], r.atividades.porTipo, rotulos.tipo),
+        contagem(graficos, 'O que foi concluído', ['Tipo de atividade', 'Concluídas'], r.atividades.porTipo, rotulos.tipo),
       );
     }
     if (detalhar('equipe')) {
@@ -364,8 +507,8 @@ export function planoDoPdf(
       ],
     });
     blocos.push(
-      tabelaDeContagem(
-        'Por que procuraram o sindicato', ['Assunto', 'Atendimentos'], a.porAssunto, rotulos.assunto,
+      contagem(
+        graficos, 'Por que procuraram o sindicato', ['Assunto', 'Atendimentos'], a.porAssunto, rotulos.assunto,
         'Nenhum atendimento classificado no período.',
       ),
     );
@@ -376,9 +519,10 @@ export function planoDoPdf(
       });
     }
     if (detalhar('atendimentos')) {
-      blocos.push(tabelaDeContagem('Por setor', ['Setor', 'Atendimentos'], a.porSetor, rotulos.setor));
-      blocos.push(tabelaDeContagem('Por canal', ['Canal', 'Atendimentos'], a.porCanal, rotulos.canal));
+      blocos.push(contagem(graficos, 'Por setor', ['Setor', 'Atendimentos'], a.porSetor, rotulos.setor));
+      blocos.push(contagem(graficos, 'Por canal', ['Canal', 'Atendimentos'], a.porCanal, rotulos.canal));
       if (!pessoal) {
+        // Atendente é gente: tabela, mesmo com gráficos ligados.
         blocos.push(tabelaDeContagem('Por atendente', ['Atendente', 'Atendimentos'], a.porAtendente));
       }
     }
@@ -388,6 +532,7 @@ export function planoDoPdf(
 }
 
 const CHAVE_DAS_ESCOLHAS = chaveLocal('relatorio', 'pdf-escolhas');
+const CHAVE_DAS_OPCOES = chaveLocal('relatorio', 'pdf-opcoes');
 
 /** As escolhas da última vez: quem gera o PDF da diretoria todo mês não remarca tudo. */
 export function lerEscolhas(): EscolhasDoPdf {
@@ -417,139 +562,55 @@ export function guardarEscolhas(escolhas: EscolhasDoPdf): void {
   }
 }
 
+/** Período, gráficos e comparação da última vez. Título e observação NÃO ficam. */
+export function lerOpcoes(): OpcoesDoPdf {
+  const opcoes: OpcoesDoPdf = { ...OPCOES_PADRAO };
+  try {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_DAS_OPCOES) ?? 'null') as Partial<OpcoesDoPdf> | null;
+    if (!salvo || typeof salvo !== 'object') return opcoes;
+    if (presetValido(salvo.preset)) opcoes.preset = salvo.preset;
+    if (typeof salvo.graficos === 'boolean') opcoes.graficos = salvo.graficos;
+    if (typeof salvo.comparar === 'boolean') opcoes.comparar = salvo.comparar;
+  } catch {
+    // Armazenamento bloqueado ou lixo antigo: vale o padrão.
+  }
+  return opcoes;
+}
+
+export function guardarOpcoes(opcoes: OpcoesDoPdf): void {
+  try {
+    localStorage.setItem(CHAVE_DAS_OPCOES, JSON.stringify(opcoes));
+  } catch {
+    // Navegador sem armazenamento: vale só desta vez.
+  }
+}
+
 /**
- * DESENHA O PLANO. Nenhuma decisão de conteúdo mora aqui — só tipografia.
- *
- * Retrato A4, a faixa institucional em toda página, tabelas de linhas claras e
- * sem grade pesada: é documento para ler, não planilha impressa.
+ * GERA E BAIXA. O título e a observação vêm do diálogo e não ficam guardados:
+ * "Assembleia de setembro" no PDF de outubro é armadilha.
  */
 export async function gerarPdfDoRelatorio(
   r: Relatorio,
   escolhas: EscolhasDoPdf,
   rotulos: RotulosDoPdf,
-  contexto: { de: string; ate: string; emitidoPor: string },
+  contexto: { de: string; ate: string; emitidoPor: string; titulo?: string; observacao?: string },
+  extras: ExtrasDoPlano = {},
 ): Promise<void> {
-  const { jsPDF } = await import('jspdf');
-  const autoTable = (await import('jspdf-autotable')).default;
-  const logo = await carregarLogo('branco');
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  const larguraPagina = doc.internal.pageSize.getWidth();
-  const alturaPagina = doc.internal.pageSize.getHeight();
-  const largura = larguraPagina - MARGEM * 2;
-  const limite = alturaPagina - 20;
-  const TINTA: [number, number, number] = [30, 35, 40];
-  const periodo = `${dataDoInput(contexto.de)} a ${dataDoInput(contexto.ate)}`;
-  const faixa = `Relatório · ${periodo}`;
-
-  let y = desenharCabecalhoSync(doc, faixa, logo);
-  const cabe = (altura: number) => {
-    if (y + altura <= limite) return;
-    doc.addPage();
-    y = desenharCabecalhoSync(doc, faixa, logo);
-  };
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(...TINTA);
-  doc.text(`Relatório do ${tenant.sigla}`, MARGEM, y + 4);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(...CINZA);
+  const periodo = rotuloDoPeriodo({ de: contexto.de, ate: contexto.ate });
   const recorte =
     r.escopo === 'PESSOAL'
       ? 'Números pessoais'
       : r.focoUsuario
         ? `Recorte: ${r.focoUsuario.nome}`
         : 'Toda a equipe';
-  doc.text(`Período de ${periodo} · ${recorte} · Emitido por ${contexto.emitidoPor}`, MARGEM, y + 10, {
-    maxWidth: largura,
-  });
-  y += 16;
-
-  for (const bloco of planoDoPdf(r, escolhas, rotulos, new Date().getFullYear())) {
-    if (bloco.tipo === 'secao') {
-      cabe(20);
-      y += 4;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.setTextColor(...VERDE);
-      doc.text(bloco.titulo, MARGEM, y);
-      doc.setDrawColor(...VERDE);
-      doc.setLineWidth(0.3);
-      doc.line(MARGEM, y + 1.8, larguraPagina - MARGEM, y + 1.8);
-      y += 7;
-    } else if (bloco.tipo === 'numeros') {
-      const porLinha = Math.max(1, Math.min(4, bloco.itens.length));
-      const vao = 3;
-      const w = (largura - vao * (porLinha - 1)) / porLinha;
-      const h = 18;
-      for (let i = 0; i < bloco.itens.length; i += porLinha) {
-        cabe(h + vao);
-        bloco.itens.slice(i, i + porLinha).forEach((item, k) => {
-          const x = MARGEM + k * (w + vao);
-          doc.setDrawColor(222, 226, 230);
-          doc.setFillColor(248, 250, 249);
-          doc.setLineWidth(0.2);
-          doc.roundedRect(x, y, w, h, 1.5, 1.5, 'FD');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(14);
-          doc.setTextColor(...TINTA);
-          doc.text(item.valor, x + 3, y + 7.5);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(...CINZA);
-          // Uma linha só: rótulo que quebra empurraria a nota para fora da caixa.
-          doc.text(String(doc.splitTextToSize(item.rotulo, w - 6)[0] ?? ''), x + 3, y + 12);
-          if (item.nota) {
-            doc.setFontSize(7);
-            doc.text(String(doc.splitTextToSize(item.nota, w - 6)[0] ?? ''), x + 3, y + 15.5);
-          }
-        });
-        y += h + vao;
-      }
-    } else if (bloco.tipo === 'texto' || bloco.tipo === 'nota') {
-      const corpo = bloco.tipo === 'texto' ? 10 : 7.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(corpo);
-      doc.setTextColor(...(bloco.tipo === 'texto' ? TINTA : CINZA));
-      const linhas = doc.splitTextToSize(bloco.texto, largura) as string[];
-      const altura = linhas.length * corpo * 0.42;
-      cabe(altura + 3);
-      doc.text(linhas, MARGEM, y + corpo * 0.35);
-      y += altura + 3;
-    } else {
-      cabe(26);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(...TINTA);
-      doc.text(bloco.titulo, MARGEM, y + 3);
-      y += 5;
-      autoTable(doc, {
-        startY: y,
-        margin: { top: 40, left: MARGEM, right: MARGEM, bottom: 18 },
-        head: [bloco.cabecalho],
-        body: bloco.linhas.length
-          ? bloco.linhas
-          : [[{
-              content: bloco.vazio ?? 'Nada no período.',
-              colSpan: bloco.cabecalho.length,
-              styles: { halign: 'center', textColor: CINZA },
-            }]],
-        theme: 'plain',
-        headStyles: { fillColor: [238, 243, 240], textColor: TINTA, fontStyle: 'bold', fontSize: 8 },
-        bodyStyles: { fontSize: 8, textColor: TINTA, cellPadding: 1.6 },
-        alternateRowStyles: { fillColor: [250, 251, 250] },
-        columnStyles: Object.fromEntries(
-          (bloco.numericas ?? []).map((coluna) => [coluna, { halign: 'right' as const }]),
-        ),
-        didDrawPage: () => {
-          desenharCabecalhoSync(doc, faixa, logo);
-        },
-      });
-      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
-    }
-  }
-
-  desenharRodapeGeracao(doc);
-  doc.save(`relatorio-${tenant.id}-${contexto.de}-a-${contexto.ate}.pdf`);
+  await baixarDocumento(
+    {
+      faixa: `Relatório · ${periodo}`,
+      titulo: contexto.titulo?.trim() || `Relatório do ${tenant.sigla}`,
+      apoio: `Período: ${periodo} · ${recorte} · Emitido por ${contexto.emitidoPor}`,
+      observacao: contexto.observacao?.trim() || undefined,
+    },
+    planoDoPdf(r, escolhas, rotulos, new Date().getFullYear(), extras),
+    `relatorio-${tenant.id}-${contexto.de}-a-${contexto.ate}.pdf`,
+  );
 }

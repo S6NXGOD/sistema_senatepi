@@ -438,6 +438,13 @@ function Conteudo({
         />
       )}
 
+      {/*
+        SUA EQUIPE, LOGO DEPOIS DA SUA AGENDA. O que é seu vem primeiro; em
+        seguida, o que é dos colegas dos seus casos — em âmbar só quando ninguém
+        está cuidando. A API manda o bloco só para o advogado.
+      */}
+      {pode.agenda && alertas.daEquipe && <DaSuaEquipe daEquipe={alertas.daEquipe} />}
+
       {minhaCarteira && (
         <section>
           <SectionTitle icon={FolderKanban} texto="Minha carteira" />
@@ -617,17 +624,6 @@ function Conteudo({
         A de "paradas há mais de 7 dias" FICA: essa não está em lista nenhuma
         do painel (é `updatedAt`, não `inicio`) e some sozinha em dia limpo.
       */}
-      {/*
-        A RESERVA QUE FICOU PARA TRÁS vem antes da parada: é tarefa vencida de um
-        caso em que a pessoa atua, e não "alguém esqueceu disto?". Só existe no
-        painel do advogado — a API manda o bloco só para ele.
-      */}
-      {pode.agenda && (alertas.reservasAtrasadas?.total ?? 0) > 0 && (
-        <ReservasAtrasadas
-          total={alertas.reservasAtrasadas!.total}
-          itens={alertas.reservasAtrasadas!.itens}
-        />
-      )}
       {pode.agenda && alertas.semMovimentacao > 0 && (
         <div className="space-y-2">
           {/* Passou de vermelho sólido para info, e ganhou o número.
@@ -1791,126 +1787,145 @@ function AudienciasSemana({ data }: { data: ResumoDashboard }) {
 }
 
 /**
- * A TAREFA DO CASO QUE FICOU PARA TRÁS — e você é reserva dela.
+ * SUA EQUIPE — as tarefas dos casos em que você é reserva.
  *
- * Só no painel do advogado, e só quando existe. A reserva do robô não é
- * pendência enquanto a tarefa está em dia; quando o dia vira e ninguém fez, a
- * equipe do caso precisa saber. Em 12/09/2026, duas das três atrasadas da casa
- * eram de alguém que não acessava o sistema havia 39 dias, e os três colegas do
- * caso não tinham como saber.
+ * "QUANDO O ADVOGADO ENTRA DE RESERVA, ELE É AVISADO? AFINAL, É UMA EQUIPE." —
+ * 12/09/2026. Não era, até a tarefa atrasar, e atrasar chegava tarde: das 8
+ * tarefas abertas do robô, 5 tinham o responsável sem entrar havia uma semana ou
+ * mais, e só 2 já tinham ficado para trás.
  *
- * NÃO ENTRA NO "ATRASADAS" DA CARTEIRA, que é o que é seu. É uma faixa à parte,
- * com o nome de quem responde em cada linha — é com essa pessoa que se combina
- * antes de assumir, e assumir é um toque dentro da atividade.
+ * UM BLOCO, DOIS TONS — a ordem é a da urgência, e o destaque é cor, nunca um
+ * segundo bloco:
  *
- * Âmbar, e não vermelho: não é culpa de quem lê. Mesmo desenho da faixa de
- * paradas — uma abre direto; várias abrem no lugar.
+ *  · ÂMBAR — ninguém está cuidando: o responsável sumiu, ou o dia virou. Cada
+ *    linha diz de quem é e por quê; assumir é um toque dentro da atividade.
+ *  · NEUTRO E RECOLHIDO — o que a equipe tem nos próximos sete dias, em dia e
+ *    com o dono por perto. Não é cobrança: é saber, para cobrir quando precisar.
+ *
+ * Âmbar e não vermelho: o atraso é do colega, não de quem está lendo.
  */
-function ReservasAtrasadas({
-  total,
-  itens,
+function DaSuaEquipe({
+  daEquipe,
 }: {
-  total: number;
-  itens: NonNullable<ResumoDashboard['alertas']['reservasAtrasadas']>['itens'];
+  daEquipe: NonNullable<ResumoDashboard['alertas']['daEquipe']>;
 }) {
-  const [aberto, setAberto] = useState(false);
-  if (!itens.length) return null;
-
-  const nomeDe = (r: (typeof itens)[number]['responsavel']) =>
-    r ? primeiroENome(r) : 'sem responsável';
-  const diasAtrasada = (iso: string) =>
-    Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
-  const casca =
-    'rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-900 ' +
-    'dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200';
-
-  if (total === 1) {
-    const a = itens[0];
-    return (
-      <Link
-        href={`/agenda?compromisso=${a.id}`}
-        className={cn(
-          casca,
-          'flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-amber-100/70 dark:hover:bg-amber-950/50',
-        )}
-      >
-        <span className="flex min-w-0 items-center gap-2.5">
-          <Users className="h-4 w-4 shrink-0 opacity-80" />
-          <span className="min-w-0">
-            <strong>{a.titulo}</strong>, de {nomeDe(a.responsavel)}, ficou para trás
-            <span className="hidden sm:inline"> — você é reserva no caso e pode assumir</span>.
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold">
-          Abrir <ChevronRight className="h-3.5 w-3.5" />
-        </span>
-      </Link>
-    );
-  }
+  const [verAcompanhando, setVerAcompanhando] = useState(false);
+  const { precisam, totalPrecisam, acompanhando, totalAcompanhando } = daEquipe;
+  if (!totalPrecisam && !totalAcompanhando) return null;
 
   return (
-    <div className={casca}>
-      <button
-        type="button"
-        onClick={() => setAberto((v) => !v)}
-        aria-expanded={aberto}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
-      >
-        <span className="flex items-center gap-2.5">
-          <Users className="h-4 w-4 shrink-0 opacity-80" />
-          <span>
-            <strong>{total} atividades ficaram para trás</strong> em casos em que você é reserva.
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold">
-          {aberto ? 'Ocultar' : 'Ver quais'}
-          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
-        </span>
-      </button>
-
-      {aberto && (
-        <ul className="border-t border-amber-200 dark:border-amber-900/50">
-          {itens.map((a) => (
-            <li key={a.id}>
-              <Link
-                href={`/agenda?compromisso=${a.id}`}
-                className="flex items-center gap-3 border-t border-amber-200/70 px-4 py-2.5 transition first:border-t-0 hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
-              >
-                {a.responsavel ? (
+    <section className="space-y-2">
+      {totalPrecisam > 0 && (
+        <div className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+          <div className="px-4 pb-2 pt-3">
+            <p className="flex items-center gap-2 text-sm">
+              <Users className="h-4 w-4 shrink-0 opacity-80" />
+              <strong>
+                {totalPrecisam === 1
+                  ? 'Uma atividade da sua equipe está sem ninguém cuidando'
+                  : `${totalPrecisam} atividades da sua equipe estão sem ninguém cuidando`}
+              </strong>
+            </p>
+            <p className="mt-0.5 pl-6 text-xs opacity-80">
+              Você é reserva nesses casos. Abra, combine com quem responde e, se for o caso, assuma.
+            </p>
+          </div>
+          <ul className="border-t border-amber-200 dark:border-amber-900/50">
+            {precisam.map((t) => (
+              <li key={t.id}>
+                <Link
+                  href={`/agenda?compromisso=${t.id}`}
+                  className="flex items-center gap-3 border-t border-amber-200/70 px-4 py-2.5 transition first:border-t-0 hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
+                >
                   <AvatarPessoa
-                    nome={a.responsavel.nomeExibicao || a.responsavel.nome}
-                    url={a.responsavel.avatarUrl}
+                    nome={t.responsavel.nomeExibicao || t.responsavel.nome}
+                    url={t.responsavel.avatarUrl}
                     tamanho="xs"
                   />
-                ) : (
-                  <span className="h-5 w-5 shrink-0 rounded-full bg-amber-200/60" aria-hidden />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-semibold">{a.titulo}</span>
-                  <span className="block truncate text-xs opacity-80">
-                    de {nomeDe(a.responsavel)} · era para {formatDataHora(a.inicio)}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold">{t.titulo}</span>
+                    <span className="block truncate text-xs opacity-80">
+                      {t.detalhe} · para {formatDataHora(t.inicio)}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 text-xs">há {diasAtrasada(a.inicio)}d</span>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
-              </Link>
-            </li>
-          ))}
-          {/* O teto é de dez; dizer quantas ficaram fora impede a lista de parecer o todo. */}
-          {total > itens.length && (
-            <li>
-              <Link
-                href="/agenda"
-                className="flex items-center justify-between gap-3 border-t border-amber-200/70 px-4 py-2.5 text-xs font-medium transition hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
-              >
-                e mais {total - itens.length} — abrir a agenda
-                <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-              </Link>
-            </li>
-          )}
-        </ul>
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                </Link>
+              </li>
+            ))}
+            {/* O teto é de dez; dizer quantas ficaram fora impede a lista de parecer o todo. */}
+            {totalPrecisam > precisam.length && (
+              <li>
+                <Link
+                  href="/agenda"
+                  className="flex items-center justify-between gap-3 border-t border-amber-200/70 px-4 py-2.5 text-xs font-medium transition hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
+                >
+                  e mais {totalPrecisam - precisam.length} — abrir a agenda
+                  <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+                </Link>
+              </li>
+            )}
+          </ul>
+        </div>
       )}
-    </div>
+
+      {totalAcompanhando > 0 && (
+        <div className="overflow-hidden rounded-xl border bg-card text-sm">
+          <button
+            type="button"
+            onClick={() => setVerAcompanhando((v) => !v)}
+            aria-expanded={verAcompanhando}
+            className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-muted/50"
+          >
+            <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+              <Users className="h-4 w-4 shrink-0" />
+              <span className="truncate">
+                <span className="font-medium text-foreground">Acompanhando</span>
+                {' — '}
+                {totalAcompanhando === 1
+                  ? '1 atividade da equipe nos próximos 7 dias'
+                  : `${totalAcompanhando} atividades da equipe nos próximos 7 dias`}
+              </span>
+            </span>
+            <ChevronDown
+              className={cn(
+                'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                verAcompanhando && 'rotate-180',
+              )}
+            />
+          </button>
+          {verAcompanhando && (
+            <ul className="divide-y border-t">
+              {acompanhando.map((t) => (
+                <li key={t.id}>
+                  <Link
+                    href={`/agenda?compromisso=${t.id}`}
+                    className="flex items-center gap-3 px-4 py-2 transition hover:bg-muted/50"
+                  >
+                    <AvatarPessoa
+                      nome={t.responsavel.nomeExibicao || t.responsavel.nome}
+                      url={t.responsavel.avatarUrl}
+                      tamanho="xs"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">{t.titulo}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        de {primeiroENome(t.responsavel)} · {formatDataHora(t.inicio)}
+                      </span>
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </Link>
+                </li>
+              ))}
+              {totalAcompanhando > acompanhando.length && (
+                <li className="px-4 py-2 text-xs text-muted-foreground">
+                  e mais {totalAcompanhando - acompanhando.length} na agenda
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

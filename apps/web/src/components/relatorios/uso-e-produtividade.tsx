@@ -13,8 +13,8 @@ import { useAuth } from '@/lib/auth';
 import { PERFIL_LABEL, podeVer } from '@/lib/permissoes';
 import { contar } from '@/lib/plural';
 import {
-  GRUPO_DO_PERFIL, O_QUE_NAO_MEDE, ausente, blocosDaPessoa, carregarProdutividade, conteudoDoBloco,
-  faixaDeUso, fraseDoPerfil, gruposPorPerfil, hrefDaAuditoria, textoDoUltimoAcesso,
+  GRUPO_DO_PERFIL, O_QUE_NAO_MEDE, TITULO_DO_BLOCO, ausente, blocosDaPessoa, carregarProdutividade,
+  conteudoDoBloco, faixaDeUso, fraseDoPerfil, gruposPorPerfil, hrefDaAuditoria, textoDoUltimoAcesso,
   type Bloco, type LinhaDeUso, type ResumoDoPerfil,
 } from '@/lib/produtividade';
 
@@ -242,14 +242,6 @@ const ICONE_DO_BLOCO: Record<Bloco, LucideIcon> = {
   processos: Gavel,
   filiados: UserPlus,
   atendimentos: Headset,
-};
-
-const TITULO_DO_BLOCO: Record<Bloco, string> = {
-  agenda: 'Agenda',
-  publicacoes: 'Publicações',
-  processos: 'Processos',
-  filiados: 'Filiados',
-  atendimentos: 'Atendimento',
 };
 
 function QuadroDoBloco({ bloco, p }: { bloco: Bloco; p: LinhaDeUso }) {

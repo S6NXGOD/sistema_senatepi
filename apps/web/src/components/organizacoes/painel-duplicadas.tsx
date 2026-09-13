@@ -135,10 +135,10 @@ function LinhaPar({
           </Button>
         )}
         {/*
-          O DESCARTE não pede ADMINISTRADOR, ao contrário de mesclar: ele não
-          apaga nada. Exigir o perfil mais alto para dizer "isto está errado"
-          faria a fila encher justamente por quem tem menos acesso — e quem
-          conhece as organizações pelo nome raramente é o administrador.
+          O DESCARTE TAMBÉM É DO ADMINISTRADOR, desde 12/09/2026. Ele não apaga
+          nada, mas esconde o par para sempre — e foi um descarte dado por quem
+          não podia juntar que tirou a FMS da vista de quem podia. A fila
+          inteira só aparece para o administrador (ver a página de Organizações).
         */}
         <button
           type="button"

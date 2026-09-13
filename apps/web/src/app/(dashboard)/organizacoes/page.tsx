@@ -157,10 +157,18 @@ export default function OrganizacoesPage() {
         do título — e some sozinha quando não há nada a fazer, virando uma linha
         de confirmação de que o cadastro está limpo.
       */}
-      <PainelDuplicadas
-        podeMesclar={podeMesclar}
-        onMesclar={(fica, duplicada) => setMesclando({ fica, sugerida: duplicada })}
-      />
+      {/*
+        SÓ PARA O ADMINISTRADOR — a fila inteira, e não só o botão de juntar.
+        Descartar um par também é decidir: foi um "não são a mesma" dado por quem
+        não podia juntar que escondeu a FMS de quem podia. A API recusa as quatro
+        rotas da fila para os demais; a tela nem consulta.
+      */}
+      {podeMesclar && (
+        <PainelDuplicadas
+          podeMesclar={podeMesclar}
+          onMesclar={(fica, duplicada) => setMesclando({ fica, sugerida: duplicada })}
+        />
+      )}
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 p-4">

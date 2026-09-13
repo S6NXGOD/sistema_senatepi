@@ -1,12 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
-  Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper, HandHelping,
+  Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper, HandHelping, UserMinus, AlertTriangle,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -24,6 +25,8 @@ import {
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
+import { definirAdvogadosDoProcesso, listarAdvogadosDoProcesso } from '@/lib/partes';
 import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, nomeDeExibicao } from '@/lib/escalas';
 import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
@@ -48,6 +51,13 @@ function Avatar({ nome, url }: { nome: string; url?: string | null }) {
 }
 
 const soData = (iso: string) => iso.slice(0, 10);
+
+/** "Sem entrar no sistema há 39 dias." — a mesma régua da faixa de avisos e do painel. */
+function textoDaAusencia(a: { diasSemEntrar: number | null; inativo: boolean }): string {
+  if (a.inativo) return 'Não está mais no sistema.';
+  if (a.diasSemEntrar === null) return 'Nunca entrou no sistema.';
+  return `Sem entrar no sistema há ${a.diasSemEntrar} dias.`;
+}
 
 export function CompromissoDrawer({
   compromissoId, open, onClose, onEditar, onExcluir, onVerTriagem, podeExcluir,
@@ -96,12 +106,51 @@ export function CompromissoDrawer({
     mutationFn: (id: string) => atualizarCompromisso(id, { responsavelId: user!.id }),
     onSuccess: () => {
       toast.success('Atividade assumida — agora ela é sua.');
-      for (const k of [['compromissos'], ['compromisso'], ['agenda-alertas'], ['minhas-pendencias'], ['dashboard']]) {
+      for (const k of [['compromissos'], ['compromisso'], ['agenda-alertas'], ['minhas-pendencias'], ['dashboard'], ['dashboard-resumo']]) {
         qc.invalidateQueries({ queryKey: k });
       }
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Não foi possível assumir a atividade.'),
+  });
+
+  /*
+    "NÃO ATUA MAIS NESTE PROCESSO?" — a frase que eu tinha escrito numa
+    explicação ("tire-a da equipe na ficha: ela sai das tarefas e o robô não a
+    recoloca") e que ninguém entendeu virou um botão, no lugar em que a dúvida
+    aparece.
+
+    Tira a pessoa da EQUIPE DO PROCESSO, e não só desta tarefa: o banco a remove
+    das tarefas abertas do robô naquele processo, e a lápide impede a varredura
+    do Diário de colocá-la de volta amanhã. O responsável pelo processo não sai
+    por aqui — trocar o dono do caso é decisão da ficha, com a lista inteira à
+    vista.
+  */
+  const podeCuidarDaEquipe = podeEditar(user?.role, user?.permissoes, 'processos');
+  const [tirando, setTirando] = useState<string | null>(null);
+  const tirarDaEquipe = useMutation({
+    mutationFn: async ({ processoId, advogadoId }: { processoId: string; advogadoId: string }) => {
+      const atuais = await listarAdvogadosDoProcesso(processoId);
+      const alvo = atuais.find((a) => a.advogado.id === advogadoId);
+      if (!alvo) return;
+      if (alvo.principal) {
+        throw new Error('É o responsável pelo processo. Troque o responsável na ficha do processo antes.');
+      }
+      await definirAdvogadosDoProcesso(
+        processoId,
+        atuais.map((a) => a.advogado.id).filter((id) => id !== advogadoId),
+        atuais.find((a) => a.principal)?.advogado.id,
+      );
+    },
+    onSuccess: () => {
+      toast.success('Saiu da equipe do processo — e das tarefas abertas dele.');
+      setTirando(null);
+      for (const k of [['compromissos'], ['compromisso'], ['minhas-pendencias'], ['dashboard-resumo']]) {
+        qc.invalidateQueries({ queryKey: k });
+      }
+    },
+    onError: (e: any) =>
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Não foi possível tirar da equipe.'),
   });
 
   const filiado = c?.filiado;
@@ -414,6 +463,21 @@ export function CompromissoDrawer({
                   {c.responsavel.role && <p className="text-xs text-muted-foreground">{c.responsavel.role}</p>}
                 </div>
               </div>
+              {/*
+                O RESPONSÁVEL SUMIU — dito aqui, antes de qualquer decisão. A gaveta
+                mostrava o nome como se tudo estivesse sob controle, e ele não
+                entrava no sistema havia 39 dias.
+              */}
+              {c.ausenciaDoResponsavel && (
+                <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs leading-snug text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {textoDaAusencia(c.ausenciaDoResponsavel)}
+                    {(c.equipe ?? []).some((e) => !e.principal && ehReserva(e)) &&
+                      ' Os advogados do caso já estão sendo avisados — quem puder, assuma.'}
+                  </span>
+                </p>
+              )}
             </Bloco>
 
             {/*
@@ -441,8 +505,54 @@ export function CompromissoDrawer({
                           </p>
                           {ehReserva(e) && (
                             <p className="text-[11px] text-muted-foreground">
-                              advogado do caso — entrou de reserva
+                              advogado do processo — reserva
+                              {c.processo && podeCuidarDaEquipe && user?.id !== e.usuario.id && !estaFechado(c.status) && (
+                                <>
+                                  {' · '}
+                                  <button
+                                    type="button"
+                                    onClick={() => setTirando(e.usuario.id)}
+                                    className="font-medium underline-offset-2 hover:text-foreground hover:underline"
+                                  >
+                                    não atua mais aqui?
+                                  </button>
+                                </>
+                              )}
                             </p>
+                          )}
+                          {tirando === e.usuario.id && c.processo && (
+                            <div className="mt-2 rounded-lg border bg-muted/40 p-2.5 text-xs">
+                              <p className="leading-snug">
+                                Tirar <strong>{e.usuario.nomeExibicao || e.usuario.nome}</strong> da equipe deste
+                                processo? Sai desta e das outras tarefas abertas do processo, e o robô do Diário
+                                não coloca de volta. Dá para recolocar na ficha do processo.
+                              </p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setTirando(null)}
+                                  disabled={tirarDaEquipe.isPending}
+                                >
+                                  Cancelar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="bg-red-600 text-white hover:bg-red-700"
+                                  disabled={tirarDaEquipe.isPending}
+                                  onClick={() =>
+                                    tirarDaEquipe.mutate({ processoId: c.processo!.id, advogadoId: e.usuario.id })
+                                  }
+                                >
+                                  {tirarDaEquipe.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <UserMinus className="h-4 w-4" />
+                                  )}
+                                  Tirar da equipe
+                                </Button>
+                              </div>
+                            </div>
                           )}
                         </div>
                         {/* Só aparece para quem pode agir: eu, e só se ainda não for meu. */}
@@ -466,20 +576,23 @@ export function CompromissoDrawer({
                     ))}
                 </ul>
                 {/*
-                  A HONESTIDADE QUE FALTAVA: reserva não é aviso — até atrasar.
+                  A HONESTIDADE QUE FALTAVA: reserva não é aviso — até ninguém
+                  estar cuidando.
 
                   Quem lê "também atuam" supõe que a outra pessoa foi avisada.
-                  Enquanto a tarefa está em dia, a reserva do robô não vai para o
-                  sino de ninguém — de propósito, senão um prazo tocaria em quatro
-                  agendas. Quando o dia vira e ninguém fez, o sino dos advogados
-                  do caso passa a avisar. Dizer isso aqui é o que separa uma lista
-                  de nomes de uma combinação de trabalho.
+                  Enquanto o responsável cuida, a reserva do robô não vira aviso de
+                  ninguém — senão um prazo tocaria em quatro agendas. Quando ele
+                  some por uma semana, ou o dia vira, os advogados do caso ficam
+                  sabendo. Dizer isso aqui é o que separa uma lista de nomes de uma
+                  combinação de trabalho.
                 */}
                 {(c.equipe ?? []).some((e) => !e.principal && ehReserva(e)) && (
                   <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                    Reserva é quem pode tocar isto se o responsável não puder — são os advogados do
-                    caso. Enquanto está em dia, não entra nas pendências deles; se ficar para trás,
-                    o sino deles avisa. Quem assumir vira o responsável.
+                    Reservas são os outros advogados do processo.
+                    {' '}A tarefa não aparece como deles até ninguém estar cuidando:
+                    {' '}se o responsável ficar uma semana sem entrar no sistema, ou se o dia marcado
+                    passar, eles são avisados no painel e no aviso do topo. Quem tocar em Assumir vira o
+                    responsável.
                   </p>
                 )}
               </Bloco>

@@ -29,14 +29,30 @@ describe('reserva do robô', () => {
   });
 
   /*
-    ...ATÉ ATRASAR. Desde 12/09/2026 a reserva é avisada quando a tarefa fica
-    para trás, e a gaveta tem de dizer as duas metades — senão promete um
-    silêncio que o sino não cumpre.
+    ...ATÉ NINGUÉM ESTAR CUIDANDO. Desde 12/09/2026 a reserva é avisada quando o
+    responsável some por uma semana ou quando o dia vira — e a gaveta tem de
+    dizer as duas metades, senão promete um silêncio que o sistema não cumpre.
   */
-  it('a gaveta diz que reserva não vira pendência enquanto está em dia', () => {
+  it('a gaveta diz quando a reserva passa a ser avisada', () => {
     expect(GAVETA).toContain('ehReserva(e)');
-    expect(GAVETA).toContain('Enquanto está em dia, não entra nas pendências deles');
-    expect(GAVETA).toContain('o sino deles avisa');
+    expect(GAVETA).toContain('A tarefa não aparece como deles até ninguém estar cuidando');
+    expect(GAVETA).toContain('se o responsável ficar uma semana sem entrar no sistema');
+  });
+
+  it('e diz quando o responsável sumiu, antes de alguém decidir se assume', () => {
+    expect(GAVETA).toContain('{c.ausenciaDoResponsavel && (');
+  });
+
+  /**
+   * "SE ELA NÃO ATUA MAIS NESSE PROCESSO, TIRE-A DA EQUIPE NA FICHA" — a frase que
+   * ninguém entendeu virou um botão no lugar da dúvida. Só para quem edita
+   * processos, e nunca para o dono do caso.
+   */
+  it('dá para tirar da equipe do processo quem não atua mais nele', () => {
+    expect(GAVETA).toContain('não atua mais aqui?');
+    expect(GAVETA).toContain("podeEditar(user?.role, user?.permissoes, 'processos')");
+    expect(GAVETA).toContain('if (alvo.principal) {');
+    expect(GAVETA).toContain('definirAdvogadosDoProcesso(');
   });
 
   it('e o cartão marca a reserva no próprio nome', () => {

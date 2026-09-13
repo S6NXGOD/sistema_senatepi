@@ -185,19 +185,33 @@ export interface ResumoDashboard {
       responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null } | null;
     }[];
     /**
-     * TAREFAS DO ROBÔ QUE FICARAM PARA TRÁS em casos em que a pessoa é reserva.
+     * A EQUIPE DO ADVOGADO — as tarefas em que o robô o pôs de reserva.
      *
-     * Só no painel do advogado. Não entram em `atrasadas`, que é o que é dele:
-     * são do colega, e o painel diz de quem. Opcional pela janela de troca.
+     * `precisam`: ninguém está cuidando — o responsável está sem entrar há uma
+     * semana ou mais (ou saiu do sistema), ou o dia virou. `acompanhando`: em dia
+     * e com o dono por perto, de hoje a sete dias. Só no painel do advogado, e
+     * opcional pela janela de troca do deploy.
      */
-    reservasAtrasadas?: {
-      total: number;
-      itens: {
+    daEquipe?: {
+      precisam: {
         id: string;
         titulo: string;
         inicio: string;
-        responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null } | null;
+        responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null };
+        motivo: 'RESPONSAVEL_AUSENTE' | 'FICOU_PARA_TRAS';
+        diasSemEntrar: number | null;
+        inativo: boolean;
+        /** "Dr. Carlos está sem entrar há 39 dias" — a frase vem da API, a mesma da faixa. */
+        detalhe: string;
       }[];
+      totalPrecisam: number;
+      acompanhando: {
+        id: string;
+        titulo: string;
+        inicio: string;
+        responsavel: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null };
+      }[];
+      totalAcompanhando: number;
     };
     urgentes: number;
     /** Audiências designadas no DataJud e ainda fora da Agenda. */

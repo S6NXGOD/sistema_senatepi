@@ -1,0 +1,73 @@
+import {
+  hojeComoTexto, periodoAnterior, periodoDoPreset, periodoValido, presetValido, rotuloDoPeriodo,
+} from './periodo-do-pdf';
+
+const tela = { de: '2026-08-13', ate: '2026-09-12' };
+
+/**
+ * "NÃO É INTERESSANTE GERAR PDF DA PRODUTIVIDADE? MENSAL, ANUAL, PERSONALIZADO" —
+ * 12/09/2026. O período é escolhido na hora de gerar, e o anterior sai sozinho
+ * para a comparação.
+ */
+describe('o período do PDF', () => {
+  it('este mês vai do dia 1 até hoje; o mês passado é o mês inteiro', () => {
+    expect(periodoDoPreset('ESTE_MES', '2026-09-12', tela)).toEqual({ de: '2026-09-01', ate: '2026-09-12' });
+    expect(periodoDoPreset('MES_PASSADO', '2026-09-12', tela)).toEqual({ de: '2026-08-01', ate: '2026-08-31' });
+    expect(periodoDoPreset('MES_PASSADO', '2026-01-10', tela)).toEqual({ de: '2025-12-01', ate: '2025-12-31' });
+  });
+
+  it('este ano vai até hoje; o ano passado é o ano inteiro', () => {
+    expect(periodoDoPreset('ESTE_ANO', '2026-09-12', tela)).toEqual({ de: '2026-01-01', ate: '2026-09-12' });
+    expect(periodoDoPreset('ANO_PASSADO', '2026-09-12', tela)).toEqual({ de: '2025-01-01', ate: '2025-12-31' });
+  });
+
+  it('o da tela e as datas escolhidas, desinvertidas', () => {
+    expect(periodoDoPreset('TELA', '2026-09-12', tela)).toEqual(tela);
+    expect(
+      periodoDoPreset('PERSONALIZADO', '2026-09-12', tela, { de: '2026-06-30', ate: '2026-06-01' }),
+    ).toEqual({ de: '2026-06-01', ate: '2026-06-30' });
+  });
+
+  /** Mês em curso contra o mês anterior inteiro "cairia" pela metade no papel da assembleia. */
+  it('este mês compara com os mesmos dias do mês anterior', () => {
+    expect(periodoAnterior({ de: '2026-09-01', ate: '2026-09-12' }, 'ESTE_MES')).toEqual({
+      de: '2026-08-01',
+      ate: '2026-08-12',
+    });
+  });
+
+  it('o mês passado inteiro compara com o mês anterior inteiro — fevereiro curto incluído', () => {
+    expect(periodoAnterior({ de: '2026-03-01', ate: '2026-03-31' }, 'MES_PASSADO')).toEqual({
+      de: '2026-02-01',
+      ate: '2026-02-28',
+    });
+  });
+
+  it('o ano compara com o mesmo trecho do ano anterior', () => {
+    expect(periodoAnterior({ de: '2026-01-01', ate: '2026-09-12' }, 'ESTE_ANO')).toEqual({
+      de: '2025-01-01',
+      ate: '2025-09-12',
+    });
+  });
+
+  it('fora disso, o mesmo número de dias, logo antes', () => {
+    expect(periodoAnterior(tela, 'TELA')).toEqual({ de: '2026-07-13', ate: '2026-08-12' });
+  });
+
+  it('o nome do período em português de gente', () => {
+    expect(rotuloDoPeriodo({ de: '2026-08-01', ate: '2026-08-31' })).toBe('agosto de 2026');
+    expect(rotuloDoPeriodo({ de: '2025-01-01', ate: '2025-12-31' })).toBe('2025');
+    expect(rotuloDoPeriodo(tela)).toBe('13/08/2026 a 12/09/2026');
+  });
+
+  it('hoje é o dia do calendário de quem gera, mesmo às 23h30', () => {
+    expect(hojeComoTexto(new Date('2026-09-12T23:30:00-03:00'))).toBe('2026-09-12');
+  });
+
+  it('o que o navegador guardou só vale se ainda existir; data apagada não gera PDF', () => {
+    expect(presetValido('MES_PASSADO')).toBe(true);
+    expect(presetValido('TRIMESTRE')).toBe(false);
+    expect(periodoValido({ de: '2026-09-01', ate: '' })).toBe(false);
+    expect(periodoValido({ de: '2026-09-01', ate: '2026-09-12' })).toBe(true);
+  });
+});

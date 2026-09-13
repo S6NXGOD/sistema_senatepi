@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   ArrowRight, BarChart3, Bot, CalendarClock, Download, FileText, Gavel, Loader2, MessagesSquare,
-  Newspaper, Users, X, type LucideIcon,
+  Newspaper, Users, type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
@@ -23,9 +23,12 @@ import {
   type Publicacoes, type Relatorio, type ResultadoSentenca, type Robo, type SentencasDoAno,
 } from '@/lib/relatorios';
 import {
-  ESCOLHAS_PADRAO, SECOES_DO_PDF, gerarPdfDoRelatorio, guardarEscolhas, lerEscolhas,
-  secaoDisponivel, type EscolhasDoPdf, type RotulosDoPdf, type SecaoDoPdf,
+  ESCOLHAS_PADRAO, OPCOES_PADRAO, SECOES_DO_PDF, gerarPdfDoRelatorio, guardarEscolhas, guardarOpcoes,
+  lerEscolhas, lerOpcoes, secaoDisponivel, type EscolhasDoPdf, type RotulosDoPdf, type SecaoDoPdf,
 } from '@/lib/relatorio-pdf';
+import {
+  hojeComoTexto, periodoAnterior, periodoDoPreset, periodoValido, type Periodo, type PresetDoPeriodo,
+} from '@/lib/periodo-do-pdf';
 import { DESFECHO_LABEL, listarTiposEvento, rotuloTipo } from '@/lib/agenda';
 import {
   CANAL_LABEL, SETOR_LABEL, type CanalAtendimento, type SetorAtendimento,
@@ -34,6 +37,10 @@ import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
 import { formatNPU } from '@/lib/processos';
 import { baixarCsvDaProdutividade } from '@/lib/produtividade';
 import { UsoEProdutividade } from '@/components/relatorios/uso-e-produtividade';
+import { PdfDaProdutividade } from '@/components/relatorios/pdf-da-produtividade';
+import {
+  DialogoDoPdf, EscolhaDoPeriodo, Opcao, ParteDoDialogo, TituloEObservacao, campoCls,
+} from '@/components/relatorios/partes-do-pdf';
 
 /**
  * RELATÓRIOS — o que a equipe entregou, o que ficou, e como o sindicato está na
@@ -196,13 +203,18 @@ export default function RelatoriosPage() {
             {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Planilha
           </Button>
-          {/* O PDF é o documento da diretoria; o uso do sistema não vai para a assembleia. */}
-          {aba === 'sindicato' && (
-            <Button onClick={() => setPdfAberto(true)} disabled={!data || isError}>
-              <FileText className="h-4 w-4" />
-              Baixar PDF
-            </Button>
-          )}
+          {/*
+            UM PDF POR ABA. O do sindicato é o documento da diretoria; o do uso é
+            ferramenta da coordenação — do mês, do ano, de um perfil ou de uma
+            pessoa. Cada um abre a própria escolha.
+          */}
+          <Button
+            onClick={() => setPdfAberto(true)}
+            disabled={aba === 'sindicato' && (!data || isError)}
+          >
+            <FileText className="h-4 w-4" />
+            Baixar PDF
+          </Button>
         </div>
       </header>
 
@@ -523,6 +535,16 @@ export default function RelatoriosPage() {
         <EscolherPdf
           relatorio={data}
           rotulos={rotulos}
+          de={de}
+          ate={ate}
+          foco={foco}
+          pessoas={pessoas}
+          emitidoPor={user?.nomeExibicao || user?.nome || tenant.sigla}
+          onFechar={() => setPdfAberto(false)}
+        />
+      )}
+      {aba === 'uso' && pdfAberto && (
+        <PdfDaProdutividade
           de={de}
           ate={ate}
           emitidoPor={user?.nomeExibicao || user?.nome || tenant.sigla}
@@ -1097,43 +1119,75 @@ function Lista<T extends Contagem>({
 }
 
 /**
- * O QUE VAI NO PDF — duas decisões por seção: incluir e detalhar.
+ * O QUE VAI NO PDF — o período, de quem, as seções (incluir e detalhar) e como
+ * sai: com gráficos, comparado com o período anterior, com título e observação.
  *
- * O resumo sempre entra. As escolhas ficam guardadas no navegador: quem gera o
- * PDF da diretoria todo mês não remarca tudo. No celular abre de baixo, onde o
- * polegar alcança; no computador, no centro.
+ * O resumo sempre entra. Seções, período e opções ficam guardados no navegador:
+ * quem gera o PDF da diretoria todo mês não remarca tudo. Título e observação
+ * não ficam.
  */
 function EscolherPdf({
-  relatorio, rotulos, de, ate, emitidoPor, onFechar,
+  relatorio, rotulos, de, ate, foco, pessoas, emitidoPor, onFechar,
 }: {
   relatorio: Relatorio;
   rotulos: RotulosDoPdf;
   de: string;
   ate: string;
+  foco: string;
+  pessoas: { id: string; nome: string }[];
   emitidoPor: string;
   onFechar: () => void;
 }) {
+  const qc = useQueryClient();
   const [escolhas, setEscolhas] = useState<EscolhasDoPdf>(() => lerEscolhas());
+  const [opcoes] = useState(() => lerOpcoes());
+  const [preset, setPreset] = useState<PresetDoPeriodo>(opcoes.preset);
+  const [datas, setDatas] = useState<Periodo>({ de, ate });
+  const [comparar, setComparar] = useState(opcoes.comparar);
+  const [graficos, setGraficos] = useState(opcoes.graficos);
+  const [recorte, setRecorte] = useState(foco);
+  const [titulo, setTitulo] = useState('');
+  const [observacao, setObservacao] = useState('');
   const [gerando, setGerando] = useState(false);
   const secoes = SECOES_DO_PDF.filter((s) => secaoDisponivel(relatorio, s.chave));
-
-  useEffect(() => {
-    const aoTeclar = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape' && !gerando) onFechar();
-    };
-    document.addEventListener('keydown', aoTeclar);
-    return () => document.removeEventListener('keydown', aoTeclar);
-  }, [gerando, onFechar]);
+  const pessoal = relatorio.escopo === 'PESSOAL';
 
   function alternar(chave: SecaoDoPdf, campo: 'incluir' | 'detalhar') {
     setEscolhas((atual) => ({ ...atual, [chave]: { ...atual[chave], [campo]: !atual[chave][campo] } }));
   }
 
+  function voltarAoPadrao() {
+    setEscolhas(ESCOLHAS_PADRAO);
+    setPreset(OPCOES_PADRAO.preset);
+    setComparar(OPCOES_PADRAO.comparar);
+    setGraficos(OPCOES_PADRAO.graficos);
+  }
+
   async function gerar() {
+    const periodo = periodoDoPreset(preset, hojeComoTexto(new Date()), { de, ate }, datas);
+    /* O relatório da tela já está na mão; outro período ou outra pessoa, a API soma de novo. */
+    const buscar = (p: Periodo) =>
+      p.de === de && p.ate === ate && recorte === foco
+        ? Promise.resolve(relatorio)
+        : qc.fetchQuery({
+            queryKey: ['relatorio', p.de, p.ate, recorte],
+            queryFn: () => carregarRelatorio(p.de, p.ate, recorte || undefined),
+            staleTime: 60_000,
+          });
     setGerando(true);
     try {
       guardarEscolhas(escolhas);
-      await gerarPdfDoRelatorio(relatorio, escolhas, rotulos, { de, ate, emitidoPor });
+      guardarOpcoes({ preset, comparar, graficos });
+      const atual = await buscar(periodo);
+      const antes = comparar ? periodoAnterior(periodo, preset) : null;
+      const anterior = antes ? { relatorio: await buscar(antes), periodo: antes } : null;
+      await gerarPdfDoRelatorio(
+        atual,
+        escolhas,
+        rotulos,
+        { ...periodo, emitidoPor, titulo, observacao },
+        { graficos, anterior },
+      );
       onFechar();
     } catch {
       toast.error('Não foi possível gerar o PDF agora.');
@@ -1143,40 +1197,65 @@ function EscolherPdf({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      onClick={gerando ? undefined : onFechar}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="titulo-do-pdf"
-        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3 border-b p-4">
-          <div>
-            <h2 id="titulo-do-pdf" className="font-semibold">O que vai no PDF</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Período de {dataDoInput(de)} a {dataDoInput(ate)}. O resumo sempre entra.
-            </p>
-          </div>
+    <DialogoDoPdf
+      titulo="O que vai no PDF"
+      subtitulo="O resumo sempre entra. O resto, você escolhe."
+      gerando={gerando}
+      onFechar={onFechar}
+      rodape={
+        <>
           <button
             type="button"
-            onClick={onFechar}
-            disabled={gerando}
-            aria-label="Fechar"
-            className="rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+            onClick={voltarAoPadrao}
+            className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
           >
-            <X className="h-4 w-4" />
+            Voltar ao padrão
           </button>
-        </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onFechar} disabled={gerando}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={gerar}
+              disabled={gerando || (preset === 'PERSONALIZADO' && !periodoValido(datas))}
+            >
+              {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Gerar PDF
+            </Button>
+          </div>
+        </>
+      }
+    >
+      <EscolhaDoPeriodo
+        preset={preset}
+        onPreset={setPreset}
+        datas={datas}
+        onDatas={setDatas}
+        tela={{ de, ate }}
+        comparar={comparar}
+        onComparar={setComparar}
+      />
 
-        <ul className="flex-1 divide-y overflow-y-auto">
+      {/* O recorte de uma pessoa é o mesmo espelho da tela: para conversar com ela, não para pódio. */}
+      {!pessoal && pessoas.length > 1 && (
+        <ParteDoDialogo titulo="De quem">
+          <select value={recorte} onChange={(e) => setRecorte(e.target.value)} className={campoCls}>
+            <option value="">Toda a equipe</option>
+            {pessoas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        </ParteDoDialogo>
+      )}
+
+      <ParteDoDialogo titulo="Seções">
+        <ul className="divide-y rounded-lg border">
           {secoes.map((s) => {
             const escolha = escolhas[s.chave];
             return (
-              <li key={s.chave} className="p-4">
+              <li key={s.chave} className="p-3">
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
                     type="checkbox"
@@ -1222,26 +1301,24 @@ function EscolherPdf({
             );
           })}
         </ul>
+      </ParteDoDialogo>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/30 p-4">
-          <button
-            type="button"
-            onClick={() => setEscolhas(ESCOLHAS_PADRAO)}
-            className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
-          >
-            Voltar ao padrão
-          </button>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onFechar} disabled={gerando}>
-              Cancelar
-            </Button>
-            <Button onClick={gerar} disabled={gerando}>
-              {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Gerar PDF
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+      <ParteDoDialogo titulo="Como sai">
+        <Opcao
+          marcada={graficos}
+          onMudar={setGraficos}
+          titulo="Com gráficos"
+          texto="Sentenças, ações por ano e contagens em barras. Listas de pessoas continuam em tabela — pessoa não vira barra."
+        />
+      </ParteDoDialogo>
+
+      <TituloEObservacao
+        titulo={titulo}
+        onTitulo={setTitulo}
+        observacao={observacao}
+        onObservacao={setObservacao}
+        tituloPadrao={`Relatório do ${tenant.sigla}`}
+      />
+    </DialogoDoPdf>
   );
 }

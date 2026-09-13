@@ -2,31 +2,28 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Users } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { podeVer } from '@/lib/permissoes';
-import { minhasPendencias, PENDENCIA, rotulo } from '@/lib/pendencias';
+import { fraseDaFaixa, minhasPendencias } from '@/lib/pendencias';
 
 /**
- * A FAIXA DE ATRASO — o sino não basta para prazo vencido.
- *
- * O sino é discreto de propósito: ele convive com o dia normal. Prazo vencido
- * não é dia normal, e um contador no canto superior direito é fácil demais de
- * não ver quando se entra no sistema para fazer outra coisa.
+ * A FAIXA DE AVISOS — o único aviso que aparece em toda tela.
  *
  * TRÊS REGRAS QUE A IMPEDEM DE VIRAR RUÍDO:
  *
- *  1. Só aparece para o que JÁ VENCEU e para publicação que nunca virou tarefa.
- *     Tarefa de hoje e audiência da semana ficam no sino. Uma faixa que aparece
- *     todo dia é um cabeçalho, e cabeçalho ninguém lê.
- *  2. NÃO tem botão de fechar. Ela não some por ser dispensada — some quando o
- *     trabalho é feito, porque é estado derivado. Fechar seria ensinar que dá
- *     para calar o aviso sem resolver.
- *  3. Uma linha, e nada de vermelho pesado. O texto diz o número e leva para a
- *     agenda; não repreende ninguém.
+ *  1. Só o que não pode esperar: o que é seu e ficou para trás, a publicação que
+ *     nunca virou tarefa, e a tarefa da sua equipe sem ninguém cuidando. O dia de
+ *     hoje e a audiência da semana moram no painel. Faixa que aparece todo dia é
+ *     cabeçalho, e cabeçalho ninguém lê.
+ *  2. NÃO tem botão de fechar. Ela some quando o trabalho é feito, porque é
+ *     estado derivado — fechar ensinaria que dá para calar o aviso sem resolver.
+ *  3. Uma linha, âmbar, sem repreender ninguém. Um item só leva ao próprio item;
+ *     vários levam à lista.
  *
- * Usa a MESMA chave de consulta do sino: o React Query serve os dois com uma
- * requisição só.
+ * ERA A IRMÃ DO SINO, que saiu em 12/09/2026 por repetir o painel numa gaveta
+ * que ninguém abria. Ficou só ela — e por isso passou a dizer QUAL é a coisa, e
+ * não só quantas.
  */
 export function FaixaDeAtraso() {
   const { user } = useAuth();
@@ -41,34 +38,43 @@ export function FaixaDeAtraso() {
     retry: false,
   });
 
-  /*
-    `naFaixa`, E NÃO `urgente` — são decisões diferentes.
+  const pendencias = data?.pendencias ?? [];
+  if (!pendencias.length) return null;
 
-    `urgente` pinta o sino de vermelho; esta faixa aparece em cima de TODA tela.
-    A ação nova sem cadastro é vermelha no sino (não aparece em mais lugar
-    nenhum) e NÃO entra aqui: são trinta itens que levam dias para serem
-    conferidos, e a regra 1 desta faixa é justamente não virar cabeçalho.
-  */
-  const naFaixa = (data?.pendencias ?? []).filter((p) => PENDENCIA[p.tipo].naFaixa);
-  if (!naFaixa.length) return null;
-
-  // O destino é o do PRIMEIRO item: a faixa mandava todo mundo para /agenda,
-  // fixo, e com a publicação sem tarefa — que vive em /publicacoes — o clique
-  // já levava ao lugar errado.
-  const destino = PENDENCIA[naFaixa[0].tipo].href;
+  const [primeira, ...demais] = pendencias.map(fraseDaFaixa);
+  const Icone = pendencias[0].tipo === 'PRECISA_DA_EQUIPE' ? Users : AlertTriangle;
 
   return (
     <div className="border-b border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
-      <Link
-        href={destino}
-        className="flex items-center gap-2 px-4 py-2 text-sm text-amber-900 transition hover:bg-amber-100/60 dark:text-amber-200 dark:hover:bg-amber-950/50 md:px-6"
-      >
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {naFaixa.map((p) => rotulo(p)).join(' · ')}
-        </span>
-        <ArrowRight className="h-4 w-4 shrink-0" />
-      </Link>
+      <div className="flex items-center gap-2 px-4 py-2 text-sm text-amber-900 dark:text-amber-200 md:px-6">
+        <Link
+          href={primeira.href}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded underline-offset-2 hover:underline"
+        >
+          <Icone className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="min-w-0 truncate">{primeira.texto}</span>
+          <ArrowRight className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+        </Link>
+        {/* No computador cabe o resto na mesma linha; no celular, vira um "+N". */}
+        {demais.map((f) => (
+          <Link
+            key={`${f.href}|${f.texto}`}
+            href={f.href}
+            className="hidden shrink-0 border-l border-amber-300/70 pl-2 underline-offset-2 hover:underline dark:border-amber-800 lg:inline"
+          >
+            {f.texto}
+          </Link>
+        ))}
+        {demais.length > 0 && (
+          <Link
+            href="/dashboard"
+            aria-label={`Mais ${demais.length} ${demais.length === 1 ? 'aviso' : 'avisos'} no painel`}
+            className="shrink-0 rounded-full bg-amber-200/70 px-2 py-0.5 text-xs font-semibold transition hover:bg-amber-200 dark:bg-amber-900/60 lg:hidden"
+          >
+            +{demais.length}
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

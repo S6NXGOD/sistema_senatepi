@@ -106,4 +106,20 @@ describe('juntar — onde mora', () => {
     expect(PAGINA).toContain('{podeMesclar && (');
     expect(PAGINA).toContain('onClick={() => setMesclando({ fica: p })}');
   });
+
+  /**
+   * "JUNTAR É PERIGOSO E IRREVERSÍVEL — SÓ PARA ADMINISTRADORES." A fila inteira
+   * passou a ser do administrador: descartar um par também esconde para sempre.
+   */
+  it('a fila de duplicatas só aparece para o administrador', () => {
+    const PAGINA = ler('app/(dashboard)/organizacoes/page.tsx');
+    expect(PAGINA).toMatch(/\{podeMesclar && \(\s*<PainelDuplicadas/);
+  });
+
+  /** Sem desfazer: o botão só acorda depois de a pessoa conferir QUEM some — e inverter desfaz a conferência. */
+  it('pede a conferência de quem deixa de existir', () => {
+    const MODAL = ler('components/organizacoes/mesclar-modal.tsx');
+    expect(MODAL).toContain('disabled={!!recusa || mesclando || conferiuQueSome !== some.id}');
+    expect(MODAL).toContain('onChange={(e) => setConferiuQueSome(e.target.checked ? some.id : null)}');
+  });
 });

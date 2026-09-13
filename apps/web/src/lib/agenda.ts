@@ -187,8 +187,8 @@ export interface Compromisso {
      * COMO essa pessoa foi parar aqui. `AUTOMATICA` = reserva posta pelo robô
      * (advogado do caso que não é o dono da tarefa); vazio = gente escolheu.
      *
-     * A distinção é o que impede o sino de tocar quatro vezes pelo mesmo
-     * prazo — e é o que a tela precisa dizer, senão "também atuam" vira uma
+     * A distinção é o que impede o mesmo prazo de virar aviso de quatro
+     * pessoas — e é o que a tela precisa dizer, senão "também atuam" vira uma
      * lista de nomes que ninguém sabe se combinou de atuar.
      */
     origem?: string | null;
@@ -196,6 +196,12 @@ export interface Compromisso {
   }[];
   /** Quem REGISTROU a demanda (com foto). Nulo em eventos do robô. */
   criador: Responsavel | null;
+  /**
+   * O RESPONSÁVEL SUMIU? Só no detalhe, e só para atividade aberta: sem entrar no
+   * sistema há uma semana ou mais (`diasSemEntrar`), nunca entrou (nulo) ou saiu
+   * dele (`inativo`). Nulo quando está por perto; opcional pela janela de troca.
+   */
+  ausenciaDoResponsavel?: { diasSemEntrar: number | null; inativo: boolean } | null;
   /**
    * QUEM FECHOU a atividade — com nome e foto.
    *
