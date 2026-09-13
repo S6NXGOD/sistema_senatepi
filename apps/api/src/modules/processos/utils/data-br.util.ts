@@ -19,6 +19,25 @@ export function inicioDoDiaBR(base = new Date()): Date {
 }
 
 /**
+ * "2026-08-13" ESCOLHIDO NUMA TELA É UM DIA DE TERESINA — não a meia-noite de Londres.
+ *
+ * `new Date('2026-08-13')` é 00:00 UTC, ou seja, 21:00 do dia 12 aqui. Passado
+ * por `inicioDoDiaBR`, o período escolhido de 13/08 a 12/09 virava 12/08 a
+ * 11/09: entrava um dia que ninguém pediu e saía o de hoje. Os relatórios
+ * contaram assim até 12/09/2026 sem que a tela mostrasse, porque ela desenha o
+ * período a partir dos próprios campos, e não do que a API somou.
+ *
+ * Texto só de data vira o instante em que aquele dia começa em Teresina;
+ * qualquer outro formato (com hora) continua sendo o instante que diz ser.
+ */
+export function instanteDoTextoBR(texto: string): Date {
+  const dia = /^(\d{4})-(\d{2})-(\d{2})$/.exec(texto);
+  return dia
+    ? new Date(Date.UTC(Number(dia[1]), Number(dia[2]) - 1, Number(dia[3])) + OFFSET_BR_MS)
+    : new Date(texto);
+}
+
+/**
  * O DIA DO CALENDÁRIO em Teresina, na forma que uma coluna `date` guarda.
  *
  * IRMÃ DE `inicioDoDiaBR`, E DIFERENTE DELA — a confusão entre as duas custa

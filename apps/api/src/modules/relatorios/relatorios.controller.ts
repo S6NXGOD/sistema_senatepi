@@ -7,6 +7,7 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { RelatoriosService, type Relatorio } from './relatorios.service';
 import { ProdutividadeService, csvDaProdutividade } from './produtividade.service';
+import { diasDoNomeDoArquivo, periodoDoFiltro } from './periodo.util';
 
 /**
  * DTO ANTES DO CONTROLLER — armadilha de TDZ do `emitDecoratorMetadata`, a
@@ -34,9 +35,6 @@ export class PeriodoDto {
   @IsString()
   usuarioId?: string;
 }
-
-/** Trinta dias é o período que a coordenação olha; o resto se escolhe na tela. */
-const DIAS_PADRAO = 30;
 
 @ApiTags('relatorios')
 @ApiBearerAuth()
@@ -68,10 +66,7 @@ export class RelatoriosController {
   async equipeCsv(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser, @Res() res: Response) {
     const { de, ate } = this.periodo(q);
     const r = await this.relatorios.montar(de, ate, user, q.usuarioId);
-    const nome = nomeDeArquivo(
-      ['relatorio da equipe', r.periodo.de.slice(0, 10), r.periodo.ate.slice(0, 10)],
-      'csv',
-    );
+    const nome = nomeDeArquivo(['relatorio da equipe', ...diasDoNomeDoArquivo(r.periodo)], 'csv');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', conteudoDisposto(nome, 'attachment'));
     res.send(Buffer.from(csvDaEquipe(r), 'utf8'));
@@ -96,18 +91,15 @@ export class RelatoriosController {
   async usoEProdutividadeCsv(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser, @Res() res: Response) {
     const { de, ate } = this.periodo(q);
     const p = await this.produtividade.montar(de, ate, user);
-    const nome = nomeDeArquivo(['uso do sistema', p.periodo.de.slice(0, 10), p.periodo.ate.slice(0, 10)], 'csv');
+    const nome = nomeDeArquivo(['uso do sistema', ...diasDoNomeDoArquivo(p.periodo)], 'csv');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', conteudoDisposto(nome, 'attachment'));
     res.send(Buffer.from(csvDaProdutividade(p), 'utf8'));
   }
 
+  /** Um dia escolhido na tela é um dia de Teresina — ver `periodoDoFiltro`. */
   private periodo(q: PeriodoDto): { de: Date; ate: Date } {
-    const ate = q.ate ? new Date(q.ate) : new Date();
-    const de = q.de ? new Date(q.de) : new Date(ate.getTime() - DIAS_PADRAO * 24 * 3_600_000);
-    // Período invertido é erro de digitação, não pedido: inverte em silêncio em
-    // vez de devolver tabela vazia e deixar a pessoa procurando o que errou.
-    return de <= ate ? { de, ate } : { de: ate, ate: de };
+    return periodoDoFiltro(q);
   }
 }
 
