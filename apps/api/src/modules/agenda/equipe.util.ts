@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { inicioDoDiaBR } from '../processos/utils/data-br.util';
 
 /**
  * A EQUIPE DE UMA ATIVIDADE — quem responde e quem participa.
@@ -200,14 +201,14 @@ export function montarUrgencia(
  * POR QUE A ORIGEM IMPORTA — e esta é a parte que evita estragar o sino.
  *
  * Participante escolhido por gente significa "isto é seu também", e a agenda, o
- * painel e o SINO contam assim (`responsavelId OU equipe`). Se a reserva do
- * robô entrasse pela mesma porta, cada prazo tocaria o sino de até quatro
- * advogados — o mesmo alarme repetido, que é o caminho conhecido para ninguém
- * mais olhar o sino (foi o defeito dos 1.243 falsos positivos).
+ * painel e a faixa de avisos contam assim (`responsavelId OU equipe`). Se a
+ * reserva do robô entrasse pela mesma porta, cada prazo viraria aviso de até
+ * quatro advogados — o mesmo alarme repetido, que é o caminho conhecido para
+ * ninguém mais olhar aviso nenhum (foi o defeito dos 1.243 falsos positivos).
  *
  * Então a reserva é marcada, aparece no cartão ("também atuam") e na ficha, dá
  * para assumir com um toque — mas não vira pendência de quem não respondeu por
- * ela.
+ * ela ENQUANTO alguém estiver cuidando (ver `motivoParaAvisarAEquipe`).
  */
 export const ORIGEM_RESERVA = 'AUTOMATICA';
 
@@ -238,23 +239,78 @@ export function daPessoa(usuarioId: string): Prisma.CompromissoWhereInput {
 }
 
 /**
- * ...E A EXCEÇÃO: A RESERVA QUE FICOU PARA TRÁS.
+ * ...E A EXCEÇÃO: QUANDO NINGUÉM ESTÁ CUIDANDO, A EQUIPE PRECISA SABER.
  *
- * Reserva não é pendência enquanto a tarefa está em dia — um prazo não pode
- * virar alarme de quatro advogados. Mas quando o dia vira e ninguém fez, esperar
- * pelo responsável deixou de ser opção. Em 12/09/2026, duas das três atividades
- * atrasadas da casa eram de alguém que não acessava o sistema havia 39 dias, e
- * os três colegas do caso não sabiam de nada.
+ * Reserva não é pendência enquanto alguém cuida da tarefa — um prazo não pode
+ * virar alarme de quatro advogados. Mas "alguém está cuidando" deixa de ser
+ * verdade de dois jeitos, e até 12/09/2026 só um era olhado:
  *
- * O corte é o de "atrasada" do sino — o dia virou —, nunca a hora. E só vale
- * para quem é reserva: o responsável já vê a tarefa como sua.
+ *  · o DIA VIROU e a tarefa continua aberta (o corte de "atrasada");
+ *  · o RESPONSÁVEL SUMIU — está sem entrar no sistema há uma semana ou mais, ou
+ *    saiu dele. Esperar a tarefa atrasar para avisar os colegas é avisar tarde.
+ *
+ * Medido na produção em 12/09/2026: das 8 tarefas abertas do robô, 5 tinham o
+ * responsável sem entrar havia 7 dias ou mais (4 de um advogado sem acessar
+ * havia 39 dias) e só 2 já estavam atrasadas. A regra antiga avisaria os
+ * colegas de 2; esta avisa de 5 — inclusive da "Elaborar manifestação" do dia
+ * 14, dois dias antes.
  */
-export function reservaAtrasada(usuarioId: string, inicioDeHoje: Date): Prisma.CompromissoWhereInput {
+export const DIAS_SEM_ENTRAR_PARA_AVISAR_A_EQUIPE = 7;
+
+export type MotivoParaAEquipe = 'RESPONSAVEL_AUSENTE' | 'FICOU_PARA_TRAS';
+
+export type AusenciaDoResponsavel = { diasSemEntrar: number | null; inativo: boolean };
+
+export type AvisoParaAEquipe = AusenciaDoResponsavel & { motivo: MotivoParaAEquipe };
+
+/** As tarefas em que a pessoa é reserva posta pelo robô — sem corte de data nem de status. */
+export function ondeSouReserva(usuarioId: string): Prisma.CompromissoWhereInput {
   return {
-    inicio: { lt: inicioDeHoje },
     responsavelId: { not: usuarioId },
     equipe: { some: { usuarioId, principal: false, origem: ORIGEM_RESERVA } },
   };
+}
+
+/**
+ * O responsável sumiu? Nulo quando está por perto.
+ *
+ * Nunca ter entrado conta como sumido; conta desativada também. Um dia a menos
+ * que o corte, não: quem entrou há seis dias está de férias curtas ou num
+ * processo longo, e cobrar os colegas por isso ensinaria a ignorar o aviso.
+ */
+export function ausenciaDe(
+  responsavel: { ativo: boolean; ultimoUso: Date | null } | undefined,
+  agora: Date,
+): AusenciaDoResponsavel | null {
+  if (!responsavel || !responsavel.ativo) return { diasSemEntrar: null, inativo: true };
+  if (!responsavel.ultimoUso) return { diasSemEntrar: null, inativo: false };
+  const dias = Math.floor((agora.getTime() - responsavel.ultimoUso.getTime()) / 86_400_000);
+  return dias >= DIAS_SEM_ENTRAR_PARA_AVISAR_A_EQUIPE ? { diasSemEntrar: dias, inativo: false } : null;
+}
+
+/**
+ * Por que a equipe precisa saber desta tarefa — ou nulo, se alguém está cuidando.
+ * A ausência vem antes do atraso porque EXPLICA o atraso.
+ */
+export function motivoParaAvisarAEquipe(
+  tarefa: { inicio: Date },
+  responsavel: { ativo: boolean; ultimoUso: Date | null } | undefined,
+  agora: Date,
+): AvisoParaAEquipe | null {
+  const ausencia = ausenciaDe(responsavel, agora);
+  if (ausencia) return { motivo: 'RESPONSAVEL_AUSENTE', ...ausencia };
+  if (tarefa.inicio < inicioDoDiaBR(agora)) {
+    return { motivo: 'FICOU_PARA_TRAS', diasSemEntrar: null, inativo: false };
+  }
+  return null;
+}
+
+/** A frase curta do porquê, com o nome de quem responde — é com essa pessoa que se combina. */
+export function porQueAEquipePrecisa(nome: string, aviso: AvisoParaAEquipe): string {
+  if (aviso.motivo === 'FICOU_PARA_TRAS') return `de ${nome} · ficou para trás`;
+  if (aviso.inativo) return `${nome} não está mais no sistema`;
+  if (aviso.diasSemEntrar === null) return `${nome} nunca entrou no sistema`;
+  return `${nome} está sem entrar há ${aviso.diasSemEntrar} dias`;
 }
 
 /** Anota participantes de reserva. Não mexe em quem já está na equipe. */

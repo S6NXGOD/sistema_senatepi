@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DIAS_PARA_NOTAR_AUSENCIA, PERFIS_EM_ORDEM, ProdutividadeService, REGISTROS, VEEM_A_CASA,
-  concluidaNoDia, csvDaProdutividade, diasDoPeriodo, ordenarPessoas, resumirPerfis,
+  concluidaNoDia, csvDaProdutividade, diasDoPeriodo, mesesDoPeriodo, ordenarPessoas, resumirPerfis,
   type LinhaDeUso, type Produtividade,
 } from './produtividade.service';
 
@@ -18,6 +18,7 @@ const linha = (over: Partial<LinhaDeUso>): LinhaDeUso => ({
   processos: { cadastrados: 0, andamentos: 0, documentos: 0 },
   filiados: { cadastrados: 0, fichasAtualizadas: 0 },
   atendimentos: 0,
+  porMes: [],
   ...over,
 });
 
@@ -30,6 +31,10 @@ describe('uso e produtividade — as regras', () => {
     expect(diasDoPeriodo(new Date('2026-09-01T03:00:00Z'), new Date('2026-09-04T03:00:00Z'))).toEqual([
       '2026-09-01', '2026-09-02', '2026-09-03',
     ]);
+  });
+
+  it('os meses que o período atravessa, na ordem', () => {
+    expect(mesesDoPeriodo(['2026-08-30', '2026-08-31', '2026-09-01'])).toEqual(['2026-08', '2026-09']);
   });
 
   /** "No dia marcado" é a data de Teresina — e nunca "no prazo", que o sistema não conhece. */
@@ -97,7 +102,7 @@ describe('uso e produtividade — as regras', () => {
   it('a planilha sai no formato do Excel brasileiro', () => {
     const p: Produtividade = {
       periodo: { de: '2026-09-01T03:00:00.000Z', ate: '2026-09-13T03:00:00.000Z' },
-      escopo: 'GLOBAL', dias: [], perfis: [], geradoEm: '',
+      escopo: 'GLOBAL', dias: [], meses: [], perfis: [], geradoEm: '',
       pessoas: [linha({ nome: 'Aspas "no" nome', ultimoAcesso: '2026-09-12T10:00:00Z', diasComUso: 4 })],
     };
     const csv = csvDaProdutividade(p);
@@ -161,8 +166,12 @@ function servicoCom() {
       ),
       findMany: jest.fn(async () => [{ tarefaPropostaPara: 'u1' }, { tarefaPropostaPara: 'u1' }]),
     },
-    movimentacaoInterna: { groupBy: jest.fn(async () => [{ autorId: 'u1', _count: { _all: 5 } }]) },
-    atendimento: { groupBy: jest.fn(async () => []) },
+    movimentacaoInterna: {
+      findMany: jest.fn(async () =>
+        Array.from({ length: 5 }, () => ({ autorId: 'u1', createdAt: new Date('2026-09-02T15:00:00Z') })),
+      ),
+    },
+    atendimento: { findMany: jest.fn(async () => []) },
   };
   return new ProdutividadeService(prisma as never);
 }
@@ -181,6 +190,9 @@ describe('uso e produtividade — montado', () => {
     expect(ana.agenda).toEqual({ concluidas: 2, noDiaMarcado: 1, criadas: 2, abertas: 3, atrasadas: 1 });
     expect(ana.publicacoes).toEqual({ decididas: 3, esperando: 4 });
     expect(ana.processos).toEqual({ cadastrados: 1, andamentos: 5, documentos: 1 });
+    // Mês a mês, para o PDF de um ano: o mesmo trabalho, com o mês de Teresina.
+    expect(r.meses).toEqual(['2026-09']);
+    expect(ana.porMes).toEqual([{ mes: '2026-09', diasComUso: 3, concluidas: 2, andamentos: 5, atendimentos: 0 }]);
     expect(ana.nome).toBe('Dra. Ana');
     const bruno = r.pessoas.find((p) => p.usuarioId === 'u2')!;
     expect(bruno.ultimoAcesso).toBeNull();

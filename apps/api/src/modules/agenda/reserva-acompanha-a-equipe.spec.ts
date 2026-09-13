@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ORIGEM_RESERVA, daPessoa, reservaAtrasada } from './equipe.util';
+import {
+  ORIGEM_RESERVA, ausenciaDe, daPessoa, motivoParaAvisarAEquipe, ondeSouReserva, porQueAEquipePrecisa,
+} from './equipe.util';
 import { PendenciasService } from './pendencias.service';
 
 const MIGRACAO = readFileSync(
@@ -85,10 +87,8 @@ describe('uma régua só para o que é da pessoa', () => {
     });
   });
 
-  it('a reserva atrasada: dia virado, outro responsável, marca do robô', () => {
-    const hoje = new Date('2026-09-12T03:00:00Z');
-    expect(reservaAtrasada('u1', hoje)).toEqual({
-      inicio: { lt: hoje },
+  it('onde sou reserva: outro responsável, marca do robô, sem corte de data', () => {
+    expect(ondeSouReserva('u1')).toEqual({
       responsavelId: { not: 'u1' },
       equipe: { some: { usuarioId: 'u1', principal: false, origem: ORIGEM_RESERVA } },
     });
@@ -97,19 +97,81 @@ describe('uma régua só para o que é da pessoa', () => {
   /**
    * O PAINEL E O RELATÓRIO ESCREVIAM A CONTA À MÃO — e os dois tinham esquecido
    * a reserva. Com as tarefas antigas recebendo a equipe, o painel de três
-   * advogados passaria a mostrar "2 atrasadas" que não eram deles, com o sino
-   * calado. A régua agora é uma.
+   * advogados passaria a mostrar "2 atrasadas" que não eram deles. A régua agora
+   * é uma.
    */
-  it('painel e relatório usam a mesma régua do sino', () => {
+  it('painel e relatório usam a mesma régua da faixa de avisos', () => {
     expect(PAINEL).toContain('const meu: Prisma.CompromissoWhereInput = souAdvogado ? daPessoa(user.id) : {};');
     expect(PAINEL).not.toContain('{ equipe: { some: { usuarioId: user.id } } }');
     expect(RELATORIOS).toContain('const soMeu: Prisma.CompromissoWhereInput = alvo ? daPessoa(alvo) : {};');
     expect(RELATORIOS).not.toContain('{ equipe: { some: { usuarioId: alvo } } }');
   });
 
-  it('o painel do advogado recebe a reserva atrasada à parte', () => {
+  it('o painel do advogado recebe a equipe à parte, pela mesma regra da faixa', () => {
     expect(PAINEL).toContain('souAdvogado && veAgenda');
-    expect(PAINEL).toContain('...reservaAtrasada(user.id, hojeIni),');
+    expect(PAINEL).toContain('...ondeSouReserva(user.id)');
+    expect(PAINEL).toContain('motivoParaAvisarAEquipe(t, usos.get(t.responsavel.id), agora)');
+  });
+});
+
+const DIA = 86_400_000;
+/** Meio-dia de 12/09/2026 em Teresina. */
+const agora = new Date('2026-09-12T15:00:00Z');
+const esteve = (dias: number) => ({ ativo: true, ultimoUso: new Date(agora.getTime() - dias * DIA) });
+
+/**
+ * "QUANDO O ADVOGADO ENTRA DE RESERVA, ELE É AVISADO QUE PRECISA RESOLVER ESSA
+ * TAREFA? AFINAL, É UMA EQUIPE." — 12/09/2026.
+ *
+ * Não era, até a tarefa atrasar. E "atrasar" chegava tarde: das 8 tarefas
+ * abertas do robô na produção, 5 tinham o responsável sem entrar havia 7 dias ou
+ * mais, e só 2 já tinham ficado para trás.
+ */
+describe('quando ninguém está cuidando, a equipe fica sabendo', () => {
+  const daquiADois = { inicio: new Date('2026-09-14T12:00:00Z') };
+  const ontem = { inicio: new Date('2026-09-11T12:00:00Z') };
+
+  it('responsável por perto e tarefa em dia: ninguém é incomodado', () => {
+    expect(motivoParaAvisarAEquipe(daquiADois, esteve(1), agora)).toBeNull();
+  });
+
+  it('responsável sumido há 39 dias: a equipe sabe ANTES de a tarefa atrasar', () => {
+    expect(motivoParaAvisarAEquipe(daquiADois, esteve(39), agora)).toEqual({
+      motivo: 'RESPONSAVEL_AUSENTE',
+      diasSemEntrar: 39,
+      inativo: false,
+    });
+  });
+
+  /** Seis dias é férias curtas ou um processo longo — cobrar os colegas por isso ensina a ignorar. */
+  it('o corte é uma semana', () => {
+    expect(ausenciaDe(esteve(6), agora)).toBeNull();
+    expect(ausenciaDe(esteve(7), agora)).toEqual({ diasSemEntrar: 7, inativo: false });
+  });
+
+  it('nunca ter entrado, ou ter saído do sistema, conta como sumido', () => {
+    expect(ausenciaDe({ ativo: true, ultimoUso: null }, agora)).toEqual({ diasSemEntrar: null, inativo: false });
+    expect(ausenciaDe({ ativo: false, ultimoUso: agora }, agora)).toEqual({ diasSemEntrar: null, inativo: true });
+    expect(ausenciaDe(undefined, agora)).toEqual({ diasSemEntrar: null, inativo: true });
+  });
+
+  it('com o responsável por perto, o dia virado ainda avisa', () => {
+    expect(motivoParaAvisarAEquipe(ontem, esteve(1), agora)).toEqual({
+      motivo: 'FICOU_PARA_TRAS',
+      diasSemEntrar: null,
+      inativo: false,
+    });
+  });
+
+  it('a frase diz o porquê, com o nome de quem responde', () => {
+    const ausente = (diasSemEntrar: number | null, inativo = false) =>
+      ({ motivo: 'RESPONSAVEL_AUSENTE', diasSemEntrar, inativo }) as const;
+    expect(porQueAEquipePrecisa('Dr. Carlos', ausente(39))).toBe('Dr. Carlos está sem entrar há 39 dias');
+    expect(porQueAEquipePrecisa('Dr. Carlos', ausente(null))).toBe('Dr. Carlos nunca entrou no sistema');
+    expect(porQueAEquipePrecisa('Dr. Carlos', ausente(null, true))).toBe('Dr. Carlos não está mais no sistema');
+    expect(
+      porQueAEquipePrecisa('Dr. Tiago', { motivo: 'FICOU_PARA_TRAS', diasSemEntrar: null, inativo: false }),
+    ).toBe('de Dr. Tiago · ficou para trás');
   });
 });
 
@@ -118,73 +180,106 @@ const tarefa = (
   id: string,
   titulo: string,
   inicio: string,
-  responsavel?: { nome: string; nomeExibicao: string | null },
-) => ({ id, titulo, inicio: new Date(inicio), processo: { numeroCNJ: null }, ...(responsavel ? { responsavel } : {}) });
+  responsavel?: { id: string; nome: string; nomeExibicao: string | null },
+) => ({ id, titulo, inicio: new Date(inicio), ...(responsavel ? { responsavel } : {}) });
 
 /** Um banco de mentira que responde conforme a PERGUNTA, e não conforme a ordem. */
-function sinoCom(fontes: { minhasAtrasadas?: unknown[]; daEquipe?: unknown[] }) {
+function avisosCom(fontes: { minhasAtrasadas?: unknown[]; souReserva?: unknown[]; usuarios?: unknown[] }) {
   const findMany = jest.fn(async ({ where }: { where: Record<string, any> }) => {
-    if (where?.equipe?.some?.origem === ORIGEM_RESERVA) return fontes.daEquipe ?? [];
-    if (where?.OR && where?.inicio?.lt && !where?.inicio?.gte) return fontes.minhasAtrasadas ?? [];
+    if (where?.equipe?.some?.origem === ORIGEM_RESERVA) return fontes.souReserva ?? [];
+    if (where?.OR && where?.inicio?.lt) return fontes.minhasAtrasadas ?? [];
     return [];
   });
   const prisma = {
     compromisso: { findMany },
     comunicacaoDjen: { findMany: jest.fn(async () => []) },
-    sugestaoProcesso: { findMany: jest.fn(async () => []) },
+    user: { findMany: jest.fn(async () => fontes.usuarios ?? []) },
+    refreshToken: { groupBy: jest.fn(async () => []) },
+    auditoria: { groupBy: jest.fn(async () => []) },
   };
-  return { sino: new PendenciasService(prisma as never), findMany };
+  return { avisos: new PendenciasService(prisma as never), findMany };
 }
 
-describe('o sino avisa a reserva quando a tarefa fica para trás', () => {
-  it('com o nome de quem responde, e contando no crachá', async () => {
-    const { sino } = sinoCom({
-      daEquipe: [
-        tarefa('c1', 'Juntar documentos', '2026-09-08T12:00:00Z', {
-          nome: 'Carlos Henrique de Alencar Vieira',
-          nomeExibicao: 'Dr. Carlos Henrique',
-        }),
-      ],
+const carlos = { id: 'u-carlos', nome: 'Carlos Henrique de Alencar Vieira', nomeExibicao: 'Dr. Carlos Henrique' };
+const tiago = { id: 'u-tiago', nome: 'Tiago Veloso', nomeExibicao: 'Dr. Tiago' };
+/** Um instante há N dias, contado do relógio de verdade — é contra ele que o serviço mede. */
+const ha = (dias: number) => new Date(Date.now() - dias * DIA - 60_000);
+
+describe('a faixa avisa a reserva quando ninguém está cuidando', () => {
+  it('responsável sumido: avisa antes de atrasar, e diz por quê', async () => {
+    const { avisos } = avisosCom({
+      souReserva: [tarefa('c1', 'Elaborar manifestação', '2099-01-14T12:00:00Z', carlos)],
+      usuarios: [{ id: 'u-carlos', ativo: true, ultimoLoginEm: ha(39) }],
     });
-    const r = await sino.minhas('u-tiago');
-    const grupo = r.pendencias.find((p) => p.tipo === 'ATRASADA_NA_EQUIPE');
-    expect(grupo?.total).toBe(1);
-    expect(grupo?.exemplos[0]).toEqual({
-      id: 'c1',
-      titulo: 'Juntar documentos · Dr. Carlos Henrique',
-      quando: '2026-09-08T12:00:00.000Z',
-      href: '/agenda?compromisso=c1',
-    });
+    const r = await avisos.minhas('u-morgana');
+    expect(r.pendencias).toEqual([
+      {
+        tipo: 'PRECISA_DA_EQUIPE',
+        total: 1,
+        exemplos: [
+          {
+            id: 'c1',
+            titulo: 'Elaborar manifestação',
+            quando: '2099-01-14T12:00:00.000Z',
+            href: '/agenda?compromisso=c1',
+            detalhe: 'Dr. Carlos Henrique está sem entrar há 39 dias',
+          },
+        ],
+      },
+    ]);
     expect(r.total).toBe(1);
   });
 
-  it('logo depois das atrasadas da própria pessoa', async () => {
-    const { sino } = sinoCom({
-      minhasAtrasadas: [tarefa('m1', 'Elaborar recurso', '2026-09-10T12:00:00Z')],
-      daEquipe: [tarefa('c1', 'Juntar documentos', '2026-09-08T12:00:00Z', { nome: 'Fulana', nomeExibicao: null })],
+  it('responsável por perto e tarefa em dia: a reserva não é incomodada', async () => {
+    const { avisos } = avisosCom({
+      souReserva: [tarefa('c1', 'Elaborar manifestação', '2099-01-14T12:00:00Z', carlos)],
+      usuarios: [{ id: 'u-carlos', ativo: true, ultimoLoginEm: ha(1) }],
     });
-    const r = await sino.minhas('u-tiago');
-    expect(r.pendencias.map((p) => p.tipo)).toEqual(['ATRASADA', 'ATRASADA_NA_EQUIPE']);
-    expect(r.pendencias[1].exemplos[0].titulo).toBe('Juntar documentos · Fulana');
+    expect((await avisos.minhas('u-morgana')).pendencias).toEqual([]);
   });
 
-  /** O corte é o dia de Teresina — a mesma régua de "atrasada" —, nunca o relógio. */
-  it('a consulta usa o início do dia e só tarefa aberta de outro responsável', async () => {
-    const { sino, findMany } = sinoCom({});
-    await sino.minhas('u-tiago');
+  it('o dia virou: avisa mesmo com o responsável por perto', async () => {
+    const { avisos } = avisosCom({
+      souReserva: [tarefa('c2', 'Juntar documentos', '2026-09-08T12:00:00Z', tiago)],
+      usuarios: [{ id: 'u-tiago', ativo: true, ultimoLoginEm: ha(0) }],
+    });
+    const r = await avisos.minhas('u-morgana');
+    expect(r.pendencias[0].exemplos[0].detalhe).toBe('de Dr. Tiago · ficou para trás');
+  });
+
+  it('quem saiu do sistema também deixa a tarefa sem ninguém', async () => {
+    const { avisos } = avisosCom({
+      souReserva: [tarefa('c3', 'Analisar intimação', '2099-01-15T12:00:00Z', carlos)],
+      usuarios: [],
+    });
+    const r = await avisos.minhas('u-morgana');
+    expect(r.pendencias[0].exemplos[0].detalhe).toBe('Dr. Carlos Henrique não está mais no sistema');
+  });
+
+  it('vem logo depois das atrasadas da própria pessoa', async () => {
+    const { avisos } = avisosCom({
+      minhasAtrasadas: [tarefa('m1', 'Elaborar recurso', '2026-09-10T12:00:00Z')],
+      souReserva: [tarefa('c1', 'Juntar documentos', '2026-09-08T12:00:00Z', tiago)],
+      usuarios: [{ id: 'u-tiago', ativo: true, ultimoLoginEm: ha(0) }],
+    });
+    const r = await avisos.minhas('u-morgana');
+    expect(r.pendencias.map((p) => p.tipo)).toEqual(['ATRASADA', 'PRECISA_DA_EQUIPE']);
+  });
+
+  it('a consulta das reservas: só tarefa aberta de outro responsável, sem corte de data', async () => {
+    const { avisos, findMany } = avisosCom({});
+    await avisos.minhas('u-morgana');
     const pergunta = findMany.mock.calls
       .map(([arg]) => arg.where)
       .find((w) => w?.equipe?.some?.origem === ORIGEM_RESERVA);
     expect(pergunta).toBeDefined();
-    expect(pergunta!.inicio.lt.getUTCHours()).toBe(3);
-    expect(pergunta!.responsavelId).toEqual({ not: 'u-tiago' });
+    expect(pergunta!.responsavelId).toEqual({ not: 'u-morgana' });
     expect(pergunta!.status).toEqual({ in: ['PENDENTE', 'EM_ANDAMENTO'] });
+    expect(pergunta!.inicio).toBeUndefined();
   });
 
-  it('sem nada atrasado no caso, a reserva não é incomodada', async () => {
-    const { sino } = sinoCom({});
-    const r = await sino.minhas('u-tiago');
-    expect(r.pendencias).toEqual([]);
-    expect(r.total).toBe(0);
+  it('sem nada no caso, a faixa fica calada', async () => {
+    const { avisos } = avisosCom({});
+    expect(await avisos.minhas('u-morgana')).toEqual({ pendencias: [], total: 0 });
   });
 });

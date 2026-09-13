@@ -23,7 +23,7 @@ import {
 } from './movimentacoes.controller';
 import { SincronizacaoLogService } from './sincronizacao-log.service';
 import { ConsultaPreviaService } from './consulta-previa.service';
-import { PartesController, PartesExternasController } from './partes.controller';
+import { FusaoDeOrganizacoesController, PartesController, PartesExternasController } from './partes.controller';
 import { PartesService } from './partes.service';
 import { PartesExternasService } from './partes-externas.service';
 import { SugestaoFiliadoService } from './sugestao-filiado.service';
@@ -48,6 +48,8 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     DatajudConsultaController,
     DjenController,
     PartesController,
+    // ANTES do cadastro: `duplicadas` é literal, e o `:id` de lá o engoliria.
+    FusaoDeOrganizacoesController,
     PartesExternasController,
     PadroesController,
   ],

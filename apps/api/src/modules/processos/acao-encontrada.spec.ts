@@ -204,76 +204,42 @@ describe('a migração', () => {
 });
 
 /**
- * COMO SOMOS AVISADOS — a pergunta que faltava responder.
+ * COMO SOMOS AVISADOS DE AÇÃO NOVA — e onde ela mora desde 12/09/2026.
  *
- * Não existe canal de saída neste sistema: nenhum email, push ou WhatsApp na
- * API inteira. Tudo é o navegador perguntando. Então "ser notificado" aqui
- * significa uma coisa só: o aviso tem de estar onde a pessoa já está.
+ * Não existe canal de saída neste sistema: nenhum email, push ou WhatsApp. O
+ * aviso tem de estar onde a pessoa já está. A ação nova sem cadastro é FILA —
+ * dezenas de itens que levam dias para conferir —, então mora onde se trabalha
+ * uma fila: o cartão do painel e a tela de Processos.
  *
- * São três superfícies, com papéis distintos e sem duplicar conteúdo:
- *   · o SINO — em toda tela, atualiza sozinho a cada minuto;
- *   · o PAINEL — a contagem, ao abrir o sistema;
- *   · a tela de PROCESSOS — a fila, com os botões que decidem.
+ * Ela passou pelo sino, que saiu por repetir o painel numa gaveta que ninguém
+ * abria; e nunca foi para a faixa de toda tela, que é só do que não pode esperar.
  */
 describe('o aviso de ação nova', () => {
   const PENDENCIAS = readFileSync(
     join(__dirname, '..', 'agenda', 'pendencias.service.ts'),
     'utf8',
   );
-  const PEND_CTRL = readFileSync(
-    join(__dirname, '..', 'agenda', 'pendencias.controller.ts'),
+  const CARTAO = readFileSync(
+    join(__dirname, '../../../../web/src/components/dashboard/acoes-sem-cadastro.tsx'),
     'utf8',
   );
 
-  it('o sino conta a ação nova', () => {
-    expect(PENDENCIAS).toContain("'ACAO_NOVA'");
-    expect(PENDENCIAS).toContain('this.prisma.sugestaoProcesso.findMany({');
-    expect(PENDENCIAS).toContain("where: { status: 'PENDENTE' }");
+  it('não vai para a faixa de toda tela: fila não é urgência', () => {
+    expect(PENDENCIAS).not.toContain('sugestaoProcesso');
   });
 
   /**
-   * A MAIS ANTIGA PRIMEIRO. Uma ação que já apareceu oito vezes no Diário sem
-   * cadastro não é novidade de ontem — é acompanhamento que não houve.
+   * O ITEM ABRE O CADASTRO JÁ PREENCHIDO — e não larga a pessoa na lista. Com o
+   * NPU no parâmetro, o diálogo abre preenchido e a prévia do CNJ dispara sozinha.
    */
-  it('e mostra a que espera há mais tempo', () => {
-    expect(PENDENCIAS).toContain("orderBy: { primeiraEm: 'asc' }");
+  it('o cartão do painel abre o cadastro com o número dentro', () => {
+    expect(CARTAO).toContain('href={`/processos?cadastrar=${s.numeroCNJ}`}');
   });
 
-  /**
-   * SÓ PARA QUEM PODE CADASTRAR: para quem não tem o botão, o item seria uma
-   * cobrança sem saída. E o nível é resolvido no CONTROLLER, onde a matriz do
-   * usuário está à mão — serviço que decide permissão sozinho é serviço que a
-   * próxima chamada esquece de perguntar.
-   */
-  it('só para quem pode cadastrar, e o nível vem do controller', () => {
-    expect(PENDENCIAS).toContain('cadastraProcesso = false');
-    expect(PENDENCIAS).toContain('!cadastraProcesso');
-    expect(PEND_CTRL).toContain("nivelEfetivo(user.role, user.permissoes, 'processos') === 'EDITAR'");
-    expect(PEND_CTRL).toContain('this.pendencias.minhas(user.id, cadastraProcesso)');
-  });
-
-  /**
-   * O ITEM ABRE O CADASTRO JÁ PREENCHIDO — e não larga a pessoa na lista.
-   *
-   * A primeira versão mandava para `/processos` puro: quem clicava caía na lista
-   * inteira e ainda tinha de achar a fila e apertar "Cadastrar" — três passos
-   * para uma decisão que o sino já tinha apresentado. Com o NPU no parâmetro, o
-   * diálogo abre preenchido e a prévia do CNJ dispara sozinha.
-   */
-  it('o link abre o cadastro com o número dentro', () => {
-    const bloco = PENDENCIAS.slice(PENDENCIAS.indexOf("tipo: 'ACAO_NOVA' as const"));
-    expect(bloco.slice(0, 1400)).toContain('href: `/processos?cadastrar=${a.numeroCNJ}`');
-  });
-
-  /**
-   * O POLO VEM NO TÍTULO: "movem contra nós" e "movemos" pedem urgências
-   * diferentes, e o NPU sozinho obrigaria a abrir para descobrir qual é — que é
-   * exatamente o que o sino existe para evitar.
-   */
+  /** "Contra nós" e "movemos" pedem urgências diferentes; o NPU sozinho não diz qual. */
   it('e a linha diz de que lado estamos', () => {
-    expect(PENDENCIAS).toContain('const POLO_CURTO');
-    expect(PENDENCIAS).toContain("PASSIVO: 'Movem contra nós'");
-    expect(PENDENCIAS).toContain('titulo: `${POLO_CURTO[a.nossoPolo]}');
+    expect(CARTAO).toContain("texto: 'Contra nós'");
+    expect(CARTAO).toContain("texto: 'Movemos'");
   });
 });
 

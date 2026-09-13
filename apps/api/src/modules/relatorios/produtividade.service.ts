@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AcaoAuditoria, StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { diaBR, inicioDoDiaBR } from '../processos/utils/data-br.util';
+import { diaBR, inicioDoDiaBR, mesBR } from '../processos/utils/data-br.util';
 import { ultimoUsoReal } from '../dashboard/ultimo-acesso.util';
 
 /**
@@ -96,6 +96,21 @@ export interface LinhaDeUso {
   processos: { cadastrados: number; andamentos: number; documentos: number };
   filiados: { cadastrados: number; fichasAtualizadas: number };
   atendimentos: number;
+  /**
+   * MÊS A MÊS, para o PDF de um ano inteiro — os dias de uso e o trabalho que
+   * tem data. Só os meses do período, em ordem; mês parado vem com zeros, que é
+   * informação (férias, afastamento), e não buraco no gráfico.
+   */
+  porMes: MesDeUso[];
+}
+
+export interface MesDeUso {
+  /** AAAA-MM, em Teresina. */
+  mes: string;
+  diasComUso: number;
+  concluidas: number;
+  andamentos: number;
+  atendimentos: number;
 }
 
 export interface ResumoDoPerfil {
@@ -113,6 +128,8 @@ export interface Produtividade {
   escopo: 'GLOBAL' | 'PESSOAL';
   /** Todos os dias do período, em Teresina. */
   dias: string[];
+  /** Os meses do período (AAAA-MM), na ordem. */
+  meses: string[];
   perfis: ResumoDoPerfil[];
   pessoas: LinhaDeUso[];
   geradoEm: string;
@@ -123,6 +140,11 @@ export function diasDoPeriodo(inicio: Date, fim: Date): string[] {
   const dias: string[] = [];
   for (let t = inicio.getTime(); t < fim.getTime(); t += DIA_MS) dias.push(diaBR(new Date(t)));
   return [...new Set(dias)];
+}
+
+/** Os meses que os dias atravessam, na ordem — de 13/08 a 12/09 dá agosto e setembro. */
+export function mesesDoPeriodo(dias: string[]): string[] {
+  return [...new Set(dias.map((d) => d.slice(0, 7)))];
 }
 
 /** Concluída no dia marcado ou antes — pela data de Teresina, e não pela hora. */
@@ -263,15 +285,14 @@ export class ProdutividadeService {
         },
         _count: { _all: true },
       }),
-      this.prisma.movimentacaoInterna.groupBy({
-        by: ['autorId'],
+      // Linha a linha, e não agrupado: o PDF de um ano precisa do MÊS de cada uma.
+      this.prisma.movimentacaoInterna.findMany({
         where: { autorId: { in: ids }, createdAt: noPeriodo },
-        _count: { _all: true },
+        select: { autorId: true, createdAt: true },
       }),
-      this.prisma.atendimento.groupBy({
-        by: ['atendentePorId'],
+      this.prisma.atendimento.findMany({
         where: { atendentePorId: { in: ids }, createdAt: noPeriodo },
-        _count: { _all: true },
+        select: { atendentePorId: true, createdAt: true },
       }),
     ]);
 
@@ -314,8 +335,30 @@ export class ProdutividadeService {
     const recusadasDe = porId(recusadas, (l) => l.tarefaPropostaPara, (l) => l._count._all);
     const aceitasDe = porId(aceitas, (l) => l.tarefaPropostaPara, () => 1);
     const esperandoDe = porId(esperando, (l) => l.tarefaPropostaPara, (l) => l._count._all);
-    const andamentosDe = porId(andamentos, (l) => l.autorId, (l) => l._count._all);
-    const atendimentosDe = porId(atendimentos, (l) => l.atendentePorId, (l) => l._count._all);
+    const andamentosDe = porId(andamentos, (l) => l.autorId, () => 1);
+    const atendimentosDe = porId(atendimentos, (l) => l.atendentePorId, () => 1);
+
+    /* MÊS A MÊS — a mesma contagem, com o mês de Teresina na chave. */
+    const meses = mesesDoPeriodo(diasDoPeriodo(inicio, fim));
+    const noMes = (id: string, mes: string) => `${id}|${mes}`;
+    const contarNoMes = <T,>(
+      linhas: T[],
+      quem: (l: T) => string | null,
+      quando: (l: T) => Date | null,
+    ) => {
+      const mapa = new Map<string, number>();
+      for (const l of linhas) {
+        const id = quem(l);
+        const data = quando(l);
+        if (!id || !data) continue;
+        const chave = noMes(id, mesBR(data));
+        mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
+      }
+      return mapa;
+    };
+    const concluidasNoMes = contarNoMes(concluidas, (l) => l.concluidoPor, (l) => l.concluidoEm);
+    const andamentosNoMes = contarNoMes(andamentos, (l) => l.autorId, (l) => l.createdAt);
+    const atendimentosNoMes = contarNoMes(atendimentos, (l) => l.atendentePorId, (l) => l.createdAt);
     const sessaoDe = new Map(ultimaSessao.map((s) => [s.userId, s._max.createdAt]));
     const acaoDe = new Map(ultimaAcao.map((a) => [a.userId, a._max.createdAt]));
 
@@ -354,6 +397,13 @@ export class ProdutividadeService {
             fichasAtualizadas: contar(u.id, REGISTROS.fichaAtualizada),
           },
           atendimentos: atendimentosDe.get(u.id) ?? 0,
+          porMes: meses.map((mes) => ({
+            mes,
+            diasComUso: dias.filter((d) => d.startsWith(mes)).length,
+            concluidas: concluidasNoMes.get(noMes(u.id, mes)) ?? 0,
+            andamentos: andamentosNoMes.get(noMes(u.id, mes)) ?? 0,
+            atendimentos: atendimentosNoMes.get(noMes(u.id, mes)) ?? 0,
+          })),
         };
       }),
     );
@@ -362,6 +412,7 @@ export class ProdutividadeService {
       periodo: { de: inicio.toISOString(), ate: fim.toISOString() },
       escopo,
       dias: diasDoPeriodo(inicio, fim),
+      meses,
       perfis: escopo === 'GLOBAL' ? resumirPerfis(pessoas, agora) : [],
       pessoas,
       geradoEm: agora.toISOString(),

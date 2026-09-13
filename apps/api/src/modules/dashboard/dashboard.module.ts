@@ -27,8 +27,10 @@ import { ProcessosModule } from '../processos/processos.module';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
-import { ultimoUsoReal } from './ultimo-acesso.util';
-import { daPessoa, reservaAtrasada } from '../agenda/equipe.util';
+import { ultimoUsoReal, ultimosUsosReais } from './ultimo-acesso.util';
+import {
+  daPessoa, motivoParaAvisarAEquipe, ondeSouReserva, porQueAEquipePrecisa, type AvisoParaAEquipe,
+} from '../agenda/equipe.util';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -381,9 +383,9 @@ export class DashboardService {
       A RÉGUA DO SINO, e não uma cópia dela. Escrito à mão aqui, o recorte
       incluía a reserva que o robô anexa à tarefa automática: desde 11/09/2026 o
       painel do advogado contava como sua a tarefa do colega em que ele é
-      reserva, enquanto o sino dizia o contrário. A tarefa atrasada em que ele é
-      reserva aparece à parte, com o nome de quem responde — ver
-      `reservasAtrasadas` em `alertas`.
+      reserva, enquanto o sino dizia o contrário. A tarefa do caso em que ele é
+      reserva aparece à parte, com o nome de quem responde — ver `daEquipe` em
+      `alertas`.
     */
     const meu: Prisma.CompromissoWhereInput = souAdvogado ? daPessoa(user.id) : {};
 
@@ -1278,38 +1280,56 @@ export class DashboardService {
           : [],
         urgentes: urgentesSemanaCount,
         /*
-          A TAREFA DO CASO QUE FICOU PARA TRÁS, em que o advogado é reserva.
+          A EQUIPE DO ADVOGADO — as tarefas em que o robô o pôs de reserva.
 
-          Não entra em `atrasadas`, que é o que é dele (a régua de `daPessoa`).
-          Vem à parte, com o nome de quem responde, e só para o advogado: na
-          visão da casa a gestão já vê a atrasada de todo mundo. É a mesma
-          consulta do sino (`reservaAtrasada`), então painel e sino nunca
-          discordam sobre ela.
+          Duas listas, na ordem da urgência:
+            · `precisam` — ninguém está cuidando: o responsável está sem entrar
+              há uma semana ou mais (ou saiu do sistema), ou o dia já virou. É a
+              MESMA regra da faixa de avisos (`motivoParaAvisarAEquipe`), então
+              painel e faixa nunca discordam sobre ela;
+            · `acompanhando` — em dia e com o dono por perto, de hoje a sete
+              dias. Não é pendência: é saber o que a equipe tem na mão.
+
+          Não entra em `atrasadas`, que é o que é dele (a régua de `daPessoa`),
+          e só vem para o advogado: a gestão já vê a agenda de todo mundo.
         */
-        reservasAtrasadas:
+        daEquipe:
           souAdvogado && veAgenda
             ? await (async () => {
-                const onde: Prisma.CompromissoWhereInput = {
-                  status: ABERTOS,
-                  ...reservaAtrasada(user.id, hojeIni),
-                };
-                const [total, itens] = await Promise.all([
-                  this.prisma.compromisso.count({ where: onde }),
-                  this.prisma.compromisso.findMany({
-                    where: onde,
-                    orderBy: { inicio: 'asc' },
-                    take: 10,
-                    select: {
-                      id: true,
-                      titulo: true,
-                      inicio: true,
-                      responsavel: {
-                        select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
-                      },
+                const tarefas = await this.prisma.compromisso.findMany({
+                  where: { status: ABERTOS, ...ondeSouReserva(user.id) },
+                  orderBy: { inicio: 'asc' },
+                  take: 60,
+                  select: {
+                    id: true,
+                    titulo: true,
+                    inicio: true,
+                    responsavel: {
+                      select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
                     },
-                  }),
-                ]);
-                return { total, itens };
+                  },
+                });
+                const usos = await ultimosUsosReais(this.prisma, tarefas.map((t) => t.responsavel.id));
+                const agora = new Date();
+                const fimDaSemana = new Date(hojeIni.getTime() + 8 * DIA_MS);
+                const precisam: ((typeof tarefas)[number] & AvisoParaAEquipe & { detalhe: string })[] = [];
+                const acompanhando: typeof tarefas = [];
+                for (const t of tarefas) {
+                  const aviso = motivoParaAvisarAEquipe(t, usos.get(t.responsavel.id), agora);
+                  if (aviso) {
+                    // A frase vem pronta — a mesma que a faixa de avisos mostra.
+                    const nome = t.responsavel.nomeExibicao || t.responsavel.nome;
+                    precisam.push({ ...t, ...aviso, detalhe: porQueAEquipePrecisa(nome, aviso) });
+                  } else if (t.inicio < fimDaSemana) {
+                    acompanhando.push(t);
+                  }
+                }
+                return {
+                  precisam: precisam.slice(0, 10),
+                  totalPrecisam: precisam.length,
+                  acompanhando: acompanhando.slice(0, 10),
+                  totalAcompanhando: acompanhando.length,
+                };
               })()
             : undefined,
         audienciasAAgendar: audienciasAAgendar.total,

@@ -235,64 +235,6 @@ export class PartesExternasController {
     return this.service.consultarCnpj(cnpj);
   }
 
-  /** Pares de organizações que parecem ser a mesma — a fila de limpeza. */
-  @Get('duplicadas')
-  @ApiOperation({ summary: 'Varredura do cadastro em busca de organizações duplicadas.' })
-  duplicadas() {
-    return this.service.duplicadas();
-  }
-
-  /**
-   * Marca o par como "não são a mesma organização" — some da fila de limpeza.
-   *
-   * NÃO exige ADMINISTRADOR, ao contrário de mesclar: descartar não apaga nada
-   * e é reversível pelo banco. Exigir o perfil mais alto para dizer "isto aqui
-   * está errado" faria a fila encher justamente de quem tem menos acesso.
-   */
-  @Post(':id/nao-duplicada')
-  @ApiOperation({ summary: 'Descarta o par sugerido pela varredura de duplicatas.' })
-  naoSaoDuplicadas(
-    @Param('id') id: string,
-    @Body() dto: MesclarOrganizacaoDto,
-    @CurrentUser() user: AuthUser,
-    @Req() req: Request,
-  ) {
-    return this.service.naoSaoDuplicadas(id, dto.duplicadaId, ctxDe(req, user));
-  }
-
-  /**
-   * Mescla `duplicadaId` DENTRO de `:id`, que é a que permanece.
-   *
-   * Só ADMINISTRADOR: apaga um cadastro e reponta processos, vínculos de
-   * emprego e, quando existe, o dossiê patronal. É a operação mais destrutiva
-   * do módulo, e não tem desfazer na tela — o retrato do que sumiu fica na
-   * auditoria.
-   */
-  @Post(':id/mesclar')
-  @OperacaoDeSistema()
-  @ApiOperation({ summary: 'Mescla a organização duplicada dentro desta.' })
-  mesclar(
-    @Param('id') id: string,
-    @Body() dto: MesclarOrganizacaoDto,
-    @CurrentUser() user: AuthUser,
-    @Req() req: Request,
-  ) {
-    return this.service.mesclar(id, dto.duplicadaId, ctxDe(req, user), dto.campos);
-  }
-
-  /**
-   * AS DUAS ORGANIZAÇÕES LADO A LADO, antes de juntar.
-   *
-   * Só leitura. Junta o que a pessoa precisa para escolher sem chutar: o que
-   * cada uma tem preso nela, se alguém já disse que eram diferentes, e o que a
-   * Receita diz do CNPJ.
-   */
-  @Get(':id/comparar/:outraId')
-  @ApiOperation({ summary: 'Compara duas organizações antes de mesclar: uso, descarte e Receita.' })
-  comparar(@Param('id') id: string, @Param('outraId') outraId: string) {
-    return this.service.comparar(id, outraId);
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Dossiê da parte: cadastro + todos os processos em que figura.' })
   detalhe(@Param('id') id: string) {
@@ -318,5 +260,81 @@ export class PartesExternasController {
   @ApiOperation({ summary: 'Exclui o cadastro (bloqueado se a parte já figura em processos).' })
   remover(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.remover(id, ctxDe(req, user));
+  }
+}
+
+/**
+ * A FILA DE FUSÃO DE ORGANIZAÇÕES — do Administrador, inteira.
+ *
+ * Eram quatro rotas soltas no cadastro, e só a última (juntar) exigia o perfil:
+ * a varredura, o "não são a mesma" e a comparação ficavam com qualquer um que
+ * enxergasse processos. Foi assim que o par da FMS sumiu da fila em 08/09/2026 —
+ * uma advogada marcou "não são a mesma", com a melhor das intenções, e o
+ * administrador, único que podia juntar, nunca mais viu o par.
+ *
+ * Dizer que dois cadastros são (ou não são) a mesma organização é UMA decisão, e
+ * irreversível na prática: juntar apaga um cadastro; descartar esconde o par para
+ * sempre. As quatro rotas viram uma única operação de sistema, com o decorador na
+ * CLASSE — a conta do teste da matriz continua em três.
+ *
+ * REGISTRADO ANTES de `PartesExternasController` no módulo: `duplicadas` é
+ * literal, e o `:id` de lá o engoliria (ver `rotas-que-colidem.spec.ts`).
+ */
+@ApiTags('processos')
+@ApiBearerAuth()
+@Modulo('processos')
+@OperacaoDeSistema()
+@Controller('partes-externas')
+export class FusaoDeOrganizacoesController {
+  constructor(private readonly service: PartesExternasService) {}
+
+  /** Pares de organizações que parecem ser a mesma — a fila de limpeza. */
+  @Get('duplicadas')
+  @ApiOperation({ summary: 'Varredura do cadastro em busca de organizações duplicadas.' })
+  duplicadas() {
+    return this.service.duplicadas();
+  }
+
+  /** Marca o par como "não são a mesma organização" — some da fila de limpeza. */
+  @Post(':id/nao-duplicada')
+  @ApiOperation({ summary: 'Descarta o par sugerido pela varredura de duplicatas.' })
+  naoSaoDuplicadas(
+    @Param('id') id: string,
+    @Body() dto: MesclarOrganizacaoDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.naoSaoDuplicadas(id, dto.duplicadaId, ctxDe(req, user));
+  }
+
+  /**
+   * AS DUAS ORGANIZAÇÕES LADO A LADO, antes de juntar.
+   *
+   * Só leitura. Junta o que a pessoa precisa para escolher sem chutar: o que
+   * cada uma tem preso nela, se alguém já disse que eram diferentes, e o que a
+   * Receita diz do CNPJ.
+   */
+  @Get(':id/comparar/:outraId')
+  @ApiOperation({ summary: 'Compara duas organizações antes de mesclar: uso, descarte e Receita.' })
+  comparar(@Param('id') id: string, @Param('outraId') outraId: string) {
+    return this.service.comparar(id, outraId);
+  }
+
+  /**
+   * Mescla `duplicadaId` DENTRO de `:id`, que é a que permanece.
+   *
+   * Apaga um cadastro e reponta processos, vínculos de emprego e, quando
+   * existe, o dossiê patronal. É a operação mais destrutiva do módulo e não tem
+   * desfazer na tela — o retrato do que sumiu fica na auditoria.
+   */
+  @Post(':id/mesclar')
+  @ApiOperation({ summary: 'Mescla a organização duplicada dentro desta.' })
+  mesclar(
+    @Param('id') id: string,
+    @Body() dto: MesclarOrganizacaoDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.mesclar(id, dto.duplicadaId, ctxDe(req, user), dto.campos);
   }
 }

@@ -12,7 +12,8 @@ import {
   acharDesfecho, desfechosDoTipo, categoriaCancelamentoValida,
   CATEGORIA_CANCELAMENTO_LABEL, tituloDoSeguimento,
 } from './desfechos.catalogo';
-import { montarUrgencia, sincronizarEquipe } from './equipe.util';
+import { ausenciaDe, montarUrgencia, sincronizarEquipe } from './equipe.util';
+import { ultimosUsosReais } from '../dashboard/ultimo-acesso.util';
 import { normalizarCategoria } from '../processos/areas.catalogo';
 import { PARTE_ORDER } from '../processos/partes.service';
 import {
@@ -573,7 +574,26 @@ export class AgendaService {
     // esse campo; a fonte agora é a relação `criador` (que traz também a foto).
     const criadoPorNome =
       compromisso.criador?.nomeExibicao || compromisso.criador?.nome || null;
-    return { ...compromisso, criadoPorNome };
+
+    /*
+      O RESPONSÁVEL ESTÁ POR AQUI? — a pergunta que a gaveta não respondia.
+
+      "Elaborar manifestação", com três advogados de reserva, abria mostrando o
+      responsável como se tudo estivesse sob controle — e ele não entrava no
+      sistema havia 39 dias. Quem abre a atividade precisa saber disso ali, antes
+      de decidir se assume. Só para atividade aberta: da fechada, já não importa.
+    */
+    const aberta =
+      compromisso.status === StatusCompromisso.PENDENTE ||
+      compromisso.status === StatusCompromisso.EM_ANDAMENTO;
+    const ausenciaDoResponsavel = aberta
+      ? ausenciaDe(
+          (await ultimosUsosReais(this.prisma, [compromisso.responsavelId])).get(compromisso.responsavelId),
+          new Date(),
+        )
+      : null;
+
+    return { ...compromisso, criadoPorNome, ausenciaDoResponsavel };
   }
 
   // -------------------------------------------------------------------------
