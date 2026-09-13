@@ -20,9 +20,11 @@ import {
   type ModalidadeContribuicao,
 } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
-import { podeExcluir } from '@/lib/permissoes';
+import { podeEditar, podeExcluir } from '@/lib/permissoes';
 import { QrCodeDialog } from '@/components/qrcode-dialog';
 import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
+import { ConferirRecadastramento } from '@/components/filiados/conferir-recadastramento';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { DependentesSection } from '@/components/filiados/dependentes-section';
 import { FinanceiroSection } from '@/components/filiados/financeiro-section';
 import { DossieDrawer } from '@/components/filiados/dossie-drawer';
@@ -42,6 +44,49 @@ const HIST_ICON: Record<string, any> = {
   GERACAO_TERMO: FileSignature,
 };
 
+/**
+ * A forma da ficha enquanto ela não chega: cabeçalho com foto, dois cartões na
+ * coluna principal e dois na lateral — a mesma grade de quando carrega.
+ */
+function FichaEsqueleto() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <Esqueleto className="h-16 w-16 shrink-0 rounded-xl" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <Esqueleto className="h-6 w-64 max-w-full" />
+          <Esqueleto className="h-4 w-40 max-w-full" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="rounded-xl border bg-card p-5">
+              <Esqueleto className="h-5 w-40" />
+              <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, j) => (
+                  <div key={j} className="space-y-2">
+                    <Esqueleto className="h-3 w-16" />
+                    <Esqueleto className="h-4 w-24 max-w-full" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-6">
+          {[0, 1].map((i) => (
+            <div key={i} className="rounded-xl border bg-card p-5">
+              <Esqueleto className="h-5 w-32" />
+              <Esqueleto className="mt-5 h-10 w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Info({ label, valor }: { label: string; valor?: string | null }) {
   return (
     <div>
@@ -56,12 +101,19 @@ export default function PerfilFiliadoPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
+  // Recadastrar, Editar, situação, carteirinha e anexo gravam no cadastro: a API
+  // exige filiados EDITAR. Quem só visualiza não vê o botão que levaria 403.
+  const podeEditarFiliado = podeEditar(user?.role, user?.permissoes, 'filiados');
+  // A rota de emitir ainda carrega @Roles(ADMINISTRADOR, COORDENACAO) além da
+  // matriz: a tela espelha as duas travas para não oferecer o 403.
+  const podeEmitirCarteirinha =
+    podeEditarFiliado && (user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO');
   const [qrAberto, setQrAberto] = useState(false);
   const [recadastrarAberto, setRecadastrarAberto] = useState(false);
   const [dossieAberto, setDossieAberto] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { data: f, isLoading } = useQuery({
+  const { data: f, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['filiado', id],
     queryFn: async () => (await api.get(`/filiados/${id}`)).data,
   });
@@ -96,8 +148,33 @@ export default function PerfilFiliadoPage() {
     onSuccess: () => { toast.success('Documento removido'); invalidar(); },
   });
 
-  if (isLoading || !f) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800" /></div>;
+  if (isLoading) {
+    return (
+      <Carregando texto="Abrindo a ficha do filiado…">
+        <FichaEsqueleto />
+      </Carregando>
+    );
+  }
+
+  // Erro nunca vira ficha em branco nem girador eterno: diz o que houve e deixa tentar.
+  if (isError || !f) {
+    return (
+      <div className="space-y-4">
+        <Link
+          href="/filiados"
+          className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" /> Filiados
+        </Link>
+        <div role="alert" className="flex flex-col items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 sm:flex-row sm:items-center sm:justify-between">
+          <span>Não foi possível abrir a ficha deste filiado. Confira a conexão e tente de novo.</span>
+          <Button variant="outline" className="h-11 shrink-0 md:h-11" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Tentar de novo
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -139,12 +216,19 @@ export default function PerfilFiliadoPage() {
           <Button variant="outline" onClick={() => baixarPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Baixar Termo</Button>
           <Button variant="secondary" onClick={() => baixarPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Carteirinha</Button>
           {/* Abre a escolha: presencial (equipe) ou link de 24h para o filiado */}
-          <Button variant="outline" onClick={() => setRecadastrarAberto(true)}>
-            <RefreshCw className="h-4 w-4" /> Recadastrar
-          </Button>
-          <Link href={`/filiados/${f.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
+          {podeEditarFiliado && (
+            <>
+              <Button variant="outline" onClick={() => setRecadastrarAberto(true)}>
+                <RefreshCw className="h-4 w-4" /> Recadastrar
+              </Button>
+              <Link href={`/filiados/${f.id}/editar`}><Button><Pencil className="h-4 w-4" /> Editar</Button></Link>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Some sozinho quando não há o que conferir. */}
+      <ConferirRecadastramento filiadoId={f.id} podeConferir={podeEditarFiliado} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -242,7 +326,7 @@ export default function PerfilFiliadoPage() {
                         </p>
                         {v.descontoEmFolha && (
                           <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
-                            💳 Desconto em Folha
+                            <CreditCard className="h-3 w-3" aria-hidden="true" /> Desconto em folha
                           </span>
                         )}
                       </div>
@@ -280,19 +364,21 @@ export default function PerfilFiliadoPage() {
 
           <DependentesSection filiadoId={f.id} dependentes={f.dependentes ?? []} />
 
-          <FinanceiroSection filiado={{ id: f.id, nomeCompleto: f.nomeCompleto, matricula: f.matricula, telefonePrincipal: f.telefonePrincipal }} />
+          <FinanceiroSection filiado={{ id: f.id, nomeCompleto: f.nomeCompleto, matricula: f.matricula, telefonePrincipal: f.telefonePrincipal, telefoneSecundario: f.telefoneSecundario }} />
 
           {/* Documentos */}
           <Card>
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle>Documentos anexados</CardTitle>
-              <>
-                <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
-                  onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadDoc.mutate(file); e.target.value = ''; }} />
-                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploadDoc.isPending}>
-                  {uploadDoc.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Anexar
-                </Button>
-              </>
+              {podeEditarFiliado && (
+                <>
+                  <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="hidden"
+                    onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadDoc.mutate(file); e.target.value = ''; }} />
+                  <Button variant="outline" size="sm" className="h-11 md:h-9" onClick={() => fileRef.current?.click()} disabled={uploadDoc.isPending}>
+                    {uploadDoc.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Anexar
+                  </Button>
+                </>
+              )}
             </CardHeader>
             <CardContent className="space-y-2">
               {f.documentos?.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Nenhum documento anexado</p>}
@@ -329,18 +415,20 @@ export default function PerfilFiliadoPage() {
                 </Badge>
                 {mudarSituacao.isPending && <Loader2 className="h-4 w-4 animate-spin text-brand-800" />}
               </div>
-              <div>
-                <label className="text-xs uppercase text-muted-foreground">Alterar situação</label>
-                <select
-                  className="mt-1 h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
-                  value={f.situacao}
-                  disabled={mudarSituacao.isPending}
-                  onChange={(e) => { if (e.target.value !== f.situacao) mudarSituacao.mutate(e.target.value); }}
-                >
-                  {SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}
-                </select>
-                <p className="mt-1 text-xs text-muted-foreground">A alteração fica registrada no histórico.</p>
-              </div>
+              {podeEditarFiliado && (
+                <div>
+                  <label className="text-xs uppercase text-muted-foreground">Alterar situação</label>
+                  <select
+                    className="mt-1 h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
+                    value={f.situacao}
+                    disabled={mudarSituacao.isPending}
+                    onChange={(e) => { if (e.target.value !== f.situacao) mudarSituacao.mutate(e.target.value); }}
+                  >
+                    {SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-muted-foreground">A alteração fica registrada no histórico.</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -370,9 +458,11 @@ export default function PerfilFiliadoPage() {
                       ? 'Carteirinha ainda não emitida.'
                       : 'A carteirinha só pode ser emitida para filiado ATIVO.'}
                   </p>
-                  <Button className="w-full" disabled={f.situacao !== 'ATIVO' || emitirCarteirinha.isPending} onClick={() => emitirCarteirinha.mutate()}>
-                    {emitirCarteirinha.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />} Emitir carteirinha
-                  </Button>
+                  {podeEmitirCarteirinha && (
+                    <Button className="w-full" disabled={f.situacao !== 'ATIVO' || emitirCarteirinha.isPending} onClick={() => emitirCarteirinha.mutate()}>
+                      {emitirCarteirinha.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />} Emitir carteirinha
+                    </Button>
+                  )}
                 </>
               )}
             </CardContent>

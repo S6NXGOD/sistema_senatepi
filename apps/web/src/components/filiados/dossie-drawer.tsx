@@ -4,11 +4,13 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
-  X, Loader2, ExternalLink, Phone, Mail, MapPin, IdCard, Clock, CalendarClock,
+  X, ExternalLink, Phone, Mail, MapPin, IdCard, Clock, CalendarClock,
   Gavel, Wallet, FileText, History, MessageSquare, AlertTriangle, CheckCircle2,
   Users, Sun, Image as ImageIcon, Download, Link2, TrendingUp,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Badge } from '@/components/ui/badge';
 import { cn, mascararCpf } from '@/lib/utils';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
@@ -52,7 +54,7 @@ export function DossieDrawer({
   const [aba, setAba] = useState<Aba>('resumo');
   const { tipos } = useTiposEvento();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: falhou, error: erroDoDossie, refetch: recarregar } = useQuery({
     queryKey: ['dossie', filiadoId],
     queryFn: () => getDossie(filiadoId!),
     enabled: open && !!filiadoId,
@@ -89,7 +91,7 @@ export function DossieDrawer({
               Dossiê do filiado
             </p>
             <h3 className="truncate text-lg font-bold leading-tight">
-              {f?.nomeCompleto ?? 'Carregando…'}
+              {f?.nomeCompleto ?? (falhou ? 'Dossiê indisponível' : 'Carregando…')}
             </h3>
             {f && (
               <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -130,10 +132,21 @@ export function DossieDrawer({
         </div>
       </div>
 
-      {isLoading || !data || !f || !r ? (
-        <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
+      {/* 13/09/2026: só sem dado; revalidação que falha não esconde o dossiê já carregado. */}
+      {falhou && !data ? (
+        <div className="flex-1 p-4">
+          <FalhaAoCarregar erro={erroDoDossie} oQue="o dossiê" onTentarDeNovo={() => recarregar()} />
         </div>
+      ) : isLoading || !data || !f || !r ? (
+        <Carregando texto="Carregando o dossiê…" className="flex-1 space-y-4 p-4">
+          <div className="flex gap-2">
+            {[0, 1, 2, 3].map((i) => <Esqueleto key={i} className="h-8 w-24" />)}
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => <Esqueleto key={i} className="h-16" />)}
+          </div>
+          <EsqueletoLinhas quantidade={5} className="-mx-4" />
+        </Carregando>
       ) : (
         <>
           {/* Abas (rolam na horizontal no mobile) */}

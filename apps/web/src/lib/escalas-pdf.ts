@@ -3,16 +3,22 @@ import autoTable from 'jspdf-autotable';
 import {
   carregarLogo, desenharCabecalhoSync, desenharRodapeGeracao, MARGEM, VERDE,
 } from './pdf-institucional';
-import { Escala } from './escalas';
+import { formatDataPura } from './data-pura';
+import { Escala, nomeDeExibicao } from './escalas';
 
-/** Exporta a grade de escalas do mês como PDF (cabeçalho institucional + tabela). */
+/**
+ * Exporta a grade de escalas do mês como PDF (cabeçalho institucional + tabela).
+ *
+ * A data da escala é `@db.Date` (data pura): vai pela regra única de
+ * `lib/data-pura`, a mesma da tela, e não por uma formatação montada à mão.
+ */
 export async function exportarEscalasPdf(mesLabel: string, escalas: Escala[]): Promise<void> {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const logo = await carregarLogo('branco');
 
   const body = escalas.map((e) => [
-    new Date(e.data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'short', timeZone: 'UTC' }),
-    e.advogado.nomeExibicao || e.advogado.nome,
+    formatDataPura(e.data, { day: '2-digit', month: '2-digit', weekday: 'short' }),
+    nomeDeExibicao(e.advogado),
     `${e.horaInicio} – ${e.horaFim}`,
     e.observacao || '—',
   ]);

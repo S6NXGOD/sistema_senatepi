@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { X, Loader2, UserCog, ExternalLink, ArrowRight, ArrowLeft, Check, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import { mascararCpf } from '@/lib/utils';
 import { compararFiliado, sincronizarFiliado, getCandidatosFiliado, CampoDiff } from '@/lib/colonia';
@@ -95,11 +96,11 @@ export function SyncFiliadoModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={aplicando ? undefined : onClose}
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between border-b p-5">
@@ -119,7 +120,7 @@ export function SyncFiliadoModal({
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {((precisaEscolher && candidatosQuery.isLoading) || (!precisaEscolher && isLoading)) && (
-            <div className="flex justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>
+            <Carregando texto="Comparando com o cadastro…"><EsqueletoLinhas quantidade={5} altura={52} className="-mx-4" /></Carregando>
           )}
           {error && (
             <p className="py-6 text-center text-sm text-red-600 dark:text-red-400">

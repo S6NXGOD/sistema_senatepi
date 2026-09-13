@@ -62,8 +62,8 @@ export function QuickAdd({
       </Button>
 
       {aberto && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={salvando ? undefined : () => setAberto(false)}>
-          <div className="w-full max-w-sm overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={salvando ? undefined : () => setAberto(false)}>
+          <div className="w-full max-w-sm animate-dialogo-entrar overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b p-5">
               <h3 className="font-semibold">Novo(a) {label.toLowerCase()}</h3>
               <Button variant="ghost" size="icon" onClick={() => setAberto(false)} disabled={salvando}><X className="h-4 w-4" /></Button>

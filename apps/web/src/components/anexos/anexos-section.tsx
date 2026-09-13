@@ -17,6 +17,7 @@ import {
   MIME_ACEITOS, TAMANHO_MAX_MB, AlvoAnexo, Anexo,
 } from '@/lib/anexos';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { V } from '@/lib/vocabulario';
 
 /** Registro do qual esta seção HERDA documentos (só leitura). */
@@ -182,9 +183,9 @@ export function AnexosSection({
 
       {/* Lista de arquivos */}
       {isLoading ? (
-        <div className="flex justify-center py-4 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </div>
+        <Carregando texto="Carregando os documentos…" className="mt-3 space-y-2">
+          <EsqueletoLinhas quantidade={2} altura={56} className="divide-y-0 rounded-lg border" />
+        </Carregando>
       ) : anexos.length > 0 ? (
         <ul className="mt-3 space-y-2">
           {anexos.map((a) => (

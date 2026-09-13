@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth';
 import { nivelEfetivo } from '@/lib/permissoes';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -350,7 +351,9 @@ export default function FiliadosPage() {
               </thead>
               <tbody>
                 {isLoading && (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Carregando...</td></tr>
+                  <tr><td colSpan={9} className="p-0">
+                    <Carregando texto="Carregando os filiados…"><EsqueletoLinhas quantidade={10} altura={53} /></Carregando>
+                  </td></tr>
                 )}
                 {!isLoading && linhas?.map((f: Filiado) => (
                   <tr key={f.id} className="border-b transition-colors last:border-0 hover:bg-muted/40">
@@ -390,7 +393,7 @@ export default function FiliadosPage() {
           {/* Mobile (< md): cards empilhados com os mesmos registros */}
           <div className="divide-y md:hidden">
             {isLoading && (
-              <p className="px-4 py-8 text-center text-sm text-muted-foreground">Carregando...</p>
+              <Carregando texto="Carregando os filiados…"><EsqueletoLinhas quantidade={6} altura={96} /></Carregando>
             )}
             {!isLoading && linhas?.map((f: Filiado) => (
               <FiliadoCardMobile key={f.id} f={f} onChanged={revalidar} />

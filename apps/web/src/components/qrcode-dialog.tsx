@@ -1,9 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { X, Printer, Download, Loader2 } from 'lucide-react';
+import { X, Printer, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 
 /**
  * Diálogo genérico de QR Code. `endpoint` deve retornar { imagem: dataUrl }.
@@ -35,15 +36,15 @@ export function QrCodeDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-xl bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm animate-dialogo-entrar rounded-xl bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold">{titulo}</h3>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
         <div className="flex flex-col items-center gap-4">
           {isLoading ? (
-            <Loader2 className="h-8 w-8 animate-spin text-brand-800" />
+            <Carregando texto="Gerando o QR Code…"><Esqueleto className="h-64 w-64 rounded-lg" /></Carregando>
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={data?.imagem} alt="QR Code" className="h-64 w-64" />

@@ -53,14 +53,36 @@ describe('a espera tem relógio e tem fim', () => {
  * recurso". Havia dois filtros; o que zerou a lista não se contava, não se
  * anunciava e não era solto por "Limpar filtros".
  */
-describe('a aba da agenda é um filtro e assume isso', () => {
-  it('entra na conta de filtros ativos', () => {
-    expect(AGENDA).toContain("(aba !== 'todos' ? 1 : 0)");
+describe('o recorte da agenda se anuncia', () => {
+  /*
+    MUDOU EM 13/09/2026 (rodada 2, decisão D10). A aba era recortada no
+    navegador e só aparecia no próprio botão — por isso tinha passado a contar
+    como filtro e a ser solta por "Limpar filtros". Agora o recorte é do
+    servidor e cada aba mostra o próprio número (o count() do mesmo recorte,
+    com os mesmos filtros), destacada no topo. Contá-la de novo fazia a linha
+    "1 filtro ativo" aparecer em toda abertura da tela. O caso que originou
+    este teste ("aval" com a aba Hoje dava zero) continua coberto pelo
+    "N em outras datas — ver todas" logo abaixo.
+  */
+  it('a aba não entra na conta: ela já mostra o próprio número', () => {
+    expect(AGENDA).toContain('const filtrosAtivos = contarFiltrosAtivos(estadoDosFiltros);');
+    expect(AGENDA).not.toContain("(aba !== 'todos' ? 1 : 0)");
+    expect(AGENDA).toContain('const n = contagem?.[r.chave];');
   });
 
-  it('"Limpar filtros" também solta a aba', () => {
+  it('"Limpar filtros" solta todos os filtros ligados', () => {
     const fn = AGENDA.slice(AGENDA.indexOf('function limparFiltros()'));
-    expect(fn.slice(0, 400)).toContain("setAba('todos')");
+    const corpo = fn.slice(0, fn.indexOf('\n  }'));
+    for (const s of [
+      "setBusca('')",
+      "setTipo('')",
+      'setResponsaveis([])',
+      'setPessoa(undefined)',
+      'setReservaDe(undefined)',
+      'setSoUrgentes(false)',
+    ]) {
+      expect(corpo).toContain(s);
+    }
   });
 
   it('e quando a busca acha fora da aba, a tela diz onde e leva num toque', () => {

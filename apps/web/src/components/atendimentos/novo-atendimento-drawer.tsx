@@ -8,19 +8,25 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
-import { criarAtendimento, CanalAtendimento, CANAIS, CANAL_LABEL } from '@/lib/atendimentos';
+import {
+  criarAtendimento, CanalAtendimento, CANAIS, CANAL_LABEL,
+  ASSUNTO_OUTRO_MAX, erroDoAssunto, limparAssuntoOutro,
+} from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
+import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
 import { V } from '@/lib/vocabulario';
 import { cn } from '@/lib/utils';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
 /**
- * Novo Atendimento (triagem) — registra APENAS filiado + canal + descrição.
- * O desfecho (Resolvido no Ato / Encaminhado) é registrado depois, na listagem.
+ * Novo Atendimento (triagem) — registra filiado, canal, assunto (opcional) e a
+ * demanda. O desfecho (Resolvido no Ato / Encaminhado) é registrado depois, na
+ * listagem; o assunto pode ser classificado ou corrigido depois, na gaveta.
  */
 export function NovoAtendimentoDrawer({
   open, onClose, onCriado, filiadoPre,
@@ -46,11 +52,16 @@ export function NovoAtendimentoDrawer({
    * os não informados à parte.
    */
   const [assunto, setAssunto] = useState('');
+  /** "Qual assunto?" — só aparece (e só é obrigatório) quando se escolhe Outro. */
+  const [assuntoOutro, setAssuntoOutro] = useState('');
   const [descricao, setDescricao] = useState('');
   const [urgente, setUrgente] = useState(false);
   const [urgenteMotivo, setUrgenteMotivo] = useState('');
   const [cadastral, setCadastral] = useState<any | null>(null);
   const [carregandoContato, setCarregandoContato] = useState(false);
+  /** A atualização cadastral grava na ficha: sem EDITAR filiados, a API recusaria. */
+  const { user } = useAuth();
+  const podeEditarFiliados = podeEditar(user?.role, user?.permissoes, 'filiados');
   /** Atendimento recém-criado — abre o "puxar documentos" logo em seguida. */
   const [criadoId, setCriadoId] = useState<string | null>(null);
 
@@ -59,7 +70,7 @@ export function NovoAtendimentoDrawer({
       setFiliadoId(filiadoPre?.id ?? '');
       setFiliadoNome(filiadoPre?.nomeCompleto ?? '');
       setBusca(''); setResultados([]);
-      setCanal('PRESENCIAL'); setDescricao(''); setAssunto('');
+      setCanal('PRESENCIAL'); setDescricao(''); setAssunto(''); setAssuntoOutro('');
       setCriadoId(null);
     }
   }, [open, filiadoPre]);
@@ -99,6 +110,9 @@ export function NovoAtendimentoDrawer({
         filiadoId,
         canal,
         ...(assunto ? { assunto } : {}),
+        // O texto só vai com Outro: um Outro trocado por Remuneração não leva
+        // "aposentadoria" junto (a API também grava nulo nos demais).
+        ...(assunto === 'OUTRO' ? { assuntoOutro: limparAssuntoOutro(assuntoOutro) } : {}),
         descricao: descricao.trim(),
         urgente,
         urgenteMotivo: urgente ? urgenteMotivo.trim() || undefined : undefined,
@@ -111,11 +125,17 @@ export function NovoAtendimentoDrawer({
       if (acervo.length > 0 && novo?.id) setCriadoId(novo.id);
       else onClose();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível registrar o atendimento.'),
+    onError: (e: any) => {
+      // O ValidationPipe devolve a lista de mensagens; a primeira já diz o que falta.
+      const m = e?.response?.data?.message;
+      toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível registrar o atendimento.');
+    },
   });
 
   function registrar() {
     if (!filiadoId) return toast.error(`Selecione o ${V.filiado}.`);
+    const erroAssunto = erroDoAssunto(assunto, assuntoOutro);
+    if (erroAssunto) return toast.error(erroAssunto);
     if (descricao.trim().length < 3) return toast.error('Descreva a demanda.');
     // A API recusa urgência sem motivo; barrar aqui devolve o foco ao campo
     // certo, em vez de um toast genérico vindo do servidor.
@@ -147,14 +167,27 @@ export function NovoAtendimentoDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={criar.isPending ? undefined : onClose}>
-        <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between border-b p-5">
-            <div>
-              <h3 className="text-lg font-bold">Novo Atendimento</h3>
+      <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={criar.isPending ? undefined : onClose}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="novo-atendimento-titulo"
+          className="flex max-h-[92vh] w-full max-w-md animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-2 border-b py-4 pl-5 pr-2">
+            <div className="min-w-0">
+              <h3 id="novo-atendimento-titulo" className="text-lg font-bold">Novo Atendimento</h3>
               <p className="text-sm text-muted-foreground">Registre a demanda do {V.filiado}</p>
             </div>
-            <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+            <button
+              type="button"
+              onClick={criar.isPending ? undefined : onClose}
+              aria-label="Fechar"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
 
           <div className="flex-1 space-y-4 overflow-y-auto p-5">
@@ -169,12 +202,14 @@ export function NovoAtendimentoDrawer({
                       <span className="truncate">{filiadoNome}</span>
                     </span>
                     {!filiadoPre && (
-                      <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="text-muted-foreground hover:text-foreground" aria-label={`Trocar ${V.filiado}`}><X className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground" aria-label={`Trocar ${V.filiado}`}><X className="h-4 w-4" /></button>
                     )}
                   </div>
-                  <Button variant="outline" size="sm" className="w-full" onClick={abrirCadastral} disabled={carregandoContato}>
-                    {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
-                  </Button>
+                  {podeEditarFiliados && (
+                    <Button variant="outline" size="sm" className="w-full" onClick={abrirCadastral} disabled={carregandoContato}>
+                      {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
+                    </Button>
+                  )}
                   {acervo.length > 0 && (
                     <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
                       <FolderInput className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -197,7 +232,7 @@ export function NovoAtendimentoDrawer({
                     <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-input bg-card shadow-lg">
                       {resultados.map((f) => (
                         <li key={f.id}>
-                          <button type="button" onClick={() => { setFiliadoId(f.id); setFiliadoNome(f.nome); setBusca(''); setResultados([]); }} className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted">
+                          <button type="button" onClick={() => { setFiliadoId(f.id); setFiliadoNome(f.nome); setBusca(''); setResultados([]); }} className="flex min-h-11 w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted">
                             <span className="font-medium">{f.nome}</span>
                             <span className="text-xs text-muted-foreground">{f.cpfMascarado}</span>
                           </button>
@@ -219,19 +254,39 @@ export function NovoAtendimentoDrawer({
 
             {/* Assunto — o que o relatório soma. Ver o comentário do estado. */}
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">
+              <label className="text-sm font-medium" htmlFor="novo-atendimento-assunto">
                 Assunto <span className="font-normal text-muted-foreground">(opcional)</span>
               </label>
               <select
+                id="novo-atendimento-assunto"
                 className={inputCls}
                 value={assunto}
                 onChange={(e) => setAssunto(e.target.value)}
               >
-                <option value="">Não informar agora</option>
+                {/* O "depois" agora existe: a gaveta e o desfecho classificam. */}
+                <option value="">Classificar depois</option>
                 {ASSUNTOS.map((a) => (
                   <option key={a} value={a}>{ASSUNTO_LABEL[a]}</option>
                 ))}
               </select>
+              {assunto === 'OUTRO' && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium" htmlFor="novo-atendimento-assunto-outro">
+                    Qual assunto? *
+                  </label>
+                  <Input
+                    id="novo-atendimento-assunto-outro"
+                    autoFocus
+                    maxLength={ASSUNTO_OUTRO_MAX}
+                    value={assuntoOutro}
+                    onChange={(e) => setAssuntoOutro(e.target.value)}
+                    placeholder="Ex.: aposentadoria, plano de saúde"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Em poucas palavras. Os detalhes vão na descrição logo abaixo.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Descrição */}

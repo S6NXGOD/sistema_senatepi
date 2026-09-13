@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { cn, mascararCpf } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { EquipeAvatares } from '@/components/ui/avatar-pessoa';
@@ -34,6 +36,7 @@ import { EtiquetasInput } from './etiquetas-input';
 import { PartesPanel } from './partes-panel';
 import { VincularFiliadoModal } from './vincular-filiado-modal';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
+import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
 import { usePodeCadastrarFiliado } from '@/components/filiados/permissao-cadastro';
 import {
   getDossie, excluirMovimentacao, listarTiposMovimentacao,
@@ -248,8 +251,10 @@ export function ProcessoDetalheSheet({
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'processos') === 'EDITAR';
   const podeCadastrarFiliado = usePodeCadastrarFiliado();
 
-  /** Id do filiado sendo recadastrado no modal, quando há um. */
-  const [recadastrando, setRecadastrando] = useState<string | null>(null);
+  /** Filiado sendo recadastrado no modal de escolha (link ou presencial), quando há um. */
+  const [recadastrando, setRecadastrando] = useState<{ id: string; nome: string } | null>(null);
+  /** Id do filiado no formulário presencial, aberto pela porta do modal. */
+  const [presencial, setPresencial] = useState<string | null>(null);
 
   const [aba, setAba] = useState<Aba>('timeline');
   /**
@@ -362,7 +367,7 @@ export function ProcessoDetalheSheet({
   const [etiquetasEdit, setEtiquetasEdit] = useState<string[]>([]);
   const [vinculando, setVinculando] = useState(false);
 
-  const { data: p, isLoading } = useQuery({
+  const { data: p, isLoading, isError: falhouDossie, error: erroDoDossie, refetch: recarregarDossie } = useQuery({
     queryKey: ['processo-dossie', processoId],
     queryFn: () => getDossie(processoId as string),
     enabled: open && !!processoId,
@@ -569,7 +574,7 @@ export function ProcessoDetalheSheet({
     <>
       {/* Modal centralizado (antes era um painel lateral) */}
       <div
-        className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/50 sm:items-center sm:overflow-y-auto sm:p-4"
+        className="fixed inset-0 z-50 flex animate-overlay-entrar items-stretch justify-center bg-black/50 sm:items-center sm:overflow-y-auto sm:p-4"
         onClick={onClose}
       >
       <div
@@ -585,7 +590,7 @@ export function ProcessoDetalheSheet({
           Do `sm` para cima nada muda: 5xl centralizado, que é o que usa bem o
           espaço do desktop sem virar página inteira.
         */
-        className="flex h-full w-full flex-col overflow-hidden bg-card shadow-2xl sm:h-auto sm:max-h-[94vh] sm:max-w-5xl sm:rounded-2xl"
+        className="flex h-full w-full animate-dialogo-entrar flex-col overflow-hidden bg-card shadow-2xl sm:h-auto sm:max-h-[94vh] sm:max-w-5xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho rico */}
@@ -782,7 +787,7 @@ export function ProcessoDetalheSheet({
                         {podeCadastrarFiliado && (
                           <button
                             type="button"
-                            onClick={() => setRecadastrando(p.filiado!.id)}
+                            onClick={() => setRecadastrando({ id: p.filiado!.id, nome: p.filiado!.nomeCompleto })}
                             className="font-medium text-brand-800 hover:underline dark:text-brand-400"
                           >
                             {faltaNoCadastro.length > 0 ? 'Completar cadastro' : 'Recadastrar'}
@@ -1308,10 +1313,17 @@ export function ProcessoDetalheSheet({
           {/* POR QUE ESTE PROCESSO ESTÁ ARQUIVADO */}
           {p?.fase === 'ARQUIVADO' && <MarcosDoEncerramento marcos={p.marcosDoEncerramento ?? []} />}
 
-          {isLoading || !p ? (
-            <div className="flex items-center justify-center py-16 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin" />
-            </div>
+          {/*
+            ERRO SÓ SEM DADO (13/09/2026). Uma revalidação que falha (depois de
+            lançar andamento, ou ao voltar à janela) liga `isError` e MANTÉM o
+            `p` — a ficha que estava na tela virava a tela de erro.
+          */}
+          {falhouDossie && !p ? (
+            <FalhaAoCarregar erro={erroDoDossie} oQue="a ficha do processo" onTentarDeNovo={() => recarregarDossie()} />
+          ) : isLoading || !p ? (
+            <Carregando texto="Carregando a ficha do processo…">
+              <EsqueletoLinhas quantidade={6} altura={64} className="-mx-4" />
+            </Carregando>
           ) : (
             <>
               {/* ---------------- LINHA DO TEMPO ---------------- */}
@@ -1888,15 +1900,30 @@ export function ProcessoDetalheSheet({
       </div>
 
       {/*
-        RECADASTRAR SEM SAIR DO PROCESSO — o mesmo formulário completo da ficha,
-        em passos, dentro de um modal. Quem atende o telefone descobre o dado
-        faltando aqui, e é aqui que ele deveria poder corrigir.
+        RECADASTRAR SEM SAIR DO PROCESSO — com as DUAS portas, como no painel,
+        na ficha do filiado e no importador. Quem atende o telefone descobre o
+        dado faltando aqui; abrir direto o formulário presencial deixava sem o
+        link para o próprio filiado preencher (revisão de 13/09/2026).
+        `semNavegar` mantém a ficha do processo aberta na porta presencial.
       */}
+      {recadastrando && (
+        <RecadastrarModal
+          open
+          filiadoId={recadastrando.id}
+          filiadoNome={recadastrando.nome}
+          semNavegar
+          onRecadastrarPresencial={(id) => {
+            setRecadastrando(null);
+            setPresencial(id);
+          }}
+          onClose={() => setRecadastrando(null)}
+        />
+      )}
       <CadastroFiliadoModal
-        open={!!recadastrando}
-        filiadoId={recadastrando}
-        onClose={() => setRecadastrando(null)}
-        onSalvo={() => { setRecadastrando(null); recarregar(); }}
+        open={!!presencial}
+        filiadoId={presencial}
+        onClose={() => setPresencial(null)}
+        onSalvo={() => { setPresencial(null); recarregar(); }}
       />
 
       {/* Vincular/cadastrar filiado — resolve sem sair da tela */}

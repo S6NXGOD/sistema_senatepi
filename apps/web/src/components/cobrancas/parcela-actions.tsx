@@ -29,7 +29,7 @@ export interface ParcelaAcao {
   status: StatusParcela;
   tipo: TipoCobranca;
   cobrancaId: string;
-  filiado: { nomeCompleto: string; matricula: string; telefonePrincipal?: string | null };
+  filiado: { nomeCompleto: string; matricula: string; telefonePrincipal?: string | null; telefoneSecundario?: string | null };
 }
 
 /** Dropdown de ações de uma parcela: pagamento, carnê, WhatsApp e exclusão. */
@@ -103,8 +103,11 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
 
   async function cobrarWhatsApp() {
     setAberto(false);
+    // 13/09/2026: o secundário também vale. 383 filiados ativos têm o celular
+    // só ali (a importação grava nele), e o botão dizia "sem telefone".
     const tel = parcela.filiado.telefonePrincipal;
-    if (!tel) {
+    const secundario = parcela.filiado.telefoneSecundario;
+    if (!tel && !secundario) {
       toast.error(`${V.Filiado} sem telefone cadastrado para cobrança.`);
       return;
     }
@@ -119,7 +122,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
         valor: parcela.valor,
         copiaECola: pix?.copiaECola,
       });
-      const url = linkWhatsApp(tel, msg);
+      const url = linkWhatsApp(tel, msg, secundario);
       if (!url) {
         toast.error('Telefone inválido para WhatsApp.');
         win?.close();

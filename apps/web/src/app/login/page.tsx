@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Loader2, Lock, Mail } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -71,12 +70,13 @@ export default function LoginPage() {
 
       {/* Formulário */}
       <div className="flex w-full items-center justify-center bg-cinza-claro p-6 dark:bg-background lg:w-1/2">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="w-full max-w-md space-y-8"
-        >
+        {/*
+          ENTRADA POR CSS, NÃO POR JAVASCRIPT. Esta página é desenhada no
+          servidor; com o `initial` escondido do framer, o formulário saía no
+          HTML com opacidade zero e ficava em branco até o pacote hidratar —
+          segundos, num Android modesto no 3G. A classe roda sem JS.
+        */}
+        <div className="w-full max-w-md animate-surgir space-y-8">
           <div className="lg:hidden">
             <Logo orientation="horizontal" variant="auto" className="h-12" />
           </div>
@@ -139,7 +139,7 @@ export default function LoginPage() {
 
           {/* Instalação do app administrativo (condicional por dispositivo) */}
           <InstallHint />
-        </motion.div>
+        </div>
       </div>
     </div>
   );

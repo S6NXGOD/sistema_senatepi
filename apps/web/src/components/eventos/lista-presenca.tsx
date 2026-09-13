@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, Loader2, TriangleAlert, UserCheck, Users } from 'lucide-react';
+import { Download, TriangleAlert, UserCheck, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -78,9 +79,9 @@ export function ListaPresenca({ eventoId, aoVivo = false }: { eventoId: string; 
         )}
 
         {isLoading && (
-          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
-          </p>
+          <Carregando texto="Carregando a lista de presença…">
+            <EsqueletoLinhas quantidade={4} altura={52} className="-mx-4" />
+          </Carregando>
         )}
 
         {!isLoading && data?.length === 0 && (
@@ -199,9 +200,9 @@ function ModalIdentificar({
           </div>
 
           {isLoading && (
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Procurando no cadastro…
-            </p>
+            <Carregando texto="Procurando no cadastro…" mostrarTexto>
+              <EsqueletoLinhas quantidade={2} altura={48} className="-mx-4" />
+            </Carregando>
           )}
 
           {!isLoading && data?.candidatos.length === 0 && (

@@ -1,17 +1,24 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Swords, Layers, Loader2, Inbox, ArrowRight, Scale, TrendingUp, TrendingDown,
+  Swords, Layers, Inbox, ArrowRight, Scale, TrendingUp, TrendingDown, Download,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto, EsqueletoCartoes } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
+import { PdfDoPanorama } from '@/components/processos/pdf-do-panorama';
 import { tenant } from '@/tenant.config';
 import {
-  carregarPanorama, LEITURA, resumoDesfechos, tendencia,
-  type Concentracao, type Desfechos, type Dispersao, type PorAno,
+  carregarPanorama, desfechosParaLer, julgadasNoHistorico, LEITURA, ressalvaDoRecurso, resumoDesfechos,
+  rotuloDoAno, tendencia,
+  type Concentracao, type Desfechos, type Dispersao, type Historico, type PorAno,
 } from '@/lib/panorama';
 
 /**
@@ -43,37 +50,68 @@ const TOM = {
 } as const;
 
 export default function PanoramaPage() {
-  const { data, isLoading, isError } = useQuery({
+  const { user } = useAuth();
+  const [pdfAberto, setPdfAberto] = useState(false);
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['panorama'],
     queryFn: carregarPanorama,
   });
 
   const vazio = !!data && !data.concentracoes.length && !data.dispersoes.length;
+  const anoCorrente = new Date().getFullYear();
 
   return (
     <div className="space-y-5 p-4 pb-24 md:p-6">
-      <header>
-        <h1 className="flex items-center gap-2 text-xl font-semibold md:text-2xl">
-          <Scale className="h-5 w-5 text-brand-700 dark:text-brand-400" />
-          Panorama do acervo
-        </h1>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          O que aparece quando os processos são somados em vez de lidos um a um. São contagens
-          do próprio acervo e desfechos carimbados pelo tribunal — a leitura jurídica é sua.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-xl font-semibold md:text-2xl">
+            <Scale className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+            Panorama do acervo
+          </h1>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            O que aparece quando os processos são somados em vez de lidos um a um. São contagens
+            do próprio acervo e desfechos carimbados pelo tribunal — a leitura jurídica é sua.
+          </p>
+        </div>
+        {/*
+          O PAPEL IMPRIME O QUE A TELA JÁ MOSTRA — sem rota nova e sem permissão
+          própria: o dado já está no navegador de quem vê a tela.
+        */}
+        <Button
+          variant="outline"
+          onClick={() => setPdfAberto(true)}
+          disabled={!data}
+          className="w-full sm:w-auto"
+        >
+          <Download className="h-4 w-4" /> Baixar PDF
+        </Button>
       </header>
 
       <AbasDoAcervo atual="panorama" />
 
+      {/* A forma do que vai aparecer: três cartões de papel e dois cartões de réu. */}
       {isLoading && (
-        <p className="flex items-center gap-2 py-10 text-center text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Somando o acervo…
-        </p>
+        <Carregando texto="Somando o acervo…" className="space-y-5">
+          <EsqueletoCartoes quantidade={3} className="grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-3" />
+          <div className="space-y-3" aria-hidden="true">
+            {[0, 1].map((i) => (
+              <div key={i} className="rounded-xl border border-l-4 bg-card p-4">
+                <Esqueleto className="h-4 w-56 max-w-full" />
+                <Esqueleto className="mt-2 h-3 w-40 max-w-full" />
+                <Esqueleto className="mt-3 h-2 w-full rounded-full" />
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  <Esqueleto className="h-5 w-44 max-w-full rounded-full" />
+                  <Esqueleto className="h-5 w-28 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Carregando>
       )}
 
       {isError && (
-        <Card className="p-6 text-center text-sm text-muted-foreground">
-          Não foi possível montar o panorama agora.
+        <Card>
+          <FalhaAoCarregar erro={error} oQue="o panorama" onTentarDeNovo={() => refetch()} />
         </Card>
       )}
 
@@ -81,7 +119,7 @@ export default function PanoramaPage() {
         <Card className="p-8 text-center text-sm text-muted-foreground">
           <Inbox className="mx-auto mb-2 h-6 w-6 opacity-60" />
           Nenhum padrão no acervo ativo — nenhum réu responde três vezes pelo mesmo pedido, e
-          nenhum pedido se repete contra cinco empregadores. Não é falta de dado: é o acervo
+          nenhum pedido se repete contra cinco réus diferentes. Não é falta de dado: é o acervo
           não ter concentração.
         </Card>
       )}
@@ -144,9 +182,13 @@ export default function PanoramaPage() {
               <Swords className="h-4 w-4 text-brand-700 dark:text-brand-400" />
               O mesmo réu, o mesmo pedido
             </h2>
+            {/*
+              "PARTES CONTRÁRIAS", e não "empregadores": numa ação contra o sindicato o
+              adversário é quem o processa, e nem todo réu é empregador.
+            */}
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Empregadores que respondem a três ou mais ações do acervo repetindo os mesmos
-              pedidos.
+              Partes contrárias com três ou mais ações ativas repetindo os mesmos pedidos. Os
+              desfechos contam todas as ações ajuizadas contra cada uma.
             </p>
           </div>
           {data.concentracoes.map((c) => (
@@ -163,13 +205,13 @@ export default function PanoramaPage() {
               O mesmo pedido, muitos réus
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Aqui o padrão não é de um empregador — é da categoria. Costuma ser assunto de
-              cláusula em convenção ou de ação normativa, e não de mais uma ação por empresa.
+              Aqui o padrão não é de um réu — é da categoria: o mesmo pedido aparece em seis ou
+              mais ações ativas, contra cinco ou mais partes contrárias diferentes.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {data.dispersoes.map((d) => (
-              <CartaoDispersao key={d.assunto} d={d} />
+              <CartaoDispersao key={d.assunto} d={d} anoCorrente={anoCorrente} />
             ))}
           </div>
         </section>
@@ -178,9 +220,18 @@ export default function PanoramaPage() {
       {!!data && (
         <p className="pt-1 text-[11px] leading-snug text-muted-foreground">
           {data.acervoAtivo} processos ativos. Um processo trata de vários assuntos, então ele
-          aparece em mais de um bloco — os números não somam o acervo. Os nomes dos pedidos são
-          os que o tribunal registrou.
+          aparece em mais de um bloco — os números não se somam. Os nomes dos pedidos são os que
+          o tribunal registrou. O desfecho é a última sentença registrada, e sentença não é
+          resultado final: recurso julgado depois pode mudá-lo.
         </p>
+      )}
+
+      {data && pdfAberto && (
+        <PdfDoPanorama
+          panorama={data}
+          emitidoPor={user?.nomeExibicao || user?.nome || tenant.sigla}
+          onFechar={() => setPdfAberto(false)}
+        />
       )}
     </div>
   );
@@ -214,6 +265,7 @@ function CartaoPapel({
 function CartaoConcentracao({ c }: { c: Concentracao }) {
   // A leitura mais forte define a cor da borda; as demais entram como selo.
   const principal = LEITURA[c.leituras[0]];
+  const julgadas = julgadasNoHistorico(c);
 
   return (
     <Card className={cn('border-l-4 p-4', TOM[principal.tom].borda)}>
@@ -228,9 +280,15 @@ function CartaoConcentracao({ c }: { c: Concentracao }) {
         </Link>
       </div>
 
+      {/*
+        DUAS PERGUNTAS NA MESMA LINHA, sem misturar: quantas estão em curso (é o
+        que o link abre) e como as ajuizadas têm sido julgadas (é o que a barra
+        desenha).
+      */}
       <p className="mt-0.5 text-xs text-muted-foreground">
-        {c.processos} ações ativas
-        {c.individuais > 0 && <> · {c.individuais} individuais</>}
+        {c.processos} {c.processos === 1 ? 'ativa' : 'ativas'}
+        {c.individuais > 0 && <> ({c.individuais} individuais)</>}
+        {julgadas && <> · {julgadas}</>}
       </p>
 
       <BarraDeDesfechos d={c} />
@@ -276,8 +334,9 @@ function CartaoConcentracao({ c }: { c: Concentracao }) {
   );
 }
 
-function CartaoDispersao({ d }: { d: Dispersao }) {
-  const rumo = tendencia(d.porAno);
+function CartaoDispersao({ d, anoCorrente }: { d: Dispersao; anoCorrente: number }) {
+  const rumo = tendencia(d.porAno, anoCorrente);
+  const julgadas = julgadasNoHistorico(d);
   return (
     <Card className="flex h-full flex-col p-4">
       <div className="flex items-start justify-between gap-2">
@@ -307,12 +366,18 @@ function CartaoDispersao({ d }: { d: Dispersao }) {
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        <strong className="text-foreground">{d.processos}</strong> processos contra{' '}
-        <strong className="text-foreground">{d.adversarios}</strong> empregadores diferentes
+        <strong className="text-foreground">{d.processos}</strong> ativas contra{' '}
+        <strong className="text-foreground">{d.adversarios}</strong> partes contrárias diferentes
         {d.individuais > 0 && <> · {d.individuais} individuais</>}
+        {julgadas && <> · {julgadas}</>}
       </p>
 
       <BarraDeDesfechos d={d} />
+      {d.porAno.length >= 2 && (
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          {d.historico ? 'Ações ajuizadas por ano, inclusive as já encerradas' : 'Ações ativas por ano'}
+        </p>
+      )}
       <ColunasPorAno serie={d.porAno} />
 
       <div className="mt-auto pt-2.5">
@@ -336,30 +401,40 @@ function CartaoDispersao({ d }: { d: Dispersao }) {
  *
  * Improcedente é ÂMBAR, não vermelho. Perder um pedido é resultado normal de
  * litígio, não erro do escritório — vermelho aqui acusaria alguém.
+ *
+ * A BARRA DESENHA O HISTÓRICO — todas as ações ajuizadas, inclusive as que já
+ * saíram do ativo (decidido é justamente o que sai). E diz quantas tiveram
+ * recurso julgado depois: a sentença não é o resultado final, e em 12/09/2026
+ * eram 49 dos 109 processos ativos julgados.
  */
-function BarraDeDesfechos({ d }: { d: Desfechos }) {
-  if (!d.julgados) return null;
+function BarraDeDesfechos({ d }: { d: Desfechos & { historico?: Historico | null } }) {
+  const h = desfechosParaLer(d);
+  if (!h.julgados) return null;
   const faixas = [
-    { n: d.procedentes, cor: 'bg-emerald-600', nome: 'procedentes' },
-    { n: d.parciais, cor: 'bg-teal-500', nome: 'procedentes em parte' },
-    { n: d.improcedentes, cor: 'bg-amber-500', nome: 'improcedentes' },
+    { n: h.procedentes, cor: 'bg-emerald-600', nome: 'procedentes' },
+    { n: h.parciais, cor: 'bg-teal-500', nome: 'procedentes em parte' },
+    { n: h.improcedentes, cor: 'bg-amber-500', nome: 'improcedentes' },
   ].filter((f) => f.n > 0);
+  const ressalva = ressalvaDoRecurso(h);
 
   return (
     <div className="mt-2">
       <div
         className="flex h-2 overflow-hidden rounded-full bg-muted"
         role="img"
-        aria-label={resumoDesfechos(d) ?? ''}
+        aria-label={resumoDesfechos(h) ?? ''}
       >
-        {faixas.map((f) => (
-          <div
-            key={f.nome}
-            className={f.cor}
-            style={{ width: `${(f.n / d.julgados) * 100}%` }}
-            title={`${f.n} ${f.nome}`}
-          />
-        ))}
+        {/* Cresce uma vez, na montagem: revalidar a consulta não desmonta a barra. */}
+        <div className="flex h-full w-full animate-crescer-x">
+          {faixas.map((f) => (
+            <div
+              key={f.nome}
+              className={f.cor}
+              style={{ width: `${(f.n / h.julgados) * 100}%` }}
+              title={`${f.n} ${f.nome}`}
+            />
+          ))}
+        </div>
       </div>
       <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         {faixas.map((f) => (
@@ -369,6 +444,11 @@ function BarraDeDesfechos({ d }: { d: Desfechos }) {
           </span>
         ))}
       </p>
+      {ressalva && (
+        <p className="mt-1 text-[11px] leading-snug text-amber-800 dark:text-amber-300">
+          {ressalva}.
+        </p>
+      )}
     </div>
   );
 }
@@ -381,28 +461,37 @@ function BarraDeDesfechos({ d }: { d: Desfechos }) {
  * ninguém pediu. O ano corrente aparece esmaecido: ele ainda não terminou, e
  * comparar um ano pela metade com anos fechados é comparar coisas diferentes.
  */
-function ColunasPorAno({ serie }: { serie: PorAno[] }) {
+function ColunasPorAno({
+  serie,
+  anoCorrente = new Date().getFullYear(),
+}: {
+  serie: PorAno[];
+  anoCorrente?: number;
+}) {
   if (serie.length < 2) return null;
   const maior = Math.max(...serie.map((a) => a.processos), 1);
-  const anoCorrente = new Date().getFullYear();
 
   return (
     <div className="mt-3">
-      <div className="flex h-12 items-end gap-1">
+      <div
+        className="flex h-12 items-end gap-1"
+        role="img"
+        aria-label={serie.map((a) => `${rotuloDoAno(a.ano, anoCorrente)}: ${a.processos}`).join(', ')}
+      >
         {serie.map((a) => (
-          <div key={a.ano} className="flex flex-1 flex-col items-center gap-1">
+          <div key={a.ano} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
             <span className="text-[10px] leading-none text-muted-foreground">
               {a.processos || ''}
             </span>
             <div
               className={cn(
-                'w-full rounded-sm',
+                'w-full animate-crescer-y rounded-sm',
                 a.ano === anoCorrente ? 'bg-brand-300 dark:bg-brand-800' : 'bg-brand-600',
               )}
               // 2px de piso: o ano zerado precisa ocupar espaço para se ver que
               // ele existiu e não teve nada — sumir contaria outra história.
               style={{ height: `${Math.max((a.processos / maior) * 100, 4)}%` }}
-              title={`${a.ano}: ${a.processos}`}
+              title={`${rotuloDoAno(a.ano, anoCorrente)}: ${a.processos}`}
             />
           </div>
         ))}

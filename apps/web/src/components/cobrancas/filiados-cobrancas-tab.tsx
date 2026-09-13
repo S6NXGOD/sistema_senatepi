@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FiliadoCobrancasCard } from '@/components/cobrancas/filiado-cobrancas-card';
@@ -73,7 +74,9 @@ export function FiliadosCobrancasTab() {
 
       {/* Lista agrupada por filiado */}
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
+        <Carregando texto="Carregando as cobranças por filiado…">
+          <Card className="overflow-hidden"><EsqueletoLinhas quantidade={6} altura={68} /></Card>
+        </Carregando>
       ) : itens.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">

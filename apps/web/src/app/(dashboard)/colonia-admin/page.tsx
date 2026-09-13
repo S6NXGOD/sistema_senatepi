@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  Loader2, Search, ExternalLink, Copy, Settings2, Umbrella, Users,
+  Search, ExternalLink, Copy, Settings2, Umbrella, Users,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -19,7 +21,7 @@ export default function ColoniaCampanhasPage() {
   const [busca, setBusca] = useState('');
   const [status, setStatus] = useState<FiltroStatus>('TODAS');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['colonia-campanhas'],
     queryFn: listarCampanhas,
   });
@@ -87,10 +89,19 @@ export default function ColoniaCampanhasPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-        </div>
+      {/* 13/09/2026: só sem dado; revalidação que falha não esconde a lista já carregada. */}
+      {isError && !data ? (
+        <Card><FalhaAoCarregar erro={error} oQue="as campanhas" onTentarDeNovo={() => refetch()} /></Card>
+      ) : isLoading ? (
+        <Carregando texto="Carregando as campanhas…" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border bg-card p-5">
+              <Esqueleto className="h-4 w-3/5" />
+              <Esqueleto className="mt-3 h-3 w-2/5" />
+              <Esqueleto className="mt-6 h-9 w-full" />
+            </div>
+          ))}
+        </Carregando>
       ) : campanhas.length === 0 ? (
         <Card>
           <CardContent className="py-20 text-center text-muted-foreground">

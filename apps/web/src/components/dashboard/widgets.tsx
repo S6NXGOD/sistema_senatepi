@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { animate } from 'framer-motion';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
+import { NumeroAnimado } from '@/components/ui/numero-animado';
 import {
   type CompromissoCard,
   type PessoaResumo,
@@ -18,23 +17,6 @@ import {
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { corDeTipo, rotuloTipo, estaAtrasado } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
-
-// ---------------------------------------------------------------------------
-// Count-up: anima o número de 0 → valor (sensação de "tempo real")
-// ---------------------------------------------------------------------------
-
-export function useCountUp(value: number, duration = 0.9): number {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    const controls = animate(0, value, {
-      duration,
-      ease: 'easeOut',
-      onUpdate: (v) => setN(Math.round(v)),
-    });
-    return () => controls.stop();
-  }, [value, duration]);
-  return n;
-}
 
 // ---------------------------------------------------------------------------
 // Avatar (imagem ou iniciais)
@@ -77,7 +59,7 @@ export function AvatarMini({
 }
 
 // ---------------------------------------------------------------------------
-// KPI card (animado, opcionalmente clicável)
+// KPI card (opcionalmente clicável)
 // ---------------------------------------------------------------------------
 
 export interface KpiCardProps {
@@ -91,7 +73,12 @@ export interface KpiCardProps {
 }
 
 export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: KpiCardProps) {
-  const n = useCountUp(valor ?? 0);
+  /*
+    O NÚMERO CONTA UMA VEZ SÓ. O contador antigo voltava a zero a cada
+    revalidação do painel (60 s): "Atrasadas" passava de 3 para 4 e o cartão
+    afirmava "0" por um instante. `NumeroAnimado` conta na montagem, só a
+    partir de 10, e depois troca seco.
+  */
   /*
     ZERO NÃO GRITA.
 
@@ -107,6 +94,7 @@ export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: 
   const zerado = valor === 0;
   const inner = (
     <Card
+      interativo={Boolean(href)}
       className={cn(
         'group relative h-full overflow-hidden',
         href && 'cursor-pointer hover:border-brand-400',
@@ -127,13 +115,15 @@ export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: 
                 : 'text-2xl font-bold sm:text-3xl',
             )}
           >
-            {valor === undefined ? '—' : n}
+            {valor === undefined ? '—' : <NumeroAnimado valor={valor} />}
           </p>
           {sub && <p className="mt-2 truncate text-[11px] text-muted-foreground sm:text-xs">{sub}</p>}
         </div>
         <span
           className={cn(
-            'rounded-xl p-2 transition-transform group-hover:scale-110 sm:p-2.5',
+            'rounded-xl p-2 sm:p-2.5',
+            // O ícone só reage ao mouse quando o cartão é um clique.
+            href && 'transition-transform duration-rapido group-hover:scale-110',
             zerado ? 'bg-muted text-muted-foreground' : cor,
           )}
         >
@@ -257,7 +247,11 @@ export function CompromissoRow({ c, mostrarData }: { c: CompromissoCard; mostrar
         </span>
         <div className="flex items-center gap-1">
           {atrasada && (
-            <span className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">Atrasada</span>
+            /* Âmbar, nunca vermelho: o sistema sabe que a data passou, não que
+               um prazo processual venceu. A mesma etiqueta das atividades do dia. */
+            <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white dark:bg-amber-600">
+              Atrasada
+            </span>
           )}
           <AvatarMini pessoa={c.responsavel} size={22} />
         </div>

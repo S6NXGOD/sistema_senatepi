@@ -21,6 +21,24 @@ export interface Desfechos {
   improcedentes: number;
 }
 
+/**
+ * COMO AS AÇÕES TÊM SIDO JULGADAS — todas as ajuizadas, não só as ativas.
+ *
+ * Os desfechos de fora (`julgados`, `procedentes`…) contam só o acervo ATIVO.
+ * Decidido é justamente o que sai do ativo (IMPROCEDENTE, GANHO_EXECUCAO,
+ * ENCERRADO), então a pergunta "como têm sido julgadas" olha a história
+ * inteira. `comRecursoDepois` conta os julgados com recurso julgado DEPOIS da
+ * última sentença: a sentença não é o resultado final.
+ *
+ * OPCIONAL no tipo: na janela de troca do deploy a API antiga ainda não manda.
+ */
+export interface Historico extends Desfechos {
+  comRecursoDepois: number;
+}
+
+/** A natureza da parte contrária. FISICA não sai com nome no papel. */
+export type TipoDoAdversario = 'JURIDICA' | 'FISICA' | 'ORGAO_PUBLICO';
+
 export interface PedidoRecorrente {
   assunto: string;
   processos: number;
@@ -29,10 +47,12 @@ export interface PedidoRecorrente {
 export interface Concentracao extends Desfechos {
   parteExternaId: string;
   adversario: string;
+  tipo?: TipoDoAdversario | null;
   processos: number;
   individuais: number;
   desde: string | null;
   pedidos: PedidoRecorrente[];
+  historico?: Historico;
   leituras: LeituraConcentracao[];
 }
 
@@ -47,7 +67,12 @@ export interface Dispersao extends Desfechos {
   adversarios: number;
   individuais: number;
   desde: string | null;
-  /** Ações por ano, com os anos zerados no meio — a lacuna é informação. */
+  historico?: Historico;
+  /**
+   * Ações por ano, com os anos zerados no meio — a lacuna é informação. Conta
+   * TODAS as ajuizadas (a régua de "Ações ajuizadas por ano" dos Relatórios), e
+   * não só as que continuam ativas: o ano antigo encolhia por construção.
+   */
   porAno: PorAno[];
 }
 
@@ -55,8 +80,10 @@ export interface Panorama {
   concentracoes: Concentracao[];
   dispersoes: Dispersao[];
   /**
-   * De que lado a entidade está. As três somam o acervo inteiro — é partição,
-   * não amostra.
+   * De que lado a entidade está, no acervo ATIVO. As três NÃO somam o acervo:
+   * processo sem parte cadastrada não entra em "representando", e o sindicato
+   * como TERCEIRO não entra em nenhuma. Nunca calcule "sem papel" pela
+   * diferença — pode dar negativo.
    */
   nossoPapel: { autor: number; reu: number; representando: number };
   acervoAtivo: number;
@@ -75,6 +102,11 @@ export async function carregarPanorama(): Promise<Panorama> {
  * prescrição, de conversa que já houve com o empregador. Dizer "ajuíze uma
  * coletiva" com base em três linhas de banco é opinar sobre o ofício de quem
  * está lendo, e basta errar uma vez para o painel inteiro virar ruído.
+ *
+ * NEM CONSELHO DISFARÇADO. "Vale rever a tese antes da próxima" e "é o
+ * histórico mais forte que se leva para uma negociação" não eram imperativo,
+ * mas eram estratégia — e no PDF saem com o logo do sindicato, como posição da
+ * casa. Cada explicação termina numa constatação.
  */
 export const LEITURA: Record<
   LeituraConcentracao,
@@ -83,16 +115,17 @@ export const LEITURA: Record<
   DESFECHO_SEMPRE_CONTRA: {
     titulo: 'O resultado tem sido sempre contrário',
     explicacao:
-      'Todas as ações já julgadas contra este réu deram improcedentes. Cada uma, ' +
-      'isolada, parece azar; juntas, é o mesmo argumento não convencendo o mesmo juízo. ' +
-      'Vale rever a tese antes da próxima.',
+      'Todas as ações já julgadas contra este réu deram improcedentes, sem recurso julgado ' +
+      'depois. Cada uma, isolada, parece azar; juntas, é o mesmo argumento não convencendo ' +
+      'o mesmo juízo.',
     tom: 'alerta',
   },
   DESFECHO_SEMPRE_A_FAVOR: {
     titulo: 'O resultado tem sido sempre favorável',
     explicacao:
       'Todas as ações já julgadas contra este réu foram procedentes, inteiras ou em ' +
-      'parte. É o histórico mais forte que se leva para uma mesa de negociação.',
+      'parte, sem recurso julgado depois. Nenhuma decisão contrária registrada entre as ' +
+      'já julgadas.',
     tom: 'favoravel',
   },
   COLETIVA_POSSIVEL: {
@@ -106,8 +139,8 @@ export const LEITURA: Record<
   REINCIDENCIA: {
     titulo: 'O mesmo réu responde de novo pelo mesmo pedido',
     explicacao:
-      'Ainda sem desfecho uniforme e sem maioria de ações individuais — mas a repetição ' +
-      'já diz que não é caso isolado.',
+      'Sem desfecho uniforme a registrar e sem maioria de ações individuais — mas a ' +
+      'repetição já diz que não é caso isolado.',
     tom: 'neutro',
   },
 };
@@ -134,9 +167,14 @@ export function resumoDesfechos(d: Desfechos): string | null {
  *
  * Devolve `null` quando não há base: menos de quatro anos de série, ou variação
  * pequena demais para significar alguma coisa.
+ *
+ * `anoCorrente` é parâmetro para o plano do PDF ser puro e testável com ano
+ * fixo; a tela usa o padrão.
  */
-export function tendencia(porAno: PorAno[]): 'CRESCENDO' | 'DIMINUINDO' | null {
-  const anoCorrente = new Date().getFullYear();
+export function tendencia(
+  porAno: PorAno[],
+  anoCorrente: number = new Date().getFullYear(),
+): 'CRESCENDO' | 'DIMINUINDO' | null {
   const fechados = porAno.filter((a) => a.ano < anoCorrente);
   if (fechados.length < 4) return null;
 
@@ -149,4 +187,51 @@ export function tendencia(porAno: PorAno[]): 'CRESCENDO' | 'DIMINUINDO' | null {
   if (recentes >= anteriores * 1.5) return 'CRESCENDO';
   if (anteriores >= recentes * 1.5) return 'DIMINUINDO';
   return null;
+}
+
+/**
+ * OS DESFECHOS QUE SE LEEM — o histórico (todas as ajuizadas), quando a API o
+ * manda. Na janela de troca do deploy a API antiga só tem os desfechos das
+ * ativas: eles entram no lugar, sem recurso contado, e a tela não diz
+ * "no histórico" (ver `julgadasNoHistorico`).
+ */
+export function desfechosParaLer(d: Desfechos & { historico?: Historico | null }): Historico {
+  if (d.historico) return d.historico;
+  return {
+    julgados: d.julgados,
+    procedentes: d.procedentes,
+    parciais: d.parciais,
+    improcedentes: d.improcedentes,
+    comRecursoDepois: 0,
+  };
+}
+
+/**
+ * "9 julgadas no histórico" — o complemento de "7 ativas". As duas perguntas
+ * não se misturam: quantas estão em curso e como as ajuizadas foram julgadas.
+ * `null` quando a API ainda não manda o histórico: afirmar "no histórico"
+ * sobre as ativas seria mentir.
+ */
+export function julgadasNoHistorico(d: { historico?: Historico | null }): string | null {
+  if (!d.historico) return null;
+  const n = d.historico.julgados;
+  if (!n) return 'nenhuma julgada no histórico';
+  return `${n} ${n === 1 ? 'julgada' : 'julgadas'} no histórico`;
+}
+
+/**
+ * A RESSALVA DO RECURSO — "3 tiveram recurso julgado depois — o resultado
+ * final pode ser outro". Medido em 12/09/2026: 49 dos 109 processos ativos
+ * julgados tinham acórdão depois da sentença. Sem ela, a barra de desfechos
+ * afirmaria um resultado que o tribunal ainda pode ter mudado.
+ */
+export function ressalvaDoRecurso(h: Historico | null | undefined): string | null {
+  const n = h?.comRecursoDepois ?? 0;
+  if (!(n > 0)) return null;
+  return `${n} ${n === 1 ? 'teve' : 'tiveram'} recurso julgado depois — o resultado final pode ser outro`;
+}
+
+/** "2026 (até agora)": o ano corrente não se compara em pé de igualdade com os fechados. */
+export function rotuloDoAno(ano: number, anoCorrente: number): string {
+  return ano === anoCorrente ? `${ano} (até agora)` : String(ano);
 }

@@ -8,14 +8,16 @@ import {
 import { Card } from '@/components/ui/card';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
+import { Carregando, Esqueleto, EsqueletoCartoes } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { PERFIL_LABEL, podeVer } from '@/lib/permissoes';
 import { contar } from '@/lib/plural';
 import {
-  GRUPO_DO_PERFIL, O_QUE_NAO_MEDE, TITULO_DO_BLOCO, ausente, blocosDaPessoa, carregarProdutividade,
-  conteudoDoBloco, faixaDeUso, fraseDoPerfil, gruposPorPerfil, hrefDaAuditoria, textoDoUltimoAcesso,
-  type Bloco, type LinhaDeUso, type ResumoDoPerfil,
+  GRUPO_DO_PERFIL, O_QUE_NAO_MEDE, RETRATO_LABEL, TITULO_DO_BLOCO, ausente, blocosDaPessoa,
+  carregarProdutividade, conteudoDoBloco, diaEMes, faixaDeUso, fraseDoPerfil, gruposPorPerfil,
+  hrefDaAuditoria, legendaDaAba, textoDoUltimoAcesso, textoDosDiasComUso,
+  type Bloco, type LinhaDeUso, type Produtividade, type ResumoDoPerfil,
 } from '@/lib/produtividade';
 
 /**
@@ -41,7 +43,30 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
   const verAuditoria = podeVer(user?.role, user?.permissoes, 'auditoria');
 
   if (isLoading) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">Somando o uso do período…</p>;
+    return (
+      <Carregando texto="Somando o uso do período…" className="space-y-6">
+        <EsqueletoCartoes quantidade={4} className="gap-2 sm:grid-cols-2 lg:grid-cols-4 [&>div]:h-[88px]" />
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="space-y-3 rounded-xl border bg-card p-4">
+              <div className="flex items-center gap-3">
+                <Esqueleto className="h-8 w-8 rounded-full" />
+                <div className="flex-1 space-y-1.5">
+                  <Esqueleto className="h-3.5 w-2/5" />
+                  <Esqueleto className="h-3 w-3/5" />
+                </div>
+              </div>
+              <Esqueleto className="h-4 w-full" />
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Esqueleto className="h-20" />
+                <Esqueleto className="h-20" />
+                <Esqueleto className="hidden h-20 sm:block" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Carregando>
+    );
   }
   // Falha não vira cartão zerado: zero afirmaria que ninguém trabalhou.
   if (isError) {
@@ -58,6 +83,12 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
   const pessoal = data.escopo === 'PESSOAL';
 
   return (
+    /*
+      A troca de aba entra num fade curto, AQUI na raiz, e não na chamada da
+      página. O fade mora num invólucro próprio para não somar com o
+      `opacity-60` do "atualizando" logo abaixo.
+    */
+    <div className="animate-surgir-leve">
     <div className={cn('space-y-6 transition-opacity', isFetching && 'opacity-60')}>
       {pessoal ? (
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -91,10 +122,44 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
         </section>
       ))}
 
+      <ComoLer escopo={data.escopo} />
+
       <p className="max-w-3xl border-t pt-3 text-[11px] leading-snug text-muted-foreground">
-        {O_QUE_NAO_MEDE} “Dia com uso” é dia com login, sessão renovada ou alguma ação gravada.
+        {O_QUE_NAO_MEDE}
       </p>
     </div>
+    </div>
+  );
+}
+
+/**
+ * COMO LER ESTES NÚMEROS — a mesma legenda do fim do PDF, recolhida. A coluna
+ * do retrato vira um selo: "Período" é o intervalo escolhido; "Hoje" é agora.
+ */
+function ComoLer({ escopo }: { escopo: Produtividade['escopo'] }) {
+  return (
+    <details className="group max-w-3xl rounded-xl border bg-card">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        Como ler estes números
+        <span className="text-xs font-normal text-muted-foreground group-open:hidden">Mostrar</span>
+        <span className="hidden text-xs font-normal text-muted-foreground group-open:inline">Esconder</span>
+      </summary>
+      <dl className="divide-y border-t">
+        {legendaDaAba(escopo).map((l) => (
+          <div key={l.chave} className="px-4 py-2.5">
+            <dt className="flex flex-wrap items-center gap-2 text-sm font-medium">
+              {l.numero}
+              {l.retrato && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
+                  {RETRATO_LABEL[l.retrato]}
+                </span>
+              )}
+            </dt>
+            <dd className="mt-0.5 text-xs leading-snug text-muted-foreground">{l.conta}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 
@@ -185,8 +250,6 @@ function CartaoDaPessoa({
   );
 }
 
-const diaMes = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
-
 function tomDaSemana(comUso: number, total: number): string {
   if (!comUso) return 'bg-muted';
   const proporcao = comUso / total;
@@ -206,14 +269,14 @@ function FaixaDosDias({ dias, ativos, total }: { dias: string[]; ativos: string[
     <div>
       <div
         role="img"
-        aria-label={`${total} de ${dias.length} dias com uso`}
+        aria-label={textoDosDiasComUso(total, dias)}
         className="flex h-4 items-stretch gap-[2px]"
       >
         {faixa.tipo === 'DIA'
           ? faixa.marcas.map((m) => (
               <span
                 key={m.dia}
-                title={`${diaMes(m.dia)}${m.usou ? ': usou o sistema' : ''}`}
+                title={`${diaEMes(m.dia)}${m.usou ? ': usou o sistema' : ''}`}
                 className={cn(
                   'min-w-[2px] max-w-3 flex-1 rounded-[2px]',
                   m.usou ? 'bg-brand-600 dark:bg-brand-400' : m.fimDeSemana ? 'bg-muted/40' : 'bg-muted',
@@ -223,13 +286,13 @@ function FaixaDosDias({ dias, ativos, total }: { dias: string[]; ativos: string[
           : faixa.marcas.map((m) => (
               <span
                 key={m.inicio}
-                title={`Semana de ${diaMes(m.inicio)}: ${m.diasComUso} de ${m.diasNoTrecho} dias`}
+                title={`Semana de ${diaEMes(m.inicio)}: ${m.diasComUso} de ${m.diasNoTrecho} dias`}
                 className={cn('min-w-[3px] max-w-4 flex-1 rounded-[2px]', tomDaSemana(m.diasComUso, m.diasNoTrecho))}
               />
             ))}
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        {total} de {contar(dias.length, 'dia', 'dias')} com uso
+        {textoDosDiasComUso(total, dias)}
         {faixa.tipo === 'SEMANA' && ' · cada traço é uma semana'}
       </p>
     </div>

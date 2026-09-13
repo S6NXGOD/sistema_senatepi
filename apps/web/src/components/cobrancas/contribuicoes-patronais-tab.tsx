@@ -7,6 +7,7 @@ import {
   Ban, Landmark, FileSearch,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -110,9 +111,7 @@ export function ContribuicoesPatronaisTab() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-            </div>
+            <Carregando texto="Carregando as contribuições…"><EsqueletoLinhas quantidade={8} altura={60} /></Carregando>
           ) : linhas.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">
               <Building2 className="h-8 w-8 opacity-40" />

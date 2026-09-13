@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
 import { CompromissoCard } from '@/components/agenda/compromisso-card';
+import { Esqueleto } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import {
   Compromisso, StatusCompromisso, STATUS_ORDEM, STATUS_LABEL, TRANSICOES,
@@ -39,6 +40,36 @@ const TERMINAIS: StatusCompromisso[] = ['CONCLUIDO', 'CANCELADO'];
 const TETO_TERMINAL = 10;
 
 /**
+ * A FORMA DO QUADRO ENQUANTO ELE NÃO CHEGA — as quatro colunas, com a mesma
+ * grade do quadro de verdade, para nada pular quando os cartões aparecerem.
+ * Sem transform nem escalonamento: é um quadro, não uma vitrine.
+ */
+export function EsqueletoDoQuadro() {
+  return (
+    <div aria-hidden="true" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {STATUS_ORDEM.map((s, i) => (
+        <div key={s} className="flex flex-col rounded-xl border bg-muted/30 p-2">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <Esqueleto className="h-4 w-24" />
+            <Esqueleto className="h-5 w-7 rounded-full" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: i < 2 ? 2 : 1 }).map((_, j) => (
+              <div key={j} className="rounded-lg border bg-card p-3">
+                <Esqueleto className="h-4 w-20 rounded-full" />
+                <Esqueleto className="mt-2.5 h-4 w-4/5" />
+                <Esqueleto className="mt-2 h-3 w-1/2" />
+                <Esqueleto className="mt-3 h-9 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Quadro Kanban por status.
  *
  * O ARRASTE respeita a mesma máquina de estados da API: uma coluna só aceita o
@@ -49,7 +80,7 @@ const TETO_TERMINAL = 10;
  */
 export function KanbanView({
   compromissos, onAbrir, onEditar, onVerTriagem, onAcao,
-  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, apontado, onNovo, meuId,
+  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, podeEditar = false, apontado, onNovo, meuId,
 }: {
   compromissos: Compromisso[];
   onAbrir: (c: Compromisso) => void;
@@ -61,6 +92,11 @@ export function KanbanView({
   onRemarcar: (c: Compromisso) => void;
   onExcluir?: (c: Compromisso) => void;
   podeExcluir?: boolean;
+  /**
+   * Agenda EDITAR. Sem ela o quadro é só leitura: nada de arrastar, de botão de
+   * ação no cartão nem de "Nova atividade" — todo toque viraria um 403.
+   */
+  podeEditar?: boolean;
   /** Id do cartão para o qual a navegação apontou — ver `CompromissoCard`. */
   apontado?: string | null;
   /** Quem está logado — só vem quando o quadro é de mais de uma pessoa. */
@@ -136,8 +172,9 @@ export function KanbanView({
                     c={c}
                     apontado={apontado === c.id}
                     minha={ehMinha(c, meuId)}
-                    draggable
+                    draggable={podeEditar}
                     onDragStart={() => setDragId(c.id)}
+                    podeEditar={podeEditar}
                     onAbrir={onAbrir}
                     onEditar={onEditar}
                     onVerTriagem={onVerTriagem}
@@ -185,7 +222,7 @@ export function KanbanView({
                   concluída.
                 */}
                 {itens.length === 0 && (
-                  s === 'PENDENTE' && onNovo ? (
+                  s === 'PENDENTE' && onNovo && podeEditar ? (
                     <button
                       type="button"
                       onClick={onNovo}

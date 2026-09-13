@@ -6,10 +6,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   AlertCircle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle,
-  Keyboard, List, Loader2, Merge, Users, X,
+  Keyboard, List, Merge, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -193,8 +194,10 @@ export default function DuplicadosPage() {
       <p className="text-xs text-muted-foreground">{CONFIANCA_EXPLICACAO[aba]}</p>
 
       {isLoading && (
-        <Card><CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Comparando os 7 mil cadastros…
+        <Card><CardContent className="p-4">
+          <Carregando texto="Comparando os 7 mil cadastros…" mostrarTexto>
+            <EsqueletoLinhas quantidade={4} altura={64} className="-mx-4" />
+          </Carregando>
         </CardContent></Card>
       )}
 

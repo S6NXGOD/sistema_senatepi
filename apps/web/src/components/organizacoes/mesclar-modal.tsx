@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import { contar } from '@/lib/plural';
 import {
@@ -68,14 +69,14 @@ export function MesclarModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[60] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={mesclando ? undefined : onFechar}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="titulo-da-mesclagem"
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-2xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b p-4">
@@ -232,9 +233,17 @@ function Comparacao({
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 items-center justify-center gap-2 p-10 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Comparando as duas…
-      </div>
+      <Carregando texto="Comparando as duas…" mostrarTexto className="flex-1 p-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Esqueleto className="h-24" />
+          <Esqueleto className="h-24" />
+        </div>
+        <div className="mt-4 space-y-2">
+          <Esqueleto className="h-10 w-full" />
+          <Esqueleto className="h-10 w-full" />
+          <Esqueleto className="h-10 w-full" />
+        </div>
+      </Carregando>
     );
   }
   if (isError || !c) {

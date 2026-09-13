@@ -45,8 +45,8 @@ export function PhotoCropDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg animate-dialogo-entrar rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold">Ajustar foto</h3>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>

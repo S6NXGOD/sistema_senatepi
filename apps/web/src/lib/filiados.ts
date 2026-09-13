@@ -325,3 +325,67 @@ export async function listarLinksRecadastramento(filiadoId: string): Promise<Lin
 export async function revogarLinkRecadastramento(linkId: string): Promise<{ ok: boolean }> {
   return (await api.delete(`/links-recadastramento/${linkId}`)).data;
 }
+
+/** Por onde o link sai do aparelho de quem está no balcão. */
+export type MeioEnvioRecadastro = 'WHATSAPP' | 'COMPARTILHAR' | 'COPIAR' | 'EMAIL';
+
+/**
+ * O link pronto para mandar. `reaproveitado` diz se é o mesmo que já estava
+ * valendo (o filiado que já recebeu continua com um link que abre).
+ * `celularWhatsApp` e `email` já vêm conferidos pela API: nulos quando não
+ * servem.
+ */
+export interface EnvioRecadastro {
+  url: string;
+  expiraEm: string;
+  desafio: DesafioLink;
+  reaproveitado: boolean;
+  primeiroNome: string;
+  celularWhatsApp: string | null;
+  email: string | null;
+}
+
+/**
+ * Prepara o envio: reaproveita o link vivo ou gera um, e deixa na auditoria
+ * "preparado para envio" pelo meio escolhido. Chame ANTES de abrir o destino.
+ */
+export async function prepararEnvioRecadastro(
+  filiadoId: string,
+  meio: MeioEnvioRecadastro,
+): Promise<EnvioRecadastro> {
+  return (await api.post(`/filiados/${filiadoId}/link-recadastramento/envio`, { meio })).data;
+}
+
+// ---------------------------------------------------------------------------
+// Recadastramentos feitos — e a conferência do que veio pelo link
+// ---------------------------------------------------------------------------
+
+export type StatusRecadastramento = 'PENDENTE' | 'APROVADO' | 'REJEITADO';
+
+/** Um campo que mudou, já com o nome que a tela mostra. */
+export interface AlteracaoRecadastramento {
+  campo: string;
+  rotulo: string;
+  de: unknown;
+  para: unknown;
+}
+
+export interface Recadastramento {
+  id: string;
+  status: StatusRecadastramento;
+  /** ONLINE = o próprio filiado, pelo link. PRESENCIAL = a equipe. */
+  origem?: 'ONLINE' | 'PRESENCIAL';
+  createdAt: string;
+  revisadoEm?: string | null;
+  revisor?: { id?: string; nome: string } | null;
+  alteracoes?: AlteracaoRecadastramento[];
+}
+
+export async function listarRecadastramentos(filiadoId: string): Promise<Recadastramento[]> {
+  return (await api.get(`/filiados/${filiadoId}/recadastramentos`)).data;
+}
+
+/** Marca como conferido (APROVADO, com quem conferiu e quando). */
+export async function conferirRecadastramento(id: string): Promise<Recadastramento> {
+  return (await api.patch(`/recadastramentos/${id}/conferir`)).data;
+}

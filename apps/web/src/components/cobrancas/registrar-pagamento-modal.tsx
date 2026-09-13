@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CheckCircle2, Loader2, X, Plus, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { baixarParcela, formatBRL, Dinheiro } from '@/lib/cobrancas';
 import { listarContas, criarConta } from '@/lib/financeiro';
@@ -67,8 +68,8 @@ export function RegistrarPagamentoModal({
   const diff = pago - esperado;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={baixar.isPending ? undefined : onClose}>
-      <div className="w-full max-w-md overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={baixar.isPending ? undefined : onClose}>
+      <div className="w-full max-w-md animate-dialogo-entrar overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-brand-50 p-2 dark:bg-brand-900/30"><CheckCircle2 className="h-6 w-6 text-brand-700 dark:text-brand-400" /></div>
@@ -102,7 +103,7 @@ export function RegistrarPagamentoModal({
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm font-medium"><Landmark className="h-4 w-4 text-muted-foreground" /> Conta bancária de destino *</label>
             {contasQuery.isLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando contas…</div>
+              <Carregando texto="Carregando as contas…"><Esqueleto className="h-12 w-full sm:h-10" /></Carregando>
             ) : novaConta ? (
               <div className="flex gap-2">
                 <Input placeholder="Nome da conta (ex.: Caixa do Sindicato)" value={nomeConta} onChange={(e) => setNomeConta(e.target.value)} />

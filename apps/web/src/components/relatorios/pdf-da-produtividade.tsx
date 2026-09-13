@@ -5,7 +5,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { GRUPO_DO_PERFIL, carregarProdutividade } from '@/lib/produtividade';
+import { GRUPO_DO_PERFIL, carregarProdutividade, carregarRostos } from '@/lib/produtividade';
 import {
   OPCOES_DA_PRODUTIVIDADE, gerarPdfDaProdutividade, guardarOpcoesDaProdutividade, lerOpcoesDaProdutividade,
   type DetalheDasPessoas, type QuemNoPdf,
@@ -63,6 +63,7 @@ export function PdfDaProdutividade({
   const [comparar, setComparar] = useState(salvo.comparar);
   const [graficos, setGraficos] = useState(salvo.graficos);
   const [detalhe, setDetalhe] = useState<DetalheDasPessoas>(salvo.detalhe);
+  const [fotos, setFotos] = useState(salvo.fotos);
   const [quem, setQuem] = useState<QuemNoPdf>('TODOS');
   const [titulo, setTitulo] = useState('');
   const [observacao, setObservacao] = useState('');
@@ -70,6 +71,8 @@ export function PdfDaProdutividade({
 
   const pessoal = data?.escopo === 'PESSOAL';
   const umaPessoa = pessoal || quem.startsWith('PESSOA:');
+  /** A foto só existe onde há cartão de pessoa: nunca na tabela nem nos totais. */
+  const temCartaoDePessoa = umaPessoa || detalhe === 'PAGINAS';
   const perfis = useMemo(() => [...new Set((data?.pessoas ?? []).map((l) => l.perfil))], [data]);
   const podeGerar = !!data && !gerando && (preset !== 'PERSONALIZADO' || periodoValido(datas));
 
@@ -78,6 +81,7 @@ export function PdfDaProdutividade({
     setComparar(OPCOES_DA_PRODUTIVIDADE.comparar);
     setGraficos(OPCOES_DA_PRODUTIVIDADE.graficos);
     setDetalhe(OPCOES_DA_PRODUTIVIDADE.detalhe);
+    setFotos(OPCOES_DA_PRODUTIVIDADE.fotos);
     setQuem('TODOS');
   }
 
@@ -89,17 +93,23 @@ export function PdfDaProdutividade({
         queryFn: () => carregarProdutividade(p.de, p.ate),
         staleTime: 60_000,
       });
+    const comFotos = fotos && temCartaoDePessoa;
     setGerando(true);
     try {
-      guardarOpcoesDaProdutividade({ preset, comparar, graficos, detalhe });
-      const atual = await buscar(periodo);
+      guardarOpcoesDaProdutividade({ preset, comparar, graficos, detalhe, fotos });
+      // As fotos correm junto com os números; falha ou demora vira {} e o PDF sai com iniciais.
+      const [atual, rostos] = await Promise.all([
+        buscar(periodo),
+        comFotos ? carregarRostos() : Promise.resolve({}),
+      ]);
       const antes = comparar ? periodoAnterior(periodo, preset) : null;
       const anterior = antes ? { dados: await buscar(antes), periodo: antes } : null;
       await gerarPdfDaProdutividade(
         atual,
-        { quem, detalhe: umaPessoa ? 'PAGINAS' : detalhe, graficos },
+        { quem, detalhe: umaPessoa ? 'PAGINAS' : detalhe, graficos, fotos: comFotos },
         { ...periodo, emitidoPor, titulo, observacao },
         anterior,
+        rostos,
       );
       onFechar();
     } catch {
@@ -208,6 +218,14 @@ export function PdfDaProdutividade({
           titulo="Com gráficos"
           texto="O mês a mês em colunas, quando o período passa de um mês. Sem gráficos, sai em tabela."
         />
+        {temCartaoDePessoa && (
+          <Opcao
+            marcada={fotos}
+            onMudar={setFotos}
+            titulo="Com a foto do perfil"
+            texto="Só no cartão de cada pessoa, nunca numa tabela. Quem não tem foto sai com as iniciais."
+          />
+        )}
         <p className="text-xs text-muted-foreground">
           O aviso do que estes números não medem abre o PDF, sempre.
         </p>

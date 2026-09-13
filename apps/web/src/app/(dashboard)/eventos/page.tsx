@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CalendarDays, Loader2, Plus, Users, Vote } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -44,7 +46,7 @@ export default function EventosPage() {
   const pode = podeEditar(user?.role, user?.permissoes, 'eventos');
   const [criando, setCriando] = useState(false);
 
-  const { data: eventos, isLoading } = useQuery({
+  const { data: eventos, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['eventos'],
     queryFn: listarEventos,
   });
@@ -76,9 +78,19 @@ export default function EventosPage() {
       )}
 
       {isLoading && (
-        <Card><CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
-        </CardContent></Card>
+        <Carregando texto="Carregando os eventos…" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-xl border bg-card p-4">
+              <Esqueleto className="h-4 w-3/5" />
+              <Esqueleto className="mt-3 h-3 w-2/5" />
+              <Esqueleto className="mt-2 h-3 w-1/3" />
+            </div>
+          ))}
+        </Carregando>
+      )}
+
+      {isError && (
+        <Card><FalhaAoCarregar erro={error} oQue="os eventos" onTentarDeNovo={() => refetch()} /></Card>
       )}
 
       {!isLoading && eventos?.length === 0 && (
@@ -91,7 +103,7 @@ export default function EventosPage() {
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {eventos?.map((e) => (
           <Link key={e.id} href={`/eventos/${e.id}`}>
-            <Card className="h-full transition hover:border-brand-400">
+            <Card interativo className="h-full transition hover:border-brand-400">
               <CardContent className="space-y-2 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <Badge className={STATUS_EVENTO_COR[e.status]}>

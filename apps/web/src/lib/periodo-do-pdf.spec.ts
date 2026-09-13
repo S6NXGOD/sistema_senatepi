@@ -1,8 +1,20 @@
 import {
-  hojeComoTexto, periodoAnterior, periodoDoPreset, periodoValido, presetValido, rotuloDoPeriodo,
+  hojeComoTexto, periodoAnterior, periodoDoPreset, periodoPorExtenso, periodoValido, presetValido, rotuloDoPeriodo,
 } from './periodo-do-pdf';
 
 const tela = { de: '2026-08-13', ate: '2026-09-12' };
+
+/** O destaque da primeira página do PDF (13/09/2026): texto puro, o dia não anda em fuso nenhum. */
+describe('o período por extenso', () => {
+  it('no mesmo mês, entre meses e entre anos', () => {
+    expect(periodoPorExtenso({ de: '2026-08-01', ate: '2026-08-31' })).toBe('1º a 31 de agosto de 2026');
+    expect(periodoPorExtenso({ de: '2026-09-12', ate: '2026-09-12' })).toBe('12 de setembro de 2026');
+    expect(periodoPorExtenso({ de: '2026-01-01', ate: '2026-09-12' })).toBe('1º de janeiro a 12 de setembro de 2026');
+    expect(periodoPorExtenso({ de: '2025-12-15', ate: '2026-01-14' })).toBe(
+      '15 de dezembro de 2025 a 14 de janeiro de 2026',
+    );
+  });
+});
 
 /**
  * "NÃO É INTERESSANTE GERAR PDF DA PRODUTIVIDADE? MENSAL, ANUAL, PERSONALIZADO" —

@@ -1,5 +1,6 @@
 import type { Config } from 'tailwindcss';
 import { tenant } from './src/tenant.config';
+import { ANIMACOES, CURVAS_TAILWIND, DURACOES_TAILWIND, KEYFRAMES } from './src/lib/movimento';
 
 const config: Config = {
   darkMode: 'class',
@@ -66,15 +67,24 @@ const config: Config = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      /*
+        MOVIMENTO — tudo sai de `src/lib/movimento.ts`, a fonte única de
+        duração e curva. `fade-in` fica só porque a página pública da colônia
+        ainda o usa; animação nova entra por lá, não aqui.
+      */
       keyframes: {
         'fade-in': {
           from: { opacity: '0', transform: 'translateY(8px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        ...KEYFRAMES,
       },
       animation: {
         'fade-in': 'fade-in 0.4s ease-out',
+        ...ANIMACOES,
       },
+      transitionDuration: DURACOES_TAILWIND,
+      transitionTimingFunction: CURVAS_TAILWIND,
     },
   },
   plugins: [require('tailwindcss-animate')],

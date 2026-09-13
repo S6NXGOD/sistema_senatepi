@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Radar, ChevronRight, ArrowRight } from 'lucide-react';
+import { Radar, ChevronRight, ArrowRight, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { cn } from '@/lib/utils';
@@ -140,13 +140,38 @@ export function AcoesSemCadastro() {
   */
   const permitido = podeEditar(user?.role, user?.permissoes, 'processos');
 
-  const { data } = useQuery({
+  const { data, isError, refetch, isFetching } = useQuery({
     queryKey: ['processos', 'sugestoes'],
     queryFn: listarSugestoesDeProcesso,
     enabled: permitido,
     staleTime: 30_000,
     retry: false,
   });
+
+  /*
+    FALHA NÃO É FILA VAZIA. Com `retry: false`, um erro de rede fazia o cartão
+    sumir como se não houvesse ação nenhuma a cadastrar. Uma linha discreta, com
+    o caminho de tentar de novo — sem cor de alarme: é fila, não urgência.
+  */
+  if (permitido && isError) {
+    return (
+      <Card className="flex flex-col gap-2 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+        <span className="flex items-start gap-2 text-muted-foreground">
+          <Radar className="mt-0.5 h-4 w-4 shrink-0" />
+          Não foi possível carregar as ações do Diário que ainda não estão no acervo.
+        </span>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 self-start rounded-md border border-input px-3 text-xs font-medium transition hover:bg-muted disabled:opacity-60 sm:h-8 sm:self-auto"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+          Tentar de novo
+        </button>
+      </Card>
+    );
+  }
 
   const fila = data ?? [];
   if (!permitido || !fila.length) return null;

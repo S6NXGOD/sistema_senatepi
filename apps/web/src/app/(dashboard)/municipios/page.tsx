@@ -8,6 +8,7 @@ import {
   Users, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -477,9 +478,9 @@ export default function ContasPublicasPage() {
       {error ? (
         <FalhaAoCarregar erro={error} onTentarDeNovo={refetch} oQue="as contas públicas" />
       ) : isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-7 w-7 animate-spin text-brand-800 dark:text-brand-400" />
-        </div>
+        <Carregando texto="Carregando as contas públicas…">
+          <Card className="overflow-hidden"><EsqueletoLinhas quantidade={10} altura={60} /></Card>
+        </Carregando>
       ) : itens.length === 0 ? (
         <Vazio
           escopo={escopo}

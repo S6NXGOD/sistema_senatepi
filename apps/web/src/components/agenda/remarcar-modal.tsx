@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CalendarClock, History, Loader2, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, History, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   remarcarCompromisso, formatDataHora, paraInputLocal, type Compromisso,
+  dataJaPassou, inicioDoDiaBRMs, novoInicioPorAtalho, remarcacaoPermitida,
 } from '@/lib/agenda';
 import { V } from '@/lib/vocabulario';
 
@@ -60,25 +61,34 @@ export function RemarcarModal({
 
   if (!open || !compromisso) return null;
 
-  /** Mantém a HORA atual do evento e só empurra o DIA. */
+  /**
+   * Mantém a HORA da atividade e empurra o DIA — a partir de HOJE quando o dia
+   * marcado já passou. Somar à data antiga levava a tarefa de 02/09, remarcada
+   * em 12/09 com "Amanhã", para 03/09: continuava para trás, com +1 no contador.
+   */
   function adiar(dias: number) {
-    const base = new Date(compromisso!.inicio);
-    base.setDate(base.getDate() + dias);
-    setInicio(paraInputLocal(base.toISOString()));
+    setInicio(paraInputLocal(novoInicioPorAtalho(compromisso!.inicio, dias)));
   }
 
-  const mudou = inicio && new Date(inicio).getTime() !== new Date(compromisso.inicio).getTime();
+  const tempoNovo = inicio ? new Date(inicio).getTime() : NaN;
+  const novoIso = Number.isFinite(tempoNovo) ? new Date(tempoNovo).toISOString() : null;
+  const mudou = !!novoIso && tempoNovo !== new Date(compromisso.inicio).getTime();
+  /** O servidor recusa antes do começo de hoje (Teresina); hoje mais cedo vale. */
+  const permitida = !!novoIso && remarcacaoPermitida(novoIso);
+  const jaPassou = dataJaPassou(compromisso.inicio);
   const duracaoMin = Math.round(
     (new Date(compromisso.fim).getTime() - new Date(compromisso.inicio).getTime()) / 60000,
   );
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={salvar.isPending ? undefined : onClose}
     >
       <div
-        className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[92vh] w-full max-w-md animate-dialogo-entrar flex-col overflow-y-auto rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b p-5">
@@ -91,7 +101,12 @@ export function RemarcarModal({
               <p className="truncate text-xs text-muted-foreground">{compromisso.titulo}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -115,21 +130,41 @@ export function RemarcarModal({
             </p>
           )}
 
+          {jaPassou && (
+            <p className="flex items-start gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                <strong>Esta data já passou.</strong> Os atalhos contam a partir de hoje e mantêm o horário da atividade.
+              </span>
+            </p>
+          )}
+
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Nova data e hora *</label>
+            <label htmlFor="nova-data-remarcar" className="text-sm font-medium">Nova data e hora *</label>
             <div className="flex flex-wrap gap-1.5">
               {ATALHOS.map((a) => (
                 <button
                   key={a.label}
                   type="button"
                   onClick={() => adiar(a.dias)}
-                  className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:bg-brand-50 hover:text-brand-800 dark:hover:bg-brand-900/30 dark:hover:text-brand-400"
+                  className="min-h-11 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground transition hover:bg-brand-50 hover:text-brand-800 dark:hover:bg-brand-900/30 dark:hover:text-brand-400 sm:min-h-8"
                 >
                   {a.label}
                 </button>
               ))}
             </div>
-            <Input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)} />
+            <Input
+              id="nova-data-remarcar"
+              type="datetime-local"
+              value={inicio}
+              min={paraInputLocal(new Date(inicioDoDiaBRMs()).toISOString())}
+              onChange={(e) => setInicio(e.target.value)}
+            />
+            {mudou && !permitida && (
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                Escolha um dia de hoje em diante. Para corrigir uma data que já passou, use Editar.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -149,7 +184,7 @@ export function RemarcarModal({
 
         <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
           <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
-          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !mudou}>
+          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !mudou || !permitida}>
             {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
             Remarcar
           </Button>

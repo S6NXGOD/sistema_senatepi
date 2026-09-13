@@ -661,7 +661,7 @@ export function ImportarProcessoDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex animate-overlay-entrar items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center"
       onClick={onClose}
     >
       {/* DUAS COLUNAS. No drawer de 448px, os cinco blocos do formulário viravam
@@ -669,7 +669,7 @@ export function ImportarProcessoDialog({
           não via o número que digitou. Aqui a identificação fica à esquerda e as
           partes à direita, lado a lado — e no celular tudo volta a empilhar. */}
       <div
-        className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-card shadow-xl"
+        className="flex max-h-[92vh] w-full max-w-4xl animate-dialogo-entrar flex-col overflow-hidden rounded-2xl bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

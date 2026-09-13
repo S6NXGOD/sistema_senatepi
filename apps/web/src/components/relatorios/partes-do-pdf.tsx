@@ -43,18 +43,19 @@ export function DialogoDoPdf({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={gerando ? undefined : onFechar}
     >
+      {/* Só ENTRADA: fechar desmonta na hora, e é a desmontagem que zera o diálogo. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="titulo-do-pdf"
-        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b p-4">
-          <div className="min-w-0">
+        <div className="flex items-start justify-between gap-3 border-b py-2 pl-4 pr-2">
+          <div className="min-w-0 py-2">
             <h2 id="titulo-do-pdf" className="font-semibold">{titulo}</h2>
             {subtitulo && <p className="mt-0.5 text-xs text-muted-foreground">{subtitulo}</p>}
           </div>
@@ -63,7 +64,7 @@ export function DialogoDoPdf({
             onClick={onFechar}
             disabled={gerando}
             aria-label="Fechar"
-            className="rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
           >
             <X className="h-4 w-4" />
           </button>
@@ -140,7 +141,7 @@ export function EscolhaDoPeriodo({
             aria-pressed={preset === p.id}
             onClick={() => onPreset(p.id)}
             className={cn(
-              'rounded-full border px-3 py-1.5 text-xs font-medium transition',
+              'min-h-11 rounded-full border px-3.5 text-xs font-medium transition sm:min-h-8',
               preset === p.id
                 ? 'border-brand-700 bg-brand-700 text-white dark:border-brand-500 dark:bg-brand-600'
                 : 'hover:bg-muted',

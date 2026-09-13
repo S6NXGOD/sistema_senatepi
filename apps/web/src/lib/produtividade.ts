@@ -18,8 +18,12 @@ export interface LinhaDeUso {
   usuarioId: string;
   nome: string;
   perfil: string;
+  /**
+   * URL assinada, só para a TELA. Não existe `avatarKey` aqui: o interceptor
+   * global da API apaga a chave da resposta, e o tipo que a declarava levava a
+   * concluir que ninguém tinha foto. A foto do PDF vem de `carregarRostos`.
+   */
   avatarUrl: string | null;
-  avatarKey: string | null;
   /** Último uso real: login, sessão renovada ou ação gravada. */
   ultimoAcesso: string | null;
   diasComUso: number;
@@ -71,6 +75,53 @@ export interface Produtividade {
 
 export async function carregarProdutividade(de: string, ate: string): Promise<Produtividade> {
   return (await api.get<Produtividade>('/relatorios/produtividade', { params: { de, ate } })).data;
+}
+
+/** A rota das fotos pode estar lenta (storage): passou disso, o PDF sai com as iniciais. */
+export const TEMPO_DOS_ROSTOS_MS = 8_000;
+const PREFIXO_DO_ROSTO = 'data:image/jpeg;base64,';
+/** Uma miniatura de 160 px tem uns 11 mil caracteres; o teto só barra lixo. */
+const MAIOR_ROSTO = 200_000;
+
+/**
+ * O QUE SE ACEITA DA ROTA DE ROSTOS — só JPEG em data URL, por id.
+ *
+ * Qualquer outra coisa (URL externa, PNG, campo trocado, resposta antiga) é
+ * descartada em silêncio: a pessoa sai com as iniciais, e o jsPDF nunca recebe
+ * algo que não sabe abrir.
+ */
+export function rostosValidos(resposta: unknown): Record<string, string> {
+  const rostos = (resposta as { rostos?: unknown } | null | undefined)?.rostos;
+  if (!rostos || typeof rostos !== 'object' || Array.isArray(rostos)) return {};
+  return Object.fromEntries(
+    Object.entries(rostos as Record<string, unknown>).filter(
+      (par): par is [string, string] =>
+        !!par[0] &&
+        typeof par[1] === 'string' &&
+        par[1].startsWith(PREFIXO_DO_ROSTO) &&
+        par[1].length > PREFIXO_DO_ROSTO.length &&
+        par[1].length <= MAIOR_ROSTO,
+    ),
+  );
+}
+
+/**
+ * AS FOTOS DO PERFIL PARA O PDF — miniaturas JPEG de 160 px, prontas na API
+ * (`GET /relatorios/produtividade/rostos`), com o mesmo alcance da aba: a
+ * gestão recebe as contas ativas; os demais, só o próprio rosto.
+ *
+ * Nunca lança. Rota fora do ar, lenta ou ainda não publicada (janela de troca
+ * do deploy) devolve {}: o PDF sai com as iniciais e não falha por causa de foto.
+ */
+export async function carregarRostos(): Promise<Record<string, string>> {
+  try {
+    const { data } = await api.get<unknown>('/relatorios/produtividade/rostos', {
+      timeout: TEMPO_DOS_ROSTOS_MS,
+    });
+    return rostosValidos(data);
+  } catch {
+    return {};
+  }
 }
 
 export async function baixarCsvDaProdutividade(de: string, ate: string): Promise<void> {
@@ -153,6 +204,29 @@ function ehFimDeSemana(dia: string): boolean {
   const [a, m, d] = dia.split('-').map(Number);
   const semana = new Date(Date.UTC(a, m - 1, d)).getUTCDay();
   return semana === 0 || semana === 6;
+}
+
+/** "2026-09-12" vira "12/09" — as pontas da faixa dos dias. */
+export const diaEMes = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+
+/** Quantos dias do período caem de segunda a sexta. */
+export function diasDeSemana(dias: string[]): number {
+  return dias.filter((dia) => !ehFimDeSemana(dia)).length;
+}
+
+/**
+ * "20 DIAS COM USO · O PERÍODO TEM 44 DIAS DE SEMANA" — no lugar de "20 de 62".
+ *
+ * Com sábado e domingo no denominador, quem usou o sistema em todos os dias
+ * úteis parecia ter usado um terço do tempo. Não vira fração ("20 de 44"): quem
+ * usou num sábado passaria de 100%. Mesma frase na aba e no PDF.
+ */
+export function textoDosDiasComUso(diasComUso: number, dias: string[]): string {
+  const usou = `${diasComUso} ${diasComUso === 1 ? 'dia' : 'dias'} com uso`;
+  if (!dias.length) return usou;
+  const uteis = diasDeSemana(dias);
+  if (!uteis) return `${usou} · o período só tem fim de semana`;
+  return `${usou} · o período tem ${uteis} ${uteis === 1 ? 'dia de semana' : 'dias de semana'}`;
 }
 
 export function faixaDeUso(dias: string[], diasAtivos: string[]): FaixaDeUso {
@@ -296,8 +370,9 @@ export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso): ConteudoDoBloco {
       return {
         numero: cadastrados,
         rotulo: cadastrados === 1 ? 'cadastrado' : 'cadastrados',
+        // Conta salvamentos, e não fichas: a mesma ficha salva três vezes conta três.
         linhas: fichasAtualizadas
-          ? [{ texto: `atualizou ${qtd(fichasAtualizadas, 'ficha', 'fichas')}` }]
+          ? [{ texto: `salvou ${qtd(fichasAtualizadas, 'alteração', 'alterações')} em fichas` }]
           : [],
       };
     }
@@ -316,6 +391,236 @@ export function fraseDoPerfil(r: ResumoDoPerfil): string {
   if (r.semAcessoRecente) partes.push(`${r.semAcessoRecente} sem entrar há uma semana ou mais`);
   if (r.nuncaEntraram) partes.push(r.nuncaEntraram === 1 ? '1 nunca entrou' : `${r.nuncaEntraram} nunca entraram`);
   return partes.length ? partes.join(' · ') : 'todos entraram na última semana';
+}
+
+/**
+ * "PUBLICAÇÕES DECIDIDAS" SÓ SE COMPARAM DEPOIS DE 13/09/2026.
+ *
+ * Antes dessa data o sistema não guardava quem aceitou cada proposta
+ * (`tarefaDecididaPor`): pela regra nova, os meses anteriores somam zero
+ * aceitas, e a comparação sairia "+N" sobre um zero que ninguém mediu.
+ */
+export const DECISAO_GRAVADA_DESDE = '2026-09-13';
+
+/** O período anterior começa depois que a decisão passou a ser gravada? (AAAA-MM-DD) */
+export function comparaDecididas(inicioDoAnterior: string): boolean {
+  return inicioDoAnterior >= DECISAO_GRAVADA_DESDE;
+}
+
+export const NOTA_DAS_DECIDIDAS =
+  'Publicações decididas ficam sem comparação: só a partir de 13/09/2026 o sistema guarda quem ' +
+  'aceitou ou recusou cada proposta, e o período anterior começa antes disso.';
+
+export type Retrato = 'PERIODO' | 'HOJE';
+
+export const RETRATO_LABEL: Record<Retrato, string> = { PERIODO: 'Período', HOJE: 'Hoje' };
+
+export type ChaveDaLegenda =
+  | 'diasComUso' | 'ultimoAcesso' | 'usaram' | 'semEntrar' | 'nuncaEntraram'
+  | 'concluidas' | 'noDiaMarcado' | 'criou' | 'emAberto' | 'atrasadas'
+  | 'decididas' | 'esperando'
+  | 'processosCadastrados' | 'andamentos' | 'documentos'
+  | 'filiadosCadastrados' | 'alteracoesEmFichas'
+  | 'atendimentos' | 'mesAMes' | 'antes';
+
+export interface LinhaDaLegenda {
+  chave: ChaveDaLegenda;
+  /** O nome do número, igual ao que o PDF e a aba mostram. */
+  numero: string;
+  conta: string;
+  /** Do período escolhido, ou de hoje (retrato de agora). Nulo quando não se aplica. */
+  retrato: Retrato | null;
+}
+
+/**
+ * O QUE CADA NÚMERO CONTA — no fim do PDF e em "Como ler estes números" na aba.
+ *
+ * A REGRA MORA NA API (`apps/api/src/modules/relatorios/produtividade.service.ts`
+ * e `REGISTROS`). Mudou uma fonte ou um `where` lá, esta frase tem de mudar
+ * junto — senão o papel mente sem nada acusar. Textos conferidos contra a
+ * rodada de 13/09/2026: em aberto e atrasadas pela régua `daPessoa`, decididas
+ * pela decisão gravada, andamentos só os lançados à mão.
+ */
+export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
+  {
+    chave: 'diasComUso',
+    numero: 'Dias com uso',
+    conta:
+      'Dias do período em que a pessoa entrou no sistema, teve a sessão renovada ou teve alguma ação ' +
+      'gravada em seu nome. Mede presença, não trabalho: abrir certas telas já grava registro. Sábado ' +
+      'e domingo contam quando houve uso, mas não entram nos dias de semana do período.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'ultimoAcesso',
+    numero: 'Último acesso',
+    conta:
+      'A última vez que a pessoa esteve no sistema (entrada, sessão renovada ou ação), contada até a ' +
+      'hora em que o documento foi gerado, mesmo num PDF de meses atrás.',
+    retrato: 'HOJE',
+  },
+  {
+    chave: 'usaram',
+    numero: 'Usaram o sistema',
+    conta:
+      'Pessoas com ao menos um dia com uso no período, entre as contas ativas hoje. Conta desativada ' +
+      'não aparece; quem chegou depois aparece com zero.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'semEntrar',
+    numero: 'Sem entrar há 7 dias ou mais',
+    conta: 'Contas ativas cujo último acesso foi há sete dias ou mais.',
+    retrato: 'HOJE',
+  },
+  {
+    chave: 'nuncaEntraram',
+    numero: 'Nunca entraram',
+    conta: 'Contas ativas que nunca entraram no sistema.',
+    retrato: 'HOJE',
+  },
+  {
+    chave: 'concluidas',
+    numero: 'Concluídas',
+    conta:
+      'Atividades da agenda que a pessoa concluiu no período, inclusive as de colegas que ela fechou e ' +
+      'as tarefas criadas pelo robô. Cancelada não conta.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'noDiaMarcado',
+    numero: 'No dia marcado',
+    conta:
+      'Das concluídas, as fechadas até o dia que estava na agenda. Se a atividade foi remarcada, vale a ' +
+      'última data. Não é prazo processual: o sistema só conhece a data da agenda.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'criou',
+    numero: 'Criou',
+    conta:
+      'Atividades que a pessoa lançou na agenda no período, para si ou para outra pessoa, mesmo que ' +
+      'depois canceladas. As criadas pelo robô não entram.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'emAberto',
+    numero: 'Em aberto',
+    conta:
+      'Atividades pendentes ou em andamento, de qualquer data, em que a pessoa é a responsável ou ' +
+      'participa por escolha de alguém. A reserva posta pelo robô não entra.',
+    retrato: 'HOJE',
+  },
+  {
+    chave: 'atrasadas',
+    numero: 'Atrasadas',
+    conta:
+      'Das em aberto, as marcadas para um dia que já passou. Quer dizer que a data da agenda ficou para ' +
+      'trás; o sistema não conhece o prazo processual.',
+    retrato: 'HOJE',
+  },
+  {
+    chave: 'decididas',
+    numero: 'Publicações decididas',
+    conta:
+      'Propostas de tarefa do Diário que a pessoa aceitou ou recusou no período. A tarefa que o sistema ' +
+      'criou sozinho, depois de dias sem resposta, não entra.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'esperando',
+    numero: 'Esperando decisão',
+    conta:
+      'Propostas do Diário endereçadas à pessoa que ainda esperam ela aceitar ou recusar. As sem dono, ' +
+      'que a coordenação vê na caixa dela, não entram.',
+    retrato: 'HOJE',
+  },
+  {
+    chave: 'processosCadastrados',
+    numero: 'Processos cadastrados',
+    conta:
+      'Processos que a pessoa cadastrou no período, pela tela ou pela importação por planilha, e casos ' +
+      'pré-processuais abertos a partir de uma atividade.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'andamentos',
+    numero: 'Andamentos internos',
+    conta:
+      'Andamentos que a pessoa lançou à mão na linha do tempo dos processos. O registro que o sistema ' +
+      'escreve ao concluir uma atividade ou ao importar uma planilha, e o que o robô escreve, não entram.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'documentos',
+    numero: 'Documentos anexados',
+    conta:
+      'Vezes que a pessoa anexou arquivo a um atendimento, processo ou atividade. Trazer vários ' +
+      'documentos do acervo do filiado de uma vez conta uma.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'filiadosCadastrados',
+    numero: 'Filiados cadastrados',
+    conta: 'Fichas novas de filiado criadas pela pessoa na tela de cadastro.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'alteracoesEmFichas',
+    numero: 'Alterações em fichas',
+    conta:
+      'Vezes que a pessoa salvou alteração no cadastro de um filiado: a mesma ficha salva três vezes ' +
+      'conta três; ligar de uma vez vários filiados a um município conta uma. Desfiliação e reativação ' +
+      'não entram.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'atendimentos',
+    numero: 'Atendimentos',
+    conta:
+      'Atendimentos registrados no período com a pessoa como atendente, ou seja, quem estava no sistema ' +
+      'ao registrar.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'mesAMes',
+    numero: 'Mês a mês',
+    conta:
+      'Concluídas, andamentos e atendimentos pelo mês; embaixo, quantas pessoas usaram o sistema no mês ' +
+      '(ou os dias com uso, no documento de uma pessoa). O primeiro e o último mês contam só os dias ' +
+      'dentro do período.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'antes',
+    numero: 'Antes',
+    conta:
+      'O mesmo recorte no período anterior. Só se compara o que é do período: o que é de hoje não tem ' +
+      '“antes”. Publicações decididas só se comparam a partir de 13/09/2026.',
+    retrato: null,
+  },
+];
+
+/** Os números que cada bloco do cartão da pessoa mostra — é o que a legenda precisa explicar. */
+export const CHAVES_DO_BLOCO: Record<Bloco, ChaveDaLegenda[]> = {
+  agenda: ['concluidas', 'noDiaMarcado', 'emAberto', 'atrasadas', 'criou'],
+  publicacoes: ['decididas', 'esperando'],
+  processos: ['andamentos', 'processosCadastrados', 'documentos'],
+  filiados: ['filiadosCadastrados', 'alteracoesEmFichas'],
+  atendimentos: ['atendimentos'],
+};
+
+/** Só as linhas pedidas, na ordem da legenda — o PDF não explica número que não mostra. */
+export function linhasDaLegenda(chaves: Iterable<ChaveDaLegenda>): LinhaDaLegenda[] {
+  const pedidas = new Set(chaves);
+  return LEGENDA_DO_USO.filter((l) => pedidas.has(l.chave));
+}
+
+/** O que a aba mostra: tudo, menos a comparação e o mês a mês (que só o PDF tem) e, no pessoal, o resumo da equipe. */
+export function legendaDaAba(escopo: Produtividade['escopo']): LinhaDaLegenda[] {
+  const fora: ChaveDaLegenda[] =
+    escopo === 'PESSOAL' ? ['antes', 'mesAMes', 'usaram', 'semEntrar', 'nuncaEntraram'] : ['antes', 'mesAMes'];
+  return LEGENDA_DO_USO.filter((l) => !fora.includes(l.chave));
 }
 
 /** Vai na tela inteira, sempre. Número sem esta ressalva vira régua de gente. */

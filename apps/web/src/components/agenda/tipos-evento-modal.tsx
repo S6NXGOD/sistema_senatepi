@@ -134,14 +134,14 @@ export function TiposEventoModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" className="flex max-h-[85vh] w-full max-w-md animate-dialogo-entrar flex-col rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-5">
           <div>
-            <h3 className="font-semibold">Tipos de evento</h3>
-            <p className="text-xs text-muted-foreground">Personalize as categorias da agenda</p>
+            <h3 className="font-semibold">Tipos de atividade</h3>
+            <p className="text-xs text-muted-foreground">As categorias que aparecem na agenda</p>
           </div>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="-mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="flex-1 space-y-2 overflow-y-auto p-4">

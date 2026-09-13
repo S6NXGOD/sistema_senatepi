@@ -1,52 +1,70 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Search, Plus, Headset, ChevronLeft, ChevronRight, Inbox, MoreVertical,
-  Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2,
+  Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2, AlertTriangle, RotateCw, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { cn } from '@/lib/utils';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { useAuth } from '@/lib/auth';
-import { nivelEfetivo } from '@/lib/permissoes';
+import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
-import { podeExcluir } from '@/lib/permissoes';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { RegistrarDesfechoModal, AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
+import { ChipEncaminhamento } from '@/components/atendimentos/estado-do-encaminhamento';
 import {
   listarAtendimentos, mudarStatusAtendimento, excluirAtendimento,
-  CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista,
+  CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, formatDataHora,
+  faltaConcluir, filtroDaUrl, rotuloDoAssunto, urlTemFiltro,
 } from '@/lib/atendimentos';
+import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
-const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
+const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:w-auto sm:text-sm';
 
 /** Suspense obrigatório por causa do `useSearchParams` (ver useAbrirPorUrl). */
 export default function AtendimentosPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-        </div>
-      }
-    >
+    <Suspense fallback={<EsqueletoDaLista />}>
       <ListaAtendimentos />
     </Suspense>
   );
 }
 
+function EsqueletoDaLista() {
+  return (
+    <Carregando texto="Carregando os atendimentos">
+      <div className="space-y-3 md:hidden">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="space-y-2 rounded-xl border bg-card p-4">
+            <Esqueleto className="h-4 w-1/2" />
+            <Esqueleto className="h-3 w-4/5" />
+            <Esqueleto className="h-5 w-2/3" />
+          </div>
+        ))}
+      </div>
+      <Card className="hidden overflow-hidden p-0 md:block">
+        <EsqueletoLinhas quantidade={8} altura={57} />
+      </Card>
+    </Carregando>
+  );
+}
+
 function ListaAtendimentos() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   /**
    * A API agora barra de verdade (`@Modulo` em todo controller). Mostrar o
@@ -56,14 +74,37 @@ function ListaAtendimentos() {
    */
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'atendimentos') === 'EDITAR';
   const ehAdmin = podeExcluir(user?.role);
+
+  /*
+    O RECORTE VEM DA URL — `?assunto=OUTRO&dataInicio=…&dataFim=…`.
+    Um número (do relatório, do painel) só pode virar link se a lista abrir o
+    MESMO recorte que contou. O estado nasce já com o filtro (sem mostrar a
+    lista inteira por um instante) e a URL é limpa em seguida, como nos outros
+    atalhos do sistema.
+  */
+  const inicial = filtroDaUrl(searchParams);
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
-  const [status, setStatus] = useState<'' | StatusAtendimento>('');
-  const [desfecho, setDesfecho] = useState<'' | DesfechoAtendimento>('');
-  const [canal, setCanal] = useState<'' | CanalAtendimento>('');
-  const [dataInicio, setDataInicio] = useState('');
-  const [dataFim, setDataFim] = useState('');
+  const [status, setStatus] = useState<'' | StatusAtendimento>(inicial.status);
+  const [desfecho, setDesfecho] = useState<'' | DesfechoAtendimento>(inicial.desfecho);
+  const [canal, setCanal] = useState<'' | CanalAtendimento>(inicial.canal);
+  const [assunto, setAssunto] = useState(inicial.assunto);
+  const [dataInicio, setDataInicio] = useState(inicial.dataInicio);
+  const [dataFim, setDataFim] = useState(inicial.dataFim);
   const [page, setPage] = useState(1);
+
+  function aplicarFiltro(f: FiltroDaUrl) {
+    setBusca(''); setBuscaDeb('');
+    setStatus(f.status); setDesfecho(f.desfecho); setCanal(f.canal);
+    setAssunto(f.assunto); setDataInicio(f.dataInicio); setDataFim(f.dataFim);
+  }
+
+  useEffect(() => {
+    if (!urlTemFiltro(searchParams)) return;
+    aplicarFiltro(filtroDaUrl(searchParams));
+    router.replace('/atendimentos', { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, router]);
 
   const [novo, setNovo] = useState(false);
   // `?novo=1` abre a gaveta direto — é o atalho "Novo atendimento" do painel,
@@ -71,7 +112,7 @@ function ListaAtendimentos() {
   useFiltroPorUrl('novo', () => setNovo(true), '/atendimentos');
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [desfechoAlvo, setDesfechoAlvo] = useState<AtendimentoParaDesfecho | null>(null);
-  const [promptConcluir, setPromptConcluir] = useState<{ id: string; resultado: DesfechoAtendimento } | null>(null);
+  const [promptConcluir, setPromptConcluir] = useState<{ id: string } | null>(null);
   const [menu, setMenu] = useState<{ a: AtendimentoLista; top: number; left: number } | null>(null);
   const [excluirAlvo, setExcluirAlvo] = useState<AtendimentoLista | null>(null);
 
@@ -82,24 +123,33 @@ function ListaAtendimentos() {
     const t = setTimeout(() => { setBuscaDeb(busca.trim()); setPage(1); }, 350);
     return () => clearTimeout(t);
   }, [busca]);
-  useEffect(() => { setPage(1); }, [status, desfecho, canal, dataInicio, dataFim]);
+  useEffect(() => { setPage(1); }, [status, desfecho, canal, assunto, dataInicio, dataFim]);
 
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['atendimentos', buscaDeb, status, desfecho, canal, dataInicio, dataFim, page],
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ['atendimentos', buscaDeb, status, desfecho, canal, assunto, dataInicio, dataFim, page],
     queryFn: () => listarAtendimentos({
       busca: buscaDeb || undefined, status: status || undefined, desfecho: desfecho || undefined,
-      canal: canal || undefined, dataInicio: dataInicio || undefined, dataFim: dataFim || undefined,
+      canal: canal || undefined, assunto: assunto || undefined,
+      dataInicio: dataInicio || undefined, dataFim: dataFim || undefined,
       page, pageSize: PAGE_SIZE,
     }),
   });
 
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['atendimentos'] });
+  const invalidar = () => {
+    qc.invalidateQueries({ queryKey: ['atendimentos'] });
+    qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+  };
   const itens = data?.items ?? [];
   const totalPaginas = data?.totalPaginas ?? 1;
+  const filtrando = !!(buscaDeb || status || desfecho || canal || assunto || dataInicio || dataFim);
 
   const mudarStatus = useMutation({
     mutationFn: ({ id, s }: { id: string; s: StatusAtendimento }) => mudarStatusAtendimento(id, s),
-    onSuccess: () => { invalidar(); },
+    onSuccess: (_r, v) => {
+      invalidar();
+      qc.invalidateQueries({ queryKey: ['atendimento', v.id] });
+      if (v.s === 'CONCLUIDO') toast.success('Atendimento concluído.');
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar o status.'),
   });
   const excluir = useMutation({
@@ -108,22 +158,43 @@ function ListaAtendimentos() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível excluir.'),
   });
 
+  function paraDesfecho(a: {
+    id: string; numero: number; descricao: string; assunto?: string | null; assuntoOutro?: string | null;
+    filiado: { id: string; nomeCompleto: string };
+  }): AtendimentoParaDesfecho {
+    return {
+      id: a.id, numero: a.numero, descricao: a.descricao,
+      assunto: a.assunto ?? null, assuntoOutro: a.assuntoOutro ?? null,
+      filiado: { id: a.filiado.id, nomeCompleto: a.filiado.nomeCompleto },
+    };
+  }
   function abrirDesfecho(a: AtendimentoLista) {
     setMenu(null);
-    setDesfechoAlvo({ id: a.id, numero: a.numero, descricao: a.descricao, filiado: { id: a.filiado.id, nomeCompleto: a.filiado.nomeCompleto } });
+    setDesfechoAlvo(paraDesfecho(a));
   }
   function abrirMenu(e: React.MouseEvent, a: AtendimentoLista) {
     e.stopPropagation();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenu({ a, top: r.bottom + 4, left: Math.min(r.left - 150, window.innerWidth - 210) });
+    const altura = 260;
+    const top = r.bottom + altura > window.innerHeight ? Math.max(8, r.top - altura) : r.bottom + 4;
+    setMenu({ a, top, left: Math.max(8, Math.min(r.right - 224, window.innerWidth - 232)) });
+  }
+  function limparFiltros() {
+    setBusca('');
+    aplicarFiltro({ status: '', desfecho: '', canal: '', assunto: '', dataInicio: '', dataFim: '' });
   }
 
+  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */
   const ResultadoCel = ({ a }: { a: AtendimentoLista }) =>
-    a.desfecho ? (
+    a.encaminhamento ? (
+      <ChipEncaminhamento encaminhamento={a.encaminhamento} statusAtendimento={a.status} />
+    ) : a.desfecho ? (
       <Badge className={DESFECHO_COR[a.desfecho]}>{DESFECHO_LABEL[a.desfecho]}</Badge>
     ) : (
-      <span className="text-sm italic text-muted-foreground">Pendente</span>
+      <span className="text-sm italic text-muted-foreground">Sem desfecho</span>
     );
+
+  const menuItem = 'flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted';
 
   return (
     <div className="space-y-6">
@@ -131,7 +202,7 @@ function ListaAtendimentos() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
-            <Headset className="h-5 w-5 text-brand-800 dark:text-brand-400" />
+            <Headset className="h-5 w-5 text-brand-800 dark:text-brand-400" aria-hidden="true" />
           </div>
           <div>
             <h2 className="text-2xl font-bold">Triagem / Atendimento</h2>
@@ -139,23 +210,27 @@ function ListaAtendimentos() {
           </div>
         </div>
         {podeEditar && (
-          <Button onClick={() => setNovo(true)}><Plus className="h-4 w-4" /> Novo Atendimento</Button>
+          <Button onClick={() => setNovo(true)}><Plus className="h-4 w-4" /> Novo atendimento</Button>
         )}
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder={`Buscar por ${V.filiado} ou descrição…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
-          {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input className="pl-9" placeholder={`Buscar por ${V.filiado} ou descrição…`} value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar" />
+          {isFetching && !isLoading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" aria-hidden="true" />}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
           <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value as any)} aria-label="Status">
             <option value="">Todos os status</option>
             <option value="PENDENTE">Pendente</option>
             <option value="CONCLUIDO">Concluído</option>
             <option value="CANCELADO">Cancelado</option>
+          </select>
+          <select className={inputCls} value={assunto} onChange={(e) => setAssunto(e.target.value)} aria-label="Assunto">
+            <option value="">Todos os assuntos</option>
+            {ASSUNTOS.map((a) => <option key={a} value={a}>{ASSUNTO_LABEL[a]}</option>)}
           </select>
           <select className={inputCls} value={canal} onChange={(e) => setCanal(e.target.value as any)} aria-label="Canal">
             <option value="">Todos os canais</option>
@@ -166,40 +241,79 @@ function ListaAtendimentos() {
             <option value="RESOLVIDO_ATO">{DESFECHO_LABEL.RESOLVIDO_ATO}</option>
             <option value="ENCAMINHADO">{DESFECHO_LABEL.ENCAMINHADO}</option>
           </select>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">De
+          <label className="flex min-w-0 flex-col gap-0.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:gap-1">De
             <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className={inputCls} />
           </label>
-          <label className="flex items-center gap-1 text-xs text-muted-foreground">até
+          <label className="flex min-w-0 flex-col gap-0.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:gap-1">até
             <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className={inputCls} />
           </label>
+          {filtrando && (
+            <Button variant="ghost" className="col-span-2 sm:col-span-1 sm:h-10" onClick={limparFiltros}>
+              <X className="h-4 w-4" /> Limpar filtros
+            </Button>
+          )}
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
+      {isError ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <AlertTriangle className="h-8 w-8 text-amber-600" aria-hidden="true" />
+            <p className="text-sm text-muted-foreground">Não deu para carregar os atendimentos.</p>
+            <Button variant="outline" onClick={() => refetch()}><RotateCw className="h-4 w-4" /> Tentar de novo</Button>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <EsqueletoDaLista />
       ) : itens.length === 0 ? (
-        <Card><CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground"><Inbox className="h-8 w-8 opacity-40" /> Nenhum atendimento encontrado com esses filtros.</CardContent></Card>
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">
+            <Inbox className="h-8 w-8 opacity-40" aria-hidden="true" />
+            {filtrando ? 'Nenhum atendimento encontrado com esses filtros.' : 'Nenhum atendimento registrado ainda.'}
+          </CardContent>
+        </Card>
       ) : (
         <>
           {/* Mobile: cards */}
           <div className="space-y-3 md:hidden">
-            {itens.map((a) => (
-              <div key={a.id} className="rounded-xl border bg-card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <button type="button" onClick={() => setDetalheId(a.id)} className="min-w-0 flex-1 text-left">
-                    <p className="truncate font-semibold">{a.filiado.nomeCompleto}</p>
-                    <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{a.descricao}</p>
-                  </button>
-                  <button type="button" onClick={(e) => abrirMenu(e, a)} className="rounded p-1 text-muted-foreground hover:bg-muted"><MoreVertical className="h-4 w-4" /></button>
+            {itens.map((a) => {
+              const rotulo = rotuloDoAssunto(a.assunto, a.assuntoOutro);
+              return (
+                <div key={a.id} className="rounded-xl border bg-card p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <button type="button" onClick={() => setDetalheId(a.id)} className="min-w-0 flex-1 text-left">
+                      <p className="truncate font-semibold">{a.filiado.nomeCompleto}</p>
+                      {rotulo && <p className="truncate text-xs text-muted-foreground">{rotulo}</p>}
+                      <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{a.descricao}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => abrirMenu(e, a)}
+                      aria-label={`Ações do atendimento de ${a.filiado.nomeCompleto}`}
+                      className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <Badge className="bg-muted text-muted-foreground">{CANAL_LABEL[a.canal]}</Badge>
+                    <ResultadoCel a={a} />
+                    <Badge className={STATUS_COR[a.status]}>{STATUS_LABEL[a.status]}</Badge>
+                    <span className="text-muted-foreground">{formatDataHora(a.createdAt)}</span>
+                  </div>
+                  {podeEditar && faltaConcluir(a) && (
+                    <Button
+                      variant="outline"
+                      className="mt-3 w-full"
+                      disabled={mudarStatus.isPending}
+                      onClick={() => mudarStatus.mutate({ id: a.id, s: 'CONCLUIDO' })}
+                    >
+                      <CheckCircle2 className="h-4 w-4" /> Concluir atendimento
+                    </Button>
+                  )}
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <Badge className="bg-muted text-muted-foreground">{CANAL_LABEL[a.canal]}</Badge>
-                  <ResultadoCel a={a} />
-                  <Badge className={STATUS_COR[a.status]}>{STATUS_LABEL[a.status]}</Badge>
-                  <span className="text-muted-foreground">{formatDataHora(a.createdAt)}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Desktop: tabela */}
@@ -211,36 +325,61 @@ function ListaAtendimentos() {
                     <th className="px-4 py-3 font-medium">{V.Filiado}</th>
                     <th className="px-4 py-3 font-medium">Canal</th>
                     <th className="px-4 py-3 font-medium">Resultado</th>
-                    <th className="px-4 py-3 font-medium">Descrição</th>
+                    <th className="px-4 py-3 font-medium">Demanda</th>
                     <th className="px-4 py-3 font-medium">Status</th>
                     <th className="px-4 py-3 font-medium">Data</th>
-                    <th className="px-4 py-3" />
+                    <th className="px-4 py-3"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {itens.map((a) => (
-                    <tr key={a.id} onClick={() => setDetalheId(a.id)} className="cursor-pointer transition-colors hover:bg-muted/40">
-                      <td className="px-4 py-3 font-medium">{a.filiado.nomeCompleto}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{CANAL_LABEL[a.canal]}</td>
-                      <td className="px-4 py-3"><ResultadoCel a={a} /></td>
-                      <td className="max-w-[280px] px-4 py-3"><span className="line-clamp-1 text-muted-foreground">{a.descricao}</span></td>
-                      <td className="px-4 py-3"><Badge className={STATUS_COR[a.status]}>{STATUS_LABEL[a.status]}</Badge></td>
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">{formatDataHora(a.createdAt)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={(e) => abrirMenu(e, a)} className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"><MoreVertical className="h-4 w-4" /></button>
-                      </td>
-                    </tr>
-                  ))}
+                  {itens.map((a) => {
+                    const rotulo = rotuloDoAssunto(a.assunto, a.assuntoOutro);
+                    return (
+                      <tr key={a.id} onClick={() => setDetalheId(a.id)} className="cursor-pointer transition-colors hover:bg-muted/40">
+                        <td className="px-4 py-3 font-medium">{a.filiado.nomeCompleto}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{CANAL_LABEL[a.canal]}</td>
+                        <td className="px-4 py-3"><ResultadoCel a={a} /></td>
+                        <td className="max-w-[280px] px-4 py-3">
+                          {rotulo && <span className="block truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
+                          <span className="line-clamp-1 text-muted-foreground">{a.descricao}</span>
+                        </td>
+                        <td className="px-4 py-3"><Badge className={STATUS_COR[a.status]}>{STATUS_LABEL[a.status]}</Badge></td>
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">{formatDataHora(a.createdAt)}</td>
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {podeEditar && faltaConcluir(a) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={mudarStatus.isPending}
+                                onClick={(e) => { e.stopPropagation(); mudarStatus.mutate({ id: a.id, s: 'CONCLUIDO' }); }}
+                              >
+                                <CheckCircle2 className="h-4 w-4" /> Concluir
+                              </Button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => abrirMenu(e, a)}
+                              aria-label={`Ações do atendimento de ${a.filiado.nomeCompleto}`}
+                              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </Card>
 
-          <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <p className="text-sm text-muted-foreground">{data?.total ?? 0} atendimento(s) · página {data?.page ?? 1} de {totalPaginas}</p>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}><ChevronLeft className="h-4 w-4" /> Anterior</Button>
-              <Button variant="outline" size="sm" disabled={page >= totalPaginas || isFetching} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>Próxima <ChevronRight className="h-4 w-4" /></Button>
+              <Button variant="outline" className="md:h-9" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}><ChevronLeft className="h-4 w-4" /> Anterior</Button>
+              <Button variant="outline" className="md:h-9" disabled={page >= totalPaginas || isFetching} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>Próxima <ChevronRight className="h-4 w-4" /></Button>
             </div>
           </div>
         </>
@@ -250,22 +389,30 @@ function ListaAtendimentos() {
       {menu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
-          <div className="fixed z-50 w-52 overflow-hidden rounded-lg border bg-card py-1 shadow-xl" style={{ top: menu.top, left: menu.left }}>
-            <button type="button" onClick={() => { setDetalheId(menu.a.id); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Eye className="h-4 w-4 text-muted-foreground" /> Ver detalhes</button>
-            {!menu.a.desfecho && (
-              <button type="button" onClick={() => abrirDesfecho(menu.a)} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><Gavel className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar desfecho</button>
-            )}
-            {menu.a.desfecho && menu.a.status === 'PENDENTE' && (
-              <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CONCLUIDO' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Marcar como Concluído</button>
-            )}
-            {menu.a.status !== 'PENDENTE' && (
-              <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'PENDENTE' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm hover:bg-muted"><RotateCcw className="h-4 w-4 text-muted-foreground" /> Reabrir</button>
-            )}
-            {menu.a.status !== 'CANCELADO' && (
-              <button type="button" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CANCELADO' }); setMenu(null); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20"><XCircle className="h-4 w-4" /> Cancelar atendimento</button>
+          <div
+            role="menu"
+            className="fixed z-50 w-56 animate-surgir-leve overflow-hidden rounded-lg border bg-card py-1 shadow-xl"
+            style={{ top: menu.top, left: menu.left }}
+          >
+            <button type="button" role="menuitem" onClick={() => { setDetalheId(menu.a.id); setMenu(null); }} className={menuItem}><Eye className="h-4 w-4 text-muted-foreground" /> Ver detalhes</button>
+            {podeEditar && (
+              <>
+                {!menu.a.desfecho && (
+                  <button type="button" role="menuitem" onClick={() => abrirDesfecho(menu.a)} className={menuItem}><Gavel className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar desfecho</button>
+                )}
+                {menu.a.desfecho && menu.a.status === 'PENDENTE' && (
+                  <button type="button" role="menuitem" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CONCLUIDO' }); setMenu(null); }} className={menuItem}><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Concluir atendimento</button>
+                )}
+                {menu.a.status !== 'PENDENTE' && (
+                  <button type="button" role="menuitem" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'PENDENTE' }); setMenu(null); }} className={menuItem}><RotateCcw className="h-4 w-4 text-muted-foreground" /> Reabrir</button>
+                )}
+                {menu.a.status !== 'CANCELADO' && (
+                  <button type="button" role="menuitem" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CANCELADO' }); setMenu(null); }} className={`${menuItem} text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20`}><XCircle className="h-4 w-4" /> Cancelar atendimento</button>
+                )}
+              </>
             )}
             {ehAdmin && (
-              <button type="button" onClick={() => { setExcluirAlvo(menu.a); setMenu(null); }} className="flex w-full items-center gap-2.5 border-t px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"><Trash2 className="h-4 w-4" /> Excluir atendimento</button>
+              <button type="button" role="menuitem" onClick={() => { setExcluirAlvo(menu.a); setMenu(null); }} className={`${menuItem} border-t text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30`}><Trash2 className="h-4 w-4" /> Excluir atendimento</button>
             )}
           </div>
         </>
@@ -286,17 +433,22 @@ function ListaAtendimentos() {
         onClose={() => setDesfechoAlvo(null)}
         onRegistrado={(resultado) => {
           invalidar();
-          if (desfechoAlvo) setPromptConcluir({ id: desfechoAlvo.id, resultado });
+          /*
+            SÓ O RESOLVIDO NO ATO PERGUNTA "CONCLUIR AGORA?". O encaminhado ainda
+            não terminou: a demanda acaba quando a consulta for atendida, e aí a
+            lista oferece "Concluir atendimento" (nada fecha sozinho).
+          */
+          if (desfechoAlvo && resultado === 'RESOLVIDO_ATO') setPromptConcluir({ id: desfechoAlvo.id });
         }}
       />
 
       {/* Prompt: concluir agora? */}
       <ConfirmDialog
         open={!!promptConcluir}
-        title="Desfecho registrado!"
+        title="Desfecho registrado"
         icon={<CheckCircle2 className="h-6 w-6" />}
         description={
-          <>O atendimento foi {promptConcluir?.resultado === 'RESOLVIDO_ATO' ? 'resolvido no ato' : 'encaminhado'}. Deseja marcar como <strong>Concluído</strong> agora? A demanda pode continuar pendente para acompanhamento.</>
+          <>O atendimento foi resolvido no ato. Quer marcar como <strong>concluído</strong> agora? Se ainda falta algo, deixe pendente.</>
         }
         confirmLabel="Concluir agora"
         cancelLabel="Deixar pendente"

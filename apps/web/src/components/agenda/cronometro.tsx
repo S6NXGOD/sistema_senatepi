@@ -27,11 +27,18 @@ import { cronometroEsquecido, cronometroHMS } from '@/lib/agenda';
 export function Cronometro({
   desde,
   fimPrevisto,
+  tipo,
   tamanho = 'sm',
 }: {
   desde: string;
   /** Horário em que a atividade DEVERIA ter terminado. */
   fimPrevisto?: string | null;
+  /**
+   * Tipo da atividade — o aviso de "faltou concluir?" só vale para quem tem
+   * hora marcada (`TIPOS_COM_HORA`). `null` para tarefa do robô: o fim dela é
+   * o início + 30 min que o robô escolheu, e o trabalho dura o dia.
+   */
+  tipo?: string | null;
   tamanho?: 'sm' | 'md';
 }) {
   const [agora, setAgora] = useState(() => Date.now());
@@ -40,7 +47,7 @@ export function Cronometro({
     return () => clearInterval(t);
   }, []);
 
-  const esquecido = cronometroEsquecido(fimPrevisto, agora);
+  const esquecido = cronometroEsquecido(fimPrevisto, agora, tipo);
   const md = tamanho === 'md';
 
   return (

@@ -6,16 +6,51 @@
  * (`pdf-documento.ts`) só obedece.
  */
 
+import { tenant } from '@/tenant.config';
+import { hexParaRgb } from './iniciais';
+
 export type Cor = [number, number, number];
 
+/** As cores da casa que o papel usa. */
+export interface CoresDaInstalacao {
+  /** A cor institucional (tom 800): faixa, títulos, barra principal. */
+  principal: Cor;
+  /** O tom médio (400): a segunda parte de uma barra empilhada. */
+  media: Cor;
+  /** O fundo mais claro (50): a caixa do destaque. */
+  fundo: Cor;
+  /** O fundo claro (100): o cabeçalho das tabelas. */
+  fundoForte: Cor;
+}
+
 /**
- * A PALETA DOS GRÁFICOS. O verde é a cor da casa. O âmbar aparece só onde a
- * tela também o usa (sentença improcedente); vermelho não entra — no sistema,
- * vermelho quer dizer "faça algo agora", e papel de relatório não pede isso.
+ * A COR DA INSTALAÇÃO, e não o verde do SENATEPI cravado.
+ *
+ * O PDF do SINDSERM saía verde. A paleta é a mesma que o Tailwind lê, então o
+ * papel e a tela passam a ter a mesma cor. Tom ausente ou escrito errado cai no
+ * tom do SENATEPI de antes: o PDF nunca sai com NaN por causa de uma paleta.
+ * O âmbar NÃO vem daqui — atenção tem a mesma cor em qualquer sindicato.
+ */
+export function corDaInstalacao(paleta: Record<string, string>): CoresDaInstalacao {
+  return {
+    principal: hexParaRgb(paleta['800']) ?? [27, 127, 10],
+    media: hexParaRgb(paleta['400']) ?? [132, 190, 112],
+    fundo: hexParaRgb(paleta['50']) ?? [243, 247, 244],
+    fundoForte: hexParaRgb(paleta['100']) ?? [238, 243, 240],
+  };
+}
+
+export const CASA = corDaInstalacao(tenant.paleta);
+
+/**
+ * A PALETA DOS GRÁFICOS. `verde` é a cor da casa — o nome ficou porque outros
+ * PDFs o leem; no SINDSERM, ele é azul. O âmbar aparece só onde a tela também o
+ * usa (sentença improcedente); vermelho não entra — no sistema, vermelho quer
+ * dizer "faça algo agora", e papel de relatório não pede isso.
  */
 export const PALETA = {
-  verde: [27, 127, 10] as Cor,
-  verdeClaro: [132, 190, 112] as Cor,
+  verde: CASA.principal,
+  verdeClaro: CASA.media,
   ambar: [214, 146, 32] as Cor,
   petroleo: [14, 116, 144] as Cor,
   argila: [168, 120, 78] as Cor,

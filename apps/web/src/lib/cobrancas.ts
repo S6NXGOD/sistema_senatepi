@@ -1,5 +1,6 @@
 import { api } from './api';
 import { tenant } from '@/tenant.config';
+import { celularParaWhatsApp, linkWhatsApp as linkWhatsAppDoCelular } from '@/lib/whatsapp';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -23,6 +24,7 @@ export interface FiliadoResumo {
   nomeCompleto: string;
   matricula: string;
   telefonePrincipal?: string | null;
+  telefoneSecundario?: string | null;
 }
 
 export interface Parcela {
@@ -162,12 +164,22 @@ export function statusExibicao(p: { status: StatusParcela; dataVencimento: strin
   return p.status;
 }
 
-/** Monta a URL wa.me com DDI 55 e a mensagem já codificada. */
-export function linkWhatsApp(telefone: string | null | undefined, mensagem: string): string | null {
-  const d = (telefone ?? '').replace(/\D/g, '');
-  if (d.length < 10) return null;
-  const comDDI = d.startsWith('55') ? d : `55${d}`;
-  return `https://wa.me/${comDDI}?text=${encodeURIComponent(mensagem)}`;
+/**
+ * URL wa.me com a mensagem já codificada, ou `null` quando nenhum dos telefones
+ * é um celular.
+ *
+ * Delega a `lib/whatsapp.ts`, a regra única do sistema. A montagem antiga
+ * aceitava qualquer número de 10 dígitos (fixo abria conversa com quem não tem
+ * WhatsApp) e tratava o DDD 55 como se fosse o DDI. `secundario` é opcional: a
+ * importação grava o celular ali.
+ */
+export function linkWhatsApp(
+  telefone: string | null | undefined,
+  mensagem: string,
+  secundario?: string | null,
+): string | null {
+  const celular = celularParaWhatsApp(telefone, secundario);
+  return celular ? linkWhatsAppDoCelular(celular, mensagem) : null;
 }
 
 /** Mensagem amigável de cobrança (com PIX Copia e Cola, quando disponível). */
@@ -179,7 +191,7 @@ export function mensagemCobranca(p: {
 }): string {
   const primeiroNome = p.nome.trim().split(/\s+/)[0] || p.nome;
   let msg =
-    `Olá, ${primeiroNome}! 👋\n\n` +
+    `Olá, ${primeiroNome}!\n\n` +
     `Aqui é do *${tenant.sigla}*. Passando para lembrar da sua parcela com vencimento em ` +
     `*${formatData(p.vencimento)}*, no valor de *${formatBRL(p.valor)}*.`;
   if (p.copiaECola) {
@@ -187,7 +199,7 @@ export function mensagemCobranca(p: {
       `\n\nVocê pode pagar agora pelo *PIX Copia e Cola* abaixo:\n\n` +
       `${p.copiaECola}`;
   }
-  msg += `\n\nQualquer dúvida, estamos à disposição. Obrigado! 🙏`;
+  msg += `\n\nQualquer dúvida, estamos à disposição. Obrigado!`;
   return msg;
 }
 
@@ -257,6 +269,8 @@ export interface FiliadoResumoFin {
   nomeCompleto: string;
   matricula: string;
   telefonePrincipal: string | null;
+  /** Opcional só pela janela de troca do deploy (13/09/2026). */
+  telefoneSecundario?: string | null;
   qtdParcelas: number;
   qtdVencidas: number;
   totalEmAberto: number;

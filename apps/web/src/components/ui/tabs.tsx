@@ -99,9 +99,13 @@ export function TabsContent({
   children: React.ReactNode;
 }) {
   const ctx = useTabs();
+  // Inativa DESMONTA (e não só esconde): as abas de cobranças dependem disso
+  // para não buscar o conteúdo da aba que ninguém está vendo.
   if (ctx.value !== value) return null;
   return (
-    <div role="tabpanel" className={className}>
+    // Fade curto, só opacidade: a aba nova entra ao ser montada, e revalidação
+    // dentro dela não repete nada. O indicador da aba não desliza — enfeite.
+    <div role="tabpanel" className={cn('animate-surgir-leve', className)}>
       {children}
     </div>
   );

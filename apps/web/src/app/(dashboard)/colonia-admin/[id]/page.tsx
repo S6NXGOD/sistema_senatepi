@@ -11,6 +11,8 @@ import {
   ChevronDown, Mail, Phone, MapPin, Table2, UserCog, CalendarClock, Save, Clock, Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { mascararCpf } from '@/lib/utils';
@@ -61,7 +63,7 @@ export default function ColoniaGestaoPage() {
   const [participante, setParticipante] = useState<ParticipanteDetalhe | null>(null);
   const [sincronizar, setSincronizar] = useState<SyncArg | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['colonia-painel', id],
     queryFn: () => getPainelAdmin(id),
   });
@@ -113,9 +115,19 @@ export default function ColoniaGestaoPage() {
         </div>
       </div>
 
-      {isLoading && <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}
+      {isLoading && (
+        <Carregando texto="Carregando a campanha…" className="space-y-6">
+          <Esqueleto className="h-24 w-full rounded-xl" />
+          <Esqueleto className="h-16 w-full rounded-xl" />
+          <Esqueleto className="h-72 w-full rounded-xl" />
+        </Carregando>
+      )}
 
-      {!isLoading && !t && (
+      {isError && (
+        <Card><FalhaAoCarregar erro={error} oQue="a campanha" onTentarDeNovo={() => refetch()} /></Card>
+      )}
+
+      {!isLoading && !isError && !t && (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             Campanha não encontrada.
@@ -185,8 +197,8 @@ export default function ColoniaGestaoPage() {
 
       {/* Confirmação de cancelamento */}
       {confirmar && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmar(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/50 p-4" onClick={() => setConfirmar(null)}>
+          <div className="w-full max-w-sm animate-dialogo-entrar rounded-xl bg-card p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/40"><Ban className="h-6 w-6 text-red-600 dark:text-red-400" /></div>
               <h3 className="font-bold">Cancelar reserva</h3>
@@ -489,8 +501,8 @@ function ParticipanteModal({ p, onSincronizar, onClose }: {
   const mostrarSync = !!p.filiadoId || p.filiadoCandidatos > 1 || !!p.sincronizadoEm;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-amber-100 p-2 dark:bg-amber-900/40">
@@ -595,8 +607,8 @@ function ExportarMenu({ temporadaId, campanha, lotes }: { temporadaId: string; c
 
       {/* Seletor de lote para o relatório de conferência */}
       {picker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPicker(false)}>
-          <div className="w-full max-w-sm rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/50 p-4" onClick={() => setPicker(false)}>
+          <div className="w-full max-w-sm animate-dialogo-entrar rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-bold">Relatório por Lote</h3>
               <Button variant="ghost" size="icon" onClick={() => setPicker(false)}><X className="h-4 w-4" /></Button>
@@ -669,8 +681,8 @@ function DetalheModal({ ocupante: o, lote, campanha, onSincronizar, onClose }: {
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-muted p-2">

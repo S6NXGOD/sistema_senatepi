@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { formatDataPura } from '@/lib/data-pura';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Wallet, Plus, CalendarClock } from 'lucide-react';
+import { Wallet, Plus, CalendarClock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ParcelaAcoes } from '@/components/cobrancas/parcela-actions';
@@ -19,6 +20,8 @@ interface FiliadoFin {
   nomeCompleto: string;
   matricula: string;
   telefonePrincipal?: string | null;
+  /** 13/09/2026: 383 filiados ativos têm o celular só aqui; a cobrança por WhatsApp lê os dois. */
+  telefoneSecundario?: string | null;
 }
 
 /** Bloco financeiro dentro do perfil do filiado: resumo + parcelas + ações. */
@@ -48,7 +51,12 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
-          <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-brand-800 dark:text-brand-400" /></div>
+          <Carregando texto="Carregando o financeiro…" className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              {[0, 1, 2].map((i) => <Esqueleto key={i} className="h-14" />)}
+            </div>
+            <EsqueletoLinhas quantidade={3} altura={52} className="-mx-4" />
+          </Carregando>
         ) : (
           <>
             {/* Resumo */}
@@ -100,6 +108,7 @@ export function FinanceiroSection({ filiado }: { filiado: FiliadoFin }) {
                             nomeCompleto: filiado.nomeCompleto,
                             matricula: filiado.matricula,
                             telefonePrincipal: filiado.telefonePrincipal,
+                            telefoneSecundario: filiado.telefoneSecundario,
                           },
                         }}
                         onMudou={invalidar}

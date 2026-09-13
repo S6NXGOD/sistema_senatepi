@@ -4,15 +4,16 @@ import { useEffect, useRef } from 'react';
 
 import {
   Clock, MapPin, Pencil, Trash2, History, Timer,
-  Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel,
+  Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel, Video,
 } from 'lucide-react';
+import { abrirChamada } from '@/lib/link-reuniao';
 import { cn } from '@/lib/utils';
 import { IdentidadeDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, ehReserva,
-  formatData, formatHora, estaAtrasado,
+  formatData, formatHora, estaAtrasado, estaFechado, acaoPrincipalDoCartao,
   duracaoEntre,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
@@ -37,7 +38,7 @@ function AcaoPrimaria({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-900"
+      className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-900 sm:min-h-0"
     >
       {children}
     </button>
@@ -62,7 +63,11 @@ function AcaoBtn({
       type="button"
       onClick={onClick}
       title={titulo}
-      className={cn('inline-flex items-center justify-center gap-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors', cor)}
+      aria-label={titulo}
+      className={cn(
+        'inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors sm:min-h-0 sm:min-w-0',
+        cor,
+      )}
     >
       {children}
     </button>
@@ -71,7 +76,7 @@ function AcaoBtn({
 
 export function CompromissoCard({
   c, onAbrir, onEditar, onVerTriagem, onAcao, onConcluir, onCancelar, onRemarcar,
-  onExcluir, podeExcluir, draggable, onDragStart, apontado, minha,
+  onExcluir, podeExcluir, podeEditar = false, draggable, onDragStart, apontado, minha,
 }: {
   c: Compromisso;
   onAbrir: (c: Compromisso) => void;
@@ -83,6 +88,11 @@ export function CompromissoCard({
   onRemarcar: (c: Compromisso) => void;
   onExcluir?: (c: Compromisso) => void;
   podeExcluir?: boolean;
+  /**
+   * Agenda EDITAR. Sem ela, nenhum botão de ação: a API recusaria cada um com
+   * 403, e o cartão ensinaria a pessoa a tocar em coisas que não funcionam.
+   */
+  podeEditar?: boolean;
   draggable?: boolean;
   onDragStart?: () => void;
   /**
@@ -104,6 +114,8 @@ export function CompromissoCard({
   const { tipos } = useTiposEvento();
   const cor = corDeTipo(c.tipo, tipos);
   const atrasado = estaAtrasado(c);
+  /** D7: Concluir é o botão cheio de tarefa; Iniciar, de quem tem hora marcada. */
+  const principal = acaoPrincipalDoCartao(c);
   // A API devolve a equipe com o responsável primeiro; aqui interessa o resto.
   const participantes = (c.equipe ?? []).filter((e) => !e.principal);
 
@@ -145,10 +157,13 @@ export function CompromissoCard({
             </span>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button type="button" onClick={() => onEditar(c)} title="Editar" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+        {/* No celular, editar e excluir moram no cabeçalho da gaveta, com alvo de 44px. */}
+        <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+          {podeEditar && (
+            <button type="button" onClick={() => onEditar(c)} title="Editar" aria-label="Editar" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
           {podeExcluir && onExcluir && (
             <button type="button" onClick={() => onExcluir(c)} title="Excluir" className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
               <Trash2 className="h-3.5 w-3.5" />
@@ -179,14 +194,32 @@ export function CompromissoCard({
         <IdentidadeDoProcesso processo={c.processo} className="mt-0.5" />
 
         {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
-          <div className="mt-1"><Cronometro desde={c.iniciadoEm} fimPrevisto={c.fim} /></div>
+          <div className="mt-1"><Cronometro desde={c.iniciadoEm} fimPrevisto={c.fim} tipo={c.origemAutomatica ? null : c.tipo} /></div>
         )}
 
         <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-          <p className={cn('flex items-center gap-1', atrasado && 'font-medium text-red-600 dark:text-red-400')}>
+          {/* Ficou para trás é âmbar, como no painel e na faixa — nunca vermelho. */}
+          <p className={cn('flex flex-wrap items-center gap-1', atrasado && 'font-medium text-amber-700 dark:text-amber-400')}>
             <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
+            {atrasado && <span className="font-normal">· ficou para trás</span>}
           </p>
           {c.local && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 shrink-0" /> {c.local}</p>}
+          {/*
+            A CHAMADA A UM TOQUE. O corpo do cartão já é clicável (abre a
+            gaveta), então aqui é um botão que abre a aba nova sozinho — um
+            link dentro da área clicável daria clique duplo.
+          */}
+          {c.linkReuniao && !estaFechado(c.status) && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); abrirChamada(c.linkReuniao); }}
+              onKeyDown={(e) => e.stopPropagation()}
+              title="Abre a chamada numa aba nova"
+              className="-ml-1 inline-flex min-h-11 items-center gap-1 rounded px-1 font-medium text-brand-800 hover:underline dark:text-brand-400 sm:min-h-0 sm:py-0.5"
+            >
+              <Video className="h-3.5 w-3.5 shrink-0" /> Entrar na chamada
+            </button>
+          )}
           {c.filiado && <p className="truncate">{V.Filiado}: <span className="text-foreground">{c.filiado.nomeCompleto}</span></p>}
         </div>
 
@@ -340,49 +373,54 @@ export function CompromissoCard({
 
       {/*
         AÇÕES POR ETAPA — uma ação PRINCIPAL em destaque + as secundárias como
-        ícones. O fluxo real é "Iniciar → Concluir": é isso que fica grande.
-        Remarcar e cancelar viram gestos rápidos, mas cada um com o seu diálogo
-        (data nova / motivo obrigatório) em vez de mudar o status no escuro.
+        ícones. Remarcar e cancelar viram gestos rápidos, mas cada um com o seu
+        diálogo (data nova / categoria) em vez de mudar o status no escuro.
+
+        QUAL É O CHEIO (D7): numa TAREFA (prazo, acompanhamento, contato, tudo
+        do robô) é Concluir — medido em 12/09, PRAZO passou por Iniciar em 4 de
+        12 conclusões. Em quem tem HORA MARCADA (consulta, reunião, audiência,
+        perícia) é Iniciar — 18 de 22 consultas passaram por ele. Iniciar da
+        tarefa continua na gaveta.
       */}
-      <div className="mt-2.5 flex items-center gap-1.5 border-t pt-2.5">
-        {c.status === 'PENDENTE' && (
-          <>
-            <AcaoPrimaria onClick={() => onAcao(c.id, 'EM_ANDAMENTO')}>
-              <Play className="h-3.5 w-3.5" /> Iniciar
-            </AcaoPrimaria>
-            <AcaoBtn onClick={() => onConcluir(c)} titulo="Concluir com desfecho">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Concluir
-            </AcaoBtn>
-            <AcaoBtn onClick={() => onRemarcar(c)} tom="aviso" titulo="Remarcar">
-              <CalendarClock className="h-3.5 w-3.5" />
-            </AcaoBtn>
-            <AcaoBtn onClick={() => onCancelar(c)} tom="perigo" titulo="Cancelar">
-              <Ban className="h-3.5 w-3.5" />
-            </AcaoBtn>
-          </>
-        )}
-        {c.status === 'EM_ANDAMENTO' && (
-          <>
+      {podeEditar && (
+        <div className="mt-2.5 flex items-center gap-1.5 border-t pt-2.5">
+          {c.status === 'PENDENTE' && principal === 'INICIAR' && (
+            <>
+              <AcaoPrimaria onClick={() => onAcao(c.id, 'EM_ANDAMENTO')}>
+                <Play className="h-3.5 w-3.5" /> Iniciar
+              </AcaoPrimaria>
+              <AcaoBtn onClick={() => onConcluir(c)} titulo="Concluir com desfecho">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Concluir
+              </AcaoBtn>
+            </>
+          )}
+          {(c.status === 'EM_ANDAMENTO' || (c.status === 'PENDENTE' && principal === 'CONCLUIR')) && (
             <AcaoPrimaria onClick={() => onConcluir(c)}>
               <CheckCircle2 className="h-3.5 w-3.5" /> Concluir
             </AcaoPrimaria>
+          )}
+          {c.status === 'EM_ANDAMENTO' && (
             <AcaoBtn onClick={() => onAcao(c.id, 'PENDENTE')} titulo="Voltar para pendente">
               <RotateCcw className="h-3.5 w-3.5" />
             </AcaoBtn>
-            <AcaoBtn onClick={() => onRemarcar(c)} tom="aviso" titulo="Remarcar">
-              <CalendarClock className="h-3.5 w-3.5" />
+          )}
+          {!estaFechado(c.status) && (
+            <>
+              <AcaoBtn onClick={() => onRemarcar(c)} tom="aviso" titulo="Remarcar">
+                <CalendarClock className="h-3.5 w-3.5" />
+              </AcaoBtn>
+              <AcaoBtn onClick={() => onCancelar(c)} tom="perigo" titulo="Cancelar">
+                <Ban className="h-3.5 w-3.5" />
+              </AcaoBtn>
+            </>
+          )}
+          {estaFechado(c.status) && (
+            <AcaoBtn onClick={() => onAcao(c.id, 'PENDENTE')} tom="aviso" titulo="Reabrir a atividade">
+              <RotateCcw className="h-3.5 w-3.5" /> Reabrir
             </AcaoBtn>
-            <AcaoBtn onClick={() => onCancelar(c)} tom="perigo" titulo="Cancelar">
-              <Ban className="h-3.5 w-3.5" />
-            </AcaoBtn>
-          </>
-        )}
-        {(c.status === 'CONCLUIDO' || c.status === 'CANCELADO') && (
-          <AcaoBtn onClick={() => onAcao(c.id, 'PENDENTE')} tom="aviso" titulo="Reabrir a atividade">
-            <RotateCcw className="h-3.5 w-3.5" /> Reabrir
-          </AcaoBtn>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
@@ -329,7 +330,14 @@ function ModoBtn({ ativo, onClick, titulo, sub }: { ativo: boolean; onClick: () 
 
 export default function NovaCobrancaPage() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}>
+    <Suspense
+      fallback={
+        <Carregando texto="Carregando o assistente de cobrança…" className="mx-auto max-w-3xl space-y-6">
+          <Esqueleto className="h-8 w-64 max-w-full" />
+          <Esqueleto className="h-72 w-full rounded-xl" />
+        </Carregando>
+      }
+    >
       <WizardCobranca />
     </Suspense>
   );

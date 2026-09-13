@@ -1,12 +1,13 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { FiliadoForm } from '@/components/filiados/filiado-form';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { V } from '@/lib/vocabulario';
 
 /**
@@ -59,11 +60,11 @@ export function CadastroFiliadoModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[70] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-3xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b p-5">
@@ -101,9 +102,12 @@ export function CadastroFiliadoModal({
               </div>
             </div>
           ) : recadastro && ficha.isLoading ? (
-            <p className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Carregando a ficha…
-            </p>
+            <Carregando texto="Carregando a ficha…" className="space-y-4 py-2">
+              <Esqueleto className="h-2 w-full rounded-full" />
+              <Esqueleto className="h-11 w-full" />
+              <Esqueleto className="h-11 w-full" />
+              <Esqueleto className="h-11 w-2/3" />
+            </Carregando>
           ) : recadastro && !ficha.data ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
               Não foi possível carregar a ficha deste {V.filiado}.

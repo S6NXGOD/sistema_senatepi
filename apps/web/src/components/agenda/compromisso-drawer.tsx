@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -8,8 +8,11 @@ import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
   Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper, HandHelping, UserMinus, AlertTriangle,
+  Video, Copy,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { abrirChamada, normalizarLinkReuniao } from '@/lib/link-reuniao';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { Button } from '@/components/ui/button';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
@@ -21,13 +24,15 @@ import {
   formatData, formatHora, formatDataHora, estaAtrasado, duracaoEntre,
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
   DESFECHO_LABEL, corDesfecho,
-  rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
+  rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL, diaBRDe, acaoPrincipalDoCartao,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAuth } from '@/lib/auth';
-import { podeEditar } from '@/lib/permissoes';
+import { podeEditar, podeVer } from '@/lib/permissoes';
 import { definirAdvogadosDoProcesso, listarAdvogadosDoProcesso } from '@/lib/partes';
-import { CANAL_LABEL, linkWhatsApp, mensagemSaudacao, type CanalAtendimento } from '@/lib/atendimentos';
+import {
+  CANAL_LABEL, linkWhatsApp, mensagemSaudacao, rotuloDoAssunto, type CanalAtendimento,
+} from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, nomeDeExibicao } from '@/lib/escalas';
 import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
 import { formatNPU, ehPreProcessual } from '@/lib/processos';
@@ -50,7 +55,8 @@ function Avatar({ nome, url }: { nome: string; url?: string | null }) {
   );
 }
 
-const soData = (iso: string) => iso.slice(0, 10);
+/** Demanda maior que isto começa recolhida em três linhas, com "Ver tudo". */
+const DEMANDA_CURTA = 220;
 
 /** "Sem entrar no sistema há 39 dias." — a mesma régua da faixa de avisos e do painel. */
 function textoDaAusencia(a: { diasSemEntrar: number | null; inativo: boolean }): string {
@@ -76,20 +82,38 @@ export function CompromissoDrawer({
   onAcao?: (id: string, status: StatusCompromisso) => void;
 }) {
   const { tipos } = useTiposEvento();
-  const { data: c, isLoading } = useQuery({
+  const { user } = useAuth();
+  const { data: c, isLoading, isError } = useQuery({
     queryKey: ['compromisso', compromissoId],
     queryFn: () => getCompromisso(compromissoId!),
     enabled: open && !!compromissoId,
   });
 
-  // Plantão do dia do compromisso (reaproveita a escala).
-  const dataPlantao = c ? soData(c.inicio) : undefined;
-  const { data: plantao = [] } = useQuery({
+  /** Agenda EDITAR: sem ela a gaveta é só leitura (a API recusaria cada botão). */
+  const podeEditarAgenda = podeEditar(user?.role, user?.permissoes, 'agenda');
+
+  /*
+    PLANTÃO DO DIA — o dia de TERESINA, e só para quem vê a escala.
+
+    Cortar o ISO em UTC trocava o dia depois das 21h: a atividade das 21h30
+    buscava o plantão de amanhã, e o "no horário" sumia à noite. E quem não tem
+    o módulo de escalas levava 403, que a tela mostrava como "ninguém de
+    plantão" — uma afirmação falsa.
+  */
+  const verEscalas = podeVer(user?.role, user?.permissoes, 'escalas');
+  const dataPlantao = c ? diaBRDe(c.inicio) : undefined;
+  const plantaoQ = useQuery({
     queryKey: ['plantao', dataPlantao],
     queryFn: () => listarPlantao(dataPlantao),
-    enabled: open && !!dataPlantao,
+    enabled: open && !!dataPlantao && verEscalas,
+    retry: false,
   });
-  const hoje = new Date().toISOString().slice(0, 10);
+  const plantao = plantaoQ.data ?? [];
+  const hoje = diaBRDe(Date.now());
+
+  /** A demanda da triagem começa recolhida a cada atividade aberta. */
+  const [demandaInteira, setDemandaInteira] = useState(false);
+  useEffect(() => setDemandaInteira(false), [compromissoId]);
 
   /*
     ASSUMIR — o que a reserva existe para permitir.
@@ -100,7 +124,6 @@ export function CompromissoDrawer({
     uma decisão de um segundo. A rota é a mesma da edição, então o histórico
     registra "Responsável alterado" com nome e hora, como sempre registrou.
   */
-  const { user } = useAuth();
   const qc = useQueryClient();
   const assumir = useMutation({
     mutationFn: (id: string) => atualizarCompromisso(id, { responsavelId: user!.id }),
@@ -156,6 +179,20 @@ export function CompromissoDrawer({
   const filiado = c?.filiado;
   const atrasado = c ? estaAtrasado(c) : false;
 
+  /** Só vira botão o link que passa pela mesma regra do servidor. */
+  const linkAvaliado = c?.linkReuniao ? normalizarLinkReuniao(c.linkReuniao) : null;
+  const linkDaChamada = linkAvaliado?.ok ? linkAvaliado : null;
+
+  async function copiarLink() {
+    if (!linkDaChamada) return;
+    try {
+      await navigator.clipboard.writeText(linkDaChamada.url);
+      toast.success('Link da chamada copiado.');
+    } catch {
+      toast.error(`Não deu para copiar. O link é: ${linkDaChamada.url}`);
+    }
+  }
+
   function abrirWhatsApp() {
     if (!filiado || !c) return;
     if (!filiado.telefonePrincipal) return toast.error(`${V.Filiado} sem telefone cadastrado.`);
@@ -181,44 +218,78 @@ export function CompromissoDrawer({
             {c && <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', STATUS_COR[c.status])}>{STATUS_LABEL[c.status]}</span>}
             {c?.urgente && <SeloUrgente motivo={c.urgenteMotivo} desde={c.urgenteEm} />}
           </div>
-          <h3 className="truncate text-lg font-bold">{c?.titulo ?? 'Carregando…'}</h3>
+          <h3 className="truncate text-lg font-bold">{c?.titulo ?? (isError ? 'Atividade' : 'Carregando…')}</h3>
           {/* O selo diz QUE é urgente; aqui cabe o PORQUÊ por extenso — e é
               nesta tela que a decisão de "isto ainda é urgente?" é tomada. */}
           {c?.urgente && (
             <MotivoUrgencia motivo={c.urgenteMotivo} desde={c.urgenteEm} className="mt-2" />
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {c && (
-            <button type="button" onClick={() => { onEditar(c); }} title="Editar" className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+        {/* Editar e excluir moram aqui — no cartão, no celular, não cabiam no dedo. */}
+        <div className="-mr-2 flex shrink-0 items-center">
+          {c && podeEditarAgenda && (
+            <button type="button" onClick={() => { onEditar(c); }} title="Editar" aria-label="Editar" className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:h-9 sm:w-9">
               <Pencil className="h-4 w-4" />
             </button>
           )}
           {c && podeExcluir && onExcluir && (
-            <button type="button" onClick={() => onExcluir(c)} title="Excluir" className="rounded-lg p-2 text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30">
+            <button type="button" onClick={() => onExcluir(c)} title="Excluir" aria-label="Excluir" className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 sm:h-9 sm:w-9">
               <Trash2 className="h-4 w-4" />
             </button>
           )}
-          <button type="button" onClick={onClose} title="Fechar" className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <button type="button" onClick={onClose} title="Fechar" aria-label="Fechar" className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:h-9 sm:w-9">
             <X className="h-5 w-5" />
           </button>
         </div>
       </div>
 
-      {isLoading || !c ? (
-        <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
+      {isError && !c ? (
+        <div role="alert" className="flex-1 p-5 text-sm">
+          Não deu para abrir esta atividade. Ela pode ter sido excluída, ou a conexão caiu — feche e tente de novo.
+        </div>
+      ) : isLoading || !c ? (
+        <Carregando texto="Abrindo a atividade…" className="flex-1 p-5">
+          <EsqueletoLinhas quantidade={6} />
+        </Carregando>
       ) : (
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
           {/* Quando / onde */}
           <div className="space-y-1.5">
-            <p className={cn('flex items-center gap-2 text-sm', atrasado && 'font-medium text-red-600 dark:text-red-400')}>
+            {/* Ficou para trás é âmbar, como no painel e na faixa — nunca vermelho. */}
+            <p className={cn('flex flex-wrap items-center gap-2 text-sm', atrasado && 'font-medium text-amber-700 dark:text-amber-400')}>
               <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
               {formatData(c.inicio)} · {formatHora(c.inicio)}{c.fim ? ` – ${formatHora(c.fim)}` : ''}
-              {atrasado && <span className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white">Atrasada</span>}
+              {atrasado && (
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                  Ficou para trás
+                </span>
+              )}
             </p>
             {c.local && <p className="flex items-center gap-2 text-sm"><MapPin className="h-4 w-4 shrink-0 text-muted-foreground" /> {c.local}</p>}
+            {/*
+              A CHAMADA, A UM TOQUE — botão grande porque é a ação do momento:
+              quem abre a gaveta de uma consulta por vídeo às 10h está atrasado
+              para entrar nela. "Copiar" é para mandar ao filiado.
+            */}
+            {linkDaChamada && (
+              estaFechado(c.status) ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Video className="h-4 w-4 shrink-0" /> Chamada por {linkDaChamada.provedor}
+                </p>
+              ) : (
+                <div className="flex gap-2 pt-1">
+                  <Button className="h-12 min-w-0 flex-1 md:h-11" onClick={() => abrirChamada(c.linkReuniao)}>
+                    <Video className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Entrar na chamada · {linkDaChamada.provedor}</span>
+                  </Button>
+                  <Button variant="outline" className="h-12 md:h-11" onClick={copiarLink} aria-label="Copiar o link da chamada">
+                    <Copy className="h-4 w-4" /> Copiar
+                  </Button>
+                </div>
+              )
+            )}
             {c.status === 'EM_ANDAMENTO' && c.iniciadoEm && (
-              <p className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Em andamento há</span> <Cronometro desde={c.iniciadoEm} fimPrevisto={c.fim} tamanho="md" /></p>
+              <p className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Em andamento há</span> <Cronometro desde={c.iniciadoEm} fimPrevisto={c.fim} tipo={c.origemAutomatica ? null : c.tipo} tamanho="md" /></p>
             )}
             {c.dataOriginal && (
               <p className="flex flex-wrap items-center gap-1.5 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
@@ -380,45 +451,6 @@ export function CompromissoDrawer({
             </div>
           )}
 
-          {/* Ações — mesmo fluxo do card, com espaço para rótulos completos */}
-          {(onConcluir || onCancelar || onRemarcar || onAcao) && (
-            <div className="flex flex-wrap gap-2">
-              {c.status === 'PENDENTE' && onAcao && (
-                <Button size="sm" onClick={() => onAcao(c.id, 'EM_ANDAMENTO')}>
-                  <Play className="h-4 w-4" /> Iniciar
-                </Button>
-              )}
-              {(c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO') && (
-                <>
-                  {onConcluir && (
-                    <Button
-                      size="sm"
-                      variant={c.status === 'EM_ANDAMENTO' ? 'default' : 'outline'}
-                      onClick={() => onConcluir(c)}
-                    >
-                      <CheckCircle2 className="h-4 w-4" /> Concluir
-                    </Button>
-                  )}
-                  {onRemarcar && (
-                    <Button size="sm" variant="outline" onClick={() => onRemarcar(c)}>
-                      <CalendarClock className="h-4 w-4" /> Remarcar
-                    </Button>
-                  )}
-                  {onCancelar && (
-                    <Button size="sm" variant="outline" onClick={() => onCancelar(c)}>
-                      <Ban className="h-4 w-4" /> Cancelar
-                    </Button>
-                  )}
-                </>
-              )}
-              {(c.status === 'CONCLUIDO' || c.status === 'CANCELADO') && onAcao && (
-                <Button size="sm" variant="outline" onClick={() => onAcao(c.id, 'PENDENTE')}>
-                  <RotateCcw className="h-4 w-4" /> Reabrir
-                </Button>
-              )}
-            </div>
-          )}
-
           {/* Filiado */}
           {filiado && (
             <div className="rounded-xl border p-4">
@@ -474,7 +506,7 @@ export function CompromissoDrawer({
                   <span>
                     {textoDaAusencia(c.ausenciaDoResponsavel)}
                     {(c.equipe ?? []).some((e) => !e.principal && ehReserva(e)) &&
-                      ' Os advogados do caso já estão sendo avisados — quem puder, assuma.'}
+                      ' Os advogados do caso serão avisados no painel e no aviso do topo quando entrarem — quem puder, assuma.'}
                   </span>
                 </p>
               )}
@@ -556,7 +588,7 @@ export function CompromissoDrawer({
                           )}
                         </div>
                         {/* Só aparece para quem pode agir: eu, e só se ainda não for meu. */}
-                        {user?.id === e.usuario.id && !estaFechado(c.status) && (
+                        {podeEditarAgenda && user?.id === e.usuario.id && !estaFechado(c.status) && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -591,8 +623,8 @@ export function CompromissoDrawer({
                     Reservas são os outros advogados do processo.
                     {' '}A tarefa não aparece como deles até ninguém estar cuidando:
                     {' '}se o responsável ficar uma semana sem entrar no sistema, ou se o dia marcado
-                    passar, eles são avisados no painel e no aviso do topo. Quem tocar em Assumir vira o
-                    responsável.
+                    passar, eles serão avisados no painel e no aviso do topo quando entrarem. Quem tocar em
+                    Assumir vira o responsável.
                   </p>
                 )}
               </Bloco>
@@ -642,7 +674,38 @@ export function CompromissoDrawer({
                   <div className="flex flex-wrap items-center gap-1.5 text-sm">
                     <span className="font-medium text-muted-foreground">#{c.atendimento.numero}</span>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{CANAL_LABEL[c.atendimento.canal as CanalAtendimento] ?? c.atendimento.canal}</span>
+                    {rotuloDoAssunto(c.atendimento.assunto, c.atendimento.assuntoOutro) && (
+                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-300">
+                        {rotuloDoAssunto(c.atendimento.assunto, c.atendimento.assuntoOutro)}
+                      </span>
+                    )}
                   </div>
+                  {/*
+                    O QUE O FILIADO PEDIU — a razão de a consulta existir. A API
+                    sempre mandou e a gaveta não mostrava: o advogado precisava
+                    abrir a triagem inteira, e no celular, na hora da chamada, é
+                    exatamente o que não se faz.
+                  */}
+                  {c.atendimento.descricao && (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        O que foi pedido
+                      </p>
+                      <p className={cn('mt-0.5 whitespace-pre-wrap text-sm', !demandaInteira && 'line-clamp-3')}>
+                        {c.atendimento.descricao}
+                      </p>
+                      {(c.atendimento.descricao.length > DEMANDA_CURTA || c.atendimento.descricao.split('\n').length > 3) && (
+                        <button
+                          type="button"
+                          onClick={() => setDemandaInteira((v) => !v)}
+                          aria-expanded={demandaInteira}
+                          className="mt-0.5 min-h-9 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
+                        >
+                          {demandaInteira ? 'Mostrar menos' : 'Ver tudo'}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                     <UserCog className="h-3.5 w-3.5" /> Triagem por <strong className="text-foreground">{c.atendimento.atendente.nomeExibicao || c.atendimento.atendente.nome}</strong> · {formatDataHora(c.atendimento.createdAt)}
                   </p>
@@ -702,9 +765,14 @@ export function CompromissoDrawer({
           {/* Linha do tempo: quem mexeu na atividade e o que fez. */}
           <HistoricoAtividade compromissoId={c.id} />
 
-          {/* Plantão do dia */}
+          {/* Plantão do dia — só para quem vê a escala. */}
+          {verEscalas && (
           <Bloco titulo={`Plantão do dia · ${formatData(c.inicio)}`}>
-            {plantao.length === 0 ? (
+            {plantaoQ.isLoading ? (
+              <EsqueletoLinhas quantidade={2} altura={36} />
+            ) : plantaoQ.isError ? (
+              <p className="text-sm text-muted-foreground">Não deu para carregar a escala deste dia.</p>
+            ) : plantao.length === 0 ? (
               <p className="text-sm text-muted-foreground">Ninguém de plantão nesta data.</p>
             ) : (
               <ul className="space-y-1.5">
@@ -727,6 +795,7 @@ export function CompromissoDrawer({
               </ul>
             )}
           </Bloco>
+          )}
 
           {/* Documentos da atividade.
               Os anexos da triagem/processo de origem aparecem HERDADOS, em bloco
@@ -746,6 +815,55 @@ export function CompromissoDrawer({
                   : undefined
             }
           />
+        </div>
+      )}
+
+      {/*
+        AS AÇÕES FICAM NO RODAPÉ, SEMPRE À MÃO. Vinham no meio da gaveta, depois
+        do desfecho, dos passos e do teor da publicação — no celular, era rolar
+        uma intimação inteira para achar "Concluir". O botão cheio segue a
+        mesma regra do cartão (D7).
+      */}
+      {c && !isLoading && podeEditarAgenda && (onConcluir || onCancelar || onRemarcar || onAcao) && (
+        <div className="grid grid-cols-2 gap-2 border-t bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex sm:flex-wrap sm:justify-end">
+          {c.status === 'PENDENTE' && onAcao && acaoPrincipalDoCartao(c) === 'INICIAR' && (
+            <Button onClick={() => onAcao(c.id, 'EM_ANDAMENTO')}>
+              <Play className="h-4 w-4" /> Iniciar
+            </Button>
+          )}
+          {!estaFechado(c.status) && onConcluir && (
+            <Button
+              variant={c.status === 'EM_ANDAMENTO' || acaoPrincipalDoCartao(c) === 'CONCLUIR' ? 'default' : 'outline'}
+              onClick={() => onConcluir(c)}
+            >
+              <CheckCircle2 className="h-4 w-4" /> Concluir
+            </Button>
+          )}
+          {c.status === 'PENDENTE' && onAcao && acaoPrincipalDoCartao(c) === 'CONCLUIR' && (
+            <Button variant="outline" onClick={() => onAcao(c.id, 'EM_ANDAMENTO')}>
+              <Play className="h-4 w-4" /> Iniciar
+            </Button>
+          )}
+          {c.status === 'EM_ANDAMENTO' && onAcao && (
+            <Button variant="outline" onClick={() => onAcao(c.id, 'PENDENTE')}>
+              <RotateCcw className="h-4 w-4" /> Voltar a pendente
+            </Button>
+          )}
+          {!estaFechado(c.status) && onRemarcar && (
+            <Button variant="outline" onClick={() => onRemarcar(c)}>
+              <CalendarClock className="h-4 w-4" /> Remarcar
+            </Button>
+          )}
+          {!estaFechado(c.status) && onCancelar && (
+            <Button variant="outline" onClick={() => onCancelar(c)}>
+              <Ban className="h-4 w-4" /> Cancelar
+            </Button>
+          )}
+          {estaFechado(c.status) && onAcao && (
+            <Button variant="outline" className="col-span-2" onClick={() => onAcao(c.id, 'PENDENTE')}>
+              <RotateCcw className="h-4 w-4" /> Reabrir
+            </Button>
+          )}
         </div>
       )}
     </Sheet>

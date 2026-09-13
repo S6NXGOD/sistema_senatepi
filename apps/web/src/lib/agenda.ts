@@ -56,8 +56,16 @@ export async function conflitosDeAgenda(p: {
   inicio: string;
   fim: string;
   ignorarId?: string;
+  /**
+   * Responsável e participantes, separados por vírgula. Quem vai "atuar junto"
+   * também tem agenda: conferir só o responsável deixava passar o choque do
+   * segundo advogado. A API antiga ignora o campo e confere `responsavelId`.
+   */
+  pessoas?: string;
 }): Promise<ChoqueDeAgenda[]> {
-  return (await api.get('/compromissos/conflitos', { params: p })).data;
+  const params: Record<string, string> = {};
+  for (const [k, v] of Object.entries(p)) if (v) params[k] = String(v);
+  return (await api.get('/compromissos/conflitos', { params })).data;
 }
 
 export interface ProcessoRef {
@@ -101,6 +109,14 @@ export interface SeguimentoSpec {
   emDias: number;
   /** Quando true, a criação não pode ser desmarcada. */
   obrigatorio?: boolean;
+  /**
+   * A DATA QUE O SERVIDOR VAI USAR (ISO), já em dia útil às 9h de Teresina.
+   *
+   * A tela mostra esta, e não soma `emDias` no navegador: somar dias corridos
+   * aqui caía no sábado enquanto o servidor gravava na segunda, e a prévia
+   * mentia. Opcional pela janela de troca — sem ela, a tela não promete dia.
+   */
+  sugeridoPara?: string;
 }
 
 /** Opção de desfecho, como a API descreve. */
@@ -130,6 +146,11 @@ export interface Compromisso {
   inicio: string;
   fim: string;
   local: string | null;
+  /**
+   * Endereço da chamada (Meet, Zoom, Teams, Jitsi…), já normalizado pela API.
+   * Opcional pela janela de troca: a API antiga não manda.
+   */
+  linkReuniao?: string | null;
   descricao: string | null;
   urgente: boolean;
   /** POR QUE é urgente. Nulo em registros antigos, migrados da etiqueta. */
@@ -251,15 +272,15 @@ export interface CompromissoDetalhe extends Compromisso {
     numero: number;
     canal: string;
     desfecho: string | null;
+    /** O que o filiado veio pedir — a demanda escrita na triagem. */
     descricao: string;
+    /** Slug do assunto do atendimento. Opcional pela janela de troca. */
+    assunto?: string | null;
+    /** Texto de "Qual assunto?" quando o assunto é OUTRO. */
+    assuntoOutro?: string | null;
     createdAt: string;
     atendente: { id: string; nome: string; nomeExibicao: string | null };
   } | null;
-}
-
-export interface AlertasAgenda {
-  aguardando: Compromisso[];
-  proximas24h: Compromisso[];
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +356,7 @@ export const DESFECHO_LABEL: Record<string, string> = {
   // Prazo
   PRAZO_CUMPRIDO: 'Peça protocolada',
   PRAZO_PERDIDO: 'Prazo perdido',
+  PRAZO_SEM_PECA: 'Analisado — nada a protocolar',
   // Reunião
   REUNIAO_COM_ENCAMINHAMENTOS: 'Com encaminhamentos',
   REUNIAO_SEM_DELIBERACAO: 'Sem deliberação',
@@ -379,6 +401,11 @@ export const rotuloDesfecho = (slug?: string | null): string =>
   slug ? (DESFECHO_LABEL[slug] ?? slug) : '';
 
 export const CATEGORIA_CANCELAMENTO_LABEL: Record<string, string> = {
+  /**
+   * Só o sistema grava (reconclusão da atividade de origem). Sem o rótulo aqui a
+   * gaveta mostrava o código cru "SUBSTITUIDA". Mesmo texto do catálogo da API.
+   */
+  SUBSTITUIDA: 'Substituída por nova conclusão',
   NAO_COMPARECEU: `${V.Filiado} não compareceu`,
   DESISTENCIA: `${V.Filiado} desistiu`,
   ADIADA_JUIZO: 'Adiada pelo juízo/órgão',
@@ -490,6 +517,64 @@ function diaBR(instante: number): string {
   return new Date(instante - 3 * 3_600_000).toISOString().slice(0, 10);
 }
 
+/**
+ * 'AAAA-MM-DD' do dia de Teresina em que o instante cai. Teresina não tem
+ * horário de verão: UTC−3 fixo. Cortar o ISO em UTC (`toISOString().slice`)
+ * trocava o dia depois das 21h — a gaveta buscava o plantão de amanhã.
+ */
+export function diaBRDe(instante: string | number | Date): string {
+  const t = instante instanceof Date ? instante.getTime() : typeof instante === 'number' ? instante : new Date(instante).getTime();
+  return diaBR(t);
+}
+
+/** Milissegundos do início (00:00 de Teresina) do dia em que `agora` cai. */
+export function inicioDoDiaBRMs(agora: number = Date.now()): number {
+  return new Date(`${diaBR(agora)}T00:00:00-03:00`).getTime();
+}
+
+const FUSO_BR_MS = 3 * 3_600_000;
+
+/** A data da atividade é de um dia que já passou (em Teresina)? */
+export function dataJaPassou(iso: string, agora: number = Date.now()): boolean {
+  return diaBR(new Date(iso).getTime()) < diaBR(agora);
+}
+
+/**
+ * O NOVO INÍCIO DE UM ATALHO DO REMARCAR ("Amanhã", "Em 3 dias"…).
+ *
+ * Somava à data ANTIGA: a tarefa de 02/09 remarcada em 12/09 com "Amanhã" ia
+ * para 03/09 — continuava atrasada, ganhava +1 no contador, e a pessoa achava
+ * que tinha resolvido. E quem remarca é justamente quem está atrasado.
+ *
+ * Agora: se o dia marcado já passou, os dias contam a partir de HOJE. A HORA
+ * da atividade se mantém (a audiência das 9h continua às 9h). Tudo no relógio
+ * de Teresina, que é fixo em UTC−3, para não depender do fuso do navegador.
+ */
+export function novoInicioPorAtalho(inicioIso: string, dias: number, agora: number = Date.now()): string {
+  const inicio = new Date(inicioIso).getTime();
+  // Com o deslocamento, os campos UTC deste Date SÃO o relógio de Teresina.
+  const relogio = new Date(inicio - FUSO_BR_MS);
+  const dia = dataJaPassou(inicioIso, agora) ? new Date(agora - FUSO_BR_MS) : relogio;
+  const alvo = Date.UTC(
+    dia.getUTCFullYear(),
+    dia.getUTCMonth(),
+    dia.getUTCDate() + dias,
+    relogio.getUTCHours(),
+    relogio.getUTCMinutes(),
+  );
+  return new Date(alvo + FUSO_BR_MS).toISOString();
+}
+
+/**
+ * O servidor recusa remarcar para antes do INÍCIO DE HOJE (Teresina). Hora que
+ * já passou hoje continua valendo: remarcar para "hoje às 8h" às 10h é registrar
+ * o que aconteceu, não um erro.
+ */
+export function remarcacaoPermitida(novoInicioIso: string, agora: number = Date.now()): boolean {
+  const t = new Date(novoInicioIso).getTime();
+  return Number.isFinite(t) && t >= inicioDoDiaBRMs(agora);
+}
+
 export function estadoDoPrazo(c: {
   inicio: string;
   status: StatusCompromisso;
@@ -551,14 +636,11 @@ export interface CriarCompromissoInput {
   filiadoId?: string;
   atendimentoId?: string;
   processoId?: string;
+  /** Link da chamada. `null` apaga; a API normaliza e recusa o que não é https. */
+  linkReuniao?: string | null;
 }
 export async function criarCompromisso(dto: CriarCompromissoInput) {
   return (await api.post('/compromissos', dto)).data;
-}
-
-/** Alertas da agenda: aguardando interação (+3h) e próximas 24h. */
-export async function listarAlertas(): Promise<AlertasAgenda> {
-  return (await api.get('/compromissos/alertas')).data;
 }
 
 /** Tempo relativo curto: "em 13min", "há 27d", "agora". */
@@ -643,11 +725,47 @@ export function duracaoEntre(
  */
 export const HORAS_ATE_CRONOMETRO_ESQUECIDO = 6;
 
+/**
+ * TIPOS QUE TÊM HORA MARCADA DE VERDADE — a pessoa está num lugar, com alguém,
+ * das 9h às 10h. Nesses, "Iniciar" é o gesto natural e o cronômetro que vira a
+ * noite é esquecimento.
+ *
+ * O resto é TAREFA (prazo, acompanhamento, contato, despacho, diligência e
+ * tudo que o robô cria): o horário do cartão é só onde ela caiu no dia, e o
+ * trabalho dura o dia inteiro. Medido em 12/09/2026: PRAZO passou por Iniciar
+ * em 4 de 12 conclusões, DILIGENCIA em 4 de 11, ACOMPANHAMENTO em 0 de 3 —
+ * contra 18 de 22 na consulta e 5 de 5 na reunião.
+ */
+export const TIPOS_COM_HORA: readonly string[] = ['CONSULTA_JURIDICA', 'REUNIAO', 'AUDIENCIA', 'PERICIA'];
+
+export function temHoraMarcada(tipo: string | null | undefined): boolean {
+  return !!tipo && TIPOS_COM_HORA.includes(tipo);
+}
+
+/**
+ * QUAL É O BOTÃO CHEIO DO CARTÃO: Iniciar para quem tem hora marcada, Concluir
+ * para tarefa. Tarefa do robô é sempre tarefa, mesmo que o tipo seja de hora.
+ */
+export function acaoPrincipalDoCartao(c: {
+  tipo: string;
+  origemAutomatica?: boolean;
+}): 'INICIAR' | 'CONCLUIR' {
+  if (c.origemAutomatica) return 'CONCLUIR';
+  return temHoraMarcada(c.tipo) ? 'INICIAR' : 'CONCLUIR';
+}
+
 export function cronometroEsquecido(
   fimPrevistoIso: string | null | undefined,
   agora: number = Date.now(),
+  /**
+   * Com o tipo, só acusa esquecimento em atividade com hora marcada. Numa
+   * tarefa o fim previsto é o início + 30 min que o robô escolheu, e o aviso
+   * acendia seis horas depois num trabalho que naturalmente dura o dia.
+   */
+  tipo?: string | null,
 ): boolean {
   if (!fimPrevistoIso) return false;
+  if (tipo !== undefined && !temHoraMarcada(tipo)) return false;
   const alem = (agora - new Date(fimPrevistoIso).getTime()) / 3_600_000;
   return alem > HORAS_ATE_CRONOMETRO_ESQUECIDO;
 }
@@ -673,11 +791,18 @@ export function cronometroHMS(iso: string | null | undefined, agora: number = Da
  */
 export function ehMinha(c: Compromisso, meuId?: string): boolean {
   if (!meuId) return false;
-  return c.responsavel?.id === meuId || !!c.equipe?.some((e) => e.usuario.id === meuId);
+  // A reserva posta pelo robô NÃO faz a atividade ser minha — é a régua
+  // `daPessoa` da API. Contá-la aqui dava "Minhas 7" na agenda e 3 no painel.
+  return (
+    c.responsavel?.id === meuId ||
+    !!c.equipe?.some((e) => e.usuario.id === meuId && !ehReserva(e))
+  );
 }
 
 /** Reserva do robô: aparece na atividade, mas não é pendência de ninguém. */
-export const ehReserva = (e: { origem?: string | null }): boolean => e.origem === 'AUTOMATICA';
+export function ehReserva(e: { origem?: string | null }): boolean {
+  return e.origem === 'AUTOMATICA';
+}
 
 export interface FiltroCompromissos {
   status?: StatusCompromisso;
@@ -692,14 +817,188 @@ export interface FiltroCompromissos {
   filiadoId?: string;
   /** "true" traz só as marcadas como urgentes. */
   urgente?: string;
+  /** Título, nome do filiado, NPU (só dígitos) e nome de parte. */
   busca?: string;
   dataInicio?: string;
   dataFim?: string;
+  /** Recorte calculado no SERVIDOR (mesma regra dos contadores e do painel). */
+  recorte?: RecorteAgenda;
+  /** Régua `daPessoa`: responde ou foi posta ali por gente (reserva fora). */
+  pessoa?: string;
+  /** Só as atividades em que a pessoa é reserva do robô. */
+  reservaDe?: string;
+  /** Com `responsavel`/`responsaveis`: só quem RESPONDE, sem a equipe. */
+  somenteResponsavel?: string;
 }
-export async function listarCompromissos(filtro: FiltroCompromissos = {}): Promise<Compromisso[]> {
+
+function paraParams(filtro: object): Record<string, string> {
   const params: Record<string, string> = {};
   for (const [k, v] of Object.entries(filtro)) if (v) params[k] = String(v);
-  return (await api.get('/compromissos', { params })).data;
+  return params;
+}
+
+export async function listarCompromissos(filtro: FiltroCompromissos = {}): Promise<Compromisso[]> {
+  return (await api.get('/compromissos', { params: paraParams(filtro) })).data;
+}
+
+// ---------------------------------------------------------------------------
+// Recortes (abas) — a regra mora na API; aqui só o vocabulário e a URL
+// ---------------------------------------------------------------------------
+
+/** Valores de `?aba=` e do parâmetro `recorte` da listagem (C1/C11). */
+export type RecorteAgenda = 'hoje' | 'atrasadas' | 'atencao' | '7dias' | 'aberto' | 'todos';
+
+/** Resposta de GET /compromissos/recortes — contagens por count() no servidor. */
+export interface ContagemRecortes {
+  hoje: number;
+  atrasadas: number;
+  atencao: number;
+  seteDias: number;
+  aberto: number;
+  todos: number;
+  urgentes: number;
+}
+
+export const RECORTE_PADRAO: RecorteAgenda = 'hoje';
+
+/**
+ * As abas, na ordem da tela. `chave` é o campo de `ContagemRecortes` — o
+ * número da aba é o count() do MESMO recorte que a lista abre.
+ */
+export const RECORTES: readonly {
+  valor: RecorteAgenda;
+  rotulo: string;
+  chave: keyof ContagemRecortes;
+  ajuda: string;
+}[] = [
+  { valor: 'hoje', rotulo: 'Hoje', chave: 'hoje', ajuda: 'O que é de hoje e o que ficou para trás' },
+  { valor: 'atrasadas', rotulo: 'Ficaram para trás', chave: 'atrasadas', ajuda: 'Abertas de dias anteriores' },
+  { valor: 'atencao', rotulo: 'Pedem atenção', chave: 'atencao', ajuda: 'Ficaram para trás ou já passaram da hora hoje' },
+  { valor: '7dias', rotulo: '7 dias', chave: 'seteDias', ajuda: 'Até daqui a uma semana, com o que ficou para trás' },
+  { valor: 'aberto', rotulo: 'Em aberto', chave: 'aberto', ajuda: 'Tudo que está pendente ou em andamento' },
+  { valor: 'todos', rotulo: 'Todas', chave: 'todos', ajuda: 'Últimos 60 dias, as próximas e as abertas' },
+];
+
+export function ehRecorte(v: string | null | undefined): v is RecorteAgenda {
+  return !!v && RECORTES.some((r) => r.valor === v);
+}
+
+/**
+ * O que a URL da agenda pede, já resolvido — função pura, para o painel e a
+ * agenda lerem a MESMA tradução de `?aba=&pessoa=eu&...` (C11).
+ *
+ * `eu` vira o id de quem está logado; sem sessão ainda, a pessoa fica de fora
+ * (e `aguardandoSessao` avisa a tela para não mostrar a casa inteira como se
+ * fosse a carteira da pessoa).
+ */
+export interface EstadoDaUrlDaAgenda {
+  aba: RecorteAgenda;
+  pessoa?: string;
+  reservaDe?: string;
+  /** Um ou mais ids, separados por vírgula. */
+  responsaveis?: string;
+  somenteResponsavel: boolean;
+  tipo?: string;
+  urgentes: boolean;
+  compromisso?: string;
+  busca?: string;
+  /** `pessoa=eu` ou `reservaDe=eu` sem o id da sessão ainda carregado. */
+  aguardandoSessao: boolean;
+}
+
+export function lerUrlDaAgenda(
+  sp: { get(nome: string): string | null },
+  meuId?: string | null,
+): EstadoDaUrlDaAgenda {
+  let aguardandoSessao = false;
+  const resolver = (v: string | null): string | undefined => {
+    if (!v) return undefined;
+    if (v === 'eu') {
+      if (!meuId) {
+        aguardandoSessao = true;
+        return undefined;
+      }
+      return meuId;
+    }
+    return v;
+  };
+  const abaBruta = sp.get('aba');
+  // `?aba=urgentes` era a aba antiga: hoje é o filtro Urgentes sobre "Em aberto".
+  const urgentesPelaAba = abaBruta === 'urgentes';
+  const aba: RecorteAgenda = ehRecorte(abaBruta) ? abaBruta : urgentesPelaAba ? 'aberto' : RECORTE_PADRAO;
+  const responsaveis = sp.get('responsaveis') || sp.get('responsavel') || undefined;
+  const flag = (n: string) => {
+    const v = sp.get(n);
+    return v === '1' || v === 'true';
+  };
+  return {
+    aba,
+    pessoa: resolver(sp.get('pessoa')),
+    reservaDe: resolver(sp.get('reservaDe')),
+    responsaveis,
+    somenteResponsavel: !!responsaveis && flag('somenteResponsavel'),
+    tipo: sp.get('tipo') || undefined,
+    urgentes: urgentesPelaAba || flag('urgentes'),
+    compromisso: sp.get('compromisso') || undefined,
+    busca: sp.get('busca') || undefined,
+    aguardandoSessao,
+  };
+}
+
+/**
+ * Filtros que a tela manda ao servidor, SEM o recorte — o mesmo objeto vai para
+ * a listagem (com `recorte`) e para os contadores (sem ele). Assim o número da
+ * aba e a lista que ela abre não têm como divergir por filtro esquecido.
+ */
+export function filtroDoServidor(e: {
+  pessoa?: string;
+  reservaDe?: string;
+  responsaveis?: string;
+  somenteResponsavel?: boolean;
+  tipo?: string;
+  urgentes?: boolean;
+  busca?: string;
+}): Omit<FiltroCompromissos, 'recorte'> {
+  const f: Omit<FiltroCompromissos, 'recorte'> = {};
+  if (e.pessoa) f.pessoa = e.pessoa;
+  if (e.reservaDe) f.reservaDe = e.reservaDe;
+  if (e.responsaveis) {
+    f.responsaveis = e.responsaveis;
+    if (e.somenteResponsavel) f.somenteResponsavel = '1';
+  }
+  if (e.tipo) f.tipo = e.tipo;
+  if (e.urgentes) f.urgente = 'true';
+  const busca = e.busca?.trim();
+  if (busca) f.busca = busca;
+  return f;
+}
+
+/**
+ * Quantos filtros a pessoa LIGOU. A aba nunca conta (toda tela tem uma), e
+ * a aba padrão também não — senão a linha "1 filtro ativo" aparecia sempre.
+ */
+export function contarFiltrosAtivos(e: {
+  pessoa?: string;
+  reservaDe?: string;
+  responsaveis?: string;
+  tipo?: string;
+  urgentes?: boolean;
+  busca?: string;
+}): number {
+  let n = 0;
+  if (e.pessoa) n++;
+  if (e.reservaDe) n++;
+  if (e.responsaveis) n++;
+  if (e.tipo) n++;
+  if (e.urgentes) n++;
+  if (e.busca?.trim()) n++;
+  return n;
+}
+
+export async function buscarRecortes(
+  filtro: Omit<FiltroCompromissos, 'recorte'> = {},
+): Promise<ContagemRecortes> {
+  return (await api.get('/compromissos/recortes', { params: paraParams(filtro) })).data;
 }
 
 export async function getCompromisso(id: string): Promise<CompromissoDetalhe> {
@@ -743,7 +1042,11 @@ export interface ConcluirInput {
   };
   /** `false` dispensa o seguimento SUGERIDO; o obrigatório ignora este campo. */
   criarSeguimento?: boolean;
+  /** De onde veio o gesto — só vai para o histórico e a auditoria. */
+  origem?: OrigemDaConclusao;
 }
+
+export type OrigemDaConclusao = 'PAINEL' | 'AGENDA' | 'GAVETA';
 
 /** Resposta da conclusão — traz o que o desfecho criou junto. */
 export interface ConcluirResposta extends Compromisso {
@@ -761,6 +1064,37 @@ export interface ConcluirResposta extends Compromisso {
 
 export async function concluirCompromisso(id: string, dto: ConcluirInput): Promise<ConcluirResposta> {
   return (await api.patch(`/compromissos/${id}/concluir`, dto)).data;
+}
+
+/**
+ * DESFAZ UMA CONCLUSÃO RECENTE (o "Desfazer" do aviso).
+ *
+ * A API aceita só de quem concluiu, até 120 s depois, e só se a conclusão não
+ * criou seguimento nem processo/vínculo; devolve o status anterior e apaga o
+ * andamento automático que ELA escreveu. Fora disso responde 400 com a frase
+ * que a tela mostra.
+ */
+export const JANELA_DESFAZER_CONCLUSAO_MS = 120_000;
+
+export async function desfazerConclusao(id: string): Promise<Compromisso> {
+  return (await api.patch(`/compromissos/${id}/desfazer-conclusao`)).data;
+}
+
+/**
+ * Esta conclusão ainda PODE ser desfeita? Espelho da regra da API, só para a
+ * tela não oferecer o botão que seria recusado. A palavra final é do servidor.
+ */
+export function podeDesfazerConclusao(
+  r: Pick<ConcluirResposta, 'seguimentoCriado' | 'preProcessualCriado' | 'desfecho'> & {
+    concluidoEm?: string | null;
+  },
+  agora: number = Date.now(),
+): boolean {
+  if (r.seguimentoCriado || r.preProcessualCriado) return false;
+  if (r.desfecho === 'VINCULADO_PROCESSO' || r.desfecho === 'PROCESSO_CRIADO') return false;
+  if (!r.concluidoEm) return true;
+  const passou = agora - new Date(r.concluidoEm).getTime();
+  return Number.isFinite(passou) && passou < JANELA_DESFAZER_CONCLUSAO_MS;
 }
 
 /**

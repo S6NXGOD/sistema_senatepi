@@ -108,13 +108,41 @@ export const enviarRecadastro = (token: string, dados: Record<string, unknown>) 
     body: JSON.stringify(dados),
   });
 
+/** As respostas do desafio, como a pessoa digitou na primeira tela. */
+export interface ConfirmacaoDeIdentidade {
+  cpf?: string;
+  dataNascimento?: string;
+  coren?: string;
+}
+
+/**
+ * O MULTIPART DA FOTO LEVA O DESAFIO (13/09/2026).
+ *
+ * Bastava o token para trocar a foto da carteirinha, e a anterior some do
+ * storage. Agora a API confere as mesmas respostas do /validar, e o erro conta
+ * nas mesmas tentativas. Vai só o que foi preenchido: link sem desafio manda só
+ * a foto.
+ */
+export function formularioDaFoto(foto: Blob, confirmacao: ConfirmacaoDeIdentidade = {}): FormData {
+  const fd = new FormData();
+  for (const campo of ['cpf', 'dataNascimento', 'coren'] as const) {
+    const valor = confirmacao[campo];
+    if (valor) fd.append(campo, valor);
+  }
+  fd.append('foto', foto, 'foto.webp');
+  return fd;
+}
+
 /**
  * Troca a foto. Precisa ir ANTES do envio — depois o link já está queimado.
  * Sem `Content-Type` manual: o browser monta o boundary do multipart.
  */
-export async function enviarFotoRecadastro(token: string, foto: Blob) {
-  const fd = new FormData();
-  fd.append('foto', foto, 'foto.webp');
+export async function enviarFotoRecadastro(
+  token: string,
+  foto: Blob,
+  confirmacao: ConfirmacaoDeIdentidade = {},
+) {
+  const fd = formularioDaFoto(foto, confirmacao);
   const r = await fetch(`${BASE}/recadastro/${token}/foto`, { method: 'POST', body: fd });
   if (!r.ok) {
     const corpo = await r.text();
@@ -164,3 +192,55 @@ export const ROTULO: Record<string, string> = {
   ENFERMEIRO: 'Enfermeiro(a)', TECNICO_ENFERMAGEM: 'Técnico(a) de Enfermagem',
   AUXILIAR_ENFERMAGEM: 'Auxiliar de Enfermagem',
 };
+
+// ---------------------------------------------------------------------------
+// Conferência do que o filiado mandou pelo link (tela da equipe)
+// ---------------------------------------------------------------------------
+
+const DATA_PURA = /^(\d{4})-(\d{2})-(\d{2})(T00:00:00(\.0+)?Z)?$/;
+
+/**
+ * Um valor do de→para em texto de gente.
+ *
+ * Data pura ("1980-05-02" ou meia-noite UTC) é recortada do texto, nunca passa
+ * por `new Date` — no fuso de Teresina ela andaria um dia para trás. Vazio é
+ * "vazio", e não um traço: na conferência, "estava vazio e agora tem" é a
+ * informação.
+ */
+export function valorDaAlteracao(valor: unknown): string {
+  if (valor === null || valor === undefined) return 'vazio';
+  if (typeof valor === 'boolean') return valor ? 'Sim' : 'Não';
+  if (typeof valor === 'number') return Number.isFinite(valor) ? String(valor) : 'vazio';
+  if (typeof valor === 'string') {
+    const t = valor.trim();
+    if (!t) return 'vazio';
+    const d = DATA_PURA.exec(t);
+    if (d) return `${d[3]}/${d[2]}/${d[1]}`;
+    return ROTULO[t] ?? t;
+  }
+  if (Array.isArray(valor)) {
+    if (valor.length === 0) return 'nenhum';
+    return valor
+      .map((item) => {
+        if (item && typeof item === 'object') {
+          const o = item as Record<string, unknown>;
+          const nome = o.nome ?? o.empresa ?? o.rotulo;
+          if (typeof nome === 'string' && nome.trim()) return nome.trim();
+          return JSON.stringify(item);
+        }
+        return valorDaAlteracao(item);
+      })
+      .join('; ');
+  }
+  return JSON.stringify(valor);
+}
+
+/**
+ * O que ainda espera conferência: o que veio pelo link (ONLINE) e segue
+ * PENDENTE. O presencial já nasce APROVADO — quem preencheu foi a equipe.
+ */
+export function recadastramentosAConferir<
+  T extends { status: string; origem?: 'ONLINE' | 'PRESENCIAL' },
+>(lista: T[] | null | undefined): T[] {
+  return (lista ?? []).filter((r) => r.status === 'PENDENTE' && r.origem !== 'PRESENCIAL');
+}

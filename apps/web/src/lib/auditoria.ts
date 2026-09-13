@@ -207,6 +207,9 @@ const NOME_DO_MODELO: Record<string, string> = {
   User: 'Usuário do sistema',
   ColoniaReserva: 'Reserva da colônia',
   AnexoDocumento: 'Anexo',
+  // 13/09/2026: entidades novas do recadastro online (link preparado e resposta conferida).
+  LinkRecadastramento: 'Link de recadastramento',
+  Recadastramento: 'Recadastramento',
 };
 
 export function rotuloDaEntidade(e: string | null): string {

@@ -3,22 +3,35 @@
  */
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { montarDocumento, type BlocoDoPdf } from './pdf-documento';
+import { TOPO_DAS_PAGINAS_SEGUINTES, montarDocumento, pareceJpeg, type BlocoDoPdf } from './pdf-documento';
 import { PALETA } from './pdf-graficos';
 
 const CAPA = {
   faixa: 'Relatorio de teste',
   titulo:
     'Relatório do sindicato — um título comprido o bastante para quebrar em duas linhas na capa do documento',
-  apoio: 'Período: setembro de 2026 · Toda a equipe · Emitido por Ana',
+  periodo: '1º a 30 de setembro de 2026',
+  apoio: 'Toda a equipe · Emitido por Ana em 13/09/2026',
   observacao: 'Números apresentados na assembleia.',
 };
 
+/** Uma miniatura JPEG de verdade (16 px), do mesmo formato que a API manda. */
+const JPEG_PEQUENO =
+  'data:image/jpeg;base64,/9j/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAQABADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/ALABjT//2Q==';
+
 function gerar(blocos: BlocoDoPdf[]) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  montarDocumento(doc, autoTable, CAPA, blocos, null);
-  return doc;
+  const desenho = montarDocumento(doc, autoTable, CAPA, blocos, null);
+  return Object.assign(doc, { desenho });
 }
+
+const PESSOA = {
+  tipo: 'pessoa' as const,
+  nome: 'Dra. Ana Lima',
+  linha: 'Advogada · último acesso há 3 dias',
+  iniciais: 'AL',
+  cor: { fundo: [208, 226, 158] as [number, number, number], texto: [20, 94, 7] as [number, number, number] },
+};
 
 const TODOS_OS_BLOCOS: BlocoDoPdf[] = [
   { tipo: 'destaque', rotulo: 'Antes de ler', texto: 'Estes números mostram o que foi registrado no sistema.' },
@@ -36,6 +49,33 @@ const TODOS_OS_BLOCOS: BlocoDoPdf[] = [
       { rotulo: 'Quinto cartão, que abre outra fileira', valor: '7' },
     ],
   },
+  PESSOA,
+  { ...PESSOA, nome: 'Ivo', iniciais: 'I', foto: JPEG_PEQUENO },
+  {
+    tipo: 'faixa',
+    marcas: Array.from({ length: 62 }, (_, i) => ({ intensidade: i % 3 ? 1 : 0, fimDeSemana: i % 7 === 5 })),
+    legenda: '20 dias com uso · o período tem 45 dias de semana · antes 15',
+    inicio: '13/07',
+    fim: '12/09',
+    chave: 'cheio = usou · claro = fim de semana',
+  },
+  {
+    tipo: 'numeros',
+    porFileira: 3,
+    itens: [
+      {
+        grupo: 'Agenda', rotulo: 'concluídas', valor: '12', comparacao: 'antes 9 · +3',
+        linhas: [
+          { texto: '10 no dia marcado' },
+          { texto: '4 em aberto, 1 atrasada', alerta: true },
+          { texto: 'criou 3' },
+          { texto: 'uma quarta linha comprida o bastante para quebrar e passar do limite do quadro' },
+        ],
+      },
+      { grupo: 'Publicações', rotulo: 'decididas', valor: '5', linhas: [{ texto: '2 esperando decisão', alerta: true }] },
+      { grupo: 'Processos', rotulo: 'andamentos internos', valor: '0' },
+    ],
+  },
   { tipo: 'texto', texto: 'Em 2025, 29 de 34 sentenças foram a favor, ao menos em parte.' },
   { tipo: 'nota', texto: 'Uma nota pequena.' },
   {
@@ -43,6 +83,13 @@ const TODOS_OS_BLOCOS: BlocoDoPdf[] = [
     linhas: [['Dra. Ana\nAdvogada', '12']], numericas: [1],
   },
   { tipo: 'tabela', cabecalho: ['', 'Período anterior', 'Este período', 'Variação'], linhas: [] },
+  {
+    tipo: 'tabela',
+    cabecalho: ['Número', 'O que conta', 'Retrato'],
+    linhas: [['Dias com uso', 'Dias do período em que a pessoa entrou no sistema.', 'Período']],
+    fonte: 7.5,
+    larguras: { 0: 34, 2: 16 },
+  },
   {
     tipo: 'barras',
     titulo: 'Sentenças por ano',
@@ -87,7 +134,11 @@ const TODOS_OS_BLOCOS: BlocoDoPdf[] = [
     tipo: 'faixa',
     marcas: Array.from({ length: 53 }, (_, i) => ({ intensidade: (i % 8) / 7 })),
     legenda: 'cada traço é uma semana',
+    inicio: '01/01',
+    fim: '31/12',
+    chave: 'mais escuro = mais dias com uso na semana',
   },
+  { tipo: 'faixa', marcas: [{ intensidade: 1 }, { intensidade: 0 }], legenda: '1 dia com uso', inicio: '11/09', fim: '12/09' },
 ];
 
 /**
@@ -115,14 +166,19 @@ describe('o documento desenhado', () => {
         tipo: 'colunas', titulo: 'Zerado', series: [{ nome: 'Concluídas', cor: PALETA.verde }],
         categorias: ['jul', 'ago'], valores: [[0, 0]],
       },
-      { tipo: 'faixa', marcas: [], legenda: '0 de 0 dias com uso' },
+      { tipo: 'faixa', marcas: [], legenda: '0 dias com uso', inicio: '01/09', fim: '12/09', chave: 'cheio = usou' },
       { tipo: 'tabela', titulo: 'Vazia', cabecalho: ['A', 'B'], linhas: [] },
     ]).output();
     expect(saida).not.toContain('NaN');
     expect(saida).toContain('Nada registrado nesses meses.');
   });
 
-  it('lista longa quebra a página e repete a faixa da casa em cada uma', () => {
+  /**
+   * A FAIXA DA CASA EM TODA PÁGINA — cheia (30 mm) na primeira, compacta
+   * (14 mm) nas seguintes, desde 13/09/2026. O texto dela aparece uma vez por
+   * página, e o conteúdo das páginas seguintes começa logo abaixo da compacta.
+   */
+  it('lista longa quebra a página e repete a faixa da casa em cada uma — compacta depois da primeira', () => {
     const doc = gerar([{
       tipo: 'barras',
       titulo: 'Ações por ano',
@@ -134,10 +190,74 @@ describe('o documento desenhado', () => {
     const saida = doc.output();
     expect(saida.split('Relatorio de teste').length - 1).toBe(paginas);
     expect(saida).not.toContain('NaN');
+    expect(doc.desenho.topos).toHaveLength(paginas);
+    expect(doc.desenho.topos[0]).toBe(40);
+    expect(doc.desenho.topos.slice(1).every((t) => t === TOPO_DAS_PAGINAS_SEGUINTES)).toBe(true);
+  });
+
+  /** A tabela abre as próprias páginas pelo plugin: a faixa não pode sair em dobro nem faltar. */
+  it('tabela longa: uma faixa por página, nem duas nem nenhuma', () => {
+    const doc = gerar([{
+      tipo: 'tabela',
+      titulo: 'Muitas linhas',
+      cabecalho: ['Pessoa', 'Concluídas'],
+      linhas: Array.from({ length: 140 }, (_, i) => [`Pessoa ${i}`, String(i)]),
+      numericas: [1],
+    }]);
+    const paginas = doc.getNumberOfPages();
+    expect(paginas).toBeGreaterThan(2);
+    expect(doc.output().split('Relatorio de teste').length - 1).toBe(paginas);
+    expect(doc.desenho.topos).toHaveLength(paginas);
+  });
+
+  it('a primeira página traz o período por extenso', () => {
+    expect(gerar([]).output()).toContain('30 de setembro de 2026');
   });
 
   it('seta e emoji não chegam ao papel', () => {
     const saida = gerar([{ tipo: 'texto', texto: 'subiu → 3 🎉' }]).output();
     expect(saida).toContain('subiu - 3');
+  });
+});
+
+/** A foto recortada em círculo, ou as iniciais. O PDF nunca falha por causa de foto. */
+describe('o cartão da pessoa', () => {
+  const imagens = (saida: string) => (saida.match(/\/Subtype \/Image/g) ?? []).length;
+
+  it('com foto: uma imagem no documento, recortada, sem NaN', () => {
+    const saida = gerar([{ ...PESSOA, foto: JPEG_PEQUENO }]).output();
+    expect(imagens(saida)).toBe(1);
+    expect(saida).not.toContain('NaN');
+    expect(saida).toContain('Dra. Ana Lima');
+  });
+
+  it('sem foto: as iniciais, e nenhuma imagem', () => {
+    const saida = gerar([PESSOA]).output();
+    expect(imagens(saida)).toBe(0);
+    expect(saida).toContain('(AL)');
+    expect(saida).not.toContain('NaN');
+  });
+
+  it('foto que não abre cai nas iniciais, sem derrubar o documento', () => {
+    const saida = gerar([{ ...PESSOA, foto: 'data:image/jpeg;base64,bm90LWEtanBlZw==' }]).output();
+    expect(saida).toContain('(AL)');
+    expect(saida).not.toContain('NaN');
+  });
+
+  /** "Uma página por pessoa": a primeira página é a do título, e cada cartão abre a sua. */
+  it('cartões em páginas próprias não quebram o desenho', () => {
+    const blocos: BlocoDoPdf[] = Array.from({ length: 4 }, (_, i) => ({
+      ...PESSOA, nome: `Pessoa ${i}`, foto: JPEG_PEQUENO, novaPagina: true,
+    }));
+    const doc = gerar(blocos);
+    expect(doc.getNumberOfPages()).toBe(5);
+    expect(doc.output()).not.toContain('NaN');
+  });
+
+  it('só JPEG de verdade é tratado como foto', () => {
+    expect(pareceJpeg(JPEG_PEQUENO)).toBe(true);
+    expect(pareceJpeg('data:image/png;base64,iVBORw0KGgo=')).toBe(false);
+    expect(pareceJpeg('data:image/jpeg;base64,bm90LWEtanBlZw==')).toBe(false);
+    expect(pareceJpeg('')).toBe(false);
   });
 });

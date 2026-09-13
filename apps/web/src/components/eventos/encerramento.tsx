@@ -7,6 +7,8 @@ import {
   Award, Download, FileText, Gavel, Loader2, TriangleAlert,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ResultadoPauta } from './resultado-pauta';
@@ -123,7 +125,7 @@ export function ResumoEncerramento({ eventoId }: { eventoId: string }) {
   const qc = useQueryClient();
   const [baixando, setBaixando] = useState(false);
 
-  const { data: resumo, isLoading } = useQuery({
+  const { data: resumo, isLoading, isError: falhou, error: erroDoResumo, refetch: recarregar } = useQuery({
     queryKey: ['evento-resumo', eventoId],
     queryFn: () => obterResumo(eventoId),
   });
@@ -133,10 +135,19 @@ export function ResumoEncerramento({ eventoId }: { eventoId: string }) {
     queryFn: () => listarCertificados(eventoId),
   });
 
+  // 13/09/2026: só sem dado; revalidação que falha não esconde o resumo já carregado.
+  if (falhou && !resumo) {
+    return (
+      <Card><FalhaAoCarregar erro={erroDoResumo} oQue="o resumo do evento" onTentarDeNovo={() => recarregar()} /></Card>
+    );
+  }
+
   if (isLoading || !resumo) {
     return (
-      <Card><CardContent className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Carregando o resumo…
+      <Card><CardContent className="p-4">
+        <Carregando texto="Carregando o resumo…">
+          <EsqueletoLinhas quantidade={4} altura={56} className="-mx-4" />
+        </Carregando>
       </CardContent></Card>
     );
   }

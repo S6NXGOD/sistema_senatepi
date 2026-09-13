@@ -8,7 +8,14 @@ import { toast } from 'sonner';
 import {
   criarTarefaDaPublicacao, previaDaTarefa, umaPublicacao, varrerDjenAgora,
 } from '@/lib/djen';
-import { motion } from 'framer-motion';
+import { atrasoEscalonado } from '@/lib/movimento';
+import { useAnimacaoDeGrafico } from '@/lib/grafico';
+import { celularParaWhatsApp, linkWhatsApp } from '@/lib/whatsapp';
+import {
+  Carregando, Esqueleto, EsqueletoCartoes, EsqueletoGrafico, EsqueletoLinhas,
+} from '@/components/ui/esqueleto';
+import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
+import { ChipEncaminhamento } from '@/components/atendimentos/estado-do-encaminhamento';
 import {
   Briefcase, Clock, AlarmClock, Users, Gavel, CalendarDays,
   Flame, AlertTriangle, Landmark, Inbox, UserCheck, RefreshCw, Cake, Timer,
@@ -26,6 +33,8 @@ import { CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
   primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando, diasSemAcesso,
+  linkDaAgenda, linkDosPrazosDaSemana, seloDasAudienciasDaSemana,
+  textoDoLinkDeRecadastro, mensagemDeAniversario, DIAS_PARA_PARADO,
   type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -38,7 +47,7 @@ import { PROVIDENCIA_LABEL } from '@/lib/djen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  KpiCard, SectionCard, EmptyState, CompromissoRow, AvatarMini,
+  KpiCard, SectionCard, EmptyState, AvatarMini,
 } from '@/components/dashboard/widgets';
 import { AudienciasAgendarPanel } from '@/components/processos/audiencias-agendar-panel';
 import { AtalhosDoPerfil } from '@/components/dashboard/atalhos-do-perfil';
@@ -114,7 +123,7 @@ export default function DashboardPage() {
       {isError ? (
         <PainelIndisponivel erro={error} onTentar={() => refetch()} tentando={isFetching} />
       ) : isLoading || !data ? (
-        <SkeletonHome />
+        <SkeletonHome pode={pode} role={role} />
       ) : (
         <Conteudo data={data} pode={pode} role={role} />
       )}
@@ -276,8 +285,15 @@ function Conteudo({
    * faltando conserta sem perder a tela de onde veio.
    */
   const [recadastrando, setRecadastrando] = useState<string | null>(null);
+  /** O formulário presencial, aberto pela porta "preencher agora" do recadastramento. */
+  const [presencial, setPresencial] = useState<string | null>(null);
   /** Quem GRAVA filiado: é de quem é a fila de recadastro. */
   const podeEditarFiliado = podeEditar(role, user?.permissoes, 'filiados');
+  /** O nome para o cabeçalho do recadastramento — de onde quer que o clique tenha vindo. */
+  const nomeDoFiliado = (id: string): string =>
+    (data.cadastrosACompletar ?? []).find((f) => f.id === id)?.nome ??
+    (data.aniversariantes ?? []).find((p) => p.id === id)?.nome ??
+    '';
 
   /** Perfis que coordenam a operação — os únicos que veem a carga da equipe. */
   const ehGestao = role === 'ADMINISTRADOR' || role === 'COORDENACAO';
@@ -315,12 +331,14 @@ function Conteudo({
     pode.atendimentos && {
       label: 'Atendimentos pendentes', valor: kpis.atendimentosPendentes, sub: 'aguardando resolução',
       icon: Clock, cor: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
-      href: '/atendimentos',
+      // O número conta os PENDENTES; a lista abre filtrada neles.
+      href: '/atendimentos?status=PENDENTE',
     },
     pode.agenda && {
       label: 'Prazos esta semana', valor: kpis.prazosSemana, sub: 'próximos 7 dias',
       icon: AlarmClock, cor: 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400',
-      href: '/agenda',
+      // No advogado a API conta só os prazos dele: o link leva `pessoa=eu`.
+      href: linkDosPrazosDaSemana(data.escopo),
     },
     pode.filiados && {
       label: 'Filiados ativos', valor: kpis.filiadosAtivos,
@@ -462,18 +480,30 @@ function Conteudo({
           <div className="grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6">
             <KpiCard label="Meus processos" valor={minhaCarteira.meusProcessos} sub="vinculados a mim"
               icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos?meus=1" destaque />
+            {/*
+              CADA NÚMERO ABRE O RECORTE QUE CONTOU (C11). "Atrasadas" levava à
+              aba Hoje, onde atrasada de dia anterior nunca aparece; "Urgentes" e
+              "Minhas audiências", à agenda sem aba nem pessoa.
+
+              "Parados" não é link: nenhuma lista recorta "sem andamento há 90
+              dias", e `?meus=1` abriria a carteira inteira com outro número. O
+              texto dizia 30 dias enquanto a API contava 90.
+            */}
             <KpiCard label="Minhas audiências" valor={minhaCarteira.minhasAudiencias} sub="esta semana"
-              icon={Gavel} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400" href="/agenda" destaque />
+              icon={Gavel} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
+              href={linkDaAgenda({ aba: '7dias', tipo: 'AUDIENCIA', pessoa: 'eu' })} destaque />
             <KpiCard label="Atrasadas" valor={minhaCarteira.atrasadas} sub="de dias anteriores"
-              icon={AlertTriangle} cor="bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" href="/agenda" destaque />
-            <KpiCard label="Urgentes" valor={minhaCarteira.urgentes} sub="próximos 7 dias"
-              icon={Flame} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" href="/agenda" destaque />
+              icon={AlertTriangle} cor="bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+              href={linkDaAgenda({ aba: 'atrasadas', pessoa: 'eu' })} destaque />
+            <KpiCard label="Urgentes" valor={minhaCarteira.urgentes} sub="em aberto"
+              icon={Flame} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
+              href={linkDaAgenda({ aba: 'aberto', urgentes: true, pessoa: 'eu' })} destaque />
             <KpiCard label="A ajuizar" valor={minhaCarteira.preProcessuais} sub="fase pré-processual"
               icon={FileCheck2} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
               href="/processos?preProcessuais=1" destaque />
-            <KpiCard label="Parados" valor={minhaCarteira.semMovimentacao} sub="sem andamento há 30d"
+            <KpiCard label="Parados" valor={minhaCarteira.semMovimentacao} sub={`sem andamento há ${DIAS_PARA_PARADO} dias`}
               icon={Hourglass} cor="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-              href="/processos?meus=1" destaque />
+              destaque />
           </div>
         </section>
       )}
@@ -644,9 +674,14 @@ function Conteudo({
       {kpiCards.length > 0 && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {kpiCards.map((c, i) => (
-            <motion.div key={c.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+            /*
+              ENTRADA POR CSS, na inserção: a revalidação de 60 s não repete nada.
+              O escalonamento tem teto (200 ms no total) e some com "reduzir
+              movimento". Era framer só para isto.
+            */
+            <div key={c.label} className="animate-surgir" style={{ animationDelay: atrasoEscalonado(i) }}>
               <KpiCard {...c} />
-            </motion.div>
+            </div>
           ))}
         </div>
       )}
@@ -723,7 +758,7 @@ function Conteudo({
           {temColunaLateral && (
             <div className="space-y-4">
               {pode.escalas && !vazio.equipeHoje && <EquipeHoje data={data} />}
-              {pode.agenda && !vazio.audienciasSemana && <AudienciasSemana data={data} />}
+              {pode.agenda && !vazio.audienciasSemana && <AudienciasSemana data={data} pessoal={escopoPessoal} />}
             </div>
           )}
           {mostrarAtividadesDaEquipe && (
@@ -828,15 +863,41 @@ function Conteudo({
         />
       )}
 
-      {/* O recadastro acontece por cima do painel: quem viu o dado faltando
-          conserta sem perder a tela de onde veio. */}
+      {/*
+        O RECADASTRO ACONTECE POR CIMA DO PAINEL, e com as DUAS portas.
+
+        O painel abria direto o formulário presencial. Quem foi "atendido há
+        pouco" costuma ter falado pelo WhatsApp, e a porta certa é o link — que
+        estava na ficha e no cadastro de processo, não aqui. O modal é o mesmo
+        deles; `semNavegar` mantém a pessoa no painel quando escolhe preencher
+        agora.
+
+        E a chave é a do painel: `['dashboard']` não existe, e a pessoa recém-
+        completada ficava na fila até o refetch de 60 s.
+      */}
+      {recadastrando && (
+        <RecadastrarModal
+          open
+          filiadoId={recadastrando}
+          filiadoNome={nomeDoFiliado(recadastrando)}
+          semNavegar
+          onRecadastrarPresencial={(id) => {
+            setRecadastrando(null);
+            setPresencial(id);
+          }}
+          onClose={() => {
+            setRecadastrando(null);
+            qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+          }}
+        />
+      )}
       <CadastroFiliadoModal
-        open={!!recadastrando}
-        filiadoId={recadastrando}
-        onClose={() => setRecadastrando(null)}
+        open={!!presencial}
+        filiadoId={presencial}
+        onClose={() => setPresencial(null)}
         onSalvo={() => {
-          setRecadastrando(null);
-          qc.invalidateQueries({ queryKey: ['dashboard'] });
+          setPresencial(null);
+          qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
         }}
       />
 
@@ -1566,7 +1627,8 @@ function FalhasCNJ({
  * de Teresina é comparar duas strings, e por isso não passa por `Date`.
  */
 function EquipeHoje({ data }: { data: ResumoDashboard }) {
-  const { plantaoHoje, proximoPlantao } = data.equipeHoje;
+  // Nulo sem acesso a escalas; o bloco só monta com plantão, mas o tipo não sabe.
+  const { plantaoHoje, proximoPlantao } = data.equipeHoje ?? { plantaoHoje: [], proximoPlantao: null };
 
   /*
     A HORA DE TERESINA, não a do navegador.
@@ -1752,10 +1814,20 @@ function EquipeHoje({ data }: { data: ResumoDashboard }) {
     </SectionCard>
   );
 }
-function AudienciasSemana({ data }: { data: ResumoDashboard }) {
+function AudienciasSemana({ data, pessoal }: { data: ResumoDashboard; pessoal?: boolean }) {
   const itens = data.audienciasSemana;
   return (
-    <SectionCard title="Audiências da semana" icon={Gavel} count={itens.length} actionHref="/agenda">
+    <SectionCard
+      title="Audiências da semana"
+      icon={Gavel}
+      /*
+        O SELO É O TOTAL DO "VER", não o tamanho da lista (13/09/2026): a lista
+        vem cortada em 8 e sem a audiência que ficou para trás, e dava 2 ao lado
+        de "Minhas audiências 4". Sem o total da API, sem número.
+      */
+      count={seloDasAudienciasDaSemana(data)}
+      actionHref={linkDaAgenda({ aba: '7dias', tipo: 'AUDIENCIA', ...(pessoal ? { pessoa: 'eu' } : {}) })}
+    >
       {itens.length === 0 ? (
         <EmptyState icon={Gavel}>Nenhuma audiência nos próximos 7 dias.</EmptyState>
       ) : (
@@ -1852,14 +1924,20 @@ function DaSuaEquipe({
                 </Link>
               </li>
             ))}
-            {/* O teto é de dez; dizer quantas ficaram fora impede a lista de parecer o todo. */}
+            {/*
+              O TETO É DE DEZ; dizer quantas ficaram fora impede a lista de parecer
+              o todo. O número NÃO é link: nenhuma aba da agenda recorta "sem
+              ninguém cuidando". O caminho oferecido é o recorte que existe — as
+              atividades em que você é reserva —, dito com o nome dele.
+            */}
             {totalPrecisam > precisam.length && (
-              <li>
+              <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-amber-200/70 px-4 py-2 text-xs dark:border-amber-900/40">
+                <span>e mais {totalPrecisam - precisam.length} que não cabem aqui</span>
                 <Link
-                  href="/agenda"
-                  className="flex items-center justify-between gap-3 border-t border-amber-200/70 px-4 py-2.5 text-xs font-medium transition hover:bg-amber-100/70 dark:border-amber-900/40 dark:hover:bg-amber-950/50"
+                  href={linkDaAgenda({ aba: 'aberto', reservaDe: 'eu' })}
+                  className="inline-flex min-h-11 items-center gap-1 font-medium underline-offset-2 hover:underline sm:min-h-8"
                 >
-                  e mais {totalPrecisam - precisam.length} — abrir a agenda
+                  Ver as atividades em que você é reserva
                   <ChevronRight className="h-3.5 w-3.5 opacity-60" />
                 </Link>
               </li>
@@ -1934,7 +2012,12 @@ function DaSuaEquipe({
  *
  * O painel respondia "quantas atividades estão atrasadas na casa?", mas não
  * "de quem?". Sem esse recorte, a gestão via o número e não sabia onde agir.
- * Ordenado por atrasadas: é o gargalo que exige ação, não o volume.
+ *
+ * SEM RANKING (13/09/2026): era ordenada por atrasadas, com barra proporcional
+ * ao maior da equipe e o atraso em rosa — um pódio ao contrário. Agora é ordem
+ * alfabética, sem barra, com o atraso em âmbar. A conta é a régua `daPessoa`
+ * (responde ou foi posta ali por gente; a reserva do robô fica fora), e o
+ * clique abre a agenda da pessoa na MESMA régua.
  *
  * DUAS COISAS ENTRARAM EM 12/09/2026, e nenhuma é aviso novo:
  *
@@ -1947,8 +2030,10 @@ function DaSuaEquipe({
  *    pede uma ligação; cinza quando não há.
  */
 function CargaEquipe({ data }: { data: ResumoDashboard }) {
-  const itens = data.cargaEquipe ?? [];
-  const maior = Math.max(1, ...itens.map((i) => i.abertas));
+  const nomeDe = (a: { nome: string; nomeExibicao?: string | null }) => a.nomeExibicao || a.nome;
+  const itens = [...(data.cargaEquipe ?? [])].sort((a, b) =>
+    nomeDe(a.advogado).localeCompare(nomeDe(b.advogado), 'pt-BR'),
+  );
 
   return (
     <SectionCard title="Carga da equipe" icon={Users} count={itens.length} actionHref="/agenda" actionLabel="Agenda">
@@ -1961,8 +2046,8 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
             return (
               <li key={advogado.id}>
                 <Link
-                  href={`/agenda?responsavel=${advogado.id}`}
-                  className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
+                  href={linkDaAgenda({ aba: 'aberto', pessoa: advogado.id })}
+                  className="-mx-2 flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
                 >
                   {advogado.avatarUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -1978,19 +2063,12 @@ function CargaEquipe({ data }: { data: ResumoDashboard }) {
                       <span className="shrink-0 text-xs text-muted-foreground">
                         {abertas} {abertas === 1 ? 'aberta' : 'abertas'}
                         {atrasadas > 0 && (
-                          <span className="ml-1.5 font-semibold text-rose-600 dark:text-rose-400">
+                          <span className="ml-1.5 font-semibold text-amber-700 dark:text-amber-400">
                             · {atrasadas} atrasada{atrasadas === 1 ? '' : 's'}
                           </span>
                         )}
                       </span>
                     </p>
-                    {/* Barra proporcional ao maior da equipe — a comparação é o dado */}
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className={cn('h-full rounded-full', atrasadas > 0 ? 'bg-rose-500' : 'bg-brand-600')}
-                        style={{ width: `${Math.round((abertas / maior) * 100)}%` }}
-                      />
-                    </div>
                     {ausencia !== null && (
                       <p
                         className={cn(
@@ -2044,30 +2122,45 @@ function CadastrosACompletar({
 }) {
   const itens = data.cadastrosACompletar ?? [];
   if (itens.length === 0) return null;
+  /*
+    O CABEÇALHO CONTA A FILA INTEIRA; a lista mostra até 12. Com a API de antes
+    (sem o total), o total é o que chegou — e não se afirma corte nenhum.
+  */
+  const total = Math.max(itens.length, data.cadastrosACompletarTotal ?? itens.length);
+  const cortou = total > itens.length;
 
   return (
-    <SectionCard title="Cadastros a completar" icon={UserCog} count={itens.length}>
+    <SectionCard title="Cadastros a completar" icon={UserCog} count={total}>
       <ul className="divide-y divide-border/60">
-        {itens.map((f) => (
-          <li key={f.id} className="flex items-center gap-3 px-2 py-2.5">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{f.nome}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                Falta {f.falta.join(', ')}
-                {f.motivo === 'ATENDIMENTO' ? ' · atendido há pouco' : ' · tem processo'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onCompletar(f.id)}
-              className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-muted"
-            >
-              Completar
-            </button>
-          </li>
-        ))}
+        {itens.map((f) => {
+          /*
+            O ESTADO DO LINK, NÃO O EVENTO: "link ativo até 15h20" ou "respondeu
+            pelo link em 12/09". Nunca "enviado" — o sistema não sabe se chegou.
+          */
+          const link = textoDoLinkDeRecadastro(f);
+          return (
+            <li key={f.id} className="flex items-center gap-3 px-2 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{f.nome}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Falta {f.falta.join(', ')}
+                  {f.motivo === 'ATENDIMENTO' ? ' · atendido há pouco' : ' · tem processo'}
+                </p>
+                {link && <p className="truncate text-xs font-medium text-foreground/80">{link}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={() => onCompletar(f.id)}
+                className="flex h-11 shrink-0 items-center rounded-lg border px-3 text-xs font-medium transition hover:bg-muted sm:h-8"
+              >
+                Completar
+              </button>
+            </li>
+          );
+        })}
       </ul>
       <p className="border-t px-2 pt-2 text-[11px] leading-snug text-muted-foreground">
+        {cortou && `Aparecem ${itens.length} de ${total}, em ordem alfabética. `}
         Só quem teve atendimento recente ou tem processo — são os cadastros que dá para
         completar hoje.
       </p>
@@ -2241,11 +2334,13 @@ function Aniversariantes({
     <SectionCard title="Aniversariantes de hoje" icon={Cake} count={itens.length}>
       <ul className="divide-y divide-border/60">
         {itens.map((p) => {
-          const primeiroNome = p.nome.split(' ')[0];
-          const msg = `Olá, ${primeiroNome}! O ${tenant.sigla} deseja a você um feliz aniversário! 🎉`;
-          const zap = p.telefone
-            ? `https://wa.me/55${p.telefone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`
-            : null;
+          /*
+            SÓ CELULAR ABRE CONVERSA. A montagem antiga punha "55" na frente de
+            qualquer coisa: número com DDI virava 5555…, fixo abria conversa com
+            quem não tem WhatsApp. A regra é a única do sistema (lib/whatsapp).
+          */
+          const celular = celularParaWhatsApp(p.telefone);
+          const zap = celular ? linkWhatsApp(celular, mensagemDeAniversario(p.nome, tenant.sigla)) : null;
           return (
             <li key={`${p.tipo}-${p.id}`} className="flex items-center gap-3 px-2 py-2.5">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-100 dark:bg-pink-950/40">
@@ -2263,7 +2358,7 @@ function Aniversariantes({
                   href={zap}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="shrink-0 rounded-lg bg-[#25D366] px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-[#20bd5a]"
+                  className="flex h-11 shrink-0 items-center rounded-lg bg-[#25D366] px-3 text-xs font-medium text-white transition hover:bg-[#20bd5a] sm:h-8"
                 >
                   Parabenizar
                 </a>
@@ -2280,12 +2375,12 @@ function Aniversariantes({
                 <button
                   type="button"
                   onClick={() => onCompletar?.(p.id)}
-                  className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition hover:bg-muted"
+                  className="flex h-11 shrink-0 items-center rounded-lg border px-3 text-xs font-medium transition hover:bg-muted sm:h-8"
                 >
                   Completar cadastro
                 </button>
               ) : (
-                <span className="shrink-0 text-[11px] text-muted-foreground">sem telefone</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">sem celular</span>
               )}
             </li>
           );
@@ -2319,7 +2414,7 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
   const itens = data.atendimentosPendentes;
   const tm = data.tempoMedioTriagem;
   return (
-    <SectionCard title="Atendimentos pendentes" icon={Inbox} count={data.kpis.atendimentosPendentes} actionHref="/atendimentos" actionLabel="Triagem">
+    <SectionCard title="Atendimentos pendentes" icon={Inbox} count={data.kpis.atendimentosPendentes} actionHref="/atendimentos?status=PENDENTE" actionLabel="Triagem">
       {/* Tempo médio de resolução: a régua da triagem. Fica no card dos
           atendimentos porque é ali que ele significa alguma coisa — solto num
           KPI, viraria número sem contexto. */}
@@ -2344,10 +2439,25 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
                     <span className="text-muted-foreground">#{a.numero}</span> {a.filiado.nomeCompleto}
                   </p>
                   <p className="text-xs text-muted-foreground">{CANAL_LABEL[a.canal]} · aberto {tempoRelativo(a.createdAt)}</p>
+                  {/*
+                    EM QUE PÉ ESTÁ A CONSULTA — o estado vem pronto da API e o chip
+                    é o mesmo da tela de atendimentos: âmbar só no que pede a
+                    triagem, verde no atendido. "Pendente" genérico não dizia se
+                    alguém já tinha marcado a consulta.
+                  */}
+                  {a.encaminhamento && (
+                    <ChipEncaminhamento
+                      encaminhamento={a.encaminhamento}
+                      statusAtendimento="PENDENTE"
+                      className="mt-1"
+                    />
+                  )}
                 </div>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                  Pendente
-                </span>
+                {!a.encaminhamento && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                    Pendente
+                  </span>
+                )}
               </Link>
             </li>
           ))}
@@ -2389,7 +2499,8 @@ function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
         {itens.map((a) => (
           <li key={a.id}>
             <Link
-              href={`/processos?parteExternaId=${a.id}`}
+              /* O número conta processos ATIVOS: a lista abre no mesmo recorte. */
+              href={`/processos?parteExternaId=${a.id}&status=ATIVO`}
               className="-mx-2 block rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
             >
               <span className="flex items-baseline justify-between gap-3">
@@ -2470,6 +2581,8 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
    */
   const corMarca = useCorDaMarca(800);
   const corMarcaClara = useCorDaMarca(600);
+  /** 600 ms em vez dos 1.500 do recharts, e nada com "reduzir movimento". */
+  const animacao = useAnimacaoDeGrafico();
 
   /**
    * No quadro associativo, as séries são alternáveis: comparar entrada e saída
@@ -2491,7 +2604,7 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
   const xKey = ehFiliados ? 'mes' : 'dia';
 
   return (
-    <Card className="h-full">
+    <Card className="h-full animate-surgir">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
         <div className="flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-brand-800 dark:text-brand-400" />
@@ -2571,19 +2684,19 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
               <>
                 {series.entradas && (
                   <Area type="monotone" dataKey="entradas" name="Entradas" stroke={corMarca}
-                    strokeWidth={2} fill="url(#grad-marca)" />
+                    strokeWidth={2} fill="url(#grad-marca)" {...animacao} />
                 )}
                 {series.saidas && (
                   <Area type="monotone" dataKey="saidas" name="Saídas" stroke={COR_SAIDA}
-                    strokeWidth={2} fill="url(#grad-saida)" />
+                    strokeWidth={2} fill="url(#grad-saida)" {...animacao} />
                 )}
                 {series.saldo && (
                   <Area type="monotone" dataKey="saldo" name="Saldo" stroke={COR_SALDO}
-                    strokeWidth={2} strokeDasharray="4 3" fill="none" />
+                    strokeWidth={2} strokeDasharray="4 3" fill="none" {...animacao} />
                 )}
               </>
             ) : (
-              <Area type="monotone" dataKey="total" name="Total" stroke={corMarca} strokeWidth={2} fill="url(#grad-marca)" />
+              <Area type="monotone" dataKey="total" name="Total" stroke={corMarca} strokeWidth={2} fill="url(#grad-marca)" {...animacao} />
             )}
           </AreaChart>
         </ResponsiveContainer>
@@ -2597,9 +2710,10 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
     .filter((c) => c.total > 0)
     .map((c) => ({ nome: CANAL_LABEL[c.canal], total: c.total }));
   const total = dados.reduce((s, d) => s + d.total, 0);
+  const animacao = useAnimacaoDeGrafico();
 
   return (
-    <Card className="h-full">
+    <Card className="h-full animate-surgir" style={{ animationDelay: atrasoEscalonado(1) }}>
       <div className="flex items-center gap-2 border-b px-5 py-3.5">
         <Inbox className="h-4 w-4 text-brand-800 dark:text-brand-400" />
         <h3 className="text-sm font-semibold">Atendimentos por canal</h3>
@@ -2612,7 +2726,7 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
             <div className="relative h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={dados} dataKey="total" nameKey="nome" cx="50%" cy="50%" innerRadius={45} outerRadius={68} paddingAngle={2} strokeWidth={0}>
+                  <Pie data={dados} dataKey="total" nameKey="nome" cx="50%" cy="50%" innerRadius={45} outerRadius={68} paddingAngle={2} strokeWidth={0} {...animacao}>
                     {dados.map((_, i) => (
                       <Cell key={i} fill={PALETA_CATEGORICA[i % PALETA_CATEGORICA.length]} />
                     ))}
@@ -2645,19 +2759,41 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
 // Skeleton de carregamento
 // ===========================================================================
 
-function SkeletonHome() {
+/**
+ * O ESQUELETO TEM A FORMA DO QUE O PERFIL VAI VER.
+ *
+ * Eram quatro cartões e dois gráficos para todo mundo — o advogado via o
+ * esboço de dois gráficos que nunca chegam, e a tela pulava quando a lista de
+ * atividades aparecia no lugar deles. A forma segue os mesmos `pode.*` e a mesma
+ * régua de gestão do conteúdo.
+ */
+function SkeletonHome({
+  pode,
+  role,
+}: {
+  pode: { processos: boolean; atendimentos: boolean; agenda: boolean; filiados: boolean };
+  role: PerfilUsuario;
+}) {
+  const cartoes = [pode.processos, pode.atendimentos, pode.agenda, pode.filiados].filter(Boolean).length;
+  const gestao = role === 'ADMINISTRADOR' || role === 'COORDENACAO';
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-[104px] animate-pulse rounded-xl border bg-muted/40" />
-        ))}
-      </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="h-72 animate-pulse rounded-xl border bg-muted/40" />
-        <div className="h-72 animate-pulse rounded-xl border bg-muted/40 lg:col-span-2" />
-      </div>
-    </div>
+    <Carregando texto="Carregando o painel" className="space-y-4">
+      {pode.agenda && (
+        <div className="overflow-hidden rounded-xl border bg-card" aria-hidden="true">
+          <div className="border-b bg-muted/30 px-3 py-2.5">
+            <Esqueleto className="h-4 w-32" />
+          </div>
+          <EsqueletoLinhas quantidade={3} altura={60} />
+        </div>
+      )}
+      {cartoes > 0 && <EsqueletoCartoes quantidade={cartoes} />}
+      {gestao && (
+        <div className={cn('grid grid-cols-1 gap-4', pode.atendimentos && 'lg:grid-cols-3')}>
+          <EsqueletoGrafico className={cn(pode.atendimentos && 'lg:col-span-2')} />
+          {pode.atendimentos && <EsqueletoGrafico />}
+        </div>
+      )}
+    </Carregando>
   );
 }
 
@@ -2683,10 +2819,10 @@ function SkeletonHome() {
  * Ação secundária em forma de link. O `Button` da casa não aceita `asChild`, e
  * um `<button onClick={router.push}>` perderia o "abrir em nova aba" com o
  * botão do meio — que é justamente o que se faz com "abrir o processo".
- * Altura de 36px, como todo alvo tocável do sistema.
+ * 44px no telefone, 36px a partir do tablet.
  */
 const ACAO_SECUNDARIA =
-  'inline-flex min-h-9 items-center gap-1.5 rounded-lg border bg-card px-3 text-xs font-medium transition hover:bg-muted';
+  'inline-flex min-h-11 items-center gap-1.5 rounded-lg border bg-card px-3 text-xs font-medium transition hover:bg-muted sm:min-h-9';
 
 function LinhaPublicacao({
   pub,
@@ -2711,7 +2847,9 @@ function LinhaPublicacao({
   const [vendoPrevia, setVendoPrevia] = useState(false);
   const qc = useQueryClient();
 
-  const { data: teor, isLoading: carregandoTeor } = useQuery({
+  const {
+    data: teor, isLoading: carregandoTeor, isError: erroNoTeor, refetch: buscarTeorDeNovo, isFetching: buscandoTeor,
+  } = useQuery({
     queryKey: ['publicacao', pub.id],
     queryFn: () => umaPublicacao(pub.id),
     enabled: aberto,
@@ -2729,15 +2867,15 @@ function LinhaPublicacao({
     mutationFn: () => criarTarefaDaPublicacao(pub.id),
     onSuccess: (r) => {
       toast.success(
-        r.criada ? 'Atividade criada para o dono do caso.' : 'Esta publicacao ja tinha atividade.',
+        r.criada ? 'Atividade criada para o dono do caso.' : 'Esta publicação já tinha atividade.',
       );
       setVendoPrevia(false);
-      for (const k of [['dashboard'], ['publicacao', pub.id], ['compromissos'], ['minhas-pendencias']]) {
+      for (const k of [['dashboard-resumo'], ['publicacao', pub.id], ['compromissos'], ['minhas-pendencias']]) {
         qc.invalidateQueries({ queryKey: k });
       }
     },
     onError: (e: any) =>
-      toast.error(e?.response?.data?.message ?? 'Nao foi possivel criar a atividade.'),
+      toast.error(e?.response?.data?.message ?? 'Não foi possível criar a atividade.'),
   });
 
   const idDaTarefa = teor?.compromisso?.id ?? pub.compromissoId;
@@ -2865,17 +3003,36 @@ function LinhaPublicacao({
         <div className="mt-2 rounded-lg border bg-muted/30 p-3">
           {carregandoTeor ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando o teor...
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando o teor…
             </p>
+          ) : erroNoTeor ? (
+            /*
+              A FALHA É NOSSA, NÃO DO TRIBUNAL. Só `isLoading` era olhado: com a
+              busca falhando, `teor` ficava vazio e a tela afirmava "o tribunal
+              publicou este ato sem texto" — um fato sobre o tribunal causado
+              por erro de rede.
+            */
+            <div className="flex flex-col gap-2 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between dark:text-amber-200">
+              <span>Não foi possível carregar o teor agora.</span>
+              <button
+                type="button"
+                onClick={() => buscarTeorDeNovo()}
+                disabled={buscandoTeor}
+                className="inline-flex min-h-11 items-center gap-1.5 self-start rounded-lg border bg-card px-3 font-medium text-foreground transition hover:bg-muted disabled:opacity-60 sm:min-h-9"
+              >
+                {buscandoTeor ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Tentar de novo
+              </button>
+            </div>
           ) : (
             <>
               {/*
                 O ATO COMO O TRIBUNAL ESCREVEU. Altura limitada com rolagem
-                propria: um despacho tem tres linhas, um acordao tem tres
-                paginas, e a lista nao pode virar nenhum dos dois.
+                própria: um despacho tem três linhas, um acórdão tem três
+                páginas, e a lista não pode virar nenhum dos dois.
               */}
               <p className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">
-                {teor?.texto?.trim() || 'O tribunal publicou este ato sem texto -- so o cabecalho.'}
+                {teor?.texto?.trim() || 'O tribunal publicou este ato sem texto, só com o cabeçalho.'}
               </p>
               {teor?.nomeOrgao && (
                 <p className="mt-2 text-[11px] text-muted-foreground">{teor.nomeOrgao}</p>
@@ -2889,7 +3046,7 @@ function LinhaPublicacao({
               sem tarefa, e para quem grava na agenda.
             */}
             {!temTarefa && podeCriarTarefa && !vendoPrevia && (
-              <Button size="sm" onClick={() => setVendoPrevia(true)}>
+              <Button size="sm" className="h-11 sm:h-9" onClick={() => setVendoPrevia(true)}>
                 <CalendarPlus className="h-4 w-4" /> Criar tarefa
               </Button>
             )}
@@ -2908,9 +3065,9 @@ function LinhaPublicacao({
                 href={teor.link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground transition hover:text-foreground sm:min-h-9"
               >
-                <ExternalLink className="h-3.5 w-3.5" /> No Diario
+                <ExternalLink className="h-3.5 w-3.5" /> No Diário
               </a>
             )}
           </div>
@@ -2945,7 +3102,7 @@ function LinhaPublicacao({
                     <button
                       type="button"
                       onClick={() => setVendoPrevia(false)}
-                      className="min-h-9 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      className="min-h-11 px-2 text-xs font-medium text-muted-foreground hover:text-foreground sm:min-h-9"
                     >
                       Fechar
                     </button>
@@ -2999,7 +3156,7 @@ function LinhaPublicacao({
                     "Assumir" dentro dela.
                   </p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Button size="sm" onClick={() => criar.mutate()} disabled={criar.isPending}>
+                    <Button size="sm" className="h-11 sm:h-9" onClick={() => criar.mutate()} disabled={criar.isPending}>
                       {criar.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
@@ -3011,7 +3168,7 @@ function LinhaPublicacao({
                       type="button"
                       onClick={() => setVendoPrevia(false)}
                       disabled={criar.isPending}
-                      className="min-h-9 px-2 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      className="min-h-11 px-2 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-50 sm:min-h-9"
                     >
                       Agora não
                     </button>
@@ -3022,15 +3179,15 @@ function LinhaPublicacao({
           )}
 
           {/*
-            POR QUE NAO HA TAREFA -- quando o robo DECIDIU, e nao quando falhou.
-            A distincao existe no dado (`tarefaDispensadaMotivo`) e e o que separa
+            POR QUE NÃO HÁ TAREFA — quando o robô DECIDIU, e não quando falhou.
+            A distinção existe no dado (`tarefaDispensadaMotivo`) e é o que separa
             "o sistema pensou nisto" de "o sistema deixou passar".
           */}
           {!temTarefa && teor?.tarefaDispensadaMotivo && (
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
               {teor.tarefaDispensadaMotivo === 'NOTICIA_VELHA'
-                ? 'O robo nao agendou porque o ato ja estava fora da janela quando chegou -- se ainda vale, crie a tarefa aqui.'
-                : 'O robo entendeu que a ordem e para a outra parte, nao para nos -- se estiver errado, crie a tarefa aqui.'}
+                ? 'O robô não agendou porque o ato já estava fora da janela quando chegou. Se ainda vale, crie a tarefa aqui.'
+                : 'O robô entendeu que a ordem é para a outra parte, não para nós. Se estiver errado, crie a tarefa aqui.'}
             </p>
           )}
         </div>
@@ -3168,15 +3325,14 @@ function AtividadesParadas({
             O TETO É DE DEZ, e dizer isso é o que impede a lista de parecer o
             todo. Acima disso o lugar de trabalhar é a agenda.
           */}
+          {/*
+            O número não é link: nenhuma aba da agenda recorta "parada há 7 dias"
+            (é `updatedAt`, não `inicio`), e abrir a agenda genérica mostraria
+            outro número.
+          */}
           {total > itens.length && (
-            <li>
-              <Link
-                href="/agenda"
-                className="flex items-center justify-between gap-3 border-t border-input/60 px-4 py-2.5 text-xs font-medium transition hover:bg-muted"
-              >
-                e mais {total - itens.length} — abrir a agenda
-                <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-              </Link>
+            <li className="border-t border-input/60 px-4 py-2.5 text-xs">
+              e mais {total - itens.length} — a lista mostra as dez paradas há mais tempo.
             </li>
           )}
         </ul>

@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { LEITURA, resumoDesfechos, tendencia } from '@/lib/panorama';
+import {
+  LEITURA, desfechosParaLer, julgadasNoHistorico, ressalvaDoRecurso, resumoDesfechos, rotuloDoAno, tendencia,
+} from '@/lib/panorama';
 import { moduloDaRota } from '@/components/nav-items';
 
 const RAIZ = path.resolve(__dirname, '../../..');
@@ -33,9 +35,8 @@ describe('a leitura em português', () => {
   });
 
   /**
-   * NENHUMA FRASE MANDA FAZER. "Vale rever", "é uma decisão de quem conduz",
-   * "é o histórico que se leva" — todas terminam devolvendo a escolha. Imperativo
-   * jurídico ("ajuíze", "proponha", "desista") é o que este teste barra.
+   * NENHUMA FRASE MANDA FAZER. Imperativo jurídico ("ajuíze", "proponha",
+   * "desista") é o que este teste barra.
    */
   it('nenhuma explicação dá ordem jurídica', () => {
     const proibido = /\b(ajuíze|ajuizar já|proponha|desista|abandone|recorra|não ajuíze)\b/i;
@@ -43,6 +44,42 @@ describe('a leitura em português', () => {
       expect(l.titulo).not.toMatch(proibido);
       expect(l.explicacao).not.toMatch(proibido);
     }
+  });
+
+  /**
+   * NEM CONSELHO DISFARÇADO. Este bloco já aceitou "Vale rever a tese antes da
+   * próxima" e "é o histórico mais forte que se leva para uma mesa de
+   * negociação": não eram imperativo, mas eram estratégia — e desde o PDF do
+   * Panorama saem no papel com o logo do sindicato, como posição da casa
+   * (auditoria panorama-pdf, 13/09/2026). Mira o OBJETO importado, e não o
+   * fonte, para não bater em comentário.
+   */
+  it('nenhuma explicação aconselha', () => {
+    const conselho = /(^|[^\p{L}])(vale rever|deve|devem|deveria|recomend\p{L}*|suger\p{L}*|sugere|é preciso)(?![\p{L}])/iu;
+    for (const l of Object.values(LEITURA)) {
+      expect(l.titulo).not.toMatch(conselho);
+      expect(l.explicacao).not.toMatch(conselho);
+    }
+  });
+
+  /** O teste de cima pega o que ele promete: sem isso, uma regex quebrada ficaria verde. */
+  it('a varredura de conselho reconhece as frases antigas', () => {
+    const conselho = /(^|[^\p{L}])(vale rever|deve|devem|deveria|recomend\p{L}*|suger\p{L}*|sugere|é preciso)(?![\p{L}])/iu;
+    expect('Vale rever a tese antes da próxima.').toMatch(conselho);
+    expect('A entidade deve negociar.').toMatch(conselho);
+    expect('É preciso ajuizar.').toMatch(conselho);
+    // "devedor" não é "deve": a palavra inteira é que conta.
+    expect('O devedor foi citado.').not.toMatch(conselho);
+  });
+
+  /**
+   * "SEMPRE" SÓ SEM RECURSO DEPOIS. A API suprime as duas leituras quando algum
+   * julgado teve acórdão depois da sentença (49 de 109 na produção); o texto diz
+   * isso, para quem lê o selo não tomar sentença por resultado final.
+   */
+  it('as leituras de resultado uniforme dizem que não houve recurso julgado depois', () => {
+    expect(LEITURA.DESFECHO_SEMPRE_CONTRA.explicacao).toContain('sem recurso julgado depois');
+    expect(LEITURA.DESFECHO_SEMPRE_A_FAVOR.explicacao).toContain('sem recurso julgado depois');
   });
 
   /** Tom errado engana mais que texto errado: alerta é só para desfecho contra. */
@@ -185,5 +222,69 @@ describe('a leitura de tendência', () => {
   /** Amostra minúscula não vira leitura, mesmo com proporção grande. */
   it('cala com amostra pequena demais', () => {
     expect(tendencia(fechados(0, 1, 1, 1))).toBeNull();
+  });
+
+  /** O ano corrente vem de fora: o plano do PDF é puro e não muda na virada do ano. */
+  it('aceita o ano corrente como parâmetro', () => {
+    const serie = [
+      { ano: 2022, processos: 1 }, { ano: 2023, processos: 1 },
+      { ano: 2024, processos: 3 }, { ano: 2025, processos: 3 }, { ano: 2026, processos: 9 },
+    ];
+    // Com 2026 corrente, fechados são 2022–2025: 2 contra 6.
+    expect(tendencia(serie, 2026)).toBe('CRESCENDO');
+    // Com 2025 corrente, só três fechados: sem base.
+    expect(tendencia(serie, 2025)).toBeNull();
+  });
+});
+
+/**
+ * DUAS PERGUNTAS QUE NÃO SE MISTURAM — quantas estão em curso (o que o link
+ * abre) e como as ajuizadas têm sido julgadas (o que a barra desenha).
+ */
+describe('o histórico dos desfechos', () => {
+  const ativas = { julgados: 2, procedentes: 1, parciais: 0, improcedentes: 1 };
+  const historico = { julgados: 9, procedentes: 3, parciais: 4, improcedentes: 2, comRecursoDepois: 3 };
+
+  it('a barra lê o histórico quando a API manda', () => {
+    expect(desfechosParaLer({ ...ativas, historico })).toEqual(historico);
+  });
+
+  /** Janela de troca do deploy: a API antiga só tem as ativas, e nada de recurso inventado. */
+  it('sem histórico, as ativas entram no lugar e nenhum recurso é contado', () => {
+    expect(desfechosParaLer(ativas)).toEqual({ ...ativas, comRecursoDepois: 0 });
+  });
+
+  it('"julgadas no histórico" só quando o histórico existe', () => {
+    expect(julgadasNoHistorico({ historico })).toBe('9 julgadas no histórico');
+    expect(julgadasNoHistorico({ historico: { ...historico, julgados: 1 } })).toBe('1 julgada no histórico');
+    expect(julgadasNoHistorico({ historico: { ...historico, julgados: 0 } })).toBe('nenhuma julgada no histórico');
+    expect(julgadasNoHistorico({})).toBeNull();
+  });
+
+  it('a ressalva do recurso diz quantas, e cala sem recurso', () => {
+    expect(ressalvaDoRecurso(historico)).toBe(
+      '3 tiveram recurso julgado depois — o resultado final pode ser outro',
+    );
+    expect(ressalvaDoRecurso({ ...historico, comRecursoDepois: 1 })).toBe(
+      '1 teve recurso julgado depois — o resultado final pode ser outro',
+    );
+    expect(ressalvaDoRecurso({ ...historico, comRecursoDepois: 0 })).toBeNull();
+    expect(ressalvaDoRecurso(undefined)).toBeNull();
+  });
+
+  it('o ano corrente sai com "até agora"', () => {
+    expect(rotuloDoAno(2026, 2026)).toBe('2026 (até agora)');
+    expect(rotuloDoAno(2025, 2026)).toBe('2025');
+  });
+
+  /** O comentário do contrato dizia que os três papéis "somam o acervo" — não somam. */
+  it('a tela nunca afirma que os números somam o acervo', () => {
+    expect(PAGINA).not.toMatch(/somam o acervo/i);
+  });
+
+  it('a tela mostra a ressalva do recurso e o histórico', () => {
+    expect(PAGINA).toContain('ressalvaDoRecurso(h)');
+    expect(PAGINA).toContain('julgadasNoHistorico(c)');
+    expect(PAGINA).toContain('julgadasNoHistorico(d)');
   });
 });

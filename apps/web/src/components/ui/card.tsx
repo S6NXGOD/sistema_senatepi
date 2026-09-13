@@ -1,12 +1,24 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
 
-export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  /**
+   * O cartão é um clique (está dentro de um link ou tem `onClick`)?
+   *
+   * Só então ele se eleva no hover. Antes TODO cartão subia a sombra ao passar
+   * o mouse, e num cartão que não leva a lugar nenhum isso promete um clique
+   * que não existe.
+   */
+  interativo?: boolean;
+}
+
+export const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, interativo = false, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        'rounded-xl border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md',
+        'rounded-xl border bg-card text-card-foreground shadow-sm',
+        interativo && 'transition-shadow duration-rapido hover:shadow-md',
         className,
       )}
       {...props}

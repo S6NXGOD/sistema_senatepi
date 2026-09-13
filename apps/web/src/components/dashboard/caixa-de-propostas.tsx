@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { diasDesdeDataPura } from '@/lib/data-pura';
-import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Inbox, Check, X, ChevronDown, Clock, ArrowRight, Loader2 } from 'lucide-react';
+import { Inbox, Check, X, ChevronDown, Clock, Loader2, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { cn } from '@/lib/utils';
@@ -73,6 +72,13 @@ export function CaixaDePropostas() {
   */
   const ehGestao = user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO';
   const [aberta, setAberta] = useState<string | null>(null);
+  /*
+    "VER AS OUTRAS" ABRE AQUI MESMO. O link ia para `/publicacoes?caixa=1`, e a
+    tela de publicações não lê `caixa`: caía no acervo inteiro, com outro número.
+    A caixa já tem todas as propostas em mãos — mostrar o resto no lugar é o
+    único destino que conta o mesmo que o rodapé.
+  */
+  const [todas, setTodas] = useState(false);
 
   const q = useQuery({
     queryKey: ['djen', 'propostas', ehGestao ? 'com-orfas' : 'minhas'],
@@ -83,10 +89,12 @@ export function CaixaDePropostas() {
   });
 
   const invalidar = () => {
-    // Prefixo: alcança tanto 'minhas' quanto 'com-orfas'.
+    // Prefixo: alcança tanto 'minhas' quanto 'com-orfas'. E as chaves que
+    // existem: ['agenda'] e ['dashboard'] não eram de consulta nenhuma.
     qc.invalidateQueries({ queryKey: ['djen', 'propostas'] });
-    qc.invalidateQueries({ queryKey: ['agenda'] });
-    qc.invalidateQueries({ queryKey: ['dashboard'] });
+    qc.invalidateQueries({ queryKey: ['compromissos'] });
+    qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+    qc.invalidateQueries({ queryKey: ['minhas-pendencias'] });
   };
 
   const aceitar = useMutation({
@@ -110,11 +118,37 @@ export function CaixaDePropostas() {
       toast.error(e?.response?.data?.message ?? 'Não foi possível dispensar agora.'),
   });
 
-  const itens = q.data ?? [];
-  if (!permitido || !itens.length) return null;
+  if (!permitido) return null;
 
-  const mostradas = itens.slice(0, MOSTRAR);
-  const sobra = itens.length - mostradas.length;
+  /*
+    FALHA NÃO É CAIXA VAZIA. Com `retry: false`, um erro de rede fazia o cartão
+    sumir como se não houvesse nada a decidir — e o que some aqui é prazo.
+  */
+  if (q.isError) {
+    return (
+      <Card className="flex flex-col gap-2 border-amber-300 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/60">
+        <span className="flex items-start gap-2 text-amber-900 dark:text-amber-200">
+          <Inbox className="mt-0.5 h-4 w-4 shrink-0" />
+          Não foi possível carregar as publicações que esperam decisão.
+        </span>
+        <button
+          type="button"
+          onClick={() => q.refetch()}
+          disabled={q.isFetching}
+          className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 self-start rounded-md border border-input px-3 text-xs font-medium transition hover:bg-muted disabled:opacity-60 sm:h-8 sm:self-auto"
+        >
+          {q.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          Tentar de novo
+        </button>
+      </Card>
+    );
+  }
+
+  const itens = q.data ?? [];
+  if (!itens.length) return null;
+
+  const mostradas = todas ? itens : itens.slice(0, MOSTRAR);
+  const sobra = itens.length - MOSTRAR;
 
   return (
     <Card className="overflow-hidden border-sky-200 dark:border-sky-900/50">
@@ -127,8 +161,14 @@ export function CaixaDePropostas() {
               : `${itens.length} publicações esperando sua decisão`}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            O robô não teve certeza de que o prazo é seu. Confira a ordem do juízo e
-            decida — nada entra na sua agenda sem você.
+            {ehGestao
+              ? /*
+                  NA GESTÃO ENTRAM AS ÓRFÃS, e "É minha" punha a tarefa na agenda
+                  do administrador — que não tem OAB e não executa prazo. O
+                  botão diz o que faz, e esta linha diz para quem vai.
+                */
+                'Entram aqui as suas e as que não têm dono. "Ficar com ela" põe a tarefa na SUA agenda; se o prazo é de outro advogado, avise quem responde pelo caso.'
+              : 'O robô não teve certeza de que o prazo é seu. Confira a ordem do juízo e decida — nada entra na sua agenda sem você.'}
           </p>
         </div>
       </div>
@@ -138,7 +178,12 @@ export function CaixaDePropostas() {
           <LinhaDaProposta
             key={p.id}
             proposta={p}
-            ocupado={aceitar.isPending || recusar.isPending}
+            ehGestao={ehGestao}
+            /* Ocupado por LINHA: decidir uma não trava as outras. */
+            ocupado={
+              (aceitar.isPending && aceitar.variables === p.id) ||
+              (recusar.isPending && recusar.variables?.id === p.id)
+            }
             recusando={aberta === p.id}
             onAbrirRecusa={() => setAberta(aberta === p.id ? null : p.id)}
             onAceitar={() => aceitar.mutate(p.id)}
@@ -148,13 +193,15 @@ export function CaixaDePropostas() {
       </ul>
 
       {sobra > 0 && (
-        <Link
-          href="/publicacoes?caixa=1"
-          className="flex items-center justify-between gap-2 border-t border-sky-100 px-4 py-2.5 text-xs font-medium text-brand-800 transition hover:bg-muted/60 dark:border-sky-900/30 dark:text-brand-300"
+        <button
+          type="button"
+          onClick={() => setTodas((v) => !v)}
+          aria-expanded={todas}
+          className="flex min-h-11 w-full items-center justify-between gap-2 border-t border-sky-100 px-4 py-2.5 text-left text-xs font-medium text-brand-800 transition hover:bg-muted/60 dark:border-sky-900/30 dark:text-brand-300"
         >
-          Ver as outras {sobra} esperando decisão
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
+          {todas ? 'Mostrar só as primeiras' : `Ver as outras ${sobra} esperando decisão`}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', todas && 'rotate-180')} />
+        </button>
       )}
     </Card>
   );
@@ -162,6 +209,7 @@ export function CaixaDePropostas() {
 
 function LinhaDaProposta({
   proposta: p,
+  ehGestao,
   ocupado,
   recusando,
   onAbrirRecusa,
@@ -169,6 +217,8 @@ function LinhaDaProposta({
   onRecusar,
 }: {
   proposta: PropostaDeTarefa;
+  /** Na gestão o aceite põe a tarefa em quem clica — e o botão tem de dizer isso. */
+  ehGestao: boolean;
   ocupado: boolean;
   recusando: boolean;
   onAbrirRecusa: () => void;
@@ -267,7 +317,7 @@ function LinhaDaProposta({
             className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-3 text-sm font-medium text-white transition hover:bg-brand-900 disabled:opacity-60 sm:h-9"
           >
             {ocupado ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            É minha
+            {ehGestao ? 'Ficar com ela' : 'É minha'}
           </button>
           <button
             type="button"
@@ -276,7 +326,7 @@ function LinhaDaProposta({
             className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-60 sm:h-9"
           >
             <X className="h-4 w-4" />
-            Não é minha
+            {ehGestao ? 'Dispensar' : 'Não é minha'}
           </button>
         </div>
       ) : (
@@ -293,7 +343,9 @@ function LinhaDaProposta({
           para o que não couber nos três.
         */
         <div className="mt-2 space-y-2 rounded-md border border-input p-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Por que não é sua?</p>
+          <p className="text-[11px] font-medium text-muted-foreground">
+            {ehGestao ? 'Por que dispensar?' : 'Por que não é sua?'}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {MOTIVOS_DE_RECUSA.map((m) => (
               <button
@@ -301,7 +353,7 @@ function LinhaDaProposta({
                 type="button"
                 onClick={() => onRecusar(m.label)}
                 disabled={ocupado}
-                className="h-9 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted disabled:opacity-60"
+                className="h-11 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted disabled:opacity-60 sm:h-9"
               >
                 {m.label}
               </button>
@@ -312,22 +364,23 @@ function LinhaDaProposta({
               value={livre}
               onChange={(e) => setLivre(e.target.value)}
               placeholder="Outro motivo…"
-              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs"
+              className="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-base sm:h-9 sm:text-xs"
             />
             <button
               type="button"
               onClick={() => onRecusar(livre.trim() || 'Não informado')}
               disabled={ocupado}
-              className="h-9 shrink-0 rounded-md bg-muted px-3 text-xs font-medium transition hover:bg-muted/70 disabled:opacity-60"
+              className="h-11 shrink-0 rounded-md bg-muted px-3 text-xs font-medium transition hover:bg-muted/70 disabled:opacity-60 sm:h-9"
             >
               Dispensar
             </button>
             <button
               type="button"
               onClick={onAbrirRecusa}
-              className="h-9 shrink-0 rounded-md px-2 text-xs text-muted-foreground transition hover:bg-muted"
+              aria-label="Fechar os motivos"
+              className="h-11 w-11 shrink-0 rounded-md px-2 text-xs text-muted-foreground transition hover:bg-muted sm:h-9 sm:w-9"
             >
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="mx-auto h-4 w-4" />
             </button>
           </div>
         </div>

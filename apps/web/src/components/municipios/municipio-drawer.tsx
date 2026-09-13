@@ -13,6 +13,7 @@ import { podeEditar, podeVer } from '@/lib/permissoes';
 import { baixarPdf } from '@/lib/pdf';
 import { Button } from '@/components/ui/button';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import {
   acumuladoAte, dinheiroCurto, getMunicipio, numeroBR, percentualBR, periodoRGF, periodoRREO,
   presencaDe, sincronizarSiconfi, SITUACAO_FISCAL,
@@ -122,12 +123,12 @@ export function MunicipioDrawer({
   const enc = encodeURIComponent;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onFechar} role="presentation">
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar justify-end bg-black/40" onClick={onFechar} role="presentation">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={nomeCompleto}
-        className="flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-card shadow-xl"
+        className="flex h-full w-full max-w-2xl animate-surgir-leve flex-col overflow-y-auto bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ---------------------------------------------------- cabeçalho */}
@@ -160,9 +161,16 @@ export function MunicipioDrawer({
         </div>
 
         {isLoading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-7 w-7 animate-spin text-brand-800 dark:text-brand-400" />
-          </div>
+          <Carregando texto="Carregando a ficha…" className="space-y-5 p-4">
+            <div className="flex gap-2">
+              <Esqueleto className="h-9 w-32" />
+              <Esqueleto className="h-9 w-28" />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {[0, 1, 2, 3, 4, 5].map((i) => <Esqueleto key={i} className="h-20" />)}
+            </div>
+            <Esqueleto className="h-40 w-full" />
+          </Carregando>
         ) : error ? (
           <div className="p-4">
             <FalhaAoCarregar erro={error} onTentarDeNovo={refetch} oQue="a ficha" />

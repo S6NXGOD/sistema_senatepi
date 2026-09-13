@@ -10,6 +10,8 @@ import {
   Plus, Square, Trash2, Users, Vote, X,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -34,7 +36,7 @@ export default function EventoAdminPage() {
   const { user } = useAuth();
   const pode = podeEditar(user?.role, user?.permissoes, 'eventos');
 
-  const { data: evento, isLoading } = useQuery({
+  const { data: evento, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['evento', id],
     queryFn: () => obterEvento(id),
   });
@@ -54,11 +56,22 @@ export default function EventoAdminPage() {
     enabled: !!evento?.configuracoes?.habilitarSorteio && !encerrada,
   });
 
+  // 13/09/2026: só sem dado. A pauta revalida a cada 3 s nesta tela; uma falha
+  // de rede não pode trocar o evento já carregado pela tela de erro.
+  if (isError && !evento) {
+    return <FalhaAoCarregar erro={error} oQue="o evento" onTentarDeNovo={() => refetch()} />;
+  }
+
   if (isLoading || !evento) {
     return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-      </div>
+      <Carregando texto="Carregando o evento…" className="space-y-5">
+        <div className="space-y-2">
+          <Esqueleto className="h-7 w-72 max-w-full" />
+          <Esqueleto className="h-4 w-48" />
+        </div>
+        <Esqueleto className="h-28 w-full rounded-xl" />
+        <Esqueleto className="h-64 w-full rounded-xl" />
+      </Carregando>
     );
   }
 

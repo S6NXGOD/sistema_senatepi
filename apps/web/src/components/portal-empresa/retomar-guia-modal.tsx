@@ -7,6 +7,7 @@ import {
   X, Loader2, Copy, Check, QrCode, ShieldCheck, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { AvisoLgpd, Arquivo } from './nova-declaracao-wizard';
 import {
   buscarPixDaGuia, anexarDocumentos, formatarReais,
@@ -81,8 +82,8 @@ export function RetomarGuiaModal({
   if (!contribuicao) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4">
-      <div className="my-8 w-full max-w-lg rounded-2xl bg-card shadow-xl">
+    <div className="fixed inset-0 z-[60] flex animate-overlay-entrar items-start justify-center overflow-y-auto bg-black/50 p-4">
+      <div className="my-8 w-full max-w-lg animate-dialogo-entrar rounded-2xl bg-card shadow-xl">
         <div className="flex items-start justify-between border-b p-5">
           <div>
             <h3 className="font-semibold capitalize">{contribuicao.competencia}</h3>
@@ -118,9 +119,11 @@ export function RetomarGuiaModal({
             )}
 
             {isLoading && (
-              <p className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Carregando o PIX…
-              </p>
+              <Carregando texto="Carregando o PIX…" className="rounded-xl border bg-muted/30 p-4">
+                <Esqueleto className="mx-auto h-3 w-20" />
+                <Esqueleto className="mx-auto mt-2 h-6 w-28" />
+                <Esqueleto className="mx-auto mt-3 h-40 w-40 rounded-lg" />
+              </Carregando>
             )}
 
             {pix && (

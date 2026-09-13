@@ -2,23 +2,30 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, Play, ChevronRight, Loader2, MoreHorizontal } from 'lucide-react';
+import { Check, Play, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
 import {
-  concluirCompromisso,
-  mudarStatusCompromisso,
   formatHora,
   corDeTipo,
   rotuloTipo,
   estadoDoPrazo,
+  listarDesfechos,
+  getCompromisso,
+  type CompromissoDetalhe,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
-import { STATUS_COMP_COR, STATUS_COMP_LABEL } from '@/lib/dashboard';
+import { STATUS_COMP_COR, STATUS_COMP_LABEL, linkDaAgenda, textoDoRodapeDasAtividades } from '@/lib/dashboard';
+import { botaoDaLinha, podeIniciarNoPainel, rotuloDoBotao, type BotaoDaLinha } from '@/lib/acao-rapida';
 import { AvatarMini } from '@/components/dashboard/widgets';
 import { SeloUrgente } from '@/components/ui/selo-urgente';
 import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
+import { ConcluirModal } from '@/components/agenda/concluir-modal';
+import { FolhaDeDesfecho } from '@/components/dashboard/folha-de-desfecho';
+import { useConcluirNoPainel } from '@/components/dashboard/concluir-no-painel';
 import { contar, plural } from '@/lib/plural';
 import type { CompromissoCard } from '@/lib/dashboard';
 
@@ -32,69 +39,35 @@ import type { CompromissoCard } from '@/lib/dashboard';
  * é `atrasadas → hoje → próximos sete dias` em ordem cronológica pura — o
  * atrasado é o mais antigo, então sobe sozinho, sem precisar de bloco próprio.
  *
- * O DESENHO VOLTOU A TER CONTEÚDO, e essa foi crítica direta do usuário: "a UI
- * ficou muito feia". Estava, e o motivo não era só estética. Ao trocar o bloco
- * antigo por linhas de uma altura, eu tinha jogado fora TUDO que distinguia uma
- * atividade da outra: o rótulo do tipo, a cor do tipo, o filiado, contra quem é
- * o processo, o local, o selo de urgência, o chip de status e o avatar de quem
- * responde. Sobrou hora + título + um botão verde saturado por linha — cinco
- * botões iguais empilhados, que é o que a vista pega primeiro numa coluna.
+ * A linha diz o que distingue uma atividade da outra: a cor e o rótulo do tipo,
+ * o selo de urgência, "Atrasada" quando for o caso, quando, o filiado, contra
+ * quem, o local, e o rosto de quem responde na visão de equipe.
  *
- * O que voltou:
- *  · barra colorida do TIPO à esquerda (a mesma paleta da Agenda);
- *  · título, selo de urgência e etiqueta "Atrasada" quando for o caso;
- *  · segunda linha com tipo · quando · filiado · contra quem · local;
- *  · avatar de quem responde (só na visão de equipe — na pessoal seria o mesmo
- *    rosto em todas as linhas);
- *  · ações à direita, com o botão de um toque em tom claro, não em bloco
- *    sólido: ele precisa ser encontrável, não ser o assunto da tela.
+ * O BOTÃO DA LINHA LÊ O CATÁLOGO DA API — e deixou de ser uma tabela no front.
  *
- * O BOTÃO DE UM TOQUE SAIU DE MEDIÇÃO. Nas 41 atividades concluídas na
- * produção, dois desfechos respondem por 60%: "Dúvida esclarecida" (15 de 19
- * consultas) e "Prazo cumprido" (11 de 11 prazos). Cada tipo ganha o desfecho
- * que a equipe usa; o resto continua no modal completo.
+ * Havia aqui um `DESFECHO_RAPIDO` escrito à mão, um desfecho por tipo, tirado de
+ * 41 conclusões. Ele produzia desfecho falso por falta de opção: a reunião sem
+ * deliberação só fechava "com encaminhamentos" (e a API criava, calada, uma
+ * tarefa obrigatória na agenda de alguém), o prazo de análise só virava "Peça
+ * protocolada", e "Cadastrar ação do Diário" fechava como "Cumprida" sem ação
+ * nenhuma no acervo. A regra agora mora em `botaoDaLinha` (lib/acao-rapida,
+ * testada com o catálogo): o primário é a PRIMEIRA opção sem ação nem alerta;
+ * sem ela, ou em atividade de outra pessoa, abre a folha com todas as opções.
  *
  * MOBILE-FIRST: no telefone o conteúdo ocupa a largura e as ações caem embaixo,
- * alinhadas à direita, com alvo de 44px. No desktop cabe em duas linhas com as
- * ações numa coluna própria e alvos de 32px. Nada depende de hover — hover não
- * existe no telefone, e esconder ação atrás dele é esconder a ação.
+ * alinhadas à direita, com alvo de 44px — e o botão diz o desfecho que grava,
+ * também no telefone. Nada depende de hover.
  */
 
-/**
- * O DESFECHO QUE A EQUIPE REALMENTE USA, por tipo de atividade.
- *
- * Medido nas 41 conclusões da produção em 09/09/2026:
- *   DUVIDA_ESCLARECIDA 15 · PRAZO_CUMPRIDO 11 · PROCESSO_CRIADO 5
- *   REUNIAO_COM_ENCAMINHAMENTOS 4 · ACOMPANHAMENTO_CUMPRIDO 3
- *   DILIGENCIA_CUMPRIDA 2
- *
- * Tipo fora desta tabela não ganha botão de um toque — abre o modal. É
- * deliberado: um botão que fecha com o desfecho errado é pior que um clique a
- * mais, porque o desfecho é o que alimenta o relatório e o seguimento.
- */
-const DESFECHO_RAPIDO: Record<string, { slug: string; label: string; exigeObs?: boolean }> = {
-  PRAZO: { slug: 'PRAZO_CUMPRIDO', label: 'Peça protocolada' },
-  DILIGENCIA: { slug: 'DILIGENCIA_CUMPRIDA', label: 'Cumprida' },
-  /*
-    OS QUE PEDEM UMA LINHA — e a primeira versão deste bloco os quebrava.
+/** Tom claro, não bloco sólido: o botão precisa ser achável, não ser o assunto da tela. */
+const BOTAO_CLARO =
+  'flex h-11 min-w-0 items-center gap-1.5 rounded-md border border-brand-200 bg-brand-50 px-2.5 text-xs font-medium text-brand-900 transition hover:bg-brand-800 hover:text-white disabled:opacity-60 sm:h-8 dark:border-brand-800/60 dark:bg-brand-900/30 dark:text-brand-200 dark:hover:bg-brand-700';
 
-    Quatro desfechos do catálogo têm `exigeObs`, e o serviço RECUSA a conclusão
-    sem observação (`agenda.service.ts`: "if (opcao.exigeObs && !obs) throw").
-    Eu montei o botão de um toque para os seis sem conferir essa flag — e o mais
-    usado do sistema, "Dúvida esclarecida" (15 das 41 conclusões), era um dos
-    quatro. O botão mais apertado seria o que devolvia 400.
+/** O botão que abre a folha: contorno, porque não grava nada no toque. */
+const BOTAO_FOLHA =
+  'flex h-11 min-w-0 items-center gap-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted disabled:opacity-60 sm:h-8';
 
-    A regra existe por um bom motivo: nesses desfechos a observação É o
-    registro. "Dúvida esclarecida" sem dizer qual dúvida não serve a ninguém que
-    abrir o processo depois.
-
-    Então eles não perdem o atalho — ganham um campo de uma linha ali mesmo.
-  */
-  CONSULTA_JURIDICA: { slug: 'DUVIDA_ESCLARECIDA', label: 'Dúvida esclarecida', exigeObs: true },
-  ACOMPANHAMENTO: { slug: 'ACOMPANHAMENTO_CUMPRIDO', label: 'Cumprido', exigeObs: true },
-  REUNIAO: { slug: 'REUNIAO_COM_ENCAMINHAMENTOS', label: 'Com encaminhamentos', exigeObs: true },
-  DESPACHO: { slug: 'DESPACHO_OBTIDO', label: 'Despacho obtido', exigeObs: true },
-};
+type BotaoDeFolha = Extract<BotaoDaLinha, { tipo: 'FOLHA' }>;
 
 export function AtividadesDoDia({
   atrasadas,
@@ -112,17 +85,17 @@ export function AtividadesDoDia({
   /**
    * OS CONTADORES VÊM DA API, NÃO DO TAMANHO DA LISTA — e a diferença importa.
    *
-   * As três consultas têm `take:` (8, 12 e 8). Contar as linhas que chegaram
-   * diria "3 atrasadas" quando existem 14, e o painel estaria mentindo para
-   * menos justamente no número que não pode errar. Estes vêm de `count()` sem
-   * teto, no mesmo escopo (`meu`) das listas.
+   * As três consultas têm `take:`. Contar as linhas que chegaram diria "3
+   * atrasadas" quando existem 14, e o painel estaria mentindo para menos
+   * justamente no número que não pode errar. Estes vêm de `count()` sem teto,
+   * no mesmo escopo (`meu`) das listas.
    */
   totalAtrasadas: number;
   totalPassaramDaHora: number;
   /** Carteira própria: sem nome de responsável repetido e sem teto de linhas. */
   pessoal: boolean;
   /**
-   * Para onde vai o que NÃO cabe num toque.
+   * Para onde vai o título da linha.
    *
    * `Link`, e não um callback de navegação: navegação por `router.push` num
    * item de lista custa um hook e perde o clique do meio, o "abrir em nova aba"
@@ -131,124 +104,113 @@ export function AtividadesDoDia({
   href: (id: string) => string;
 }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const { tipos } = useTiposEvento();
-  const [agindo, setAgindo] = useState<string | null>(null);
-  /** Id da linha com o campo de observação aberto — só uma por vez. */
-  const [anotando, setAnotando] = useState<string | null>(null);
+  /*
+    QUEM SÓ VÊ A AGENDA NÃO RECEBE BOTÃO. A Triagem tem agenda VISUALIZAR e
+    escopo GLOBAL: via o bloco da equipe com ▷ e Concluir, e a API devolvia 403.
+  */
+  const podeEditarAgenda = podeEditar(user?.role, user?.permissoes, 'agenda');
+  const podeCadastrarProcesso = podeEditar(user?.role, user?.permissoes, 'processos');
+  const acoes = useConcluirNoPainel();
 
-  const invalidar = () => {
-    qc.invalidateQueries({ queryKey: ['dashboard'] });
-    qc.invalidateQueries({ queryKey: ['agenda'] });
-  };
-
-  const concluir = useMutation({
-    mutationFn: ({ id, desfecho, obs }: { id: string; desfecho: string; obs?: string }) =>
-      concluirCompromisso(id, { desfecho, ...(obs ? { desfechoObs: obs } : {}) }),
-    onSuccess: () => {
-      toast.success('Concluída.');
-      setAgindo(null);
-      invalidar();
-    },
-    onError: (e: any) => {
-      setAgindo(null);
-      toast.error(e?.response?.data?.message ?? 'Não foi possível concluir agora.');
-    },
-  });
-
-  const iniciar = useMutation({
-    mutationFn: (id: string) => mudarStatusCompromisso(id, 'EM_ANDAMENTO'),
-    onSuccess: () => {
-      setAgindo(null);
-      invalidar();
-    },
-    onError: (e: any) => {
-      setAgindo(null);
-      toast.error(e?.response?.data?.message ?? 'Não foi possível iniciar agora.');
-    },
-  });
+  /** A linha com a folha de desfechos aberta — uma por vez. */
+  const [folha, setFolha] = useState<{ c: CompromissoCard; botao: BotaoDeFolha } | null>(null);
+  /** O formulário completo, para vincular ou abrir processo e para ajustar o seguimento. */
+  const [completo, setCompleto] = useState<{ detalhe: CompromissoDetalhe; slug: string } | null>(null);
+  const [abrindoCompleto, setAbrindoCompleto] = useState(false);
 
   const estaAberta = (c: CompromissoCard) =>
     c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO';
   /** Ficou para trás (dia virado) ou passou da hora de hoje — ver `estadoDoPrazo`. */
   const pedeAtencao = (c: CompromissoCard) => estadoDoPrazo(c) !== 'EM_DIA';
+  const ehDeOutraPessoa = (c: CompromissoCard) => !!user?.id && !!c.responsavel && c.responsavel.id !== user.id;
 
-  /*
-    O QUE AINDA PEDE AÇÃO PRIMEIRO; DEPOIS, CRONOLÓGICO.
-
-    A primeira versão desta fila ordenava só por `inicio`, e a simulação contra
-    a produção mostrou o estrago: `atividadesHoje` traz o dia INTEIRO, qualquer
-    status, então as concluídas de hoje se intercalavam entre as pendentes pelo
-    horário em que começaram. No corte de cinco da visão de equipe, as cinco
-    linhas visíveis eram
-
-        15:00 ATRASADA  Cadastrar ação do Diário
-        15:00 ATRASADA  Juntar documentos
-        15:00           Avaliar recurso            ← CONCLUÍDO
-        15:00           Encaminhamento da reunião  ← CONCLUÍDO
-        15:15 ATRASADA  Cadastrar ação do Diário
-
-    DUAS DAS CINCO VAGAS eram trabalho já feito, competindo por espaço com o
-    que ainda precisa de alguém. O painel é fila de TRABALHO; o que fechou é
-    registro do dia e vale a última posição, nunca a terceira.
-
-    Dentro de cada grupo a ordem continua cronológica — o atrasado é o mais
-    antigo, então sobe sozinho, sem cabeçalho de seção e sem um segundo bloco.
-  */
   /*
     DEDUPLICA POR ID — a janela de troca do deploy exige isto.
 
-    A API passou a mandar em `pendenciasAtivas` só o que venceu em DIA
-    ANTERIOR; antes mandava tudo com `inicio < agora`, incluindo as de hoje. Web
-    e API sobem em serviços separados e não trocam no mesmo segundo: enquanto a
-    web nova falar com a API antiga, a MESMA atividade chega nas duas listas e
-    apareceria duas vezes na fila.
-
-    A defesa fica no cliente, não no acordo entre as duas versões — é uma linha,
-    vale para qualquer atraso de deploy futuro, e o `Map` preserva a primeira
-    ocorrência, que é a ordem em que concatenamos.
+    Web e API sobem em serviços separados e não trocam no mesmo segundo: com a
+    API de uma versão e a web de outra, a MESMA atividade pode chegar em duas
+    listas. O `Map` preserva a primeira ocorrência, que é a ordem em que
+    concatenamos.
   */
   const semRepetir = [...new Map(
     [...atrasadas, ...hoje, ...proximas].map((c) => [c.id, c]),
   ).values()];
 
+  /*
+    O QUE AINDA PEDE AÇÃO PRIMEIRO; DEPOIS, CRONOLÓGICO. `atividadesHoje` traz o
+    dia inteiro, qualquer status: sem isto, as concluídas de hoje disputavam as
+    cinco vagas da visão de equipe com o que ainda precisa de alguém.
+  */
   const todas = semRepetir.sort((a, b) => {
     const porEstado = Number(!estaAberta(a)) - Number(!estaAberta(b));
     if (porEstado !== 0) return porEstado;
     return new Date(a.inicio).getTime() - new Date(b.inicio).getTime();
   });
+
+  /*
+    O CATÁLOGO DE CADA TIPO ABERTO — a mesma chave do modal da agenda, então quem
+    abre um e depois o outro não paga duas vezes. São poucos tipos por painel, e
+    o catálogo quase não muda: meia hora de validade.
+
+    O tipo da folha aberta entra junto: ao concluir, a linha sai da fila na hora,
+    e a folha não pode perder as opções enquanto a resposta não volta.
+  */
+  const tiposAbertos = [
+    ...new Set([...todas.filter(estaAberta).map((c) => c.tipo), ...(folha ? [folha.c.tipo] : [])]),
+  ].sort();
+  const catalogos = useQueries({
+    queries: tiposAbertos.map((tipo) => ({
+      queryKey: ['desfechos-tipo', tipo],
+      queryFn: () => listarDesfechos(tipo),
+      enabled: podeEditarAgenda,
+      staleTime: 30 * 60_000,
+    })),
+  });
+  const catalogoDe = (tipo: string) => {
+    const q = catalogos[tiposAbertos.indexOf(tipo)];
+    return {
+      opcoes: q?.data,
+      carregando: !!q?.isLoading,
+      erro: !!q?.isError,
+      tentar: () => void q?.refetch(),
+    };
+  };
+
+  async function abrirCompleto(c: CompromissoCard, slug: string) {
+    setAbrindoCompleto(true);
+    try {
+      const detalhe = await qc.fetchQuery({
+        queryKey: ['compromisso', c.id],
+        queryFn: () => getCompromisso(c.id),
+      });
+      setFolha(null);
+      setCompleto({ detalhe, slug });
+    } catch {
+      toast.error('Não foi possível abrir o formulário completo agora.');
+    } finally {
+      setAbrindoCompleto(false);
+    }
+  }
+
   if (!todas.length) return null;
 
   /*
-    O CORTE NUNCA PODE ESCONDER O QUE PRECISA DE GENTE — e escondia.
+    O CORTE NUNCA PODE ESCONDER O QUE PRECISA DE GENTE.
 
-    Medido em 09/09/2026 no painel do administrador: 8 atrasadas na fila,
-    `TETO_EQUIPE = 5`, e o rodapé dizia "Mais 14 da equipe na agenda". TRÊS
-    atrasadas ficavam invisíveis, e nada na tela avisava que o que sumiu era
-    justamente o que estava vencido. Truncar por posição trata a última
-    atrasada como se fosse a última tarefa de sexta que vem.
-
-    A regra passa a ser: tudo que pede atenção aparece; o teto vale só para o
-    que está EM DIA. E há um teto duro de segurança — se um dia houver 40
-    atrasadas, o painel não vira uma tela de rolagem: mostra as mais antigas e
-    o rodapé DIZ quantas atrasadas ficaram de fora, com todas as letras.
+    Tudo que pede atenção aparece; o teto vale só para o que está EM DIA. E há
+    um teto duro de segurança — 40 atrasadas não viram 40 linhas: aparecem as
+    mais antigas e o rodapé DIZ quantas ficaram de fora.
   */
   const TETO_ATENCAO = 12;
   const precisamDeGente = todas.filter(pedeAtencao);
   const emDia = todas.filter((c) => !pedeAtencao(c));
 
   /*
-    A AGENDA DA EQUIPE NÃO CABE NUM PAINEL — e era o bloco mais alto de todos.
-
-    No escopo GLOBAL (administrador e coordenação) a API manda a agenda de todo
-    mundo: medido, 8 de hoje + 6 dos próximos dias = 14 linhas, ≈1.230px. Mais
-    de duas dobras de telefone com o trabalho ALHEIO, no painel de quem não vai
-    executar nenhuma delas.
-
-    Na carteira pessoal não há corte: as próprias atividades são exatamente o
-    que a pessoa veio ver, e Morgana no pior dia tem cinco.
-
-    O corte é de EXIBIÇÃO, não de dado: o rodapé diz quantas ficaram e leva à
-    agenda, onde elas estão inteiras e filtráveis.
+    A AGENDA DA EQUIPE NÃO CABE NUM PAINEL. No escopo GLOBAL a API manda a
+    agenda de todo mundo; na carteira pessoal não há corte. O corte é de
+    EXIBIÇÃO, não de dado: o rodapé diz quantas ficaram e leva à agenda.
   */
   const TETO_EQUIPE = 5;
   const atencaoVisivel = precisamDeGente.slice(0, TETO_ATENCAO);
@@ -256,22 +218,26 @@ export function AtividadesDoDia({
     ? emDia.length
     : Math.max(0, TETO_EQUIPE - atencaoVisivel.length);
   const visiveis = [...atencaoVisivel, ...emDia.slice(0, vagasRestantes)];
-  const ocultas = todas.length - visiveis.length;
-  /** Atrasadas que o teto duro deixou de fora — o rodapé tem de nomeá-las. */
-  const atencaoOculta = precisamDeGente.length - atencaoVisivel.length;
+  /*
+    O CABEÇALHO E O RODAPÉ CONTAM A MESMA COISA.
+
+    O selo "N atrasadas" vem do count() da API; a lista chega com `take`. Com 14
+    atrasadas o cabeçalho dizia 14, a lista mostrava 8 e o rodapé calculava as
+    ocultas só sobre o que chegou — as 6 que a API cortou não apareciam em
+    lugar nenhum. O que falta chegar entra na conta pelos totais.
+  */
+  const cortadasPelaApi = Math.max(0, totalAtrasadas + totalPassaramDaHora - precisamDeGente.length);
+  const ocultas = todas.length - visiveis.length + cortadasPelaApi;
+  /** O que pede atenção e não está na tela — o rodapé tem de nomeá-lo. */
+  const atencaoOculta = precisamDeGente.length - atencaoVisivel.length + cortadasPelaApi;
 
   /*
-    DE QUEM É O ATRASO — a pergunta da coordenação, que a lista não respondia.
+    DE QUEM É O ATRASO — a pergunta de quem coordena. Com "8 atrasadas" ele
+    COBRA, e para cobrar precisa de um nome. Conta tudo o que chegou ao painel,
+    inclusive o que o teto escondeu.
 
-    Quem coordena não cumpre o prazo de ninguém: o que ele faz com "8 atrasadas"
-    é COBRAR, e para cobrar precisa de um nome. A lista trazia isso num avatar
-    de 24px por linha, o que obriga a ler linha por linha e somar de cabeça —
-    e pior, só nas cinco linhas visíveis.
-
-    Esta tira conta a fila INTEIRA, inclusive o que o teto escondeu, e ordena
-    por quem tem mais. Medido em 09/09/2026: Morgana 4, Carlos 3, Ícaro 1.
-
-    Só na visão de equipe: na carteira própria seria o mesmo rosto uma vez só.
+    ORDEM ALFABÉTICA, e não "quem tem mais": ordenar pessoas por atraso é um
+    pódio ao contrário. O número ao lado já diz o que é preciso.
   */
   const porPessoa = pessoal
     ? []
@@ -283,30 +249,33 @@ export function AtividadesDoDia({
           acc.set(r.id, { pessoa: r, quantas: (atual?.quantas ?? 0) + 1 });
           return acc;
         }, new Map<string, { pessoa: NonNullable<CompromissoCard['responsavel']>; quantas: number }>())
-        .values()].sort((a, b) => b.quantas - a.quantas);
+        .values()].sort((a, b) => a.pessoa.nome.localeCompare(b.pessoa.nome, 'pt-BR'));
+
+  /*
+    O RODAPÉ LEVA AO RECORTE QUE ELE CONTOU. A fila é atrasadas + hoje + sete
+    dias: quando o que sumiu pede atenção, "Pedem atenção"; senão, "7 dias". Na
+    carteira pessoal, só da pessoa (a régua `daPessoa`, a mesma do painel).
+  */
+  const hrefDoRodape = linkDaAgenda({
+    aba: atencaoOculta > 0 ? 'atencao' : '7dias',
+    ...(pessoal ? { pessoa: 'eu' } : {}),
+  });
+
+  const catalogoDaFolha = folha ? catalogoDe(folha.c.tipo) : null;
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card">
       {/*
-        CABEÇALHO DE UMA LINHA, não um `SectionCard` — 32px contra 56px.
-
-        O contador de atrasadas mora aqui, e é o que sobrou da barra amarela que
-        existia acima do painel: o número no lugar onde se age, em vez de um
-        aviso duzentos pixels antes do trabalho.
+        CABEÇALHO DE UMA LINHA, não um `SectionCard` — 32px contra 56px. O
+        contador de atrasadas mora aqui: o número no lugar onde se age.
       */}
       <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
         <h2 className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
           {pessoal ? 'Minhas atividades' : 'Atividades'}
           <span className="font-normal text-muted-foreground">{todas.length}</span>
           {/*
-            DOIS CONTADORES, DOIS PESOS — e antes eram um só, somando coisas
-            diferentes.
-
-            "8 atrasadas" no painel com o sino calado era o sintoma: o painel
-            chamava de atraso o que é de HOJE com a hora passada. Agora o
-            vermelho-âmbar sólido é só para o que ficou para trás de verdade
-            (dia virado), e o que passou da hora entra em cinza, ao lado. Se um
-            dia os dois forem zero, nenhum aparece.
+            DOIS CONTADORES, DOIS PESOS: âmbar sólido só para o que ficou para
+            trás de verdade (dia virado); o que passou da hora entra em cinza.
           */}
           {totalAtrasadas > 0 && (
             <span className="shrink-0 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white dark:bg-amber-600">
@@ -314,14 +283,7 @@ export function AtividadesDoDia({
             </span>
           )}
           {totalPassaramDaHora > 0 && (
-            /*
-              VISÍVEL NO TELEFONE TAMBÉM — a primeira versão tinha `hidden
-              sm:inline` aqui, e no celular o cabeçalho ficava só "Minhas
-              atividades 5", sem sinal nenhum de urgência. Num sistema
-              mobile-first, esconder o aviso na tela pequena é esconder o aviso:
-              7 das 8 atividades medidas estão num telefone antes de estarem
-              num monitor. O cabeçalho quebra linha em vez de perder o número.
-            */
+            /* Visível no telefone também: o cabeçalho quebra linha em vez de perder o número. */
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
               {totalPassaramDaHora}{' '}
               {plural(totalPassaramDaHora, 'passou da hora', 'passaram da hora')}
@@ -330,7 +292,7 @@ export function AtividadesDoDia({
         </h2>
         <Link
           href="/agenda"
-          className="shrink-0 text-xs font-medium text-brand-800 transition hover:underline dark:text-brand-300"
+          className="flex min-h-11 shrink-0 items-center text-xs font-medium text-brand-800 transition hover:underline sm:min-h-0 dark:text-brand-300"
         >
           Abrir agenda
         </Link>
@@ -344,28 +306,45 @@ export function AtividadesDoDia({
           {porPessoa.map(({ pessoa, quantas }) => (
             <Link
               key={pessoa.id}
-              href={`/agenda?responsavel=${pessoa.id}`}
-              title={`Ver a agenda de ${pessoa.nome}`}
-              className="flex items-center gap-1 rounded-full bg-background/80 py-0.5 pl-0.5 pr-2 transition hover:bg-background"
+              /*
+                O MESMO RECORTE QUE O NÚMERO CONTOU: atrasadas e passaram da hora
+                em que a pessoa RESPONDE. Abria a agenda dela inteira, com equipe
+                e reserva junto — outro número.
+              */
+              href={linkDaAgenda({ aba: 'atencao', responsavel: pessoa.id, somenteResponsavel: true })}
+              title={`Ver o que pede atenção e é de ${pessoa.nome}`}
+              className="flex min-h-11 items-center gap-1 rounded-full bg-background/80 py-0.5 pl-0.5 pr-2 transition hover:bg-background sm:min-h-0"
             >
               <AvatarMini pessoa={pessoa} size={18} />
               <span className="max-w-[9rem] truncate">{pessoa.nome.split(' ')[0]}</span>
               <span className="font-semibold tabular-nums">{quantas}</span>
             </Link>
           ))}
+          {cortadasPelaApi > 0 && (
+            <span className="text-muted-foreground">(entre as que chegaram ao painel)</span>
+          )}
         </div>
       )}
 
       <ul className="divide-y">
         {visiveis.map((c) => {
-          const rapido = DESFECHO_RAPIDO[c.tipo];
           const aberta = estaAberta(c);
           const estado = estadoDoPrazo(c);
           const atrasada = estado === 'ATRASADA';
           const passouDaHora = estado === 'PASSOU_DA_HORA';
-          const ocupado = agindo === c.id;
+          const ocupado = acoes.ocupado(c.id);
           const emAndamento = c.status === 'EM_ANDAMENTO';
           const contra = parteContrariaDoProcesso(c.processo);
+          const botao: BotaoDaLinha = aberta
+            ? botaoDaLinha({
+                opcoes: catalogoDe(c.tipo).opcoes,
+                podeEditarAgenda,
+                ehDeOutraPessoa: ehDeOutraPessoa(c),
+                sugestaoDeCadastro: c.sugestaoDeCadastro,
+                podeCadastrarProcesso,
+              })
+            : { tipo: 'NENHUM' };
+          const rotulo = rotuloDoBotao(botao);
 
           return (
             <li
@@ -375,12 +354,7 @@ export function AtividadesDoDia({
                 atrasada ? 'bg-amber-50/60 dark:bg-amber-950/10' : 'hover:bg-muted/40',
               )}
             >
-              {/*
-                A BARRA DO TIPO — a mesma paleta da Agenda, para o olho
-                reconhecer "prazo" antes de ler a palavra. Só no desktop: no
-                telefone a largura é do texto, e o chip do tipo na segunda linha
-                já carrega a mesma cor.
-              */}
+              {/* A barra do tipo — a mesma paleta da Agenda. Só no desktop. */}
               <span
                 className={cn(
                   'hidden w-1 shrink-0 self-stretch rounded-full sm:block',
@@ -397,18 +371,9 @@ export function AtividadesDoDia({
                   )}
                   {atrasada && (
                     /*
-                      ÂMBAR, NUNCA VERMELHO — e a razão é factual, não estética.
-
-                      O sistema NÃO calcula vencimento processual: sabe apenas
-                      que a data agendada passou. Vermelho afirmaria prazo
-                      perdido; âmbar chama atenção, que é o que o dado sustenta.
-
-                      E a etiqueta só sai aqui para o que FICOU PARA TRÁS (dia
-                      virado). O que é de hoje com a hora passada leva a marca
-                      discreta na hora, logo abaixo — antes as duas coisas
-                      usavam esta mesma etiqueta, e o painel ficava âmbar todo
-                      fim de tarde por causa das tarefas que o robô agenda para
-                      as 15:00 do próprio dia.
+                      ÂMBAR, NUNCA VERMELHO: o sistema não calcula vencimento
+                      processual, sabe apenas que a data agendada passou. E a
+                      etiqueta é só do que FICOU PARA TRÁS (dia virado).
                     */
                     <span className="shrink-0 rounded bg-amber-500 px-1.5 py-px text-[10px] font-bold uppercase leading-4 text-white dark:bg-amber-600">
                       Atrasada
@@ -425,15 +390,8 @@ export function AtividadesDoDia({
                     {rotuloTipo(c.tipo, tipos)}
                   </span>
                   {/*
-                    A DATA APARECE QUANDO NÃO É HOJE — e a falta dela era um bug.
-                    A fila junta dias diferentes numa leitura cronológica só;
-                    mostrando apenas a hora, "09:00" numa linha de amanhã se lê
-                    exatamente como um atraso de hoje.
-                  */}
-                  {/*
-                    A MARCA DISCRETA DO "PASSOU DA HORA": a própria hora em
-                    âmbar. Sem etiqueta, sem fundo na linha — é informação, não
-                    alarme, e o alarme já tem dono aqui em cima.
+                    A DATA APARECE QUANDO NÃO É HOJE; e o que passou da hora leva a
+                    própria hora em âmbar — informação, não alarme.
                   */}
                   <span
                     className={cn(
@@ -444,30 +402,24 @@ export function AtividadesDoDia({
                   >
                     {ehDeHoje(c.inicio) ? formatHora(c.inicio) : etiquetaDeDia(c.inicio)}
                   </span>
+                  {/* Em andamento não tinha marca nenhuma: depois do ▷, a linha parecia igual. */}
+                  {emAndamento && (
+                    <span className="shrink-0 font-medium text-sky-700 dark:text-sky-400">· em andamento</span>
+                  )}
                   {c.filiado && <span className="truncate">· {c.filiado.nomeCompleto}</span>}
-                  {/*
-                    CONTRA QUEM — o que distingue duas linhas de mesmo título.
-                    "Avaliar recurso" é categoria, não identidade; sem isto, duas
-                    atividades de processos diferentes ficam idênticas.
-                  */}
+                  {/* Contra quem — o que distingue duas linhas de mesmo título. */}
                   {contra && <span className="truncate">· contra {contra}</span>}
                   {c.local && <span className="truncate">· {c.local}</span>}
                 </div>
               </Link>
 
-              <div className="flex shrink-0 items-center justify-end gap-1.5">
-                {/*
-                  DE QUEM É — só na visão de equipe; na carteira pessoal seria o
-                  mesmo rosto em todas as linhas.
-                */}
+              <div className="flex min-w-0 shrink-0 items-center justify-end gap-1.5">
+                {/* De quem é — só na visão de equipe. */}
                 {!pessoal && c.responsavel && <AvatarMini pessoa={c.responsavel} size={24} />}
 
                 {/*
-                  O CHIP DE STATUS só aparece no que NÃO está aberto: para uma
-                  linha aberta ele diria "Pendente" ao lado de um botão de
-                  concluir, que é a mesma informação dita duas vezes. Concluída e
-                  cancelada de hoje continuam na lista (é o registro do dia) e aí
-                  o chip é a única coisa que as explica.
+                  O CHIP DE STATUS só aparece no que NÃO está aberto: concluída e
+                  cancelada de hoje continuam na lista (é o registro do dia).
                 */}
                 {!aberta && (
                   <span
@@ -480,13 +432,15 @@ export function AtividadesDoDia({
                   </span>
                 )}
 
-                {aberta && !emAndamento && (
+                {/*
+                  ▷ SÓ ONDE O CRONÔMETRO SIGNIFICA ALGO: atividade de HOJE com hora
+                  marcada (consulta, reunião, audiência, perícia). Cronometrar a
+                  tarefa de quinta que vem não mede nada.
+                */}
+                {aberta && podeEditarAgenda && podeIniciarNoPainel(c) && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setAgindo(c.id);
-                      iniciar.mutate(c.id);
-                    }}
+                    onClick={() => acoes.iniciar(c.id)}
                     disabled={ocupado}
                     title="Iniciar"
                     aria-label={`Iniciar ${c.titulo}`}
@@ -496,87 +450,51 @@ export function AtividadesDoDia({
                   </button>
                 )}
 
-                {aberta &&
-                  (rapido ? (
-                    /*
-                      TOM CLARO, NÃO BLOCO SÓLIDO.
+                {botao.tipo === 'CADASTRAR' && (
+                  /*
+                    A TAREFA "CADASTRAR AÇÃO DO DIÁRIO": o gesto é cadastrar. A
+                    tarefa fecha sozinha quando a ação entra no acervo — "Cumprida"
+                    fechava a tarefa e deixava a ação fora.
+                  */
+                  <Link href={botao.href} className={BOTAO_CLARO}>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{rotulo}</span>
+                  </Link>
+                )}
 
-                      Cinco botões verdes saturados empilhados eram a primeira
-                      coisa que a vista pegava — mais fortes que os títulos das
-                      atividades, que são o assunto. Em tom claro com borda o
-                      botão continua óbvio e para de competir; no hover ele
-                      enche, confirmando que é o gesto principal.
-                    */
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (rapido.exigeObs) {
-                          setAnotando(anotando === c.id ? null : c.id);
-                          return;
-                        }
-                        setAgindo(c.id);
-                        concluir.mutate({ id: c.id, desfecho: rapido.slug });
-                      }}
-                      disabled={ocupado}
-                      className="flex h-11 items-center gap-1.5 rounded-md border border-brand-200 bg-brand-50 px-2.5 text-xs font-medium text-brand-900 transition hover:bg-brand-800 hover:text-white disabled:opacity-60 sm:h-8 dark:border-brand-800/60 dark:bg-brand-900/30 dark:text-brand-200 dark:hover:bg-brand-700"
-                    >
-                      {ocupado ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Check className="h-3.5 w-3.5" />
-                      )}
-                      <span className="hidden sm:inline">{rapido.label}</span>
-                      <span className="sm:hidden">Concluir</span>
-                    </button>
-                  ) : (
-                    /*
-                      SEM DESFECHO ÓBVIO, sem botão que decide. Audiência e
-                      perícia têm desfechos que mudam o rumo do caso (houve
-                      acordo? laudo entregue?) — fechar isso num toque seria
-                      adivinhar pela pessoa.
-                    */
-                    <Link
-                      href={href(c.id)}
-                      title="Abrir para concluir"
-                      aria-label={`Abrir ${c.titulo}`}
-                      className="flex h-11 items-center gap-1 rounded-md border border-input px-2.5 text-xs font-medium transition hover:bg-muted sm:h-8"
-                    >
-                      <MoreHorizontal className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">Concluir</span>
-                    </Link>
-                  ))}
-              </div>
-
-              {/*
-                O CAMPO DE UMA LINHA — para os desfechos em que a observação É o
-                registro. Fica na própria linha: sem modal, sem navegação.
-                `Enter` conclui, que é o gesto de quem digita uma frase curta.
-              */}
-              {anotando === c.id && rapido?.exigeObs && (
-                <div className="flex w-full gap-2 pt-1 sm:basis-full sm:pl-4">
-                  <input
-                    autoFocus
-                    placeholder={`${rapido.label} — o que houve?`}
-                    disabled={ocupado}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Enter') return;
-                      const obs = (e.target as HTMLInputElement).value.trim();
-                      if (!obs) return;
-                      setAgindo(c.id);
-                      setAnotando(null);
-                      concluir.mutate({ id: c.id, desfecho: rapido.slug, obs });
-                    }}
-                    className="h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-sm sm:h-9"
-                  />
+                {botao.tipo === 'UM_TOQUE' && (
                   <button
                     type="button"
-                    onClick={() => setAnotando(null)}
-                    className="h-11 shrink-0 rounded-md px-2.5 text-xs text-muted-foreground transition hover:bg-muted sm:h-9"
+                    onClick={() => void acoes.concluir({ c, opcao: botao.opcao })}
+                    disabled={ocupado}
+                    aria-label={`${rotulo}: concluir ${c.titulo}`}
+                    className={BOTAO_CLARO}
                   >
-                    Cancelar
+                    {ocupado ? (
+                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    {/* O DESFECHO QUE SERÁ GRAVADO, também no telefone — "Concluir" escondia qual. */}
+                    <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{rotulo}</span>
                   </button>
-                </div>
-              )}
+                )}
+
+                {botao.tipo === 'FOLHA' && (
+                  <button
+                    type="button"
+                    onClick={() => setFolha({ c, botao })}
+                    disabled={ocupado}
+                    aria-haspopup="dialog"
+                    aria-label={`Escolher o desfecho de ${c.titulo}`}
+                    className={botao.opcao ? BOTAO_CLARO : BOTAO_FOLHA}
+                  >
+                    {ocupado && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+                    <span className="max-w-[11rem] truncate sm:max-w-[14rem]">{rotulo}</span>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                  </button>
+                )}
+              </div>
             </li>
           );
         })}
@@ -584,34 +502,70 @@ export function AtividadesDoDia({
 
       {ocultas > 0 && (
         /*
-          O RODAPÉ TEM DE DIZER SE O QUE SUMIU ESTAVA VENCIDO.
-
-          Antes dizia só "Mais 14 da equipe na agenda" — e naquele dia três das
-          catorze eram atrasadas. Esconder é aceitável; esconder sem avisar que
-          o escondido está vencido é o contrário do que este painel existe para
-          fazer.
+          O RODAPÉ TEM DE DIZER SE O QUE SUMIU PEDE ATENÇÃO — e leva ao recorte
+          que contou, não à agenda genérica.
         */
         <Link
-          href={atencaoOculta > 0 ? '/agenda?aba=aberto' : '/agenda'}
+          href={hrefDoRodape}
           className={cn(
-            'flex items-center justify-between gap-2 border-t px-3 py-2 text-xs font-medium transition hover:bg-muted/60',
+            'flex min-h-11 items-center justify-between gap-2 border-t px-3 py-2 text-xs font-medium transition hover:bg-muted/60',
             atencaoOculta > 0
               ? 'bg-amber-50/60 text-amber-900 dark:bg-amber-950/20 dark:text-amber-200'
               : 'text-brand-800 dark:text-brand-300',
           )}
         >
           <span>
-            Mais {ocultas} {pessoal ? 'na agenda' : 'da equipe na agenda'}
+            {/* Número só quando a aba de destino conta o mesmo (13/09/2026). */}
+            {textoDoRodapeDasAtividades({ ocultas, atencaoOculta, pessoal })}
             {atencaoOculta > 0 && (
               <strong className="font-semibold">
                 {' '}
-                — {contar(atencaoOculta, 'delas atrasada', 'delas atrasadas')}
+                — {contar(atencaoOculta, 'delas pede atenção', 'delas pedem atenção')}
               </strong>
             )}
           </span>
           <ChevronRight className="h-3.5 w-3.5 shrink-0" />
         </Link>
       )}
+
+      {folha && catalogoDaFolha && (
+        <FolhaDeDesfecho
+          key={folha.c.id}
+          compromisso={folha.c}
+          opcoes={catalogoDaFolha.opcoes}
+          carregando={catalogoDaFolha.carregando}
+          erro={catalogoDaFolha.erro}
+          onTentarDeNovo={catalogoDaFolha.tentar}
+          inicial={folha.botao.opcao}
+          ehDeOutraPessoa={ehDeOutraPessoa(folha.c)}
+          enviando={acoes.ocupado(folha.c.id)}
+          abrindoCompleto={abrindoCompleto}
+          onFechar={() => setFolha(null)}
+          onConcluir={async (v) => !!(await acoes.concluir({ c: folha.c, ...v }))}
+          onAbrirCompleto={(slug) => void abrirCompleto(folha.c, slug)}
+        />
+      )}
+
+      <ConcluirModal
+        compromisso={completo?.detalhe ?? null}
+        open={!!completo}
+        origem="PAINEL"
+        desfechoInicial={completo?.slug}
+        onClose={() => setCompleto(null)}
+        onConcluido={(caso) => {
+          acoes.invalidar();
+          if (caso) {
+            toast.success(
+              <span>
+                Caso aberto em fase pré-processual.{' '}
+                <Link href={`/processos?processo=${caso.id}`} className="font-semibold underline underline-offset-2">
+                  Abrir o caso
+                </Link>
+              </span>,
+            );
+          }
+        }}
+      />
     </section>
   );
 }
@@ -627,12 +581,7 @@ function ehDeHoje(iso: string): boolean {
 
 /**
  * "AMANHÃ 09:00", "QUI 09:00", "05/09 15:00" — a data mínima que impede a
- * leitura errada.
- *
- * Dia inteiro por extenso gastaria a largura que o título precisa no telefone;
- * a hora sozinha faz amanhã parecer atraso. Três letras do dia da semana
- * resolvem, "amanhã" ganha a palavra por ser o caso mais frequente, e o que
- * ficou para trás mostra a data cheia — é a informação que explica o vermelho.
+ * leitura errada. A hora sozinha faz amanhã parecer atraso.
  *
  * Fuso de Teresina, como o resto do sistema: `new Date()` cru no contêiner UTC
  * vira o dia às 21h e mostraria "amanhã" a noite inteira.

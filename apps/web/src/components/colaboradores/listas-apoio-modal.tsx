@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { X, Plus, Loader2, Trash2, Check, Pencil, EyeOff, Eye, Briefcase, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
@@ -163,9 +164,7 @@ function Painel({
     <>
       <div className="flex-1 overflow-y-auto p-4">
         {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
+          <Carregando texto="Carregando a lista…"><EsqueletoLinhas quantidade={4} altura={52} className="-mx-4" /></Carregando>
         ) : itens.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Nenhum item cadastrado.</p>
         ) : (
@@ -212,9 +211,9 @@ export function ListasApoioModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-card shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-md animate-dialogo-entrar flex-col rounded-2xl bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b p-5">

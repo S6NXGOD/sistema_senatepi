@@ -34,11 +34,17 @@ const diaCurto = (iso: string) =>
  */
 export function AvisoDeChoque({
   responsavelId,
+  participantes = [],
   inicio,
   fim,
   ignorarId,
 }: {
   responsavelId: string;
+  /**
+   * Quem mais vai atuar. O segundo advogado de uma audiência também tem agenda:
+   * conferir só o responsável deixava passar o choque dele.
+   */
+  participantes?: string[];
   /** ISO — nulo enquanto a data/hora ainda não formam um instante válido. */
   inicio: string | null;
   fim: string | null;
@@ -46,10 +52,12 @@ export function AvisoDeChoque({
   ignorarId?: string;
 }) {
   const pronto = !!responsavelId && !!inicio && !!fim;
+  // Ordenado: escolher as mesmas pessoas em outra ordem não é outra consulta.
+  const pessoas = [...new Set([responsavelId, ...participantes].filter(Boolean))].sort().join(',');
 
   const { data, isFetching } = useQuery({
-    queryKey: ['agenda-conflitos', responsavelId, inicio, fim, ignorarId],
-    queryFn: () => conflitosDeAgenda({ responsavelId, inicio: inicio!, fim: fim!, ignorarId }),
+    queryKey: ['agenda-conflitos', pessoas, inicio, fim, ignorarId],
+    queryFn: () => conflitosDeAgenda({ responsavelId, pessoas, inicio: inicio!, fim: fim!, ignorarId }),
     enabled: pronto,
     // A consulta acompanha a digitação: cache curto evita ida ao servidor a
     // cada tecla, mas não pode ser longo — a agenda muda enquanto a pessoa
@@ -97,7 +105,7 @@ export function AvisoDeChoque({
       </ul>
       <p className="text-[11px] text-muted-foreground">
         Dá para salvar assim mesmo — às vezes a sobreposição é real. Só confira
-        se não é engano antes de comprometer a agenda do responsável.
+        se não é engano antes de comprometer a agenda de quem vai atuar.
       </p>
     </div>
   );

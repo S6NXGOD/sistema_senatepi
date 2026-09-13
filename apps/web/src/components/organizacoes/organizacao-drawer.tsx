@@ -3,9 +3,11 @@
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
-  X, Loader2, Gavel, Users, Building2, Landmark, Pencil, GitMerge, ExternalLink, Scale,
+  X, Gavel, Users, Building2, Landmark, Pencil, GitMerge, ExternalLink, Scale,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { cn } from '@/lib/utils';
 import { getParteExterna, formatDocumento, TIPO_PARTE_LABEL, type ParteExterna } from '@/lib/partes';
 import { formatNPU, STATUS_PROCESSO_LABEL, STATUS_PROCESSO_COR, type StatusProcesso } from '@/lib/processos';
@@ -44,7 +46,7 @@ export function OrganizacaoDrawer({
   /** Só ADMINISTRADOR — a mesclagem apaga um cadastro. */
   onMesclar?: () => void;
 }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: falhou, error: erroDaFicha, refetch: recarregar } = useQuery({
     queryKey: ['organizacao', parte.id],
     queryFn: () => getParteExterna(parte.id),
   });
@@ -52,9 +54,9 @@ export function OrganizacaoDrawer({
   const r = data?.resumo;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onFechar}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar justify-end bg-black/40" onClick={onFechar}>
       <div
-        className="flex h-full w-full max-w-2xl flex-col bg-card shadow-xl"
+        className="flex h-full w-full max-w-2xl animate-surgir-leve flex-col bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho */}
@@ -96,10 +98,18 @@ export function OrganizacaoDrawer({
           </div>
         </div>
 
-        {isLoading || !data ? (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        {/* 13/09/2026: só sem dado; revalidação que falha não esconde a ficha já carregada. */}
+        {falhou && !data ? (
+          <div className="flex-1 p-5">
+            <FalhaAoCarregar erro={erroDaFicha} oQue="a ficha da organização" onTentarDeNovo={() => recarregar()} />
           </div>
+        ) : isLoading || !data ? (
+          <Carregando texto="Carregando a ficha da organização…" className="flex-1 space-y-5 p-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[0, 1, 2, 3].map((i) => <Esqueleto key={i} className="h-16" />)}
+            </div>
+            <EsqueletoLinhas quantidade={5} className="-mx-4" />
+          </Carregando>
         ) : (
           <div className="flex-1 space-y-5 overflow-y-auto p-5">
             {/* NÚMEROS PRIMEIRO — é o que responde "o que está preso aqui?". */}

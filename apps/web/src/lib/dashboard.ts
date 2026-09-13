@@ -2,6 +2,7 @@ import { api } from './api';
 import type { PerfilUsuario } from './permissoes';
 import type { CanalAtendimento, DesfechoAtendimento } from './atendimentos';
 import type { AudienciaAAgendar } from './audiencias';
+import type { RecorteAgenda } from './agenda';
 
 // ---------------------------------------------------------------------------
 // Tipos do payload consolidado de /dashboard/resumo
@@ -54,6 +55,31 @@ export interface CompromissoCard {
   responsavel: PessoaResumo;
   filiado: { id: string; nomeCompleto: string } | null;
   processo: { id: string; numeroCNJ: string } | null;
+  /**
+   * A TAREFA "CADASTRAR AÇÃO DO DIÁRIO" — o NPU que o robô quer ver no acervo.
+   *
+   * Com ela o gesto da linha é cadastrar, não concluir: a tarefa fecha sozinha
+   * quando a ação entra. Opcional pela janela de troca do deploy.
+   */
+  sugestaoDeCadastro?: { numeroCNJ: string } | null;
+}
+
+/**
+ * EM QUE PÉ ESTÁ A CONSULTA QUE O ATENDIMENTO MARCOU — calculado na LEITURA pela
+ * API (`situacaoDoEncaminhamento`), nunca gravado. "Ficou para trás" é consulta
+ * pendente de dia anterior; entre várias, vale a mais recente não cancelada.
+ */
+export interface EncaminhamentoResumo {
+  estado: 'AGENDADA' | 'HOJE' | 'EM_CONSULTA' | 'FICOU_PARA_TRAS' | 'ATENDIDA' | 'CANCELADA';
+  compromissoId: string;
+  inicio: string;
+  /**
+   * Nulo quando a consulta perdeu o responsável (a API manda `null`, e o tipo
+   * dizia o contrário — conferido na revisão de 13/09/2026). Leia com `?.`.
+   */
+  responsavel: { id: string; nome: string; nomeExibicao: string | null } | null;
+  linkReuniao: string | null;
+  local: string | null;
 }
 
 export interface AtendimentoPendente {
@@ -63,6 +89,8 @@ export interface AtendimentoPendente {
   desfecho: DesfechoAtendimento | null;
   createdAt: string;
   filiado: { id: string; nomeCompleto: string };
+  /** A consulta que o atendimento marcou, se marcou. Opcional pela janela de troca. */
+  encaminhamento?: EncaminhamentoResumo | null;
 }
 
 export interface MovimentacaoRecente {
@@ -231,6 +259,14 @@ export interface ResumoDashboard {
    */
   proximasAtividades?: CompromissoCard[];
   audienciasSemana: CompromissoCard[];
+  /**
+   * QUANTAS O "VER" DO BLOCO VAI ABRIR — count() com o recorte de 7 dias da
+   * agenda (inclui a que ficou para trás e a concluída na janela), no mesmo
+   * escopo do painel. A lista acima vem com `take: 8` e só as abertas de hoje em
+   * diante: o selo contava a lista e dava 2 ao lado de "Minhas audiências 4".
+   * Opcional pela janela de troca do deploy; sem ele, o selo não mostra número.
+   */
+  audienciasSemanaTotal?: number;
   pendenciasAtivas: CompromissoCard[];
   atendimentosPendentes: AtendimentoPendente[];
   movimentacoesRecentes: MovimentacaoRecente[];
@@ -252,7 +288,11 @@ export interface ResumoDashboard {
       /** @deprecated Use `pessoas`. Some quando a web tiver girado. */
       advogados: PessoaResumo[];
     } | null;
-  };
+    /*
+      NULO sem acesso a escalas: a API corta o bloco no servidor (C7), e o tipo
+      continuava prometendo o objeto. Conferido na revisão de 13/09/2026.
+    */
+  } | null;
   /**
    * Saúde do robô de sincronização do DataJud. Sem isto, "0 audiências a
    * agendar" era ambíguo: podia ser que não houvesse nada OU que a varredura
@@ -399,7 +439,22 @@ export interface ResumoDashboard {
     motivo: 'ATENDIMENTO' | 'PROCESSO';
     /** O que falta na ficha, na ordem em que atrapalha. */
     falta: string[];
+    /**
+     * Até quando vale o link de recadastramento que está circulando (não usado,
+     * não revogado, não expirado). Nulo quando não há. Opcional pela janela de
+     * troca do deploy: a API de antes não manda.
+     */
+    linkAtivoAte?: string | null;
+    /** Quando o filiado respondeu pelo link pela última vez. */
+    respondeuPeloLinkEm?: string | null;
+    /** Tem celular utilizável (principal OU secundário). */
+    temCelular?: boolean;
   }[];
+  /**
+   * Quantos cadastros entram no critério, sem o corte da lista. É o que deixa o
+   * cartão dizer "12 de 16" em vez de parecer o todo. Opcional pela janela de troca.
+   */
+  cadastrosACompletarTotal?: number;
   /**
    * AS FONTES EXTERNAS ESTÃO DE PÉ? Nulo para quem não coordena — é a única
    * pessoa que faz alguma coisa com a resposta.
@@ -637,4 +692,210 @@ export function esperaAindaRazoavel(desde: string | Date): boolean {
 /** Dias inteiros desde a primeira tentativa — o número que vai no texto. */
 export function diasEsperando(desde: string | Date): number {
   return Math.max(0, Math.floor((Date.now() - new Date(desde).getTime()) / 86_400_000));
+}
+
+// ---------------------------------------------------------------------------
+// Números que levam ao mesmo recorte (C11)
+// ---------------------------------------------------------------------------
+
+/**
+ * O ENDEREÇO DA AGENDA PARA UM NÚMERO DO PAINEL.
+ *
+ * Quase todo número do painel abria outro número: "Atrasadas 3" levava à aba
+ * Hoje, onde atrasada de dia anterior nunca aparece; "Esperando por: Morgana 4"
+ * abria a agenda dela inteira, com equipe e reserva junto. A agenda lê estes
+ * parâmetros com `lerUrlDaAgenda` — o teste passa cada link por ela e confere
+ * que o recorte que chega é o que o número contou.
+ *
+ * `pessoa: 'eu'` é resolvido pela agenda com a sessão de quem clicou.
+ */
+export function linkDaAgenda(f: {
+  aba: RecorteAgenda;
+  pessoa?: string;
+  reservaDe?: string;
+  responsavel?: string;
+  somenteResponsavel?: boolean;
+  tipo?: string;
+  urgentes?: boolean;
+}): string {
+  const p = new URLSearchParams();
+  p.set('aba', f.aba);
+  if (f.pessoa) p.set('pessoa', f.pessoa);
+  if (f.reservaDe) p.set('reservaDe', f.reservaDe);
+  if (f.responsavel) {
+    p.set('responsavel', f.responsavel);
+    if (f.somenteResponsavel) p.set('somenteResponsavel', '1');
+  }
+  if (f.tipo) p.set('tipo', f.tipo);
+  if (f.urgentes) p.set('urgentes', '1');
+  return `/agenda?${p.toString()}`;
+}
+
+/**
+ * "PRAZOS ESTA SEMANA" ABRE OS PRAZOS QUE CONTOU.
+ *
+ * No escopo pessoal a API conta os prazos pela régua `daPessoa`; o link ia sem
+ * `pessoa` e a agenda abria os prazos da casa inteira (revisão de 13/09/2026:
+ * o cartão dizia 3 e o clique mostrava 11). Na gestão o número é da casa.
+ */
+export function linkDosPrazosDaSemana(escopo: ResumoDashboard['escopo']): string {
+  return linkDaAgenda({ aba: '7dias', tipo: 'PRAZO', ...(escopo === 'PESSOAL' ? { pessoa: 'eu' } : {}) });
+}
+
+/**
+ * O SELO DE "AUDIÊNCIAS DA SEMANA" — o total do recorte que o "Ver" abre, ou
+ * nada. Sem o total (API de antes, na janela de troca), não mostrar número é
+ * melhor que mostrar o tamanho da lista, que é outro conjunto.
+ */
+export function seloDasAudienciasDaSemana(r: Pick<ResumoDashboard, 'audienciasSemanaTotal'>): number | undefined {
+  return typeof r.audienciasSemanaTotal === 'number' ? r.audienciasSemanaTotal : undefined;
+}
+
+/**
+ * O TEXTO DO RODAPÉ DAS ATIVIDADES — número só quando o destino conta o mesmo.
+ *
+ * Quando o que ficou de fora pede atenção, o rodapé leva à aba "Pedem atenção"
+ * e as ocultas saem dos totais da API. Senão leva a "7 dias", que conta também
+ * as audiências e as próximas cortadas pelo `take` — conjuntos que o painel não
+ * recebe. "Mais 6" abria uma aba com 20 (revisão de 13/09/2026); ali o texto
+ * não afirma número.
+ */
+export function textoDoRodapeDasAtividades(o: { ocultas: number; atencaoOculta: number; pessoal: boolean }): string {
+  if (o.atencaoOculta > 0) return `Mais ${o.ocultas} ${o.pessoal ? 'na agenda' : 'da equipe na agenda'}`;
+  return o.pessoal ? 'Ver os próximos 7 dias na agenda' : 'Ver a agenda da equipe nos próximos 7 dias';
+}
+
+/**
+ * A PARTIR DE QUANTOS DIAS SEM ANDAMENTO O PROCESSO ESTÁ "PARADO".
+ *
+ * O cartão dizia "há 30d" enquanto a API contava com 90 (`DIAS_ATE_DORMENTE`,
+ * em `processos/utils/tpu.util.ts`). Um teste lê o número de lá: se a regra
+ * mudar na API e não aqui, ele reprova.
+ */
+export const DIAS_PARA_PARADO = 90;
+
+const FUSO_BR = 'America/Fortaleza';
+
+function diaBR(instante: number): string {
+  return new Date(instante - 3 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/** "15h20" no fuso de Teresina. */
+function horaComH(d: Date): string {
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: FUSO_BR,
+  }).formatToParts(d);
+  const h = partes.find((x) => x.type === 'hour')?.value ?? '';
+  const m = partes.find((x) => x.type === 'minute')?.value ?? '';
+  return `${h}h${m}`;
+}
+
+function diaMes(d: Date): string {
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO_BR });
+}
+
+/**
+ * O ESTADO DO LINK DE RECADASTRAMENTO NA LINHA DO CARTÃO — estado, nunca evento.
+ *
+ * O sistema sabe se há link valendo e se o filiado respondeu; não sabe se a
+ * mensagem chegou. Por isso nunca "enviado": "link ativo até 15h20" ou
+ * "respondeu pelo link em 12/09". Link vencido não é dito (não há o que fazer
+ * com ele); o que vale é a resposta, se houve.
+ */
+export function textoDoLinkDeRecadastro(
+  item: { linkAtivoAte?: string | null; respondeuPeloLinkEm?: string | null },
+  agora: number = Date.now(),
+): string | null {
+  if (item.linkAtivoAte) {
+    const ate = new Date(item.linkAtivoAte);
+    if (Number.isFinite(ate.getTime()) && ate.getTime() > agora) {
+      return diaBR(ate.getTime()) === diaBR(agora)
+        ? `link ativo até ${horaComH(ate)}`
+        : `link ativo até ${diaMes(ate)}, ${horaComH(ate)}`;
+    }
+  }
+  if (item.respondeuPeloLinkEm) {
+    const em = new Date(item.respondeuPeloLinkEm);
+    if (Number.isFinite(em.getTime())) return `respondeu pelo link em ${diaMes(em)}`;
+  }
+  return null;
+}
+
+/**
+ * A MENSAGEM DE PARABÉNS — sem emoji.
+ *
+ * O emoji saía como quadrado em aparelho antigo e no WhatsApp Web de alguns
+ * computadores da sede; e o nome vinha em CAIXA ALTA do cadastro ("Olá, MARIA!").
+ */
+export function mensagemDeAniversario(nome: string, sigla: string): string {
+  const primeiro = (nome ?? '').trim().split(/\s+/)[0] ?? '';
+  const bonito = primeiro ? primeiro.charAt(0).toLocaleUpperCase('pt-BR') + primeiro.slice(1).toLocaleLowerCase('pt-BR') : '';
+  return bonito
+    ? `Olá, ${bonito}! O ${sigla} deseja a você um feliz aniversário.`
+    : `Olá! O ${sigla} deseja a você um feliz aniversário.`;
+}
+
+// ---------------------------------------------------------------------------
+// Concluir pelo painel
+// ---------------------------------------------------------------------------
+
+/**
+ * AS CONSULTAS QUE UMA CONCLUSÃO MUDA — as chaves de verdade.
+ *
+ * O bloco invalidava `['dashboard']` e `['agenda']`, que nenhuma consulta usa: a
+ * linha concluída ficava com o botão por até 60 s, o segundo toque voltava 400
+ * "já está concluída" e a faixa do topo continuava contando. O react-query
+ * compara elemento a elemento; `'dashboard'` não casa com `'dashboard-resumo'`.
+ *
+ * `['processos']` e `['processo-dossie']` entraram em 13/09/2026: a conclusão
+ * grava o andamento no processo e pode abrir um caso pré-processual. Pelo painel
+ * a lista de Processos ficava sem o caso novo e a ficha aberta sem o andamento
+ * até o cache vencer (30 s); a agenda invalidava só a lista. A agenda usa esta
+ * mesma constante.
+ */
+export const CHAVES_DEPOIS_DE_CONCLUIR: readonly (readonly string[])[] = [
+  ['dashboard-resumo'],
+  ['compromissos'],
+  ['compromisso'],
+  ['minhas-pendencias'],
+  ['processos'],
+  ['processo-dossie'],
+];
+
+/**
+ * A LINHA SAI DA FILA NA HORA — sem esperar a volta do servidor.
+ *
+ * Função pura sobre o resumo em cache: some das atrasadas e dos próximos dias;
+ * nas de hoje vira CONCLUIDO (é o registro do dia e desce para o fim da fila); e
+ * o contador do cabeçalho perde a unidade que ela ocupava. Se a API recusar, a
+ * tela devolve o resumo de antes.
+ */
+export function concluirNoResumo(r: ResumoDashboard, id: string, agora: number = Date.now()): ResumoDashboard {
+  const todas = [...(r.pendenciasAtivas ?? []), ...(r.atividadesHoje ?? []), ...(r.proximasAtividades ?? [])];
+  const item = todas.find((c) => c.id === id);
+  if (!item || item.status === 'CONCLUIDO' || item.status === 'CANCELADO') return r;
+
+  const inicio = new Date(item.inicio).getTime();
+  const atrasada = diaBR(inicio) < diaBR(agora);
+  const passouDaHora = !atrasada && inicio < agora;
+
+  return {
+    ...r,
+    alertas: {
+      ...r.alertas,
+      atrasadas: atrasada ? Math.max(0, r.alertas.atrasadas - 1) : r.alertas.atrasadas,
+      ...(r.alertas.passaramDaHora !== undefined
+        ? {
+            passaramDaHora: passouDaHora
+              ? Math.max(0, r.alertas.passaramDaHora - 1)
+              : r.alertas.passaramDaHora,
+          }
+        : {}),
+    },
+    pendenciasAtivas: (r.pendenciasAtivas ?? []).filter((c) => c.id !== id),
+    atividadesHoje: (r.atividadesHoje ?? []).map((c) =>
+      c.id === id ? { ...c, status: 'CONCLUIDO' as const } : c,
+    ),
+    ...(r.proximasAtividades ? { proximasAtividades: r.proximasAtividades.filter((c) => c.id !== id) } : {}),
+  };
 }

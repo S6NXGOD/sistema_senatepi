@@ -2,10 +2,12 @@ import { tenant } from '@/tenant.config';
 import { chaveLocal } from './armazenamento';
 import { baixarDocumento, type BlocoDoPdf } from './pdf-documento';
 import { PALETA, agruparResto, numero, variacao } from './pdf-graficos';
-import { presetValido, rotuloDoPeriodo, type Periodo, type PresetDoPeriodo } from './periodo-do-pdf';
+import {
+  periodoPorExtenso, presetValido, rotuloDoPeriodo, type Periodo, type PresetDoPeriodo,
+} from './periodo-do-pdf';
 import { formatNPU } from './processos';
 import {
-  RESULTADO_LABEL, dataCurta, diaCurto, duracao, fraseDasSentencas, horaDoItem,
+  RESULTADO_LABEL, dataCurta, diaCurto, duracao, fraseDasSentencas, fraseDosOutrosAssuntos, horaDoItem,
   totalDoAno, type Contagem, type ItemDaAgenda, type Relatorio,
 } from './relatorios';
 
@@ -140,7 +142,8 @@ export interface RotulosDoPdf {
 export const NOTA_DO_CNJ =
   'Sentenças contadas pelo registro do tribunal na base pública do CNJ, que costuma ' +
   'levar cerca de dois meses para registrar um julgamento: os meses mais recentes ' +
-  'aparecem incompletos. As ações por ano contam os processos cadastrados neste sistema.';
+  'aparecem incompletos. Sentença não é o resultado final: um recurso julgado depois pode ' +
+  'mudar o que ela decidiu. As ações por ano contam os processos cadastrados neste sistema.';
 
 const n = numero;
 const plural = (v: number, um: string, varios: string) => `${n(v)} ${v === 1 ? um : varios}`;
@@ -282,9 +285,10 @@ export function planoDoPdf(
       {
         rotulo: 'Em aberto agora',
         valor: n(r.atividades.abertas),
-        nota: r.atividades.atrasadas
-          ? plural(r.atividades.atrasadas, 'atrasada', 'atrasadas')
-          : 'nenhuma atrasada',
+        // O atraso sai em âmbar, como na tela: é ele que pede atenção.
+        linhas: r.atividades.atrasadas
+          ? [{ texto: plural(r.atividades.atrasadas, 'atrasada', 'atrasadas'), alerta: true }]
+          : [{ texto: 'nenhuma atrasada' }],
       },
       {
         rotulo: 'Processos ativos',
@@ -512,6 +516,9 @@ export function planoDoPdf(
         'Nenhum atendimento classificado no período.',
       ),
     );
+    // O que há dentro de "Outro" — só texto repetido tem nome; texto único vira número.
+    const outros = fraseDosOutrosAssuntos(a.outrosAssuntos, a.outrosUnicos);
+    if (outros) blocos.push({ tipo: 'nota', texto: outros });
     if (a.assuntoNaoInformado > 0) {
       blocos.push({
         tipo: 'nota',
@@ -603,11 +610,15 @@ export async function gerarPdfDoRelatorio(
       : r.focoUsuario
         ? `Recorte: ${r.focoUsuario.nome}`
         : 'Toda a equipe';
+  const emitidoEm = new Date().toLocaleDateString('pt-BR', {
+    timeZone: 'America/Fortaleza', day: '2-digit', month: '2-digit', year: 'numeric',
+  });
   await baixarDocumento(
     {
       faixa: `Relatório · ${periodo}`,
       titulo: contexto.titulo?.trim() || `Relatório do ${tenant.sigla}`,
-      apoio: `Período: ${periodo} · ${recorte} · Emitido por ${contexto.emitidoPor}`,
+      periodo: periodoPorExtenso({ de: contexto.de, ate: contexto.ate }),
+      apoio: `${recorte} · Emitido por ${contexto.emitidoPor} em ${emitidoEm}`,
       observacao: contexto.observacao?.trim() || undefined,
     },
     planoDoPdf(r, escolhas, rotulos, new Date().getFullYear(), extras),

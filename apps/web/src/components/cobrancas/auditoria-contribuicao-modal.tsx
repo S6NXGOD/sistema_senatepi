@@ -11,6 +11,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
@@ -136,8 +137,8 @@ export function AuditoriaContribuicaoModal({
   const s = STATUS_ADMIN[contribuicao.status];
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-2 sm:p-4">
-      <div className="flex max-h-[95vh] w-full max-w-[1400px] flex-col rounded-2xl bg-card shadow-xl">
+    <div className="fixed inset-0 z-[60] flex animate-overlay-entrar items-center justify-center bg-black/60 p-2 sm:p-4">
+      <div className="flex max-h-[95vh] w-full max-w-[1400px] animate-dialogo-entrar flex-col rounded-2xl bg-card shadow-xl">
         {/* Cabeçalho */}
         <div className="flex flex-wrap items-start justify-between gap-3 border-b p-4 sm:p-5">
           <div className="min-w-0">
@@ -436,7 +437,9 @@ function Visualizador({
           </p>
         )}
         {existe && estado.fase === 'carregando' && (
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <Carregando texto="Carregando o documento…" className="h-full w-full p-4">
+            <Esqueleto className="h-full w-full" />
+          </Carregando>
         )}
         {existe && estado.fase === 'erro' && (
           <p className="p-6 text-center text-xs text-muted-foreground">

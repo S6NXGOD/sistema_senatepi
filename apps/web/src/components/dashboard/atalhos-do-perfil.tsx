@@ -9,6 +9,7 @@ import {
 import { cn } from '@/lib/utils';
 import { V } from '@/lib/vocabulario';
 import { nivelEfetivo, type ModuloKey, type PerfilUsuario } from '@/lib/permissoes';
+import { linkDaAgenda } from '@/lib/dashboard';
 
 /**
  * ATALHOS DO PERFIL — o painel deixa de ser só leitura.
@@ -37,7 +38,12 @@ interface Atalho {
   exigeEditar?: boolean;
 }
 
-function atalhosDe(role?: PerfilUsuario | string | null): Atalho[] {
+/*
+  O RÓTULO DIZ O QUE O LINK ABRE (13/09/2026). "Meus prazos (7 dias)" levava a
+  `aba=7dias` sem pessoa nem tipo, e a agenda mostrava audiências, consultas e
+  tarefas da casa inteira; "Prazos em aberto" abria atividade de qualquer tipo.
+*/
+export function atalhosDe(role?: PerfilUsuario | string | null): Atalho[] {
   switch (role) {
     /**
      * O advogado trabalha em cima do PROCESSO e do PRAZO. "Novo atendimento"
@@ -45,7 +51,7 @@ function atalhosDe(role?: PerfilUsuario | string | null): Atalho[] {
      */
     case 'ADVOGADO':
       return [
-        { href: '/agenda?aba=7dias', label: 'Meus prazos (7 dias)', icon: CalendarPlus, modulo: 'agenda' },
+        { href: linkDaAgenda({ aba: '7dias', tipo: 'PRAZO', pessoa: 'eu' }), label: 'Meus prazos (7 dias)', icon: CalendarPlus, modulo: 'agenda' },
         { href: '/processos?preProcessuais=1', label: 'Casos a ajuizar', icon: FileCheck2, modulo: 'processos' },
         { href: '/processos?meus=1', label: 'Meus processos', icon: Gavel, modulo: 'processos' },
         { href: '/escalas', label: 'Escala', icon: CalendarRange, modulo: 'escalas' },
@@ -63,7 +69,7 @@ function atalhosDe(role?: PerfilUsuario | string | null): Atalho[] {
     /** Quem coordena olha a operação: onde está travando e quem está sobrecarregado. */
     case 'COORDENACAO':
       return [
-        { href: '/agenda?aba=aberto', label: 'Prazos em aberto', icon: CalendarPlus, modulo: 'agenda' },
+        { href: linkDaAgenda({ aba: 'aberto', tipo: 'PRAZO' }), label: 'Prazos em aberto', icon: CalendarPlus, modulo: 'agenda' },
         { href: '/processos?semReu=1', label: 'Cadastros a fechar', icon: Scale, modulo: 'processos' },
         { href: '/escalas', label: 'Escalas', icon: CalendarRange, modulo: 'escalas' },
         { href: '/atendimentos', label: 'Fila de atendimento', icon: Headset, modulo: 'atendimentos' },
@@ -72,7 +78,7 @@ function atalhosDe(role?: PerfilUsuario | string | null): Atalho[] {
     default:
       return [
         { href: '/usuarios', label: 'Usuários e perfis', icon: ShieldCheck, modulo: 'usuarios' },
-        { href: '/agenda?aba=aberto', label: 'Prazos em aberto', icon: CalendarPlus, modulo: 'agenda' },
+        { href: linkDaAgenda({ aba: 'aberto', tipo: 'PRAZO' }), label: 'Prazos em aberto', icon: CalendarPlus, modulo: 'agenda' },
         { href: '/processos?preProcessuais=1', label: 'Casos a ajuizar', icon: FileCheck2, modulo: 'processos' },
         { href: '/atendimentos', label: 'Fila de atendimento', icon: Headset, modulo: 'atendimentos' },
       ];

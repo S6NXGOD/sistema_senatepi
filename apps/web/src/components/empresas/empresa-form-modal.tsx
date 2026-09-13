@@ -137,9 +137,9 @@ export function EmpresaFormModal({ open, onClose }: { open: boolean; onClose: ()
     busca.tipo === 'ok' && !!busca.dados.situacao && busca.dados.situacao !== 'ATIVA';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={fechar}>
+    <div className="fixed inset-0 z-[60] flex animate-overlay-entrar items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={fechar}>
       <div
-        className="my-8 w-full max-w-2xl rounded-2xl bg-card shadow-xl"
+        className="my-8 w-full max-w-2xl animate-dialogo-entrar rounded-2xl bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between border-b p-5">

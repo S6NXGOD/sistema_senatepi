@@ -8,6 +8,7 @@ import {
   Loader2, Search, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
@@ -121,11 +122,11 @@ export function PuxarDocumentosModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={puxar.isPending ? undefined : fechar}
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:max-h-[85vh] sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-2xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:max-h-[85vh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabeçalho */}
@@ -174,9 +175,9 @@ export function PuxarDocumentosModal({
         {/* Lista */}
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-brand-700 dark:text-brand-400" />
-            </div>
+            <Carregando texto="Procurando os documentos do filiado…">
+              <EsqueletoLinhas quantidade={4} altura={60} className="-mx-4" />
+            </Carregando>
           ) : acervo.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
               Este filiado ainda não tem nenhum documento no sistema.

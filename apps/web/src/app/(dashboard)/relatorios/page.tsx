@@ -12,12 +12,14 @@ import { Card } from '@/components/ui/card';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { Carregando, EsqueletoCartoes, EsqueletoGrafico } from '@/components/ui/esqueleto';
+import { NumeroAnimado } from '@/components/ui/numero-animado';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { tenant } from '@/tenant.config';
 import {
   ASSUNTO_LABEL, ATALHOS, RESULTADO_LABEL, baixarCsvDaEquipe, carregarRelatorio, comoData,
-  dataCurta, dataDoInput, diaCurto, duracao, fraseDasSentencas, horaDoItem, hrefDaComarca,
+  dataCurta, dataDoInput, diaCurto, duracao, fraseDasSentencas, fraseDosOutrosAssuntos, horaDoItem, hrefDaComarca,
   hrefDaParteContraria, hrefDoAssunto, totalDoAno,
   type AjuizadasDoAno, type Contagem, type ItemDaAgenda, type Justica, type Proximos,
   type Publicacoes, type Relatorio, type ResultadoSentenca, type Robo, type SentencasDoAno,
@@ -231,7 +233,7 @@ export default function RelatoriosPage() {
             aria-selected={aba === a.id}
             onClick={() => setAba(a.id)}
             className={cn(
-              'rounded-lg px-4 py-2 text-sm font-medium transition',
+              'min-h-11 rounded-lg px-4 text-sm font-medium transition sm:min-h-9',
               aba === a.id
                 ? 'bg-card text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
@@ -251,7 +253,7 @@ export default function RelatoriosPage() {
               key={a.rotulo}
               type="button"
               onClick={() => aplicarAtalho(a.inicio)}
-              className="rounded-full border px-3 py-1 text-xs font-medium transition hover:bg-muted"
+              className="min-h-11 rounded-full border px-3.5 text-xs font-medium transition hover:bg-muted sm:min-h-8"
             >
               {a.rotulo === 'Este ano' ? a.rotulo : `Últimos ${a.rotulo}`}
             </button>
@@ -307,7 +309,13 @@ export default function RelatoriosPage() {
       {aba === 'uso' && <UsoEProdutividade de={de} ate={ate} />}
 
       {isLoading && (
-        <p className="py-10 text-center text-sm text-muted-foreground">Somando o período…</p>
+        <Carregando texto="Somando o período…" className="space-y-3">
+          <EsqueletoCartoes quantidade={4} className="gap-3" />
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <EsqueletoGrafico className="lg:col-span-2" />
+            <EsqueletoGrafico className="hidden lg:block" />
+          </div>
+        </Carregando>
       )}
 
       {/*
@@ -395,7 +403,7 @@ export default function RelatoriosPage() {
             <TituloDeSecao
               icone={Users}
               titulo={pessoal ? 'Os seus números' : data.focoUsuario ? data.focoUsuario.nome : 'Equipe'}
-              texto="Em ordem alfabética. “Concluídas” conta quem fechou a atividade; “em aberto” e “atrasadas” contam quem é responsável por ela."
+              texto="Em ordem alfabética. “Concluídas” conta quem fechou a atividade; “em aberto” e “atrasadas” contam quem responde por ela ou participa por escolha de alguém."
             />
             <Card className="overflow-hidden">
               {/* A tabela rola no celular em vez de espremer cinco colunas. */}
@@ -494,9 +502,15 @@ export default function RelatoriosPage() {
                 rotular={(r) => ASSUNTO_LABEL[r] ?? r}
                 vazio="Nenhum atendimento classificado no período."
                 nota={
-                  data.atendimentos.assuntoNaoInformado > 0
-                    ? `${data.atendimentos.assuntoNaoInformado} ${data.atendimentos.assuntoNaoInformado === 1 ? 'atendimento ficou' : 'atendimentos ficaram'} sem assunto informado.`
-                    : undefined
+                  [
+                    // O que há dentro de "Outro": só texto repetido tem nome — texto único vira número.
+                    fraseDosOutrosAssuntos(data.atendimentos.outrosAssuntos, data.atendimentos.outrosUnicos),
+                    data.atendimentos.assuntoNaoInformado > 0
+                      ? `${data.atendimentos.assuntoNaoInformado} ${data.atendimentos.assuntoNaoInformado === 1 ? 'atendimento ficou' : 'atendimentos ficaram'} sem assunto informado.`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
                 }
               />
               <Lista
@@ -517,6 +531,7 @@ export default function RelatoriosPage() {
                     titulo="Por atendente"
                     itens={data.atendimentos.porAtendente}
                     vazio="Nenhum atendimento no período."
+                    animar={false}
                   />
                 </>
               )}
@@ -581,7 +596,10 @@ function Numero({
   return (
     <Card className="p-4">
       <p className="text-xs text-muted-foreground">{titulo}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums">{valor}</p>
+      {/* Conta uma vez, na montagem; revalidação e troca de período trocam seco. */}
+      <p className="mt-1 text-2xl font-bold tabular-nums">
+        <NumeroAnimado valor={valor} />
+      </p>
       {nota && (
         <p
           className={cn(
@@ -651,7 +669,8 @@ function SecaoJustica({ r, j, anoCorrente }: { r: Relatorio; j: Justica; anoCorr
           <SentencasPorAno serie={j.sentencasPorAno} anoCorrente={anoCorrente} />
           <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
             O CNJ costuma levar cerca de dois meses para registrar um julgamento: os meses mais
-            recentes aparecem incompletos.
+            recentes aparecem incompletos. Sentença não é o resultado final: um recurso julgado
+            depois pode mudar o que ela decidiu.
           </p>
         </Card>
       </div>
@@ -762,7 +781,8 @@ function SentencasPorAno({ serie, anoCorrente }: { serie: SentencasDoAno[]; anoC
                 role="img"
                 aria-label={`${a.ano}: ${a.procedentes} procedentes, ${a.parciais} procedentes em parte, ${a.improcedentes} improcedentes`}
               >
-                <div className="flex h-full" style={{ width: `${(total / maior) * 100}%` }}>
+                {/* As três faixas crescem juntas, uma vez, na inserção. */}
+                <div className="flex h-full animate-crescer-x" style={{ width: `${(total / maior) * 100}%` }}>
                   {faixas.map((f) => (
                     <div
                       key={f.nome}
@@ -805,7 +825,7 @@ function AjuizadasPorAno({ serie, anoCorrente }: { serie: AjuizadasDoAno[]; anoC
             </span>
             <div
               className={cn(
-                'w-full rounded-sm',
+                'w-full animate-crescer-y rounded-sm',
                 a.ano === anoCorrente ? 'bg-brand-300 dark:bg-brand-800' : 'bg-brand-600',
               )}
               // Piso de 2px: o ano zerado ocupa espaço para se ver que existiu.
@@ -1065,6 +1085,7 @@ function Lista<T extends Contagem>({
   vazio,
   nota,
   href,
+  animar = true,
 }: {
   titulo: string;
   itens: T[];
@@ -1073,6 +1094,8 @@ function Lista<T extends Contagem>({
   /** Ressalva que o número sozinho esconderia (base, não informados). */
   nota?: string;
   href?: (item: T) => string;
+  /** Barra que cresce na entrada. Desligue em lista de PESSOAS: barra crescendo por pessoa é placar. */
+  animar?: boolean;
 }) {
   const maior = Math.max(...itens.map((i) => i.total), 1);
   return (
@@ -1090,8 +1113,9 @@ function Lista<T extends Contagem>({
                   <span className="shrink-0 font-medium tabular-nums">{i.total}</span>
                 </div>
                 <div className="mt-0.5 h-1 rounded-full bg-muted">
+                  {/* Cresce uma vez, na inserção — nunca numa lista de pessoas. */}
                   <div
-                    className="h-full rounded-full bg-brand-600"
+                    className={cn('h-full rounded-full bg-brand-600', animar && 'animate-crescer-x')}
                     style={{ width: `${(i.total / maior) * 100}%` }}
                   />
                 </div>

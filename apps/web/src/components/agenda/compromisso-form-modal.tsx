@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Search, Loader2, User, Save, CalendarClock, MapPin, Gavel, AlertTriangle, Users,
+  X, Search, Loader2, User, Save, CalendarClock, MapPin, Gavel, AlertTriangle, Users, Video,
 } from 'lucide-react';
+import { normalizarLinkReuniao } from '@/lib/link-reuniao';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AvisoDeChoque } from '@/components/agenda/aviso-de-choque';
@@ -35,6 +36,11 @@ function combinar(data: string, hora: string): string | null {
   const dt = new Date(`${data}T${hora || '00:00'}`);
   return isNaN(dt.getTime()) ? null : dt.toISOString();
 }
+/** O formulário só enxerga até o minuto: segundos não são mudança de horário. */
+function mesmoMinuto(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  return Math.floor(new Date(a).getTime() / 60_000) === Math.floor(new Date(b).getTime() / 60_000);
+}
 
 export function CompromissoFormModal({
   open, onClose, onSalvo, editar, pre,
@@ -56,6 +62,8 @@ export function CompromissoFormModal({
   const [fimData, setFimData] = useState('');
   const [fimHora, setFimHora] = useState('');
   const [local, setLocal] = useState('');
+  /** O que a pessoa colou — pode ser o convite inteiro; a regra extrai o link. */
+  const [linkReuniao, setLinkReuniao] = useState('');
   const [descricao, setDescricao] = useState('');
   const [obsInternas, setObsInternas] = useState('');
   const [urgente, setUrgente] = useState(false);
@@ -106,6 +114,7 @@ export function CompromissoFormModal({
       setTitulo(editar.titulo); setTipo(editar.tipo); setResponsavelId(editar.responsavel.id);
       setInicioData(i.data); setInicioHora(i.hora); setFimData(f.data); setFimHora(f.hora);
       setLocal(editar.local ?? ''); setDescricao(editar.descricao ?? '');
+      setLinkReuniao(editar.linkReuniao ?? '');
       setObsInternas(''); setUrgente(editar.urgente);
       setUrgenteMotivo(editar.urgenteMotivo ?? '');
       setParticipantes(
@@ -121,6 +130,9 @@ export function CompromissoFormModal({
       setInicioHora(`${p(agora.getHours())}:00`);
       setFimData(''); setFimHora('');
       setLocal(''); setDescricao(''); setObsInternas(''); setUrgente(false);
+      // Sem isto, abrir "Nova atividade" depois de editar outra herdava a
+      // equipe, o motivo de urgência e o link da anterior.
+      setUrgenteMotivo(''); setParticipantes([]); setLinkReuniao('');
       setFiliadoId(pre?.filiadoId ?? ''); setFiliadoNome(pre?.filiadoNome ?? '');
       setProcessoId(''); setAtendimentoId(pre?.atendimentoId ?? '');
     }
@@ -139,11 +151,24 @@ export function CompromissoFormModal({
 
   const salvar = useMutation({
     mutationFn: () => {
-      const inicio = combinar(inicioData, inicioHora)!;
-      const fim = fimData ? combinar(fimData, fimHora || inicioHora)! : new Date(new Date(inicio).getTime() + 3600_000).toISOString();
+      const inicioDigitado = combinar(inicioData, inicioHora)!;
+      const fimDigitado = fimData
+        ? combinar(fimData, fimHora || inicioHora)!
+        : new Date(new Date(inicioDigitado).getTime() + 3600_000).toISOString();
+      /*
+        EDITAR SÓ O TÍTULO NÃO É REMARCAR. O formulário guarda até o minuto: a
+        tarefa que o robô criou às 09:00:37 voltaria como 09:00:00, e o
+        servidor leria a diferença como mudança de data. No mesmo minuto, vai o
+        valor original.
+      */
+      const inicio = ehEdicao && mesmoMinuto(inicioDigitado, editar!.inicio) ? editar!.inicio : inicioDigitado;
+      const fim = ehEdicao && mesmoMinuto(fimDigitado, editar!.fim) ? editar!.fim : fimDigitado;
+      const link = normalizarLinkReuniao(linkReuniao);
       const dto = {
         titulo: titulo.trim(), tipo, inicio, fim,
         local: local.trim() || undefined,
+        // Vazio na edição apaga o link; na criação, simplesmente não vai.
+        linkReuniao: link?.ok ? link.url : ehEdicao ? null : undefined,
         descricao: descricao.trim() || undefined,
         observacoesInternas: obsInternas.trim() || undefined,
         urgente,
@@ -157,11 +182,14 @@ export function CompromissoFormModal({
       return ehEdicao ? atualizarCompromisso(editar!.id, dto) : criarCompromisso(dto);
     },
     onSuccess: () => {
-      toast.success(ehEdicao ? 'Evento atualizado.' : 'Evento criado na agenda.');
+      toast.success(ehEdicao ? 'Atividade atualizada.' : 'Atividade criada na agenda.');
       onSalvo();
       onClose();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível salvar o evento.'),
+    onError: (e: any) => {
+      const m = e?.response?.data?.message;
+      toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível salvar a atividade.');
+    },
   });
 
   function submeter() {
@@ -172,6 +200,8 @@ export function CompromissoFormModal({
     if (urgente && !urgenteMotivo.trim()) {
       return toast.error('Diga por que é urgente — sem motivo, a marca não pode ser revista depois.');
     }
+    const link = normalizarLinkReuniao(linkReuniao);
+    if (link && !link.ok) return toast.error(link.erro);
     const inicio = combinar(inicioData, inicioHora);
     if (!inicio) return toast.error('Informe a data e hora de início.');
     if (fimData) {
@@ -181,14 +211,17 @@ export function CompromissoFormModal({
     salvar.mutate();
   }
 
-  const remarcaAviso = ehEdicao && editar && !editar.dataOriginal && combinar(inicioData, inicioHora) !== editar.inicio;
+  const remarcaAviso = ehEdicao && editar && !mesmoMinuto(combinar(inicioData, inicioHora), editar.inicio);
+  const linkAvaliado = normalizarLinkReuniao(linkReuniao);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={salvar.isPending ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={salvar.isPending ? undefined : onClose}>
       <div
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[92vh] w-full max-w-2xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b p-5">
@@ -196,9 +229,9 @@ export function CompromissoFormModal({
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
               <CalendarClock className="h-5 w-5 text-brand-800 dark:text-brand-400" />
             </div>
-            <h3 className="text-lg font-bold">{ehEdicao ? 'Editar Evento' : 'Novo Evento na Agenda'}</h3>
+            <h3 className="text-lg font-bold">{ehEdicao ? 'Editar atividade' : 'Nova atividade'}</h3>
           </div>
-          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="-mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
@@ -262,6 +295,7 @@ export function CompromissoFormModal({
             */}
             <AvisoDeChoque
               responsavelId={responsavelId}
+              participantes={participantes}
               inicio={combinar(inicioData, inicioHora)}
               fim={
                 fimData
@@ -281,7 +315,8 @@ export function CompromissoFormModal({
 
             {remarcaAviso && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
-                Alterar a data registra uma <strong>remarcação</strong> e trava a data original ({formatData(editar!.inicio)}) para auditoria.
+                Mudar o horário conta como <strong>remarcação</strong>: a atividade volta a pendente, o histórico
+                registra a troca e a data original ({formatData(editar!.dataOriginal ?? editar!.inicio)}) fica guardada.
               </p>
             )}
           </div>
@@ -290,6 +325,40 @@ export function CompromissoFormModal({
           <div className="space-y-1.5">
             <label className="flex items-center gap-1.5 text-sm font-medium"><MapPin className="h-4 w-4 text-muted-foreground" /> Local</label>
             <Input placeholder="Ex: 1ª Vara do Trabalho de Teresina" value={local} onChange={(e) => setLocal(e.target.value)} />
+          </div>
+
+          {/*
+            O LINK DA CHAMADA — conferido ENQUANTO se cola, pela mesma regra que
+            o servidor usa para gravar (`lib/link-reuniao.ts`). Descobrir que o
+            link não serve só depois de salvar é voltar ao formulário com o
+            filiado esperando na chamada.
+          */}
+          <div className="space-y-1.5">
+            <label htmlFor="link-da-chamada" className="flex items-center gap-1.5 text-sm font-medium">
+              <Video className="h-4 w-4 text-muted-foreground" /> Link da chamada{' '}
+              <span className="font-normal text-muted-foreground">(se for por vídeo)</span>
+            </label>
+            <Input
+              id="link-da-chamada"
+              inputMode="url"
+              autoComplete="off"
+              maxLength={2000}
+              placeholder="Cole o link ou o convite do Meet, Zoom ou Teams"
+              value={linkReuniao}
+              onChange={(e) => setLinkReuniao(e.target.value)}
+              aria-invalid={linkAvaliado ? !linkAvaliado.ok : undefined}
+              aria-describedby={linkAvaliado ? 'link-da-chamada-ajuda' : undefined}
+            />
+            {linkAvaliado && (
+              <p
+                id="link-da-chamada-ajuda"
+                className={cn('text-xs', linkAvaliado.ok ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400')}
+              >
+                {linkAvaliado.ok
+                  ? `${linkAvaliado.provedor}. Na atividade vira o botão "Entrar na chamada".`
+                  : linkAvaliado.erro}
+              </p>
+            )}
           </div>
 
           {/* Filiado vinculado */}
@@ -360,7 +429,7 @@ export function CompromissoFormModal({
           {/* Descrição + Obs internas */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Descrição</label>
-            <textarea className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder="Detalhes sobre o evento…" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+            <textarea className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm" placeholder="Detalhes sobre a atividade…" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
           </div>
           {!ehEdicao && (
             <div className="space-y-1.5">
@@ -414,7 +483,7 @@ export function CompromissoFormModal({
         <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
           <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
           <Button onClick={submeter} disabled={salvar.isPending}>
-            {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {ehEdicao ? 'Salvar' : 'Criar Evento'}
+            {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {ehEdicao ? 'Salvar' : 'Criar atividade'}
           </Button>
         </div>
       </div>

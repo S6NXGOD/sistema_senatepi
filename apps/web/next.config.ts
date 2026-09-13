@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NextConfig } from 'next';
 import { conferirEnvLocal } from './src/tenant/env-do-cliente';
+import { versaoCurta } from './src/lib/versao-no-ar';
 
 /**
  * CADA SINDICATO TEM O SEU DIRETÓRIO DE BUILD.
@@ -63,6 +64,23 @@ if (problema) {
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   distDir: tenant ? `.next-${tenant}` : '.next',
+  /**
+   * O BUILD SABE QUAL VERSÃO ELE É.
+   *
+   * O Next troca `process.env.VERSAO_DO_BUILD` pelo valor na hora do build, dentro
+   * do JavaScript que vai para o navegador. Uma aba aberta carrega consigo o SHA
+   * do código que está rodando nela, e o aviso de versão nova
+   * (`components/avisos/nova-versao.tsx`) compara com o que o `/versao` responde
+   * agora. Sem isto a aba só saberia "o que estava no ar quando abriu" — e uma aba
+   * aberta na janela de troca do deploy nasceria achando que é a nova.
+   *
+   * O corte vem de `versaoCurta`, o mesmo formato da rota `/versao`. Fora do
+   * Railway sai 'dev', que o aviso trata como "não sei" (e cai na reserva: a
+   * primeira resposta do `/versao` vira a base).
+   */
+  env: {
+    VERSAO_DO_BUILD: versaoCurta(process.env.RAILWAY_GIT_COMMIT_SHA),
+  },
   images: {
     remotePatterns: [
       { protocol: 'http', hostname: 'localhost' },

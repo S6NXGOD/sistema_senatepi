@@ -116,6 +116,25 @@ export function rotuloDoPeriodo(p: Periodo): string {
   return `${br(a1, m1, d1)} a ${br(a2, m2, d2)}`;
 }
 
+/**
+ * O PERÍODO POR EXTENSO — o destaque da primeira página do PDF.
+ *
+ * "1º a 31 de agosto de 2026", "1º de janeiro a 12 de setembro de 2026",
+ * "15 de dezembro de 2025 a 14 de janeiro de 2026". Texto puro, sem `Date`: o
+ * dia não anda para trás em fuso nenhum.
+ */
+export function periodoPorExtenso(p: Periodo): string {
+  const [a1, m1, d1] = p.de.split('-').map(Number);
+  const [a2, m2, d2] = p.ate.split('-').map(Number);
+  const dia = (d: number) => (d === 1 ? '1º' : String(d));
+  const mes = (m: number) => MESES[m - 1] ?? String(m);
+  if (a1 === a2 && m1 === m2) {
+    return d1 === d2 ? `${dia(d1)} de ${mes(m1)} de ${a1}` : `${dia(d1)} a ${d2} de ${mes(m1)} de ${a1}`;
+  }
+  if (a1 === a2) return `${dia(d1)} de ${mes(m1)} a ${dia(d2)} de ${mes(m2)} de ${a1}`;
+  return `${dia(d1)} de ${mes(m1)} de ${a1} a ${dia(d2)} de ${mes(m2)} de ${a2}`;
+}
+
 /** O preset guardado no navegador ainda existe? Lixo antigo vira o padrão. */
 export function presetValido(valor: unknown): valor is PresetDoPeriodo {
   return PRESETS_DO_PERIODO.some((p) => p.id === valor);

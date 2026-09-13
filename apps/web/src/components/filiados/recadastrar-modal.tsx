@@ -5,15 +5,18 @@ import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  X, Loader2, UserCheck, Link2, Copy, Check, Clock, ShieldCheck, AlertTriangle, Ban,
+  X, Loader2, UserCheck, Copy, Check, Clock, ShieldCheck, Ban, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
 import { cn } from '@/lib/utils';
 import {
   gerarLinkRecadastramento, listarLinksRecadastramento, revogarLinkRecadastramento,
   DESAFIO_LABEL, type LinkRecadastramento,
 } from '@/lib/filiados';
+import { validadeCurta } from '@/lib/envio-recadastro';
+import { EnviarLinkRecadastro } from '@/components/filiados/enviar-link-recadastro';
 
 /** Vivo = não usado, não revogado e ainda dentro das 24h. */
 function estaAtivo(l: LinkRecadastramento): boolean {
@@ -30,8 +33,13 @@ function faltamHoras(expiraEm: string): string {
 
 /**
  * Escolha do modo de recadastramento:
+ *  - LINK: o próprio filiado atualiza pelo celular. Os botões de envio
+ *    reaproveitam o link que já está valendo (quem já recebeu continua com um
+ *    link que abre) e só geram outro quando não há.
  *  - PRESENCIAL: a equipe preenche na hora (fluxo que já existia).
- *  - LINK: gera uma URL de 24h para o próprio filiado atualizar tudo.
+ *
+ * "Gerar outro link" continua existindo, mas como ação explícita e confirmada:
+ * ele cancela o link que o filiado talvez já tenha no WhatsApp.
  */
 export function RecadastrarModal({
   open, onClose, filiadoId, filiadoNome, semNavegar, onRecadastrarPresencial,
@@ -57,12 +65,15 @@ export function RecadastrarModal({
   // Cancelar link cai na regra global de exclusão (rota DELETE): só Administrador.
   // Quem não é admin ainda pode gerar outro — o novo já revoga o anterior.
   const ehAdmin = user?.role === 'ADMINISTRADOR';
+  // Gerar, mandar e o presencial gravam no cadastro: a API exige filiados EDITAR.
+  const podeEditarFiliado = podeEditar(user?.role, user?.permissoes, 'filiados');
   const [link, setLink] = useState<LinkRecadastramento | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [confirmandoNovo, setConfirmandoNovo] = useState(false);
 
   // O que já existe para este filiado — a equipe precisa saber se há um link
   // circulando antes de gerar outro (gerar revoga o anterior).
-  const { data: existentes, isLoading: carregandoLinks } = useQuery({
+  const { data: existentes, isLoading: carregandoLinks, isError: erroLinks } = useQuery({
     queryKey: ['links-recadastramento', filiadoId],
     queryFn: () => listarLinksRecadastramento(filiadoId),
     enabled: open,
@@ -74,7 +85,9 @@ export function RecadastrarModal({
     mutationFn: () => gerarLinkRecadastramento(filiadoId),
     onSuccess: (l) => {
       setLink(l);
+      setConfirmandoNovo(false);
       void qc.invalidateQueries({ queryKey: ['links-recadastramento', filiadoId] });
+      void qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível gerar o link.'),
   });
@@ -84,6 +97,7 @@ export function RecadastrarModal({
     onSuccess: () => {
       toast.success('Link cancelado. Ele não abre mais.');
       void qc.invalidateQueries({ queryKey: ['links-recadastramento', filiadoId] });
+      void qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
     },
     onError: (e: any) =>
       toast.error(e?.response?.data?.message ?? 'Não foi possível cancelar o link.'),
@@ -104,129 +118,167 @@ export function RecadastrarModal({
   function fechar() {
     setLink(null);
     setCopiado(false);
+    setConfirmandoNovo(false);
     onClose();
   }
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={fechar}>
-      <div className="w-full max-w-lg rounded-2xl bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between border-b p-5">
-          <div className="min-w-0">
-            <h3 className="font-semibold">Recadastramento</h3>
+    <div
+      className="fixed inset-0 z-[60] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      onClick={fechar}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recadastrar-titulo"
+        className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 border-b py-3 pl-5 pr-2">
+          <div className="min-w-0 pt-1">
+            <h3 id="recadastrar-titulo" className="font-semibold">Recadastramento</h3>
             <p className="truncate text-xs text-muted-foreground">{filiadoNome}</p>
           </div>
-          <button type="button" onClick={fechar} className="text-muted-foreground hover:text-foreground">
+          <button
+            type="button"
+            onClick={fechar}
+            aria-label="Fechar"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Link recém-gerado */}
-        {link?.url ? (
-          <div className="space-y-4 p-5">
-            <div className="rounded-xl border border-brand-400/60 bg-brand-50/50 p-4 dark:bg-brand-900/10">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-800 dark:text-brand-400">
-                <ShieldCheck className="h-4 w-4" /> Link gerado
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Envie ao filiado por WhatsApp ou e-mail. Vale por 24h e só pode ser usado uma vez.
-              </p>
-
-              <div className="mt-3 flex items-center gap-2 rounded-lg border bg-card p-2">
-                <input
-                  readOnly
-                  value={link.url}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
-                />
-                <Button size="sm" variant={copiado ? 'outline' : 'default'} onClick={copiar}>
-                  {copiado ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copiado ? 'Copiado' : 'Copiar'}
-                </Button>
-              </div>
-
-              <dl className="mt-3 space-y-1 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Expira em</span>
-                  <strong>{new Date(link.expiraEm).toLocaleString('pt-BR')}</strong>
-                </div>
-                <div className="flex items-start gap-1.5">
-                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span><span className="text-muted-foreground">Segurança: </span>{DESAFIO_LABEL[link.desafio]}</span>
-                </div>
-              </dl>
-
-              {link.desafio === 'NENHUM' && (
-                <p className="mt-3 flex items-start gap-1.5 rounded-md bg-amber-100 px-2 py-1.5 text-[11px] text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  Este cadastro não tem CPF, nascimento nem COREN — não há como pedir confirmação.
-                  Quem tiver o link acessa direto, então envie apenas ao próprio filiado.
-                </p>
-              )}
-            </div>
-
-            <p className="text-center text-xs text-muted-foreground">
-              O link não poderá ser exibido novamente. Copie agora.
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          {!podeEditarFiliado ? (
+            <p className="rounded-lg border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
+              O seu perfil só visualiza o cadastro dos filiados. Pedir o recadastramento, pelo link
+              ou no balcão, fica com quem edita o cadastro.
             </p>
-            <Button variant="outline" className="w-full" onClick={fechar}>Fechar</Button>
-          </div>
-        ) : (
-          /* Escolha do modo */
-          <div className="space-y-3 p-5">
-            {carregandoLinks ? (
-              <p className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Verificando links…
-              </p>
-            ) : ativo ? (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-300">
-                  <Clock className="h-4 w-4" /> Já existe um link ativo
+          ) : (
+            <>
+              {/* O estado do link: o que já está circulando para este filiado. */}
+              {carregandoLinks ? (
+                <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Verificando se já há link ativo…
                 </p>
-                <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/80">
-                  Gerado em {new Date(ativo.createdAt ?? ativo.expiraEm).toLocaleString('pt-BR')} — expira{' '}
-                  {new Date(ativo.expiraEm).toLocaleString('pt-BR')} ({faltamHoras(ativo.expiraEm)}).
-                  {(ativo.tentativas ?? 0) > 0 && ` ${ativo.tentativas} tentativa(s) de confirmação sem sucesso.`}
+              ) : erroLinks ? (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                  Não foi possível ver se já existe um link ativo. Os botões abaixo continuam
+                  funcionando: se houver um valendo, mandam o mesmo.
                 </p>
-                <p className="mt-1.5 text-xs text-amber-900/80 dark:text-amber-200/80">
-                  A URL não pode ser exibida de novo. Se o filiado perdeu o link, gere outro — o
-                  atual deixa de funcionar na hora.
-                </p>
-                {ehAdmin && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-2.5"
-                    disabled={revogar.isPending}
-                    onClick={() => revogar.mutate(ativo.id)}
-                  >
-                    {revogar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
-                    Cancelar este link
-                  </Button>
-                )}
-              </div>
-            ) : null}
+              ) : ativo && !link ? (
+                <div className="rounded-xl border bg-muted/30 p-3">
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <Clock className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                    Link ativo até {validadeCurta(ativo.expiraEm)}
+                    <span className="font-normal text-muted-foreground">({faltamHoras(ativo.expiraEm)})</span>
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Gerado em {validadeCurta(ativo.createdAt ?? ativo.expiraEm)}.
+                    {(ativo.tentativas ?? 0) > 0 && ` ${ativo.tentativas} tentativa(s) de confirmação sem sucesso.`}
+                  </p>
+                  {ehAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2.5 h-11"
+                      disabled={revogar.isPending}
+                      onClick={() => revogar.mutate(ativo.id)}
+                    >
+                      {revogar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                      Cancelar este link
+                    </Button>
+                  )}
+                </div>
+              ) : null}
 
-            <Opcao
-              icon={UserCheck}
-              titulo="Recadastramento presencial"
-              descricao="A equipe preenche o formulário agora, com o filiado presente."
-              onClick={() => {
-                if (semNavegar) { onRecadastrarPresencial?.(filiadoId); return; }
-                fechar();
-                router.push(`/filiados/${filiadoId}/recadastrar`);
-              }}
-            />
-            <Opcao
-              icon={Link2}
-              titulo={ativo ? 'Gerar um novo link (revoga o atual)' : 'Gerar link para o filiado'}
-              descricao="O filiado atualiza os próprios dados pelo celular. Vale 24h e é de uso único."
-              carregando={gerar.isPending}
-              onClick={() => gerar.mutate()}
-            />
-          </div>
-        )}
+              {/* Link recém-gerado pelo "Gerar outro link". */}
+              {link?.url && (
+                <div className="rounded-xl border border-brand-400/60 bg-brand-50/50 p-3 dark:bg-brand-900/10">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-800 dark:text-brand-400">
+                    <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Link novo gerado
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    O anterior deixou de abrir. Este vale até {validadeCurta(link.expiraEm)}.{' '}
+                    {DESAFIO_LABEL[link.desafio]}.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2 rounded-lg border bg-card p-1.5">
+                    <input
+                      readOnly
+                      value={link.url}
+                      aria-label="Endereço do link"
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
+                    />
+                    <Button size="sm" className="h-11" variant={copiado ? 'outline' : 'default'} onClick={copiar}>
+                      {copiado ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copiado ? 'Copiado' : 'Copiar'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* A chave troca com o link novo: o estado e a mensagem de antes não valem mais. */}
+              <EnviarLinkRecadastro key={link?.url ?? 'vigente'} filiadoId={filiadoId} />
+
+              {ativo && !link && (
+                <div className="border-t pt-3">
+                  {confirmandoNovo ? (
+                    <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
+                      <p className="text-xs text-amber-900 dark:text-amber-200">
+                        O link atual deixa de abrir na hora, inclusive se o filiado já o recebeu.
+                        Só faça isso se ele perdeu a mensagem ou se o link foi parar com outra pessoa.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          className="h-11 md:h-11"
+                          disabled={gerar.isPending}
+                          onClick={() => gerar.mutate()}
+                        >
+                          {gerar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          Gerar outro link
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="h-11 md:h-11"
+                          disabled={gerar.isPending}
+                          onClick={() => setConfirmandoNovo(false)}
+                        >
+                          Manter o atual
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmandoNovo(true)}
+                      className="min-h-11 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    >
+                      O filiado perdeu o link? Gerar outro
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="border-t pt-4">
+                <Opcao
+                  icon={UserCheck}
+                  titulo="Recadastramento presencial"
+                  descricao="A equipe preenche o formulário agora, com o filiado presente."
+                  onClick={() => {
+                    if (semNavegar) { onRecadastrarPresencial?.(filiadoId); return; }
+                    fechar();
+                    router.push(`/filiados/${filiadoId}/recadastrar`);
+                  }}
+                />
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

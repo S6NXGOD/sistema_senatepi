@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Snowflake, Fan, Ticket, Phone, AlertTriangle, Loader2, Sun, Waves,
+  Snowflake, Fan, Ticket, Phone, AlertTriangle, Sun, Waves,
   UserCheck, UserX, ArrowRight, ArrowLeft, CalendarCheck2, CalendarX2, Clock, Ban, Sparkles,
   BedDouble, MapPin, Clock3, Instagram, X, Footprints, Navigation,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getDisponibilidade, partesData, SECRETARIA, ESTRUTURA_QUARTO, AVISO_NOSHOW_24H, LoteDisp, QuartoDisp } from '@/lib/colonia';
@@ -105,9 +106,11 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
         {etapa === 'vitrine' && (
           <div className="animate-fade-in space-y-6 pb-28 sm:pb-6">
             {isLoading && (
-              <div className="flex justify-center py-20">
-                <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-              </div>
+              <Carregando texto="Carregando as vagas…" className="space-y-4">
+                <Esqueleto className="h-28 w-full rounded-xl" />
+                <Esqueleto className="h-48 w-full rounded-xl" />
+                <Esqueleto className="h-48 w-full rounded-xl" />
+              </Carregando>
             )}
 
             {indisponivel && (
@@ -172,10 +175,10 @@ export function ColoniaPublica({ slug }: { slug?: string }) {
       {/* Overlay bloqueante — não filiado (conversão via WhatsApp) */}
       {naoFiliado && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in"
+          className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
           onClick={() => setNaoFiliado(false)}
         >
-          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <Card className="w-full max-w-md animate-dialogo-entrar" onClick={(e) => e.stopPropagation()}>
             <CardContent className="p-6 text-center sm:p-8">
               <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 dark:bg-brand-900/30">
                 <Sparkles className="h-8 w-8 text-brand-800 dark:text-brand-400" />

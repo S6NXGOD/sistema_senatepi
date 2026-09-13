@@ -6,7 +6,8 @@ import {
 } from '@/lib/relatorio-pdf';
 import { foraDaFontePadrao } from '@/lib/pdf-graficos';
 import {
-  fraseDasSentencas, hrefDaComarca, hrefDaParteContraria, hrefDoAssunto, type Relatorio,
+  OUTROS_NA_FRASE, fraseDasSentencas, fraseDosOutrosAssuntos, hrefDaComarca, hrefDaParteContraria, hrefDoAssunto,
+  type Relatorio,
 } from '@/lib/relatorios';
 
 const TELA = readFileSync(join(__dirname, 'page.tsx'), 'utf8');
@@ -277,5 +278,62 @@ describe('a tela de relatórios', () => {
 
   it('a fila de publicações leva à busca já filtrada', () => {
     expect(TELA).toContain('href="/publicacoes?situacao=SEM_DECISAO"');
+  });
+
+  /** Movimento (13/09/2026): esqueleto na primeira carga, número que conta só no Resumo, barra de pessoa parada. */
+  it('carrega com esqueleto, conta o Resumo e não anima a lista de atendentes', () => {
+    expect(TELA).toContain('<Carregando texto="Somando o período…"');
+    expect(TELA).not.toContain('>Somando o período…</p>');
+    expect(TELA).toContain('<NumeroAnimado valor={valor} />');
+    const atendente = TELA.slice(TELA.indexOf('titulo="Por atendente"'), TELA.indexOf('titulo="Por atendente"') + 200);
+    expect(atendente).toContain('animar={false}');
+  });
+});
+
+/**
+ * O QUE HÁ DENTRO DE "OUTRO" — 13/09/2026. "Outro: 9" sozinho não deixa
+ * ninguém decidir se falta a categoria "Aposentadoria". Só texto repetido tem
+ * nome (a API já corta): texto único num PDF da diretoria pode identificar alguém.
+ */
+describe('os textos de "Outro"', () => {
+  it('a frase nomeia os repetidos e conta os únicos', () => {
+    expect(
+      fraseDosOutrosAssuntos([{ texto: 'aposentadoria', total: 4 }, { texto: 'plano de saúde', total: 2 }], 3),
+    ).toBe('Em “Outro”: aposentadoria (4), plano de saúde (2); 3 com texto único.');
+    expect(fraseDosOutrosAssuntos([], 1)).toBe('Em “Outro”: 1 com texto único.');
+  });
+
+  it('lista longa resume o resto; nada a dizer, ou API antiga, é nulo', () => {
+    const muitos = Array.from({ length: OUTROS_NA_FRASE + 2 }, (_, i) => ({ texto: `tema ${i}`, total: 2 }));
+    expect(fraseDosOutrosAssuntos(muitos, 0)).toMatch(/mais 2 textos repetidos\.$/);
+    expect(fraseDosOutrosAssuntos([], 0)).toBeNull();
+    expect(fraseDosOutrosAssuntos(undefined, undefined)).toBeNull();
+  });
+
+  it('o PDF leva a frase ao lado do "por que procuraram", só quando há o que dizer', () => {
+    const comOutros: Relatorio = {
+      ...base,
+      atendimentos: { ...base.atendimentos, outrosAssuntos: [{ texto: 'aposentadoria', total: 4 }], outrosUnicos: 3 },
+    };
+    const notas = (r: Relatorio) =>
+      planoDoPdf(r, ESCOLHAS_PADRAO, rotulos, 2026).flatMap((b) => (b.tipo === 'nota' ? [b.texto] : []));
+    expect(notas(comOutros)).toContain('Em “Outro”: aposentadoria (4); 3 com texto único.');
+    expect(notas(base).some((t) => t.startsWith('Em “Outro”'))).toBe(false);
+    expect(foraDaFontePadrao(JSON.stringify(planoDoPdf(comOutros, ESCOLHAS_PADRAO, rotulos, 2026)))).toEqual([]);
+  });
+
+  it('a tela usa a mesma frase', () => {
+    expect(TELA).toContain('fraseDosOutrosAssuntos(data.atendimentos.outrosAssuntos, data.atendimentos.outrosUnicos)');
+  });
+
+  /** O atraso sai em âmbar no papel, como na tela. */
+  it('as atrasadas do resumo saem com o alerta', () => {
+    const resumo = planoDoPdf(base, ESCOLHAS_PADRAO, rotulos, 2026).find((b) => b.tipo === 'numeros') as Extract<
+      BlocoDoPdf,
+      { tipo: 'numeros' }
+    >;
+    expect(resumo.itens.find((i) => i.rotulo === 'Em aberto agora')!.linhas).toEqual([
+      { texto: '3 atrasadas', alerta: true },
+    ]);
   });
 });

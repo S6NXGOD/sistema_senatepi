@@ -26,6 +26,26 @@ describe('o sino saiu', () => {
     expect(TOPO).not.toContain('SinoDePendencias');
   });
 
+  /**
+   * O nome não bastava: um `<Bell>` recolocado direto no topo, ou dentro de um
+   * componente de outro nome, passava verde. A trava mira a LINHA DE IMPORT do
+   * ícone — não o comentário "SEM SINO" do topbar — na Topbar, no menu do celular
+   * que ela desenha e na casca. Querer de novo um ícone de aviso no topo é uma
+   * decisão, e este teste pede que ela seja tomada às claras.
+   */
+  const IMPORTA_SINO = /import\s*\{[^}]*\bBell\w*\b[^}]*\}\s*from\s*['"]lucide-react['"]/;
+
+  it('nem o ícone volta ao topo por outro caminho', () => {
+    // A trava morde (uma regex errada passaria verde para sempre)…
+    expect(`import { Moon, BellRing, Sun } from 'lucide-react';`).toMatch(IMPORTA_SINO);
+    expect(`import {\r\n  Bell,\r\n  Moon,\r\n} from "lucide-react";`).toMatch(IMPORTA_SINO);
+    // …e não morde o que é permitido.
+    expect(`import { Moon, Sun } from 'lucide-react';`).not.toMatch(IMPORTA_SINO);
+    for (const arquivo of ['components/topbar.tsx', 'components/mobile-nav.tsx', 'components/dashboard-shell.tsx']) {
+      expect(ler(arquivo)).not.toMatch(IMPORTA_SINO);
+    }
+  });
+
   it('e a faixa só carrega o que não pode esperar', () => {
     expect(Object.keys(PENDENCIA).sort()).toEqual(['ATRASADA', 'PRECISA_DA_EQUIPE', 'PUBLICACAO_SEM_TAREFA']);
   });

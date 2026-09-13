@@ -1,8 +1,13 @@
 import type { jsPDF } from 'jspdf';
 import { tenant } from '@/tenant.config';
+import { CASA } from './pdf-graficos';
 
-// Paleta institucional para os documentos.
-export const VERDE: [number, number, number] = [27, 127, 10]; // brand-800
+/**
+ * Paleta institucional para os documentos. `VERDE` é a COR DA INSTALAÇÃO (tom
+ * 800 da paleta do tenant): o nome ficou porque escalas, colônia e relatórios o
+ * importam. No SENATEPI continua [27, 127, 10]; no SINDSERM, o azul da casa.
+ */
+export const VERDE: [number, number, number] = CASA.principal;
 export const CINZA: [number, number, number] = [90, 100, 110];
 export const AMBAR_BG: [number, number, number] = [255, 247, 237];
 export const AMBAR_BORDA: [number, number, number] = [245, 158, 11];

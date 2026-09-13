@@ -8,6 +8,7 @@ import {
   ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, Search, ShieldCheck,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,7 +49,7 @@ const dia = (d: Date) =>
  */
 export default function AuditoriaPage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>}>
+    <Suspense fallback={<Carregando texto="Carregando o registro…"><EsqueletoLinhas quantidade={8} altura={52} /></Carregando>}>
       <Auditoria />
     </Suspense>
   );
@@ -203,6 +204,12 @@ function Auditoria() {
         <Card className="p-2">
           <FalhaAoCarregar erro={error} oQue="o registro" onTentarDeNovo={() => refetch()} />
         </Card>
+      )}
+
+      {isLoading && (
+        <Carregando texto="Carregando o registro…">
+          <Card className="overflow-hidden p-0"><EsqueletoLinhas quantidade={8} altura={52} /></Card>
+        </Carregando>
       )}
 
       {!isLoading && !isError && data?.data.length === 0 && (

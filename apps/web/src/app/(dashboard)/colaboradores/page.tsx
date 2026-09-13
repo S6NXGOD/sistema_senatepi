@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus, Search, Eye, Pencil, Trash2, ShieldCheck, SlidersHorizontal, UploadCloud } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -140,7 +141,11 @@ export default function ColaboradoresPage() {
                 </tr>
               </thead>
               <tbody>
-                {isLoading && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Carregando...</td></tr>}
+                {isLoading && (
+                  <tr><td colSpan={7} className="p-0">
+                    <Carregando texto="Carregando os colaboradores…"><EsqueletoLinhas quantidade={8} altura={49} /></Carregando>
+                  </td></tr>
+                )}
                 {!isLoading && linhas?.map((c) => (
                   <tr key={c.id} className="border-b last:border-0 hover:bg-muted/40">
                     <td className="px-4 py-3 font-medium">{c.nome}</td>
@@ -173,7 +178,9 @@ export default function ColaboradoresPage() {
 
           {/* Mobile */}
           <div className="divide-y md:hidden">
-            {isLoading && <p className="px-4 py-8 text-center text-sm text-muted-foreground">Carregando...</p>}
+            {isLoading && (
+              <Carregando texto="Carregando os colaboradores…"><EsqueletoLinhas quantidade={5} altura={128} /></Carregando>
+            )}
             {!isLoading && linhas?.map((c) => (
               <div key={c.id} className="p-4">
                 <div className="flex items-start justify-between gap-2">

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ResolverVinculosPanel } from '@/components/processos/resolver-vinculos-panel';
 import { Card } from '@/components/ui/card';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -66,7 +67,7 @@ function StatusBadge({ status }: { status: StatusProcesso }) {
  */
 export default function ProcessosPage() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>}>
+    <Suspense fallback={<Carregando texto="Carregando os processos…"><EsqueletoLinhas quantidade={8} altura={72} /></Carregando>}>
       <ListaProcessos />
     </Suspense>
   );
@@ -825,9 +826,21 @@ function ListaProcessos() {
 
       {/* Lista */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
+        <Carregando texto="Carregando os processos…">
+          {/* Celular: a forma dos cartões; computador: a das linhas da tabela. */}
+          <div className="space-y-3 md:hidden">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-xl border bg-card p-4">
+                <Esqueleto className="h-3.5 w-1/2" />
+                <Esqueleto className="mt-3 h-3 w-4/5" />
+                <Esqueleto className="mt-2 h-3 w-1/3" />
+              </div>
+            ))}
+          </div>
+          <Card className="hidden overflow-hidden p-0 md:block">
+            <EsqueletoLinhas quantidade={10} altura={72} />
+          </Card>
+        </Carregando>
       ) : items.length === 0 ? (
         <VazioContextual
           rapido={rapido}
@@ -1415,7 +1428,7 @@ function CelulaPartes({ p }: { p: ProcessoLista }) {
 
 function ProcessoCard({ p, onClick }: { p: ProcessoLista; onClick: () => void }) {
   return (
-    <Card className="cursor-pointer p-4" onClick={onClick}>
+    <Card interativo className="cursor-pointer p-4" onClick={onClick}>
       {p.urgente && (
         <SeloUrgente motivo={p.urgenteMotivo} desde={p.urgenteEm} tamanho="sm" className="mb-1.5" />
       )}

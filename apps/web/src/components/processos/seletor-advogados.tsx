@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, ChevronDown, Loader2, Search, Star, X } from 'lucide-react';
+import { Check, ChevronDown, Search, Star, X } from 'lucide-react';
 import { listarAdvogadosDisponiveis, type AdvogadoDisponivel } from '@/lib/processos';
 import { cn, normalizarTexto } from '@/lib/utils';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 
 /**
  * Quem toca o processo — a equipe inteira num campo só.
@@ -203,7 +204,9 @@ export function SeletorAdvogados({
           </div>
 
           {isLoading ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            <Carregando texto="Carregando a equipe…" className="p-1">
+              <EsqueletoLinhas quantidade={3} altura={40} className="divide-y-0" />
+            </Carregando>
           ) : filtrados.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-muted-foreground">Nenhum advogado encontrado.</p>
           ) : (

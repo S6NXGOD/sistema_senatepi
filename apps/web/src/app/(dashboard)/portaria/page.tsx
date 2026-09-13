@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, XCircle, ScanLine, Loader2, History } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -142,7 +143,13 @@ export default function PortariaPage() {
         </CardHeader>
         <CardContent>
           {historico.isLoading ? (
-            <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+            <Carregando texto="Carregando as entradas de hoje…">
+              <EsqueletoLinhas quantidade={4} altura={52} className="-mx-4" />
+            </Carregando>
+          ) : historico.isError ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Não foi possível carregar as entradas de hoje. A lista tenta de novo sozinha a cada 30 segundos.
+            </p>
           ) : !historico.data?.length ? (
             <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma entrada registrada hoje.</p>
           ) : (

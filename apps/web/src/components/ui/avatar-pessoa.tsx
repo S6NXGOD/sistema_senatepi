@@ -1,6 +1,8 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { corDasIniciais, iniciaisDe } from '@/lib/iniciais';
+import { tenant } from '@/tenant.config';
 
 /**
  * O ROSTO DE UMA PESSOA — foto quando há, iniciais quando não.
@@ -19,40 +21,15 @@ import { cn } from '@/lib/utils';
  * mesma bolinha; com a cor derivada do nome, cada pessoa tem sempre a MESMA, e
  * o reconhecimento passa a funcionar antes da leitura. A paleta é fechada e
  * todas as combinações foram escolhidas com contraste suficiente para o texto.
+ *
+ * AS INICIAIS E A COR MORAM EM `lib/iniciais.ts` desde 13/09/2026: o PDF do uso
+ * desenha o mesmo rosto no papel, e a mesma pessoa tem de sair com a mesma cor.
  */
-const CORES = [
-  'bg-brand-200 text-brand-900',
-  'bg-sky-200 text-sky-900',
-  'bg-violet-200 text-violet-900',
-  'bg-amber-200 text-amber-900',
-  'bg-emerald-200 text-emerald-900',
-  'bg-rose-200 text-rose-900',
-  'bg-teal-200 text-teal-900',
-] as const;
-
 const TAMANHOS = {
   xs: 'h-5 w-5 text-[9px]',
   sm: 'h-6 w-6 text-[10px]',
   md: 'h-8 w-8 text-xs',
 } as const;
-
-function iniciaisDe(nome: string): string {
-  return nome
-    .replace(/^(dra?\.?|sr[a]?\.?)\s+/i, '') // "Dr."/"Dra." não identificam ninguém
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((s) => s[0])
-    .join('')
-    .toUpperCase();
-}
-
-/** Índice estável: a mesma pessoa recebe sempre a mesma cor, em toda tela. */
-function corDe(nome: string): string {
-  let soma = 0;
-  for (let i = 0; i < nome.length; i++) soma = (soma + nome.charCodeAt(i)) % 9973;
-  return CORES[soma % CORES.length];
-}
 
 export function AvatarPessoa({
   nome,
@@ -78,7 +55,7 @@ export function AvatarPessoa({
   return (
     <span
       title={titulo ?? nome}
-      className={cn(base, 'flex items-center justify-center font-bold', corDe(nome))}
+      className={cn(base, 'flex items-center justify-center font-bold', corDasIniciais(nome, tenant.paleta).classe)}
     >
       {iniciaisDe(nome) || '?'}
     </span>

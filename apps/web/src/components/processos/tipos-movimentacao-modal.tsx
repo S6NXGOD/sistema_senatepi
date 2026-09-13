@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { X, Plus, Loader2, Trash2, Check, Pencil, EyeOff, Eye, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { CORES_PALETA, PALETA } from '@/lib/paleta-cores';
@@ -121,8 +122,8 @@ export function TiposMovimentacaoModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex animate-overlay-entrar items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="flex max-h-[85vh] w-full max-w-md animate-dialogo-entrar flex-col rounded-2xl bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-5">
           <div>
             <h3 className="font-semibold">Tipos de movimentação</h3>
@@ -133,7 +134,7 @@ export function TiposMovimentacaoModal({
 
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            <Carregando texto="Carregando os tipos…"><EsqueletoLinhas quantidade={5} altura={52} className="-mx-4" /></Carregando>
           ) : (
             <ul className="space-y-2">
               {tipos.map((t) => (

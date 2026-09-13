@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Save, KeyRound, FileText, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getConfig, salvarConfig, ConfiguracaoSindicato } from '@/lib/cobrancas';
@@ -98,7 +99,10 @@ export default function ConfiguracaoCobrancasPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
+        <Carregando texto="Carregando a configuração…" className="space-y-6">
+          <Esqueleto className="h-56 w-full rounded-xl" />
+          <Esqueleto className="h-48 w-full rounded-xl" />
+        </Carregando>
       ) : (
         <>
           {/* PIX */}

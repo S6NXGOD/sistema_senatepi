@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { User, ShieldCheck, Loader2, Save, KeyRound, Upload } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { IdentidadeVisualTab } from '@/components/configuracoes/identidade-visual-tab';
 import { Palette } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -26,7 +28,7 @@ import {
 } from '@/lib/profile';
 
 export default function ConfiguracoesPage() {
-  const { data: perfil, isLoading, refetch } = useQuery({
+  const { data: perfil, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['perfil-me'],
     queryFn: getMeuPerfil,
   });
@@ -38,10 +40,15 @@ export default function ConfiguracoesPage() {
         <p className="text-sm text-muted-foreground">Gerencie seus dados de perfil e de acesso.</p>
       </div>
 
-      {isLoading || !perfil ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-        </div>
+      {/* 13/09/2026: só sem dado. Revalidação que falha mantém o perfil em
+          memória; desmontar a aba Perfil apagaria o que a pessoa digitou. */}
+      {isError && !perfil ? (
+        <FalhaAoCarregar erro={error} oQue="o seu perfil" onTentarDeNovo={() => refetch()} />
+      ) : isLoading || !perfil ? (
+        <Carregando texto="Carregando o seu perfil…" className="space-y-6">
+          <Esqueleto className="h-10 w-72 max-w-full" />
+          <Esqueleto className="h-80 w-full rounded-xl" />
+        </Carregando>
       ) : (
         <Tabs defaultValue="perfil" className="space-y-6">
           <TabsList>

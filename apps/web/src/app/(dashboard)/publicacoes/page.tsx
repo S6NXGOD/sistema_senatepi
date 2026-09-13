@@ -8,6 +8,7 @@ import {
   SlidersHorizontal, ChevronDown,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -70,7 +71,7 @@ const inputCls =
 export default function PublicacoesPage() {
   return (
     <Suspense
-      fallback={<p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>}
+      fallback={<Carregando texto="Carregando as publicações…"><EsqueletoLinhas quantidade={6} altura={96} /></Carregando>}
     >
       <Publicacoes />
     </Suspense>
@@ -599,7 +600,15 @@ function Publicacoes() {
           <FalhaAoCarregar erro={error} oQue="as publicações" onTentarDeNovo={() => refetch()} />
         </Card>
       ) : isLoading ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Carregando…</p>
+        <Carregando texto="Carregando as publicações…" className="space-y-2">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="rounded-xl border bg-card p-4">
+              <Esqueleto className="h-3.5 w-2/5" />
+              <Esqueleto className="mt-3 h-3 w-4/5" />
+              <Esqueleto className="mt-2 h-3 w-1/3" />
+            </div>
+          ))}
+        </Carregando>
       ) : grupos.length === 0 ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">
           <Inbox className="mx-auto mb-2 h-6 w-6 opacity-60" />

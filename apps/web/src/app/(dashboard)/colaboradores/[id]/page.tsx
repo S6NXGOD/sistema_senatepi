@@ -10,6 +10,8 @@ import {
   CalendarClock, Clock, Ban, Upload, FileText, Trash2, ExternalLink, QrCode, Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatarData, mascararCpf } from '@/lib/utils';
@@ -51,7 +53,7 @@ export default function ColaboradorDetalhePage() {
   const [crachaAberto, setCrachaAberto] = useState(false);
   const [enviandoDoc, setEnviandoDoc] = useState(false);
 
-  const { data: c, isLoading } = useQuery({ queryKey: ['colaborador', id], queryFn: () => getColaborador(id) });
+  const { data: c, isLoading, isError, error, refetch } = useQuery({ queryKey: ['colaborador', id], queryFn: () => getColaborador(id) });
   const { data: historico } = useQuery({ queryKey: ['colaborador-historico', id], queryFn: () => getHistoricoColaborador(id) });
 
   const invalidar = () => {
@@ -86,8 +88,30 @@ export default function ColaboradorDetalhePage() {
     }
   }
 
+  // 13/09/2026: só sem dado; revalidação que falha não esconde a ficha já carregada.
+  if (isError && !c) {
+    return <FalhaAoCarregar erro={error} oQue="a ficha do colaborador" onTentarDeNovo={() => refetch()} />;
+  }
+
   if (isLoading || !c) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>;
+    return (
+      <Carregando texto="Carregando a ficha do colaborador…" className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Esqueleto className="h-16 w-16 rounded-xl" />
+          <div className="space-y-2">
+            <Esqueleto className="h-6 w-56 max-w-full" />
+            <Esqueleto className="h-4 w-40" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <Esqueleto className="h-36 w-full rounded-xl" />
+            <Esqueleto className="h-36 w-full rounded-xl" />
+          </div>
+          <Esqueleto className="h-64 w-full rounded-xl" />
+        </div>
+      </Carregando>
+    );
   }
 
   return (
@@ -245,7 +269,9 @@ export default function ColaboradorDetalhePage() {
           <CardHeader><CardTitle>Histórico</CardTitle></CardHeader>
           <CardContent>
             {!historico ? (
-              <p className="text-sm text-muted-foreground">Carregando…</p>
+              <Carregando texto="Carregando o histórico…">
+                <EsqueletoLinhas quantidade={3} altura={48} className="-mx-4 divide-y-0" />
+              </Carregando>
             ) : historico.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sem registros.</p>
             ) : (

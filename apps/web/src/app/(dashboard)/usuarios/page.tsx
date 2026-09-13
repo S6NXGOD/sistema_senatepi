@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, Plus, Search, Loader2, Pencil, Trash2, Users as UsersIcon,
+  ShieldCheck, Plus, Search, Pencil, Trash2, Users as UsersIcon,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -38,10 +40,12 @@ export default function UsuariosPage() {
     return () => clearTimeout(t);
   }, [busca]);
 
-  const { data: usuarios = [], isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['usuarios', buscaDeb],
     queryFn: () => listarUsuarios(buscaDeb || undefined),
   });
+
+  const usuarios = data ?? [];
 
   const invalidar = () => qc.invalidateQueries({ queryKey: ['usuarios'] });
 
@@ -89,10 +93,13 @@ export default function UsuariosPage() {
       </div>
 
       {/* Lista */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
+      {/* 13/09/2026: só sem dado; revalidação que falha não esconde a lista já carregada. */}
+      {isError && !data ? (
+        <Card><FalhaAoCarregar erro={error} oQue="os usuários" onTentarDeNovo={() => refetch()} /></Card>
+      ) : isLoading ? (
+        <Carregando texto="Carregando os usuários…">
+          <Card className="overflow-hidden p-0"><EsqueletoLinhas quantidade={6} altura={64} /></Card>
+        </Carregando>
       ) : usuarios.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 py-16 text-center">
           <UsersIcon className="h-8 w-8 text-muted-foreground opacity-60" />

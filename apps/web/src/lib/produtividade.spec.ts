@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  ausente, blocosDaPessoa, conteudoDoBloco, faixaDeUso, fraseDoPerfil, gruposPorPerfil,
-  hrefDaAuditoria, textoDoUltimoAcesso, type LinhaDeUso,
+  CHAVES_DO_BLOCO, DECISAO_GRAVADA_DESDE, LEGENDA_DO_USO, ausente, blocosDaPessoa, comparaDecididas,
+  conteudoDoBloco, diasDeSemana, faixaDeUso, fraseDoPerfil, gruposPorPerfil, hrefDaAuditoria, legendaDaAba,
+  linhasDaLegenda, rostosValidos, textoDoUltimoAcesso, textoDosDiasComUso, type LinhaDeUso,
 } from './produtividade';
 
 const ler = (relativo: string) => readFileSync(join(__dirname, '..', relativo), 'utf8');
 
 const linha = (over: Partial<LinhaDeUso> = {}): LinhaDeUso => ({
-  usuarioId: 'u', nome: 'Pessoa', perfil: 'ADVOGADO', avatarUrl: null, avatarKey: null,
+  usuarioId: 'u', nome: 'Pessoa', perfil: 'ADVOGADO', avatarUrl: null,
   ultimoAcesso: null, diasComUso: 0, diasAtivos: [],
   agenda: { concluidas: 0, noDiaMarcado: 0, criadas: 0, abertas: 0, atrasadas: 0 },
   publicacoes: { decididas: 0, esperando: 0 },
@@ -63,6 +64,16 @@ describe('uso e produtividade — o que a tela diz', () => {
     expect(faixa.marcas[9]).toEqual({ inicio: dias[63], diasComUso: 1, diasNoTrecho: 7 });
   });
 
+  /** "20 de 62" punha sábado e domingo no denominador: quem usou todo dia útil parecia ter usado um terço. */
+  it('dias com uso, e quantos dias de semana o período tem — sem fração', () => {
+    const agosto = Array.from({ length: 31 }, (_, i) => `2026-08-${String(i + 1).padStart(2, '0')}`);
+    expect(diasDeSemana(agosto)).toBe(21);
+    expect(textoDosDiasComUso(20, agosto)).toBe('20 dias com uso · o período tem 21 dias de semana');
+    expect(textoDosDiasComUso(1, ['2026-09-11'])).toBe('1 dia com uso · o período tem 1 dia de semana');
+    expect(textoDosDiasComUso(1, ['2026-09-12', '2026-09-13'])).toBe('1 dia com uso · o período só tem fim de semana');
+    expect(textoDosDiasComUso(0, [])).toBe('0 dias com uso');
+  });
+
   /** O perfil decide a ORDEM dos blocos; o que foi registrado nunca some. */
   it('o perfil ordena os blocos, mas não esconde trabalho registrado', () => {
     expect(blocosDaPessoa(linha())).toEqual(['agenda', 'publicacoes', 'processos']);
@@ -94,6 +105,16 @@ describe('uso e produtividade — o que a tela diz', () => {
     expect(conteudoDoBloco('publicacoes', linha()).linhas).toEqual([{ texto: 'nenhuma esperando' }]);
   });
 
+  /** Conta salvamentos, e não fichas: a mesma ficha salva três vezes conta três. */
+  it('fichas: "salvou N alterações", e não "atualizou N fichas"', () => {
+    expect(conteudoDoBloco('filiados', linha({ filiados: { cadastrados: 2, fichasAtualizadas: 3 } })).linhas).toEqual([
+      { texto: 'salvou 3 alterações em fichas' },
+    ]);
+    expect(conteudoDoBloco('filiados', linha({ filiados: { cadastrados: 0, fichasAtualizadas: 1 } })).linhas).toEqual([
+      { texto: 'salvou 1 alteração em fichas' },
+    ]);
+  });
+
   it('o resumo do perfil diz quem sumiu — ou que ninguém sumiu', () => {
     expect(
       fraseDoPerfil({ perfil: 'ADVOGADO', pessoas: 9, usaram: 7, semAcessoRecente: 1, nuncaEntraram: 2 }),
@@ -113,6 +134,85 @@ describe('uso e produtividade — o que a tela diz', () => {
       ['ADVOGADO', ['Ana', 'Bia']],
       ['TRIAGEM', ['Caio']],
     ]);
+  });
+});
+
+/** "O que cada número conta" — a mesma legenda no fim do PDF e em "Como ler estes números". */
+describe('a legenda do uso', () => {
+  it('cada número aparece uma vez, com o que conta e o retrato', () => {
+    const chaves = LEGENDA_DO_USO.map((l) => l.chave);
+    expect(new Set(chaves).size).toBe(chaves.length);
+    for (const l of LEGENDA_DO_USO) {
+      expect(l.numero.length).toBeGreaterThan(2);
+      expect(l.conta.length).toBeGreaterThan(20);
+    }
+    expect(LEGENDA_DO_USO.find((l) => l.chave === 'antes')!.retrato).toBeNull();
+  });
+
+  /** Em aberto e atrasadas são de hoje: é por isso que não se comparam. */
+  it('o que é de hoje não se confunde com o que é do período', () => {
+    const hoje = LEGENDA_DO_USO.filter((l) => l.retrato === 'HOJE').map((l) => l.chave);
+    expect(hoje).toEqual(['ultimoAcesso', 'semEntrar', 'nuncaEntraram', 'emAberto', 'atrasadas', 'esperando']);
+  });
+
+  it('todo número dos quadros tem linha na legenda', () => {
+    const conhecidas = new Set(LEGENDA_DO_USO.map((l) => l.chave));
+    for (const chaves of Object.values(CHAVES_DO_BLOCO)) {
+      for (const c of chaves) expect(conhecidas.has(c)).toBe(true);
+    }
+  });
+
+  it('só as linhas pedidas, na ordem da legenda', () => {
+    expect(linhasDaLegenda(['atendimentos', 'diasComUso']).map((l) => l.chave)).toEqual(['diasComUso', 'atendimentos']);
+  });
+
+  it('a aba não explica o que só o PDF tem, e o pessoal não explica o resumo da equipe', () => {
+    const global = legendaDaAba('GLOBAL').map((l) => l.chave);
+    expect(global).not.toContain('antes');
+    expect(global).not.toContain('mesAMes');
+    expect(global).toContain('usaram');
+    expect(legendaDaAba('PESSOAL').map((l) => l.chave)).not.toContain('usaram');
+  });
+});
+
+/** D19: "decididas" só se comparam quando o período anterior inteiro já tinha a decisão gravada. */
+describe('publicações decididas e a data em que a decisão passou a ser gravada', () => {
+  it('compara só a partir de 13/09/2026', () => {
+    expect(DECISAO_GRAVADA_DESDE).toBe('2026-09-13');
+    expect(comparaDecididas('2026-09-12')).toBe(false);
+    expect(comparaDecididas('2026-09-13')).toBe(true);
+    expect(comparaDecididas('2027-01-01')).toBe(true);
+  });
+});
+
+/** A foto do PDF vem pronta da API. Qualquer outra coisa vira iniciais — e o PDF nunca falha. */
+describe('as fotos que o PDF aceita', () => {
+  const JPEG = 'data:image/jpeg;base64,/9j/4AAQ';
+
+  it('só JPEG em data URL, por id', () => {
+    expect(
+      rostosValidos({
+        rostos: {
+          ana: JPEG,
+          bruno: 'https://exemplo.com/foto.jpg',
+          ivo: 'data:image/png;base64,iVBOR',
+          zeca: 'data:image/jpeg;base64,',
+          lia: 42,
+        },
+      }),
+    ).toEqual({ ana: JPEG });
+  });
+
+  it('resposta antiga, vazia ou torta vira {}', () => {
+    expect(rostosValidos(undefined)).toEqual({});
+    expect(rostosValidos(null)).toEqual({});
+    expect(rostosValidos({})).toEqual({});
+    expect(rostosValidos({ rostos: [JPEG] })).toEqual({});
+    expect(rostosValidos('<html>')).toEqual({});
+  });
+
+  it('miniatura grande demais é descartada', () => {
+    expect(rostosValidos({ rostos: { ana: JPEG + 'A'.repeat(300_000) } })).toEqual({});
   });
 });
 
@@ -141,5 +241,18 @@ describe('uso e produtividade — onde mora', () => {
     expect(COMPONENTE).not.toMatch(/\.sort\(/);
     expect(COMPONENTE).toContain('{O_QUE_NAO_MEDE}');
     expect(COMPONENTE).toContain("podeVer(user?.role, user?.permissoes, 'auditoria')");
+  });
+
+  /**
+   * MOVIMENTO NA ABA (13/09/2026): a troca de aba entra num fade na RAIZ do
+   * componente — a chamada pinada acima fica intacta — e nada anima por pessoa.
+   */
+  it('a aba entra com fade na raiz, carrega com esqueleto e não anima o cartão de ninguém', () => {
+    const COMPONENTE = ler('components/relatorios/uso-e-produtividade.tsx');
+    expect(COMPONENTE).toContain('<div className="animate-surgir-leve">');
+    expect(COMPONENTE).toContain('<Carregando texto="Somando o uso do período…"');
+    const cartao = COMPONENTE.slice(COMPONENTE.indexOf('function CartaoDaPessoa'));
+    expect(cartao).not.toMatch(/animate-|NumeroAnimado/);
+    expect(COMPONENTE).toContain('<ComoLer escopo={data.escopo} />');
   });
 });

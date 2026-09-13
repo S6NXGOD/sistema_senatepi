@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus, Search, Building2, KeyRound, ShieldCheck, Clock, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -123,7 +124,9 @@ export default function EmpresasPage() {
               </thead>
               <tbody>
                 {isLoading && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Carregando...</td></tr>
+                  <tr><td colSpan={6} className="p-0">
+                    <Carregando texto="Carregando as empresas…"><EsqueletoLinhas quantidade={8} altura={61} /></Carregando>
+                  </td></tr>
                 )}
                 {!isLoading && linhas?.map((e) => (
                   <tr key={e.id} className="border-b transition-colors last:border-0 hover:bg-muted/40">
@@ -168,7 +171,9 @@ export default function EmpresasPage() {
 
           {/* Mobile */}
           <div className="divide-y md:hidden">
-            {isLoading && <p className="p-6 text-center text-muted-foreground">Carregando...</p>}
+            {isLoading && (
+              <Carregando texto="Carregando as empresas…"><EsqueletoLinhas quantidade={5} altura={120} /></Carregando>
+            )}
             {!isLoading && linhas?.map((e) => (
               <div key={e.id} className="space-y-1.5 p-4">
                 <p className="font-medium">{e.razaoSocial}</p>

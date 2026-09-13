@@ -54,13 +54,13 @@ export function ReativarModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       {/*
         MOBILE-FIRST: no celular o modal encosta na base da tela, onde o polegar
         alcança; do `sm` para cima vira caixa centrada. Mesma escolha do resto
         do sistema.
       */}
-      <div className="flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-background shadow-xl sm:max-w-lg sm:rounded-2xl">
+      <div className="flex max-h-[92vh] w-full animate-dialogo-entrar flex-col rounded-t-2xl bg-background shadow-xl sm:max-w-lg sm:rounded-2xl">
         <div className="flex items-start gap-3 border-b p-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
             <UserCheck className="h-5 w-5" />

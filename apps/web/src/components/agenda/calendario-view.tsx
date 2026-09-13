@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Esqueleto } from '@/components/ui/esqueleto';
 import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { cn } from '@/lib/utils';
 import { Compromisso, rotuloTipo, corDeTipo, formatHora, estaAtrasado } from '@/lib/agenda';
@@ -27,9 +28,15 @@ function mesmaData(a: Date, b: Date) {
  * de volta é como se sai do filtro, sem precisar procurar um botão "limpar".
  */
 export function CalendarioView({
-  compromissos, mes, onMudarMes, onSelecionar, diaSelecionado, onSelecionarDia,
+  compromissos, mes, onMudarMes, onSelecionar, diaSelecionado, onSelecionarDia, carregando = false,
 }: {
   compromissos: Compromisso[];
+  /**
+   * Primeira carga do mês. A grade e a navegação ficam onde estão (trocar de
+   * mês não pode fazer o bloco inteiro sumir e voltar); só os dias ganham a
+   * forma do que vai aparecer.
+   */
+  carregando?: boolean;
   mes: Date;
   onMudarMes: (delta: number) => void;
   onSelecionar: (c: Compromisso) => void;
@@ -58,7 +65,7 @@ export function CalendarioView({
       .sort((a, b) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime());
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl border bg-card" aria-busy={carregando || undefined}>
       {/* Cabeçalho do mês */}
       <div className="flex items-center justify-between border-b p-3">
         <p className="text-lg font-bold capitalize">
@@ -120,7 +127,8 @@ export function CalendarioView({
                     aria-hidden
                     className={cn(
                       'h-1.5 w-1.5 rounded-full',
-                      estaAtrasado(c) ? 'bg-red-500' : corDeTipo(c.tipo, tipos).ponto,
+                      // Ficou para trás é âmbar, como no painel — nunca vermelho.
+                      estaAtrasado(c) ? 'bg-amber-500' : corDeTipo(c.tipo, tipos).ponto,
                     )}
                   />
                 ))}
@@ -132,6 +140,7 @@ export function CalendarioView({
               </div>
 
               <div className="hidden space-y-1 sm:block">
+                {carregando && !foraDoMes && i % 3 === 0 && <Esqueleto className="h-3.5 w-4/5" />}
                 {eventos.slice(0, 3).map((c) => {
                   const atrasado = estaAtrasado(c);
                   return (
@@ -147,7 +156,7 @@ export function CalendarioView({
                         c.titulo,
                         parteContrariaDoProcesso(c.processo) && `contra ${parteContrariaDoProcesso(c.processo)}`,
                       ].filter(Boolean).join(' · ')}
-                      className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted ${atrasado ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}
+                      className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted ${atrasado ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-foreground'}`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${corDeTipo(c.tipo, tipos).ponto}`} />
                       <span className="truncate">{formatHora(c.inicio)} {c.titulo}</span>

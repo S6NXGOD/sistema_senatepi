@@ -3,8 +3,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Loader2, X, UserCog, Save, Lock, Plus, Trash2 } from 'lucide-react';
+import { Loader2, X, UserCog, Save, Lock, Plus, Trash2, Link2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import { podeEditar } from '@/lib/permissoes';
+import { EnviarLinkRecadastro } from '@/components/filiados/enviar-link-recadastro';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -78,6 +81,11 @@ export function AtualizacaoCadastralModal({
     queryKey: ['filiado', filiado.id],
     queryFn: async () => (await api.get(`/filiados/${filiado.id}`)).data as Filiado,
   });
+
+  // "Prefere que o filiado preencha?" — mandar o link é editar filiado (matriz).
+  const { user } = useAuth();
+  const podeMandarLink = podeEditar(user?.role, user?.permissoes, 'filiados');
+  const [enviarLink, setEnviarLink] = useState(false);
 
   const [form, setForm] = useState<Form | null>(null);
   const [vinculos, setVinculos] = useState<Array<{ empresa: string; cargo?: string; matricula?: string }>>([]);
@@ -170,8 +178,8 @@ export function AtualizacaoCadastralModal({
   });
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={salvar.isPending ? undefined : onClose}>
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4" onClick={salvar.isPending ? undefined : onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Atualização cadastral" className="flex max-h-[92vh] w-full max-w-2xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b p-5">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-brand-50 p-2 dark:bg-brand-900/30">
@@ -182,12 +190,40 @@ export function AtualizacaoCadastralModal({
               <p className="text-xs text-muted-foreground">{filiado.nomeCompleto}</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} disabled={salvar.isPending} className="text-muted-foreground hover:text-foreground disabled:opacity-50">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={salvar.isPending}
+            aria-label="Fechar"
+            className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {isLoading || !form ? (
+        {/*
+          A outra porta: o filiado preenche pelo celular. No atendimento pelo
+          WhatsApp a conversa já está aberta — é o melhor momento para o link.
+          O que já foi digitado aqui fica guardado ao ir e voltar.
+        */}
+        {podeMandarLink && !enviarLink && (
+          <button
+            type="button"
+            onClick={() => setEnviarLink(true)}
+            disabled={salvar.isPending}
+            className="flex min-h-11 w-full items-center gap-2 border-b bg-muted/30 px-5 text-left text-sm hover:bg-muted/60 disabled:opacity-50"
+          >
+            <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="text-muted-foreground">Prefere que o filiado preencha?</span>
+            <span className="font-medium text-brand-800 underline-offset-4 hover:underline dark:text-brand-400">Enviar link</span>
+          </button>
+        )}
+
+        {enviarLink ? (
+          <div className="flex-1 overflow-y-auto p-5">
+            <EnviarLinkRecadastro filiadoId={filiado.id} />
+          </div>
+        ) : isLoading || !form ? (
           <div className="flex items-center justify-center gap-2 p-16 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" /> Carregando o cadastro…
           </div>
@@ -315,12 +351,19 @@ export function AtualizacaoCadastralModal({
           </div>
         )}
 
-        <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
-          <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
-          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !form}>
-            {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar cadastro
-          </Button>
-        </div>
+        {enviarLink ? (
+          <div className="flex flex-wrap justify-end gap-2 border-t bg-muted/30 p-4">
+            <Button variant="outline" onClick={() => setEnviarLink(false)}>Preencher aqui</Button>
+            <Button onClick={onClose}>Fechar</Button>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
+            <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
+            <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !form}>
+              {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar cadastro
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -44,19 +44,28 @@ export function Sheet({
   const fechado =
     side === 'bottom' ? 'translate-y-full' : side === 'right' ? 'translate-x-full' : '-translate-x-full';
 
+  /*
+    Os tokens de `lib/movimento.ts`. O Sheet fica MONTADO fechado (é o único
+    overlay que sai animado sem perder nada: nunca dependeu de desmontar para
+    zerar estado). Abre na duração de painel com curva que desacelera; fecha
+    mais rápido, com curva que acelera — quem fecha já decidiu.
+  */
   return (
     <div className={cn('fixed inset-0 z-50', !open && 'pointer-events-none')} aria-hidden={!open}>
       <div
-        className={cn('absolute inset-0 bg-black/50 transition-opacity duration-300', open ? 'opacity-100' : 'opacity-0')}
+        className={cn(
+          'absolute inset-0 bg-black/50 transition-opacity',
+          open ? 'opacity-100 duration-base ease-entrada' : 'opacity-0 duration-rapido ease-saida',
+        )}
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          'absolute flex flex-col bg-card shadow-xl transition-transform duration-300 ease-out',
+          'absolute flex flex-col bg-card shadow-xl transition-transform',
           painelPos,
-          open ? 'translate-x-0 translate-y-0' : fechado,
+          open ? 'translate-x-0 translate-y-0 duration-painel ease-entrada' : cn(fechado, 'duration-rapido ease-saida'),
           className,
         )}
       >

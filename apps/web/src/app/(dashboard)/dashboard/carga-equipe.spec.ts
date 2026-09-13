@@ -42,8 +42,23 @@ describe('a carga da equipe mostra quem não tem entrado', () => {
     expect(diasSemAcesso(undefined, agora)).toBeNull();
   });
 
+  /**
+   * A LINHA ABRE A AGENDA DA PESSOA NA MESMA RÉGUA DA CONTA (C11).
+   *
+   * Afirmava `/agenda?responsavel=<id>`: a carga contava só o principal e o
+   * destino trazia equipe e reserva — o número mudava no clique. A conta passou
+   * a ser `daPessoa`, e o link é `aba=aberto&pessoa=<id>`; que a agenda lê esse
+   * endereço está provado em `lib/dashboard.spec.ts`, por `lerUrlDaAgenda`.
+   */
   it('a linha abre a agenda da pessoa', () => {
-    expect(CARGA).toContain('href={`/agenda?responsavel=${advogado.id}`}');
+    expect(CARGA).toContain("href={linkDaAgenda({ aba: 'aberto', pessoa: advogado.id })}");
+  });
+
+  /** Sem ranking: ordem alfabética, sem barra comparativa, atraso em âmbar. */
+  it('não desenha pódio', () => {
+    expect(CARGA).toContain(".localeCompare(nomeDe(b.advogado), 'pt-BR')");
+    expect(CARGA).not.toContain('Math.round((abertas / maior) * 100)');
+    expect(CARGA).not.toMatch(/(bg|text)-rose-\d/);
   });
 
   it('fala de acesso, e fica âmbar só quando há atraso junto', () => {

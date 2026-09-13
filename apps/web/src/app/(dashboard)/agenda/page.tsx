@@ -1,50 +1,53 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Plus, Search, CalendarClock, CalendarDays, SlidersHorizontal, Trash2, ChevronUp,
-  UserCheck, Flame,
+  UserCheck, Flame, ListFilter, AlertTriangle, RotateCw, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Sheet } from '@/components/ui/sheet';
+import { Carregando } from '@/components/ui/esqueleto';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
-import { KanbanView } from '@/components/agenda/kanban-view';
+import { KanbanView, EsqueletoDoQuadro } from '@/components/agenda/kanban-view';
 import { SeletorResponsaveis } from '@/components/agenda/seletor-responsaveis';
 import { CalendarioView } from '@/components/agenda/calendario-view';
 import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
 import { CompromissoDrawer } from '@/components/agenda/compromisso-drawer';
 import { TiposEventoModal } from '@/components/agenda/tipos-evento-modal';
-import { AlertasBar } from '@/components/agenda/alertas-bar';
 import { ConcluirModal } from '@/components/agenda/concluir-modal';
 import { CancelarModal } from '@/components/agenda/cancelar-modal';
 import { RemarcarModal } from '@/components/agenda/remarcar-modal';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
-import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
+import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import {
-  listarCompromissos, mudarStatusCompromisso, excluirCompromisso, listarResponsaveis, ehMinha,
-  Compromisso, StatusCompromisso, TipoCompromisso,
+  listarCompromissos, buscarRecortes, getCompromisso, mudarStatusCompromisso, excluirCompromisso,
+  listarResponsaveis, ehMinha, estaAtrasado, temHoraMarcada,
+  filtroDoServidor, contarFiltrosAtivos, lerUrlDaAgenda, RECORTES, RECORTE_PADRAO,
+  type Compromisso, type StatusCompromisso, type TipoCompromisso, type RecorteAgenda,
 } from '@/lib/agenda';
 import { chaveLocal } from '@/lib/armazenamento';
+import { CHAVES_DEPOIS_DE_CONCLUIR } from '@/lib/dashboard';
 
-type Aba = 'todos' | 'aberto' | 'hoje' | '7dias' | 'urgentes';
 /** Lembra se o calendário fica aberto — a escolha vale por navegador. */
 const CHAVE_CALENDARIO = chaveLocal('agenda', 'calendario-aberto');
-const inputCls = 'h-12 rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:text-sm';
+const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:w-auto sm:text-sm';
 
-const ABAS: { key: Aba; label: string }[] = [
-  { key: 'todos', label: 'Todos' },
-  { key: 'aberto', label: 'Em aberto' },
-  { key: 'hoje', label: 'Hoje' },
-  { key: '7dias', label: '7 dias' },
-  { key: 'urgentes', label: 'Urgentes' },
-];
+/**
+ * Parâmetros que a agenda entende na URL (C11). O painel monta estes links, e
+ * `lerUrlDaAgenda` é a tradução única das duas pontas.
+ */
+const CHAVES_DA_URL = [
+  'aba', 'pessoa', 'reservaDe', 'responsavel', 'responsaveis', 'somenteResponsavel', 'tipo', 'urgentes', 'busca',
+] as const;
 
 function gradeDoMes(mes: Date) {
   const primeiro = new Date(mes.getFullYear(), mes.getMonth(), 1);
@@ -56,40 +59,21 @@ function gradeDoMes(mes: Date) {
 }
 
 /**
- * O QUE É MEU SOBE — e só quando o quadro mostra o de mais gente.
+ * O QUE FICOU PARA TRÁS SOBE, E DEPOIS O QUE É MEU.
  *
- * Abrir a agenda e ver primeiro o trabalho dos outros é o atrito diário de
- * quem usa isto: são oito pessoas no quadro, e a pergunta que se faz ao
- * chegar é "o que É MEU hoje?". Ordenar resolve sem esconder nada de ninguém
- * — nenhuma atividade sai da tela, elas só mudam de lugar dentro da coluna.
- *
- * FILTRADO EM UMA PESSOA SÓ, NÃO FAZ NADA. Se o quadro já é só meu, "meu
- * primeiro" não significa coisa alguma — e a marca visual no cartão viraria
- * um enfeite repetido em todas as linhas.
+ * A lista chega do servidor em ordem de início, então as atrasadas já vêm
+ * primeiro; a ordenação só garante que "minhas primeiro" não as empurre para
+ * baixo. "Minhas primeiro" vale só quando o quadro mostra o trabalho de mais
+ * de uma pessoa — num quadro que já é de uma pessoa, não distingue nada.
  */
-function minhasPrimeiro(cs: Compromisso[], meuId: string | undefined, aplicar: boolean): Compromisso[] {
-  if (!aplicar || !meuId) return cs;
+function ordenarParaTrabalhar(cs: Compromisso[], meuId: string | undefined, aplicarMinhas: boolean): Compromisso[] {
   // Estável: dentro de cada grupo a ordem por data que veio da API se mantém.
-  return [...cs].sort((a, b) => Number(ehMinha(b, meuId)) - Number(ehMinha(a, meuId)));
-}
-
-/** Filtro por aba (client-side, sobre os compromissos carregados). */
-function aplicarAba(cs: Compromisso[], aba: Aba): Compromisso[] {
-  if (aba === 'todos') return cs;
-  const agora = new Date();
-  if (aba === 'aberto') return cs.filter((c) => c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO');
-  if (aba === 'urgentes') return cs.filter((c) => c.urgente);
-  if (aba === 'hoje') {
-    return cs.filter((c) => {
-      const d = new Date(c.inicio);
-      return d.getFullYear() === agora.getFullYear() && d.getMonth() === agora.getMonth() && d.getDate() === agora.getDate();
-    });
-  }
-  if (aba === '7dias') {
-    const lim = new Date(agora.getTime() + 7 * 86400_000);
-    return cs.filter((c) => { const d = new Date(c.inicio); return d >= new Date(agora.toDateString()) && d <= lim; });
-  }
-  return cs;
+  return [...cs].sort((a, b) => {
+    const atraso = Number(estaAtrasado(b)) - Number(estaAtrasado(a));
+    if (atraso !== 0) return atraso;
+    if (!aplicarMinhas || !meuId) return 0;
+    return Number(ehMinha(b, meuId)) - Number(ehMinha(a, meuId));
+  });
 }
 
 /**
@@ -100,9 +84,9 @@ export default function AgendaPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" />
-        </div>
+        <Carregando texto="Abrindo a agenda…">
+          <EsqueletoDoQuadro />
+        </Carregando>
       }
     >
       <AgendaConteudo />
@@ -113,21 +97,29 @@ export default function AgendaPage() {
 function AgendaConteudo() {
   const qc = useQueryClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'agenda') === 'EDITAR';
   const { tipos } = useTiposEvento();
 
   const [calendarioAberto, setCalendarioAberto] = useState(true);
-  /** Dia clicado no calendário; filtra o quadro logo abaixo. */
+  /** Dia clicado no calendário; filtra o quadro logo acima. */
   const [diaSelecionado, setDiaSelecionado] = useState<Date | null>(null);
-  const [aba, setAba] = useState<Aba>('hoje');
+  const [aba, setAba] = useState<RecorteAgenda>(RECORTE_PADRAO);
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [tipo, setTipo] = useState<'' | TipoCompromisso>('');
   /** Vários responsáveis ao mesmo tempo — vazio significa "todos". */
   const [responsaveis, setResponsaveis] = useState<string[]>([]);
+  /** Com responsáveis: só onde a pessoa RESPONDE (o "Esperando por" do painel). */
+  const [somenteResponsavel, setSomenteResponsavel] = useState(false);
+  /** Régua `daPessoa`: responde ou foi posta ali por gente — a reserva do robô fica fora. */
+  const [pessoa, setPessoa] = useState<string | undefined>();
+  /** Só onde a pessoa é reserva posta pelo robô. */
+  const [reservaDe, setReservaDe] = useState<string | undefined>();
   const [soUrgentes, setSoUrgentes] = useState(false);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [mes, setMes] = useState(() => new Date());
   const [tiposOpen, setTiposOpen] = useState(false);
 
@@ -136,12 +128,6 @@ function AgendaConteudo() {
   const [detalheId, setDetalheId] = useState<string | null>(null);
   /**
    * Id que chegou pela URL e ainda não foi posicionado no quadro.
-   *
-   * O ATALHO ABRIA A GAVETA E DEIXAVA O FUNDO ERRADO. Clicando numa publicação
-   * do painel, a pessoa caía em `/agenda` na aba padrão ("Hoje"), via as três
-   * colunas escritas "Sem atividades" — e por cima, uma gaveta com uma tarefa
-   * do dia 10. Nada na tela ligava as duas coisas: não dava para saber em que
-   * dia se estava nem de onde aquilo tinha vindo.
    *
    * Guardar o id à parte é o que permite reposicionar UMA vez, quando a lista
    * chega. Reagir a `detalheId` puro reposicionaria o quadro toda vez que
@@ -166,123 +152,167 @@ function AgendaConteudo() {
   }, [busca]);
 
   /**
-   * `?compromisso=<id>` abre a atividade direto.
-   *
-   * É o que faz um atalho de fora chegar em algum lugar: o painel, os alertas e
-   * a aba Agenda do processo apontavam para `/agenda` puro, e o clique só
-   * trocava de tela — a pessoa caía no quadro inteiro e procurava a atividade
-   * na mão.
+   * `?compromisso=<id>` abre a atividade direto — é o que faz um atalho de
+   * fora (painel, faixa de avisos, ficha do processo) chegar em algum lugar.
    */
   useAbrirPorUrl('compromisso', (id) => { setDetalheId(id); setVeioDeFora(id); }, '/agenda');
-  // Atalhos do painel: `?aba=urgentes`, `?aba=hoje`… Só abas conhecidas passam,
-  // senão um link velho deixaria a tela num estado que não existe mais.
-  useFiltroPorUrl(
-    'aba',
-    (v) => { if (ABAS.some((a) => a.key === v)) setAba(v as Aba); },
-    '/agenda',
-  );
+
   /*
-    `?responsavel=<id>` — o destino da tira "Esperando por" do painel.
+    A URL DO RECORTE (C11) — `?aba=atrasadas&pessoa=eu`, `?aba=atencao&responsavel=<id>&somenteResponsavel=1`…
 
-    Quem coordena vê "Morgana 4" no painel e clica: tem de cair na agenda JÁ
-    filtrada nela, não na agenda inteira com o nome para procurar. Vem junto com
-    a aba "Em aberto", porque o que se foi ver é o que falta fazer.
-
-    Id desconhecido não quebra nada: o filtro simplesmente não casa com
-    ninguém e a lista vem vazia, que é a leitura correta de "essa pessoa não
-    tem nada".
+    Guardada numa foto antes de limpar a URL, porque `pessoa=eu` precisa do id
+    de quem está logado e a sessão pode chegar um instante depois. Sem a foto,
+    a URL já limpa levaria o recorte embora e a pessoa veria a agenda da casa
+    inteira achando que era a dela.
   */
-  useFiltroPorUrl(
-    'responsavel',
-    (v) => { setResponsaveis([v]); setAba('aberto'); },
-    '/agenda',
-  );
+  const [daUrl, setDaUrl] = useState<Record<string, string> | null>(null);
+  useEffect(() => {
+    const foto: Record<string, string> = {};
+    for (const k of CHAVES_DA_URL) {
+      const v = searchParams.get(k);
+      if (v) foto[k] = v;
+    }
+    if (Object.keys(foto).length === 0) return;
+    setDaUrl(foto);
+    router.replace('/agenda', { scroll: false });
+  }, [searchParams, router]);
+
+  useEffect(() => {
+    if (!daUrl) return;
+    const e = lerUrlDaAgenda({ get: (k) => daUrl[k] ?? null }, user?.id);
+    if (e.aguardandoSessao) return;
+    setDiaSelecionado(null);
+    if (e.responsaveis && !daUrl.aba) {
+      // Link antigo do painel ("Esperando por", sem aba): abre Em aberto, como sempre abriu.
+      const v = e.responsaveis;
+      setResponsaveis([v]); setAba('aberto');
+    } else {
+      setAba(e.aba);
+      setResponsaveis(e.responsaveis ? e.responsaveis.split(',') : []);
+    }
+    setSomenteResponsavel(e.somenteResponsavel);
+    setPessoa(e.pessoa);
+    setReservaDe(e.reservaDe);
+    setTipo(e.tipo ?? '');
+    setSoUrgentes(e.urgentes);
+    if (e.busca) { setBusca(e.busca); setBuscaDeb(e.busca); }
+    setDaUrl(null);
+  }, [daUrl, user?.id]);
 
   const consultaResponsaveis = useQuery({ queryKey: ['compromissos-responsaveis'], queryFn: listarResponsaveis });
   const responsaveisLista = consultaResponsaveis.data ?? [];
+  const nomeDe = (id: string) => {
+    const p = responsaveisLista.find((r) => r.id === id);
+    return p ? p.nomeExibicao || p.nome : 'pessoa selecionada';
+  };
 
   // Preferência do calendário só existe no navegador — lida depois da montagem
   // para não divergir do HTML renderizado no servidor.
   useEffect(() => {
-    if (localStorage.getItem(CHAVE_CALENDARIO) === '0') setCalendarioAberto(false);
+    try {
+      if (localStorage.getItem(CHAVE_CALENDARIO) === '0') setCalendarioAberto(false);
+    } catch { /* navegador sem armazenamento: o calendário fica aberto */ }
   }, []);
 
-  const rangeCal = useMemo(() => gradeDoMes(mes), [mes]);
-  const filtroBase = {
-    busca: buscaDeb || undefined,
-    tipo: tipo || undefined,
+  /*
+    O MESMO FILTRO VAI PARA A LISTA E PARA OS CONTADORES — o número da aba é o
+    count() do recorte que a aba abre, com os mesmos filtros. Ver
+    `filtroDoServidor`.
+  */
+  const estadoDosFiltros = {
+    pessoa,
+    reservaDe,
     responsaveis: responsaveis.length ? responsaveis.join(',') : undefined,
-    urgente: soUrgentes ? 'true' : undefined,
+    somenteResponsavel,
+    tipo: tipo || undefined,
+    urgentes: soUrgentes,
+    busca: buscaDeb,
   };
+  const filtro = filtroDoServidor(estadoDosFiltros);
+  const rangeCal = useMemo(() => gradeDoMes(mes), [mes]);
 
   /**
-   * DUAS consultas, de propósito.
+   * O QUADRO PEDE O RECORTE DA ABA AO SERVIDOR.
    *
-   * O quadro pede tudo e recorta por aba; o calendário pede a janela do mês.
-   * Reaproveitar uma só quebraria um dos dois: a listagem da API devolve no
-   * máximo 500 registros ordenados por data crescente, então uma consulta sem
-   * intervalo entrega os 500 MAIS ANTIGOS — e o mês visível poderia nem estar
-   * neles. Com o calendário agora sempre na tela, ele precisa da própria janela.
+   * Antes baixava a agenda inteira e recortava aqui — e a API corta em 500 pela
+   * data mais antiga: no dia em que o acervo passasse do limite, "Hoje" ficaria
+   * vazio em silêncio. O calendário continua com a própria janela do mês.
+   *
+   * Trocar de aba mantém o quadro anterior até o novo chegar: nada pisca.
    */
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['compromissos', 'quadro', buscaDeb, tipo, responsaveis.join(','), soUrgentes],
-    queryFn: () => listarCompromissos(filtroBase),
+  const quadro = useQuery({
+    queryKey: ['compromissos', 'quadro', aba, filtro],
+    queryFn: () => listarCompromissos({ ...filtro, recorte: aba }),
+    placeholderData: (anterior) => anterior,
+  });
+  const contadores = useQuery({
+    queryKey: ['compromissos', 'recortes', filtro],
+    queryFn: () => buscarRecortes(filtro),
+    placeholderData: (anterior) => anterior,
+  });
+  const contagem = contadores.data;
+  const minhas = useQuery({
+    queryKey: ['compromissos', 'recortes', 'minhas', user?.id],
+    queryFn: () => buscarRecortes({ pessoa: user!.id }),
+    enabled: !!user?.id,
   });
   const doMes = useQuery({
-    queryKey: ['compromissos', 'mes', buscaDeb, tipo, responsaveis.join(','), soUrgentes, rangeCal.dataInicio],
-    queryFn: () => listarCompromissos({ ...filtroBase, ...rangeCal }),
+    queryKey: ['compromissos', 'mes', filtro, rangeCal.dataInicio],
+    queryFn: () => listarCompromissos({ ...filtro, ...rangeCal }),
+    enabled: calendarioAberto || !!diaSelecionado,
   });
 
-  const compromissos = data ?? [];
+  const compromissos = useMemo(() => quadro.data ?? [], [quadro.data]);
+  const compromissosDoMes = doMes.data ?? [];
+
+  /*
+    Vindo de fora, a atividade pode não estar no recorte da aba. A gaveta já
+    pede o detalhe; aqui a mesma consulta (mesma chave, mesmo cache) diz a data
+    para levar o calendário ao mês certo.
+  */
+  const alvoDeFora = useQuery({
+    queryKey: ['compromisso', veioDeFora],
+    queryFn: () => getCompromisso(veioDeFora!),
+    enabled: !!veioDeFora,
+  });
 
   /**
    * POSICIONA O QUADRO NA ATIVIDADE QUE O ATALHO ABRIU.
    *
-   * Três coisas, e cada uma responde a uma pergunta que a tela deixava sem
-   * resposta: a ABA passa a "Todos" quando a atual não contém a atividade
-   * ("onde ela está?"), o CALENDÁRIO vai para o mês dela ("que dia é hoje
-   * nisto?") e o CARTÃO ganha um anel ("o que eu cliquei?").
-   *
-   * Roda uma vez por chegada: `veioDeFora` é zerado no fim.
+   * A ABA passa a "Todas" quando a atual não contém a atividade ("onde ela
+   * está?"), o CALENDÁRIO vai para o mês dela ("que dia é hoje nisto?") e o
+   * CARTÃO ganha um anel ("o que eu cliquei?"). Roda uma vez por chegada.
    */
   useEffect(() => {
-    if (!veioDeFora || compromissos.length === 0) return;
-    const alvo = compromissos.find((c) => c.id === veioDeFora);
+    if (!veioDeFora || !quadro.isSuccess || quadro.isPlaceholderData) return;
+    const alvo = compromissos.find((c) => c.id === veioDeFora) ?? alvoDeFora.data;
     if (!alvo) return;
 
     const inicio = new Date(alvo.inicio);
-    const hoje = new Date();
-    const mesmoDia = inicio.toDateString() === hoje.toDateString();
-    // "Hoje" e "7 dias" mentem sobre uma atividade que não cabe neles.
-    const abaCabe =
-      aba === 'todos' ||
-      (aba === 'hoje' && mesmoDia) ||
-      (aba === '7dias' && inicio.getTime() - hoje.getTime() < 7 * 86_400_000) ||
-      (aba === 'aberto' && (alvo.status === 'PENDENTE' || alvo.status === 'EM_ANDAMENTO'));
+    // O recorte é do servidor: a atividade cabe na aba se veio na lista dela.
+    const abaCabe = compromissos.some((c) => c.id === alvo.id);
     if (!abaCabe) setAba('todos');
 
     setMes(new Date(inicio.getFullYear(), inicio.getMonth(), 1));
     setDestacado(alvo.id);
     setVeioDeFora(null);
-  }, [veioDeFora, compromissos, aba]);
-  const compromissosDoMes = doMes.data ?? [];
+  }, [veioDeFora, compromissos, quadro.isSuccess, quadro.isPlaceholderData, alvoDeFora.data]);
 
-  /**
-   * Com um dia selecionado, o quadro mostra AQUELE dia e a aba é ignorada —
-   * senão clicar em 20/ago com a aba "Hoje" ativa devolveria uma tela vazia,
-   * sem explicar por quê. Os dados vêm da consulta do mês, que é a única que
-   * garante ter o dia escolhido.
-   */
   /**
    * O quadro mostra o trabalho de mais de uma pessoa? Só aí a ordenação por
    * "minhas" tem sentido — e só aí o cartão ganha a marca.
    */
   const quadroCompartilhado =
-    !!user?.id && !(responsaveis.length === 1 && responsaveis[0] === user.id);
+    !!user?.id && !pessoa && !reservaDe && !(responsaveis.length === 1 && responsaveis[0] === user.id);
 
+  /**
+   * Com um dia selecionado, o quadro mostra AQUELE dia e a aba é ignorada —
+   * senão clicar em 20/ago com a aba "Hoje" ativa devolveria uma tela vazia.
+   * Os dados vêm da consulta do mês, a única que garante ter o dia escolhido.
+   */
   const filtrados = useMemo(() => {
     const base = !diaSelecionado
-      ? aplicarAba(compromissos, aba)
+      ? compromissos
       : compromissosDoMes.filter((c) => {
           const d = new Date(c.inicio);
           return (
@@ -291,69 +321,60 @@ function AgendaConteudo() {
             d.getDate() === diaSelecionado.getDate()
           );
         });
-    return minhasPrimeiro(base, user?.id, quadroCompartilhado);
-  }, [diaSelecionado, compromissos, compromissosDoMes, aba, user?.id, quadroCompartilhado]);
+    return ordenarParaTrabalhar(base, user?.id, quadroCompartilhado);
+  }, [diaSelecionado, compromissos, compromissosDoMes, user?.id, quadroCompartilhado]);
 
-  /** Quantas são minhas e ainda estão em aberto — o número do atalho "Minhas". */
-  const minhasEmAberto = useMemo(
-    () =>
-      compromissos.filter(
-        (c) => ehMinha(c, user?.id) && (c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO'),
-      ).length,
-    [compromissos, user?.id],
-  );
+  /** Quantas são minhas e estão em aberto — pela régua `daPessoa`, a mesma do painel. */
+  const minhasEmAberto = minhas.data?.aberto ?? 0;
+  const soAsMinhas = !!user?.id && pessoa === user.id;
 
   /**
-   * Quantos recortes estão valendo agora — alimenta a barra de resumo.
-   *
-   * A ABA CONTA. Ela não contava, e essa era a origem de "a busca não
-   * funciona": procurar "aval" com a aba **Hoje** ligada devolvia "1 filtro
-   * ativo · 0 atividades à vista" enquanto o calendário logo abaixo mostrava
-   * quatro "Avaliar recurso" em setembro. Havia DOIS filtros; o que zerou a
-   * lista não se anunciava, não aparecia na conta e o botão "Limpar filtros"
-   * não o soltava. A pessoa conclui que a busca está quebrada — e conclui
-   * certo, porque a tela mentiu sobre o próprio estado.
+   * Quantos filtros a pessoa LIGOU. A aba não conta: ela está sempre à vista,
+   * destacada e com o próprio número — contá-la fazia a linha "1 filtro ativo"
+   * aparecer em toda abertura da tela.
    */
-  const filtrosAtivos =
-    (buscaDeb ? 1 : 0) + (tipo ? 1 : 0) + (responsaveis.length ? 1 : 0) + (soUrgentes ? 1 : 0) +
-    (aba !== 'todos' ? 1 : 0);
+  const filtrosAtivos = contarFiltrosAtivos(estadoDosFiltros);
+  /** No celular a busca fica à vista; o botão "Filtros" conta o resto. */
+  const filtrosNoBotao = filtrosAtivos - (buscaDeb ? 1 : 0);
 
   /**
-   * QUANTOS A BUSCA ACHOU FORA DA ABA — o número que faltava dizer.
+   * QUANTAS O FILTRO ACHOU FORA DA ABA — o número que faltava dizer.
    *
-   * A API já devolveu tudo que casa com a busca; a aba é um corte de data feito
-   * aqui. Comparar os dois é de graça e transforma um "0 resultados" que parece
+   * Todo recorte cabe em "Todas", e os dois números vêm do mesmo count() com
+   * os mesmos filtros. A diferença transforma um "0 resultados" que parece
    * defeito em "não é hoje, é em outro dia" — que é a resposta verdadeira.
    */
   const foraDaAba = useMemo(
-    () => (aba === 'todos' || diaSelecionado ? 0 : compromissos.length - aplicarAba(compromissos, aba).length),
-    [compromissos, aba, diaSelecionado],
+    () => (aba === 'todos' || diaSelecionado || !contagem ? 0 : Math.max(0, contagem.todos - compromissos.length)),
+    [contagem, compromissos.length, aba, diaSelecionado],
   );
 
   function limparFiltros() {
     setBusca('');
+    setBuscaDeb('');
     setTipo('');
     setResponsaveis([]);
+    setSomenteResponsavel(false);
+    setPessoa(undefined);
+    setReservaDe(undefined);
     setSoUrgentes(false);
-    // A aba é filtro como os outros — deixá-la de fora fazia "Limpar" limpar
-    // pela metade, e a lista continuava vazia depois de limpar tudo.
-    setAba('todos');
+    // A aba fica: ela não é um filtro escondido, está destacada no topo.
   }
 
   const invalidar = () => {
-    qc.invalidateQueries({ queryKey: ['compromissos'] });
-    qc.invalidateQueries({ queryKey: ['compromisso'] });
-    qc.invalidateQueries({ queryKey: ['agenda-alertas'] });
+    for (const k of [['compromissos'], ['compromisso'], ['minhas-pendencias'], ['dashboard-resumo']]) {
+      qc.invalidateQueries({ queryKey: k });
+    }
   };
 
   const status = useMutation({
     mutationFn: ({ id, status }: { id: string; status: StatusCompromisso }) => mudarStatusCompromisso(id, status),
     onSuccess: () => invalidar(),
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar o status.'),
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar a situação da atividade.'),
   });
   const remover = useMutation({
     mutationFn: (id: string) => excluirCompromisso(id),
-    onSuccess: () => { toast.success('Evento excluído.'); setExcluir(null); invalidar(); },
+    onSuccess: () => { toast.success('Atividade excluída.'); setExcluir(null); invalidar(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível excluir.'),
   });
 
@@ -375,7 +396,7 @@ function AgendaConteudo() {
 
   function alternarCalendario() {
     setCalendarioAberto((v) => {
-      localStorage.setItem(CHAVE_CALENDARIO, v ? '0' : '1');
+      try { localStorage.setItem(CHAVE_CALENDARIO, v ? '0' : '1'); } catch { /* só não lembra */ }
       // Fechar o calendário sem soltar o dia deixaria o quadro filtrado por um
       // controle que não está mais visível.
       if (v) setDiaSelecionado(null);
@@ -383,49 +404,167 @@ function AgendaConteudo() {
     });
   }
 
+  /*
+    Recortes que chegam pela URL e não têm controle próprio na tela: cada um
+    vira uma etiqueta que diz o que está valendo e sai num toque.
+  */
+  const etiquetas: { chave: string; rotulo: string; tirar: () => void }[] = [];
+  if (pessoa && !soAsMinhas) {
+    etiquetas.push({ chave: 'pessoa', rotulo: `De ${nomeDe(pessoa)}`, tirar: () => setPessoa(undefined) });
+  }
+  if (reservaDe) {
+    etiquetas.push({
+      chave: 'reserva',
+      rotulo: reservaDe === user?.id ? 'Onde você é reserva' : `Onde ${nomeDe(reservaDe)} é reserva`,
+      tirar: () => setReservaDe(undefined),
+    });
+  }
+  if (somenteResponsavel && responsaveis.length > 0) {
+    etiquetas.push({ chave: 'so-responsavel', rotulo: 'Só onde responde', tirar: () => setSomenteResponsavel(false) });
+  }
+
+  /*
+    "MINHAS", TIPO, RESPONSÁVEIS E URGENTES — os mesmos controles em dois
+    lugares: em linha a partir de sm e dentro do Sheet "Filtros" no celular,
+    onde empilhados empurravam o primeiro cartão para depois de 500px.
+  */
+  const controles = (
+    <>
+      {/*
+        "MINHAS" é a régua `daPessoa` — a mesma do painel e da faixa. Só aparece
+        para quem tem alguma coisa: coordenação e administração costumam olhar
+        o quadro dos outros, e um "Minhas 0" seria um convite a um lugar vazio.
+      */}
+      {!!user?.id && (soAsMinhas || minhasEmAberto > 0) && (
+        <button
+          type="button"
+          onClick={() => setPessoa(soAsMinhas ? undefined : user.id)}
+          aria-pressed={soAsMinhas}
+          className={cn(
+            'flex h-12 w-full items-center gap-2 rounded-md border px-3 text-sm font-medium transition sm:h-10 sm:w-auto',
+            soAsMinhas
+              ? 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-900/20 dark:text-brand-300'
+              : 'border-input bg-background text-muted-foreground hover:bg-muted',
+          )}
+        >
+          <UserCheck className="h-4 w-4" />
+          Minhas
+          <span
+            className={cn(
+              'rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums',
+              soAsMinhas ? 'bg-brand-800 text-white' : 'bg-muted text-foreground',
+            )}
+            title="Em aberto, onde você responde ou foi posta(o) por alguém"
+          >
+            {minhasEmAberto}
+          </span>
+        </button>
+      )}
+
+      <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value)} aria-label="Tipo">
+        <option value="">Todos os tipos</option>
+        {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
+      </select>
+
+      <SeletorResponsaveis
+        pessoas={responsaveisLista}
+        selecionados={responsaveis}
+        onChange={(ids) => { setResponsaveis(ids); if (ids.length === 0) setSomenteResponsavel(false); }}
+        meuId={user?.id}
+      />
+
+      <button
+        type="button"
+        onClick={() => setSoUrgentes((v) => !v)}
+        aria-pressed={soUrgentes}
+        className={cn(
+          'flex h-12 w-full items-center gap-2 rounded-md border px-3 text-sm font-medium transition sm:h-10 sm:w-auto',
+          soUrgentes
+            ? 'border-red-400 bg-red-50 text-red-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+            : 'border-input bg-background text-muted-foreground hover:bg-muted',
+        )}
+      >
+        <Flame className="h-4 w-4" /> Urgentes
+        {!!contagem?.urgentes && (
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-foreground">
+            {contagem.urgentes}
+          </span>
+        )}
+      </button>
+    </>
+  );
+
+  const atrasadasHoje = aba === 'hoje' && !diaSelecionado ? contagem?.atrasadas ?? 0 : 0;
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
             <CalendarClock className="h-5 w-5 text-brand-800 dark:text-brand-400" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-2xl font-bold">Agenda e Prazos</h2>
-            <p className="text-sm text-muted-foreground">Audiências, prazos e compromissos jurídicos</p>
+            <p className="text-sm text-muted-foreground">Audiências, prazos e demais atividades</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setTiposOpen(true)}><SlidersHorizontal className="h-4 w-4" /> Tipos</Button>
-          <Button onClick={onNovo}><Plus className="h-4 w-4" /> Novo Evento</Button>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setTiposOpen(true)}>
+            <SlidersHorizontal className="h-4 w-4" /> Tipos
+          </Button>
+          {podeEditar && (
+            <Button className="flex-1 sm:flex-none" onClick={onNovo}>
+              <Plus className="h-4 w-4" /> Nova atividade
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Alertas */}
-      <AlertasBar onAbrir={onAbrir} />
-
-      {/* Abas + toggle de visão */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1">
-          {ABAS.map((a) => (
-            <button
-              key={a.key}
-              onClick={() => setAba(a.key)}
-              className={cn(
-                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                aba === a.key ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
-              )}
-            >
-              {a.label}
-            </button>
-          ))}
+      {/* Abas (recortes do servidor) + calendário */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+          {RECORTES.map((r) => {
+            const n = contagem?.[r.chave];
+            const ativa = aba === r.valor && !diaSelecionado;
+            const pedeOlhar = (r.valor === 'atrasadas' || r.valor === 'atencao') && !!n;
+            return (
+              <button
+                key={r.valor}
+                type="button"
+                title={r.ajuda}
+                aria-pressed={ativa}
+                onClick={() => { setAba(r.valor); setDiaSelecionado(null); }}
+                className={cn(
+                  'flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors sm:h-9',
+                  ativa ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {r.rotulo}
+                {n !== undefined && (
+                  <span
+                    className={cn(
+                      'rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums',
+                      ativa
+                        ? 'bg-white/20 text-white'
+                        : pedeOlhar
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                          : 'bg-muted text-foreground',
+                    )}
+                  >
+                    {n}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
-        {/* O calendário deixou de ser uma visão alternativa: ele fica no topo e
-            o botão apenas o recolhe, para quem precisa da tela toda no celular. */}
+        {/* O calendário não é uma visão alternativa: o botão só o recolhe,
+            para quem precisa da tela toda no celular. */}
         <button
+          type="button"
           onClick={alternarCalendario}
-          className="flex items-center gap-1.5 rounded-lg border border-input bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+          className="flex h-11 items-center justify-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted sm:h-9"
           aria-expanded={calendarioAberto}
         >
           <CalendarDays className="h-4 w-4" />
@@ -436,105 +575,71 @@ function AgendaConteudo() {
 
       {/* Filtros */}
       <div className="space-y-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <div className="relative flex-1 sm:max-w-xs">
+        <div className="flex gap-2 sm:flex-wrap sm:items-center">
+          <div className="relative min-w-0 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Buscar por nome…" value={busca} onChange={(e) => setBusca(e.target.value)} />
-            {isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
+            <Input
+              className="pl-9"
+              placeholder="Título, filiado, NPU ou parte"
+              aria-label="Buscar por título, filiado, número do processo ou parte"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+            {quadro.isFetching && (
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
           </div>
 
-          {/*
-            "MINHAS" É O PRIMEIRO CONTROLE porque é a primeira pergunta de quem
-            abre esta tela. Ele não esconde nada de ninguém: é um filtro que se
-            liga e desliga num toque, e com ele desligado o que é meu continua
-            aparecendo primeiro dentro de cada coluna.
-
-            SÓ APARECE PARA QUEM TEM AGENDA. Coordenação e administração
-            costumam olhar o quadro dos outros — um botão "Minhas" que devolve
-            zero seria um convite a um lugar vazio.
-          */}
-          {!!user?.id && minhasEmAberto > 0 && (
-            <button
-              type="button"
-              onClick={() =>
-                setResponsaveis((atual) =>
-                  atual.length === 1 && atual[0] === user.id ? [] : [user.id],
-                )
-              }
-              aria-pressed={!quadroCompartilhado}
-              className={cn(
-                'flex h-12 items-center gap-2 rounded-md border px-3 text-sm font-medium transition sm:h-10',
-                !quadroCompartilhado
-                  ? 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-900/20 dark:text-brand-300'
-                  : 'border-input bg-background text-muted-foreground hover:bg-muted',
-              )}
-            >
-              <UserCheck className="h-4 w-4" />
-              Minhas
-              <span
-                className={cn(
-                  'rounded px-1.5 py-0.5 text-[11px] font-semibold',
-                  !quadroCompartilhado ? 'bg-brand-800 text-white' : 'bg-muted text-foreground',
-                )}
-              >
-                {minhasEmAberto}
-              </span>
-            </button>
-          )}
-
-          <select className={inputCls} value={tipo} onChange={(e) => setTipo(e.target.value as any)} aria-label="Tipo">
-            <option value="">Todos os tipos</option>
-            {tipos.map((t) => <option key={t.id} value={t.slug}>{t.nome}</option>)}
-          </select>
-
-          <SeletorResponsaveis
-            pessoas={responsaveisLista}
-            selecionados={responsaveis}
-            onChange={setResponsaveis}
-            meuId={user?.id}
-          />
-
+          {/* Celular: um botão só no lugar de quatro controles empilhados. */}
           <button
             type="button"
-            onClick={() => setSoUrgentes((v) => !v)}
-            aria-pressed={soUrgentes}
+            onClick={() => setFiltrosAbertos(true)}
             className={cn(
-              'flex h-12 items-center gap-2 rounded-md border px-3 text-sm font-medium transition sm:h-10',
-              soUrgentes
-                ? 'border-red-400 bg-red-50 text-red-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
-                : 'border-input bg-background text-muted-foreground hover:bg-muted',
+              'flex h-12 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium sm:hidden',
+              filtrosNoBotao > 0
+                ? 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-900/20 dark:text-brand-300'
+                : 'border-input bg-background text-muted-foreground',
             )}
           >
-            <Flame className="h-4 w-4" /> Urgentes
+            <ListFilter className="h-4 w-4" />
+            Filtros{filtrosNoBotao > 0 ? ` (${filtrosNoBotao})` : ''}
           </button>
+
+          <div className="hidden sm:contents">{controles}</div>
         </div>
 
         {/*
-          O RESUMO DO RECORTE só existe quando há recorte. Uma linha permanente
-          dizendo "nenhum filtro" seria mais uma coisa para ler todo dia; a
-          barra aparece quando a lista deixou de ser o todo, e é ali que fica o
-          botão de desfazer — quem se perde num filtro procura a saída perto do
-          resultado, não no controle que usou.
+          O RESUMO DO RECORTE só existe quando a pessoa ligou algum filtro. É ali
+          que fica o botão de desfazer — quem se perde num filtro procura a saída
+          perto do resultado, não no controle que usou.
         */}
-        {filtrosAtivos > 0 && (
+        {(filtrosAtivos > 0 || etiquetas.length > 0) && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>
               {filtrosAtivos} filtro{filtrosAtivos === 1 ? '' : 's'} ativo{filtrosAtivos === 1 ? '' : 's'} ·{' '}
               <strong className="text-foreground">{filtrados.length}</strong> atividade
               {filtrados.length === 1 ? '' : 's'} à vista
             </span>
+            {etiquetas.map((e) => (
+              <button
+                key={e.chave}
+                type="button"
+                onClick={e.tirar}
+                className="inline-flex min-h-8 items-center gap-1 rounded-full border border-brand-300 bg-brand-50 px-2.5 font-medium text-brand-900 transition hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300"
+                aria-label={`Tirar o filtro: ${e.rotulo}`}
+              >
+                {e.rotulo} <X className="h-3 w-3" />
+              </button>
+            ))}
             {/*
-              A SAÍDA FICA ONDE O RESULTADO SUMIU.
-
-              Um toque em "ver todas" resolve o caso comum (o que se procura
-              existe, só não é hoje) sem obrigar ninguém a entender que a aba
-              também filtrava.
+              A SAÍDA FICA ONDE O RESULTADO SUMIU. Um toque em "ver todas" resolve
+              o caso comum (o que se procura existe, só não é nesta aba).
             */}
             {foraDaAba > 0 && filtrados.length === 0 && (
               <button
                 type="button"
                 onClick={() => setAba('todos')}
-                className="rounded-full border border-brand-400 px-2.5 py-0.5 font-medium text-brand-800 transition hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-900/20"
+                className="inline-flex min-h-8 items-center rounded-full border border-brand-400 px-2.5 font-medium text-brand-800 transition hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-900/20"
               >
                 {foraDaAba === 1 ? '1 em outra data' : `${foraDaAba} em outras datas`} — ver todas
               </button>
@@ -542,7 +647,7 @@ function AgendaConteudo() {
             <button
               type="button"
               onClick={limparFiltros}
-              className="font-medium text-brand-800 hover:underline dark:text-brand-400"
+              className="min-h-8 font-medium text-brand-800 hover:underline dark:text-brand-400"
             >
               Limpar filtros
             </button>
@@ -550,9 +655,30 @@ function AgendaConteudo() {
         )}
       </div>
 
-      {/* Aviso do dia filtrado. Fica ACIMA do quadro, e não junto do calendário:
-          quem clicou num dia rola de volta para cima para ver os cards, e é lá
-          que precisa entender por que a lista encolheu — e como desfazer. */}
+      {/*
+        "HOJE" INCLUI O QUE FICOU PARA TRÁS. A faixa do topo acusava atrasadas e
+        a agenda abria sem elas; agora elas vêm no quadro, no topo, com a data em
+        âmbar — e esta linha diz isso uma vez, com a saída para vê-las sozinhas.
+      */}
+      {atrasadasHoje > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
+          <span className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {atrasadasHoje === 1
+              ? '1 atividade de dias anteriores ficou para trás e está no topo, com a data em âmbar.'
+              : `${atrasadasHoje} atividades de dias anteriores ficaram para trás e estão no topo, com a data em âmbar.`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAba('atrasadas')}
+            className="min-h-9 font-medium underline-offset-2 hover:underline"
+          >
+            Ver só essas
+          </button>
+        </div>
+      )}
+
+      {/* Aviso do dia filtrado — acima do quadro, onde a lista encolheu. */}
       {diaSelecionado && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm dark:border-brand-800 dark:bg-brand-900/20">
           <span className="flex items-center gap-1.5">
@@ -561,8 +687,9 @@ function AgendaConteudo() {
             <strong>{diaSelecionado.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</strong>
           </span>
           <button
+            type="button"
             onClick={() => setDiaSelecionado(null)}
-            className="font-medium text-brand-800 hover:underline dark:text-brand-400"
+            className="min-h-9 font-medium text-brand-800 hover:underline dark:text-brand-400"
           >
             Limpar filtro do dia
           </button>
@@ -570,8 +697,20 @@ function AgendaConteudo() {
       )}
 
       {/* Quadro */}
-      {isLoading ? (
-        <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-brand-800 dark:text-brand-400" /></div>
+      {quadro.isError && !quadro.data ? (
+        <div
+          role="alert"
+          className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5 text-sm sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span>Não deu para carregar a agenda. Confira a conexão e tente de novo.</span>
+          <Button variant="outline" onClick={() => quadro.refetch()}>
+            <RotateCw className="h-4 w-4" /> Tentar de novo
+          </Button>
+        </div>
+      ) : quadro.isLoading ? (
+        <Carregando texto="Carregando as atividades…">
+          <EsqueletoDoQuadro />
+        </Carregando>
       ) : (
         <KanbanView
           compromissos={filtrados}
@@ -584,43 +723,80 @@ function AgendaConteudo() {
           onRemarcar={onRemarcar}
           onExcluir={setExcluir}
           podeExcluir={ehAdmin}
+          podeEditar={podeEditar}
           apontado={destacado}
           /*
-            A MARCA DE "É SEU" só vai quando o quadro é de mais gente — num
+            A MARCA DE "É SUA" só vai quando o quadro é de mais gente — num
             quadro filtrado em mim, marcar tudo não distingue nada.
           */
           meuId={quadroCompartilhado ? user?.id : undefined}
           /*
-            A COLUNA VAZIA DE "PENDENTE" OFERECE CRIAR.
-
-            Eu tinha trocado as quatro colunas vazias por uma mensagem central,
-            e estava errado: sem os contêineres à vista, o quadro deixa de ser
-            um lugar onde trabalho cabe e vira um aviso de que não há trabalho.
-            Num acervo em que quatro dos nove advogados têm zero atividades e
-            mais de oitenta processos, isso confirma a crença errada.
+            A COLUNA VAZIA DE "PENDENTE" OFERECE CRIAR — só a quem pode criar.
+            Sem os contêineres à vista, o quadro deixa de ser um lugar onde
+            trabalho cabe e vira um aviso de que não há trabalho.
           */
           onNovo={onNovo}
         />
       )}
 
       {/* CALENDÁRIO — abaixo do quadro. O trabalho do dia está nos cards; o
-          calendário é consulta ("o que tem no dia 14?"). Clicar num dia filtra
-          o quadro acima, então a rolagem sobe para o resultado. */}
+          calendário é consulta ("o que tem no dia 14?"). */}
       {calendarioAberto && (
-        <CalendarioView
-          compromissos={compromissosDoMes}
-          mes={mes}
-          onMudarMes={mudarMes}
-          onSelecionar={onAbrir}
-          diaSelecionado={diaSelecionado}
-          onSelecionarDia={setDiaSelecionado}
-        />
+        <div className="space-y-2">
+          {doMes.isError && !doMes.data && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-sm">
+              <span>Não deu para carregar os dias deste mês.</span>
+              <button
+                type="button"
+                onClick={() => doMes.refetch()}
+                className="min-h-9 font-medium text-brand-800 hover:underline dark:text-brand-400"
+              >
+                Tentar de novo
+              </button>
+            </div>
+          )}
+          <CalendarioView
+            compromissos={compromissosDoMes}
+            carregando={doMes.isLoading}
+            mes={mes}
+            onMudarMes={mudarMes}
+            onSelecionar={onAbrir}
+            diaSelecionado={diaSelecionado}
+            onSelecionarDia={setDiaSelecionado}
+          />
+        </div>
       )}
+
+      {/* Filtros no celular */}
+      <Sheet open={filtrosAbertos} onClose={() => setFiltrosAbertos(false)} side="bottom" className="sm:hidden">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <p className="font-semibold">Filtros</p>
+          <button
+            type="button"
+            onClick={() => setFiltrosAbertos(false)}
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+            aria-label="Fechar filtros"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 space-y-3 overflow-y-auto p-4">{controles}</div>
+        <div className="flex gap-2 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {filtrosAtivos > 0 && (
+            <Button variant="outline" className="flex-1" onClick={limparFiltros}>
+              Limpar
+            </Button>
+          )}
+          <Button className="flex-1" onClick={() => setFiltrosAbertos(false)}>
+            Ver {filtrados.length} atividade{filtrados.length === 1 ? '' : 's'}
+          </Button>
+        </div>
+      </Sheet>
 
       {/* Modal criar/editar */}
       <CompromissoFormModal open={formOpen} onClose={() => setFormOpen(false)} onSalvo={invalidar} editar={editar} />
 
-      {/* Drawer de DETALHE (clique no card) — lápis edita, lixeira exclui */}
+      {/* Gaveta de DETALHE (clique no card) */}
       <CompromissoDrawer
         compromissoId={detalheId}
         open={!!detalheId}
@@ -640,12 +816,20 @@ function AgendaConteudo() {
         compromisso={concluir}
         open={!!concluir}
         onClose={() => setConcluir(null)}
-        // Quem não compareceu não realizou a atividade: o atalho leva ao
-        // cancelamento, já com a categoria certa.
-        onNaoCompareceu={() => { setCancelarCategoria('NAO_COMPARECEU'); setCancelar(concluir); }}
+        /*
+          "Não compareceu?" só faz sentido quando alguém era esperado: há um
+          filiado e a atividade tem hora marcada. Num prazo do robô, a pergunta
+          não tem resposta. Quem não compareceu não realizou a atividade: o
+          atalho leva ao cancelamento, já com a categoria certa.
+        */
+        onNaoCompareceu={
+          concluir?.filiado && temHoraMarcada(concluir.tipo)
+            ? () => { setCancelarCategoria('NAO_COMPARECEU'); setCancelar(concluir); }
+            : undefined
+        }
         onConcluido={(caso) => {
-          invalidar();
-          qc.invalidateQueries({ queryKey: ['processos'] });
+          // As mesmas chaves do painel: lista de Processos E a ficha aberta (13/09/2026).
+          for (const k of CHAVES_DEPOIS_DE_CONCLUIR) qc.invalidateQueries({ queryKey: k });
           if (caso) {
             toast.success('Caso aberto em fase pré-processual.', {
               description: 'Fica na aba Pré-processuais até ser ajuizado.',
@@ -655,7 +839,7 @@ function AgendaConteudo() {
         }}
       />
 
-      {/* Cancelar — motivo obrigatório */}
+      {/* Cancelar — categoria obrigatória */}
       <CancelarModal
         compromisso={cancelar}
         open={!!cancelar}
@@ -672,7 +856,7 @@ function AgendaConteudo() {
         onRemarcado={invalidar}
       />
 
-      {/* Gerenciador de tipos de evento (CRUD) */}
+      {/* Tipos de atividade (cadastro) */}
       <TiposEventoModal
         open={tiposOpen}
         onClose={() => setTiposOpen(false)}
@@ -688,10 +872,10 @@ function AgendaConteudo() {
       <ConfirmDialog
         open={!!excluir}
         variant="destructive"
-        title="Excluir evento"
+        title="Excluir atividade"
         icon={<Trash2 className="h-6 w-6" />}
-        description={<>Excluir o evento <strong>{excluir?.titulo}</strong> da agenda? Esta ação é irreversível.</>}
-        confirmLabel="Excluir evento"
+        description={<>Excluir a atividade <strong>{excluir?.titulo}</strong> da agenda? Esta ação é irreversível.</>}
+        confirmLabel="Excluir atividade"
         loading={remover.isPending}
         onConfirm={() => excluir && remover.mutate(excluir.id)}
         onClose={() => setExcluir(null)}

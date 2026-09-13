@@ -165,9 +165,9 @@ export function ImportarLoteDialog({
     : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       {/* Tela cheia no celular, cartão no desktop — o padrão das outras fichas. */}
-      <div className="flex max-h-full w-full max-w-2xl flex-col rounded-t-2xl bg-background shadow-xl sm:max-h-[90vh] sm:rounded-2xl">
+      <div className="flex max-h-full w-full max-w-2xl animate-dialogo-entrar flex-col rounded-t-2xl bg-background shadow-xl sm:max-h-[90vh] sm:rounded-2xl">
         <div className="flex items-start justify-between gap-3 border-b p-4">
           <div className="flex min-w-0 items-start gap-2.5">
             <FileSpreadsheet className="mt-0.5 h-5 w-5 shrink-0 text-brand-700 dark:text-brand-400" />

@@ -8,6 +8,8 @@ import {
   Building2, Plus, Search, Loader2, Power, PowerOff, Pencil, X, IdCard, GitMerge,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
+import { FalhaAoCarregar } from '@/components/falha-ao-carregar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -79,7 +81,7 @@ export default function OrganizacoesPage() {
    */
   const podeMesclar = user?.role === 'ADMINISTRADOR';
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['organizacoes', aplicado, tipo, mostrarInativas, soSemDocumento],
     queryFn: () =>
       listarPartesExternas({
@@ -240,10 +242,11 @@ export default function OrganizacoesPage() {
 
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="h-7 w-7 animate-spin text-brand-800 dark:text-brand-400" />
-            </div>
+          {/* 13/09/2026: só sem dado; revalidação que falha não esconde a lista já carregada. */}
+          {isError && !data ? (
+            <FalhaAoCarregar erro={error} oQue="as organizações" onTentarDeNovo={() => refetch()} />
+          ) : isLoading ? (
+            <Carregando texto="Carregando as organizações…"><EsqueletoLinhas quantidade={8} altura={64} /></Carregando>
           ) : !data?.items.length ? (
             <p className="py-16 text-center text-sm text-muted-foreground">
               Nenhuma organização encontrada.
@@ -455,8 +458,8 @@ function FormOrganizacao({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <Card className="w-full max-w-lg">
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-lg animate-dialogo-entrar">
         <CardContent className="space-y-4 p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold">

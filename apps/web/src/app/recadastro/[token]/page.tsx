@@ -209,15 +209,20 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     if (!f) return;
     if (f.nomeCompleto.trim().length < 3) return toast.error('Informe o nome completo.');
     setSalvando(true);
+    // Confirmação repetida — o servidor revalida antes de gravar a foto e o envio.
+    const confirmacao = {
+      cpf: cpf.replace(/\D/g, '') || undefined,
+      dataNascimento: nascimento || undefined,
+      coren: coren || undefined,
+    };
     try {
       // A foto vai primeiro: o envio abaixo queima o link.
-      if (foto) await enviarFotoRecadastro(token, foto);
+      if (foto) await enviarFotoRecadastro(token, foto, confirmacao);
 
       await enviarRecadastro(token, {
-        // Confirmação repetida — o servidor revalida antes de gravar.
-        cpfConfirmacao: cpf.replace(/\D/g, '') || undefined,
-        dataNascimentoConfirmacao: nascimento || undefined,
-        corenConfirmacao: coren || undefined,
+        cpfConfirmacao: confirmacao.cpf,
+        dataNascimentoConfirmacao: confirmacao.dataNascimento,
+        corenConfirmacao: confirmacao.coren,
         nomeCompleto: f.nomeCompleto.trim(),
         cpf: f.cpf?.replace(/\D/g, '') || undefined,
         rg: f.rg || undefined,

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Building2, Check, Loader2, Sparkles, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import {
   aplicarVinculos, listarVinculosPendentes,
@@ -79,11 +80,11 @@ export function ResolverVinculosPanel({ open, onClose }: { open: boolean; onClos
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[60] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={aplicar.isPending ? undefined : onClose}
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        className="flex max-h-[92vh] w-full max-w-3xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b p-5">
@@ -105,9 +106,9 @@ export function ResolverVinculosPanel({ open, onClose }: { open: boolean; onClos
 
         <div className="flex-1 space-y-5 overflow-y-auto p-4">
           {isLoading && (
-            <p className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Procurando candidatos no cadastro…
-            </p>
+            <Carregando texto="Procurando candidatos no cadastro…" mostrarTexto>
+              <EsqueletoLinhas quantidade={4} altura={72} className="-mx-4" />
+            </Carregando>
           )}
 
           {/*

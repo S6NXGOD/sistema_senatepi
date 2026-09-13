@@ -1,8 +1,9 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, X, Download, QrCode } from 'lucide-react';
+import { X, Download, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { getQrCodeColaborador, urlCrachaColaborador } from '@/lib/colaboradores';
 import { baixarPdf } from '@/lib/pdf';
 
@@ -45,9 +46,9 @@ export function CrachaDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className="flex w-full max-w-sm flex-col rounded-2xl bg-card shadow-xl"
+        className="flex w-full max-w-sm animate-dialogo-entrar flex-col rounded-2xl bg-card shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b p-5">
@@ -67,9 +68,9 @@ export function CrachaDialog({
 
         <div className="flex flex-col items-center gap-3 p-6">
           {isLoading ? (
-            <div className="flex h-56 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
-            </div>
+            <Carregando texto="Gerando o QR Code…">
+              <Esqueleto className="h-56 w-56 rounded-lg" />
+            </Carregando>
           ) : isError || !data ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
               Não foi possível gerar o QR Code.

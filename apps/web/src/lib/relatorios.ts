@@ -33,6 +33,12 @@ export interface Contagem {
   total: number;
 }
 
+/** Um texto de "Outro" que se repetiu, com quantas vezes. */
+export interface TextoRepetido {
+  texto: string;
+  total: number;
+}
+
 /** Contagem que vira link: `chave` é o id da parte ou o código da comarca. */
 export interface ContagemComChave extends Contagem {
   chave: string;
@@ -152,6 +158,13 @@ export interface Relatorio {
     porAssunto: Contagem[];
     /** Quantos ficaram sem assunto: sem este número, 3 de 3 viram "100%". */
     assuntoNaoInformado: number;
+    /**
+     * O que há dentro de "Outro": só os textos que se repetem (2 ou mais),
+     * agrupados sem acento nem caixa. Opcional pela janela de troca do deploy.
+     */
+    outrosAssuntos?: TextoRepetido[];
+    /** Quantos textos de "Outro" apareceram uma vez só — viram número, nunca texto. */
+    outrosUnicos?: number;
     porSetor: Contagem[];
   };
   justica?: Justica | null;
@@ -212,6 +225,40 @@ export const ASSUNTO_LABEL: Record<string, string> = {
 };
 
 export const ASSUNTOS = Object.keys(ASSUNTO_LABEL);
+
+/** Quantos textos de "Outro" a frase nomeia antes de resumir o resto. */
+export const OUTROS_NA_FRASE = 6;
+
+/**
+ * "EM «OUTRO»: APOSENTADORIA (4), PLANO DE SAÚDE (2); 3 COM TEXTO ÚNICO."
+ *
+ * É o que mostra QUAL categoria falta — "Outro: 9" sozinho não deixa ninguém
+ * decidir se vale criar "Aposentadoria". Só entra com nome o que se repete
+ * (a API já corta): texto único num PDF da diretoria pode identificar alguém.
+ * Nulo quando não há o que dizer — inclusive diante da API de antes.
+ */
+export function fraseDosOutrosAssuntos(
+  outros: TextoRepetido[] | undefined,
+  unicos: number | undefined,
+): string | null {
+  const lista = outros ?? [];
+  const nomeados = lista.slice(0, OUTROS_NA_FRASE).map((o) => `${o.texto} (${o.total})`);
+  const resto = lista.length - nomeados.length;
+  if (resto > 0) nomeados.push(`mais ${resto} ${resto === 1 ? 'texto repetido' : 'textos repetidos'}`);
+  const partes: string[] = [];
+  if (nomeados.length) partes.push(nomeados.join(', '));
+  if (unicos && unicos > 0) partes.push(`${unicos} com texto único`);
+  return partes.length ? `Em “Outro”: ${partes.join('; ')}.` : null;
+}
+
+/**
+ * LISTA DE PESSOAS EM ORDEM ALFABÉTICA. A API ordena as contagens pelo volume,
+ * e numa lista de atendentes isso é pódio. Coisa (canal, assunto) continua pelo
+ * volume; gente, não.
+ */
+export function emOrdemAlfabetica<T extends Contagem>(itens: T[]): T[] {
+  return [...itens].sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'));
+}
 
 /*
   O TIPO DE ATIVIDADE É CADASTRÁVEL — não existe lista fixa aqui de propósito.

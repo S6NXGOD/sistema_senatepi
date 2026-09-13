@@ -150,11 +150,13 @@ export function AudienciasAgendarPanel({
       {/* Dispensa — grava no banco, então pede confirmação e um motivo opcional. */}
       {dispensando && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+          className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
           onClick={dispensar.isPending ? undefined : () => setDispensando(null)}
         >
           <div
-            className="w-full max-w-md overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md animate-dialogo-entrar overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-3 p-5">
@@ -235,7 +237,8 @@ function CartaoAudiencia({
             </span>
           )}
           {a.dataNoPassado && (
-            <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+            /* Âmbar, nunca vermelho: a data da pauta passou — o sistema não afirma perda. */
+            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white dark:bg-amber-600">
               Data já passou
             </span>
           )}
@@ -270,24 +273,29 @@ function CartaoAudiencia({
 
         {/* Ações */}
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={onAgendar}>
+          <Button size="sm" className="h-11 sm:h-9" onClick={onAgendar}>
             <CalendarPlus className="h-4 w-4" /> Agendar
           </Button>
           {onVerProcesso ? (
-            <Button size="sm" variant="outline" onClick={() => onVerProcesso(a.processo.id)}>
+            <Button size="sm" variant="outline" className="h-11 sm:h-9" onClick={() => onVerProcesso(a.processo.id)}>
               <Eye className="h-4 w-4" /> Ver detalhes
             </Button>
           ) : (
-            <Link href="/processos">
-              <Button size="sm" variant="outline">
-                <Eye className="h-4 w-4" /> Ver detalhes
-              </Button>
+            /*
+              ABRE O PROCESSO, não a lista inteira. E um link de verdade: botão
+              dentro de link é HTML inválido e perde o "abrir em nova aba".
+            */
+            <Link
+              href={`/processos?processo=${a.processo.id}`}
+              className="inline-flex h-11 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium transition hover:bg-muted sm:h-9"
+            >
+              <Eye className="h-4 w-4" /> Ver detalhes
             </Link>
           )}
           <button
             type="button"
             onClick={onDispensar}
-            className="flex items-center gap-1 px-1 text-xs font-medium text-muted-foreground transition-colors hover:text-red-600"
+            className="flex min-h-11 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground sm:min-h-0"
           >
             <X className="h-3.5 w-3.5" /> Dispensar
           </button>

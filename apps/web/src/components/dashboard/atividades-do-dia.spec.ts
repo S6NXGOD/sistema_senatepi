@@ -2,12 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const BLOCO = readFileSync(join(__dirname, 'atividades-do-dia.tsx'), 'utf8');
+/** As mutações (concluir, iniciar, desfazer) moram num gancho próprio, usado pela linha e pela folha. */
+const ACOES = readFileSync(join(__dirname, 'concluir-no-painel.ts'), 'utf8');
+const FOLHA = readFileSync(join(__dirname, 'folha-de-desfecho.tsx'), 'utf8');
 const PAINEL = readFileSync(
   join(__dirname, '../../app/(dashboard)/dashboard/page.tsx'),
-  'utf8',
-);
-const AGENDA = readFileSync(
-  join(__dirname, '../../app/(dashboard)/agenda/page.tsx'),
   'utf8',
 );
 
@@ -78,40 +77,77 @@ describe('o bloco de atividades encolheu', () => {
 });
 
 /**
- * RESOLUÇÃO RÁPIDA — o pedido explícito.
+ * RESOLUÇÃO RÁPIDA — agora pelo catálogo da API, não por uma tabela no front.
  *
- * O botão de um toque saiu de MEDIÇÃO: nas 41 conclusões da produção, dois
- * desfechos respondem por 60% de tudo, e em PRAZO foram 11 de 11.
+ * A tabela `DESFECHO_RAPIDO` (um desfecho por tipo, tirada de 41 conclusões)
+ * produzia desfecho falso por falta de opção: reunião sem deliberação só fechava
+ * "com encaminhamentos" e ganhava, calada, uma tarefa obrigatória. A REGRA do
+ * botão é testada com valores em `lib/acao-rapida.spec.ts` (inclusive "reunião,
+ * audiência e perícia não têm um toque"); aqui fica só a ligação da tela a ela.
  */
 describe('resolver sem sair do painel', () => {
-  it('cada tipo tem o desfecho que a equipe realmente usa', () => {
-    expect(BLOCO).toContain("PRAZO: { slug: 'PRAZO_CUMPRIDO'");
-    expect(BLOCO).toContain("CONSULTA_JURIDICA: { slug: 'DUVIDA_ESCLARECIDA'");
+  it('a tabela escrita à mão saiu; o botão lê o catálogo da API', () => {
+    expect(BLOCO).not.toMatch(/const DESFECHO_RAPIDO\b/);
+    expect(BLOCO).toContain("queryKey: ['desfechos-tipo', tipo]");
+    expect(BLOCO).toContain('queryFn: () => listarDesfechos(tipo)');
+    expect(BLOCO).toContain('botaoDaLinha({');
   });
 
-  /** `desfecho` é o único campo obrigatório — conferido no DTO da API. */
-  it('conclui com um toque, sem modal', () => {
-    expect(BLOCO).toContain('concluirCompromisso(id, { desfecho');
+  /** `desfecho` é o único campo obrigatório; `origem` vai para o histórico (C3). */
+  it('conclui com o desfecho escolhido e carimba a origem', () => {
+    expect(ACOES).toContain('concluirCompromisso(c.id, {');
+    expect(ACOES).toContain('desfecho: opcao.slug,');
+    expect(ACOES).toContain("origem: 'PAINEL',");
   });
 
   /** Iniciar é a única transição que não pede dado nenhum. */
-  it('iniciar também é inline', () => {
-    expect(BLOCO).toContain("mudarStatusCompromisso(id, 'EM_ANDAMENTO')");
+  it('iniciar também é inline, e só onde o cronômetro significa algo', () => {
+    expect(ACOES).toContain("mudarStatusCompromisso(id, 'EM_ANDAMENTO')");
+    expect(BLOCO).toContain('podeEditarAgenda && podeIniciarNoPainel(c)');
+  });
+
+  /** Triagem tem agenda VISUALIZAR: botão que leva 403 não se desenha. */
+  it('o gate de escrita é o da matriz', () => {
+    expect(BLOCO).toContain("podeEditar(user?.role, user?.permissoes, 'agenda')");
+  });
+
+  /** Opção que pede processo não cabe na folha: vai para o modal completo, com a origem do painel. */
+  it('vincular e abrir processo usam o formulário completo', () => {
+    expect(BLOCO).toContain('<ConcluirModal');
+    expect(BLOCO).toContain('origem="PAINEL"');
+    expect(FOLHA).toContain('pedeModalCompleto(escolhida)');
   });
 
   /**
-   * O QUE NÃO PODE SER UM TOQUE. Audiência e perícia têm desfechos que mudam o
-   * rumo do caso ("houve acordo?", "laudo entregue?") — fechar isso por
-   * adivinhação é pior que um clique a mais, porque o desfecho alimenta o
-   * relatório e o seguimento.
+   * AS CHAVES QUE EXISTEM. O bloco invalidava ['dashboard'] e ['agenda'], que
+   * nenhuma consulta usa: a linha ficava com o botão por 60 s e o segundo toque
+   * voltava 400. As chaves agora vêm de uma constante testada em lib/dashboard.
    */
-  it('audiência e perícia NÃO ganham botão de um toque', () => {
-    const tabela = BLOCO.slice(
-      BLOCO.indexOf('const DESFECHO_RAPIDO'),
-      BLOCO.indexOf('export function AtividadesDoDia'),
-    );
-    expect(tabela).not.toContain('AUDIENCIA:');
-    expect(tabela).not.toContain('PERICIA:');
+  it('invalida as consultas de verdade e tira a linha na hora', () => {
+    expect(ACOES).toContain('CHAVES_DEPOIS_DE_CONCLUIR');
+    expect(ACOES).toContain('concluirNoResumo(antes, c.id)');
+    expect(ACOES).not.toContain("queryKey: ['dashboard'] ");
+    expect(ACOES).not.toContain("queryKey: ['agenda']");
+  });
+
+  /** D6: desfazer por 8 s, só quando a conclusão não criou nada. */
+  it('oferece desfazer pelo aviso', () => {
+    expect(ACOES).toContain('duration: DURACAO_DO_DESFAZER_MS');
+    expect(ACOES).toContain("action: { label: 'Desfazer', onClick: () => desfazer.mutate(c.id) }");
+  });
+
+  /** D2: a observação tem botão; o campo não fecha antes da resposta. */
+  it('a folha conclui por botão e só fecha quando gravou', () => {
+    expect(FOLHA).toContain('if (ok) onFechar();');
+    expect(FOLHA).toContain('observacaoValida(obs)');
+    expect(FOLHA).not.toContain("e.key !== 'Enter'");
+  });
+
+  /** D4: atividade de outra pessoa abre a folha com o aviso de quem é dona. */
+  it('a folha diz de quem é a atividade', () => {
+    expect(FOLHA).toContain('{ehDeOutraPessoa && (');
+    expect(FOLHA).toContain('Esta atividade é de');
+    expect(FOLHA).toContain('seu nome');
   });
 });
 
@@ -148,10 +184,17 @@ describe('o bloco no celular', () => {
     expect(cabecalho).not.toContain(' hidden shrink-0 rounded-full');
   });
 
-  /** O rótulo longo do desfecho não cabe em 375px — vira "Concluir". */
-  it('o rótulo do botão encolhe no telefone', () => {
-    expect(BLOCO).toContain('hidden sm:inline');
-    expect(BLOCO).toContain('sm:hidden');
+  /**
+   * O RÓTULO DO DESFECHO APARECE NO TELEFONE — decisão invertida em 13/09/2026.
+   *
+   * Este teste afirmava o contrário (`hidden sm:inline` + "Concluir" no
+   * telefone). A auditoria mostrou que o problema no celular nunca foi espaço:
+   * avatar 24 + ▷ 44 + botão ~100px cabem em 400px. O problema era a pessoa não
+   * ver o que estava gravando. O rótulo agora trunca em vez de sumir.
+   */
+  it('o rótulo do botão trunca no telefone, sem sumir', () => {
+    expect(BLOCO).toContain('<span className="max-w-[11rem] truncate sm:max-w-[14rem]">{rotulo}</span>');
+    expect(BLOCO).not.toContain('<span className="sm:hidden">Concluir</span>');
   });
 
   /**
@@ -244,8 +287,15 @@ describe('a tira "Esperando por"', () => {
     expect(BLOCO).not.toContain('atencaoVisivel.reduce(');
   });
 
-  it('ordena por quem tem mais', () => {
-    expect(BLOCO).toContain('.sort((a, b) => b.quantas - a.quantas)');
+  /**
+   * ORDEM ALFABÉTICA — e este teste afirmava "quem tem mais primeiro".
+   *
+   * Ordenar pessoas por atraso é ranking de gente, contra a regra do sistema
+   * (13/09/2026). O número ao lado de cada nome continua dizendo o que importa.
+   */
+  it('ordena por nome, não por quem tem mais', () => {
+    expect(BLOCO).toContain(".sort((a, b) => a.pessoa.nome.localeCompare(b.pessoa.nome, 'pt-BR'))");
+    expect(BLOCO).not.toContain('b.quantas - a.quantas');
   });
 
   /** Na carteira própria seria o mesmo rosto uma vez só. */
@@ -253,10 +303,18 @@ describe('a tira "Esperando por"', () => {
     expect(BLOCO).toContain('{porPessoa.length > 1 && (');
   });
 
-  it('cada nome leva à agenda já filtrada nele', () => {
-    expect(BLOCO).toContain('href={`/agenda?responsavel=${pessoa.id}`}');
-    expect(AGENDA).toContain("'responsavel',");
-    expect(AGENDA).toContain("setResponsaveis([v]); setAba('aberto');");
+  /**
+   * CADA NOME LEVA AO RECORTE QUE CONTOU (C11): o que pede atenção e é dela
+   * como responsável. O teste antigo lia a página da agenda procurando
+   * `setResponsaveis([v]); setAba('aberto')` — a agenda abria a pessoa inteira,
+   * com equipe e reserva, e o número mudava no clique. Que a agenda LÊ este
+   * endereço está provado em `lib/dashboard.spec.ts`, passando o link por
+   * `lerUrlDaAgenda`.
+   */
+  it('cada nome leva à agenda no mesmo recorte', () => {
+    expect(BLOCO).toContain(
+      "href={linkDaAgenda({ aba: 'atencao', responsavel: pessoa.id, somenteResponsavel: true })}",
+    );
   });
 });
 
@@ -452,13 +510,34 @@ describe('a agenda da equipe tem teto', () => {
   /** Teto duro de segurança: 40 atrasadas não podem virar 40 linhas. */
   it('há um teto duro para o que pede atenção, e ele é nomeado', () => {
     expect(BLOCO).toContain('const TETO_ATENCAO = 12;');
-    expect(BLOCO).toContain('const atencaoOculta = precisamDeGente.length - atencaoVisivel.length;');
+    expect(BLOCO).toContain(
+      'const atencaoOculta = precisamDeGente.length - atencaoVisivel.length + cortadasPelaApi;',
+    );
   });
 
-  /** Esconder sem contar seria mentir sobre o tamanho da fila. */
-  it('e diz quantas ficaram de fora, dizendo se estavam atrasadas', () => {
-    expect(BLOCO).toContain('const ocultas = todas.length - visiveis.length;');
-    expect(BLOCO).toContain("contar(atencaoOculta, 'delas atrasada', 'delas atrasadas')");
+  /**
+   * ESCONDER SEM CONTAR SERIA MENTIR — inclusive o que a API cortou.
+   *
+   * As contas antigas (`todas.length - visiveis.length`) só enxergavam o que
+   * chegou: com 14 atrasadas e `take: 8`, o cabeçalho dizia 14 e o rodapé não
+   * falava das 6. O que falta chegar entra pelos totais do count().
+   *
+   * E "delas atrasadas" virou "delas pedem atenção": o que ficou de fora inclui
+   * o de hoje que passou da hora, que não é atraso.
+   */
+  it('e diz quantas ficaram de fora, pelos totais da API', () => {
+    expect(BLOCO).toContain(
+      'const cortadasPelaApi = Math.max(0, totalAtrasadas + totalPassaramDaHora - precisamDeGente.length);',
+    );
+    expect(BLOCO).toContain('const ocultas = todas.length - visiveis.length + cortadasPelaApi;');
+    expect(BLOCO).toContain("contar(atencaoOculta, 'delas pede atenção', 'delas pedem atenção')");
+  });
+
+  /** O rodapé leva ao recorte da fila (C11), e não à agenda genérica. */
+  it('o rodapé abre o recorte que contou', () => {
+    expect(BLOCO).toContain("aba: atencaoOculta > 0 ? 'atencao' : '7dias',");
+    expect(BLOCO).toContain("...(pessoal ? { pessoa: 'eu' } : {}),");
+    expect(BLOCO).toContain('href={hrefDoRodape}');
   });
 });
 

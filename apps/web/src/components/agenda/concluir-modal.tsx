@@ -4,10 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  CheckCircle2, FilePlus2, Gavel, Link2, Loader2, Scale, X,
-  Handshake, FileCheck2, AlertTriangle, UserX,
-  PhoneCall, PhoneOff, ClipboardCheck, CalendarClock, CircleSlash, CalendarPlus,
-  Paperclip,
+  CheckCircle2, Loader2, X, UserX, CalendarPlus, Paperclip,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -16,40 +13,36 @@ import { Input } from '@/components/ui/input';
 import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
 import { cn } from '@/lib/utils';
 import { SeletorProcesso } from '@/components/processos/seletor-processo';
+import { OpcoesDeDesfecho } from '@/components/agenda/opcoes-de-desfecho';
 import {
-  concluirCompromisso, listarResponsaveis, listarDesfechos,
-  type Compromisso, type DesfechoOpcao,
+  concluirCompromisso, listarResponsaveis, listarDesfechos, temHoraMarcada,
+  type Compromisso, type DesfechoOpcao, type OrigemDaConclusao,
 } from '@/lib/agenda';
 import { listarAnexos } from '@/lib/anexos';
 import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-11 w-full rounded-md border border-input bg-background px-3 text-sm md:h-10';
 
-/** Ícone por desfecho; o que não estiver aqui usa o genérico. */
-const ICONE: Record<string, typeof CheckCircle2> = {
-  DUVIDA_ESCLARECIDA: CheckCircle2,
-  VINCULADO_PROCESSO: Link2,
-  PROCESSO_CRIADO: FilePlus2,
-  AUDIENCIA_ACORDO: Handshake,
-  AUDIENCIA_SEM_ACORDO: Gavel,
-  AUDIENCIA_INSTRUCAO: Gavel,
-  PRAZO_CUMPRIDO: FileCheck2,
-  PRAZO_PERDIDO: AlertTriangle,
-  DILIGENCIA_INFRUTIFERA: AlertTriangle,
-  DESPACHO_NAO_ATENDIDO: AlertTriangle,
-  PERICIA_REALIZADA: CalendarClock,
-  PERICIA_LAUDO_ENTREGUE: FileCheck2,
-  CONTATO_CONFIRMADO: PhoneCall,
-  CONTATO_NAO_COMPARECERA: UserX,
-  CONTATO_SEM_SUCESSO: PhoneOff,
-  ACOMPANHAMENTO_CUMPRIDO: ClipboardCheck,
-  ACOMPANHAMENTO_PENDENTE: CalendarClock,
-  ACOMPANHAMENTO_SEM_OBJETO: CircleSlash,
-};
-
 /** `<input type="date">` quer yyyy-mm-dd no fuso local, não em UTC. */
 function diaLocal(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * O DIA SUGERIDO PARA O SEGUIMENTO — o que o SERVIDOR calculou, no dia de Teresina.
+ *
+ * O modal somava `emDias` no navegador, e a data caía no sábado enquanto a API
+ * gravava na segunda (ela pula fim de semana). Sem `sugeridoPara` (API de antes,
+ * na janela de troca), volta à soma antiga.
+ */
+function diaDoSeguimento(spec: { emDias: number; sugeridoPara?: string }): string {
+  if (spec.sugeridoPara) {
+    const t = new Date(spec.sugeridoPara).getTime();
+    if (Number.isFinite(t)) return new Date(t - 3 * 3_600_000).toISOString().slice(0, 10);
+  }
+  const data = new Date();
+  data.setDate(data.getDate() + spec.emDias);
+  return diaLocal(data);
 }
 
 /**
@@ -59,7 +52,7 @@ function diaLocal(d: Date): string {
  * PRÉ-PROCESSUAL para o advogado conduzir até o ajuizamento.
  */
 export function ConcluirModal({
-  compromisso, open, onClose, onConcluido, onNaoCompareceu,
+  compromisso, open, onClose, onConcluido, onNaoCompareceu, origem = 'AGENDA', desfechoInicial,
 }: {
   compromisso: Compromisso | null;
   open: boolean;
@@ -68,6 +61,14 @@ export function ConcluirModal({
   onConcluido: (caso: { id: string; titulo: string | null } | null) => void;
   /** Leva ao cancelamento com "não compareceu" pré-selecionado. */
   onNaoCompareceu?: () => void;
+  /**
+   * De onde veio o gesto. Vai só para o histórico e a auditoria — é o que deixa
+   * medir se um atalho induz desfecho errado. A agenda é o padrão; o painel
+   * abre este modal para vincular ou abrir processo e manda 'PAINEL'.
+   */
+  origem?: OrigemDaConclusao;
+  /** Desfecho já escolhido na folha do painel, para não pedir a escolha duas vezes. */
+  desfechoInicial?: string;
 }) {
   const { user } = useAuth();
   /**
@@ -118,13 +119,13 @@ export function ConcluirModal({
 
   useEffect(() => {
     if (!open || !compromisso) return;
-    setDesfecho('');
+    setDesfecho(desfechoInicial ?? '');
     setObs('');
     setProcessoId(compromisso.processo?.id ?? '');
     setTitulo(compromisso.titulo);
     setAssunto('');
     setAdvogadoId(compromisso.responsavel.id);
-  }, [open, compromisso]);
+  }, [open, compromisso, desfechoInicial]);
 
   // Cada desfecho traz o seu próprio seguimento sugerido (tipo, título, prazo).
   // Repõe os padrões a cada troca de desfecho para não carregar o título de um
@@ -132,12 +133,10 @@ export function ConcluirModal({
   const spec = escolhido?.acao === 'CRIAR_ATIVIDADE' ? escolhido.seguimento : undefined;
   useEffect(() => {
     if (!spec || !compromisso) return;
-    const data = new Date();
-    data.setDate(data.getDate() + spec.emDias);
     setCriarSeg(true);
     setSegTitulo(spec.titulo);
     setSegResponsavelId(compromisso.responsavel.id);
-    setSegData(diaLocal(data));
+    setSegData(diaDoSeguimento(spec));
   }, [spec, compromisso]);
 
   /*
@@ -168,6 +167,7 @@ export function ConcluirModal({
       concluirCompromisso(compromisso!.id, {
         desfecho,
         desfechoObs: obs.trim() || undefined,
+        origem,
         ...(escolhido?.acao === 'VINCULAR_PROCESSO' ? { processoId } : {}),
         ...(escolhido?.acao === 'CRIAR_PROCESSO'
           ? {
@@ -241,11 +241,13 @@ export function ConcluirModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={salvar.isPending ? undefined : onClose}
     >
       <div
-        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b p-5">
@@ -291,53 +293,21 @@ export function ConcluirModal({
           {/* Escolha do desfecho */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium">O que aconteceu? *</label>
-            {opcoes.isLoading && (
-              <p className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Carregando opções…
-              </p>
-            )}
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {lista.map((o) => {
-                const Icon = ICONE[o.slug] ?? Scale;
-                const ativo = desfecho === o.slug;
-                return (
-                  <button
-                    key={o.slug}
-                    type="button"
-                    onClick={() => setDesfecho(o.slug)}
-                    className={cn(
-                      'flex items-start gap-2 rounded-lg border p-2.5 text-left transition',
-                      ativo
-                        ? o.alerta
-                          ? 'border-red-400 bg-red-50 dark:bg-red-950/20'
-                          : 'border-brand-500 bg-brand-50 dark:bg-brand-900/20'
-                        : 'hover:bg-muted/50',
-                    )}
-                  >
-                    <Icon
-                      className={cn(
-                        'mt-0.5 h-4 w-4 shrink-0',
-                        o.alerta
-                          ? 'text-red-600 dark:text-red-400'
-                          : ativo
-                            ? 'text-brand-700 dark:text-brand-400'
-                            : 'text-muted-foreground',
-                      )}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">{o.label}</span>
-                      <span className="block text-[11px] leading-snug text-muted-foreground">
-                        {o.ajuda}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {/* A MESMA grade da folha do painel: o que um oferece, o outro oferece. */}
+            <OpcoesDeDesfecho
+              opcoes={lista}
+              valor={desfecho}
+              onEscolher={setDesfecho}
+              carregando={opcoes.isLoading}
+              erro={opcoes.isError}
+              onTentarDeNovo={() => opcoes.refetch()}
+            />
 
             {/* "Não compareceu" saiu daqui: quem não veio não realizou a
-                atividade. O caminho certo é cancelar, informando o motivo. */}
-            {onNaoCompareceu && (
+                atividade. O caminho certo é cancelar, informando o motivo.
+                Só faz sentido com filiado e em atividade de hora marcada — um
+                prazo ou uma diligência não têm quem "compareça". */}
+            {onNaoCompareceu && semFiliado === false && temHoraMarcada(compromisso.tipo) && (
               <button
                 type="button"
                 onClick={() => { onClose(); onNaoCompareceu(); }}
@@ -555,7 +525,9 @@ export function ConcluirModal({
                   ? 'Observação inicial do processo'
                   : desfecho === 'PRAZO_CUMPRIDO'
                     ? 'O que foi protocolado'
-                    : 'Observação'}
+                    : desfecho === 'PRAZO_SEM_PECA'
+                      ? 'Por que não cabe peça?'
+                      : 'Observação'}
               {exigeObs ? ' *' : <span className="font-normal text-muted-foreground"> (opcional)</span>}
             </label>
             <textarea
@@ -567,7 +539,9 @@ export function ConcluirModal({
                     ? 'O que foi combinado. Vira o primeiro andamento interno do processo.'
                     : desfecho === 'PRAZO_CUMPRIDO'
                       ? 'Ex.: Contestação protocolada em 04/09, protocolo 12345/2026.'
-                      : 'Anote o que for relevante…'
+                      : desfecho === 'PRAZO_SEM_PECA'
+                        ? 'Ex.: Intimação só para ciência; nada a manifestar.'
+                        : 'Anote o que for relevante…'
               }
               value={obs}
               onChange={(e) => setObs(e.target.value)}

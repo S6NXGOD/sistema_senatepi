@@ -64,7 +64,7 @@ export function GuiaRapido({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[60] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
       onClick={onFechar}
       role="presentation"
     >
@@ -75,7 +75,7 @@ export function GuiaRapido({
         aria-modal="true"
         aria-labelledby="guia-rapido-titulo"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-t-2xl bg-card pb-[env(safe-area-inset-bottom)] shadow-2xl outline-none sm:rounded-2xl sm:pb-0"
+        className="w-full max-w-md animate-dialogo-entrar rounded-t-2xl bg-card pb-[env(safe-area-inset-bottom)] shadow-2xl outline-none sm:rounded-2xl sm:pb-0"
       >
         <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
