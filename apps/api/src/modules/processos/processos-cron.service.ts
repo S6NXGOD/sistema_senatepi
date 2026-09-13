@@ -1,12 +1,98 @@
 import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { OrigemSincronizacao } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { AudienciasService } from './audiencias.service';
 import { ProcessosService } from './processos.service';
+import { FONTE_DATAJUD, SincronizacaoLogService } from './sincronizacao-log.service';
 import { pularJobSemModulo } from '../../tenant/job-do-modulo';
 import { integracaoAtiva } from '../../tenant/tenant.config';
+
+/**
+ * O QUE ACONTECEU NUMA RODADA DO DATAJUD — a matéria-prima da linha de resumo.
+ *
+ * `pulada` é a rodada que não começou porque outra detinha a trava.
+ */
+export type RodadaDatajud =
+  | { pulada: true }
+  | {
+      pulada?: false;
+      /** Processos que a varredura se propôs a consultar. */
+      elegiveis: number;
+      ok: number;
+      comNovas: number;
+      novas: number;
+      falhas: number;
+      /** Mensagem do erro que interrompeu a rodada, ou null. */
+      quebrou: string | null;
+    };
+
+/**
+ * A LINHA DE RESUMO DA RODADA DO DATAJUD — rodou, rodou sem alvo, foi pulada.
+ *
+ * O DataJud era a única rotina externa sem linha por rodada: gravava uma linha
+ * por PROCESSO, e só. Uma noite com a trava ocupada ("pulando esta rodada", um
+ * warn que ia só para o stdout) ou sem processo elegível passava sem linha
+ * nenhuma, e o painel só estranhava o silêncio dois dias úteis depois
+ * (auditoria dos robôs, 13/09/2026). DJEN e SICONFI já gravavam; isto devolve a
+ * simetria, e as três respostas deixam de ser o mesmo buraco no log.
+ *
+ * PULADA É SUCESSO, e de propósito. Depois que a releitura da tela ganhou trava
+ * própria, quem pode deter `datajud-sync` às 02:00 é outra réplica fazendo a
+ * mesma varredura — a noite não se perdeu. Gravar falha empurraria a fonte para
+ * INSTÁVEL por uma varredura que aconteceu.
+ *
+ * Função pura: o texto é o que alguém lê ao investigar, então é testado com
+ * valores, não com `toContain` no fonte.
+ */
+export function linhaDeResumoDatajud(r: RodadaDatajud): {
+  sucesso: boolean;
+  mensagemErro: string;
+  novasMovimentacoes: number;
+} {
+  if (r.pulada) {
+    return {
+      sucesso: true,
+      novasMovimentacoes: 0,
+      mensagemErro:
+        'Rodada pulada: outra varredura do DataJud detinha a trava (outra réplica rodando, ou uma rodada interrompida há menos de 3 horas).',
+    };
+  }
+  const tentativas = r.ok + r.falhas;
+  if (r.quebrou) {
+    return {
+      sucesso: false,
+      novasMovimentacoes: r.novas,
+      mensagemErro: `Rodada interrompida: ${r.quebrou} (${tentativas} de ${r.elegiveis} processo(s) consultado(s) antes da quebra).`,
+    };
+  }
+  if (r.elegiveis === 0) {
+    return {
+      sucesso: true,
+      novasMovimentacoes: 0,
+      mensagemErro: 'Rodada sem alvo: nenhum processo elegível para consulta.',
+    };
+  }
+  // Tentou tudo e nada voltou: não é "rodou". É o CNJ, a rede ou a cota.
+  if (tentativas > 0 && r.falhas === tentativas) {
+    return {
+      sucesso: false,
+      novasMovimentacoes: 0,
+      mensagemErro: `Rodada sem resposta: as ${tentativas} consulta(s) falharam.`,
+    };
+  }
+  const novidades = `${r.comNovas} com novidade (${r.novas} movimentação(ões) nova(s))`;
+  return {
+    sucesso: true,
+    novasMovimentacoes: r.novas,
+    mensagemErro:
+      r.falhas > 0
+        ? `Rodada concluída com ${r.falhas} de ${tentativas} consulta(s) em falha; ${r.ok} processo(s) consultado(s), ${novidades}.`
+        : `Rodada concluída: ${r.ok} processo(s) consultado(s), ${novidades}.`,
+  };
+}
 
 /**
  * Robô de sincronização do DATAJUD.
@@ -41,6 +127,7 @@ export class ProcessosCronService {
     private readonly prisma: PrismaService,
     private readonly processos: ProcessosService,
     private readonly audiencias: AudienciasService,
+    private readonly logSync: SincronizacaoLogService,
   ) {}
 
   @Cron('0 2 * * *', { name: 'datajud-sync', timeZone: 'America/Fortaleza' })
@@ -57,13 +144,15 @@ export class ProcessosCronService {
     // Trava no banco, e não em memória: com duas réplicas da API, dois
     // booleanos de instância valeriam `false` ao mesmo tempo e as duas varreriam
     // o acervo em paralelo — o dobro de chamadas ao CNJ.
-    await comTravaDeJob(
+    const rodada = await comTravaDeJob(
       this.prisma,
       JOB_DATAJUD_SYNC,
       this.logger,
       { ttlMinutos: this.TRAVA_TTL_MIN },
       () => this.varrer(),
     );
+    // A rodada que não começou também fica no log — ver `linhaDeResumoDatajud`.
+    if (!rodada.executou) await this.registrarRodada({ pulada: true }, 0);
 
     // Depois da varredura, e fora da trava: se a poda falhar, o que importa
     // (a sincronização) já aconteceu.
@@ -103,21 +192,20 @@ export class ProcessosCronService {
 
   private async varrer() {
     const inicio = Date.now();
+    // Fora do `try`: a linha de resumo do `finally` precisa do que já foi
+    // contado mesmo quando a rodada quebra no meio.
+    const rodada = { elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0, quebrou: null as string | null };
 
     try {
       // Ativos E pendentes: um processo recém-cadastrado (PENDENTE) também
       // precisa receber os andamentos até ser formalizado.
       const ids = await this.processos.idsParaSincronizar();
+      rodada.elegiveis = ids.length;
       const totalLotes = Math.ceil(ids.length / this.TAMANHO_LOTE);
       this.logger.log(
         `[DATAJUD-SYNC] Iniciando varredura de ${ids.length} processo(s) ativo(s)/pendente(s) ` +
           `em ${totalLotes} lote(s) de até ${this.TAMANHO_LOTE}…`,
       );
-
-      let ok = 0;
-      let comNovas = 0;
-      let novasTotal = 0;
-      let falhas = 0;
 
       for (let inicioLote = 0; inicioLote < ids.length; inicioLote += this.TAMANHO_LOTE) {
         const lote = ids.slice(inicioLote, inicioLote + this.TAMANHO_LOTE);
@@ -129,14 +217,14 @@ export class ProcessosCronService {
           const id = lote[i];
           try {
             const { novas } = await this.processos.ressincronizarSilencioso(id);
-            ok++;
+            rodada.ok++;
             if (novas > 0) {
-              comNovas++;
-              novasTotal += novas;
+              rodada.comNovas++;
+              rodada.novas += novas;
               this.logger.log(`[DATAJUD-SYNC] Processo ${id}: ${novas} nova(s) movimentação(ões).`);
             }
           } catch (err) {
-            falhas++;
+            rodada.falhas++;
             // Isola a falha (rate limit, CNJ fora do ar, tribunal desconhecido).
             // O motivo detalhado já foi para `logs_sincronizacao_datajud`.
             this.logger.warn(`[DATAJUD-SYNC] Falha no processo ${id}: ${(err as Error).message}`);
@@ -153,18 +241,45 @@ export class ProcessosCronService {
 
       this.logger.log(
         `[DATAJUD-SYNC] Concluído em ${Math.round((Date.now() - inicio) / 1000)}s — ` +
-          `${ok} sincronizado(s), ${comNovas} com novidades (${novasTotal} mov.), ${falhas} falha(s).`,
+          `${rodada.ok} sincronizado(s), ${rodada.comNovas} com novidades (${rodada.novas} mov.), ` +
+          `${rodada.falhas} falha(s).`,
       );
+    } catch (err) {
+      rodada.quebrou = (err as Error).message;
+      this.logger.error(`[DATAJUD-SYNC] Erro na varredura: ${rodada.quebrou}`);
+    } finally {
+      // Grava até quando quebra — a mesma garantia que o DJEN já dava.
+      await this.registrarRodada(rodada, Date.now() - inicio);
+    }
 
-      // Radar de audiências: as movimentações novas já entraram classificadas.
-      // Este número é o que a equipe vai ver no painel pela manhã — alertas
-      // dispensados NÃO voltam, porque a dispensa mora na própria movimentação
-      // e a sincronização só insere movimentações ausentes.
+    // Radar de audiências: as movimentações novas já entraram classificadas.
+    // Este número é o que a equipe vai ver no painel pela manhã — alertas
+    // dispensados NÃO voltam, porque a dispensa mora na própria movimentação
+    // e a sincronização só insere movimentações ausentes.
+    // Fora do `try` da varredura: contar o radar é leitura de conveniência, e
+    // um erro nela não pode ficar gravado como "rodada interrompida".
+    try {
       const pendentes = await this.audiencias.contarPendentes();
       this.logger.log(`[RADAR-AUDIENCIAS] ${pendentes} audiência(s) aguardando agendamento.`);
     } catch (err) {
-      this.logger.error(`[DATAJUD-SYNC] Erro na varredura: ${(err as Error).message}`);
+      this.logger.warn(`[RADAR-AUDIENCIAS] Não deu para contar: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Uma linha por rodada em `logs_sincronizacao_datajud`, sem processo e sem NPU:
+   * ela fala da RODADA. Quem conta "processos sincronizados" por linha do
+   * DataJud precisa ignorar `processo_id IS NULL AND numero_cnj IS NULL`.
+   */
+  private async registrarRodada(rodada: RodadaDatajud, duracaoMs: number) {
+    await this.logSync.registrar({
+      fonte: FONTE_DATAJUD,
+      origem: OrigemSincronizacao.CRON,
+      processoId: null,
+      numeroCNJ: null,
+      duracaoMs,
+      ...linhaDeResumoDatajud(rodada),
+    });
   }
 
   /** Espera aleatória entre DELAY_MIN e DELAY_MAX para suavizar as rajadas. */

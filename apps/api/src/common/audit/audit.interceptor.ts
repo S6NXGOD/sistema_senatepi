@@ -18,6 +18,28 @@ const METODO_ACAO: Record<string, AcaoAuditoria | undefined> = {
   DELETE: AcaoAuditoria.DELETE,
 };
 
+/** Parâmetro de rota que É a credencial: `:token`, `:qrToken`… */
+const PARAMETRO_CREDENCIAL = /:\w*token\b/i;
+
+/**
+ * A ROTA QUE VAI PARA O REGISTRO — nunca com a credencial dentro (13/09/2026).
+ *
+ * O registro de último recurso gravava `req.originalUrl`, e na área pública do
+ * recadastro a URL É a senha: `POST /api/recadastro/<token>/validar`. A linha
+ * ficava na tela de Auditoria, que um perfil sem ser Administrador lê, com o
+ * link vivo por até 24h. Com ele, qualquer um da equipe gravava o cadastro
+ * como se fosse o filiado.
+ *
+ * Quando o molde da rota tem um parâmetro de credencial, grava-se o MOLDE
+ * (`/api/recadastro/:token/validar`). Vale para toda rota com `:token`, e não
+ * só para o recadastro: a próxima rota pública com token nasce protegida.
+ * Registros antigos não se reescrevem; os links deles vencem em 24h.
+ */
+export function rotaParaRegistro(molde: string | undefined, url: string | undefined): string {
+  if (molde && PARAMETRO_CREDENCIAL.test(molde)) return molde;
+  return url ?? molde ?? '';
+}
+
 /**
  * O REGISTRO DE ÚLTIMO RECURSO.
  *
@@ -58,7 +80,7 @@ export class AuditInterceptor implements NestInterceptor {
           if (jaFoiAuditadoPeloServico()) return;
 
           const caminho: string = req.route?.path ?? req.originalUrl ?? '';
-          const url: string = req.originalUrl ?? caminho;
+          const url: string = rotaParaRegistro(req.route?.path, req.originalUrl);
           // Renovação de token não é ato de ninguém — ver `NAO_AUDITAR`.
           if (!valeAuditar(url)) return;
 

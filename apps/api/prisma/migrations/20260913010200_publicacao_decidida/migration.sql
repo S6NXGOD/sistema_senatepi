@@ -1,0 +1,23 @@
+-- QUEM DECIDIU A PROPOSTA DO ROBÔ, E QUANDO.
+--
+-- "Publicações decididas" no Uso e produtividade deduzia a decisão da tarefa
+-- existir. Medido em 12/09/2026: das publicações que o painel dava como
+-- decididas, 2 viraram tarefa pelas mãos de um advogado, 1 foi ESCALADA pelo
+-- próprio robô (`escalarEsquecidas`) e 0 foram recusadas — e as três contavam
+-- igual, como trabalho de gente. Dedução da ausência é o mesmo erro do alarme
+-- que contradizia o robô: grave a DECISÃO.
+--
+-- Só `aceitar()` e `recusar()` escrevem aqui. A escalada e a varredura não:
+-- não são decisão de ninguém.
+--
+-- SEM BACKFILL, de propósito: não há como saber, olhando o que já existe, se a
+-- tarefa foi aceita por gente ou escalada pelo robô — preencher seria inventar.
+-- O relatório omite a comparação com períodos que começam antes de 13/09/2026.
+--
+-- `tarefa_decidida_por` sem chave estrangeira: é trilha de uso, e apagar a
+-- pessoa não pode travar nem ser travado por isto.
+--
+-- ADITIVA E IDEMPOTENTE: duas colunas nulas; o contêiner antigo continua
+-- aceitando e recusando sem gravá-las durante a janela de troca.
+ALTER TABLE "comunicacoes_djen" ADD COLUMN IF NOT EXISTS "tarefa_decidida_em" TIMESTAMP(3);
+ALTER TABLE "comunicacoes_djen" ADD COLUMN IF NOT EXISTS "tarefa_decidida_por" TEXT;

@@ -37,6 +37,28 @@ export const IMPROCEDENCIA = 220;
 export const PROCEDENCIA_PARCIAL = 221;
 
 /**
+ * RECURSO JULGADO — provido (237), provido em parte (238) ou negado (239).
+ *
+ * O desfecho que o Panorama lê é a SENTENÇA mais recente, e ela não é o
+ * resultado final: medido na produção em 12/09/2026, 49 dos 109 processos
+ * ativos julgados tinham um desses carimbos DEPOIS da última sentença — 16 dos
+ * 30 improcedentes. Uma improcedência reformada por 237 continuava contando
+ * como "sempre contra".
+ *
+ * Não reinterpretamos o acórdão (provido a favor de quem? depende do polo do
+ * recorrente, que o carimbo não diz). Contamos quantos têm recurso julgado
+ * depois, e com isso as leituras de "sempre" calam. É decisão jurídica, curta e
+ * nomeada, como `ASSUNTOS_DE_RITO`.
+ */
+export const RECURSO_JULGADO = [237, 238, 239];
+
+/**
+ * Os status que ainda não são ação ajuizada. Os dois rótulos da mesma fase —
+ * ver o enum `StatusProcesso` — e nunca um literal só.
+ */
+const NAO_AJUIZADO = ['PRE_PROCESSUAL', 'RASCUNHO'];
+
+/**
  * ASSUNTOS QUE SÃO RITO, NÃO PEDIDO — e esta lista salvou a funcionalidade de
  * nascer mentindo.
  *
@@ -107,6 +129,27 @@ export interface Desfechos {
   improcedentes: number;
 }
 
+/**
+ * COMO AS AÇÕES TÊM SIDO JULGADAS — todas as ajuizadas, não só as ativas.
+ *
+ * Os desfechos de fora (`julgados`, `procedentes`…) contam o acervo ATIVO, e
+ * era só isso que o Panorama lia. Só que decidido é justamente o que sai do
+ * ativo: IMPROCEDENTE, GANHO_EXECUCAO e ENCERRADO são status próprios. Medido
+ * em 12/09/2026, ENCERRADO tinha 21 julgados fora da conta. Um réu com três
+ * improcedências ativas e duas procedências já em execução aparecia como
+ * "sempre contrário".
+ *
+ * As duas perguntas ficam separadas: "quantas ações ativas" continua ATIVO (e o
+ * link continua abrindo `status=ATIVO`); "como têm sido julgadas" olha a
+ * história inteira, menos o pré-processual, que nunca foi ajuizado.
+ */
+export interface Historico extends Desfechos {
+  /** Julgados com recurso julgado DEPOIS da última sentença — ver `RECURSO_JULGADO`. */
+  comRecursoDepois: number;
+}
+
+export type TipoDoAdversario = 'JURIDICA' | 'FISICA' | 'ORGAO_PUBLICO';
+
 export interface PedidoRecorrente {
   assunto: string;
   processos: number;
@@ -115,11 +158,17 @@ export interface PedidoRecorrente {
 export interface Concentracao extends Desfechos {
   parteExternaId: string;
   adversario: string;
+  /**
+   * A natureza da parte. Existe para quem imprime: réu pessoa FÍSICA não pode
+   * sair com o nome num papel da diretoria.
+   */
+  tipo: TipoDoAdversario | null;
   processos: number;
   individuais: number;
   desde: string | null;
-  /** Os pedidos que se repetem em três ou mais das ações contra este réu. */
+  /** Os pedidos que se repetem em três ou mais das ações ativas contra este réu. */
   pedidos: PedidoRecorrente[];
+  historico: Historico;
   /** Zero, uma ou duas leituras — nunca uma verdade única. Ver `lerConcentracao`. */
   leituras: LeituraConcentracao[];
 }
@@ -135,11 +184,18 @@ export interface Dispersao extends Desfechos {
   adversarios: number;
   individuais: number;
   desde: string | null;
+  historico: Historico;
   /**
    * Ações distribuídas por ano, do primeiro ao último — inclusive os anos
    * ZERADOS no meio. Sem eles a série mentiria por omissão: 2022 com quatro e
    * 2026 com doze, lado a lado, pareceria crescimento constante mesmo que
    * 2023, 2024 e 2025 não tivessem nenhuma.
+   *
+   * TODAS AS AJUIZADAS, e não só as que continuam ativas. Contando só as
+   * ativas, o ano antigo encolhia por construção — já teve tempo de encerrar —
+   * e a tendência pendia para "crescendo": em 12/09/2026, 2023 aparecia com 18
+   * ações de 27 ajuizadas e 2024 com 12 de 20. É a régua de "Ações ajuizadas
+   * por ano" dos Relatórios, para as duas telas desenharem a mesma série.
    */
   porAno: PorAno[];
 }
@@ -155,20 +211,25 @@ export interface Dispersao extends Desfechos {
  *
  * DESFECHO_SEMPRE_CONTRA é o mais caro de ignorar: cada processo isolado parece
  * azar, e só o conjunto mostra que o argumento não convence aquele juízo.
+ *
+ * O "SEMPRE" LÊ A HISTÓRIA, e cala diante de recurso. O desfecho vem de
+ * `historico` (todas as ajuizadas), porque "sempre" dito sobre as que sobraram
+ * ativas é sempre entre os sobreviventes. E basta UM julgado com recurso
+ * julgado depois para as duas leituras de uniformidade saírem: a sentença não é
+ * o resultado final, e 16 dos 30 improcedentes ativos tinham acórdão posterior.
+ * A leitura de coletiva continua nas ativas — é sobre as ações em curso.
  */
 export function lerConcentracao(c: {
   processos: number;
   individuais: number;
-  julgados: number;
-  procedentes: number;
-  parciais: number;
-  improcedentes: number;
+  historico: Historico;
 }): LeituraConcentracao[] {
   const leituras: LeituraConcentracao[] = [];
-  const decididoBastante = c.julgados >= MINIMO_JULGADOS;
+  const h = c.historico;
+  const podeDizerSempre = h.julgados >= MINIMO_JULGADOS && h.comRecursoDepois === 0;
 
-  if (decididoBastante && c.improcedentes === c.julgados) leituras.push('DESFECHO_SEMPRE_CONTRA');
-  if (decididoBastante && c.procedentes + c.parciais === c.julgados) {
+  if (podeDizerSempre && h.improcedentes === h.julgados) leituras.push('DESFECHO_SEMPRE_CONTRA');
+  if (podeDizerSempre && h.procedentes + h.parciais === h.julgados) {
     leituras.push('DESFECHO_SEMPRE_A_FAVOR');
   }
   if (c.individuais > c.processos / 2) leituras.push('COLETIVA_POSSIVEL');
@@ -176,40 +237,34 @@ export function lerConcentracao(c: {
   return leituras.length ? leituras : ['REINCIDENCIA'];
 }
 
-interface LinhaConcentracao {
-  parteExternaId: string;
-  adversario: string;
-  processos: number;
-  individuais: number;
-  julgados: number;
-  procedentes: number;
-  parciais: number;
-  improcedentes: number;
-  desde: Date | null;
+/**
+ * UM PROCESSO AJUIZADO, como sai de `baseDoAcervo`: uma linha por processo, com
+ * o adversário escolhido e o desfecho atual. Toda a conta do Panorama sai
+ * destas linhas e dos temas — em memória, por uma função pura, para a régua dos
+ * status e do recurso poder ser provada com fixture em vez de lida no SQL.
+ *
+ * O custo é baixo e medido: o acervo inteiro são poucas centenas de processos e
+ * perto de mil pares processo–assunto.
+ */
+export interface LinhaDoAcervo {
+  processoId: string;
+  status: string;
+  tipoAcao: string;
+  /** Ano de distribuição pela mesma conta dos Relatórios; nulo sem data. */
+  ano: number | null;
+  dataDistribuicao: Date | null;
+  parteExternaId: string | null;
+  adversario: string | null;
+  tipoAdversario: string | null;
+  /** Código da sentença mais recente (219/220/221), nulo se não houve. */
+  julgamento: number | null;
+  /** Recurso julgado (237/238/239) depois dessa sentença. */
+  recursoDepois: boolean;
 }
 
-interface LinhaPedido {
-  parteExternaId: string;
+export interface TemaDoProcesso {
+  processoId: string;
   assunto: string;
-  processos: number;
-}
-
-interface LinhaPorAno {
-  assunto: string;
-  ano: number;
-  processos: number;
-}
-
-interface LinhaDispersao {
-  assunto: string;
-  processos: number;
-  adversarios: number;
-  individuais: number;
-  julgados: number;
-  procedentes: number;
-  parciais: number;
-  improcedentes: number;
-  desde: Date | null;
 }
 
 /**
@@ -230,12 +285,159 @@ export function serieCompleta(linhas: { ano: number; processos: number }[]): Por
   return serie;
 }
 
+const ehAtivo = (l: LinhaDoAcervo) => l.status === 'ATIVO';
+const SENTENCAS = [PROCEDENCIA, IMPROCEDENCIA, PROCEDENCIA_PARCIAL];
+const TIPOS_DE_ADVERSARIO: TipoDoAdversario[] = ['JURIDICA', 'FISICA', 'ORGAO_PUBLICO'];
+
+/** Procedentes, parciais e improcedentes de um conjunto de processos. */
+export function desfechosDe(linhas: LinhaDoAcervo[]): Desfechos {
+  const julgadas = linhas.filter((l) => l.julgamento !== null && SENTENCAS.includes(l.julgamento));
+  const com = (codigo: number) => julgadas.filter((l) => l.julgamento === codigo).length;
+  return {
+    julgados: julgadas.length,
+    procedentes: com(PROCEDENCIA),
+    parciais: com(PROCEDENCIA_PARCIAL),
+    improcedentes: com(IMPROCEDENCIA),
+  };
+}
+
+/**
+ * O histórico de um conjunto: os desfechos de TODAS as ajuizadas, e quantas
+ * delas tiveram recurso julgado depois da sentença.
+ */
+export function historicoDe(linhas: LinhaDoAcervo[]): Historico {
+  const ajuizadas = linhas.filter((l) => !NAO_AJUIZADO.includes(l.status));
+  return {
+    ...desfechosDe(ajuizadas),
+    comRecursoDepois: ajuizadas.filter(
+      (l) => l.julgamento !== null && SENTENCAS.includes(l.julgamento) && l.recursoDepois,
+    ).length,
+  };
+}
+
+/** A distribuição mais antiga, como data pura. */
+function desdeDe(linhas: LinhaDoAcervo[]): string | null {
+  const datas = linhas
+    .map((l) => l.dataDistribuicao?.getTime())
+    .filter((t): t is number => typeof t === 'number' && Number.isFinite(t));
+  return datas.length ? new Date(Math.min(...datas)).toISOString().slice(0, 10) : null;
+}
+
+const porNome = (a: string, b: string) => a.localeCompare(b, 'pt-BR');
+
+/**
+ * OS DOIS PADRÕES, a partir das linhas do acervo e dos temas.
+ *
+ * QUEM ENTRA continua decidido pelo acervo ATIVO — pisos, pedidos repetidos,
+ * réus distintos —, porque os cartões dizem "N ações ativas" e o link abre
+ * `status=ATIVO`. O que muda é a pergunta sobre o passado: `historico` e a
+ * série por ano olham todas as ajuizadas.
+ */
+export function montarPadroes(
+  linhasBrutas: LinhaDoAcervo[],
+  temasBrutos: TemaDoProcesso[],
+): { concentracoes: Concentracao[]; dispersoes: Dispersao[] } {
+  // Uma linha por processo, mesmo que a consulta repita alguma.
+  const processos = new Map<string, LinhaDoAcervo>();
+  for (const l of linhasBrutas) {
+    if (!NAO_AJUIZADO.includes(l.status) && !processos.has(l.processoId)) processos.set(l.processoId, l);
+  }
+  const linhas = [...processos.values()];
+
+  const temasDe = new Map<string, Set<string>>();
+  const processosDoTema = new Map<string, Set<string>>();
+  for (const t of temasBrutos) {
+    const assunto = t.assunto?.trim();
+    if (!assunto || !processos.has(t.processoId)) continue;
+    temasDe.set(t.processoId, (temasDe.get(t.processoId) ?? new Set()).add(assunto));
+    processosDoTema.set(assunto, (processosDoTema.get(assunto) ?? new Set()).add(t.processoId));
+  }
+
+  const individuais = (ls: LinhaDoAcervo[]) => ls.filter((l) => l.tipoAcao === 'INDIVIDUAL').length;
+
+  /* O MESMO RÉU, O MESMO PEDIDO. */
+  const doReu = new Map<string, LinhaDoAcervo[]>();
+  for (const l of linhas) {
+    if (!l.parteExternaId) continue;
+    doReu.set(l.parteExternaId, [...(doReu.get(l.parteExternaId) ?? []), l]);
+  }
+
+  const concentracoes: Concentracao[] = [];
+  for (const [parteExternaId, todas] of doReu) {
+    const ativas = todas.filter(ehAtivo);
+    if (ativas.length < MINIMO_CONCENTRACAO) continue;
+
+    const porPedido = new Map<string, number>();
+    for (const l of ativas) {
+      for (const assunto of temasDe.get(l.processoId) ?? []) {
+        porPedido.set(assunto, (porPedido.get(assunto) ?? 0) + 1);
+      }
+    }
+    /*
+      SÓ ENTRA QUEM TEM PEDIDO REPETIDO. Sem isso, esta lista seria a mesma do
+      bloco "Contra quem litigamos" do painel, com mais colunas. O que faz disto
+      um padrão não é "temos cinco ações contra a Hapvida" — é "temos a MESMA
+      ação contra a Hapvida cinco vezes".
+    */
+    const pedidos = [...porPedido]
+      .filter(([, n]) => n >= MINIMO_PEDIDO_RECORRENTE)
+      .map(([assunto, n]) => ({ assunto, processos: n }))
+      .sort((a, b) => b.processos - a.processos || porNome(a.assunto, b.assunto));
+    if (!pedidos.length) continue;
+
+    const tipo = todas[0].tipoAdversario as TipoDoAdversario | null;
+    const historico = historicoDe(todas);
+    const base = { processos: ativas.length, individuais: individuais(ativas), historico };
+    concentracoes.push({
+      parteExternaId,
+      adversario: todas[0].adversario ?? '',
+      tipo: tipo && TIPOS_DE_ADVERSARIO.includes(tipo) ? tipo : null,
+      ...base,
+      ...desfechosDe(ativas),
+      desde: desdeDe(ativas),
+      pedidos,
+      leituras: lerConcentracao(base),
+    });
+  }
+  concentracoes.sort((a, b) => b.processos - a.processos || porNome(a.adversario, b.adversario));
+
+  /* O MESMO PEDIDO, MUITOS RÉUS. */
+  const dispersoes: Dispersao[] = [];
+  for (const [assunto, ids] of processosDoTema) {
+    const todas = [...ids].map((id) => processos.get(id) as LinhaDoAcervo);
+    const ativas = todas.filter(ehAtivo);
+    if (ativas.length < MINIMO_DISPERSAO_PROCESSOS) continue;
+    const reus = new Set(ativas.map((l) => l.parteExternaId).filter(Boolean));
+    if (reus.size < MINIMO_DISPERSAO_ADVERSARIOS) continue;
+
+    const porAno = new Map<number, number>();
+    for (const l of todas) {
+      if (l.ano === null || !Number.isFinite(l.ano)) continue;
+      porAno.set(l.ano, (porAno.get(l.ano) ?? 0) + 1);
+    }
+
+    dispersoes.push({
+      assunto,
+      processos: ativas.length,
+      adversarios: reus.size,
+      individuais: individuais(ativas),
+      ...desfechosDe(ativas),
+      desde: desdeDe(ativas),
+      historico: historicoDe(todas),
+      porAno: serieCompleta([...porAno].map(([ano, n]) => ({ ano, processos: n }))),
+    });
+  }
+  dispersoes.sort((a, b) => b.processos - a.processos || porNome(a.assunto, b.assunto));
+
+  return { concentracoes, dispersoes };
+}
+
 @Injectable()
 export class PadroesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * O acervo ATIVO, agrupado de duas formas.
+   * O acervo ATIVO, agrupado de duas formas — com o histórico ao lado.
    *
    * Sem recorte por advogado, de propósito: o padrão só existe olhando o acervo
    * inteiro. Três ações sobre greve divididas entre dois advogados são
@@ -252,115 +454,39 @@ export class PadroesService {
     geradoEm: string;
   }> {
     const base = this.comBase(tenant.cnpj.replace(/\D/g, ''));
+    const naoAjuizado = Prisma.join(NAO_AJUIZADO);
 
-    const [concentracoesRaw, pedidosRaw, dispersoesRaw, porAnoRaw, acervoAtivo, nossoPapel] =
-      await Promise.all([
-      this.prisma.$queryRaw<LinhaConcentracao[]>(Prisma.sql`
+    const [linhas, temas, acervoAtivo, nossoPapel] = await Promise.all([
+      this.prisma.$queryRaw<LinhaDoAcervo[]>(Prisma.sql`
         ${base}
-        SELECT a.parte_externa_id                 AS "parteExternaId",
-               coalesce(a.nome_fantasia, a.nome)  AS adversario,
-               count(DISTINCT p.id)::int          AS processos,
-               count(DISTINCT p.id) FILTER (WHERE p.tipo_acao = 'INDIVIDUAL')::int AS individuais,
-               count(DISTINCT j.processo_id)::int AS julgados,
-               count(DISTINCT p.id) FILTER (WHERE j.codigo = ${PROCEDENCIA})::int         AS procedentes,
-               count(DISTINCT p.id) FILTER (WHERE j.codigo = ${PROCEDENCIA_PARCIAL})::int AS parciais,
-               count(DISTINCT p.id) FILTER (WHERE j.codigo = ${IMPROCEDENCIA})::int       AS improcedentes,
-               min(p.data_distribuicao)           AS desde
+        SELECT p.id                                        AS "processoId",
+               p.status_interno::text                      AS status,
+               p.tipo_acao::text                           AS "tipoAcao",
+               EXTRACT(YEAR FROM p.data_distribuicao)::int AS ano,
+               p.data_distribuicao                         AS "dataDistribuicao",
+               a.parte_externa_id                          AS "parteExternaId",
+               coalesce(a.nome_fantasia, a.nome)           AS adversario,
+               a.tipo                                      AS "tipoAdversario",
+               j.codigo                                    AS julgamento,
+               coalesce(j.recurso_depois, false)           AS "recursoDepois"
         FROM processos p
-        JOIN adversario a ON a.processo_id = p.id
-        LEFT JOIN julgamento j ON j.processo_id = p.id
-        WHERE p.status_interno = 'ATIVO'
-        GROUP BY 1, 2
-        HAVING count(DISTINCT p.id) >= ${MINIMO_CONCENTRACAO}
-        ORDER BY count(DISTINCT p.id) DESC, 2
-      `),
-      /**
-       * Os pedidos que se repetem, por réu. Consulta separada porque juntá-la à
-       * de cima multiplicaria as linhas: cinco ações da Hapvida com quatro
-       * assuntos cada apareceriam como quatro "padrões" da mesma situação. O
-       * padrão é o RÉU; os pedidos são o que ele tem dentro.
-       */
-      this.prisma.$queryRaw<LinhaPedido[]>(Prisma.sql`
-        ${base}
-        SELECT a.parte_externa_id AS "parteExternaId",
-               t.assunto          AS assunto,
-               count(DISTINCT p.id)::int AS processos
-        FROM processos p
-        JOIN adversario a ON a.processo_id = p.id
-        JOIN tema t ON t.processo_id = p.id
-        WHERE p.status_interno = 'ATIVO'
-        GROUP BY 1, 2
-        HAVING count(DISTINCT p.id) >= ${MINIMO_PEDIDO_RECORRENTE}
-        ORDER BY count(DISTINCT p.id) DESC, 2
-      `),
-      this.prisma.$queryRaw<LinhaDispersao[]>(Prisma.sql`
-        ${base}
-        SELECT t.assunto                          AS assunto,
-               count(DISTINCT p.id)::int          AS processos,
-               count(DISTINCT a.parte_externa_id)::int AS adversarios,
-               count(DISTINCT p.id) FILTER (WHERE p.tipo_acao = 'INDIVIDUAL')::int AS individuais,
-               count(DISTINCT j.processo_id)::int AS julgados,
-               count(DISTINCT p.id) FILTER (WHERE j.codigo = ${PROCEDENCIA})::int         AS procedentes,
-               count(DISTINCT p.id) FILTER (WHERE j.codigo = ${PROCEDENCIA_PARCIAL})::int AS parciais,
-               count(DISTINCT p.id) FILTER (WHERE j.codigo = ${IMPROCEDENCIA})::int       AS improcedentes,
-               min(p.data_distribuicao)           AS desde
-        FROM processos p
-        JOIN tema t ON t.processo_id = p.id
         LEFT JOIN adversario a ON a.processo_id = p.id
         LEFT JOIN julgamento j ON j.processo_id = p.id
-        WHERE p.status_interno = 'ATIVO'
-        GROUP BY 1
-        HAVING count(DISTINCT p.id) >= ${MINIMO_DISPERSAO_PROCESSOS}
-           AND count(DISTINCT a.parte_externa_id) >= ${MINIMO_DISPERSAO_ADVERSARIOS}
-        ORDER BY count(DISTINCT p.id) DESC
+        WHERE p.status_interno::text NOT IN (${naoAjuizado})
       `),
-      /**
-       * A SÉRIE POR ANO de cada assunto. Consulta à parte pelo mesmo motivo dos
-       * pedidos: junta à de cima, cada assunto viraria uma linha por ano e as
-       * contagens de processo sairiam multiplicadas.
-       */
-      this.prisma.$queryRaw<LinhaPorAno[]>(Prisma.sql`
+      this.prisma.$queryRaw<TemaDoProcesso[]>(Prisma.sql`
         ${base}
-        SELECT t.assunto AS assunto,
-               EXTRACT(YEAR FROM p.data_distribuicao)::int AS ano,
-               count(DISTINCT p.id)::int AS processos
-        FROM processos p
-        JOIN tema t ON t.processo_id = p.id
-        WHERE p.status_interno = 'ATIVO' AND p.data_distribuicao IS NOT NULL
-        GROUP BY 1, 2
-        ORDER BY 1, 2
+        SELECT t.processo_id AS "processoId", t.assunto AS assunto
+        FROM tema t
+        JOIN processos p ON p.id = t.processo_id
+        WHERE p.status_interno::text NOT IN (${naoAjuizado})
       `),
       this.prisma.processo.count({ where: { statusInterno: 'ATIVO' } }),
       this.deQueLadoEstamos(),
     ]);
 
-    const pedidosPorReu = new Map<string, PedidoRecorrente[]>();
-    for (const linha of pedidosRaw) {
-      const lista = pedidosPorReu.get(linha.parteExternaId) ?? [];
-      lista.push({ assunto: linha.assunto, processos: linha.processos });
-      pedidosPorReu.set(linha.parteExternaId, lista);
-    }
-
     return {
-      /**
-       * SÓ ENTRA QUEM TEM PEDIDO REPETIDO. Sem isso, esta lista seria a mesma
-       * do bloco "Contra quem litigamos" do painel, com mais colunas. O que faz
-       * disto um padrão não é "temos cinco ações contra a Hapvida" — é "temos a
-       * MESMA ação contra a Hapvida cinco vezes".
-       */
-      concentracoes: concentracoesRaw
-        .filter((c) => (pedidosPorReu.get(c.parteExternaId) ?? []).length > 0)
-        .map((c) => ({
-          ...c,
-          desde: c.desde ? c.desde.toISOString().slice(0, 10) : null,
-          pedidos: pedidosPorReu.get(c.parteExternaId) ?? [],
-          leituras: lerConcentracao(c),
-        })),
-      dispersoes: dispersoesRaw.map((d) => ({
-        ...d,
-        desde: d.desde ? d.desde.toISOString().slice(0, 10) : null,
-        porAno: serieCompleta(porAnoRaw.filter((a) => a.assunto === d.assunto)),
-      })),
+      ...montarPadroes(linhas, temas),
       nossoPapel,
       acervoAtivo,
       geradoEm: new Date().toISOString(),
@@ -371,9 +497,9 @@ export class PadroesService {
    * DE QUE LADO A ENTIDADE ESTÁ — e são três respostas, não duas.
    *
    * Medido em 04/09/2026 sobre os 127 processos: AUTOR em 93, REPRESENTANDO em
-   * 31 (o filiado é a parte e o sindicato é o patrono) e RÉU em 3. As três
-   * somam exatamente o acervo, sem sobreposição — é a partição, não uma
-   * amostra.
+   * 31 (o filiado é a parte e o sindicato é o patrono) e RÉU em 3. Não somam o
+   * acervo à força: processo sem parte nenhuma não entra em "representando", e
+   * o sindicato como TERCEIRO não entra em nenhum dos três.
    *
    * A terceira categoria é a esquecida e é a segunda maior: "processo do
    * sindicato" e "processo que o sindicato conduz" são coisas diferentes, e a
@@ -411,47 +537,76 @@ export class PadroesService {
     return { autor, reu, representando };
   }
 
-  /**
-   * As três CTEs que as duas consultas compartilham.
-   *
-   * `adversario` devolve UM por processo: o marcado como principal, senão o
-   * primeiro por nome. Medido: 96 dos 105 processos ativos têm um adversário só,
-   * e 102 das 112 partes adversas estão marcadas como principal. Contar o
-   * processo sob CADA corréu seria verdade linha a linha e inventaria padrão no
-   * agregado — a mesma ação apareceria como duas contra empresas do mesmo grupo.
-   *
-   * `tema` são os assuntos de mérito, TODOS eles e não só o principal. O CNJ
-   * marca como principal o que quiser: das 24 vezes em que "Piso Salarial da
-   * Categoria" aparece no acervo, só 11 são como principal. Usar o principal
-   * jogaria fora mais da metade do sinal. Os treze códigos de rito ficam de fora
-   * — ver `ASSUNTOS_DE_RITO`.
-   *
-   * `julgamento` devolve o desfecho ATUAL: o julgamento mais recente. Três
-   * processos do acervo têm dois julgamentos (primeiro grau e recurso), e somar
-   * os dois contaria uma improcedência já reformada como se ainda valesse.
-   */
   private comBase(cnpj: string): Prisma.Sql {
     return baseDoAcervo(cnpj);
   }
 }
 
 /**
- * As mesmas CTEs, fora da classe: o relatório conta adversários e assuntos com
- * a régua do Panorama. Duas cópias desta consulta discordariam sobre quem é o
- * réu de um processo — e a leitura de cada tela ficaria em dúvida.
+ * As CTEs do acervo, fora da classe: o relatório conta adversários e assuntos
+ * com a régua do Panorama. Duas cópias desta consulta discordariam sobre quem é
+ * o réu de um processo — e a leitura de cada tela ficaria em dúvida.
+ *
+ * `nosso` é o sindicato: a FLAG `institucional` — a mesma de "De que lado
+ * estamos" — ou o CNPJ do tenant. Era só o CNPJ, e bastava a linha
+ * institucional estar sem documento (ou com outro) para o próprio sindicato
+ * virar o "réu" de metade do acervo, enquanto os três cartões de papel o
+ * achavam pela flag.
+ *
+ * `lado` é o polo de quem representamos em cada processo: o do sindicato, e,
+ * sem ele entre as partes, o da parte ligada a um filiado. TERCEIRO não define
+ * lado — sindicato assistente não diz quem é o adversário.
+ *
+ * `adversario` devolve UM por processo, do polo OPOSTO ao `lado`; sem lado, o
+ * PASSIVO; nunca um TERCEIRO; sem candidato, nenhum. É a régua de
+ * `adversarioDoProcesso` do painel. Antes escolhia "a principal, senão a
+ * primeira por nome" sem olhar polo: numa ação CONTRA o sindicato o "réu" era o
+ * autor, e o MPT ou o perito cadastrados como terceiro podiam ser o escolhido.
+ * Um por processo continua valendo: 96 dos 105 processos ativos têm um
+ * adversário só, e contar sob CADA corréu inventaria padrão no agregado — a
+ * mesma ação apareceria como duas contra empresas do mesmo grupo. Só entra
+ * parte CADASTRADA (com `parte_externa_id`): o padrão agrupa pelo cadastro.
+ *
+ * `tema` são os assuntos de mérito, TODOS eles e não só o principal. O CNJ
+ * marca como principal o que quiser: das 24 vezes em que "Piso Salarial da
+ * Categoria" aparece no acervo, só 11 são como principal. Os treze códigos de
+ * rito ficam de fora — ver `ASSUNTOS_DE_RITO`.
+ *
+ * `julgamento` é a SENTENÇA mais recente de cada processo — somar primeiro grau
+ * e recurso contaria duas vezes o mesmo caso — e diz se houve recurso julgado
+ * depois dela (`recurso_depois`), porque a sentença não é o resultado final.
+ * CTE que a consulta não cita o Postgres não executa: os Relatórios, que só
+ * usam `adversario` e `tema`, não pagam por ela.
  */
 export function baseDoAcervo(cnpj: string): Prisma.Sql {
     return Prisma.sql`
       WITH nosso AS (
-        SELECT id FROM partes_externas WHERE documento = ${cnpj}
+        SELECT id FROM partes_externas
+        WHERE institucional = true
+           OR (${cnpj} <> '' AND documento = ${cnpj})
+      ),
+      lado AS (
+        SELECT DISTINCT ON (pp.processo_id)
+               pp.processo_id, pp.polo
+        FROM partes_processo pp
+        WHERE pp.polo <> 'TERCEIRO'
+          AND (pp.filiado_id IS NOT NULL
+               OR EXISTS (SELECT 1 FROM nosso n WHERE n.id = pp.parte_externa_id))
+        ORDER BY pp.processo_id,
+                 EXISTS (SELECT 1 FROM nosso n WHERE n.id = pp.parte_externa_id) DESC,
+                 pp.principal DESC,
+                 pp.polo
       ),
       adversario AS (
         SELECT DISTINCT ON (pp.processo_id)
-               pp.processo_id, pp.parte_externa_id, pe.nome, pe.nome_fantasia
+               pp.processo_id, pp.parte_externa_id, pe.nome, pe.nome_fantasia, pe.tipo::text AS tipo
         FROM partes_processo pp
         JOIN partes_externas pe ON pe.id = pp.parte_externa_id
+        LEFT JOIN lado l ON l.processo_id = pp.processo_id
         WHERE pp.parte_externa_id IS NOT NULL
           AND pp.parte_externa_id NOT IN (SELECT id FROM nosso)
+          AND pp.polo <> 'TERCEIRO'
+          AND CASE WHEN l.polo IS NULL THEN pp.polo = 'PASSIVO' ELSE pp.polo <> l.polo END
         ORDER BY pp.processo_id, pp.principal DESC, pe.nome
       ),
       tema AS (
@@ -462,7 +617,13 @@ export function baseDoAcervo(cnpj: string): Prisma.Sql {
       ),
       julgamento AS (
         SELECT DISTINCT ON (m.processo_id)
-               m.processo_id, m.codigo_movimento AS codigo, m.data_movimento
+               m.processo_id, m.codigo_movimento AS codigo, m.data_movimento,
+               EXISTS (
+                 SELECT 1 FROM movimentacoes_processuais r
+                 WHERE r.processo_id = m.processo_id
+                   AND r.codigo_movimento IN (${Prisma.join(RECURSO_JULGADO)})
+                   AND r.data_movimento > m.data_movimento
+               ) AS recurso_depois
         FROM movimentacoes_processuais m
         WHERE m.codigo_movimento IN (${PROCEDENCIA}, ${IMPROCEDENCIA}, ${PROCEDENCIA_PARCIAL})
         ORDER BY m.processo_id, m.data_movimento DESC

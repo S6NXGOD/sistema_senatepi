@@ -1,0 +1,18 @@
+-- O LINK DA CHAMADA TEM LUGAR PRÓPRIO.
+--
+-- Medido na produção em 12/09/2026: 3 atendimentos falam em "chamada de vídeo"
+-- e as audiências já aparecem como "Videoconferência" — e o endereço da
+-- chamada, quando existe, está perdido no meio da descrição. Quem abre a
+-- atividade na hora marcada tem de caçar o link no texto.
+--
+-- Decisão (D11): vídeo NÃO é canal do atendimento; é a MODALIDADE da consulta.
+-- O `local` diz "Por chamada de vídeo" e o link mora nesta coluna, para a tela
+-- oferecer "Entrar na chamada" num toque.
+--
+-- TEXT sem teto no banco: quem limita (https obrigatório, até 500 caracteres)
+-- é `normalizarLinkReuniao`, a única porta de escrita. O teto de produto muda
+-- mais do que o schema deveria.
+--
+-- ADITIVA E IDEMPOTENTE: coluna nula; o contêiner antigo a ignora na janela de
+-- troca do deploy.
+ALTER TABLE "compromissos" ADD COLUMN IF NOT EXISTS "link_reuniao" TEXT;

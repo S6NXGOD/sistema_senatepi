@@ -13,9 +13,6 @@ import {
   TipoDependente,
 } from '@prisma/client';
 
-// Slugs dos tipos de evento usados nos KPIs (correspondem aos tipos "sistema").
-const TIPO_PRAZO = 'PRAZO';
-const TIPO_AUDIENCIA = 'AUDIENCIA';
 import { PrismaService } from '../../prisma/prisma.service';
 import { integracaoAtiva, tenant } from '../../tenant/tenant.config';
 import { PRE_PROCESSUAIS } from '../processos/processos.service';
@@ -31,6 +28,19 @@ import { ultimoUsoReal, ultimosUsosReais } from './ultimo-acesso.util';
 import {
   daPessoa, motivoParaAvisarAEquipe, ondeSouReserva, porQueAEquipePrecisa, type AvisoParaAEquipe,
 } from '../agenda/equipe.util';
+import { limitesDoDia, recorteAberto } from '../agenda/recortes.util';
+import { SELECT_CONSULTA_DO_ENCAMINHAMENTO } from '../atendimentos/encaminhamento.util';
+import { SELECAO_DAS_ABERTAS, contarAbertasPorPessoa } from '../relatorios/abertas-da-pessoa.util';
+import {
+  LINHA_QUE_PROVA_QUE_RODOU,
+  PREFIXO_RODADA_SEM_ALVO,
+  SO_CHAMADAS_AO_TRIBUNAL,
+  cartaoDeAtendimentosPendentes,
+  emOrdemAlfabetica,
+  itemDoCadastroACompletar,
+  wheresDoPainel,
+  type LinhaDoCadastroACompletar,
+} from './painel.regras';
 
 // Brasil não adota horário de verão desde 2019 → offset fixo UTC-3. Usamos isto
 // para calcular "hoje/esta semana" pelo relógio de Teresina, e não pelo do
@@ -187,16 +197,20 @@ export function nossoPolo(
   return nossa.polo === 'ATIVO' || nossa.polo === 'PASSIVO' ? nossa.polo : null;
 }
 
-/** Meia-noite (instante real) do dia de `base` no fuso de Brasília. */
-function inicioDoDiaBR(base: Date): Date {
-  const br = new Date(base.getTime() - OFFSET_BR);
-  return new Date(Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), br.getUTCDate()) + OFFSET_BR);
-}
-
 /** Data-only (UTC 00:00) do dia de `base` em Brasília — casa com colunas @db.Date. */
 function dateOnlyBR(base: Date): Date {
   const br = new Date(base.getTime() - OFFSET_BR);
   return new Date(Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), br.getUTCDate()));
+}
+
+/**
+ * A consulta só roda com acesso ao módulo; sem ele, lista vazia — do MESMO tipo.
+ *
+ * `cond ? Promise.resolve([]) : consulta` faz o TypeScript ler o vazio como
+ * `never[]`, e o primeiro acesso a um campo do item deixa de compilar.
+ */
+function seTiverAcesso<T>(acesso: boolean, consulta: () => Promise<T[]>): Promise<T[]> {
+  return acesso ? consulta() : Promise.resolve([]);
 }
 
 /** Compromissos abertos (pendentes ou em andamento). */
@@ -294,6 +308,32 @@ const compSelect = {
       partes: { select: { nome: true, polo: true }, orderBy: PARTE_ORDER },
     },
   },
+  /** O link da chamada, quando a consulta é por vídeo (C4). */
+  linkReuniao: true,
+  /**
+   * A TAREFA "CADASTRAR AÇÃO DO DIÁRIO" leva o NPU que falta no acervo (C7).
+   *
+   * Com ele o gesto da linha é cadastrar, e não concluir: fechar como
+   * "Cumprida" deixava a ação na fila de "Ações sem cadastro" e a agenda dizia
+   * que estava feito — e `fecharTarefaDeCadastro` não corrige tarefa já fechada.
+   */
+  sugestaoDeCadastro: { select: { numeroCNJ: true } },
+} as const;
+
+/**
+ * O MESMO CARTÃO PARA QUEM NÃO TEM O MÓDULO DE PROCESSOS — sem as partes e sem a
+ * ação a cadastrar.
+ *
+ * A Triagem tem `processos: SEM_ACESSO` no preset, e as listas de atividade
+ * mandavam para ela quem litiga em cada caso. É o corte que a agenda já faz na
+ * listagem desde 13/09/2026 (`cardSelectSemPartes`): saber contra quem é o
+ * processo é dado de Processos. O NPU da ação nova também sai — o link
+ * "Cadastrar" levaria a uma tela que ela não abre.
+ */
+const compSelectSemProcessos = {
+  ...compSelect,
+  processo: { select: { id: true, numeroCNJ: true, titulo: true } },
+  sugestaoDeCadastro: false,
 } as const;
 
 @Injectable()
@@ -322,9 +362,8 @@ export class DashboardService {
 
   async resumo(user: AuthUser) {
     const agora = new Date();
-    const hojeIni = inicioDoDiaBR(agora);
-    const hojeFim = new Date(hojeIni.getTime() + DIA_MS);
-    const em7dias = new Date(agora.getTime() + 7 * DIA_MS);
+    // O dia de Teresina, pela mesma função dos recortes da agenda.
+    const { hojeIni, hojeFim } = limitesDoDia(agora);
     /**
      * Janela do bloco de publicações. Sete dias e não três (a janela do cron):
      * o painel é lido às segundas, e três dias esconderiam o que chegou na
@@ -370,6 +409,17 @@ export class DashboardService {
      */
     const veAgenda = nivelEfetivo(user.role, user.permissoes, 'agenda') !== 'SEM_ACESSO';
     /**
+     * O PLANTÃO TAMBÉM SE CORTA NO SERVIDOR.
+     *
+     * `equipeHoje` ia para todo mundo, e quem escondia o cartão era o
+     * `pode.escalas` da tela — a mesma contradição que `veAgenda` corrigiu
+     * (auditoria das escalas, 12/09/2026). O preset da Triagem é SEM_ACESSO; na
+     * produção ela tem a escala na matriz própria e continua recebendo.
+     */
+    const veEscalas = nivelEfetivo(user.role, user.permissoes, 'escalas') !== 'SEM_ACESSO';
+    /** A lista de atendimentos pendentes é dado do módulo de atendimentos; o contador continua. */
+    const veAtendimentos = nivelEfetivo(user.role, user.permissoes, 'atendimentos') !== 'SEM_ACESSO';
+    /**
      * Escopo pessoal do advogado: suas atividades e sua carteira. Demais perfis
      * enxergam a operação inteira.
      *
@@ -388,6 +438,10 @@ export class DashboardService {
       `alertas`.
     */
     const meu: Prisma.CompromissoWhereInput = souAdvogado ? daPessoa(user.id) : {};
+    /** O que cada número conta é o que o link dele abre na agenda — ver `wheresDoPainel`. */
+    const painel = wheresDoPainel(meu, agora);
+    /** As listas de atividade, sem as partes para quem não vê Processos. */
+    const cartao = veProcessos ? compSelect : compSelectSemProcessos;
 
     /**
      * O ACERVO DO ADVOGADO — mesma régua do filtro "meus" da tela de
@@ -482,11 +536,12 @@ export class DashboardService {
       atrasadasCount,
       passaramDaHoraCount,
       semMovimentacaoCount,
-      urgentesSemanaCount,
+      urgentesEmAbertoCount,
       // Listas
       atividadesHoje,
       proximasAtividades,
       audienciasSemana,
+      audienciasSemanaTotal,
       pendenciasAtivas,
       atendimentosPendentes,
       movimentacoesRecentes,
@@ -508,11 +563,10 @@ export class DashboardService {
       processosMonitorados,
       // Qualidade do dado e painéis por perfil
       filiadosSemDataFiliacao,
-      cargaPorAdvogadoRaw,
-      atrasadasPorAdvogadoRaw,
+      abertasDaEquipeRaw,
       contatosHoje,
       aniversariantes,
-      cadastrosACompletar,
+      cadastros,
       tempoMedioTriagem,
       saudeSincronizacao,
       // Saúde e conteúdo do robô do DJEN (publicações)
@@ -546,14 +600,12 @@ export class DashboardService {
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
       this.prisma.filiado.count(),
       this.prisma.filiado.count({ where: { dataFiliacao: { gte: inicioMes, lte: agora } } }),
-      this.prisma.compromisso.count({
-        where: {
-          ...meu,
-          status: ABERTOS,
-          tipo: { in: [TIPO_PRAZO, TIPO_AUDIENCIA] },
-          inicio: { gte: hojeIni, lt: em7dias },
-        },
-      }),
+      /*
+        "PRAZOS ESTA SEMANA" É A ABA 7 DIAS FILTRADA EM PRAZO — que é o link do
+        cartão. Somava audiência e só contava início a partir de hoje: o número
+        dizia uma coisa e o clique mostrava outra (auditoria de 12/09/2026).
+      */
+      this.prisma.compromisso.count({ where: painel.prazosSemana }),
       /*
         ATRASADA = FICOU PARA TRÁS, o dia já virou. Era `inicio < agora`.
 
@@ -568,22 +620,19 @@ export class DashboardService {
         hora passada virou o contador de baixo — informação, não alarme. Ver
         `estadoDoPrazo` em `lib/agenda.ts` (web) para o argumento inteiro.
       */
-      this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, inicio: { lt: hojeIni } } }),
+      this.prisma.compromisso.count({ where: painel.atrasadas }),
       /* Passou da hora marcada, mas ainda é HOJE — o robô agenda para as 15:00
          do próprio dia, e às 15:01 isso não é prazo perdido. */
-      this.prisma.compromisso.count({
-        where: { ...meu, status: ABERTOS, inicio: { gte: hojeIni, lt: agora } },
-      }),
+      this.prisma.compromisso.count({ where: painel.passaramDaHora }),
       this.prisma.compromisso.count({ where: paradaWhere }),
-      this.prisma.compromisso.count({
-        where: { ...meu, status: ABERTOS, urgente: true, inicio: { gte: hojeIni, lt: em7dias } },
-      }),
+      // Urgente EM ABERTO, sem corte de data — a aba "Em aberto" com urgentes=1.
+      this.prisma.compromisso.count({ where: painel.urgentes }),
       // Atividades de hoje
       !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
-        where: { ...meu, inicio: { gte: hojeIni, lt: hojeFim } },
+        where: painel.atividadesHoje,
         orderBy: { inicio: 'asc' },
         take: 12,
-        select: compSelect,
+        select: cartao,
       }),
       /*
         O QUE VENCE NOS PRÓXIMOS DIAS — e que não aparecia em lugar nenhum.
@@ -603,23 +652,22 @@ export class DashboardService {
         mesma audiência em dois cartões é o erro que a faixa do DJEN já cometeu.
       */
       !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
-        where: {
-          ...meu,
-          status: ABERTOS,
-          tipo: { not: TIPO_AUDIENCIA },
-          inicio: { gte: hojeFim, lt: em7dias },
-        },
+        // De amanhã até o fim do sétimo dia, em aberto, sem audiência — ver `wheresDoPainel`.
+        where: painel.proximasAtividades,
         orderBy: { inicio: 'asc' },
         take: 8,
-        select: compSelect,
+        select: cartao,
       }),
       // Audiências da semana (próximos 7 dias)
       !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
-        where: { ...meu, tipo: TIPO_AUDIENCIA, status: ABERTOS, inicio: { gte: hojeIni, lt: em7dias } },
+        where: painel.audienciasSemana,
         orderBy: { inicio: 'asc' },
         take: 8,
-        select: compSelect,
+        select: cartao,
       }),
+      // O selo do bloco: o que o "Ver" abre (aba=7dias&tipo=AUDIENCIA), sem o
+      // corte de 8 da lista — ver `audienciasSemanaTotal` em `wheresDoPainel`.
+      this.prisma.compromisso.count({ where: painel.audienciasSemanaTotal }),
       /*
         O QUE FICOU PARA TRÁS — e só isso.
 
@@ -636,16 +684,32 @@ export class DashboardService {
         nada se repete.
       */
       !veAgenda ? Promise.resolve([]) : this.prisma.compromisso.findMany({
-        where: { ...meu, status: ABERTOS, inicio: { lt: hojeIni } },
+        where: painel.atrasadas,
         orderBy: { inicio: 'asc' },
-        take: 8,
-        select: compSelect,
+        /*
+          12, o teto do que pede atenção na fila da tela. Com 8, a API cortava
+          antes do painel: o cabeçalho dizia 14 atrasadas, a lista mostrava 8 e o
+          rodapé não sabia das outras (auditoria das ações rápidas, 12/09/2026).
+        */
+        take: 12,
+        select: cartao,
       }),
-      // Atendimentos de triagem pendentes de resolução
-      this.prisma.atendimento.findMany({
+      /*
+        ATENDIMENTOS PENDENTES — com a consulta que cada um marcou.
+
+        As consultas vêm só para derivar o estado (`situacaoDoEncaminhamento`, a
+        mesma função da tela de Atendimentos) e não saem na resposta. O cartão
+        mostra seis, na ordem de quem pede alguém (`cartaoDeAtendimentosPendentes`):
+        por isso a leitura pega os 50 mais recentes e o corte vem depois de
+        ordenar. Em 04/09/2026 havia 7 atendimentos na base inteira.
+
+        Quem não tem o módulo de atendimentos não recebe a lista — nome do filiado,
+        advogado e link da chamada são dado do módulo. O contador continua.
+      */
+      seTiverAcesso(veAtendimentos, () => this.prisma.atendimento.findMany({
         where: { status: 'PENDENTE' },
         orderBy: { createdAt: 'desc' },
-        take: 6,
+        take: 50,
         select: {
           id: true,
           numero: true,
@@ -653,10 +717,19 @@ export class DashboardService {
           desfecho: true,
           createdAt: true,
           filiado: { select: { id: true, nomeCompleto: true } },
+          compromissos: {
+            where: { origemDesfechoId: null },
+            select: SELECT_CONSULTA_DO_ENCAMINHAMENTO,
+          },
         },
-      }),
-      // Movimentações processuais recentes (DataJud, 7 dias)
-      this.prisma.movimentacaoProcessual.findMany({
+      })),
+      /*
+        Movimentações processuais recentes (DataJud, 7 dias) — só para quem vê
+        Processos. Iam para todo mundo com NPU, descrição do andamento e nome do
+        filiado, e quem escondia o bloco da Triagem era a tela (revisão de
+        13/09/2026): o mesmo corte só no front que `veProcessos` condena.
+      */
+      seTiverAcesso(veProcessos, () => this.prisma.movimentacaoProcessual.findMany({
         where: { dataMovimento: { gte: menos7dias } },
         orderBy: { dataMovimento: 'desc' },
         take: 8,
@@ -666,9 +739,9 @@ export class DashboardService {
           dataMovimento: true,
           processo: { select: { id: true, numeroCNJ: true, filiado: { select: { nomeCompleto: true } } } },
         },
-      }),
-      // Plantão de hoje
-      this.prisma.escalaAdvogado.findMany({
+      })),
+      // Plantão de hoje — só para quem vê a escala (ver `veEscalas`).
+      seTiverAcesso(veEscalas, () => this.prisma.escalaAdvogado.findMany({
         where: { data: { gte: hojeData, lt: amanhaData } },
         orderBy: { horaInicio: 'asc' },
         select: {
@@ -677,9 +750,9 @@ export class DashboardService {
           horaFim: true,
           advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
         },
-      }),
+      })),
       // Próximas escalas (para "próximo plantão")
-      this.prisma.escalaAdvogado.findMany({
+      seTiverAcesso(veEscalas, () => this.prisma.escalaAdvogado.findMany({
         where: { data: { gte: amanhaData } },
         orderBy: [{ data: 'asc' }, { horaInicio: 'asc' }],
         take: 8,
@@ -690,7 +763,7 @@ export class DashboardService {
           horaFim: true,
           advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
         },
-      }),
+      })),
       // Gráfico: atendimentos por canal (todos)
       this.prisma.atendimento.groupBy({ by: ['canal'], _count: { _all: true } }),
       // Gráfico: volume de atendimentos nos últimos 14 dias
@@ -727,7 +800,13 @@ export class DashboardService {
       this.prisma.logSincronizacaoDatajud.findFirst({
         // Só o DataJud: "quando o robô rodou pela última vez" se refere à
         // varredura das 02h. O DJEN roda às 05h e tem cadência própria.
-        where: { fonte: 'DATAJUD' },
+        //
+        // A LINHA DE RESUMO DA RODADA ENTRA AQUI, e de propósito (desde
+        // 13/09/2026): ela é gravada no fim da varredura, e "rodada sem alvo"
+        // é o robô ter rodado. Quem precisa só das chamadas ao tribunal —
+        // `saudeDasFontes` e `falhasDatajud24h` — corta a linha de resumo.
+        // A "Rodada interrompida" NÃO entra: ver `LINHA_QUE_PROVA_QUE_RODOU`.
+        where: { AND: [{ fonte: 'DATAJUD' }, LINHA_QUE_PROVA_QUE_RODOU] },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, sucesso: true },
       }),
@@ -746,36 +825,39 @@ export class DashboardService {
       // A tela informa o número em vez de fingir que a série está completa.
       this.prisma.filiado.count({ where: { dataFiliacao: null } }),
 
-      // CARGA POR ADVOGADO — atividades em aberto de cada responsável.
-      // É o que responde "quem está sobrecarregado?", pergunta da Coordenação
-      // que o painel não respondia: os alertas eram sempre o total da casa.
-      this.prisma.compromisso.groupBy({
-        by: ['responsavelId'],
-        where: { status: ABERTOS },
-        _count: { _all: true },
-      }),
-      /* Recorte das atrasadas, para separar volume de problema — e pela mesma
-         régua do sino e do resto do painel: ficou para trás, o dia virou. */
-      this.prisma.compromisso.groupBy({
-        by: ['responsavelId'],
-        where: { status: ABERTOS, inicio: { lt: hojeIni } },
-        _count: { _all: true },
-      }),
+      /*
+        CARGA DA EQUIPE — as abertas da casa, para somar pessoa por pessoa.
+
+        É o que responde "quem está sobrecarregado?". Contava por `responsavelId`
+        (um agrupamento no banco), e o clique abre a agenda da pessoa pela régua
+        `daPessoa`: responde OU foi posta na atividade por gente. A audiência em
+        que a advogada está na equipe não entrava no número dela e aparecia no
+        clique. Uma leitura só, somada em memória pela mesma função do Uso e
+        produtividade (`contarAbertasPorPessoa`): em 12/09/2026 eram 15 abertas
+        na casa. Atrasada é a do dia que virou, a régua do resto do painel. Só
+        roda para quem recebe a carga.
+      */
+      ehGestao
+        ? this.prisma.compromisso.findMany({ where: recorteAberto(), select: SELECAO_DAS_ABERTAS })
+        : Promise.resolve([]),
 
       // FILA DA TRIAGEM — tarefas de contato do dia (as que o robô cria antes
       // das audiências). Sem isto, a secretaria não tinha o próprio trabalho na
       // home: via o painel do jurídico com buracos.
-      this.prisma.compromisso.findMany({
+      //
+      // Só com a agenda, como as outras listas de atividade: era a única que
+      // não passava por `veAgenda` (revisão de 13/09/2026).
+      seTiverAcesso(veAgenda, () => this.prisma.compromisso.findMany({
         where: { tipo: 'CONTATO', status: ABERTOS, inicio: { lt: hojeFim } },
         orderBy: { inicio: 'asc' },
         take: 8,
-        select: compSelect,
-      }),
+        select: cartao,
+      })),
 
       // Aniversariantes do dia — filiados e equipe na mesma lista.
       this.aniversariantesDeHoje(agora),
       // A fila de recadastro do balcão — ver o método.
-      podeVerFiliados ? this.cadastrosACompletar() : Promise.resolve([]),
+      podeVerFiliados ? this.cadastrosACompletar(agora) : Promise.resolve({ itens: [], total: 0 }),
       // Tempo médio de resolução da triagem (30 dias).
       this.tempoMedioTriagem(agora),
       // Integrações: funcionando, instáveis ou paradas — ver `saudeDasFontes`.
@@ -1037,7 +1119,9 @@ export class DashboardService {
     const cargaEquipe = !ehGestao
       ? null
       : await (async () => {
-          const ids = [...new Set(cargaPorAdvogadoRaw.map((c) => c.responsavelId))].filter(Boolean) as string[];
+          // A régua `daPessoa`, somada em memória — ver a leitura no `Promise.all`.
+          const porPessoa = contarAbertasPorPessoa(abertasDaEquipeRaw, hojeIni);
+          const ids = [...porPessoa.keys()];
           if (!ids.length) return [];
           /*
             QUANDO CADA UM ESTEVE AQUI PELA ÚLTIMA VEZ — o dado que faltava para
@@ -1070,31 +1154,27 @@ export class DashboardService {
           ]);
           const sessaoPorId = new Map(sessoes.map((s) => [s.userId, s._max.createdAt]));
           const acaoPorId = new Map(acoes.map((a) => [a.userId, a._max.createdAt]));
-          const atrasoPorId = new Map(
-            atrasadasPorAdvogadoRaw.map((a) => [a.responsavelId, a._count._all]),
-          );
-          return cargaPorAdvogadoRaw
-            .map((c) => {
-              const achada = pessoas.find((u) => u.id === c.responsavelId);
+          const itens = ids
+            .map((id) => {
+              const achada = pessoas.find((u) => u.id === id);
               if (!achada) return null; // usuário inativo/removido não entra no painel
               const { ultimoLoginEm, ...p } = achada;
+              const conta = porPessoa.get(id)!;
               return {
                 advogado: p,
-                abertas: c._count._all,
-                atrasadas: atrasoPorId.get(c.responsavelId) ?? 0,
+                abertas: conta.abertas,
+                atrasadas: conta.atrasadas,
                 ultimoAcesso:
                   ultimoUsoReal(ultimoLoginEm, sessaoPorId.get(p.id), acaoPorId.get(p.id))?.toISOString() ??
                   null,
               };
             })
-            .filter(Boolean)
-            // Mais atrasadas primeiro: é o gargalo, não o volume, que exige ação.
-            .sort((a, b) => b!.atrasadas - a!.atrasadas || b!.abertas - a!.abertas) as {
-            advogado: { id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null };
-            abertas: number;
-            atrasadas: number;
-            ultimoAcesso: string | null;
-          }[];
+            .filter((x): x is NonNullable<typeof x> => x !== null);
+          /*
+            EM ORDEM ALFABÉTICA (D8, 13/09/2026). Era "mais atrasadas primeiro",
+            com barra proporcional na tela — na prática, um pódio de quem atrasa.
+          */
+          return emOrdemAlfabetica(itens);
         })();
 
     /**
@@ -1158,14 +1238,8 @@ export class DashboardService {
               this.prisma.processo.count({
                 where: { ...souAdvogadoDoProcesso, statusInterno: StatusProcesso.ATIVO },
               }),
-              this.prisma.compromisso.count({
-                where: {
-                  ...meu,
-                  tipo: TIPO_AUDIENCIA,
-                  status: ABERTOS,
-                  inicio: { gte: hojeIni, lt: em7dias },
-                },
-              }),
+              // A aba 7 dias em audiência, da pessoa — o link do cartão (C11).
+              this.prisma.compromisso.count({ where: painel.minhasAudiencias }),
               // Os DOIS rótulos do pré-processual: o legado ainda usa o antigo.
               this.prisma.processo.count({
                 where: {
@@ -1189,7 +1263,7 @@ export class DashboardService {
             meusProcessos,
             minhasAudiencias,
             atrasadas: atrasadasCount,
-            urgentes: urgentesSemanaCount,
+            urgentes: urgentesEmAbertoCount,
             preProcessuais,
             semMovimentacao: semMovimentacaoMinha,
           };
@@ -1278,7 +1352,7 @@ export class DashboardService {
               },
             })
           : [],
-        urgentes: urgentesSemanaCount,
+        urgentes: urgentesEmAbertoCount,
         /*
           A EQUIPE DO ADVOGADO — as tarefas em que o robô o pôs de reserva.
 
@@ -1345,7 +1419,9 @@ export class DashboardService {
        * Vazia para quem não edita filiado — é fila de trabalho do balcão, e
        * mostrar ao advogado uma lista que ele não pode resolver é ruído.
        */
-      cadastrosACompletar,
+      cadastrosACompletar: cadastros.itens,
+      /** Quantos entram no critério, sem o corte da lista: "12 de 16". */
+      cadastrosACompletarTotal: cadastros.total,
       /** Aniversariantes de hoje: filiados e equipe, na mesma lista. */
       aniversariantes,
       /**
@@ -1357,8 +1433,15 @@ export class DashboardService {
       /** O que vence de amanhã até +7 dias (audiência tem bloco próprio). */
       proximasAtividades,
       audienciasSemana,
+      /**
+       * Quantas o "Ver" do bloco abre: aba=7dias&tipo=AUDIENCIA (+ pessoa=eu).
+       * A lista acima para em 8 e só traz as abertas de hoje em diante; o selo
+       * conta este número, o mesmo do cartão "Minhas audiências" do advogado.
+       */
+      audienciasSemanaTotal,
       pendenciasAtivas,
-      atendimentosPendentes,
+      /** Com o estado da consulta de cada um, na ordem de quem pede alguém. */
+      atendimentosPendentes: cartaoDeAtendimentosPendentes(atendimentosPendentes, agora),
       movimentacoesRecentes,
       /**
        * O DJEN — saúde e conteúdo no mesmo bloco.
@@ -1395,7 +1478,8 @@ export class DashboardService {
        * aparece três vezes — e aí a tela não desenha o bloco.
        */
       adversarios,
-      equipeHoje: { plantaoHoje, proximoPlantao },
+      /** Nulo para quem não vê a escala — o corte é aqui, não na tela. */
+      equipeHoje: veEscalas ? { plantaoHoje, proximoPlantao } : null,
       /**
        * Saúde do robô do DataJud. Existe porque a ausência de alerta era
        * ambígua: "0 audiências a agendar" tanto podia significar que não havia
@@ -1867,6 +1951,11 @@ export class DashboardService {
    *    sem este filtro uma indisponibilidade do Comunica PJe apareceria no
    *    painel como "o CNJ recusou a consulta", que é outro sistema e outra
    *    providência. O DJEN tem contador próprio.
+   *
+   * 6. Sem a LINHA DE RESUMO DA RODADA (`SO_CHAMADAS_AO_TRIBUNAL`). Desde
+   *    13/09/2026 cada rodada grava uma linha com processo e NPU nulos; o
+   *    `COALESCE` acima juntaria todas sob NULL, e uma rodada interrompida
+   *    viraria "processo com falha" sem processo nem número.
    */
   private falhasDatajud24h(desde: Date) {
     return this.prisma.$queryRaw<FalhaDatajud[]>`
@@ -1878,6 +1967,7 @@ export class DashboardService {
          WHERE l.created_at >= ${desde}
            AND l.fonte = 'DATAJUD'
            AND l.origem <> 'IMPORTACAO'::"OrigemSincronizacao"
+           AND ${SO_CHAMADAS_AO_TRIBUNAL}
          ORDER BY COALESCE(l.processo_id, l.numero_cnj), l.created_at DESC
       )
       SELECT u.processo_id   AS "processoId",
@@ -2000,34 +2090,46 @@ export class DashboardService {
    * produção isso dá NOVE, das quais cinco com dado faltando. Nove é uma fila;
    * sete mil é um muro.
    *
-   * `totalNaBase` vai junto para que o recorte não esconda o tamanho real do
-   * problema — quem coordena precisa saber que a dívida existe mesmo quando a
-   * fila do dia está limpa.
+   * O TOTAL VAI JUNTO — agora de verdade. Este comentário prometia um total e
+   * a resposta nunca o trouxe: com 30 na fila, o cartão mostrava "12" como se
+   * fosse tudo. `count(*) OVER ()` conta sob o MESMO filtro, antes do LIMIT, e
+   * por isso lista e total não discordam. Medido em 12–13/09/2026: fila real de
+   * 16.
+   *
+   * TELEFONE considera o secundário (a importação põe o "celular" lá: 383 fichas
+   * ativas só têm número nesse campo), e cada linha diz o ESTADO do link de
+   * recadastramento: ativo até quando, ou quando o filiado respondeu por ele.
+   * Nunca "enviado" — o sistema não sabe se a mensagem saiu. A regra da linha
+   * está em `itemDoCadastroACompletar`.
    */
-  private async cadastrosACompletar() {
-    const pessoas = await this.prisma.$queryRaw<
-      {
-        id: string;
-        nome: string;
-        telefone: string | null;
-        cpf: string | null;
-        nascimento: Date | null;
-        motivo: string;
-      }[]
-    >`
+  private async cadastrosACompletar(agora: Date) {
+    const linhas = await this.prisma.$queryRaw<(LinhaDoCadastroACompletar & { total: bigint })[]>`
       SELECT f.id,
-             f.nome_completo       AS nome,
-             f.telefone_principal  AS telefone,
+             f.nome_completo        AS nome,
+             f.telefone_principal   AS telefone,
+             f.telefone_secundario  AS "telefoneSecundario",
              f.cpf,
-             f.data_nascimento     AS nascimento,
+             f.data_nascimento      AS nascimento,
              CASE WHEN EXISTS (SELECT 1 FROM atendimentos a
                                 WHERE a.filiado_id = f.id
                                   AND a.created_at > now() - interval '60 days')
-                  THEN 'ATENDIMENTO' ELSE 'PROCESSO' END AS motivo
+                  THEN 'ATENDIMENTO' ELSE 'PROCESSO' END AS motivo,
+             l.ativo_ate            AS "linkAtivoAte",
+             l.respondeu_em         AS "respondeuPeloLinkEm",
+             count(*) OVER ()       AS total
         FROM filiados f
+        LEFT JOIN LATERAL (
+          SELECT max(lr.expira_em) FILTER (WHERE lr.usado_em IS NULL
+                                             AND lr.revogado_em IS NULL
+                                             AND lr.expira_em > ${agora}) AS ativo_ate,
+                 max(lr.usado_em) AS respondeu_em
+            FROM links_recadastramento lr
+           WHERE lr.filiado_id = f.id
+        ) l ON true
        WHERE f.situacao = 'ATIVO'
-         AND (f.telefone_principal IS NULL OR f.telefone_principal = ''
-           OR f.cpf IS NULL OR f.cpf = ''
+         AND ((coalesce(btrim(f.telefone_principal), '') = ''
+               AND coalesce(btrim(f.telefone_secundario), '') = '')
+           OR coalesce(btrim(f.cpf), '') = ''
            OR f.data_nascimento IS NULL)
          AND (EXISTS (SELECT 1 FROM atendimentos a
                        WHERE a.filiado_id = f.id
@@ -2038,17 +2140,10 @@ export class DashboardService {
        LIMIT 12
     `;
 
-    return pessoas.map((f) => ({
-      id: f.id,
-      nome: f.nome,
-      motivo: f.motivo,
-      /** O que falta, na ordem em que atrapalha. */
-      falta: [
-        !f.telefone && 'telefone',
-        !f.cpf && 'CPF',
-        !f.nascimento && 'nascimento',
-      ].filter(Boolean) as string[],
-    }));
+    return {
+      itens: linhas.map((l) => itemDoCadastroACompletar(l, agora)),
+      total: linhas.length ? Number(linhas[0].total) : 0,
+    };
   }
 
   /**
@@ -2077,6 +2172,11 @@ export class DashboardService {
    * integração devolve `SEM_USO`, e a tela não mostra nada. Alarme sobre
    * função desligada é o jeito mais rápido de ensinar a equipe a ignorar
    * alarme.
+   *
+   * SÓ CHAMADAS. A linha de resumo da rodada do DataJud (13/09/2026) não é
+   * requisição ao tribunal e fica fora de todas as contas — ver
+   * `SO_CHAMADAS_AO_TRIBUNAL`. Sem o corte, cada noite somaria uma "chamada"
+   * que não existiu, e uma rodada interrompida pesaria como consulta recusada.
    */
   private async saudeDasFontes(agora: Date) {
     const desde24h = new Date(agora.getTime() - 24 * 3_600_000);
@@ -2089,6 +2189,7 @@ export class DashboardService {
         ultimo_sucesso: Date | null;
         ultima_falha: Date | null;
         ultimo_erro: string | null;
+        ultima_rodada_ok: Date | null;
       }[]
     >`
       SELECT fonte,
@@ -2097,8 +2198,18 @@ export class DashboardService {
              max(created_at) FILTER (WHERE sucesso)     AS ultimo_sucesso,
              max(created_at) FILTER (WHERE NOT sucesso) AS ultima_falha,
              (array_agg(mensagem_erro ORDER BY created_at DESC)
-                FILTER (WHERE NOT sucesso))[1]          AS ultimo_erro
+                FILTER (WHERE NOT sucesso))[1]          AS ultimo_erro,
+             CASE WHEN fonte = 'DATAJUD' THEN (
+               SELECT max(r.created_at)
+                 FROM logs_sincronizacao_datajud r
+                WHERE r.fonte = 'DATAJUD'
+                  AND r.processo_id IS NULL
+                  AND r.numero_cnj IS NULL
+                  AND r.sucesso
+                  AND r.mensagem_erro LIKE ${`${PREFIXO_RODADA_SEM_ALVO}%`}
+             ) END                                      AS ultima_rodada_ok
         FROM logs_sincronizacao_datajud
+       WHERE ${SO_CHAMADAS_AO_TRIBUNAL}
        GROUP BY fonte
     `;
 
@@ -2106,6 +2217,19 @@ export class DashboardService {
       const ok24 = Number(l.ok24);
       const falhas24 = Number(l.falhas24);
       const chamadas24 = ok24 + falhas24;
+      /*
+        RODOU SEM NADA A CONSULTAR NÃO É "NÃO RODOU" (revisão de 13/09/2026).
+
+        Sem processo ATIVO/PENDENTE com NPU, a varredura grava toda madrugada só
+        a linha de resumo "Rodada sem alvo", com sucesso, e nenhuma chamada. As
+        contas acima a cortam (e devem: não é chamada ao tribunal), então sobrava
+        o último sucesso antigo com zero chamadas, e a gestão lia todo dia "a
+        busca automática não executou" enquanto `robo` dizia SEM_OBJETO. A linha
+        de resumo que deu certo vem à parte, só para responder "rodou?", pela
+        mesma régua de dois dias úteis.
+      */
+      const rodouSemAlvo =
+        !!l.ultima_rodada_ok && diasUteisEntre(l.ultima_rodada_ok, agora) < 2;
 
       /*
         O ATRASO SE MEDE EM DIAS ÚTEIS — e antes bastavam 24 horas sem chamada.
@@ -2150,9 +2274,11 @@ export class DashboardService {
         ? 'SEM_USO'
         : !atrasado
           ? (chamadas24 > 0 && falhas24 / chamadas24 > 0.2 ? 'INSTAVEL' : 'OK')
-          : chamadas24 === 0
-            ? 'NAO_RODOU'
-            : 'PARADA';
+          : chamadas24 === 0 && rodouSemAlvo
+            ? 'SEM_USO'
+            : chamadas24 === 0
+              ? 'NAO_RODOU'
+              : 'PARADA';
 
       return {
         fonte: l.fonte,
@@ -2174,11 +2300,18 @@ export class DashboardService {
     const mes = br.getUTCMonth() + 1;
     const dia = br.getUTCDate();
 
+    /*
+      O SECUNDÁRIO VAI JUNTO para o botão de parabéns achar o celular pela mesma
+      régua do envio do link (principal OU secundário): a importação grava o
+      "celular" da planilha no secundário. A equipe (colaboradores) tem um
+      telefone só.
+    */
     const [filiados, colaboradores] = await Promise.all([
       this.prisma.$queryRaw<
-        { id: string; nome: string; telefone: string | null; nascimento: Date }[]
+        { id: string; nome: string; telefone: string | null; telefoneSecundario: string | null; nascimento: Date }[]
       >`
-        SELECT id, nome_completo AS nome, telefone_principal AS telefone, data_nascimento AS nascimento
+        SELECT id, nome_completo AS nome, telefone_principal AS telefone,
+               telefone_secundario AS "telefoneSecundario", data_nascimento AS nascimento
           FROM filiados
          WHERE data_nascimento IS NOT NULL
            AND EXTRACT(MONTH FROM data_nascimento) = ${mes}
@@ -2188,9 +2321,9 @@ export class DashboardService {
          LIMIT 30
       `,
       this.prisma.$queryRaw<
-        { id: string; nome: string; telefone: string | null; nascimento: Date }[]
+        { id: string; nome: string; telefone: string | null; telefoneSecundario: string | null; nascimento: Date }[]
       >`
-        SELECT id, nome, telefone, data_nascimento AS nascimento
+        SELECT id, nome, telefone, NULL::text AS "telefoneSecundario", data_nascimento AS nascimento
           FROM colaboradores
          WHERE data_nascimento IS NOT NULL
            AND EXTRACT(MONTH FROM data_nascimento) = ${mes}

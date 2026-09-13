@@ -1,5 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { RecadastroPublicoController } from '../modules/recadastramento/link-recadastramento.controller';
+import { RecadastroPublicoDto } from '../modules/recadastramento/dto/recadastro-publico.dto';
 
 /**
  * TRAVAS DE SEGURANÇA — as que um refactor distraído desfaz sem perceber.
@@ -241,5 +244,127 @@ describe('habilitação pela mesa', () => {
   it('a reentrada reaproveita a presença ainda não vinculada', () => {
     const c = ler('src/modules/eventos/checkin.service.ts');
     expect(c).toMatch(/filiadoId: null, cpfInformado: digitos/);
+  });
+});
+
+/**
+ * ATRIBUIÇÃO EM MASSA NA ROTA PÚBLICA DO RECADASTRO — achado de 12/09/2026.
+ *
+ * `POST /recadastro/:token/enviar` tipava o corpo como `UpdateFiliadoDto & {...}`.
+ * Interseção vira metatipo `Object`, e o ValidationPipe do Nest (v10) PULA
+ * metatipo `Object`: whitelist e forbidNonWhitelisted não rodavam. Quem tinha o
+ * link gravava `situacao`, `matricula` e até `cobrancas: { deleteMany: {} }`.
+ *
+ * Este bloco não confere texto: roda o pipe de verdade, com a mesma
+ * configuração de `main.ts`, contra o metatipo que a rota declara.
+ */
+describe('o corpo público do recadastro passa pela validação', () => {
+  const pipe = new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true });
+  const metatipo = () =>
+    Reflect.getMetadata('design:paramtypes', RecadastroPublicoController.prototype, 'enviar')[1];
+  const validar = (corpo: unknown) =>
+    pipe.transform(corpo, { type: 'body', metatype: metatipo(), data: '' });
+
+  /** O que a página pública (recadastro/[token]/page.tsx) manda hoje. */
+  const DA_PAGINA = {
+    cpfConfirmacao: '12345678900',
+    dataNascimentoConfirmacao: '1980-05-10',
+    nomeCompleto: 'MARIA DA SILVA',
+    cpf: '12345678900',
+    rg: '1234567',
+    ufRg: 'PI',
+    dataNascimento: '1980-05-10',
+    sexo: 'FEMININO',
+    telefonePrincipal: '(86) 99999-8888',
+    email: 'maria@exemplo.org',
+    cep: '64000-000',
+    endereco: 'Rua A',
+    numero: '10',
+    bairro: 'Centro',
+    cidade: 'Teresina',
+    estado: 'PI',
+    dataAdmissao: '2010-03-01',
+    dependentes: [{ tipo: 'FILHO', nome: 'JOÃO', cpf: '98765432100', dataNascimento: '2012-01-01' }],
+    vinculos: [{ empresa: 'HOSPITAL', cargo: 'Técnica', matricula: '123', ordem: 1 }],
+  };
+
+  it('a rota declara a CLASSE, não `Object`', () => {
+    expect(metatipo()).toBe(RecadastroPublicoDto);
+  });
+
+  it('o que a página pública envia continua passando', async () => {
+    const r = await validar(DA_PAGINA);
+    expect(r).toBeInstanceOf(RecadastroPublicoDto);
+    expect(r.nomeCompleto).toBe('MARIA DA SILVA');
+  });
+
+  it.each([
+    ['situacao (reativar-se pulando a porta)', { situacao: 'ATIVO' }],
+    ['cobrancas com escrita aninhada', { cobrancas: { deleteMany: {} } }],
+    ['historico com escrita aninhada', { historico: { deleteMany: {} } }],
+    ['matricula', { matricula: '000001' }],
+    ['qrToken', { qrToken: 'forjado' }],
+    ['fotoKey', { fotoKey: 'uploads/de-outro.webp' }],
+    ['modalidadeContribuicao', { modalidadeContribuicao: 'AVULSO' }],
+    ['vinculoFuncional', { vinculoFuncional: 'APOSENTADO' }],
+  ])('recusa %s com 400', async (_nome, extra) => {
+    await expect(validar({ ...DA_PAGINA, ...extra })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('o item aninhado também passa pela whitelist (dependente e vínculo)', async () => {
+    await expect(
+      validar({ ...DA_PAGINA, dependentes: [{ ...DA_PAGINA.dependentes[0], filiadoId: 'outro' }] }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    // Desconto em folha e organização do vínculo são decisão da equipe.
+    await expect(
+      validar({ ...DA_PAGINA, vinculos: [{ empresa: 'HOSPITAL', descontoEmFolha: true }] }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      validar({ ...DA_PAGINA, vinculos: [{ empresa: 'HOSPITAL', parteExternaId: 'org-1' }] }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      validar({ ...DA_PAGINA, vinculos: [{ empresa: 'HOSPITAL', ordem: { set: 1 } }] }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+/**
+ * NENHUM `@Body()` TIPADO COMO INTERSEÇÃO, em controller nenhum.
+ *
+ * Contado em 12/09/2026: havia UM (o do recadastro público, consertado em 13/09).
+ * A varredura cobre todo `.ts` com `@Controller(`, inclusive os que moram em
+ * `*.module.ts`, e ignora comentários.
+ */
+describe('corpo de rota nunca é interseção de tipos', () => {
+  const SRC = path.join(RAIZ, 'src');
+  const arquivos = (dir: string): string[] =>
+    readdirSync(dir).flatMap((n) => {
+      const p = path.join(dir, n);
+      if (statSync(p).isDirectory()) return arquivos(p);
+      return p.endsWith('.ts') && !p.endsWith('.spec.ts') ? [p] : [];
+    });
+  const semComentarios = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const controllers = arquivos(SRC)
+    .map((p) => ({ p, src: semComentarios(readFileSync(p, 'utf8')) }))
+    .filter((a) => a.src.includes('@Controller('));
+
+  /** `@Body() dto: A & {`, `@Body('x') y: A & B` — até a vírgula ou o parêntese do parâmetro. */
+  const INTERSECAO = /@Body\([^)]*\)\s*\w+\??\s*:\s*[^,)=]*?&/g;
+
+  it('a varredura encontra os controllers', () => {
+    expect(controllers.length).toBeGreaterThan(40);
+  });
+
+  it('zero corpos tipados como interseção', () => {
+    const achados = controllers.flatMap((a) =>
+      [...a.src.matchAll(INTERSECAO)].map((m) => `${path.relative(SRC, a.p)}: ${m[0].replace(/\s+/g, ' ')}`),
+    );
+    expect(achados).toEqual([]);
+  });
+
+  it('o detector pega a forma que abriu o buraco', () => {
+    const antigo = '@Body() dto: UpdateFiliadoDto & {\n cpfConfirmacao?: string;\n },';
+    expect(antigo.match(INTERSECAO)).toHaveLength(1);
+    expect('@Body() dto: RecadastroPublicoDto,'.match(INTERSECAO)).toBeNull();
   });
 });

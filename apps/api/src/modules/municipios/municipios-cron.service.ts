@@ -13,7 +13,10 @@ import { VinculoDeEnteService } from './vinculo-de-ente.service';
  *
  * ÀS 03:00 DE TERESINA, e o fuso é obrigatório: o contêiner roda em UTC, e sem
  * `timeZone` o disparo aconteceria às 00:00 daqui — três horas antes, ainda no
- * dia anterior. Há teste no repositório que afirma exatamente isso.
+ * dia anterior. Quem afirma isso é `src/common/todo-cron-tem-fuso.spec.ts`,
+ * que exige o fuso em todo `@Cron` do projeto e confere a hora de Teresina de
+ * cada um. (Até 13/09/2026 esta frase dizia que o teste existia, e ele não
+ * existia: só o cron de vencimentos era testado.)
  *
  * POR QUE 03:00. É o buraco entre o DataJud (02:00) e o DJEN (05:00). Os três
  * jobs falam com fora e nenhum deles precisa disputar rede com o outro.

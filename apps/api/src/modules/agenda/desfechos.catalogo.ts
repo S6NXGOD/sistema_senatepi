@@ -1,3 +1,5 @@
+import { proximoHorarioUtilBR } from '../processos/utils/data-br.util';
+
 /**
  * Desfechos possíveis ao concluir uma atividade, POR TIPO.
  *
@@ -125,6 +127,25 @@ export const DESFECHOS_POR_TIPO: Record<string, DesfechoOpcao[]> = {
       slug: 'PRAZO_CUMPRIDO',
       label: 'Peça protocolada',
       ajuda: 'O prazo foi cumprido. Informe o protocolo, se houver.',
+    },
+    /*
+      "ANALISEI E NÃO CABE PEÇA" — a resposta que o catálogo não tinha.
+
+      O robô cria PRAZO para "Analisar intimação", "Avaliar recurso" e "Analisar
+      sentença" (providencia.util.ts). Muitas terminam em nada a protocolar, e
+      o catálogo só oferecia "Peça protocolada" ou "Prazo perdido": mentir ou
+      acusar-se. O atalho do painel gravava "Peça protocolada" num toque, e a
+      frase entrava como andamento na linha do tempo do processo.
+
+      A observação é obrigatória porque é ela que diz POR QUE não cabia peça —
+      sem o porquê, a análise não pode ser revista depois. Sem alerta (não é
+      resultado ruim) e sem seguimento (não há pendência).
+    */
+    {
+      slug: 'PRAZO_SEM_PECA',
+      label: 'Analisado — nada a protocolar',
+      ajuda: 'A intimação foi lida e não cabe peça. Diga por quê.',
+      exigeObs: true,
     },
     {
       slug: 'PRAZO_PERDIDO',
@@ -316,6 +337,43 @@ export function desfechosDoTipo(tipo: string): DesfechoOpcao[] {
 
 export function acharDesfecho(tipo: string, slug: string): DesfechoOpcao | undefined {
   return desfechosDoTipo(tipo).find((d) => d.slug === slug);
+}
+
+/**
+ * QUANDO O SEGUIMENTO VAI CAIR — calculado AQUI, e só aqui.
+ *
+ * `manhaDaqui`, a cópia local que o serviço usava, não pulava fim de semana:
+ * "Nova tentativa de contato" (1 dia) concluída na sexta nascia no sábado, e na
+ * segunda de manhã já era ATRASADA na faixa. E o modal sugeria a data somando
+ * dias corridos no navegador — uma segunda implementação da mesma regra, que é
+ * o defeito da memória "a prévia lê a mesma regra".
+ *
+ * Agora a prévia (GET desfechos, campo `sugeridoPara`) e a gravação (concluir)
+ * chamam esta função: nove da manhã de Teresina, `emDias` à frente, empurrada
+ * para a segunda se cair no sábado ou no domingo.
+ */
+export function sugeridoParaOSeguimento(emDias: number, agora: Date = new Date()): Date {
+  return proximoHorarioUtilBR(new Date(agora.getTime() + emDias * 86_400_000), agora);
+}
+
+/** Opção do catálogo com a data do seguimento já resolvida — o que a tela recebe. */
+export type DesfechoOpcaoComSugestao = Omit<DesfechoOpcao, 'seguimento'> & {
+  seguimento?: SeguimentoSpec & { sugeridoPara: string };
+};
+
+/** `desfechosDoTipo` + `seguimento.sugeridoPara` (ISO). Cópias: o catálogo não muda. */
+export function desfechosComSugestao(tipo: string, agora: Date = new Date()): DesfechoOpcaoComSugestao[] {
+  return desfechosDoTipo(tipo).map((d): DesfechoOpcaoComSugestao => {
+    const { seguimento, ...resto } = d;
+    if (!seguimento) return { ...resto };
+    return {
+      ...resto,
+      seguimento: {
+        ...seguimento,
+        sugeridoPara: sugeridoParaOSeguimento(seguimento.emDias, agora).toISOString(),
+      },
+    };
+  });
 }
 
 /**

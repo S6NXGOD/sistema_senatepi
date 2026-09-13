@@ -1824,6 +1824,13 @@ model Atendimento {
   canal              CanalAtendimento
   /// Sobre o que é a demanda. Nulo nos registros anteriores ao campo.
   assunto            AssuntoAtendimento?
+  /// "Qual assunto?" quando `assunto = OUTRO` (3–80 caracteres); nulo nos demais.
+  ///
+  /// "Outro" sozinho não diz nada a quem lê o relatório depois, e virar enum a
+  /// cada assunto novo custaria migração. O texto livre fica aqui e os
+  /// Relatórios agrupam os que se repetem — é por eles que se descobre qual
+  /// assunto merece virar opção. Ver `20260913010000_assunto_outro_do_atendimento`.
+  assuntoOutro       String?              @map("assunto_outro") @db.VarChar(80)
   descricao          String // demanda (texto rico)
   // Situação da demanda (aberta até ser concluída/cancelada).
   status             StatusAtendimento    @default(PENDENTE)
@@ -1918,6 +1925,14 @@ model Compromisso {
   inicio              DateTime
   fim                 DateTime
   local               String? // ex.: "1ª Vara do Trabalho de Teresina"
+  /// Link da chamada (Meet, Zoom, Teams, Jitsi…) quando a atividade é por vídeo.
+  ///
+  /// Vídeo é a MODALIDADE da consulta, não um canal do atendimento: o `local`
+  /// diz "Por chamada de vídeo" e o link mora aqui, separado, para a tela poder
+  /// oferecer "Entrar na chamada" em vez de um endereço perdido na descrição.
+  /// Só entra normalizado por `normalizarLinkReuniao` (https, até 500).
+  /// Ver `20260913010100_link_da_reuniao`.
+  linkReuniao         String?           @map("link_reuniao")
   descricao           String?
   observacoesInternas String?           @map("observacoes_internas") // notas internas — não visíveis ao filiado
 
@@ -3004,6 +3019,17 @@ model ComunicacaoDjen {
   /// eram da outra parte, quantos já estavam resolvidos e quantos simplesmente
   /// não pedem nada. É por aí que a heurística melhora sem palpite.
   motivoDaRecusa     String?   @map("motivo_da_recusa")
+  /// QUANDO e POR QUEM a proposta foi decidida por GENTE — aceitou ou recusou.
+  ///
+  /// "Publicações decididas" nos Relatórios deduzia a decisão da tarefa
+  /// existir; em 12/09/2026 isso contava 2 aceitas, 1 escalada pelo robô e 0
+  /// recusadas como a mesma coisa. Só `aceitar()`/`recusar()` gravam aqui — a
+  /// escalada do robô e a varredura NÃO, porque não são decisão de ninguém.
+  /// Nulo em tudo que foi decidido antes da coluna (13/09/2026).
+  tarefaDecididaEm   DateTime? @map("tarefa_decidida_em")
+  /// Id do usuário que decidiu. Texto sem FK, como `concluido_por` nasceu:
+  /// o dado é trilha de uso, e apagar a pessoa não pode travar a exclusão.
+  tarefaDecididaPor  String?   @map("tarefa_decidida_por")
   /// Movimentação do DataJud que descreve o MESMO fato. É o vínculo que impede
   /// as duas fontes de gerarem duas atividades para um ato só.
   movimentacaoId     String?   @map("movimentacao_id")
@@ -3143,6 +3169,19 @@ model MovimentacaoInterna {
   /// caminho humano sem `ctx.userId` gravaria autor nulo e passaria a contar
   /// como sistema. Ver `20260831140000_movimentacao_do_sistema`.
   origemSistema  Boolean         @default(false) @map("origem_sistema")
+  /// QUAL CAMINHO escreveu a nota, quando não foi o lançamento à mão.
+  ///
+  /// `CONCLUSAO` = eco da conclusão de uma atividade; `CONVERSAO` = a conversa
+  /// que abriu o caso pré-processual; `IMPORTACAO` = planilha. NULO = alguém
+  /// lançou o andamento pela ficha — é só esse que conta como "andamento
+  /// interno" nos Relatórios. Medido em 12/09/2026: 17 dos 106 andamentos com
+  /// autor em 90 dias (16%) eram eco de conclusão, contados em dobro.
+  ///
+  /// Não substitui `origemSistema`: aquele diz se a AUTORIA é do robô; este diz
+  /// por onde entrou. A nota da conclusão tem autor humano e origem CONCLUSAO.
+  /// Texto e não enum, como `origem` das partes e da equipe. Ver
+  /// `20260913010300_origem_do_andamento`.
+  origem         String?
   /// Carimbo da mudança de status feita JUNTO com esta movimentação (auditoria).
   statusAnterior StatusProcesso? @map("status_anterior")
   statusNovo     StatusProcesso? @map("status_novo")

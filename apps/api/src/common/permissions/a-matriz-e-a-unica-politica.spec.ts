@@ -36,13 +36,62 @@ import { PRESETS_PERFIL, nivelEfetivo } from './permissoes.constants';
 
 const RAIZ = join(__dirname, '../..');
 
+/**
+ * TODO ARQUIVO COM `@Controller(`, e não só `*.controller.ts` — mudou em 13/09/2026.
+ *
+ * A primeira versão filtrava pelo nome do arquivo, e o `@Roles` do recadastro
+ * presencial sobreviveu dentro de `recadastramento.module.ts` com este teste
+ * verde (9/9). Um advogado com `filiados: EDITAR` na matriz preenchia o
+ * formulário inteiro e levava "Esta rota é exclusiva do(s) perfil(is)". A
+ * varredura agora é a mesma do `gate-por-modulo.spec.ts`: todo `.ts` que não é
+ * spec e declara controller.
+ */
 function controllers(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
     const p = join(dir, n);
     if (statSync(p).isDirectory()) return controllers(p);
-    return p.endsWith('.controller.ts') ? [p] : [];
+    if (!p.endsWith('.ts') || p.endsWith('.spec.ts')) return [];
+    return readFileSync(p, 'utf8').includes('@Controller(') ? [p] : [];
   });
 }
+
+/** Comentário não é decorador: `@Modulo(` citado na prosa não faz um arquivo "ter módulo". */
+const semComentarios = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+/**
+ * A DÍVIDA QUE A VARREDURA NOVA ACHOU — fora do território de quem a ampliou.
+ *
+ * Contada em 13/09/2026, com a regra valendo para `*.module.ts`:
+ *   · acessos.module.ts ..... POST acessos/validar      ADMIN, COORDENACAO, TRIAGEM
+ *   · presencas.module.ts ... POST validacao/qr         ADMIN, COORDENACAO, TRIAGEM
+ *   · auditoria.module.ts ... GET  auditoria (3 rotas)  ADMIN, COORDENACAO
+ * (o do recadastramento saiu na mesma data.) Cada um é uma segunda política
+ * que a tela de permissões não mostra. A lista SÓ PODE ENCOLHER: quem tirar o
+ * `@Roles` de um deles apaga a linha; quem acrescentar um arquivo aqui está
+ * recriando o defeito que este teste existe para impedir.
+ *
+ * MAIS DOIS QUE A REGEX NÃO VIA (13/09/2026) — escritos na MESMA linha do verbo
+ * (`@Post('emitir') @Roles(...)`), eles passavam com o teste verde:
+ *   · carteirinhas.module.ts  POST carteirinhas/emitir  ADMIN, COORDENACAO
+ *   · eventos.module.ts ..... POST e PATCH eventos      ADMIN, COORDENACAO
+ *                             GET  eventos/:id/impacto  ADMIN
+ *                             DELETE eventos/:id        ADMIN (a trava global já cobre)
+ * NÃO SAÍRAM AQUI, porque tirar muda quem pode, e a decisão é do dono do sistema.
+ * Medido na produção em 13/09/2026: sem o `@Roles` da carteirinha, 4 usuários
+ * TRIAGEM e 1 ADVOGADO que têm `filiados: EDITAR` passariam a emitir — e a
+ * matriz não sabe dizer "edita filiado mas não emite carteirinha". Em eventos,
+ * ninguém fora de ADMINISTRADOR e COORDENACAO tem `eventos: EDITAR` hoje, e o
+ * que mudaria é o impacto (só do Administrador) abrir para quem tiver
+ * `eventos: VISUALIZAR`.
+ */
+const ROLES_COM_MODULO_A_TIRAR = [
+  'acessos.module.ts',
+  'auditoria.module.ts',
+  'carteirinhas.module.ts',
+  'eventos.module.ts',
+  'presencas.module.ts',
+];
 
 /**
  * USA O DECORADOR, NAO A PALAVRA — e a primeira versao deste arquivo caiu nisso.
@@ -50,21 +99,27 @@ function controllers(dir: string): string[] {
  * `src.includes('@Roles(')` acusou `usuarios.controller.ts`, que nao tem
  * decorador nenhum: tem o COMENTARIO que explica por que o `@Roles` saiu de la.
  * E a quinta vez que uma assercao negativa desta base bate na prosa em portugues
- * em vez do codigo. A regex exige inicio de linha (com indentacao), que e onde um
- * decorador de verdade mora.
+ * em vez do codigo.
+ *
+ * O CONSERTO SEGUINTE ERROU PARA O OUTRO LADO (13/09/2026). Exigir inicio de
+ * linha deixava passar o decorador escrito depois do verbo, e dois arquivos
+ * escaparam assim. A regra agora e: em qualquer ponto do CODIGO, desde que venha
+ * no comeco da linha ou depois de um espaco. A prosa ja sai antes, por
+ * `semComentarios`; e `x@Roles(` colado nao e decorador.
  */
-const USO_DE_ROLES = /^\s*@Roles\(/m;
+const USO_DE_ROLES = /(^|\s)@Roles\(/m;
 
-const ARQUIVOS = controllers(RAIZ).map((p) => ({
-  nome: p.split(/[\\/]/).pop()!,
-  caminho: p,
-  src: readFileSync(p, 'utf8'),
-}));
+const ARQUIVOS = controllers(RAIZ).map((p) => {
+  const src = readFileSync(p, 'utf8');
+  return { nome: p.split(/[\\/]/).pop()!, caminho: p, src, codigo: semComentarios(src) };
+});
 
 describe('a matriz é a única política de módulo', () => {
   it('existe controller para auditar (a varredura não deu vazio por engano)', () => {
     expect(ARQUIVOS.length).toBeGreaterThan(20);
-    expect(ARQUIVOS.filter((a) => a.src.includes('@Modulo(')).length).toBeGreaterThan(15);
+    expect(ARQUIVOS.filter((a) => a.codigo.includes('@Modulo(')).length).toBeGreaterThan(15);
+    // Os controllers que moram em *.module.ts ENTRARAM na varredura.
+    expect(ARQUIVOS.filter((a) => a.nome.endsWith('.module.ts')).length).toBeGreaterThanOrEqual(8);
   });
 
   /**
@@ -72,17 +127,41 @@ describe('a matriz é a única política de módulo', () => {
    * tem `@Modulo`, este teste falha com o nome do arquivo — antes de virar um
    * "Forbidden resource" que ninguém consegue explicar.
    */
-  it('nenhum controller com @Modulo usa @Roles', () => {
+  it('nenhum controller com @Modulo usa @Roles (fora a dívida contada)', () => {
     const infratores = ARQUIVOS.filter(
-      (a) => a.src.includes('@Modulo(') && USO_DE_ROLES.test(a.src),
-    ).map((a) => a.nome);
-    expect(infratores).toEqual([]);
+      (a) => a.codigo.includes('@Modulo(') && USO_DE_ROLES.test(a.codigo),
+    ).map((a) => a.nome).sort();
+    expect(infratores).toEqual(ROLES_COM_MODULO_A_TIRAR);
+  });
+
+  /** O decorador depois do verbo, na mesma linha, é o caso que escapava. */
+  it('acha o @Roles em qualquer ponto do código, e não na prosa', () => {
+    const usaRoles = (src: string) => USO_DE_ROLES.test(semComentarios(src));
+    expect(usaRoles("  @Post('emitir') @Roles(UserRole.ADMINISTRADOR)\n  emitir() {}")).toBe(true);
+    expect(usaRoles('  @Roles(UserRole.ADMINISTRADOR)\n  listar() {}')).toBe(true);
+    expect(usaRoles('/** Era `@Roles(ADMINISTRADOR)` no controller inteiro. */\nexport class X {}')).toBe(false);
+    expect(usaRoles('  // o @Roles(ADMINISTRADOR) saiu daqui\nexport class X {}')).toBe(false);
+  });
+
+  it('o recadastro presencial segue a matriz (era o @Roles escondido em *.module.ts)', () => {
+    const presencial = ARQUIVOS.find((a) => a.nome === 'recadastramento.controller.ts');
+    expect(presencial).toBeDefined();
+    expect(presencial!.codigo).toContain("@Post('recadastramento')");
+    expect(presencial!.codigo).toContain("@Modulo('filiados')");
+    expect(USO_DE_ROLES.test(presencial!.codigo)).toBe(false);
+    const modulo = ARQUIVOS.find((a) => a.nome === 'recadastramento.module.ts');
+    // Saiu do módulo: ali não há mais controller nenhum.
+    expect(modulo).toBeUndefined();
   });
 
   /** Onde não há módulo, `@Roles` continua sendo o gate legítimo. */
   it('@Roles só sobrevive onde não existe @Modulo', () => {
-    const comRoles = ARQUIVOS.filter((a) => USO_DE_ROLES.test(a.src)).map((a) => a.nome);
-    expect(comRoles).toEqual(['anexos.controller.ts']);
+    const comRoles = ARQUIVOS.filter(
+      (a) => USO_DE_ROLES.test(a.codigo) && !ROLES_COM_MODULO_A_TIRAR.includes(a.nome),
+    ).map((a) => a.nome).sort();
+    // identidade-visual: marca da instalação, escrita só do ADMINISTRADOR, sem @Modulo
+    // (exceção declarada em cobertura-das-novidades.spec.ts).
+    expect(comRoles).toEqual(['anexos.controller.ts', 'identidade-visual.module.ts']);
   });
 
   /**

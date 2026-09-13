@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Controller, Get, Header, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { IsISO8601, IsOptional, IsString } from 'class-validator';
 import { Response } from 'express';
@@ -7,6 +7,7 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 import { Modulo } from '../../common/permissions/modulo.decorator';
 import { RelatoriosService, type Relatorio } from './relatorios.service';
 import { ProdutividadeService, csvDaProdutividade } from './produtividade.service';
+import { RostosService } from './rostos.service';
 import { diasDoNomeDoArquivo, periodoDoFiltro } from './periodo.util';
 
 /**
@@ -44,6 +45,7 @@ export class RelatoriosController {
   constructor(
     private readonly relatorios: RelatoriosService,
     private readonly produtividade: ProdutividadeService,
+    private readonly rostos: RostosService,
   ) {}
 
   @Get()
@@ -84,6 +86,22 @@ export class RelatoriosController {
   usoEProdutividade(@Query() q: PeriodoDto, @CurrentUser() user: AuthUser) {
     const { de, ate } = this.periodo(q);
     return this.produtividade.montar(de, ate, user);
+  }
+
+  /**
+   * AS FOTOS DO CARTÃO DA PESSOA NO PDF DO USO — `{ rostos: { [usuarioId]: dataUrl } }`.
+   *
+   * Sem parâmetro de propósito: devolve o conjunto que quem pede já vê na aba
+   * (a gestão, as contas ativas; os demais, só a si), e não aceita lista de ids.
+   * `no-store` porque é rosto de colega: nem proxy nem o disco do navegador
+   * guardam. Sem `@Roles` — a matriz decide pelo `@Modulo` da classe. Ver
+   * `RostosService`.
+   */
+  @Get('produtividade/rostos')
+  @Header('Cache-Control', 'private, no-store')
+  @ApiOperation({ summary: 'Miniaturas das fotos de perfil para o PDF do uso (JPEG em data URL).' })
+  rostosDoUso(@CurrentUser() user: AuthUser) {
+    return this.rostos.montar(user);
   }
 
   @Get('produtividade.csv')

@@ -39,6 +39,16 @@ import { PrismaClient } from '@prisma/client';
 export const JOB_DATAJUD_SYNC = 'datajud-sync';
 export const JOB_DJEN_SYNC = 'djen-sync';
 export const JOB_SICONFI_SYNC = 'siconfi-sync';
+/**
+ * A RELEITURA DE INSTÂNCIAS QUE A TELA DE PROCESSOS DISPARA — trava própria.
+ *
+ * Ela usava `JOB_DATAJUD_SYNC`, com TTL de 10 minutos. Se alguém abrisse a
+ * lista às 02:00 com fila pendente, o cron encontrava a trava ocupada e
+ * desistia da NOITE INTEIRA, sem tentar de novo e sem rastro no banco (auditoria
+ * dos robôs, 13/09/2026). A tela nunca pode derrubar a varredura noturna: com
+ * nome próprio e `cedeA: JOB_DATAJUD_SYNC`, o pior que acontece é a tela esperar.
+ */
+export const JOB_DATAJUD_REAVALIAR = 'datajud-reavaliar';
 
 /** Identidade desta instância da API. Sobrevive ao job, não ao processo. */
 const INSTANCIA_ID = randomUUID();
@@ -49,6 +59,17 @@ export interface OpcoesTrava {
    * expirar durante a execução deixaria uma segunda réplica entrar junto.
    */
   ttlMinutos: number;
+  /**
+   * Nome de OUTRA trava diante da qual este job desiste.
+   *
+   * É prioridade, não exclusão mútua: o job de baixo cede ao de cima, e o de
+   * cima nunca pergunta pelo de baixo. A conferência é uma leitura separada da
+   * tomada, então existe uma janela de milissegundos em que os dois podem
+   * começar juntos — aceitável aqui, porque a fila de cota do CNJ já é serial e
+   * uma sobreposição só atrasa, sem estourar nada. Fechar essa janela exigiria
+   * mudar a consulta de tomada, que é a que sustenta a varredura noturna.
+   */
+  cedeA?: string;
 }
 
 /**
@@ -62,9 +83,24 @@ export async function comTravaDeJob<T>(
   prisma: PrismaClient,
   nome: string,
   logger: Logger,
-  { ttlMinutos }: OpcoesTrava,
+  { ttlMinutos, cedeA }: OpcoesTrava,
   tarefa: () => Promise<T>,
 ): Promise<{ executou: true; resultado: T } | { executou: false }> {
+  if (cedeA) {
+    // Leitura simples e separada, e não um INSERT condicional: a consulta de
+    // tomada abaixo é a que já derrubou a varredura noturna uma vez (o `::int`),
+    // e não se mexe nela sem um Postgres para provar. Ver `OpcoesTrava.cedeA`.
+    const vigente = await prisma.$queryRaw<{ vigente: number }[]>`
+      SELECT 1 AS "vigente" FROM travas_job
+       WHERE "nome" = ${cedeA} AND "expira_em" >= now()
+       LIMIT 1
+    `;
+    if (vigente.length) {
+      logger.warn(`[${nome}] A trava "${cedeA}" está vigente — este job cede a vez.`);
+      return { executou: false };
+    }
+  }
+
   const donos = await prisma.$queryRaw<{ dono_id: string }[]>`
     INSERT INTO travas_job ("nome", "dono_id", "expira_em")
     -- O ::int NÃO é enfeite. O Prisma manda todo number de $queryRaw como int8

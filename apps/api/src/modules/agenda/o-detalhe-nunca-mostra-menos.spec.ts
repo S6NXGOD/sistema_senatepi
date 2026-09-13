@@ -51,7 +51,7 @@ describe('a gaveta recebe tudo que o cartão recebe', () => {
       return SERVICO.slice(i, SERVICO.indexOf(ate, i));
     };
     const lista = trecho('const cardSelect = {', '} as const;');
-    const detalhe = trecho('async detalhe(id: string)', 'return {');
+    const detalhe = trecho('async detalhe(id: string', 'return {');
 
     const RELACOES = ['equipe', 'filiado', 'responsavel', 'criador', 'processo'];
     const faltando = RELACOES.filter(
@@ -78,7 +78,7 @@ describe('a gaveta recebe tudo que o cartão recebe', () => {
     };
     const iCard = SERVICO.indexOf('const cardSelect = {');
     const daLista = campos(SERVICO.slice(iCard, SERVICO.indexOf('} as const;', iCard)));
-    const iDet = SERVICO.indexOf('async detalhe(id: string)');
+    const iDet = SERVICO.indexOf('async detalhe(id: string');
     const doDetalhe = campos(SERVICO.slice(iDet, SERVICO.indexOf('return {', iDet)));
 
     expect([...daLista].filter((c) => !doDetalhe.has(c))).toEqual([]);
@@ -92,6 +92,25 @@ describe('a gaveta recebe tudo que o cartão recebe', () => {
   it('cartão e gaveta filtram o principal da mesma forma', () => {
     expect(CARTAO).toContain("(c.equipe ?? []).filter((e) => !e.principal)");
     expect(GAVETA).toContain("(c.equipe ?? []).filter((e) => !e.principal)");
+  });
+});
+
+/**
+ * A EXCEÇÃO À REGRA É DE PERMISSÃO, NÃO DE ESQUECIMENTO (13/09/2026).
+ *
+ * Quem não tem o módulo de Processos (a Triagem, no preset) passou a receber
+ * menos nas DUAS pontas: a lista sem as partes do processo e o detalhe sem as
+ * partes e sem o teor das publicações. A regra "o detalhe nunca mostra menos
+ * que a lista" continua valendo PARA O MESMO LEITOR — o que os testes abaixo
+ * conferem com o serviço de verdade (prisma falso), e não pelo texto do fonte.
+ * O comportamento completo está em `recortes-e-processos.spec.ts`.
+ */
+describe('o corte por permissão vale igual na lista e no detalhe', () => {
+  it('o serviço decide o corte por uma função só, nas duas pontas', () => {
+    const iLista = SERVICO.indexOf('async listar(');
+    const iDet = SERVICO.indexOf('async detalhe(id: string');
+    expect(SERVICO.slice(iLista, SERVICO.indexOf('async contarRecortes(', iLista))).toContain('leitorVeProcessos(leitor)');
+    expect(SERVICO.slice(iDet, SERVICO.indexOf('return {', iDet))).toContain('leitorVeProcessos(leitor)');
   });
 });
 

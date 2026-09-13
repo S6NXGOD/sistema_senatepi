@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   CanActivate,
+  ConflictException,
   Controller,
   Get,
   Injectable,
+  Logger,
   NotFoundException,
   Body,
   Param,
@@ -11,6 +13,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { JOB_DJEN_SYNC, comTravaDeJob } from '@core/infra';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
@@ -160,11 +163,28 @@ export class BuscaPublicacoesDto {
   limite?: number;
 }
 
+/**
+ * Validade da trava da varredura pedida à mão — a mesma do robô das 05:00.
+ *
+ * A pior rodada manual é a colheita de 180 dias (~15 minutos de cota). O que o
+ * prazo precisa garantir é nunca expirar com a varredura ainda correndo; se o
+ * servidor cair no meio, a trava se solta sozinha nesse tempo.
+ */
+const TTL_DA_VARREDURA_MANUAL_MIN = 180;
+
+/** A frase do 409: o que está acontecendo, o que fazer e quando destrava sozinho. */
+export const VARREDURA_DO_DIARIO_OCUPADA =
+  'A varredura do Diário já está rodando (a do robô das 5h ou uma pedida por outra pessoa). ' +
+  'Tente de novo quando ela terminar. Se o servidor caiu no meio de uma varredura, ' +
+  'a trava se solta sozinha em até 3 horas.';
+
 @ApiTags('djen')
 @ApiBearerAuth()
 @Modulo('processos')
 @Controller('djen')
 export class DjenController {
+  private readonly logger = new Logger(DjenController.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly djen: DjenService,
@@ -354,11 +374,12 @@ export class DjenController {
   @Post('publicacoes/:id/tarefa')
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Cria (ou devolve) a atividade da publicação, para o dono do caso.' })
-  async tarefaDaPublicacao(@Param('id') id: string) {
+  async tarefaDaPublicacao(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     const c = await this.prisma.comunicacaoDjen.findUnique({
       where: { id },
       select: {
         id: true, processoId: true, providencia: true,
+        tarefaPropostaEm: true, tarefaDispensadaEm: true,
         compromisso: { select: { id: true, status: true } },
       },
     });
@@ -383,6 +404,28 @@ export class DjenController {
     if (!compromissoId) {
       throw new BadRequestException('Não foi possível criar a atividade para esta publicação.');
     }
+    /*
+      A TAREFA CRIADA AQUI NUNCA ERA LIGADA À PUBLICAÇÃO.
+
+      `criarAtividadeDaProposta` só cria a atividade; quem liga é o chamador — a
+      caixa (`aceitar`) e a rede (`escalarEsquecidas`) sempre fizeram isso, e
+      esta rota não. Resultado: a checagem de idempotência logo acima (que lê
+      `c.compromisso`) nunca via a tarefa, dois toques criavam duas, e a
+      publicação continuava "sem tarefa" no painel depois de alguém resolvê-la.
+
+      E SE ELA ERA UMA PROPOSTA ABERTA, ISTO É UMA DECISÃO. Clicar aqui tira a
+      proposta da caixa do mesmo jeito que aceitar; sem o carimbo, a decisão
+      sumia dos Relatórios. Carimba quem clicou — foi quem decidiu —, mesmo que
+      a tarefa vá para o dono do caso.
+    */
+    const eraPropostaAberta = !!c.tarefaPropostaEm && !c.tarefaDispensadaEm && !c.compromisso;
+    await this.prisma.comunicacaoDjen.update({
+      where: { id: c.id },
+      data: {
+        compromissoId,
+        ...(eraPropostaAberta ? { tarefaDecididaEm: new Date(), tarefaDecididaPor: user.id } : {}),
+      },
+    });
     return { compromissoId, criada: true };
   }
 
@@ -427,19 +470,36 @@ export class DjenController {
   @OperacaoDeSistema()
   @UseGuards(DjenAtivoGuard)
   @ApiOperation({ summary: 'Varredura completa do DJEN (OAB dos advogados + processos mudos).' })
-  varrer(@Query() q: VarrerDjenQueryDto) {
+  async varrer(@Query() q: VarrerDjenQueryDto) {
     /*
-      MANUAL, e não CRON. O parâmetro existe para dizer QUEM disparou, e a
-      rota deixava o padrão passar — a varredura clicada por alguém aparecia no
-      log como se fosse a das 5h. Sem isto, a linha de resumo mentiria sobre a
-      origem justamente na hora em que alguém está investigando.
+      A MESMA TRAVA DO ROBÔ DAS 05:00 — e ela faltava aqui.
+
+      O cron rodava dentro de `comTravaDeJob`; a rota chamava a varredura direto.
+      Um clique durante a rodada das 05:00 (de 1 a 25 minutos, ~15 na colheita
+      de 180 dias) punha duas varreduras lendo o mesmo estado ainda não gravado:
+      as duas viam a sugestão sem tarefa e criavam cada uma a sua "Cadastrar ação
+      do Diário", e a primeira ficava órfã na agenda de alguém (auditoria dos
+      robôs, 13/09/2026). Agora quem chega depois recebe 409 e uma frase.
     */
-    /*
-      `dias` só vem na colheita de HISTÓRICO — a passada única que descobre ação
-      do sindicato distribuída antes de o sistema existir. Sem ele, a janela é a
-      de sempre (3 dias), que é o que a rodada diária precisa.
-    */
-    return this.sync.varrer(undefined, OrigemSincronizacao.MANUAL, q.dias);
+    const rodada = await comTravaDeJob(
+      this.prisma,
+      JOB_DJEN_SYNC,
+      this.logger,
+      { ttlMinutos: TTL_DA_VARREDURA_MANUAL_MIN },
+      /*
+        MANUAL, e não CRON. O parâmetro existe para dizer QUEM disparou, e a
+        rota deixava o padrão passar — a varredura clicada por alguém aparecia
+        no log como se fosse a das 5h. Sem isto, a linha de resumo mentiria
+        sobre a origem justamente na hora em que alguém está investigando.
+
+        `dias` só vem na colheita de HISTÓRICO — a passada única que descobre
+        ação do sindicato distribuída antes de o sistema existir. Sem ele, a
+        janela é a de sempre (3 dias), que é o que a rodada diária precisa.
+      */
+      () => this.sync.varrer(undefined, OrigemSincronizacao.MANUAL, q.dias),
+    );
+    if (!rodada.executou) throw new ConflictException(VARREDURA_DO_DIARIO_OCUPADA);
+    return rodada.resultado;
   }
 }
 

@@ -123,7 +123,10 @@ describe('as contas que estavam erradas', () => {
    */
   it('atrasada usa o início do dia, e não o relógio', () => {
     expect(SERVICO).toContain('const hojeIni = inicioDoDiaBR(agora);');
-    expect(SERVICO).toContain('if (a.inicio < hojeIni) atual.atrasadas++;');
+    // A soma por pessoa saiu para `contarAbertasPorPessoa` em 13/09/2026, para a
+    // linha da equipe usar a régua `daPessoa`; o corte pelo dia é provado com
+    // valores em abertas-da-pessoa.util.spec.ts.
+    expect(SERVICO).toContain('const abertasPorPessoa = contarAbertasPorPessoa(abertas, hojeIni);');
     expect(SERVICO).toContain('atrasadas: abertas.filter((a) => a.inicio < hojeIni).length');
     expect(SERVICO).not.toContain('a.inicio < agora');
   });
@@ -229,7 +232,7 @@ describe('o CSV', () => {
     },
     atendimentos: {
       registrados: 0, concluidos: 0, filiadosAtendidos: 0, porCanal: [], porAtendente: [],
-      porAssunto: [], assuntoNaoInformado: 0, porSetor: [],
+      porAssunto: [], assuntoNaoInformado: 0, outrosAssuntos: [], outrosUnicos: 0, porSetor: [],
     },
     justica: null,
     proximos: null,

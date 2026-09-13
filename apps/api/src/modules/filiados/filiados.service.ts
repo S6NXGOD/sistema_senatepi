@@ -812,6 +812,14 @@ export class FiliadosService {
       },
     });
 
+    // O LINK DE RECADASTRO MORRE JUNTO (13/09/2026). O link mandado às 9h
+    // gravava às 11h o cadastro de quem saiu às 10h, e criava recadastramento
+    // pendente para quem o sindicato não representa mais.
+    const links = await this.prisma.linkRecadastramento.updateMany({
+      where: { filiadoId: id, usadoEm: null, revogadoEm: null },
+      data: { revogadoEm: new Date() },
+    });
+
     // Linha do tempo do filiado (aba Documentos/Histórico do dossiê).
     await this.registrarHistorico(
       id,
@@ -841,6 +849,7 @@ export class FiliadosService {
           observacoes,
           dataPedido: dataPedido.toISOString(),
           autor: autor ?? null,
+          linksDeRecadastroCancelados: links.count,
         },
       })
       .catch(() => undefined);

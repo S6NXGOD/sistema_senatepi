@@ -141,7 +141,10 @@ describe('conflito de agenda', () => {
     // O segundo advogado de uma audiência também tem o horário ocupado —
     // conferir só `responsavelId` repete o defeito que já escondeu audiência do
     // painel de quem acompanhava sem responder.
-    expect(conflitos).toMatch(/equipe: \{ some: \{ usuarioId: params\.responsavelId \} \}/);
+    // Desde 13/09/2026 a conferência vale para cada pessoa do formulário
+    // (`pessoas=`) e a RESERVA do robô não ocupa ninguém — daí o NAO_E_RESERVA.
+    // O comportamento (reserva e tarefa sem hora fora) está em conflitos-sem-ruido.spec.ts.
+    expect(conflitos).toMatch(/equipe: \{ some: \{ usuarioId: id, \.\.\.NAO_E_RESERVA \} \}/);
   });
 
   it('ignora concluída e cancelada — não ocupam ninguém', () => {

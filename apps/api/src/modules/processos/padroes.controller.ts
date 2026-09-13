@@ -22,7 +22,9 @@ export class PadroesController {
 
   @Get()
   @ApiOperation({
-    summary: 'Padrões no acervo ativo: mesmo réu com pedido repetido, e pedido espalhado pela categoria.',
+    summary:
+      'Padrões no acervo ativo: mesmo réu com pedido repetido, e pedido espalhado pela categoria. ' +
+      'Os desfechos de `historico` e a série por ano contam todas as ações ajuizadas.',
   })
   levantar() {
     return this.padroes.levantar();

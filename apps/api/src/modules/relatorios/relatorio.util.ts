@@ -96,3 +96,71 @@ export function rotuloDaComarca(nome: string, uf: string, ufDaCasa: string): str
   const sigla = uf.trim().toUpperCase();
   return sigla === ufDaCasa.trim().toUpperCase() ? nome : `${nome} (${sigla})`;
 }
+
+export interface TextoRepetido {
+  texto: string;
+  total: number;
+}
+
+/** A partir de quantas vezes um texto de "Outro" sai com nome no relatório. */
+export const REPETICOES_PARA_MOSTRAR = 2;
+
+/**
+ * A CHAVE DE AGRUPAMENTO DE "OUTRO": minúsculas, sem acento, espaços colapsados.
+ *
+ * Função LOCAL, de propósito. A `normalizarNome` do editor de partes COLA as
+ * palavras, e "plano de saúde" viraria "planodesaude" — a mesma armadilha que
+ * já quebrou a busca por palavra.
+ */
+export function chaveDoAssuntoOutro(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * O QUE HÁ DENTRO DE "OUTRO" — sem expor caso individual.
+ *
+ * O objetivo é achar a categoria que falta, e o sinal disso é a REPETIÇÃO. Só
+ * entra com nome o texto que aparece `REPETICOES_PARA_MOSTRAR` vezes ou mais; o
+ * resto vira só um número (`outrosUnicos`). Texto único de 80 caracteres num
+ * PDF da diretoria pode identificar uma pessoa ("demissão da Maria da UBS").
+ *
+ * O rótulo é a grafia mais usada no grupo (empate: a primeira em ordem
+ * alfabética, para a mesma entrada dar sempre a mesma saída). Registro de
+ * "Outro" sem o texto — todos os anteriores a 13/09/2026 — não entra em
+ * nenhuma das duas contas: não há o que agrupar.
+ */
+export function outrosDoAssunto(
+  atendimentos: { assunto: string | null; assuntoOutro?: string | null }[],
+): { outrosAssuntos: TextoRepetido[]; outrosUnicos: number } {
+  const grupos = new Map<string, Map<string, number>>();
+  for (const a of atendimentos) {
+    if (a.assunto !== 'OUTRO' || !a.assuntoOutro) continue;
+    const grafia = a.assuntoOutro.replace(/\s+/g, ' ').trim();
+    const chave = chaveDoAssuntoOutro(grafia);
+    if (!chave) continue;
+    const grafias = grupos.get(chave) ?? new Map<string, number>();
+    grafias.set(grafia, (grafias.get(grafia) ?? 0) + 1);
+    grupos.set(chave, grafias);
+  }
+
+  const outrosAssuntos: TextoRepetido[] = [];
+  let outrosUnicos = 0;
+  for (const grafias of grupos.values()) {
+    const total = [...grafias.values()].reduce((s, n) => s + n, 0);
+    if (total < REPETICOES_PARA_MOSTRAR) {
+      outrosUnicos++;
+      continue;
+    }
+    const [texto] = [...grafias.entries()].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR'),
+    )[0];
+    outrosAssuntos.push({ texto, total });
+  }
+  outrosAssuntos.sort((a, b) => b.total - a.total || a.texto.localeCompare(b.texto, 'pt-BR'));
+  return { outrosAssuntos, outrosUnicos };
+}

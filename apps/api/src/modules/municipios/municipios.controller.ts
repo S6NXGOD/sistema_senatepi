@@ -1,8 +1,9 @@
 import {
-  Body, Controller, Get, Header, Param, ParseIntPipe, Post, Query, Res,
+  Body, ConflictException, Controller, Get, Header, Logger, Param, ParseIntPipe, Post, Query, Res,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { conteudoDisposto } from '@core/infra';
+import { JOB_SICONFI_SYNC, comTravaDeJob, conteudoDisposto } from '@core/infra';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OrigemSincronizacao } from '@prisma/client';
 import { MunicipiosService } from './municipios.service';
@@ -34,17 +35,29 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
  * que casa vence, e duas rotas que casam o mesmo caminho não dão erro — uma
  * SOME (já derrubou a ficha do processo neste repositório).
  */
+/** Validade da trava da busca pedida à mão — a mesma da rotina das 03:00. */
+const TTL_DA_BUSCA_MANUAL_MIN = 60;
+
+/** A frase do 409: o que está acontecendo, o que fazer e quando destrava sozinho. */
+export const BUSCA_NO_TESOURO_OCUPADA =
+  'Os indicadores do Tesouro já estão sendo buscados (pela rotina da madrugada ou por outra pessoa). ' +
+  'Tente de novo quando a busca terminar. Se o servidor caiu no meio dela, ' +
+  'a trava se solta sozinha em até 1 hora.';
+
 @ApiTags('municipios')
 @ApiBearerAuth()
 @Modulo('municipios')
 @Controller('municipios')
 export class MunicipiosController {
+  private readonly logger = new Logger(MunicipiosController.name);
+
   constructor(
     private readonly service: MunicipiosService,
     private readonly siconfi: SiconfiSyncService,
     private readonly vinculo: VinculoDeEnteService,
     private readonly relatorio: RelatorioEntesService,
     private readonly ficha: FichaDoEnteService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /** A lista: recorte, situação, ordem e a presença do sindicato em cada município. */
@@ -119,8 +132,22 @@ export class MunicipiosController {
    * distingue consultar de mandar o sistema falar com fora.
    */
   @Post('sincronizar')
-  sincronizar(@Body() dto: SincronizarSiconfiDto) {
-    return this.siconfi.sincronizar(OrigemSincronizacao.MANUAL, dto.codigos);
+  async sincronizar(@Body() dto: SincronizarSiconfiDto) {
+    /*
+      A MESMA TRAVA DA ROTINA DAS 03:00. Sem ela, um clique durante a rotina
+      punha duas varreduras gastando a mesma cota do Tesouro ao mesmo tempo
+      (auditoria dos robôs, 13/09/2026). Aqui o dano seria só cota gasta, mas a
+      regra é uma para as rotas manuais dos robôs: quem chega depois ouve 409.
+    */
+    const rodada = await comTravaDeJob(
+      this.prisma,
+      JOB_SICONFI_SYNC,
+      this.logger,
+      { ttlMinutos: TTL_DA_BUSCA_MANUAL_MIN },
+      () => this.siconfi.sincronizar(OrigemSincronizacao.MANUAL, dto.codigos),
+    );
+    if (!rodada.executou) throw new ConflictException(BUSCA_NO_TESOURO_OCUPADA);
+    return rodada.resultado;
   }
 
   /**

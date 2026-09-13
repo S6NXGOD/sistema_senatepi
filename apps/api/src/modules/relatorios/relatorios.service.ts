@@ -13,9 +13,11 @@ import { ESPERANDO_DECISAO } from '../processos/djen-busca.service';
 import { daPessoa } from '../agenda/equipe.util';
 import { adversarioDoProcesso } from '../dashboard/dashboard.module';
 import {
-  anosDaSerie, resultadoDoCodigo, rotuloDaComarca, serieDeAjuizadas, serieDeSentencas,
-  umaPorProcesso, type AjuizadasDoAno, type ResultadoSentenca, type SentencasDoAno,
+  anosDaSerie, outrosDoAssunto, resultadoDoCodigo, rotuloDaComarca, serieDeAjuizadas,
+  serieDeSentencas, umaPorProcesso, type AjuizadasDoAno, type ResultadoSentenca,
+  type SentencasDoAno, type TextoRepetido,
 } from './relatorio.util';
+import { SELECAO_DAS_ABERTAS, contarAbertasPorPessoa } from './abertas-da-pessoa.util';
 
 /**
  * RELATÓRIOS — o que a equipe entregou, o que ficou, e como o sindicato está
@@ -189,6 +191,13 @@ export interface Relatorio {
      */
     porAssunto: Contagem[];
     assuntoNaoInformado: number;
+    /**
+     * O QUE HÁ DENTRO DE "OUTRO": só os textos que se repetem, agrupados sem
+     * acento nem caixa. Os que aparecem uma vez viram `outrosUnicos` — ver
+     * `outrosDoAssunto`.
+     */
+    outrosAssuntos: TextoRepetido[];
+    outrosUnicos: number;
     porSetor: Contagem[];
   };
   /** O sindicato na Justiça. `null` para quem não vê processos. */
@@ -349,7 +358,8 @@ export class RelatoriosService {
         }),
         this.prisma.compromisso.findMany({
           where: { ...soMeu, status: { in: ABERTOS } },
-          select: { responsavelId: true, inicio: true },
+          // A equipe vem junto: a linha de cada pessoa usa a régua `daPessoa`.
+          select: SELECAO_DAS_ABERTAS,
         }),
         this.prisma.processo.count({ where: { createdAt: noPeriodo } }),
         /**
@@ -380,7 +390,7 @@ export class RelatoriosService {
             ...(alvo ? { atendentePorId: alvo } : {}),
           },
           select: {
-            status: true, canal: true, assunto: true, setor: true, filiadoId: true,
+            status: true, canal: true, assunto: true, assuntoOutro: true, setor: true, filiadoId: true,
             atendente: { select: { nome: true, nomeExibicao: true } },
           },
         }),
@@ -414,14 +424,16 @@ export class RelatoriosService {
       porPessoa.set(quem, atual);
     }
 
-    const abertasPorPessoa = new Map<string, { abertas: number; atrasadas: number }>();
-    for (const a of abertas) {
-      if (!a.responsavelId) continue;
-      const atual = abertasPorPessoa.get(a.responsavelId) ?? { abertas: 0, atrasadas: 0 };
-      atual.abertas++;
-      if (a.inicio < hojeIni) atual.atrasadas++;
-      abertasPorPessoa.set(a.responsavelId, atual);
-    }
+    /*
+      EM ABERTO E ATRASADAS DE CADA LINHA, PELA RÉGUA `daPessoa`.
+
+      Até 13/09/2026 a linha contava só o responsável. No espelho do advogado a
+      busca já era `daPessoa` e a soma não: a tarefa em que ele participa entrava
+      em "abertas" do topo e sumia da linha dele. E a aba Uso e produtividade
+      passou a contar por `daPessoa` na mesma data — as duas abas dos Relatórios
+      não podem dar dois números para a mesma pessoa.
+    */
+    const abertasPorPessoa = contarAbertasPorPessoa(abertas, hojeIni);
 
     /**
      * ORDEM ALFABÉTICA, e a lista traz TODO MUNDO — inclusive quem fechou zero.
@@ -484,6 +496,12 @@ export class RelatoriosService {
         ),
         porAssunto: contar(atendimentos, (a) => (a.assunto ? String(a.assunto) : null)),
         assuntoNaoInformado: atendimentos.filter((a) => !a.assunto).length,
+        ...outrosDoAssunto(
+          atendimentos.map((a) => ({
+            assunto: a.assunto ? String(a.assunto) : null,
+            assuntoOutro: a.assuntoOutro,
+          })),
+        ),
         porSetor: contar(atendimentos, (a) => (a.setor ? String(a.setor) : null)),
       },
       justica,

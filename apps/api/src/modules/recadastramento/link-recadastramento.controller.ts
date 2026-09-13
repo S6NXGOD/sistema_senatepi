@@ -6,7 +6,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { LinkRecadastramentoService } from './link-recadastramento.service';
-import { UpdateFiliadoDto } from '../filiados/dto/filiado.dto';
+import { RecadastroPublicoDto } from './dto/recadastro-publico.dto';
+import { EnvioDoLinkDto } from './dto/envio-do-link.dto';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
@@ -30,6 +31,21 @@ export class LinkRecadastramentoAdminController {
   @Post()
   gerar(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.gerar(id, this.ctx(req, user));
+  }
+
+  /**
+   * Prepara o envio: reaproveita o link vivo (ou gera, se não houver) e registra
+   * por qual meio a equipe vai mandar. Mandar link é editar filiado — POST exige
+   * EDITAR pela matriz, sem perfil chumbado.
+   */
+  @Post('envio')
+  envio(
+    @Param('id') id: string,
+    @Body() dto: EnvioDoLinkDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.prepararEnvio(id, dto.meio, this.ctx(req, user));
   }
 
   @Get()
@@ -94,24 +110,39 @@ export class RecadastroPublicoController {
   /**
    * Foto do filiado. Vai ANTES do envio: depois o link já está queimado.
    * O limite do multer é a primeira barreira; o serviço confere tipo e tamanho.
+   *
+   * Desde 13/09/2026 os campos `cpf`, `dataNascimento` e `coren` vêm no mesmo
+   * multipart e o serviço confere o desafio, contando o erro. O limite é o do
+   * /validar: sem ele, a foto seria a porta para varrer o desafio.
    */
   @Post(':token/foto')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('foto', { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
-  foto(@Param('token') token: string, @UploadedFile() file: Express.Multer.File) {
+  foto(
+    @Param('token') token: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { cpf?: string; dataNascimento?: string; coren?: string },
+    @Req() req: Request,
+  ) {
     if (!file) throw new BadRequestException('Arquivo "foto" é obrigatório.');
-    return this.service.atualizarFoto(token, file.buffer, file.mimetype);
+    return this.service.atualizarFoto(token, file.buffer, file.mimetype, body ?? {}, req.ip);
   }
 
-  /** Grava o recadastramento e queima o link (uso único). */
+  /**
+   * Grava o recadastramento e queima o link (uso único).
+   *
+   * O corpo é a CLASSE `RecadastroPublicoDto`. Não troque por interseção
+   * (`UpdateFiliadoDto & {...}`): o metatipo vira `Object`, o ValidationPipe
+   * deixa de validar e o corpo inteiro chega ao serviço — ver o DTO.
+   *
+   * Mesmo limite do /validar (13/09/2026): o envio também confere o desafio.
+   */
   @Post(':token/enviar')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   enviar(
     @Param('token') token: string,
-    @Body() dto: UpdateFiliadoDto & {
-      cpfConfirmacao?: string;
-      dataNascimentoConfirmacao?: string;
-      corenConfirmacao?: string;
-    },
+    @Body() dto: RecadastroPublicoDto,
     @Req() req: Request,
   ) {
     return this.service.submeter(token, dto, req.ip);

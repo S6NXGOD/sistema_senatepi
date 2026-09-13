@@ -4,7 +4,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AgendaService } from './agenda.service';
-import { desfechosDoTipo, CATEGORIAS_CANCELAMENTO } from './desfechos.catalogo';
+import { desfechosComSugestao, CATEGORIAS_CANCELAMENTO } from './desfechos.catalogo';
 import {
   CancelarCompromissoDto,
   ConcluirCompromissoDto,
@@ -14,7 +14,7 @@ import {
   RemarcarCompromissoDto,
   UpdateCompromissoDto,
 } from './dto/agenda.dto';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('agenda')
@@ -24,8 +24,21 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 export class AgendaController {
   constructor(private readonly service: AgendaService) {}
 
-  private ctx(req: Request, userId?: string, nome?: string) {
-    return { ip: req.ip, userAgent: req.headers['user-agent'], userId, nome };
+  /*
+    O USUÁRIO INTEIRO ENTRA NO CONTEXTO, e não só id e nome (13/09/2026).
+
+    Toda escrita devolve o cartão da atividade, e o cartão trazia as partes do
+    processo para quem tem `processos: SEM_ACESSO` — o corte existia na listagem
+    e no detalhe, e não aqui. Perfil e matriz já vêm no token: nada de consulta.
+  */
+  private ctx(req: Request, user?: AuthUser) {
+    return {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      userId: user?.id,
+      nome: user?.nome,
+      leitor: user ? { id: user.id, role: user.role, permissoes: user.permissoes } : undefined,
+    };
   }
 
   @Get('responsaveis')
@@ -33,15 +46,20 @@ export class AgendaController {
     return this.service.listarResponsaveis();
   }
 
-  /** Alertas: "Aguardando interação" (venceu há +3h) e "Próximas 24 horas". */
+  /**
+   * Alertas: "Aguardando interação" (venceu há +3h) e "Próximas 24 horas".
+   *
+   * A tela não chama mais (D9); a rota fica por uma versão. Enquanto ficar, corta
+   * as partes de quem não vê Processos, como a listagem.
+   */
   @Get('alertas')
-  alertas() {
-    return this.service.alertas();
+  alertas(@CurrentUser() user: AuthUser) {
+    return this.service.alertas(user);
   }
 
   @Post()
-  criar(@Body() dto: CreateCompromissoDto, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.criar(dto, this.ctx(req, userId, nome));
+  criar(@Body() dto: CreateCompromissoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.criar(dto, this.ctx(req, user));
   }
 
   /**
@@ -51,7 +69,8 @@ export class AgendaController {
    */
   @Get('desfechos/:tipo')
   desfechos(@Param('tipo') tipo: string) {
-    return desfechosDoTipo(tipo);
+    // Com `seguimento.sugeridoPara` já calculado: a prévia da tela não refaz a conta.
+    return desfechosComSugestao(tipo);
   }
 
   /** Motivos possíveis de cancelamento (inclui "não compareceu"). */
@@ -80,19 +99,31 @@ export class AgendaController {
     @Query('inicio') inicio: string,
     @Query('fim') fim: string,
     @Query('ignorarId') ignorarId?: string,
+    // Responsável e quem vai atuar junto, separados por vírgula.
+    @Query('pessoas') pessoas?: string,
   ) {
-    if (!responsavelId || !inicio || !fim) return [];
-    return this.service.conflitos({ responsavelId, inicio, fim, ignorarId });
+    if ((!responsavelId && !pessoas) || !inicio || !fim) return [];
+    return this.service.conflitos({ responsavelId, pessoas, inicio, fim, ignorarId });
+  }
+
+  /**
+   * Quantas atividades cabem em cada aba, com os mesmos filtros da listagem.
+   * Também antes de `@Get(':id')`, pelo mesmo motivo de `conflitos`.
+   */
+  @Get('recortes')
+  recortes(@Query() query: ListCompromissosQueryDto, @CurrentUser() user: AuthUser) {
+    return this.service.contarRecortes(query, user);
   }
 
   @Get()
-  listar(@Query() query: ListCompromissosQueryDto) {
-    return this.service.listar(query);
+  listar(@Query() query: ListCompromissosQueryDto, @CurrentUser() user: AuthUser) {
+    return this.service.listar(query, user);
   }
 
+  /** Quem não vê Processos recebe o detalhe sem o teor das publicações e sem as partes. */
   @Get(':id')
-  detalhe(@Param('id') id: string) {
-    return this.service.detalhe(id);
+  detalhe(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.detalhe(id, user);
   }
 
   /** Linha do tempo da atividade: quem mexeu, o que fez e quando. */
@@ -107,38 +138,48 @@ export class AgendaController {
    * uma mensagem que aponta o caminho certo.
    */
   @Patch(':id/status')
-  mudarStatus(@Param('id') id: string, @Body() dto: MudarStatusDto, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.mudarStatus(id, dto, this.ctx(req, userId, nome));
+  mudarStatus(@Param('id') id: string, @Body() dto: MudarStatusDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.mudarStatus(id, dto, this.ctx(req, user));
   }
 
   @Patch(':id/concluir')
   @ApiOperation({
     summary: 'Conclui a atividade registrando o desfecho (e, se for o caso, criando o processo).',
   })
-  concluir(@Param('id') id: string, @Body() dto: ConcluirCompromissoDto, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.concluir(id, dto, this.ctx(req, userId, nome));
+  concluir(@Param('id') id: string, @Body() dto: ConcluirCompromissoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.concluir(id, dto, this.ctx(req, user));
+  }
+
+  /**
+   * Desfaz a conclusão recém-registrada: só quem concluiu, até 2 minutos, e só
+   * se ela não criou seguimento, processo ou vínculo. É o "Desfazer" do toast.
+   */
+  @Patch(':id/desfazer-conclusao')
+  @ApiOperation({ summary: 'Desfaz a conclusão feita há pouco pela mesma pessoa.' })
+  desfazerConclusao(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.desfazerConclusao(id, this.ctx(req, user));
   }
 
   @Patch(':id/cancelar')
   @ApiOperation({ summary: 'Cancela a atividade — o motivo é obrigatório.' })
-  cancelar(@Param('id') id: string, @Body() dto: CancelarCompromissoDto, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.cancelar(id, dto, this.ctx(req, userId, nome));
+  cancelar(@Param('id') id: string, @Body() dto: CancelarCompromissoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.cancelar(id, dto, this.ctx(req, user));
   }
 
   @Patch(':id/remarcar')
   @ApiOperation({ summary: 'Remarca só a data/hora, preservando a duração e travando a data original.' })
-  remarcar(@Param('id') id: string, @Body() dto: RemarcarCompromissoDto, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.remarcar(id, dto, this.ctx(req, userId, nome));
+  remarcar(@Param('id') id: string, @Body() dto: RemarcarCompromissoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.remarcar(id, dto, this.ctx(req, user));
   }
 
   @Patch(':id')
-  atualizar(@Param('id') id: string, @Body() dto: UpdateCompromissoDto, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.atualizar(id, dto, this.ctx(req, userId, nome));
+  atualizar(@Param('id') id: string, @Body() dto: UpdateCompromissoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.atualizar(id, dto, this.ctx(req, user));
   }
 
   /** Exclui um compromisso — só Administrador (regra global de exclusão). */
   @Delete(':id')
-  remover(@Param('id') id: string, @CurrentUser('id') userId: string, @CurrentUser('nome') nome: string, @Req() req: Request) {
-    return this.service.remover(id, this.ctx(req, userId, nome));
+  remover(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.remover(id, this.ctx(req, user));
   }
 }

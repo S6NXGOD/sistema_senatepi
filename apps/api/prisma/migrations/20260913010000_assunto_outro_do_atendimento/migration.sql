@@ -1,0 +1,19 @@
+-- "OUTRO" SOZINHO NÃO DIZ NADA.
+--
+-- O assunto do atendimento é um enum de propósito: é por ele que o Relatório do
+-- sindicato conta demanda. Mas quem escolhe "Outro" hoje não tem onde escrever
+-- o quê, e o relatório mostra uma fatia "Outro" que ninguém consegue ler. Virar
+-- enum a cada assunto novo custaria uma migração por conversa de corredor.
+--
+-- O texto livre ("Qual assunto?", 3 a 80 caracteres) só vale com
+-- `assunto = 'OUTRO'` — a API zera nos demais. Os Relatórios agrupam os textos
+-- que se repetem: é assim que se descobre, com número, qual assunto merece
+-- virar opção de verdade.
+--
+-- VARCHAR(80) e não TEXT: o limite é regra de produto (cabe num chip da tela e
+-- numa linha do PDF), e o banco segurar o teto impede que um caminho esquecido
+-- grave um parágrafo ali.
+--
+-- ADITIVA E IDEMPOTENTE, como exige a janela de troca do deploy: coluna nula,
+-- o contêiner antigo não a conhece e continua gravando atendimentos como antes.
+ALTER TABLE "atendimentos" ADD COLUMN IF NOT EXISTS "assunto_outro" VARCHAR(80);

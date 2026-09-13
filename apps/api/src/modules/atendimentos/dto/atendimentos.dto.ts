@@ -1,12 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  ArrayNotEmpty, IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNotEmpty,
-  IsOptional, IsString, MaxLength, Min, MinLength, ValidateIf,
+  ArrayNotEmpty, IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsNotEmpty,
+  IsOptional, IsString, Matches, MaxLength, Min, MinLength, ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
   AssuntoAtendimento, CanalAtendimento, DesfechoAtendimento, StatusAtendimento, TipoEncaminhamento,
 } from '@prisma/client';
+import { ASSUNTO_OUTRO_MAX, ASSUNTO_OUTRO_MIN, MENSAGEM_ASSUNTO_OUTRO } from '../assunto.util';
+import { MODALIDADES_CONSULTA, ModalidadeConsulta, modalidadeRemota } from '../encaminhamento.util';
 
 /** Criação: só o essencial da triagem — o desfecho é registrado depois. */
 export class CreateAtendimentoDto {
@@ -33,6 +35,19 @@ export class CreateAtendimentoDto {
    */
   @ApiPropertyOptional({ enum: AssuntoAtendimento, description: 'Assunto da demanda.' })
   @IsOptional() @IsEnum(AssuntoAtendimento) assunto?: AssuntoAtendimento;
+
+  /**
+   * "QUAL ASSUNTO?" — obrigatório só quando se escolheu Outro (decisão D12).
+   * Quem escolheu Outro já decidiu classificar, e três palavras não travam o
+   * balcão. Nos demais assuntos o texto é ignorado e grava nulo
+   * (`assuntoGravavel`).
+   */
+  @ApiPropertyOptional({ description: 'Qual é o assunto, quando assunto = OUTRO (3 a 80 caracteres).' })
+  @ValidateIf((o) => o.assunto === AssuntoAtendimento.OUTRO)
+  @IsString({ message: MENSAGEM_ASSUNTO_OUTRO })
+  @MinLength(ASSUNTO_OUTRO_MIN, { message: MENSAGEM_ASSUNTO_OUTRO })
+  @MaxLength(ASSUNTO_OUTRO_MAX, { message: MENSAGEM_ASSUNTO_OUTRO })
+  assuntoOutro?: string;
 
   @ApiProperty({ description: 'Descrição da demanda.' })
   @IsString() @MinLength(3, { message: 'Descreva a demanda.' })
@@ -78,9 +93,64 @@ export class RegistrarDesfechoDto {
   @IsString() @IsNotEmpty({ message: 'Selecione o processo existente.' })
   processoId?: string;
 
-  @ApiPropertyOptional({ description: 'Data/hora da consulta (ISO). Vazio → amanhã.' })
-  @IsOptional() @IsDateString()
+  /**
+   * Data e hora da consulta (ISO). Vazia, a consulta vai para as 9h do próximo
+   * dia útil (`inicioPadraoDaConsulta`) — MENOS quando é remota: chamada de
+   * vídeo ou telefonema é hora combinada com o filiado, e um horário inventado
+   * pelo sistema deixaria os dois esperando em horas diferentes.
+   */
+  @ApiPropertyOptional({ description: 'Data/hora da consulta (ISO). Vazio: próximo dia útil às 9h. Obrigatória por vídeo ou telefone.' })
+  @ValidateIf((o) => modalidadeRemota(o.modalidade) || (o.dataConsulta !== undefined && o.dataConsulta !== null))
+  @IsNotEmpty({ message: 'Consulta por vídeo ou por telefone precisa de dia e hora combinados.' })
+  @IsDateString({}, { message: 'Data da consulta inválida.' })
   dataConsulta?: string;
+
+  /** Como vai ser a consulta. Vai para o `local` da atividade; ver `LOCAL_DA_MODALIDADE`. */
+  @ApiPropertyOptional({ enum: MODALIDADES_CONSULTA, description: 'Na sede, por vídeo ou por telefone.' })
+  @IsOptional()
+  @IsIn(MODALIDADES_CONSULTA, { message: 'Modalidade inválida: use SEDE, VIDEO ou TELEFONE.' })
+  modalidade?: ModalidadeConsulta;
+
+  /**
+   * Link da chamada, quando por vídeo. Aceita o convite colado inteiro — a
+   * normalização extrai a primeira URL; o teto de 500 vale para a URL, e este
+   * teto maior só impede que um texto enorme chegue ao serviço.
+   */
+  @ApiPropertyOptional({ description: 'Link da chamada (Meet, Zoom, Teams…), só para consulta por vídeo.' })
+  @IsOptional() @IsString() @MaxLength(2000)
+  linkReuniao?: string | null;
+}
+
+/** Reclassificar o assunto depois — no balcão, na gaveta ou no desfecho. */
+export class AtualizarAssuntoDto {
+  /** `null` é "sem assunto": desfazer uma classificação errada também é classificar. */
+  @ApiProperty({ enum: AssuntoAtendimento, nullable: true })
+  @ValidateIf((o) => o.assunto !== null)
+  @IsEnum(AssuntoAtendimento, { message: 'Escolha um assunto da lista (ou envie nulo para deixar sem assunto).' })
+  assunto: AssuntoAtendimento | null;
+
+  @ApiPropertyOptional({ description: 'Qual é o assunto, quando assunto = OUTRO (3 a 80 caracteres).' })
+  @ValidateIf((o) => o.assunto === AssuntoAtendimento.OUTRO)
+  @IsString({ message: MENSAGEM_ASSUNTO_OUTRO })
+  @MinLength(ASSUNTO_OUTRO_MIN, { message: MENSAGEM_ASSUNTO_OUTRO })
+  @MaxLength(ASSUNTO_OUTRO_MAX, { message: MENSAGEM_ASSUNTO_OUTRO })
+  assuntoOutro?: string;
+}
+
+/** Colar (ou tirar) o link da chamada numa consulta nascida do atendimento. */
+export class AtualizarLinkConsultaDto {
+  @ApiProperty({ nullable: true, description: 'Link da chamada, ou nulo para tirar.' })
+  @ValidateIf((o) => o.linkReuniao !== null)
+  @IsString({ message: 'Cole o link da chamada, ou envie nulo para tirar.' })
+  @MaxLength(2000)
+  linkReuniao: string | null;
+}
+
+export class EncaminhamentoOpcoesQueryDto {
+  @ApiPropertyOptional({ description: 'Dia da consulta (YYYY-MM-DD). Vazio: o dia padrão da consulta.' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Data inválida: use AAAA-MM-DD.' })
+  data?: string;
 }
 
 export class MudarStatusAtendimentoDto {

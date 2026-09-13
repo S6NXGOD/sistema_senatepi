@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { lastValueFrom, of } from 'rxjs';
 import { descricaoLegivel, fraseDaRota, lerLinhaHttp, valeAuditar } from './audit.frases';
+import { AuditInterceptor, rotaParaRegistro } from './audit.interceptor';
 
 const ler = (rel: string) => readFileSync(resolve(__dirname, rel), 'utf8');
 const INTERCEPTOR = ler('audit.interceptor.ts');
@@ -172,5 +174,45 @@ describe('a varredura silenciosa deixa rastro quando muda algo', () => {
       'utf8',
     );
     expect(CTRL).toContain('this.service.reavaliarInstancias(n, req ? this.ctx(req, userId) : { userId })');
+  });
+});
+
+/**
+ * A URL DO RECADASTRO É A SENHA — achado de 13/09/2026.
+ *
+ * O registro de último recurso gravava `POST /api/recadastro/<token>/validar`
+ * nos metadados, e a tela de Auditoria mostra os metadados. Com o link vivo por
+ * até 24h, quem lia a auditoria abria o cadastro e gravava como o filiado.
+ */
+describe('rota com credencial vai para o registro como MOLDE', () => {
+  const TOKEN = 'Q2hhdmVEZVRlc3RlRGVyaXZhZGFEb0lkRG9MaW5rMTIz';
+
+  it.each<[string, string | undefined, string | undefined, string]>([
+    ['recadastro: grava o molde', '/api/recadastro/:token/validar', `/api/recadastro/${TOKEN}/validar`, '/api/recadastro/:token/validar'],
+    ['qualquer parâmetro terminado em token', '/api/x/:qrToken/usar', `/api/x/${TOKEN}/usar`, '/api/x/:qrToken/usar'],
+    ['rota sem credencial: a URL continua (é a pista técnica)', '/api/processos/:id/sincronizar', '/api/processos/abc/sincronizar', '/api/processos/abc/sincronizar'],
+    ['sem molde: a URL', undefined, '/api/coisa', '/api/coisa'],
+    ['sem nada: vazio', undefined, undefined, ''],
+  ])('%s', (_nome, molde, url, esperado) => {
+    expect(rotaParaRegistro(molde, url)).toBe(esperado);
+  });
+
+  it('o interceptor grava o registro sem o token, nem na frase nem nos metadados', async () => {
+    const registrar = jest.fn().mockResolvedValue(undefined);
+    const interceptor = new AuditInterceptor({ registrar } as never);
+    const req = {
+      method: 'POST',
+      route: { path: '/api/recadastro/:token/foto' },
+      originalUrl: `/api/recadastro/${TOKEN}/foto`,
+      ip: '1.2.3.4',
+      headers: {},
+    };
+    const contexto = { switchToHttp: () => ({ getRequest: () => req }) };
+    await lastValueFrom(interceptor.intercept(contexto as never, { handle: () => of({ ok: true }) }));
+
+    expect(registrar).toHaveBeenCalledTimes(1);
+    const registro = registrar.mock.calls[0][0];
+    expect(JSON.stringify(registro)).not.toContain(TOKEN);
+    expect(registro.metadata).toEqual({ rota: '/api/recadastro/:token/foto', metodo: 'POST' });
   });
 });

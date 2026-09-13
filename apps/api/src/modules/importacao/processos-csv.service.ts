@@ -708,6 +708,13 @@ export class ProcessosCsvService {
          * — e é por isso que ela DEVE contar como movimentação do processo.
          */
         origemSistema: false,
+        /**
+         * ...mas não é andamento LANÇADO por ela. Uma linha de planilha vira
+         * uma nota em nome de quem subiu o arquivo, e o Uso e produtividade
+         * contava cada uma como trabalho dessa pessoa. `origem` diz por qual
+         * caminho a nota entrou; os Relatórios contam só a nula (13/09/2026).
+         */
+        origem: 'IMPORTACAO',
       },
     });
   }

@@ -10,9 +10,23 @@ import { marcarNadaMudou } from '../../common/audit/audit.contexto';
 import { TiposEventoService } from './tipos-evento.service';
 import {
   acharDesfecho, desfechosDoTipo, categoriaCancelamentoValida,
-  CATEGORIA_CANCELAMENTO_LABEL, tituloDoSeguimento,
+  CATEGORIA_CANCELAMENTO_LABEL, DESFECHO_LABEL, sugeridoParaOSeguimento, tituloDoSeguimento,
 } from './desfechos.catalogo';
-import { ausenciaDe, montarUrgencia, sincronizarEquipe } from './equipe.util';
+import {
+  NAO_E_RESERVA, ausenciaDe, daPessoa, montarUrgencia, ondeSouReserva, sincronizarEquipe,
+} from './equipe.util';
+import {
+  TIPOS_COM_HORA, filtroDaBusca, recorteAberto, recorteAtencao, recorteAtrasadas, recorteHoje,
+  recorteSeteDias, recorteTodos, whereDoRecorte, type ContagemDosRecortes,
+} from './recortes.util';
+import { dadosDaRemarcacao, mesmoMinuto, recusarRemarcacaoParaOPassado } from './remarcacao.util';
+import {
+  FRASE_CANCELAR_PELA_ROTA, FRASE_CONCLUIR_PELA_ROTA, statusDaCriacao, statusPelaEdicao,
+} from './porta-do-status.util';
+import { andamentoDaConclusao, podeDesfazerConclusao, type RegistroDaConclusao } from './desfazer-conclusao.util';
+import { linkReuniaoParaGravar } from '../../common/link-reuniao.util';
+import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
+import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { ultimosUsosReais } from '../dashboard/ultimo-acesso.util';
 import { normalizarCategoria } from '../processos/areas.catalogo';
 import { PARTE_ORDER } from '../processos/partes.service';
@@ -32,7 +46,42 @@ interface Ctx {
   userId?: string;
   /** Nome de quem agiu — congelado no histórico da atividade. */
   nome?: string;
+  /**
+   * Quem agiu, como LEITOR da resposta: a atividade que volta de uma escrita é
+   * um cartão, e o cartão de quem não vê Processos sai sem as partes. Vem do
+   * usuário do controller, sem consulta a mais. Sem leitor (chamada interna,
+   * como a audiência que o radar agenda), vale tudo.
+   */
+  leitor?: Leitor;
 }
+
+/** Quem está lendo — o que a matriz deixa ver de Processos decide o que vem junto. */
+export type Leitor = Pick<AuthUser, 'id' | 'role' | 'permissoes'>;
+
+/**
+ * QUEM NÃO TEM O MÓDULO DE PROCESSOS NÃO RECEBE DADO DE PROCESSO PELA AGENDA.
+ *
+ * O painel já cortava isso no backend (dashboard.module.ts, `veProcessos`); a
+ * agenda não. A Triagem — processos SEM_ACESSO e agenda VISUALIZAR no preset —
+ * recebia pela gaveta o TEOR INTEGRAL das publicações e as partes com papel, e
+ * pela listagem as partes de cada cartão. Esconder na tela seria conforto, não
+ * controle de acesso.
+ *
+ * Fica o que identifica a atividade: NPU e título do processo. Sem leitor
+ * (chamada interna) vale tudo, como antes.
+ */
+export function leitorVeProcessos(leitor?: Leitor | null): boolean {
+  return !leitor || nivelEfetivo(leitor.role, leitor.permissoes, 'processos') !== 'SEM_ACESSO';
+}
+
+/**
+ * `origem` do andamento que a CONCLUSÃO escreve no processo. Literal igual ao
+ * da migração `20260913010300_origem_do_andamento`, que marcou as antigas: os
+ * Relatórios contam como "andamento interno" só o que tem origem nula.
+ */
+export const ORIGEM_ANDAMENTO_CONCLUSAO = 'CONCLUSAO' as const;
+/** A conversa que abre o caso pré-processual — idem. */
+export const ORIGEM_ANDAMENTO_CONVERSAO = 'CONVERSAO' as const;
 
 /** LGPD: nos cards da agenda expomos só o mínimo do filiado (nome/matrícula). */
 const filiadoCard = { select: { id: true, nomeCompleto: true, matricula: true } } as const;
@@ -96,7 +145,8 @@ const EQUIPE_ORDER: Prisma.CompromissoResponsavelOrderByWithRelationInput[] = [
 /** Campos expostos nos cards (Kanban/Calendário/Alertas). */
 const cardSelect = {
   id: true, titulo: true, tipo: true, status: true, inicio: true, fim: true,
-  local: true, descricao: true, urgente: true, iniciadoEm: true, origemAutomatica: true,
+  // O link da chamada vai no cartão: o ícone de vídeo abre a sala sem passar pela gaveta.
+  local: true, linkReuniao: true, descricao: true, urgente: true, iniciadoEm: true, origemAutomatica: true,
   dataOriginal: true, atendimentoId: true, remarcacoes: true, remarcadoMotivo: true,
   desfecho: true, desfechoObs: true, concluidoEm: true,
   // A CATEGORIA é a explicação padronizada do cancelamento; o motivo em texto é
@@ -114,6 +164,24 @@ const cardSelect = {
   // quem o robô anexou como reserva da equipe do caso.
   equipe: { select: { principal: true, origem: true, usuario: responsavelSel }, orderBy: EQUIPE_ORDER },
 } as const;
+
+/** O cartão de quem não vê Processos: o processo se identifica, as partes não vêm. */
+const processoSelSemPartes = {
+  select: { id: true, numeroCNJ: true, statusInterno: true, titulo: true, tipoAcao: true },
+};
+const cardSelectSemPartes = { ...cardSelect, processo: processoSelSemPartes };
+
+/**
+ * O CARTÃO QUE ESTE LEITOR PODE RECEBER — para toda resposta que não é a listagem.
+ *
+ * O corte chegou à listagem e ao detalhe e parou ali: `/compromissos/alertas` e
+ * a resposta de criar, editar, mudar status, concluir, cancelar, remarcar e
+ * desfazer seguiam com `cardSelect` inteiro (revisão de 13/09/2026). A Triagem
+ * do preset é só VISUALIZAR na agenda, mas uma matriz com agenda EDITAR e
+ * processos SEM_ACESSO recebia as partes a cada gesto.
+ */
+const cardSelectPara = (leitor?: Leitor | null) =>
+  leitorVeProcessos(leitor) ? cardSelect : cardSelectSemPartes;
 
 /**
  * MÁQUINA DE ESTADOS da atividade.
@@ -156,15 +224,6 @@ const TIPO_ANDAMENTO: Record<string, string> = {
 const tipoAndamento = (tipoAtividade: string, alerta?: boolean): string =>
   alerta ? 'URGENTE' : (TIPO_ANDAMENTO[tipoAtividade] ?? 'ATUALIZACAO');
 
-/** Brasil sem horário de verão desde 2019 → offset fixo UTC-3. */
-const OFFSET_BR_MS = 3 * 3_600_000;
-
-/** 09:00 de Teresina, `dias` à frente — horário em que a equipe abre o sistema. */
-function manhaDaqui(dias: number): Date {
-  const br = new Date(Date.now() - OFFSET_BR_MS);
-  const alvo = Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), br.getUTCDate() + dias, 9, 0, 0);
-  return new Date(alvo + OFFSET_BR_MS);
-}
 
 @Injectable()
 export class AgendaService {
@@ -206,16 +265,20 @@ export class AgendaService {
     if (fim < inicio) throw new BadRequestException('O fim não pode ser antes do início.');
 
     const urgencia = montarUrgencia(dto.urgente, dto.urgenteMotivo, { userId: ctx.userId });
+    // Nasce PENDENTE ou EM_ANDAMENTO — fechar é pelas rotas que pedem desfecho e motivo.
+    const situacao = statusDaCriacao(dto.status);
+    const linkReuniao = linkReuniaoParaGravar(dto.linkReuniao) ?? null;
 
     const compromisso = await this.prisma.$transaction(async (tx) => {
       const criado = await tx.compromisso.create({
         data: {
           titulo: dto.titulo.trim(),
           tipo: dto.tipo,
-          status: dto.status ?? undefined,
+          ...situacao,
           inicio,
           fim,
           local: dto.local?.trim() || null,
+          linkReuniao,
           descricao: dto.descricao?.trim() || null,
           observacoesInternas: dto.observacoesInternas?.trim() || null,
           urgente: false, // definido logo abaixo por `montarUrgencia`
@@ -235,7 +298,7 @@ export class AgendaService {
         principalId: dto.responsavelId,
         participantesIds: equipeIds.map((e) => e.id),
       });
-      return tx.compromisso.findUniqueOrThrow({ where: { id: criado.id }, select: cardSelect });
+      return tx.compromisso.findUniqueOrThrow({ where: { id: criado.id }, select: cardSelectPara(ctx.leitor) });
     });
 
     await this.auditar(AcaoAuditoria.CREATE, compromisso.id, `Compromisso criado: ${compromisso.titulo}`, ctx, {
@@ -325,9 +388,22 @@ export class AgendaService {
    * equipe, o segundo advogado de uma audiência também tem o horário ocupado —
    * conferir só `responsavelId` repetiria o defeito que já escondeu audiência
    * do painel de quem acompanhava sem responder.
+   *
+   * MAS NÃO OLHA O RUÍDO (12/09/2026). Dois avisos falsos ensinavam a ignorar o
+   * verdadeiro:
+   *  · a RESERVA do robô — marcar audiência às 09:30 para um advogado que é
+   *    reserva de um "Elaborar manifestação" das 09:00 dizia "já há uma
+   *    atividade nesse horário". Reserva não ocupa ninguém (`NAO_E_RESERVA`);
+   *  · a TAREFA do robô sem hora marcada — as 9h dela são convenção, não
+   *    compromisso com alguém do outro lado. Audiência que o robô cria a partir
+   *    do tribunal TEM hora, e continua contando (`TIPOS_COM_HORA`).
+   *
+   * E OLHA TODO MUNDO DO FORMULÁRIO: `pessoas=id1,id2` soma responsável e quem
+   * foi posto para atuar junto — antes só o responsável era conferido.
    */
   async conflitos(params: {
-    responsavelId: string;
+    responsavelId?: string;
+    pessoas?: string;
     inicio: string;
     fim: string;
     ignorarId?: string;
@@ -338,30 +414,92 @@ export class AgendaService {
       throw new BadRequestException('Período inválido para conferir a agenda.');
     }
     if (fim <= inicio) return [];
+    const ids = [
+      ...new Set(
+        [params.responsavelId, ...(params.pessoas?.split(',') ?? [])]
+          .map((x) => x?.trim())
+          .filter(Boolean) as string[],
+      ),
+    ];
+    if (!ids.length) return [];
 
     return this.prisma.compromisso.findMany({
       where: {
-        // Só o que ainda vai acontecer: uma atividade concluída ou cancelada
-        // não ocupa mais ninguém.
-        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
-        ...(params.ignorarId ? { id: { not: params.ignorarId } } : {}),
-        OR: [
-          { responsavelId: params.responsavelId },
-          { equipe: { some: { usuarioId: params.responsavelId } } },
+        AND: [
+          // Só o que ainda vai acontecer: uma atividade concluída ou cancelada
+          // não ocupa mais ninguém.
+          { status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] } },
+          ...(params.ignorarId ? [{ id: { not: params.ignorarId } }] : []),
+          {
+            OR: ids.flatMap((id) => [
+              { responsavelId: id },
+              { equipe: { some: { usuarioId: id, ...NAO_E_RESERVA } } },
+            ]),
+          },
+          { NOT: { origemAutomatica: true, tipo: { notIn: [...TIPOS_COM_HORA] } } },
+          { inicio: { lt: fim } },
+          { fim: { gt: inicio } },
         ],
-        inicio: { lt: fim },
-        fim: { gt: inicio },
       },
       orderBy: { inicio: 'asc' },
       take: 10,
       select: {
         id: true, titulo: true, tipo: true, inicio: true, fim: true, local: true,
         filiado: filiadoCard,
+        // Com várias pessoas conferidas, o aviso precisa dizer DE QUEM é o choque.
+        responsavel: { select: { id: true, nome: true, nomeExibicao: true } },
       },
     });
   }
 
-  async listar(q: ListCompromissosQueryDto) {
+  async listar(q: ListCompromissosQueryDto, leitor?: Leitor) {
+    const and = this.filtrosDaListagem(q, leitor);
+    // A aba é resolvida AQUI, pela mesma função que o painel usa para contar.
+    if (q.recorte) and.push(whereDoRecorte(q.recorte));
+
+    return this.prisma.compromisso.findMany({
+      where: and.length ? { AND: and } : {},
+      orderBy: { inicio: 'asc' },
+      take: 500,
+      select: leitorVeProcessos(leitor) ? cardSelect : cardSelectSemPartes,
+    });
+  }
+
+  /**
+   * UM `count()` POR ABA, COM OS MESMOS FILTROS DA LISTA.
+   *
+   * O contador da aba contava a lista que o navegador tinha recebido — cortada
+   * em 500 e sem os filtros do servidor. Aqui cada número sai da mesma função
+   * que monta a aba, sobre os mesmos filtros: o número e a lista não podem
+   * discordar.
+   */
+  async contarRecortes(q: ListCompromissosQueryDto, leitor?: Leitor): Promise<ContagemDosRecortes> {
+    const agora = new Date();
+    const base = this.filtrosDaListagem({ ...q, recorte: undefined }, leitor);
+    const contar = (recorte: Prisma.CompromissoWhereInput) =>
+      this.prisma.compromisso.count({ where: { AND: [...base, recorte] } });
+    const [hoje, atrasadas, atencao, seteDias, aberto, todos, urgentes] = await Promise.all([
+      contar(recorteHoje(agora)),
+      contar(recorteAtrasadas(agora)),
+      contar(recorteAtencao(agora)),
+      contar(recorteSeteDias(agora)),
+      contar(recorteAberto()),
+      contar(recorteTodos(agora)),
+      contar({ AND: [recorteAberto(), { urgente: true }] }),
+    ]);
+    return { hoje, atrasadas, atencao, seteDias, aberto, todos, urgentes };
+  }
+
+  /** `eu` é quem pede; sem usuário, casa ninguém — nunca a agenda inteira. */
+  private quem(valor: string | undefined, usuarioId: string | undefined): string | null {
+    const v = valor?.trim();
+    if (!v) return null;
+    if (v === 'eu') return usuarioId ?? '__sem_usuario__';
+    return v;
+  }
+
+  /** Os filtros da listagem, sem a aba — `listar` e `contarRecortes` leem os mesmos. */
+  private filtrosDaListagem(q: ListCompromissosQueryDto, leitor?: Leitor): Prisma.CompromissoWhereInput[] {
     const and: Prisma.CompromissoWhereInput[] = [];
     if (q.status) and.push({ status: q.status });
     if (q.tipo) and.push({ tipo: q.tipo });
@@ -393,7 +531,15 @@ export class AgendaService {
           .filter(Boolean) as string[],
       ),
     ];
-    if (pessoas.length) {
+    /*
+      SÓ QUEM RESPONDE — "Esperando por: Fulano 4" e a Carga da equipe contam
+      por `responsavelId`. Sem este recorte, o link abria responsável OU
+      equipe (reserva do robô inclusive) e quem clicava no 4 via 9.
+    */
+    const somenteResponsavel = q.somenteResponsavel === '1' || q.somenteResponsavel === 'true';
+    if (pessoas.length && somenteResponsavel) {
+      and.push({ responsavelId: { in: pessoas } });
+    } else if (pessoas.length) {
       and.push({
         OR: pessoas.flatMap((id) => [
           { responsavelId: id },
@@ -401,28 +547,24 @@ export class AgendaService {
         ]),
       });
     }
+    /*
+      A RÉGUA DO QUE É DA PESSOA — a mesma do painel e da faixa. O filtro de
+      responsável acima continua "pelas duas portas", reserva inclusive, porque
+      a coordenação usa para ver tudo em que alguém aparece; "Minhas" é esta.
+    */
+    const pessoa = this.quem(q.pessoa, leitor?.id);
+    if (pessoa) and.push(daPessoa(pessoa));
+    const reserva = this.quem(q.reservaDe, leitor?.id);
+    if (reserva) and.push(ondeSouReserva(reserva));
     if (q.urgente === 'true') and.push({ urgente: true });
     if (q.filiadoId) and.push({ filiadoId: q.filiadoId });
     const busca = q.busca?.trim();
-    if (busca) {
-      and.push({
-        OR: [
-          { titulo: { contains: busca, mode: 'insensitive' } },
-          { filiado: { nomeCompleto: { contains: busca, mode: 'insensitive' } } },
-        ],
-      });
-    }
+    if (busca) and.push(filtroDaBusca(busca, { processos: leitorVeProcessos(leitor) }));
     const range: Prisma.DateTimeFilter = {};
     if (q.dataInicio) range.gte = new Date(q.dataInicio);
     if (q.dataFim) range.lte = new Date(q.dataFim);
     if (range.gte || range.lte) and.push({ inicio: range });
-
-    return this.prisma.compromisso.findMany({
-      where: and.length ? { AND: and } : {},
-      orderBy: { inicio: 'asc' },
-      take: 500,
-      select: cardSelect,
-    });
+    return and;
   }
 
   // -------------------------------------------------------------------------
@@ -430,32 +572,36 @@ export class AgendaService {
   //          "Próximas 24 horas" (agendados para o próximo dia).
   // -------------------------------------------------------------------------
 
-  async alertas() {
+  /** A tela não chama mais (D9); enquanto a rota existir, com o corte de `leitorVeProcessos`. */
+  async alertas(leitor?: Leitor) {
     const agora = new Date();
     const menos3h = new Date(agora.getTime() - 3 * 3600 * 1000);
     const mais24h = new Date(agora.getTime() + 24 * 3600 * 1000);
     const abertos: Prisma.CompromissoWhereInput = {
       status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
     };
+    const select = cardSelectPara(leitor);
 
     const [aguardando, proximas24h] = await Promise.all([
       this.prisma.compromisso.findMany({
         where: { AND: [abertos, { inicio: { lt: menos3h } }] },
         orderBy: { inicio: 'asc' },
         take: 50,
-        select: cardSelect,
+        select,
       }),
       this.prisma.compromisso.findMany({
         where: { AND: [abertos, { inicio: { gte: agora, lte: mais24h } }] },
         orderBy: { inicio: 'asc' },
         take: 50,
-        select: cardSelect,
+        select,
       }),
     ]);
     return { aguardando, proximas24h };
   }
 
-  async detalhe(id: string) {
+  async detalhe(id: string, leitor?: Leitor) {
+    // Ver `leitorVeProcessos`: sem o módulo, nem o teor da publicação nem as partes.
+    const verProcessos = leitorVeProcessos(leitor);
     const compromisso = await this.prisma.compromisso.findUnique({
       where: { id },
       include: {
@@ -523,10 +669,14 @@ export class AgendaService {
           select: {
             id: true, numeroCNJ: true, classeProcessual: true, statusInterno: true, titulo: true,
             tipoAcao: true,
-            partes: {
-              select: { id: true, nome: true, polo: true, papel: true, principal: true },
-              orderBy: PARTE_ORDER,
-            },
+            ...(verProcessos
+              ? {
+                  partes: {
+                    select: { id: true, nome: true, polo: true, papel: true, principal: true },
+                    orderBy: PARTE_ORDER,
+                  },
+                }
+              : {}),
           },
         },
         /**
@@ -542,6 +692,8 @@ export class AgendaService {
          * era aquela. O texto que ele precisa ler para decidir estava a três
          * cliques de distância, ligado no banco e invisível na tela.
          */
+        ...(verProcessos
+          ? {
         origemComunicacoes: {
           orderBy: { dataDisponibilizacao: 'desc' },
           select: {
@@ -559,10 +711,20 @@ export class AgendaService {
             advogados: true,
           },
         },
-        // Triagem de origem: canal, demanda e QUEM registrou (atendente).
+            }
+          : {}),
+        /*
+          Triagem de origem: canal, demanda e QUEM registrou (atendente).
+
+          O ASSUNTO veio junto em 13/09/2026: o advogado abria a consulta e só
+          via "Consulta Jurídica — NOME"; para saber do que se tratava tinha de
+          tocar em "Abrir triagem completa", que é justamente o que não se faz
+          no celular na hora da chamada.
+        */
         atendimento: {
           select: {
             id: true, numero: true, canal: true, desfecho: true, descricao: true, createdAt: true,
+            assunto: true, assuntoOutro: true,
             atendente: { select: { id: true, nome: true, nomeExibicao: true } },
           },
         },
@@ -614,13 +776,45 @@ export class AgendaService {
       );
     }
 
-    const novoInicio = dto.inicio ? new Date(dto.inicio) : atual.inicio;
-    const novoFim = dto.fim ? new Date(dto.fim) : atual.fim;
+    /*
+      REMARCAÇÃO PELA EDIÇÃO — pela MESMA função do botão (`dadosDaRemarcacao`):
+      contador, motivo, data original, volta a PENDENTE e zera o cronômetro.
+      Ao minuto, porque o formulário reenvia o início sem os segundos e editar
+      só o título de uma tarefa do robô virava remarcação falsa.
+    */
+    const pedidoInicio = dto.inicio ? new Date(dto.inicio) : null;
+    const pedidoFim = dto.fim ? new Date(dto.fim) : null;
+    if (
+      (pedidoInicio && Number.isNaN(pedidoInicio.getTime())) ||
+      (pedidoFim && Number.isNaN(pedidoFim.getTime()))
+    ) {
+      throw new BadRequestException('Data inválida.');
+    }
+    const inicioMudou = !!pedidoInicio && !mesmoMinuto(pedidoInicio, atual.inicio);
+    /*
+      ATIVIDADE FECHADA NÃO SE REMARCA — mas a data dela ainda se CORRIGE.
+
+      Remarcar devolve a PENDENTE e soma o contador: numa audiência concluída
+      isso reabriria o que foi fechado com desfecho. A edição sempre permitiu
+      acertar o dia de uma atividade já encerrada (lançada com a data errada),
+      e é o caminho que a mensagem do botão Remarcar indica. Aqui ela continua:
+      grava a data, entra no "o que mudou", e não conta como remarcação.
+    */
+    const fechada =
+      atual.status === StatusCompromisso.CONCLUIDO || atual.status === StatusCompromisso.CANCELADO;
+    const remarcacao =
+      pedidoInicio && inicioMudou && !fechada
+        ? dadosDaRemarcacao(atual, { inicio: pedidoInicio, fim: pedidoFim, via: 'edicao' })
+        : null;
+    const inicioCorrigido = pedidoInicio && inicioMudou && fechada ? pedidoInicio : null;
+    const fimMudou = !remarcacao && !!pedidoFim && !mesmoMinuto(pedidoFim, atual.fim);
+    const novoInicio = remarcacao?.data.inicio ?? inicioCorrigido ?? atual.inicio;
+    const novoFim = remarcacao?.data.fim ?? (fimMudou && pedidoFim ? pedidoFim : atual.fim);
     if (novoFim < novoInicio) throw new BadRequestException('O fim não pode ser antes do início.');
 
-    // Remarcação: se a data de início mudou e ainda não há original, TRAVA a original.
-    const remarcado = dto.inicio != null && novoInicio.getTime() !== atual.inicio.getTime();
-    const dataOriginal = remarcado && !atual.dataOriginal ? atual.inicio : undefined;
+    // Concluir, cancelar e reabrir não passam por aqui — ver `porta-do-status.util.ts`.
+    const situacao = statusPelaEdicao(atual, dto.status);
+    const linkReuniao = linkReuniaoParaGravar(dto.linkReuniao);
 
     // A equipe só é mexida quando a requisição FALA dela. Campo ausente é "não
     // mexa" — sem esta distinção, um PATCH que só troca o título apagaria os
@@ -638,17 +832,22 @@ export class AgendaService {
         data: {
           titulo: dto.titulo?.trim(),
           tipo: dto.tipo,
-          status: dto.status,
-          inicio: dto.inicio ? novoInicio : undefined,
-          fim: dto.fim ? novoFim : undefined,
+          // Remarcou: a remarcação decide a situação (PENDENTE). Senão, a porta do status.
+          ...(remarcacao
+            ? remarcacao.data
+            : {
+                ...situacao,
+                ...(inicioCorrigido ? { inicio: inicioCorrigido } : {}),
+                ...(fimMudou ? { fim: novoFim } : {}),
+              }),
           local: dto.local === undefined ? undefined : dto.local?.trim() || null,
+          ...(linkReuniao !== undefined ? { linkReuniao } : {}),
           descricao: dto.descricao === undefined ? undefined : dto.descricao?.trim() || null,
           observacoesInternas: dto.observacoesInternas === undefined ? undefined : dto.observacoesInternas?.trim() || null,
           responsavelId: dto.responsavelId,
           filiadoId: dto.filiadoId === undefined ? undefined : dto.filiadoId || null,
           atendimentoId: dto.atendimentoId === undefined ? undefined : dto.atendimentoId || null,
           processoId: dto.processoId === undefined ? undefined : dto.processoId || null,
-          ...(dataOriginal ? { dataOriginal } : {}),
           ...urgencia,
         },
       });
@@ -664,7 +863,7 @@ export class AgendaService {
             : equipeIds.map((e) => e.id),
         });
       }
-      return tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelect });
+      return tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelectPara(ctx.leitor) });
     });
 
     // A troca de responsável é a mudança que mais gera dúvida depois ("quem
@@ -676,20 +875,10 @@ export class AgendaService {
       });
     }
 
-    if (remarcado) {
-      // Trilha de auditoria da remarcação — nunca apagamos as datas antigas.
-      await this.historiar(
-        id,
-        'REMARCADO',
-        `Data alterada de ${fmt(atual.inicio)} para ${fmt(novoInicio)}.`,
-        ctx,
-        { de: atual.inicio.toISOString(), para: novoInicio.toISOString(), via: 'edicao' },
-      );
-      await this.auditar(AcaoAuditoria.UPDATE, id, `Compromisso REMARCADO: ${atual.inicio.toISOString()} → ${novoInicio.toISOString()}`, ctx, {
-        de: atual.inicio.toISOString(),
-        para: novoInicio.toISOString(),
-        dataOriginal: (compromisso.dataOriginal ?? atual.inicio).toISOString(),
-      });
+    if (remarcacao) {
+      // Trilha da remarcação — a mesma frase e os mesmos dados do botão Remarcar.
+      await this.historiar(id, 'REMARCADO', remarcacao.historico.descricao, ctx, remarcacao.historico.metadata);
+      await this.auditar(AcaoAuditoria.UPDATE, id, remarcacao.auditoria.descricao, ctx, remarcacao.historico.metadata);
     } else {
       /*
         O QUE MUDOU, CAMPO A CAMPO.
@@ -707,15 +896,17 @@ export class AgendaService {
         {
           titulo: dto.titulo?.trim(),
           tipo: dto.tipo,
-          status: dto.status,
+          status: situacao.status,
           local: dto.local,
+          linkReuniao,
           descricao: dto.descricao,
           urgente: dto.urgente,
           urgenteMotivo: dto.urgenteMotivo,
           responsavelId: dto.responsavelId,
           filiadoId: dto.filiadoId,
           processoId: dto.processoId,
-          fim: dto.fim ? novoFim : undefined,
+          inicio: inicioCorrigido ?? undefined,
+          fim: fimMudou ? novoFim : undefined,
         },
       );
       await this.historiar(
@@ -751,15 +942,14 @@ export class AgendaService {
     });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
 
-    if (dto.status === atual.status) return this.cartao(id);
+    if (dto.status === atual.status) return this.cartao(id, ctx.leitor);
 
+    // As mesmas frases da edição — as duas portas recusam igual (porta-do-status.util.ts).
     if (dto.status === StatusCompromisso.CONCLUIDO) {
-      throw new BadRequestException(
-        'Para concluir, registre o desfecho da atividade (o que aconteceu com a demanda).',
-      );
+      throw new BadRequestException(FRASE_CONCLUIR_PELA_ROTA);
     }
     if (dto.status === StatusCompromisso.CANCELADO) {
-      throw new BadRequestException('Para cancelar, informe o motivo do cancelamento.');
+      throw new BadRequestException(FRASE_CANCELAR_PELA_ROTA);
     }
     this.garantirTransicao(atual.status, dto.status);
 
@@ -779,15 +969,17 @@ export class AgendaService {
         ...(iniciadoEm !== undefined ? { iniciadoEm } : {}),
         // Reabrir limpa o fechamento anterior: manter um desfecho antigo num
         // evento que voltou a estar aberto faria a tela mentir. O histórico
-        // permanece na Auditoria.
+        // permanece na Auditoria. A CATEGORIA também sai: ela ficava para trás
+        // e a atividade reaberta seguia contada em "cancelada por quê" nos
+        // relatórios.
         ...(reabrindo
           ? {
               desfecho: null, desfechoObs: null, concluidoEm: null, concluidoPor: null,
-              canceladoMotivo: null, canceladoEm: null, canceladoPor: null,
+              canceladoCategoria: null, canceladoMotivo: null, canceladoEm: null, canceladoPor: null,
             }
           : {}),
       },
-      select: cardSelect,
+      select: cardSelectPara(ctx.leitor),
     });
 
     await this.auditar(
@@ -903,34 +1095,69 @@ export class AgendaService {
     // O andamento no processo só é escrito quando NÃO houve rascunho: o rascunho
     // já nasce com a conversa como primeiro andamento (ver criarRascunho).
     const gravarAndamento = !!processoId && !preProcessualCriado;
+    const agora = new Date();
 
-    const { compromisso, seguimento } = await this.prisma.$transaction(async (tx) => {
+    /*
+      RECONCLUIR SUBSTITUI O ANDAMENTO, EM VEZ DE EMPILHAR.
+
+      Reabrir e concluir de novo gravava um segundo "X — Houve acordo" na linha
+      do tempo do processo, às vezes com outro texto. O cuidado que o seguimento
+      já tinha (substituir, não empilhar) não tinha chegado ao andamento. A
+      conclusão anota no histórico o id do andamento que escreveu; a seguinte
+      reescreve aquele — ou o apaga, se o novo desfecho não escreve andamento.
+      Só toca a nota com origem CONCLUSAO: o que alguém lançou à mão não é eco.
+    */
+    const andamentoAnteriorId = andamentoDaConclusao(await this.ultimaConclusao(id));
+
+    const { compromisso, seguimento, substituidas, andamentoId, andamentoSubstituido } =
+      await this.prisma.$transaction(async (tx) => {
       const atualizado = await tx.compromisso.update({
         where: { id },
         data: {
           status: StatusCompromisso.CONCLUIDO,
           desfecho: dto.desfecho,
           desfechoObs: obs,
-          concluidoEm: new Date(),
+          concluidoEm: agora,
           concluidoPor: ctx.userId ?? null,
           processoId,
         },
-        select: cardSelect,
+        select: cardSelectPara(ctx.leitor),
       });
 
+      const andamentoAntigo = andamentoAnteriorId
+        ? await tx.movimentacaoInterna.findFirst({
+            where: { id: andamentoAnteriorId, origem: ORIGEM_ANDAMENTO_CONCLUSAO },
+            select: { id: true },
+          })
+        : null;
+      let andamentoId: string | null = null;
       if (gravarAndamento) {
-        await tx.movimentacaoInterna.create({
-          data: {
-            processoId: processoId!,
-            tipo: tipoAndamento(atual.tipo, opcao.alerta),
-            descricao: `${atual.titulo} — ${opcao.label}.${obs ? `\n${obs}` : ''}`,
-            // A audiência de quarta concluída na sexta pertence à quarta. É para
-            // isto que `dataFato` existe.
-            dataFato: atual.inicio,
-            autorId: ctx.userId ?? null,
-          },
-        });
+        const andamento = {
+          processoId: processoId!,
+          tipo: tipoAndamento(atual.tipo, opcao.alerta),
+          descricao: `${atual.titulo} — ${opcao.label}.${obs ? `\n${obs}` : ''}`,
+          // A audiência de quarta concluída na sexta pertence à quarta. É para
+          // isto que `dataFato` existe.
+          dataFato: atual.inicio,
+          autorId: ctx.userId ?? null,
+        };
+        if (andamentoAntigo) {
+          await tx.movimentacaoInterna.update({ where: { id: andamentoAntigo.id }, data: andamento });
+          andamentoId = andamentoAntigo.id;
+        } else {
+          const criado = await tx.movimentacaoInterna.create({
+            // Eco da conclusão, não lançamento de gente: fora do "andamentos internos" dos Relatórios.
+            // O literal fica escrito aqui (a varredura dos Relatórios lê o ponto de escrita); o
+            // `satisfies` amarra à constante que o desfazer e a reconclusão usam para achar a nota.
+            data: { ...andamento, origem: 'CONCLUSAO' satisfies typeof ORIGEM_ANDAMENTO_CONCLUSAO },
+            select: { id: true },
+          });
+          andamentoId = criado.id;
+        }
+      } else if (andamentoAntigo) {
+        await tx.movimentacaoInterna.delete({ where: { id: andamentoAntigo.id } });
       }
+      const andamentoSubstituido = !!andamentoAntigo;
 
       /**
        * CONCLUIR DUAS VEZES NÃO CRIA DOIS SEGUIMENTOS.
@@ -980,11 +1207,13 @@ export class AgendaService {
         });
       }
 
-      if (!criarSeguimento) return { compromisso: atualizado, seguimento: null };
+      const substituidas = anteriores.map((a) => a.id);
+      if (!criarSeguimento) return { compromisso: atualizado, seguimento: null, substituidas, andamentoId, andamentoSubstituido };
 
+      // Dia útil, nove da manhã de Teresina — a mesma conta que a prévia mostrou.
       const inicio = dto.seguimento?.inicio
         ? new Date(dto.seguimento.inicio)
-        : manhaDaqui(spec!.emDias);
+        : sugeridoParaOSeguimento(spec!.emDias, agora);
       const novo = await tx.compromisso.create({
         data: {
           titulo: dto.seguimento?.titulo?.trim() || tituloDoSeguimento(spec!.titulo, atual.titulo),
@@ -1018,6 +1247,21 @@ export class AgendaService {
         },
         select: { id: true, titulo: true, inicio: true, tipo: true },
       });
+      /*
+        O SEGUIMENTO LEVA QUEM ESTAVA NA ATIVIDADE — não só o responsável.
+
+        Uma reunião feita a dois gerava tarefa de um. Entra quem foi posto na
+        atividade por gente; a reserva do robô, não (ela não é da pessoa, ver
+        `daPessoa`), nem quem saiu do sistema.
+      */
+      const participantes = await tx.compromissoResponsavel.findMany({
+        where: { compromissoId: id, principal: false, ...NAO_E_RESERVA, usuario: { ativo: true } },
+        select: { usuarioId: true },
+      });
+      await sincronizarEquipe(tx, novo.id, {
+        principalId: responsavelSeguimento,
+        participantesIds: participantes.map((p) => p.usuarioId),
+      });
       await tx.compromissoHistorico.create({
         data: {
           compromissoId: novo.id,
@@ -1028,7 +1272,7 @@ export class AgendaService {
           metadata: { origemCompromissoId: id, desfecho: dto.desfecho },
         },
       });
-      return { compromisso: atualizado, seguimento: novo };
+      return { compromisso: atualizado, seguimento: novo, substituidas, andamentoId, andamentoSubstituido };
     });
 
     await this.auditar(
@@ -1042,6 +1286,7 @@ export class AgendaService {
         preProcessualCriado: preProcessualCriado?.id ?? null,
         seguimentoCriado: seguimento?.id ?? null,
         andamentoNoProcesso: gravarAndamento,
+        origem: dto.origem ?? null,
       },
     );
     await this.historiar(
@@ -1053,11 +1298,24 @@ export class AgendaService {
           ? ` (o tipo "${spec.tipo}" está desativado — a atividade foi criada como "${tipoSeguimento}")`
           : ''),
       ctx,
+      /*
+        O QUE ESTA CONCLUSÃO FEZ — é daqui que o desfazer decide se pode (e o
+        que desfaz), e daqui que a próxima conclusão acha o andamento para
+        substituir. `concluidoEm` repete o carimbo gravado na atividade: é a
+        prova de que este registro é o da conclusão vigente.
+      */
       {
         desfecho: dto.desfecho,
         de: atual.status,
+        origem: dto.origem ?? null,
+        concluidoEm: agora.toISOString(),
         preProcessualCriado: preProcessualCriado?.id ?? null,
         seguimentoCriado: seguimento?.id ?? null,
+        processoAntes: atual.processoId ?? null,
+        processoDepois: processoId ?? null,
+        substituidas,
+        andamentoId,
+        andamentoSubstituido,
       },
     );
     return {
@@ -1110,7 +1368,7 @@ export class AgendaService {
           // fazer sentido num evento que não vai acontecer.
           iniciadoEm: null,
         },
-        select: cardSelect,
+        select: cardSelectPara(ctx.leitor),
       });
 
       // A movimentação que gerou a tarefa não pode ficar presa a ela — ver
@@ -1228,56 +1486,27 @@ export class AgendaService {
       },
     });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
-    if (atual.status === StatusCompromisso.CANCELADO) {
-      throw new BadRequestException('Atividade cancelada — reabra antes de remarcar.');
-    }
-    if (atual.status === StatusCompromisso.CONCLUIDO) {
-      throw new BadRequestException('Atividade concluída — reabra antes de remarcar.');
-    }
 
+    // A mesma regra da edição: contador, motivo, data original, PENDENTE, cronômetro zerado.
     const inicio = new Date(dto.inicio);
-    if (Number.isNaN(inicio.getTime())) throw new BadRequestException('Data inválida.');
-    if (inicio.getTime() === atual.inicio.getTime()) {
-      throw new BadRequestException('A nova data é igual à atual.');
-    }
+    const remarcacao = dadosDaRemarcacao(atual, {
+      inicio,
+      fim: dto.fim ? new Date(dto.fim) : null,
+      motivo: dto.motivo,
+      via: 'remarcar',
+    });
+    if (!remarcacao) throw new BadRequestException('A nova data é igual à atual.');
+    recusarRemarcacaoParaOPassado(inicio);
 
-    // Sem fim informado, preserva a DURAÇÃO — remarcar uma audiência de 1h não
-    // pode transformá-la num evento instantâneo.
-    const duracao = atual.fim.getTime() - atual.inicio.getTime();
-    const fim = dto.fim ? new Date(dto.fim) : new Date(inicio.getTime() + duracao);
-    if (fim < inicio) throw new BadRequestException('O fim não pode ser antes do início.');
-
-    const motivo = dto.motivo?.trim() || null;
     const compromisso = await this.prisma.compromisso.update({
       where: { id },
-      data: {
-        inicio,
-        fim,
-        // A 1ª data agendada é gravada uma única vez e nunca mais muda.
-        ...(atual.dataOriginal ? {} : { dataOriginal: atual.inicio }),
-        remarcacoes: { increment: 1 },
-        remarcadoMotivo: motivo,
-        // Remarcar devolve o evento para PENDENTE: um compromisso que mudou de
-        // data não continua "em andamento".
-        status: StatusCompromisso.PENDENTE,
-        iniciadoEm: null,
-      },
-      select: cardSelect,
+      data: remarcacao.data,
+      select: cardSelectPara(ctx.leitor),
     });
 
-    await this.auditar(
-      AcaoAuditoria.UPDATE,
-      id,
-      `Compromisso REMARCADO (${atual.remarcacoes + 1}ª vez): ${atual.inicio.toISOString()} → ${inicio.toISOString()}${motivo ? ` — ${motivo}` : ''}`,
-      ctx,
-      {
-        de: atual.inicio.toISOString(),
-        para: inicio.toISOString(),
-        dataOriginal: (atual.dataOriginal ?? atual.inicio).toISOString(),
-        remarcacoes: atual.remarcacoes + 1,
-        motivo,
-      },
-    );
+    await this.auditar(AcaoAuditoria.UPDATE, id, remarcacao.auditoria.descricao, ctx, remarcacao.historico.metadata);
+    // O botão não escrevia no histórico: a gaveta dizia "Remarcado" e não dizia quando nem quem.
+    await this.historiar(id, 'REMARCADO', remarcacao.historico.descricao, ctx, remarcacao.historico.metadata);
     return compromisso;
   }
 
@@ -1287,6 +1516,73 @@ export class AgendaService {
     await this.prisma.compromisso.delete({ where: { id } });
     await this.auditar(AcaoAuditoria.DELETE, id, `Compromisso excluído: ${c.titulo}`, ctx, {});
     return { ok: true };
+  }
+
+  /**
+   * DESFAZER A CONCLUSÃO — as regras moram em `podeDesfazerConclusao`.
+   *
+   * Devolve a situação de antes, limpa o desfecho e apaga o andamento que ESTA
+   * conclusão escreveu no processo (só o de origem CONCLUSAO). A atualização
+   * confere de novo, dentro da transação, que a atividade continua concluída
+   * por quem pede: dois toques em "Desfazer" não desfazem duas vezes.
+   */
+  async desfazerConclusao(id: string, ctx: Ctx) {
+    const atual = await this.prisma.compromisso.findUnique({
+      where: { id },
+      select: { id: true, status: true, titulo: true, desfecho: true, concluidoEm: true, concluidoPor: true },
+    });
+    if (!atual) throw new NotFoundException('Compromisso não encontrado.');
+
+    const decisao = podeDesfazerConclusao(atual, await this.ultimaConclusao(id), ctx.userId);
+    if (!decisao.ok) throw new BadRequestException(decisao.motivo);
+
+    const compromisso = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.compromisso.updateMany({
+        where: { id, status: StatusCompromisso.CONCLUIDO, concluidoPor: ctx.userId },
+        data: {
+          status: decisao.voltarPara,
+          desfecho: null,
+          desfechoObs: null,
+          concluidoEm: null,
+          concluidoPor: null,
+        },
+      });
+      if (r.count !== 1) throw new BadRequestException('Esta atividade não está mais concluída.');
+      if (decisao.andamentoId) {
+        await tx.movimentacaoInterna.deleteMany({
+          where: { id: decisao.andamentoId, origem: ORIGEM_ANDAMENTO_CONCLUSAO },
+        });
+      }
+      return tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelectPara(ctx.leitor) });
+    });
+
+    const rotulo = DESFECHO_LABEL[atual.desfecho ?? ''] ?? atual.desfecho ?? 'sem desfecho';
+    const metadata = {
+      via: 'desfazer',
+      desfecho: atual.desfecho,
+      de: StatusCompromisso.CONCLUIDO,
+      para: decisao.voltarPara,
+      andamentoRemovido: decisao.andamentoId,
+    };
+    await this.auditar(AcaoAuditoria.UPDATE, id, `Conclusão desfeita (${rotulo}): ${atual.titulo}`, ctx, metadata);
+    // REABERTO, e não uma ação nova: a linha do tempo da tela já sabe mostrar
+    // reabertura; o `via` distingue o desfazer de quem reabriu pela gaveta.
+    await this.historiar(id, 'REABERTO', `Conclusão desfeita logo depois de registrada (${rotulo}).`, ctx, metadata);
+    return compromisso;
+  }
+
+  /** O registro da última conclusão desta atividade, como o histórico guardou. */
+  private async ultimaConclusao(compromissoId: string): Promise<RegistroDaConclusao | null> {
+    const h = await this.prisma.compromissoHistorico.findFirst({
+      where: { compromissoId, acao: 'CONCLUIDO' },
+      orderBy: { createdAt: 'desc' },
+      select: { metadata: true },
+    });
+    if (!h) return null;
+    const metadata = h.metadata && typeof h.metadata === 'object' && !Array.isArray(h.metadata)
+      ? (h.metadata as RegistroDaConclusao['metadata'])
+      : null;
+    return { metadata };
   }
 
   // -------------------------------------------------------------------------
@@ -1334,8 +1630,8 @@ export class AgendaService {
   }
 
   /** Recarrega o cartão (usado quando a ação é um no-op e nada foi escrito). */
-  private async cartao(id: string) {
-    const c = await this.prisma.compromisso.findUnique({ where: { id }, select: cardSelect });
+  private async cartao(id: string, leitor?: Leitor) {
+    const c = await this.prisma.compromisso.findUnique({ where: { id }, select: cardSelectPara(leitor) });
     if (!c) throw new NotFoundException('Compromisso não encontrado.');
     return c;
   }
@@ -1530,6 +1826,8 @@ export class AgendaService {
             tipo: 'ATUALIZACAO',
             descricao: observacao,
             autorId: ctx.userId ?? null,
+            // A conversa que abriu o caso, não um andamento lançado pela ficha.
+            origem: 'CONVERSAO' satisfies typeof ORIGEM_ANDAMENTO_CONVERSAO,
           },
         });
       }

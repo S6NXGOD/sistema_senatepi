@@ -1,4 +1,4 @@
-import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
+import { JOB_DATAJUD_REAVALIAR, JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
 import {
   BadRequestException,
   ConflictException,
@@ -708,8 +708,10 @@ export class ProcessosService {
    *     carimbo, cada abertura de tela reconsultaria tudo, para sempre.
    *  2. Teto por chamada (`limite`), com a mesma cadência da varredura noturna:
    *     sequencial, com respiro entre as chamadas.
-   *  3. A mesma trava de job do robô — duas abas abertas, ou uma aba e o cron,
-   *     não varrem em paralelo.
+   *  3. Trava de job própria (`datajud-reavaliar`) — duas abas abertas não
+   *     releem em paralelo, e a releitura DESISTE se a varredura noturna estiver
+   *     rodando. Até 13/09/2026 ela usava a trava da noturna, e uma tela aberta
+   *     às 02:00 fazia o cron pular a noite inteira.
    *
    * Devolve quantos foram relidos e quantos ainda faltam, para a tela decidir
    * se pede outra rodada.
@@ -811,11 +813,19 @@ export class ProcessosService {
     });
     if (!pendentes.length) return { reavaliados: 0, restantes: 0, executou: true, realinhados };
 
+    /*
+      TRAVA PRÓPRIA, QUE CEDE À NOITE.
+
+      Usava `JOB_DATAJUD_SYNC`: se a tela abrisse às 02:00 com fila pendente, o
+      cron achava a trava ocupada e desistia da varredura inteira, sem tentar de
+      novo. Agora a releitura tem nome próprio e desiste se a noturna estiver
+      vigente — a tela espera, a noite nunca é pulada por causa dela.
+    */
     const r = await comTravaDeJob(
       this.prisma,
-      JOB_DATAJUD_SYNC,
+      JOB_DATAJUD_REAVALIAR,
       this.logger,
-      { ttlMinutos: 10 },
+      { ttlMinutos: 10, cedeA: JOB_DATAJUD_SYNC },
       async () => {
         let reavaliados = 0;
         for (let i = 0; i < pendentes.length; i++) {

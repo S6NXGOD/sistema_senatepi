@@ -310,7 +310,10 @@ export class CobrancasService {
           select: {
             tipo: true,
             filiado: {
-              select: { id: true, nomeCompleto: true, matricula: true, telefonePrincipal: true },
+              // 13/09/2026: o secundário também vai — 383 filiados ativos têm o
+              // celular só ali (a importação grava nele), e o WhatsApp da
+              // cobrança dizia "sem telefone".
+              select: { id: true, nomeCompleto: true, matricula: true, telefonePrincipal: true, telefoneSecundario: true },
             },
           },
         },
@@ -372,12 +375,13 @@ export class CobrancasService {
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string; nome_completo: string; matricula: string; telefone_principal: string | null;
+        telefone_secundario: string | null;
         qtd: number; qtd_vencidas: number;
         total_aberto: string; total_vencido: string; total_pago: string;
         proximo_vencimento: Date | null;
       }>
     >(Prisma.sql`
-      SELECT f.id, f.nome_completo, f.matricula, f.telefone_principal,
+      SELECT f.id, f.nome_completo, f.matricula, f.telefone_principal, f.telefone_secundario,
         COUNT(p.id) FILTER (WHERE p.status <> 'CANCELADO')::int AS qtd,
         COUNT(p.id) FILTER (WHERE ${vencidoExpr})::int AS qtd_vencidas,
         COALESCE(SUM(p.valor) FILTER (WHERE p.status = 'PENDENTE' AND p.data_vencimento >= ${hoje}), 0) AS total_aberto,
@@ -400,6 +404,7 @@ export class CobrancasService {
         nomeCompleto: r.nome_completo,
         matricula: r.matricula,
         telefonePrincipal: r.telefone_principal,
+        telefoneSecundario: r.telefone_secundario,
         qtdParcelas: Number(r.qtd),
         qtdVencidas: Number(r.qtd_vencidas),
         totalEmAberto: this.arred(Number(r.total_aberto)),

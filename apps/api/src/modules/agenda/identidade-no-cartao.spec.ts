@@ -132,9 +132,15 @@ describe('as partes chegam aos cartões', () => {
  * do arquivo a declarar o que vem do processo, e o único sem as partes.
  */
 describe('o detalhe carrega os polos completos', () => {
+  /*
+    Âncora sem o fecha-parêntese: em 13/09/2026 `detalhe` passou a receber o
+    LEITOR (quem não vê Processos recebe o detalhe sem as partes — ver
+    `leitorVeProcessos` e `recortes-e-processos.spec.ts`). As partes continuam
+    no select para quem vê; o corte é condicional, não remoção.
+  */
   const detalhe = AGENDA.slice(
-    AGENDA.indexOf('async detalhe(id: string)'),
-    AGENDA.indexOf('atendimento: {', AGENDA.indexOf('async detalhe(id: string)')),
+    AGENDA.indexOf('async detalhe(id: string'),
+    AGENDA.indexOf('atendimento: {', AGENDA.indexOf('async detalhe(id: string')),
   );
 
   it('o trecho existe (o teste não olha para o vazio)', () => {

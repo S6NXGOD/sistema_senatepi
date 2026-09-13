@@ -15,6 +15,10 @@ import {
 import { Type } from 'class-transformer';
 import { StatusCompromisso } from '@prisma/client';
 import { AREAS_JURIDICAS } from '../../processos/areas.catalogo';
+import { RECORTES, type Recorte } from '../recortes.util';
+
+export const ORIGENS_DA_CONCLUSAO = ['PAINEL', 'AGENDA', 'GAVETA'] as const;
+export type OrigemDaConclusao = (typeof ORIGENS_DA_CONCLUSAO)[number];
 
 export class CreateCompromissoDto {
   @ApiProperty() @IsString() @MinLength(2, { message: 'Informe um título.' })
@@ -39,6 +43,19 @@ export class CreateCompromissoDto {
   @ApiPropertyOptional({ description: 'Local (ex.: 1ª Vara do Trabalho de Teresina).' })
   @IsOptional() @IsString()
   local?: string;
+
+  /*
+    O LINK DA CHAMADA. Aceita o texto colado inteiro (o convite do Teams tem
+    três parágrafos) — quem extrai a URL e recusa o que não é https é
+    `normalizarLinkReuniao`, no serviço. O teto aqui é só do texto bruto; o do
+    link gravado é 500. `null` ou vazio apaga.
+  */
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Link da chamada (Meet, Zoom, Teams…). Só https; nulo ou vazio apaga.',
+  })
+  @IsOptional() @IsString() @MaxLength(2000, { message: 'Cole só o link da chamada — o texto está longo demais.' })
+  linkReuniao?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional() @IsString()
@@ -216,6 +233,17 @@ export class ConcluirCompromissoDto {
   })
   @IsOptional() @IsBoolean()
   criarSeguimento?: boolean;
+
+  /*
+    DE ONDE VEIO A CONCLUSÃO. Vai só para o histórico e a auditoria.
+
+    Sem isto não dá para saber se o atalho do painel induz erro — e a próxima
+    medição de "desfecho mais usado" mediria o próprio botão, que foi desenhado
+    a partir dessa mesma medição.
+  */
+  @ApiPropertyOptional({ enum: ORIGENS_DA_CONCLUSAO, description: 'Tela que concluiu (só para o histórico).' })
+  @IsOptional() @IsIn(ORIGENS_DA_CONCLUSAO as unknown as string[])
+  origem?: OrigemDaConclusao;
 }
 
 /**
@@ -292,8 +320,35 @@ export class ListCompromissosQueryDto {
   /** Só o que está marcado como urgente. */
   @ApiPropertyOptional({ description: '"true" para trazer só as urgentes.' })
   @IsOptional() @IsString() urgente?: string;
-  @ApiPropertyOptional({ description: 'Busca por título ou nome do filiado.' })
+  @ApiPropertyOptional({ description: 'Busca por título, nome do filiado, NPU (só os dígitos contam) ou nome de parte.' })
   @IsOptional() @IsString() busca?: string;
+
+  /**
+   * A ABA, resolvida no servidor — ver `recortes.util.ts`. Sem ela, a listagem
+   * continua como sempre foi (o front antigo não manda).
+   */
+  @ApiPropertyOptional({ enum: RECORTES })
+  @IsOptional() @IsIn(RECORTES as unknown as string[]) recorte?: Recorte;
+
+  /**
+   * O QUE É DESTA PESSOA — a régua `daPessoa`: responde, ou foi posta ali por
+   * gente. A reserva do robô fica de fora, como no painel e na faixa. `eu`
+   * vale o usuário logado.
+   */
+  @ApiPropertyOptional({ description: 'Id do usuário, ou "eu".' })
+  @IsOptional() @IsString() pessoa?: string;
+
+  /** Onde a pessoa é reserva posta pelo robô (`ondeSouReserva`). `eu` vale o usuário logado. */
+  @ApiPropertyOptional({ description: 'Id do usuário, ou "eu".' })
+  @IsOptional() @IsString() reservaDe?: string;
+
+  /**
+   * Com `responsavelId`/`responsaveis`: só quem RESPONDE, sem a equipe. É o que
+   * "Esperando por: Fulano 4" e a Carga da equipe contam — o link tem de abrir
+   * o mesmo conjunto.
+   */
+  @ApiPropertyOptional({ description: '"1" para contar só o responsável.' })
+  @IsOptional() @IsIn(['1', 'true', '0', 'false']) somenteResponsavel?: string;
 
   @ApiPropertyOptional({ description: 'Início do período (ISO/data).' })
   @IsOptional() @IsString() dataInicio?: string;

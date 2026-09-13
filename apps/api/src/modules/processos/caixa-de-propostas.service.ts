@@ -146,7 +146,20 @@ export class CaixaDePropostasService {
     }
     await this.prisma.comunicacaoDjen.update({
       where: { id: c.id },
-      data: { compromissoId },
+      data: {
+        compromissoId,
+        /*
+          A DECISÃO FICA GRAVADA COM O NOME DE QUEM DECIDIU.
+
+          "Publicações decididas" contava a proposta ENDEREÇADA à pessoa que
+          virou tarefa. Aceitar não troca o destinatário, então o aceite de um
+          colega creditava quem só recebeu. E a escalada automática também
+          contava: ignorar a caixa AUMENTAVA o número. Agora a decisão é um fato
+          gravado aqui; `escalarEsquecidas` não grava, e a varredura também não.
+        */
+        tarefaDecididaEm: new Date(),
+        tarefaDecididaPor: usuarioId,
+      },
     });
     return { compromissoId };
   }
@@ -162,15 +175,19 @@ export class CaixaDePropostasService {
    */
   async recusar(id: string, usuarioId: string, motivo?: string) {
     const c = await this.propostaAberta(id);
+    const agora = new Date();
     await this.prisma.comunicacaoDjen.update({
       where: { id: c.id },
       data: {
-        tarefaDispensadaEm: new Date(),
+        tarefaDispensadaEm: agora,
         tarefaDispensadaMotivo: 'RECUSADA_PELO_ADVOGADO',
         // Quem recusou fica no lugar de quem recebeu: a caixa some para ele, e
         // o histórico continua sabendo de quem foi a decisão.
         tarefaPropostaPara: usuarioId,
         motivoDaRecusa: motivo?.trim()?.slice(0, 300) || null,
+        // A mesma decisão, nas colunas que os Relatórios leem — igual ao aceitar.
+        tarefaDecididaEm: agora,
+        tarefaDecididaPor: usuarioId,
       },
     });
     return { ok: true };

@@ -109,8 +109,16 @@ describe('as rotas novas moram no módulo certo', () => {
    * MAS ELE NÃO RECADASTRA. As duas rotas do recadastramento são
    * ADMINISTRADOR/COORDENAÇÃO/TRIAGEM, e a tela do processo esconde o botão
    * para quem não tem — botão que devolve 403 é pior que botão ausente.
+   *
+   * ESTE TESTE DIZIA "as duas rotas" e lia UMA. A do presencial morava em
+   * `recadastramento.module.ts` e ainda tinha `@Roles` (achado de 12/09/2026).
+   * Desde 13/09 ela está em `recadastramento.controller.ts` e é lida aqui também.
    */
   it('recadastrar continua sendo do balcão — agora pela MATRIZ', () => {
+    const presencial = ler('recadastramento/recadastramento.controller.ts');
+    expect(presencial).toContain("@Post('recadastramento')");
+    expect(presencial).toContain("@Modulo('filiados')");
+    expect(presencial).not.toMatch(/^\s*@Roles\(/m);
     const link = ler('recadastramento/link-recadastramento.controller.ts');
     /*
       A ASSERÇÃO MUDOU DE LUGAR, NÃO DE CONTEÚDO.
@@ -127,6 +135,32 @@ describe('as rotas novas moram no módulo certo', () => {
     expect(PRESETS_PERFIL.ADVOGADO.filiados).toBe('VISUALIZAR');
     expect(PRESETS_PERFIL.TRIAGEM.filiados).toBe('EDITAR');
     expect(PRESETS_PERFIL.COORDENACAO.filiados).toBe('EDITAR');
+  });
+
+  /**
+   * MANDAR O LINK É EDITAR FILIADO, e conferir o que voltou também. As duas
+   * rotas nascem em controllers com `@Modulo('filiados')`: POST e PATCH exigem
+   * EDITAR, sem perfil chumbado e sem `@OperacaoDeSistema` — trancar por perfil
+   * seria recriar o `@Roles` com outro nome.
+   */
+  it('o envio do link e a conferência do recadastro são do módulo filiados', () => {
+    const link = ler('recadastramento/link-recadastramento.controller.ts');
+    const envio = link.slice(link.indexOf("@Controller('filiados/:id/link-recadastramento')"));
+    expect(envio).toContain("@Post('envio')");
+    expect(link.slice(0, link.indexOf("@Controller('filiados/:id/link-recadastramento')"))).toContain(
+      "@Modulo('filiados')",
+    );
+
+    // Sem comentários: a prosa do controller cita `@Modulo('filiados')` ao
+    // contar a história do `@Roles`, e a contagem de decoradores contava a prosa.
+    const rec = ler('recadastramento/recadastramento.controller.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    const antesDaConferencia = rec.slice(0, rec.indexOf("@Controller('recadastramentos')"));
+    expect(antesDaConferencia.match(/@Modulo\('filiados'\)/g)?.length).toBe(2);
+    expect(rec).toContain("@Patch(':id/conferir')");
+    expect(rec).not.toContain('@OperacaoDeSistema()');
+    expect(nivelEfetivo('ADVOGADO' as never, {}, 'filiados')).toBe('VISUALIZAR');
   });
 
   /**
@@ -201,6 +235,24 @@ describe('as rotas novas moram no módulo certo', () => {
     expect(src).toContain("@Modulo('atendimentos')");
     // O balcão classifica: é ele quem conversa com a pessoa.
     expect(PRESETS_PERFIL.TRIAGEM.atendimentos).toBe('EDITAR');
+  });
+
+  /**
+   * AS TRÊS ROTAS DO ENCAMINHAMENTO (13/09/2026) moram no controller de
+   * atendimentos, e não no de escalas nem no da agenda: a Triagem registra o
+   * desfecho e precisa ver o plantão sem ter acesso ao módulo de escalas. Se uma
+   * delas mudar de casa, a matriz que a governa muda junto — por isso o teste.
+   * Lê o código sem os comentários, para não passar por um decorador citado num.
+   */
+  it('o encaminhamento do atendimento (plantão, assunto e link) é do módulo atendimentos', () => {
+    const codigo = ler('atendimentos/atendimentos.controller.ts')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(codigo).toContain("@Modulo('atendimentos')");
+    expect(codigo).toContain("@Get('encaminhamento/opcoes')");
+    expect(codigo).toContain("@Patch(':id/assunto')");
+    expect(codigo).toContain("@Patch(':id/consultas/:compromissoId/link')");
+    expect(codigo).not.toContain('@Roles(');
   });
 });
 

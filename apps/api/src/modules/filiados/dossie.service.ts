@@ -4,6 +4,7 @@ import { Prisma, StatusProcesso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { AnexosService } from '../anexos/anexos.service';
+import { ROTULO_CANAL } from '../atendimentos/assunto.util';
 
 /**
  * DOSSIÊ DO FILIADO — a vida do associado dentro do sindicato em uma tela.
@@ -408,7 +409,8 @@ export class DossieService {
       fatos.push({
         tipo: 'ATENDIMENTO',
         data: a.createdAt,
-        titulo: `Atendimento #${a.numero} (${a.canal})`,
+        // Rótulo, e não o valor do enum: a tela mostrava "(WHATSAPP)" como veio.
+        titulo: `Atendimento #${a.numero} (${ROTULO_CANAL[a.canal] ?? a.canal})`,
         detalhe: this.resumir(a.descricao),
         situacao: a.desfecho ?? a.status,
         refId: a.id,

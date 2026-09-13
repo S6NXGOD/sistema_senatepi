@@ -1,11 +1,17 @@
 import { JOB_DJEN_SYNC, comTravaDeJob } from '@core/infra';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { OrigemSincronizacao } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
+import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
 import { pularJobSemModulo } from '../../tenant/job-do-modulo';
+
+/** A frase da rodada que não aconteceu porque outra detinha a trava. */
+export const RODADA_DJEN_PULADA =
+  'Rodada pulada: outra varredura do Diário detinha a trava (outra réplica, ou uma varredura pedida à mão ainda correndo).';
 
 /**
  * Robô de publicações do DJEN.
@@ -43,6 +49,7 @@ export class DjenCronService {
     private readonly prisma: PrismaService,
     private readonly djen: DjenService,
     private readonly sync: DjenSyncService,
+    private readonly logSync: SincronizacaoLogService,
   ) {}
 
   @Cron('0 5 * * *', { name: 'djen-sync', timeZone: 'America/Fortaleza' })
@@ -50,7 +57,7 @@ export class DjenCronService {
     if (pularJobSemModulo('processos', this.logger, 'DJEN-SYNC')) return;
     if (!this.djen.integracaoAtiva) return;
 
-    await comTravaDeJob(
+    const rodada = await comTravaDeJob(
       this.prisma,
       JOB_DJEN_SYNC,
       this.logger,
@@ -67,6 +74,27 @@ export class DjenCronService {
         }
       },
     );
+
+    /*
+      A RODADA PULADA TAMBÉM DEIXA LINHA — antes era um warn só no stdout.
+
+      Com a trava agora também na rota manual, pular às 05:00 passou a ter um
+      motivo corriqueiro: a colheita de histórico pedida à mão ainda correndo.
+      Essa grava o próprio resumo (origem MANUAL), mas sem esta linha a noite do
+      robô some do log e "foi pulada" fica igual a "não rodou". Sucesso, porque
+      a varredura aconteceu — só não foi esta.
+    */
+    if (!rodada.executou) {
+      await this.logSync.registrar({
+        fonte: FONTE_DJEN,
+        origem: OrigemSincronizacao.CRON,
+        processoId: null,
+        numeroCNJ: null,
+        sucesso: true,
+        novasMovimentacoes: 0,
+        mensagemErro: RODADA_DJEN_PULADA,
+      });
+    }
   }
 
   /** Espera aleatória entre DELAY_MIN e DELAY_MAX para suavizar as rajadas. */

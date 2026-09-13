@@ -67,6 +67,17 @@ export interface ResumoVarreduraDjen {
    */
   sugeridas: number;
   falhas: number;
+  /**
+   * Etapas finais que quebraram e foram puladas, com o motivo curto.
+   *
+   * As seis etapas depois da ingestão rodavam em fila, sem proteção entre
+   * elas: um `findMany` com o banco instável em "ligar advogados" interrompia
+   * a varredura, e a rede de prazo (`escalarEsquecidas`) não rodava — a etapa
+   * que protege prazo dependia de todas as anteriores (auditoria dos robôs,
+   * 13/09/2026). Agora cada etapa falha sozinha, e a falha vai para
+   * `mensagemErro` da linha de resumo: engolir sem gravar esconderia o defeito.
+   */
+  etapasComFalha: string[];
 }
 
 /**
@@ -179,6 +190,7 @@ export class DjenSyncService {
       sugeridas: 0,
       advogadosSemOab: 0,
       falhas: 0,
+      etapasComFalha: [],
     };
     let quebrou: string | null = null;
     try {
@@ -290,25 +302,42 @@ export class DjenSyncService {
       await aguardar();
     }
 
-    // ---- 3) Correlação de tudo que está pendente ----
-    await this.correlacionarPendentes();
-    await this.ligarAdvogadosDoAto();
-    await this.reporPartesDoAto();
-    await this.conferirFilaSemVerificacao();
+    // ---- 3) Etapas finais: cada uma falha sozinha ----
+    await this.etapa(resumo, 'correlação', async () => {
+      await this.correlacionarPendentes();
+    });
     /*
-      A REDE DA CAIXA DE ENTRADA — roda no fim, todo dia.
+      A REDE DA CAIXA DE ENTRADA — logo depois da correlação, e não no fim.
 
       O modo de falhar da caixa é "ninguém abriu". Para proposta sem prazo isso
       é inofensivo: ela espera. Para uma COM prazo é perder prazo, e nenhuma
       melhoria de ruído vale isso. Depois de três dias a tarefa nasce sozinha,
       identificada como escalada.
 
+      Rodava em penúltimo, atrás de ligar advogados, repor partes e conferir a
+      fila — nenhuma delas é pré-requisito dela, e qualquer uma que quebrasse
+      levava a rede junto. É a etapa que protege prazo; vai primeiro. Depende só
+      da correlação, que é quem cria as propostas.
+
       Custa uma consulta quando não há nada a escalar, que é o caso normal.
     */
-    await this.caixa.escalarEsquecidas();
+    await this.etapa(resumo, 'propostas esquecidas', async () => {
+      await this.caixa.escalarEsquecidas();
+    });
+    await this.etapa(resumo, 'advogados do ato', async () => {
+      await this.ligarAdvogadosDoAto();
+    });
+    await this.etapa(resumo, 'partes do ato', async () => {
+      await this.reporPartesDoAto();
+    });
+    await this.etapa(resumo, 'conferência da fila no CNJ', async () => {
+      await this.conferirFilaSemVerificacao();
+    });
     // DEPOIS da conferência, de propósito: uma ação já baixada saiu da fila
     // acima e não vira tarefa para ninguém.
-    await this.agendarCadastroDasRecentes();
+    await this.etapa(resumo, 'tarefa de cadastro', async () => {
+      await this.agendarCadastroDasRecentes();
+    });
 
     this.logger.log(
       `[DJEN-SYNC] ${resumo.advogadosConsultados} advogado(s) + ${resumo.processosConsultados} processo(s) — ` +
@@ -316,6 +345,30 @@ export class DjenSyncService {
         `${resumo.descartadas} descartada(s) (processo não cadastrado, ` +
         `${resumo.sugeridas} sugerida(s) para cadastro), ${resumo.falhas} falha(s).`,
     );
+  }
+
+  /**
+   * UMA ETAPA FINAL, ISOLADA DAS OUTRAS.
+   *
+   * Cada etapa já protege os próprios itens; o que faltava era a falha de TOPO
+   * (o `findMany` inicial com o banco instável) não levar as seguintes junto. O
+   * erro não é engolido: vai para `resumo.etapasComFalha`, que a linha de resumo
+   * grava em `mensagemErro` e marca como insucesso.
+   */
+  private async etapa(
+    resumo: ResumoVarreduraDjen,
+    nome: string,
+    fazer: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await fazer();
+    } catch (err) {
+      const motivo = (err as Error)?.message ?? String(err);
+      resumo.etapasComFalha.push(`${nome} (${motivo.slice(0, 120)})`);
+      this.logger.error(
+        `[DJEN-SYNC] A etapa "${nome}" falhou; as seguintes continuam: ${motivo}`,
+      );
+    }
   }
 
   /** Varredura de UM processo — usada pelo botão da ficha. */
@@ -1059,6 +1112,12 @@ export class DjenSyncService {
       alvo" depois de 14 minutos consultando — a mensagem exata que se escreve
       para "não havia o que consultar". Só apareceu porque eu rodei.
     */
+    // Na FRENTE da mensagem: o log corta em 500 caracteres, e a etapa que
+    // quebrou é o que alguém investigando precisa ler primeiro.
+    const etapas = resumo.etapasComFalha ?? [];
+    const falhaDeEtapa = etapas.length
+      ? `Etapa(s) final(is) com falha, as outras rodaram: ${etapas.join('; ')}. `
+      : '';
     const tentativas =
       resumo.advogadosConsultados + resumo.processosConsultados + resumo.falhas;
     const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;
@@ -1066,11 +1125,12 @@ export class DjenSyncService {
       fonte: FONTE_DJEN,
       origem,
       // Uma rodada em que TUDO falhou não é bem-sucedida. Uma que consultou e
-      // não achou nada é — e é o caso normal de fim de semana.
-      sucesso: !quebrou && tentativas > 0 && !tudoFalhou,
+      // não achou nada é — e é o caso normal de fim de semana. Etapa final que
+      // quebrou também não é: a tarefa que ela criaria não nasceu.
+      sucesso: !quebrou && tentativas > 0 && !tudoFalhou && etapas.length === 0,
       novasMovimentacoes: resumo.ingeridas,
       duracaoMs: Date.now() - iniciadaEm,
-      mensagemErro: quebrou
+      mensagemErro: falhaDeEtapa + (quebrou
         ? `Varredura interrompida: ${quebrou}`
         : tentativas === 0
           ? 'Varredura sem alvo: nenhum advogado com OAB e nenhum processo elegível.'
@@ -1089,7 +1149,7 @@ export class DjenSyncService {
                 // se a detecção achou algo. Só aparece quando achou.
                 (resumo.sugeridas > 0
                   ? `, ${resumo.sugeridas} ação(ões) nossa(s) sem cadastro.`
-                  : '.'),
+                  : '.')),
     });
   }
 

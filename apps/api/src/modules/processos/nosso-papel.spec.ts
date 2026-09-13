@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { FILTRO_RAPIDO } from './processos.service';
+import { baseDoAcervo } from './padroes.service';
 
 const RAIZ = path.resolve(__dirname, '../../..');
 const ler = (rel: string) => readFileSync(path.join(RAIZ, rel), 'utf8');
@@ -13,8 +14,9 @@ const PADROES = ler('src/modules/processos/padroes.service.ts');
  *
  * Medido na produção em 04/09/2026 sobre os 127 processos: AUTOR em 93,
  * REPRESENTANDO em 31 (o filiado é a parte e o sindicato é o patrono) e RÉU em
- * 3. As três somam exatamente o acervo — 93 + 31 + 3 = 127 —, e é essa soma que
- * prova que a leitura é uma partição e não uma amostra.
+ * 3. Naquele dia somavam o acervo — 93 + 31 + 3 = 127. Não é regra: processo sem
+ * parte nenhuma não entra em "representando", e o sindicato como TERCEIRO não
+ * entra em nenhum dos três. Nada deve calcular "sem papel = ativos − soma".
  *
  * A do meio é a que se esquece, e é a segunda maior: "processo do sindicato" e
  * "processo que o sindicato conduz" são coisas diferentes, e a diferença muda
@@ -102,6 +104,21 @@ describe('a leitura no panorama', () => {
    * três cartões somavam 184 em 12/09/2026, e "31 representando" abria uma
    * lista de 27. Número que muda quando se clica nele é pior que número nenhum.
    */
+  /**
+   * O RÉU DOS CARTÕES ACHA O SINDICATO PELA MESMA FLAG DOS TRÊS PAPÉIS.
+   *
+   * A CTE `nosso` usava só o CNPJ do tenant, enquanto os três cartões usam a
+   * flag. Bastava a linha institucional estar sem documento para o próprio
+   * sindicato virar "réu" nas concentrações. O CNPJ fica como rede, e só se o
+   * tenant tiver um: `documento = ''` não pode casar ninguém.
+   */
+  it('o adversário exclui o sindicato pela flag, com o CNPJ como rede', () => {
+    const sql = baseDoAcervo('11222333000144').sql.replace(/\s+/g, ' ');
+    const nosso = sql.slice(sql.indexOf('nosso AS ('), sql.indexOf('lado AS ('));
+    expect(nosso).toContain('WHERE institucional = true');
+    expect(nosso).toContain("OR (? <> '' AND documento = ?)");
+  });
+
   it('os três papéis contam só o acervo ativo', () => {
     const trecho = PADROES.slice(PADROES.indexOf('private async deQueLadoEstamos()'));
     const corpo = trecho.slice(0, trecho.indexOf('return { autor, reu, representando };'));

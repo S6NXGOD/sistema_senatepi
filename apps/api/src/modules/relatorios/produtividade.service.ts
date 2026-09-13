@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { AcaoAuditoria, StatusCompromisso, UserRole } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { diaBR, inicioDoDiaBR, mesBR } from '../processos/utils/data-br.util';
 import { ultimoUsoReal } from '../dashboard/ultimo-acesso.util';
+import { SELECAO_DAS_ABERTAS, abertasDeAlguem, contarAbertasPorPessoa } from './abertas-da-pessoa.util';
 
 /**
  * USO E PRODUTIVIDADE — quem usa o sistema e o que cada pessoa registrou nele.
@@ -63,8 +64,32 @@ export const REGISTROS = {
   fichaAtualizada: { acao: AcaoAuditoria.UPDATE, entidade: 'Filiado' },
 } as const;
 
-const ABERTOS = [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO];
+/**
+ * A PARTIR DE QUANDO "PUBLICAÇÕES DECIDIDAS" É FATO GRAVADO.
+ *
+ * Até 13/09/2026 a conta deduzia: "proposta endereçada à pessoa que virou
+ * tarefa". Aceitar não trocava o destinatário, e a proposta ignorada por três
+ * dias vira tarefa sozinha — então ignorar a caixa AUMENTAVA as decididas. Agora
+ * `aceitar()` e `recusar()` gravam quem decidiu e quando
+ * (`tarefaDecididaPor/Em`); a escalada do robô não grava. Não há como saber
+ * quem aceitou antes disso: período anterior a esta data soma zero, e a tela
+ * não compara Decididas atravessando a data.
+ */
+export const DECISAO_GRAVADA_DESDE = '2026-09-13';
+
 const DIA_MS = 24 * 3_600_000;
+
+/**
+ * QUEM ENTRA NO USO — o alcance da aba, do CSV e das fotos do PDF.
+ *
+ * Uma regra só para as três rotas: a gestão recebe as contas ativas; qualquer
+ * outro perfil com acesso a relatórios, só a si mesmo. Se as fotos tivessem uma
+ * cópia desta conta, bastaria uma divergência para o advogado receber o rosto
+ * do colega.
+ */
+export function quemEntraNoUso(usuario: { id: string; role: UserRole | string }): Prisma.UserWhereInput {
+  return VEEM_A_CASA.has(String(usuario.role)) ? { ativo: true } : { id: usuario.id };
+}
 
 export interface LinhaDeUso {
   usuarioId: string;
@@ -83,16 +108,20 @@ export interface LinhaDeUso {
     /** Concluídas no dia marcado ou antes. Nunca "no prazo": o prazo processual o sistema não conhece. */
     noDiaMarcado: number;
     criadas: number;
-    /** Estoque de agora, como responsável. */
+    /**
+     * Estoque de agora, pela régua `daPessoa`: responde pela atividade ou foi
+     * posta nela por gente. Reserva do robô não entra.
+     */
     abertas: number;
     atrasadas: number;
   };
   publicacoes: {
-    /** Propostas do Diário aceitas ou recusadas no período. */
+    /** Propostas do Diário que a pessoa aceitou ou recusou no período (fato gravado desde `DECISAO_GRAVADA_DESDE`). */
     decididas: number;
     /** Propostas endereçadas à pessoa esperando decisão agora. */
     esperando: number;
   };
+  /** `andamentos`: só os lançados à mão (origem nula) — ver `montar`. */
   processos: { cadastrados: number; andamentos: number; documentos: number };
   filiados: { cadastrados: number; fichasAtualizadas: number };
   atendimentos: number;
@@ -200,7 +229,7 @@ export class ProdutividadeService {
     const noPeriodo = { gte: inicio, lt: fim };
 
     const usuarios = await this.prisma.user.findMany({
-      where: escopo === 'GLOBAL' ? { ativo: true } : { id: usuario.id },
+      where: quemEntraNoUso(usuario),
       select: {
         id: true, nome: true, nomeExibicao: true, role: true,
         avatarUrl: true, avatarKey: true, ultimoLoginEm: true,
@@ -208,6 +237,15 @@ export class ProdutividadeService {
     });
     const ids = usuarios.map((u) => u.id);
 
+    /*
+      A FRASE QUE EXPLICA CADA NÚMERO MORA NO WEB, e anda junto com estes where.
+
+      O PDF e a aba "Como ler estes números" leem `LEGENDA_DO_USO`, em
+      apps/web/src/lib/produtividade.ts (13/09/2026). Mudou o que uma consulta
+      abaixo conta (quem entra, qual origem, qual data)? A linha da legenda muda
+      no mesmo commit — senão o relatório passa a explicar uma conta que não é
+      mais a dele.
+    */
     const [
       auditoria,
       sessoes,
@@ -216,9 +254,7 @@ export class ProdutividadeService {
       concluidas,
       criadas,
       abertas,
-      atrasadas,
-      recusadas,
-      aceitas,
+      decididas,
       esperando,
       andamentos,
       atendimentos,
@@ -252,28 +288,25 @@ export class ProdutividadeService {
         where: { criadoPor: { in: ids }, createdAt: noPeriodo },
         _count: { _all: true },
       }),
-      this.prisma.compromisso.groupBy({
-        by: ['responsavelId'],
-        where: { responsavelId: { in: ids }, status: { in: ABERTOS } },
-        _count: { _all: true },
+      /*
+        EM ABERTO E ATRASADAS pela régua do sino e do painel (`daPessoa`): uma
+        leitura só das abertas de qualquer pessoa da lista, com a equipe, e a
+        soma em memória. Eram dois groupBy por `responsavelId`, e a mesma pessoa
+        tinha um número no painel e outro aqui.
+      */
+      this.prisma.compromisso.findMany({
+        where: abertasDeAlguem(ids),
+        select: SELECAO_DAS_ABERTAS,
       }),
-      this.prisma.compromisso.groupBy({
-        by: ['responsavelId'],
-        where: { responsavelId: { in: ids }, status: { in: ABERTOS }, inicio: { lt: hojeIni } },
-        _count: { _all: true },
-      }),
+      /*
+        DECIDIDAS = quem aceitou ou recusou de fato, gravado na decisão. A
+        tarefa que o robô criou porque ninguém respondeu não tem autor e não
+        entra; a aceita por um colega conta para o colega.
+      */
       this.prisma.comunicacaoDjen.groupBy({
-        by: ['tarefaPropostaPara'],
-        where: {
-          tarefaPropostaPara: { in: ids },
-          tarefaDispensadaMotivo: 'RECUSADA_PELO_ADVOGADO',
-          tarefaDispensadaEm: noPeriodo,
-        },
+        by: ['tarefaDecididaPor'],
+        where: { tarefaDecididaPor: { in: ids }, tarefaDecididaEm: noPeriodo },
         _count: { _all: true },
-      }),
-      this.prisma.comunicacaoDjen.findMany({
-        where: { tarefaPropostaPara: { in: ids }, compromisso: { createdAt: noPeriodo } },
-        select: { tarefaPropostaPara: true },
       }),
       this.prisma.comunicacaoDjen.groupBy({
         by: ['tarefaPropostaPara'],
@@ -285,9 +318,21 @@ export class ProdutividadeService {
         },
         _count: { _all: true },
       }),
-      // Linha a linha, e não agrupado: o PDF de um ano precisa do MÊS de cada uma.
+      /*
+        ANDAMENTO LANÇADO POR GENTE — `origem` nula.
+
+        Concluir atividade ligada a processo grava uma nota em nome de quem
+        concluiu, e cada linha de planilha importada grava outra em nome de quem
+        subiu o arquivo. Medido em 12/09/2026: de 106 andamentos com autor em
+        90 dias, 17 (16%) eram só o eco da conclusão — a mesma entrega contava
+        em Concluídas e em Andamentos. Essas notas nascem com `origem`
+        (CONCLUSAO, CONVERSAO, IMPORTACAO) e ficam fora; o que o robô escreve
+        (`origemSistema`) já não tinha autor.
+
+        Linha a linha, e não agrupado: o PDF de um ano precisa do MÊS de cada uma.
+      */
       this.prisma.movimentacaoInterna.findMany({
-        where: { autorId: { in: ids }, createdAt: noPeriodo },
+        where: { autorId: { in: ids }, createdAt: noPeriodo, origem: null, origemSistema: false },
         select: { autorId: true, createdAt: true },
       }),
       this.prisma.atendimento.findMany({
@@ -330,10 +375,8 @@ export class ProdutividadeService {
       return mapa;
     };
     const criadasDe = porId(criadas, (l) => l.criadoPor, (l) => l._count._all);
-    const abertasDe = porId(abertas, (l) => l.responsavelId, (l) => l._count._all);
-    const atrasadasDe = porId(atrasadas, (l) => l.responsavelId, (l) => l._count._all);
-    const recusadasDe = porId(recusadas, (l) => l.tarefaPropostaPara, (l) => l._count._all);
-    const aceitasDe = porId(aceitas, (l) => l.tarefaPropostaPara, () => 1);
+    const abertasDe = contarAbertasPorPessoa(abertas, hojeIni);
+    const decididasDe = porId(decididas, (l) => l.tarefaDecididaPor, (l) => l._count._all);
     const esperandoDe = porId(esperando, (l) => l.tarefaPropostaPara, (l) => l._count._all);
     const andamentosDe = porId(andamentos, (l) => l.autorId, () => 1);
     const atendimentosDe = porId(atendimentos, (l) => l.atendentePorId, () => 1);
@@ -380,11 +423,11 @@ export class ProdutividadeService {
             concluidas: minhas.length,
             noDiaMarcado: minhas.filter((c) => c.concluidoEm && concluidaNoDia(c.concluidoEm, c.inicio)).length,
             criadas: criadasDe.get(u.id) ?? 0,
-            abertas: abertasDe.get(u.id) ?? 0,
-            atrasadas: atrasadasDe.get(u.id) ?? 0,
+            abertas: abertasDe.get(u.id)?.abertas ?? 0,
+            atrasadas: abertasDe.get(u.id)?.atrasadas ?? 0,
           },
           publicacoes: {
-            decididas: (recusadasDe.get(u.id) ?? 0) + (aceitasDe.get(u.id) ?? 0),
+            decididas: decididasDe.get(u.id) ?? 0,
             esperando: esperandoDe.get(u.id) ?? 0,
           },
           processos: {

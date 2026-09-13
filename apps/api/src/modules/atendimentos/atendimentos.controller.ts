@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AtendimentosService } from './atendimentos.service';
 import {
-  CreateAtendimentoDto, ListAtendimentosQueryDto,
+  AtualizarAssuntoDto, AtualizarLinkConsultaDto,
+  CreateAtendimentoDto, EncaminhamentoOpcoesQueryDto, ListAtendimentosQueryDto,
   MudarStatusAtendimentoDto, RegistrarDesfechoDto,
 } from './dto/atendimentos.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -30,9 +31,37 @@ export class AtendimentosController {
     return this.service.listar(query);
   }
 
+  /**
+   * Plantão do dia da consulta e quem pode receber o encaminhamento.
+   * Declarada ANTES de `:id`. Mora aqui, e não em /escalas, para que quem
+   * registra o desfecho alcance o que o desfecho precisa — ver o serviço.
+   */
+  @Get('encaminhamento/opcoes')
+  opcoesDoEncaminhamento(@Query() query: EncaminhamentoOpcoesQueryDto) {
+    return this.service.opcoesDoEncaminhamento(query.data);
+  }
+
   @Get(':id')
   detalhe(@Param('id') id: string) {
     return this.service.detalhe(id);
+  }
+
+  /** Classificar (ou reclassificar) o assunto depois da criação. */
+  @Patch(':id/assunto')
+  atualizarAssunto(@Param('id') id: string, @Body() dto: AtualizarAssuntoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.service.atualizarAssunto(id, dto, this.ctx(req, userId));
+  }
+
+  /** Colar, trocar ou tirar o link da chamada de uma consulta nascida deste atendimento. */
+  @Patch(':id/consultas/:compromissoId/link')
+  atualizarLinkDaConsulta(
+    @Param('id') id: string,
+    @Param('compromissoId') compromissoId: string,
+    @Body() dto: AtualizarLinkConsultaDto,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.service.atualizarLinkDaConsulta(id, compromissoId, dto, this.ctx(req, userId));
   }
 
   /** Registra o desfecho (resultado). Em ENCAMINHADO, agenda a(s) consulta(s). */

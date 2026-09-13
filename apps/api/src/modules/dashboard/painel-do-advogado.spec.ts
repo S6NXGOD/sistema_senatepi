@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { daPessoa } from '../agenda/equipe.util';
+import { limitesDoDia, recorteAberto } from '../agenda/recortes.util';
+import { wheresDoPainel } from './painel.regras';
 
 const DASH = readFileSync(join(__dirname, 'dashboard.module.ts'), 'utf8');
+
+/** 23h30 de 13/09/2026 em Teresina — no UTC, já é dia 14. */
+const AGORA_BR = new Date('2026-09-13T23:30:00-03:00');
+const MEU = daPessoa('adv1');
 
 /**
  * "AS MINHAS PUBLICAÇÕES" ERRAVA NOS DOIS SENTIDOS.
@@ -179,8 +186,14 @@ describe('a agenda também se corta no servidor', () => {
    * Os CONTADORES seguem vindo: são agregados sem dado pessoal, e a tela já
    * decide quais cartões desenhar. O que passa a ser cortado é o conteúdo.
    */
+  /*
+    Desde 13/09/2026 o `where` do contador é `painel.atrasadas`, montado por
+    `wheresDoPainel` com os recortes da agenda (o número e a aba que o link abre
+    saem da mesma função). A regra em si é provada com linhas em
+    `painel.regras.spec.ts`; aqui fica só que o contador continua sem gate.
+  */
   it('e os contadores continuam — número não identifica ninguém', () => {
-    expect(DASH).toContain('this.prisma.compromisso.count({ where: { ...meu, status: ABERTOS, inicio: { lt: hojeIni } } })');
+    expect(DASH).toContain('this.prisma.compromisso.count({ where: painel.atrasadas })');
   });
 
   /**
@@ -202,15 +215,29 @@ describe('a agenda também se corta no servidor', () => {
   });
 
   /** O que é de hoje com a hora passada virou contador PRÓPRIO — informação. */
+  /* O intervalo `gte: hojeIni, lt: agora` mora em `recortePassaramDaHora` (recortes.util) desde 13/09/2026. */
   it('"passou da hora" é um contador separado, e chega na resposta', () => {
-    expect(DASH).toContain('inicio: { gte: hojeIni, lt: agora }');
+    const { hojeIni } = limitesDoDia(AGORA_BR);
+    const w = wheresDoPainel({}, AGORA_BR).passaramDaHora;
+    expect(JSON.stringify(w)).toContain(JSON.stringify({ gte: hojeIni, lt: AGORA_BR }));
+    expect(DASH).toContain('this.prisma.compromisso.count({ where: painel.passaramDaHora })');
     expect(DASH).toContain('passaramDaHora: passaramDaHoraCount');
   });
 
-  /** A carga da equipe segue a mesma régua — senão a gestão vê outro número. */
+  /*
+    A carga da equipe segue a mesma régua — senão a gestão vê outro número.
+
+    Até 13/09/2026 eram dois agrupamentos por `responsavelId`. O clique abre a
+    agenda da pessoa pela régua `daPessoa`, e o número passou a ser somado pela
+    mesma régua (`contarAbertasPorPessoa`), com "atrasada" = o dia virou. A
+    igualdade entre a carga e a aba que o link abre está provada com linhas em
+    `painel.regras.spec.ts`; aqui, que o serviço usa aquela soma.
+  */
   it('a carga da equipe usa a mesma definição', () => {
-    const trecho = DASH.slice(DASH.indexOf('Recorte das atrasadas'));
-    expect(trecho.slice(0, 420)).toContain('inicio: { lt: hojeIni }');
+    const trecho = DASH.slice(DASH.indexOf('const cargaEquipe = !ehGestao'), DASH.indexOf('A CARTEIRA DO ADVOGADO'));
+    expect(trecho).toContain('contarAbertasPorPessoa(abertasDaEquipeRaw, hojeIni)');
+    expect(DASH).toContain('this.prisma.compromisso.findMany({ where: recorteAberto(), select: SELECAO_DAS_ABERTAS })');
+    expect(DASH).not.toContain("by: ['responsavelId']");
   });
 
   /** Sem módulo de processos, nem a varredura de JSON do Diário roda. */
@@ -241,13 +268,27 @@ describe('as próximas atividades', () => {
     expect(bloco.length).toBeGreaterThan(300);
   });
 
-  it('começa onde o "hoje" termina e vai até sete dias', () => {
-    expect(bloco).toContain('inicio: { gte: hojeFim, lt: em7dias }');
+  /*
+    Desde 13/09/2026 o `where` é `painel.proximasAtividades` (ver
+    `wheresDoPainel`), e o fim deixou de ser "agora + 7 dias" para ser o fim do
+    sétimo dia de Teresina — o mesmo limite da aba 7 dias. As quatro regras
+    abaixo passam a ser conferidas no objeto que a função devolve, e não no
+    texto; com linhas, em `painel.regras.spec.ts`.
+  */
+  const w = wheresDoPainel(MEU, AGORA_BR).proximasAtividades as { AND: unknown[] };
+  const { hojeFim, fimDosSeteDias } = limitesDoDia(AGORA_BR);
+
+  it('a lista usa o recorte da função', () => {
+    expect(bloco).toContain('where: painel.proximasAtividades,');
+  });
+
+  it('começa onde o "hoje" termina e vai até o fim do sétimo dia', () => {
+    expect(w.AND).toContainEqual({ inicio: { gte: hojeFim, lt: fimDosSeteDias } });
   });
 
   /** Só o que ainda está em aberto: tarefa concluída não é "próxima". */
   it('só conta o que está em aberto', () => {
-    expect(bloco).toContain('status: ABERTOS');
+    expect(w.AND).toContainEqual(recorteAberto());
   });
 
   /**
@@ -255,12 +296,12 @@ describe('as próximas atividades', () => {
    * dois cartões é exatamente o erro que a faixa do DJEN já cometeu.
    */
   it('deixa audiência de fora, que tem cartão próprio', () => {
-    expect(bloco).toContain('tipo: { not: TIPO_AUDIENCIA }');
+    expect(w.AND).toContainEqual({ tipo: { not: 'AUDIENCIA' } });
   });
 
   /** Escopo pessoal do advogado vale aqui como em todo o resto do painel. */
   it('respeita o escopo do perfil', () => {
-    expect(bloco).toContain('...meu,');
+    expect(w.AND[0]).toBe(MEU);
   });
 
   it('e viaja na resposta', () => {
