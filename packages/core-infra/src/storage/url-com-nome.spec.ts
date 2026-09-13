@@ -54,13 +54,28 @@ describe('URL assinada com nome de arquivo', () => {
    * chave, com nomes diferentes, produz a MESMA assinatura.
    */
   it('o nome não entra no HMAC', async () => {
-    const s = servico();
-    const a = new URL(await s.getSignedUrl(CHAVE, 3600, 'um.pdf'));
-    const b = new URL(await s.getSignedUrl(CHAVE, 3600, 'outro-bem-diferente.pdf'));
-    // `exp` depende do relógio; comparamos assinando o mesmo instante.
-    a.searchParams.set('exp', '0');
-    b.searchParams.set('exp', '0');
-    expect(a.searchParams.get('sig')).toBe(b.searchParams.get('sig'));
+    /*
+      O RELÓGIO PARADO — e não "exp = 0" depois de assinar.
+
+      A versão anterior trocava `exp` na URL já pronta, o que não mexe na
+      assinatura: ela já tinha sido calculada com o segundo de cada chamada. O
+      teste só passava quando as duas caíam no mesmo segundo. Na CI de
+      13/09/2026 (suíte de 8,6 s num runner lento) o segundo virou entre uma e
+      outra, e o job do SENATEPI ficou vermelho por um defeito do teste.
+    */
+    const relogio = jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 13, 1, 39, 41));
+    try {
+      const s = servico();
+      const a = new URL(await s.getSignedUrl(CHAVE, 3600, 'um.pdf'));
+      const b = new URL(await s.getSignedUrl(CHAVE, 3600, 'outro-bem-diferente.pdf'));
+      expect(a.searchParams.get('exp')).toBe(b.searchParams.get('exp'));
+      expect(a.searchParams.get('sig')).toBe(b.searchParams.get('sig'));
+      // A comparação tem dente: no mesmo instante, OUTRA chave assina diferente.
+      const outra = new URL(await s.getSignedUrl(`${CHAVE}.v2`, 3600, 'um.pdf'));
+      expect(outra.searchParams.get('sig')).not.toBe(a.searchParams.get('sig'));
+    } finally {
+      relogio.mockRestore();
+    }
   });
 
   /** E a assinatura continua valendo: o nome não pode invalidar a URL. */
