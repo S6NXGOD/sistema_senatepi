@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useMemo, useState } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   X, Loader2, ArrowRight, CheckCircle2, CalendarClock, Clock, Users, Video, Phone, Building2,
@@ -18,6 +18,7 @@ import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { celularParaWhatsApp, linkWhatsApp as linkDoWhatsApp } from '@/lib/whatsapp';
 import { normalizarLinkReuniao, provedorDoLink } from '@/lib/link-reuniao';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
+import { useInvalidarAtendimentoEAgenda } from '@/components/atendimentos/fechar-atendimento-modal';
 import {
   registrarDesfecho, atualizarAssunto, opcoesDeEncaminhamento, choquesNaAgenda,
   DesfechoAtendimento, TipoEncaminhamento, TIPO_ENC_LABEL, ModalidadeConsulta, MODALIDADES, MODALIDADE_LABEL,
@@ -36,6 +37,12 @@ export interface AtendimentoParaDesfecho {
   assunto?: string | null;
   assuntoOutro?: string | null;
   filiado: { id: string; nomeCompleto: string };
+  /**
+   * "Marcar nova consulta" (D13, 14/09/2026): todas as consultas nascidas foram
+   * canceladas e a demanda segue aberta. O modal abre direto em Encaminhar, sem
+   * perguntar de novo como terminou nem o assunto, que já estão gravados.
+   */
+  novaConsulta?: boolean;
 }
 
 const ICONE_MODALIDADE: Record<ModalidadeConsulta, typeof Video> = {
@@ -66,7 +73,9 @@ export function RegistrarDesfechoModal({
   atendimento: AtendimentoParaDesfecho | null;
   onRegistrado: (resultado: DesfechoAtendimento) => void;
 }) {
-  const qc = useQueryClient();
+  // O encaminhamento cria uma consulta na agenda de quem vai atender: as chaves
+  // da agenda entram junto (14/09/2026), a mesma lista do fechamento.
+  const invalidar = useInvalidarAtendimentoEAgenda();
   const { user } = useAuth();
   const podeVerAgenda = podeVer(user?.role, user?.permissoes, 'agenda');
   const tituloId = useId();
@@ -90,7 +99,7 @@ export function RegistrarDesfechoModal({
 
   useEffect(() => {
     if (open) {
-      setResultado(null); setDesfechoObs(''); setSelecionados([]);
+      setResultado(atendimento?.novaConsulta ? 'ENCAMINHADO' : null); setDesfechoObs(''); setSelecionados([]);
       setTipoEnc('CONSULTA_NOVA'); setProcessoId(''); setDataConsulta('');
       setModalidade('SEDE'); setLinkReuniao(''); setRegistrado(null);
       setAssunto(atendimento?.assunto ?? '');
@@ -191,8 +200,7 @@ export function RegistrarDesfechoModal({
     },
     onSuccess: (r) => {
       const a = atendimento!;
-      qc.invalidateQueries({ queryKey: ['atendimento', a.id] });
-      qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+      invalidar(a.id);
       onRegistrado(resultado!);
       if (resultado === 'ENCAMINHADO' && r?.atendimento) setRegistrado(r);
       else onClose();
@@ -272,7 +280,9 @@ export function RegistrarDesfechoModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 border-b py-3 pl-5 pr-2">
-          <h3 id={tituloId} className="text-lg font-bold">{registrado ? 'Consulta marcada' : 'Registrar desfecho'}</h3>
+          <h3 id={tituloId} className="text-lg font-bold">
+            {registrado ? 'Consulta marcada' : atendimento.novaConsulta ? 'Marcar nova consulta' : 'Registrar desfecho'}
+          </h3>
           <button
             type="button"
             onClick={fechar}
@@ -295,7 +305,14 @@ export function RegistrarDesfechoModal({
                 <p className="line-clamp-2 text-sm text-muted-foreground">{atendimento.descricao}</p>
               </div>
 
+              {atendimento.novaConsulta && (
+                <p className="text-sm text-muted-foreground">
+                  A consulta anterior foi cancelada. A nova nasce ligada a este atendimento, como a primeira.
+                </p>
+              )}
+
               {/* Resultado */}
+              {!atendimento.novaConsulta && (
               <fieldset className="space-y-1.5">
                 <legend className="mb-1.5 text-sm font-medium">Como terminou? *</legend>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -324,8 +341,10 @@ export function RegistrarDesfechoModal({
                   ))}
                 </div>
               </fieldset>
+              )}
 
               {/* Sobre o que era — o momento em que mais se sabe o assunto é este. */}
+              {!atendimento.novaConsulta && (
               <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor={`${tituloId}-assunto`}>
                   Sobre o que era? <span className="font-normal text-muted-foreground">(opcional)</span>
@@ -350,6 +369,7 @@ export function RegistrarDesfechoModal({
                   />
                 )}
               </div>
+              )}
 
               {resultado === 'RESOLVIDO_ATO' && (
                 <div className="space-y-1.5">
@@ -622,7 +642,7 @@ export function RegistrarDesfechoModal({
                 {salvar.isPending
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : resultado === 'ENCAMINHADO' ? <ArrowRight className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                {resultado === 'ENCAMINHADO' ? 'Encaminhar' : 'Registrar'}
+                {atendimento.novaConsulta ? 'Marcar consulta' : resultado === 'ENCAMINHADO' ? 'Encaminhar' : 'Registrar'}
               </Button>
             </div>
           </>

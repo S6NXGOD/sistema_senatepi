@@ -220,6 +220,119 @@ describe('o documento desenhado', () => {
   });
 });
 
+/**
+ * OS BLOCOS DE 14/09/2026 — grade, caixas, tabela com grupos e colunas
+ * empilhadas. Todos desenham sem coordenada inválida, com dado cheio e vazio.
+ */
+describe('os blocos do documento de uma pessoa', () => {
+  const dia = (d: number, usou: boolean, fimDeSemana = false) => ({ dia: d, usou, fimDeSemana });
+  const semana = (rotulo: string, inicio: number) => ({
+    rotulo,
+    dias: Array.from({ length: 7 }, (_, i) => (inicio + i > 30 ? null : dia(inicio + i, i % 3 === 0, i >= 5))),
+  });
+  const caixas = (semanas: number): BlocoDoPdf => ({
+    tipo: 'caixas',
+    esquerda: {
+      rotulo: 'No período · dias com uso',
+      grade: {
+        semanas: Array.from({ length: semanas }, (_, i) => semana(i % 5 ? '' : 'ago', 1 + (i % 4) * 7)),
+        linhas: ['seg', '', 'qua', '', 'sex', '', ''],
+      },
+      linhas: [
+        { tipo: 'grande', texto: '19 dias com uso' },
+        { tipo: 'texto', texto: 'o período tem 21 dias de semana' },
+        { tipo: 'texto', texto: 'De 14/07 a 13/08: nenhum dia' },
+        { tipo: 'chave', itens: [{ texto: 'usou', cor: 'cheia' }, { texto: 'não usou', cor: 'vazia' }, { texto: 'sábado e domingo', cor: 'fimDeSemana' }] },
+        { tipo: 'pe', texto: 'Entrada, sessão renovada ou ação gravada. Mede presença, não trabalho.' },
+      ],
+    },
+    direita: {
+      rotulo: 'Agora · 13/09/2026, 16:37',
+      fundo: true,
+      linhas: [
+        { tipo: 'par', rotulo: 'Último acesso', valor: 'hoje às 15:27' },
+        { tipo: 'par', rotulo: 'Na agenda', valor: '8 atividades em aberto', abaixo: { texto: '1 atrasada', alerta: true } },
+        { tipo: 'par', rotulo: 'Diário', valor: 'um valor comprido demais para caber ao lado do rótulo', alerta: true },
+        { tipo: 'pe', texto: 'Como estava na hora em que o PDF foi gerado. Não depende do período.' },
+      ],
+    },
+  });
+
+  it('as caixas com a grade de um mês (ao lado do texto) e de um ano (embaixo), sem NaN', () => {
+    for (const semanas of [5, 13, 53]) {
+      const doc = gerar([caixas(semanas)]);
+      expect(doc.getNumberOfPages()).toBe(1);
+      expect(doc.output()).not.toContain('NaN');
+    }
+  });
+
+  it('caixa sem grade, e a pessoa no topo do documento, com e sem foto', () => {
+    for (const foto of [undefined, JPEG_PEQUENO]) {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      montarDocumento(
+        doc,
+        autoTable,
+        {
+          ...CAPA,
+          titulo: 'Dra. Maria da Conceição Albuquerque de Sousa Nogueira Castelo Branco de Oliveira Lima',
+          pessoa: { iniciais: 'MC', cor: PESSOA.cor, foto },
+        },
+        [{ tipo: 'caixas', esquerda: { rotulo: 'No período', linhas: [{ tipo: 'texto', texto: 'Nunca entrou no sistema.' }] }, direita: { rotulo: 'Agora', linhas: [] } }],
+        null,
+      );
+      const saida = doc.output();
+      expect(saida).not.toContain('NaN');
+      expect(saida).toContain('Nunca entrou no sistema.');
+    }
+  });
+
+  it('tabela com cabeçalho em duas linhas, linha de grupo, célula mesclada, âmbar e sem cabeçalho', () => {
+    const saida = gerar([
+      {
+        tipo: 'tabela',
+        cabecalho: ['Registro', '14/08 a 13/09', '14/07 a 13/08', 'O que conta'],
+        grupos: [{ texto: '', colunas: 1 }, { texto: 'No período', colunas: 2 }, { texto: 'Agora', colunas: 1 }],
+        linhas: [
+          ['Agenda'],
+          ['Atividades concluídas', '18', '0', 'Que a pessoa fechou.'],
+          ['   por tipo', 'Prazo: 8 · Audiência: 5'],
+        ],
+        especiais: { 0: { tipo: 'grupo' }, 2: { tipo: 'mesclada', de: 1 } },
+        estilos: { 1: { negrito: true }, 2: { cinza: true }, 3: { cinza: true, fonte: 7 } },
+        alertas: [[1, 2]],
+        numericas: [1, 2],
+        folga: 1.1,
+        semListras: true,
+      },
+      { tipo: 'tabela', cabecalho: ['', ''], linhas: [['Dias com uso', 'Mede presença.']], semCabecalho: true },
+    ]).output();
+    expect(saida).not.toContain('NaN');
+    expect(saida).toContain('AGENDA');
+    expect(saida).toContain('No per');
+  });
+
+  it('colunas empilhadas: com total em cima, e tudo zero diz "nenhuma"', () => {
+    const saida = gerar([
+      {
+        tipo: 'colunas',
+        titulo: 'Atividades concluídas, semana a semana',
+        unidade: 'a primeira semana começa em 14/08',
+        series: [{ nome: 'no dia marcado', cor: PALETA.verde }, { nome: 'depois do dia marcado', cor: PALETA.verdeClaro }],
+        categorias: ['10/08', '17/08', '24/08', '31/08', '07/09'],
+        valores: [[2, 2, 3, 2, 1], [0, 1, 1, 0, 0]],
+        empilhar: true,
+        altura: 24,
+      },
+      {
+        tipo: 'colunas', titulo: 'Zerado', series: [{ nome: 'Concluídas', cor: PALETA.verde }],
+        categorias: ['10/08'], valores: [[0]], empilhar: true, vazio: 'Nenhuma atividade concluída no período.',
+      },
+    ]).output();
+    expect(saida).not.toContain('NaN');
+    expect(saida).toContain('Nenhuma atividade conclu');
+  });
+});
+
 /** A foto recortada em círculo, ou as iniciais. O PDF nunca falha por causa de foto. */
 describe('o cartão da pessoa', () => {
   const imagens = (saida: string) => (saida.match(/\/Subtype \/Image/g) ?? []).length;

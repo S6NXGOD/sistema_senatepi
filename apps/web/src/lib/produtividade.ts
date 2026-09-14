@@ -36,6 +36,12 @@ export interface LinhaDeUso {
     criadas: number;
     abertas: number;
     atrasadas: number;
+    /**
+     * As concluídas por TIPO de atividade (14/09/2026): só tipos com
+     * concluídas, do mais concluído ao menos, depois pelo nome. É ordem de
+     * coisa, e não de gente. Opcional pela janela de troca do deploy.
+     */
+    porTipo?: TipoConcluido[];
   };
   publicacoes: { decididas: number; esperando: number };
   processos: { cadastrados: number; andamentos: number; documentos: number };
@@ -43,6 +49,18 @@ export interface LinhaDeUso {
   atendimentos: number;
   /** Mês a mês, para o PDF de um ano. Opcional pela janela de troca do deploy. */
   porMes?: MesDeUso[];
+  /**
+   * Semana a semana (14/09/2026), uma entrada por segunda-feira de
+   * `Produtividade.semanas`, parada com zeros. A API soma; o web NUNCA
+   * reagrupa dias em semanas. Opcional pela janela de troca do deploy.
+   */
+  porSemana?: SemanaDeUso[];
+  /**
+   * Quando a conta foi criada (ISO). Só decide "Sem comparação: a conta foi
+   * criada em …": o "antes 0" de quem não tinha conta não é queda nem
+   * crescimento. Opcional pela janela de troca do deploy.
+   */
+  contaCriadaEm?: string;
 }
 
 export interface MesDeUso {
@@ -52,6 +70,35 @@ export interface MesDeUso {
   concluidas: number;
   andamentos: number;
   atendimentos: number;
+  /** Os quatro abaixo vieram em 14/09/2026, para o mês a mês empilhado; opcionais pela janela de troca. */
+  noDiaMarcado?: number;
+  processosCadastrados?: number;
+  documentos?: number;
+  filiadosCadastrados?: number;
+}
+
+export interface SemanaDeUso {
+  /** A segunda-feira da semana, AAAA-MM-DD, em Teresina. */
+  semana: string;
+  /** Quantos dias desta semana caem dentro do período (as pontas podem ter menos de 7). */
+  diasNoPeriodo: number;
+  diasComUso: number;
+  concluidas: number;
+  noDiaMarcado: number;
+  andamentos: number;
+  atendimentos: number;
+  processosCadastrados: number;
+  documentos: number;
+  filiadosCadastrados: number;
+}
+
+export interface TipoConcluido {
+  /** O slug de `tipos_evento`. */
+  tipo: string;
+  /** O nome atual do tipo; slug sem cadastro chega como "Outro tipo". */
+  nome: string;
+  concluidas: number;
+  noDiaMarcado: number;
 }
 
 export interface ResumoDoPerfil {
@@ -68,6 +115,8 @@ export interface Produtividade {
   dias: string[];
   /** Os meses do período (AAAA-MM). Opcional pela janela de troca do deploy. */
   meses?: string[];
+  /** As segundas-feiras (AAAA-MM-DD) das semanas que o período toca, em ordem. Opcional pela janela de troca. */
+  semanas?: string[];
   perfis: ResumoDoPerfil[];
   pessoas: LinhaDeUso[];
   geradoEm: string;
@@ -208,6 +257,45 @@ function ehFimDeSemana(dia: string): boolean {
 
 /** "2026-09-12" vira "12/09" — as pontas da faixa dos dias. */
 export const diaEMes = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+
+/** "2026-08-20" vira "20/08/2026". */
+export const diaMesEAno = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`;
+
+/** Sábado ou domingo, pela data pura. */
+export const caiNoFimDeSemana = (dia: string) => ehFimDeSemana(dia);
+
+/**
+ * A SEGUNDA-FEIRA DA SEMANA DO DIA, em data pura (Date.UTC), a mesma conta do
+ * `semanaBR` da API. Serve para POSICIONAR o dia na grade — as contagens por
+ * semana vêm prontas da API. Com `getDay()` local o domingo viraria segunda
+ * em algum fuso.
+ */
+export function segundaFeiraDe(dia: string): string {
+  const [a, m, d] = dia.split('-').map(Number);
+  const data = new Date(Date.UTC(a, m - 1, d));
+  data.setUTCDate(data.getUTCDate() - ((data.getUTCDay() + 6) % 7));
+  return data.toISOString().slice(0, 10);
+}
+
+/** As segundas-feiras das semanas que os dias tocam, em ordem — só quando a API ainda não manda `semanas`. */
+export function semanasDosDias(dias: string[]): string[] {
+  return [...new Set(dias.map(segundaFeiraDe))].sort();
+}
+
+/** O dia (AAAA-MM-DD) de um instante, no calendário de Teresina. */
+export function diaEmTeresina(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Fortaleza' });
+}
+
+/** "13/09/2026, 16:37" — a hora em que a API somou, no relógio de Teresina. */
+export function dataEHoraEmTeresina(iso: string): string {
+  const quando = new Date(iso);
+  const data = quando.toLocaleDateString('pt-BR', {
+    timeZone: 'America/Fortaleza', day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+  const hora = quando.toLocaleTimeString('pt-BR', { timeZone: 'America/Fortaleza', hour: '2-digit', minute: '2-digit' });
+  return `${data}, ${hora}`;
+}
 
 /** Quantos dias do período caem de segunda a sexta. */
 export function diasDeSemana(dias: string[]): number {
@@ -411,6 +499,27 @@ export const NOTA_DAS_DECIDIDAS =
   'Publicações decididas ficam sem comparação: só a partir de 13/09/2026 o sistema guarda quem ' +
   'aceitou ou recusou cada proposta, e o período anterior começa antes disso.';
 
+/**
+ * O QUE SE MEDIU DAS DECIDIDAS NUM PERÍODO (14/09/2026). "0 decididas" num
+ * mês de agosto é número NÃO MEDIDO impresso como zero — num papel de
+ * desempenho individual, diz que a pessoa não decidiu nada.
+ *
+ *  · NAO_MEDIDO — o período termina antes de 13/09/2026: não há número;
+ *  · PARCIAL — atravessa 13/09/2026: o número vale só dali em diante;
+ *  · MEDIDO — o período inteiro já tinha a decisão gravada.
+ */
+export type MedicaoDasDecididas = 'NAO_MEDIDO' | 'PARCIAL' | 'MEDIDO';
+
+export function medicaoDasDecididas(periodo: { de: string; ate: string }): MedicaoDasDecididas {
+  if (periodo.ate < DECISAO_GRAVADA_DESDE) return 'NAO_MEDIDO';
+  return periodo.de < DECISAO_GRAVADA_DESDE ? 'PARCIAL' : 'MEDIDO';
+}
+
+/** Quantos dias do período já tinham a decisão gravada. */
+export const diasMedidosDasDecididas = (dias: string[]) => dias.filter((d) => d >= DECISAO_GRAVADA_DESDE).length;
+
+export const DECIDIDAS_NAO_MEDIDAS = 'Não medido: o sistema só grava quem decide desde 13/09/2026.';
+
 export type Retrato = 'PERIODO' | 'HOJE';
 
 export const RETRATO_LABEL: Record<Retrato, string> = { PERIODO: 'Período', HOJE: 'Hoje' };
@@ -427,13 +536,23 @@ export interface LinhaDaLegenda {
   chave: ChaveDaLegenda;
   /** O nome do número, igual ao que o PDF e a aba mostram. */
   numero: string;
+  /** A frase inteira: "Como ler estes números", na aba. */
   conta: string;
+  /**
+   * A MESMA REGRA EM ATÉ 80 CARACTERES (14/09/2026) — a coluna "O que conta"
+   * do PDF, na linha do próprio número. O glossário no fim empurrava uma
+   * folha só de texto e ficava longe do número que explicava. Mudou `conta`,
+   * muda esta junto.
+   */
+  curta: string;
   /** Do período escolhido, ou de hoje (retrato de agora). Nulo quando não se aplica. */
   retrato: Retrato | null;
 }
 
 /**
- * O QUE CADA NÚMERO CONTA — no fim do PDF e em "Como ler estes números" na aba.
+ * O QUE CADA NÚMERO CONTA — em "Como ler estes números" na aba e, na frase
+ * `curta`, na coluna "O que conta" do PDF (desde 14/09/2026 o PDF não tem
+ * mais glossário no fim).
  *
  * A REGRA MORA NA API (`apps/api/src/modules/relatorios/produtividade.service.ts`
  * e `REGISTROS`). Mudou uma fonte ou um `where` lá, esta frase tem de mudar
@@ -444,6 +563,7 @@ export interface LinhaDaLegenda {
 export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   {
     chave: 'diasComUso',
+    curta: 'Entrada, sessão renovada ou ação gravada. Mede presença, não trabalho.',
     numero: 'Dias com uso',
     conta:
       'Dias do período em que a pessoa entrou no sistema, teve a sessão renovada ou teve alguma ação ' +
@@ -453,6 +573,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'ultimoAcesso',
+    curta: 'Entrada, sessão ou ação mais recente, até a hora em que o PDF foi gerado.',
     numero: 'Último acesso',
     conta:
       'A última vez que a pessoa esteve no sistema (entrada, sessão renovada ou ação), contada até a ' +
@@ -461,6 +582,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'usaram',
+    curta: 'Contas ativas com ao menos um dia com uso no período.',
     numero: 'Usaram o sistema',
     conta:
       'Pessoas com ao menos um dia com uso no período, entre as contas ativas hoje. Conta desativada ' +
@@ -469,18 +591,21 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'semEntrar',
+    curta: 'Contas ativas cujo último acesso foi há sete dias ou mais.',
     numero: 'Sem entrar há 7 dias ou mais',
     conta: 'Contas ativas cujo último acesso foi há sete dias ou mais.',
     retrato: 'HOJE',
   },
   {
     chave: 'nuncaEntraram',
+    curta: 'Contas ativas que nunca entraram no sistema.',
     numero: 'Nunca entraram',
     conta: 'Contas ativas que nunca entraram no sistema.',
     retrato: 'HOJE',
   },
   {
     chave: 'concluidas',
+    curta: 'Que a pessoa fechou, inclusive de colegas e as criadas pelo robô.',
     numero: 'Concluídas',
     conta:
       'Atividades da agenda que a pessoa concluiu no período, inclusive as de colegas que ela fechou e ' +
@@ -489,6 +614,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'noDiaMarcado',
+    curta: 'Até a data da agenda (a última, se remarcada). Não é prazo processual.',
     numero: 'No dia marcado',
     conta:
       'Das concluídas, as fechadas até o dia que estava na agenda. Se a atividade foi remarcada, vale a ' +
@@ -497,6 +623,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'criou',
+    curta: 'Lançadas na agenda pela pessoa, para si ou para outra pessoa.',
     numero: 'Criou',
     conta:
       'Atividades que a pessoa lançou na agenda no período, para si ou para outra pessoa, mesmo que ' +
@@ -505,6 +632,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'emAberto',
+    curta: 'Pendentes ou em andamento, de qualquer data; a reserva do robô não entra.',
     numero: 'Em aberto',
     conta:
       'Atividades pendentes ou em andamento, de qualquer data, em que a pessoa é a responsável ou ' +
@@ -513,6 +641,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'atrasadas',
+    curta: 'Das em aberto, as marcadas para um dia que já passou.',
     numero: 'Atrasadas',
     conta:
       'Das em aberto, as marcadas para um dia que já passou. Quer dizer que a data da agenda ficou para ' +
@@ -521,6 +650,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'decididas',
+    curta: 'Propostas do Diário que a pessoa aceitou ou recusou.',
     numero: 'Publicações decididas',
     conta:
       'Propostas de tarefa do Diário que a pessoa aceitou ou recusou no período. A tarefa que o sistema ' +
@@ -529,6 +659,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'esperando',
+    curta: 'Propostas do Diário endereçadas à pessoa que ainda esperam decisão.',
     numero: 'Esperando decisão',
     conta:
       'Propostas do Diário endereçadas à pessoa que ainda esperam ela aceitar ou recusar. As sem dono, ' +
@@ -537,6 +668,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'processosCadastrados',
+    curta: 'Pela tela ou por planilha, e casos pré-processuais abertos.',
     numero: 'Processos cadastrados',
     conta:
       'Processos que a pessoa cadastrou no período, pela tela ou pela importação por planilha, e casos ' +
@@ -545,6 +677,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'andamentos',
+    curta: 'Escritos à mão na linha do tempo; os automáticos não entram.',
     numero: 'Andamentos internos',
     conta:
       'Andamentos que a pessoa lançou à mão na linha do tempo dos processos. O registro que o sistema ' +
@@ -553,6 +686,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'documentos',
+    curta: 'Cada envio conta um; vários do acervo de uma vez contam um.',
     numero: 'Documentos anexados',
     conta:
       'Vezes que a pessoa anexou arquivo a um atendimento, processo ou atividade. Trazer vários ' +
@@ -561,12 +695,14 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'filiadosCadastrados',
+    curta: 'Fichas novas criadas na tela de cadastro.',
     numero: 'Filiados cadastrados',
     conta: 'Fichas novas de filiado criadas pela pessoa na tela de cadastro.',
     retrato: 'PERIODO',
   },
   {
     chave: 'alteracoesEmFichas',
+    curta: 'Cada salvamento conta um, mesmo na mesma ficha.',
     numero: 'Alterações em fichas',
     conta:
       'Vezes que a pessoa salvou alteração no cadastro de um filiado: a mesma ficha salva três vezes ' +
@@ -576,6 +712,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'atendimentos',
+    curta: 'Registrados com a pessoa como atendente.',
     numero: 'Atendimentos',
     conta:
       'Atendimentos registrados no período com a pessoa como atendente, ou seja, quem estava no sistema ' +
@@ -584,6 +721,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'mesAMes',
+    curta: 'O que se registrou em cada mês; as pontas contam só os dias do período.',
     numero: 'Mês a mês',
     conta:
       'Concluídas, andamentos e atendimentos pelo mês; embaixo, quantas pessoas usaram o sistema no mês ' +
@@ -593,6 +731,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'antes',
+    curta: 'O mesmo recorte no período anterior; o que é de agora não se compara.',
     numero: 'Antes',
     conta:
       'O mesmo recorte no período anterior. Só se compara o que é do período: o que é de hoje não tem ' +

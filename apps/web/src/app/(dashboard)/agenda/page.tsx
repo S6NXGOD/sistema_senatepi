@@ -2,11 +2,11 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Plus, Search, CalendarClock, CalendarDays, SlidersHorizontal, Trash2, ChevronUp,
-  UserCheck, Flame, ListFilter, AlertTriangle, RotateCw, X,
+  UserCheck, Flame, ListFilter, AlertTriangle, RotateCw, X, Columns3, List,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { KanbanView, EsqueletoDoQuadro } from '@/components/agenda/kanban-view';
+import {
+  ListaPorDia, EsqueletoDaLista, SeletorDaJanela, RodapeDaPaginacao,
+} from '@/components/agenda/lista-por-dia';
 import { SeletorResponsaveis } from '@/components/agenda/seletor-responsaveis';
 import { CalendarioView } from '@/components/agenda/calendario-view';
 import { CompromissoFormModal } from '@/components/agenda/compromisso-form-modal';
@@ -28,17 +31,22 @@ import { RemarcarModal } from '@/components/agenda/remarcar-modal';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
+import { useTelaLarga } from '@/lib/use-tela-larga';
 import {
   listarCompromissos, buscarRecortes, getCompromisso, mudarStatusCompromisso, excluirCompromisso,
   listarResponsaveis, ehMinha, estaAtrasado, temHoraMarcada,
   filtroDoServidor, contarFiltrosAtivos, lerUrlDaAgenda, RECORTES, RECORTE_PADRAO,
+  agruparPorDia, semRepetidas, proximoCursor, paginasChegaramAHoje, PAGINA_DA_AGENDA,
   type Compromisso, type StatusCompromisso, type TipoCompromisso, type RecorteAgenda,
+  type JanelaDaAgenda, type VisaoDaAgenda,
 } from '@/lib/agenda';
 import { chaveLocal } from '@/lib/armazenamento';
 import { CHAVES_DEPOIS_DE_CONCLUIR } from '@/lib/dashboard';
 
 /** Lembra se o calendário fica aberto — a escolha vale por navegador. */
 const CHAVE_CALENDARIO = chaveLocal('agenda', 'calendario-aberto');
+/** Lembra a visão ESCOLHIDA (quadro ou lista). Sem escolha, decide a largura. */
+const CHAVE_VISAO = chaveLocal('agenda', 'visao');
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base sm:h-10 sm:w-auto sm:text-sm';
 
 /**
@@ -65,6 +73,7 @@ function gradeDoMes(mes: Date) {
  * primeiro; a ordenação só garante que "minhas primeiro" não as empurre para
  * baixo. "Minhas primeiro" vale só quando o quadro mostra o trabalho de mais
  * de uma pessoa — num quadro que já é de uma pessoa, não distingue nada.
+ * A lista por dia reordena tudo pela hora (`agruparPorDia`) e ignora isto.
  */
 function ordenarParaTrabalhar(cs: Compromisso[], meuId: string | undefined, aplicarMinhas: boolean): Compromisso[] {
   // Estável: dentro de cada grupo a ordem por data que veio da API se mantém.
@@ -123,6 +132,24 @@ function AgendaConteudo() {
   const [mes, setMes] = useState(() => new Date());
   const [tiposOpen, setTiposOpen] = useState(false);
 
+  /*
+    QUADRO OU LISTA (14/09/2026).
+
+    No celular o quadro empilhava as quatro colunas e a ordem do tempo se perdia
+    entre elas; abaixo de 768 px a agenda abre na LISTA POR DIA. No computador o
+    quadro continua o padrão — as quatro colunas cabem e o arraste só existe com
+    mouse — com a lista a um toque. Quem escolhe uma visão fica com ela
+    (localStorage), como já acontece com o calendário e com a Escala.
+
+    Uso medido em 30 dias: 11 de 370 ações da agenda vieram do celular, de duas
+    pessoas. É pouco, e a lista entra assim mesmo por pedido do dono.
+  */
+  const telaLarga = useTelaLarga();
+  const [visaoEscolhida, setVisaoEscolhida] = useState<VisaoDaAgenda | null>(null);
+  const visao: VisaoDaAgenda = visaoEscolhida ?? (telaLarga ? 'quadro' : 'lista');
+  /** A metade de "Todas" que a lista mostra. Trocar de aba volta para Próximas. */
+  const [janela, setJanela] = useState<JanelaDaAgenda>('adiante');
+
   const [formOpen, setFormOpen] = useState(false);
   const [editar, setEditar] = useState<Compromisso | null>(null);
   const [detalheId, setDetalheId] = useState<string | null>(null);
@@ -150,6 +177,10 @@ function AgendaConteudo() {
     const t = setTimeout(() => setBuscaDeb(busca.trim()), 350);
     return () => clearTimeout(t);
   }, [busca]);
+
+  useEffect(() => {
+    setJanela('adiante');
+  }, [aba]);
 
   /**
    * `?compromisso=<id>` abre a atividade direto — é o que faz um atalho de
@@ -206,13 +237,20 @@ function AgendaConteudo() {
     return p ? p.nomeExibicao || p.nome : 'pessoa selecionada';
   };
 
-  // Preferência do calendário só existe no navegador — lida depois da montagem
-  // para não divergir do HTML renderizado no servidor.
+  // Preferências só existem no navegador — lidas depois da montagem para não
+  // divergir do HTML renderizado no servidor.
   useEffect(() => {
     try {
       if (localStorage.getItem(CHAVE_CALENDARIO) === '0') setCalendarioAberto(false);
-    } catch { /* navegador sem armazenamento: o calendário fica aberto */ }
+      const v = localStorage.getItem(CHAVE_VISAO);
+      if (v === 'quadro' || v === 'lista') setVisaoEscolhida(v);
+    } catch { /* navegador sem armazenamento: calendário aberto, visão pela largura */ }
   }, []);
+
+  function escolherVisao(v: VisaoDaAgenda) {
+    setVisaoEscolhida(v);
+    try { localStorage.setItem(CHAVE_VISAO, v); } catch { /* só não lembra */ }
+  }
 
   /*
     O MESMO FILTRO VAI PARA A LISTA E PARA OS CONTADORES — o número da aba é o
@@ -232,6 +270,15 @@ function AgendaConteudo() {
   const rangeCal = useMemo(() => gradeDoMes(mes), [mes]);
 
   /**
+   * "TODAS" NA LISTA É PAGINADA; NO QUADRO, NÃO.
+   *
+   * O quadro conta `itens.length` por coluna: paginado, diria "Concluído 7" com
+   * 37 existentes. A lista divide Todas em Próximas e Anteriores e pede de 50 em
+   * 50 por cursor. Com um dia escolhido no calendário, os dados vêm do mês.
+   */
+  const listaDeTodas = visao === 'lista' && aba === 'todos' && !diaSelecionado;
+
+  /**
    * O QUADRO PEDE O RECORTE DA ABA AO SERVIDOR.
    *
    * Antes baixava a agenda inteira e recortava aqui — e a API corta em 500 pela
@@ -244,6 +291,27 @@ function AgendaConteudo() {
     queryKey: ['compromissos', 'quadro', aba, filtro],
     queryFn: () => listarCompromissos({ ...filtro, recorte: aba }),
     placeholderData: (anterior) => anterior,
+    enabled: !listaDeTodas,
+  });
+  /*
+    A chave começa com 'compromissos': invalidar(), a gaveta e a conclusão pelo
+    painel alcançam as páginas sem exceção nova, e o react-query refaz as já
+    carregadas em sequência. O filtro está na chave — mudar a busca recomeça da
+    primeira página. Cada página guarda a janela que a pediu, para a lista não
+    agrupar os dados antigos pela regra da janela nova enquanto a troca carrega.
+  */
+  const todas = useInfiniteQuery({
+    queryKey: ['compromissos', 'todas', janela, filtro],
+    queryFn: async ({ pageParam }) => ({
+      janela,
+      itens: await listarCompromissos({
+        ...filtro, recorte: 'todos', janela, limite: PAGINA_DA_AGENDA, cursor: pageParam,
+      }),
+    }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (ultima) => proximoCursor(ultima.itens, PAGINA_DA_AGENDA),
+    placeholderData: keepPreviousData,
+    enabled: listaDeTodas,
   });
   const contadores = useQuery({
     queryKey: ['compromissos', 'recortes', filtro],
@@ -264,6 +332,18 @@ function AgendaConteudo() {
 
   const compromissos = useMemo(() => quadro.data ?? [], [quadro.data]);
   const compromissosDoMes = doMes.data ?? [];
+  const itensDeTodas = useMemo(
+    () => semRepetidas((todas.data?.pages ?? []).map((p) => p.itens)),
+    [todas.data],
+  );
+  /** A janela dos dados À VISTA — durante a troca, ainda é a anterior. */
+  const janelaDosDados: JanelaDaAgenda = todas.data?.pages[0]?.janela ?? janela;
+
+  /** O que a aba mostra agora, venha do quadro ou das páginas de Todas. */
+  const listaDaAba = listaDeTodas ? itensDeTodas : compromissos;
+  const listaDaAbaPronta = listaDeTodas
+    ? todas.isSuccess && !todas.isPlaceholderData
+    : quadro.isSuccess && !quadro.isPlaceholderData;
 
   /*
     Vindo de fora, a atividade pode não estar no recorte da aba. A gaveta já
@@ -277,26 +357,31 @@ function AgendaConteudo() {
   });
 
   /**
-   * POSICIONA O QUADRO NA ATIVIDADE QUE O ATALHO ABRIU.
+   * POSICIONA A AGENDA NA ATIVIDADE QUE O ATALHO ABRIU.
    *
-   * A ABA passa a "Todas" quando a atual não contém a atividade ("onde ela
-   * está?"), o CALENDÁRIO vai para o mês dela ("que dia é hoje nisto?") e o
-   * CARTÃO ganha um anel ("o que eu cliquei?"). Roda uma vez por chegada.
+   * Quando a aba atual não contém a atividade ("onde ela está?"), a agenda
+   * passa a mostrar o DIA dela; o CALENDÁRIO vai para o mês dela ("que dia é
+   * hoje nisto?") e o CARTÃO ganha um anel ("o que eu cliquei?"). Roda uma vez
+   * por chegada.
+   *
+   * Até 14/09/2026 a aba virava "Todas". Com Todas paginada na lista, a
+   * atividade pode não estar na primeira página e o anel não acharia ninguém;
+   * a consulta do mês garante o cartão na tela nas duas visões.
    */
   useEffect(() => {
-    if (!veioDeFora || !quadro.isSuccess || quadro.isPlaceholderData) return;
-    const alvo = compromissos.find((c) => c.id === veioDeFora) ?? alvoDeFora.data;
+    if (!veioDeFora || !listaDaAbaPronta) return;
+    const alvo = listaDaAba.find((c) => c.id === veioDeFora) ?? alvoDeFora.data;
     if (!alvo) return;
 
     const inicio = new Date(alvo.inicio);
     // O recorte é do servidor: a atividade cabe na aba se veio na lista dela.
-    const abaCabe = compromissos.some((c) => c.id === alvo.id);
-    if (!abaCabe) setAba('todos');
+    const abaCabe = listaDaAba.some((c) => c.id === alvo.id);
+    if (!abaCabe) setDiaSelecionado(new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate()));
 
     setMes(new Date(inicio.getFullYear(), inicio.getMonth(), 1));
     setDestacado(alvo.id);
     setVeioDeFora(null);
-  }, [veioDeFora, compromissos, quadro.isSuccess, quadro.isPlaceholderData, alvoDeFora.data]);
+  }, [veioDeFora, listaDaAba, listaDaAbaPronta, alvoDeFora.data]);
 
   /**
    * O quadro mostra o trabalho de mais de uma pessoa? Só aí a ordenação por
@@ -312,7 +397,7 @@ function AgendaConteudo() {
    */
   const filtrados = useMemo(() => {
     const base = !diaSelecionado
-      ? compromissos
+      ? listaDaAba
       : compromissosDoMes.filter((c) => {
           const d = new Date(c.inicio);
           return (
@@ -322,7 +407,33 @@ function AgendaConteudo() {
           );
         });
     return ordenarParaTrabalhar(base, user?.id, quadroCompartilhado);
-  }, [diaSelecionado, compromissos, compromissosDoMes, user?.id, quadroCompartilhado]);
+  }, [diaSelecionado, listaDaAba, compromissosDoMes, user?.id, quadroCompartilhado]);
+
+  /*
+    OS GRUPOS DA LISTA. Anteriores só existe em Todas; o grupo âmbar e o Hoje
+    sempre presente não fazem sentido num dia escolhido no calendário, e o Hoje
+    não entra na aba que é só o que ficou para trás.
+  */
+  const sentidoDaLista: JanelaDaAgenda = listaDeTodas ? janelaDosDados : 'adiante';
+  /*
+    Em Todas, o Hoje vazio só entra quando as páginas já chegaram a hoje: com a
+    primeira página cheia do que ficou para trás, as de hoje estão na seguinte
+    e o grupo vazio mentiria (14/09/2026). A ordem que conta é a da API, antes
+    de `ordenarParaTrabalhar`.
+  */
+  const todasChegouAHoje = !listaDeTodas || paginasChegaramAHoje(itensDeTodas, !!todas.hasNextPage, Date.now());
+  const grupos = useMemo(
+    () =>
+      visao !== 'lista'
+        ? []
+        : agruparPorDia(filtrados, {
+            agora: Date.now(),
+            sentido: sentidoDaLista,
+            incluirHoje: !diaSelecionado && aba !== 'atrasadas' && todasChegouAHoje,
+            separarParaTras: !diaSelecionado && sentidoDaLista === 'adiante',
+          }),
+    [visao, filtrados, sentidoDaLista, diaSelecionado, aba, todasChegouAHoje],
+  );
 
   /** Quantas são minhas e estão em aberto — pela régua `daPessoa`, a mesma do painel. */
   const minhasEmAberto = minhas.data?.aberto ?? 0;
@@ -494,7 +605,41 @@ function AgendaConteudo() {
     </>
   );
 
-  const atrasadasHoje = aba === 'hoje' && !diaSelecionado ? contagem?.atrasadas ?? 0 : 0;
+  /*
+    Na lista, o grupo "Ficaram para trás" já diz isto no topo, com a mesma
+    saída. Mostrar a faixa também seria dizer o mesmo atraso duas vezes.
+  */
+  const atrasadasHoje = aba === 'hoje' && !diaSelecionado && visao === 'quadro' ? contagem?.atrasadas ?? 0 : 0;
+
+  /* O estado da consulta que a tela está mostrando agora. */
+  const erroDaVez = listaDeTodas ? todas.isError && !todas.data : quadro.isError && !quadro.data;
+  const carregandoDaVez = listaDeTodas ? todas.isLoading : quadro.isLoading;
+  const buscandoDaVez = listaDeTodas ? todas.isFetching && !todas.isFetchingNextPage : quadro.isFetching;
+
+  const totalDaJanela = janelaDosDados === 'anteriores' ? contagem?.todosAnteriores : contagem?.todosAdiante;
+  const vazioDaLista = diaSelecionado
+    ? 'Nenhuma atividade neste dia.'
+    : aba === 'atrasadas'
+      ? 'Nada ficou para trás.'
+      : listaDeTodas && janelaDosDados === 'anteriores'
+        ? 'Nenhuma atividade encerrada nos últimos 60 dias.'
+        : 'Nenhuma atividade.';
+  const vazioDeHoje =
+    aba === 'atencao' ? 'Nada de hoje passou da hora.' : aba === 'aberto' ? 'Nada em aberto para hoje.' : 'Nenhuma atividade hoje.';
+
+  const botaoVisao = (valor: VisaoDaAgenda, rotulo: string, Icone: typeof List) => (
+    <button
+      type="button"
+      aria-pressed={visao === valor}
+      onClick={() => escolherVisao(valor)}
+      className={cn(
+        'flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors sm:min-h-7 sm:flex-none',
+        visao === valor ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
+      )}
+    >
+      <Icone className="h-4 w-4" /> {rotulo}
+    </button>
+  );
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -521,7 +666,7 @@ function AgendaConteudo() {
         </div>
       </div>
 
-      {/* Abas (recortes do servidor) + calendário */}
+      {/* Abas (recortes do servidor) + visão + calendário */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
           {RECORTES.map((r) => {
@@ -559,18 +704,25 @@ function AgendaConteudo() {
             );
           })}
         </div>
-        {/* O calendário não é uma visão alternativa: o botão só o recolhe,
-            para quem precisa da tela toda no celular. */}
-        <button
-          type="button"
-          onClick={alternarCalendario}
-          className="flex h-11 items-center justify-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted sm:h-9"
-          aria-expanded={calendarioAberto}
-        >
-          <CalendarDays className="h-4 w-4" />
-          {calendarioAberto ? 'Ocultar calendário' : 'Mostrar calendário'}
-          <ChevronUp className={cn('h-3.5 w-3.5 transition', !calendarioAberto && 'rotate-180')} />
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quadro ou lista: a mesma agenda, dois jeitos de ler. */}
+          <div role="group" aria-label="Visão" className="flex flex-1 rounded-lg border border-input bg-card p-1 sm:flex-none">
+            {botaoVisao('quadro', 'Quadro', Columns3)}
+            {botaoVisao('lista', 'Lista', List)}
+          </div>
+          {/* O calendário não é uma visão alternativa: o botão só o recolhe,
+              para quem precisa da tela toda no celular. */}
+          <button
+            type="button"
+            onClick={alternarCalendario}
+            className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted sm:h-9 sm:flex-none"
+            aria-expanded={calendarioAberto}
+          >
+            <CalendarDays className="h-4 w-4" />
+            {calendarioAberto ? 'Ocultar calendário' : 'Mostrar calendário'}
+            <ChevronUp className={cn('h-3.5 w-3.5 transition', !calendarioAberto && 'rotate-180')} />
+          </button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -585,7 +737,7 @@ function AgendaConteudo() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
-            {quadro.isFetching && (
+            {buscandoDaVez && (
               <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
             )}
           </div>
@@ -696,21 +848,63 @@ function AgendaConteudo() {
         </div>
       )}
 
-      {/* Quadro */}
-      {quadro.isError && !quadro.data ? (
+      {/* Próximas | Anteriores — só em Todas, na lista. */}
+      {listaDeTodas && (
+        <SeletorDaJanela
+          janela={janela}
+          onMudar={setJanela}
+          adiante={contagem?.todosAdiante}
+          anteriores={contagem?.todosAnteriores}
+        />
+      )}
+
+      {/* Quadro ou lista */}
+      {erroDaVez ? (
         <div
           role="alert"
           className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5 text-sm sm:flex-row sm:items-center sm:justify-between"
         >
           <span>Não deu para carregar a agenda. Confira a conexão e tente de novo.</span>
-          <Button variant="outline" onClick={() => quadro.refetch()}>
+          <Button variant="outline" onClick={() => (listaDeTodas ? todas.refetch() : quadro.refetch())}>
             <RotateCw className="h-4 w-4" /> Tentar de novo
           </Button>
         </div>
-      ) : quadro.isLoading ? (
+      ) : carregandoDaVez ? (
         <Carregando texto="Carregando as atividades…">
-          <EsqueletoDoQuadro />
+          {visao === 'lista' ? <EsqueletoDaLista /> : <EsqueletoDoQuadro />}
         </Carregando>
+      ) : visao === 'lista' ? (
+        <div className="space-y-3">
+          <ListaPorDia
+            grupos={grupos}
+            vazio={vazioDaLista}
+            vazioDeHoje={vazioDeHoje}
+            onVerSoParaTras={aba !== 'atrasadas' ? () => setAba('atrasadas') : undefined}
+            onAbrir={onAbrir}
+            onEditar={onEditar}
+            onVerTriagem={setTriagemId}
+            onAcao={onAcao}
+            onConcluir={onConcluir}
+            onCancelar={onCancelar}
+            onRemarcar={onRemarcar}
+            onExcluir={setExcluir}
+            podeExcluir={ehAdmin}
+            podeEditar={podeEditar}
+            apontado={destacado}
+            meuId={quadroCompartilhado ? user?.id : undefined}
+            onNovo={onNovo}
+          />
+          {listaDeTodas && (
+            <RodapeDaPaginacao
+              mostrando={itensDeTodas.length}
+              total={totalDaJanela}
+              temMais={!!todas.hasNextPage && !todas.isPlaceholderData}
+              carregando={todas.isFetchingNextPage}
+              erro={todas.isFetchNextPageError}
+              onCarregarMais={() => todas.fetchNextPage()}
+            />
+          )}
+        </div>
       ) : (
         <KanbanView
           compromissos={filtrados}

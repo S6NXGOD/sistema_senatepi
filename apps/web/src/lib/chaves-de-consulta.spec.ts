@@ -185,13 +185,8 @@ const rotulo = (o: Ocorrencia) => `${o.arquivo} ${texto(o.chave)}`;
  * ser necessária: quando alguém tirar a chave morta, a lista tem de encolher junto.
  */
 const EXCECOES: Record<string, string> = {
-  "components/agenda/compromisso-drawer.tsx ['agenda-alertas']":
-    'A AlertasBar saiu da agenda (D9) e com ela a única consulta desta chave. A invalidação ' +
-    'é inócua e está pinada por reserva-nao-e-pendencia.spec.ts; sai junto com a rota ' +
-    'GET /compromissos/alertas, que fica por uma versão.',
-  "components/agenda/compromisso-drawer.tsx ['dashboard']":
-    "Nenhuma consulta usa ['dashboard'] (o painel é ['dashboard-resumo'], invalidado na mesma " +
-    'linha). Inócua e pinada pelo mesmo teste do "Assumir"; sai junto com a de cima.',
+  // As duas da gaveta da agenda (['agenda-alertas'] e ['dashboard']) saíram em
+  // 14/09/2026 junto com GET /compromissos/alertas — o último teste cobra isso.
   "components/filiados/financeiro-section.tsx ['cobrancas-parcelas']":
     "Anterior a esta rodada. A ficha atualiza pela ['cobrancas-filiado', id] da linha de cima; " +
     'nenhuma consulta declara esta chave.',
@@ -268,6 +263,19 @@ describe('as chaves do web', () => {
     expect(usadas.length).toBeGreaterThan(100);
     // O laço da agenda é lido: sem isto, uma mudança no leitor calaria os laços.
     expect(usadas.map(rotulo)).toContain("app/(dashboard)/agenda/page.tsx ['minhas-pendencias']");
+  });
+
+  /*
+    14/09/2026: a gaveta do atendimento e o desfecho passaram a usar a lista do
+    fechamento, e a troca de plantão invalida as pendências. Os laços têm de
+    continuar legíveis por aqui, senão uma chave errada neles passaria calada.
+  */
+  it('os laços do atendimento e da troca de plantão são lidos', () => {
+    const rotulos = usadas.map(rotulo);
+    for (const k of ["['compromissos']", "['compromisso']", "['minhas-pendencias']"]) {
+      expect(rotulos).toContain(`components/atendimentos/fechar-atendimento-modal.tsx ${k}`);
+    }
+    expect(rotulos).toContain("components/escalas/editar-escala-modal.tsx ['minhas-pendencias']");
   });
 
   it('toda chave invalidada tem uma consulta que a declara', () => {

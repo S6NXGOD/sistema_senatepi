@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CHAVES_DO_BLOCO, DECISAO_GRAVADA_DESDE, LEGENDA_DO_USO, ausente, blocosDaPessoa, comparaDecididas,
-  conteudoDoBloco, diasDeSemana, faixaDeUso, fraseDoPerfil, gruposPorPerfil, hrefDaAuditoria, legendaDaAba,
-  linhasDaLegenda, rostosValidos, textoDoUltimoAcesso, textoDosDiasComUso, type LinhaDeUso,
+  conteudoDoBloco, dataEHoraEmTeresina, diaEmTeresina, diasDeSemana, diasMedidosDasDecididas, faixaDeUso,
+  fraseDoPerfil, gruposPorPerfil, hrefDaAuditoria, legendaDaAba, linhasDaLegenda, medicaoDasDecididas,
+  rostosValidos, segundaFeiraDe, semanasDosDias, textoDoUltimoAcesso, textoDosDiasComUso, type LinhaDeUso,
 } from './produtividade';
 
 const ler = (relativo: string) => readFileSync(join(__dirname, '..', relativo), 'utf8');
@@ -182,6 +183,38 @@ describe('publicações decididas e a data em que a decisão passou a ser gravad
     expect(comparaDecididas('2026-09-12')).toBe(false);
     expect(comparaDecididas('2026-09-13')).toBe(true);
     expect(comparaDecididas('2027-01-01')).toBe(true);
+  });
+
+  /** 14/09/2026: um PDF de agosto imprimia "0 decididas" — número que ninguém mediu. */
+  it('o que se mediu de um período: nada, uma parte ou tudo', () => {
+    expect(medicaoDasDecididas({ de: '2026-08-01', ate: '2026-08-31' })).toBe('NAO_MEDIDO');
+    expect(medicaoDasDecididas({ de: '2026-08-14', ate: '2026-09-12' })).toBe('NAO_MEDIDO');
+    expect(medicaoDasDecididas({ de: '2026-08-14', ate: '2026-09-13' })).toBe('PARCIAL');
+    expect(medicaoDasDecididas({ de: '2026-09-13', ate: '2026-10-12' })).toBe('MEDIDO');
+    expect(diasMedidosDasDecididas(['2026-09-11', '2026-09-12', '2026-09-13', '2026-09-14'])).toBe(2);
+  });
+});
+
+/** A grade do PDF posiciona cada dia pela segunda-feira da semana — em data pura, como o `semanaBR` da API. */
+describe('as semanas e o relógio de Teresina', () => {
+  it('a segunda-feira de qualquer dia, domingo incluído', () => {
+    expect(segundaFeiraDe('2026-09-13')).toBe('2026-09-07');
+    expect(segundaFeiraDe('2026-09-14')).toBe('2026-09-14');
+    expect(segundaFeiraDe('2026-08-14')).toBe('2026-08-10');
+    // Atravessando o ano.
+    expect(segundaFeiraDe('2027-01-01')).toBe('2026-12-28');
+  });
+
+  it('as semanas que o período toca, em ordem e sem repetir', () => {
+    expect(semanasDosDias(['2026-09-13', '2026-08-31', '2026-09-01', '2026-09-07'])).toEqual([
+      '2026-08-31', '2026-09-07',
+    ]);
+  });
+
+  /** O contêiner e o CI rodam em UTC: 23h de Teresina já é o dia seguinte lá. */
+  it('o dia e a hora são os de Teresina, qualquer que seja o fuso de quem roda', () => {
+    expect(diaEmTeresina('2026-08-21T02:30:00.000Z')).toBe('2026-08-20');
+    expect(dataEHoraEmTeresina('2026-09-13T19:37:00.000Z')).toBe('13/09/2026, 16:37');
   });
 });
 

@@ -107,9 +107,15 @@ describe('saúde das integrações', () => {
  * com uma tarefa do dia 10. Nada ligava as duas coisas.
  */
 describe('a navegação para a agenda se posiciona', () => {
-  it('troca a aba quando a atual não contém a atividade', () => {
+  /*
+    Até 14/09/2026 a aba virava "Todas". Com Todas paginada na lista por dia, a
+    atividade pode não estar na primeira página e o anel não acharia ninguém:
+    agora a agenda mostra o DIA dela, com os dados do mês, nas duas visões.
+  */
+  it('mostra o dia da atividade quando a aba atual não a contém', () => {
     expect(AGENDA).toContain('const abaCabe =');
-    expect(AGENDA).toContain("if (!abaCabe) setAba('todos');");
+    expect(AGENDA).toContain('if (!abaCabe) setDiaSelecionado(new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate()));');
+    expect(AGENDA).not.toContain("if (!abaCabe) setAba('todos');");
   });
 
   it('leva o calendário para o mês da atividade', () => {

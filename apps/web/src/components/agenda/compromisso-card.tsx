@@ -14,7 +14,7 @@ import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, ehReserva,
   formatData, formatHora, estaAtrasado, estaFechado, acaoPrincipalDoCartao,
-  duracaoEntre,
+  duracaoEntre, estadoDoPrazo, horaBRDe, diaBRDe, rotuloCurtoDoDia,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
 } from '@/lib/agenda';
@@ -77,7 +77,17 @@ function AcaoBtn({
 export function CompromissoCard({
   c, onAbrir, onEditar, onVerTriagem, onAcao, onConcluir, onCancelar, onRemarcar,
   onExcluir, podeExcluir, podeEditar = false, draggable, onDragStart, apontado, minha,
+  modoLista = false, mostrarData = false,
 }: {
+  /**
+   * LINHA DA LISTA POR DIA (14/09/2026). O dia já está no cabeçalho do grupo,
+   * então a linha "data, hora" sai e a hora vai para uma coluna à esquerda:
+   * "09:30" em quem tem hora marcada, "No dia" em tarefa (a mesma régua D7 do
+   * botão cheio). É este mesmo cartão, com as mesmas ações — nunca um segundo.
+   */
+  modoLista?: boolean;
+  /** No grupo "Ficaram para trás" os dias se misturam: a data continua na linha. */
+  mostrarData?: boolean;
   c: Compromisso;
   onAbrir: (c: Compromisso) => void;
   onEditar: (c: Compromisso) => void;
@@ -139,8 +149,21 @@ export function CompromissoCard({
         cor.borda,
         draggable && 'cursor-grab active:cursor-grabbing',
         apontado && 'ring-2 ring-brand-500 ring-offset-1 ring-offset-background',
+        // Na lista, a coluna da hora ocupa a esquerda; o resto do cartão fica igual.
+        modoLista && 'relative pl-[4.75rem]',
+        // Fechadas do dia continuam à vista, esmaecidas: o selo de desfecho diz como terminou.
+        modoLista && estaFechado(c.status) && 'opacity-75',
       )}
     >
+      {modoLista && (
+        <div className="absolute left-3 top-3 w-14 leading-tight tabular-nums">
+          {principal === 'CONCLUIR' ? (
+            <span className="text-xs font-medium text-muted-foreground">No dia</span>
+          ) : (
+            <span className="text-sm font-semibold">{horaBRDe(c.inicio)}</span>
+          )}
+        </div>
+      )}
       {/* Cabeçalho: tipo + ações de edição */}
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -199,10 +222,23 @@ export function CompromissoCard({
 
         <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
           {/* Ficou para trás é âmbar, como no painel e na faixa — nunca vermelho. */}
-          <p className={cn('flex flex-wrap items-center gap-1', atrasado && 'font-medium text-amber-700 dark:text-amber-400')}>
-            <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
-            {atrasado && <span className="font-normal">· ficou para trás</span>}
-          </p>
+          {!modoLista ? (
+            <p className={cn('flex flex-wrap items-center gap-1', atrasado && 'font-medium text-amber-700 dark:text-amber-400')}>
+              <Clock className="h-3 w-3 shrink-0" /> {formatData(c.inicio)}, {formatHora(c.inicio)}
+              {atrasado && <span className="font-normal">· ficou para trás</span>}
+            </p>
+          ) : mostrarData ? (
+            /* No grupo "Ficaram para trás": o dia original, em âmbar ("qui, 10/09"). */
+            <p className={cn('flex flex-wrap items-center gap-1', atrasado && 'font-medium text-amber-700 dark:text-amber-400')}>
+              <Clock className="h-3 w-3 shrink-0" /> {rotuloCurtoDoDia(diaBRDe(c.inicio), diaBRDe(Date.now()))}
+              {atrasado && <span className="font-normal">· ficou para trás</span>}
+            </p>
+          ) : atrasado ? (
+            <p className="font-medium text-amber-700 dark:text-amber-400">Ficou para trás</p>
+          ) : estadoDoPrazo(c) === 'PASSOU_DA_HORA' ? (
+            /* Aberta de hoje com a hora passada: informação, não alarme — cinza. */
+            <p>Passou da hora</p>
+          ) : null}
           {c.local && <p className="flex items-center gap-1 truncate"><MapPin className="h-3 w-3 shrink-0" /> {c.local}</p>}
           {/*
             A CHAMADA A UM TOQUE. O corpo do cartão já é clicável (abre a

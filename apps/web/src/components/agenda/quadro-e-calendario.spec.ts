@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { visiveisDaColuna } from './kanban-view';
 
 const ler = (rel: string) => readFileSync(resolve(__dirname, '../..', rel), 'utf8');
 
@@ -62,6 +63,46 @@ describe('o quadro', () => {
   it('a coluna terminal tem teto, e diz quantas escondeu', () => {
     expect(KANBAN).toContain('const TETO_TERMINAL = 10;');
     expect(KANBAN).toContain('Ver as outras {escondidas}');
+  });
+
+  /**
+   * O TETO MOSTRA AS MAIS RECENTES — e mostrava as mais antigas.
+   *
+   * A lista chega em ordem crescente e a coluna cortava as 10 primeiras: em
+   * Todas, "Concluído" mostrava as de meados de julho e escondia as de ontem
+   * (achado em 14/09/2026). Com linhas, não com o texto do fonte.
+   */
+  describe('visiveisDaColuna', () => {
+    // 12 concluídas, uma por dia, de 01/09 a 12/09/2026, na ordem da API.
+    const concluidas = Array.from({ length: 12 }, (_, i) => ({
+      id: `c${String(i + 1).padStart(2, '0')}`,
+      inicio: `2026-09-${String(i + 1).padStart(2, '0')}T10:00:00-03:00`,
+    }));
+
+    it('cheia, mostra as dez mais recentes, a de ontem primeiro', () => {
+      const vis = visiveisDaColuna(concluidas, 'CONCLUIDO', false);
+      expect(vis.map((c) => c.id)).toEqual(['c12', 'c11', 'c10', 'c09', 'c08', 'c07', 'c06', 'c05', 'c04', 'c03']);
+    });
+
+    it('aberta por inteiro, as dez que a pessoa já viu não trocam de lugar', () => {
+      const vis = visiveisDaColuna(concluidas, 'CANCELADO', true);
+      expect(vis).toHaveLength(12);
+      expect(vis.slice(0, 10).map((c) => c.id)).toEqual(visiveisDaColuna(concluidas, 'CANCELADO', false).map((c) => c.id));
+      expect(vis.slice(10).map((c) => c.id)).toEqual(['c02', 'c01']);
+    });
+
+    it('coluna aberta (pendente, em andamento) não tem teto e mantém a ordem da página', () => {
+      expect(visiveisDaColuna(concluidas, 'PENDENTE', false).map((c) => c.id)).toEqual(concluidas.map((c) => c.id));
+    });
+
+    it('mesmo início desempata pelo id, sem depender da ordem de chegada', () => {
+      const empate = [
+        { id: 'a', inicio: '2026-09-12T09:00:00-03:00' },
+        { id: 'b', inicio: '2026-09-12T09:00:00-03:00' },
+      ];
+      expect(visiveisDaColuna(empate, 'CONCLUIDO', false).map((c) => c.id)).toEqual(['b', 'a']);
+      expect(visiveisDaColuna([...empate].reverse(), 'CONCLUIDO', false).map((c) => c.id)).toEqual(['b', 'a']);
+    });
   });
 });
 

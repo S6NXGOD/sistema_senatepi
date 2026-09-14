@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowRight, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   conferirRecadastramento, listarRecadastramentos, type Recadastramento,
@@ -89,6 +89,16 @@ function UmaConferencia({
   const mostradas = verTudo ? alteracoes : alteracoes.slice(0, VISIVEIS);
   const escondidas = alteracoes.length - mostradas.length;
   const tituloId = `conferir-${r.id}`;
+  /*
+    14/09/2026: o link pode confirmar um dado só. Se ele preencheu o CPF ou a
+    data de nascimento que estavam vazios, esse valor vira o que o próximo
+    link pede, e ninguém o provou. Uma linha, no topo, antes do de-para.
+
+    A frase vem PRONTA da API (`avisoDaConfirmacao`), e não é recalculada aqui:
+    uma segunda cópia da regra na tela divergiria da primeira. Ausente (API
+    anterior) ou nula: nada a avisar.
+  */
+  const avisoUmFator = r.avisoDaConfirmacao?.trim() || null;
 
   const conferir = useMutation({
     mutationFn: () => conferirRecadastramento(r.id),
@@ -115,6 +125,13 @@ function UmaConferencia({
           </p>
         </div>
       </div>
+
+      {avisoUmFator && (
+        <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-card px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+          <span>{avisoUmFator}</span>
+        </p>
+      )}
 
       {alteracoes.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">

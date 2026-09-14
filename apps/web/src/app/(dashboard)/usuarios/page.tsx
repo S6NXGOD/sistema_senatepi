@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, Plus, Search, Pencil, Trash2, Users as UsersIcon,
+  AlertTriangle, ShieldCheck, Plus, Search, Pencil, Trash2, Users as UsersIcon,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
@@ -16,7 +16,11 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { UsuarioFormModal } from '@/components/usuarios/usuario-form-modal';
 import { listarUsuarios, excluirUsuario, UsuarioSistema } from '@/lib/usuarios';
-import { PERFIL_LABEL, PerfilUsuario, podeMexerNoUsuario } from '@/lib/permissoes';
+import {
+  PERFIL_LABEL, PerfilUsuario, podeEditar, podeMexerNoUsuario, podeVer,
+} from '@/lib/permissoes';
+import { statusDjen } from '@/lib/djen';
+import { FRASE_SEM_OAB, idsSemOab } from '@/lib/djen-cobertura';
 
 const PERFIL_COR: Record<PerfilUsuario, string> = {
   ADMINISTRADOR: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
@@ -47,7 +51,33 @@ export default function UsuariosPage() {
 
   const usuarios = data ?? [];
 
-  const invalidar = () => qc.invalidateQueries({ queryKey: ['usuarios'] });
+  /*
+    QUEM ESTÁ SEM OAB (14/09/2026). A Lara Cortez estava sem OAB, num processo,
+    e nada na tela dizia que as intimações dela não chegavam pelo robô. A lista
+    vem do `GET /djen/status`, que decide quem precisa de OAB (advogado
+    principal de processo vivo ou perfil Advogado).
+
+    Só para quem EDITA usuários: é quem consegue preencher. E só pergunta com
+    `processos` visível, porque a rota é desse módulo; sem ele voltaria 403 em
+    toda visita. Campo ausente (API antiga ou DJEN desligado, como no SINDSERM):
+    nenhuma linha.
+  */
+  const podeEditarUsuarios = podeEditar(user?.role, user?.permissoes, 'usuarios');
+  const { data: djen } = useQuery({
+    queryKey: ['djen-status'],
+    queryFn: statusDjen,
+    enabled: podeEditarUsuarios && podeVer(user?.role, user?.permissoes, 'processos'),
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  const semOab = podeEditarUsuarios ? idsSemOab(djen) : null;
+  const [pedirOab, setPedirOab] = useState(false);
+
+  const invalidar = () => {
+    void qc.invalidateQueries({ queryKey: ['usuarios'] });
+    // OAB preenchida tira a pessoa da lista na hora, sem esperar os 5 minutos.
+    void qc.invalidateQueries({ queryKey: ['djen-status'] });
+  };
 
   const excluir = useMutation({
     mutationFn: (id: string) => excluirUsuario(id),
@@ -61,12 +91,23 @@ export default function UsuariosPage() {
 
   function novo() {
     setEditar(null);
+    setPedirOab(false);
     setFormOpen(true);
   }
-  function editarUsuario(u: UsuarioSistema) {
+  function editarUsuario(u: UsuarioSistema, comOab = false) {
     setEditar(u);
+    setPedirOab(comOab);
     setFormOpen(true);
   }
+
+  /** A linha âmbar do cartão, só para quem o robô do Diário não alcança. */
+  const linhaSemOab = (u: UsuarioSistema) =>
+    semOab?.has(u.id) ? (
+      <SemOab
+        podeAbrir={podeMexerNoUsuario(souAdmin ? 'ADMINISTRADOR' : null, u.role)}
+        onPreencher={() => editarUsuario(u, true)}
+      />
+    ) : null;
 
   return (
     <div className="space-y-6">
@@ -123,6 +164,7 @@ export default function UsuariosPage() {
                       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', PERFIL_COR[u.role])}>{PERFIL_LABEL[u.role]}</span>
                       <StatusPill ativo={u.ativo} />
                     </div>
+                    {linhaSemOab(u)}
                   </div>
                   <Acoes u={u} onEditar={() => editarUsuario(u)} onExcluir={() => setExcluirAlvo(u)} ehProprio={u.id === user?.id} souAdmin={souAdmin} />
                 </div>
@@ -155,6 +197,7 @@ export default function UsuariosPage() {
                               {u.id === user?.id && <span className="text-[10px] font-bold text-brand-700">VOCÊ</span>}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                            {linhaSemOab(u)}
                           </div>
                         </div>
                       </td>
@@ -177,7 +220,7 @@ export default function UsuariosPage() {
         </>
       )}
 
-      <UsuarioFormModal open={formOpen} onClose={() => setFormOpen(false)} onSalvo={invalidar} editar={editar} />
+      <UsuarioFormModal open={formOpen} onClose={() => setFormOpen(false)} onSalvo={invalidar} editar={editar} pedirOab={pedirOab} />
 
       <ConfirmDialog
         open={!!excluirAlvo}
@@ -216,6 +259,33 @@ function StatusPill({ ativo }: { ativo: boolean }) {
     >
       {ativo ? 'Ativo' : 'Inativo'}
     </span>
+  );
+}
+
+/**
+ * SEM OAB NO CADASTRO — estado, não evento: some quando a OAB é preenchida.
+ *
+ * Sem botão de fechar (o aviso só vale enquanto o fato vale). "Preencher OAB"
+ * abre a edição com o campo à mostra; para a conta de um Administrador, quem
+ * não é Administrador vê a frase e não o botão, a mesma trava das ações.
+ */
+function SemOab({ podeAbrir, onPreencher }: { podeAbrir: boolean; onPreencher: () => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+      <span className="flex min-w-0 flex-1 items-start gap-1.5">
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>{FRASE_SEM_OAB}</span>
+      </span>
+      {podeAbrir && (
+        <button
+          type="button"
+          onClick={onPreencher}
+          className="min-h-11 shrink-0 font-semibold text-amber-950 underline underline-offset-4 hover:no-underline dark:text-amber-100"
+        >
+          Preencher OAB
+        </button>
+      )}
+    </div>
   );
 }
 

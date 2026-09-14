@@ -21,11 +21,12 @@ import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendiment
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
 import { RegistrarDesfechoModal, AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
 import { ChipEncaminhamento } from '@/components/atendimentos/estado-do-encaminhamento';
+import { FecharAtendimentoModal, ReabrirAtendimentoDialog } from '@/components/atendimentos/fechar-atendimento-modal';
 import {
-  listarAtendimentos, mudarStatusAtendimento, excluirAtendimento,
-  CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl,
+  listarAtendimentos, concluirAtendimento, excluirAtendimento,
+  CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl, AcaoDeFechar,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, formatDataHora,
-  faltaConcluir, filtroDaUrl, rotuloDoAssunto, urlTemFiltro,
+  faltaConcluir, filtroDaUrl, mensagemDaFalha, rotuloDoAssunto, urlTemFiltro,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { V } from '@/lib/vocabulario';
@@ -115,6 +116,13 @@ function ListaAtendimentos() {
   const [promptConcluir, setPromptConcluir] = useState<{ id: string } | null>(null);
   const [menu, setMenu] = useState<{ a: AtendimentoLista; top: number; left: number } | null>(null);
   const [excluirAlvo, setExcluirAlvo] = useState<AtendimentoLista | null>(null);
+  /*
+    CONCLUIR, CANCELAR E REABRIR DA LISTA ABREM O MESMO DIÁLOGO DA GAVETA
+    (14/09/2026). Eram toques únicos no cartão, na tabela e no menu; o #9 foi
+    de cancelado a concluído seis vezes em quatro minutos.
+  */
+  const [fecharAlvo, setFecharAlvo] = useState<{ id: string; acao: AcaoDeFechar } | null>(null);
+  const [reabrirAlvo, setReabrirAlvo] = useState<AtendimentoLista | null>(null);
 
   /** `?atendimento=<id>` abre a triagem direto — mesmo padrão da agenda. */
   useAbrirPorUrl('atendimento', setDetalheId, '/atendimentos');
@@ -143,14 +151,22 @@ function ListaAtendimentos() {
   const totalPaginas = data?.totalPaginas ?? 1;
   const filtrando = !!(buscaDeb || status || desfecho || canal || assunto || dataInicio || dataFim);
 
-  const mudarStatus = useMutation({
-    mutationFn: ({ id, s }: { id: string; s: StatusAtendimento }) => mudarStatusAtendimento(id, s),
-    onSuccess: (_r, v) => {
+  /**
+   * O "Concluir agora?" logo depois do resolvido no ato: a rota nova, sem nota.
+   * Resolvido no ato não tem consulta, e o plano não pede decisão nem nota.
+   */
+  const concluirAgora = useMutation({
+    mutationFn: (id: string) => concluirAtendimento(id, {}),
+    onSuccess: (_r, id) => {
       invalidar();
-      qc.invalidateQueries({ queryKey: ['atendimento', v.id] });
-      if (v.s === 'CONCLUIDO') toast.success('Atendimento concluído.');
+      qc.invalidateQueries({ queryKey: ['atendimento', id] });
+      toast.success('Atendimento concluído.');
+      setPromptConcluir(null);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar o status.'),
+    onError: (e: any) => {
+      toast.error(mensagemDaFalha(e, 'Não foi possível concluir.'));
+      setPromptConcluir(null);
+    },
   });
   const excluir = useMutation({
     mutationFn: (id: string) => excluirAtendimento(id),
@@ -305,8 +321,7 @@ function ListaAtendimentos() {
                     <Button
                       variant="outline"
                       className="mt-3 w-full"
-                      disabled={mudarStatus.isPending}
-                      onClick={() => mudarStatus.mutate({ id: a.id, s: 'CONCLUIDO' })}
+                      onClick={() => setFecharAlvo({ id: a.id, acao: 'CONCLUIR' })}
                     >
                       <CheckCircle2 className="h-4 w-4" /> Concluir atendimento
                     </Button>
@@ -351,8 +366,7 @@ function ListaAtendimentos() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                disabled={mudarStatus.isPending}
-                                onClick={(e) => { e.stopPropagation(); mudarStatus.mutate({ id: a.id, s: 'CONCLUIDO' }); }}
+                                onClick={(e) => { e.stopPropagation(); setFecharAlvo({ id: a.id, acao: 'CONCLUIR' }); }}
                               >
                                 <CheckCircle2 className="h-4 w-4" /> Concluir
                               </Button>
@@ -401,13 +415,14 @@ function ListaAtendimentos() {
                   <button type="button" role="menuitem" onClick={() => abrirDesfecho(menu.a)} className={menuItem}><Gavel className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar desfecho</button>
                 )}
                 {menu.a.desfecho && menu.a.status === 'PENDENTE' && (
-                  <button type="button" role="menuitem" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CONCLUIDO' }); setMenu(null); }} className={menuItem}><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Concluir atendimento</button>
+                  <button type="button" role="menuitem" onClick={() => { setFecharAlvo({ id: menu.a.id, acao: 'CONCLUIR' }); setMenu(null); }} className={menuItem}><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Concluir atendimento</button>
                 )}
                 {menu.a.status !== 'PENDENTE' && (
-                  <button type="button" role="menuitem" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'PENDENTE' }); setMenu(null); }} className={menuItem}><RotateCcw className="h-4 w-4 text-muted-foreground" /> Reabrir</button>
+                  <button type="button" role="menuitem" onClick={() => { setReabrirAlvo(menu.a); setMenu(null); }} className={menuItem}><RotateCcw className="h-4 w-4 text-muted-foreground" /> Reabrir</button>
                 )}
-                {menu.a.status !== 'CANCELADO' && (
-                  <button type="button" role="menuitem" onClick={() => { mudarStatus.mutate({ id: menu.a.id, s: 'CANCELADO' }); setMenu(null); }} className={`${menuItem} text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20`}><XCircle className="h-4 w-4" /> Cancelar atendimento</button>
+                {/* Concluído não vira cancelado direto: reabre antes. */}
+                {menu.a.status === 'PENDENTE' && (
+                  <button type="button" role="menuitem" onClick={() => { setFecharAlvo({ id: menu.a.id, acao: 'CANCELAR' }); setMenu(null); }} className={`${menuItem} text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20`}><XCircle className="h-4 w-4" /> Cancelar atendimento</button>
                 )}
               </>
             )}
@@ -452,9 +467,21 @@ function ListaAtendimentos() {
         }
         confirmLabel="Concluir agora"
         cancelLabel="Deixar pendente"
-        loading={mudarStatus.isPending}
-        onConfirm={() => { if (promptConcluir) mudarStatus.mutate({ id: promptConcluir.id, s: 'CONCLUIDO' }); setPromptConcluir(null); }}
+        loading={concluirAgora.isPending}
+        onConfirm={() => { if (promptConcluir) concluirAgora.mutate(promptConcluir.id); }}
         onClose={() => setPromptConcluir(null)}
+      />
+
+      <FecharAtendimentoModal
+        atendimentoId={fecharAlvo?.id ?? null}
+        acao={fecharAlvo?.acao ?? null}
+        onClose={() => setFecharAlvo(null)}
+        onFechado={invalidar}
+      />
+      <ReabrirAtendimentoDialog
+        alvo={reabrirAlvo ? { id: reabrirAlvo.id, numero: reabrirAlvo.numero, status: reabrirAlvo.status } : null}
+        onClose={() => setReabrirAlvo(null)}
+        onReaberto={invalidar}
       />
 
       {/* Excluir atendimento (Administrador) */}

@@ -1,4 +1,6 @@
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
+import type { DesafioRecadastramento } from '@/lib/recadastro';
 
 /**
  * MANDAR O LINK DE RECADASTRAMENTO — o texto e as decisões, puros.
@@ -13,7 +15,8 @@ import { tenant } from '@/tenant.config';
  * a ignorar — e é exatamente o que ele não pode ignorar aqui.
  */
 
-export type DesafioDoLink = 'CPF_NASCIMENTO' | 'COREN' | 'NENHUM';
+/** O mesmo tipo da página pública: uma lista só de desafios no web. */
+export type DesafioDoLink = DesafioRecadastramento;
 
 /** O fuso de Teresina. O navegador pode estar em qualquer um; o link vence no daqui. */
 export const FUSO_DO_SINDICATO = 'America/Fortaleza';
@@ -54,8 +57,13 @@ export function nomeParaSaudacao(primeiroNome: string | null | undefined): strin
  * aplicativos incluem o sinal no endereço e o link abre quebrado.
  *
  * A linha da confirmação diz o que vai ser pedido — quem sabe que vão pedir o
- * CPF não estranha. Sem confirmação possível (desafio NENHUM), ela vira o
- * pedido de não encaminhar: quem tiver o link entra direto.
+ * CPF não estranha. Sem confirmação possível (desafio NENHUM, só em link antigo
+ * reaproveitado), ela vira o pedido de não encaminhar: quem tiver o link entra
+ * direto.
+ *
+ * UM DADO SÓ (CPF ou data de nascimento, desde 14/09/2026): diz o que vai ser
+ * pedido E pede para não encaminhar. CPF e data são conhecidos pela família;
+ * protegem do link parado no celular errado, não de parente.
  */
 export function mensagemDoLink(entrada: {
   primeiroNome: string | null | undefined;
@@ -65,13 +73,18 @@ export function mensagemDoLink(entrada: {
 }): string {
   const nome = nomeParaSaudacao(entrada.primeiroNome);
   const validade = validadeCurta(entrada.expiraEm);
+  const naoEncaminhe = 'Este link é pessoal: não encaminhe.';
 
-  const confirmacao =
+  const confirmacao: string[] =
     entrada.desafio === 'CPF_NASCIMENTO'
-      ? 'Para confirmar que é você, vamos pedir o seu CPF e a sua data de nascimento.'
+      ? ['Para confirmar que é você, vamos pedir o seu CPF e a sua data de nascimento.']
       : entrada.desafio === 'COREN'
-        ? 'Para confirmar que é você, vamos pedir o número do seu COREN.'
-        : 'Este link é pessoal: não encaminhe.';
+        ? ['Para confirmar que é você, vamos pedir o número do seu COREN.']
+        : entrada.desafio === 'CPF'
+          ? ['Para confirmar que é você, vamos pedir o seu CPF.', naoEncaminhe]
+          : entrada.desafio === 'NASCIMENTO'
+            ? ['Para confirmar que é você, vamos pedir a sua data de nascimento.', naoEncaminhe]
+            : [naoEncaminhe];
 
   return [
     `Olá${nome ? `, ${nome}` : ''}. Aqui é do ${tenant.sigla}.`,
@@ -80,7 +93,7 @@ export function mensagemDoLink(entrada: {
     validade
       ? `Ele vale até ${validade} e só pode ser usado uma vez.`
       : 'Ele só pode ser usado uma vez.',
-    confirmacao,
+    ...confirmacao,
     'Não pedimos senha nem pagamento por este link.',
   ].join('\n');
 }
@@ -114,21 +127,83 @@ export function emailUtilizavel(email: string | null | undefined): string | null
 }
 
 /**
- * QUAL CONFIRMAÇÃO O LINK VAI PEDIR — prevista antes de chamar a API.
+ * O AVISO DA TELA DE ENVIO — decidido pela API, nunca adivinhado aqui.
  *
- * Espelho da decisão do servidor na geração: CPF e nascimento, os dois; senão o
- * COREN, se a instalação usa o campo; senão nenhuma. Serve só para a tela
- * mostrar o aviso de "não encaminhe" ANTES do primeiro toque em WhatsApp — a
- * resposta da rota de envio traz o desafio de verdade, e ela é que vale depois.
+ * Até 13/09/2026 a tela recalculava o desafio com uma cópia da regra
+ * (`desafioPrevisto`). Com a hierarquia nova (CPF válido, data plausível, COREN
+ * só onde o campo existe) a cópia erraria antes do primeiro toque: diria "abre
+ * sem confirmação" e a API pediria o CPF, ou o contrário. Agora a tela pergunta
+ * a prévia (`GET .../link-recadastramento/previa`) e só traduz a resposta.
+ *
+ *  · NADA: CPF + nascimento ou COREN. Os botões ficam como estão.
+ *  · UM_FATOR: CPF ou nascimento sozinhos. Aviso âmbar, botões como estão.
+ *  · SEM_CONFIRMACAO: `podeGerar` falso. A API recusaria o link (400), então
+ *    os botões somem e a caixa diz o que fazer.
+ *
+ * `podeGerar` manda sobre o desafio: se a API disser que não gera, não gera,
+ * mesmo que venha um valor que este web não conhece.
+ *
+ * O PORQUÊ DO "NÃO GERA" (14/09/2026). A caixa dizia "não tem CPF nem data de
+ * nascimento" para todo `podeGerar` falso, e havia dois casos em que era falso:
+ * o desfiliado com CPF e data gravados (o que falta é reativar) e o CPF gravado
+ * que não confere, que a ficha mostra enquanto a caixa dizia que ele não existe.
+ * A prévia passou a mandar `motivo` e `cpfGravadoInvalido`, opcionais porque a
+ * API antiga não manda; sem eles, fica o texto de antes. `completarFicha` falso
+ * esconde o botão: gravar dado na ficha não reativa ninguém.
  */
-export function desafioPrevisto(
-  filiado: { cpf?: string | null; dataNascimento?: string | null; numeroCoren?: string | null },
-  corenVisivel: boolean,
-): DesafioDoLink {
-  const tem = (v: string | null | undefined) => !!(v ?? '').trim();
-  if (tem(filiado.cpf) && tem(filiado.dataNascimento)) return 'CPF_NASCIMENTO';
-  if (corenVisivel && tem(filiado.numeroCoren)) return 'COREN';
-  return 'NENHUM';
+export type AvisoDoEnvio =
+  | { tipo: 'NADA' }
+  | { tipo: 'UM_FATOR'; texto: string }
+  | { tipo: 'SEM_CONFIRMACAO'; titulo: string; texto: string; completarFicha: boolean };
+
+export interface PreviaDoEnvio {
+  desafio: string;
+  podeGerar: boolean;
+  motivo?: 'DESFILIADO' | 'SEM_CONFIRMACAO' | null;
+  cpfGravadoInvalido?: boolean;
+}
+
+export function avisoDoEnvio(previa: PreviaDoEnvio, corenVisivel: boolean): AvisoDoEnvio {
+  if (!previa.podeGerar && previa.motivo === 'DESFILIADO') {
+    return {
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'Este cadastro está desfiliado',
+      texto: 'Reative o cadastro antes de pedir o recadastramento.',
+      completarFicha: false,
+    };
+  }
+  if (!previa.podeGerar && previa.cpfGravadoInvalido) {
+    return {
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'O link abriria sem confirmar quem é',
+      texto:
+        'O CPF gravado na ficha não confere. Corrija o CPF na ficha e volte aqui: o link passa a pedir essa confirmação.',
+      completarFicha: true,
+    };
+  }
+  if (!previa.podeGerar) {
+    return {
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'O link abriria sem confirmar quem é',
+      texto:
+        `Este cadastro não tem CPF nem data de nascimento${corenVisivel ? ', nem COREN' : ''}. ` +
+        `Pergunte os dois ao ${V.filiado}, grave na ficha e volte aqui: o link passa a pedir essa confirmação.`,
+      completarFicha: true,
+    };
+  }
+  if (previa.desafio === 'CPF') {
+    return {
+      tipo: 'UM_FATOR',
+      texto: `Este link vai pedir só o CPF para confirmar que é o ${V.filiado}. Mande só para ele.`,
+    };
+  }
+  if (previa.desafio === 'NASCIMENTO') {
+    return {
+      tipo: 'UM_FATOR',
+      texto: `Este link vai pedir só a data de nascimento para confirmar que é o ${V.filiado}. Mande só para ele.`,
+    };
+  }
+  return { tipo: 'NADA' };
 }
 
 /**

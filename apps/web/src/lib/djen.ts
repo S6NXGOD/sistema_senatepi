@@ -1,5 +1,6 @@
 import { api, TIMEOUT_LONGO } from './api';
 import { V } from '@/lib/vocabulario';
+import type { CoberturaDoDiario } from './djen-cobertura';
 
 /**
  * Publicações e intimações do DJEN (Diário de Justiça Eletrônico Nacional).
@@ -64,6 +65,12 @@ export interface StatusDjen {
   publicacoes: number;
   /** Advogados que a varredura por OAB alcança. Zero aqui explica silêncio. */
   advogadosComOab: number;
+  /**
+   * Quem deveria ser consultado por OAB e não tem OAB no cadastro (14/09/2026).
+   * Ausente na API anterior: a tela de Usuários não mostra a linha
+   * (`idsSemOab` em lib/djen-cobertura.ts).
+   */
+  advogadosSemOab?: { id: string; nome: string }[];
 }
 
 /**
@@ -144,6 +151,13 @@ export const MOTIVO_SEM_TAREFA: Record<string, { curto: string; ajuda: string }>
     ajuda:
       'O ato manda a outra parte fazer algo e não há ordem dirigida a nós. Se você discordar, a atividade pode ser criada à mão na Agenda.',
   },
+  // 14/09/2026: o tribunal manda uma cópia do mesmo ato por destinatário (mesmo
+  // link). A decisão tomada sobre a primeira vale para as outras.
+  COPIA_DO_MESMO_ATO: {
+    curto: 'Cópia de um ato já decidido',
+    ajuda:
+      'O tribunal enviou o mesmo ato mais de uma vez, uma para cada intimado. A decisão sobre a primeira cópia vale para esta: não nasce proposta nem tarefa repetida.',
+  },
 };
 
 /**
@@ -217,6 +231,18 @@ export async function criarTarefaDaPublicacao(
 
 export async function listarPublicacoes(processoId: string): Promise<PublicacaoDjen[]> {
   const { data } = await api.get<PublicacaoDjen[]>(`/djen/processo/${processoId}`);
+  return data;
+}
+
+/**
+ * POR ONDE ESTE PROCESSO É ACOMPANHADO NO DIÁRIO — calculado na API.
+ *
+ * A frase sai de `fraseDaCobertura` (lib/djen-cobertura.ts). Rota nova de
+ * 14/09/2026: na janela de troca a API antiga responde 404, e a aba só não
+ * mostra a linha.
+ */
+export async function coberturaDoDiario(processoId: string): Promise<CoberturaDoDiario> {
+  const { data } = await api.get<CoberturaDoDiario>(`/djen/processo/${processoId}/cobertura`);
   return data;
 }
 

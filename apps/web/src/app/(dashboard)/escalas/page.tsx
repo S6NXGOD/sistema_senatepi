@@ -5,7 +5,7 @@ import { formatDataPura } from '@/lib/data-pura';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ArrowLeftRight, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, Download,
+  AlertCircle, ArrowLeftRight, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, CopyPlus, Download,
   List, Loader2, Pencil, Plus, Trash2, X,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -18,14 +18,16 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar as podeEditarModulo, podeExcluir } from '@/lib/permissoes';
 import { NovaEscalaModal } from '@/components/escalas/nova-escala-modal';
 import { EditarEscalaModal, ModoDaEdicao } from '@/components/escalas/editar-escala-modal';
+import { CopiarEscalaModal } from '@/components/escalas/copiar-escala-modal';
 import { AcoesDoPlantao, PlantaoCartao } from '@/components/escalas/plantao-cartao';
 import { SeletorDePessoa } from '@/components/escalas/seletor-de-pessoa';
-import { useTelaLarga } from '@/components/escalas/use-tela-larga';
+import { useTelaLarga } from '@/lib/use-tela-larga';
 import { exportarEscalasPdf } from '@/lib/escalas-pdf';
 import {
-  AdvogadoEscala, CorAdvogado, Escala, agruparPorDia, chaveDoDia, chaveMes, contar, diaDaEscala, excluirEscala,
-  faixaDoPlantao, hojeBR, listarAdvogadosEscala, listarEscalas, mensagemDoErro, montarCoresDaTela,
-  nomeDeExibicao, posicaoDoPopover, rotuloDoPlantao, rotuloMes,
+  AdvogadoEscala, CorAdvogado, Escala, agruparPorDia, avisoDeExclusao, chaveDoDia, chaveMes, contar, diaDaEscala,
+  excluirEscala, faixaDoPlantao, hojeBR, listarAdvogadosEscala, listarConsultasDoPlantao, listarEscalas, mesAnterior,
+  mensagemDoErro, montarCoresDaTela, nomeDeExibicao, nomeDoMes as nomeDoMesDaChave, podeCopiarPara, posicaoDoPopover, rotuloDoPlantao,
+  rotuloMes,
 } from '@/lib/escalas';
 
 type Visao = 'calendario' | 'lista';
@@ -88,6 +90,25 @@ export default function EscalasPage() {
   // de quem acabou de abrir. Se a equipe não carregar, a escala aparece mesmo assim.
   const carregando = escalasQ.isLoading || advogadosQ.isLoading;
 
+  /*
+    COPIAR A ESCALA (D15, 14/09/2026). Só com EDITAR, do mês de Teresina em
+    diante e sem filtro de pessoa: a cópia leva a equipe inteira, e oferecê-la
+    na visão filtrada daria a entender que copia só a pessoa escolhida.
+  */
+  const [copiaAberta, setCopiaAberta] = useState(false);
+  const podeCopiar = podeEditar && !advogadoFiltro && podeCopiarPara(mesKey);
+  const mesAntes = mesAnterior(mesKey);
+  // No mês vazio o botão diz DE ONDE copia. Só afirma "de setembro" se setembro
+  // tem plantões; senão a folha escolhe a origem e o botão não promete nada.
+  const anteriorQ = useQuery({
+    queryKey: ['escalas', mesAntes, ''],
+    queryFn: () => listarEscalas(mesAntes),
+    enabled: podeCopiar && !carregando && !escalasQ.isError && escalas.length === 0,
+  });
+  const rotuloDaCopia = anteriorQ.data?.length
+    ? `Copiar a escala de ${nomeDoMesDaChave(mesAntes)}`
+    : 'Copiar a escala de outro mês';
+
   const invalidar = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['escalas'] });
     // O cartão "Equipe disponível hoje" do painel lê a mesma escala.
@@ -103,6 +124,16 @@ export default function EscalasPage() {
     },
     onError: (e) => toast.error(mensagemDoErro(e, 'Não foi possível excluir. Tente de novo.')),
   });
+
+  // Excluir não mexe nas consultas marcadas (D17): a confirmação só conta quantas
+  // ficam na agenda de quem saía. Se a consulta falhar, o diálogo segue como era.
+  const consultasDoExcluidoQ = useQuery({
+    queryKey: ['escalas', 'consultas', aExcluir?.id ?? '', ''],
+    queryFn: () => listarConsultasDoPlantao(aExcluir!.id),
+    enabled: !!aExcluir,
+    retry: false,
+  });
+  const avisoDaExclusao = aExcluir && consultasDoExcluidoQ.data ? avisoDeExclusao(consultasDoExcluidoQ.data) : null;
 
   // Pessoas escaladas no mês, em ordem alfabética (legenda — não é ranking).
   const escalados = useMemo(() => {
@@ -280,6 +311,16 @@ export default function EscalasPage() {
             {contar(escalas.length, 'plantão', 'plantões')} em {nomeDoMes}
             {escalados.length > 0 && <> · {contar(escalados.length, 'pessoa escalada', 'pessoas escaladas')}</>}
           </p>
+          {/* O cabeçalho não comporta um 3º botão a 400 px: a cópia mora aqui. */}
+          {podeCopiar && escalas.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setCopiaAberta(true)}
+              className="-ml-1 inline-flex min-h-[44px] items-center gap-1.5 px-1 text-sm font-medium text-brand-800 hover:underline dark:text-brand-400 md:min-h-[32px]"
+            >
+              <CopyPlus className="h-4 w-4" /> Copiar de outro mês
+            </button>
+          )}
         </div>
       )}
 
@@ -392,16 +433,33 @@ export default function EscalasPage() {
             })}
           </div>
           {escalas.length === 0 && (
-            <p className="border-t px-4 py-3 text-center text-sm text-muted-foreground">
-              Nenhum plantão em {nomeDoMes}.{podeEditar && ' Toque num dia para cadastrar.'}
-            </p>
+            <div className="space-y-3 border-t px-4 py-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                Nenhum plantão em {nomeDoMes}.{podeEditar && ' Toque num dia para cadastrar.'}
+              </p>
+              {podeCopiar && (
+                <div className="mx-auto flex max-w-xs flex-col gap-2">
+                  <Button onClick={() => setCopiaAberta(true)}>
+                    <CopyPlus className="h-4 w-4" /> {rotuloDaCopia}
+                  </Button>
+                  <Button variant="outline" onClick={() => novaEm()}>
+                    <CalendarPlus className="h-4 w-4" /> Cadastrar plantões
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
         </Card>
       ) : escalas.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 px-4 py-14 text-center">
           <p className="text-sm text-muted-foreground">Nenhum plantão em {nomeDoMes}.</p>
+          {podeCopiar && (
+            <Button className="w-full max-w-xs" onClick={() => setCopiaAberta(true)}>
+              <CopyPlus className="h-4 w-4" /> {rotuloDaCopia}
+            </Button>
+          )}
           {podeEditar && (
-            <Button variant="outline" onClick={() => novaEm()}>
+            <Button variant="outline" className={cn(podeCopiar && 'w-full max-w-xs')} onClick={() => novaEm()}>
               <CalendarPlus className="h-4 w-4" /> Cadastrar plantões
             </Button>
           )}
@@ -502,6 +560,12 @@ export default function EscalasPage() {
       </Sheet>
 
       <NovaEscalaModal open={novaOpen} onClose={() => setNovaOpen(false)} onSalvo={invalidar} dataPre={dataPre} />
+      <CopiarEscalaModal
+        destino={copiaAberta ? mesKey : null}
+        origemInicial={mesAntes}
+        onClose={() => setCopiaAberta(false)}
+        onSalvo={invalidar}
+      />
       <EditarEscalaModal
         alvo={edicao}
         pessoas={advogadosQ.data ?? []}
@@ -518,7 +582,9 @@ export default function EscalasPage() {
           aExcluir && (
             <>
               <p>{descreverPlantao(aExcluir)}.</p>
-              <p className="mt-1">Se for troca entre colegas, use Trocar com… e o histórico fica certo.</p>
+              <p className="mt-1">
+                {avisoDaExclusao ?? 'Se for troca entre colegas, use Trocar com… e o histórico fica certo.'}
+              </p>
             </>
           )
         }

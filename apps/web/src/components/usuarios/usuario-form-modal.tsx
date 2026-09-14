@@ -39,12 +39,18 @@ function matrizInicial(role: PerfilUsuario, permissoes?: Record<string, string> 
 }
 
 export function UsuarioFormModal({
-  open, onClose, onSalvo, editar,
+  open, onClose, onSalvo, editar, pedirOab,
 }: {
   open: boolean;
   onClose: () => void;
   onSalvo: () => void;
   editar?: UsuarioSistema | null;
+  /**
+   * Veio do "Preencher OAB" da lista (14/09/2026): mostra o campo mesmo que o
+   * perfil não seja Advogado. O robô do Diário passou a cobrar OAB de quem é
+   * advogado principal de processo vivo, qualquer que seja o perfil.
+   */
+  pedirOab?: boolean;
 }) {
   const { user } = useAuth();
   const ehEdicao = !!editar;
@@ -112,6 +118,13 @@ export function UsuarioFormModal({
   }
 
   const adminLock = role === 'ADMINISTRADOR';
+  /*
+    QUANDO A OAB APARECE. Advogado, sempre. E, na edição, quem já tem OAB ou
+    veio do "Preencher OAB": o robô do Diário cobra OAB de quem é advogado
+    principal de processo vivo, mesmo com outro perfil (14/09/2026). Antes, salvar
+    a ficha de uma coordenação com OAB a APAGAVA em silêncio.
+  */
+  const mostraOab = role === 'ADVOGADO' || (ehEdicao && (!!pedirOab || !!editar?.oab));
 
   /*
     O TETO DE QUEM ESTÁ CADASTRANDO — espelho das travas do servidor.
@@ -153,9 +166,10 @@ export function UsuarioFormModal({
         nome: nome.trim(),
         nomeExibicao: nomeExibicao.trim() || undefined,
         email: email.trim(),
-        // OAB só é enviada para o perfil de advogado (limpa ao trocar de perfil).
-        oab: role === 'ADVOGADO' ? oab.trim() : '',
-        oabUf: role === 'ADVOGADO' ? oabUf.trim() : '',
+        // OAB só é enviada quando o campo aparece (limpa ao trocar de perfil
+        // quem não tinha OAB nem veio do "Preencher OAB").
+        oab: mostraOab ? oab.trim() : '',
+        oabUf: mostraOab ? oabUf.trim() : '',
         role,
         // Trava anti-lockout: ninguém desativa a própria conta (o backend também barra).
         ativo: ehProprio ? true : ativo,
@@ -323,11 +337,11 @@ export function UsuarioFormModal({
         </div>
 
         {/* OAB — só faz sentido para quem atua como advogado */}
-        {role === 'ADVOGADO' && (
+        {mostraOab && (
           <div className="grid grid-cols-3 gap-4">
             <div className="col-span-2 space-y-1.5">
               <label className="text-sm font-medium">Inscrição na OAB</label>
-              <Input placeholder="ex: 12345" value={oab} onChange={(e) => setOab(e.target.value.replace(/\D/g, ''))} inputMode="numeric" />
+              <Input placeholder="ex: 12345" value={oab} onChange={(e) => setOab(e.target.value.replace(/\D/g, ''))} inputMode="numeric" autoFocus={!!pedirOab} />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">UF</label>

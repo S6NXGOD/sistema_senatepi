@@ -7,8 +7,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { GRUPO_DO_PERFIL, carregarProdutividade, carregarRostos } from '@/lib/produtividade';
 import {
-  OPCOES_DA_PRODUTIVIDADE, gerarPdfDaProdutividade, guardarOpcoesDaProdutividade, lerOpcoesDaProdutividade,
-  type DetalheDasPessoas, type QuemNoPdf,
+  OBSERVACAO_NA_FOLHA_DA_PESSOA, OPCOES_DA_PRODUTIVIDADE, gerarPdfDaProdutividade, guardarOpcoesDaProdutividade,
+  lerOpcoesDaProdutividade, pessoasDoRecorte, type DetalheDasPessoas, type QuemNoPdf,
 } from '@/lib/produtividade-pdf';
 import {
   hojeComoTexto, periodoAnterior, periodoDoPreset, periodoValido, type Periodo, type PresetDoPeriodo,
@@ -26,7 +26,7 @@ const DETALHES: { id: DetalheDasPessoas; titulo: string; texto: string }[] = [
   {
     id: 'PAGINAS',
     titulo: 'Uma página por pessoa',
-    texto: 'A faixa dos dias, os quadros do perfil e o mês a mês de cada um.',
+    texto: 'Para cada pessoa: os dias com uso, o que registrou e a semana a semana.',
   },
   {
     id: 'NENHUM',
@@ -74,7 +74,15 @@ export function PdfDaProdutividade({
   /** A foto só existe onde há cartão de pessoa: nunca na tabela nem nos totais. */
   const temCartaoDePessoa = umaPessoa || detalhe === 'PAGINAS';
   const perfis = useMemo(() => [...new Set((data?.pessoas ?? []).map((l) => l.perfil))], [data]);
-  const podeGerar = !!data && !gerando && (preset !== 'PERSONALIZADO' || periodoValido(datas));
+  /**
+   * O PDF sai com a folha de UMA pessoa — escolhida pelo nome, ou um perfil que
+   * só tem ela. Aí a observação vai até 240 caracteres: com mais, a folha única
+   * não cabia (medido em 14/09/2026).
+   */
+  const folhaDeUmaPessoa = !!data && pessoasDoRecorte(data, quem).length === 1;
+  const observacaoCabe = !folhaDeUmaPessoa || observacao.trim().length <= OBSERVACAO_NA_FOLHA_DA_PESSOA;
+  const podeGerar =
+    !!data && !gerando && observacaoCabe && (preset !== 'PERSONALIZADO' || periodoValido(datas));
 
   function voltarAoPadrao() {
     setPreset(OPCOES_DA_PRODUTIVIDADE.preset);
@@ -216,14 +224,14 @@ export function PdfDaProdutividade({
           marcada={graficos}
           onMudar={setGraficos}
           titulo="Com gráficos"
-          texto="O mês a mês em colunas, quando o período passa de um mês. Sem gráficos, sai em tabela."
+          texto="Semana a semana em colunas (mês a mês acima de três meses). Sem gráficos, sai em tabela."
         />
         {temCartaoDePessoa && (
           <Opcao
             marcada={fotos}
             onMudar={setFotos}
             titulo="Com a foto do perfil"
-            texto="Só no cartão de cada pessoa, nunca numa tabela. Quem não tem foto sai com as iniciais."
+            texto="Só no topo da página de cada pessoa, nunca numa tabela. Quem não tem foto sai com as iniciais."
           />
         )}
         <p className="text-xs text-muted-foreground">
@@ -237,6 +245,12 @@ export function PdfDaProdutividade({
         observacao={observacao}
         onObservacao={setObservacao}
         tituloPadrao={pessoal ? 'O meu uso do sistema' : 'Uso e produtividade'}
+        {...(folhaDeUmaPessoa
+          ? {
+              limiteDaObservacao: OBSERVACAO_NA_FOLHA_DA_PESSOA,
+              ajudaDaObservacao: `No PDF de uma pessoa, até ${OBSERVACAO_NA_FOLHA_DA_PESSOA} caracteres: tudo tem de caber numa folha. Se faltar espaço, ela sai numa linha, sem a caixa.`,
+            }
+          : {})}
       />
     </DialogoDoPdf>
   );

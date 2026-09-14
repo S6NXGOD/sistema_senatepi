@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { DesafioRecadastramento } from './recadastro';
 
 export type SituacaoFiliado = 'ATIVO' | 'INATIVO' | 'DESFILIADO';
 export type FormacaoProfissional =
@@ -294,7 +295,8 @@ export async function excluirFiliado(id: string): Promise<{ ok: boolean }> {
 // Link de recadastramento online (gerado pela equipe, usado pelo filiado)
 // ---------------------------------------------------------------------------
 
-export type DesafioLink = 'CPF_NASCIMENTO' | 'COREN' | 'NENHUM';
+/** O mesmo tipo da página pública (lib/recadastro.ts): uma lista só no web. */
+export type DesafioLink = DesafioRecadastramento;
 
 export interface LinkRecadastramento {
   id: string;
@@ -312,9 +314,33 @@ export interface LinkRecadastramento {
 /** Rótulo do que o filiado terá de confirmar para abrir o link. */
 export const DESAFIO_LABEL: Record<DesafioLink, string> = {
   CPF_NASCIMENTO: 'Confirma CPF + data de nascimento',
+  CPF: 'Confirma só o CPF',
   COREN: 'Confirma o número do COREN',
-  NENHUM: 'Acesso direto (cadastro sem CPF/nascimento/COREN)',
+  NASCIMENTO: 'Confirma só a data de nascimento',
+  // 14/09/2026: a API não gera mais link sem confirmação. O rótulo sobra para
+  // os links antigos que ainda aparecem na lista.
+  NENHUM: 'Acesso direto (link antigo, sem confirmação)',
 };
+
+/**
+ * O QUE O LINK DESTE FILIADO VAI PEDIR, perguntado antes do primeiro toque.
+ *
+ * `podeGerar` falso = a API recusaria gerar e mandar (cadastro sem nada que
+ * confirme a identidade). A tela esconde os botões em vez de oferecer um
+ * clique que volta 400. Não traz CPF, data nem COREN: só a decisão.
+ */
+export interface PreviaDoLink {
+  desafio: DesafioLink;
+  podeGerar: boolean;
+  /** Por que não gera. Opcional pela janela de troca do deploy (14/09/2026). */
+  motivo?: 'DESFILIADO' | 'SEM_CONFIRMACAO' | null;
+  /** CPF gravado sem dígito verificador válido — não serve de confirmação. */
+  cpfGravadoInvalido?: boolean;
+}
+
+export async function lerPreviaDoLink(filiadoId: string): Promise<PreviaDoLink> {
+  return (await api.get(`/filiados/${filiadoId}/link-recadastramento/previa`)).data;
+}
 
 export async function gerarLinkRecadastramento(filiadoId: string): Promise<LinkRecadastramento> {
   return (await api.post(`/filiados/${filiadoId}/link-recadastramento`)).data;
@@ -379,6 +405,17 @@ export interface Recadastramento {
   revisadoEm?: string | null;
   revisor?: { id?: string; nome: string } | null;
   alteracoes?: AlteracaoRecadastramento[];
+  /**
+   * O que o link confirmou (lido da observação na API). Ausente na API anterior
+   * a 14/09/2026 e nulo no presencial: a conferência não avisa nada.
+   */
+  confirmacao?: DesafioLink | null;
+  /**
+   * A linha âmbar da conferência, pronta: o link confirmou um dado só e o
+   * próprio filiado preencheu o CPF ou a data que estavam vazios. A regra mora
+   * na API; a tela só mostra.
+   */
+  avisoDaConfirmacao?: string | null;
 }
 
 export async function listarRecadastramentos(filiadoId: string): Promise<Recadastramento[]> {

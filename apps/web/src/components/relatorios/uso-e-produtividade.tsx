@@ -133,8 +133,9 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
 }
 
 /**
- * COMO LER ESTES NÚMEROS — a mesma legenda do fim do PDF, recolhida. A coluna
- * do retrato vira um selo: "Período" é o intervalo escolhido; "Hoje" é agora.
+ * COMO LER ESTES NÚMEROS — a legenda inteira, recolhida. O PDF leva a mesma
+ * regra na frase `curta`, na coluna "O que conta" (14/09/2026). A coluna do
+ * retrato vira um selo: "Período" é o intervalo escolhido; "Hoje" é agora.
  */
 function ComoLer({ escopo }: { escopo: Produtividade['escopo'] }) {
   return (

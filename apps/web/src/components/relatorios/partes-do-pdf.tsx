@@ -201,23 +201,36 @@ export function EscolhaDoPeriodo({
   );
 }
 
+/** O tamanho da observação nos PDFs de sempre (o do sindicato, o do panorama e o da equipe). */
+export const OBSERVACAO_MAXIMA = 600;
+
 /**
  * TÍTULO E OBSERVAÇÃO — recolhidos até alguém pedir. Não ficam guardados:
  * "Assembleia de setembro" no PDF de outubro é armadilha.
  */
 export function TituloEObservacao({
-  titulo, onTitulo, observacao, onObservacao, tituloPadrao,
+  titulo, onTitulo, observacao, onObservacao, tituloPadrao, limiteDaObservacao = OBSERVACAO_MAXIMA, ajudaDaObservacao,
 }: {
   titulo: string;
   onTitulo: (titulo: string) => void;
   observacao: string;
   onObservacao: (observacao: string) => void;
   tituloPadrao: string;
+  /**
+   * Até quantos caracteres a observação vai. O PDF de uma pessoa aceita menos
+   * (14/09/2026): a folha é uma só, e a observação disputa espaço com os números.
+   */
+  limiteDaObservacao?: number;
+  /** Uma frase embaixo do campo, dizendo por que o limite é esse. */
+  ajudaDaObservacao?: string;
 }) {
   const [aberto, setAberto] = useState(false);
+  const tamanho = observacao.trim().length;
+  // Texto escrito antes de o limite baixar (trocou a equipe por uma pessoa) não some: o campo abre e diz quanto sobra.
+  const passou = tamanho > limiteDaObservacao;
   return (
     <ParteDoDialogo titulo="Título e observação">
-      {aberto ? (
+      {aberto || passou ? (
         <div className="space-y-2">
           <label className="block space-y-1">
             <span className="block text-xs text-muted-foreground">Título</span>
@@ -231,17 +244,24 @@ export function TituloEObservacao({
           </label>
           <label className="block space-y-1">
             <span className="block text-xs text-muted-foreground">
-              Observação — sai numa caixa, antes dos números
+              {ajudaDaObservacao ? 'Observação — sai antes dos números' : 'Observação — sai numa caixa, antes dos números'}
             </span>
             <textarea
               value={observacao}
               onChange={(e) => onObservacao(e.target.value)}
               rows={3}
-              maxLength={600}
+              maxLength={Math.max(limiteDaObservacao, observacao.length)}
               placeholder="Ex.: números apresentados na assembleia de 20/09."
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
             />
           </label>
+          {passou ? (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              A observação tem {tamanho} caracteres. Para este PDF, encurte para {limiteDaObservacao} ou menos.
+            </p>
+          ) : (
+            ajudaDaObservacao && <p className="text-xs text-muted-foreground">{ajudaDaObservacao}</p>
+          )}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">

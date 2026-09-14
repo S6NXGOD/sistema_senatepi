@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Check, Copy, ExternalLink, Link2, Loader2, Mail, MessageCircle, Share2,
+  AlertTriangle, Check, Copy, ExternalLink, Link2, Loader2, Mail, MessageCircle, PenLine, Share2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -11,11 +11,12 @@ import { cn } from '@/lib/utils';
 import { campoVisivel } from '@/tenant.config';
 import { celularParaWhatsApp, linkWhatsApp } from '@/lib/whatsapp';
 import {
-  prepararEnvioRecadastro, listarLinksRecadastramento,
+  prepararEnvioRecadastro, listarLinksRecadastramento, lerPreviaDoLink,
   type EnvioRecadastro, type Filiado, type LinkRecadastramento, type MeioEnvioRecadastro,
 } from '@/lib/filiados';
 import {
-  assuntoDoEmail, desafioPrevisto, emailUtilizavel, estadoDoLink, linkEmail, mensagemDoLink,
+  assuntoDoEmail, avisoDoEnvio, emailUtilizavel, estadoDoLink, linkEmail, mensagemDoLink,
+  type AvisoDoEnvio,
 } from '@/lib/envio-recadastro';
 
 type Feito = 'MENSAGEM' | 'LINK' | 'COMPARTILHADO' | null;
@@ -53,10 +54,17 @@ export function EnviarLinkRecadastro({
   filiadoId,
   className,
   onPreparado,
+  onCompletarFicha,
 }: {
   filiadoId: string;
   className?: string;
   onPreparado?: (envio: EnvioRecadastro) => void;
+  /**
+   * A porta para gravar CPF e data de nascimento, quando o link não teria
+   * como confirmar a identidade. Sem ela (a atualização cadastral do
+   * atendimento, que já É o formulário), a caixa só explica.
+   */
+  onCompletarFicha?: () => void;
 }) {
   const qc = useQueryClient();
   const corenVisivel = campoVisivel('numeroCoren');
@@ -65,6 +73,20 @@ export function EnviarLinkRecadastro({
   const { data: filiado, isLoading: carregandoFiliado } = useQuery({
     queryKey: ['filiado', filiadoId],
     queryFn: async () => (await api.get(`/filiados/${filiadoId}`)).data as Filiado,
+  });
+  /*
+    O QUE O LINK VAI PEDIR, perguntado à API (14/09/2026). A chave fica debaixo
+    de ['filiado', filiadoId]: quem grava CPF ou data na ficha invalida esse
+    prefixo, e a prévia se refaz sozinha. `retry: false` e `staleTime: 0`: na
+    janela de troca a rota pode não existir, e a resposta muda assim que a
+    ficha muda. Erro aqui não trava nada: os botões ficam habilitados e a API
+    decide no toque.
+  */
+  const { data: previa, isLoading: carregandoPrevia } = useQuery({
+    queryKey: ['filiado', filiadoId, 'previa-do-link'],
+    queryFn: () => lerPreviaDoLink(filiadoId),
+    retry: false,
+    staleTime: 0,
   });
   const { data: links } = useQuery({
     queryKey: ['links-recadastramento', filiadoId],
@@ -98,7 +120,14 @@ export function EnviarLinkRecadastro({
       ? celularParaWhatsApp(filiado.telefonePrincipal, filiado.telefoneSecundario)
       : null;
   const email = resultado ? resultado.email : emailUtilizavel(filiado?.email);
-  const desafio = resultado?.desafio ?? (filiado ? desafioPrevisto(filiado, corenVisivel) : null);
+  // Depois do toque vale o desafio que a rota devolveu (ela só devolve link que
+  // pôde gerar); antes, a prévia. Sem prévia (carregando ou erro), nada a avisar.
+  const aviso: AvisoDoEnvio = resultado
+    ? avisoDoEnvio({ desafio: resultado.desafio, podeGerar: true }, corenVisivel)
+    : previa
+      ? avisoDoEnvio(previa, corenVisivel)
+      : { tipo: 'NADA' };
+  const semConfirmacao = aviso.tipo === 'SEM_CONFIRMACAO';
   // Sem a ficha (erro ao ler), deixa tentar: a rota diz se há celular.
   const celularDesconhecido = !resultado && !filiado && !carregandoFiliado;
   const whatsappDisponivel = !!celular || celularDesconhecido;
@@ -127,6 +156,10 @@ export function EnviarLinkRecadastro({
       return r;
     } catch (e) {
       setErro(mensagemDeErro(e));
+      // A recusa pode ser justamente "sem como confirmar a identidade" (a prévia
+      // tinha falhado ou a ficha mudou): perguntar de novo troca os botões pela
+      // caixa que explica o que fazer.
+      void qc.invalidateQueries({ queryKey: ['filiado', filiadoId, 'previa-do-link'] });
       return null;
     } finally {
       setOcupado(null);
@@ -232,26 +265,41 @@ export function EnviarLinkRecadastro({
         </p>
       </div>
 
-      {desafio === 'NENHUM' && (
+      {aviso.tipo === 'UM_FATOR' && (
         <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>
-            Este cadastro não tem CPF e data de nascimento{corenVisivel ? ' nem COREN' : ''}, então o
-            link abre sem pedir confirmação. Ele é pessoal: mande só para o próprio filiado, e a
-            mensagem pede que ele não encaminhe.
-          </span>
+          <span>{aviso.texto}</span>
         </p>
       )}
 
+      {/*
+        SEM COMO CONFIRMAR A IDENTIDADE: a API recusa o link (14/09/2026), então
+        os botões somem. Âmbar, não vermelho: é um passo que falta na ficha, não
+        um erro.
+      */}
+      {aviso.tipo === 'SEM_CONFIRMACAO' ? (
+        <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <p className="flex items-start gap-2 text-sm font-semibold text-amber-950 dark:text-amber-100">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            {aviso.titulo}
+          </p>
+          <p className="text-xs text-amber-900 dark:text-amber-200">{aviso.texto}</p>
+          {onCompletarFicha && aviso.completarFicha && (
+            <Button type="button" variant="outline" className="h-11 w-full sm:w-auto md:h-11" onClick={onCompletarFicha}>
+              <PenLine className="h-4 w-4" /> Completar a ficha
+            </Button>
+          )}
+        </div>
+      ) : (
       <div className="grid grid-cols-2 gap-2">
         <Button
           type="button"
           className={cn(alvo, 'col-span-2')}
-          disabled={travado || carregandoFiliado || !whatsappDisponivel}
+          disabled={travado || carregandoFiliado || carregandoPrevia || !whatsappDisponivel}
           aria-describedby={!whatsappDisponivel && !carregandoFiliado ? `sem-celular-${filiadoId}` : undefined}
           onClick={porWhatsApp}
         >
-          {carregandoFiliado ? <Loader2 className="h-4 w-4 animate-spin" /> : icone('WHATSAPP', MessageCircle)}
+          {carregandoFiliado || carregandoPrevia ? <Loader2 className="h-4 w-4 animate-spin" /> : icone('WHATSAPP', MessageCircle)}
           WhatsApp
         </Button>
         {!carregandoFiliado && !whatsappDisponivel && (
@@ -294,6 +342,7 @@ export function EnviarLinkRecadastro({
           </Button>
         )}
       </div>
+      )}
 
       <div aria-live="polite" className="space-y-2">
         {erro && (

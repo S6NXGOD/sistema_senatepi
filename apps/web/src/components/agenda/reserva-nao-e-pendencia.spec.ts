@@ -77,10 +77,20 @@ describe('assumir a atividade', () => {
     expect(GAVETA).toContain("atualizarCompromisso(id, { responsavelId: user!.id })");
   });
 
-  it('e limpa o sino, o painel e o quadro — que mudam junto', () => {
-    for (const chave of ['compromissos', 'compromisso', 'agenda-alertas', 'minhas-pendencias', 'dashboard']) {
+  it('e limpa o painel e o quadro — que mudam junto', () => {
+    for (const chave of ['compromissos', 'compromisso', 'minhas-pendencias', 'dashboard-resumo']) {
       expect(GAVETA).toContain(`'${chave}'`);
     }
+  });
+
+  /**
+   * AS DUAS CHAVES MORTAS SAÍRAM COM A ROTA (14/09/2026). GET /compromissos/alertas
+   * foi removida e nenhuma consulta declarava ['agenda-alertas'] nem ['dashboard'].
+   * A negativa mira CÓDIGO: com os colchetes, não bate no comentário que conta a história.
+   */
+  it('e não invalida mais as chaves de consulta nenhuma', () => {
+    expect(GAVETA).not.toContain("['agenda-alertas']");
+    expect(GAVETA).not.toContain("['dashboard'],");
   });
 
   /**

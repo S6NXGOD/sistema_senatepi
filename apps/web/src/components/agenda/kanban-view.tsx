@@ -40,6 +40,31 @@ const TERMINAIS: StatusCompromisso[] = ['CONCLUIDO', 'CANCELADO'];
 const TETO_TERMINAL = 10;
 
 /**
+ * O QUE A COLUNA MOSTRA.
+ *
+ * O comentário acima dizia "cheias, mostram as mais recentes", e o código
+ * cortava as 10 PRIMEIRAS de uma lista que chega em ordem crescente: em Todas,
+ * "Concluído" mostrava as de meados de julho e escondia as de ontem atrás de
+ * "Ver as outras 27" (achado em 14/09/2026). Agora as terminais ordenam pelo
+ * início decrescente ANTES de cortar — e continuam assim quando a pessoa abre
+ * o resto, para as dez que ela já viu não trocarem de lugar. As colunas
+ * abertas mantêm a ordem que a página decidiu (o que ficou para trás sobe).
+ */
+export function visiveisDaColuna<T extends { id: string; inicio: string }>(
+  itens: readonly T[],
+  status: StatusCompromisso,
+  aberta: boolean,
+): T[] {
+  if (!TERMINAIS.includes(status)) return [...itens];
+  const recentes = [...itens].sort((a, b) => {
+    const d = new Date(b.inicio).getTime() - new Date(a.inicio).getTime();
+    if (d !== 0) return d;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+  return aberta ? recentes : recentes.slice(0, TETO_TERMINAL);
+}
+
+/**
  * A FORMA DO QUADRO ENQUANTO ELE NÃO CHEGA — as quatro colunas, com a mesma
  * grade do quadro de verdade, para nada pular quando os cartões aparecerem.
  * Sem transform nem escalonamento: é um quadro, não uma vitrine.
@@ -139,9 +164,8 @@ export function KanbanView({
         const itens = porStatus(s);
         const podeSoltar = aceita(s);
         const bloqueada = !!arrastado && !podeSoltar && arrastado.status !== s;
-        const terminal = TERMINAIS.includes(s);
         const aberta = semTeto.includes(s);
-        const visiveis = terminal && !aberta ? itens.slice(0, TETO_TERMINAL) : itens;
+        const visiveis = visiveisDaColuna(itens, s, aberta);
         const escondidas = itens.length - visiveis.length;
 
         return (

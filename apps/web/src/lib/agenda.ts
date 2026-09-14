@@ -579,9 +579,18 @@ export function estadoDoPrazo(c: {
   inicio: string;
   status: StatusCompromisso;
 }): EstadoDoPrazo {
+  return estadoDoPrazoEm(c, Date.now());
+}
+
+/**
+ * A MESMA RÉGUA, com o relógio passado de fora — para função pura que agrupa
+ * (a lista por dia) poder ser testada com uma data de 2026 fixa. Fica separada,
+ * e não como segundo parâmetro de `estadoDoPrazo`, porque `estaAtrasado` é
+ * passado direto a `.filter`/`.sort` e um parâmetro novo receberia o índice.
+ */
+export function estadoDoPrazoEm(c: { inicio: string; status: StatusCompromisso }, agora: number): EstadoDoPrazo {
   if (c.status === 'CONCLUIDO' || c.status === 'CANCELADO') return 'EM_DIA';
   const inicio = new Date(c.inicio).getTime();
-  const agora = Date.now();
   if (diaBR(inicio) < diaBR(agora)) return 'ATRASADA';
   return inicio < agora ? 'PASSOU_DA_HORA' : 'EM_DIA';
 }
@@ -829,7 +838,22 @@ export interface FiltroCompromissos {
   reservaDe?: string;
   /** Com `responsavel`/`responsaveis`: só quem RESPONDE, sem a equipe. */
   somenteResponsavel?: string;
+  /**
+   * METADE DO TEMPO (14/09/2026). `adiante` = o que ainda está aberto ou começa
+   * de hoje em diante, em ordem crescente; `anteriores` = o que já fechou em dia
+   * anterior, do mais recente para o mais antigo. Com `recorte=todos` as duas são
+   * disjuntas e somam "Todas". Só a lista por dia manda — o quadro e o calendário
+   * continuam sem janela. A API antiga recusa o campo (forbidNonWhitelisted): a
+   * API sobe antes.
+   */
+  janela?: JanelaDaAgenda;
+  /** Tamanho da página (1 a 200). Sem ele a API corta em 500, como sempre. */
+  limite?: number;
+  /** `<ISO do início do último item>_<id>` — ver `proximoCursor`. Nunca vai para a URL. */
+  cursor?: string;
 }
+
+export type JanelaDaAgenda = 'adiante' | 'anteriores';
 
 function paraParams(filtro: object): Record<string, string> {
   const params: Record<string, string> = {};
@@ -857,6 +881,13 @@ export interface ContagemRecortes {
   aberto: number;
   todos: number;
   urgentes: number;
+  /**
+   * As duas metades de "Todas" (14/09/2026), com os mesmos filtros: `todos` é a
+   * soma. Opcionais pela janela de troca — sem eles o seletor mostra
+   * "Próximas | Anteriores" sem número, em vez de um zero que seria mentira.
+   */
+  todosAdiante?: number;
+  todosAnteriores?: number;
 }
 
 export const RECORTE_PADRAO: RecorteAgenda = 'hoje';
@@ -999,6 +1030,218 @@ export async function buscarRecortes(
   filtro: Omit<FiltroCompromissos, 'recorte'> = {},
 ): Promise<ContagemRecortes> {
   return (await api.get('/compromissos/recortes', { params: paraParams(filtro) })).data;
+}
+
+// ---------------------------------------------------------------------------
+// Lista por dia (14/09/2026)
+//
+// No celular o quadro empilhava as quatro colunas e desmontava a ordem do
+// tempo. A lista responde "o que tenho hoje e depois". As regras moram aqui,
+// puras e testadas com linhas; o componente só desenha.
+// ---------------------------------------------------------------------------
+
+export type VisaoDaAgenda = 'quadro' | 'lista';
+
+/**
+ * Tamanho da página de "Todas" na lista. Medido em 14/09/2026: 89 atividades
+ * no acervo inteiro — hoje o "Carregar mais" quase nunca aparece. O contrato
+ * entra assim mesmo porque é aditivo e barato, e o dia em que o robô dobrar o
+ * ritmo não vira uma lista de 500 cartões no telefone.
+ */
+export const PAGINA_DA_AGENDA = 50;
+
+/**
+ * CURSOR DA PRÓXIMA PÁGINA — `<ISO do início do último>_<id>`, ou nada.
+ *
+ * Por chave (início, id) e não por deslocamento: o robô cria e remarca
+ * atividades o dia inteiro, e "pule as 50 primeiras" repetiria ou perderia
+ * itens entre uma página e outra. O id desempata os inícios iguais (o robô
+ * grava várias às 9h em ponto).
+ *
+ * Página com menos que o limite é a última. Com exatamente o limite, sobra uma
+ * requisição vazia a mais — aceitável, e é o que a API espera.
+ */
+export function proximoCursor(
+  ultima: readonly { inicio: string; id: string }[],
+  limite: number,
+): string | undefined {
+  if (ultima.length === 0 || ultima.length < limite) return undefined;
+  const u = ultima[ultima.length - 1];
+  const t = new Date(u.inicio);
+  if (Number.isNaN(t.getTime())) return undefined;
+  // Normaliza para o ISO com "Z", que é o formato que a API valida.
+  return `${t.toISOString()}_${u.id}`;
+}
+
+/**
+ * As páginas viram uma lista, sem repetir. Uma atividade remarcada entre uma
+ * página e outra pode vir duas vezes até a próxima atualização — fica a
+ * primeira, que é a que a pessoa já leu.
+ */
+export function semRepetidas<T extends { id: string }>(paginas: readonly (readonly T[])[]): T[] {
+  const porId = new Map<string, T>();
+  for (const pagina of paginas) {
+    for (const c of pagina) if (!porId.has(c.id)) porId.set(c.id, c);
+  }
+  return [...porId.values()];
+}
+
+/**
+ * AS PÁGINAS JÁ CHEGARAM A HOJE? Só aí o Hoje vazio de Próximas diz a verdade.
+ *
+ * Em `adiante` a API ordena por início crescente, e as abertas que ficaram
+ * para trás vêm antes de tudo. Com 50 delas no filtro, a primeira página é só
+ * âmbar e as de hoje estão atrás de "Carregar mais": o grupo vazio afirmaria
+ * "Nenhuma atividade hoje" e convidaria a cadastrar em duplicata (revisão de
+ * 14/09/2026). Chegou quando não há próxima página ou quando o último item
+ * carregado, na ordem da API, já é de hoje ou depois.
+ */
+export function paginasChegaramAHoje(
+  itensNaOrdemDaApi: readonly { inicio: string }[],
+  temProxima: boolean,
+  agora: number,
+): boolean {
+  if (!temProxima) return true;
+  const ultimo = itensNaOrdemDaApi[itensNaOrdemDaApi.length - 1];
+  return !!ultimo && diaBRDe(ultimo.inicio) >= diaBR(agora);
+}
+
+/** "09:30" no relógio de Teresina (UTC−3 fixo), o mesmo do dia do cabeçalho. */
+export function horaBRDe(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  return new Date(t - FUSO_BR_MS).toISOString().slice(11, 16);
+}
+
+const DIAS_DA_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+function somarDiasAoYmd(ymd: string, dias: number): string {
+  const [a, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+}
+
+/**
+ * "qua, 16/09" — e "qui, 07/01/2027" quando o ano não é o de hoje.
+ *
+ * Calculado, nunca escrito à mão: os exemplos do pedido diziam "sex, 13/09",
+ * e 13/09/2026 é domingo. Conta sobre o dia puro (Date.UTC), então não anda
+ * de dia em fuso nenhum. Mesmo formato de `rotuloDoDia` dos atendimentos.
+ */
+export function rotuloCurtoDoDia(ymd: string, hojeYmd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return ymd;
+  const [, ano, mes, dia] = m;
+  const semana = DIAS_DA_SEMANA[new Date(Date.UTC(+ano, +mes - 1, +dia)).getUTCDay()];
+  return ano === hojeYmd.slice(0, 4) ? `${semana}, ${dia}/${mes}` : `${semana}, ${dia}/${mes}/${ano}`;
+}
+
+/** "Hoje · dom, 13/09", "Amanhã · seg, 14/09", "Ontem · sáb, 12/09" ou só "qua, 16/09". */
+export function rotuloDoCabecalho(ymd: string, hojeYmd: string): string {
+  const curto = rotuloCurtoDoDia(ymd, hojeYmd);
+  if (curto === ymd) return ymd;
+  if (ymd === hojeYmd) return `Hoje · ${curto}`;
+  if (ymd === somarDiasAoYmd(hojeYmd, 1)) return `Amanhã · ${curto}`;
+  if (ymd === somarDiasAoYmd(hojeYmd, -1)) return `Ontem · ${curto}`;
+  return curto;
+}
+
+type ItemDaLista = Pick<Compromisso, 'id' | 'inicio' | 'status' | 'tipo' | 'origemAutomatica'>;
+
+export interface GrupoDaLista<T extends ItemDaLista = Compromisso> {
+  /** 'ficaram-para-tras' ou o próprio 'AAAA-MM-DD'. */
+  chave: string;
+  /** O grupo âmbar do topo: abertas de dia anterior. */
+  paraTras: boolean;
+  /** Dia de Teresina do grupo; nulo no grupo âmbar, que mistura dias. */
+  ymd: string | null;
+  hoje: boolean;
+  rotulo: string;
+  itens: T[];
+}
+
+const porInicioEId = (a: { inicio: string; id: string }, b: { inicio: string; id: string }) => {
+  const d = new Date(a.inicio).getTime() - new Date(b.inicio).getTime();
+  if (d !== 0) return d;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+};
+
+/**
+ * A LISTA EM GRUPOS POR DIA DE TERESINA.
+ *
+ * - `adiante`: primeiro o grupo "Ficaram para trás" (a régua de `estaAtrasado`,
+ *   a mais antiga primeiro), depois um grupo por dia, do mais cedo ao mais
+ *   tarde. Dentro do dia, as TAREFAS (botão cheio Concluir, D7) vêm antes das
+ *   de hora marcada, e cada metade por início. Não existe campo "dia inteiro"
+ *   no banco: a regra D7 já decide o que é tarefa, e uma segunda regra
+ *   divergiria dela.
+ * - `anteriores`: sem âmbar, dias do mais recente ao mais antigo e tudo
+ *   decrescente, inclusive dentro do dia — a página seguinte da API vem
+ *   depois do último item, e assim nunca entra acima do que a pessoa já leu.
+ *
+ * Dia sem atividade é pulado. HOJE é a exceção quando `incluirHoje`: aparece
+ * vazio, porque "nenhuma atividade hoje" é resposta, e o vazio convida a
+ * cadastrar (a lição da coluna vazia do quadro).
+ *
+ * `separarParaTras` (padrão: só em `adiante`) desliga o grupo âmbar quando a
+ * lista já é de um dia escolhido no calendário.
+ */
+export function agruparPorDia<T extends ItemDaLista>(
+  itens: readonly T[],
+  opcoes: { agora: number; sentido: JanelaDaAgenda; incluirHoje: boolean; separarParaTras?: boolean },
+): GrupoDaLista<T>[] {
+  const { agora, sentido } = opcoes;
+  const hojeYmd = diaBR(agora);
+  const separar = opcoes.separarParaTras ?? sentido === 'adiante';
+
+  const paraTras: T[] = [];
+  const porDia = new Map<string, T[]>();
+  for (const c of itens) {
+    if (separar && estadoDoPrazoEm(c, agora) === 'ATRASADA') {
+      paraTras.push(c);
+      continue;
+    }
+    const ymd = diaBRDe(c.inicio);
+    const doDia = porDia.get(ymd);
+    if (doDia) doDia.push(c);
+    else porDia.set(ymd, [c]);
+  }
+  if (opcoes.incluirHoje && sentido === 'adiante' && !porDia.has(hojeYmd)) porDia.set(hojeYmd, []);
+
+  const grupos: GrupoDaLista<T>[] = [];
+  if (paraTras.length > 0) {
+    grupos.push({
+      chave: 'ficaram-para-tras',
+      paraTras: true,
+      ymd: null,
+      hoje: false,
+      rotulo: 'Ficaram para trás',
+      itens: [...paraTras].sort(porInicioEId),
+    });
+  }
+
+  const dias = [...porDia.keys()].sort();
+  if (sentido === 'anteriores') dias.reverse();
+  for (const ymd of dias) {
+    const doDia = [...(porDia.get(ymd) ?? [])];
+    if (sentido === 'anteriores') {
+      doDia.sort((a, b) => porInicioEId(b, a));
+    } else {
+      doDia.sort((a, b) => {
+        const horaA = Number(acaoPrincipalDoCartao(a) === 'INICIAR');
+        const horaB = Number(acaoPrincipalDoCartao(b) === 'INICIAR');
+        return horaA - horaB || porInicioEId(a, b);
+      });
+    }
+    grupos.push({
+      chave: ymd,
+      paraTras: false,
+      ymd,
+      hoje: ymd === hojeYmd,
+      rotulo: rotuloDoCabecalho(ymd, hojeYmd),
+      itens: doDia,
+    });
+  }
+  return grupos;
 }
 
 export async function getCompromisso(id: string): Promise<CompromissoDetalhe> {

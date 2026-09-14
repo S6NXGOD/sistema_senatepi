@@ -63,6 +63,37 @@ describe('envio do link', () => {
     expect(MODAL).toContain('<EnviarLinkRecadastro key=');
   });
 
+  /**
+   * 14/09/2026: a tela deixou de recalcular o desafio (`desafioPrevisto` era
+   * uma segunda cópia da regra da API) e pergunta a prévia. A chave fica debaixo
+   * de ['filiado', id]: gravar CPF ou data na ficha refaz a prévia sozinha.
+   */
+  it('o envio pergunta a prévia à API, e o modal lê a mesma chave', () => {
+    expect(ENVIO).toContain("queryKey: ['filiado', filiadoId, 'previa-do-link'],");
+    expect(ENVIO).toContain('queryFn: () => lerPreviaDoLink(filiadoId),');
+    expect(ENVIO).not.toContain('desafioPrevisto');
+    expect(MODAL).toContain("queryKey: ['filiado', filiadoId, 'previa-do-link'],");
+  });
+
+  /** A API recusa o link sem confirmação: nenhum botão que voltaria 400. */
+  it('sem como confirmar, os botões de envio e o "Gerar outro" somem', () => {
+    const caixa = ENVIO.indexOf("aviso.tipo === 'SEM_CONFIRMACAO' ? (");
+    const grade = ENVIO.indexOf('<div className="grid grid-cols-2 gap-2">');
+    expect(caixa).toBeGreaterThan(-1);
+    expect(grade).toBeGreaterThan(caixa);
+    expect(MODAL).toContain('{ativo && !link && !semConfirmacao && (');
+  });
+
+  /** Desfiliado (14/09/2026): gravar dado na ficha não reativa; o botão some. */
+  it('"Completar a ficha" só aparece quando o aviso pede', () => {
+    expect(ENVIO).toContain('{onCompletarFicha && aviso.completarFicha && (');
+  });
+
+  it('"Completar a ficha" usa a mesma porta do presencial, sem navegar dentro de outro modal', () => {
+    expect(MODAL).toContain('onCompletarFicha={abrirPresencial}');
+    expect(MODAL).toContain('onClick={abrirPresencial}');
+  });
+
   it('a atualização cadastral do atendimento oferece o link a quem edita filiado', () => {
     expect(ATUALIZACAO).toContain("podeEditar(user?.role, user?.permissoes, 'filiados')");
     expect(ATUALIZACAO).toContain('{podeMandarLink && !enviarLink && (');

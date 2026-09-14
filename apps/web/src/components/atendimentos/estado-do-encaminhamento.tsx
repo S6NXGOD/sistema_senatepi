@@ -1,7 +1,7 @@
 import { CalendarClock, CheckCircle2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  ESTADO_ENCAMINHAMENTO, rotuloDoEncaminhamento,
+  ESTADO_ENCAMINHAMENTO, rotuloDoEncaminhamento, tomDoEncaminhamento,
   type Encaminhamento, type StatusAtendimento, type TomDoEstado,
 } from '@/lib/atendimentos';
 
@@ -41,7 +41,8 @@ export function ChipEncaminhamento({
     <span
       className={cn(
         'inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium',
-        TOM[info.tom],
+        // O tom olha o atendimento: consulta cancelada num atendimento já fechado não pede nada.
+        TOM[tomDoEncaminhamento(encaminhamento.estado, statusAtendimento)],
         className,
       )}
     >

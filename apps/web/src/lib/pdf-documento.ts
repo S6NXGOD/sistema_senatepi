@@ -47,8 +47,66 @@ export interface CorDoRosto {
   texto: Cor;
 }
 
+/*
+  OS BLOCOS DE 14/09/2026 — grade dos dias, caixas lado a lado, tabela com
+  grupos e colunas empilhadas — nasceram para o PDF do uso do sistema caber
+  numa folha por pessoa. São SÓ acréscimos: nenhum bloco que o PDF do
+  sindicato e o do panorama usam muda de desenho sem os campos novos
+  (`paginas-dos-pdfs.spec.ts` confere o número de páginas dos dois).
+*/
+
+/** Um dia na grade do uso. */
+export interface DiaDaGrade {
+  /** O dia do mês, que vai dentro da célula quando ela é grande o bastante. */
+  dia: number;
+  usou: boolean;
+  fimDeSemana: boolean;
+}
+
+/** A grade de semanas × dias: uma coluna por semana, de segunda a domingo. */
+export interface GradeDoPdf {
+  /** `rotulo` vai acima da coluna ("10/08", "ago" ou vazio); `null` é dia fora do período, e não se desenha. */
+  semanas: { rotulo: string; dias: (DiaDaGrade | null)[] }[];
+  /** O nome de cada linha ("seg", "", "qua"…); o tamanho diz quantas linhas a grade tem. */
+  linhas: string[];
+}
+
+/** O que vai dentro de uma caixa, de cima para baixo. */
+export type LinhaDaCaixa =
+  /** O número da caixa, em 14 pt ("19 dias com uso"). */
+  | { tipo: 'grande'; texto: string }
+  /** Frase cinza de 8 pt, quebrada na largura. */
+  | { tipo: 'texto'; texto: string }
+  /** Rótulo cinza e valor em negrito; `abaixo` é a segunda linha ("1 atrasada"). O âmbar só onde `alerta`. */
+  | {
+      tipo: 'par';
+      rotulo: string;
+      valor: string;
+      alerta?: boolean;
+      abaixo?: { texto: string; alerta?: boolean };
+    }
+  /** Como ler as cores da grade, com os quadradinhos DESENHADOS — caractere de quadrado some na fonte. */
+  | { tipo: 'chave'; itens: { texto: string; cor: 'cheia' | 'vazia' | 'fimDeSemana' }[] }
+  /** O pé, em 6,5 pt. */
+  | { tipo: 'pe'; texto: string };
+
+export interface CaixaDoPdf {
+  /** Pequeno, em maiúsculas, no topo ("AGORA · 13/09/2026, 16:37"). */
+  rotulo: string;
+  linhas: LinhaDaCaixa[];
+  /** Fundo cinza claro — a caixa do "agora", que não é do período. */
+  fundo?: boolean;
+}
+
 export type BlocoDoPdf =
-  | { tipo: 'secao'; titulo: string; subtitulo?: string; novaPagina?: boolean }
+  | {
+      tipo: 'secao';
+      titulo: string;
+      subtitulo?: string;
+      novaPagina?: boolean;
+      /** Título de 10 pt e menos espaço em volta: a seção que precisa caber na folha da pessoa. */
+      compacta?: boolean;
+    }
   | {
       tipo: 'numeros';
       itens: ItemDeNumero[];
@@ -71,7 +129,13 @@ export type BlocoDoPdf =
     }
   | { tipo: 'texto'; texto: string }
   | { tipo: 'nota'; texto: string }
-  | { tipo: 'destaque'; rotulo: string; texto: string }
+  | {
+      tipo: 'destaque';
+      rotulo: string;
+      texto: string;
+      /** Tamanho da letra (padrão 9). */
+      fonte?: number;
+    }
   | {
       tipo: 'tabela';
       titulo?: string;
@@ -84,6 +148,27 @@ export type BlocoDoPdf =
       fonte?: number;
       /** Largura fixa de algumas colunas, em mm, pelo índice. As outras dividem o resto. */
       larguras?: Record<number, number>;
+      /**
+       * Cabeçalho em DUAS linhas: os grupos em cima ("No período", "Agora"),
+       * cada um sobre `colunas` colunas; texto vazio deixa o grupo em branco.
+       */
+      grupos?: { texto: string; colunas: number }[];
+      /** Letra por coluna, pelo índice: negrito, cinza, tamanho. */
+      estilos?: Record<number, { negrito?: boolean; cinza?: boolean; fonte?: number }>;
+      /**
+       * Linhas especiais, pelo índice em `linhas`:
+       *  · 'grupo' — a linha tem um texto só, em maiúsculas, mesclado na largura toda, no tom 100;
+       *  · 'mesclada' — da coluna `de` em diante, uma célula só, em cinza.
+       */
+      especiais?: Record<number, { tipo: 'grupo' } | { tipo: 'mesclada'; de: number }>;
+      /** Células em âmbar, como `[linha, coluna]` — só onde a tela também pede atenção. */
+      alertas?: [number, number][];
+      /** Folga dentro da célula, em mm (padrão 1,6). */
+      folga?: number;
+      /** Sem as listras alternadas: com linhas de grupo, a listra vira ruído. */
+      semListras?: boolean;
+      /** Sem a linha de cabeçalho (a legenda de duas colunas embaixo de outra tabela). */
+      semCabecalho?: boolean;
     }
   | {
       /** Barras deitadas, uma por linha: cabem nomes longos. Várias partes se empilham. */
@@ -107,6 +192,23 @@ export type BlocoDoPdf =
       /** Uma segunda linha embaixo de cada categoria. */
       detalhes?: string[];
       vazio?: string;
+      /**
+       * As séries umas SOBRE as outras, numa coluna por categoria, com o total
+       * em cima: a primeira série é a base. É o subconjunto por cor e ordem
+       * ("no dia marcado" dentro das concluídas), nunca num segundo gráfico.
+       */
+      empilhar?: boolean;
+      /** Altura do desenho, em mm (padrão 40). */
+      altura?: number;
+    }
+  | {
+      /**
+       * DUAS CAIXAS LADO A LADO — à esquerda o período (com a grade dos dias),
+       * à direita o retrato de agora. Mesma altura, a da mais alta.
+       */
+      tipo: 'caixas';
+      esquerda: CaixaDoPdf & { grade?: GradeDoPdf };
+      direita: CaixaDoPdf;
     }
   | {
       /** A faixa dos dias: um traço por dia (ou semana), mais forte quanto mais uso. */
@@ -130,6 +232,12 @@ export interface CapaDoDocumento {
   apoio: string;
   /** A observação de quem emitiu, em caixa, antes de tudo. */
   observacao?: string;
+  /**
+   * O DOCUMENTO DE UMA PESSOA (14/09/2026): o círculo de 16 mm à esquerda do
+   * título, com a foto ou as iniciais. O título é o nome, e o cartão separado
+   * deixa de repetir o nome embaixo.
+   */
+  pessoa?: { iniciais: string; cor: CorDoRosto; foto?: string | null };
 }
 
 type AutoTable = typeof autoTableDoPlugin;
@@ -141,7 +249,11 @@ const TRILHO: Cor = [236, 240, 237];
 const GRADE: Cor = [226, 230, 233];
 const DIA_SEM_USO: Cor = [224, 229, 232];
 const FIM_DE_SEMANA: Cor = [245, 247, 246];
+/** O contorno do sábado e do domingo na grade: sem ele, o quase-branco some na impressão. */
+const CONTORNO_DO_FIM_DE_SEMANA: Cor = [230, 233, 236];
 const ANEL: Cor = [210, 215, 220];
+const BORDA: Cor = [222, 226, 230];
+const FUNDO_DO_AGORA: Cor = [246, 247, 248];
 
 /** Altura de uma linha de texto, em mm: o jsPDF usa 1,15 de entrelinha. */
 const entrelinha = (pontos: number) => pontos * 0.3528 * 1.15;
@@ -180,6 +292,16 @@ function sanear<T>(valor: T): T {
 /** O que o desenho devolve: onde o conteúdo começa em cada página (a prova da faixa compacta). */
 export interface DesenhoDoDocumento {
   topos: number[];
+  /** Onde o conteúdo terminou, em mm, na última página: é a folga que o teste da folha única mede. */
+  fim: number;
+  /** Quantas páginas o documento teve. */
+  paginas: number;
+  /**
+   * A página em que cada bloco de `blocos` TERMINOU, pelo índice. Acréscimo de
+   * 14/09/2026: é por aqui que o PDF do uso descobre QUAL pessoa passou da
+   * folha dela, e aperta só essa.
+   */
+  paginaDoBloco: number[];
 }
 
 /**
@@ -250,26 +372,31 @@ export function montarDocumento(
     da casa (é a primeira pergunta de quem pega o papel), o recorte e quem
     emitiu em cinza, e uma regra fina. Depois, se houver, a observação.
   */
-  fonte(18, 'bold');
-  const linhasDoTitulo = doc.splitTextToSize(capa.titulo, largura) as string[];
-  doc.text(linhasDoTitulo, MARGEM, y + 5);
-  y += 5 + (linhasDoTitulo.length - 1) * entrelinha(18);
-  if (capa.periodo) {
-    fonte(11, 'bold', VERDE);
-    const linhasDoPeriodo = doc.splitTextToSize(capa.periodo, largura) as string[];
-    doc.text(linhasDoPeriodo, MARGEM, y + 6.5);
-    y += 6.5 + (linhasDoPeriodo.length - 1) * entrelinha(11);
+  if (capa.pessoa) {
+    capaDaPessoa(capa.pessoa);
+  } else {
+    fonte(18, 'bold');
+    const linhasDoTitulo = doc.splitTextToSize(capa.titulo, largura) as string[];
+    doc.text(linhasDoTitulo, MARGEM, y + 5);
+    y += 5 + (linhasDoTitulo.length - 1) * entrelinha(18);
+    if (capa.periodo) {
+      fonte(11, 'bold', VERDE);
+      const linhasDoPeriodo = doc.splitTextToSize(capa.periodo, largura) as string[];
+      doc.text(linhasDoPeriodo, MARGEM, y + 6.5);
+      y += 6.5 + (linhasDoPeriodo.length - 1) * entrelinha(11);
+    }
+    fonte(8.5, 'normal', CINZA);
+    const linhasDoApoio = doc.splitTextToSize(capa.apoio, largura) as string[];
+    doc.text(linhasDoApoio, MARGEM, y + 5);
+    y += 5 + (linhasDoApoio.length - 1) * entrelinha(8.5);
+    doc.setDrawColor(222, 226, 230);
+    doc.setLineWidth(0.2);
+    doc.line(MARGEM, y + 3.5, MARGEM + largura, y + 3.5);
+    y += 3.5 + 6;
   }
-  fonte(8.5, 'normal', CINZA);
-  const linhasDoApoio = doc.splitTextToSize(capa.apoio, largura) as string[];
-  doc.text(linhasDoApoio, MARGEM, y + 5);
-  y += 5 + (linhasDoApoio.length - 1) * entrelinha(8.5);
-  doc.setDrawColor(222, 226, 230);
-  doc.setLineWidth(0.2);
-  doc.line(MARGEM, y + 3.5, MARGEM + largura, y + 3.5);
-  y += 3.5 + 6;
   if (capa.observacao) destaque('Observação', capa.observacao);
 
+  const paginaDoBloco: number[] = [];
   for (const bloco of blocos) {
     switch (bloco.tipo) {
       case 'secao':
@@ -285,7 +412,7 @@ export function montarDocumento(
         paragrafo(bloco.texto, 7.5, CINZA);
         break;
       case 'destaque':
-        destaque(bloco.rotulo, bloco.texto);
+        destaque(bloco.rotulo, bloco.texto, bloco.fonte);
         break;
       case 'tabela':
         tabela(bloco);
@@ -302,14 +429,74 @@ export function montarDocumento(
       case 'pessoa':
         pessoa(bloco);
         break;
+      case 'caixas':
+        caixas(bloco);
+        break;
     }
+    paginaDoBloco.push(doc.getCurrentPageInfo().pageNumber);
   }
 
   desenharRodapeGeracao(doc);
-  return { topos: [...topos] };
+  return { topos: [...topos], fim: y, paginas: doc.getNumberOfPages(), paginaDoBloco };
+
+  /**
+   * O TOPO DO DOCUMENTO DE UMA PESSOA: o círculo e, ao lado, o nome, o
+   * período na cor da casa e o perfil com quem emitiu. O nome comprido diminui
+   * a letra antes de ganhar reticências — nome de gente não se corta à toa.
+   */
+  function capaDaPessoa(rosto: NonNullable<CapaDoDocumento['pessoa']>) {
+    const raio = 8;
+    const cx = MARGEM + raio;
+    const cy = y + raio;
+    if (!(rosto.foto && fotoNoCirculo(rosto.foto, cx, cy, raio))) {
+      preencher(rosto.cor.fundo);
+      doc.circle(cx, cy, raio, 'F');
+      fonte(12, 'bold', rosto.cor.texto);
+      doc.text(rosto.iniciais || '?', cx, cy + 1.5, { align: 'center' });
+    }
+    doc.setDrawColor(ANEL[0], ANEL[1], ANEL[2]);
+    doc.setLineWidth(0.3);
+    doc.circle(cx, cy, raio, 'S');
+    const x = MARGEM + 2 * raio + 4.5;
+    const w = MARGEM + largura - x;
+    let pontos = 18;
+    fonte(pontos, 'bold');
+    while (pontos > 13 && doc.getTextWidth(capa.titulo) > w) {
+      pontos -= 0.5;
+      fonte(pontos, 'bold');
+    }
+    doc.text(caber(capa.titulo, w), x, y + 6);
+    if (capa.periodo) {
+      fonte(11, 'bold', VERDE);
+      doc.text(caber(capa.periodo, w), x, y + 11.6);
+    }
+    fonte(8.5, 'normal', CINZA);
+    doc.text(caber(capa.apoio, w), x, y + 16.2);
+    doc.setDrawColor(BORDA[0], BORDA[1], BORDA[2]);
+    doc.setLineWidth(0.2);
+    doc.line(MARGEM, y + 19.5, MARGEM + largura, y + 19.5);
+    y += 19.5 + 5;
+  }
 
   function secao(b: De<'secao'>) {
     if (b.novaPagina && y > topo + 0.5) novaPagina();
+    if (b.compacta) {
+      cabe(22);
+      y += 3;
+      fonte(10, 'bold', VERDE);
+      doc.text(caber(b.titulo, largura), MARGEM, y);
+      doc.setDrawColor(VERDE[0], VERDE[1], VERDE[2]);
+      doc.setLineWidth(0.3);
+      doc.line(MARGEM, y + 1.6, MARGEM + largura, y + 1.6);
+      y += 5;
+      if (b.subtitulo) {
+        fonte(8, 'normal', CINZA);
+        const linhas = doc.splitTextToSize(b.subtitulo, largura) as string[];
+        doc.text(linhas, MARGEM, y + 1);
+        y += linhas.length * entrelinha(8) + 1.5;
+      }
+      return;
+    }
     cabe(b.subtitulo ? 30 : 24);
     y += 4;
     fonte(12, 'bold', VERDE);
@@ -413,10 +600,10 @@ export function montarDocumento(
   }
 
   /** A caixa clara com a barra verde: a observação de quem emitiu, e o aviso que abre o PDF do uso. */
-  function destaque(rotulo: string, texto: string) {
-    fonte(9);
+  function destaque(rotulo: string, texto: string, pontos = 9) {
+    fonte(pontos);
     const linhas = doc.splitTextToSize(texto, largura - 10) as string[];
-    const altura = 11 + (linhas.length - 1) * entrelinha(9) + 2.5;
+    const altura = 11 + (linhas.length - 1) * entrelinha(pontos) + 2.5;
     cabe(altura + 5);
     preencher(CASA.fundo);
     doc.rect(MARGEM, y, largura, altura, 'F');
@@ -424,7 +611,7 @@ export function montarDocumento(
     doc.rect(MARGEM, y, 1.2, altura, 'F');
     fonte(7, 'bold', VERDE);
     doc.text(rotulo.toUpperCase(), MARGEM + 5, y + 4.8);
-    fonte(9);
+    fonte(pontos);
     doc.text(linhas, MARGEM + 5, y + 9.5);
     y += altura + 5;
   }
@@ -439,14 +626,45 @@ export function montarDocumento(
     const letra = b.fonte ?? 8;
     const numericas = b.numericas ?? [];
     const larguras = b.larguras ?? {};
-    const colunas = [...new Set([...numericas, ...Object.keys(larguras).map(Number)])];
+    const estilos = b.estilos ?? {};
+    const colunas = [
+      ...new Set([...numericas, ...Object.keys(larguras).map(Number), ...Object.keys(estilos).map(Number)]),
+    ];
+    const total = b.cabecalho.length;
+    // Cabeçalho em duas linhas só com `grupos`; sem eles, a linha de sempre.
+    const cabecalho = b.grupos?.length
+      ? [
+          b.grupos.map((g) => ({ content: g.texto, colSpan: g.colunas, styles: { halign: 'center' as const } })),
+          b.cabecalho,
+        ]
+      : [b.cabecalho];
+    const alertas = new Set((b.alertas ?? []).map(([linha, coluna]) => `${linha}:${coluna}`));
+    const corpo = b.linhas.map((linha, i) => {
+      const especial = b.especiais?.[i];
+      if (!especial) return linha;
+      if (especial.tipo === 'grupo') {
+        return [{
+          content: (linha[0] ?? '').toUpperCase(),
+          colSpan: total,
+          styles: { fillColor: CASA.fundoForte, fontStyle: 'bold' as const, fontSize: Math.max(6, letra - 0.5) },
+        }];
+      }
+      return [
+        ...linha.slice(0, especial.de),
+        {
+          content: linha[especial.de] ?? '',
+          colSpan: Math.max(1, total - especial.de),
+          styles: { textColor: CINZA, fontSize: Math.max(6, letra - 1), halign: 'left' as const },
+        },
+      ];
+    });
     autoTable(doc, {
       startY: y,
       // Nas páginas que a tabela abre, o conteúdo começa logo abaixo da faixa compacta.
       margin: { top: TOPO_DAS_PAGINAS_SEGUINTES, left: MARGEM, right: MARGEM, bottom: 18 },
-      head: [b.cabecalho],
+      head: b.semCabecalho ? [] : cabecalho,
       body: b.linhas.length
-        ? b.linhas
+        ? corpo
         : [[{
             content: b.vazio ?? 'Nada no período.',
             colSpan: b.cabecalho.length,
@@ -454,21 +672,38 @@ export function montarDocumento(
           }]],
       theme: 'plain',
       headStyles: { fillColor: CASA.fundoForte, textColor: TINTA, fontStyle: 'bold', fontSize: letra },
-      bodyStyles: { fontSize: letra, textColor: TINTA, cellPadding: 1.6 },
-      alternateRowStyles: { fillColor: [250, 251, 250] },
+      bodyStyles: { fontSize: letra, textColor: TINTA, cellPadding: b.folga ?? 1.6 },
+      alternateRowStyles: b.semListras ? {} : { fillColor: [250, 251, 250] },
       columnStyles: Object.fromEntries(
         colunas.map((coluna) => [
           coluna,
           {
             ...(numericas.includes(coluna) ? { halign: 'right' as const } : {}),
             ...(larguras[coluna] > 0 ? { cellWidth: larguras[coluna] } : {}),
+            ...(estilos[coluna]?.negrito ? { fontStyle: 'bold' as const } : {}),
+            ...(estilos[coluna]?.cinza ? { textColor: CINZA } : {}),
+            ...(estilos[coluna]?.fonte ? { fontSize: estilos[coluna].fonte } : {}),
           },
         ]),
       ),
       // O cabeçalho da coluna de número acompanha o número, à direita.
       didParseCell: (celula) => {
-        if (celula.section === 'head' && numericas.includes(celula.column.index)) {
+        if (
+          celula.section === 'head' &&
+          celula.row.index === cabecalho.length - 1 &&
+          numericas.includes(celula.column.index)
+        ) {
           celula.cell.styles.halign = 'right';
+        }
+        // O cabeçalho não herda o cinza nem a letra miúda da coluna.
+        if (celula.section === 'head' && estilos[celula.column.index]) {
+          celula.cell.styles.textColor = TINTA;
+          celula.cell.styles.fontSize = letra;
+          celula.cell.styles.fontStyle = 'bold';
+        }
+        if (celula.section === 'body' && alertas.has(`${celula.row.index}:${celula.column.index}`)) {
+          celula.cell.styles.textColor = AMBAR_TXT;
+          celula.cell.styles.fontStyle = 'bold';
         }
       },
       didDrawPage: () => {
@@ -554,6 +789,10 @@ export function montarDocumento(
   }
 
   function colunas(b: De<'colunas'>) {
+    if (b.empilhar) {
+      colunasEmpilhadas(b);
+      return;
+    }
     const ALTURA = 40;
     const maximo = Math.max(0, ...b.valores.flat());
     const vazio = !b.categorias.length || !(maximo > 0);
@@ -612,6 +851,328 @@ export function montarDocumento(
       }
     });
     y = base + (b.detalhes ? 10 : 7) + 3;
+  }
+
+  /**
+   * AS COLUNAS EMPILHADAS — uma coluna por categoria, a primeira série na base.
+   * Função própria, e não um `if` no meio de `colunas`: o gráfico do PDF do
+   * sindicato e o do panorama continuam no desenho de antes, linha por linha.
+   */
+  function colunasEmpilhadas(b: De<'colunas'>) {
+    const ALTURA = b.altura ?? 40;
+    const totais = b.categorias.map((_, c) => somar(b.series.map((__, s) => b.valores[s]?.[c] ?? 0)));
+    const maximo = Math.max(0, ...totais);
+    const vazio = !b.categorias.length || !(maximo > 0);
+    cabe(7 + (b.series.length > 1 ? 4 : 0) + (vazio ? 7 : 3 + ALTURA + (b.detalhes ? 10 : 7)) + 3);
+    if (vazio || !legendaNaLinhaDoTitulo(b)) tituloDeGrafico(b.titulo, b.series, b.unidade);
+    if (vazio) {
+      semNada(b.vazio);
+      return;
+    }
+    const { max, passos } = escalaDoEixo(maximo);
+    fonte(6.5, 'normal', CINZA);
+    const eixo = Math.max(...passos.map((p) => doc.getTextWidth(numero(p)))) + 2.5;
+    const x0 = MARGEM + eixo;
+    const w = largura - eixo;
+    const base = y + 3 + ALTURA;
+    doc.setLineWidth(0.15);
+    doc.setDrawColor(GRADE[0], GRADE[1], GRADE[2]);
+    for (const passo of passos) {
+      const altura = base - (ALTURA * passo) / max;
+      doc.line(x0, altura, x0 + w, altura);
+      doc.text(numero(passo), x0 - 1.5, altura + 0.9, { align: 'right' });
+    }
+    const slot = w / b.categorias.length;
+    const coluna = Math.min(slot * 0.56, 14);
+    const cabeONumero = coluna >= 3.5;
+    b.categorias.forEach((_, c) => {
+      const x = x0 + c * slot + (slot - coluna) / 2;
+      let topoDaPilha = base;
+      b.series.forEach((serie, s) => {
+        const valor = b.valores[s]?.[c] ?? 0;
+        if (!(valor > 0)) return;
+        const h = (ALTURA * valor) / max;
+        preencher(serie.cor);
+        doc.rect(x, topoDaPilha - h, coluna, h, 'F');
+        topoDaPilha -= h;
+      });
+      if (cabeONumero && totais[c] > 0) {
+        fonte(6, 'bold');
+        doc.text(numero(totais[c]), x + coluna / 2, topoDaPilha - 1, { align: 'center' });
+      }
+    });
+    doc.setDrawColor(150, 158, 165);
+    doc.setLineWidth(0.25);
+    doc.line(x0, base, x0 + w, base);
+    fonte(7);
+    const salto = passoDosRotulos(slot, Math.max(...b.categorias.map((t) => doc.getTextWidth(t))) + 1.5);
+    b.categorias.forEach((categoria, c) => {
+      if (c % salto) return;
+      const centro = x0 + c * slot + slot / 2;
+      fonte(7);
+      doc.text(categoria, centro, base + 4, { align: 'center' });
+      const detalhe = b.detalhes?.[c];
+      if (detalhe) {
+        fonte(6, 'normal', CINZA);
+        doc.text(caber(detalhe, slot * salto - 1), centro, base + 7.3, { align: 'center' });
+      }
+    });
+    y = base + (b.detalhes ? 10 : 7) + 3;
+  }
+
+  /**
+   * O título, a unidade e a legenda NUMA LINHA SÓ, com a legenda à direita —
+   * quando cabem. Ganha os 4 mm da linha da legenda, que na folha da pessoa
+   * decidiam entre uma e duas páginas. Devolve false (e não desenha nada)
+   * quando não cabe: aí vale o título de sempre, com a legenda embaixo.
+   */
+  function legendaNaLinhaDoTitulo(b: De<'colunas'>): boolean {
+    if (b.series.length < 2) return false;
+    fonte(9, 'bold');
+    const larguraDoTitulo = doc.getTextWidth(b.titulo);
+    fonte(7.5, 'normal');
+    const larguraDaUnidade = b.unidade ? doc.getTextWidth(b.unidade) + 2 : 0;
+    fonte(7, 'normal');
+    const itens = b.series.map((s) => 3.6 + doc.getTextWidth(s.nome));
+    const larguraDaLegenda = itens.reduce((soma, v) => soma + v, 0) + 5 * (itens.length - 1);
+    if (larguraDoTitulo + larguraDaUnidade + 6 + larguraDaLegenda > largura) return false;
+    fonte(9, 'bold');
+    doc.text(b.titulo, MARGEM, y + 3);
+    if (b.unidade) {
+      fonte(7.5, 'normal', CINZA);
+      doc.text(b.unidade, MARGEM + larguraDoTitulo + 2, y + 3);
+    }
+    fonte(7, 'normal', CINZA);
+    let x = MARGEM + largura - larguraDaLegenda;
+    b.series.forEach((serie, i) => {
+      preencher(serie.cor);
+      doc.rect(x, y + 0.7, 2.6, 2.6, 'F');
+      doc.text(serie.nome, x + 3.6, y + 3);
+      x += itens[i] + 5;
+    });
+    y += 7;
+    return true;
+  }
+
+  /**
+   * AS DUAS CAIXAS — o período à esquerda, o agora à direita.
+   *
+   * A grade dos dias mora na caixa da esquerda. Até cerca de dez semanas ela
+   * vai AO LADO do texto, com células de ~5 mm e o dia do mês dentro; acima
+   * disso não sobra largura para a frase ("o período tem 64 dias de semana"),
+   * e a grade ocupa a caixa de lado a lado com o texto EMBAIXO, em duas
+   * colunas. A folha da pessoa não cabia de outro jeito: medido com o jsPDF
+   * real em 14/09/2026 (`paginas-dos-pdfs.spec.ts`).
+   */
+  function caixas(b: De<'caixas'>) {
+    const VAO = 4;
+    const LARGURA_DA_DIREITA = 70;
+    const FOLGA = 3;
+    const TOPO = 6.2;
+    const larguraDaEsquerda = largura - LARGURA_DA_DIREITA - VAO;
+    const grade = b.esquerda.grade;
+    const semanas = grade?.semanas.length ?? 0;
+    const linhasDaGrade = grade?.linhas.length ?? 0;
+    const temGrade = semanas > 0 && linhasDaGrade > 0;
+    const ROTULOS = temGrade ? 5.5 : 0;
+    const util = larguraDaEsquerda - 2 * FOLGA;
+    const TEXTO_AO_LADO = 46;
+    const passoAoLado = temGrade ? Math.min(4.8, (util - ROTULOS - 3 - TEXTO_AO_LADO) / semanas) : 0;
+    const aoLado = temGrade && passoAoLado >= 4.2;
+    const passoX = !temGrade ? 0 : aoLado ? passoAoLado : Math.min(4.8, (util - ROTULOS) / semanas);
+    const passoY = !temGrade ? 0 : aoLado ? passoX : Math.min(passoX, 2.6);
+    const alturaDaGrade = temGrade ? 3 + linhasDaGrade * passoY : 0;
+
+    // Mede antes de desenhar, com a MESMA função: medida e desenho não divergem.
+    const x0 = MARGEM + FOLGA;
+    const larguraDoTextoAoLado = util - ROTULOS - semanas * passoX - 3;
+    const doTexto = (l: LinhaDaCaixa) => l.tipo === 'grande' || l.tipo === 'texto' || l.tipo === 'par';
+    const primeiraColuna = aoLado || !temGrade ? b.esquerda.linhas : b.esquerda.linhas.filter(doTexto);
+    const segundaColuna = aoLado || !temGrade ? [] : b.esquerda.linhas.filter((l) => !doTexto(l));
+    const larguraDaPrimeira = !temGrade ? util : aoLado ? larguraDoTextoAoLado : util * 0.52;
+    const larguraDaSegunda = util - larguraDaPrimeira - 3;
+    const alturaDaPrimeira = linhasDaCaixa(primeiraColuna, 0, 0, larguraDaPrimeira, false);
+    const alturaDaSegunda = linhasDaCaixa(segundaColuna, 0, 0, larguraDaSegunda, false);
+    const alturaDoTexto = Math.max(alturaDaPrimeira, alturaDaSegunda);
+    const alturaDaEsquerda =
+      TOPO + (aoLado ? Math.max(alturaDaGrade, alturaDoTexto) : alturaDaGrade + (temGrade ? 3 : 0) + alturaDoTexto) + 2.5;
+    const larguraDaDireitaUtil = LARGURA_DA_DIREITA - 2 * FOLGA;
+    const alturaDaDireita = TOPO + linhasDaCaixa(b.direita.linhas, 0, 0, larguraDaDireitaUtil, false) + 2.5;
+    const h = Math.max(30, alturaDaEsquerda, alturaDaDireita);
+    cabe(h + VAO);
+
+    const xDireita = MARGEM + larguraDaEsquerda + VAO;
+    doc.setLineWidth(0.2);
+    doc.setDrawColor(BORDA[0], BORDA[1], BORDA[2]);
+    doc.roundedRect(MARGEM, y, larguraDaEsquerda, h, 1.5, 1.5, 'S');
+    if (b.direita.fundo) preencher(FUNDO_DO_AGORA);
+    doc.roundedRect(xDireita, y, LARGURA_DA_DIREITA, h, 1.5, 1.5, b.direita.fundo ? 'FD' : 'S');
+    for (const [caixa, x, w] of [
+      [b.esquerda, MARGEM, larguraDaEsquerda],
+      [b.direita, xDireita, LARGURA_DA_DIREITA],
+    ] as const) {
+      fonte(6.5, 'bold', CINZA);
+      doc.text(caber(caixa.rotulo.toUpperCase(), w - 2 * FOLGA), x + FOLGA, y + 4.3);
+    }
+    const yConteudo = y + TOPO;
+    if (temGrade && grade) desenharGrade(grade, x0, yConteudo, passoX, passoY, ROTULOS);
+    if (aoLado) {
+      linhasDaCaixa(primeiraColuna, x0 + ROTULOS + semanas * passoX + 3, yConteudo, larguraDaPrimeira, true);
+    } else {
+      const yTexto = yConteudo + alturaDaGrade + (temGrade ? 3 : 0);
+      linhasDaCaixa(primeiraColuna, x0, yTexto, larguraDaPrimeira, true);
+      linhasDaCaixa(segundaColuna, x0 + larguraDaPrimeira + 3, yTexto, larguraDaSegunda, true);
+    }
+    linhasDaCaixa(b.direita.linhas, xDireita + FOLGA, yConteudo, larguraDaDireitaUtil, true);
+    y += h + VAO;
+  }
+
+  /** A grade: rótulo das semanas em cima, das linhas à esquerda, e uma célula por dia. */
+  function desenharGrade(g: GradeDoPdf, x: number, y0: number, passoX: number, passoY: number, rotulos: number) {
+    const vaoX = passoX > 3 ? 0.6 : passoX * 0.16;
+    const vaoY = passoY > 3 ? 0.6 : passoY * 0.16;
+    const w = passoX - vaoX;
+    const h = passoY - vaoY;
+    const xCelulas = x + rotulos;
+    const yCelulas = y0 + 3;
+    // O rótulo de cima só sai se não encostar no anterior ("ago" numa semana de 1,7 mm).
+    fonte(6, 'normal', CINZA);
+    let livreAPartirDe = -Infinity;
+    g.semanas.forEach((semana, s) => {
+      if (!semana.rotulo) return;
+      const xr = xCelulas + s * passoX;
+      if (xr < livreAPartirDe) return;
+      doc.text(semana.rotulo, xr, y0 + 2);
+      livreAPartirDe = xr + doc.getTextWidth(semana.rotulo) + 0.8;
+    });
+    fonte(passoY < 2.6 ? 5.5 : 6.5, 'normal', CINZA);
+    g.linhas.forEach((rotulo, l) => {
+      if (rotulo) doc.text(rotulo, x, yCelulas + l * passoY + h / 2 + 0.9);
+    });
+    const comDia = w >= 4 && h >= 3.6;
+    g.semanas.forEach((semana, s) => {
+      semana.dias.forEach((dia, l) => {
+        if (!dia) return;
+        const xc = xCelulas + s * passoX;
+        const yc = yCelulas + l * passoY;
+        const r = Math.min(0.5, w / 6);
+        if (dia.usou) {
+          preencher(VERDE);
+          doc.roundedRect(xc, yc, w, h, r, r, 'F');
+        } else if (dia.fimDeSemana) {
+          preencher(FIM_DE_SEMANA);
+          doc.setDrawColor(CONTORNO_DO_FIM_DE_SEMANA[0], CONTORNO_DO_FIM_DE_SEMANA[1], CONTORNO_DO_FIM_DE_SEMANA[2]);
+          doc.setLineWidth(0.1);
+          doc.roundedRect(xc, yc, w, h, r, r, 'FD');
+        } else {
+          preencher(DIA_SEM_USO);
+          doc.roundedRect(xc, yc, w, h, r, r, 'F');
+        }
+        if (comDia) {
+          fonte(5.5, 'normal', dia.usou ? ([255, 255, 255] as Cor) : CINZA);
+          doc.text(String(dia.dia), xc + w / 2, yc + h / 2 + 0.7, { align: 'center' });
+        }
+      });
+    });
+  }
+
+  /**
+   * O conteúdo de uma caixa, de cima para baixo. Com `desenhar` falso só mede —
+   * é a mesma conta nos dois casos, e a altura da caixa não mente.
+   */
+  function linhasDaCaixa(linhas: LinhaDaCaixa[], x: number, y0: number, w: number, desenhar: boolean): number {
+    let cy = y0;
+    linhas.forEach((linha, i) => {
+      if (i > 0 && linha.tipo === 'par') cy += 1.4;
+      switch (linha.tipo) {
+        case 'grande': {
+          fonte(14, 'bold');
+          if (desenhar) doc.text(caber(linha.texto, w), x, cy + 4.6);
+          cy += 6.4;
+          break;
+        }
+        case 'texto': {
+          fonte(8, 'normal', CINZA);
+          const partes = doc.splitTextToSize(linha.texto, w) as string[];
+          if (desenhar) doc.text(partes, x, cy + 2.8);
+          cy += partes.length * entrelinha(8) + 0.4;
+          break;
+        }
+        case 'par': {
+          fonte(7, 'normal', CINZA);
+          const larguraDoRotulo = doc.getTextWidth(linha.rotulo);
+          fonte(9.5, 'bold');
+          const larguraDoValor = doc.getTextWidth(linha.valor);
+          const naMesmaLinha = larguraDoRotulo + 3 + larguraDoValor <= w;
+          const corDoValor = linha.alerta ? AMBAR_TXT : TINTA;
+          if (naMesmaLinha) {
+            if (desenhar) {
+              fonte(7, 'normal', CINZA);
+              doc.text(linha.rotulo, x, cy + 3.6);
+              fonte(9.5, 'bold', corDoValor);
+              doc.text(linha.valor, x + w, cy + 3.6, { align: 'right' });
+            }
+            cy += 4.9;
+          } else {
+            if (desenhar) {
+              fonte(7, 'normal', CINZA);
+              doc.text(caber(linha.rotulo, w), x, cy + 2.6);
+              fonte(9.5, 'bold', corDoValor);
+              doc.text(caber(linha.valor, w), x, cy + 6.6);
+            }
+            cy += 7.9;
+          }
+          if (linha.abaixo) {
+            fonte(8.5, 'bold', linha.abaixo.alerta ? AMBAR_TXT : CINZA);
+            if (desenhar) {
+              const texto = caber(linha.abaixo.texto, w);
+              if (naMesmaLinha) doc.text(texto, x + w, cy + 2.9, { align: 'right' });
+              else doc.text(texto, x, cy + 2.9);
+            }
+            cy += 3.9;
+          }
+          break;
+        }
+        case 'chave': {
+          fonte(6.5, 'normal', CINZA);
+          const QUADRADO = 2.4;
+          let cx = x;
+          let fileira = 0;
+          linha.itens.forEach((item, k) => {
+            const largo = QUADRADO + 1 + doc.getTextWidth(item.texto);
+            if (k > 0 && cx + largo > x + w) {
+              cx = x;
+              fileira += 1;
+            }
+            const yc = cy + fileira * 3.4;
+            if (desenhar) {
+              const cor = item.cor === 'cheia' ? VERDE : item.cor === 'vazia' ? DIA_SEM_USO : FIM_DE_SEMANA;
+              preencher(cor);
+              if (item.cor === 'fimDeSemana') {
+                doc.setDrawColor(CONTORNO_DO_FIM_DE_SEMANA[0], CONTORNO_DO_FIM_DE_SEMANA[1], CONTORNO_DO_FIM_DE_SEMANA[2]);
+                doc.setLineWidth(0.1);
+                doc.rect(cx, yc + 0.4, QUADRADO, QUADRADO, 'FD');
+              } else {
+                doc.rect(cx, yc + 0.4, QUADRADO, QUADRADO, 'F');
+              }
+              fonte(6.5, 'normal', CINZA);
+              doc.text(item.texto, cx + QUADRADO + 1, yc + 2.5);
+            }
+            cx += largo + 3;
+          });
+          cy += (fileira + 1) * 3.4 + 0.4;
+          break;
+        }
+        case 'pe': {
+          fonte(6.5, 'normal', CINZA);
+          const partes = doc.splitTextToSize(linha.texto, w) as string[];
+          if (desenhar) doc.text(partes, x, cy + 2.4);
+          cy += partes.length * entrelinha(6.5) + 0.4;
+          break;
+        }
+      }
+    });
+    return cy - y0;
   }
 
   function faixa(b: De<'faixa'>) {
@@ -747,6 +1308,21 @@ function faixaCompacta(doc: jsPDF, texto: string, logo: Logo): number {
   doc.setFontSize(8.5);
   doc.text(texto, larguraPagina - MARGEM, 9, { align: 'right', maxWidth: larguraPagina - MARGEM - 60 });
   return TOPO_DAS_PAGINAS_SEGUINTES;
+}
+
+/** Desenha num documento descartável e devolve a medida — nada é baixado. */
+export type MedidorDeDocumento = (capa: CapaDoDocumento, blocos: BlocoDoPdf[]) => DesenhoDoDocumento;
+
+/**
+ * O MEDIDOR (14/09/2026): o mesmo `montarDocumento`, num documento que se joga
+ * fora, para saber se o que foi pedido cabe ANTES de baixar. Sem logo: a faixa
+ * tem a mesma altura com ou sem ele, e a medida não muda.
+ */
+export async function abrirMedidorDeDocumento(): Promise<MedidorDeDocumento> {
+  const { jsPDF } = await import('jspdf');
+  const autoTable = (await import('jspdf-autotable')).default;
+  return (capa, blocos) =>
+    montarDocumento(new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' }), autoTable, capa, blocos, null);
 }
 
 /** Abre o jsPDF só na hora (é pesado), desenha e baixa. */

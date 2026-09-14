@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   X, Loader2, User, Phone, Mail, MapPin, UserCog, Clock, ArrowRight, History,
   Gavel, CheckCircle2, XCircle, RotateCcw, CalendarClock, Pencil, Tag, Video, Copy, Link2,
-  AlertTriangle, RotateCw,
+  AlertTriangle, RotateCw, Building2, CalendarPlus,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -24,12 +24,20 @@ import { AnexosSection } from '@/components/anexos/anexos-section';
 import { AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
 import { ChipEncaminhamento } from '@/components/atendimentos/estado-do-encaminhamento';
 import {
-  getAtendimento, mudarStatusAtendimento, atualizarAssunto, atualizarLinkDaConsulta,
+  FecharAtendimentoModal, ReabrirAtendimentoDialog, useInvalidarAtendimentoEAgenda,
+} from '@/components/atendimentos/fechar-atendimento-modal';
+import { celularParaWhatsApp, linkWhatsApp as linkDoWhatsApp } from '@/lib/whatsapp';
+import {
+  getAtendimento, atualizarAssunto, mudarModalidadeDaConsulta,
   linkWhatsApp, mensagemSaudacao, formatDataHora,
-  CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, TIPO_ENC_LABEL, StatusAtendimento,
+  CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, TIPO_ENC_LABEL,
   ASSUNTO_OUTRO_MAX, ESTADO_ENCAMINHAMENTO, STATUS_CONSULTA_LABEL, CompromissoResumo, Encaminhamento,
-  consultasDoAtendimento, corpoDoAssunto, erroDoAssunto, faltaConcluir, fraseDoEncaminhamento,
-  modalidadeDoLocal, nomeDeQuemAtende, rotuloDoAssunto, rotuloDoInstante,
+  LOCAL_DA_MODALIDADE, MODALIDADES, MODALIDADE_LABEL,
+  type AcaoDeFechar, type ModalidadeConsulta, type StatusAtendimento,
+  concluirEhDireto, consultasDoAtendimento, corpoDoAssunto, erroDoAssunto, faltaConcluir, fraseDoEncaminhamento,
+  fraseDoFechamento, mensagemDaConsulta, mensagemDaFalha, modalidadeDoCartao, modalidadeRemota,
+  nomeDeQuemAtende, podeMarcarNovaConsulta, rotuloDaModalidadeNoCartao, rotuloDoAssunto, rotuloDoInstante,
+  tomDoEncaminhamento,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { formatNPU } from '@/lib/processos';
@@ -59,6 +67,14 @@ export function AtendimentoDrawer({
   const podeVerAgenda = podeVer(user?.role, user?.permissoes, 'agenda');
   const podeEditarFiliados = podeEditarModulo(user?.role, user?.permissoes, 'filiados');
   const [cadastral, setCadastral] = useState(false);
+  /*
+    CONCLUIR, CANCELAR E REABRIR ABREM DIÁLOGO (14/09/2026). Eram seis toques
+    únicos entre a gaveta e a lista, sem dizer o que acontecia com a consulta.
+    O modal é o mesmo da lista; a gaveta tem a sua instância porque também abre
+    sozinha, a partir da agenda.
+  */
+  const [fechar, setFechar] = useState<AcaoDeFechar | null>(null);
+  const [reabrindo, setReabrindo] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['atendimento', atendimentoId],
@@ -76,12 +92,6 @@ export function AtendimentoDrawer({
     qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
     onMudou?.();
   };
-
-  const status = useMutation({
-    mutationFn: (s: StatusAtendimento) => mudarStatusAtendimento(atendimentoId!, s),
-    onSuccess: () => invalidar(),
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar o status.'),
-  });
 
   const celularLink = filiado && at
     ? linkWhatsApp(
@@ -178,6 +188,8 @@ export function AtendimentoDrawer({
                 <span className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" aria-hidden="true" /> {formatDataHora(at.createdAt)}</span>
               </div>
 
+              <BlocoDoFechamento at={at} />
+
               {/* O assunto é o que o relatório soma; aqui se confere e se corrige. */}
               <AssuntoDoAtendimento
                 key={`${at.id}-${at.assunto ?? ''}-${at.assuntoOutro ?? ''}`}
@@ -214,9 +226,8 @@ export function AtendimentoDrawer({
                   )}
 
                   {podeEditar && faltaConcluir(at) && (
-                    <Button className="w-full sm:w-auto" onClick={() => status.mutate('CONCLUIDO')} disabled={status.isPending}>
-                      {status.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      Concluir atendimento
+                    <Button className="w-full sm:w-auto" onClick={() => setFechar('CONCLUIR')}>
+                      <CheckCircle2 className="h-4 w-4" /> Concluir atendimento
                     </Button>
                   )}
 
@@ -237,6 +248,8 @@ export function AtendimentoDrawer({
                           atendimentoId={at.id}
                           consulta={c}
                           encaminhamento={at.encaminhamento ?? null}
+                          statusAtendimento={at.status}
+                          filiado={filiado}
                           podeEditar={podeEditar}
                           podeVerAgenda={podeVerAgenda}
                           onMudou={invalidar}
@@ -250,10 +263,15 @@ export function AtendimentoDrawer({
             </div>
 
             {/* Ações da demanda — só para quem grava em atendimentos. */}
+            {/*
+              A 400 px, uma ação por linha e em largura total: lado a lado, os
+              botões dividiam a largura e um toque errado cancelava.
+            */}
             {podeEditar && (
-              <div className="flex flex-wrap gap-2 border-y py-3">
+              <div className="grid grid-cols-1 gap-2 border-y py-3 sm:flex sm:flex-wrap">
                 {!at.desfecho && onRegistrarDesfecho && (
                   <Button
+                    className="h-12 sm:h-10"
                     onClick={() => {
                       onRegistrarDesfecho({
                         id: at.id, numero: at.numero, descricao: at.descricao,
@@ -266,18 +284,49 @@ export function AtendimentoDrawer({
                     <Gavel className="h-4 w-4" /> Registrar desfecho
                   </Button>
                 )}
+                {/*
+                  MARCAR NOVA CONSULTA (D13, fase 2): todas as consultas nascidas
+                  foram canceladas e a demanda segue aberta. Abre o desfecho já em
+                  "Encaminhar", e a consulta nasce com o vínculo do atendimento.
+                */}
+                {podeMarcarNovaConsulta(at) && onRegistrarDesfecho && (
+                  <Button
+                    className="h-12 sm:h-10"
+                    onClick={() => {
+                      onRegistrarDesfecho({
+                        id: at.id, numero: at.numero, descricao: at.descricao,
+                        assunto: at.assunto, assuntoOutro: at.assuntoOutro ?? null,
+                        filiado: { id: filiado.id, nomeCompleto: filiado.nomeCompleto },
+                        novaConsulta: true,
+                      });
+                      onClose();
+                    }}
+                  >
+                    <CalendarPlus className="h-4 w-4" /> Marcar nova consulta
+                  </Button>
+                )}
+                {/* Sólido só quando concluir não decide nada além de fechar (atendida ou resolvido no ato). */}
                 {at.desfecho && at.status === 'PENDENTE' && !faltaConcluir(at) && (
-                  <Button variant="outline" onClick={() => status.mutate('CONCLUIDO')} disabled={status.isPending}>
+                  <Button
+                    variant={concluirEhDireto(at) ? 'default' : 'outline'}
+                    className="h-12 sm:h-10"
+                    onClick={() => setFechar('CONCLUIR')}
+                  >
                     <CheckCircle2 className="h-4 w-4" /> Concluir atendimento
                   </Button>
                 )}
                 {at.status !== 'PENDENTE' && (
-                  <Button variant="outline" onClick={() => status.mutate('PENDENTE')} disabled={status.isPending}>
+                  <Button variant="outline" className="h-12 sm:h-10" onClick={() => setReabrindo(true)}>
                     <RotateCcw className="h-4 w-4" /> Reabrir
                   </Button>
                 )}
-                {at.status !== 'CANCELADO' && (
-                  <Button variant="outline" className="text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20" onClick={() => status.mutate('CANCELADO')} disabled={status.isPending}>
+                {/* Concluído não vira cancelado direto: é preciso reabrir antes, como na agenda. */}
+                {at.status === 'PENDENTE' && (
+                  <Button
+                    variant="outline"
+                    className="h-12 text-amber-700 hover:bg-amber-50 sm:h-10 dark:text-amber-400 dark:hover:bg-amber-950/20"
+                    onClick={() => setFechar('CANCELAR')}
+                  >
                     <XCircle className="h-4 w-4" /> Cancelar atendimento
                   </Button>
                 )}
@@ -321,7 +370,36 @@ export function AtendimentoDrawer({
           onSaved={invalidar}
         />
       )}
+
+      <FecharAtendimentoModal
+        atendimentoId={open && fechar && at ? at.id : null}
+        acao={fechar}
+        onClose={() => setFechar(null)}
+        onFechado={invalidar}
+      />
+      <ReabrirAtendimentoDialog
+        alvo={open && reabrindo && at ? { id: at.id, numero: at.numero, status: at.status } : null}
+        onClose={() => setReabrindo(false)}
+        onReaberto={invalidar}
+      />
     </>
+  );
+}
+
+/**
+ * "Concluído em … por …" / "Cancelado em … por … · motivo", logo abaixo das
+ * fichas. A Triagem não vê a auditoria: sem isto, semanas depois "Cancelado"
+ * não explicava nada. Registro fechado antes de 14/09/2026 não tem as colunas
+ * e não mostra o bloco.
+ */
+function BlocoDoFechamento({ at }: { at: Parameters<typeof fraseDoFechamento>[0] }) {
+  const frase = fraseDoFechamento(at);
+  if (!frase) return null;
+  return (
+    <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
+      <p className="font-medium">{frase.texto}</p>
+      {frase.detalhe && <p className="whitespace-pre-wrap text-muted-foreground">{frase.detalhe}</p>}
+    </div>
   );
 }
 
@@ -422,33 +500,57 @@ function AssuntoDoAtendimento({
   );
 }
 
+const ICONE_MODALIDADE: Record<ModalidadeConsulta, typeof Video> = {
+  SEDE: Building2,
+  VIDEO: Video,
+  TELEFONE: Phone,
+};
+
 /**
- * Uma consulta nascida do atendimento: quem, quando, em que pé, e o link.
+ * Uma consulta nascida do atendimento: quem, quando, como, em que pé, e o link.
  *
  * O status mostrado na consulta que VALE é o estado calculado pelo servidor
  * ("ficou para trás" inclusive); as demais mostram o status cru (em geral
  * canceladas, ou substituídas por uma mais nova).
+ *
+ * "MUDAR COMO VAI SER" (D12, 14/09/2026). A consulta #14 dizia "chamada de
+ * vídeo" na demanda e estava marcada na sede: a advogada esperaria na sede e a
+ * filiada, um link. A Triagem não edita a agenda, e o "Colar o link" só aparecia
+ * em consulta que já era por vídeo. Agora a modalidade é sempre escrita no
+ * cartão e, para quem grava em atendimentos, trocável aqui, pela rota estreita
+ * da consulta nascida deste atendimento. O link mora dentro do "Por vídeo".
+ * De propósito, nada fareja a demanda atrás de "vídeo": a heurística erra, e a
+ * demanda está escrita logo acima.
  */
 function ConsultaDoAtendimento({
-  atendimentoId, consulta: c, encaminhamento, podeEditar, podeVerAgenda, onMudou,
+  atendimentoId, consulta: c, encaminhamento, statusAtendimento, filiado, podeEditar, podeVerAgenda, onMudou,
 }: {
   atendimentoId: string;
   consulta: CompromissoResumo;
   encaminhamento: Encaminhamento | null;
+  statusAtendimento: StatusAtendimento;
+  filiado: { nomeCompleto: string; telefonePrincipal: string | null; telefoneSecundario: string | null };
   podeEditar: boolean;
   podeVerAgenda: boolean;
   onMudou: () => void;
 }) {
-  const [editandoLink, setEditandoLink] = useState(false);
+  const [editando, setEditando] = useState(false);
+  const [modalidade, setModalidade] = useState<ModalidadeConsulta | null>(modalidadeDoCartao(c.local));
   const [link, setLink] = useState(c.linkReuniao ?? '');
+  /** Depois de salvar: o que foi gravado, para montar o aviso ao filiado. */
+  const [avisar, setAvisar] = useState<{ local: string | null; linkReuniao: string | null } | null>(null);
+  // A modalidade mora na atividade da agenda: o cartão e a gaveta dela leem as
+  // chaves 'compromissos' e 'compromisso', não a do atendimento.
+  const invalidarComAAgenda = useInvalidarAtendimentoEAgenda();
   const ehAVigente = encaminhamento?.compromissoId === c.id;
   const rotuloStatus = ehAVigente && encaminhamento
     ? ESTADO_ENCAMINHAMENTO[encaminhamento.estado]?.rotulo
     : STATUS_CONSULTA_LABEL[c.status] ?? c.status;
-  const pedeAtencao = ehAVigente && encaminhamento && ESTADO_ENCAMINHAMENTO[encaminhamento.estado]?.tom === 'ambar';
+  const pedeAtencao = ehAVigente && encaminhamento && tomDoEncaminhamento(encaminhamento.estado, statusAtendimento) === 'ambar';
   const aberta = c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO';
-  const porVideo = modalidadeDoLocal(c.local) === 'VIDEO';
   const quem = nomeDeQuemAtende(c.responsavel);
+  const localLivre = !!c.local?.trim() && modalidadeDoCartao(c.local) === null;
+  const celular = celularParaWhatsApp(filiado.telefonePrincipal, filiado.telefoneSecundario);
   /*
     O botão só abre o que passa pela regra do link (https, sem usuário e senha):
     um valor gravado antes da regra não vira clique. E o que se cola é conferido
@@ -456,21 +558,45 @@ function ConsultaDoAtendimento({
   */
   const gravado = normalizarLinkReuniao(c.linkReuniao);
   const linkValido = gravado?.ok ? gravado : null;
-  const digitado = editandoLink ? normalizarLinkReuniao(link) : null;
+  const digitado = editando && modalidade === 'VIDEO' && link.trim() ? normalizarLinkReuniao(link) : null;
   const erroDoLink = digitado && !digitado.ok ? digitado.erro : null;
+  const linkNovo = modalidade === 'VIDEO' ? (link.trim() || null) : null;
+  const nadaMudou = modalidade === modalidadeDoCartao(c.local) && (modalidade !== 'VIDEO' || linkNovo === (c.linkReuniao ?? null));
 
-  const salvarLink = useMutation({
-    mutationFn: (valor: string | null) => atualizarLinkDaConsulta(atendimentoId, c.id, valor),
-    onSuccess: (_r, valor) => {
-      toast.success(valor ? 'Link da chamada salvo.' : 'Link da chamada retirado.');
-      setEditandoLink(false);
+  function abrirEdicao() {
+    setModalidade(modalidadeDoCartao(c.local));
+    setLink(c.linkReuniao ?? '');
+    setAvisar(null);
+    setEditando(true);
+  }
+
+  const salvar = useMutation({
+    mutationFn: (m: ModalidadeConsulta) =>
+      mudarModalidadeDaConsulta(atendimentoId, c.id, { modalidade: m, ...(m === 'VIDEO' ? { linkReuniao: linkNovo } : {}) }),
+    onSuccess: (_r, m) => {
+      toast.success('Modalidade salva.');
+      setEditando(false);
+      setAvisar({
+        local: LOCAL_DA_MODALIDADE[m],
+        linkReuniao: m === 'VIDEO' ? (digitado?.ok ? digitado.url : linkNovo) : null,
+      });
+      invalidarComAAgenda(atendimentoId);
       onMudou();
     },
-    onError: (e: any) => {
-      const m = e?.response?.data?.message;
-      toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível salvar o link.');
-    },
+    onError: (e: any) => toast.error(mensagemDaFalha(e, 'Não foi possível salvar como vai ser a consulta.')),
   });
+
+  function avisarPeloWhatsApp() {
+    if (!celular || !avisar) return;
+    const texto = mensagemDaConsulta({
+      nomeFiliado: filiado.nomeCompleto,
+      responsavel: c.responsavel,
+      inicio: c.inicio,
+      local: avisar.local,
+      linkReuniao: avisar.linkReuniao,
+    });
+    window.open(linkDoWhatsApp(celular, texto), '_blank', 'noopener,noreferrer');
+  }
 
   async function copiar() {
     if (!c.linkReuniao) return;
@@ -499,11 +625,10 @@ function ConsultaDoAtendimento({
         </span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {rotuloDoInstante(c.inicio)}
-        {c.local ? ` · ${c.local}` : ''}
+        {rotuloDoInstante(c.inicio)} · {rotuloDaModalidadeNoCartao(c.local)}
       </p>
 
-      {c.linkReuniao && !editandoLink && (
+      {c.linkReuniao && !editando && (
         <div className="flex flex-wrap gap-2">
           {linkValido ? (
             <a
@@ -525,42 +650,100 @@ function ConsultaDoAtendimento({
         </div>
       )}
 
-      {editandoLink ? (
-        <div className="space-y-2">
-          <Input
-            autoFocus
-            inputMode="url"
-            maxLength={2000}
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="Cole o link ou o convite da chamada"
-            aria-label="Link da chamada"
-            aria-invalid={!!erroDoLink}
-          />
-          {(erroDoLink || digitado?.ok) && (
-            <p className={cn('text-xs', erroDoLink ? 'text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}>
-              {erroDoLink ?? (digitado?.ok ? `${digitado.provedor}: ${digitado.url}` : '')}
+      {editando ? (
+        <div className="space-y-3 rounded-md border bg-background p-3">
+          <fieldset className="space-y-1.5">
+            <legend className="text-sm font-medium">Como vai ser a consulta?</legend>
+            {localLivre && <p className="text-xs text-muted-foreground">Hoje diz: {c.local}</p>}
+            <div className="grid grid-cols-3 gap-2">
+              {MODALIDADES.map((m) => {
+                const Icone = ICONE_MODALIDADE[m];
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={modalidade === m}
+                    disabled={salvar.isPending}
+                    onClick={() => setModalidade(m)}
+                    className={cn(
+                      'flex h-12 items-center justify-center gap-1.5 rounded-lg border px-1.5 text-sm transition-colors disabled:opacity-60',
+                      modalidade === m
+                        ? 'border-brand-700 bg-brand-50 font-medium text-brand-900 ring-1 ring-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-200 dark:ring-brand-400'
+                        : 'border-input hover:bg-muted',
+                    )}
+                  >
+                    <Icone className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="truncate">{MODALIDADE_LABEL[m]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {modalidade === 'VIDEO' && (
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor={`link-${c.id}`}>
+                <Link2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                Link da chamada <span className="font-normal text-muted-foreground">(cole agora ou depois)</span>
+              </label>
+              <Input
+                id={`link-${c.id}`}
+                inputMode="url"
+                maxLength={2000}
+                value={link}
+                disabled={salvar.isPending}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="Cole o link ou o convite da chamada"
+                aria-invalid={!!erroDoLink}
+              />
+              {(erroDoLink || digitado?.ok) && (
+                <p className={cn('break-all text-xs', erroDoLink ? 'text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}>
+                  {erroDoLink ?? (digitado?.ok ? `${digitado.provedor}: ${digitado.url}` : '')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {modalidadeRemota(modalidade) && (
+            <p className="text-xs text-muted-foreground">
+              Combine o horário com o {V.filiado}. Se precisar mudar o dia, peça a remarcação a quem cuida da agenda.
             </p>
           )}
-          <div className="flex flex-wrap justify-end gap-2">
-            {c.linkReuniao && (
-              <Button variant="ghost" onClick={() => salvarLink.mutate(null)} disabled={salvarLink.isPending}>
-                Tirar o link
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => { setEditandoLink(false); setLink(c.linkReuniao ?? ''); }} disabled={salvarLink.isPending}>
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" className="md:h-9" onClick={() => setEditando(false)} disabled={salvar.isPending}>
               Cancelar
             </Button>
-            <Button onClick={() => salvarLink.mutate(link.trim() || null)} disabled={salvarLink.isPending || !link.trim() || !!erroDoLink}>
-              {salvarLink.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Salvar link
+            <Button
+              className="md:h-9"
+              onClick={() => modalidade && salvar.mutate(modalidade)}
+              disabled={salvar.isPending || !modalidade || nadaMudou || !!erroDoLink}
+            >
+              {salvar.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Salvar
             </Button>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {podeEditar && aberta && (porVideo || c.linkReuniao) && (
-            <Button variant="outline" className="md:h-9" onClick={() => setEditandoLink(true)}>
-              <Link2 className="h-4 w-4" /> {c.linkReuniao ? 'Trocar o link' : 'Colar o link da chamada'}
+          {avisar && aberta && (
+            <div className="w-full space-y-1">
+              <Button
+                className="h-12 w-full bg-[#25D366] text-white hover:bg-[#20bd5a] sm:w-auto md:h-9"
+                disabled={!celular}
+                onClick={avisarPeloWhatsApp}
+              >
+                <WhatsAppIcon className="h-4 w-4" /> Avisar pelo WhatsApp
+              </Button>
+              {!celular && (
+                <p className="text-xs text-muted-foreground">
+                  O cadastro não tem celular, nem no telefone principal nem no secundário. Avise por outro meio.
+                </p>
+              )}
+            </div>
+          )}
+          {podeEditar && aberta && (
+            <Button variant="outline" className="md:h-9" onClick={abrirEdicao}>
+              <Pencil className="h-4 w-4" /> Mudar como vai ser
             </Button>
           )}
           {podeVerAgenda && (

@@ -1,7 +1,8 @@
 import { tenant } from '@/tenant.config';
+import { V } from '@/lib/vocabulario';
 import {
   assuntoDoEmail,
-  desafioPrevisto,
+  avisoDoEnvio,
   emailUtilizavel,
   estadoDoLink,
   linkEmail,
@@ -87,6 +88,31 @@ describe('mensagemDoLink', () => {
     expect(m).not.toContain('COREN');
   });
 
+  /** 14/09/2026: link de um dado só diz o que vai pedir E pede para não encaminhar. */
+  it('só o CPF: diz o que vai pedir e pede para não encaminhar, nessa ordem', () => {
+    const linhas = mensagemDoLink({ primeiroNome: 'Ana', url: URL, expiraEm: EXPIRA, desafio: 'CPF' }).split('\n');
+    expect(linhas.slice(4)).toEqual([
+      'Para confirmar que é você, vamos pedir o seu CPF.',
+      'Este link é pessoal: não encaminhe.',
+      'Não pedimos senha nem pagamento por este link.',
+    ]);
+  });
+
+  it('só a data de nascimento: idem', () => {
+    const linhas = mensagemDoLink({ primeiroNome: 'Ana', url: URL, expiraEm: EXPIRA, desafio: 'NASCIMENTO' }).split('\n');
+    expect(linhas.slice(4)).toEqual([
+      'Para confirmar que é você, vamos pedir a sua data de nascimento.',
+      'Este link é pessoal: não encaminhe.',
+      'Não pedimos senha nem pagamento por este link.',
+    ]);
+  });
+
+  it('dois fatores e COREN não pedem para não encaminhar', () => {
+    for (const desafio of ['CPF_NASCIMENTO', 'COREN'] as const) {
+      expect(mensagemDoLink({ primeiroNome: 'Ana', url: URL, expiraEm: EXPIRA, desafio })).not.toContain('não encaminhe');
+    }
+  });
+
   it('o link fica numa linha só dele (sinal colado quebra o endereço)', () => {
     const linhas = mensagemDoLink({ primeiroNome: 'Ana', url: URL, expiraEm: EXPIRA, desafio: 'NENHUM' }).split('\n');
     expect(linhas).toContain(URL);
@@ -103,8 +129,8 @@ describe('mensagemDoLink', () => {
   });
 
   /** Mensagem de segurança com emoji parece golpe. */
-  it('nenhum emoji ou pictograma em nenhum dos três textos', () => {
-    for (const desafio of ['CPF_NASCIMENTO', 'COREN', 'NENHUM'] as const) {
+  it('nenhum emoji ou pictograma em nenhum dos textos', () => {
+    for (const desafio of ['CPF_NASCIMENTO', 'CPF', 'COREN', 'NASCIMENTO', 'NENHUM'] as const) {
       const m = mensagemDoLink({ primeiroNome: 'Ana', url: URL, expiraEm: EXPIRA, desafio });
       expect(m).not.toMatch(/\p{Extended_Pictographic}/u);
     }
@@ -145,21 +171,113 @@ describe('emailUtilizavel — a mesma régua da rota de envio', () => {
   });
 });
 
-describe('desafioPrevisto — espelho da decisão da geração', () => {
-  it('CPF e nascimento, os dois: CPF_NASCIMENTO', () => {
-    expect(desafioPrevisto({ cpf: '12345678900', dataNascimento: '1980-01-01' }, true)).toBe('CPF_NASCIMENTO');
+/**
+ * O AVISO DA TELA DE ENVIO, a partir da prévia da API.
+ *
+ * `desafioPrevisto` saiu em 14/09/2026: era uma segunda cópia da regra da API,
+ * e com a hierarquia nova (CPF válido, data plausível) ela erraria antes do
+ * primeiro toque. Aqui só se testa a TRADUÇÃO da resposta.
+ */
+describe('avisoDoEnvio — traduz a prévia, não recalcula', () => {
+  it('CPF + nascimento: nada a avisar', () => {
+    expect(avisoDoEnvio({ desafio: 'CPF_NASCIMENTO', podeGerar: true }, true)).toEqual({ tipo: 'NADA' });
   });
 
-  it('só um dos dois não basta: cai no COREN, se houver e o campo for usado', () => {
-    expect(desafioPrevisto({ cpf: '12345678900', dataNascimento: null, numeroCoren: 'COREN-PI 1-ENF' }, true)).toBe('COREN');
+  it('COREN: nada a avisar', () => {
+    expect(avisoDoEnvio({ desafio: 'COREN', podeGerar: true }, true)).toEqual({ tipo: 'NADA' });
   });
 
-  it('COREN preenchido numa instalação que não usa o campo não conta', () => {
-    expect(desafioPrevisto({ cpf: null, dataNascimento: '1980-01-01', numeroCoren: 'COREN-PI 1-ENF' }, false)).toBe('NENHUM');
+  it('só o CPF: aviso de um dado só', () => {
+    expect(avisoDoEnvio({ desafio: 'CPF', podeGerar: true }, false)).toEqual({
+      tipo: 'UM_FATOR',
+      texto: `Este link vai pedir só o CPF para confirmar que é o ${V.filiado}. Mande só para ele.`,
+    });
   });
 
-  it('texto em branco é o mesmo que vazio', () => {
-    expect(desafioPrevisto({ cpf: '   ', dataNascimento: '1980-01-01', numeroCoren: '  ' }, true)).toBe('NENHUM');
+  it('só a data de nascimento: aviso de um dado só', () => {
+    expect(avisoDoEnvio({ desafio: 'NASCIMENTO', podeGerar: true }, true)).toEqual({
+      tipo: 'UM_FATOR',
+      texto: `Este link vai pedir só a data de nascimento para confirmar que é o ${V.filiado}. Mande só para ele.`,
+    });
+  });
+
+  it('a API não gera: caixa com título e o que fazer; COREN só onde o campo existe', () => {
+    expect(avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false }, true)).toEqual({
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'O link abriria sem confirmar quem é',
+      texto:
+        `Este cadastro não tem CPF nem data de nascimento, nem COREN. Pergunte os dois ao ${V.filiado}, ` +
+        'grave na ficha e volte aqui: o link passa a pedir essa confirmação.',
+      completarFicha: true,
+    });
+    const semCoren = avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false }, false);
+    expect(semCoren.tipo).toBe('SEM_CONFIRMACAO');
+    expect(semCoren.tipo === 'SEM_CONFIRMACAO' && semCoren.texto).toBe(
+      `Este cadastro não tem CPF nem data de nascimento. Pergunte os dois ao ${V.filiado}, ` +
+        'grave na ficha e volte aqui: o link passa a pedir essa confirmação.',
+    );
+  });
+
+  /**
+   * O PORQUÊ DO "NÃO GERA" (revisão de 14/09/2026). O desfiliado com CPF e data
+   * gravados ouvia "não tem CPF nem data de nascimento" e o botão "Completar a
+   * ficha"; o que falta é reativar.
+   */
+  it('desfiliado: manda reativar, sem "Completar a ficha"', () => {
+    expect(avisoDoEnvio({ desafio: 'CPF_NASCIMENTO', podeGerar: false, motivo: 'DESFILIADO', cpfGravadoInvalido: false }, true)).toEqual({
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'Este cadastro está desfiliado',
+      texto: 'Reative o cadastro antes de pedir o recadastramento.',
+      completarFicha: false,
+    });
+  });
+
+  it('desfiliado vence o CPF que não confere: reativar vem antes', () => {
+    const aviso = avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: 'DESFILIADO', cpfGravadoInvalido: true }, true);
+    expect(aviso.tipo === 'SEM_CONFIRMACAO' && aviso.texto).toBe('Reative o cadastro antes de pedir o recadastramento.');
+  });
+
+  /** A ficha mostra o CPF; a caixa não pode dizer que ele não existe. */
+  it('CPF gravado que não confere: pede para corrigir o CPF na ficha', () => {
+    expect(avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: 'SEM_CONFIRMACAO', cpfGravadoInvalido: true }, true)).toEqual({
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'O link abriria sem confirmar quem é',
+      texto: 'O CPF gravado na ficha não confere. Corrija o CPF na ficha e volte aqui: o link passa a pedir essa confirmação.',
+      completarFicha: true,
+    });
+  });
+
+  it('NENHUM real, da API nova ou da antiga: o texto de sempre', () => {
+    const esperado = avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false }, false);
+    expect(avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: 'SEM_CONFIRMACAO', cpfGravadoInvalido: false }, false)).toEqual(esperado);
+    expect(avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: null }, false)).toEqual(esperado);
+    expect(esperado.tipo === 'SEM_CONFIRMACAO' && esperado.texto).toMatch(/^Este cadastro não tem CPF nem data de nascimento\./);
+  });
+
+  it('motivo e CPF que não confere não tiram o botão de quem a API gera', () => {
+    expect(avisoDoEnvio({ desafio: 'NASCIMENTO', podeGerar: true, motivo: null, cpfGravadoInvalido: true }, true).tipo).toBe('UM_FATOR');
+  });
+
+  /** A API manda: se diz que não gera, a tela não oferece os botões. */
+  it('podeGerar falso vence o desafio, até um valor desconhecido', () => {
+    expect(avisoDoEnvio({ desafio: 'MATRICULA', podeGerar: false }, true).tipo).toBe('SEM_CONFIRMACAO');
+    expect(avisoDoEnvio({ desafio: 'CPF', podeGerar: false }, true).tipo).toBe('SEM_CONFIRMACAO');
+  });
+
+  it('valor desconhecido que a API gera: nada a avisar', () => {
+    expect(avisoDoEnvio({ desafio: 'MATRICULA', podeGerar: true }, true)).toEqual({ tipo: 'NADA' });
+  });
+
+  it('nenhum texto do aviso tem cor de erro na palavra: nunca "erro" ou "inválido"', () => {
+    for (const previa of [
+      { desafio: 'CPF', podeGerar: true },
+      { desafio: 'NASCIMENTO', podeGerar: true },
+      { desafio: 'NENHUM', podeGerar: false },
+      { desafio: 'CPF_NASCIMENTO', podeGerar: false, motivo: 'DESFILIADO' as const },
+      { desafio: 'NENHUM', podeGerar: false, cpfGravadoInvalido: true },
+    ]) {
+      expect(JSON.stringify(avisoDoEnvio(previa, true))).not.toMatch(/erro|inválid/i);
+    }
   });
 });
 

@@ -2,6 +2,7 @@ import { api } from './api';
 import { tenant } from '@/tenant.config';
 import { ASSUNTO_LABEL, ASSUNTOS } from './relatorios';
 import { celularParaWhatsApp, linkWhatsApp as linkDoWhatsApp } from './whatsapp';
+import { V } from './vocabulario';
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -114,6 +115,50 @@ export interface CompromissoResumo {
   responsavel: { id: string; nome: string; nomeExibicao?: string | null } | null;
 }
 
+/** Quem fechou, quem é dono da consulta: o mínimo para escrever o nome. */
+export interface PessoaResumo {
+  id: string;
+  nome: string;
+  nomeExibicao?: string | null;
+  avatarUrl?: string | null;
+}
+
+/** As quatro categorias do cancelamento. São slugs do catálogo da agenda: a consulta recebe a MESMA. */
+export type CategoriaCancelamentoAtendimento = 'DESISTENCIA' | 'NAO_COMPARECEU' | 'PERDEU_OBJETO' | 'DUPLICIDADE';
+
+/** Em que pé está a consulta vigente na hora de fechar. NENHUMA vem como `consulta: null`. */
+export type SituacaoNoFechamento = 'FUTURA' | 'COMECOU' | 'EM_ANDAMENTO' | 'ATENDIDA';
+
+/**
+ * O PLANO DE FECHAMENTO, calculado no servidor (`planoDeFechamento`).
+ *
+ * A tela não recalcula: os serviços `concluir` e `cancelar` validam com a MESMA
+ * função que monta este objeto. O que a tela faz é mostrar o efeito e perguntar
+ * só o que o plano diz que falta decidir.
+ */
+export interface FechamentoAtendimento {
+  consulta: {
+    id: string;
+    situacao: SituacaoNoFechamento;
+    inicio: string;
+    local: string | null;
+    linkReuniao: string | null;
+    responsavel: PessoaResumo | null;
+  } | null;
+  consultasAbertas: number;
+  concluir: {
+    permitido: boolean;
+    recusa: string | null;
+    consulta: 'NENHUMA' | 'CANCELAR_PARA_CONCLUIR' | 'ESCOLHER' | 'SO_MANTER';
+    nota: 'OPCIONAL' | 'OBRIGATORIA' | 'OBRIGATORIA_SE_CANCELAR';
+  };
+  cancelar: {
+    permitido: boolean;
+    recusa: string | null;
+    consulta: 'NENHUMA' | 'ATENDIDA' | 'ESCOLHER' | 'SO_MANTER';
+  };
+}
+
 export interface AtendimentoDossie {
   atendimento: {
     id: string;
@@ -138,6 +183,19 @@ export interface AtendimentoDossie {
     filiado: FiliadoDossie;
     processo: { id: string; numeroCNJ: string; classeProcessual: string | null } | null;
     compromissos: CompromissoResumo[];
+    /*
+      O FECHAMENTO NA FICHA (14/09/2026). Todos opcionais: a API sobe antes, mas
+      na janela de troca o web novo pode falar com a API antiga, e registro
+      fechado antes das colunas vem com tudo nulo (não há backfill).
+    */
+    concluidoEm?: string | null;
+    concluidoPor?: PessoaResumo | null;
+    conclusaoObs?: string | null;
+    canceladoEm?: string | null;
+    canceladoPor?: PessoaResumo | null;
+    canceladoCategoria?: string | null;
+    canceladoMotivo?: string | null;
+    fechamento?: FechamentoAtendimento | null;
   };
   historico: {
     id: string;
@@ -177,8 +235,13 @@ export const DESFECHO_LABEL: Record<DesfechoAtendimento, string> = {
   ENCAMINHADO: 'Encaminhado',
 };
 
+/*
+  UMA LINGUAGEM SÓ NA COLUNA RESULTADO (14/09/2026). "Resolvido no ato" era
+  preto chapado ao lado do chip verde de "Consulta atendida": duas cores para o
+  mesmo fato, a demanda foi atendida. Agora é a família verde do chip.
+*/
 export const DESFECHO_COR: Record<DesfechoAtendimento, string> = {
-  RESOLVIDO_ATO: 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900',
+  RESOLVIDO_ATO: 'border border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300',
   ENCAMINHADO: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
 };
 
@@ -187,11 +250,41 @@ export const STATUS_LABEL: Record<StatusAtendimento, string> = {
   CONCLUIDO: 'Concluído',
   CANCELADO: 'Cancelado',
 };
+/*
+  FECHADO NÃO É ALARME (14/09/2026). Cancelado era vermelho e riscado: o
+  vermelho dizia "algo deu errado" sobre uma decisão tomada, e o riscado
+  atrapalhava a leitura a 400 px. Concluído e cancelado ficam neutros; só o
+  pendente, que ainda pede alguém, é âmbar. O vermelho fica para o Excluir.
+*/
 export const STATUS_COR: Record<StatusAtendimento, string> = {
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  CONCLUIDO: 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900',
-  CANCELADO: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 line-through',
+  CONCLUIDO: 'bg-muted text-foreground/80',
+  CANCELADO: 'bg-muted text-muted-foreground',
 };
+
+/**
+ * As categorias do cancelamento do atendimento, com o texto do cartão.
+ *
+ * Os slugs são os do catálogo da agenda (desfechos.catalogo.ts): cancelada junto,
+ * a consulta recebe a MESMA categoria, sem tradução. Sem "Outro", como no
+ * catálogo: o que a categoria não cobre vai no detalhe opcional.
+ */
+export const CATEGORIAS_CANCELAMENTO_ATENDIMENTO: {
+  slug: CategoriaCancelamentoAtendimento;
+  rotulo: string;
+  apoio: string;
+}[] = [
+  { slug: 'DESISTENCIA', rotulo: `${V.Filiado} desistiu`, apoio: 'A pessoa avisou que não quer mais seguir.' },
+  { slug: 'NAO_COMPARECEU', rotulo: `${V.Filiado} não retornou`, apoio: 'Não veio nem respondeu aos contatos.' },
+  { slug: 'PERDEU_OBJETO', rotulo: 'Perdeu o objeto', apoio: 'A demanda deixou de existir antes de ser atendida.' },
+  { slug: 'DUPLICIDADE', rotulo: 'Registrado por engano', apoio: 'Duplicado, ou aberto para a pessoa errada.' },
+];
+
+/** O rótulo da categoria gravada; um slug desconhecido aparece cru em vez de sumir. */
+export function rotuloDaCategoriaDoAtendimento(slug: string | null | undefined): string {
+  if (!slug) return '';
+  return CATEGORIAS_CANCELAMENTO_ATENDIMENTO.find((c) => c.slug === slug)?.rotulo ?? slug;
+}
 
 export const TIPO_ENC_LABEL: Record<TipoEncaminhamento, string> = {
   CONSULTA_NOVA: 'Consulta Jurídica (caso novo)',
@@ -380,6 +473,39 @@ export function modalidadeDoLocal(local: string | null | undefined): ModalidadeC
   return null;
 }
 
+/**
+ * O que o servidor grava no `local` para cada modalidade — espelho de
+ * `LOCAL_DA_MODALIDADE` da API (encaminhamento.util.ts), com a mesma tabela no
+ * teste. Na sede o local fica vazio, como sempre foi.
+ */
+export const LOCAL_DA_MODALIDADE: Record<ModalidadeConsulta, string | null> = {
+  SEDE: null,
+  VIDEO: 'Por chamada de vídeo',
+  TELEFONE: 'Por telefone',
+};
+
+/**
+ * A modalidade que o cartão da consulta mostra marcada ao abrir "Mudar como vai
+ * ser". Local vazio é a sede; texto livre (um endereço, uma sala) não é
+ * nenhuma das três, e a tela deixa a escolha em aberto com "Hoje diz: …".
+ */
+export function modalidadeDoCartao(local: string | null | undefined): ModalidadeConsulta | null {
+  if (!local || !local.trim()) return 'SEDE';
+  return modalidadeDoLocal(local);
+}
+
+/**
+ * "Na sede", "Por vídeo", "Por telefone" ou o local livre — SEMPRE escrito.
+ *
+ * 14/09/2026: o sub-cartão imprimia o local cru, e na sede o local é vazio. A
+ * consulta #14 dizia "chamada de vídeo" na demanda e nada no cartão: ninguém
+ * via que ela estava marcada na sede.
+ */
+export function rotuloDaModalidadeNoCartao(local: string | null | undefined): string {
+  const m = modalidadeDoCartao(local);
+  return m ? MODALIDADE_LABEL[m] : (local ?? '').trim();
+}
+
 /** "por vídeo", "por telefone" ou nada — o complemento curto da frase. */
 function complementoDaModalidade(local: string | null | undefined): string {
   const m = modalidadeDoLocal(local);
@@ -425,6 +551,19 @@ export const ESTADO_ENCAMINHAMENTO: Record<EstadoEncaminhamento, { rotulo: strin
   CANCELADA: { rotulo: 'Consulta cancelada', tom: 'ambar' },
 };
 
+/**
+ * O tom do chip olhando também o atendimento.
+ *
+ * 14/09/2026: "Consulta cancelada" continuava âmbar num atendimento já
+ * cancelado ou concluído. Aviso é estado: depois que alguém decidiu fechar, a
+ * consulta cancelada não pede mais nada à triagem.
+ */
+export function tomDoEncaminhamento(estado: EstadoEncaminhamento, statusAtendimento: StatusAtendimento): TomDoEstado {
+  const tom = ESTADO_ENCAMINHAMENTO[estado]?.tom ?? 'neutro';
+  if (estado === 'CANCELADA' && statusAtendimento !== 'PENDENTE') return 'neutro';
+  return tom;
+}
+
 /** Rótulo do chip, com "falta concluir" quando a consulta foi atendida e a demanda segue aberta. */
 export function rotuloDoEncaminhamento(estado: EstadoEncaminhamento, statusAtendimento: StatusAtendimento): string {
   const base = ESTADO_ENCAMINHAMENTO[estado]?.rotulo ?? 'Encaminhado';
@@ -445,6 +584,14 @@ export function fraseDoEncaminhamento(e: Encaminhamento, statusAtendimento: Stat
   const com = quem ? ` ${comQuem(quem)}` : '';
   const modo = complementoDaModalidade(e.local);
   const sufixoModo = modo ? ` · ${modo}` : '';
+  /*
+    A CONSULTA MANTIDA NUM ATENDIMENTO CANCELADO (14/09/2026). Quem cancela pode
+    desmarcar "cancelar a consulta também" (o duplicado cuja consulta vale para o
+    outro). Aí a frase de sempre, "Consulta marcada", esconderia a contradição.
+  */
+  if (statusAtendimento === 'CANCELADO' && (e.estado === 'AGENDADA' || e.estado === 'HOJE' || e.estado === 'FICOU_PARA_TRAS')) {
+    return `O atendimento foi cancelado, mas a consulta${com} continua marcada para ${rotuloDoInstante(e.inicio)}.`;
+  }
   switch (e.estado) {
     case 'HOJE':
       return `Consulta hoje às ${horaBR(e.inicio)}${com}${sufixoModo}`;
@@ -456,7 +603,10 @@ export function fraseDoEncaminhamento(e: Encaminhamento, statusAtendimento: Stat
       return `Consulta atendida${quem ? ` por ${quem}` : ''}` +
         (statusAtendimento === 'PENDENTE' ? '. Falta concluir o atendimento.' : '');
     case 'CANCELADA':
-      return `A consulta${com} foi cancelada. Ninguém vai atender se não houver outra.`;
+      // "Ninguém vai atender" só cobra enquanto a demanda está aberta.
+      return statusAtendimento === 'PENDENTE'
+        ? `A consulta${com} foi cancelada. Ninguém vai atender se não houver outra.`
+        : `A consulta${com} foi cancelada.`;
     case 'AGENDADA':
     default:
       return `Consulta${com} em ${rotuloDoInstante(e.inicio)}${sufixoModo}`;
@@ -552,6 +702,373 @@ export function dataJaPassou(dataConsulta: string, agora: Date = new Date()): bo
 }
 
 // ---------------------------------------------------------------------------
+// Fechamento: concluir, cancelar, reabrir (14/09/2026)
+// ---------------------------------------------------------------------------
+
+export type AcaoDeFechar = 'CONCLUIR' | 'CANCELAR';
+export type EscolhaDaConsulta = 'MANTER' | 'CANCELAR';
+
+/** Os limites do servidor (ConcluirAtendimentoDto / CancelarAtendimentoDto). */
+export const NOTA_MINIMA = 10;
+export const NOTA_MAXIMA = 2000;
+export const MOTIVO_MAXIMO = 1000;
+
+const FRASE_NOTA_CURTA = `Conte em poucas palavras como a demanda terminou (pelo menos ${NOTA_MINIMA} caracteres).`;
+
+/** "A Dra. Shérad", "O Dr. Murilo", "Maria": o nome como sujeito da frase, com a regra do `comQuem`. */
+export function sujeitoDaFrase(nome: string): string {
+  const n = nome.trim();
+  if (/^dra\.?\s/i.test(n)) return `A ${n}`;
+  if (/^dr\.?\s/i.test(n)) return `O ${n}`;
+  return n;
+}
+
+/**
+ * Qual das seis telas do "Concluir" mostrar — lida do plano do servidor.
+ *
+ * Não decide o que é permitido (isso é `fechamento.concluir`): só escolhe o
+ * texto. `null` quando a API ainda não manda o plano.
+ */
+export type CasoDoConcluir = 'ATENDIDA' | 'RESOLVIDO_NO_ATO' | 'SEM_CONSULTA' | 'FUTURA' | 'COMECOU' | 'EM_ANDAMENTO';
+export function casoDoConcluir(at: {
+  desfecho: DesfechoAtendimento | null;
+  fechamento?: FechamentoAtendimento | null;
+}): CasoDoConcluir | null {
+  const f = at.fechamento;
+  if (!f) return null;
+  const s = f.consulta?.situacao;
+  if (s === 'ATENDIDA' || s === 'FUTURA' || s === 'COMECOU' || s === 'EM_ANDAMENTO') return s;
+  return at.desfecho === 'RESOLVIDO_ATO' ? 'RESOLVIDO_NO_ATO' : 'SEM_CONSULTA';
+}
+
+/**
+ * "Concluir atendimento" é o botão SÓLIDO só quando concluir não decide nada
+ * além de fechar: a consulta foi atendida, ou foi resolvido no ato. Nos demais
+ * casos é contorno, porque o modal vai pedir uma decisão.
+ */
+export function concluirEhDireto(at: {
+  status: StatusAtendimento;
+  desfecho: DesfechoAtendimento | null;
+  fechamento?: FechamentoAtendimento | null;
+  encaminhamento?: Encaminhamento | null;
+}): boolean {
+  if (at.status !== 'PENDENTE' || !at.desfecho) return false;
+  const caso = casoDoConcluir(at);
+  if (caso) return caso === 'ATENDIDA' || caso === 'RESOLVIDO_NO_ATO';
+  return faltaConcluir(at);
+}
+
+export interface EscolhasDoFechamento {
+  /** O que fazer com a consulta vigente; `null` enquanto ninguém escolheu. */
+  consulta: EscolhaDaConsulta | null;
+  /** Concluir: a nota. Cancelar: o detalhe opcional. */
+  texto: string;
+  categoria: CategoriaCancelamentoAtendimento | '';
+}
+
+/**
+ * A escolha com que o modal abre.
+ *
+ * CANCELAR COM CONSULTA ABERTA VEM COM "CANCELAR TAMBÉM" MARCADO (D8): a ação
+ * pesada já foi escolhida, e manter a consulta cria um fantasma que a Triagem
+ * não consegue limpar (ela não edita a agenda). No CONCLUIR que pede escolha,
+ * nada vem marcado: "aconteceu" ou "não aconteceu" é fato que só quem estava lá
+ * sabe.
+ */
+export function escolhaInicialDaConsulta(acao: AcaoDeFechar, f: FechamentoAtendimento | null | undefined): EscolhaDaConsulta | null {
+  if (acao === 'CANCELAR' && f?.cancelar.consulta === 'ESCOLHER') return 'CANCELAR';
+  return null;
+}
+
+/** A consulta vai ser cancelada no gesto? (lido do plano e da escolha, nunca recalculado). */
+export function vaiCancelarConsulta(acao: AcaoDeFechar, f: FechamentoAtendimento | null | undefined, e: EscolhasDoFechamento): boolean {
+  if (!f?.consulta) return false;
+  if (acao === 'CONCLUIR') {
+    return f.concluir.consulta === 'CANCELAR_PARA_CONCLUIR' || (f.concluir.consulta === 'ESCOLHER' && e.consulta === 'CANCELAR');
+  }
+  return f.cancelar.consulta === 'ESCOLHER' && e.consulta === 'CANCELAR';
+}
+
+/** A nota é obrigatória AGORA? Só quando nenhum outro registro diz como a demanda terminou. */
+export function notaObrigatoria(f: FechamentoAtendimento | null | undefined, e: EscolhasDoFechamento): boolean {
+  if (!f) return false;
+  if (f.concluir.nota === 'OBRIGATORIA') return true;
+  return f.concluir.nota === 'OBRIGATORIA_SE_CANCELAR' && vaiCancelarConsulta('CONCLUIR', f, e);
+}
+
+/**
+ * O botão principal pode gravar? E, se não, o que falta (a frase da API).
+ *
+ * É o espelho das recusas do servidor para o que a pessoa AINDA não escolheu.
+ * O servidor continua sendo quem decide: se o plano mudou enquanto o modal
+ * estava aberto, a API recusa e a tela recarrega o detalhe.
+ */
+export function conferirFechamento(
+  acao: AcaoDeFechar,
+  f: FechamentoAtendimento | null | undefined,
+  e: EscolhasDoFechamento,
+): { pronto: boolean; falta: string | null } {
+  if (!f) return { pronto: false, falta: null };
+  const texto = e.texto.trim();
+  if (acao === 'CONCLUIR') {
+    if (!f.concluir.permitido) return { pronto: false, falta: f.concluir.recusa };
+    if (f.concluir.consulta === 'ESCOLHER' && !e.consulta) return { pronto: false, falta: 'Diga se a consulta aconteceu.' };
+    if (notaObrigatoria(f, e) && texto.length < NOTA_MINIMA) return { pronto: false, falta: FRASE_NOTA_CURTA };
+    if (texto.length > NOTA_MAXIMA) return { pronto: false, falta: `A nota cabe em ${NOTA_MAXIMA} caracteres.` };
+    return { pronto: true, falta: null };
+  }
+  if (!f.cancelar.permitido) return { pronto: false, falta: f.cancelar.recusa };
+  if (!e.categoria) return { pronto: false, falta: 'Diga por que o atendimento vai ser cancelado.' };
+  if (f.cancelar.consulta === 'ESCOLHER' && !e.consulta) return { pronto: false, falta: 'Diga o que fazer com a consulta marcada.' };
+  if (texto.length > MOTIVO_MAXIMO) return { pronto: false, falta: `O detalhe cabe em ${MOTIVO_MAXIMO} caracteres.` };
+  return { pronto: true, falta: null };
+}
+
+/** O corpo do PATCH /concluir. `consulta` só vai quando o plano pede uma decisão. */
+export function corpoDoConcluir(f: FechamentoAtendimento | null | undefined, e: EscolhasDoFechamento): ConcluirAtendimentoInput {
+  const corpo: ConcluirAtendimentoInput = {};
+  const nota = e.texto.trim();
+  if (nota) corpo.nota = nota;
+  if (f?.concluir.consulta === 'CANCELAR_PARA_CONCLUIR') corpo.consulta = 'CANCELAR';
+  else if (f?.concluir.consulta === 'ESCOLHER' && e.consulta) corpo.consulta = e.consulta;
+  return corpo;
+}
+
+/** O corpo do PATCH /cancelar. */
+export function corpoDoCancelar(f: FechamentoAtendimento | null | undefined, e: EscolhasDoFechamento): CancelarAtendimentoInput {
+  const corpo: CancelarAtendimentoInput = { categoria: e.categoria as CategoriaCancelamentoAtendimento };
+  const motivo = e.texto.trim();
+  if (motivo) corpo.motivo = motivo;
+  if (f?.cancelar.consulta === 'ESCOLHER' && e.consulta) corpo.consulta = e.consulta;
+  return corpo;
+}
+
+/** Algo foi escolhido ou digitado? Com o formulário sujo, toque fora e Esc não fecham. */
+export function fechamentoSujo(acao: AcaoDeFechar, f: FechamentoAtendimento | null | undefined, e: EscolhasDoFechamento): boolean {
+  return e.texto.length > 0 || !!e.categoria || e.consulta !== escolhaInicialDaConsulta(acao, f);
+}
+
+function aConsulta(responsavel: PessoaResumo | null | undefined): string {
+  const quem = nomeDeQuemAtende(responsavel);
+  return `A consulta${quem ? ` ${comQuem(quem)}` : ''}`;
+}
+
+function diaMesBR(instante: string): string {
+  return new Date(instante).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO_BR });
+}
+
+/**
+ * O resumo do topo do "Concluir", caso a caso. O tom decide o bloco: verde
+ * para o que já aconteceu, âmbar para o que precisa ser lido antes de gravar.
+ */
+export function resumoDoConcluir(
+  caso: CasoDoConcluir,
+  at: {
+    desfechoEm?: string | null;
+    fechamento?: FechamentoAtendimento | null;
+    consultas?: CompromissoResumo[];
+    compromissos?: CompromissoResumo[];
+  },
+  agora: Date = new Date(),
+): { tom: TomDoEstado; texto: string; apoio: string | null } {
+  const c = at.fechamento?.consulta ?? null;
+  const quem = nomeDeQuemAtende(c?.responsavel);
+  switch (caso) {
+    case 'ATENDIDA':
+      return { tom: 'verde', texto: `${aConsulta(c?.responsavel)} foi atendida em ${rotuloDoDia(diaBR(c!.inicio))}.`, apoio: null };
+    case 'RESOLVIDO_NO_ATO':
+      return { tom: 'verde', texto: at.desfechoEm ? `Resolvido no ato em ${diaMesBR(at.desfechoEm)}.` : 'Resolvido no ato.', apoio: null };
+    case 'SEM_CONSULTA': {
+      const canceladas = consultasDoAtendimento(at)
+        .filter((x) => x.status === 'CANCELADO')
+        .sort((a, b) => new Date(b.inicio).getTime() - new Date(a.inicio).getTime());
+      return canceladas.length
+        ? { tom: 'neutro', texto: `${aConsulta(canceladas[0].responsavel)} foi cancelada e não houve outra.`, apoio: null }
+        : { tom: 'neutro', texto: 'Nenhuma consulta foi atendida neste atendimento.', apoio: null };
+    }
+    case 'FUTURA':
+      return {
+        tom: 'ambar',
+        texto: `${aConsulta(c?.responsavel)} ainda não aconteceu: ${rotuloDoInstante(c!.inicio)}.`,
+        apoio:
+          `Para concluir agora, a consulta é cancelada junto. Ela sai da agenda${quem ? ` ${deQuem(quem)}` : ''} como cancelada, ` +
+          'com o seu nome, e ninguém recebe aviso fora do sistema. Se a demanda ainda precisa da consulta, deixe o atendimento pendente.',
+      };
+    case 'COMECOU':
+      return {
+        tom: 'ambar',
+        texto: diaBR(c!.inicio) === diaBR(agora)
+          ? `${aConsulta(c?.responsavel)} era hoje às ${horaBR(c!.inicio)} e ninguém marcou como atendida.`
+          : `${aConsulta(c?.responsavel)} de ${rotuloDoInstante(c!.inicio)} ficou para trás: ninguém marcou como atendida.`,
+        apoio: null,
+      };
+    case 'EM_ANDAMENTO':
+    default:
+      return {
+        tom: 'neutro',
+        texto: `${quem ? sujeitoDaFrase(quem) : 'Alguém'} está com a consulta em andamento agora. A consulta não é mexida: quem encerra é quem atende.`,
+        apoio: null,
+      };
+  }
+}
+
+/**
+ * As linhas do "Cancelar" sobre a consulta. `marcada` é a caixa "cancelar
+ * também"; `aviso` aparece quando ela está desmarcada.
+ */
+export function textosDaConsultaNoCancelar(
+  f: FechamentoAtendimento,
+  agora: Date = new Date(),
+): { titulo: string; apoio: string; aviso: string } | null {
+  const c = f.consulta;
+  if (!c) return null;
+  const quem = nomeDeQuemAtende(c.responsavel);
+  const daAgenda = `agenda${quem ? ` ${deQuem(quem)}` : ''}`;
+  if (f.cancelar.consulta === 'ATENDIDA') {
+    return {
+      titulo: `${aConsulta(c.responsavel)} já foi atendida em ${rotuloDoDia(diaBR(c.inicio))} e continua no histórico.`,
+      apoio: 'Se a demanda se resolveu na consulta, o certo é concluir.',
+      aviso: '',
+    };
+  }
+  if (f.cancelar.consulta === 'SO_MANTER') {
+    return {
+      titulo: `${quem ? sujeitoDaFrase(quem) : 'Alguém'} está com a consulta em andamento. A consulta não é mexida: quem encerra é quem atende.`,
+      apoio: '',
+      aviso: '',
+    };
+  }
+  const jaFicouParaTras = diaBR(c.inicio) < diaBR(agora);
+  return {
+    titulo: `Cancelar também a consulta${quem ? ` ${comQuem(quem)}` : ''}`,
+    apoio: `${rotuloDoInstante(c.inicio)} · ${rotuloDaModalidadeNoCartao(c.local)}. Sai da ${daAgenda} como cancelada, com o mesmo motivo e o seu nome.`,
+    aviso: jaFicouParaTras
+      ? `A consulta continua na ${daAgenda}, como algo que ficou para trás, até alguém registrar o que houve.`
+      : `A consulta continua na ${daAgenda}. Se ninguém cancelar, ela vai ficar para trás na agenda dessa pessoa depois de ${rotuloDoDia(diaBR(c.inicio))}.`,
+  };
+}
+
+/** "A consulta com a Dra. Shérad de qui, 17/09 às 09:00 foi cancelada." — lida da RESPOSTA do servidor. */
+export function fraseDaConsultaCancelada(c: { inicio: string; responsavel: PessoaResumo | null }): string {
+  return `${aConsulta(c.responsavel)} de ${rotuloDoInstante(c.inicio)} foi cancelada.`;
+}
+
+/** A mensagem ao filiado quando a consulta dele foi cancelada no fechamento. Sem emoji. */
+export function mensagemDaConsultaCancelada(p: { nomeFiliado: string; inicio: string }): string {
+  return [
+    `Olá, ${primeiroNomeDe(p.nomeFiliado)}. Aqui é do ${tenant.sigla}.`,
+    '',
+    `A sua consulta jurídica de ${rotuloDoDia(diaBR(p.inicio))}, às ${horaBR(p.inicio)}, foi cancelada.`,
+    '',
+    'Se ainda precisar de ajuda, é só responder esta mensagem.',
+  ].join('\n');
+}
+
+/**
+ * Depois de gravar, a confirmação com WhatsApp aparece?
+ *
+ * Só quando o SERVIDOR diz que cancelou alguma consulta (o advogado pode ter
+ * fechado antes). E nunca em "Registrado por engano": a pessoa não precisa
+ * saber de um erro interno; basta o toast.
+ */
+export function mostrarConfirmacaoDoFechamento(
+  acao: AcaoDeFechar,
+  categoria: CategoriaCancelamentoAtendimento | '',
+  efeitos: EfeitosDoFechamento | null | undefined,
+): boolean {
+  if (!efeitos?.consultasCanceladas?.length) return false;
+  return !(acao === 'CANCELAR' && categoria === 'DUPLICIDADE');
+}
+
+/**
+ * O bloco "Concluído/Cancelado em … por …" da gaveta.
+ *
+ * Registro fechado antes das colunas de 14/09/2026 não tem data: não mostra o
+ * bloco (sem backfill a partir da auditoria, que é frágil de ler).
+ */
+export function fraseDoFechamento(at: {
+  status: StatusAtendimento;
+  concluidoEm?: string | null;
+  concluidoPor?: PessoaResumo | null;
+  conclusaoObs?: string | null;
+  canceladoEm?: string | null;
+  canceladoPor?: PessoaResumo | null;
+  canceladoCategoria?: string | null;
+  canceladoMotivo?: string | null;
+}): { texto: string; detalhe: string | null } | null {
+  if (at.status === 'CANCELADO' && at.canceladoEm) {
+    const por = nomeDeQuemAtende(at.canceladoPor);
+    const categoria = rotuloDaCategoriaDoAtendimento(at.canceladoCategoria);
+    return {
+      texto: `Cancelado em ${rotuloDoInstante(at.canceladoEm)}${por ? ` por ${por}` : ''}${categoria ? ` · ${categoria}` : ''}`,
+      detalhe: at.canceladoMotivo?.trim() || null,
+    };
+  }
+  if (at.status === 'CONCLUIDO' && at.concluidoEm) {
+    const por = nomeDeQuemAtende(at.concluidoPor);
+    return {
+      texto: `Concluído em ${rotuloDoInstante(at.concluidoEm)}${por ? ` por ${por}` : ''}`,
+      detalhe: at.conclusaoObs?.trim() || null,
+    };
+  }
+  return null;
+}
+
+/**
+ * O texto do "Reabrir". A confirmação existe porque reabrir apaga da ficha o
+ * motivo ou a nota (a auditoria guarda). Reabrir não ressuscita consulta: a
+ * agenda de quem atendia pode já estar ocupada.
+ */
+export function textoDoReabrir(at: {
+  numero: number;
+  status: StatusAtendimento;
+  consultas?: CompromissoResumo[];
+  compromissos?: CompromissoResumo[];
+}): { titulo: string; descricao: string } {
+  const partes = [
+    at.status === 'CANCELADO'
+      ? 'Ele volta para os pendentes. O motivo do cancelamento sai da ficha e continua guardado na auditoria.'
+      : 'Ele volta para os pendentes. A nota de conclusão sai da ficha e continua guardada na auditoria.',
+  ];
+  if (consultasDoAtendimento(at).some((c) => c.status === 'CANCELADO')) {
+    partes.push('A consulta cancelada não volta: se ainda for preciso, marque outra depois.');
+  }
+  return { titulo: `Reabrir o atendimento #${at.numero}?`, descricao: partes.join(' ') };
+}
+
+/**
+ * "Marcar nova consulta" (D13, fase 2): encaminhado, TODAS as consultas nascidas
+ * canceladas, e a demanda ainda aberta. Sem isso, "Ninguém vai atender se não
+ * houver outra" apontava para uma porta que não existia.
+ */
+export function podeMarcarNovaConsulta(at: {
+  status: StatusAtendimento;
+  desfecho: DesfechoAtendimento | null;
+  consultas?: CompromissoResumo[];
+  compromissos?: CompromissoResumo[];
+}): boolean {
+  if (at.status !== 'PENDENTE' || at.desfecho !== 'ENCAMINHADO') return false;
+  const consultas = consultasDoAtendimento(at);
+  return consultas.length > 0 && consultas.every((c) => c.status === 'CANCELADO');
+}
+
+/**
+ * A frase de uma falha de gravação.
+ *
+ * A rota que ainda não existe no servidor (web novo com a API antiga, na janela
+ * de troca) volta 404 com "Cannot PATCH …": isso não é português de gente, e
+ * "não encontrado" faria pensar que o atendimento sumiu.
+ */
+export function mensagemDaFalha(e: any, padrao: string): string {
+  const m = e?.response?.data?.message;
+  const texto = Array.isArray(m) ? m[0] : m;
+  if (e?.response?.status === 404 && (!texto || /^Cannot\s/i.test(String(texto)))) {
+    return 'Esta ação ainda não chegou ao servidor. Atualize a página daqui a alguns minutos.';
+  }
+  return typeof texto === 'string' && texto ? texto : padrao;
+}
+
+// ---------------------------------------------------------------------------
 // Filtros vindos da URL
 // ---------------------------------------------------------------------------
 
@@ -644,11 +1161,6 @@ export async function atualizarAssunto(id: string, dto: AtualizarAssuntoInput) {
   return (await api.patch(`/atendimentos/${id}/assunto`, dto)).data;
 }
 
-/** Colar (ou tirar) o link da chamada numa consulta nascida do atendimento. */
-export async function atualizarLinkDaConsulta(id: string, compromissoId: string, linkReuniao: string | null) {
-  return (await api.patch(`/atendimentos/${id}/consultas/${compromissoId}/link`, { linkReuniao })).data;
-}
-
 export interface PessoaDaEquipe {
   id: string;
   nome: string;
@@ -686,9 +1198,51 @@ export async function choquesNaAgenda(p: { responsavelId: string; inicio: string
   return (await api.get('/compromissos/conflitos', { params: p })).data;
 }
 
-/** Concluir / cancelar / reabrir a demanda. */
-export async function mudarStatusAtendimento(id: string, status: StatusAtendimento) {
-  return (await api.patch(`/atendimentos/${id}/status`, { status })).data;
+/*
+  CONCLUIR E CANCELAR TÊM ROTA PRÓPRIA (14/09/2026).
+
+  Eram um PATCH de status sem motivo nem efeito sobre a consulta: o #9 alternou
+  CANCELADO e CONCLUIDO seis vezes em quatro minutos. O `/status` passa a
+  aceitar só PENDENTE (Reabrir). Não há função aqui que mande CONCLUIDO ou
+  CANCELADO pelo `/status`: contra a API antiga, a rota nova dá 404 e a tela
+  diz que ainda não chegou, em vez de cair na porta sem motivo.
+*/
+export interface ConcluirAtendimentoInput {
+  nota?: string;
+  consulta?: EscolhaDaConsulta;
+}
+export interface CancelarAtendimentoInput {
+  categoria: CategoriaCancelamentoAtendimento;
+  motivo?: string;
+  consulta?: EscolhaDaConsulta;
+}
+export interface EfeitosDoFechamento {
+  consultasCanceladas: { id: string; inicio: string; responsavel: PessoaResumo | null }[];
+}
+/** O detalhe de sempre, mais o que o servidor fez de fato com as consultas. */
+export type RespostaDoFechamento = AtendimentoDossie & { efeitos?: EfeitosDoFechamento };
+
+export async function concluirAtendimento(id: string, dto: ConcluirAtendimentoInput): Promise<RespostaDoFechamento> {
+  return (await api.patch(`/atendimentos/${id}/concluir`, dto)).data;
+}
+
+export async function cancelarAtendimento(id: string, dto: CancelarAtendimentoInput): Promise<RespostaDoFechamento> {
+  return (await api.patch(`/atendimentos/${id}/cancelar`, dto)).data;
+}
+
+/** Reabrir: o único uso que sobrou do `/status`. Não reabre consulta nenhuma. */
+export async function reabrirAtendimento(id: string): Promise<AtendimentoDossie> {
+  return (await api.patch(`/atendimentos/${id}/status`, { status: 'PENDENTE' })).data;
+}
+
+export interface MudarModalidadeInput {
+  modalidade: ModalidadeConsulta;
+  /** Só com VIDEO. Sair do vídeo zera o link no servidor. */
+  linkReuniao?: string | null;
+}
+/** "Mudar como vai ser" da consulta já marcada: a modalidade e, no vídeo, o link. */
+export async function mudarModalidadeDaConsulta(id: string, compromissoId: string, dto: MudarModalidadeInput) {
+  return (await api.patch(`/atendimentos/${id}/consultas/${compromissoId}/modalidade`, dto)).data;
 }
 
 /** Exclui o atendimento (hard delete) — só Administrador. */

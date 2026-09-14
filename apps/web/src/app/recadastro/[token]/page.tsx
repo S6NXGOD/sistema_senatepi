@@ -5,7 +5,7 @@ import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Lock, Save, User,
-  Upload, Plus, Trash2, Briefcase, Users,
+  Upload, Plus, Trash2, Briefcase, Users, RefreshCw,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import {
   abrirLink, validarDesafio, enviarRecadastro, enviarFotoRecadastro,
   mascaraCpf, mascaraTelefone, mascaraCep,
+  pedidoDoDesafio, respostaDoDesafio, faltaNoDesafio,
   SEXOS, ESTADOS_CIVIS, FORMACOES, ROTULO, TIPOS_DEPENDENTE,
   type LinkAberto, type FiliadoRecadastro, type VinculoFiliado, type DependenteFiliado,
 } from '@/lib/recadastro';
@@ -92,20 +93,30 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
       .finally(() => setCarregando(false));
   }, [token]);
 
-  // Link sem desafio (cadastro sem CPF/nascimento/COREN): abre direto.
+  /*
+    Link NENHUM antigo: abre direto. Desde 14/09/2026 a API não gera mais esse
+    link, mas os que já estavam vivos continuam abrindo até vencer (24h).
+    Deps à mão (o web não tem ESLint): só `link`. `confirmar` lê o estado da
+    hora, e o `!f` impede rodar de novo depois de aberto.
+  */
   useEffect(() => {
-    if (link?.desafio === 'NENHUM' && !f) void confirmar();
+    if (link && pedidoDoDesafio(link.desafio).tipo === 'DIRETO' && !f) void confirmar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [link]);
 
+  /** O que a pessoa digitou, só nos campos que o desafio pede. */
+  const valoresDoDesafio = () => ({ cpf, nascimento, coren });
+
   async function confirmar() {
+    const pedido = pedidoDoDesafio(link?.desafio);
+    const falta = faltaNoDesafio(pedido, valoresDoDesafio());
+    if (falta) {
+      toast.error(falta);
+      return;
+    }
     setValidando(true);
     try {
-      const r = await validarDesafio(token, {
-        cpf: cpf.replace(/\D/g, '') || undefined,
-        dataNascimento: nascimento || undefined,
-        coren: coren || undefined,
-      });
+      const r = await validarDesafio(token, respostaDoDesafio(pedido, valoresDoDesafio()));
       setF(r.filiado);
       setTravadoOriginal({
         cpf: r.filiado.cpf, rg: r.filiado.rg, ufRg: r.filiado.ufRg,
@@ -210,11 +221,8 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     if (f.nomeCompleto.trim().length < 3) return toast.error('Informe o nome completo.');
     setSalvando(true);
     // Confirmação repetida — o servidor revalida antes de gravar a foto e o envio.
-    const confirmacao = {
-      cpf: cpf.replace(/\D/g, '') || undefined,
-      dataNascimento: nascimento || undefined,
-      coren: coren || undefined,
-    };
+    // Só os campos do desafio: o mesmo recorte do /validar.
+    const confirmacao = respostaDoDesafio(pedidoDoDesafio(link?.desafio), valoresDoDesafio());
     try {
       // A foto vai primeiro: o envio abaixo queima o link.
       if (foto) await enviarFotoRecadastro(token, foto, confirmacao);
@@ -324,44 +332,92 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
   // ------------------------------------------------------------- 1) desafio
 
   if (!f) {
-    const pedeCoren = link?.desafio === 'COREN';
+    const pedido = pedidoDoDesafio(link?.desafio);
+
+    /*
+      Valor que esta página não conhece: nunca cair no formulário de CPF e data
+      (a pessoa gastaria as 5 tentativas num formulário que não confere).
+    */
+    if (pedido.tipo === 'DESATUALIZADA') {
+      return (
+        <Moldura>
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-12 text-center">
+            <AlertTriangle className="h-10 w-10 text-amber-500" aria-hidden="true" />
+            <h1 className="text-lg font-bold">Olá, {link?.primeiroNome}!</h1>
+            <p className="text-sm text-muted-foreground">
+              Esta página está desatualizada. Recarregue para continuar.
+            </p>
+            <Button className="h-12 w-full" onClick={() => window.location.reload()}>
+              <RefreshCw className="h-4 w-4" /> Recarregar
+            </Button>
+          </div>
+        </Moldura>
+      );
+    }
+
+    // Link antigo sem confirmação: o efeito acima já está abrindo o cadastro.
+    if (pedido.tipo === 'DIRETO') {
+      return (
+        <Moldura>
+          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-12 text-center">
+            {validando ? (
+              <p className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" /> Abrindo seu cadastro…
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">Não foi possível abrir o seu cadastro.</p>
+                <Button className="h-12 w-full" onClick={confirmar}>
+                  <RefreshCw className="h-4 w-4" /> Tentar de novo
+                </Button>
+              </>
+            )}
+          </div>
+        </Moldura>
+      );
+    }
+
     return (
       <Moldura>
-        <div className="mx-auto max-w-sm space-y-5 py-6">
+        <form
+          className="mx-auto max-w-sm space-y-5 py-6"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void confirmar();
+          }}
+        >
           <div className="text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-900/30">
               <Lock className="h-6 w-6 text-brand-800 dark:text-brand-400" />
             </div>
             <h1 className="text-lg font-bold">Olá, {link?.primeiroNome}!</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Para sua segurança, confirme {pedeCoren ? 'o número do seu COREN' : 'seus dados'} antes
-              de atualizar o cadastro.
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{pedido.frase}</p>
           </div>
 
-          {pedeCoren ? (
+          {pedido.campos.includes('CPF') && (
+            <Campo label="CPF">
+              <Input className={campo} inputMode="numeric" autoComplete="off" value={cpf} onChange={(e) => setCpf(mascaraCpf(e.target.value))} placeholder="000.000.000-00" />
+            </Campo>
+          )}
+          {pedido.campos.includes('NASCIMENTO') && (
+            <Campo label="Data de nascimento">
+              <Input className={campo} type="date" {...LIMITES_NASCIMENTO} value={nascimento} onChange={(e) => setNascimento(e.target.value)} />
+            </Campo>
+          )}
+          {pedido.campos.includes('COREN') && (
             <Campo label="Número do COREN" dica="Como está no seu registro profissional.">
               <Input className={campo} value={coren} onChange={(e) => setCoren(e.target.value)} placeholder="COREN-PI 000000-ENF" />
             </Campo>
-          ) : (
-            <>
-              <Campo label="CPF">
-                <Input className={campo} inputMode="numeric" value={cpf} onChange={(e) => setCpf(mascaraCpf(e.target.value))} placeholder="000.000.000-00" />
-              </Campo>
-              <Campo label="Data de nascimento">
-                <Input className={campo} type="date" {...LIMITES_NASCIMENTO} value={nascimento} onChange={(e) => setNascimento(e.target.value)} />
-              </Campo>
-            </>
           )}
 
-          <Button className="w-full" onClick={confirmar} disabled={validando}>
+          <Button type="submit" className="h-12 w-full" disabled={validando}>
             {validando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             Confirmar e continuar
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            Após algumas tentativas incorretas o link é bloqueado por segurança.
+            Depois de 5 tentativas erradas o link é bloqueado por segurança.
           </p>
-        </div>
+        </form>
       </Moldura>
     );
   }

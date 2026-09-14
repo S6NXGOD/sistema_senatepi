@@ -8,7 +8,22 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
 
-export type DesafioRecadastramento = 'CPF_NASCIMENTO' | 'COREN' | 'NENHUM';
+/**
+ * O QUE O LINK PEDE PARA CONFIRMAR QUE É O FILIADO — o tipo ÚNICO do web.
+ *
+ * 14/09/2026: ganhou CPF e NASCIMENTO (um dado só, quando o cadastro só tem
+ * aquele). Antes, CPF sem nascimento virava NENHUM, e 1.768 filiados ativos
+ * recebiam link sem confirmação nenhuma. MATRICULA ficou de fora: zero filiados
+ * dependeriam dela.
+ *
+ * `lib/filiados.ts` e `lib/envio-recadastro.ts` reusam este tipo: três cópias
+ * da mesma lista já divergiram uma vez.
+ */
+export type DesafioRecadastramento = 'CPF_NASCIMENTO' | 'CPF' | 'COREN' | 'NASCIMENTO' | 'NENHUM';
+
+export const DESAFIOS_CONHECIDOS: readonly DesafioRecadastramento[] = [
+  'CPF_NASCIMENTO', 'CPF', 'COREN', 'NASCIMENTO', 'NENHUM',
+];
 
 export interface LinkAberto {
   desafio: DesafioRecadastramento;
@@ -113,6 +128,117 @@ export interface ConfirmacaoDeIdentidade {
   cpf?: string;
   dataNascimento?: string;
   coren?: string;
+}
+
+// ---------------------------------------------------------------------------
+// A primeira tela: o que pedir, conforme o desafio do link
+// ---------------------------------------------------------------------------
+
+export type CampoDoDesafio = 'CPF' | 'NASCIMENTO' | 'COREN';
+
+/**
+ * O QUE A PÁGINA PÚBLICA MOSTRA ANTES DO CADASTRO.
+ *
+ *  · FORMULARIO: os campos e a frase. A página só desenha.
+ *  · DIRETO: link NENHUM antigo. Desde 14/09/2026 a API não gera mais esse
+ *    link, mas os que já estavam vivos abrem até vencer (24h).
+ *  · DESATUALIZADA: um valor que este web não conhece (página velha em cache
+ *    contra API nova). Antes, qualquer valor diferente de COREN caía no
+ *    formulário de CPF e data: a pessoa gastava tentativas num formulário que
+ *    nunca ia conferir. Aqui ela recarrega e recebe a página certa.
+ */
+export type PedidoDoDesafio =
+  | { tipo: 'FORMULARIO'; campos: CampoDoDesafio[]; frase: string }
+  | { tipo: 'DIRETO' }
+  | { tipo: 'DESATUALIZADA' };
+
+export function pedidoDoDesafio(desafio: string | null | undefined): PedidoDoDesafio {
+  switch (desafio) {
+    case 'CPF_NASCIMENTO':
+      return {
+        tipo: 'FORMULARIO',
+        campos: ['CPF', 'NASCIMENTO'],
+        frase: 'Para sua segurança, confirme seus dados antes de atualizar o cadastro.',
+      };
+    case 'CPF':
+      return {
+        tipo: 'FORMULARIO',
+        campos: ['CPF'],
+        frase: 'Para sua segurança, confirme o seu CPF antes de atualizar o cadastro.',
+      };
+    case 'COREN':
+      return {
+        tipo: 'FORMULARIO',
+        campos: ['COREN'],
+        frase: 'Para sua segurança, confirme o número do seu COREN antes de atualizar o cadastro.',
+      };
+    case 'NASCIMENTO':
+      return {
+        tipo: 'FORMULARIO',
+        campos: ['NASCIMENTO'],
+        frase: 'Para sua segurança, confirme a sua data de nascimento antes de atualizar o cadastro.',
+      };
+    case 'NENHUM':
+      return { tipo: 'DIRETO' };
+    default:
+      return { tipo: 'DESATUALIZADA' };
+  }
+}
+
+/** O que a pessoa digitou na primeira tela, cru. */
+export interface ValoresDoDesafio {
+  cpf: string;
+  nascimento: string;
+  coren: string;
+}
+
+/**
+ * SÓ OS CAMPOS DO DESAFIO VÃO PARA A API.
+ *
+ * A API confere só o campo do próprio desafio. Mandar um campo que não foi
+ * pedido não ajuda e, se um dia a conferência mudar, vira ruído. Vale para o
+ * /validar, a foto e o envio, que repetem a confirmação.
+ */
+export function respostaDoDesafio(
+  pedido: PedidoDoDesafio,
+  valores: ValoresDoDesafio,
+): ConfirmacaoDeIdentidade {
+  if (pedido.tipo !== 'FORMULARIO') return {};
+  const r: ConfirmacaoDeIdentidade = {};
+  if (pedido.campos.includes('CPF')) {
+    const cpf = valores.cpf.replace(/\D/g, '');
+    if (cpf) r.cpf = cpf;
+  }
+  if (pedido.campos.includes('NASCIMENTO') && valores.nascimento) {
+    r.dataNascimento = valores.nascimento;
+  }
+  if (pedido.campos.includes('COREN') && valores.coren.trim()) {
+    r.coren = valores.coren.trim();
+  }
+  return r;
+}
+
+/**
+ * O QUE AINDA FALTA ANTES DE GASTAR UMA TENTATIVA.
+ *
+ * O link bloqueia depois de 5 respostas erradas, e campo vazio ou CPF pela
+ * metade conta como resposta errada na API. Barrar aqui não é segurança (a API
+ * confere de novo); é não queimar tentativa com erro de digitação.
+ */
+export function faltaNoDesafio(pedido: PedidoDoDesafio, valores: ValoresDoDesafio): string | null {
+  if (pedido.tipo !== 'FORMULARIO') return null;
+  if (pedido.campos.includes('CPF')) {
+    const digitos = valores.cpf.replace(/\D/g, '');
+    if (!digitos) return 'Preencha o CPF.';
+    if (digitos.length !== 11) return 'Confira o CPF: são 11 números.';
+  }
+  if (pedido.campos.includes('NASCIMENTO') && !valores.nascimento) {
+    return 'Preencha a data de nascimento.';
+  }
+  if (pedido.campos.includes('COREN') && !valores.coren.trim()) {
+    return 'Preencha o número do COREN.';
+  }
+  return null;
 }
 
 /**

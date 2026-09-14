@@ -13,7 +13,7 @@ import { podeEditar } from '@/lib/permissoes';
 import { cn } from '@/lib/utils';
 import {
   gerarLinkRecadastramento, listarLinksRecadastramento, revogarLinkRecadastramento,
-  DESAFIO_LABEL, type LinkRecadastramento,
+  lerPreviaDoLink, DESAFIO_LABEL, type LinkRecadastramento,
 } from '@/lib/filiados';
 import { validadeCurta } from '@/lib/envio-recadastro';
 import { EnviarLinkRecadastro } from '@/components/filiados/enviar-link-recadastro';
@@ -80,6 +80,26 @@ export function RecadastrarModal({
     staleTime: 0,
   });
   const ativo = existentes?.find(estaAtivo) ?? null;
+
+  /*
+    A MESMA PRÉVIA do envio (mesma chave, um pedido só). Sem nada que confirme
+    a identidade, a API recusa gerar desde 14/09/2026: o "Gerar outro link"
+    some junto com os botões de envio, em vez de voltar 400 no toque.
+  */
+  const { data: previa } = useQuery({
+    queryKey: ['filiado', filiadoId, 'previa-do-link'],
+    queryFn: () => lerPreviaDoLink(filiadoId),
+    enabled: open && podeEditarFiliado,
+    retry: false,
+    staleTime: 0,
+  });
+  const semConfirmacao = previa?.podeGerar === false;
+
+  function abrirPresencial() {
+    if (semNavegar) { onRecadastrarPresencial?.(filiadoId); return; }
+    fechar();
+    router.push(`/filiados/${filiadoId}/recadastrar`);
+  }
 
   const gerar = useMutation({
     mutationFn: () => gerarLinkRecadastramento(filiadoId),
@@ -222,9 +242,9 @@ export function RecadastrarModal({
               )}
 
               {/* A chave troca com o link novo: o estado e a mensagem de antes não valem mais. */}
-              <EnviarLinkRecadastro key={link?.url ?? 'vigente'} filiadoId={filiadoId} />
+              <EnviarLinkRecadastro key={link?.url ?? 'vigente'} filiadoId={filiadoId} onCompletarFicha={abrirPresencial} />
 
-              {ativo && !link && (
+              {ativo && !link && !semConfirmacao && (
                 <div className="border-t pt-3">
                   {confirmandoNovo ? (
                     <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
@@ -269,11 +289,7 @@ export function RecadastrarModal({
                   icon={UserCheck}
                   titulo="Recadastramento presencial"
                   descricao="A equipe preenche o formulário agora, com o filiado presente."
-                  onClick={() => {
-                    if (semNavegar) { onRecadastrarPresencial?.(filiadoId); return; }
-                    fechar();
-                    router.push(`/filiados/${filiadoId}/recadastrar`);
-                  }}
+                  onClick={abrirPresencial}
                 />
               </div>
             </>

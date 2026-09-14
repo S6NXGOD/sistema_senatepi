@@ -117,6 +117,48 @@ export function rotuloDoPeriodo(p: Periodo): string {
 }
 
 /**
+ * O NOME CURTO DO PERÍODO — o cabeçalho da coluna de números no PDF do uso
+ * (14/09/2026). A comparação deixou de ser "antes 0 · +18" e virou uma
+ * coluna ao lado da outra, e o leitor precisa saber de relance de que datas
+ * cada uma é:
+ *
+ *  · ano inteiro → "2025";
+ *  · mês inteiro → "julho";
+ *  · dentro do mesmo ano → "14/07 a 13/08";
+ *  · atravessando o ano → "15/12/25 a 14/01/26".
+ */
+export function rotuloCurtoDoPeriodo(p: Periodo): string {
+  const [a1, m1, d1] = p.de.split('-').map(Number);
+  const [a2, m2, d2] = p.ate.split('-').map(Number);
+  if (a1 === a2 && m1 === 1 && d1 === 1 && m2 === 12 && d2 === 31) return String(a1);
+  if (a1 === a2 && m1 === m2 && d1 === 1 && d2 === ultimoDiaDoMes(a2, m2 - 1)) return MESES[m1 - 1];
+  if (a1 === a2) return `${pad(d1)}/${pad(m1)} a ${pad(d2)}/${pad(m2)}`;
+  return comAno(p);
+}
+
+const comAno = (p: Periodo) => {
+  const [a1, m1, d1] = p.de.split('-').map(Number);
+  const [a2, m2, d2] = p.ate.split('-').map(Number);
+  return `${pad(d1)}/${pad(m1)}/${pad(a1 % 100)} a ${pad(d2)}/${pad(m2)}/${pad(a2 % 100)}`;
+};
+
+/**
+ * OS CABEÇALHOS DAS DUAS COLUNAS, lado a lado. "01/01 a 14/09" deste ano
+ * comparado com o mesmo trecho do ano passado daria dois cabeçalhos iguais:
+ * quando o nome curto coincide, os dois levam o ano.
+ */
+export function rotulosDasColunas(atual: Periodo, anterior: Periodo): [string, string] {
+  const a = rotuloCurtoDoPeriodo(atual);
+  const b = rotuloCurtoDoPeriodo(anterior);
+  if (a !== b) return [a, b];
+  const [anoA] = atual.de.split('-');
+  const [anoB] = anterior.de.split('-');
+  const comOAno = (rotulo: string, ano: string, p: Periodo) =>
+    /^\d{4}$/.test(rotulo) ? rotulo : MESES.includes(rotulo) ? `${rotulo} de ${ano}` : comAno(p);
+  return [comOAno(a, anoA, atual), comOAno(b, anoB, anterior)];
+}
+
+/**
  * O PERÍODO POR EXTENSO — o destaque da primeira página do PDF.
  *
  * "1º a 31 de agosto de 2026", "1º de janeiro a 12 de setembro de 2026",

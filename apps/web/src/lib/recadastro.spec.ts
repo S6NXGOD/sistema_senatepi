@@ -1,4 +1,11 @@
-import { recadastramentosAConferir, valorDaAlteracao } from './recadastro';
+import {
+  DESAFIOS_CONHECIDOS,
+  faltaNoDesafio,
+  pedidoDoDesafio,
+  recadastramentosAConferir,
+  respostaDoDesafio,
+  valorDaAlteracao,
+} from './recadastro';
 
 /**
  * O DE→PARA DA CONFERÊNCIA.
@@ -53,5 +60,141 @@ describe('recadastramentosAConferir', () => {
   it('lista ausente não quebra', () => {
     expect(recadastramentosAConferir(undefined)).toEqual([]);
     expect(recadastramentosAConferir(null)).toEqual([]);
+  });
+});
+
+/**
+ * A PRIMEIRA TELA DA PÁGINA PÚBLICA (14/09/2026).
+ *
+ * Antes, todo valor diferente de COREN caía no formulário de CPF e data. Com os
+ * desafios de um dado só, um link CPF mostraria um campo de data que ninguém ia
+ * conferir, e um valor desconhecido gastaria as 5 tentativas.
+ */
+describe('pedidoDoDesafio', () => {
+  it('CPF + nascimento: os dois campos e a frase de sempre', () => {
+    expect(pedidoDoDesafio('CPF_NASCIMENTO')).toEqual({
+      tipo: 'FORMULARIO',
+      campos: ['CPF', 'NASCIMENTO'],
+      frase: 'Para sua segurança, confirme seus dados antes de atualizar o cadastro.',
+    });
+  });
+
+  it('só o CPF: um campo', () => {
+    expect(pedidoDoDesafio('CPF')).toEqual({
+      tipo: 'FORMULARIO',
+      campos: ['CPF'],
+      frase: 'Para sua segurança, confirme o seu CPF antes de atualizar o cadastro.',
+    });
+  });
+
+  it('só a data de nascimento: um campo', () => {
+    expect(pedidoDoDesafio('NASCIMENTO')).toEqual({
+      tipo: 'FORMULARIO',
+      campos: ['NASCIMENTO'],
+      frase: 'Para sua segurança, confirme a sua data de nascimento antes de atualizar o cadastro.',
+    });
+  });
+
+  it('COREN: um campo', () => {
+    expect(pedidoDoDesafio('COREN')).toEqual({
+      tipo: 'FORMULARIO',
+      campos: ['COREN'],
+      frase: 'Para sua segurança, confirme o número do seu COREN antes de atualizar o cadastro.',
+    });
+  });
+
+  it('NENHUM (link antigo ainda vivo): abre direto', () => {
+    expect(pedidoDoDesafio('NENHUM')).toEqual({ tipo: 'DIRETO' });
+  });
+
+  /** Página velha em cache contra API nova: recarregar, nunca o formulário errado. */
+  it.each([['MATRICULA'], ['cpf'], [''], [null], [undefined]])(
+    'valor desconhecido %p: página desatualizada',
+    (valor) => {
+      expect(pedidoDoDesafio(valor)).toEqual({ tipo: 'DESATUALIZADA' });
+    },
+  );
+
+  it('todo desafio que o tipo conhece tem tela própria', () => {
+    for (const d of DESAFIOS_CONHECIDOS) {
+      expect(pedidoDoDesafio(d).tipo).not.toBe('DESATUALIZADA');
+    }
+  });
+
+  it('frases sem emoji', () => {
+    for (const d of DESAFIOS_CONHECIDOS) {
+      const p = pedidoDoDesafio(d);
+      if (p.tipo === 'FORMULARIO') expect(p.frase).not.toMatch(/\p{Extended_Pictographic}/u);
+    }
+  });
+});
+
+describe('respostaDoDesafio — só vai o que o desafio pede', () => {
+  const digitado = { cpf: '529.982.247-25', nascimento: '1984-03-07', coren: ' COREN-PI 123456-ENF ' };
+
+  it('CPF + nascimento: os dois, CPF só com dígitos', () => {
+    expect(respostaDoDesafio(pedidoDoDesafio('CPF_NASCIMENTO'), digitado)).toEqual({
+      cpf: '52998224725',
+      dataNascimento: '1984-03-07',
+    });
+  });
+
+  it('link CPF: a data digitada antes (outro link, autopreenchimento) não vai', () => {
+    expect(respostaDoDesafio(pedidoDoDesafio('CPF'), digitado)).toEqual({ cpf: '52998224725' });
+  });
+
+  it('link NASCIMENTO: só a data', () => {
+    expect(respostaDoDesafio(pedidoDoDesafio('NASCIMENTO'), digitado)).toEqual({ dataNascimento: '1984-03-07' });
+  });
+
+  it('link COREN: só o COREN, aparado', () => {
+    expect(respostaDoDesafio(pedidoDoDesafio('COREN'), digitado)).toEqual({ coren: 'COREN-PI 123456-ENF' });
+  });
+
+  it('link direto ou desatualizado: nada', () => {
+    expect(respostaDoDesafio(pedidoDoDesafio('NENHUM'), digitado)).toEqual({});
+    expect(respostaDoDesafio(pedidoDoDesafio('MATRICULA'), digitado)).toEqual({});
+  });
+
+  it('campo vazio não vai como string vazia', () => {
+    expect(respostaDoDesafio(pedidoDoDesafio('CPF_NASCIMENTO'), { cpf: '', nascimento: '', coren: '' })).toEqual({});
+  });
+});
+
+/** Cada resposta errada conta nas 5 tentativas: erro de digitação não pode gastar uma. */
+describe('faltaNoDesafio', () => {
+  const vazio = { cpf: '', nascimento: '', coren: '' };
+
+  it('CPF vazio', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('CPF'), vazio)).toBe('Preencha o CPF.');
+  });
+
+  it('CPF pela metade', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('CPF'), { ...vazio, cpf: '529.982.24' })).toBe(
+      'Confira o CPF: são 11 números.',
+    );
+  });
+
+  it('CPF completo no link CPF: pode enviar', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('CPF'), { ...vazio, cpf: '529.982.247-25' })).toBeNull();
+  });
+
+  it('CPF + nascimento sem a data', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('CPF_NASCIMENTO'), { ...vazio, cpf: '52998224725' })).toBe(
+      'Preencha a data de nascimento.',
+    );
+  });
+
+  it('link NASCIMENTO não cobra CPF', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('NASCIMENTO'), { ...vazio, nascimento: '1984-03-07' })).toBeNull();
+    expect(faltaNoDesafio(pedidoDoDesafio('NASCIMENTO'), vazio)).toBe('Preencha a data de nascimento.');
+  });
+
+  it('COREN em branco', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('COREN'), { ...vazio, coren: '   ' })).toBe('Preencha o número do COREN.');
+  });
+
+  it('link direto nunca cobra nada', () => {
+    expect(faltaNoDesafio(pedidoDoDesafio('NENHUM'), vazio)).toBeNull();
   });
 });

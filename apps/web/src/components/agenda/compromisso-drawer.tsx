@@ -129,7 +129,9 @@ export function CompromissoDrawer({
     mutationFn: (id: string) => atualizarCompromisso(id, { responsavelId: user!.id }),
     onSuccess: () => {
       toast.success('Atividade assumida — agora ela é sua.');
-      for (const k of [['compromissos'], ['compromisso'], ['agenda-alertas'], ['minhas-pendencias'], ['dashboard'], ['dashboard-resumo']]) {
+      // As chaves "agenda-alertas" e "dashboard" saíram em 14/09/2026 junto com
+      // GET /compromissos/alertas: nenhuma consulta as declarava, invalidar não fazia nada.
+      for (const k of [['compromissos'], ['compromisso'], ['minhas-pendencias'], ['dashboard-resumo']]) {
         qc.invalidateQueries({ queryKey: k });
       }
     },

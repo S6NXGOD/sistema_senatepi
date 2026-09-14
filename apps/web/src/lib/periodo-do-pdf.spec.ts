@@ -1,8 +1,41 @@
 import {
-  hojeComoTexto, periodoAnterior, periodoDoPreset, periodoPorExtenso, periodoValido, presetValido, rotuloDoPeriodo,
+  hojeComoTexto, periodoAnterior, periodoDoPreset, periodoPorExtenso, periodoValido, presetValido, rotuloCurtoDoPeriodo,
+  rotuloDoPeriodo, rotulosDasColunas,
 } from './periodo-do-pdf';
 
 const tela = { de: '2026-08-13', ate: '2026-09-12' };
+
+/**
+ * O CABEÇALHO DA COLUNA DE NÚMEROS no PDF do uso (14/09/2026): a comparação
+ * virou uma coluna ao lado da outra, e cada uma diz de que datas é.
+ */
+describe('o nome curto do período', () => {
+  it('mesmo ano, mês inteiro, ano inteiro e virada de ano', () => {
+    expect(rotuloCurtoDoPeriodo({ de: '2026-07-14', ate: '2026-08-13' })).toBe('14/07 a 13/08');
+    expect(rotuloCurtoDoPeriodo({ de: '2026-07-01', ate: '2026-07-31' })).toBe('julho');
+    expect(rotuloCurtoDoPeriodo({ de: '2025-01-01', ate: '2025-12-31' })).toBe('2025');
+    expect(rotuloCurtoDoPeriodo({ de: '2025-12-15', ate: '2026-01-14' })).toBe('15/12/25 a 14/01/26');
+  });
+
+  it('as duas colunas lado a lado', () => {
+    expect(rotulosDasColunas({ de: '2026-08-14', ate: '2026-09-13' }, { de: '2026-07-14', ate: '2026-08-13' })).toEqual([
+      '14/08 a 13/09', '14/07 a 13/08',
+    ]);
+    expect(rotulosDasColunas({ de: '2026-08-01', ate: '2026-08-31' }, { de: '2026-07-01', ate: '2026-07-31' })).toEqual([
+      'agosto', 'julho',
+    ]);
+  });
+
+  /** "Este ano" contra o mesmo trecho do ano passado dava "01/01 a 14/09" nas duas colunas. */
+  it('nome curto igual nas duas colunas ganha o ano', () => {
+    expect(rotulosDasColunas({ de: '2026-01-01', ate: '2026-09-14' }, { de: '2025-01-01', ate: '2025-09-14' })).toEqual([
+      '01/01/26 a 14/09/26', '01/01/25 a 14/09/25',
+    ]);
+    expect(rotulosDasColunas({ de: '2026-09-01', ate: '2026-09-30' }, { de: '2025-09-01', ate: '2025-09-30' })).toEqual([
+      'setembro de 2026', 'setembro de 2025',
+    ]);
+  });
+});
 
 /** O destaque da primeira página do PDF (13/09/2026): texto puro, o dia não anda em fuso nenhum. */
 describe('o período por extenso', () => {

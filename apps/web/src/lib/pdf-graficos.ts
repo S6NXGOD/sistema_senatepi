@@ -17,6 +17,12 @@ export interface CoresDaInstalacao {
   principal: Cor;
   /** O tom médio (400): a segunda parte de uma barra empilhada. */
   media: Cor;
+  /**
+   * O tom claro (300): o topo da coluna empilhada do PDF do uso ("depois do
+   * dia marcado"), em 14/09/2026. Contra o 800 da base continua distinto no
+   * papel impresso em preto e branco, nas duas paletas.
+   */
+  clara: Cor;
   /** O fundo mais claro (50): a caixa do destaque. */
   fundo: Cor;
   /** O fundo claro (100): o cabeçalho das tabelas. */
@@ -35,6 +41,7 @@ export function corDaInstalacao(paleta: Record<string, string>): CoresDaInstalac
   return {
     principal: hexParaRgb(paleta['800']) ?? [27, 127, 10],
     media: hexParaRgb(paleta['400']) ?? [132, 190, 112],
+    clara: hexParaRgb(paleta['300']) ?? [181, 210, 104],
     fundo: hexParaRgb(paleta['50']) ?? [243, 247, 244],
     fundoForte: hexParaRgb(paleta['100']) ?? [238, 243, 240],
   };

@@ -51,6 +51,7 @@ import {
 } from '@/lib/djen';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from './publicacao-djen-card';
+import { LinhaDeCobertura } from './linha-de-cobertura';
 import { baixarPdf } from '@/lib/pdf';
 import { classesCor } from '@/lib/paleta-cores';
 import { tenant } from '@/tenant.config';
@@ -1661,6 +1662,7 @@ export function ProcessoDetalheSheet({
               {/* ---------------- PUBLICAÇÕES (DJEN) ---------------- */}
               {aba === 'publicacoes' && (
                 <AbaPublicacoes
+                  processoId={p.id}
                   destacada={publicacaoDestacada}
                   onVerAndamento={verAndamento}
                   ativo={!!djen?.ativo}
@@ -2104,8 +2106,10 @@ function TextoExpansivel({ texto, limite = 180, nu }: { texto: string; limite?: 
  */
 function AbaPublicacoes({
   ativo, bloqueadoNaOrigem, carregando, publicacoes, buscando, onBuscar,
-  destacada, onVerAndamento,
+  destacada, onVerAndamento, processoId,
 }: {
+  /** Para a linha de cobertura (14/09/2026): por qual OAB e quando pelo número. */
+  processoId: string;
   ativo: boolean;
   bloqueadoNaOrigem: boolean;
   carregando: boolean;
@@ -2165,6 +2169,8 @@ function AbaPublicacoes({
           Buscar no DJEN
         </Button>
       </div>
+
+      <LinhaDeCobertura processoId={processoId} />
 
       {carregando ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Carregando publicações…</p>
