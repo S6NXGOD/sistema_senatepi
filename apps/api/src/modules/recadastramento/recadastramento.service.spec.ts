@@ -65,6 +65,8 @@ describe('conferir', () => {
 
     expect(r).toEqual({
       id: 'r1', status: 'APROVADO', origem: 'ONLINE',
+      // A observação de antes de 14/09/2026 não dizia como o link confirmou.
+      confirmacao: null, avisoDaConfirmacao: null,
       createdAt: new Date('2026-09-12T13:00:00.000Z'),
       revisadoEm: new Date('2026-09-13T17:04:00.000Z'),
       revisor: { id: 'u1', nome: 'ANA' },
@@ -127,9 +129,32 @@ describe('listar', () => {
       ['r1', 'ONLINE', 'PENDENTE', 2],
       ['r0', 'PRESENCIAL', 'APROVADO', 0],
     ]);
-    expect(Object.keys(itens[0]).sort()).toEqual(
-      ['alteracoes', 'createdAt', 'id', 'origem', 'revisadoEm', 'revisor', 'status'],
-    );
+    expect(Object.keys(itens[0]).sort()).toEqual([
+      'alteracoes', 'avisoDaConfirmacao', 'confirmacao', 'createdAt', 'id', 'origem',
+      'revisadoEm', 'revisor', 'status',
+    ]);
+  });
+
+  /** A linha âmbar chega pronta à ficha, calculada num lugar só (14/09/2026). */
+  it('link de um fator só que preencheu a data vazia: confirmação e aviso no item', async () => {
+    const { service, prisma } = montar();
+    prisma.recadastramento.findMany.mockResolvedValue([
+      linha({
+        observacao: 'Recadastramento ONLINE feito pelo próprio filiado (link; confirmado só pelo CPF).',
+        dadosAnteriores: { cpf: '12345678909', dataNascimento: null },
+        dadosNovos: { dataNascimento: '1980-05-10' },
+      }),
+      linha({ id: 'r0', observacao: null, status: 'APROVADO' }),
+    ]);
+    const [online, presencial] = await service.listar('f1');
+    expect(online).toMatchObject({
+      origem: 'ONLINE',
+      confirmacao: 'CPF',
+      avisoDaConfirmacao:
+        'O link confirmou só o CPF. A data de nascimento foi preenchida pelo próprio filiado: ' +
+        'confira num documento antes de marcar como conferido.',
+    });
+    expect(presencial).toMatchObject({ origem: 'PRESENCIAL', confirmacao: null, avisoDaConfirmacao: null });
   });
 });
 

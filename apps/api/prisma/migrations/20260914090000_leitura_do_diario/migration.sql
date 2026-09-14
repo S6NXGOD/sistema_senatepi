@@ -1,0 +1,31 @@
+-- ATÉ ONDE O DIÁRIO FOI LIDO — por OAB e por processo.
+--
+-- 1) `users.djen_lido_ate` (D1). A varredura por OAB pede uma janela FIXA de 3
+--    dias. Três ou quatro noites seguidas sem a ponte da VPS, com certificado
+--    vencido ou com deploy às 05:00 faziam os atos desses dias sumirem da via
+--    OAB para sempre, e a ação nova sumia junto. Com o carimbo, cada rodada lê
+--    de `min(hoje-3, djen_lido_ate-1)` até hoje, com teto de 60 dias.
+--    O carimbo SÓ avança quando a paginação termina sem falha e sem bater no
+--    teto de páginas: é a DECISÃO gravada, não deduzida do texto do log.
+--    DATE e não TIMESTAMP: o DJEN publica por dia (de segunda a sexta) e a
+--    pergunta é "até que dia de Teresina já foi lido". No web, data pura
+--    (`formatDataPura`).
+--    Nulo = nunca carimbado: a rodada usa a janela de 3 dias, para a primeira
+--    noite não disparar uma colheita de 60 dias.
+--
+-- 2) `processos.djen_historico_lido_em` (D3). Medido em 13–14/09/2026: nos
+--    processos cadastrados ANTES da carga de 04/09, o DataJud registra
+--    publicação em dias com ato do DJEN no banco em 84,5% dos casos; nos 37
+--    cadastrados DEPOIS, só em 38,4%. O histórico desses nunca foi colhido.
+--    Nulo = o processo ainda não teve o histórico lido pelo número (sem filtro
+--    de data, até 10 páginas); o robô carimba ao terminar sem falha nem teto.
+--    TIMESTAMP(3), como `ultima_consulta_djen`: é instante de consulta.
+--
+-- Nenhum backfill: carimbar o que não foi lido seria afirmar uma leitura que
+-- não aconteceu.
+--
+-- ADITIVA E IDEMPOTENTE, como exige a janela de troca do deploy: o contêiner
+-- antigo ignora as duas colunas e continua com a janela fixa de 3 dias. No
+-- banco do SINDSERM, que não tem DJEN, elas ficam nulas e inertes.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "djen_lido_ate" DATE;
+ALTER TABLE "processos" ADD COLUMN IF NOT EXISTS "djen_historico_lido_em" TIMESTAMP(3);

@@ -64,7 +64,7 @@ export class CorrelacaoService {
    * Chamado depois de ingerir publicações de um processo.
    */
   async aplicarAposDjen(processoId: string): Promise<{ criadas: number; enriquecidas: number }> {
-    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0, deOutraParte: 0, propostas: 0 };
+    const resumo = { criadas: 0, enriquecidas: 0, antigas: 0, deOutraParte: 0, propostas: 0, copias: 0 };
     try {
       const desde = new Date(Date.now() - this.JANELA_DIAS * 24 * 3_600_000);
 
@@ -224,6 +224,66 @@ export class CorrelacaoService {
           });
           resumo.enriquecidas++;
           continue;
+        }
+
+        /*
+          (A1) CÓPIA DE UM ATO QUE JÁ FOI DECIDIDO (14/09/2026).
+
+          O DJEN manda uma comunicação POR DESTINATÁRIO: o mesmo ato, com hash
+          próprio e o MESMO link. O `hash` único não as junta, e a trava (A2)
+          só enxerga tarefa ABERTA. Então a cópia do reclamante e a da reclamada
+          viravam duas propostas na mesma noite, e a cópia que chegava depois
+          de uma recusa reabria a proposta que o advogado já tinha recusado (ou
+          criava outra tarefa depois da concluída).
+
+          Desde a rodada 3 a cópia endereçada à outra parte chega de verdade: a
+          consulta por número roda toda noite e o histórico relê o processo. A
+          simulação contra a produção achou 3 processos com exatamente 2 atos
+          faltando, do mesmo dia: o par de cópias.
+
+          A cópia segue a decisão que o ato já tem, e a decisão fica GRAVADA
+          (memória "carimbe toda decisão"): com atividade, herda a atividade;
+          com proposta ou dispensa, recebe a dispensa com o motivo próprio.
+          Isso cobre o mesmo lote também, porque a primeira cópia é gravada
+          antes de a segunda ser lida.
+        */
+        if (c.link) {
+          const decidida = await this.prisma.comunicacaoDjen.findFirst({
+            where: {
+              ...mesmoAtoPeloLink({ id: c.id, processoId, link: c.link }),
+              OR: [
+                { compromissoId: { not: null } },
+                { tarefaPropostaEm: { not: null } },
+                { tarefaDispensadaEm: { not: null } },
+              ],
+            },
+            select: { compromissoId: true, compromisso: { select: { status: true } } },
+          });
+          if (decidida) {
+            const aberta =
+              decidida.compromisso?.status === 'PENDENTE' ||
+              decidida.compromisso?.status === 'EM_ANDAMENTO';
+            if (decidida.compromissoId && aberta) await this.enriquecer(decidida.compromissoId, c);
+            await this.prisma.comunicacaoDjen.update({
+              where: { id: c.id },
+              data: decidida.compromissoId
+                ? {
+                    movimentacaoId,
+                    compromissoId: decidida.compromissoId,
+                    providencia: c.providencia,
+                    prazoMencionadoDias: c.prazoMencionadoDias,
+                  }
+                : {
+                    movimentacaoId,
+                    providencia: c.providencia,
+                    prazoMencionadoDias: c.prazoMencionadoDias,
+                    tarefaDispensadaEm: new Date(),
+                    tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO',
+                  },
+            });
+            resumo.copias++;
+            continue;
+          }
         }
 
         /**
@@ -449,7 +509,7 @@ export class CorrelacaoService {
       // O pareamento tardio — ver `parearAtrasadas`.
       await this.parearAtrasadas(processoId, desde, movimentacoes);
 
-      if (resumo.criadas || resumo.enriquecidas || resumo.antigas || resumo.deOutraParte || resumo.propostas) {
+      if (resumo.criadas || resumo.enriquecidas || resumo.antigas || resumo.deOutraParte || resumo.propostas || resumo.copias) {
         this.logger.log(
           `[CORRELACAO] ${processo.numeroCNJ}: ${resumo.criadas} atividade(s) criada(s), ` +
             `${resumo.enriquecidas} enriquecida(s) com o teor da publicação` +
@@ -457,7 +517,8 @@ export class CorrelacaoService {
             // Sai no log porque é a decisão MAIS nova do robô: se ela começar a
             // barrar demais, é aqui que se vê antes de alguém reclamar.
             `${resumo.deOutraParte ? `, ${resumo.deOutraParte} com ordem dirigida à parte contrária — sem tarefa` : ''}` +
-            `${resumo.propostas ? `, ${resumo.propostas} proposta(s) na caixa do advogado` : ''}.`,
+            `${resumo.propostas ? `, ${resumo.propostas} proposta(s) na caixa do advogado` : ''}` +
+            `${resumo.copias ? `, ${resumo.copias} cópia(s) de ato já decidido — seguiram a decisão` : ''}.`,
         );
       }
     } catch (err) {
@@ -1044,6 +1105,18 @@ interface ProcessoAlvo {
    * casos não dá para atribuir papéis, e a trava não decide nada.
    */
   nossoPolo: 'ATIVO' | 'PASSIVO' | null;
+}
+
+/**
+ * O MESMO ATO, EM OUTRA CÓPIA: mesmo processo, mesmo link, outra linha.
+ *
+ * O DJEN publica uma comunicação por destinatário, cada uma com o seu hash, e
+ * o link é o que as cópias têm em comum (memória "qualidade das tarefas"). A
+ * correlação e a caixa de propostas perguntam a mesma coisa por aqui, para a
+ * definição de "cópia" não divergir entre as duas.
+ */
+export function mesmoAtoPeloLink(c: { id: string; processoId: string; link: string }) {
+  return { processoId: c.processoId, link: c.link, id: { not: c.id } };
 }
 
 /**

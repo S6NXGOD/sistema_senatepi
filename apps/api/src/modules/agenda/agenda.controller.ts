@@ -46,16 +46,12 @@ export class AgendaController {
     return this.service.listarResponsaveis();
   }
 
-  /**
-   * Alertas: "Aguardando interação" (venceu há +3h) e "Próximas 24 horas".
-   *
-   * A tela não chama mais (D9); a rota fica por uma versão. Enquanto ficar, corta
-   * as partes de quem não vê Processos, como a listagem.
-   */
-  @Get('alertas')
-  alertas(@CurrentUser() user: AuthUser) {
-    return this.service.alertas(user);
-  }
+  /*
+    `GET /compromissos/alertas` SAIU em 14/09/2026 (D20 da rodada 3), sem
+    substituta. Nenhuma tela chamava desde 523cd0c, e ela mantinha viva uma
+    terceira régua de "atrasada" (+3h) — a que o projeto passou setembro
+    apagando. A régua que vale mora em `recortes.util.ts`.
+  */
 
   @Post()
   criar(@Body() dto: CreateCompromissoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {

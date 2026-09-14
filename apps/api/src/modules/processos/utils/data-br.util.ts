@@ -96,6 +96,25 @@ export function mesBR(d: Date): string {
 }
 
 /**
+ * Chave "semana em Teresina": a SEGUNDA-FEIRA da semana (yyyy-mm-dd).
+ *
+ * Irmã de `mesBR`, e nasceu pelo mesmo motivo (14/09/2026): o PDF de uso de uma
+ * pessoa ganhou o semana a semana, e a semana só pode ter UMA implementação,
+ * a daqui. Se o web reagrupasse os dias, seriam duas regras para a mesma coluna.
+ *
+ * A conta é em data pura: o dia de Teresina vira meia-noite UTC e o dia da
+ * semana sai de `getUTCDay`. Com `getDay()` no contêiner (UTC), um uso às 22h
+ * de domingo aqui já é segunda lá, e cairia na semana seguinte.
+ */
+export function semanaBR(d: Date): string {
+  const [ano, mes, dia] = diaBR(d).split('-').map(Number);
+  const meiaNoite = Date.UTC(ano, mes - 1, dia);
+  // Domingo (0) volta 6 dias; segunda (1) fica; sábado (6) volta 5.
+  const desdeSegunda = (new Date(meiaNoite).getUTCDay() + 6) % 7;
+  return new Date(meiaNoite - desdeSegunda * 24 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/**
  * IDADE EM ANOS COMPLETOS, pelo calendário daqui.
  *
  * Comparar `getMonth()/getDate()` dos dois lados mistura o fuso do processo com

@@ -153,10 +153,13 @@ describe('as etapas finais da varredura do DJEN', () => {
   const montar = (quebra: Partial<Record<'correlacao' | 'advogados' | 'partes', Error>> = {}) => {
     const prisma = {
       user: {
-        // Um advogado com OAB (a varredura tem alvo) e ninguém sem OAB.
-        findMany: jest.fn(async (args: { where: { role?: string } }) =>
-          args.where.role === 'ADVOGADO' ? [] : [{ id: 'u1', oab: '9226', oabUf: 'PI' }],
-        ),
+        // Um advogado com OAB (a varredura tem alvo) e ninguém sem OAB. A lista
+        // de "sem OAB" filtra na aplicação, então o mesmo advogado com OAB
+        // válida não entra nela.
+        findMany: jest.fn(async () => [
+          { id: 'u1', nome: 'Morgana', nomeExibicao: null, oab: '9226', oabUf: 'PI', djenLidoAte: null },
+        ]),
+        update: jest.fn(async () => ({})),
       },
       processo: {
         findMany: jest.fn(async (args: { where: { comunicacoes?: { some?: { providencia?: null } } } }) => {
@@ -168,7 +171,12 @@ describe('as etapas finais da varredura do DJEN', () => {
       comunicacaoDjen: { findMany: jest.fn(async () => []) },
       sugestaoProcesso: { findMany: jest.fn(async () => []) },
     };
-    const djen = { janelaDias: 3, buscarPorOab: jest.fn(async () => []), buscarPorProcesso: jest.fn(async () => []) };
+    const leitura = (rotulo: string) => ({ itens: [], paginas: 1, bateuNoTeto: false, interrompidaPor: null, rotulo });
+    const djen = {
+      janelaDias: 3,
+      lerPorOab: jest.fn(async () => leitura('OAB PI 9226')),
+      lerPorProcesso: jest.fn(async () => leitura('NPU 00008146120265220002')),
+    };
     const logSync = { registrar: jest.fn(async (..._args: unknown[]) => undefined) };
     const caixa = { escalarEsquecidas: jest.fn(async () => 0) };
     const vinculo = {

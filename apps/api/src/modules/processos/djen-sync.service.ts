@@ -3,7 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { OrigemSincronizacao, Prisma, StatusProcesso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CorrelacaoService } from './correlacao.service';
-import { ComunicacaoDjenDto, DjenService } from './djen.service';
+import {
+  ComunicacaoDjenDto,
+  DjenService,
+  PAGINAS_DO_NUMERO_NA_JANELA,
+  type LeituraDjen,
+} from './djen.service';
 import { DatajudService } from './datajud.service';
 import { instanciaBaixada } from './utils/audiencia.util';
 import { FONTE_DJEN, SincronizacaoLogService } from './sincronizacao-log.service';
@@ -17,8 +22,22 @@ import {
   DORMENTES,
   STATUS_VIVOS,
 } from './utils/varredura.util';
+import {
+  coberturaDoDiario,
+  colunaDateDoDia,
+  diaDaColunaDate,
+  DJEN_HISTORICO_MAX_PAGINAS_PADRAO,
+  DJEN_HISTORICO_POR_RODADA_PADRAO,
+  DJEN_TETO_RECUPERACAO_DIAS,
+  inteiroDoAmbiente,
+  janelaDaOab,
+  janelaDoNumero,
+  oabConsultavel,
+  podeCarimbar,
+  type CoberturaDoDiario,
+} from './utils/djen-leitura.util';
 import { anotarReserva } from '../agenda/equipe.util';
-import { noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
+import { diaBR, noveDaManhaBR, proximoHorarioUtilBR } from './utils/data-br.util';
 import { NpuUtils } from './utils/npu.util';
 import { fecharTarefaDeCadastro } from './utils/tarefa-de-cadastro.util';
 import { CaixaDePropostasService } from './caixa-de-propostas.service';
@@ -68,6 +87,19 @@ export interface ResumoVarreduraDjen {
   sugeridas: number;
   falhas: number;
   /**
+   * Consultas que pararam no teto de páginas, pelo rótulo público (OAB ou NPU).
+   *
+   * Bater no teto era só um `warn` no stdout do Railway, que tem retenção
+   * própria: não dava para provar pelo banco que nenhuma consulta encostou
+   * nele. Agora vai para a FRENTE da linha de resumo, e a data de leitura
+   * daquela consulta não avança (14/09/2026).
+   */
+  consultasNoTeto: string[];
+  /** Maior quantidade de itens que UMA consulta devolveu. Perto de 100 × páginas é teto. */
+  maiorRecebidaPorConsulta: number;
+  /** Processos cujo histórico foi lido inteiro pelo número e carimbado nesta rodada. */
+  historicosLidos: number;
+  /**
    * Etapas finais que quebraram e foram puladas, com o motivo curto.
    *
    * As seis etapas depois da ingestão rodavam em fila, sem proteção entre
@@ -97,23 +129,42 @@ export interface ResumoVarreduraDjen {
  * não guarda OAB. Fica só a contagem no log, para que o volume seja visível sem
  * que o dado de terceiro seja persistido.
  *
- * Complemento por NPU: processos ativos que não receberam publicação nenhuma
- * pela via da OAB são consultados diretamente. É o caso do processo herdado ou
- * do substabelecimento que o tribunal não registrou — a OAB do sindicato não
- * consta do polo, e sem esta segunda passada aquelas intimações nunca
- * apareceriam.
+ * CONSULTA POR NÚMERO — o que ACOMPANHA o acervo (reescrito em 14/09/2026).
+ *
+ * A OAB serve para DESCOBRIR: ação nova, carteira do país inteiro numa chamada.
+ * Quem acompanha o processo cadastrado é o número. Antes era o contrário: o
+ * número só consultava quem estava 30 dias sem nenhuma publicação gravada, e a
+ * primeira publicação achada tirava o processo da consulta por 30 dias. O ato
+ * dirigido à parte, o edital e o do advogado de fora chegavam com até 30 dias
+ * de atraso, e o que passava disso virava FORA_DA_JANELA sem tarefa nenhuma.
+ *
+ * Agora são três passadas, nesta ordem:
+ *  1. OAB de cada advogado ativo, desde o dia anterior à última leitura boa
+ *     (`users.djen_lido_ate`), com teto de 60 dias.
+ *  2. HISTÓRICO pelo número, uma vez por processo (`djen_historico_lido_em`
+ *     nulo), sem filtro de data, os mais recentes no sistema primeiro.
+ *  3. O número de todo processo vivo, toda noite, de `ultima_consulta_djen − 3
+ *     dias` até hoje; os dormentes a cada 7 dias.
  */
 @Injectable()
 export class DjenSyncService {
   private readonly logger = new Logger(DjenSyncService.name);
 
   /**
-   * Processo ativo sem nenhuma publicação casada nos últimos N dias entra na
-   * consulta por NPU. Trinta dias é largo o bastante para não consultar o mesmo
-   * processo toda noite e curto o bastante para não deixar um processo mudo
-   * passar um trimestre sem verificação.
+   * A JANELA DE TAREFA, em dias — o que é mais velho que isto só é classificado.
+   *
+   * Chamava-se `DIAS_SEM_PUBLICACAO` porque também decidia quem entrava na
+   * consulta por número ("sem publicação em 30 dias"). Essa trava saiu em
+   * 14/09/2026; sobrou o uso que ela sempre teve na correlação e no rótulo: a
+   * mesma régua de `CorrelacaoService.JANELA_DIAS`. Um ato do histórico com mais
+   * de 30 dias recebe FORA_DA_JANELA e nunca vira tarefa nem proposta.
    */
-  private readonly DIAS_SEM_PUBLICACAO = 30;
+  private readonly DIAS_DA_JANELA_DE_TAREFA = 30;
+
+  /** Quantos processos têm o histórico lido pelo número por noite (`DJEN_HISTORICO_POR_RODADA`). */
+  private readonly historicoPorRodada: number;
+  /** Até quantas páginas cada leitura de histórico lê (`DJEN_HISTORICO_MAX_PAGINAS`). */
+  private readonly historicoMaxPaginas: number;
 
   /**
    * Teto de processos consultados um a um por rodada.
@@ -141,6 +192,24 @@ export class DjenSyncService {
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
+    /*
+      OS DOIS TETOS DA COLHEITA DE HISTÓRICO VÊM DO AMBIENTE (14/09/2026).
+
+      A simulação contra a produção ainda estava contando quantos atos essa
+      colheita traria quando isto foi escrito. O número certo sai dela, e
+      ajustar precisa ser variável e restart, não deploy. Zero em
+      `DJEN_HISTORICO_POR_RODADA` desliga a colheita.
+    */
+    this.historicoPorRodada = inteiroDoAmbiente(
+      this.config.get('DJEN_HISTORICO_POR_RODADA'),
+      DJEN_HISTORICO_POR_RODADA_PADRAO,
+      { min: 0, max: 1_000 },
+    );
+    this.historicoMaxPaginas = inteiroDoAmbiente(
+      this.config.get('DJEN_HISTORICO_MAX_PAGINAS'),
+      DJEN_HISTORICO_MAX_PAGINAS_PADRAO,
+      { min: 1, max: 50 },
+    );
   }
 
   /**
@@ -190,6 +259,9 @@ export class DjenSyncService {
       sugeridas: 0,
       advogadosSemOab: 0,
       falhas: 0,
+      consultasNoTeto: [],
+      maiorRecebidaPorConsulta: 0,
+      historicosLidos: 0,
       etapasComFalha: [],
     };
     let quebrou: string | null = null;
@@ -209,7 +281,15 @@ export class DjenSyncService {
     aguardar: () => Promise<void>,
     diasDeHistorico?: number,
   ): Promise<void> {
-    const ate = new Date();
+    /*
+      O DIA DE HOJE É O DE TERESINA, calculado uma vez para a rodada inteira.
+
+      A janela saía de `new Date() - dias` convertida com `toISOString`, que é o
+      dia de Greenwich. Às 05:00 dá o mesmo dia; a varredura pedida à mão às
+      22h pedia "a partir de amanhã" e perdia um dia. Todas as janelas e todos
+      os carimbos desta rodada partem deste texto.
+    */
+    const hoje = diaBR(new Date());
     /*
       O TETO DE 180 DIAS não é timidez: a busca por OAB devolve a carteira
       INTEIRA do advogado, e medimos ~113 publicações por dia somando os oito.
@@ -219,16 +299,12 @@ export class DjenSyncService {
     const dias = diasDeHistorico
       ? Math.min(180, Math.max(1, Math.floor(diasDeHistorico)))
       : this.djen.janelaDias;
-    const de = new Date(ate.getTime() - dias * 24 * 3_600_000);
     if (diasDeHistorico) {
       this.logger.log(`[DJEN-SYNC] Varredura de HISTÓRICO: ${dias} dias de publicações.`);
     }
 
     // ---- 1) Por OAB de cada advogado ativo ----
-    const advogados = await this.prisma.user.findMany({
-      where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
-      select: { id: true, oab: true, oabUf: true },
-    });
+    const advogados = await this.advogadosConsultaveis();
 
     /*
       ADVOGADO SEM OAB É INVISÍVEL PARA O DIÁRIO — e a falha era silenciosa.
@@ -239,34 +315,58 @@ export class DjenSyncService {
       ausência de alerta parece calma.
 
       Medido em 07/09/2026: a Dra. Lara Cortez é ADVOGADA ativa, tem 2 processos
-      vinculados e está sem OAB. Dois processos cujo prazo não é anunciado.
+      vinculados e está sem OAB. Dois processos cujo prazo não é anunciado. A
+      regra de quem conta e a de OAB vazia estão em `advogadosSemOab`.
     */
-    const semOab = await this.prisma.user.findMany({
-      where: {
-        ativo: true,
-        role: 'ADVOGADO',
-        OR: [{ oab: null }, { oabUf: null }],
-      },
-      select: { nome: true, nomeExibicao: true },
-    });
+    const semOab = await this.advogadosSemOab();
     if (semOab.length) {
       resumo.advogadosSemOab = semOab.length;
       this.logger.warn(
         `[DJEN] ${semOab.length} advogado(s) SEM OAB no cadastro — o Diário não é ` +
-          `consultado para: ${semOab.map((a) => a.nomeExibicao || a.nome).join(', ')}. ` +
+          `consultado para: ${semOab.map((a) => a.nome).join(', ')}. ` +
           'Preencha OAB e UF na ficha para que as intimações deles cheguem.',
       );
     }
 
     for (const adv of advogados) {
+      /*
+        A JANELA SE RECUPERA SOZINHA (14/09/2026).
+
+        Lê desde o dia anterior à última leitura boa desta OAB, com teto de 60
+        dias. O carimbo só avança quando a leitura foi inteira — sem falha no
+        meio e sem bater no teto de páginas —, e aí a noite seguinte volta aos
+        3 dias de sempre. Com falha ou teto, a data fica e a próxima noite relê
+        o período; o `hash` único descarta o que já tinha entrado.
+      */
+      const janela = janelaDaOab(hoje, diaDaColunaDate(adv.djenLidoAte), {
+        sobreposicao: dias,
+        teto: DJEN_TETO_RECUPERACAO_DIAS,
+      });
+      if (janela.recuperando) {
+        this.logger.log(
+          `[DJEN-SYNC] OAB ${adv.oabUf} ${adv.oab}: recuperando leitura atrasada, ` +
+            `${janela.dias} dia(s) desde ${janela.de}` +
+            `${janela.cortadaNoTeto ? ` (atraso maior que ${DJEN_TETO_RECUPERACAO_DIAS} dias; os anteriores ficaram de fora)` : ''}.`,
+        );
+      }
       try {
-        const recebidas = await this.djen.buscarPorOab(adv.oab!, adv.oabUf!, de, ate);
-        resumo.advogadosConsultados++;
-        resumo.recebidas += recebidas.length;
-        const r = await this.ingerir(recebidas, OrigemSincronizacao.CRON);
-        resumo.ingeridas += r.ingeridas;
-        resumo.descartadas += r.descartadas;
-        resumo.sugeridas += r.sugeridas;
+        const leitura = await this.djen.lerPorOab(adv.oab!, adv.oabUf!, janela.de, janela.ate);
+        const r = await this.ingerir(leitura.itens, OrigemSincronizacao.CRON);
+        this.somarLeitura(resumo, leitura, r);
+        if (podeCarimbar(leitura)) {
+          await this.prisma.user.update({
+            where: { id: adv.id },
+            data: { djenLidoAte: colunaDateDoDia(janela.ate) },
+          });
+        }
+        if (leitura.interrompidaPor) {
+          resumo.falhas++;
+          this.logger.warn(
+            `[DJEN-SYNC] OAB ${adv.oabUf} ${adv.oab} lida pela metade: ${leitura.interrompidaPor}`,
+          );
+        } else {
+          resumo.advogadosConsultados++;
+        }
       } catch (err) {
         resumo.falhas++;
         // Isola a falha: um advogado com OAB inválida não pode derrubar a
@@ -278,27 +378,33 @@ export class DjenSyncService {
       await aguardar();
     }
 
-    // ---- 2) Complemento por NPU ----
-    for (const proc of await this.processosSemPublicacaoRecente()) {
-      try {
-        const recebidas = await this.djen.buscarPorProcesso(proc.numeroCNJ!);
-        resumo.processosConsultados++;
-        resumo.recebidas += recebidas.length;
-        const r = await this.ingerir(recebidas, OrigemSincronizacao.CRON);
-        resumo.ingeridas += r.ingeridas;
-        resumo.descartadas += r.descartadas;
-        resumo.sugeridas += r.sugeridas;
-        // Carimba mesmo quando não veio nada: o rodízio mede QUANDO olhamos,
-        // não se achamos. Sem isto, um processo silencioso seria reconsultado
-        // toda noite e empurraria os outros para fora da rodada.
-        await this.prisma.processo.update({
-          where: { id: proc.id },
-          data: { ultimaConsultaDjen: new Date() },
-        });
-      } catch (err) {
-        resumo.falhas++;
-        this.logger.warn(`[DJEN-SYNC] Falha no NPU ${proc.numeroCNJ}: ${(err as Error).message}`);
+    // ---- 2) Histórico pelo número, uma vez por processo ----
+    /*
+      O que o histórico traz passa pela MESMA ingestão e pela MESMA correlação:
+      o ato com mais de 30 dias vira FORA_DA_JANELA em `rotularForaDaJanela` e
+      nunca é candidato a tarefa nem a proposta, porque `aplicarAposDjen` só lê
+      os últimos 30 dias. O teste com valores está em
+      `djen-leitura-do-diario.spec.ts`.
+    */
+    const historicoLidoAgora: string[] = [];
+    for (const proc of await this.processosSemHistorico()) {
+      /*
+        SÓ SAI DO PASSO 3 QUEM FOI LIDO DE FATO (14/09/2026).
+
+        O id entrava na lista ANTES da consulta. Com timeout ou 503 na primeira
+        página do histórico, o processo ficava sem histórico E sem a janela
+        naquela noite. E se a consulta sem data falhasse sempre, ele nunca era
+        lido pela janela, que é o furo que a consulta noturna veio fechar.
+      */
+      if (await this.consultarNumeroNaRodada(resumo, proc, hoje, true)) {
+        historicoLidoAgora.push(proc.id);
       }
+      await aguardar();
+    }
+
+    // ---- 3) O número de todo processo vivo, desde a última consulta ----
+    for (const proc of await this.processosParaConsultarPorNumero(historicoLidoAgora)) {
+      await this.consultarNumeroNaRodada(resumo, proc, hoje, false);
       await aguardar();
     }
 
@@ -371,24 +477,267 @@ export class DjenSyncService {
     }
   }
 
-  /** Varredura de UM processo — usada pelo botão da ficha. */
-  async sincronizarProcesso(processoId: string): Promise<{ ingeridas: number; recebidas: number }> {
+  /**
+   * Varredura de UM processo — usada pelo botão da ficha.
+   *
+   * SEM O HISTÓRICO LIDO, O BOTÃO LÊ O HISTÓRICO (14/09/2026). Com ele, lê a
+   * janela desde a última consulta, e em qualquer caso carimba como a rodada
+   * da noite carimba: antes o botão consultava e não gravava que tinha
+   * consultado, e a noite seguinte relia o mesmo processo à toa.
+   *
+   * Os campos novos da resposta (`historico`, `bateuNoTeto`, `interrompida`)
+   * são só acréscimo: o web antigo lê `ingeridas` e `recebidas`, que continuam.
+   */
+  async sincronizarProcesso(processoId: string): Promise<{
+    ingeridas: number;
+    recebidas: number;
+    historico: boolean;
+    bateuNoTeto: boolean;
+    interrompida: boolean;
+  }> {
     const proc = await this.prisma.processo.findUnique({
       where: { id: processoId },
-      select: { numeroCNJ: true },
+      select: { id: true, numeroCNJ: true, ultimaConsultaDjen: true, djenHistoricoLidoEm: true },
     });
-    if (!proc?.numeroCNJ) return { ingeridas: 0, recebidas: 0 };
+    if (!proc?.numeroCNJ) {
+      return { ingeridas: 0, recebidas: 0, historico: false, bateuNoTeto: false, interrompida: false };
+    }
 
-    // `false` = não esperar a cota virar. Quem clicou está olhando a tela;
-    // prender o botão por até um minuto é pior que dizer "tente em 40s".
-    const recebidas = await this.djen.buscarPorProcesso(proc.numeroCNJ, false);
-    const r = await this.ingerir(recebidas, OrigemSincronizacao.MANUAL);
+    const historico = !proc.djenHistoricoLidoEm;
+    // `esperarCota: false` = não esperar a cota virar. Quem clicou está olhando
+    // a tela; prender o botão por até um minuto é pior que dizer "tente em 40s".
+    const { leitura, ingestao } = await this.lerPeloNumero(
+      { id: proc.id, numeroCNJ: proc.numeroCNJ, ultimaConsultaDjen: proc.ultimaConsultaDjen },
+      diaBR(new Date()),
+      { historico, esperarCota: false, origem: OrigemSincronizacao.MANUAL },
+    );
     // Quem clicou no botão espera ver a atividade criada agora, não amanhã.
     await this.correlacao.aplicarAposDjen(processoId);
+    // O histórico que acabou de chegar ganha rótulo agora, e não na madrugada:
+    // senão a aba mostraria centenas de atos sem dizer do que tratam.
+    await this.rotularForaDaJanela(processoId);
     // E espera ver a equipe do caso completa: o ato que acabou de chegar diz
     // quem atua, e essa leitura custa duas consultas.
     await this.vinculoDeAdvogado.aplicarNoProcesso(processoId);
-    return { ingeridas: r.ingeridas, recebidas: recebidas.length };
+    return {
+      ingeridas: ingestao.ingeridas,
+      recebidas: leitura.itens.length,
+      historico,
+      bateuNoTeto: leitura.bateuNoTeto,
+      interrompida: !!leitura.interrompidaPor,
+    };
+  }
+
+  /**
+   * UMA CONSULTA PELO NÚMERO, COM O CARIMBO CERTO — a mesma para a noite e o botão.
+   *
+   * HISTÓRICO (sem filtro de data, até `DJEN_HISTORICO_MAX_PAGINAS`):
+   *  - `djenHistoricoLidoEm` só quando a leitura foi inteira (sem falha e sem
+   *    teto). Com teto, a noite seguinte tenta de novo, e o teto aparece na
+   *    frente da linha de resumo toda noite até alguém subir o limite.
+   *  - `ultimaConsultaDjen` sempre que não houve falha, MESMO no teto: medido
+   *    pela ponte em 13/09/2026, o CNJ devolve do mais novo para o mais antigo,
+   *    então o que o teto corta é o passado distante, e os dias recentes foram
+   *    lidos.
+   *
+   * JANELA (desde `ultimaConsultaDjen − 3 dias`, até 3 páginas): carimba só a
+   * leitura inteira. Carimba mesmo quando não veio nada: o rodízio mede QUANDO
+   * olhamos, não se achamos. Sem isto, um processo silencioso seria reconsultado
+   * primeiro toda noite e empurraria os outros para fora da rodada.
+   *
+   * Falha na primeira página sobe como erro, sem carimbo nenhum.
+   */
+  private async lerPeloNumero(
+    proc: { id: string; numeroCNJ: string; ultimaConsultaDjen: Date | null },
+    hoje: string,
+    opcoes: { historico: boolean; esperarCota: boolean; origem: OrigemSincronizacao },
+  ): Promise<{
+    leitura: LeituraDjen;
+    ingestao: { ingeridas: number; descartadas: number; sugeridas: number };
+    historicoCarimbado: boolean;
+  }> {
+    const janela = opcoes.historico
+      ? null
+      : janelaDoNumero(hoje, proc.ultimaConsultaDjen, {
+          sobreposicao: this.djen.janelaDias,
+          teto: DJEN_TETO_RECUPERACAO_DIAS,
+        });
+    const leitura = await this.djen.lerPorProcesso(proc.numeroCNJ, {
+      esperarCota: opcoes.esperarCota,
+      maxPaginas: opcoes.historico ? this.historicoMaxPaginas : PAGINAS_DO_NUMERO_NA_JANELA,
+      ...(janela ? { de: janela.de, ate: janela.ate } : {}),
+    });
+    const ingestao = await this.ingerir(leitura.itens, opcoes.origem);
+
+    const inteira = podeCarimbar(leitura);
+    const historicoCarimbado = opcoes.historico && inteira;
+    const consultaCarimbada = opcoes.historico ? !leitura.interrompidaPor : inteira;
+    if (consultaCarimbada) {
+      const agora = new Date();
+      await this.prisma.processo.update({
+        where: { id: proc.id },
+        data: {
+          ultimaConsultaDjen: agora,
+          ...(historicoCarimbado ? { djenHistoricoLidoEm: agora } : {}),
+        },
+      });
+    }
+    return { leitura, ingestao, historicoCarimbado };
+  }
+
+  /**
+   * A consulta pelo número dentro da rodada: isola a falha e conta no resumo.
+   *
+   * Devolve se a leitura voltou (mesmo pela metade: o CNJ entrega do mais novo
+   * para o mais antigo, então os dias recentes foram lidos). Falha na primeira
+   * página devolve `false`.
+   */
+  private async consultarNumeroNaRodada(
+    resumo: ResumoVarreduraDjen,
+    proc: { id: string; numeroCNJ: string | null; ultimaConsultaDjen: Date | null },
+    hoje: string,
+    historico: boolean,
+  ): Promise<boolean> {
+    if (!proc.numeroCNJ) return false;
+    try {
+      const { leitura, ingestao, historicoCarimbado } = await this.lerPeloNumero(
+        { id: proc.id, numeroCNJ: proc.numeroCNJ, ultimaConsultaDjen: proc.ultimaConsultaDjen },
+        hoje,
+        { historico, esperarCota: true, origem: OrigemSincronizacao.CRON },
+      );
+      this.somarLeitura(resumo, leitura, ingestao);
+      if (leitura.interrompidaPor) {
+        resumo.falhas++;
+        this.logger.warn(
+          `[DJEN-SYNC] NPU ${proc.numeroCNJ} lido pela metade: ${leitura.interrompidaPor}`,
+        );
+      } else {
+        resumo.processosConsultados++;
+      }
+      if (historicoCarimbado) resumo.historicosLidos++;
+      return true;
+    } catch (err) {
+      resumo.falhas++;
+      this.logger.warn(`[DJEN-SYNC] Falha no NPU ${proc.numeroCNJ}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /** Soma uma leitura ao resumo, e anota o teto pelo rótulo legível. */
+  private somarLeitura(
+    resumo: ResumoVarreduraDjen,
+    leitura: LeituraDjen,
+    r: { ingeridas: number; descartadas: number; sugeridas: number },
+  ): void {
+    resumo.recebidas += leitura.itens.length;
+    resumo.maiorRecebidaPorConsulta = Math.max(resumo.maiorRecebidaPorConsulta, leitura.itens.length);
+    resumo.ingeridas += r.ingeridas;
+    resumo.descartadas += r.descartadas;
+    resumo.sugeridas += r.sugeridas;
+    if (leitura.bateuNoTeto) {
+      const npu = /^NPU (\d{20})$/.exec(leitura.rotulo)?.[1];
+      resumo.consultasNoTeto.push(npu ? `processo ${NpuUtils.formatar(npu) || npu}` : leitura.rotulo);
+    }
+  }
+
+  /**
+   * QUEM A BUSCA POR OAB ALCANÇA — ativo e com OAB consultável.
+   *
+   * O banco filtra o nulo; a aplicação filtra o vazio e a UF sem duas letras,
+   * que o Prisma não sabe aparar. É a mesma lista para a varredura e para o
+   * número que o `GET /djen/status` mostra.
+   */
+  async advogadosConsultaveis(): Promise<
+    { id: string; oab: string | null; oabUf: string | null; djenLidoAte: Date | null }[]
+  > {
+    const candidatos = await this.prisma.user.findMany({
+      where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
+      select: { id: true, oab: true, oabUf: true, djenLidoAte: true },
+    });
+    return candidatos.filter((a) => oabConsultavel(a.oab, a.oabUf));
+  }
+
+  /**
+   * QUEM DEVIA SER CONSULTADO E NÃO É (14/09/2026).
+   *
+   * Duas mudanças contra a regra de 07/09, e as duas fecham um silêncio:
+   *  - OAB VAZIA CONTA COMO SEM OAB. O filtro era `oab: null`, e o texto vazio
+   *    passava: a pessoa não aparecia aqui, entrava na consulta, o CNJ recusava
+   *    e a noite registrava uma falha, toda noite.
+   *  - NÃO É SÓ O PERFIL ADVOGADO. Entra também quem é o PRINCIPAL de processo
+   *    vivo, de qualquer perfil: é de quem o Diário devia trazer a intimação,
+   *    tenha o cadastro o rótulo que tiver.
+   *
+   * Os dois `OR` não podem morar no mesmo objeto — o segundo sobrescreveria o
+   * primeiro em silêncio (memória "not em coluna nula"). Por isso o vazio é
+   * filtrado na aplicação, pela mesma `oabConsultavel` da varredura.
+   */
+  async advogadosSemOab(): Promise<{ id: string; nome: string }[]> {
+    const candidatos = await this.prisma.user.findMany({
+      where: {
+        ativo: true,
+        OR: [
+          { role: 'ADVOGADO' },
+          {
+            processosEquipe: {
+              some: {
+                principal: true,
+                /*
+                  "VIVO" É O MESMO DAS SELEÇÕES DA VARREDURA (14/09/2026): encerrado
+                  com instância não baixada também anda (cumprimento de sentença no
+                  1º grau) e é consultado toda noite. Sem este ramo, a principal
+                  só de um processo assim ficava fora da lista de sem OAB. Este
+                  `OR` mora dentro de `processo`, e não sobrescreve o de fora.
+                */
+                processo: {
+                  OR: [
+                    { statusInterno: { in: STATUS_VIVOS } },
+                    { statusInterno: StatusProcesso.ENCERRADO, instancias: { some: { baixada: false } } },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true, nome: true, nomeExibicao: true, oab: true, oabUf: true },
+      orderBy: { nome: 'asc' },
+    });
+    return candidatos
+      .filter((u) => !oabConsultavel(u.oab, u.oabUf))
+      .map((u) => ({ id: u.id, nome: u.nomeExibicao || u.nome }));
+  }
+
+  /** A linha de cobertura da aba Publicações — ver `coberturaDoDiario`. */
+  async coberturaDoProcesso(processoId: string): Promise<CoberturaDoDiario | null> {
+    const p = await this.prisma.processo.findUnique({
+      where: { id: processoId },
+      select: {
+        numeroCNJ: true,
+        statusInterno: true,
+        ultimaConsultaDjen: true,
+        djenHistoricoLidoEm: true,
+        instancias: { where: { baixada: false }, select: { id: true }, take: 1 },
+        advogados: {
+          select: {
+            principal: true,
+            advogado: {
+              select: { id: true, nome: true, nomeExibicao: true, ativo: true, oab: true, oabUf: true },
+            },
+          },
+        },
+      },
+    });
+    if (!p) return null;
+    return coberturaDoDiario({
+      numeroCNJ: p.numeroCNJ,
+      statusInterno: p.statusInterno,
+      temInstanciaViva: p.instancias.length > 0,
+      equipe: p.advogados.map((v) => ({ ...v.advogado, principal: v.principal })),
+      ultimaConsultaDjen: p.ultimaConsultaDjen,
+      djenHistoricoLidoEm: p.djenHistoricoLidoEm,
+      agora: new Date(),
+    });
   }
 
   /**
@@ -442,7 +791,7 @@ export class DjenSyncService {
    * a correlação roda uma vez, no fim, em vez de uma por advogado.
    */
   private async correlacionarPendentes(): Promise<void> {
-    const desde = new Date(Date.now() - this.DIAS_SEM_PUBLICACAO * 24 * 3_600_000);
+    const desde = new Date(Date.now() - this.DIAS_DA_JANELA_DE_TAREFA * 24 * 3_600_000);
     const processos = await this.prisma.processo.findMany({
       where: {
         comunicacoes: {
@@ -492,10 +841,15 @@ export class DjenSyncService {
    * É classificação para LEITURA, portanto. A que gera trabalho continua sendo
    * uma só, na passada normal.
    */
-  private async rotularForaDaJanela(): Promise<void> {
-    const desde = new Date(Date.now() - this.DIAS_SEM_PUBLICACAO * 24 * 3_600_000);
+  /*
+    `processoId` é o botão da ficha (14/09/2026): o histórico que ele acabou de
+    ler ganha rótulo na hora, só daquele processo. Sem ele, a rodada da noite
+    rotula o acervo inteiro, como sempre.
+  */
+  private async rotularForaDaJanela(processoId?: string): Promise<void> {
+    const desde = new Date(Date.now() - this.DIAS_DA_JANELA_DE_TAREFA * 24 * 3_600_000);
     const antigas = await this.prisma.comunicacaoDjen.findMany({
-      where: { providencia: null, dataDisponibilizacao: { lt: desde } },
+      where: { providencia: null, dataDisponibilizacao: { lt: desde }, ...(processoId ? { processoId } : {}) },
       select: { id: true, texto: true, tipoComunicacao: true },
       // Teto por passada: a primeira carga de um acervo grande não pode virar
       // uma transação de horas. O que sobrar entra amanhã.
@@ -1115,9 +1469,50 @@ export class DjenSyncService {
     // Na FRENTE da mensagem: o log corta em 500 caracteres, e a etapa que
     // quebrou é o que alguém investigando precisa ler primeiro.
     const etapas = resumo.etapasComFalha ?? [];
+    /*
+      A LISTA DE ETAPAS TEM ORÇAMENTO (14/09/2026). Cada item leva até 120
+      caracteres do erro; com o banco instável derrubando quatro etapas, a lista
+      sozinha passava dos 500 e empurrava para fora do corte tudo o que vinha
+      depois. Cabem os itens até 250 caracteres, e o resto vira "e mais N".
+    */
+    let listaDeEtapas = '';
+    let etapasListadas = 0;
+    for (const e of etapas) {
+      const junto = listaDeEtapas ? `${listaDeEtapas}; ${e}` : e;
+      if (listaDeEtapas && junto.length > ORCAMENTO_DAS_ETAPAS) break;
+      listaDeEtapas = junto;
+      etapasListadas++;
+    }
+    const etapasDeFora = etapas.length - etapasListadas;
     const falhaDeEtapa = etapas.length
-      ? `Etapa(s) final(is) com falha, as outras rodaram: ${etapas.join('; ')}. `
+      ? `Etapa(s) final(is) com falha, as outras rodaram: ${listaDeEtapas}` +
+        `${etapasDeFora ? ` e mais ${etapasDeFora}` : ''}. `
       : '';
+    /*
+      TETO E OAB AUSENTE TAMBÉM VÃO NA FRENTE (14/09/2026).
+
+      O teto de páginas só existia no stdout. E a frase ATENÇÃO dos advogados
+      sem OAB morava no FIM da mensagem de sucesso: bastava UMA falha na rodada
+      para ela sumir, justamente na noite em que alguém ia ler a linha. As duas
+      falam de algo que não foi lido, e ficam independentes do resto.
+    */
+    const noTeto = resumo.consultasNoTeto ?? [];
+    const avisoDeTeto = noTeto.length
+      ? `Teto de páginas atingido em ${noTeto.slice(0, 5).join(', ')}` +
+        `${noTeto.length > 5 ? ` e mais ${noTeto.length - 5}` : ''}: pode haver publicação não lida, ` +
+        `e a data de leitura ${noTeto.length === 1 ? 'desta consulta' : 'dessas consultas'} não avançou. `
+      : '';
+    const avisoSemOab =
+      resumo.advogadosSemOab > 0
+        ? `ATENÇÃO: ${resumo.advogadosSemOab} advogado(s) sem OAB não foram consultados. `
+        : '';
+    /*
+      A FRASE CURTA E FIXA VEM PRIMEIRO (14/09/2026). O ATENÇÃO vinha por último
+      e era o primeiro a cair no corte de 500 caracteres do log, justamente na
+      noite com falha, em que alguém vai ler a linha. Tem uns 60 caracteres;
+      depois dela o teto (no máximo 5 itens) e as etapas (com orçamento).
+    */
+    const naFrente = avisoSemOab + avisoDeTeto + falhaDeEtapa;
     const tentativas =
       resumo.advogadosConsultados + resumo.processosConsultados + resumo.falhas;
     const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;
@@ -1130,7 +1525,7 @@ export class DjenSyncService {
       sucesso: !quebrou && tentativas > 0 && !tudoFalhou && etapas.length === 0,
       novasMovimentacoes: resumo.ingeridas,
       duracaoMs: Date.now() - iniciadaEm,
-      mensagemErro: falhaDeEtapa + (quebrou
+      mensagemErro: naFrente + (quebrou
         ? `Varredura interrompida: ${quebrou}`
         : tentativas === 0
           ? 'Varredura sem alvo: nenhum advogado com OAB e nenhum processo elegível.'
@@ -1139,10 +1534,10 @@ export class DjenSyncService {
             : resumo.falhas > 0
               ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha.`
               : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s)` +
-                // Advogado sem OAB não é consultado — e isso precisa aparecer onde
-                // alguém olha, não só no log da aplicação.
-                (resumo.advogadosSemOab > 0
-                  ? `. ATENÇÃO: ${resumo.advogadosSemOab} advogado(s) sem OAB não foram consultados`
+                // Quantos processos tiveram o histórico lido inteiro esta noite: é
+                // o único lugar onde a colheita aparece sem abrir o stdout.
+                ((resumo.historicosLidos ?? 0) > 0
+                  ? `, ${resumo.historicosLidos} histórico(s) lido(s) pelo número`
                   : '') +
                 // A ação nossa ainda sem cadastro só é mensurável aqui: a publicação
                 // de terceiro não é persistida, então sem esta frase ninguém saberia
@@ -1184,21 +1579,32 @@ export class DjenSyncService {
   }
 
   /**
-   * Processos ativos que não receberam publicação casada recentemente.
+   * QUEM É CONSULTADO PELO NÚMERO ESTA NOITE — todo processo vivo, e os dormentes a cada 7 dias.
    *
    * Encerrados com instância viva entram também — mesma regra da varredura do
    * DataJud: a baixa é de um grau, não do processo.
+   *
+   * A TRAVA DE 30 DIAS SAIU (14/09/2026). Até aqui só entrava quem estava 30
+   * dias sem NENHUMA publicação gravada, por qualquer via. Num processo em que a
+   * OAB nossa não aparece no ato (advogado de fora, substabelecido, ato dirigido
+   * à parte), a primeira publicação achada tirava o processo da consulta por 30
+   * dias, e o ato seguinte chegava tarde ou virava FORA_DA_JANELA. Agora cada
+   * consulta lê só a janela desde a última (`janelaDoNumero`), uma requisição
+   * por processo: ~150 vivos, uns 11 minutos a 14 por minuto.
+   *
+   * `jaLidos` são os que tiveram o histórico lido nesta mesma rodada: o
+   * histórico já cobre a janela, e ler de novo só gastaria cota.
    *
    * RODÍZIO: ordena por `ultimaConsultaDjen` com os NUNCA consultados primeiro,
    * e corta no teto da rodada. É o que mantém a duração previsível num acervo
    * que cresce — e o que garante que a fatia deixada para trás hoje seja a
    * primeira de amanhã, em vez de ficar no escuro para sempre.
    */
-  private processosSemPublicacaoRecente() {
-    const desde = new Date(Date.now() - this.DIAS_SEM_PUBLICACAO * 24 * 3_600_000);
+  private processosParaConsultarPorNumero(jaLidos: string[] = []) {
     return this.prisma.processo.findMany({
       where: {
         numeroCNJ: { not: null },
+        ...(jaLidos.length ? { id: { notIn: jaLidos } } : {}),
         /*
           AS MESMAS DUAS FAIXAS DO LADO DATAJUD — e pela mesma razão.
 
@@ -1235,14 +1641,50 @@ export class DjenSyncService {
             ],
           },
         ],
-        comunicacoes: { none: { createdAt: { gte: desde } } },
       },
-      select: { id: true, numeroCNJ: true },
+      select: { id: true, numeroCNJ: true, ultimaConsultaDjen: true },
       orderBy: { ultimaConsultaDjen: { sort: 'asc', nulls: 'first' } },
       take: this.maxProcessosPorRodada,
     });
   }
+
+  /**
+   * QUEM AINDA NÃO TEVE O HISTÓRICO LIDO PELO NÚMERO — os mais recentes no sistema primeiro.
+   *
+   * Medido em 14/09/2026: os 37 processos cadastrados depois da carga de 04/09
+   * têm ato do DJEN em só 38,4% dos dias em que o DataJud registrou publicação
+   * (84,5% nos anteriores). Quem entrou por último é quem mais falta, e é quem
+   * alguém está olhando agora.
+   *
+   * Só a faixa rápida (vivo, ou encerrado com instância viva). O dormente não
+   * gera trabalho com o histórico: tudo o que ele traria tem mais de 30 dias e
+   * vira só rótulo. Se ele voltar a andar, entra aqui na noite em que mudar de
+   * status. Teto por noite em `DJEN_HISTORICO_POR_RODADA` (padrão 200).
+   */
+  private processosSemHistorico() {
+    return this.prisma.processo.findMany({
+      where: {
+        numeroCNJ: { not: null },
+        djenHistoricoLidoEm: null,
+        OR: [
+          { statusInterno: { in: STATUS_VIVOS } },
+          { statusInterno: StatusProcesso.ENCERRADO, instancias: { some: { baixada: false } } },
+        ],
+      },
+      select: { id: true, numeroCNJ: true, ultimaConsultaDjen: true },
+      orderBy: { createdAt: 'desc' },
+      take: this.historicoPorRodada,
+    });
+  }
 }
+
+/**
+ * Quantos caracteres a lista de etapas com falha pode ocupar na linha de resumo.
+ *
+ * O log corta a mensagem em 500. Com o ATENÇÃO (~60) e o teto (até ~290) na
+ * frente, 250 deixam ao menos a primeira etapa inteira dentro do corte.
+ */
+const ORCAMENTO_DAS_ETAPAS = 250;
 
 /** MAIÚSCULAS sem acento, espaços colapsados — para comparar nome de órgão. */
 function normalizar(texto: string | null | undefined): string {

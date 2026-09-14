@@ -1,4 +1,4 @@
-import { StorageService, dataCalendario, diasPossiveis } from '@core/infra';
+import { StorageService, dataCalendario } from '@core/infra';
 import {
   BadRequestException, ConflictException, ForbiddenException, GoneException,
   Injectable, Logger, NotFoundException,
@@ -14,7 +14,12 @@ import { marcarNadaMudou } from '../../common/audit/audit.contexto';
 import { AcaoAuditoria } from '@prisma/client';
 import { segredoDaInstalacao } from '../../common/segredo.util';
 import { RecadastroPublicoDto } from './dto/recadastro-publico.dto';
+import { RespostaDoDesafioDto } from './dto/resposta-do-desafio.dto';
 import { camposDoLink, vinculosPeloLink } from './dados-do-link';
+import {
+  CadastroDoDesafio, O_QUE_O_LINK_CONFIRMA, RECUSA_SEM_CONFIRMACAO, conferirResposta, cpfUtil,
+  definirDesafio, observacaoDoRecadastramentoOnline, podeGerarLink,
+} from './desafio-do-link';
 import {
   MeioDeEnvio, deveRegistrarPreparo, emailUtilizavel, fraseDoPreparo, planejarEnvio, primeiroNome,
   JANELA_SEM_REPETIR_REGISTRO_MS,
@@ -27,7 +32,6 @@ import { protegerImutaveis } from '../filiados/campos-imutaveis';
 import {
   montarSincronizacaoDependentes, resumirDependentes,
 } from '../dependentes/dependentes.sync';
-import { campoVisivel } from '../../tenant/tenant.config';
 
 interface Ctx {
   userId?: string;
@@ -43,6 +47,17 @@ const MAX_TENTATIVAS = 5;
 /** A rota da foto é pública — o que entra precisa ser imagem e ter tamanho sensato. */
 const MIMES_FOTO = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const TAMANHO_MAX_FOTO = 8 * 1024 * 1024;
+
+/**
+ * O que a tela de envio pergunta antes de mostrar os botões. `motivo` diz POR
+ * QUE não gera; `cpfGravadoInvalido` diz que há CPF na ficha e ele não serve.
+ */
+export interface PreviaDoLink {
+  desafio: DesafioRecadastramento;
+  podeGerar: boolean;
+  motivo: 'DESFILIADO' | 'SEM_CONFIRMACAO' | null;
+  cpfGravadoInvalido: boolean;
+}
 
 @Injectable()
 export class LinkRecadastramentoService {
@@ -89,18 +104,16 @@ export class LinkRecadastramentoService {
   }
 
   /**
-   * Decide o desafio a partir do que o cadastro TEM hoje.
+   * O DESAFIO QUE O CADASTRO DE AGORA PEDE, e a recusa quando não pede nada.
    *
-   * Regra de negócio: quem não tem CPF, nascimento nem COREN não teria como
-   * provar identidade — nesses casos o link abre direto (e é de uso único).
+   * A regra mora em `desafio-do-link.ts`, pura. Desde 14/09/2026 o NENHUM não
+   * gera link: a recusa vem ANTES de revogar o anterior e antes de reaproveitar,
+   * senão a equipe perderia o link vivo por um pedido que não ia sair.
    */
-  private definirDesafio(f: { cpf: string | null; dataNascimento: Date | null; numeroCoren: string | null }): DesafioRecadastramento {
-    if (f.cpf && f.dataNascimento) return DesafioRecadastramento.CPF_NASCIMENTO;
-    // Na prática o COREN já seria nulo numa instalação que esconde o campo; a
-    // checagem existe para o caso de dado importado de fora, que passaria a
-    // pedir na tela um número de conselho de enfermagem a um servidor público.
-    if (f.numeroCoren && campoVisivel('numeroCoren')) return DesafioRecadastramento.COREN;
-    return DesafioRecadastramento.NENHUM;
+  private desafioOuRecusa(filiado: CadastroDoDesafio): DesafioRecadastramento {
+    const desafio = definirDesafio(filiado);
+    if (!podeGerarLink(desafio)) throw new BadRequestException(RECUSA_SEM_CONFIRMACAO);
+    return desafio;
   }
 
   /**
@@ -123,12 +136,12 @@ export class LinkRecadastramentoService {
    * o token é derivado dele e o hash tem de ir junto no mesmo INSERT.
    */
   private async criarLink(
-    filiado: { id: string; cpf: string | null; dataNascimento: Date | null; numeroCoren: string | null },
+    filiado: { id: string },
+    desafio: DesafioRecadastramento,
     ctx: Ctx,
   ) {
     const id = randomUUID();
     const token = this.tokenDoLink(id);
-    const desafio = this.definirDesafio(filiado);
     const expiraEm = new Date(Date.now() + HORAS_VALIDADE * 3600_000);
 
     // Um link novo invalida os anteriores do mesmo filiado — evita vários
@@ -161,15 +174,17 @@ export class LinkRecadastramentoService {
     });
     if (!filiado) throw new NotFoundException('Filiado não encontrado.');
     this.exigirQueNaoSejaDesfiliado(filiado.situacao);
+    const desafio = this.desafioOuRecusa(filiado);
 
-    const { link, token } = await this.criarLink(filiado, ctx);
+    const { link, token } = await this.criarLink(filiado, desafio, ctx);
 
     await this.audit.registrar({
       userId: ctx.userId ?? null,
       acao: AcaoAuditoria.CREATE,
       entidade: 'LinkRecadastramento',
       entidadeId: link.id,
-      descricao: `Link de recadastramento gerado para ${filiado.nomeCompleto} (desafio: ${link.desafio})`,
+      // O rótulo em português; o código do enum continua em `metadata.desafio`.
+      descricao: `Link de recadastramento gerado para ${filiado.nomeCompleto} (${O_QUE_O_LINK_CONFIRMA[link.desafio]})`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       metadata: { filiadoId, desafio: link.desafio, expiraEm: link.expiraEm.toISOString() },
@@ -202,6 +217,9 @@ export class LinkRecadastramentoService {
     });
     if (!filiado) throw new NotFoundException('Filiado não encontrado.');
     this.exigirQueNaoSejaDesfiliado(filiado.situacao);
+    // Antes do meio: gravar o celular não resolveria, e o link vivo NENHUM (de
+    // antes de 14/09/2026) também não é reapresentado — ele abriria sem confirmar.
+    const desafioAtual = this.desafioOuRecusa(filiado);
 
     const celularWhatsApp = celularParaWhatsApp(filiado.telefonePrincipal, filiado.telefoneSecundario);
     const email = emailUtilizavel(filiado.email);
@@ -228,7 +246,7 @@ export class LinkRecadastramentoService {
       links: vivos,
       agora,
       hashDoTokenDerivado: (id) => this.hash(this.tokenDoLink(id)),
-      desafioAtual: this.definirDesafio(filiado),
+      desafioAtual,
     });
 
     let link: { id: string; desafio: DesafioRecadastramento; expiraEm: Date };
@@ -238,7 +256,7 @@ export class LinkRecadastramentoService {
       link = vivos.find((l) => l.id === plano.link.id)!;
       token = this.tokenDoLink(link.id);
     } else {
-      ({ link, token } = await this.criarLink(filiado, ctx));
+      ({ link, token } = await this.criarLink(filiado, desafioAtual, ctx));
     }
 
     // Link recém-gerado não tem registro anterior; só o reaproveitado precisa olhar.
@@ -294,6 +312,47 @@ export class LinkRecadastramentoService {
     };
   }
 
+  /**
+   * A PRÉVIA DA TELA DE ENVIO — o desafio que o link pediria AGORA e se a API
+   * aceitaria gerar (14/09/2026).
+   *
+   * A tela adivinhava com `desafioPrevisto`, uma segunda cópia da regra: com CPF
+   * útil e nascimento plausível na regra, a cópia divergiria com certeza (aviso
+   * âmbar de "abre sem confirmação" e a API pedindo o CPF, ou o inverso). Agora
+   * a tela pergunta.
+   *
+   * Não devolve CPF, data nem COREN: só o nome do desafio. `podeGerar` diz a
+   * verdade inteira — é falso para NENHUM e também para desfiliado, que `gerar`
+   * recusa com a frase da reativação.
+   *
+   * O MOTIVO VAI JUNTO (14/09/2026). Só com `podeGerar: false`, a tela dizia a
+   * um desfiliado com CPF e nascimento gravados que o cadastro "não tem CPF nem
+   * data de nascimento" e mandava completar a ficha — o que faltava era
+   * reativar. DESFILIADO vem primeiro: mesmo com a ficha completa, não gera.
+   * `cpfGravadoInvalido` separa o cadastro sem CPF do CPF gravado com dígito
+   * errado ou tamanho errado, que a ficha MOSTRA e o link não pode perguntar.
+   * Continua sem valor nenhum: são dois rótulos e um booleano.
+   *
+   * Ler não é ato: sem linha na auditoria.
+   */
+  async previa(filiadoId: string): Promise<PreviaDoLink> {
+    const filiado = await this.prisma.filiado.findUnique({
+      where: { id: filiadoId },
+      select: { cpf: true, dataNascimento: true, numeroCoren: true, situacao: true },
+    });
+    if (!filiado) throw new NotFoundException('Filiado não encontrado.');
+    marcarNadaMudou();
+    const desafio = definirDesafio(filiado);
+    const desfiliado = filiado.situacao === SituacaoFiliado.DESFILIADO;
+    const semConfirmacao = !podeGerarLink(desafio);
+    return {
+      desafio,
+      podeGerar: !semConfirmacao && !desfiliado,
+      motivo: desfiliado ? 'DESFILIADO' : semConfirmacao ? 'SEM_CONFIRMACAO' : null,
+      cpfGravadoInvalido: !!filiado.cpf?.trim() && !cpfUtil(filiado.cpf),
+    };
+  }
+
   /** Links do filiado (para a equipe ver o que está ativo). */
   listar(filiadoId: string) {
     return this.prisma.linkRecadastramento.findMany({
@@ -343,7 +402,7 @@ export class LinkRecadastramentoService {
    * Confere o desafio e libera os dados do cadastro para edição.
    * Retorna o filiado COMPLETO — é o que o formulário precisa preencher.
    */
-  async validarDesafio(token: string, resposta: { cpf?: string; dataNascimento?: string; coren?: string }) {
+  async validarDesafio(token: string, resposta: RespostaDoDesafioDto) {
     const link = await this.carregarValido(token);
     const f = link.filiado;
 
@@ -383,7 +442,7 @@ export class LinkRecadastramentoService {
     token: string,
     arquivo: Buffer,
     mimetype: string,
-    resposta: { cpf?: string; dataNascimento?: string; coren?: string } = {},
+    resposta: RespostaDoDesafioDto = {},
     ip?: string,
   ) {
     if (!MIMES_FOTO.has(mimetype)) {
@@ -457,8 +516,22 @@ export class LinkRecadastramentoService {
     );
     const resumo = resumirDependentes(dto.dependentes, completoAntes?.dependentes ?? []);
 
-    const [filiado] = await this.prisma.$transaction([
-      this.prisma.filiado.update({
+    const filiado = await this.prisma.$transaction(async (tx) => {
+      /*
+        USO ÚNICO, CONDICIONAL (14/09/2026). O link morria com um `update` por
+        id, e dois envios certos disparados juntos (duas abas, toque duplo que
+        passou pela tela) gravavam o cadastro e o recadastramento duas vezes. A
+        queima vem PRIMEIRO e só pega o link ainda vivo: quem chega segundo não
+        encontra nada para queimar, e a transação para antes de gravar.
+      */
+      const queimado = await tx.linkRecadastramento.updateMany({
+        where: { id: link.id, usadoEm: null, revogadoEm: null },
+        data: { usadoEm: new Date(), ipUltimoAcesso: ip ?? null },
+      });
+      if (queimado.count !== 1) {
+        throw new GoneException('Este link já foi utilizado. Solicite um novo ao sindicato.');
+      }
+      const atualizado = await tx.filiado.update({
         where: { id: atual.id },
         data: {
           ...(dados as Prisma.FiliadoUpdateInput),
@@ -475,8 +548,8 @@ export class LinkRecadastramentoService {
           dependentes: syncDependentes,
         },
         include: { vinculos: true, dependentes: true },
-      }),
-      this.prisma.recadastramento.create({
+      });
+      await tx.recadastramento.create({
         data: {
           filiadoId: atual.id,
           // Veio do próprio filiado, sem conferência da equipe: fica PENDENTE
@@ -489,10 +562,13 @@ export class LinkRecadastramentoService {
             ...(dto.vinculos ? { vinculos: dto.vinculos } : {}),
             ...(dto.dependentes ? { dependentes: dto.dependentes } : {}),
           } as unknown as Prisma.InputJsonValue,
-          observacao: 'Recadastramento ONLINE feito pelo próprio filiado (link).',
+          // Diz COMO o link confirmou quem era (14/09/2026): num link de um
+          // fator só, quem passou pode preencher o outro campo vazio, e a
+          // conferência avisa a equipe (`avisoDaConfirmacao`).
+          observacao: observacaoDoRecadastramentoOnline(link.desafio),
         },
-      }),
-      this.prisma.filiadoHistorico.create({
+      });
+      await tx.filiadoHistorico.create({
         data: {
           filiadoId: atual.id,
           tipo: TipoHistoricoFiliado.RECADASTRAMENTO,
@@ -502,13 +578,9 @@ export class LinkRecadastramentoService {
             (ignorados.length ? ` Campos protegidos ignorados: ${ignorados.join(', ')}.` : ''),
           autor: 'Filiado (link online)',
         },
-      }),
-      // USO ÚNICO: o link morre aqui.
-      this.prisma.linkRecadastramento.update({
-        where: { id: link.id },
-        data: { usadoEm: new Date(), ipUltimoAcesso: ip ?? null },
-      }),
-    ]);
+      });
+      return atualizado;
+    });
 
     await this.audit.registrar({
       userId: null,
@@ -563,31 +635,55 @@ export class LinkRecadastramentoService {
    *
    * O incremento é ATÔMICO no banco: dez pedidos em paralelo lendo o mesmo
    * `tentativas` gravariam todos "1".
+   *
+   * A TENTATIVA É RESERVADA ANTES DE CONFERIR (14/09/2026). Atômico não bastava:
+   * a resposta era conferida primeiro, e a certa voltava sem olhar o contador
+   * nem a revogação. Trinta pedidos disparados juntos (dez por rota, por IP)
+   * liam o link vivo em `carregarValido`; os errados queimavam o link, e o que
+   * trazia a data certa devolvia o cadastro inteiro. No link NASCIMENTO a data
+   * sozinha é o fator, e com 365 datas o limite de 5 virava 30 por IP. Agora
+   * cada pedido gasta uma tentativa numa escrita condicional (vivo, não usado,
+   * no prazo, abaixo do limite) e só confere se conseguiu: no máximo 5
+   * conferências por link, sejam quantos forem os pedidos simultâneos.
    */
   private async exigirDesafio(
     link: {
       id: string;
       desafio: DesafioRecadastramento;
       tentativas: number;
-      filiado: { cpf: string | null; dataNascimento: Date | null; numeroCoren: string | null };
+      filiado: CadastroDoDesafio;
     },
-    resposta: { cpf?: string; dataNascimento?: string; coren?: string },
+    resposta: RespostaDoDesafioDto,
   ): Promise<void> {
+    // Link NENHUM que já estava vivo antes de 14/09/2026: abre até vencer.
     if (link.desafio === DesafioRecadastramento.NENHUM) return;
 
-    if (this.conferir(link.desafio, link.filiado, resposta)) {
-      // Acertou: zera o contador.
-      if (link.tentativas > 0) {
-        await this.prisma.linkRecadastramento.update({ where: { id: link.id }, data: { tentativas: 0 } });
-      }
+    const reserva = await this.prisma.linkRecadastramento.updateMany({
+      where: {
+        id: link.id,
+        revogadoEm: null,
+        usadoEm: null,
+        expiraEm: { gt: new Date() },
+        tentativas: { lt: MAX_TENTATIVAS },
+      },
+      data: { tentativas: { increment: 1 } },
+    });
+    if (reserva.count === 0) {
+      throw new GoneException('Este link foi bloqueado ou cancelado. Solicite um novo ao sindicato.');
+    }
+
+    if (conferirResposta(link.desafio, link.filiado, resposta)) {
+      // Acertou: zera o contador, inclusive a tentativa que acabou de reservar.
+      await this.prisma.linkRecadastramento.update({ where: { id: link.id }, data: { tentativas: 0 } });
       return;
     }
 
-    const { tentativas } = await this.prisma.linkRecadastramento.update({
+    // Errou: a tentativa já está contada. Relê para dizer quantas restam.
+    const lido = await this.prisma.linkRecadastramento.findUnique({
       where: { id: link.id },
-      data: { tentativas: { increment: 1 } },
       select: { tentativas: true },
     });
+    const tentativas = lido?.tentativas ?? MAX_TENTATIVAS;
     if (tentativas >= MAX_TENTATIVAS) {
       // Estourou o limite? Queima o link (revoga) — não adianta insistir.
       await this.prisma.linkRecadastramento.update({
@@ -601,27 +697,6 @@ export class LinkRecadastramentoService {
     throw new ForbiddenException(
       `Dados não conferem. Restam ${MAX_TENTATIVAS - tentativas} tentativa(s).`,
     );
-  }
-
-  /** Compara a resposta do desafio com o cadastro (sem vazar qual campo errou). */
-  private conferir(
-    desafio: DesafioRecadastramento,
-    f: { cpf: string | null; dataNascimento: Date | null; numeroCoren: string | null },
-    r: { cpf?: string; dataNascimento?: string; coren?: string },
-  ): boolean {
-    if (desafio === DesafioRecadastramento.COREN) {
-      const a = (f.numeroCoren ?? '').replace(/\W/g, '').toUpperCase();
-      const b = (r.coren ?? '').replace(/\W/g, '').toUpperCase();
-      return !!a && a === b;
-    }
-    const cpfOk = (f.cpf ?? '') === (r.cpf ?? '').replace(/\D/g, '') && !!f.cpf;
-    // A data é comparada como DIA, aceitando as duas convenções que convivem na
-    // base (meia-noite UTC e meia-noite de Brasília). Sem isso, um cadastro
-    // gravado na convenção errada mostra 23/06 na ficha e exige 24/06 aqui —
-    // o filiado digita o que vê e leva "dados não conferem".
-    const nascOk =
-      !!r.dataNascimento && diasPossiveis(f.dataNascimento).includes(r.dataNascimento.slice(0, 10));
-    return cpfOk && nascOk;
   }
 
   /** CPF e COREN são únicos no sistema — o filiado não pode colidir com outro. */

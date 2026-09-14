@@ -10,25 +10,48 @@ import { diferencaDeCampos } from '../../common/audit/audit.diff';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import { linkReuniaoParaGravar } from '../../common/link-reuniao.util';
 import { montarUrgencia, sincronizarEquipe } from '../agenda/equipe.util';
+import { AgendaService } from '../agenda/agenda.service';
+import { CancelamentoFeito, cancelarCompromissoEmTransacao } from '../agenda/cancelamento-em-transacao';
 import { EscalasService } from '../escalas/escalas.service';
 import {
   diaBR, formatarDataHoraBR, instanteDoTextoBR, proximoHorarioUtilBR,
 } from '../processos/utils/data-br.util';
 import { assuntoGravavel, descreverAssunto, ROTULO_CANAL } from './assunto.util';
 import {
-  ehConsultaDoAtendimento, LOCAL_DA_MODALIDADE, modalidadeRemota,
+  ConsultaDoEncaminhamento, ehConsultaDoAtendimento, LOCAL_DA_MODALIDADE, ModalidadeConsulta, modalidadeRemota,
   SELECT_CONSULTA_DO_ENCAMINHAMENTO, situacaoDoEncaminhamento,
 } from './encaminhamento.util';
 import {
-  AtualizarAssuntoDto, AtualizarLinkConsultaDto,
+  CATEGORIA_DA_CONSULTA_AO_CONCLUIR, consultasParaCancelar, decidirCancelar, decidirConcluir,
+  EscolhaDaConsulta, FRASE_ATENDIMENTO_MUDOU, FRASE_CONSULTA_MUDOU, FRASE_TELA_PROPRIA,
+  motivoDaConsultaCancelada, planoDeFechamento, PlanoDeFechamento,
+} from './fechamento.util';
+import {
+  AtualizarAssuntoDto, AtualizarLinkConsultaDto, CancelarAtendimentoDto, ConcluirAtendimentoDto,
   CreateAtendimentoDto, ListAtendimentosQueryDto,
-  MudarStatusAtendimentoDto, RegistrarDesfechoDto,
+  MudarModalidadeConsultaDto, MudarStatusAtendimentoDto, RegistrarDesfechoDto,
 } from './dto/atendimentos.dto';
 
 interface Ctx {
   ip?: string;
   userAgent?: string;
   userId?: string;
+  /** Nome de quem agiu, congelado na linha do tempo da atividade quando a escrita toca a agenda. */
+  nome?: string;
+}
+
+/** O responsável da consulta com a foto: o interceptor global troca `avatarKey` pela URL. */
+const RESPONSAVEL_COM_FOTO = {
+  select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true },
+} as const;
+
+/** "na sede" / "por vídeo" / "por telefone" / "“Sala 2”" — como a linha do tempo conta a modalidade. */
+function modalidadeNaFrase(local: string | null | undefined): string {
+  const texto = (local ?? '').trim();
+  if (!texto) return 'na sede';
+  if (texto === LOCAL_DA_MODALIDADE.VIDEO) return 'por vídeo';
+  if (texto === LOCAL_DA_MODALIDADE.TELEFONE) return 'por telefone';
+  return `"${texto}"`;
 }
 
 const filiadoLista = {
@@ -65,6 +88,8 @@ export class AtendimentosService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly escalas: EscalasService,
+    // Só para a linha do tempo da consulta que o fechamento cancela ou muda.
+    private readonly agenda: AgendaService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -116,25 +141,76 @@ export class AtendimentosService {
     const at = await this.prisma.atendimento.findUnique({
       where: { id },
       select: {
-        id: true, numero: true, desfecho: true,
+        id: true, numero: true, desfecho: true, status: true, updatedAt: true,
         // A urgência da triagem é herdada pela consulta na agenda.
         urgente: true, urgenteMotivo: true,
         filiado: { select: { id: true, nomeCompleto: true } },
+        // Só as consultas NASCIDAS dele (sem o seguimento), para saber se
+        // todas caíram — ver "MARCAR NOVA CONSULTA" abaixo.
+        compromissos: { where: { origemDesfechoId: null }, select: { id: true, status: true } },
       },
     });
     if (!at) throw new NotFoundException('Atendimento não encontrado.');
-    if (at.desfecho) throw new BadRequestException('O desfecho deste atendimento já foi registrado.');
+    /*
+      MARCAR NOVA CONSULTA (14/09/2026, D13 da rodada 3).
+
+      O desfecho se registrava uma vez só. Com a consulta cancelada (pelo
+      advogado, ou pelo "cancelar junto" seguido de reabrir), a Triagem ficava
+      sem ação: a frase "ninguém vai atender se não houver outra" apontava para
+      uma porta que não existia, e só a coordenação criava a atividade à mão,
+      sem o vínculo com o atendimento.
+
+      Um novo ENCAMINHAMENTO passa quando as três coisas valem juntas: o
+      atendimento está PENDENTE, o desfecho é ENCAMINHADO e TODAS as consultas
+      nascidas dele estão canceladas. Com uma consulta de pé, encaminhar de novo
+      criaria a duplicata que o laço antigo criava.
+    */
+    const nascidas = at.compromissos ?? [];
+    const novoEncaminhamento =
+      at.desfecho === DesfechoAtendimento.ENCAMINHADO
+      && dto.resultado === DesfechoAtendimento.ENCAMINHADO
+      && at.status === StatusAtendimento.PENDENTE
+      && nascidas.length > 0
+      && nascidas.every((c) => c.status === StatusCompromisso.CANCELADO);
+    if (at.desfecho && !novoEncaminhamento) {
+      throw new BadRequestException('O desfecho deste atendimento já foi registrado.');
+    }
+    /*
+      A GRAVAÇÃO CONFERE O QUE A LEITURA VIU (14/09/2026). As condições acima
+      saem de uma leitura feita fora da transação, e a gravação era um `update`
+      por id. Dois "Marcar consulta" de abas diferentes criavam duas consultas
+      iguais; e um desfecho que cruzava com o concluir ou o cancelar fazia nascer
+      consulta viva em atendimento fechado. Agora a gravação é condicional e
+      quem perde a corrida ouve "abra de novo", antes de criar qualquer consulta.
+
+      No primeiro desfecho, `desfecho: null` e o `status` lido. No novo
+      encaminhamento, além do `none` (nenhuma nascida de pé), o `updatedAt`
+      lido: em READ COMMITTED a subconsulta do `none` enxerga o banco do começo
+      do comando, e a consulta criada por quem comitou no mesmo instante não
+      aparece nela. A coluna da própria linha é reconferida depois da trava, e o
+      primeiro encaminhamento a mudou.
+    */
+    const ondeGravar: Prisma.AtendimentoWhereInput = novoEncaminhamento
+      ? {
+          id,
+          status: StatusAtendimento.PENDENTE,
+          desfecho: DesfechoAtendimento.ENCAMINHADO,
+          updatedAt: at.updatedAt,
+          compromissos: { none: { origemDesfechoId: null, status: { not: StatusCompromisso.CANCELADO } } },
+        }
+      : { id, desfecho: null, status: at.status };
 
     // --- Resolvido no ato ---
     if (dto.resultado === DesfechoAtendimento.RESOLVIDO_ATO) {
-      await this.prisma.atendimento.update({
-        where: { id },
+      const r = await this.prisma.atendimento.updateMany({
+        where: ondeGravar,
         data: {
           desfecho: DesfechoAtendimento.RESOLVIDO_ATO,
           desfechoEm: new Date(),
           desfechoObs: dto.desfechoObs?.trim() || null,
         },
       });
+      if (r.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
       await this.auditar(AcaoAuditoria.UPDATE, id, ctx, `Atendimento #${at.numero} resolvido no ato`, {});
       return this.detalhe(id);
     }
@@ -233,18 +309,29 @@ export class AtendimentosService {
     const nomes = advogados.map((a) => a.nomeExibicao || a.nome);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.atendimento.update({
-        where: { id },
+      const gravado = await tx.atendimento.updateMany({
+        where: ondeGravar,
         data: {
-          desfecho: DesfechoAtendimento.ENCAMINHADO,
-          desfechoEm: new Date(),
-          desfechoObs: dto.desfechoObs?.trim() || null,
+          /*
+            No NOVO encaminhamento, `desfecho` e `desfechoEm` ficam como estavam:
+            o painel mede o tempo até a primeira resposta por `desfechoEm`, e o
+            balcão respondeu no primeiro encaminhamento, não agora. A nota só é
+            trocada quando vem uma nova; a antiga continua na consulta cancelada.
+          */
+          ...(novoEncaminhamento
+            ? (dto.desfechoObs?.trim() ? { desfechoObs: dto.desfechoObs.trim() } : {})
+            : {
+                desfecho: DesfechoAtendimento.ENCAMINHADO,
+                desfechoEm: new Date(),
+                desfechoObs: dto.desfechoObs?.trim() || null,
+              }),
           tipoEncaminhamento: dto.tipoEncaminhamento,
           processoId: processo?.id ?? null,
           setor: 'JURIDICO',
           responsavel: nomes.join(', '),
         },
       });
+      if (gravado.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
       /**
        * UMA consulta com a equipe inteira — e não uma cópia por advogado.
        *
@@ -308,8 +395,11 @@ export class AtendimentosService {
     // para quem, quando e como.
     const comoSera = modalidade === 'VIDEO' ? ' por vídeo' : modalidade === 'TELEFONE' ? ' por telefone' : '';
     await this.auditar(AcaoAuditoria.UPDATE, id, ctx,
-      `Atendimento #${at.numero} encaminhado a ${nomes.join(', ')}: consulta em ${formatarDataHoraBR(inicio)}${comoSera}`,
+      `Atendimento #${at.numero} encaminhado ${novoEncaminhamento ? 'de novo ' : ''}a ${nomes.join(', ')}: consulta em ${formatarDataHoraBR(inicio)}${comoSera}`,
       {
+        // A consulta anterior foi cancelada: quem lê o log precisa saber que
+        // este encaminhamento é o segundo, e qual consulta ele substitui.
+        ...(novoEncaminhamento ? { novaConsulta: true, consultasCanceladasAntes: nascidas.map((c) => c.id) } : {}),
         advogados: advogadoIds,
         tipoEncaminhamento: dto.tipoEncaminhamento ?? null,
         processoId: processo?.id ?? null,
@@ -321,21 +411,57 @@ export class AtendimentosService {
   }
 
   // -------------------------------------------------------------------------
-  // Situação da demanda: concluir / cancelar / reabrir
+  // Fechamento: concluir e cancelar (rotas próprias) e reabrir (/status)
   // -------------------------------------------------------------------------
 
+  /**
+   * SÓ O REABRIR PASSA POR AQUI (14/09/2026, D9 da rodada 3).
+   *
+   * Até ali este PATCH aceitava qualquer situação vinda de qualquer outra:
+   * concluído virava cancelado sem reabrir, o mesmo status era regravado e
+   * auditado ("de PENDENTE para PENDENTE") e não havia trava de concorrência.
+   * Concluir e cancelar ganharam rota própria, que decide o que acontece com a
+   * consulta; esta porta aberta ao lado seria o jeito de fechar sem decidir.
+   *
+   * Reabrir limpa da ficha quem, quando e por quê — a auditoria leva o
+   * fechamento anterior, porque a ficha o apaga — e NÃO reabre consulta: é
+   * decisão de gente, e a agenda de quem atendia pode já estar ocupada.
+   */
   async mudarStatus(id: string, dto: MudarStatusAtendimentoDto, ctx: Ctx) {
+    if (dto.status !== StatusAtendimento.PENDENTE) throw new BadRequestException(FRASE_TELA_PROPRIA);
+
     const at = await this.prisma.atendimento.findUnique({
       where: { id },
-      select: { id: true, numero: true, desfecho: true, status: true },
+      select: {
+        id: true, numero: true, status: true,
+        concluidoEm: true, concluidoPor: true, conclusaoObs: true,
+        canceladoEm: true, canceladoPor: true, canceladoCategoria: true, canceladoMotivo: true,
+      },
     });
     if (!at) throw new NotFoundException('Atendimento não encontrado.');
 
-    if (dto.status === StatusAtendimento.CONCLUIDO && !at.desfecho) {
-      throw new BadRequestException('Registre o desfecho antes de concluir o atendimento.');
+    // Um toque duplo não é ato de ninguém: sem gravação e sem linha no log.
+    if (at.status === StatusAtendimento.PENDENTE) {
+      marcarNadaMudou();
+      return this.detalhe(id);
     }
 
-    await this.prisma.atendimento.update({ where: { id }, data: { status: dto.status } });
+    const r = await this.prisma.atendimento.updateMany({
+      where: { id, status: at.status },
+      data: {
+        status: StatusAtendimento.PENDENTE,
+        concluidoEm: null, concluidoPor: null, conclusaoObs: null,
+        canceladoEm: null, canceladoPor: null, canceladoCategoria: null, canceladoMotivo: null,
+      },
+    });
+    if (r.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
+
+    const fechamentoAnterior = at.status === StatusAtendimento.CANCELADO
+      ? {
+          categoria: at.canceladoCategoria, motivo: at.canceladoMotivo,
+          em: at.canceladoEm?.toISOString() ?? null, por: at.canceladoPor,
+        }
+      : { nota: at.conclusaoObs, em: at.concluidoEm?.toISOString() ?? null, por: at.concluidoPor };
     /*
       DE ONDE PARA ONDE. "Atendimento #12 → CONCLUIDO" diz o destino e esconde
       a origem — e a pergunta que se faz é justamente "ele não estava
@@ -345,14 +471,227 @@ export class AtendimentosService {
       AcaoAuditoria.UPDATE,
       id,
       ctx,
-      `Atendimento #${at.numero}: andamento de ${at.status} para ${dto.status}`,
+      `Atendimento #${at.numero}: andamento de ${at.status} para ${StatusAtendimento.PENDENTE}`,
       {
         alteracoes: [
-          { campo: 'status', label: 'Andamento', de: at.status, para: dto.status },
+          { campo: 'status', label: 'Andamento', de: at.status, para: StatusAtendimento.PENDENTE },
         ],
+        fechamentoAnterior,
       },
     );
     return this.detalhe(id);
+  }
+
+  /**
+   * CONCLUIR — com o que o plano manda decidir sobre a consulta.
+   *
+   * A regra é `planoDeFechamento`, a MESMA que o detalhe mostra ao modal; aqui
+   * ela é recalculada com o relógio da gravação, porque o advogado pode ter
+   * iniciado ou concluído a consulta enquanto o modal estava aberto.
+   *
+   * Tudo numa transação: o atendimento só fecha se a consulta cancelada junto
+   * cancelar, e vice-versa. As duas gravações são condicionais à situação lida
+   * (`updateMany` por status): quem chega segundo toma "abra de novo", e não
+   * sobrescreve em silêncio o que o outro acabou de fazer.
+   */
+  async concluir(id: string, dto: ConcluirAtendimentoDto, ctx: Ctx, agora: Date = new Date()) {
+    const at = await this.lerParaFechar(id);
+    const plano = planoDeFechamento(at, at.compromissos, agora);
+    const decisao = decidirConcluir(plano, dto);
+    if (!decisao.ok) throw new BadRequestException(decisao.recusa);
+
+    const aCancelar = decisao.consulta === 'CANCELAR' ? consultasParaCancelar(at.compromissos) : [];
+    const motivo = motivoDaConsultaCancelada('CONCLUIR', at.numero, plano.consulta?.situacao ?? 'NENHUMA', decisao.texto);
+
+    const feitos = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.atendimento.updateMany({
+        where: { id, status: StatusAtendimento.PENDENTE },
+        data: {
+          status: StatusAtendimento.CONCLUIDO,
+          concluidoEm: agora,
+          concluidoPor: ctx.userId ?? null,
+          conclusaoObs: decisao.texto,
+        },
+      });
+      if (r.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
+      await this.exigirQueNenhumaConsultaSurgiu(tx, id, at.compromissos);
+      return this.cancelarConsultasEmTransacao(tx, aCancelar, CATEGORIA_DA_CONSULTA_AO_CONCLUIR, motivo, ctx, agora);
+    });
+
+    await this.registrarConsultasCanceladas(feitos, id, ctx);
+    await this.auditar(AcaoAuditoria.UPDATE, id, ctx,
+      `Atendimento #${at.numero}: andamento de ${at.status} para ${StatusAtendimento.CONCLUIDO}`,
+      {
+        alteracoes: [{ campo: 'status', label: 'Andamento', de: at.status, para: StatusAtendimento.CONCLUIDO }],
+        nota: decisao.texto,
+        consulta: decisao.consulta,
+        consultasCanceladas: feitos.map((f) => f.id),
+      });
+    return this.respostaDoFechamento(id, feitos, aCancelar);
+  }
+
+  /**
+   * CANCELAR — a categoria é o motivo obrigatório, e a consulta de pé segue o
+   * que a pessoa escolheu (a tela vem com "cancelar também" marcado). A
+   * consulta cancelada junto recebe a MESMA categoria: é o mesmo slug do
+   * catálogo da agenda.
+   */
+  async cancelar(id: string, dto: CancelarAtendimentoDto, ctx: Ctx, agora: Date = new Date()) {
+    const at = await this.lerParaFechar(id);
+    const plano = planoDeFechamento(at, at.compromissos, agora);
+    const decisao = decidirCancelar(plano, dto);
+    if (!decisao.ok) throw new BadRequestException(decisao.recusa);
+
+    const aCancelar = decisao.consulta === 'CANCELAR' ? consultasParaCancelar(at.compromissos) : [];
+    const motivo = motivoDaConsultaCancelada('CANCELAR', at.numero, plano.consulta?.situacao ?? 'NENHUMA', decisao.texto);
+
+    const feitos = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.atendimento.updateMany({
+        where: { id, status: StatusAtendimento.PENDENTE },
+        data: {
+          status: StatusAtendimento.CANCELADO,
+          canceladoEm: agora,
+          canceladoPor: ctx.userId ?? null,
+          canceladoCategoria: dto.categoria,
+          canceladoMotivo: decisao.texto,
+        },
+      });
+      if (r.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
+      await this.exigirQueNenhumaConsultaSurgiu(tx, id, at.compromissos);
+      return this.cancelarConsultasEmTransacao(tx, aCancelar, dto.categoria, motivo, ctx, agora);
+    });
+
+    await this.registrarConsultasCanceladas(feitos, id, ctx);
+    await this.auditar(AcaoAuditoria.UPDATE, id, ctx,
+      `Atendimento #${at.numero}: andamento de ${at.status} para ${StatusAtendimento.CANCELADO}`,
+      {
+        alteracoes: [{ campo: 'status', label: 'Andamento', de: at.status, para: StatusAtendimento.CANCELADO }],
+        categoria: dto.categoria,
+        motivo: decisao.texto,
+        consulta: decisao.consulta,
+        consultasCanceladas: feitos.map((f) => f.id),
+      });
+    return this.respostaDoFechamento(id, feitos, aCancelar);
+  }
+
+  /** O que o fechamento precisa ler: a situação e as consultas NASCIDAS, com a foto de quem atende. */
+  private async lerParaFechar(id: string) {
+    const at = await this.prisma.atendimento.findUnique({
+      where: { id },
+      select: {
+        id: true, numero: true, status: true, desfecho: true,
+        compromissos: {
+          where: { origemDesfechoId: null },
+          select: { ...SELECT_CONSULTA_DO_ENCAMINHAMENTO, responsavel: RESPONSAVEL_COM_FOTO },
+        },
+      },
+    });
+    if (!at) throw new NotFoundException('Atendimento não encontrado.');
+    return at;
+  }
+
+  /**
+   * NENHUMA CONSULTA NASCEU NO MEIO (14/09/2026). O plano foi calculado com as
+   * consultas lidas antes da transação. Se um "Marcar consulta" comitou nesse
+   * intervalo, o `updateMany` por status não percebe, porque o desfecho não
+   * mexe no status: o atendimento fecharia com uma consulta nova de pé, que
+   * ninguém decidiu. Conta DEPOIS da gravação do atendimento, já com a linha
+   * travada, para enxergar o que comitou antes.
+   */
+  private async exigirQueNenhumaConsultaSurgiu(
+    tx: Prisma.TransactionClient,
+    atendimentoId: string,
+    lidas: { id: string }[],
+  ) {
+    const surgiram = await tx.compromisso.count({
+      where: {
+        atendimentoId,
+        origemDesfechoId: null,
+        status: { not: StatusCompromisso.CANCELADO },
+        id: { notIn: lidas.map((c) => c.id) },
+      },
+    });
+    if (surgiram > 0) throw new BadRequestException(FRASE_CONSULTA_MUDOU);
+  }
+
+  /**
+   * A consulta é cancelada pela REGRA DA AGENDA (`cancelarCompromissoEmTransacao`),
+   * dentro da transação do atendimento, e só se ainda estiver PENDENTE: a que
+   * já começou é de quem está atendendo.
+   *
+   * A escrita cruzada é deliberada e estreita (D10): a Triagem tem a Agenda só
+   * para ver, e por esta porta cancela SÓ a consulta que nasceu deste
+   * atendimento, SÓ no gesto de fechá-lo, e com o nome dela no histórico.
+   *
+   * Se a consulta mudou entre a leitura e a gravação, a recusa da agenda fala de
+   * "atividade" — quem está no balcão ouve a frase do atendimento, e a
+   * transação inteira é desfeita.
+   */
+  private async cancelarConsultasEmTransacao(
+    tx: Prisma.TransactionClient,
+    consultas: ConsultaDoEncaminhamento[],
+    categoria: string,
+    motivo: string,
+    ctx: Ctx,
+    agora: Date,
+  ): Promise<CancelamentoFeito[]> {
+    const feitos: CancelamentoFeito[] = [];
+    for (const c of consultas) {
+      try {
+        feitos.push(await cancelarCompromissoEmTransacao(tx, {
+          id: c.id,
+          categoria,
+          motivo,
+          autorId: ctx.userId ?? null,
+          aceitarStatus: [StatusCompromisso.PENDENTE],
+          agora,
+        }));
+      } catch (e) {
+        if (e instanceof BadRequestException || e instanceof NotFoundException) {
+          throw new BadRequestException(FRASE_CONSULTA_MUDOU);
+        }
+        throw e;
+      }
+    }
+    return feitos;
+  }
+
+  /** Depois do commit: a linha do tempo de cada consulta e a auditoria dela, com o atendimento de origem. */
+  private async registrarConsultasCanceladas(feitos: CancelamentoFeito[], atendimentoId: string, ctx: Ctx) {
+    for (const f of feitos) {
+      await this.agenda.registrarNoHistorico(f.id, {
+        ...f.historico,
+        autorId: ctx.userId ?? null,
+        autorNome: ctx.nome ?? null,
+      });
+      await this.audit.registrar({
+        ...f.auditoria,
+        metadata: { ...f.auditoria.metadata, atendimentoId },
+        userId: ctx.userId ?? null,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
+    }
+  }
+
+  /**
+   * O detalhe de sempre, mais o que o servidor FEZ com as consultas. A tela lê
+   * daqui a confirmação ("a consulta de qui, 17/09 às 09:00 foi cancelada") e
+   * não do que pediu: se o advogado fechou antes, nada foi cancelado e a tela
+   * não afirma o contrário.
+   */
+  private async respostaDoFechamento(id: string, feitos: CancelamentoFeito[], consultas: ConsultaDoEncaminhamento[]) {
+    const detalhe = await this.detalhe(id);
+    const porId = new Map(consultas.map((c) => [c.id, c]));
+    return {
+      ...detalhe,
+      efeitos: {
+        consultasCanceladas: feitos.map((f) => {
+          const c = porId.get(f.id);
+          return { id: f.id, inicio: c ? new Date(c.inicio) : null, responsavel: c?.responsavel ?? null };
+        }),
+      },
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -546,6 +885,106 @@ export class AtendimentosService {
   }
 
   /**
+   * MUDAR COMO VAI SER A CONSULTA JÁ MARCADA (14/09/2026, D12 da rodada 3).
+   *
+   * O #14: a demanda dizia "chamada de vídeo" e a consulta estava na sede — a
+   * advogada esperaria na sede e a filiada esperaria um link. A rota do link só
+   * trocava o local quando ele estava vazio, e o botão só aparecia com a
+   * consulta já por vídeo: consulta marcada na sede não tinha como virar vídeo
+   * pela Triagem, que tem a Agenda só para ver.
+   *
+   * A mesma porta estreita do link: só a consulta que NASCEU deste atendimento
+   * e só enquanto está de pé. O `local` passa a ser o da modalidade escolhida,
+   * sobrescrevendo texto livre — a escolha é explícita e o de→para fica na
+   * auditoria e na linha do tempo da atividade. Sair do vídeo zera o link; no
+   * vídeo sem mandar o link, o link que já existe fica.
+   */
+  async mudarModalidadeDaConsulta(id: string, compromissoId: string, dto: MudarModalidadeConsultaDto, ctx: Ctx) {
+    const [at, consulta] = await Promise.all([
+      this.prisma.atendimento.findUnique({ where: { id }, select: { id: true, numero: true } }),
+      this.prisma.compromisso.findUnique({
+        where: { id: compromissoId },
+        select: {
+          id: true, status: true, atendimentoId: true, origemDesfechoId: true,
+          linkReuniao: true, local: true,
+        },
+      }),
+    ]);
+    if (!at) throw new NotFoundException('Atendimento não encontrado.');
+    if (!consulta || consulta.atendimentoId !== id || !ehConsultaDoAtendimento(consulta)) {
+      throw new NotFoundException('Esta consulta não nasceu deste atendimento.');
+    }
+    if (consulta.status === StatusCompromisso.CONCLUIDO) {
+      throw new BadRequestException('Esta consulta já foi concluída: não dá mais para mudar como vai ser.');
+    }
+    if (consulta.status === StatusCompromisso.CANCELADO) {
+      throw new BadRequestException('Esta consulta foi cancelada: não dá mais para mudar como vai ser.');
+    }
+
+    const modalidade: ModalidadeConsulta = dto.modalidade;
+    const textoDoLink = typeof dto.linkReuniao === 'string' ? dto.linkReuniao.trim() : '';
+    if (textoDoLink && modalidade !== 'VIDEO') {
+      throw new BadRequestException('O link da chamada só vale para consulta por vídeo.');
+    }
+
+    const localAntes = consulta.local?.trim() ? consulta.local : null;
+    const linkAntes = consulta.linkReuniao ?? null;
+    const localNovo = LOCAL_DA_MODALIDADE[modalidade];
+    const linkNovo = modalidade !== 'VIDEO'
+      ? null
+      : dto.linkReuniao === undefined
+        ? linkAntes
+        : textoDoLink ? linkParaGravar(textoDoLink) : null;
+
+    const mudouLocal = localAntes !== localNovo;
+    const mudouLink = linkAntes !== linkNovo;
+    // Reenviar a mesma escolha não é ato de ninguém: sem gravação e sem linha no log.
+    if (!mudouLocal && !mudouLink) {
+      marcarNadaMudou();
+      return this.detalhe(id);
+    }
+
+    await this.prisma.compromisso.update({
+      where: { id: compromissoId },
+      data: { local: localNovo, linkReuniao: linkNovo },
+    });
+
+    const alteracoes = [
+      ...(mudouLocal ? [{ campo: 'local', label: 'Local', de: consulta.local ?? null, para: localNovo }] : []),
+      ...(mudouLink ? [{ campo: 'linkReuniao', label: 'Link da chamada', de: linkAntes, para: linkNovo }] : []),
+    ];
+    const n = at.numero;
+    const descricao = mudouLocal
+      ? `Modalidade trocada pelo atendimento #${n}: ${modalidadeNaFrase(consulta.local)} → ${modalidadeNaFrase(localNovo)}`
+        + `${linkNovo && mudouLink ? ', com o link da chamada' : ''}.`
+      : !linkNovo
+        ? `Link da chamada tirado pelo atendimento #${n}.`
+        : linkAntes
+          ? `Link da chamada trocado pelo atendimento #${n}.`
+          : `Link da chamada colado pelo atendimento #${n}.`;
+
+    await this.audit.registrar({
+      userId: ctx.userId ?? null,
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'Compromisso',
+      entidadeId: compromissoId,
+      descricao,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { atendimentoId: id, alteracoes },
+    });
+    // O advogado lê na linha do tempo da atividade quem mudou e de onde veio.
+    await this.agenda.registrarNoHistorico(compromissoId, {
+      acao: 'EDITADO',
+      descricao,
+      metadata: { atendimentoId: id, alteracoes },
+      autorId: ctx.userId ?? null,
+      autorNome: ctx.nome ?? null,
+    });
+    return this.detalhe(id);
+  }
+
+  /**
    * Exclui o atendimento — só Administrador (regra global de exclusão).
    * Cascata: anexos são removidos; as consultas já criadas na Agenda são
    * PRESERVADAS (apenas perdem o vínculo com a triagem de origem).
@@ -634,17 +1073,21 @@ export class AtendimentosService {
     };
   }
 
-  async detalhe(id: string) {
-    const atendimento = await this.prisma.atendimento.findUnique({
+  async detalhe(id: string, agora: Date = new Date()) {
+    const lido = await this.prisma.atendimento.findUnique({
       where: { id },
       include: {
         atendente: { select: { id: true, nome: true } },
         processo: processoSel,
+        // Quem fechou, como PESSOA: a ficha diz "por Julian Helton", não um id.
+        concluidoPorUsuario: { select: { id: true, nome: true, nomeExibicao: true } },
+        canceladoPorUsuario: { select: { id: true, nome: true, nomeExibicao: true } },
         compromissos: {
           orderBy: { inicio: 'asc' },
           // O select da regra do encaminhamento, mais o título — para a lista e
-          // o estado lerem as mesmas colunas.
-          select: { titulo: true, ...SELECT_CONSULTA_DO_ENCAMINHAMENTO },
+          // o estado lerem as mesmas colunas. O responsável leva a foto, que o
+          // modal de fechamento mostra no aviso de "esta consulta é da Dra. X".
+          select: { titulo: true, ...SELECT_CONSULTA_DO_ENCAMINHAMENTO, responsavel: RESPONSAVEL_COM_FOTO },
         },
         filiado: {
           select: {
@@ -656,7 +1099,10 @@ export class AtendimentosService {
         },
       },
     });
-    if (!atendimento) throw new NotFoundException('Atendimento não encontrado.');
+    if (!lido) throw new NotFoundException('Atendimento não encontrado.');
+    // A coluna `concluidoPor` (o id) dá lugar à pessoa; registro antigo, ou de
+    // usuário apagado (SET NULL), sai com nulo e a ficha não mostra o bloco.
+    const { concluidoPorUsuario, canceladoPorUsuario, ...atendimento } = lido;
 
     const historico = await this.prisma.atendimento.findMany({
       where: { filiadoId: atendimento.filiado.id, id: { not: id } },
@@ -673,9 +1119,23 @@ export class AtendimentosService {
       atendimento — e é dele que sai o estado.
     */
     const consultas = atendimento.compromissos.filter(ehConsultaDoAtendimento);
-    const encaminhamento = situacaoDoEncaminhamento(consultas);
+    const encaminhamento = situacaoDoEncaminhamento(consultas, agora);
+    /*
+      O PLANO DE FECHAMENTO sai na leitura, como o encaminhamento: o modal mostra
+      o efeito e pergunta só o que falta decidir, e `concluir`/`cancelar` validam
+      com a MESMA função. O web antigo ignora o campo. A listagem não o ganha:
+      o modal busca este detalhe.
+    */
+    const fechamento: PlanoDeFechamento = planoDeFechamento(atendimento, consultas, agora);
     return {
-      atendimento: { ...atendimento, consultas, ...(encaminhamento ? { encaminhamento } : {}) },
+      atendimento: {
+        ...atendimento,
+        concluidoPor: concluidoPorUsuario ?? null,
+        canceladoPor: canceladoPorUsuario ?? null,
+        consultas,
+        ...(encaminhamento ? { encaminhamento } : {}),
+        fechamento,
+      },
       historico,
     };
   }

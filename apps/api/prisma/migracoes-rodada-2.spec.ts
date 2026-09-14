@@ -83,7 +83,13 @@ describe('aditivas e idempotentes', () => {
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .sort();
-    expect(pastas.slice(-4)).toEqual(Object.values(NOVAS));
+    // Juntas e em ordem. Deixaram de ser as últimas em 14/09/2026 (rodada 3,
+    // ver `migracoes-rodada-3.spec.ts`): o que vem depois tem de ser de dia
+    // posterior, nunca uma migração da rodada 2 esquecida no fim da fila.
+    const inicio = pastas.indexOf(NOVAS.assunto);
+    expect(inicio).toBeGreaterThanOrEqual(0);
+    expect(pastas.slice(inicio, inicio + 4)).toEqual(Object.values(NOVAS));
+    for (const depois of pastas.slice(inicio + 4)) expect(depois >= '20260914').toBe(true);
   });
 });
 

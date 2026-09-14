@@ -201,7 +201,10 @@ describe('o que a auditoria de perda silenciosa achou', () => {
   it('o Diário usa a MESMA definição de "vivo" que o DataJud', () => {
     // Só o corpo do método, e sem os comentários: a negativa abaixo mira o
     // CÓDIGO, e a explicação legitimamente cita o carimbo do outro lado.
-    const i = DJEN.indexOf('private processosSemPublicacaoRecente()');
+    // Renomeado em 14/09/2026: a trava "sem publicação em 30 dias" saiu, e o
+    // método passou a escolher quem é consultado pelo número toda noite.
+    const i = DJEN.indexOf('private processosParaConsultarPorNumero(');
+    expect(i).toBeGreaterThan(-1);
     const fn = DJEN.slice(i, DJEN.indexOf('function normalizar(', i))
       .split(/\r?\n/)
       .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))

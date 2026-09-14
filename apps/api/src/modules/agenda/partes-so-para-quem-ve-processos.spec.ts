@@ -9,9 +9,12 @@ import { AgendaService, type Leitor } from './agenda.service';
  * AS PARTES DO PROCESSO SÓ VÃO PARA QUEM VÊ PROCESSOS — em TODA resposta da agenda.
  *
  * O corte chegou à listagem e ao detalhe e parou ali (revisão de 13/09/2026):
- * `GET /compromissos/alertas` e a resposta de cada escrita seguiam com o cartão
- * inteiro, partes com nome, polo e filiado. Estes testes rodam o serviço com um
- * banco falso e olham o `select` que chegou ao banco em cada caminho.
+ * a resposta de cada escrita seguia com o cartão inteiro, partes com nome, polo
+ * e filiado. Estes testes rodam o serviço com um banco falso e olham o `select`
+ * que chegou ao banco em cada caminho.
+ *
+ * A rota de alertas, que também vazava, saiu inteira em 14/09/2026 (D20 da
+ * rodada 3) — e com ela o teste que a cobria.
  */
 
 const { PENDENTE, EM_ANDAMENTO, CONCLUIDO } = StatusCompromisso;
@@ -169,20 +172,6 @@ describe('as escritas devolvem o cartão pelo leitor', () => {
   });
 });
 
-describe('GET /compromissos/alertas, enquanto a rota existir (D9)', () => {
-  it('a Triagem recebe as duas listas sem as partes; o advogado, com', async () => {
-    const t = montar();
-    await t.servico.alertas(TRIAGEM);
-    expect(t.cartoes()).toHaveLength(2);
-    for (const sel of t.cartoes()) expect(sel.processo.select).not.toHaveProperty('partes');
-
-    const a = montar();
-    await a.servico.alertas(ADVOGADO);
-    expect(a.cartoes()).toHaveLength(2);
-    for (const sel of a.cartoes()) expect(sel.processo.select).toHaveProperty('partes');
-  });
-});
-
 describe('o controller leva perfil e matriz no contexto, sem consulta', () => {
   const usuario: AuthUser = {
     id: 'tri1',
@@ -230,11 +219,5 @@ describe('o controller leva perfil e matriz no contexto, sem consulta', () => {
     expect(servico.desfazerConclusao).toHaveBeenCalledWith('c1', esperado);
     await c.remover('c1', usuario, req);
     expect(servico.remover).toHaveBeenCalledWith('c1', esperado);
-  });
-
-  it('os alertas recebem o usuário', async () => {
-    const alertas = jest.fn(async () => ({ aguardando: [], proximas24h: [] }));
-    await new AgendaController({ alertas } as never).alertas(usuario);
-    expect(alertas).toHaveBeenCalledWith(usuario);
   });
 });

@@ -159,6 +159,116 @@ export function whereDoRecorte(recorte: Recorte, agora: Date = new Date()): Pris
   }
 }
 
+/* ------------------------------------------------------------------------ */
+/* A janela do tempo e a página por cursor (14/09/2026, D20 da rodada 3)     */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * PARA QUE LADO DO TEMPO A LISTA OLHA.
+ *
+ * O que tornava a aba Todas inútil não era o volume (89 atividades no acervo
+ * inteiro em 14/09/2026, a mais antiga de 06/08): era a ORDEM. Crescente, ela
+ * abria 60 dias atrás, e o hoje ficava no meio da lista. A lista por dia do
+ * celular divide Todas em duas:
+ *  · ADIANTE — o que começa hoje ou depois, mais toda aberta de dia anterior
+ *    (o que ficou para trás continua pedindo mão, então mora em Próximas);
+ *  · ANTERIORES — fechada (concluída ou cancelada) de dia anterior.
+ *
+ * As duas são COMPLEMENTARES sobre o acervo inteiro — o complemento de
+ * "começa hoje ou está aberta" é "começou antes e está fechada", porque a
+ * situação só tem quatro valores. Somadas a qualquer recorte, repartem o
+ * recorte sem sobra e sem repetição: Próximas + Anteriores = Todas.
+ *
+ * Fechada é `in [CONCLUIDO, CANCELADO]`, nunca `not in` abertos: `not` do
+ * Prisma não traz a linha nula (memória "not em coluna nula").
+ */
+export const JANELAS = ['adiante', 'anteriores'] as const;
+export type Janela = (typeof JANELAS)[number];
+
+export const STATUS_FECHADOS: StatusCompromisso[] = [
+  StatusCompromisso.CONCLUIDO,
+  StatusCompromisso.CANCELADO,
+];
+
+export function whereDaJanela(janela: Janela, agora: Date = new Date()): Prisma.CompromissoWhereInput {
+  const { hojeIni } = limitesDoDia(agora);
+  if (janela === 'anteriores') {
+    return { inicio: { lt: hojeIni }, status: { in: STATUS_FECHADOS } };
+  }
+  return { AND: [{ OR: [{ inicio: { gte: hojeIni } }, { status: { in: STATUS_ABERTOS } }] }] };
+}
+
+/**
+ * ANTERIORES VEM DO MAIS RECENTE PARA O MAIS ANTIGO — "Ontem", depois
+ * anteontem. Assim a página seguinte nunca entra acima do que a pessoa já leu.
+ * Sem janela, a ordem de sempre (crescente), que o web antigo e o calendário
+ * leem.
+ */
+export type Sentido = 'asc' | 'desc';
+
+export const sentidoDaJanela = (janela?: Janela | null): Sentido =>
+  janela === 'anteriores' ? 'desc' : 'asc';
+
+/**
+ * O ID DESEMPATA, SEMPRE. O robô grava muitas tarefas às 9h em ponto: com a
+ * ordem só por início, duas atividades do mesmo instante podiam trocar de
+ * lugar entre uma consulta e outra, e a página seguinte repetiria uma e
+ * pularia a outra. Tipado como array mutável pelo mesmo motivo de
+ * `EQUIPE_ORDER` (o Prisma não aceita `readonly` em `orderBy`).
+ */
+export function ordemDaListagem(janela?: Janela | null): Prisma.CompromissoOrderByWithRelationInput[] {
+  const sentido = sentidoDaJanela(janela);
+  return [{ inicio: sentido }, { id: sentido }];
+}
+
+/** Sem `limite`, a listagem de sempre: 500. Com ele, de 1 a 200. */
+export const LIMITE_SEM_PAGINA = 500;
+export const LIMITE_MAXIMO_DA_PAGINA = 200;
+
+/**
+ * O CURSOR É `<início do último item em ISO>_<id>` — keyset, nunca offset.
+ *
+ * Com o robô criando e remarcando atividades o dia inteiro, "pule as 50
+ * primeiras" repete ou pula itens entre uma página e outra. "Depois de
+ * (início, id)" não: o que já foi lido fica para trás mesmo que entre coisa
+ * nova antes. O id da atividade é UUID (schema.prisma, `Compromisso.id`).
+ */
+export const FORMATO_DO_CURSOR =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z_[0-9a-fA-F-]{36}$/;
+
+export interface Cursor {
+  inicio: Date;
+  id: string;
+}
+
+/** O cursor que continua depois deste item — a mesma conta que o web faz. */
+export const cursorDe = (item: { inicio: Date | string; id: string }): string =>
+  `${new Date(item.inicio).toISOString()}_${item.id}`;
+
+/** Lê o cursor; nulo quando o texto não é um cursor válido. */
+export function lerCursor(texto: string | null | undefined): Cursor | null {
+  if (!texto || !FORMATO_DO_CURSOR.test(texto)) return null;
+  const corte = texto.indexOf('_');
+  const inicio = new Date(texto.slice(0, corte));
+  if (Number.isNaN(inicio.getTime())) return null;
+  return { inicio, id: texto.slice(corte + 1) };
+}
+
+/** O que vem DEPOIS do cursor, no sentido da lista. Já embrulhado em AND. */
+export function whereDoCursor(cursor: Cursor, sentido: Sentido): Prisma.CompromissoWhereInput {
+  const depois = sentido === 'desc' ? 'lt' : 'gt';
+  return {
+    AND: [
+      {
+        OR: [
+          { inicio: { [depois]: cursor.inicio } },
+          { inicio: cursor.inicio, id: { [depois]: cursor.id } },
+        ],
+      },
+    ],
+  };
+}
+
 /**
  * NPU só entra na busca a partir de 6 dígitos. Com menos, "Prazo 15" casaria
  * todo processo com "15" no número e a lista ficaria cheia de ruído.
@@ -206,4 +316,11 @@ export interface ContagemDosRecortes {
   todos: number;
   /** Abertas marcadas como urgentes — o botão "Urgentes" é um só (D10). */
   urgentes: number;
+  /**
+   * As duas metades de Todas (14/09/2026): `todos` = `todosAdiante` +
+   * `todosAnteriores`, por construção (`whereDaJanela`). É o número do seletor
+   * "Próximas | Anteriores" da lista por dia; o web antigo ignora os dois.
+   */
+  todosAdiante: number;
+  todosAnteriores: number;
 }

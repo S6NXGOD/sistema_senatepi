@@ -1,4 +1,6 @@
+import type { DesafioRecadastramento } from '@prisma/client';
 import { diferencaDeCampos, ValorDeCampo } from '../../common/audit/audit.diff';
+import { tenant, TenantConfig } from '../../tenant/tenant.config';
 import { protegerImutaveis } from '../filiados/campos-imutaveis';
 import { CAMPOS_DO_CADASTRO_PELO_LINK } from './dto/recadastro-publico.dto';
 
@@ -110,4 +112,56 @@ export function alteracoesDoRecadastramento(
 /** O recadastro pelo link se reconhece pela observação gravada por ele. */
 export function origemDoRecadastramento(observacao: string | null | undefined): 'ONLINE' | 'PRESENCIAL' {
   return (observacao ?? '').startsWith('Recadastramento ONLINE') ? 'ONLINE' : 'PRESENCIAL';
+}
+
+const O_QUE_O_LINK_CONFIRMOU: Partial<Record<DesafioRecadastramento, string>> = {
+  CPF: 'O link confirmou só o CPF.',
+  NASCIMENTO: 'O link confirmou só a data de nascimento.',
+  COREN: 'O link confirmou só o COREN.',
+  NENHUM: 'O link abriu sem confirmar a identidade.',
+};
+
+const vazio = (v: ValorDeCampo) => v === null || v === undefined || v === '';
+
+/**
+ * A LINHA ÂMBAR DA CONFERÊNCIA — a âncora de identidade (14/09/2026).
+ *
+ * Num link de um fator só, quem passou pode preencher o OUTRO campo que estava
+ * vazio: o link CPF deixa gravar a data de nascimento, e o link NASCIMENTO, o
+ * CPF. Não se trava (preencher é o objetivo do link), mas o que entrou vira a
+ * pergunta do PRÓXIMO link — se veio errado, o filiado verdadeiro queima o link
+ * dele em 5 tentativas. Então a equipe é avisada para conferir num documento.
+ *
+ * O COREN entra na lista pelo mesmo motivo (é um fator só e o cadastro dele não
+ * tem CPF útil), e o NENHUM também: link vivo de antes de 14/09 que alguém usou
+ * para gravar CPF e nascimento é exatamente o sequestro que a mudança fecha.
+ *
+ * Nasce AQUI, e não na tela, para não haver uma segunda cópia da regra.
+ * `null` quando não há o que avisar: presencial, online de antes de 14/09
+ * (sem confirmação carimbada), CPF_NASCIMENTO, ou nada de identidade preenchido.
+ *
+ * QUEM PREENCHEU SE CHAMA COMO O SINDICATO CHAMA (14/09/2026). A frase dizia
+ * "filiado" fixo; a palavra vem de `vocabulario.filiado`, a mesma da tela. O
+ * tenant entra como parâmetro, com o desta instalação por padrão, para o teste
+ * exercitar os dois sindicatos e uma palavra diferente.
+ */
+export function avisoDaConfirmacao(
+  confirmacao: DesafioRecadastramento | null,
+  alteracoes: AlteracaoDoRecadastramento[],
+  t: TenantConfig = tenant,
+): string | null {
+  const abertura = confirmacao ? O_QUE_O_LINK_CONFIRMOU[confirmacao] : undefined;
+  if (!abertura) return null;
+  const preencheu = (campo: string) =>
+    alteracoes.some((a) => a.campo === campo && vazio(a.de) && !vazio(a.para));
+  const cpf = preencheu('cpf');
+  const nascimento = preencheu('dataNascimento');
+  if (!cpf && !nascimento) return null;
+  const quem =
+    cpf && nascimento
+      ? 'O CPF e a data de nascimento foram preenchidos'
+      : cpf
+        ? 'O CPF foi preenchido'
+        : 'A data de nascimento foi preenchida';
+  return `${abertura} ${quem} pelo próprio ${t.vocabulario.filiado}: confira num documento antes de marcar como conferido.`;
 }

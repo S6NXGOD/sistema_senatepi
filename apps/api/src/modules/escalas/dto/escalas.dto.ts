@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  ArrayMaxSize, ArrayNotEmpty, IsArray, IsNotEmpty, IsOptional, IsString, Matches, MaxLength,
+  ArrayMaxSize, ArrayNotEmpty, IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -26,6 +26,9 @@ export const OBSERVACAO_MAX = 500;
  * quem montou o pedido, ou alguém martelando a API.
  */
 export const ITENS_MAX = 62;
+
+/** Teto de `passarConsultas` num PATCH (ver o campo). */
+export const PASSAR_CONSULTAS_MAX = 50;
 
 export class EscalaItemDto {
   @ApiProperty({ description: 'Data (YYYY-MM-DD).', example: '2026-09-15' })
@@ -86,6 +89,70 @@ export class AtualizarEscalaDto {
   @IsOptional() @IsString()
   @MaxLength(OBSERVACAO_MAX, { message: `A observação passa de ${OBSERVACAO_MAX} caracteres.` })
   observacao?: string | null;
+
+  /**
+   * AS CONSULTAS QUE PASSAM PARA QUEM ASSUME (D16, 14/09/2026).
+   *
+   * OPCIONAL, e é isso que mantém a tela antiga funcionando: ausente, a troca
+   * faz o que sempre fez e as consultas não mudam. `[]` é outra coisa — a
+   * pessoa viu a lista e decidiu manter todas, e a decisão fica carimbada na
+   * auditoria.
+   *
+   * 50: a produção tem uns 16 plantões por mês, de 3 horas, com consulta de
+   * 1 hora. Acima disso é pedido montado à mão.
+   */
+  @ApiPropertyOptional({ type: [String], description: 'Ids das consultas que passam para quem assume.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(PASSAR_CONSULTAS_MAX, { message: `No máximo ${PASSAR_CONSULTAS_MAX} consultas por troca.` })
+  @IsUUID('all', { each: true, message: 'Consulta inválida.' })
+  passarConsultas?: string[];
+}
+
+const MES = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** GET /escalas/:id/consultas?entra= — sem `entra`, só a lista (excluir, encurtar o horário). */
+export class ConsultasDoPlantaoQueryDto {
+  @ApiPropertyOptional({ description: 'Quem vai assumir o plantão.' })
+  @IsOptional() @IsString() @IsNotEmpty()
+  entra?: string;
+}
+
+/** GET /escalas/copia?origem=AAAA-MM&destino=AAAA-MM */
+export class CopiaQueryDto {
+  @ApiProperty({ example: '2026-09' })
+  @Matches(MES, { message: 'Mês de origem inválido (use AAAA-MM).' })
+  origem: string;
+
+  @ApiProperty({ example: '2026-10' })
+  @Matches(MES, { message: 'Mês de destino inválido (use AAAA-MM).' })
+  destino: string;
+}
+
+export class CopiaItemDto {
+  @ApiProperty({ description: 'O plantão da origem.' })
+  @IsString() @IsNotEmpty()
+  origemId: string;
+
+  @ApiProperty({ description: 'Dia do destino (AAAA-MM-DD).', example: '2026-10-05' })
+  @Matches(DATA_PURA, { message: 'Data inválida (use AAAA-MM-DD).' })
+  data: string;
+}
+
+/**
+ * 250 itens: 5 pessoas × 2 turnos × 23 dias úteis dá 230. É trava de
+ * segurança, não regra de negócio — a produção copia uns 16 por mês.
+ */
+export const COPIA_MAX = 250;
+
+/** POST /escalas/copia — só os itens marcados na prévia. */
+export class CopiarEscalaDto extends CopiaQueryDto {
+  @ApiProperty({ type: [CopiaItemDto] })
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Marque ao menos um plantão para copiar.' })
+  @ArrayMaxSize(COPIA_MAX, { message: `No máximo ${COPIA_MAX} plantões por cópia.` })
+  @ValidateNested({ each: true }) @Type(() => CopiaItemDto)
+  itens: CopiaItemDto[];
 }
 
 export class ListEscalasQueryDto {

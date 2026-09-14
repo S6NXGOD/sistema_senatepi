@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AcaoAuditoria, Prisma, StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { diaBR, inicioDoDiaBR, mesBR } from '../processos/utils/data-br.util';
+import { diaBR, inicioDoDiaBR, instanteDoTextoBR, mesBR, semanaBR } from '../processos/utils/data-br.util';
 import { ultimoUsoReal } from '../dashboard/ultimo-acesso.util';
 import { SELECAO_DAS_ABERTAS, abertasDeAlguem, contarAbertasPorPessoa } from './abertas-da-pessoa.util';
 
@@ -99,6 +99,13 @@ export interface LinhaDeUso {
   avatarKey: string | null;
   /** O último uso real: login, sessão renovada ou ação (ver `ultimoUsoReal`). */
   ultimoAcesso: string | null;
+  /**
+   * Quando a conta foi criada (ISO de `users.created_at`). Serve só para o PDF
+   * decidir "Sem comparação: a conta foi criada em …". Medido em 14/09/2026: as
+   * contas nasceram entre 04/08 e 11/09 — o "antes 0" do Dr. Murilo (conta de
+   * 21/08) era conta que não existia, e não queda de uso.
+   */
+  contaCriadaEm: string;
   /** Dias do período em que a pessoa usou o sistema. */
   diasComUso: number;
   /** Quais dias (AAAA-MM-DD, em Teresina) — é o que desenha a faixa. */
@@ -114,6 +121,11 @@ export interface LinhaDeUso {
      */
     abertas: number;
     atrasadas: number;
+    /**
+     * As concluídas do período por TIPO de atividade (ver `concluidasPorTipo`).
+     * A soma de `concluidas` aqui é exatamente `agenda.concluidas`.
+     */
+    porTipo: TipoConcluido[];
   };
   publicacoes: {
     /** Propostas do Diário que a pessoa aceitou ou recusou no período (fato gravado desde `DECISAO_GRAVADA_DESDE`). */
@@ -131,15 +143,58 @@ export interface LinhaDeUso {
    * informação (férias, afastamento), e não buraco no gráfico.
    */
   porMes: MesDeUso[];
+  /**
+   * SEMANA A SEMANA, para o PDF de até 13 semanas (14/09/2026). Medido na
+   * produção: no máximo 8 concluídas por pessoa por semana — acima de 13
+   * semanas as colunas ficam finas demais, e o PDF usa `porMes`.
+   *
+   * Uma entrada por semana de `Produtividade.semanas`, na ordem; semana parada
+   * vem com zeros, no mesmo desenho de `porMes`. Sai das MESMAS linhas que os
+   * totais, pela mesma soma (`contarPor`): somar as semanas dá o total.
+   */
+  porSemana: SemanaDeUso[];
 }
 
-export interface MesDeUso {
-  /** AAAA-MM, em Teresina. */
-  mes: string;
+/** O trabalho com data, somado num intervalo de tempo — a parte comum de mês e semana. */
+interface TrabalhoNoTempo {
   diasComUso: number;
   concluidas: number;
+  /** Das concluídas do intervalo, as que fecharam no dia marcado ou antes. */
+  noDiaMarcado: number;
   andamentos: number;
   atendimentos: number;
+  /** Pelos nomes fixos de `REGISTROS`, com a data da própria auditoria. */
+  processosCadastrados: number;
+  documentos: number;
+  filiadosCadastrados: number;
+}
+
+export interface MesDeUso extends TrabalhoNoTempo {
+  /** AAAA-MM, em Teresina. */
+  mes: string;
+}
+
+export interface SemanaDeUso extends TrabalhoNoTempo {
+  /** A segunda-feira da semana (AAAA-MM-DD, em Teresina), por `semanaBR`. */
+  semana: string;
+  /**
+   * Quantos dias desta semana estão dentro do período: 7 no meio, menos nas
+   * pontas. É o que deixa o PDF dizer "a primeira semana começa em 14/08" sem
+   * refazer a conta de datas.
+   */
+  diasNoPeriodo: number;
+}
+
+/**
+ * Concluídas de um tipo de atividade. `tipo` é o slug guardado no compromisso;
+ * `nome` é o nome ATUAL em tipos_evento (tipo é cadastrável, pode ter sido
+ * renomeado ou ocultado), ou `NOME_DO_TIPO_SEM_CADASTRO` se a linha sumiu.
+ */
+export interface TipoConcluido {
+  tipo: string;
+  nome: string;
+  concluidas: number;
+  noDiaMarcado: number;
 }
 
 export interface ResumoDoPerfil {
@@ -159,6 +214,8 @@ export interface Produtividade {
   dias: string[];
   /** Os meses do período (AAAA-MM), na ordem. */
   meses: string[];
+  /** As segundas-feiras (AAAA-MM-DD, Teresina) das semanas que o período toca, na ordem. */
+  semanas: string[];
   perfis: ResumoDoPerfil[];
   pessoas: LinhaDeUso[];
   geradoEm: string;
@@ -179,6 +236,83 @@ export function mesesDoPeriodo(dias: string[]): string[] {
 /** Concluída no dia marcado ou antes — pela data de Teresina, e não pela hora. */
 export function concluidaNoDia(concluidoEm: Date, inicio: Date): boolean {
   return diaBR(concluidoEm) <= diaBR(inicio);
+}
+
+/**
+ * As semanas que os dias tocam, pela segunda-feira, na ordem. De 14/08/2026
+ * (sexta) a 13/09/2026 (domingo) dá 10/08 a 07/09: cinco semanas, a primeira
+ * com 3 dias dentro do período.
+ */
+export function semanasDoPeriodo(dias: string[]): string[] {
+  return [...new Set(dias.map((dia) => semanaBR(instanteDoTextoBR(dia))))];
+}
+
+/** A chave pessoa + intervalo nos mapas de `contarPor`. */
+export const naChave = (id: string, intervalo: string) => `${id}|${intervalo}`;
+
+/**
+ * UMA SOMA SÓ PARA MÊS E SEMANA (14/09/2026).
+ *
+ * Era `contarNoMes`, com `mesBR` escrito dentro. O semana a semana precisava da
+ * mesma conta com outra chave de tempo, e uma cópia com `semanaBR` seria a
+ * segunda implementação de "quanto a pessoa fez naquele intervalo" — as duas
+ * divergiriam em silêncio na primeira mudança de regra. O intervalo agora é
+ * parâmetro (`mesBR` ou `semanaBR`, os dois de data-br.util).
+ *
+ * Linha sem pessoa ou sem data não conta, como antes.
+ */
+export function contarPor<T>(
+  linhas: readonly T[],
+  quem: (l: T) => string | null,
+  quando: (l: T) => Date | null,
+  intervalo: (d: Date) => string,
+): Map<string, number> {
+  const mapa = new Map<string, number>();
+  for (const l of linhas) {
+    const id = quem(l);
+    const data = quando(l);
+    if (!id || !data) continue;
+    const chave = naChave(id, intervalo(data));
+    mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
+  }
+  return mapa;
+}
+
+/** O nome de um tipo cujo slug não tem mais linha em tipos_evento. */
+export const NOME_DO_TIPO_SEM_CADASTRO = 'Outro tipo';
+
+/**
+ * CONCLUÍDAS POR TIPO DE ATIVIDADE — de uma pessoa, no período.
+ *
+ * A ordem é por volume e depois pelo nome, e isso NÃO contradiz a regra de não
+ * ordenar por volume: aqui se ordenam TIPOS de atividade de uma mesma pessoa
+ * (prazo, audiência, reunião), nunca pessoas. Só entram tipos com concluída.
+ *
+ * O nome é o atual: tipos são cadastráveis e podem ter sido renomeados ou
+ * ocultados (ocultar não apaga a linha). Slug sem linha vira "Outro tipo".
+ */
+export function concluidasPorTipo(
+  minhas: readonly { tipo: string; concluidoEm: Date | null; inicio: Date }[],
+  nomes: ReadonlyMap<string, string>,
+): TipoConcluido[] {
+  const porSlug = new Map<string, TipoConcluido>();
+  for (const c of minhas) {
+    const atual = porSlug.get(c.tipo) ?? {
+      tipo: c.tipo,
+      nome: nomes.get(c.tipo) ?? NOME_DO_TIPO_SEM_CADASTRO,
+      concluidas: 0,
+      noDiaMarcado: 0,
+    };
+    // A mesma régua do total: toda concluída conta, e "no dia" exige a data.
+    atual.concluidas += 1;
+    if (c.concluidoEm && concluidaNoDia(c.concluidoEm, c.inicio)) atual.noDiaMarcado += 1;
+    porSlug.set(c.tipo, atual);
+  }
+  const tipos = [...porSlug.values()];
+  return tipos.sort(
+    (a, b) =>
+      b.concluidas - a.concluidas || a.nome.localeCompare(b.nome, 'pt-BR') || a.tipo.localeCompare(b.tipo),
+  );
 }
 
 /** Por perfil, depois por nome. NUNCA por volume — ver o comentário do topo. */
@@ -232,7 +366,7 @@ export class ProdutividadeService {
       where: quemEntraNoUso(usuario),
       select: {
         id: true, nome: true, nomeExibicao: true, role: true,
-        avatarUrl: true, avatarKey: true, ultimoLoginEm: true,
+        avatarUrl: true, avatarKey: true, ultimoLoginEm: true, createdAt: true,
       },
     });
     const ids = usuarios.map((u) => u.id);
@@ -258,6 +392,7 @@ export class ProdutividadeService {
       esperando,
       andamentos,
       atendimentos,
+      tipos,
     ] = await Promise.all([
       // A LINHA DE LOGIN FICA DE FORA: ela grava também a tentativa que falhou,
       // e quem só chegou à tela de senha não usou o sistema.
@@ -281,7 +416,8 @@ export class ProdutividadeService {
       }),
       this.prisma.compromisso.findMany({
         where: { concluidoPor: { in: ids }, status: StatusCompromisso.CONCLUIDO, concluidoEm: noPeriodo },
-        select: { concluidoPor: true, concluidoEm: true, inicio: true },
+        // `tipo` para "por tipo": o mesmo SELECT, uma coluna a mais (14/09/2026).
+        select: { concluidoPor: true, concluidoEm: true, inicio: true, tipo: true },
       }),
       this.prisma.compromisso.groupBy({
         by: ['criadoPor'],
@@ -339,6 +475,12 @@ export class ProdutividadeService {
         where: { atendentePorId: { in: ids }, createdAt: noPeriodo },
         select: { atendentePorId: true, createdAt: true },
       }),
+      /*
+        O NOME DE CADA TIPO DE ATIVIDADE, para "por tipo". Dezenas de linhas em
+        tipos_evento. Sem filtro de `ativo`: tipo oculto não apaga a linha, e a
+        concluída dele continua tendo nome.
+      */
+      this.prisma.tipoCompromisso.findMany({ select: { slug: true, nome: true } }),
     ]);
 
     /*
@@ -381,27 +523,54 @@ export class ProdutividadeService {
     const andamentosDe = porId(andamentos, (l) => l.autorId, () => 1);
     const atendimentosDe = porId(atendimentos, (l) => l.atendentePorId, () => 1);
 
-    /* MÊS A MÊS — a mesma contagem, com o mês de Teresina na chave. */
-    const meses = mesesDoPeriodo(diasDoPeriodo(inicio, fim));
-    const noMes = (id: string, mes: string) => `${id}|${mes}`;
-    const contarNoMes = <T,>(
-      linhas: T[],
-      quem: (l: T) => string | null,
-      quando: (l: T) => Date | null,
-    ) => {
-      const mapa = new Map<string, number>();
-      for (const l of linhas) {
-        const id = quem(l);
-        const data = quando(l);
-        if (!id || !data) continue;
-        const chave = noMes(id, mesBR(data));
-        mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
-      }
-      return mapa;
+    /*
+      MÊS A MÊS E SEMANA A SEMANA — as MESMAS linhas dos totais, pela MESMA soma
+      (`contarPor`), trocando só a chave de tempo (`mesBR` ou `semanaBR`). Somar
+      as semanas de uma pessoa dá o total dela, e o teste prova com valores.
+
+      Processos, documentos e filiados saem da auditoria já lida, que traz a
+      data, pelos nomes fixos de `REGISTROS`. Criadas e decididas ficam fora do
+      tempo de propósito (14/09/2026): são groupBy, e dar a elas uma data
+      exigiria ler linha a linha só para um gráfico que não as usa.
+    */
+    const todosOsDias = diasDoPeriodo(inicio, fim);
+    const meses = mesesDoPeriodo(todosOsDias);
+    const semanas = semanasDoPeriodo(todosOsDias);
+    const doRegistro = (regra: { acao: AcaoAuditoria; entidade: string }) =>
+      auditoria.filter((a) => a.acao === regra.acao && a.entidade === regra.entidade);
+    const concluidasNoDia = concluidas.filter((c) => c.concluidoEm && concluidaNoDia(c.concluidoEm, c.inicio));
+    const usoPorDia = [...diasDe].flatMap(([id, ds]) => [...ds].map((dia) => ({ id, dia })));
+    const trabalhoPor = (intervalo: (d: Date) => string) => {
+      const usou = contarPor(usoPorDia, (l) => l.id, (l) => instanteDoTextoBR(l.dia), intervalo);
+      const feitas = contarPor(concluidas, (l) => l.concluidoPor, (l) => l.concluidoEm, intervalo);
+      const noDia = contarPor(concluidasNoDia, (l) => l.concluidoPor, (l) => l.concluidoEm, intervalo);
+      const notas = contarPor(andamentos, (l) => l.autorId, (l) => l.createdAt, intervalo);
+      const atendidos = contarPor(atendimentos, (l) => l.atendentePorId, (l) => l.createdAt, intervalo);
+      const daAuditoria = (regra: { acao: AcaoAuditoria; entidade: string }) =>
+        contarPor(doRegistro(regra), (l) => l.userId, (l) => l.createdAt, intervalo);
+      const processosCadastrados = daAuditoria(REGISTROS.processoCadastrado);
+      const documentos = daAuditoria(REGISTROS.documentoAnexado);
+      const filiadosCadastrados = daAuditoria(REGISTROS.filiadoCadastrado);
+      return (id: string, chave: string): TrabalhoNoTempo => {
+        const k = naChave(id, chave);
+        return {
+          diasComUso: usou.get(k) ?? 0,
+          concluidas: feitas.get(k) ?? 0,
+          noDiaMarcado: noDia.get(k) ?? 0,
+          andamentos: notas.get(k) ?? 0,
+          atendimentos: atendidos.get(k) ?? 0,
+          processosCadastrados: processosCadastrados.get(k) ?? 0,
+          documentos: documentos.get(k) ?? 0,
+          filiadosCadastrados: filiadosCadastrados.get(k) ?? 0,
+        };
+      };
     };
-    const concluidasNoMes = contarNoMes(concluidas, (l) => l.concluidoPor, (l) => l.concluidoEm);
-    const andamentosNoMes = contarNoMes(andamentos, (l) => l.autorId, (l) => l.createdAt);
-    const atendimentosNoMes = contarNoMes(atendimentos, (l) => l.atendentePorId, (l) => l.createdAt);
+    const noMes = trabalhoPor(mesBR);
+    const naSemana = trabalhoPor(semanaBR);
+    // Quantos dias do período caem em cada semana: a mesma soma, com o período no lugar da pessoa.
+    const DO_PERIODO = 'periodo';
+    const diasNaSemana = contarPor(todosOsDias, () => DO_PERIODO, instanteDoTextoBR, semanaBR);
+    const nomeDoTipo = new Map(tipos.map((t) => [t.slug, t.nome]));
     const sessaoDe = new Map(ultimaSessao.map((s) => [s.userId, s._max.createdAt]));
     const acaoDe = new Map(ultimaAcao.map((a) => [a.userId, a._max.createdAt]));
 
@@ -417,6 +586,7 @@ export class ProdutividadeService {
           avatarKey: u.avatarKey,
           ultimoAcesso:
             ultimoUsoReal(u.ultimoLoginEm, sessaoDe.get(u.id), acaoDe.get(u.id))?.toISOString() ?? null,
+          contaCriadaEm: u.createdAt.toISOString(),
           diasComUso: dias.length,
           diasAtivos: dias,
           agenda: {
@@ -425,6 +595,7 @@ export class ProdutividadeService {
             criadas: criadasDe.get(u.id) ?? 0,
             abertas: abertasDe.get(u.id)?.abertas ?? 0,
             atrasadas: abertasDe.get(u.id)?.atrasadas ?? 0,
+            porTipo: concluidasPorTipo(minhas, nomeDoTipo),
           },
           publicacoes: {
             decididas: decididasDe.get(u.id) ?? 0,
@@ -440,12 +611,11 @@ export class ProdutividadeService {
             fichasAtualizadas: contar(u.id, REGISTROS.fichaAtualizada),
           },
           atendimentos: atendimentosDe.get(u.id) ?? 0,
-          porMes: meses.map((mes) => ({
-            mes,
-            diasComUso: dias.filter((d) => d.startsWith(mes)).length,
-            concluidas: concluidasNoMes.get(noMes(u.id, mes)) ?? 0,
-            andamentos: andamentosNoMes.get(noMes(u.id, mes)) ?? 0,
-            atendimentos: atendimentosNoMes.get(noMes(u.id, mes)) ?? 0,
+          porMes: meses.map((mes): MesDeUso => ({ mes, ...noMes(u.id, mes) })),
+          porSemana: semanas.map((semana): SemanaDeUso => ({
+            semana,
+            diasNoPeriodo: diasNaSemana.get(naChave(DO_PERIODO, semana)) ?? 0,
+            ...naSemana(u.id, semana),
           })),
         };
       }),
@@ -454,8 +624,9 @@ export class ProdutividadeService {
     return {
       periodo: { de: inicio.toISOString(), ate: fim.toISOString() },
       escopo,
-      dias: diasDoPeriodo(inicio, fim),
+      dias: todosOsDias,
       meses,
+      semanas,
       perfis: escopo === 'GLOBAL' ? resumirPerfis(pessoas, agora) : [],
       pessoas,
       geradoEm: agora.toISOString(),

@@ -1,4 +1,4 @@
-import { idadeEmAnosBR, inicioDoMesBR, mesBR, somarDiasUteisEmCalendario } from './data-br.util';
+import { idadeEmAnosBR, inicioDoMesBR, mesBR, semanaBR, somarDiasUteisEmCalendario } from './data-br.util';
 
 /**
  * OS QUATRO QUE SOBRARAM DA VARREDURA DE FUSO.
@@ -41,6 +41,49 @@ describe('o mês começa à meia-noite daqui', () => {
   /** Uma data às 23h de Brasília do dia 30 pertence ao mês do dia 30. */
   it('o último instante do mês ainda é do mês', () => {
     expect(mesBR(new Date('2026-06-30T23:59:00-03:00'))).toBe('2026-06');
+  });
+});
+
+/**
+ * A SEMANA É A SEGUNDA-FEIRA DAQUI (14/09/2026).
+ *
+ * Nasceu com o semana a semana do PDF de uso. Com `getDay()` no contêiner, o uso
+ * das 22h de domingo em Teresina já é segunda em UTC e iria para a semana
+ * seguinte. Os casos abaixo moram nessa faixa de propósito.
+ */
+describe('a semana começa na segunda-feira daqui', () => {
+  it('domingo à noite ainda é da semana que começou na segunda anterior', () => {
+    // 13/09/2026 é domingo; às 22h daqui já é 14/09 01:00 em UTC.
+    expect(semanaBR(new Date('2026-09-13T22:00:00-03:00'))).toBe('2026-09-07');
+    expect(semanaBR(new Date('2026-09-14T01:00:00Z'))).toBe('2026-09-07');
+  });
+
+  it('a segunda-feira abre a própria semana desde o primeiro minuto', () => {
+    expect(semanaBR(new Date('2026-09-14T00:10:00-03:00'))).toBe('2026-09-14');
+    expect(semanaBR(new Date('2026-09-14T23:50:00-03:00'))).toBe('2026-09-14');
+  });
+
+  it('sábado e sexta ficam na semana da segunda anterior', () => {
+    expect(semanaBR(new Date('2026-09-12T10:00:00-03:00'))).toBe('2026-09-07');
+    expect(semanaBR(new Date('2026-08-14T09:00:00-03:00'))).toBe('2026-08-10');
+  });
+
+  /** 01/01/2026 é quinta: a semana começou em 29/12/2025, e o mês e o ano viram sozinhos. */
+  it('atravessa a virada do mês e do ano', () => {
+    expect(semanaBR(new Date('2026-01-01T12:00:00-03:00'))).toBe('2025-12-29');
+    expect(semanaBR(new Date('2026-09-02T12:00:00-03:00'))).toBe('2026-08-31');
+  });
+
+  it('todo dia de setembro de 2026 cai numa segunda de até 6 dias antes', () => {
+    for (let dia = 1; dia <= 30; dia++) {
+      const iso = `2026-09-${String(dia).padStart(2, '0')}`;
+      // 23h30 daqui: a hora em que o contêiner já está no dia seguinte.
+      const segunda = semanaBR(new Date(`${iso}T23:30:00-03:00`));
+      const distancia = (Date.parse(iso) - Date.parse(segunda)) / 86_400_000;
+      expect(new Date(`${segunda}T00:00:00Z`).getUTCDay()).toBe(1);
+      expect(distancia).toBeGreaterThanOrEqual(0);
+      expect(distancia).toBeLessThanOrEqual(6);
+    }
   });
 });
 

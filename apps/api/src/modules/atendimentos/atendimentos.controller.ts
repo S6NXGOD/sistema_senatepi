@@ -3,11 +3,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AtendimentosService } from './atendimentos.service';
 import {
-  AtualizarAssuntoDto, AtualizarLinkConsultaDto,
+  AtualizarAssuntoDto, AtualizarLinkConsultaDto, CancelarAtendimentoDto, ConcluirAtendimentoDto,
   CreateAtendimentoDto, EncaminhamentoOpcoesQueryDto, ListAtendimentosQueryDto,
-  MudarStatusAtendimentoDto, RegistrarDesfechoDto,
+  MudarModalidadeConsultaDto, MudarStatusAtendimentoDto, RegistrarDesfechoDto,
 } from './dto/atendimentos.dto';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
 @ApiTags('atendimentos')
@@ -17,8 +17,8 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 export class AtendimentosController {
   constructor(private readonly service: AtendimentosService) {}
 
-  private ctx(req: Request, userId?: string) {
-    return { ip: req.ip, userAgent: req.headers['user-agent'], userId };
+  private ctx(req: Request, userId?: string, nome?: string) {
+    return { ip: req.ip, userAgent: req.headers['user-agent'], userId, nome };
   }
 
   @Post()
@@ -64,13 +64,41 @@ export class AtendimentosController {
     return this.service.atualizarLinkDaConsulta(id, compromissoId, dto, this.ctx(req, userId));
   }
 
-  /** Registra o desfecho (resultado). Em ENCAMINHADO, agenda a(s) consulta(s). */
+  /**
+   * "Mudar como vai ser" a consulta nascida deste atendimento: na sede, por
+   * vídeo ou por telefone. O nome de quem mudou vai para a linha do tempo da
+   * atividade, e por isso o controller passa o usuário inteiro.
+   */
+  @Patch(':id/consultas/:compromissoId/modalidade')
+  mudarModalidadeDaConsulta(
+    @Param('id') id: string,
+    @Param('compromissoId') compromissoId: string,
+    @Body() dto: MudarModalidadeConsultaDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.mudarModalidadeDaConsulta(id, compromissoId, dto, this.ctx(req, user?.id, user?.nome));
+  }
+
+  /** Registra o desfecho (resultado). Em ENCAMINHADO, agenda a consulta. */
   @Patch(':id/desfecho')
   registrarDesfecho(@Param('id') id: string, @Body() dto: RegistrarDesfechoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.registrarDesfecho(id, dto, this.ctx(req, userId));
   }
 
-  /** Concluir / cancelar / reabrir a demanda. */
+  /** Concluir: o plano de fechamento decide o que é perguntado e o que é recusado. */
+  @Patch(':id/concluir')
+  concluir(@Param('id') id: string, @Body() dto: ConcluirAtendimentoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.concluir(id, dto, this.ctx(req, user?.id, user?.nome));
+  }
+
+  /** Cancelar, com a categoria, e o que fazer com a consulta marcada. */
+  @Patch(':id/cancelar')
+  cancelar(@Param('id') id: string, @Body() dto: CancelarAtendimentoDto, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.cancelar(id, dto, this.ctx(req, user?.id, user?.nome));
+  }
+
+  /** Só o Reabrir (PENDENTE). Concluir e cancelar têm rota própria. */
   @Patch(':id/status')
   mudarStatus(@Param('id') id: string, @Body() dto: MudarStatusAtendimentoDto, @CurrentUser('id') userId: string, @Req() req: Request) {
     return this.service.mudarStatus(id, dto, this.ctx(req, userId));

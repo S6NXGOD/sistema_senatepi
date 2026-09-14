@@ -257,13 +257,47 @@ export class DjenController {
       bloqueadoNaOrigem: this.djen.bloqueadoNaOrigem,
       janelaDias: this.djen.janelaDias,
       publicacoes: ativo ? await this.prisma.comunicacaoDjen.count() : 0,
-      /** Advogados que a varredura por OAB alcança — zero aqui explica silêncio. */
-      advogadosComOab: ativo
-        ? await this.prisma.user.count({
-            where: { ativo: true, oab: { not: null }, oabUf: { not: null } },
-          })
-        : 0,
+      /**
+       * Advogados que a varredura por OAB alcança — zero aqui explica silêncio.
+       *
+       * Contava `oab: { not: null }`, e a OAB gravada como texto vazio entrava
+       * na conta sem ser consultada nunca. Agora é a MESMA lista que a
+       * varredura usa, então o número da tela e o do robô não divergem.
+       */
+      advogadosComOab: ativo ? (await this.sync.advogadosConsultaveis()).length : 0,
+      /**
+       * QUEM O ROBÔ NÃO ENXERGA, com nome — para a tela de Usuários mostrar a
+       * linha na pessoa certa (14/09/2026).
+       *
+       * A contagem só ia para o log da rodada, e a frase ATENÇÃO sumia quando
+       * havia qualquer falha. A Dra. Lara Cortez está sem OAB desde 07/09 e
+       * nada na tela dizia isso. Vazio com a integração desligada: no SINDSERM
+       * não há Diário, e a linha âmbar lá seria alarme sobre nada.
+       */
+      advogadosSemOab: ativo ? await this.sync.advogadosSemOab() : [],
     };
+  }
+
+  /**
+   * DE ONDE VÊM AS INTIMAÇÕES DESTE PROCESSO — a linha de estado da aba
+   * Publicações (14/09/2026).
+   *
+   * Responde "se sair um ato amanhã, ele chega?": pela OAB de quem, pelo número
+   * com que frequência, e quando foi a última consulta. Calculada no servidor,
+   * porque são três fatos que só ele tem juntos.
+   *
+   * DECLARADA ANTES de `publicacoes/:id` e `processo/:processoId`, como as outras
+   * rotas literais deste controller (memória das rotas que colidem). Com três
+   * segmentos ela não casa com `processo/:processoId`, mas a ordem é a regra da
+   * casa, e o spec `rotas-que-colidem` confere.
+   */
+  @Get('processo/:processoId/cobertura')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'Como o Diário acompanha este processo: OAB da equipe e consulta pelo número.' })
+  async coberturaDoProcesso(@Param('processoId') processoId: string) {
+    const cobertura = await this.sync.coberturaDoProcesso(processoId);
+    if (!cobertura) throw new NotFoundException('Processo não encontrado.');
+    return cobertura;
   }
 
   /**

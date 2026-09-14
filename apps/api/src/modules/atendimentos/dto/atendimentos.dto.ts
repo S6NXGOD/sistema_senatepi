@@ -9,6 +9,10 @@ import {
 } from '@prisma/client';
 import { ASSUNTO_OUTRO_MAX, ASSUNTO_OUTRO_MIN, MENSAGEM_ASSUNTO_OUTRO } from '../assunto.util';
 import { MODALIDADES_CONSULTA, ModalidadeConsulta, modalidadeRemota } from '../encaminhamento.util';
+import {
+  CATEGORIAS_CANCELAMENTO_ATENDIMENTO, CategoriaCancelamentoAtendimento, ESCOLHAS_DA_CONSULTA,
+  EscolhaDaConsulta, MOTIVO_MAXIMO, NOTA_MAXIMA,
+} from '../fechamento.util';
 
 /** Criação: só o essencial da triagem — o desfecho é registrado depois. */
 export class CreateAtendimentoDto {
@@ -153,10 +157,66 @@ export class EncaminhamentoOpcoesQueryDto {
   data?: string;
 }
 
+/**
+ * Só o REABRIR (PENDENTE) passa por aqui desde 14/09/2026. O enum continua
+ * inteiro de propósito: o web antigo, em cache, ainda manda CONCLUIDO e
+ * CANCELADO, e é o SERVIÇO que responde "Concluir e cancelar agora têm tela
+ * própria" — uma frase que diz o que fazer, e não "status inválido".
+ */
 export class MudarStatusAtendimentoDto {
   @ApiProperty({ enum: StatusAtendimento })
   @IsEnum(StatusAtendimento)
   status: StatusAtendimento;
+}
+
+/**
+ * CONCLUIR, com o que a tela perguntou (D9 da rodada 3). Os dois campos são
+ * opcionais porque o plano (`planoDeFechamento`) decide quando cada um é
+ * exigido; o DTO só barra o que nunca vale.
+ */
+export class ConcluirAtendimentoDto {
+  @ApiPropertyOptional({ description: 'Como a demanda terminou. Obrigatória quando nenhum outro registro diz (ver o plano).' })
+  @IsOptional() @IsString() @MaxLength(NOTA_MAXIMA, { message: `A nota cabe em ${NOTA_MAXIMA} caracteres.` })
+  nota?: string;
+
+  @ApiPropertyOptional({ enum: ESCOLHAS_DA_CONSULTA, description: 'O que fazer com a consulta marcada, quando o plano pergunta.' })
+  @IsOptional()
+  @IsIn(ESCOLHAS_DA_CONSULTA, { message: 'Diga se a consulta fica (MANTER) ou sai (CANCELAR).' })
+  consulta?: EscolhaDaConsulta;
+}
+
+/**
+ * CANCELAR: o motivo obrigatório é a CATEGORIA, não o texto livre — o que a
+ * agenda aprendeu no cancelamento dela, e o que vira estatística depois.
+ */
+export class CancelarAtendimentoDto {
+  @ApiProperty({ enum: CATEGORIAS_CANCELAMENTO_ATENDIMENTO })
+  @IsIn(CATEGORIAS_CANCELAMENTO_ATENDIMENTO, { message: 'Diga por que o atendimento vai ser cancelado.' })
+  categoria: CategoriaCancelamentoAtendimento;
+
+  @ApiPropertyOptional({ description: 'Detalhe opcional.' })
+  @IsOptional() @IsString() @MaxLength(MOTIVO_MAXIMO, { message: `O detalhe cabe em ${MOTIVO_MAXIMO} caracteres.` })
+  motivo?: string;
+
+  @ApiPropertyOptional({ enum: ESCOLHAS_DA_CONSULTA, description: 'O que fazer com a consulta marcada, quando o plano pergunta.' })
+  @IsOptional()
+  @IsIn(ESCOLHAS_DA_CONSULTA, { message: 'Diga se a consulta fica (MANTER) ou sai (CANCELAR).' })
+  consulta?: EscolhaDaConsulta;
+}
+
+/** "Mudar como vai ser" a consulta já marcada: a modalidade e, no vídeo, o link. */
+export class MudarModalidadeConsultaDto {
+  @ApiProperty({ enum: MODALIDADES_CONSULTA })
+  @IsIn(MODALIDADES_CONSULTA, { message: 'Modalidade inválida: use SEDE, VIDEO ou TELEFONE.' })
+  modalidade: ModalidadeConsulta;
+
+  /** Só com VIDEO. Ausente no vídeo mantém o link que já existe; nulo tira. */
+  @ApiPropertyOptional({ nullable: true, description: 'Link da chamada (só por vídeo), ou nulo para tirar.' })
+  @IsOptional()
+  @ValidateIf((o) => o.linkReuniao != null)
+  @IsString({ message: 'Cole o link da chamada, ou envie nulo para tirar.' })
+  @MaxLength(2000)
+  linkReuniao?: string | null;
 }
 
 export class ListAtendimentosQueryDto {

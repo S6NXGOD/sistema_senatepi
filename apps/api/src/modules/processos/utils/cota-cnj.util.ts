@@ -28,6 +28,19 @@
  * CDN recusa por ORIGEM (403 sem cabeçalho de cota, que insistir não resolve).
  * O que NÃO pode divergir é o número — por isso ele vive aqui e os dois
  * serviços o importam.
+ *
+ * O SALDO JÁ NÃO É O MESMO, O NÚMERO CONTINUA SENDO (corrigido em 14/09/2026).
+ * Este comentário, e o do `DjenService`, diziam que DJEN e DataJud dividiam UM
+ * saldo por sairem do mesmo IP. Isso deixou de ser verdade em 03/09/2026: o
+ * CNJ recusa o DJEN por PAÍS de origem, e desde então ele sai por um
+ * repassador numa VPS brasileira (`DJEN_BASE_URL`), com outro IP. O DataJud
+ * continua saindo do Railway, com o IP compartilhado que explica os 429.
+ *
+ * O número segue único porque a regra de 20/min é a mesma nos dois lados e a
+ * folga de 14 continua necessária em cada um: no DJEN, a varredura, o botão da
+ * ficha e uma segunda réplica dividem o IP da ponte; no DataJud, o vizinho do
+ * Railway. Quem calibrar a duração da rodada do DJEN não deve somar o consumo
+ * do DataJud — são duas contas.
  */
 
 /**

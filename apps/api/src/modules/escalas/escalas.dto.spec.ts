@@ -1,5 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
-import { AtualizarEscalaDto, CriarEscalasDto, ListEscalasQueryDto } from './dto/escalas.dto';
+import {
+  AtualizarEscalaDto, ConsultasDoPlantaoQueryDto, CopiaQueryDto, CopiarEscalaDto, CriarEscalasDto, ListEscalasQueryDto,
+} from './dto/escalas.dto';
 
 /**
  * O DTO COM O `ValidationPipe` DE VERDADE — o mesmo de `main.ts`.
@@ -62,6 +64,64 @@ describe('AtualizarEscalaDto', () => {
 
   it('não aceita pessoa vazia', async () => {
     expect(await valida(AtualizarEscalaDto, { advogadoId: '' })).not.toBe('ok');
+  });
+});
+
+/**
+ * OS CAMPOS NOVOS DE 14/09/2026 (D15 e D16). `passarConsultas` é opcional: a
+ * tela antiga não o manda e continua passando no `forbidNonWhitelisted`.
+ */
+describe('AtualizarEscalaDto.passarConsultas', () => {
+  const uuid = '3f2a9c1e-5b7d-4e2f-9a1b-0c8d7e6f5a4b';
+
+  it('ausente, vazio ou com ids de consulta', async () => {
+    expect(await valida(AtualizarEscalaDto, { advogadoId: 'u2' })).toBe('ok');
+    expect(await valida(AtualizarEscalaDto, { advogadoId: 'u2', passarConsultas: [] })).toBe('ok');
+    expect(await valida(AtualizarEscalaDto, { advogadoId: 'u2', passarConsultas: [uuid] })).toBe('ok');
+  });
+
+  it('recusa id que não é de consulta e lista acima de 50', async () => {
+    expect(await valida(AtualizarEscalaDto, { advogadoId: 'u2', passarConsultas: ['c1'] })).toContain('Consulta inválida.');
+    const muitas = Array.from({ length: 51 }, () => uuid);
+    expect(await valida(AtualizarEscalaDto, { advogadoId: 'u2', passarConsultas: muitas }))
+      .toContain('No máximo 50 consultas por troca.');
+    expect(await valida(AtualizarEscalaDto, { advogadoId: 'u2', passarConsultas: 'c1' })).not.toBe('ok');
+  });
+});
+
+describe('CopiaQueryDto e CopiarEscalaDto', () => {
+  const item = { origemId: 'e-07-09', data: '2026-10-05' };
+
+  it('prévia: dois meses AAAA-MM', async () => {
+    expect(await valida(CopiaQueryDto, { origem: '2026-09', destino: '2026-10' }, 'query')).toBe('ok');
+    expect(await valida(CopiaQueryDto, { origem: '2026-9', destino: '2026-10' }, 'query'))
+      .toContain('Mês de origem inválido (use AAAA-MM).');
+    expect(await valida(CopiaQueryDto, { origem: '2026-09', destino: '2026-13' }, 'query'))
+      .toContain('Mês de destino inválido (use AAAA-MM).');
+  });
+
+  it('gravação: ao menos um item, no máximo 250, dia puro', async () => {
+    expect(await valida(CopiarEscalaDto, { origem: '2026-09', destino: '2026-10', itens: [item] })).toBe('ok');
+    expect(await valida(CopiarEscalaDto, { origem: '2026-09', destino: '2026-10', itens: [] }))
+      .toContain('Marque ao menos um plantão para copiar.');
+    expect(await valida(CopiarEscalaDto, { origem: '2026-09', destino: '2026-10', itens: Array.from({ length: 251 }, () => item) }))
+      .toContain('No máximo 250 plantões por cópia.');
+    expect(await valida(CopiarEscalaDto, { origem: '2026-09', destino: '2026-10', itens: [{ ...item, data: '2026-10-05T09:00:00Z' }] }))
+      .toContain('Data inválida (use AAAA-MM-DD).');
+  });
+
+  it('a observação não viaja na cópia', async () => {
+    expect(await valida(CopiarEscalaDto, { origem: '2026-09', destino: '2026-10', itens: [{ ...item, observacao: 'x' }] }))
+      .toContain('property observacao should not exist');
+  });
+});
+
+describe('ConsultasDoPlantaoQueryDto', () => {
+  it('`entra` é opcional e nada mais é aceito', async () => {
+    expect(await valida(ConsultasDoPlantaoQueryDto, {}, 'query')).toBe('ok');
+    expect(await valida(ConsultasDoPlantaoQueryDto, { entra: 'murilo' }, 'query')).toBe('ok');
+    expect(await valida(ConsultasDoPlantaoQueryDto, { entra: 'murilo', sai: 'sherad' }, 'query'))
+      .toContain('property sai should not exist');
   });
 });
 

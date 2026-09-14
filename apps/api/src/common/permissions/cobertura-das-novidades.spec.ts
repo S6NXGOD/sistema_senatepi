@@ -252,6 +252,11 @@ describe('as rotas novas moram no módulo certo', () => {
     expect(codigo).toContain("@Get('encaminhamento/opcoes')");
     expect(codigo).toContain("@Patch(':id/assunto')");
     expect(codigo).toContain("@Patch(':id/consultas/:compromissoId/link')");
+    // Rodada 3 (14/09/2026): fechar o atendimento e mudar a modalidade da
+    // consulta nascida dele também são da Triagem, pela mesma matriz.
+    expect(codigo).toContain("@Patch(':id/consultas/:compromissoId/modalidade')");
+    expect(codigo).toContain("@Patch(':id/concluir')");
+    expect(codigo).toContain("@Patch(':id/cancelar')");
     expect(codigo).not.toContain('@Roles(');
   });
 });

@@ -4,6 +4,7 @@ import { ERRO_LINK } from '../../common/link-reuniao.util';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { AuditService } from '../../common/audit/audit.service';
 import type { EscalasService } from '../escalas/escalas.service';
+import type { AgendaService } from '../agenda/agenda.service';
 
 /**
  * O QUE A CONSULTA CRIADA LEVA — testado EXECUTANDO o serviço.
@@ -45,7 +46,7 @@ function montar(mundo: Mundo = {}) {
   };
 
   const tx = {
-    atendimento: { update: async (args: any) => { gravado.atendimentoUpdate.push(args); return {}; } },
+    atendimento: { updateMany: async (args: any) => { gravado.atendimentoUpdate.push(args); return { count: 1 }; } },
     compromisso: {
       create: async (args: any) => { gravado.compromissoCreate.push(args); return { id: 'c-novo' }; },
       update: async (args: any) => { gravado.compromissoUpdate.push(args); return {}; },
@@ -73,6 +74,7 @@ function montar(mundo: Mundo = {}) {
       },
       findUnique: async () => mundo.atendimento ?? null,
       update: async (args: any) => { gravado.atendimentoUpdate.push(args); return {}; },
+      updateMany: async (args: any) => { gravado.atendimentoUpdate.push(args); return { count: 1 }; },
       count: async () => (mundo.lista ?? []).length,
       findMany: async () => mundo.lista ?? [],
     },
@@ -97,9 +99,12 @@ function montar(mundo: Mundo = {}) {
 
   const audit = { registrar: jest.fn(async () => undefined) };
   const escalas = { listarPlantao: jest.fn(async () => mundo.plantao ?? []) };
+  const agenda = { registrarNoHistorico: jest.fn(async () => undefined) };
 
-  const svc = new AtendimentosService(prisma, audit as unknown as AuditService, escalas as unknown as EscalasService);
-  return { svc, gravado, audit, escalas };
+  const svc = new AtendimentosService(
+    prisma, audit as unknown as AuditService, escalas as unknown as EscalasService, agenda as unknown as AgendaService,
+  );
+  return { svc, gravado, audit, escalas, agenda };
 }
 
 /** O atendimento a encaminhar, sem desfecho. */
@@ -275,6 +280,74 @@ describe('registrarDesfecho — o que a consulta criada leva', () => {
     expect(registro.descricao).toContain('10:30');
     expect(registro.descricao).toContain('por vídeo');
     expect(registro.metadata).toMatchObject({ modalidade: 'VIDEO', comLink: false });
+  });
+});
+
+/**
+ * MARCAR NOVA CONSULTA (14/09/2026, D13 da rodada 3). Com todas as consultas
+ * nascidas canceladas, o balcão encaminha de novo pelo mesmo atendimento — e só
+ * nesse caso: com uma consulta de pé, encaminhar de novo criaria a duplicata.
+ */
+describe('registrarDesfecho — marcar nova consulta', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    jest.setSystemTime(SEXTA_17H);
+  });
+  afterEach(() => jest.useRealTimers());
+
+  const CANCELADA = { id: 'c-1', status: 'CANCELADO' };
+  const SEM_CONSULTA_DE_PE = { ...PENDENTE, desfecho: 'ENCAMINHADO', status: 'PENDENTE', compromissos: [CANCELADA] };
+
+  it('todas canceladas e o atendimento pendente: nasce a nova consulta, e o primeiro desfecho fica como estava', async () => {
+    const m = montar({ atendimento: SEM_CONSULTA_DE_PE });
+    jest.spyOn(m.svc, 'detalhe').mockResolvedValue({} as never);
+    await m.svc.registrarDesfecho('a-1', { ...ENCAMINHAR, advogadoIds: ['u-bruno'] } as never, { userId: 'u-balcao' });
+
+    expect(m.gravado.compromissoCreate).toHaveLength(1);
+    expect(m.gravado.compromissoCreate[0].data).toMatchObject({ responsavelId: 'u-bruno', atendimentoId: 'a-1' });
+    const data = m.gravado.atendimentoUpdate[0].data;
+    // O painel mede o tempo até a primeira resposta por `desfechoEm`: não recomeça.
+    expect(data).not.toHaveProperty('desfecho');
+    expect(data).not.toHaveProperty('desfechoEm');
+    expect(data).not.toHaveProperty('desfechoObs');
+    expect(data).toMatchObject({ tipoEncaminhamento: 'CONSULTA_NOVA', responsavel: 'Bruno Lima' });
+
+    const registro = (m.audit.registrar.mock.calls[0] as any[])[0];
+    expect(registro.descricao).toContain('Atendimento #12 encaminhado de novo a Bruno Lima');
+    expect(registro.metadata).toMatchObject({ novaConsulta: true, consultasCanceladasAntes: ['c-1'] });
+  });
+
+  it('a nota para quem vai atender só é trocada quando vem uma nova', async () => {
+    const m = montar({ atendimento: SEM_CONSULTA_DE_PE });
+    jest.spyOn(m.svc, 'detalhe').mockResolvedValue({} as never);
+    await m.svc.registrarDesfecho(
+      'a-1', { ...ENCAMINHAR, advogadoIds: ['u-ana'], desfechoObs: ' Levar o contracheque de agosto. ' } as never, { userId: 'u' },
+    );
+    expect(m.gravado.atendimentoUpdate[0].data.desfechoObs).toBe('Levar o contracheque de agosto.');
+    expect(m.gravado.compromissoCreate[0].data.descricao).toBe('Levar o contracheque de agosto.');
+  });
+
+  it.each([
+    ['uma consulta ainda de pé', { compromissos: [CANCELADA, { id: 'c-2', status: 'PENDENTE' }] }],
+    ['a consulta em andamento', { compromissos: [CANCELADA, { id: 'c-2', status: 'EM_ANDAMENTO' }] }],
+    ['o atendimento cancelado', { status: 'CANCELADO' }],
+    ['o atendimento concluído', { status: 'CONCLUIDO' }],
+    ['nenhuma consulta nascida', { compromissos: [] }],
+    ['o desfecho foi resolvido no ato', { desfecho: 'RESOLVIDO_ATO' }],
+  ])('recusa com %s — e nada é gravado', async (_caso, parcial) => {
+    const m = montar({ atendimento: { ...SEM_CONSULTA_DE_PE, ...parcial } });
+    await expect(
+      m.svc.registrarDesfecho('a-1', { ...ENCAMINHAR, advogadoIds: ['u-ana'] } as never, { userId: 'u' }),
+    ).rejects.toThrow('já foi registrado');
+    expect(m.gravado.transacoes).toBe(0);
+  });
+
+  it('encaminhado com as consultas canceladas não vira "resolvido no ato" por esta porta', async () => {
+    const m = montar({ atendimento: SEM_CONSULTA_DE_PE });
+    await expect(
+      m.svc.registrarDesfecho('a-1', { resultado: 'RESOLVIDO_ATO', desfechoObs: 'Resolvido' } as never, { userId: 'u' }),
+    ).rejects.toThrow('já foi registrado');
+    expect(m.gravado.atendimentoUpdate).toHaveLength(0);
   });
 });
 

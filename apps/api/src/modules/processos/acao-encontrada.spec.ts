@@ -618,15 +618,22 @@ describe('o cadastro em lote', () => {
  * vinculados e está sem OAB. Dois processos cujo prazo não é anunciado.
  */
 describe('o advogado que a varredura não enxerga', () => {
+  /*
+    A REGRA MUDOU EM 14/09/2026, e o teste de comportamento mora em
+    `djen-leitura-do-diario.spec.ts`: OAB vazia ('') conta como sem OAB, e entra
+    quem é ADVOGADO ou principal de processo vivo, de qualquer perfil. O
+    `OR: [{ oab: null }, { oabUf: null }]` que este teste fixava deixava a OAB
+    vazia de fora e virava uma falha por noite.
+  */
   it('a varredura conta quem ficou de fora', () => {
-    expect(SYNC).toContain("role: 'ADVOGADO',");
-    expect(SYNC).toContain('OR: [{ oab: null }, { oabUf: null }]');
+    expect(SYNC).toContain('const semOab = await this.advogadosSemOab();');
+    expect(SYNC).toContain("{ role: 'ADVOGADO' }");
     expect(SYNC).toContain('resumo.advogadosSemOab = semOab.length;');
   });
 
   /** O aviso nomeia QUEM e diz o CONSERTO — contagem sozinha não resolve nada. */
   it('e diz quem é e o que fazer', () => {
-    expect(SYNC).toContain('a.nomeExibicao || a.nome');
+    expect(SYNC).toContain('nome: u.nomeExibicao || u.nome');
     expect(SYNC).toContain('Preencha OAB e UF na ficha');
   });
 

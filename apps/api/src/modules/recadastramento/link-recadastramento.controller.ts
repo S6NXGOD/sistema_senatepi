@@ -8,6 +8,7 @@ import { Request } from 'express';
 import { LinkRecadastramentoService } from './link-recadastramento.service';
 import { RecadastroPublicoDto } from './dto/recadastro-publico.dto';
 import { EnvioDoLinkDto } from './dto/envio-do-link.dto';
+import { RespostaDoDesafioDto } from './dto/resposta-do-desafio.dto';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
@@ -48,6 +49,20 @@ export class LinkRecadastramentoAdminController {
     return this.service.prepararEnvio(id, dto.meio, this.ctx(req, user));
   }
 
+  /**
+   * O desafio que o link pediria AGORA e se a API aceita gerar — `{desafio,
+   * podeGerar, motivo, cpfGravadoInvalido}`, sem CPF, data nem COREN
+   * (14/09/2026). A tela de envio pergunta
+   * em vez de recalcular a regra. GET: VISUALIZAR pela matriz.
+   *
+   * Declarada ANTES do `@Get()` sem caminho, por hábito da casa: rota literal
+   * vem antes da genérica (memória: rota que colide some em silêncio).
+   */
+  @Get('previa')
+  previa(@Param('id') id: string) {
+    return this.service.previa(id);
+  }
+
   @Get()
   listar(@Param('id') id: string) {
     return this.service.listar(id);
@@ -75,7 +90,9 @@ export class LinkRecadastramentoRevogarController {
  *
  * Segurança: o token é a credencial. As rotas não recebem id de filiado; tudo
  * é resolvido a partir do token, então não há como pedir os dados de outra
- * pessoa. O desafio (CPF+nascimento ou COREN) é conferido de novo no envio.
+ * pessoa. O desafio é conferido de novo no envio. Desde 14/09/2026 ele pode
+ * ser CPF_NASCIMENTO, CPF, COREN ou NASCIMENTO (ver `desafio-do-link.ts`); o
+ * NENHUM só existe em link de antes dessa data, que abre até vencer.
  */
 @ApiTags('recadastramento-publico')
 @Public()
@@ -92,17 +109,20 @@ export class RecadastroPublicoController {
   /**
    * Confere a identidade e devolve o cadastro para edição.
    *
-   * LIMITE PRÓPRIO: o desafio (CPF+nascimento ou COREN) é o SEGUNDO fator do
-   * link — é ele que protege quem encaminhou o e-mail para a pessoa errada, ou
-   * teve o link lido por cima do ombro. Sem limite, esse fator cai por força
-   * bruta: data de nascimento tem ~36 mil combinações úteis, e a 120/min isso
-   * sai em cinco horas. A 10/min, não sai.
+   * LIMITE PRÓPRIO: o desafio é o SEGUNDO fator do link — é ele que protege
+   * quem encaminhou o e-mail para a pessoa errada, ou teve o link lido por cima
+   * do ombro. Sem limite, esse fator cai por força bruta: data de nascimento tem
+   * ~36 mil combinações úteis, e a 120/min isso sai em cinco horas. A 10/min,
+   * não sai. Com o desafio NASCIMENTO (14/09/2026), a data é o fator inteiro.
+   *
+   * O corpo é a CLASSE `RespostaDoDesafioDto`, e não tipo inline: tipo inline
+   * vira metatipo `Object` e o ValidationPipe não valida.
    */
   @Post(':token/validar')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   validar(
     @Param('token') token: string,
-    @Body() body: { cpf?: string; dataNascimento?: string; coren?: string },
+    @Body() body: RespostaDoDesafioDto,
   ) {
     return this.service.validarDesafio(token, body ?? {});
   }

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CorrelacaoService } from './correlacao.service';
+import { CorrelacaoService, mesmoAtoPeloLink } from './correlacao.service';
 import { trechoDaOrdem } from './utils/trecho-da-ordem.util';
 
 /**
@@ -138,7 +138,11 @@ export class CaixaDePropostasService {
    */
   async aceitar(id: string, usuarioId: string) {
     const c = await this.propostaAberta(id);
-    const compromissoId = await this.correlacao.criarAtividadeDaProposta(c.id, usuarioId);
+    // A cópia do mesmo ato já virou atividade: aceitar liga a esta, em vez de
+    // pôr uma segunda tarefa para o mesmo ato na agenda (14/09/2026).
+    const irma = await this.irmaComAtividade(c);
+    const compromissoId =
+      irma?.compromissoId ?? (await this.correlacao.criarAtividadeDaProposta(c.id, usuarioId));
     if (!compromissoId) {
       throw new BadRequestException(
         'Não foi possível criar a atividade — a publicação precisa estar ligada a um processo.',
@@ -212,13 +216,33 @@ export class CaixaDePropostasService {
         tarefaDispensadaEm: null,
         prazoMencionadoDias: { not: null },
       },
-      select: { id: true, tarefaPropostaPara: true, numeroProcesso: true },
+      select: { id: true, tarefaPropostaPara: true, numeroProcesso: true, processoId: true, link: true },
       take: 50,
     });
 
     let criadas = 0;
     for (const c of esquecidas) {
       try {
+        /*
+          A CÓPIA DO MESMO ATO NÃO ESCALA DE NOVO (14/09/2026).
+
+          O DJEN manda uma comunicação por destinatário, com o mesmo link. Duas
+          cópias esquecidas na caixa viravam duas tarefas para o mesmo ato, e a
+          cópia de um ato que o advogado RECUSOU virava tarefa três dias depois,
+          por cima da recusa. A correlação já não cria esse par; isto cuida do
+          que estiver na caixa e do que ela deixar passar. As duas cópias do
+          lote saem na ordem: a primeira cria, a segunda encontra a tarefa.
+        */
+        const irma = await this.irmaDecidida(c);
+        if (irma) {
+          await this.prisma.comunicacaoDjen.update({
+            where: { id: c.id },
+            data: irma.compromissoId
+              ? { compromissoId: irma.compromissoId }
+              : { tarefaDispensadaEm: new Date(), tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO' },
+          });
+          continue;
+        }
         const compromissoId = await this.correlacao.criarAtividadeDaProposta(
           c.id,
           c.tarefaPropostaPara,
@@ -246,11 +270,55 @@ export class CaixaDePropostasService {
     return criadas;
   }
 
+  /** Outra cópia do mesmo ato (mesmo processo e link) que já virou atividade. */
+  private irmaComAtividade(c: { id: string; processoId: string | null; link: string | null }) {
+    if (!c.processoId || !c.link) return Promise.resolve(null);
+    return this.prisma.comunicacaoDjen.findFirst({
+      where: {
+        ...mesmoAtoPeloLink({ id: c.id, processoId: c.processoId, link: c.link }),
+        compromissoId: { not: null },
+      },
+      select: { compromissoId: true },
+    });
+  }
+
+  /**
+   * Outra cópia do mesmo ato que já tem decisão: atividade ou dispensa.
+   *
+   * A com atividade vem primeiro: se uma cópia foi recusada e a outra aceita,
+   * vale o aceite, e a tarefa que existe é a que se liga.
+   *
+   * A dispensa COPIA_DO_MESMO_ATO NÃO é decisão: ela só segue a proposta ainda
+   * aberta. Contá-la dispensava a própria proposta que ela seguia, e o ato
+   * ficava sem tarefa nenhuma (o teste das duas cópias pegou isso). O motivo
+   * nulo entra pelo `OR` porque `{ not: X }` não traz a linha nula.
+   */
+  private irmaDecidida(c: { id: string; processoId: string | null; link: string | null }) {
+    if (!c.processoId || !c.link) return Promise.resolve(null);
+    return this.prisma.comunicacaoDjen.findFirst({
+      where: {
+        ...mesmoAtoPeloLink({ id: c.id, processoId: c.processoId, link: c.link }),
+        OR: [
+          { compromissoId: { not: null } },
+          {
+            tarefaDispensadaEm: { not: null },
+            OR: [{ tarefaDispensadaMotivo: null }, { tarefaDispensadaMotivo: { not: 'COPIA_DO_MESMO_ATO' } }],
+          },
+        ],
+      },
+      orderBy: { compromissoId: { sort: 'asc', nulls: 'last' } },
+      select: { compromissoId: true },
+    });
+  }
+
   /** Carrega a proposta garantindo que ela ainda está esperando decisão. */
   private async propostaAberta(id: string) {
     const c = await this.prisma.comunicacaoDjen.findUnique({
       where: { id },
-      select: { id: true, compromissoId: true, tarefaPropostaEm: true, tarefaDispensadaEm: true },
+      select: {
+        id: true, processoId: true, link: true,
+        compromissoId: true, tarefaPropostaEm: true, tarefaDispensadaEm: true,
+      },
     });
     if (!c) throw new BadRequestException('Publicação não encontrada.');
     if (!c.tarefaPropostaEm) throw new BadRequestException('Esta publicação não é uma proposta.');

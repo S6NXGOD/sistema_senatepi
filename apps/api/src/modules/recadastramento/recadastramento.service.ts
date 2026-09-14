@@ -3,7 +3,8 @@ import {
   BadRequestException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import {
-  AcaoAuditoria, Prisma, SituacaoFiliado, StatusRecadastramento, TipoHistoricoFiliado,
+  AcaoAuditoria, DesafioRecadastramento, Prisma, SituacaoFiliado, StatusRecadastramento,
+  TipoHistoricoFiliado,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -15,14 +16,22 @@ import {
 } from '../dependentes/dependentes.sync';
 import { formatarDataHoraBR } from '../processos/utils/data-br.util';
 import {
-  AlteracaoDoRecadastramento, alteracoesDoRecadastramento, origemDoRecadastramento,
+  AlteracaoDoRecadastramento, alteracoesDoRecadastramento, avisoDaConfirmacao, origemDoRecadastramento,
 } from './alteracoes-do-recadastramento';
+import { confirmacaoDoRecadastramento } from './desafio-do-link';
 
 /** O que a ficha recebe de cada recadastramento (contrato C6). */
 export interface ItemDoRecadastramento {
   id: string;
   status: StatusRecadastramento;
   origem: 'ONLINE' | 'PRESENCIAL';
+  /**
+   * Como o link confirmou quem era (14/09/2026). `null` no presencial e no
+   * online de antes dessa data, cuja observação não dizia.
+   */
+  confirmacao: DesafioRecadastramento | null;
+  /** A linha âmbar pronta, ou `null` — ver `avisoDaConfirmacao`. */
+  avisoDaConfirmacao: string | null;
   createdAt: Date;
   revisadoEm: Date | null;
   revisor: { id: string; nome: string } | null;
@@ -43,14 +52,18 @@ const SELECT_ITEM = {
 type LinhaDoRecadastramento = Prisma.RecadastramentoGetPayload<{ select: typeof SELECT_ITEM }>;
 
 export function itemDoRecadastramento(r: LinhaDoRecadastramento): ItemDoRecadastramento {
+  const alteracoes = alteracoesDoRecadastramento(r.dadosAnteriores, r.dadosNovos);
+  const confirmacao = confirmacaoDoRecadastramento(r.observacao);
   return {
     id: r.id,
     status: r.status,
     origem: origemDoRecadastramento(r.observacao),
+    confirmacao,
+    avisoDaConfirmacao: avisoDaConfirmacao(confirmacao, alteracoes),
     createdAt: r.createdAt,
     revisadoEm: r.revisadoEm,
     revisor: r.revisor ? { id: r.revisor.id, nome: r.revisor.nome } : null,
-    alteracoes: alteracoesDoRecadastramento(r.dadosAnteriores, r.dadosNovos),
+    alteracoes,
   };
 }
 

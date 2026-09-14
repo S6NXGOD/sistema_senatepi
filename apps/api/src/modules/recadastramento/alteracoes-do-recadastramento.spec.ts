@@ -1,4 +1,8 @@
-import { alteracoesDoRecadastramento, origemDoRecadastramento } from './alteracoes-do-recadastramento';
+import {
+  alteracoesDoRecadastramento, avisoDaConfirmacao, origemDoRecadastramento,
+} from './alteracoes-do-recadastramento';
+import { observacaoDoRecadastramentoOnline } from './desafio-do-link';
+import { tenant, TENANTS } from '../../tenant/tenant.config';
 
 /** O registro do banco, serializado como o serviço grava em `dadosAnteriores`. */
 const ANTES = {
@@ -85,5 +89,80 @@ describe('origemDoRecadastramento', () => {
     expect(origemDoRecadastramento('Recadastramento ONLINE feito pelo próprio filiado (link).')).toBe('ONLINE');
     expect(origemDoRecadastramento(null)).toBe('PRESENCIAL');
     expect(origemDoRecadastramento('qualquer outra')).toBe('PRESENCIAL');
+  });
+
+  /** A observação nova (14/09/2026) carimba a confirmação e continua sendo ONLINE. */
+  it('a observação que diz a confirmação continua sendo ONLINE, para todo desafio', () => {
+    for (const d of ['CPF_NASCIMENTO', 'CPF', 'COREN', 'NASCIMENTO', 'NENHUM'] as const) {
+      expect(origemDoRecadastramento(observacaoDoRecadastramentoOnline(d))).toBe('ONLINE');
+    }
+  });
+});
+
+describe('avisoDaConfirmacao — a linha âmbar da conferência', () => {
+  const SEM_NASCIMENTO = { ...ANTES, dataNascimento: null };
+  const SEM_CPF = { ...ANTES, cpf: null };
+  const SEM_OS_DOIS = { ...ANTES, cpf: null, dataNascimento: null };
+  const aviso = (confirmacao: Parameters<typeof avisoDaConfirmacao>[0], antes: unknown, novos: unknown) =>
+    avisoDaConfirmacao(confirmacao, alteracoesDoRecadastramento(antes, novos));
+
+  it('link CPF que preencheu a data vazia', () => {
+    expect(aviso('CPF', SEM_NASCIMENTO, { dataNascimento: '1980-05-10' })).toBe(
+      'O link confirmou só o CPF. A data de nascimento foi preenchida pelo próprio filiado: ' +
+        'confira num documento antes de marcar como conferido.',
+    );
+  });
+
+  it('link NASCIMENTO que preencheu o CPF vazio', () => {
+    expect(aviso('NASCIMENTO', SEM_CPF, { cpf: '123.456.789-09' })).toBe(
+      'O link confirmou só a data de nascimento. O CPF foi preenchido pelo próprio filiado: ' +
+        'confira num documento antes de marcar como conferido.',
+    );
+  });
+
+  it('link COREN ou NENHUM que preencheu os dois', () => {
+    const novos = { cpf: '12345678909', dataNascimento: '1980-05-10' };
+    expect(aviso('COREN', SEM_OS_DOIS, novos)).toBe(
+      'O link confirmou só o COREN. O CPF e a data de nascimento foram preenchidos pelo próprio filiado: ' +
+        'confira num documento antes de marcar como conferido.',
+    );
+    expect(aviso('NENHUM', SEM_OS_DOIS, novos)).toMatch(/^O link abriu sem confirmar a identidade\. O CPF e a data/);
+  });
+
+  it('nada a avisar: dois fatores, sem confirmação carimbada, ou identidade intocada', () => {
+    const novos = { dataNascimento: '1980-05-10' };
+    expect(aviso('CPF_NASCIMENTO', SEM_NASCIMENTO, novos)).toBeNull();
+    expect(aviso(null, SEM_NASCIMENTO, novos)).toBeNull();
+    expect(aviso('CPF', SEM_NASCIMENTO, { telefonePrincipal: '(86) 99999-8888' })).toBeNull();
+    // Mandar a mesma data que já estava não é preencher.
+    expect(aviso('CPF', ANTES, { dataNascimento: '1980-05-10', cidade: 'Parnaíba' })).toBeNull();
+    // Mandar vazio não é preencher.
+    expect(aviso('CPF', SEM_NASCIMENTO, { dataNascimento: '' })).toBeNull();
+  });
+
+  /**
+   * A palavra é a do sindicato (14/09/2026). Os dois de hoje dizem "filiado",
+   * então só os dois não provariam que a frase lê o vocabulário: o terceiro
+   * caso usa uma palavra que nenhum deles tem.
+   */
+  describe('com o vocabulário do sindicato', () => {
+    const alteracoes = alteracoesDoRecadastramento(SEM_NASCIMENTO, { dataNascimento: '1980-05-10' });
+
+    it.each(Object.keys(TENANTS))('%s: usa a palavra dele', (id) => {
+      const palavra = TENANTS[id].vocabulario.filiado;
+      expect(avisoDaConfirmacao('CPF', alteracoes, TENANTS[id])).toBe(
+        `O link confirmou só o CPF. A data de nascimento foi preenchida pelo próprio ${palavra}: ` +
+          'confira num documento antes de marcar como conferido.',
+      );
+    });
+
+    it('uma palavra diferente aparece na frase', () => {
+      const outro = { ...tenant, vocabulario: { ...tenant.vocabulario, filiado: 'associado' } };
+      expect(avisoDaConfirmacao('CPF', alteracoes, outro)).toContain('preenchida pelo próprio associado:');
+    });
+
+    it('sem tenant, vale o desta instalação', () => {
+      expect(avisoDaConfirmacao('CPF', alteracoes)).toBe(avisoDaConfirmacao('CPF', alteracoes, tenant));
+    });
   });
 });

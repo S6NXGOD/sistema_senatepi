@@ -5,17 +5,28 @@ import {
   IsDateString,
   IsIn,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { StatusCompromisso } from '@prisma/client';
 import { AREAS_JURIDICAS } from '../../processos/areas.catalogo';
-import { RECORTES, type Recorte } from '../recortes.util';
+import {
+  FORMATO_DO_CURSOR,
+  JANELAS,
+  LIMITE_MAXIMO_DA_PAGINA,
+  RECORTES,
+  type Janela,
+  type Recorte,
+} from '../recortes.util';
 
 export const ORIGENS_DA_CONCLUSAO = ['PAINEL', 'AGENDA', 'GAVETA'] as const;
 export type OrigemDaConclusao = (typeof ORIGENS_DA_CONCLUSAO)[number];
@@ -329,6 +340,34 @@ export class ListCompromissosQueryDto {
    */
   @ApiPropertyOptional({ enum: RECORTES })
   @IsOptional() @IsIn(RECORTES as unknown as string[]) recorte?: Recorte;
+
+  /*
+    A LISTA POR DIA PAGINA A ABA TODAS (14/09/2026, D20 da rodada 3).
+
+    Os três campos são OPCIONAIS e só o web novo manda: sem eles, a listagem
+    continua como sempre (crescente, até 500), que é o que o quadro, o
+    calendário e o web antigo leem. Na janela de troca, o web novo contra a API
+    antiga toma 400 do `forbidNonWhitelisted` — por isso a API sobe primeiro.
+  */
+
+  /** Próximas (hoje em diante + abertas) ou Anteriores (fechadas de dia anterior) — `whereDaJanela`. */
+  @ApiPropertyOptional({ enum: JANELAS, description: '"adiante" (Próximas) ou "anteriores".' })
+  @IsOptional() @IsIn(JANELAS as unknown as string[], { message: 'Janela inválida: use "adiante" ou "anteriores".' })
+  janela?: Janela;
+
+  /** O tamanho da página. Sem ele, 500 como sempre. */
+  @ApiPropertyOptional({ minimum: 1, maximum: LIMITE_MAXIMO_DA_PAGINA })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'O limite da página tem de ser um número inteiro.' })
+  @Min(1, { message: `O limite da página vai de 1 a ${LIMITE_MAXIMO_DA_PAGINA}.` })
+  @Max(LIMITE_MAXIMO_DA_PAGINA, { message: `O limite da página vai de 1 a ${LIMITE_MAXIMO_DA_PAGINA}.` })
+  limite?: number;
+
+  /** `<início ISO do último item>_<id>`: a página seguinte começa depois dele (`whereDoCursor`). */
+  @ApiPropertyOptional({ description: 'Início (ISO) e id do último item recebido, unidos por "_".' })
+  @IsOptional() @IsString() @Matches(FORMATO_DO_CURSOR, { message: 'Cursor inválido.' })
+  cursor?: string;
 
   /**
    * O QUE É DESTA PESSOA — a régua `daPessoa`: responde, ou foi posta ali por

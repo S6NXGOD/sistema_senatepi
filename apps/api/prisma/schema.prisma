@@ -282,6 +282,13 @@ enum DesafioRecadastramento {
   CPF_NASCIMENTO // padrão: confirma CPF + data de nascimento
   COREN // quando não há CPF/nascimento no cadastro, mas há COREN
   NENHUM // cadastro sem CPF, sem nascimento e sem COREN — link direto
+  /// Um fator só (14/09/2026). Antes, faltando CPF ou nascimento o link caía
+  /// em NENHUM e abria sem confirmar: 1.768 ativos só com CPF e 6 só com
+  /// nascimento. Ordem: CPF_NASCIMENTO > CPF > COREN > NASCIMENTO > NENHUM.
+  /// MATRICULA não entrou (zero filiados). Valores criados em migração
+  /// sozinha: `20260914090200_desafio_de_um_fator`.
+  CPF // só CPF no cadastro
+  NASCIMENTO // só data de nascimento no cadastro (e sem COREN)
 }
 
 /// Link de recadastramento ONLINE enviado ao filiado.
@@ -346,6 +353,13 @@ model User {
   /// Preenchido pelo script `forcar-logout` (ver prisma/scripts). Nulo = nunca
   /// houve corte.
   sessoesValidasApos DateTime? @map("sessoes_validas_apos")
+  /// Até que dia (de Teresina) o Diário já foi lido pela OAB desta pessoa sem
+  /// falha e sem bater no teto de páginas. A rodada seguinte lê de
+  /// `min(hoje-3, djenLidoAte-1)` até hoje, com teto de 60 dias: sem isto,
+  /// três noites seguidas sem a ponte perdiam os atos desses dias para sempre.
+  /// Nulo = nunca carimbado (janela de 3 dias). Data pura: no web,
+  /// `formatDataPura`. Ver `20260914090000_leitura_do_diario`.
+  djenLidoAte        DateTime? @map("djen_lido_ate") @db.Date
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
@@ -353,6 +367,9 @@ model User {
   auditorias              Auditoria[]
   recadastramentos        Recadastramento[]        @relation("RecadastramentoRevisor")
   atendimentos            Atendimento[]
+  /// Atendimentos que esta pessoa concluiu / cancelou pelas rotas próprias.
+  atendimentosConcluidos  Atendimento[]            @relation("AtendimentoConcluidoPor")
+  atendimentosCancelados  Atendimento[]            @relation("AtendimentoCanceladoPor")
   compromissos            Compromisso[]            @relation("CompromissoResponsavel")
   /// Eventos que este usuário REGISTROU (≠ dos que ele é responsável).
   compromissosCriados     Compromisso[]            @relation("CompromissoCriador")
@@ -1852,11 +1869,31 @@ model Atendimento {
   urgenteMotivo String?   @map("urgente_motivo")
   urgenteEm     DateTime? @map("urgente_em")
   urgentePor    String?   @map("urgente_por")
+
+  /// ---- FECHAMENTO ---- (mesmo desenho de [Compromisso])
+  /// Concluir e cancelar eram um toque no seletor, sem autor nem motivo: o #9
+  /// alternou CANCELADO↔CONCLUIDO 6 vezes em 4 min (02/09/2026). Só as rotas
+  /// `/concluir` e `/cancelar` escrevem aqui. Nulo nos atendimentos fechados
+  /// antes de 14/09/2026 — sem backfill, para não inventar autor.
+  /// Ver `20260914090100_fechamento_do_atendimento`.
+  concluidoEm        DateTime? @map("concluido_em")
+  concluidoPor       String?   @map("concluido_por")
+  conclusaoObs       String?   @map("conclusao_obs")
+  canceladoEm        DateTime? @map("cancelado_em")
+  canceladoPor       String?   @map("cancelado_por")
+  /// Slug do catálogo da agenda (DESISTENCIA, NAO_COMPARECEU, PERDEU_OBJETO,
+  /// DUPLICIDADE): texto, como em `compromissos`, para a consulta cancelada
+  /// junto receber o mesmo slug.
+  canceladoCategoria String?   @map("cancelado_categoria")
+  canceladoMotivo    String?   @map("cancelado_motivo")
+
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   filiado      Filiado          @relation(fields: [filiadoId], references: [id], onDelete: Cascade)
   atendente    User             @relation(fields: [atendentePorId], references: [id])
+  concluidoPorUsuario User?     @relation("AtendimentoConcluidoPor", fields: [concluidoPor], references: [id], onDelete: SetNull)
+  canceladoPorUsuario User?     @relation("AtendimentoCanceladoPor", fields: [canceladoPor], references: [id], onDelete: SetNull)
   processo     Processo?        @relation(fields: [processoId], references: [id], onDelete: SetNull)
   compromissos Compromisso[]
   anexos       AnexoDocumento[]
@@ -2431,6 +2468,14 @@ model Processo {
   /// robô não teria como saber quem já foi visto e varreria sempre a mesma
   /// fatia, deixando o resto no escuro para sempre.
   ultimaConsultaDjen  DateTime?      @map("ultima_consulta_djen")
+  /// Quando o HISTÓRICO deste processo foi lido no DJEN pelo número, sem
+  /// filtro de data (até 10 páginas, mais novo primeiro). Medido em 14/09/2026:
+  /// nos 37 processos cadastrados depois da carga de 04/09, só 38,4% dos dias
+  /// com publicação no DataJud tinham ato do DJEN no banco (84,5% nos
+  /// anteriores) — o histórico nunca foi colhido. Carimbado só ao terminar sem
+  /// falha e sem bater no teto. Nulo = ainda não lido.
+  /// Ver `20260914090000_leitura_do_diario`.
+  djenHistoricoLidoEm DateTime?      @map("djen_historico_lido_em")
   /// Quando o parser MULTI-INSTÂNCIA leu este processo pela última vez.
   /// Nulo = o processo é anterior ao parser (ou só passou pelo backfill), e a
   /// tela pede a reavaliação ao ser aberta. Ver `reavaliarInstancias`.

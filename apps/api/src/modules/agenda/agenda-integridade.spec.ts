@@ -9,8 +9,19 @@ import {
 } from './desfechos.catalogo';
 
 const ler = (arquivo: string) => readFileSync(path.join(__dirname, arquivo), 'utf8');
+const semComentarios = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 const SERVICE = ler('agenda.service.ts');
 const CONTROLLER = ler('agenda.controller.ts');
+/*
+  O HELPER MUDOU DE CASA em 14/09/2026 (D20 da rodada 3). `dispensarMovimentacaoLigada`
+  e a escrita do cancelamento saíram do serviço para `cancelamento-em-transacao.ts`,
+  porque o fechamento do atendimento cancela a consulta pela mesma regra, dentro da
+  transação dele. O recorte abaixo passa a ler o arquivo novo SEM comentários (o
+  docblock repete os nomes dos campos), e o trecho de `cancelar` procura a função
+  extraída, que é quem chama o helper. Os campos gravados, a dispensa e a mesma
+  transação estão provados com banco falso em cancelamento-em-transacao.spec.ts.
+*/
+const CANCELAMENTO = semComentarios(ler('cancelamento-em-transacao.ts'));
 
 /**
  * CANCELAR UMA TAREFA DO ROBÔ NÃO PODE DEIXAR A MOVIMENTAÇÃO EM LIMBO.
@@ -24,19 +35,19 @@ const CONTROLLER = ler('agenda.controller.ts');
  * O ato sumia — e do pior jeito, o que não deixa sintoma.
  */
 describe('cancelar não engole a movimentação', () => {
-  const helper = SERVICE.slice(
-    SERVICE.indexOf('private async dispensarMovimentacaoLigada'),
-    SERVICE.indexOf('/** Recarrega o cartão'),
+  const helper = CANCELAMENTO.slice(
+    CANCELAMENTO.indexOf('export async function dispensarMovimentacaoLigada'),
+    CANCELAMENTO.indexOf('export type StatusQueCancela'),
   );
 
   it('o helper existe (o teste não olha para o vazio)', () => {
-    expect(helper.length).toBeGreaterThan(300);
+    expect(helper.length).toBeGreaterThan(200);
   });
 
   it('dispensa em vez de só limpar o carimbo', () => {
     // Limpar faria o selo voltar amanhã e o robô recriar a tarefa — um laço em
     // que cancelar não cancela nada. Dispensar registra a decisão humana.
-    expect(helper).toContain('dispensadoEm: new Date()');
+    expect(helper).toContain('dispensadoEm: agora');
     expect(helper).toContain('dispensadoPor');
     expect(helper).toContain('dispensadoMotivo');
   });
@@ -47,13 +58,19 @@ describe('cancelar não engole a movimentação', () => {
     expect(helper).toContain('dispensadoEm: null');
   });
 
+  it('a escrita do cancelamento chama o helper', () => {
+    const escrita = CANCELAMENTO.slice(CANCELAMENTO.indexOf('export async function cancelarCompromissoEmTransacao'));
+    expect(escrita.length).toBeGreaterThan(400);
+    expect(escrita).toContain('await dispensarMovimentacaoLigada(');
+  });
+
   it.each([
-    ['cancelar (pessoa)', 'async cancelar(', 'async cancelarPorSistema('],
-    ['cancelarPorSistema (tribunal)', 'async cancelarPorSistema(', 'async remarcar('],
-  ])('%s chama o helper na mesma transação', (_nome, de, ate) => {
-    const trecho = SERVICE.slice(SERVICE.indexOf(de), SERVICE.indexOf(ate));
+    ['cancelar (pessoa)', 'async cancelar(', 'async cancelarPorSistema(', 'cancelarCompromissoEmTransacao(tx'],
+    ['cancelarPorSistema (tribunal)', 'async cancelarPorSistema(', 'async remarcar(', 'dispensarMovimentacaoLigada(tx'],
+  ])('%s chama o helper na mesma transação', (_nome, de, ate, chamada) => {
+    const trecho = semComentarios(SERVICE.slice(SERVICE.indexOf(de), SERVICE.indexOf(ate)));
     expect(trecho.length).toBeGreaterThan(400);
-    expect(trecho).toContain('dispensarMovimentacaoLigada');
+    expect(trecho).toContain(chamada);
     // Na MESMA transação: cancelar sem dispensar deixa o ato invisível;
     // dispensar sem cancelar tira o alerta de algo com tarefa viva.
     expect(trecho).toContain('$transaction');

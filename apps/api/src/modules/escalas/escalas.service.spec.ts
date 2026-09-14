@@ -59,9 +59,13 @@ function montar(linhasIniciais: Linha[] = []) {
       }),
       delete: jest.fn(),
     },
+    // A agenda do dia vazia: as consultas do plantão têm spec próprio
+    // (consultas-do-plantao.spec.ts). Aqui só as travas da escala.
+    compromisso: { findMany: jest.fn(async () => []) },
   };
   const audit = { registrar: jest.fn(async (r: Record<string, any>) => { auditoria.push(r); }) };
-  const service = new EscalasService(prisma as never, audit as never);
+  const agenda = { conflitos: jest.fn(async () => []), registrarNoHistorico: jest.fn() };
+  const service = new EscalasService(prisma as never, audit as never, agenda as never);
   return { service, prisma, linhas, auditoria };
 }
 

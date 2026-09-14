@@ -144,16 +144,42 @@ interface ItemBruto {
  */
 const MAX_PAGINAS = 20;
 /**
- * Teto para a consulta de UM processo.
+ * Teto para a consulta de UM processo DENTRO DE UMA JANELA DE DATAS.
  *
- * A busca por OAB pode render centenas de publicações e precisa das 20 páginas.
- * Um processo isolado, não: mesmo um caso de anos raramente passa de 100
- * publicações, e cada página custa uma requisição de uma cota de 20 por minuto.
- * Com o teto anterior, um clique em "Buscar no DJEN" podia gastar a cota inteira
- * e deixar o usuário esperando um minuto pela janela virar.
+ * Um processo isolado, em poucos dias, não passa de 300 comunicações nem com
+ * doze intimados por ato. Cada página custa uma requisição de uma cota de 20
+ * por minuto, e com teto maior um clique em "Sincronizar" podia gastar a cota
+ * inteira e deixar a pessoa esperando a janela virar.
+ *
+ * A leitura do HISTÓRICO (sem data) usa outro teto, escolhido por quem chama
+ * (`DJEN_HISTORICO_MAX_PAGINAS`, padrão 10).
  */
-const MAX_PAGINAS_PROCESSO = 3;
+export const PAGINAS_DO_NUMERO_NA_JANELA = 3;
 const ITENS_POR_PAGINA = 100;
+
+/**
+ * O QUE UMA CONSULTA PAGINADA DEVOLVE — os itens E o que ficou sem ler.
+ *
+ * `paginar` devolvia só a lista. Bater no teto de páginas virava um `warn` no
+ * stdout, e uma falha na terceira página jogava fora as duas já lidas. Nenhum
+ * dos dois chegava ao banco nem à tela, então quem carimba "lido até hoje" não
+ * tinha como saber que não era verdade (auditoria do DJEN, 14/09/2026).
+ *
+ * A ORDEM IMPORTA PARA LER ESTE OBJETO: medido pela ponte em 13/09/2026, o CNJ
+ * devolve do mais NOVO para o mais antigo. Quando o teto corta, o que fica de
+ * fora é o mais antigo da consulta, nunca o ato de ontem.
+ */
+export interface LeituraDjen {
+  itens: ComunicacaoDjenDto[];
+  /** Páginas efetivamente lidas. */
+  paginas: number;
+  /** A última página permitida veio cheia: pode haver mais do que foi lido. */
+  bateuNoTeto: boolean;
+  /** Falha numa página depois da primeira; os itens já lidos vêm assim mesmo. */
+  interrompidaPor: string | null;
+  /** Identificador público da consulta (OAB ou NPU), nunca teor. */
+  rotulo: string;
+}
 
 /**
  * LIMITE DE REQUISIÇÕES DO DJEN — medido, não estimado.
@@ -177,8 +203,13 @@ const ITENS_POR_PAGINA = 100;
   O DataJud ganhou limitador próprio depois de estourar a cota (6× HTTP 429 em
   04/09/2026). Dois serviços com o mesmo teto escrito em dois arquivos é a
   receita conhecida deste projeto para divergir em silêncio — basta alguém
-  afrouxar um lado. A cota é por IP: os dois dividem UM saldo, então dividem UM
-  número.
+  afrouxar um lado.
+
+  CORRIGIDO EM 14/09/2026: este comentário dizia que os dois "dividem UM saldo".
+  Desde 03/09/2026 o DJEN sai pela ponte da VPS brasileira (`DJEN_BASE_URL`),
+  com outro IP, e o saldo dele é só dele. O número continua um só porque a
+  regra do CNJ é a mesma (20/min) e a folga continua valendo em cada IP. Ver o
+  cabeçalho de `cota-cnj.util`.
 
   O resto do limitador continua aqui de propósito: ler `X-RateLimit-Remaining` e
   abrir o disjuntor no 403 por origem são particularidades do DJEN, não regras
@@ -268,12 +299,21 @@ export class DjenService {
    * A alternativa — consultar processo a processo — multiplicaria as chamadas
    * pelo tamanho do acervo.
    */
-  async buscarPorOab(
+  /*
+    DIAS COMO TEXTO, E NÃO COMO `Date` (14/09/2026).
+
+    A assinatura recebia `Date` e mandava `toISOString().slice(0, 10)`: o dia de
+    GREENWICH. Às 05:00 de Teresina dá o mesmo dia, mas o botão clicado às 22h
+    pedia "a partir de amanhã" e perdia um dia inteiro. Quem chama agora passa o
+    dia de Teresina já calculado (`djen-leitura.util`), que é também o que o
+    carimbo `djen_lido_ate` guarda.
+  */
+  async lerPorOab(
     numeroOab: string,
     ufOab: string,
-    de: Date,
-    ate: Date,
-  ): Promise<ComunicacaoDjenDto[]> {
+    de: string,
+    ate: string,
+  ): Promise<LeituraDjen> {
     const oab = (numeroOab || '').replace(/\D/g, '');
     const uf = (ufOab || '').trim().toUpperCase();
     if (!oab || !/^[A-Z]{2}$/.test(uf)) {
@@ -283,10 +323,10 @@ export class DjenService {
       {
         numeroOab: oab,
         ufOab: uf,
-        dataDisponibilizacaoInicio: dataIso(de),
-        dataDisponibilizacaoFim: dataIso(ate),
+        dataDisponibilizacaoInicio: diaValido(de),
+        dataDisponibilizacaoFim: diaValido(ate),
       },
-      `OAB ${oab}/${uf}`,
+      `OAB ${uf} ${oab}`,
     );
   }
 
@@ -296,13 +336,29 @@ export class DjenService {
    * Complementa a varredura por OAB: pega o processo em que a OAB do sindicato
    * não consta do polo — herdado de outro escritório, substabelecimento não
    * lançado no tribunal — e que por isso nunca apareceria na consulta acima.
+   *
+   * COM `de`/`ate`, lê só a janela: o CNJ respeita o filtro de data junto com o
+   * número (medido pela ponte em 13/09/2026: 25 itens caíram para 2). SEM eles,
+   * lê o histórico do processo, do mais novo para o mais antigo, até
+   * `maxPaginas`.
    */
-  async buscarPorProcesso(npu: string, esperarCota = true): Promise<ComunicacaoDjenDto[]> {
+  async lerPorProcesso(
+    npu: string,
+    opcoes: { esperarCota?: boolean; maxPaginas?: number; de?: string; ate?: string } = {},
+  ): Promise<LeituraDjen> {
     const numero = (npu || '').replace(/\D/g, '');
     if (numero.length !== 20) {
       throw new BadRequestException('NPU inválido — informe os 20 dígitos do número único (CNJ).');
     }
-    return this.paginar({ numeroProcesso: numero }, `NPU ${numero}`, MAX_PAGINAS_PROCESSO, esperarCota);
+    const filtros: Record<string, string> = { numeroProcesso: numero };
+    if (opcoes.de) filtros.dataDisponibilizacaoInicio = diaValido(opcoes.de);
+    if (opcoes.ate) filtros.dataDisponibilizacaoFim = diaValido(opcoes.ate);
+    return this.paginar(
+      filtros,
+      `NPU ${numero}`,
+      Math.max(1, opcoes.maxPaginas ?? PAGINAS_DO_NUMERO_NA_JANELA),
+      opcoes.esperarCota ?? true,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -313,23 +369,47 @@ export class DjenService {
    * Para quando a página volta vazia, e NÃO quando atinge `count`: aquele campo
    * satura em 10000 e mentiria sobre o total em qualquer consulta grande.
    */
+  /*
+    FALHA NA PRIMEIRA PÁGINA SOBE; FALHA DEPOIS DELA VOLTA COM O QUE JÁ LEU.
+
+    Sem nada lido, não há o que devolver, e quem chama continua recebendo o
+    erro de sempre (o 429 do botão, o 503 do timeout). Com páginas já lidas,
+    jogá-las fora era perder atos de verdade por causa de uma página seguinte.
+    Elas voltam com `interrompidaPor` preenchido, e o carimbo não avança.
+  */
   private async paginar(
     filtros: Record<string, string>,
     rotulo: string,
     maxPaginas = MAX_PAGINAS,
     esperarCota = true,
-  ): Promise<ComunicacaoDjenDto[]> {
+  ): Promise<LeituraDjen> {
     const acumulado: ComunicacaoDjenDto[] = [];
+    let paginas = 0;
+    let bateuNoTeto = false;
+    let interrompidaPor: string | null = null;
 
     for (let pagina = 1; pagina <= maxPaginas; pagina++) {
-      const itens = await this.consultar(
-        { ...filtros, pagina: String(pagina), itensPorPagina: String(ITENS_POR_PAGINA) },
-        esperarCota,
-      );
+      let itens: ComunicacaoDjenDto[];
+      try {
+        itens = await this.consultar(
+          { ...filtros, pagina: String(pagina), itensPorPagina: String(ITENS_POR_PAGINA) },
+          esperarCota,
+        );
+      } catch (err) {
+        if (pagina === 1) throw err;
+        interrompidaPor = (err as Error)?.message ?? String(err);
+        this.logger.warn(
+          `[DJEN] ${rotulo}: página ${pagina} falhou (${interrompidaPor}) — ` +
+            `${acumulado.length} publicação(ões) das páginas anteriores seguem para a ingestão.`,
+        );
+        break;
+      }
+      paginas = pagina;
       acumulado.push(...itens);
       if (itens.length < ITENS_POR_PAGINA) break;
 
       if (pagina === maxPaginas) {
+        bateuNoTeto = true;
         this.logger.warn(
           `[DJEN] ${rotulo}: teto de ${maxPaginas} páginas atingido — pode haver publicação não lida.`,
         );
@@ -338,7 +418,7 @@ export class DjenService {
 
     // LGPD: contagem e identificador público apenas — nunca o teor.
     this.logger.log(`[DJEN] ${rotulo}: ${acumulado.length} publicação(ões) recebida(s).`);
-    return acumulado;
+    return { itens: acumulado, paginas, bateuNoTeto, interrompidaPor, rotulo };
   }
 
   /**
@@ -382,7 +462,19 @@ export class DjenService {
       // O CNJ informa o saldo restante a cada resposta — usar o número dele é
       // melhor que confiar só na nossa contagem, que não enxerga outra réplica
       // da API consumindo a mesma cota do mesmo IP.
-      const restante = Number(res.headers.get('x-ratelimit-remaining'));
+      /*
+        SEM CABEÇALHO É `null`, E NÃO ZERO (14/09/2026).
+
+        `Number(null)` dá 0. O saldo ausente virava "saldo zero": o 403 do CDN,
+        que chega sem `X-RateLimit-*`, caía no ramo da cota e repetia com um
+        minuto de espera, o disjuntor nunca abria e a tela nunca dizia "o CNJ
+        está recusando". E um 200 sem o cabeçalho fazia dormir um minuto antes
+        de cada chamada. Medido em 14/09/2026: o CNJ manda X-RateLimit-Remaining
+        e X-RateLimit-Limit no 200, e a ponte repassa os dois. Sem o cabeçalho,
+        quem respondeu não foi o CNJ.
+      */
+      const bruto = res.headers.get('x-ratelimit-remaining');
+      const restante = bruto === null || bruto.trim() === '' ? NaN : Number(bruto);
       this.saldoInformado = Number.isFinite(restante) ? restante : null;
 
       // BLOQUEIO DE ORIGEM x COTA — a diferença está no cabeçalho.
@@ -575,9 +667,18 @@ function texto(v: unknown): string | null {
   return s || null;
 }
 
-/** Data no formato que a API espera (yyyy-mm-dd). */
-function dataIso(d: Date): string {
-  return d.toISOString().slice(0, 10);
+/**
+ * Dia no formato que a API espera (AAAA-MM-DD), conferido antes de sair.
+ *
+ * Um dia mal formado não dá erro no CNJ: o filtro é ignorado em silêncio e a
+ * consulta devolve a carteira inteira — o mesmo jeito que ele já ignora a busca
+ * por nome de parte. Melhor recusar aqui, com a mensagem certa.
+ */
+function diaValido(dia: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) {
+    throw new BadRequestException(`Dia fora do formato AAAA-MM-DD: "${dia}".`);
+  }
+  return dia;
 }
 
 /** Pausa simples — usada só para respeitar a cota do CNJ. */

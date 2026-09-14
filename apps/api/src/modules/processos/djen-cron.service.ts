@@ -35,13 +35,26 @@ export class DjenCronService {
    * Prazo da trava.
    *
    * A duração da rodada é LIMITADA por construção: a cota do CNJ é de 20
-   * requisições por minuto, o serviço se segura em 14, e o complemento por NPU
-   * tem teto de processos por noite (DJEN_MAX_PROCESSOS_POR_RODADA, padrão
-   * 300). No pior caso são ~300 consultas + uma por advogado, ou seja ~25
-   * minutos. Três horas dão folga larga sobre isso e continuam muito abaixo do
-   * intervalo de 24h entre execuções — o que importa é que a trava JAMAIS
-   * expire com a rodada ainda correndo, porque aí duas passariam a disputar a
-   * mesma cota.
+   * requisições por minuto e o serviço se segura em 14. Refeita em 14/09/2026,
+   * quando a rodada passou a ler o histórico e a janela por número:
+   *
+   *   OAB ............ 8 advogados × até 20 páginas ........... 160 requisições
+   *   histórico ...... 200 processos × até 10 páginas ......... 2.000
+   *   número/janela .. 300 processos × até 3 páginas ........... 900
+   *
+   * O CASO REAL é uma página por consulta, e cada processo é lido UMA vez por
+   * noite (quem teve o histórico lido sai da janela). Medido em 14/09/2026 com a
+   * simulação contra a produção: 153 processos vivos, 153 chamadas de histórico,
+   * nenhum no teto de páginas. A primeira noite, com a colheita inteira, dá
+   * ~300 chamadas, uns 22 minutos a 14 por minuto; as seguintes, menos. Três
+   * horas cobrem isso com folga.
+   *
+   * O PIOR CASO TEÓRICO DEIXOU DE CABER quando o padrão do histórico subiu de 40
+   * para 200: com tudo no teto são ~3.060 requisições, uns 220 minutos. Exigiria
+   * 200 processos com mais de 900 atos cada, e o maior da produção não chega a
+   * 100. O que importa é que a trava JAMAIS expire com a rodada correndo, porque
+   * aí duas passariam a disputar a mesma cota: quem subir
+   * `DJEN_HISTORICO_POR_RODADA` ou `DJEN_HISTORICO_MAX_PAGINAS` refaz esta conta.
    */
   private readonly TRAVA_TTL_MIN = 180;
 

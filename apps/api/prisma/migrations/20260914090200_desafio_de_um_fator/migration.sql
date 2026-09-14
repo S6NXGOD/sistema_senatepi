@@ -1,0 +1,31 @@
+-- O LINK DE RECADASTRAMENTO CONFIRMA COM O QUE O CADASTRO TEM.
+--
+-- A escolha do desafio era CPF_NASCIMENTO > COREN > NENHUM: faltando um dos
+-- dois, o link abria SEM confirmar quem é. Medido na produção em 13–14/09/2026
+-- (ativos | com atendimento ou processo):
+--   CPF_NASCIMENTO   520 | 8
+--   CPF            1.768 | 4
+--   COREN              6 | 0
+--   NASCIMENTO         6 | 0
+--   NENHUM         5.007 | 9
+-- 1.774 filiados ativos têm um fator e caíam em NENHUM. A hierarquia nova (D22)
+-- é CPF_NASCIMENTO > CPF > COREN > NASCIMENTO > NENHUM, e NENHUM deixa de gerar
+-- link.
+--
+-- MATRICULA NÃO ENTRA: zero filiados teriam esse desafio. Não se cria valor
+-- que ninguém usa.
+--
+-- ENUM, e não coluna de texto nova: o contêiner antigo que ler um link com
+-- valor novo quebra ao desserializar e responde 500 — FALHA FECHADO, ninguém
+-- entra sem confirmação. Uma coluna de texto obrigaria o enum a guardar um
+-- valor antigo para o contêiner velho, e com NENHUM ele abriria sem confirmar.
+--
+-- MIGRAÇÃO SOZINHA, de propósito: o PostgreSQL não deixa USAR um valor de enum
+-- na mesma transação que o criou (precedente:
+-- `20260730180000_status_processo_expandido`). Nada aqui grava ou compara com
+-- os valores novos; só a API os escreve, depois do commit.
+--
+-- ADITIVA E IDEMPOTENTE: `ADD VALUE IF NOT EXISTS`, nenhum valor removido nem
+-- renomeado.
+ALTER TYPE "DesafioRecadastramento" ADD VALUE IF NOT EXISTS 'CPF';
+ALTER TYPE "DesafioRecadastramento" ADD VALUE IF NOT EXISTS 'NASCIMENTO';

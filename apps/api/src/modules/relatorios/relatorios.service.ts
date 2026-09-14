@@ -487,6 +487,14 @@ export class RelatoriosService {
       },
       atendimentos: {
         registrados: atendimentos.length,
+        /*
+          O SENTIDO MUDOU EM 14/09/2026 (rodada 3). Até ali, concluir era um
+          toque só e aceitava atendimento com a consulta ainda por acontecer (o
+          #7 foi concluído assim). Desde então só conclui sem consulta futura:
+          a consulta que não aconteceu é cancelada junto e o atendimento guarda
+          quem, quando e como terminou. O número de antes não é reescrito; se a
+          diretoria comparar períodos dos dois lados da data, a legenda diz.
+        */
         concluidos: atendimentos.filter((a) => a.status === StatusAtendimento.CONCLUIDO).length,
         filiadosAtendidos: new Set(atendimentos.map((a) => a.filiadoId)).size,
         porCanal: contar(atendimentos, (a) => a.canal),

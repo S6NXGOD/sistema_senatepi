@@ -34,11 +34,21 @@ interface Linha {
   inicio: Date;
 }
 
+/*
+  O AVALIADOR APRENDEU `id` E O INSTANTE EXATO em 14/09/2026: o cursor da
+  página seguinte compara (início, id), e `inicio: <Date>` é igualdade. Os dois
+  entram com a semântica do banco; campo desconhecido continua quebrando.
+*/
 function casa(l: Linha, w: Record<string, any>): boolean {
   return Object.entries(w).every(([campo, cond]) => {
     if (campo === 'AND') return (Array.isArray(cond) ? cond : [cond]).every((x) => casa(l, x));
     if (campo === 'OR') return (cond as any[]).some((x) => casa(l, x));
     if (campo === 'status') return typeof cond === 'string' ? l.status === cond : cond.in.includes(l.status);
+    if (campo === 'id') {
+      if (typeof cond === 'string') return l.id === cond;
+      return (!cond.gt || l.id > cond.gt) && (!cond.lt || l.id < cond.lt);
+    }
+    if (campo === 'inicio' && cond instanceof Date) return l.inicio.getTime() === cond.getTime();
     if (campo === 'inicio') {
       return (
         (!cond.lt || l.inicio < cond.lt) &&
@@ -302,21 +312,35 @@ describe('contadores das abas: um count() por aba, com os filtros da lista', () 
     const q = { tipo: 'PRAZO', pessoa: 'eu', recorte: 'hoje' } as never;
     const contagem = await m.servico.contarRecortes(q, ADVOGADO);
 
-    expect(contagem).toEqual({ hoje: 1, atrasadas: 2, atencao: 3, seteDias: 4, aberto: 5, todos: 6, urgentes: 7 });
+    // As duas metades de Todas entraram em 14/09/2026 (D20 da rodada 3): 9 números.
+    expect(contagem).toEqual({
+      hoje: 1, atrasadas: 2, atencao: 3, seteDias: 4, aberto: 5, todos: 6, urgentes: 7,
+      todosAdiante: 8, todosAnteriores: 9,
+    });
 
     const wheres = m.fn('compromisso', 'count').mock.calls.map((c) => c[0].where.AND as any[]);
-    expect(wheres).toHaveLength(7);
-    // A aba pedida na query não contamina as outras: base (tipo + pessoa) + o recorte de cada uma.
-    for (const and of wheres) {
-      expect(and).toHaveLength(3);
+    expect(wheres).toHaveLength(9);
+    // A aba pedida na query não contamina as outras: base (tipo + pessoa) + o recorte de cada uma
+    // (+ a janela, nas duas metades de Todas).
+    for (const [i, and] of wheres.entries()) {
+      expect(and).toHaveLength(i < 7 ? 3 : 4);
       expect(and[0]).toEqual({ tipo: 'PRAZO' });
       expect(and[1]).toEqual(daPessoa('adv1'));
     }
 
-    const ordem: Recorte[] = ['hoje', 'atrasadas', 'atencao', '7dias', 'aberto', 'todos'];
-    for (const [i, recorte] of ordem.entries()) {
+    const abas: [number, Record<string, string>][] = [
+      [0, { recorte: 'hoje' }],
+      [1, { recorte: 'atrasadas' }],
+      [2, { recorte: 'atencao' }],
+      [3, { recorte: '7dias' }],
+      [4, { recorte: 'aberto' }],
+      [5, { recorte: 'todos' }],
+      [7, { recorte: 'todos', janela: 'adiante' }],
+      [8, { recorte: 'todos', janela: 'anteriores' }],
+    ];
+    for (const [i, aba] of abas) {
       const lista = montar();
-      await lista.servico.listar({ tipo: 'PRAZO', pessoa: 'eu', recorte } as never, ADVOGADO);
+      await lista.servico.listar({ tipo: 'PRAZO', pessoa: 'eu', ...aba } as never, ADVOGADO);
       const daLista = lista.fn('compromisso', 'findMany').mock.calls[0][0].where.AND as any[];
       expect(wheres[i]).toEqual(daLista);
     }
