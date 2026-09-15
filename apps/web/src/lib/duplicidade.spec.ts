@@ -1,4 +1,17 @@
 import { fraseDoDescarte, resumoDoCadastro } from './duplicidade';
+import { moduloDaRota } from '@/components/nav-items';
+
+/**
+ * A ROTA DA FILA É DA PERMISSÃO PRÓPRIA (15/09/2026): quem o Administrador
+ * liberou entra mesmo sem "Filiados", e quem edita filiados não entra só por isso.
+ */
+describe('a rota da fila de duplicados', () => {
+  it('pertence a "Cadastros duplicados", e o resto de /filiados continua de Filiados', () => {
+    expect(moduloDaRota('/filiados/duplicados')).toBe('duplicados');
+    expect(moduloDaRota('/filiados')).toBe('filiados');
+    expect(moduloDaRota('/filiados/abc-123')).toBe('filiados');
+  });
+});
 
 /**
  * Os pares marcados como "pessoas diferentes" ganharam uma lista e uma volta

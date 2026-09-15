@@ -8,7 +8,9 @@ import { UserRole } from '@prisma/client';
  * módulo a módulo. A resolução efetiva é: matriz do usuário → preset do perfil.
  *
  * O ADMINISTRADOR tem acesso total e é o ÚNICO que pode apagar (DELETE) qualquer
- * coisa no sistema — regra aplicada globalmente no PermissionsGuard.
+ * coisa no sistema — regra aplicada globalmente no PermissionsGuard. A única
+ * delegação é a fila de cadastros duplicados (`@ExclusaoDelegada`), e quem a
+ * libera na matriz é ele (15/09/2026).
  */
 
 export type NivelPermissao = 'SEM_ACESSO' | 'VISUALIZAR' | 'EDITAR';
@@ -37,7 +39,8 @@ export type ModuloKey =
   | 'municipios'
   | 'relatorios'
   | 'auditoria'
-  | 'usuarios';
+  | 'usuarios'
+  | 'duplicados';
 
 export interface ModuloInfo {
   key: ModuloKey;
@@ -95,9 +98,24 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'relatorios', label: 'Relatórios', grupo: 'Administração' },
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
   { key: 'usuarios', label: 'Usuários e Perfis', grupo: 'Administração' },
+  /**
+   * O MUTIRÃO DE CADASTROS DUPLICADOS DE FILIADOS (15/09/2026).
+   *
+   * Não é "editar filiado": consolidar APAGA um cadastro, e "não é duplicado"
+   * tira o par da fila. Por isso nasce SEM_ACESSO em todo perfil e só o
+   * Administrador libera ou retira (trava 5 em `quem-pode-mexer-em-quem.ts`).
+   * Com EDITAR aqui, a pessoa apaga pela fila — a única exclusão delegável.
+   */
+  { key: 'duplicados', label: 'Cadastros duplicados', grupo: 'Administração' },
 ];
 
 export const MODULO_KEYS = MODULOS.map((m) => m.key);
+
+/**
+ * Módulos que SÓ o Administrador libera ou retira, mesmo de quem gerencia
+ * usuários: carregam poder de apagar. A marca `@ExclusaoDelegada` só vale neles.
+ */
+export const MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE: readonly ModuloKey[] = ['duplicados'];
 
 type MatrizPermissoes = Record<ModuloKey, NivelPermissao>;
 
@@ -135,6 +153,8 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     relatorios: 'VISUALIZAR',
     auditoria: 'VISUALIZAR',
     usuarios: 'SEM_ACESSO',
+    // Consolidar apaga cadastro: nenhum perfil nasce com a fila. O Administrador libera.
+    duplicados: 'SEM_ACESSO',
   },
 
   ADVOGADO: {
@@ -168,6 +188,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     relatorios: 'VISUALIZAR',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
+    duplicados: 'SEM_ACESSO',
   },
 
   TRIAGEM: {
@@ -209,6 +230,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     relatorios: 'SEM_ACESSO',
     auditoria: 'SEM_ACESSO',
     usuarios: 'SEM_ACESSO',
+    duplicados: 'SEM_ACESSO',
   },
 };
 

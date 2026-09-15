@@ -120,6 +120,8 @@ export const sindserm: TenantConfig = {
   importadores: ['colaboradores-legado'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
+    // A fila de cadastros duplicados acompanha `filiados` (15/09/2026).
+    'duplicados',
     'colaboradores', 'escalas', 'eventos', 'acessos',
     // `organizacoes` NÃO entra, e isto é uma decisão do sindicato, não uma
     // limitação: o SINDSERM é dedicado à Prefeitura de Teresina. O empregador é

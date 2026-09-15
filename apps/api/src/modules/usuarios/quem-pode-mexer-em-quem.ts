@@ -1,11 +1,14 @@
 import { ForbiddenException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import {
+  MODULOS,
+  MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE,
   MODULO_KEYS,
   ModuloKey,
   NivelPermissao,
   RANK_NIVEL,
   nivelEfetivo,
+  sanitizarPermissoes,
 } from '../../common/permissions/permissoes.constants';
 
 /**
@@ -26,6 +29,8 @@ import {
  *     o nome, nem para desativar, nem para trocar a foto.
  *  4. Ninguém concede um nível que não tem. (Esta eu acrescentei, e explico
  *     abaixo por quê.)
+ *  5. O que apaga — "Cadastros duplicados" — só o Administrador libera ou
+ *     retira (15/09/2026). As travas 4 e 5 olham só o que MUDA na matriz.
  *
  * A QUARTA É A QUE FECHA O BURACO DE VERDADE. Sem ela, as três primeiras são
  * teatro: a coordenação não consegue criar um "ADMINISTRADOR", mas consegue
@@ -110,4 +115,57 @@ export function garantirQueNaoEscalaPrivilegio(
     'Você não pode conceder um nível maior do que o seu. ' +
       `Revise: ${excedidos.join(', ')}.`,
   );
+}
+
+type Matriz = Partial<Record<ModuloKey, NivelPermissao>>;
+
+/**
+ * O QUE MUDA NA MATRIZ — é isto que as travas 4 e 5 comparam (15/09/2026).
+ *
+ * Manter o nível que a pessoa já tem não é conceder. Sem isto, depois de o
+ * Administrador liberar "Cadastros duplicados" para alguém, a Coordenação que
+ * gerencia usuários não conseguiria nem corrigir o telefone dessa pessoa: o
+ * formulário manda a matriz inteira, e a trava 4 via ali um nível acima do dela.
+ *
+ * `atual` é o alvo como está hoje; no cadastro, o preset do perfil escolhido.
+ */
+export function mudancasDaMatriz(pedidas: Matriz, atual: { role: UserRole; permissoes: unknown }): Matriz {
+  const mudou: Matriz = {};
+  for (const modulo of MODULO_KEYS) {
+    const pedido = pedidas[modulo];
+    if (pedido && pedido !== nivelEfetivo(atual.role, atual.permissoes, modulo)) mudou[modulo] = pedido;
+  }
+  return mudou;
+}
+
+/**
+ * Trava 5 — o que apaga, só o Administrador libera ou retira (15/09/2026).
+ *
+ * "Cadastros duplicados" com EDITAR consolida, e consolidar apaga um cadastro.
+ * A trava 4 sozinha deixaria uma Coordenação que recebeu a fila repassá-la a
+ * quem quisesse. O pedido do dono foi o Administrador permitir — então é ele.
+ */
+export function garantirQueSoOAdministradorMexeNoQueApaga(autor: Autor, mudancas: Matriz | undefined): void {
+  if (!mudancas || ehAdmin(autor)) return;
+  const tocados = MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE.filter((m) => mudancas[m] !== undefined);
+  if (!tocados.length) return;
+  const nomes = tocados.map((m) => `"${MODULOS.find((x) => x.key === m)?.label ?? m}"`).join(', ');
+  throw new ForbiddenException(
+    `Só um Administrador libera ou retira ${nomes}: essa permissão inclui apagar cadastros.`,
+  );
+}
+
+/**
+ * Uma tela aberta antes desta versão manda a matriz SEM a linha nova — e o PATCH
+ * substitui a matriz inteira, apagando por baixo o que o Administrador liberou.
+ * Para quem não é Administrador, a linha guardada é mantida.
+ */
+export function preservarOQueSoOAdministradorConcede(autor: Autor, pedidas: Matriz, guardadas: unknown): Matriz {
+  if (ehAdmin(autor)) return pedidas;
+  const salvas = sanitizarPermissoes(guardadas);
+  const out: Matriz = { ...pedidas };
+  for (const m of MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE) {
+    if (out[m] === undefined && salvas[m]) out[m] = salvas[m];
+  }
+  return out;
 }

@@ -77,6 +77,8 @@ export const senatepi: TenantConfig = {
   integracoes: ['datajud', 'djen', 'siconfi'],
   modulos: [
     'dashboard', 'atendimentos', 'processos', 'agenda', 'filiados',
+    // A fila de cadastros duplicados acompanha `filiados` (15/09/2026).
+    'duplicados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
     'empresas', 'organizacoes', 'municipios',
     'relatorios', 'auditoria', 'usuarios',

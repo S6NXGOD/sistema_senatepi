@@ -7,7 +7,10 @@ import { AuthUser } from '../decorators/current-user.decorator';
 import { MODULO_KEY } from './modulo.decorator';
 import { DADOS_PROPRIOS_KEY } from './dados-proprios.decorator';
 import { OPERACAO_DE_SISTEMA_KEY } from './operacao-de-sistema.decorator';
-import { ModuloKey, NivelPermissao, RANK_NIVEL, nivelEfetivo, MODULOS } from './permissoes.constants';
+import { EXCLUSAO_DELEGADA_KEY } from './exclusao-delegada.decorator';
+import {
+  ModuloKey, NivelPermissao, RANK_NIVEL, nivelEfetivo, MODULOS, MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE,
+} from './permissoes.constants';
 
 /**
  * PermissionsGuard — camada de autorização por MÓDULO + regra de exclusão.
@@ -16,8 +19,10 @@ import { ModuloKey, NivelPermissao, RANK_NIVEL, nivelEfetivo, MODULOS } from './
  *  1) Rotas @Public() passam.
  *  2) ADMINISTRADOR tem acesso total (inclusive apagar).
  *  3) DELETE só é permitido ao ADMINISTRADOR — "o Administrador geral (apenas ele)
- *     pode apagar qualquer coisa do sistema". Regra GLOBAL, com uma única
- *     exceção: rotas @DadosProprios (autoatendimento sobre a própria conta).
+ *     pode apagar qualquer coisa do sistema". Regra GLOBAL, com duas exceções:
+ *     rotas @DadosProprios (autoatendimento sobre a própria conta) e rotas
+ *     @ExclusaoDelegada em módulo que só o Administrador concede — aí quem
+ *     decide é a matriz que ele montou (15/09/2026).
  *  4) Rotas @OperacaoDeSistema() são do Administrador — ver o decorador.
  *  5) Em controllers marcados com @Modulo, exige VISUALIZAR (GET/HEAD) ou EDITAR
  *     (POST/PATCH/PUT) conforme o método, resolvendo o nível pela matriz do
@@ -56,7 +61,23 @@ export class PermissionsGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (req.method === 'DELETE' && !dadosProprios) {
+    /*
+      EXCLUSÃO DELEGADA (15/09/2026): a rota marcada volta para a matriz — e o
+      passo (5) exige EDITAR, como num POST. A marca só abre algo em módulo que
+      apenas o Administrador concede; em qualquer outro, é ignorada.
+    */
+    const moduloDaExclusao = this.reflector.getAllAndOverride<ModuloKey>(MODULO_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const exclusaoDelegada =
+      !!this.reflector.getAllAndOverride<boolean>(EXCLUSAO_DELEGADA_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) &&
+      !!moduloDaExclusao &&
+      MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE.includes(moduloDaExclusao);
+    if (req.method === 'DELETE' && !dadosProprios && !exclusaoDelegada) {
       throw new ForbiddenException('Apenas o Administrador pode excluir registros do sistema.');
     }
 

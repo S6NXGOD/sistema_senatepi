@@ -2,9 +2,13 @@ import {
   garantirQuePodeAtribuirPerfil,
   garantirQuePodeMexerNoAlvo,
   garantirQueNaoEscalaPrivilegio,
+  garantirQueSoOAdministradorMexeNoQueApaga,
+  mudancasDaMatriz,
+  preservarOQueSoOAdministradorConcede,
   type Autor,
 } from './quem-pode-mexer-em-quem';
 import { UserRole } from '@prisma/client';
+import { PRESETS_PERFIL } from '../../common/permissions/permissoes.constants';
 
 /**
  * O TETO DO MÓDULO DE USUÁRIOS — testado EXECUTANDO, não lendo o fonte.
@@ -125,5 +129,72 @@ describe('trava 4 — ninguém concede um nível que não tem', () => {
     expect(() =>
       garantirQueNaoEscalaPrivilegio(coord, { usuarios: 'EDITAR', auditoria: 'EDITAR' }),
     ).toThrow();
+  });
+});
+
+/**
+ * "QUERO A POSSIBILIDADE DO ADMINISTRADOR PERMITIR QUE ALGUÉM DE QUALQUER ROLE
+ * POSSA FAZER ESSE TRABALHO COM OS CADASTROS DUPLICADOS." — 15/09/2026.
+ *
+ * O trabalho inclui consolidar, que apaga. Então quem libera é o Administrador,
+ * e só ele — nem a Coordenação que gerencia usuários e recebeu a fila.
+ */
+describe('trava 5 — "Cadastros duplicados" só o Administrador libera ou retira', () => {
+  /** Julian: Coordenação que gerencia usuários e já recebeu a fila. */
+  const julian: Autor = { id: 'j', role: UserRole.COORDENACAO, permissoes: { usuarios: 'EDITAR', duplicados: 'EDITAR' } };
+  const coordQueGerencia: Autor = { id: 'c3', role: UserRole.COORDENACAO, permissoes: { usuarios: 'EDITAR' } };
+  const anaComAFila = { role: UserRole.TRIAGEM, permissoes: { duplicados: 'EDITAR' } };
+
+  it('nenhum perfil nasce com a fila', () => {
+    for (const r of [UserRole.COORDENACAO, UserRole.ADVOGADO, UserRole.TRIAGEM]) {
+      expect(PRESETS_PERFIL[r].duplicados).toBe('SEM_ACESSO');
+    }
+    expect(PRESETS_PERFIL.ADMINISTRADOR.duplicados).toBe('EDITAR');
+  });
+
+  it('o Administrador libera para qualquer perfil', () => {
+    for (const role of [UserRole.TRIAGEM, UserRole.ADVOGADO, UserRole.COORDENACAO]) {
+      const m = mudancasDaMatriz({ duplicados: 'EDITAR' }, { role, permissoes: {} });
+      expect(m).toEqual({ duplicados: 'EDITAR' });
+      expect(() => garantirQueSoOAdministradorMexeNoQueApaga(admin, m)).not.toThrow();
+    }
+  });
+
+  it('quem recebeu a fila não a repassa, e a mensagem diz por quê', () => {
+    const m = mudancasDaMatriz({ duplicados: 'EDITAR' }, { role: UserRole.TRIAGEM, permissoes: {} });
+    expect(() => garantirQueNaoEscalaPrivilegio(julian, m)).not.toThrow();
+    expect(() => garantirQueSoOAdministradorMexeNoQueApaga(julian, m)).toThrow(
+      'Só um Administrador libera ou retira "Cadastros duplicados": essa permissão inclui apagar cadastros.',
+    );
+  });
+
+  it('nem retira de quem o Administrador liberou', () => {
+    const m = mudancasDaMatriz({ duplicados: 'SEM_ACESSO' }, anaComAFila);
+    expect(() => garantirQueSoOAdministradorMexeNoQueApaga(julian, m)).toThrow(/Só um Administrador/);
+  });
+
+  it('mas continua editando o resto de quem tem a fila, sem esbarrar nas travas 4 e 5', () => {
+    // A tela manda a matriz inteira: a fila vai junto, igual ao que já está gravado.
+    const m = mudancasDaMatriz({ duplicados: 'EDITAR', atendimentos: 'EDITAR', filiados: 'EDITAR' }, anaComAFila);
+    expect(m).toEqual({});
+    expect(() => garantirQueNaoEscalaPrivilegio(coordQueGerencia, m)).not.toThrow();
+    expect(() => garantirQueSoOAdministradorMexeNoQueApaga(coordQueGerencia, m)).not.toThrow();
+  });
+
+  it('cadastrar alguém já com a fila é do Administrador; com o preset, qualquer gestor cadastra', () => {
+    const comFila = mudancasDaMatriz({ duplicados: 'EDITAR' }, { role: UserRole.TRIAGEM, permissoes: {} });
+    expect(() => garantirQueSoOAdministradorMexeNoQueApaga(coordQueGerencia, comFila)).toThrow();
+    const semFila = mudancasDaMatriz({ ...PRESETS_PERFIL.TRIAGEM }, { role: UserRole.TRIAGEM, permissoes: {} });
+    expect(() => garantirQueSoOAdministradorMexeNoQueApaga(coordQueGerencia, semFila)).not.toThrow();
+  });
+
+  it('uma tela antiga, sem a linha nova, não apaga por baixo a liberação', () => {
+    expect(
+      preservarOQueSoOAdministradorConcede(coordQueGerencia, { atendimentos: 'EDITAR' }, { duplicados: 'EDITAR' }),
+    ).toEqual({ atendimentos: 'EDITAR', duplicados: 'EDITAR' });
+    // O Administrador manda no que envia.
+    expect(
+      preservarOQueSoOAdministradorConcede(admin, { atendimentos: 'EDITAR' }, { duplicados: 'EDITAR' }),
+    ).toEqual({ atendimentos: 'EDITAR' });
   });
 });

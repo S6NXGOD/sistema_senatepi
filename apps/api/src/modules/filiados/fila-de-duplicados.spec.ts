@@ -1,56 +1,100 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { DecisaoDuplicata } from '@prisma/client';
 import { PermissionsGuard } from '../../common/permissions/permissions.guard';
+import { Modulo } from '../../common/permissions/modulo.decorator';
+import { ExclusaoDelegada } from '../../common/permissions/exclusao-delegada.decorator';
 import { DuplicidadeController } from './duplicidade.controller';
 import { DuplicidadeService } from './duplicidade.service';
 
 const CTRL = readFileSync(join(__dirname, 'duplicidade.controller.ts'), 'utf8');
 
 /**
- * "PARA ALGUMAS PESSOAS, COMO TRIAGEM, NÃO APARECE O BOTÃO DE CONSOLIDAR.
- * APARECE APENAS O OUTRO." — 15/09/2026.
+ * A FILA DE DUPLICADOS, EM DOIS PEDIDOS DO MESMO DIA (15/09/2026).
  *
- * O outro era o "não é duplicado", que tira o par da fila para sempre. Quem não
- * podia consolidar podia esconder o par de quem podia: 2 dos 3 descartes da
- * produção vieram da Coordenação.
+ * 1. "Para a Triagem aparece só o outro botão" — o "não é duplicado", que tirava
+ *    o par da fila de quem podia consolidar.
+ * 2. "Quero a possibilidade do administrador permitir que alguém de qualquer
+ *    role possa fazer esse trabalho."
+ *
+ * Resultado: módulo "Cadastros duplicados" na matriz, SEM_ACESSO em todo perfil,
+ * liberado só pelo Administrador; com EDITAR, a pessoa faz o trabalho inteiro.
+ * Testado com o PermissionsGuard e o controller de verdade.
  */
-describe('a fila de duplicados de filiados é do Administrador, inteira', () => {
+describe('quem entra na fila de duplicados', () => {
   const guard = new PermissionsGuard(new Reflector());
-  const contexto = (metodo: string, handler: (...args: never[]) => unknown, role: string) =>
+  type Classe = abstract new (...args: never[]) => unknown;
+  const contexto = (
+    metodo: string,
+    handler: (...args: never[]) => unknown,
+    role: string,
+    permissoes: Record<string, string> = {},
+    classe: Classe = DuplicidadeController,
+  ) =>
     ({
       getHandler: () => handler,
-      getClass: () => DuplicidadeController,
-      switchToHttp: () => ({ getRequest: () => ({ method: metodo, user: { id: 'u1', role, permissoes: {} } }) }),
+      getClass: () => classe,
+      switchToHttp: () => ({ getRequest: () => ({ method: metodo, user: { id: 'u1', role, permissoes } }) }),
     }) as never;
   const P = DuplicidadeController.prototype;
 
-  it('Triagem e Coordenação, que têm filiados EDITAR, não marcam "não é duplicado"', () => {
-    for (const role of ['TRIAGEM', 'COORDENACAO']) {
+  it('sem liberação, ninguém abaixo do Administrador entra — e a recusa nomeia o módulo', () => {
+    for (const role of ['TRIAGEM', 'COORDENACAO', 'ADVOGADO']) {
+      expect(() => guard.canActivate(contexto('GET', P.status, role))).toThrow(/"Cadastros duplicados"/);
       expect(() => guard.canActivate(contexto('POST', P.distintos, role))).toThrow(ForbiddenException);
-      expect(() => guard.canActivate(contexto('POST', P.distintos, role))).toThrow(/operação de sistema/);
+      expect(() => guard.canActivate(contexto('DELETE', P.fundir, role))).toThrow(ForbiddenException);
     }
   });
 
-  it('nem veem a fila ou o aviso: a status fecha junto', () => {
-    expect(() => guard.canActivate(contexto('GET', P.status, 'TRIAGEM'))).toThrow(ForbiddenException);
-    expect(() => guard.canActivate(contexto('GET', P.listar, 'COORDENACAO'))).toThrow(ForbiddenException);
-    expect(() => guard.canActivate(contexto('GET', P.descartados, 'COORDENACAO'))).toThrow(ForbiddenException);
+  it('liberada com EDITAR, a Triagem faz o trabalho inteiro — inclusive consolidar', () => {
+    const liberada = { duplicados: 'EDITAR' };
+    expect(guard.canActivate(contexto('GET', P.listar, 'TRIAGEM', liberada))).toBe(true);
+    expect(guard.canActivate(contexto('POST', P.distintos, 'TRIAGEM', liberada))).toBe(true);
+    for (const h of [P.fundir, P.executarLote, P.voltarParaFila]) {
+      expect(guard.canActivate(contexto('DELETE', h, 'TRIAGEM', liberada))).toBe(true);
+    }
   });
 
-  it('o Administrador faz tudo, inclusive devolver o par à fila', () => {
-    expect(guard.canActivate(contexto('POST', P.distintos, 'ADMINISTRADOR'))).toBe(true);
-    expect(guard.canActivate(contexto('DELETE', P.voltarParaFila, 'ADMINISTRADOR'))).toBe(true);
+  it('com VISUALIZAR, acompanha a fila e não decide nada', () => {
+    const soVer = { duplicados: 'VISUALIZAR' };
+    expect(guard.canActivate(contexto('GET', P.listar, 'ADVOGADO', soVer))).toBe(true);
+    expect(guard.canActivate(contexto('GET', P.descartados, 'ADVOGADO', soVer))).toBe(true);
+    expect(() => guard.canActivate(contexto('POST', P.distintos, 'ADVOGADO', soVer))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(contexto('DELETE', P.fundir, 'ADVOGADO', soVer))).toThrow(ForbiddenException);
   });
 
-  it('o decorador está na classe, uma vez só', () => {
+  it('editar filiados não dá a fila: são permissões separadas', () => {
+    expect(() => guard.canActivate(contexto('POST', P.distintos, 'TRIAGEM', { filiados: 'EDITAR' }))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('a marca de exclusão delegada não abre nada fora do módulo que só o Administrador concede', () => {
+    @Modulo('filiados')
+    @Controller('teste')
+    class OutroController {
+      @Delete(':id')
+      @ExclusaoDelegada()
+      apagar() {
+        return null;
+      }
+    }
+    expect(() =>
+      guard.canActivate(
+        contexto('DELETE', OutroController.prototype.apagar, 'COORDENACAO', { filiados: 'EDITAR' }, OutroController),
+      ),
+    ).toThrow('Apenas o Administrador pode excluir registros do sistema.');
+  });
+
+  it('o controller declara o módulo novo nos dois decoradores e marca as três exclusões', () => {
     const inicio = CTRL.indexOf('export class DuplicidadeController');
     const decoradores = CTRL.slice(CTRL.lastIndexOf('@ApiTags', inicio), inicio);
-    expect(decoradores).toContain('@OperacaoDeSistema()');
-    expect(decoradores).toContain("@Modulo('filiados')");
-    expect(CTRL.match(/@OperacaoDeSistema\(\)/g)).toHaveLength(1);
+    expect(decoradores).toContain("@Modulo('duplicados')");
+    expect(decoradores).toContain("@ModuloTenant('duplicados')");
+    expect(CTRL.match(/@OperacaoDeSistema\(\)/g)).toBeNull();
+    expect(CTRL.match(/@ExclusaoDelegada\(\)/g)).toHaveLength(3);
   });
 });
 

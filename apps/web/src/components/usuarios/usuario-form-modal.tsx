@@ -14,7 +14,7 @@ import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import {
   MODULOS, PERFIS, PRESETS_PERFIL, NIVEL_LABEL, ModuloKey, NivelPermissao, PerfilUsuario,
-  RANK_NIVEL, podeAtribuirPerfilAdmin, podeMexerNoUsuario, tetoQuePossoConceder,
+  RANK_NIVEL, podeAtribuirPerfilAdmin, podeMexerNoUsuario, soOAdministradorConcede, tetoQuePossoConceder,
 } from '@/lib/permissoes';
 import {
   criarUsuario, atualizarUsuario, enviarAvatarUsuario, removerAvatarUsuario, UsuarioSistema,
@@ -401,7 +401,8 @@ export function UsuarioFormModal({
                 </p>
                 {secao.itens.map((mod) => (
                   <div key={mod.key} className="rounded-lg border p-2.5">
-                    <p className="mb-2 text-sm font-medium">{mod.label}</p>
+                    <p className={cn('text-sm font-medium', mod.ajuda ? 'mb-0.5' : 'mb-2')}>{mod.label}</p>
+                    {mod.ajuda && <p className="mb-2 text-xs text-muted-foreground">{mod.ajuda}</p>}
                     <div className="grid grid-cols-3 gap-1">
                       {NIVEIS.map((n) => {
                         const sel = (adminLock ? 'EDITAR' : matriz[mod.key]) === n;
@@ -414,15 +415,19 @@ export function UsuarioFormModal({
                         */
                         const acimaDoMeuTeto =
                           RANK_NIVEL[n] > RANK_NIVEL[tetoDoModulo(mod.key)];
+                        // Trava 5: "Cadastros duplicados" inclui apagar; só o Administrador mexe na linha.
+                        const soOAdmin = !souAdmin && soOAdministradorConcede(mod.key);
                         return (
                           <button
                             key={n}
                             type="button"
-                            disabled={adminLock || acimaDoMeuTeto || alvoBloqueado}
+                            disabled={adminLock || acimaDoMeuTeto || alvoBloqueado || soOAdmin}
                             title={
-                              acimaDoMeuTeto
-                                ? 'Você não pode conceder um nível maior do que o seu.'
-                                : undefined
+                              soOAdmin
+                                ? 'Só um Administrador libera ou retira esta permissão.'
+                                : acimaDoMeuTeto
+                                  ? 'Você não pode conceder um nível maior do que o seu.'
+                                  : undefined
                             }
                             onClick={() => setNivel(mod.key, n)}
                             className={cn(

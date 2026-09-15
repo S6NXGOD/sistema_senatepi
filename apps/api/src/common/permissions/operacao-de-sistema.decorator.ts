@@ -20,11 +20,11 @@ export const OPERACAO_DE_SISTEMA_KEY = 'operacaoDeSistema';
  *   POST /djen/sincronizar ......... queima a cota do CNJ, do sindicato inteiro
  *   POST /audiencias/reclassificar . reprocessa todo o acervo de uma vez
  *   POST /partes/:id/mesclar ....... funde dois cadastros, sem desfazer
- *   /filiados/duplicidade .......... diz se dois filiados são a mesma pessoa
- *                                    (consolidar apaga; descartar tirava da fila
- *                                    de quem consolida — 15/09/2026)
  *
- * SÃO QUATRO, e a lista é curta de propósito. Cheguei a incluir as importações em
+ * SÃO TRÊS, e a lista é curta de propósito. A fila de duplicados de filiados
+ * passou por aqui por algumas horas em 15/09/2026 e virou o módulo `duplicados`
+ * quando o dono pediu para o Administrador poder delegá-la — a saída que o fim
+ * deste comentário prevê. Cheguei a incluir as importações em
  * massa e voltei atrás: importar filiados é EDITAR FILIADOS, com uma tela de
  * conferência antes do `confirmar`. Trancá-las no perfil seria recriar o
  * `@Roles` com um nome mais bonito — exatamente o que este decorador existe

@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle,
-  Keyboard, List, Merge, ShieldCheck, Undo2, Users, X,
+  Keyboard, List, Merge, Undo2, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useAuth } from '@/lib/auth';
-import { podeExcluir } from '@/lib/permissoes';
+import { podeEditar } from '@/lib/permissoes';
 import { cn, formatarData, mascararCpf } from '@/lib/utils';
 import {
   CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL,
@@ -30,7 +30,12 @@ const NIVEIS: Confianca[] = ['ALTA', 'MEDIA', 'BAIXA'];
 export default function DuplicadosPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  const ehAdmin = podeExcluir(user?.role);
+  /*
+    QUEM DECIDE É QUEM O ADMINISTRADOR LIBEROU (15/09/2026). A rota já exige ao
+    menos VISUALIZAR em "Cadastros duplicados" (gate da rota). Com VISUALIZAR a
+    pessoa acompanha; com EDITAR, consolida, descarta e devolve à fila.
+  */
+  const podeDecidir = podeEditar(user?.role, user?.permissoes, 'duplicados');
   const [aba, setAba] = useState<Confianca>('ALTA');
   const [fundindo, setFundindo] = useState<{ grupo: GrupoDuplicata; manter: CandidatoDuplicata } | null>(null);
   const [executando, setExecutando] = useState(false);
@@ -47,8 +52,7 @@ export default function DuplicadosPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['duplicados'],
     queryFn: listarDuplicados,
-    // Só o Administrador decide (e a API recusa os demais): os outros nem perguntam.
-    enabled: ehAdmin,
+    enabled: !!user,
     // A varredura percorre a base inteira: não vale refazer a cada foco.
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -149,13 +153,13 @@ export default function DuplicadosPage() {
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         setIndice((i) => Math.max(i - 1, 0));
-      } else if (e.key === '1' || e.key === '2') {
+      } else if (podeDecidir && (e.key === '1' || e.key === '2')) {
         const c = g.candidatos[Number(e.key) - 1];
         if (c) setEscolha((x) => ({ ...x, [g.chave]: c.id }));
-      } else if (e.key.toLowerCase() === 'n') {
+      } else if (podeDecidir && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         void naoDuplicado(g);
-      } else if (e.key === 'Enter') {
+      } else if (podeDecidir && e.key === 'Enter') {
         e.preventDefault();
         const manter = g.candidatos.find((c) => c.id === escolhidoDoAtual);
         if (manter && g.candidatos.length === 2) setFundindo({ grupo: g, manter });
@@ -163,18 +167,12 @@ export default function DuplicadosPage() {
     }
     window.addEventListener('keydown', aoTeclar);
     return () => window.removeEventListener('keydown', aoTeclar);
-  }, [modo, atual, grupos.length, escolhidoDoAtual, naoDuplicado]);
+  }, [modo, atual, grupos.length, escolhidoDoAtual, naoDuplicado, podeDecidir]);
 
   // Trocar de aba recomeça a fila.
   useEffect(() => { setIndice(0); }, [aba]);
 
-  /*
-    QUEM NÃO É ADMINISTRADOR NÃO VÊ UMA FILA PELA METADE (15/09/2026). Antes a
-    Triagem via os cartões com "Não é duplicado" e sem "Consolidar" — e o botão
-    que sobrava era justamente o que escondia o par de quem podia consolidar.
-  */
   if (!user) return null;
-  if (!ehAdmin) return <SoDoAdministrador />;
 
   return (
     <div className="space-y-5">
@@ -193,7 +191,14 @@ export default function DuplicadosPage() {
       </div>
 
       {/* Consolidação em lote — só a fatia sem nada a perder. */}
-      <LoteDuplicados />
+      {podeDecidir ? (
+        <LoteDuplicados />
+      ) : (
+        <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+          Você acompanha a fila. Consolidar e marcar &ldquo;não é duplicado&rdquo; ficam com quem tem edição em
+          &ldquo;Cadastros duplicados&rdquo;, liberada pelo Administrador.
+        </p>
+      )}
 
       {/* Abas por confiança */}
       <div className="flex flex-wrap items-center gap-2">
@@ -270,6 +275,7 @@ export default function DuplicadosPage() {
 
           <GrupoCard
             grupo={atual}
+            podeDecidir={podeDecidir}
             escolhidoId={escolhidoDoAtual}
             onEscolher={(id) => setEscolha((e) => ({ ...e, [atual.chave]: id }))}
             onFundir={(manter) => setFundindo({ grupo: atual, manter })}
@@ -278,9 +284,13 @@ export default function DuplicadosPage() {
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <span className="font-medium">Atalhos:</span>
-            <Atalho tecla="Enter" acao="consolidar" />
-            <Atalho tecla="N" acao="não é duplicado" />
-            <Atalho tecla="1 / 2" acao="escolher qual fica" />
+            {podeDecidir && (
+              <>
+                <Atalho tecla="Enter" acao="consolidar" />
+                <Atalho tecla="N" acao="não é duplicado" />
+                <Atalho tecla="1 / 2" acao="escolher qual fica" />
+              </>
+            )}
             <Atalho tecla="→ ou Espaço" acao="pular" />
             <Atalho tecla="←" acao="voltar" />
           </div>
@@ -293,6 +303,7 @@ export default function DuplicadosPage() {
             <GrupoCard
               key={g.chave}
               grupo={g}
+              podeDecidir={podeDecidir}
               escolhidoId={escolha[g.chave] ?? g.candidatos.find((c) => c.sugerido)?.id ?? null}
               onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
               onFundir={(manter) => setFundindo({ grupo: g, manter })}
@@ -302,7 +313,7 @@ export default function DuplicadosPage() {
         </div>
       )}
 
-      <MarcadosComoDiferentes onDevolver={devolver} />
+      <MarcadosComoDiferentes onDevolver={devolver} podeDecidir={podeDecidir} />
 
       <ConfirmDialog
         open={!!fundindo}
@@ -325,39 +336,13 @@ export default function DuplicadosPage() {
   );
 }
 
-/**
- * Para quem chega pela URL sem ser Administrador: uma explicação curta, sem fila
- * pela metade. O aviso da lista de Filiados já não aparece para esses perfis.
- */
-function SoDoAdministrador() {
-  return (
-    <div className="mx-auto max-w-lg space-y-4 py-2 sm:py-6">
-      <Link href="/filiados" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-3.5 w-3.5" /> Voltar para Filiados
-      </Link>
-      <Card>
-        <CardContent className="space-y-3 p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted">
-              <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-            </div>
-            <h2 className="text-lg font-semibold leading-tight">A revisão de cadastros duplicados fica com o Administrador</h2>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Consolidar apaga um dos cadastros, e marcar &ldquo;não é duplicado&rdquo; tira o par da fila.
-            As duas decisões ficam com quem administra o sistema, para nenhuma esconder a outra.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Se atender alguém com dois cadastros, passe ao Administrador o nome e as duas matrículas.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/** O que saiu da fila como "pessoas diferentes", com a volta ao alcance. */
-function MarcadosComoDiferentes({ onDevolver }: { onDevolver: (decisaoId: string) => Promise<void> }) {
+/** O que saiu da fila como "pessoas diferentes", com a volta ao alcance de quem decide. */
+function MarcadosComoDiferentes({
+  onDevolver, podeDecidir,
+}: {
+  onDevolver: (decisaoId: string) => Promise<void>;
+  podeDecidir: boolean;
+}) {
   const { data } = useQuery({
     queryKey: ['duplicados-descartados'],
     queryFn: listarDescartados,
@@ -381,7 +366,9 @@ function MarcadosComoDiferentes({ onDevolver }: { onDevolver: (decisaoId: string
           <span className="text-sm font-medium">Marcados como pessoas diferentes</span>
           <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{data.length}</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
-            Saíram da fila. Se algum foi engano, devolva para revisar de novo.
+            {podeDecidir
+              ? 'Saíram da fila. Se algum foi engano, devolva para revisar de novo.'
+              : 'Saíram da fila por decisão de quem revisa.'}
           </span>
         </span>
         <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition', aberto && 'rotate-180')} aria-hidden="true" />
@@ -400,19 +387,21 @@ function MarcadosComoDiferentes({ onDevolver }: { onDevolver: (decisaoId: string
                 ))}
                 <p className="text-xs text-muted-foreground">{fraseDoDescarte(p)}</p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="min-h-11 shrink-0 sm:min-h-9"
-                disabled={devolvendo === p.id}
-                onClick={async () => {
-                  setDevolvendo(p.id);
-                  await onDevolver(p.id);
-                  setDevolvendo(null);
-                }}
-              >
-                <Undo2 className="h-4 w-4" /> Voltar para a fila
-              </Button>
+              {podeDecidir && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11 shrink-0 sm:min-h-9"
+                  disabled={devolvendo === p.id}
+                  onClick={async () => {
+                    setDevolvendo(p.id);
+                    await onDevolver(p.id);
+                    setDevolvendo(null);
+                  }}
+                >
+                  <Undo2 className="h-4 w-4" /> Voltar para a fila
+                </Button>
+              )}
             </li>
           ))}
         </ul>
@@ -431,9 +420,10 @@ function Atalho({ tecla, acao }: { tecla: string; acao: string }) {
 }
 
 function GrupoCard({
-  grupo, escolhidoId, onEscolher, onFundir, onNaoDuplicado,
+  grupo, podeDecidir, escolhidoId, onEscolher, onFundir, onNaoDuplicado,
 }: {
   grupo: GrupoDuplicata;
+  podeDecidir: boolean;
   escolhidoId: string | null;
   onEscolher: (id: string) => void;
   onFundir: (manter: CandidatoDuplicata) => void;
@@ -456,7 +446,7 @@ function GrupoCard({
   }, [grupo]);
 
   const escolhido = grupo.candidatos.find((c) => c.id === escolhidoId) ?? null;
-  const podeFundir = grupo.candidatos.length === 2 && !!escolhido;
+  const podeFundir = podeDecidir && grupo.candidatos.length === 2 && !!escolhido;
 
   return (
     <Card>
@@ -508,15 +498,17 @@ function GrupoCard({
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          <Button variant="outline" size="sm" onClick={onNaoDuplicado}>
-            <X className="h-4 w-4" /> Não é duplicado
-          </Button>
+          {podeDecidir && (
+            <Button variant="outline" size="sm" onClick={onNaoDuplicado}>
+              <X className="h-4 w-4" /> Não é duplicado
+            </Button>
+          )}
           {podeFundir && (
             <Button size="sm" onClick={() => onFundir(escolhido!)}>
               <Merge className="h-4 w-4" /> Consolidar mantendo {escolhido!.matricula}
             </Button>
           )}
-          {grupo.candidatos.length > 2 && (
+          {podeDecidir && grupo.candidatos.length > 2 && (
             <p className="text-xs text-muted-foreground">
               Grupo com {grupo.candidatos.length} cadastros — consolide dois de cada vez.
             </p>

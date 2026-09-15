@@ -7,7 +7,7 @@ import { DuplicidadeAtivaGuard, duplicidadeAtiva } from './duplicidade.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
-import { OperacaoDeSistema } from '../../common/permissions/operacao-de-sistema.decorator';
+import { ExclusaoDelegada } from '../../common/permissions/exclusao-delegada.decorator';
 
 class ParFiliadosDto {
   @IsString() idA!: string;
@@ -27,14 +27,23 @@ class LoteDto {
 /**
  * Mutirão de consolidação de cadastros duplicados.
  *
- * DO ADMINISTRADOR, INTEIRO (15/09/2026). Consolidar já era, por ser DELETE. O
- * "não é duplicado" não: Triagem e Coordenação viam só esse botão, e ele tirava
- * o par da fila para sempre — da vista de quem podia consolidar. Na produção, 2
- * dos 3 pares descartados vieram da Coordenação, e um deles (MARIA DA CRUZ DE
- * SOUSA, 3520 × 3746) tem toda a cara de ser a mesma pessoa. É a lição da fusão
- * de organizações (12/09): dizer se dois cadastros são ou não a mesma pessoa é
- * UMA decisão, e fica com quem pode tomá-la inteira. A `status` fecha junto, e o
- * aviso da lista de Filiados some sozinho para quem não decide.
+ * MÓDULO PRÓPRIO NA MATRIZ, "Cadastros duplicados" (15/09/2026). A fila inteira
+ * responde a UMA permissão, e o Administrador escolhe quem a recebe — de
+ * qualquer perfil. Nenhum perfil nasce com ela, e só ele a libera ou retira.
+ *
+ * O caminho até aqui, no mesmo dia: a Triagem via só "Não é duplicado" (que
+ * tirava o par da fila de quem podia consolidar — 2 dos 3 descartes da produção
+ * vieram da Coordenação); a fila virou do Administrador; e o dono pediu para
+ * poder delegá-la. Dizer se dois cadastros são a mesma pessoa continua sendo UMA
+ * decisão, só que agora de quem o Administrador escolher.
+ *
+ * VISUALIZAR acompanha a fila. EDITAR decide tudo: "não é duplicado", devolver à
+ * fila e CONSOLIDAR. Consolidar apaga, então as três rotas DELETE levam a marca
+ * de exclusão delegada — sem ela a trava global as manteria só do Administrador.
+ *
+ * `@ModuloTenant('duplicados')`, a mesma chave da permissão (o
+ * `gate-por-modulo.spec.ts` exige): cada instalação liga a fila na própria lista
+ * de módulos, ao lado de `filiados`.
  *
  * REGISTRADO ANTES de FiliadosController no módulo, de propósito: o Nest
  * resolve rotas na ordem de registro, e o `@Get(':id')` de lá casaria com
@@ -42,9 +51,8 @@ class LoteDto {
  */
 @ApiTags('filiados')
 @ApiBearerAuth()
-@ModuloTenant('filiados')
-@Modulo('filiados')
-@OperacaoDeSistema()
+@ModuloTenant('duplicados')
+@Modulo('duplicados')
 @Controller('filiados/duplicidade')
 export class DuplicidadeController {
   constructor(private readonly service: DuplicidadeService) {}
@@ -85,9 +93,10 @@ export class DuplicidadeController {
    * zerar, o que dá progresso real e evita que 704 fusões numa requisição só
    * estourem o tempo do proxy.
    *
-   * DELETE porque apaga: herda a regra global de que só o ADMINISTRADOR exclui.
+   * DELETE porque apaga; quem tem EDITAR em "Cadastros duplicados" executa.
    */
   @Delete('lote')
+  @ExclusaoDelegada()
   @UseGuards(DuplicidadeAtivaGuard)
   executarLote(@Body() dto: LoteDto, @CurrentUser('nome') autor: string) {
     return this.service.executarLote(dto.limite ?? 25, autor);
@@ -112,19 +121,18 @@ export class DuplicidadeController {
    * uma consolidação: ali um dos cadastros já não existe.
    */
   @Delete('distintos/:id')
+  @ExclusaoDelegada()
   @UseGuards(DuplicidadeAtivaGuard)
   voltarParaFila(@Param('id') id: string, @CurrentUser('nome') autor: string) {
     return this.service.voltarParaFila(id, autor);
   }
 
   /**
-   * Funde e apaga o descartado.
-   *
-   * É DELETE de propósito: o PermissionsGuard já bloqueia todo DELETE para
-   * quem não é ADMINISTRADOR — a regra global "só o Administrador apaga" passa
-   * a valer aqui sem precisar de exceção nova nem de lembrete em code review.
+   * Funde e apaga o descartado. Copia antes o que só ele tem, registra no
+   * histórico do mantido e na auditoria — ver `DuplicidadeService.fundir`.
    */
   @Delete('fundir')
+  @ExclusaoDelegada()
   @UseGuards(DuplicidadeAtivaGuard)
   fundir(@Body() dto: FundirDto, @CurrentUser('nome') autor: string) {
     return this.service.fundir(dto.manterId, dto.descartarId, autor);

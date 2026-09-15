@@ -165,27 +165,41 @@ describe('a matriz é a única política de módulo', () => {
   });
 
   /**
-   * A LISTA CURTA, CONTADA. Quatro operações que não são "editar o módulo X":
+   * A LISTA CURTA, CONTADA. Três operações que não são "editar o módulo X":
    * varrer o DJEN (queima a cota do CNJ do sindicato), reprocessar o radar
-   * inteiro, e as duas filas que decidem se dois cadastros são o mesmo —
-   * organizações desde 12/09 e filiados desde 15/09/2026. Consolidar apaga, e
-   * descartar tirava o par da vista de quem consolida.
+   * inteiro e fundir dois cadastros de organização sem desfazer. A fila de
+   * duplicados de FILIADOS esteve aqui em 15/09/2026 e virou o módulo
+   * `duplicados`, que o Administrador delega.
    */
-  it('as operações de sistema são exatamente quatro, e são estas', () => {
+  it('as operações de sistema são exatamente três, e são estas', () => {
     const comDecorador = ARQUIVOS.filter((a) => a.src.includes('@OperacaoDeSistema()'))
       .map((a) => a.nome)
       .sort();
     expect(comDecorador).toEqual([
       'audiencias.controller.ts',
       'djen.controller.ts',
-      'duplicidade.controller.ts',
       'partes.controller.ts',
     ]);
     const total = ARQUIVOS.reduce(
       (n, a) => n + (a.src.match(/@OperacaoDeSistema\(\)/g)?.length ?? 0),
       0,
     );
-    expect(total).toBe(4);
+    expect(total).toBe(3);
+  });
+
+  /**
+   * CADA ROTA COM EXCLUSÃO DELEGADA É UMA PORTA DE APAGAR QUE NÃO PASSA PELO
+   * PERFIL (15/09/2026). São as três da fila de duplicados — consolidar, o lote
+   * e devolver um par à fila — e nenhuma outra.
+   */
+  it('as exclusões delegadas são três, todas na fila de duplicados', () => {
+    const comMarca = ARQUIVOS.filter((a) => a.src.includes('@ExclusaoDelegada()')).map((a) => a.nome);
+    expect(comMarca).toEqual(['duplicidade.controller.ts']);
+    const total = ARQUIVOS.reduce(
+      (n, a) => n + (a.src.match(/@ExclusaoDelegada\(\)/g)?.length ?? 0),
+      0,
+    );
+    expect(total).toBe(3);
   });
 });
 

@@ -12,6 +12,9 @@ import {
   garantirQuePodeAtribuirPerfil,
   garantirQuePodeMexerNoAlvo,
   garantirQueNaoEscalaPrivilegio,
+  garantirQueSoOAdministradorMexeNoQueApaga,
+  mudancasDaMatriz,
+  preservarOQueSoOAdministradorConcede,
 } from './quem-pode-mexer-em-quem';
 import { CriarUsuarioDto, AtualizarUsuarioDto } from './dto/usuarios.dto';
 
@@ -157,6 +160,11 @@ export class UsuariosService {
       cujo preset seja mais forte que o de quem está criando.
     */
     garantirQueNaoEscalaPrivilegio(ctx, permissoes);
+    // Trava 5: o que apaga só o Administrador libera — comparado ao preset do perfil.
+    garantirQueSoOAdministradorMexeNoQueApaga(
+      ctx,
+      mudancasDaMatriz(permissoes, { role: dto.role, permissoes: {} }),
+    );
 
     const user = await this.prisma.user.create({
       data: {
@@ -185,7 +193,7 @@ export class UsuariosService {
   async atualizar(id: string, dto: AtualizarUsuarioDto, ctx: Ctx) {
     const alvo = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true, role: true, permissoes: true },
     });
     if (!alvo) throw new NotFoundException('Usuário não encontrado.');
 
@@ -223,8 +231,15 @@ export class UsuariosService {
     };
     if (dto.senha) data.senhaHash = await bcrypt.hash(dto.senha, 12);
     if (dto.permissoes !== undefined) {
-      const pedidas = sanitizarPermissoes(dto.permissoes);
-      garantirQueNaoEscalaPrivilegio(ctx, pedidas); // Trava 4.
+      const pedidas = preservarOQueSoOAdministradorConcede(
+        ctx,
+        sanitizarPermissoes(dto.permissoes),
+        alvo.permissoes,
+      );
+      // Travas 4 e 5 olham o que MUDA: manter o nível que o alvo já tem não é conceder.
+      const mudancas = mudancasDaMatriz(pedidas, alvo);
+      garantirQueNaoEscalaPrivilegio(ctx, mudancas); // Trava 4.
+      garantirQueSoOAdministradorMexeNoQueApaga(ctx, mudancas); // Trava 5.
       data.permissoes = pedidas as Prisma.InputJsonValue;
     }
 

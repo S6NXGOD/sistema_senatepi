@@ -1,8 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  MODULOS,
+  PRESETS_PERFIL,
+  nivelEfetivo,
   podeAtribuirPerfilAdmin,
   podeMexerNoUsuario,
+  soOAdministradorConcede,
   tetoQuePossoConceder,
 } from '@/lib/permissoes';
 
@@ -78,7 +82,28 @@ describe('a tela explica cada trava', () => {
 
   it('editar um administrador sem ser um trava a matriz inteira', () => {
     expect(FORM).toContain('const alvoBloqueado =');
-    expect(FORM).toContain('disabled={adminLock || acimaDoMeuTeto || alvoBloqueado}');
+    expect(FORM).toContain('disabled={adminLock || acimaDoMeuTeto || alvoBloqueado || soOAdmin}');
+  });
+
+  /**
+   * "CADASTROS DUPLICADOS" É DO ADMINISTRADOR LIBERAR (15/09/2026). Consolidar
+   * apaga; a linha trava para quem não é Administrador, e o motivo aparece no
+   * texto de ajuda da própria linha, que o celular mostra (o `title` não).
+   */
+  it('a linha dos duplicados trava para quem não é Administrador, com motivo visível', () => {
+    expect(soOAdministradorConcede('duplicados')).toBe(true);
+    expect(soOAdministradorConcede('filiados')).toBe(false);
+    expect(FORM).toContain('const soOAdmin = !souAdmin && soOAdministradorConcede(mod.key);');
+    expect(FORM).toContain("'Só um Administrador libera ou retira esta permissão.'");
+    expect(FORM).toContain('{mod.ajuda && <p className="mb-2 text-xs text-muted-foreground">{mod.ajuda}</p>}');
+    expect(MODULOS.find((m) => m.key === 'duplicados')?.ajuda).toContain('Só o Administrador libera.');
+  });
+
+  it('nenhum perfil nasce com a fila, e liberada ela vale para qualquer perfil', () => {
+    for (const p of ['COORDENACAO', 'ADVOGADO', 'TRIAGEM'] as const) {
+      expect(PRESETS_PERFIL[p].duplicados).toBe('SEM_ACESSO');
+      expect(nivelEfetivo(p, { duplicados: 'EDITAR' }, 'duplicados')).toBe('EDITAR');
+    }
   });
 
   /** Na lista, o botão SOME e um rótulo explica a linha — ícone apagado não diz nada. */

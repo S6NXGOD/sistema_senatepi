@@ -137,6 +137,8 @@ const ROTAS_EXTRAS: Array<{ prefixo: string; modulo: ModuloKey }> = [
   { prefixo: '/panorama', modulo: 'processos' },
   { prefixo: '/colonia', modulo: 'colonia' },      // inscrição pública
   { prefixo: '/carteirinhas', modulo: 'filiados' },
+  // A fila de duplicados é permissão própria (15/09/2026): vence `/filiados` por ser o prefixo mais longo.
+  { prefixo: '/filiados/duplicados', modulo: 'duplicados' },
   { prefixo: '/validacao', modulo: 'eventos' },    // validação de presença em evento
   { prefixo: '/evento', modulo: 'eventos' },       // página pública do evento
 ];

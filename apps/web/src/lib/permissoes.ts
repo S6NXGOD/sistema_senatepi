@@ -21,12 +21,14 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
   | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'organizacoes' | 'municipios'
-  | 'relatorios' | 'auditoria' | 'usuarios';
+  | 'relatorios' | 'auditoria' | 'usuarios' | 'duplicados';
 
 export interface ModuloInfo {
   key: ModuloKey;
   label: string;
   grupo: 'Principal' | 'Operacional' | 'Administração';
+  /** Uma frase sob o nome, na matriz — só quando o nome não diz o que a permissão faz. */
+  ajuda?: string;
 }
 
 export const MODULOS: ModuloInfo[] = [
@@ -63,9 +65,26 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'relatorios', label: 'Relatórios', grupo: 'Administração' },
   { key: 'auditoria', label: 'Logs de Auditoria', grupo: 'Administração' },
   { key: 'usuarios', label: 'Usuários e Perfis', grupo: 'Administração' },
+  // 15/09/2026: a fila de cadastros duplicados, que o Administrador delega. Ver o espelho da API.
+  {
+    key: 'duplicados',
+    label: 'Cadastros duplicados',
+    grupo: 'Administração',
+    ajuda: `Revisar ${V.filiados} cadastrados duas vezes. Com edição, a pessoa consolida — e consolidar apaga um dos cadastros. Só o Administrador libera.`,
+  },
 ];
 
 export const MODULO_KEYS = MODULOS.map((m) => m.key);
+
+/**
+ * Módulos que SÓ o Administrador libera ou retira, mesmo de quem gerencia
+ * usuários: carregam poder de apagar (trava 5 na API).
+ */
+export const MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE: readonly ModuloKey[] = ['duplicados'];
+
+export function soOAdministradorConcede(modulo: ModuloKey): boolean {
+  return MODULOS_QUE_SO_O_ADMINISTRADOR_CONCEDE.includes(modulo);
+}
 export type MatrizPermissoes = Partial<Record<ModuloKey, NivelPermissao>>;
 
 const todos = (nivel: NivelPermissao): Record<ModuloKey, NivelPermissao> =>
@@ -82,6 +101,8 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     acessos: 'EDITAR', cobrancas: 'EDITAR', empresas: 'EDITAR', organizacoes: 'EDITAR',
     municipios: 'EDITAR',
     relatorios: 'VISUALIZAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
+    // Consolidar apaga cadastro: nenhum perfil nasce com a fila. O Administrador libera.
+    duplicados: 'SEM_ACESSO',
   },
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
@@ -90,6 +111,7 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     municipios: 'VISUALIZAR',
     // Vê relatórios, mas só com os NÚMEROS DELE — o recorte é no serviço.
     relatorios: 'VISUALIZAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    duplicados: 'SEM_ACESSO',
   },
   TRIAGEM: {
     dashboard: 'VISUALIZAR', atendimentos: 'EDITAR', processos: 'SEM_ACESSO', agenda: 'VISUALIZAR',
@@ -102,6 +124,7 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', organizacoes: 'SEM_ACESSO',
     municipios: 'VISUALIZAR',
     relatorios: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
+    duplicados: 'SEM_ACESSO',
   },
 };
 
@@ -156,7 +179,9 @@ export function podeEditar(
 /**
  * Pode EXCLUIR registros do sistema?
  *
- * Regra global e sem exceção por módulo: **apenas o ADMINISTRADOR apaga**. O
+ * Regra global: **apenas o ADMINISTRADOR apaga**. A única delegação é a fila de
+ * cadastros duplicados, que ele libera na matriz — lá a tela usa
+ * `podeEditar(..., 'duplicados')`, e não esta função. O
  * `PermissionsGuard` já barra todo DELETE no backend (a única exceção são as
  * rotas de autoatendimento do próprio perfil), então esta função existe para a
  * TELA não oferecer um botão que a API vai recusar com 403.
