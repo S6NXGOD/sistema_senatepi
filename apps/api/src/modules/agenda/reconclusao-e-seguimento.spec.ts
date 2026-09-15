@@ -41,6 +41,8 @@ function prismaFalso(impl: Record<string, Record<string, (args: any) => unknown>
       get(_alvo, modelo) {
         if (typeof modelo !== 'string' || modelo === 'then') return undefined;
         if (modelo === '$transaction') return async (cb: (tx: unknown) => unknown) => cb(prisma);
+        // A trava do atendimento é uma consulta crua (15/09/2026): vira `fn('$queryRaw', 'sql')`.
+        if (modelo === '$queryRaw') return fn('$queryRaw', 'sql');
         return new Proxy({}, { get: (_m, metodo) => (typeof metodo === 'string' ? fn(modelo, metodo) : undefined) });
       },
     },
@@ -53,6 +55,9 @@ function montar(atual: Record<string, unknown>, impl: Parameters<typeof prismaFa
     ...impl,
     compromisso: {
       findUnique: () => atual,
+      // Concluir e reabrir gravam com `updateMany` condicional desde 15/09/2026, e releem o cartão.
+      updateMany: () => ({ count: 1 }),
+      findUniqueOrThrow: () => ({ id: atual.id }),
       update: () => ({ id: atual.id }),
       create: (a) => ({ id: 'seg1', titulo: a.data.titulo, inicio: a.data.inicio, tipo: a.data.tipo }),
       ...impl.compromisso,
@@ -84,7 +89,7 @@ describe('o andamento que a conclusão escreve', () => {
       expect.objectContaining({ processoId: 'p1', autorId: 'u1', origem: 'CONCLUSAO' }),
     );
 
-    const concluidoEm = m.fn('compromisso', 'update').mock.calls[0][0].data.concluidoEm as Date;
+    const concluidoEm = m.fn('compromisso', 'updateMany').mock.calls[0][0].data.concluidoEm as Date;
     const linha = m.historicoDe('CONCLUIDO')!;
     expect(linha.metadata).toEqual(
       expect.objectContaining({
@@ -185,9 +190,23 @@ describe('reabrir', () => {
   it('limpa também a categoria do cancelamento', async () => {
     const m = montar({ id: 'c1', status: StatusCompromisso.CANCELADO, iniciadoEm: null, titulo: 'Reunião' });
     await m.servico.mudarStatus('c1', { status: StatusCompromisso.PENDENTE }, ctx);
-    expect(m.fn('compromisso', 'update').mock.calls[0][0].data).toEqual(
+    const gravacao = m.fn('compromisso', 'updateMany').mock.calls[0][0];
+    // Condicional à situação lida: quem chega segundo não regrava por cima.
+    expect(gravacao.where).toEqual({ id: 'c1', status: StatusCompromisso.CANCELADO });
+    expect(gravacao.data).toEqual(
       expect.objectContaining({ status: 'PENDENTE', canceladoCategoria: null, canceladoMotivo: null }),
     );
+  });
+
+  it('outra pessoa mudou a atividade no meio: "abra de novo", sem histórico nem auditoria', async () => {
+    const m = montar(
+      { id: 'c1', status: StatusCompromisso.CANCELADO, iniciadoEm: null, titulo: 'Reunião' },
+      { compromisso: { updateMany: () => ({ count: 0 }) } },
+    );
+    await expect(m.servico.mudarStatus('c1', { status: StatusCompromisso.PENDENTE }, ctx))
+      .rejects.toThrow('Esta atividade acabou de ser mudada por outra pessoa.');
+    expect(m.audit.registrar).not.toHaveBeenCalled();
+    expect(m.historicoDe('REABERTO')).toBeUndefined();
   });
 });
 
@@ -200,5 +219,55 @@ describe('a conversa que abre o pré-processual', () => {
     const criadas = m.fn('movimentacaoInterna', 'create').mock.calls.map((c) => c[0].data);
     expect(criadas).toHaveLength(1);
     expect(criadas[0]).toEqual(expect.objectContaining({ processoId: 'proc1', origem: 'CONVERSAO' }));
+  });
+});
+
+/*
+  O CASO PRÉ-PROCESSUAL NÃO FICA ÓRFÃO (15/09/2026). Ele nascia numa transação
+  própria, já comitada, antes da gravação condicional da consulta. Com a triagem
+  cancelando a consulta no mesmo instante, a gravação recusava e o processo
+  ficava no acervo, ligado ao filiado e ao atendimento. Agora nasce depois de a
+  consulta ser gravada, com o `tx` da conclusão.
+*/
+describe('o pré-processual nasce dentro da conclusão', () => {
+  const consulta = {
+    ...prazo, tipo: 'CONSULTA_JURIDICA', titulo: 'Consulta Jurídica — MARIA', processoId: null,
+    filiadoId: 'f1', atendimentoId: 'a1', origemDesfechoId: null,
+  };
+  const casoNovo = {
+    processo: { create: () => ({ id: 'proc1', titulo: 'Consulta Jurídica — MARIA' }) },
+    filiado: { findUnique: () => ({ nomeCompleto: 'MARIA DAS DORES', cpf: '123.456.789-00' }) },
+  };
+  const VIROU_PROCESSO = { desfecho: 'PROCESSO_CRIADO', desfechoObs: 'Quer ação de insalubridade.' };
+
+  it('a consulta mudou no meio (a triagem cancelou): nenhum processo, parte, equipe, vínculo nem auditoria de caso', async () => {
+    const m = montar(consulta, { ...casoNovo, compromisso: { updateMany: () => ({ count: 0 }) } });
+    await expect(m.servico.concluir('c1', VIROU_PROCESSO, ctx))
+      .rejects.toThrow('Esta atividade acabou de ser mudada por outra pessoa.');
+
+    expect(m.fn('processo', 'create')).not.toHaveBeenCalled();
+    expect(m.fn('parteProcesso', 'create')).not.toHaveBeenCalled();
+    expect(m.fn('processoAdvogado', 'create')).not.toHaveBeenCalled();
+    expect(m.fn('movimentacaoInterna', 'create')).not.toHaveBeenCalled();
+    expect(m.fn('atendimento', 'update')).not.toHaveBeenCalled();
+    expect(m.audit.registrar).not.toHaveBeenCalled();
+  });
+
+  it('com a consulta gravada, o caso nasce depois dela, liga a consulta e o atendimento, e é auditado depois', async () => {
+    const m = montar(consulta, casoNovo);
+    const r: any = await m.servico.concluir('c1', VIROU_PROCESSO, ctx);
+
+    const ordem = (modelo: string, metodo: string) => m.fn(modelo, metodo).mock.invocationCallOrder[0];
+    expect(ordem('$queryRaw', 'sql')).toBeLessThan(ordem('compromisso', 'updateMany'));
+    expect(ordem('compromisso', 'updateMany')).toBeLessThan(ordem('processo', 'create'));
+    expect(m.fn('compromisso', 'update').mock.calls.map((c) => c[0])).toContainEqual({ where: { id: 'c1' }, data: { processoId: 'proc1' } });
+    expect(m.fn('atendimento', 'update').mock.calls[0][0]).toEqual({ where: { id: 'a1' }, data: { processoId: 'proc1' } });
+
+    const entidades = m.audit.registrar.mock.calls.map((c) => c[0]);
+    expect(entidades[0]).toEqual(expect.objectContaining({ entidade: 'Processo', entidadeId: 'proc1', acao: 'CREATE' }));
+    expect(m.historicoDe('CONCLUIDO')!.metadata).toEqual(
+      expect.objectContaining({ preProcessualCriado: 'proc1', processoDepois: 'proc1' }),
+    );
+    expect(r.preProcessualCriado).toEqual({ id: 'proc1', titulo: 'Consulta Jurídica — MARIA' });
   });
 });

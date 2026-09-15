@@ -18,7 +18,7 @@ import { RespostaDoDesafioDto } from './dto/resposta-do-desafio.dto';
 import { camposDoLink, vinculosPeloLink } from './dados-do-link';
 import {
   CadastroDoDesafio, O_QUE_O_LINK_CONFIRMA, RECUSA_SEM_CONFIRMACAO, conferirResposta, cpfUtil,
-  definirDesafio, observacaoDoRecadastramentoOnline, podeGerarLink,
+  definirDesafio, nascimentoUtil, observacaoDoRecadastramentoOnline, podeGerarLink,
 } from './desafio-do-link';
 import {
   MeioDeEnvio, deveRegistrarPreparo, emailUtilizavel, fraseDoPreparo, planejarEnvio, primeiroNome,
@@ -57,6 +57,11 @@ export interface PreviaDoLink {
   podeGerar: boolean;
   motivo: 'DESFILIADO' | 'SEM_CONFIRMACAO' | null;
   cpfGravadoInvalido: boolean;
+  /**
+   * Há data de nascimento na ficha e ela não serve (antes de 1920, ou de menos
+   * de 14 anos). Irmão de `cpfGravadoInvalido`, desde 15/09/2026.
+   */
+  nascimentoGravadoInvalido: boolean;
 }
 
 @Injectable()
@@ -333,6 +338,14 @@ export class LinkRecadastramentoService {
    * errado ou tamanho errado, que a ficha MOSTRA e o link não pode perguntar.
    * Continua sem valor nenhum: são dois rótulos e um booleano.
    *
+   * `nascimentoGravadoInvalido` (15/09/2026) fecha o mesmo beco para a data. A
+   * tela mandava "Completar a ficha" para o recadastro presencial, onde CPF e
+   * nascimento já preenchidos são somente leitura e a API descarta a troca
+   * (`protegerImutaveis`): com 01/01/1900 gravado, a pessoa não conseguia
+   * corrigir o que a tela pedia e ainda gravava um recadastramento à toa. Com
+   * um dos dois ligados, o caminho é a edição direta da ficha, que aceita os
+   * dois campos. Ainda sem valor nenhum: só booleanos.
+   *
    * Ler não é ato: sem linha na auditoria.
    */
   async previa(filiadoId: string): Promise<PreviaDoLink> {
@@ -350,6 +363,7 @@ export class LinkRecadastramentoService {
       podeGerar: !semConfirmacao && !desfiliado,
       motivo: desfiliado ? 'DESFILIADO' : semConfirmacao ? 'SEM_CONFIRMACAO' : null,
       cpfGravadoInvalido: !!filiado.cpf?.trim() && !cpfUtil(filiado.cpf),
+      nascimentoGravadoInvalido: !!filiado.dataNascimento && !nascimentoUtil(filiado.dataNascimento),
     };
   }
 
@@ -620,6 +634,25 @@ export class LinkRecadastramentoService {
     // Rede para o link mandado ANTES da desfiliação (13/09/2026): `desfiliar`
     // já revoga os vivos, mas o que vale é a situação de agora.
     if (link.filiado.situacao === SituacaoFiliado.DESFILIADO) {
+      throw new GoneException('Este link foi cancelado. Solicite um novo ao sindicato.');
+    }
+    /*
+      O LINK CUJO DESAFIO MUDOU É UM LINK CANCELADO (15/09/2026).
+
+      O desafio é gravado na geração e a resposta é conferida contra a ficha de
+      AGORA. Se a equipe apagou ou trocou o CPF ou a data depois de mandar o
+      link, ele pedia um dado que a ficha não tem mais do mesmo jeito, e o
+      filiado queimava as 5 tentativas sem pista nenhuma. A pergunta é a mesma
+      que o envio já faz para não reaproveitar (`DESAFIO_MUDOU`): o que a ficha
+      pediria hoje é o que o link pede? Se não, a frase do cancelado, ANTES de
+      gastar tentativa. A equipe manda outro, e o envio já gera um novo nesse
+      caso. Sem gravar `revogadoEm`: se a ficha voltar ao que era, o link volta
+      a servir, e é o que ele de fato continua conferindo.
+
+      O link NENHUM antigo (vivo desde antes de 14/09/2026) fica de fora: ele
+      não pede nada, então nada nele deixou de conferir.
+    */
+    if (link.desafio !== DesafioRecadastramento.NENHUM && definirDesafio(link.filiado) !== link.desafio) {
       throw new GoneException('Este link foi cancelado. Solicite um novo ao sindicato.');
     }
     return link;

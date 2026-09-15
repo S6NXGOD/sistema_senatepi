@@ -154,10 +154,13 @@ describe('o cartão de atendimentos pendentes', () => {
     ...p,
   });
   const PENDENTES = [
-    { id: 'marcada', numero: 3, canal: 'WHATSAPP', desfecho: 'ENCAMINHADO', createdAt: br('2026-09-15T09:00:00'), filiado: { id: 'f3', nomeCompleto: 'C' }, compromissos: [consulta({})] },
-    { id: 'atendida', numero: 2, canal: 'PRESENCIAL', desfecho: 'ENCAMINHADO', createdAt: br('2026-09-14T09:00:00'), filiado: { id: 'f2', nomeCompleto: 'B' }, compromissos: [consulta({ status: 'CONCLUIDO', inicio: br('2026-09-14T11:00:00') })] },
-    { id: 'sem-desfecho', numero: 1, canal: 'TELEFONE', desfecho: null, createdAt: br('2026-09-12T09:00:00'), filiado: { id: 'f1', nomeCompleto: 'A' }, compromissos: [] },
+    { id: 'marcada', numero: 3, canal: 'WHATSAPP', status: 'PENDENTE', desfecho: 'ENCAMINHADO', atendentePorId: 'u-balcao', createdAt: br('2026-09-15T09:00:00'), filiado: { id: 'f3', nomeCompleto: 'C' }, compromissos: [consulta({})] },
+    { id: 'atendida', numero: 2, canal: 'PRESENCIAL', status: 'PENDENTE', desfecho: 'ENCAMINHADO', atendentePorId: 'u-outra', createdAt: br('2026-09-14T09:00:00'), filiado: { id: 'f2', nomeCompleto: 'B' }, compromissos: [consulta({ status: 'CONCLUIDO', inicio: br('2026-09-14T11:00:00') })] },
+    { id: 'sem-desfecho', numero: 1, canal: 'TELEFONE', status: 'PENDENTE', desfecho: null, atendentePorId: 'u-balcao', createdAt: br('2026-09-12T09:00:00'), filiado: { id: 'f1', nomeCompleto: 'A' }, compromissos: [] },
   ];
+  /** A leitura da lista do cartão é a que carrega o filiado; a da contagem das filas, não. */
+  const daLista = (c: { args: any }) => c.args.where?.status === 'PENDENTE' && !!c.args.select?.filiado;
+  const daContagem = (c: { args: any }) => c.args.where?.status === 'PENDENTE' && !c.args.select?.filiado;
 
   it('traz o estado da consulta, na ordem de quem pede alguém, sem as consultas cruas', async () => {
     const { servico, de } = montar({
@@ -172,22 +175,47 @@ describe('o cartão de atendimentos pendentes', () => {
       linkReuniao: 'https://meet.google.com/abc-defg-hij',
     });
     for (const a of r.atendimentosPendentes) expect(a).not.toHaveProperty('compromissos');
+    // Âmbar só na fila da triagem: a marcada para quinta aguarda a consulta (E3).
+    expect(r.atendimentosPendentes.map((a: any) => a.fila)).toEqual([
+      { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' },
+      { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' },
+      { fila: 'CONSULTA', motivo: 'AGUARDANDO' },
+    ]);
 
-    const leitura = de('atendimento.findMany').find((c) => c.args.where?.status === 'PENDENTE')!;
+    const leitura = de('atendimento.findMany').find(daLista)!;
     // Só a consulta que nasceu do atendimento — o seguimento herda o id.
     expect(leitura.args.select.compromissos.where).toEqual({ origemDesfechoId: null });
     expect(leitura.args.take).toBe(50);
   });
 
-  it('quem não tem o módulo de atendimentos não recebe a lista; o contador continua', async () => {
+  it('quem não tem o módulo de atendimentos não recebe a lista; os contadores continuam', async () => {
     // O tempo médio da triagem também lê atendimentos; só a lista do cartão teria linhas.
     const { servico, de } = montar({
       'atendimento.findMany': (args) => (args.where?.status === 'PENDENTE' ? PENDENTES : []),
     });
     const r: any = await servico.resumo(usuario(UserRole.COORDENACAO, { atendimentos: 'SEM_ACESSO' }));
     expect(r.atendimentosPendentes).toEqual([]);
-    expect(de('atendimento.findMany').filter((c) => c.args.where?.status === 'PENDENTE')).toHaveLength(0);
+    expect(de('atendimento.findMany').filter(daLista)).toHaveLength(0);
     expect(de('atendimento.count').some((c) => c.args.where?.status === 'PENDENTE')).toBe(true);
+    expect(r.kpis).toMatchObject({ atendimentosComATriagem: 2, atendimentosAguardandoConsulta: 1 });
+  });
+
+  it('os KPIs contam as duas filas de todos os pendentes; o balcão conta só a fila da triagem que é sua', async () => {
+    const { servico, de } = montar({
+      'atendimento.findMany': (args) => (args.where?.status === 'PENDENTE' ? PENDENTES : []),
+      'atendimento.count': (args) => (args.where?.status === 'PENDENTE' && !args.where?.atendentePorId ? 3 : 0),
+    });
+    const r: any = await servico.resumo(usuario(UserRole.TRIAGEM, null, 'u-balcao'));
+    // O antigo continua por uma versão; a soma das filas é ele.
+    expect(r.kpis).toMatchObject({ atendimentosPendentes: 3, atendimentosComATriagem: 2, atendimentosAguardandoConsulta: 1 });
+    // Do balcão: a sem desfecho é dela; a marcada é dela, mas aguarda a consulta.
+    expect(r.minhaTriagem).toMatchObject({ comATriagem: 1, semDesfecho: 1 });
+
+    const contagem = de('atendimento.findMany').find(daContagem)!;
+    expect(contagem.args.take).toBeUndefined();
+    expect(contagem.args.select.compromissos.where).toEqual({ origemDesfechoId: null });
+    // Nenhuma contagem pendente por atendente sobrou: o balcão sai da fila.
+    expect(de('atendimento.count').filter((c) => c.args.where?.status === 'PENDENTE' && c.args.where?.atendentePorId)).toHaveLength(0);
   });
 });
 

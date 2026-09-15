@@ -231,7 +231,7 @@ describe('o CSV', () => {
       porArea: [], porTribunal: [],
     },
     atendimentos: {
-      registrados: 0, concluidos: 0, filiadosAtendidos: 0, porCanal: [], porAtendente: [],
+      registrados: 0, concluidos: 0, concluidosPelaConsulta: 0, filiadosAtendidos: 0, porCanal: [], porAtendente: [],
       porAssunto: [], assuntoNaoInformado: 0, outrosAssuntos: [], outrosUnicos: 0, porSetor: [],
     },
     justica: null,

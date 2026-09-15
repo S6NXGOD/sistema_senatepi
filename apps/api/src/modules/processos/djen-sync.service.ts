@@ -28,11 +28,14 @@ import {
   diaDaColunaDate,
   DJEN_HISTORICO_MAX_PAGINAS_PADRAO,
   DJEN_HISTORICO_POR_RODADA_PADRAO,
+  DJEN_ORCAMENTO_DA_RODADA_MIN,
   DJEN_TETO_RECUPERACAO_DIAS,
+  faltaNaOab,
   inteiroDoAmbiente,
   janelaDaOab,
   janelaDoNumero,
   oabConsultavel,
+  passouDoOrcamento,
   podeCarimbar,
   type CoberturaDoDiario,
 } from './utils/djen-leitura.util';
@@ -99,6 +102,12 @@ export interface ResumoVarreduraDjen {
   maiorRecebidaPorConsulta: number;
   /** Processos cujo histórico foi lido inteiro pelo número e carimbado nesta rodada. */
   historicosLidos: number;
+  /**
+   * Processos que ficaram sem consulta porque a rodada passou do orçamento de
+   * tempo (`DJEN_ORCAMENTO_DA_RODADA_MIN`), contados uma vez só mesmo que
+   * estivessem nas duas passadas (15/09/2026). Entram primeiro na noite seguinte.
+   */
+  processosParadosPorTempo: number;
   /**
    * Etapas finais que quebraram e foram puladas, com o motivo curto.
    *
@@ -173,9 +182,11 @@ export class DjenSyncService {
    * Sem teto, a lista cresceria com o acervo até a rodada passar do prazo da
    * trava do job — e duas execuções começariam a se sobrepor.
    *
-   * 300 por noite ≈ 22 minutos de consultas. Como a ordem é "quem foi
-   * consultado há mais tempo primeiro", o acervo inteiro é coberto em poucas
-   * noites, sem nunca deixar uma fatia esquecida. Ajustável por ambiente.
+   * 300 por noite, até 3 páginas cada. Na produção de 15/09/2026 são ~150
+   * processos vivos, uma página cada: uns 11 minutos a 14 por minuto. Como a
+   * ordem é "quem foi consultado há mais tempo primeiro", uma rodada cortada
+   * (pelo teto ou pelo orçamento de tempo) recomeça pela fatia que ficou para
+   * trás. Ajustável por ambiente.
    */
   private readonly maxProcessosPorRodada: number;
 
@@ -231,19 +242,20 @@ export class DjenSyncService {
     aguardar: () => Promise<void> = async () => {},
     origem: OrigemSincronizacao = OrigemSincronizacao.CRON,
     /**
-     * JANELA ALARGADA, PARA UMA VARREDURA ÚnICA DE HISTÓRICO.
+     * JANELA ALARGADA DA OAB, PARA UMA VARREDURA ÚNICA.
      *
-     * A rodada diária olha 3 dias (`DJEN_JANELA_DIAS`), o que basta para o
-     * fluxo: quem já está cadastrado também é consultado por NPU, e essa consulta
-     * traz o histórico inteiro do processo.
+     * A rodada diária olha 3 dias pela OAB (`DJEN_JANELA_DIAS`), o que basta
+     * para o acervo: o processo cadastrado é lido pelo número toda noite, desde
+     * a última consulta, e o histórico dele é lido UMA vez, sem filtro de data
+     * (as passadas 2 e 3 de `executarVarredura`, desde 14/09/2026).
      *
      * Só que ação NOVA — a que ainda não está no acervo — só pode ser descoberta
      * pela busca por OAB, e essa é limitada pela janela. Um processo do sindicato
      * distribuído há dois meses e que não publicou nos últimos três dias é
      * invisível para sempre.
      *
-     * Isto existe para a colheita inicial: uma passada larga que traz o que já
-     * estava lá. Não é para virar rotina — a rodada de 3 dias absorve fim de
+     * Isto existe para essa colheita: uma passada larga pela OAB que traz o que
+     * já estava lá. Não é para virar rotina — a rodada de 3 dias absorve fim de
      * semana e feriado, e alargar todo dia só gastaria cota reprocessando o que
      * o `hash` único já vai descartar.
      */
@@ -262,6 +274,7 @@ export class DjenSyncService {
       consultasNoTeto: [],
       maiorRecebidaPorConsulta: 0,
       historicosLidos: 0,
+      processosParadosPorTempo: 0,
       etapasComFalha: [],
     };
     let quebrou: string | null = null;
@@ -281,6 +294,8 @@ export class DjenSyncService {
     aguardar: () => Promise<void>,
     diasDeHistorico?: number,
   ): Promise<void> {
+    // O relógio do orçamento de tempo (15/09/2026): começa com a rodada.
+    const iniciadaEm = Date.now();
     /*
       O DIA DE HOJE É O DE TERESINA, calculado uma vez para a rodada inteira.
 
@@ -387,7 +402,21 @@ export class DjenSyncService {
       `djen-leitura-do-diario.spec.ts`.
     */
     const historicoLidoAgora: string[] = [];
-    for (const proc of await this.processosSemHistorico()) {
+    /*
+      O ORÇAMENTO DE TEMPO (15/09/2026). Conferido antes de cada consulta das
+      passadas 2 e 3: estourou, o resto da lista fica para a noite seguinte, sem
+      carimbo, e entra na conta de `processosParadosPorTempo`. Um conjunto, e não
+      uma soma, porque quem não leu o histórico por tempo também está na lista
+      da janela.
+    */
+    const paradosPorTempo = new Set<string>();
+    const semHistorico = await this.processosSemHistorico();
+    for (let i = 0; i < semHistorico.length; i++) {
+      const proc = semHistorico[i];
+      if (passouDoOrcamento(iniciadaEm, Date.now())) {
+        semHistorico.slice(i).forEach((p) => paradosPorTempo.add(p.id));
+        break;
+      }
       /*
         SÓ SAI DO PASSO 3 QUEM FOI LIDO DE FATO (14/09/2026).
 
@@ -403,9 +432,21 @@ export class DjenSyncService {
     }
 
     // ---- 3) O número de todo processo vivo, desde a última consulta ----
-    for (const proc of await this.processosParaConsultarPorNumero(historicoLidoAgora)) {
-      await this.consultarNumeroNaRodada(resumo, proc, hoje, false);
+    const porNumero = await this.processosParaConsultarPorNumero(historicoLidoAgora);
+    for (let i = 0; i < porNumero.length; i++) {
+      if (passouDoOrcamento(iniciadaEm, Date.now())) {
+        porNumero.slice(i).forEach((p) => paradosPorTempo.add(p.id));
+        break;
+      }
+      await this.consultarNumeroNaRodada(resumo, porNumero[i], hoje, false);
       await aguardar();
+    }
+    resumo.processosParadosPorTempo = paradosPorTempo.size;
+    if (paradosPorTempo.size) {
+      this.logger.warn(
+        `[DJEN-SYNC] Rodada parada por tempo (${DJEN_ORCAMENTO_DA_RODADA_MIN} minutos): ` +
+          `${paradosPorTempo.size} processo(s) ficaram para a próxima noite.`,
+      );
     }
 
     // ---- 3) Etapas finais: cada uma falha sozinha ----
@@ -672,7 +713,11 @@ export class DjenSyncService {
    * primeiro em silêncio (memória "not em coluna nula"). Por isso o vazio é
    * filtrado na aplicação, pela mesma `oabConsultavel` da varredura.
    */
-  async advogadosSemOab(): Promise<{ id: string; nome: string }[]> {
+  /*
+    `falta` (15/09/2026): 'UF' quando o número está lá e só a UF falta ou não
+    serve. A tela de Usuários dizia "Sem OAB no cadastro" também nesse caso.
+  */
+  async advogadosSemOab(): Promise<{ id: string; nome: string; falta: 'OAB' | 'UF' }[]> {
     const candidatos = await this.prisma.user.findMany({
       where: {
         ativo: true,
@@ -705,7 +750,7 @@ export class DjenSyncService {
     });
     return candidatos
       .filter((u) => !oabConsultavel(u.oab, u.oabUf))
-      .map((u) => ({ id: u.id, nome: u.nomeExibicao || u.nome }));
+      .map((u) => ({ id: u.id, nome: u.nomeExibicao || u.nome, falta: faltaNaOab(u.oab, u.oabUf) ?? 'OAB' }));
   }
 
   /** A linha de cobertura da aba Publicações — ver `coberturaDoDiario`. */
@@ -1227,9 +1272,12 @@ export class DjenSyncService {
       O acúmulo típico não é o fluxo diário (1–3 ações), é a colheita manual.
 
       O teto continua existindo porque a cota é compartilhada: 40 conferências
-      são ~40–80 chamadas ao DataJud, uns 3 a 6 minutos a 14/min. A rodada do
-      DJEN leva 1–3 minutos hoje, então o pior caso termina por volta das 05:10
-      — três horas depois da varredura do DataJud, que se encerra às 02:07.
+      são ~40–80 chamadas ao DataJud, uns 3 a 6 minutos a 14/min. Desde a
+      leitura pelo número toda noite (14/09/2026) as consultas da rodada levam
+      uns 12 a 14 minutos, então o pior caso real termina por volta das 05:20 —
+      três horas depois da varredura do DataJud, que se encerra às 02:07. Numa
+      noite que bata no orçamento de tempo, as consultas param aos 150 minutos
+      e esta etapa ainda cabe antes de a trava de 180 se soltar.
     */
     const TETO = 40;
     const semCarimbo = await this.prisma.sugestaoProcesso.findMany({
@@ -1512,7 +1560,24 @@ export class DjenSyncService {
       noite com falha, em que alguém vai ler a linha. Tem uns 60 caracteres;
       depois dela o teto (no máximo 5 itens) e as etapas (com orçamento).
     */
-    const naFrente = avisoSemOab + avisoDeTeto + falhaDeEtapa;
+    /*
+      A RODADA PARADA POR TEMPO TAMBÉM VAI NA FRENTE (15/09/2026): fala de
+      processos que não foram lidos, como o teto. Curta e fixa, logo depois do
+      ATENÇÃO, para sobreviver ao corte de 500.
+    */
+    const paradosPorTempo = resumo.processosParadosPorTempo ?? 0;
+    const avisoDeTempo = paradosPorTempo > 0
+      ? `Rodada parada por tempo: ${paradosPorTempo} ${paradosPorTempo === 1 ? 'processo ficou' : 'processos ficaram'} para a próxima noite. `
+      : '';
+    /*
+      A MAIOR LEITURA ENTRA NA FRASE (15/09/2026). O número era calculado a cada
+      consulta e ninguém o lia. Perto de 100 × páginas é sinal de teto chegando;
+      só aparece quando alguma consulta trouxe itens.
+    */
+    const maiorLeitura = (resumo.maiorRecebidaPorConsulta ?? 0) > 0
+      ? `, maior leitura: ${resumo.maiorRecebidaPorConsulta} ${resumo.maiorRecebidaPorConsulta === 1 ? 'item' : 'itens'}`
+      : '';
+    const naFrente = avisoSemOab + avisoDeTempo + avisoDeTeto + falhaDeEtapa;
     const tentativas =
       resumo.advogadosConsultados + resumo.processosConsultados + resumo.falhas;
     const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;
@@ -1532,8 +1597,9 @@ export class DjenSyncService {
           : tudoFalhou
             ? `Varredura sem resposta: as ${tentativas} consulta(s) falharam.`
             : resumo.falhas > 0
-              ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha.`
+              ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha${maiorLeitura}.`
               : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s)` +
+                maiorLeitura +
                 // Quantos processos tiveram o histórico lido inteiro esta noite: é
                 // o único lugar onde a colheita aparece sem abrir o stdout.
                 ((resumo.historicosLidos ?? 0) > 0

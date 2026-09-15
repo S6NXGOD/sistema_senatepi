@@ -116,6 +116,21 @@ export class ConsultasDoPlantaoQueryDto {
   @ApiPropertyOptional({ description: 'Quem vai assumir o plantão.' })
   @IsOptional() @IsString() @IsNotEmpty()
   entra?: string;
+
+  /**
+   * O HORÁRIO NOVO, para o aviso de encurtar (15/09/2026). Opcionais: sem eles
+   * a resposta é a de sempre, com `foraDoNovoHorario: null`. Só um dos dois
+   * vale o outro do plantão como está.
+   */
+  @ApiPropertyOptional({ example: '09:00', description: 'Início do horário que o plantão vai ter.' })
+  @IsOptional()
+  @Matches(HORA, { message: 'Hora de início inválida (use HH:MM).' })
+  horaInicio?: string;
+
+  @ApiPropertyOptional({ example: '11:00', description: 'Fim do horário que o plantão vai ter.' })
+  @IsOptional()
+  @Matches(HORA, { message: 'Hora de fim inválida (use HH:MM).' })
+  horaFim?: string;
 }
 
 /** GET /escalas/copia?origem=AAAA-MM&destino=AAAA-MM */

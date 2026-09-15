@@ -6,10 +6,13 @@ import {
   diasEntre,
   DJEN_HISTORICO_MAX_PAGINAS_PADRAO,
   DJEN_HISTORICO_POR_RODADA_PADRAO,
+  DJEN_ORCAMENTO_DA_RODADA_MIN,
+  faltaNaOab,
   inteiroDoAmbiente,
   janelaDaOab,
   janelaDoNumero,
   oabConsultavel,
+  passouDoOrcamento,
   podeCarimbar,
   somarDiasAoDia,
   type MembroDaEquipe,
@@ -139,6 +142,35 @@ describe('oabConsultavel — vazio é o mesmo que não ter', () => {
   });
 });
 
+/** A tela de Usuários dizia "Sem OAB" também para quem só esqueceu a UF (15/09/2026). */
+describe('faltaNaOab — o que falta, em vez de "sem OAB" para tudo', () => {
+  it.each([
+    ['9226', 'PI', null],
+    ['9226', null, 'UF'],
+    ['13.217', '', 'UF'],
+    ['9226', 'Piauí', 'UF'],
+    ['', 'PI', 'OAB'],
+    [null, null, 'OAB'],
+    ['   ', 'PI', 'OAB'],
+  ])('OAB %p / UF %p → %p', (oab, uf, esperado) => {
+    expect(faltaNaOab(oab, uf)).toBe(esperado);
+  });
+});
+
+/**
+ * O ORÇAMENTO DE TEMPO DA RODADA (15/09/2026). A trava vale 180 minutos e o pior
+ * caso teórico passa de 220; as consultas por número param aos 150.
+ */
+describe('passouDoOrcamento', () => {
+  const cinco = Date.parse('2026-09-15T08:00:00Z');
+  it('150 minutos, contados do início da rodada', () => {
+    expect(DJEN_ORCAMENTO_DA_RODADA_MIN).toBe(150);
+    expect(passouDoOrcamento(cinco, cinco + 149 * 60_000 + 59_999)).toBe(false);
+    expect(passouDoOrcamento(cinco, cinco + 150 * 60_000)).toBe(true);
+    expect(passouDoOrcamento(cinco, cinco + 13 * 60_000)).toBe(false);
+  });
+});
+
 describe('inteiroDoAmbiente — os tetos da colheita de histórico', () => {
   const H = { min: 0, max: 1000 };
   /** 200 desde 14/09/2026: os 153 vivos da produção cabem numa noite. */
@@ -206,7 +238,18 @@ describe('coberturaDoDiario — a linha de estado da aba Publicações', () => {
   it('arquivado é consultado a cada 7 dias, e a frase diz isso', () => {
     const c = coberturaDoDiario({ ...base, statusInterno: StatusProcesso.ARQUIVADO, temInstanciaViva: false });
     expect(c.frequenciaDoNumero).toBe('SEMANAL');
-    expect(c.linhas[0]).toContain('só pelo número, a cada 7 dias.');
+    expect(c.linhas[0]).toBe('Nenhum advogado da equipe com OAB neste processo. O Diário é consultado só pelo número, a cada 7 dias.');
+  });
+
+  /** A frase com OAB dizia "e pelo número do processo" no dormente também, como se fosse toda noite. */
+  it('arquivado com OAB na equipe: a principal diz que o número é a cada 7 dias', () => {
+    const c = coberturaDoDiario({
+      ...base,
+      statusInterno: StatusProcesso.ARQUIVADO,
+      temInstanciaViva: false,
+      equipe: [membro({ id: 'morgana', nome: 'Morgana Sousa', nomeExibicao: 'Morgana', principal: true })],
+    });
+    expect(c.linhas[0]).toBe('Acompanhado no Diário pela OAB de Morgana e pelo número do processo, a cada 7 dias.');
   });
 
   it('encerrado com instância viva ainda é toda noite', () => {
@@ -218,7 +261,9 @@ describe('coberturaDoDiario — a linha de estado da aba Publicações', () => {
     const c = coberturaDoDiario({ ...base, ultimaConsultaDjen: null, djenHistoricoLidoEm: null });
     expect(c.linhas.slice(1)).toEqual([
       'Ainda não consultado pelo número.',
-      'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ou agora pelo botão Sincronizar.',
+      // "Sincronizar" na ficha é o DataJud; o que lê o Diário é "Buscar no DJEN" (15/09/2026).
+      'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ' +
+        'ou agora pelo botão Buscar no DJEN, na aba Publicações.',
     ]);
   });
 

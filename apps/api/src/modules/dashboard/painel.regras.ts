@@ -7,9 +7,10 @@ import {
   recorteSeteDias,
 } from '../agenda/recortes.util';
 import {
+  filaDoAtendimento,
   situacaoDoEncaminhamento,
   type ConsultaDoEncaminhamento,
-  type EstadoEncaminhamento,
+  type FilaCalculada,
   type SituacaoDoEncaminhamento,
 } from '../atendimentos/encaminhamento.util';
 import { celularParaWhatsApp } from '../recadastramento/whatsapp.util';
@@ -158,31 +159,52 @@ export function itemDoCadastroACompletar(l: LinhaDoCadastroACompletar, agora: Da
 
 /** O que a regra do cartão precisa de cada atendimento. */
 export interface AtendimentoParaOCartao {
+  /** A leitura do painel já filtra pendentes; ausente, conta como PENDENTE. */
+  status?: string;
   desfecho: string | null;
   createdAt: Date;
   compromissos: ConsultaDoEncaminhamento[];
 }
 
 /**
- * Os estados em que a consulta devolve a bola para a triagem: atendida (falta
- * concluir o atendimento), ficou para trás ou cancelada (ninguém vai atender).
- * São os que o chip do web pinta de âmbar ou verde.
+ * 0 — ninguém decidiu nada: sem desfecho.
+ * 1 — é com a triagem: a fila TRIAGEM de `filaDoAtendimento` (falta concluir,
+ *     consulta cancelada, consulta sem registro há 2 dias úteis, sem consulta).
+ * 2 — aguardando a consulta: a fila CONSULTA.
+ *
+ * Até 15/09/2026 o grupo 1 incluía a consulta ATENDIDA (hoje o atendimento fecha
+ * sozinho) e a que FICOU PARA TRÁS no dia seguinte (hoje ela espera 2 dias úteis
+ * na agenda do advogado antes de voltar à triagem). A régua é a mesma função
+ * da lista e da gaveta, e as três telas não discordam.
  */
-const PEDE_A_TRIAGEM: readonly EstadoEncaminhamento[] = ['ATENDIDA', 'FICOU_PARA_TRAS', 'CANCELADA'];
+export function grupoDoAtendimento(desfecho: string | null, fila: FilaCalculada | null): 0 | 1 | 2 {
+  if (!desfecho) return 0;
+  return fila?.fila === 'CONSULTA' ? 2 : 1;
+}
 
 /**
- * 0 — ninguém decidiu nada: sem desfecho.
- * 1 — é com a triagem de novo: a consulta foi atendida, ficou para trás ou foi
- *     cancelada, ou o desfecho saiu sem consulta e o atendimento segue aberto.
- * 2 — está correndo: consulta marcada, de hoje ou em andamento.
+ * QUANTOS ESTÃO COM A TRIAGEM E QUANTOS AGUARDAM A CONSULTA (15/09/2026, E3).
+ *
+ * O KPI contava todo atendimento pendente e pintava tudo de trabalho da triagem;
+ * o #13 e o #14 de 14/09 entravam na conta sem nada a fazer além de esperar. A
+ * soma das duas filas é o antigo `atendimentosPendentes`, que continua na
+ * resposta por uma versão (janela de troca). Com `atendenteId`, só os que essa
+ * pessoa registrou: é o "Comigo, com a triagem" do balcão.
  */
-export function grupoDoAtendimento(
-  desfecho: string | null,
-  encaminhamento: SituacaoDoEncaminhamento | null,
-): 0 | 1 | 2 {
-  if (!desfecho) return 0;
-  if (!encaminhamento) return 1;
-  return PEDE_A_TRIAGEM.includes(encaminhamento.estado) ? 1 : 2;
+export function contarFilas(
+  itens: (AtendimentoParaOCartao & { atendentePorId?: string | null })[],
+  agora: Date,
+  atendenteId?: string,
+): { comATriagem: number; aguardandoConsulta: number } {
+  let comATriagem = 0;
+  let aguardandoConsulta = 0;
+  for (const a of itens) {
+    if (atendenteId !== undefined && a.atendentePorId !== atendenteId) continue;
+    const fila = filaDoAtendimento({ status: a.status ?? 'PENDENTE', desfecho: a.desfecho }, a.compromissos, agora);
+    if (fila?.fila === 'TRIAGEM') comATriagem++;
+    else if (fila?.fila === 'CONSULTA') aguardandoConsulta++;
+  }
+  return { comATriagem, aguardandoConsulta };
 }
 
 /**
@@ -199,13 +221,15 @@ export function cartaoDeAtendimentosPendentes<T extends AtendimentoParaOCartao>(
   itens: T[],
   agora: Date,
   limite = 6,
-): (Omit<T, 'compromissos'> & { encaminhamento?: SituacaoDoEncaminhamento })[] {
+): (Omit<T, 'compromissos'> & { encaminhamento?: SituacaoDoEncaminhamento; fila: FilaCalculada | null })[] {
   return itens
     .map(({ compromissos, ...resto }) => {
       const encaminhamento = situacaoDoEncaminhamento(compromissos, agora);
+      // A barra âmbar do cartão sai daqui: âmbar só na fila TRIAGEM (E3).
+      const fila = filaDoAtendimento({ status: resto.status ?? 'PENDENTE', desfecho: resto.desfecho }, compromissos, agora);
       return {
-        item: encaminhamento ? { ...resto, encaminhamento } : resto,
-        grupo: grupoDoAtendimento(resto.desfecho, encaminhamento),
+        item: { ...resto, ...(encaminhamento ? { encaminhamento } : {}), fila },
+        grupo: grupoDoAtendimento(resto.desfecho, fila),
         criadoEm: new Date(resto.createdAt).getTime(),
       };
     })

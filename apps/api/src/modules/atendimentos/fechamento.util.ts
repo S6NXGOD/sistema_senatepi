@@ -57,6 +57,15 @@ export type CategoriaCancelamentoAtendimento = (typeof CATEGORIAS_CANCELAMENTO_A
  */
 export const CATEGORIA_DA_CONSULTA_AO_CONCLUIR: CategoriaCancelamentoAtendimento = 'PERDEU_OBJETO';
 
+/**
+ * A CATEGORIA DA CÓPIA QUE SOBROU (15/09/2026, E4 da rodada 4). Com a consulta
+ * vigente já registrada pelo advogado, a outra consulta aberta nascida do mesmo
+ * atendimento é resíduo do laço antigo que criava uma por advogado: ninguém vai
+ * atendê-la, e ela ficaria atrasada para sempre na agenda de alguém. Não perdeu
+ * o objeto (o objeto foi atendido): é duplicidade.
+ */
+export const CATEGORIA_DA_COPIA_QUE_SOBROU: CategoriaCancelamentoAtendimento = 'DUPLICIDADE';
+
 export const NOTA_MINIMA = 10;
 export const NOTA_MAXIMA = 2000;
 export const MOTIVO_MAXIMO = 1000;
@@ -66,7 +75,11 @@ export const FRASE_CANCELADO_REABRA = 'Atendimento cancelado: reabra antes de co
 export const FRASE_SEM_DESFECHO = 'Registre o desfecho antes de concluir o atendimento.';
 export const FRASE_JA_CANCELADO = 'Este atendimento já está cancelado.';
 export const FRASE_CONCLUIDO_REABRA = 'Atendimento concluído: reabra antes de cancelar.';
-export const FRASE_DIGA_SE_ACONTECEU = 'Diga se a consulta aconteceu.';
+/*
+  "Diga se a consulta aconteceu" saiu em 15/09/2026 (E2 da rodada 4): a triagem
+  não responde mais pelo advogado. Quem diz que a consulta aconteceu é quem a
+  registra na agenda, e o atendimento fecha junto.
+*/
 export const FRASE_DIGA_O_QUE_FAZER = 'Diga o que fazer com a consulta marcada.';
 export const FRASE_EM_ANDAMENTO = 'A consulta está em andamento: quem encerra é quem está atendendo.';
 export const FRASE_NOTA_CURTA =
@@ -120,6 +133,29 @@ export function fraseConsultaFutura(consulta: { inicio: Date; responsavel?: Pess
     + 'Para concluir agora, cancele a consulta junto.';
 }
 
+/**
+ * A CONSULTA QUE JÁ COMEÇOU E NINGUÉM REGISTROU (15/09/2026, E2 da rodada 4).
+ *
+ * Até ali o modal perguntava à triagem se a consulta tinha acontecido, e a
+ * triagem respondia pelo advogado. Medido em 14/09: das 4 consultas que o
+ * advogado concluiu, as 4 exigiram que a triagem fechasse o atendimento à mão
+ * depois, sem registrar nada novo. Agora quem registra é quem atendeu, e o
+ * atendimento fecha junto; a triagem só conclui sem a consulta, cancelando-a.
+ */
+export function fraseConsultaSemRegistro(consulta: { inicio: Date; responsavel?: Pessoa }): string {
+  const quem = nomeDaPessoa(consulta.responsavel);
+  return `A consulta${quem ? ` ${comQuem(quem)}` : ''} de ${rotuloDoInstanteBR(consulta.inicio)} ainda não foi registrada. `
+    + 'Se aconteceu, quem registra é quem atendeu, e o atendimento fecha sozinho. '
+    + 'Para concluir sem ela, cancele a consulta junto.';
+}
+
+/** A consulta em andamento: quem está atendendo encerra, e o atendimento fecha junto. */
+export function fraseEmAndamentoFechaSozinho(consulta: { responsavel?: Pessoa } | null | undefined): string {
+  const quem = nomeDaPessoa(consulta?.responsavel);
+  return `A consulta${quem ? ` ${comQuem(quem)}` : ''} está em andamento. `
+    + 'Quando for registrada, o atendimento é concluído sozinho.';
+}
+
 // ---------------------------------------------------------------------------
 // O plano
 // ---------------------------------------------------------------------------
@@ -140,6 +176,13 @@ export interface PlanoDeFechamento {
   } | null;
   /** Consultas nascidas do atendimento ainda de pé (pendentes ou em andamento). */
   consultasAbertas: number;
+  /**
+   * O ATENDIMENTO FECHA SOZINHO quando a consulta for registrada (15/09/2026, E1
+   * da rodada 4): pendente, encaminhado, com a consulta vigente futura, já
+   * começada ou em andamento. A tela lê daqui e não recalcula; é este campo que
+   * tira o "Concluir atendimento" do lugar de ação principal.
+   */
+  fechaSozinho: boolean;
   concluir: {
     permitido: boolean;
     recusa: string | null;
@@ -182,6 +225,42 @@ export function consultasParaCancelar(consultas: ConsultaDoEncaminhamento[] | nu
   return (consultas ?? []).filter((c) => ehConsultaDoAtendimento(c) && c.status === 'PENDENTE');
 }
 
+/**
+ * AS CÓPIAS QUE SOBRARAM quando a consulta vigente já foi registrada (15/09/2026,
+ * E4 da rodada 4; auditoria do atendimento, defeito 1).
+ *
+ * O plano dava "nada a decidir" para a vigente ATENDIDA, e o fechamento não
+ * tocava as outras consultas abertas do mesmo atendimento: elas ficavam
+ * pendentes para sempre na agenda de outro advogado. Medido em 14/09: nenhum
+ * atendimento com duas nascidas de pé, então é borda, mas a borda que o laço
+ * antigo criava.
+ *
+ * Só as PENDENTES: a cópia em andamento tem alguém atendendo, e é dele. Fora da
+ * vigente ATENDIDA a lista é vazia: nos outros casos o que acontece com as
+ * consultas é o que a pessoa escolheu.
+ */
+export function copiasQueSobraram(
+  plano: Pick<PlanoDeFechamento, 'consulta'>,
+  consultas: ConsultaDoEncaminhamento[] | null | undefined,
+): ConsultaDoEncaminhamento[] {
+  if (plano.consulta?.situacao !== 'ATENDIDA') return [];
+  return consultasParaCancelar(consultas).filter((c) => c.id !== plano.consulta!.id);
+}
+
+/** O motivo que o advogado lê na linha do tempo da cópia cancelada junto. */
+export function motivoDaCopiaCancelada(
+  acao: 'CONCLUIR' | 'CANCELAR',
+  numero: number,
+  vigente: { inicio: Date; responsavel?: Pessoa } | null,
+): string {
+  const fechado = acao === 'CONCLUIR' ? 'concluído' : 'cancelado';
+  const quem = nomeDaPessoa(vigente?.responsavel);
+  const qual = vigente
+    ? `a consulta${quem ? ` ${comQuem(quem)}` : ''} de ${rotuloDoInstanteBR(vigente.inicio)} já foi registrada`
+    : 'a consulta já foi registrada';
+  return `Atendimento #${numero} ${fechado}: ${qual}, e esta cópia sobrou.`;
+}
+
 export function planoDeFechamento(
   at: AtendimentoParaFechar,
   consultas: ConsultaDoEncaminhamento[] | null | undefined,
@@ -206,11 +285,24 @@ export function planoDeFechamento(
       concluir = { permitido: true, recusa: null, consulta: 'CANCELAR_PARA_CONCLUIR', nota: 'OBRIGATORIA' };
       break;
     case 'COMECOU':
-      // Só o advogado registra como foi a consulta; a Triagem diz se aconteceu.
-      concluir = { permitido: true, recusa: null, consulta: 'ESCOLHER', nota: 'OBRIGATORIA_SE_CANCELAR' };
+      /*
+        A TRIAGEM NÃO RESPONDE PELO ADVOGADO (15/09/2026, E2 da rodada 4). Era
+        ESCOLHER: "aconteceu" fechava o atendimento com a consulta ainda aberta
+        na agenda. Se aconteceu, quem registra é quem atendeu, e o atendimento
+        fecha junto. Pela triagem, só "resolveu sem a consulta", que a cancela
+        como perdeu o objeto, com a nota de como se resolveu.
+      */
+      concluir = { permitido: true, recusa: null, consulta: 'CANCELAR_PARA_CONCLUIR', nota: 'OBRIGATORIA' };
       break;
     case 'EM_ANDAMENTO':
-      concluir = { permitido: true, recusa: null, consulta: 'SO_MANTER', nota: 'OPCIONAL' };
+      /*
+        Alguém está atendendo agora: o atendimento fecha quando essa pessoa
+        registrar. Concluir por cima era fechar o atendimento no meio da
+        consulta, sem o que ela vai dizer.
+      */
+      concluir = {
+        permitido: false, recusa: fraseEmAndamentoFechaSozinho(vigente), consulta: 'SO_MANTER', nota: 'OPCIONAL',
+      };
       break;
     case 'ATENDIDA':
       // O desfecho da consulta, gravado pelo advogado, já conta o que houve:
@@ -249,6 +341,9 @@ export function planoDeFechamento(
         }
       : null,
     consultasAbertas,
+    fechaSozinho: at.status === 'PENDENTE'
+      && at.desfecho === 'ENCAMINHADO'
+      && (situacao === 'FUTURA' || situacao === 'COMECOU' || situacao === 'EM_ANDAMENTO'),
     concluir,
     cancelar: { permitido: !recusaCancelar, recusa: recusaCancelar, consulta: consultaNoCancelar },
   };
@@ -282,11 +377,25 @@ export function decidirConcluir(
   let consulta: EscolhaDaConsulta | null = null;
   switch (plano.concluir.consulta) {
     case 'CANCELAR_PARA_CONCLUIR':
-      if (pedido.consulta !== 'CANCELAR') return { ok: false, recusa: fraseConsultaFutura(plano.consulta!) };
+      // A recusa diz o que houve com ESTA consulta: a que ainda vai acontecer e a
+      // que já passou sem registro pedem frases diferentes. O web antigo, em
+      // cache, ainda manda MANTER no COMECOU e cai aqui, com a frase nova.
+      if (pedido.consulta !== 'CANCELAR') {
+        return {
+          ok: false,
+          recusa: plano.consulta?.situacao === 'COMECOU'
+            ? fraseConsultaSemRegistro(plano.consulta)
+            : fraseConsultaFutura(plano.consulta!),
+        };
+      }
       consulta = 'CANCELAR';
       break;
     case 'ESCOLHER':
-      if (!pedido.consulta) return { ok: false, recusa: FRASE_DIGA_SE_ACONTECEU };
+      // Desde 15/09/2026 o plano não produz ESCOLHER no concluir; o caso fica
+      // para um plano calculado por um contêiner antigo na janela de troca.
+      if (!pedido.consulta) {
+        return { ok: false, recusa: plano.consulta ? fraseConsultaSemRegistro(plano.consulta) : FRASE_DIGA_O_QUE_FAZER };
+      }
       consulta = pedido.consulta;
       break;
     case 'SO_MANTER':
@@ -345,8 +454,10 @@ export function motivoDaConsultaCancelada(
   texto: string | null,
 ): string {
   if (acao === 'CANCELAR') return texto ? `Atendimento #${numero} cancelado: ${texto}` : `Atendimento #${numero} cancelado.`;
+  // COMECOU desde 15/09/2026: a triagem não afirma que a consulta não aconteceu,
+  // só que a demanda se resolveu sem ela.
   const como = situacao === 'COMECOU'
-    ? `Atendimento #${numero} concluído, e a consulta não aconteceu`
+    ? `Atendimento #${numero} concluído pela triagem sem a consulta`
     : `Atendimento #${numero} concluído antes da consulta`;
   return texto ? `${como}: ${texto}` : `${como}.`;
 }

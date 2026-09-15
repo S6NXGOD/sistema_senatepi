@@ -270,6 +270,14 @@ export interface ItemDaCopia extends Faixa {
 export interface ItemForaDaCopia extends Faixa {
   origemId: string;
   origemData: string;
+  /**
+   * O dia do DESTINO que este plantão ocuparia — nulo só em SEM_OCORRENCIA.
+   *
+   * 15/09/2026: a tela escrevia "seg, 03/08 · Dra. X — 07/09 já passou", o dia
+   * da origem ao lado de um texto que fala do destino. Com os dois dias, a
+   * linha principal é a do destino e a origem fica de apoio.
+   */
+  data: string | null;
   advogado: PessoaNaResposta;
   motivo: MotivoDeFicarDeFora;
   /** Vem depois de "ter, 29/09 · Dr. Murilo — " na tela: começa em minúscula. */
@@ -279,6 +287,8 @@ export interface ItemForaDaCopia extends Faixa {
 export interface PlanoDaCopia {
   criar: ItemDaCopia[];
   fora: ItemForaDaCopia[];
+  /** Dias úteis do destino, do padrão da origem, que ficam sem ninguém depois da cópia (ver `diasSemNinguemNoDestino`). */
+  diasSemNinguem: string[];
 }
 
 /** Um item da cópia é o par (plantão de origem, dia do destino): a 5ª ocorrência repete a origem. */
@@ -365,9 +375,18 @@ export function planejarCopia(p: {
 
   for (let dow = 0; dow < 7; dow++) {
     const quintaDoDestino = diaDaOcorrencia(p.destino, dow, 5);
-    if (!quintaDoDestino || diaDaOcorrencia(p.origem, dow, 5)) continue;
+    if (!quintaDoDestino) continue;
     const doDia = daOrigem.filter((o) => diaDaSemanaDoDia(o.data) === dow);
     if (!doDia.length) continue;
+    /*
+      A PERGUNTA É "A ORIGEM TEVE PLANTÃO NA 5ª?", e não "a origem tem a data da
+      5ª" (15/09/2026). A conta antiga pulava sempre que o mês de origem TINHA a
+      5ª terça, mesmo sem ninguém nela: setembro de 2026 tem 29/09, e com a
+      terça 29 vazia (feriado, cadastro parcial) a cópia para dezembro deixava
+      29/12 sem ninguém e sem nota. Quem teve plantão na 5ª já vai para a 5ª do
+      destino pela regra ordinal; só quem não teve precisa da repetição.
+    */
+    if (doDia.some((o) => ocorrenciaNoMes(o.data) === 5)) continue;
     const ultimaData = doDia[doDia.length - 1].data;
     const ultima = ehMasculino(dow) ? `o último ${DIAS_NO_SINGULAR[dow]}` : `a última ${DIAS_NO_SINGULAR[dow]}`;
     for (const plantao of doDia.filter((o) => o.data === ultimaData)) {
@@ -406,17 +425,18 @@ export function planejarCopia(p: {
       const ordinal = ehMasculino(dow) ? '5º' : '5ª';
       fora.push({
         ...base,
+        data: null,
         motivo: 'SEM_OCORRENCIA',
         texto: `${nomeDoMes(p.destino)} não tem ${ordinal} ${DIAS_NO_SINGULAR[dow]}`,
       });
       continue;
     }
     if (data < p.hoje) {
-      fora.push({ ...base, motivo: 'DIA_PASSOU', texto: `${diaCurto(data)} já passou` });
+      fora.push({ ...base, data, motivo: 'DIA_PASSOU', texto: `${diaCurto(data)} já passou` });
       continue;
     }
     if (!o.advogado.ativo) {
-      fora.push({ ...base, motivo: 'PESSOA_INATIVA', texto: `o cadastro ${pessoaDepoisDeDe(o.advogado)} está inativo` });
+      fora.push({ ...base, data, motivo: 'PESSOA_INATIVA', texto: `o cadastro ${pessoaDepoisDeDe(o.advogado)} está inativo` });
       continue;
     }
     const daMesmaPessoa = [...doDestino, ...aceitos].filter((e) => e.advogadoId === o.advogadoId);
@@ -424,6 +444,7 @@ export function planejarCopia(p: {
     if (choque && choque.tipo === 'EXISTENTE') {
       fora.push({
         ...base,
+        data,
         motivo: 'JA_ESTA_DE_PLANTAO',
         texto: `já está de plantão em ${diaCurto(data)}, ${faixaTexto(choque.existente)}`,
       });
@@ -456,5 +477,183 @@ export function planejarCopia(p: {
       nomeDaPessoa(a.advogado).localeCompare(nomeDaPessoa(b.advogado), 'pt-BR'),
   );
   fora.sort((a, b) => a.origemData.localeCompare(b.origemData) || a.horaInicio.localeCompare(b.horaInicio));
-  return { criar, fora };
+  return {
+    criar,
+    fora,
+    diasSemNinguem: diasSemNinguemNoDestino({
+      destino: p.destino,
+      hoje: p.hoje,
+      plantoesDaOrigem: daOrigem,
+      ocupados: [...doDestino.map((e) => e.data), ...criar.filter((i) => i.marcado).map((i) => i.data)],
+    }),
+  };
+}
+
+/**
+ * OS BURACOS QUE A CÓPIA DEIXA NO DESTINO (15/09/2026).
+ *
+ * Só vira item o que existe na origem. Um mês cadastrado a partir do meio
+ * (setembro começando em 14/09) copiava para outubro sem a 1ª segunda e a 1ª
+ * terça, e nada na tela dizia: nem nota, nem "ficaram de fora". O painel é que
+ * ia contar, no dia, "Ninguém de plantão hoje".
+ *
+ * DIA ÚTIL DO PADRÃO, e não todo dia útil. A produção tem plantão de segunda a
+ * quinta e nenhum na sexta (medido em 13/09/2026): listar todas as sextas de
+ * outubro seria um aviso que aparece em toda cópia e que ninguém lê. Conta o
+ * dia da semana que a origem usou pelo menos uma vez. Os dias que já passaram
+ * em Teresina não entram — a cópia não cria nada neles.
+ *
+ * `ocupados` é o destino como fica com a escolha PADRÃO da prévia (o que já
+ * existe mais o que vem marcado). Desmarcar um feriado abre um buraco que a
+ * pessoa escolheu, e a tela não precisa recalcular nada para isso.
+ */
+export function diasSemNinguemNoDestino(p: {
+  destino: string;
+  hoje: string;
+  plantoesDaOrigem: { data: string }[];
+  ocupados: string[];
+}): string[] {
+  const doPadrao = new Set(
+    p.plantoesDaOrigem.map((o) => diaDaSemanaDoDia(o.data)).filter((dow) => dow >= 1 && dow <= 5),
+  );
+  if (!doPadrao.size) return [];
+  const ocupados = new Set(p.ocupados);
+  const [ano, mes] = p.destino.split('-').map(Number);
+  const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const vazios: string[] = [];
+  for (let d = 1; d <= ultimoDia; d++) {
+    const dia = `${p.destino}-${String(d).padStart(2, '0')}`;
+    if (dia < p.hoje || !doPadrao.has(diaDaSemanaDoDia(dia)) || ocupados.has(dia)) continue;
+    vazios.push(dia);
+  }
+  return vazios;
+}
+
+/** "Dias de semana de outubro sem ninguém: 05/10, 06/10." — ou nulo, sem buraco. */
+export function fraseDosDiasSemNinguem(destino: string, dias: string[]): string | null {
+  if (!dias.length) return null;
+  return `Dias de semana de ${nomeDoMes(destino)} sem ninguém: ${dias.map(diaCurto).join(', ')}.`;
+}
+
+// ---------------------------------------------------------------------------
+// DESFAZER A CÓPIA (rodada 4, 15/09/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Quanto tempo quem copiou tem para desfazer.
+ *
+ * Uma cópia errada (origem trocada, mês já preenchido à mão) são uns 16
+ * plantões que, pela regra da casa, só o Administrador apaga, um por um. O
+ * desfazer é a exceção estreita que o dono aceitou: o próprio gesto, recém-
+ * feito. Dez minutos cobrem "copiei, conferi o calendário e vi que errei"; mais
+ * que isso a escala já pode ter sido usada pela triagem, e aí é trabalho do
+ * Administrador, com os olhos no que apaga.
+ */
+export const JANELA_DO_DESFAZER_DA_COPIA_MS = 10 * 60_000;
+
+/** Um plantão como a cópia o gravou — a foto que o desfazer compara com o banco de agora. */
+export interface PlantaoDoLote {
+  id: string;
+  advogadoId: string;
+  data: string;
+  horaInicio: string;
+  horaFim: string;
+}
+
+export type DecisaoDoDesfazerDaCopia =
+  | { ok: true; apagar: PlantaoDoLote[]; jaApagados: number }
+  | { ok: false; motivo: string; recusa: RecusaDoDesfazer };
+
+/** Por que não desfez: o serviço traduz em 403 (outra pessoa), 400 (tempo) ou 409 (o resto). */
+export type RecusaDoDesfazer = 'OUTRA_PESSOA' | 'TEMPO' | 'JA_DESFEITA' | 'ALTERADO' | 'CONSULTA';
+
+const PECA_AO_ADMINISTRADOR = 'Para tirar os plantões, peça ao Administrador.';
+
+/** "15/10 (Dr. Murilo)", "15/10 (Dr. Murilo) e 22/10 (Dra. Shérad)". */
+function listaDePlantoes(plantoes: PlantaoDoLote[], nomes: Map<string, string>): string {
+  const itens = plantoes
+    .slice(0, 3)
+    .map((p) => `${diaCurto(p.data)}${nomes.get(p.advogadoId) ? ` (${nomes.get(p.advogadoId)})` : ''}`);
+  const resto = plantoes.length - itens.length;
+  if (resto > 0) return `${itens.join(', ')} e mais ${resto}`;
+  return itens.length <= 1 ? itens.join('') : `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`;
+}
+
+/**
+ * PODE DESFAZER? — as travas, sem banco.
+ *
+ * Na ordem da pergunta que se faz primeiro:
+ *  · só quem copiou (é o gesto dele que se desfaz, não uma exclusão qualquer);
+ *  · dentro de dez minutos, pelo relógio do contêiner gravado na própria cópia
+ *    (`copiadaEm`), e não pelo `created_at` da auditoria, que vem do relógio
+ *    do banco — a mesma lição do desfazer da conclusão;
+ *  · nada editado depois: um plantão cuja pessoa ou horário mudou (ou que teve
+ *    a troca registrada, mesmo que desfeita) é decisão de alguém, e apagá-lo
+ *    apagaria essa decisão junto;
+ *  · nenhuma consulta marcada, depois da cópia, com a pessoa naquele dia: a
+ *    triagem já pode ter usado o plantão novo para encaminhar alguém.
+ * Plantão que o Administrador já apagou só não entra na conta. Todos apagados:
+ * a cópia já foi desfeita.
+ */
+export function decidirDesfazerCopia(p: {
+  copia: { userId: string | null; copiadaEm: string | null; plantoes: PlantaoDoLote[] };
+  usuarioId: string | undefined;
+  agora: Date;
+  /** Os plantões do lote que ainda existem, como estão agora. */
+  atuais: (PlantaoDoLote & { observacao: string | null })[];
+  /** Ids com alteração registrada na auditoria depois da cópia. */
+  alteradosNaAuditoria: string[];
+  /** Ids de plantões do lote com consulta marcada depois da cópia. */
+  comConsultaNova: string[];
+  /** Nome de exibição por pessoa, para a frase. */
+  nomes: Map<string, string>;
+}): DecisaoDoDesfazerDaCopia {
+  if (!p.usuarioId || p.copia.userId !== p.usuarioId) {
+    return { ok: false, recusa: 'OUTRA_PESSOA', motivo: `Só quem copiou a escala pode desfazer a cópia. ${PECA_AO_ADMINISTRADOR}` };
+  }
+  const copiadaEm = p.copia.copiadaEm ? new Date(p.copia.copiadaEm).getTime() : Number.NaN;
+  if (Number.isNaN(copiadaEm) || p.agora.getTime() - copiadaEm > JANELA_DO_DESFAZER_DA_COPIA_MS) {
+    return { ok: false, recusa: 'TEMPO', motivo: `O tempo para desfazer a cópia acabou (10 minutos). ${PECA_AO_ADMINISTRADOR}` };
+  }
+
+  const porId = new Map(p.atuais.map((a) => [a.id, a]));
+  const existentes = p.copia.plantoes.filter((pl) => porId.has(pl.id));
+  if (!existentes.length) {
+    return { ok: false, recusa: 'JA_DESFEITA', motivo: 'Esta cópia já foi desfeita.' };
+  }
+
+  const alterados = existentes.filter((pl) => {
+    const agora = porId.get(pl.id)!;
+    return (
+      p.alteradosNaAuditoria.includes(pl.id) ||
+      agora.advogadoId !== pl.advogadoId ||
+      agora.horaInicio !== pl.horaInicio ||
+      agora.horaFim !== pl.horaFim ||
+      agora.observacao !== null
+    );
+  });
+  if (alterados.length) {
+    const um = alterados.length === 1;
+    return {
+      ok: false,
+      recusa: 'ALTERADO',
+      motivo:
+        `Não dá para desfazer: ${um ? 'o plantão de' : 'os plantões de'} ${listaDePlantoes(alterados, p.nomes)} ` +
+        `${um ? 'foi alterado' : 'foram alterados'} depois da cópia. ${PECA_AO_ADMINISTRADOR}`,
+    };
+  }
+
+  const comConsulta = existentes.filter((pl) => p.comConsultaNova.includes(pl.id));
+  if (comConsulta.length) {
+    const um = comConsulta.length === 1;
+    return {
+      ok: false,
+      recusa: 'CONSULTA',
+      motivo:
+        `Não dá para desfazer: já há consulta marcada ${um ? 'no plantão de' : 'nos plantões de'} ` +
+        `${listaDePlantoes(comConsulta, p.nomes)}. ${PECA_AO_ADMINISTRADOR}`,
+    };
+  }
+
+  return { ok: true, apagar: existentes, jaApagados: p.copia.plantoes.length - existentes.length };
 }

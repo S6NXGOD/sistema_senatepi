@@ -1,8 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CATEGORIA_CANCELAMENTO_LABEL } from '../agenda/desfechos.catalogo';
 import { AtendimentosService } from './atendimentos.service';
+import { filaDoAtendimento } from './encaminhamento.util';
 import {
-  FRASE_ATENDIMENTO_MUDOU, FRASE_CONSULTA_MUDOU, FRASE_DIGA_SE_ACONTECEU, FRASE_TELA_PROPRIA,
+  FRASE_ATENDIMENTO_MUDOU, FRASE_CONSULTA_MUDOU, FRASE_EM_ANDAMENTO, FRASE_TELA_PROPRIA,
   planoDeFechamento,
 } from './fechamento.util';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -62,7 +64,7 @@ function consulta(parcial: Linha): Linha {
 function atendimento(parcial: Linha = {}): Linha {
   return {
     id: 'a-14', numero: 14, status: 'PENDENTE', desfecho: 'ENCAMINHADO', desfechoObs: null,
-    concluidoEm: null, concluidoPor: null, conclusaoObs: null,
+    concluidoEm: null, concluidoPor: null, conclusaoObs: null, conclusaoOrigem: null, conclusaoConsultaId: null,
     canceladoEm: null, canceladoPor: null, canceladoCategoria: null, canceladoMotivo: null,
     ...parcial,
   };
@@ -235,6 +237,8 @@ describe('concluir', () => {
 
     expect(m.estado.bd.atendimento).toMatchObject({
       status: 'CONCLUIDO', concluidoEm: AGORA, concluidoPor: 'u-julian', conclusaoObs: NOTA,
+      // O carimbo da triagem: o desfazer de uma consulta nunca devolve este atendimento.
+      conclusaoOrigem: 'TRIAGEM', conclusaoConsultaId: null,
       canceladoEm: null, canceladoCategoria: null,
     });
     expect(m.estado.bd.compromissos[0]).toMatchObject({
@@ -276,12 +280,12 @@ describe('concluir', () => {
       descricao: 'Atendimento #14: andamento de PENDENTE para CONCLUIDO',
       metadata: {
         alteracoes: [{ campo: 'status', label: 'Andamento', de: 'PENDENTE', para: 'CONCLUIDO' }],
-        nota: NOTA, consulta: 'CANCELAR', consultasCanceladas: ['c-14'],
+        nota: NOTA, consulta: 'CANCELAR', via: 'TRIAGEM', consultasCanceladas: ['c-14'], copiasCanceladas: [],
       },
     });
 
     // A resposta diz o que o servidor FEZ, e traz o telefone para o WhatsApp.
-    expect(r.efeitos).toEqual({ consultasCanceladas: [{ id: 'c-14', inicio: QUINTA_9H, responsavel: SHERAD }] });
+    expect(r.efeitos).toEqual({ consultasCanceladas: [{ id: 'c-14', inicio: QUINTA_9H, responsavel: SHERAD, categoria: 'PERDEU_OBJETO' }] });
     expect(r.atendimento.filiado.telefonePrincipal).toBe('(86) 99812-3344');
     expect(r.atendimento.concluidoPor).toEqual(JULIAN);
   });
@@ -312,18 +316,43 @@ describe('concluir', () => {
     expect(r.efeitos.consultasCanceladas.map((c: any) => c.id).sort()).toEqual(['c-a', 'c-b']);
   });
 
-  it('a consulta já começou e "aconteceu": o atendimento fecha e a consulta fica para o advogado registrar', async () => {
+  /*
+    E2 da rodada 4 (15/09/2026). O #13: consulta de hoje às 09:00 ainda sem
+    registro às 10:00. A triagem não responde mais pelo advogado: "aconteceu"
+    (o corpo do web antigo) é recusado e nada é gravado; quem registra é quem
+    atendeu, e o atendimento fecha junto.
+  */
+  const SEM_REGISTRO =
+    'A consulta com a Dra. Shérad de seg, 14/09 às 09:00 ainda não foi registrada. '
+    + 'Se aconteceu, quem registra é quem atendeu, e o atendimento fecha sozinho. '
+    + 'Para concluir sem ela, cancele a consulta junto.';
+
+  it.each<[string, Linha]>([
+    ['"aconteceu" (web antigo)', { consulta: 'MANTER' }],
+    ['sem escolha', { nota: NOTA }],
+  ])('a consulta já começou, %s: recusado com a frase de quem registra, sem abrir transação', async (_caso, corpo) => {
     const m = montar({ atendimento: atendimento(), compromissos: [consulta({ inicio: HOJE_9H })], movimentacoes: [] });
-    const r: any = await m.svc.concluir('a-14', { consulta: 'MANTER' }, CTX, AGORA);
-    expect(m.estado.bd.atendimento!.status).toBe('CONCLUIDO');
-    expect(m.estado.bd.compromissos[0].status).toBe('PENDENTE');
-    expect(r.efeitos).toEqual({ consultasCanceladas: [] });
-    expect(m.agenda.registrarNoHistorico).not.toHaveBeenCalled();
+    expect(await recusa(m.svc.concluir('a-14', corpo, CTX, AGORA))).toBe(SEM_REGISTRO);
+    expect(m.passos).toEqual([]);
+    expect(m.estado.bd.atendimento!.status).toBe('PENDENTE');
   });
 
-  it('a consulta já começou e ninguém disse se aconteceu: recusado', async () => {
+  it('a consulta já começou e a demanda se resolveu sem ela: cancela como perdeu o objeto, com a nota da triagem', async () => {
     const m = montar({ atendimento: atendimento(), compromissos: [consulta({ inicio: HOJE_9H })], movimentacoes: [] });
-    expect(await recusa(m.svc.concluir('a-14', { nota: NOTA }, CTX, AGORA))).toBe(FRASE_DIGA_SE_ACONTECEU);
+    await m.svc.concluir('a-14', { consulta: 'CANCELAR', nota: 'A filiada resolveu direto com o RH.' }, CTX, AGORA);
+    expect(m.estado.bd.atendimento).toMatchObject({ status: 'CONCLUIDO', conclusaoOrigem: 'TRIAGEM' });
+    expect(m.estado.bd.compromissos[0]).toMatchObject({
+      status: 'CANCELADO',
+      canceladoCategoria: 'PERDEU_OBJETO',
+      canceladoMotivo: 'Atendimento #14 concluído pela triagem sem a consulta: A filiada resolveu direto com o RH.',
+    });
+  });
+
+  it('a consulta em andamento: concluir é recusado, e o atendimento espera o registro', async () => {
+    const m = montar({ atendimento: atendimento(), compromissos: [consulta({ inicio: HOJE_9H, status: 'EM_ANDAMENTO' })], movimentacoes: [] });
+    expect(await recusa(m.svc.concluir('a-14', {}, CTX, AGORA)))
+      .toBe('A consulta com a Dra. Shérad está em andamento. Quando for registrada, o atendimento é concluído sozinho.');
+    expect(m.passos).toEqual([]);
   });
 
   it('a tarefa do robô ligada à consulta é dispensada junto, com quem e por quê', async () => {
@@ -354,6 +383,37 @@ describe('concluir', () => {
     expect(m.passos).toContain('transacao:desfeita');
     expect(m.agenda.registrarNoHistorico).not.toHaveBeenCalled();
     expect(m.audit.registrar).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  DEADLOCK COM A AGENDA VIRA FRASE, NÃO 500 (15/09/2026). A triagem grava o
+  atendimento antes da consulta, e a agenda agora trava na mesma ordem; se o
+  banco ainda abortar a transação (P2034), o balcão ouve a frase de corrida e
+  nada fica gravado.
+*/
+describe('o banco abortou a transação por corrida', () => {
+  const deadlock = () =>
+    new Prisma.PrismaClientKnownRequestError('deadlock detectado', { code: 'P2034', clientVersion: '5.20.0' });
+
+  it('concluir e cancelar: a frase do atendimento, sem nada gravado e sem auditoria', async () => {
+    const conclusao = montar(MUNDO_14, { antesDaTransacao: () => { throw deadlock(); } });
+    expect(await recusa(conclusao.svc.concluir('a-14', { nota: NOTA, consulta: 'CANCELAR' }, CTX, AGORA))).toBe(FRASE_ATENDIMENTO_MUDOU);
+    expect(conclusao.estado.bd).toEqual(MUNDO_14);
+    expect(conclusao.audit.registrar).not.toHaveBeenCalled();
+
+    const cancelamento = montar(MUNDO_14, { antesDaTransacao: () => { throw deadlock(); } });
+    expect(await recusa(cancelamento.svc.cancelar(
+      'a-14', { categoria: 'DESISTENCIA', motivo: 'Arranjou advogado próprio.', consulta: 'CANCELAR' }, CTX, AGORA,
+    ))).toBe(FRASE_ATENDIMENTO_MUDOU);
+    expect(cancelamento.estado.bd).toEqual(MUNDO_14);
+    expect(cancelamento.audit.registrar).not.toHaveBeenCalled();
+  });
+
+  it('um erro que não é corrida continua o mesmo erro', async () => {
+    const caiu = new Error('conexão caiu');
+    const m = montar(MUNDO_14, { antesDaTransacao: () => { throw caiu; } });
+    await expect(m.svc.concluir('a-14', { nota: NOTA, consulta: 'CANCELAR' }, CTX, AGORA)).rejects.toBe(caiu);
   });
 });
 
@@ -424,6 +484,8 @@ describe('o detalhe e a gravação usam o mesmo plano', () => {
     const { atendimento: lido } = (await m.svc.detalhe('a-14', AGORA)) as any;
     const nascidas = mundo.compromissos.filter((c) => !c.origemDesfechoId);
     expect(lido.fechamento).toEqual(planoDeFechamento(mundo.atendimento as any, nascidas as any, AGORA));
+    // A fila da gaveta é a da lista e do painel (E3).
+    expect(lido.fila).toEqual(filaDoAtendimento(mundo.atendimento as any, nascidas as any, AGORA));
 
     if (!lido.fechamento.concluir.permitido) {
       expect(await recusa(montar(mundo).svc.concluir('a-14', { nota: NOTA, consulta: 'CANCELAR' }, CTX, AGORA)))
@@ -433,10 +495,77 @@ describe('o detalhe e a gravação usam o mesmo plano', () => {
       expect(await recusa(montar(mundo).svc.cancelar('a-14', { categoria: 'DESISTENCIA', consulta: 'CANCELAR' }, CTX, AGORA)))
         .toBe(lido.fechamento.cancelar.recusa);
     }
-    if (lido.fechamento.concluir.consulta === 'SO_MANTER') {
-      expect(await recusa(montar(mundo).svc.concluir('a-14', { consulta: 'CANCELAR' }, CTX, AGORA)))
-        .toBe('A consulta está em andamento: quem encerra é quem está atendendo.');
+    if (lido.fechamento.cancelar.permitido && lido.fechamento.cancelar.consulta === 'SO_MANTER') {
+      expect(await recusa(montar(mundo).svc.cancelar('a-14', { categoria: 'DESISTENCIA', consulta: 'CANCELAR' }, CTX, AGORA)))
+        .toBe(FRASE_EM_ANDAMENTO);
     }
+  });
+
+  it('#14 (consulta de quinta) e #13 (consulta de hoje): aguardando a consulta, e o atendimento fecha sozinho', async () => {
+    const quatorze = (await montar(MUNDO_14).svc.detalhe('a-14', AGORA)) as any;
+    expect(quatorze.atendimento.fila).toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+    expect(quatorze.atendimento.fechamento.fechaSozinho).toBe(true);
+
+    const treze = (await montar({ atendimento: atendimento(), compromissos: [consulta({ inicio: HOJE_9H })], movimentacoes: [] })
+      .svc.detalhe('a-14', AGORA)) as any;
+    expect(treze.atendimento.fila).toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+    expect(treze.atendimento.fechamento.fechaSozinho).toBe(true);
+  });
+});
+
+/**
+ * AS CÓPIAS QUE SOBRARAM SAEM COMO DUPLICIDADE (15/09/2026, E4 da rodada 4;
+ * auditoria do atendimento, defeito 1). A consulta da Dra. Shérad já foi
+ * registrada e a cópia do Dr. Murilo, do laço antigo, continuava pendente na
+ * agenda dele depois de o atendimento fechar.
+ */
+describe('as cópias que sobraram', () => {
+  const MURILO = { id: 'u-murilo', nome: 'Murilo Sousa', nomeExibicao: 'Dr. Murilo', avatarUrl: null, avatarKey: null };
+  const COM_COPIAS: Banco = {
+    atendimento: atendimento(),
+    compromissos: [
+      consulta({ id: 'c-14', inicio: HOJE_9H, status: 'CONCLUIDO' }),
+      consulta({ id: 'c-copia', inicio: HOJE_9H, responsavel: MURILO, createdAt: new Date('2026-09-10T13:59:00.000Z') }),
+      consulta({ id: 'c-andando', inicio: HOJE_9H, status: 'EM_ANDAMENTO', createdAt: new Date('2026-09-10T13:58:00.000Z') }),
+    ],
+    movimentacoes: [],
+  };
+  const MOTIVO = 'a consulta com a Dra. Shérad de seg, 14/09 às 09:00 já foi registrada, e esta cópia sobrou.';
+
+  it('concluir: a cópia pendente sai como duplicidade, a em andamento fica, e a resposta diz qual saiu', async () => {
+    const m = montar(COM_COPIAS);
+    const r: any = await m.svc.concluir('a-14', {}, CTX, AGORA);
+
+    const porId = Object.fromEntries(m.estado.bd.compromissos.map((c) => [c.id, c]));
+    expect(porId['c-14'].status).toBe('CONCLUIDO');
+    expect(porId['c-andando'].status).toBe('EM_ANDAMENTO');
+    expect(porId['c-copia']).toMatchObject({
+      status: 'CANCELADO',
+      canceladoCategoria: 'DUPLICIDADE',
+      canceladoMotivo: `Atendimento #14 concluído: ${MOTIVO}`,
+      canceladoPor: 'u-julian',
+    });
+    expect(m.estado.bd.atendimento).toMatchObject({ status: 'CONCLUIDO', conclusaoOrigem: 'TRIAGEM' });
+    // A categoria vai na resposta: o web (`lib/atendimentos.ts`) separa a cópia DUPLICIDADE da consulta cancelada.
+    expect(r.efeitos.consultasCanceladas).toEqual([{ id: 'c-copia', inicio: HOJE_9H, responsavel: MURILO, categoria: 'DUPLICIDADE' }]);
+    expect(m.agenda.registrarNoHistorico).toHaveBeenCalledWith('c-copia', expect.objectContaining({ acao: 'CANCELADO' }));
+    const doAtendimento = m.audit.registrar.mock.calls.map((c: any[]) => c[0]).find((x: any) => x.entidade === 'Atendimento');
+    expect(doAtendimento.metadata).toMatchObject({ consultasCanceladas: ['c-copia'], copiasCanceladas: ['c-copia'] });
+  });
+
+  it('cancelar: a cópia sai do mesmo jeito, com o motivo do cancelamento', async () => {
+    const m = montar(COM_COPIAS);
+    await m.svc.cancelar('a-14', { categoria: 'DESISTENCIA' }, CTX, AGORA);
+    const copia = m.estado.bd.compromissos.find((c) => c.id === 'c-copia')!;
+    expect(copia).toMatchObject({ status: 'CANCELADO', canceladoCategoria: 'DUPLICIDADE', canceladoMotivo: `Atendimento #14 cancelado: ${MOTIVO}` });
+    expect(m.estado.bd.atendimento).toMatchObject({ status: 'CANCELADO', canceladoCategoria: 'DESISTENCIA' });
+  });
+
+  it('o advogado iniciou a cópia no meio: tudo desfeito, com a frase da consulta', async () => {
+    const m = montar(COM_COPIAS, { antesDaTransacao: (bd) => { bd.compromissos[1].status = 'EM_ANDAMENTO'; } });
+    expect(await recusa(m.svc.concluir('a-14', {}, CTX, AGORA))).toBe(FRASE_CONSULTA_MUDOU);
+    expect(m.estado.bd.atendimento).toMatchObject({ status: 'PENDENTE', conclusaoOrigem: null });
+    expect(m.audit.registrar).not.toHaveBeenCalled();
   });
 });
 
@@ -504,16 +633,38 @@ describe('mudarStatus — só o Reabrir', () => {
     });
   });
 
-  it('reabrir o concluído leva a nota para a auditoria', async () => {
+  it('reabrir o concluído leva a nota e a origem para a auditoria', async () => {
     const m = montar({
-      atendimento: atendimento({ status: 'CONCLUIDO', concluidoEm: AGORA, concluidoPor: 'u-julian', conclusaoObs: NOTA }),
+      atendimento: atendimento({
+        status: 'CONCLUIDO', concluidoEm: AGORA, concluidoPor: 'u-julian', conclusaoObs: NOTA, conclusaoOrigem: 'TRIAGEM',
+      }),
       compromissos: [],
       movimentacoes: [],
     });
     await m.svc.mudarStatus('a-14', { status: 'PENDENTE' } as never, CTX);
-    expect(m.estado.bd.atendimento).toMatchObject({ status: 'PENDENTE', concluidoEm: null, conclusaoObs: null });
+    expect(m.estado.bd.atendimento).toEqual(atendimento());
     expect(m.audit.registrar.mock.calls[0][0].metadata.fechamentoAnterior)
-      .toEqual({ nota: NOTA, em: AGORA.toISOString(), por: 'u-julian' });
+      .toEqual({ nota: NOTA, em: AGORA.toISOString(), por: 'u-julian', origem: 'TRIAGEM' });
+  });
+
+  /*
+    O carimbo sai junto (15/09/2026). Se ficasse "pela consulta c-14", o desfazer
+    daquela consulta devolveria de novo um atendimento que a triagem já reabriu.
+  */
+  it('reabrir o que a consulta fechou limpa o carimbo inteiro', async () => {
+    const m = montar({
+      atendimento: atendimento({
+        status: 'CONCLUIDO', concluidoEm: AGORA, concluidoPor: 'u-sherad', conclusaoObs: 'Dúvida esclarecida.',
+        conclusaoOrigem: 'CONSULTA', conclusaoConsultaId: 'c-14',
+      }),
+      compromissos: [consulta({ inicio: HOJE_9H, status: 'CONCLUIDO' })],
+      movimentacoes: [],
+    });
+    await m.svc.mudarStatus('a-14', { status: 'PENDENTE' } as never, CTX);
+    expect(m.estado.bd.atendimento).toEqual(atendimento());
+    expect(m.estado.bd.compromissos[0].status).toBe('CONCLUIDO');
+    expect(m.audit.registrar.mock.calls[0][0].metadata.fechamentoAnterior)
+      .toEqual({ nota: 'Dúvida esclarecida.', em: AGORA.toISOString(), por: 'u-sherad', origem: 'CONSULTA' });
   });
 });
 
@@ -578,10 +729,11 @@ describe('corrida entre o desfecho e o fechamento', () => {
     expect(m.audit.registrar).not.toHaveBeenCalled();
   });
 
-  it('a consulta lida e mantida não é "nova": o fechamento com a consulta já começada passa', async () => {
-    const m = montar({ atendimento: atendimento(), compromissos: [consulta({ inicio: HOJE_9H })], movimentacoes: [] });
-    await m.svc.concluir('a-14', { consulta: 'MANTER' }, CTX, AGORA);
-    expect(m.estado.bd.atendimento!.status).toBe('CONCLUIDO');
+  it('a consulta lida e mantida não é "nova": cancelar com a consulta em andamento passa e a mantém', async () => {
+    const m = montar({ atendimento: atendimento(), compromissos: [consulta({ inicio: HOJE_9H, status: 'EM_ANDAMENTO' })], movimentacoes: [] });
+    await m.svc.cancelar('a-14', { categoria: 'DESISTENCIA' }, CTX, AGORA);
+    expect(m.estado.bd.atendimento!.status).toBe('CANCELADO');
+    expect(m.estado.bd.compromissos[0].status).toBe('EM_ANDAMENTO');
   });
 });
 

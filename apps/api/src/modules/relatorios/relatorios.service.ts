@@ -11,6 +11,7 @@ import {
 } from '../processos/padroes.service';
 import { ESPERANDO_DECISAO } from '../processos/djen-busca.service';
 import { daPessoa } from '../agenda/equipe.util';
+import { ORIGEM_DA_CONCLUSAO } from '../atendimentos/fechamento-pela-consulta';
 import { adversarioDoProcesso } from '../dashboard/dashboard.module';
 import {
   anosDaSerie, outrosDoAssunto, resultadoDoCodigo, rotuloDaComarca, serieDeAjuizadas,
@@ -179,6 +180,12 @@ export interface Relatorio {
   atendimentos: {
     registrados: number;
     concluidos: number;
+    /**
+     * Dos concluídos, os que fecharam sozinhos quando a consulta foi registrada
+     * (desde 15/09/2026). Antes dessa data a coluna de origem não existia e o
+     * número é zero: a legenda da tela diz "desde 15/09/2026".
+     */
+    concluidosPelaConsulta: number;
     /** Pessoas diferentes atendidas — o mesmo filiado voltando três vezes é um. */
     filiadosAtendidos: number;
     porCanal: Contagem[];
@@ -391,6 +398,7 @@ export class RelatoriosService {
           },
           select: {
             status: true, canal: true, assunto: true, assuntoOutro: true, setor: true, filiadoId: true,
+            conclusaoOrigem: true,
             atendente: { select: { nome: true, nomeExibicao: true } },
           },
         }),
@@ -496,6 +504,16 @@ export class RelatoriosService {
           diretoria comparar períodos dos dois lados da data, a legenda diz.
         */
         concluidos: atendimentos.filter((a) => a.status === StatusAtendimento.CONCLUIDO).length,
+        /*
+          E DESDE 15/09/2026 (rodada 4) o atendimento também fecha sozinho quando
+          a consulta nascida dele é registrada. `concluidos` continua contando
+          todos, e por isso SOBE a partir dessa data: os que a triagem fechava à
+          mão minutos depois agora fecham na hora. Este número separa quantos
+          vieram da consulta, para a comparação entre períodos não enganar.
+        */
+        concluidosPelaConsulta: atendimentos.filter(
+          (a) => a.status === StatusAtendimento.CONCLUIDO && a.conclusaoOrigem === ORIGEM_DA_CONCLUSAO.CONSULTA,
+        ).length,
         filiadosAtendidos: new Set(atendimentos.map((a) => a.filiadoId)).size,
         porCanal: contar(atendimentos, (a) => a.canal),
         porAtendente: contar(

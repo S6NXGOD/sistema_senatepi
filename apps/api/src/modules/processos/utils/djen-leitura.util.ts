@@ -40,15 +40,52 @@ export const DJEN_TETO_RECUPERACAO_DIAS = 60;
  * 200 POR NOITE, e não 40 (14/09/2026). A simulação contra a produção terminou:
  * 153 processos vivos, 153 chamadas, 0 erro e nenhum no teto de páginas; 1.446
  * atos na origem, 210 faltando no banco, só 7 deles com 30 dias ou menos. Com
- * 200 o acervo vivo inteiro é colhido na primeira noite (~300 chamadas somando
- * OAB e janela, uns 22 minutos a 14 por minuto), e depois sobra só o fluxo de
- * cadastro (1 a 5 processos por dia).
+ * 200 o acervo vivo inteiro é colhido na primeira noite, e depois sobra só o
+ * fluxo de cadastro (1 a 5 processos por dia).
+ *
+ * A CONTA DE TEMPO, refeita em 15/09/2026 (a de antes dizia ~300 chamadas e
+ * ~22 minutos). Quem lê o histórico sai da janela na mesma noite, então a
+ * primeira noite troca a janela desses 153 pelo histórico e fica em ~13
+ * minutos; a noite normal fica em ~170–185 chamadas, uns 12 a 14 minutos a 14
+ * por minuto.
+ *
+ * QUEM PROTEGE A TRAVA É O LIMITE DE TEMPO, não este padrão. Com tudo no teto
+ * de páginas (8×20 + 200×10 + 300×3 = 3.060 chamadas) a rodada levaria ~220
+ * minutos, acima dos 180 da trava; `DJEN_ORCAMENTO_DA_RODADA_MIN` para a
+ * rodada antes disso.
  *
  * As DUAS continuam ajustáveis por ambiente (`DJEN_HISTORICO_POR_RODADA` e
  * `DJEN_HISTORICO_MAX_PAGINAS`): mudar precisa ser variável e restart.
  */
 export const DJEN_HISTORICO_POR_RODADA_PADRAO = 200;
 export const DJEN_HISTORICO_MAX_PAGINAS_PADRAO = 10;
+
+/**
+ * O ORÇAMENTO DE TEMPO DA RODADA, em minutos (15/09/2026).
+ *
+ * A trava do job vale 180 minutos. Se a rodada passasse disso, a trava se
+ * soltaria com ela ainda correndo, e a próxima (o robô do dia seguinte, ou o
+ * botão do Administrador) entraria disputando a mesma cota do CNJ. Nenhuma
+ * noite real chega perto (~13 minutos), mas o pior caso teórico chega a ~220.
+ *
+ * 150 deixa meia hora para o que vem depois das consultas: correlação, rede
+ * das propostas, advogados e partes do ato, a conferência da fila no DataJud
+ * (até 40 ações) e a tarefa de cadastro. O que para aqui são as passadas 2
+ * (histórico) e 3 (janela pelo número); a OAB, que descobre ação nova, roda
+ * inteira antes delas. Quem ficou para trás não ganhou carimbo e entra primeiro
+ * na noite seguinte: o histórico continua nulo, e a janela ordena pela
+ * consulta mais antiga.
+ */
+export const DJEN_ORCAMENTO_DA_RODADA_MIN = 150;
+
+/** A rodada iniciada em `iniciadaEm` (ms) já gastou o orçamento em `agora` (ms)? */
+export function passouDoOrcamento(
+  iniciadaEm: number,
+  agora: number,
+  orcamentoMin: number = DJEN_ORCAMENTO_DA_RODADA_MIN,
+): boolean {
+  return agora - iniciadaEm >= orcamentoMin * 60_000;
+}
 
 /** Um período de leitura do Diário, em dias de Teresina (inclusivos). */
 export interface JanelaDeLeitura {
@@ -194,6 +231,18 @@ export function oabConsultavel(oab: string | null | undefined, uf: string | null
 }
 
 /**
+ * O QUE FALTA NA OAB — `null` quando dá para consultar (15/09/2026).
+ *
+ * A tela de Usuários dizia "Sem OAB no cadastro" também para quem tem o número
+ * e esqueceu a UF, e a pessoa ia conferir um número que estava lá. `UF` só
+ * quando o número existe: sem número, o que falta é a OAB inteira.
+ */
+export function faltaNaOab(oab: string | null | undefined, uf: string | null | undefined): 'OAB' | 'UF' | null {
+  if (oabConsultavel(oab, uf)) return null;
+  return (oab ?? '').replace(/\D/g, '').length > 0 ? 'UF' : 'OAB';
+}
+
+/**
  * NÚMERO DO AMBIENTE, sem transformar erro de digitação em comportamento.
  *
  * `Number(x) || padrao` não aceita zero, e zero é exatamente o valor útil para
@@ -291,17 +340,30 @@ export function coberturaDoDiario(entrada: {
   const frequenciaDoNumero = vivo ? 'TODA_NOITE' : 'SEMANAL';
   const quando = vivo ? 'toda noite' : 'a cada 7 dias';
 
+  /*
+    A PRIMEIRA LINHA É A PRINCIPAL e a tela a mostra sozinha, com as outras
+    abaixo (15/09/2026). No processo dormente ela dizia só "e pelo número do
+    processo", como se fosse toda noite; agora diz "a cada 7 dias", como a
+    frase sem OAB já dizia.
+  */
   const linhas: string[] = [
     porOab.length
-      ? `Acompanhado no Diário pela OAB de ${listaDeNomes(porOab.map((p) => p.nome))} e pelo número do processo.`
+      ? `Acompanhado no Diário pela OAB de ${listaDeNomes(porOab.map((p) => p.nome))} e pelo número do processo` +
+        `${vivo ? '' : ', a cada 7 dias'}.`
       : `Nenhum advogado da equipe com OAB neste processo. O Diário é consultado só pelo número, ${quando}.`,
     entrada.ultimaConsultaDjen
       ? `Consultado no Diário pelo número em ${diaCurto(entrada.ultimaConsultaDjen, entrada.agora)}.`
       : 'Ainda não consultado pelo número.',
   ];
   if (!entrada.djenHistoricoLidoEm) {
+    /*
+      O BOTÃO CERTO (15/09/2026). A frase mandava para "Sincronizar", que na
+      ficha é o botão do DataJud; o que lê o Diário é "Buscar no DJEN", na aba
+      Publicações — onde esta linha aparece.
+    */
     linhas.push(
-      'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ou agora pelo botão Sincronizar.',
+      'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ' +
+        'ou agora pelo botão Buscar no DJEN, na aba Publicações.',
     );
   }
 

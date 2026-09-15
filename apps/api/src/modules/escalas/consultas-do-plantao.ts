@@ -201,6 +201,30 @@ export function classificarConsultas(
 }
 
 /**
+ * AS CONSULTAS QUE O NOVO HORÁRIO DEIXA DE FORA — uma conta só para o aviso e para a auditoria.
+ *
+ * Encurtar o plantão não mexe nas consultas; a tela avisa antes quais ficariam
+ * fora da faixa nova, e o PATCH carimba as mesmas. Até 15/09/2026 a conta morava
+ * só no PATCH, e a tela montava o aviso com a lista `noHorario` — que chega
+ * vazia para quem não vê a Agenda. Com total maior que zero, quem encurtava sem
+ * Agenda não recebia aviso nenhum. Agora a prévia pergunta aqui e devolve pelo
+ * menos a contagem.
+ *
+ * Só as que estavam no horário ANTES da mudança: a que já era fora continua
+ * sendo, e não é efeito do encurtar. [início, fim) como a faixa do plantão.
+ */
+export function foraDoNovoHorario(
+  classificadas: ConsultaClassificada[],
+  dia: string,
+  novo: Faixa,
+): ConsultaClassificada[] {
+  const janela = janelaDoPlantao({ data: dia, ...novo });
+  return classificadas.filter(
+    (c) => c.noHorario && (c.consulta.inicio < janela.inicio || c.consulta.inicio >= janela.fim),
+  );
+}
+
+/**
  * Por que um id pedido não está mais entre as consultas do plantão — entre a
  * prévia e o salvar alguém concluiu, cancelou, remarcou ou já passou a
  * consulta. A frase entra em "1 consulta não mudou: já tinha sido concluída."

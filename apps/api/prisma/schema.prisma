@@ -1887,6 +1887,18 @@ model Atendimento {
   canceladoCategoria String?   @map("cancelado_categoria")
   canceladoMotivo    String?   @map("cancelado_motivo")
 
+  /// ---- QUEM FECHOU: A TRIAGEM OU A CONSULTA ----
+  /// O atendimento fecha sozinho quando o advogado conclui a consulta nascida
+  /// dele: medido na produção em 14/09/2026, 4 de 4 consultas concluídas
+  /// exigiram fechar o atendimento à mão logo depois.
+  /// `conclusaoOrigem`: 'TRIAGEM' | 'CONSULTA' (texto, como os slugs da agenda);
+  /// nulo nos fechados antes de 15/09/2026 — sem backfill.
+  /// `conclusaoConsultaId`: a consulta que fechou. É o CARIMBO que o desfazer e
+  /// o reabrir da consulta conferem antes de devolver o atendimento.
+  /// Ver `20260915090000_conclusao_pela_consulta`.
+  conclusaoOrigem     String?   @map("conclusao_origem")
+  conclusaoConsultaId String?   @map("conclusao_consulta_id")
+
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
@@ -1894,6 +1906,9 @@ model Atendimento {
   atendente    User             @relation(fields: [atendentePorId], references: [id])
   concluidoPorUsuario User?     @relation("AtendimentoConcluidoPor", fields: [concluidoPor], references: [id], onDelete: SetNull)
   canceladoPorUsuario User?     @relation("AtendimentoCanceladoPor", fields: [canceladoPor], references: [id], onDelete: SetNull)
+  /// SetNull: apagar a consulta não pode apagar o atendimento que ela fechou;
+  /// perde-se o carimbo, não o registro.
+  conclusaoConsulta   Compromisso? @relation("AtendimentoConcluidoPelaConsulta", fields: [conclusaoConsultaId], references: [id], onDelete: SetNull)
   processo     Processo?        @relation(fields: [processoId], references: [id], onDelete: SetNull)
   compromissos Compromisso[]
   anexos       AnexoDocumento[]
@@ -2062,6 +2077,10 @@ model Compromisso {
   canceladoPorUsuario User?                    @relation("CompromissoCanceladoPor", fields: [canceladoPor], references: [id], onDelete: SetNull)
   filiado             Filiado?                 @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   atendimento         Atendimento?             @relation(fields: [atendimentoId], references: [id], onDelete: SetNull)
+  /// Lado inverso de [Atendimento.conclusaoConsulta]: os atendimentos que ESTA
+  /// consulta fechou ao ser concluída. Não confundir com `atendimento` acima,
+  /// que é a origem da consulta.
+  atendimentosConcluidos Atendimento[]         @relation("AtendimentoConcluidoPelaConsulta")
   processo            Processo?                @relation(fields: [processoId], references: [id], onDelete: SetNull)
   /// SetNull: apagar a reunião de origem não pode levar junto a providência que
   /// ela gerou — a tarefa continua sendo devida.

@@ -27,8 +27,9 @@ export class AtendimentosController {
   }
 
   @Get()
-  listar(@Query() query: ListAtendimentosQueryDto) {
-    return this.service.listar(query);
+  listar(@Query() query: ListAtendimentosQueryDto, @CurrentUser('id') userId: string) {
+    // O usuário do token é o "me" de `atendente=me` (o balcão do painel), nunca um id vindo da URL.
+    return this.service.listar(query, userId);
   }
 
   /**

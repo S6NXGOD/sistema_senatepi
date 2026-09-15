@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import {
-  CancelarAtendimentoDto, ConcluirAtendimentoDto, MudarModalidadeConsultaDto,
+  CancelarAtendimentoDto, ConcluirAtendimentoDto, ListAtendimentosQueryDto, MudarModalidadeConsultaDto,
 } from './dto/atendimentos.dto';
 
 /**
@@ -41,6 +41,28 @@ describe('as rotas do fechamento', () => {
     expect(agenda).not.toContain('AtendimentosModule');
     expect(agenda).not.toContain('EscalasModule');
   });
+
+  /*
+    A CONSULTA FECHA O ATENDIMENTO SEM CICLO (15/09/2026, E1 da rodada 4). O
+    agenda.service importa a regra de um arquivo simples, e nunca o serviço nem
+    o módulo de atendimentos (que já importam a agenda). O arquivo da regra só
+    importa o client do Prisma e as duas utils, que não importam serviço.
+  */
+  it('a agenda importa só a regra do fechamento pela consulta, nunca o serviço nem o módulo de atendimentos', () => {
+    const servicoDaAgenda = ler('../agenda/agenda.service.ts');
+    expect(servicoDaAgenda).toContain("from '../atendimentos/fechamento-pela-consulta'");
+    expect(servicoDaAgenda).not.toMatch(/from '\.\.\/atendimentos\/atendimentos\.(service|module)'/);
+    expect(servicoDaAgenda).not.toContain('AtendimentosModule');
+    expect(servicoDaAgenda).not.toContain('AtendimentosService');
+
+    const origens = [...ler('fechamento-pela-consulta.ts').matchAll(/from '([^']+)'/g)].map((m) => m[1]).sort();
+    // `@nestjs/common` desde 15/09/2026, só pela BadRequestException da frase de corrida: é o framework, não um serviço.
+    expect(origens).toEqual(['./encaminhamento.util', './fechamento.util', '@nestjs/common', '@prisma/client']);
+    for (const util of ['encaminhamento.util.ts', 'fechamento.util.ts']) {
+      const importados = [...ler(util).matchAll(/from '([^']+)'/g)].map((m) => m[1]);
+      expect(`${util}: ${importados.filter((o) => /service|module/.test(o)).join(',')}`).toBe(`${util}: `);
+    }
+  });
 });
 
 /**
@@ -68,6 +90,19 @@ describe('os DTOs do fechamento', () => {
     expect(await erros(CancelarAtendimentoDto, {})).toEqual(['Diga por que o atendimento vai ser cancelado.']);
     expect(await erros(CancelarAtendimentoDto, { categoria: 'SUBSTITUIDA' })).toEqual(['Diga por que o atendimento vai ser cancelado.']);
     expect(await erros(CancelarAtendimentoDto, { categoria: 'DESISTENCIA', motivo: 'Arranjou advogado próprio.', consulta: 'MANTER' })).toEqual([]);
+  });
+
+  it('a lista aceita a fila como filtro opcional, e só TRIAGEM ou CONSULTA', async () => {
+    expect(await erros(ListAtendimentosQueryDto, {})).toEqual([]);
+    expect(await erros(ListAtendimentosQueryDto, { status: 'PENDENTE', fila: 'TRIAGEM' })).toEqual([]);
+    expect(await erros(ListAtendimentosQueryDto, { fila: 'CONSULTA' })).toEqual([]);
+    expect(await erros(ListAtendimentosQueryDto, { fila: 'ADVOGADO' })).toEqual(['Fila inválida: use TRIAGEM ou CONSULTA.']);
+  });
+
+  // O destino do "Comigo, com a triagem" (15/09/2026): só `me`; o id de outra pessoa na URL é recusado.
+  it('a lista aceita atendente=me junto com a fila, e nada além de me', async () => {
+    expect(await erros(ListAtendimentosQueryDto, { status: 'PENDENTE', fila: 'TRIAGEM', atendente: 'me' })).toEqual([]);
+    expect(await erros(ListAtendimentosQueryDto, { atendente: 'u-julian' })).toEqual(['Atendente inválido: use me.']);
   });
 
   it('modalidade: as três fichas, link opcional e nulo para tirar', async () => {

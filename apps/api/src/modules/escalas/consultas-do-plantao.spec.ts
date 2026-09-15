@@ -625,4 +625,35 @@ describe('os irmãos (D17): excluir e encurtar não mexem nas consultas, mas o l
     expect(auditoria[0].metadata.consultasForaDoNovoHorario).toEqual(['c3']);
     expect(auditoria[0].metadata.consultasSemDecisao).toBeUndefined();
   });
+
+  /*
+    O AVISO DE ENCURTAR ANTES DE SALVAR (15/09/2026). A tela montava o aviso com
+    `noHorario`, que chega vazia para quem não vê a Agenda: com total 3, quem
+    encurtava sem Agenda não era avisado de nada. A prévia agora conta pela mesma
+    regra do PATCH.
+  */
+  it('a prévia com o horário novo conta as mesmas consultas que o PATCH carimba, até para quem não vê a Agenda', async () => {
+    const { service, auditoria } = montar();
+    const previa = await service.consultasDoPlantao('e15', undefined, COORDENACAO, ANTES, { horaFim: '10:00' });
+    expect(previa).toMatchObject({ total: 3, foraDoNovoHorario: 2, idsForaDoNovoHorario: ['c2', 'c3'] });
+
+    const semAgenda = await service.consultasDoPlantao(
+      'e15', undefined, { id: 'x', role: UserRole.ADVOGADO, permissoes: { agenda: 'SEM_ACESSO' } }, ANTES,
+      { horaInicio: '09:00', horaFim: '10:00' },
+    );
+    expect(semAgenda).toMatchObject({ total: 3, foraDoNovoHorario: 2, idsForaDoNovoHorario: [], noHorario: [] });
+
+    await service.atualizar('e15', { horaFim: '10:00' }, ctx, ANTES);
+    expect(auditoria[0].metadata.consultasForaDoNovoHorario).toEqual(previa.idsForaDoNovoHorario);
+  });
+
+  it('sem horário novo, ou com o fim antes do início enquanto a pessoa digita: nulo, sem 400', async () => {
+    const { service } = montar();
+    expect((await service.consultasDoPlantao('e15', undefined, COORDENACAO, ANTES)).foraDoNovoHorario).toBeNull();
+    const digitando = await service.consultasDoPlantao('e15', undefined, COORDENACAO, ANTES, { horaFim: '08:00' });
+    expect(digitando).toMatchObject({ foraDoNovoHorario: null, idsForaDoNovoHorario: [] });
+    // Começar mais tarde também tira quem vinha antes: 10:00–12:00 deixa a das 09:00 de fora.
+    const maisTarde = await service.consultasDoPlantao('e15', undefined, COORDENACAO, ANTES, { horaInicio: '10:00' });
+    expect(maisTarde).toMatchObject({ foraDoNovoHorario: 1, idsForaDoNovoHorario: ['c1'] });
+  });
 });

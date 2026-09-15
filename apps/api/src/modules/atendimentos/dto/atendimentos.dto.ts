@@ -8,7 +8,9 @@ import {
   AssuntoAtendimento, CanalAtendimento, DesfechoAtendimento, StatusAtendimento, TipoEncaminhamento,
 } from '@prisma/client';
 import { ASSUNTO_OUTRO_MAX, ASSUNTO_OUTRO_MIN, MENSAGEM_ASSUNTO_OUTRO } from '../assunto.util';
-import { MODALIDADES_CONSULTA, ModalidadeConsulta, modalidadeRemota } from '../encaminhamento.util';
+import {
+  FILAS_DO_ATENDIMENTO, FilaDoAtendimento, MODALIDADES_CONSULTA, ModalidadeConsulta, modalidadeRemota,
+} from '../encaminhamento.util';
 import {
   CATEGORIAS_CANCELAMENTO_ATENDIMENTO, CategoriaCancelamentoAtendimento, ESCOLHAS_DA_CONSULTA,
   EscolhaDaConsulta, MOTIVO_MAXIMO, NOTA_MAXIMA,
@@ -234,6 +236,26 @@ export class ListAtendimentosQueryDto {
 
   @ApiPropertyOptional({ enum: AssuntoAtendimento })
   @IsOptional() @IsEnum(AssuntoAtendimento) assunto?: AssuntoAtendimento;
+
+  /**
+   * DE QUEM É A VEZ (15/09/2026, E3 da rodada 4): "Com a triagem" ou "Aguardando
+   * a consulta". Só existe em atendimento pendente; a fila é calculada na
+   * leitura (`filaDoAtendimento`), e por isso o filtro roda depois da consulta.
+   */
+  @ApiPropertyOptional({ enum: FILAS_DO_ATENDIMENTO, description: 'TRIAGEM ou CONSULTA (só pendentes).' })
+  @IsOptional()
+  @IsIn(FILAS_DO_ATENDIMENTO, { message: 'Fila inválida: use TRIAGEM ou CONSULTA.' })
+  fila?: FilaDoAtendimento;
+
+  /**
+   * SÓ OS QUE EU REGISTREI (15/09/2026). É o destino do "Comigo, com a triagem"
+   * do painel, que conta por quem registrou. Aceita só `me`: o id vem do token,
+   * e ninguém lista o balcão de outra pessoa trocando a URL.
+   */
+  @ApiPropertyOptional({ enum: ['me'], description: 'me = só os atendimentos registrados por quem está logado.' })
+  @IsOptional()
+  @IsIn(['me'], { message: 'Atendente inválido: use me.' })
+  atendente?: 'me';
 
   @ApiPropertyOptional({ description: 'Data inicial (YYYY-MM-DD).' })
   @IsOptional() @IsString() dataInicio?: string;

@@ -356,7 +356,20 @@ describe('quem o robô não enxerga', () => {
       principalDe: [{ statusInterno: 'ENCERRADO', instanciaViva: false }],
     };
     const { svc } = montar({ usuarios: [MORGANA, CUMPRIMENTO, BAIXADO] });
-    await expect(svc.advogadosSemOab()).resolves.toEqual([{ id: 'u-ana', nome: 'Ana Coordenadora' }]);
+    await expect(svc.advogadosSemOab()).resolves.toEqual([{ id: 'u-ana', nome: 'Ana Coordenadora', falta: 'OAB' }]);
+  });
+
+  /** "Sem OAB no cadastro" para quem tem o número e esqueceu a UF mandava conferir o que estava lá (15/09/2026). */
+  it('número sem UF: aparece com `falta: UF`, e não vai à consulta', async () => {
+    relogio('2026-09-14T08:00:00Z');
+    const CARLOS: UsuarioFalso = {
+      id: 'u-carlos', nome: 'Carlos Henrique Silva', nomeExibicao: 'Carlos Henrique', role: 'ADVOGADO', ativo: true,
+      oab: '13.217', oabUf: '', djenLidoAte: null,
+    };
+    const { svc, djen } = montar({ usuarios: [MORGANA, CARLOS] });
+    await expect(svc.advogadosSemOab()).resolves.toEqual([{ id: 'u-carlos', nome: 'Carlos Henrique', falta: 'UF' }]);
+    await svc.varrer();
+    expect(djen.lerPorOab).toHaveBeenCalledTimes(1);
   });
 
   it('OAB vazia não vai à consulta (não vira falha) e aparece como sem OAB; a principal de outro perfil também', async () => {
@@ -367,8 +380,8 @@ describe('quem o robô não enxerga', () => {
     expect(resumo.falhas).toBe(0);
     expect(resumo.advogadosSemOab).toBe(2);
     await expect(svc.advogadosSemOab()).resolves.toEqual([
-      { id: 'u-lara', nome: 'Lara Cortez' },
-      { id: 'u-sherad', nome: 'Shérad' },
+      { id: 'u-lara', nome: 'Lara Cortez', falta: 'OAB' },
+      { id: 'u-sherad', nome: 'Shérad', falta: 'OAB' },
     ]);
   });
 
@@ -427,10 +440,39 @@ describe('quem o robô não enxerga', () => {
       publicacoes: 1433,
       advogadosComOab: 1,
       advogadosSemOab: [
-        { id: 'u-lara', nome: 'Lara Cortez' },
-        { id: 'u-sherad', nome: 'Shérad' },
+        { id: 'u-lara', nome: 'Lara Cortez', falta: 'OAB' },
+        { id: 'u-sherad', nome: 'Shérad', falta: 'OAB' },
       ],
     });
+  });
+
+  /*
+    A MAIOR LEITURA E A RODADA PARADA POR TEMPO NA LINHA DE RESUMO (15/09/2026).
+    `maiorRecebidaPorConsulta` era calculado e ninguém lia; a parada por tempo é
+    processo não lido, e vai na frente, logo depois do ATENÇÃO.
+  */
+  it('a linha diz a maior leitura e, na frente, quantos processos ficaram por tempo', async () => {
+    const { svc, linha } = montar({});
+    const base = {
+      advogadosConsultados: 8, processosConsultados: 1, recebidas: 60, ingeridas: 12, descartadas: 48, sugeridas: 0,
+      advogadosSemOab: 1, falhas: 0, maiorRecebidaPorConsulta: 37, historicosLidos: 0, processosParadosPorTempo: 0,
+      consultasNoTeto: [] as string[], etapasComFalha: [] as string[],
+    };
+    const registrar = (r: typeof base) =>
+      (svc as unknown as { registrarResumo: (...a: unknown[]) => Promise<void> }).registrarResumo(r, 'CRON', Date.now(), null);
+
+    await registrar(base);
+    expect(linha().mensagemErro).toBe(
+      'ATENÇÃO: 1 advogado(s) sem OAB não foram consultados. ' +
+        'Varredura concluída: 9 consulta(s), 12 publicação(ões) nova(s), maior leitura: 37 itens.',
+    );
+
+    await registrar({ ...base, falhas: 1, processosParadosPorTempo: 42 });
+    expect(linha().mensagemErro).toBe(
+      'ATENÇÃO: 1 advogado(s) sem OAB não foram consultados. ' +
+        'Rodada parada por tempo: 42 processos ficaram para a próxima noite. ' +
+        'Varredura concluída com 1 de 10 consulta(s) em falha, maior leitura: 37 itens.',
+    );
   });
 
   /** No SINDSERM não há Diário: nenhuma linha âmbar sobre o que não existe. */
@@ -568,6 +610,48 @@ describe('o histórico pelo número, uma vez por processo', () => {
     });
     await svc.varrer();
     expect(prisma.processo.update).not.toHaveBeenCalled();
+  });
+
+  /*
+    O ORÇAMENTO DE TEMPO (15/09/2026). Cada consulta "leva" 80 minutos no relógio
+    falso: a terceira já começaria depois dos 150, e a rodada para ali. Quem
+    ficou não ganha carimbo nenhum (o histórico continua nulo e entra primeiro na
+    noite seguinte), é contado uma vez só mesmo estando nas duas listas, e a
+    frase vai na frente da linha de resumo.
+  */
+  it('passou de 150 minutos: para antes da próxima consulta, sem carimbo, e diz quantos ficaram', async () => {
+    relogio('2026-09-15T08:00:00Z');
+    const proc = (id: string, npu: string, criadoEm: string): ProcessoFalso => ({
+      id, numeroCNJ: npu, createdAt: new Date(criadoEm), ultimaConsultaDjen: null, djenHistoricoLidoEm: null,
+    });
+    const processos = [
+      proc('p-a', '00000010120265220001', '2026-09-01T12:00:00Z'),
+      proc('p-b', '00000020220265220002', '2026-09-05T12:00:00Z'),
+      proc('p-c', '00000030320265220003', '2026-09-10T12:00:00Z'),
+    ];
+    const { svc, djen, prisma, linha } = montar({ usuarios: [], processos });
+    const oitentaMinutos = async () => {
+      jest.setSystemTime(Date.now() + 80 * 60_000);
+    };
+
+    const resumo = await svc.varrer(oitentaMinutos);
+
+    expect(djen.lerPorProcesso.mock.calls.map((c) => c[0])).toEqual(['00000030320265220003', '00000020220265220002']);
+    const carimbados = (prisma.processo.update.mock.calls as unknown as [{ where: { id: string } }][]).map((c) => c[0].where.id);
+    expect(carimbados).toEqual(['p-c', 'p-b']);
+    expect(resumo.processosParadosPorTempo).toBe(1);
+    expect(linha().mensagemErro).toBe(
+      'Rodada parada por tempo: 1 processo ficou para a próxima noite. ' +
+        'Varredura concluída: 2 consulta(s), 0 publicação(ões) nova(s), 2 histórico(s) lido(s) pelo número.',
+    );
+  });
+
+  it('noite normal, bem abaixo do orçamento: ninguém fica para trás e a frase não aparece', async () => {
+    relogio('2026-09-15T08:00:00Z');
+    const { svc, linha } = montar({ processos: [recente, jaLido] });
+    const resumo = await svc.varrer(async () => { jest.setSystemTime(Date.now() + 5_000); });
+    expect(resumo.processosParadosPorTempo).toBe(0);
+    expect(linha().mensagemErro).not.toMatch(/parada por tempo/);
   });
 
   it('zero no ambiente desliga a colheita, e o número continua toda noite', async () => {

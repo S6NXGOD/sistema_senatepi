@@ -26,24 +26,17 @@ import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
 import { DjenBuscaService } from './djen-busca.service';
 import { CaixaDePropostasService } from './caixa-de-propostas.service';
-import { CorrelacaoService } from './correlacao.service';
+import { CorrelacaoService, mesmoAtoPeloLink } from './correlacao.service';
 
 /**
- * Interruptor da integração com o DJEN.
+ * A JANELA DA COLHEITA PELA OAB.
  *
- * Desligada, as rotas respondem 404 e não 403 — mesma semântica de
- * `DuplicidadeAtivaGuard`: guardar o link não adianta porque a porta não
- * existe. Ligar ou desligar é mudar `DJEN_INTEGRACAO` no ambiente e reiniciar,
- * sem alterar código e sem novo build.
- */
-/**
- * A JANELA DA COLHEITA DE HISTÓRICO.
- *
- * A varredura diária olha 3 dias, e basta: quem está no acervo também é
- * consultado por NPU, e essa consulta traz o histórico inteiro do processo. Mas
- * ação NOVA — a que ainda não está cadastrada — só aparece pela busca por OAB,
- * que é limitada pela janela: um processo do sindicato distribuído há dois meses
- * e quieto nos últimos três dias é invisível para sempre.
+ * A varredura diária olha 3 dias pela OAB, e basta para o acervo: o processo
+ * cadastrado é lido pelo número toda noite, desde a última consulta, e o
+ * histórico dele é lido uma vez, sem filtro de data (desde 14/09/2026). Mas ação
+ * NOVA — a que ainda não está cadastrada — só aparece pela busca por OAB, que é
+ * limitada pela janela: um processo do sindicato distribuído há dois meses e
+ * quieto nos últimos três dias é invisível para sempre.
  *
  * O parâmetro existe para a passada única que corrige isso. Opcional de
  * propósito: sem ele, o botão "Buscar agora" de sempre continua barato.
@@ -61,6 +54,14 @@ class VarrerDjenQueryDto {
   dias?: number;
 }
 
+/**
+ * Interruptor da integração com o DJEN.
+ *
+ * Desligada, as rotas respondem 404 e não 403 — mesma semântica de
+ * `DuplicidadeAtivaGuard`: guardar o link não adianta porque a porta não
+ * existe. Ligar ou desligar é mudar `DJEN_INTEGRACAO` no ambiente e reiniciar,
+ * sem alterar código e sem novo build.
+ */
 @Injectable()
 export class DjenAtivoGuard implements CanActivate {
   constructor(private readonly djen: DjenService) {}
@@ -362,7 +363,27 @@ export class DjenController {
       },
     });
     if (!c) throw new NotFoundException('Publicação não encontrada.');
-    return c;
+    /*
+      A TAREFA DA CÓPIA DO MESMO ATO (15/09/2026), aditiva. Sem tarefa própria, a
+      tela oferecia "Criar tarefa" numa cópia cuja irmã (mesmo link) já tinha a
+      sua. Com ela aqui, a tela oferece "Abrir a tarefa do mesmo ato"; a aberta
+      vem antes da concluída. Nula quando a própria publicação tem tarefa.
+    */
+    let tarefaDoMesmoAto: { id: string; titulo: string; status: string; inicio: Date } | null = null;
+    if (!c.compromissoId && c.link && c.processo) {
+      const irmas = await this.prisma.comunicacaoDjen.findMany({
+        where: {
+          ...mesmoAtoPeloLink({ id: c.id, processoId: c.processo.id, link: c.link }),
+          compromissoId: { not: null },
+        },
+        select: { compromisso: { select: { id: true, titulo: true, status: true, inicio: true } } },
+        take: 10,
+      });
+      const tarefas = irmas.map((i) => i.compromisso).filter((t): t is NonNullable<typeof t> => !!t);
+      tarefaDoMesmoAto =
+        tarefas.find((t) => !['CONCLUIDO', 'CANCELADO'].includes(t.status)) ?? tarefas[0] ?? null;
+    }
+    return { ...c, tarefaDoMesmoAto };
   }
 
   /**
@@ -412,7 +433,7 @@ export class DjenController {
     const c = await this.prisma.comunicacaoDjen.findUnique({
       where: { id },
       select: {
-        id: true, processoId: true, providencia: true,
+        id: true, processoId: true, providencia: true, link: true,
         tarefaPropostaEm: true, tarefaDispensadaEm: true,
         compromisso: { select: { id: true, status: true } },
       },
@@ -425,9 +446,44 @@ export class DjenController {
     }
     // Já tem tarefa em aberto: devolve a mesma. Concluída ou cancelada não
     // conta, porque aí o trabalho voltou a existir.
-    if (c.compromisso && !['CONCLUIDO', 'CANCELADO'].includes(c.compromisso.status)) {
+    const aberta = (s: string) => !['CONCLUIDO', 'CANCELADO'].includes(s);
+    if (c.compromisso && aberta(c.compromisso.status)) {
       return { compromissoId: c.compromisso.id, criada: false };
     }
+    const eraPropostaAberta = !!c.tarefaPropostaEm && !c.tarefaDispensadaEm && !c.compromisso;
+    const decisao = { tarefaDecididaEm: new Date(), tarefaDecididaPor: user.id };
+
+    /*
+      A CÓPIA DO MESMO ATO (15/09/2026).
+
+      O DJEN manda uma comunicação por destinatário, com o mesmo link. A
+      correlação e a caixa já tratam a cópia como o mesmo ato; esta rota não
+      olhava, e "Criar tarefa" numa cópia criava uma segunda tarefa enquanto a
+      irmã já tinha a sua (ou continuava na caixa como proposta).
+
+      Irmã com tarefa ABERTA: esta publicação se liga a ela e a resposta é a
+      tarefa que existe, como no duplo toque. Se esta era proposta aberta, o
+      clique é a decisão dela e fica carimbado.
+    */
+    const irmas = c.link
+      ? await this.prisma.comunicacaoDjen.findMany({
+          where: mesmoAtoPeloLink({ id: c.id, processoId: c.processoId, link: c.link }),
+          select: {
+            id: true, compromissoId: true, tarefaPropostaEm: true, tarefaDispensadaEm: true,
+            tarefaDispensadaMotivo: true,
+            compromisso: { select: { id: true, status: true } },
+          },
+        })
+      : [];
+    const irmaComTarefa = irmas.find((i) => i.compromisso && aberta(i.compromisso.status));
+    if (irmaComTarefa?.compromisso) {
+      await this.prisma.comunicacaoDjen.update({
+        where: { id: c.id },
+        data: { compromissoId: irmaComTarefa.compromisso.id, ...(eraPropostaAberta ? decisao : {}) },
+      });
+      return { compromissoId: irmaComTarefa.compromisso.id, criada: false };
+    }
+
     if (!c.providencia || c.providencia === 'NENHUMA') {
       throw new BadRequestException(
         'O sistema não reconheceu uma providência neste ato — crie a atividade pela agenda, ' +
@@ -452,14 +508,36 @@ export class DjenController {
       sumia dos Relatórios. Carimba quem clicou — foi quem decidiu —, mesmo que
       a tarefa vá para o dono do caso.
     */
-    const eraPropostaAberta = !!c.tarefaPropostaEm && !c.tarefaDispensadaEm && !c.compromisso;
     await this.prisma.comunicacaoDjen.update({
       where: { id: c.id },
       data: {
         compromissoId,
-        ...(eraPropostaAberta ? { tarefaDecididaEm: new Date(), tarefaDecididaPor: user.id } : {}),
+        ...(eraPropostaAberta ? decisao : {}),
       },
     });
+    /*
+      AS IRMÃS SEGUEM A TAREFA NOVA (15/09/2026). A cópia que ainda era proposta
+      aberta sai da caixa com a mesma decisão (é o mesmo ato, e quem clicou
+      decidiu por ele), e a que só seguia a proposta (COPIA_DO_MESMO_ATO) herda a
+      tarefa, como a correlação faz. As duas escritas são condicionais: a irmã
+      que alguém aceitou ou recusou no meio-tempo não é tocada. A irmã recusada
+      pelo advogado continua recusada — a recusa é dela.
+    */
+    const ids = (filtro: (i: (typeof irmas)[number]) => boolean) => irmas.filter(filtro).map((i) => i.id);
+    const propostasAbertas = ids((i) => !!i.tarefaPropostaEm && !i.tarefaDispensadaEm && !i.compromissoId);
+    if (propostasAbertas.length) {
+      await this.prisma.comunicacaoDjen.updateMany({
+        where: { id: { in: propostasAbertas }, compromissoId: null, tarefaDispensadaEm: null },
+        data: { compromissoId, ...decisao },
+      });
+    }
+    const seguidoras = ids((i) => i.tarefaDispensadaMotivo === 'COPIA_DO_MESMO_ATO' && !i.compromissoId);
+    if (seguidoras.length) {
+      await this.prisma.comunicacaoDjen.updateMany({
+        where: { id: { in: seguidoras }, compromissoId: null, tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO' },
+        data: { compromissoId },
+      });
+    }
     return { compromissoId, criada: true };
   }
 
@@ -503,7 +581,7 @@ export class DjenController {
   @Post('sincronizar')
   @OperacaoDeSistema()
   @UseGuards(DjenAtivoGuard)
-  @ApiOperation({ summary: 'Varredura completa do DJEN (OAB dos advogados + processos mudos).' })
+  @ApiOperation({ summary: 'Varredura completa do DJEN (OAB dos advogados, histórico e número dos processos).' })
   async varrer(@Query() q: VarrerDjenQueryDto) {
     /*
       A MESMA TRAVA DO ROBÔ DAS 05:00 — e ela faltava aqui.

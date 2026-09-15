@@ -28,6 +28,12 @@ const USUARIOS = [
   { id: 'u-saiu', nome: 'Saulo Saiu', nomeExibicao: null, role: 'ADVOGADO', permissoes: null, ativo: false, avatarUrl: null, avatarKey: null },
 ];
 
+/** Aplica a cláusula `{ atendentePorId }` do `AND`, como o banco aplicaria. */
+function doAtendente(lista: unknown[], where: any): unknown[] {
+  const clausula = (where?.AND ?? []).find((c: any) => c && 'atendentePorId' in c);
+  return clausula ? lista.filter((a: any) => a.atendentePorId === clausula.atendentePorId) : lista;
+}
+
 interface Mundo {
   atendimento?: Record<string, unknown> | null;
   compromisso?: Record<string, unknown> | null;
@@ -75,8 +81,9 @@ function montar(mundo: Mundo = {}) {
       findUnique: async () => mundo.atendimento ?? null,
       update: async (args: any) => { gravado.atendimentoUpdate.push(args); return {}; },
       updateMany: async (args: any) => { gravado.atendimentoUpdate.push(args); return { count: 1 }; },
-      count: async () => (mundo.lista ?? []).length,
-      findMany: async () => mundo.lista ?? [],
+      // Só o `atendentePorId` do `AND` é aplicado (15/09/2026): o resto do filtro é do banco, e outros testes cuidam.
+      count: async (args: any) => doAtendente(mundo.lista ?? [], args?.where).length,
+      findMany: async (args: any) => doAtendente(mundo.lista ?? [], args?.where),
     },
     compromisso: {
       findUnique: async () => mundo.compromisso ?? null,
@@ -594,6 +601,95 @@ describe('listar e detalhe — o encaminhamento derivado na leitura', () => {
     expect(r.items[0]).not.toHaveProperty('compromissos');
     expect(r.items[1]).not.toHaveProperty('encaminhamento');
     expect(r.total).toBe(2);
+  });
+
+  /*
+    O FILTRO POR FILA (15/09/2026, E3). "Agora" é ter 15/09, 11:00. O #13 tem
+    a consulta de ontem sem registro (um dia útil: ainda com o advogado); o #9
+    tem a consulta registrada e o atendimento aberto; o #2 não tem desfecho.
+  */
+  describe('com a fila', () => {
+    const TREZE = {
+      ...CONSULTA_ATENDIDA, id: 'c-13', status: 'PENDENTE', inicio: new Date('2026-09-14T12:00:00Z'),
+    };
+    const LISTA = [
+      { id: 'a-13', numero: 13, status: 'PENDENTE', desfecho: 'ENCAMINHADO', compromissos: [TREZE] },
+      { id: 'a-9', numero: 9, status: 'PENDENTE', desfecho: 'ENCAMINHADO', compromissos: [CONSULTA_ATENDIDA] },
+      { id: 'a-7', numero: 7, status: 'CONCLUIDO', desfecho: 'ENCAMINHADO', compromissos: [CONSULTA_ATENDIDA] },
+      { id: 'a-2', numero: 2, status: 'PENDENTE', desfecho: null, compromissos: [] },
+    ];
+
+    it('sem filtro, cada item diz a fila; concluído não tem fila', async () => {
+      const r = await montar({ lista: LISTA }).svc.listar({});
+      expect(Object.fromEntries(r.items.map((i: any) => [i.id, i.fila]))).toEqual({
+        'a-13': { fila: 'CONSULTA', motivo: 'AGUARDANDO' },
+        'a-9': { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' },
+        'a-7': null,
+        'a-2': { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' },
+      });
+    });
+
+    it('"Com a triagem" e "Aguardando a consulta" separam os pendentes, e o total é o da fila', async () => {
+      const triagem = await montar({ lista: LISTA }).svc.listar({ status: 'PENDENTE', fila: 'TRIAGEM' } as never);
+      expect(triagem.items.map((i: any) => i.id)).toEqual(['a-9', 'a-2']);
+      expect(triagem).toMatchObject({ total: 2, page: 1, totalPaginas: 1 });
+      for (const i of triagem.items) expect(i).not.toHaveProperty('compromissos');
+
+      const consulta = await montar({ lista: LISTA }).svc.listar({ fila: 'CONSULTA' } as never);
+      expect(consulta.items.map((i: any) => i.id)).toEqual(['a-13']);
+      expect(consulta.total).toBe(1);
+    });
+
+    it('a página é cortada depois da fila', async () => {
+      const muitos = Array.from({ length: 7 }, (_, n) => ({
+        id: `a-${n}`, numero: n, status: 'PENDENTE', desfecho: null, compromissos: [],
+      }));
+      const r = await montar({ lista: muitos }).svc.listar({ fila: 'TRIAGEM', page: 2, pageSize: 5 } as never);
+      expect(r.items.map((i: any) => i.id)).toEqual(['a-5', 'a-6']);
+      expect(r).toMatchObject({ total: 7, page: 2, pageSize: 5, totalPaginas: 2 });
+    });
+
+    it('fila com outro status que não pendente: lista vazia, sem ler o banco à toa', async () => {
+      const r = await montar({ lista: LISTA }).svc.listar({ status: 'CONCLUIDO', fila: 'TRIAGEM' } as never);
+      expect(r).toMatchObject({ items: [], total: 0, totalPaginas: 1 });
+    });
+
+    /*
+      "COMIGO, COM A TRIAGEM" ABRE O MESMO RECORTE DO NÚMERO (15/09/2026). O
+      balcão conta pelos que a pessoa registrou; a lista abria a fila da casa.
+      O Tiago registrou o #9; a Ana, o #2 e o #13.
+    */
+    describe('atendente=me', () => {
+      const DE_QUEM = { 'a-13': 'u-ana', 'a-9': 'u-tri', 'a-7': 'u-tri', 'a-2': 'u-ana' } as Record<string, string>;
+      const COM_ATENDENTE = LISTA.map((a) => ({ ...a, atendentePorId: DE_QUEM[a.id] }));
+
+      it('com a fila: só os da pessoa do token, na fila pedida, e o total é o dela', async () => {
+        const r = await montar({ lista: COM_ATENDENTE }).svc.listar(
+          { status: 'PENDENTE', fila: 'TRIAGEM', atendente: 'me' } as never, 'u-tri',
+        );
+        expect(r.items.map((i: any) => i.id)).toEqual(['a-9']);
+        expect(r.total).toBe(1);
+
+        const daCasa = await montar({ lista: COM_ATENDENTE }).svc.listar({ status: 'PENDENTE', fila: 'TRIAGEM' } as never, 'u-tri');
+        expect(daCasa.items.map((i: any) => i.id)).toEqual(['a-9', 'a-2']);
+      });
+
+      it('sem a fila, também filtra; e sem usuário no token não vira a lista da casa', async () => {
+        const r = await montar({ lista: COM_ATENDENTE }).svc.listar({ atendente: 'me' } as never, 'u-ana');
+        expect(r.items.map((i: any) => i.id)).toEqual(['a-13', 'a-2']);
+        expect(r.total).toBe(2);
+
+        const semToken = await montar({ lista: COM_ATENDENTE }).svc.listar({ atendente: 'me' } as never, undefined);
+        expect(semToken).toMatchObject({ items: [], total: 0 });
+      });
+    });
+
+    it('dois dias úteis depois, o #13 muda de fila na mesma lista', async () => {
+      jest.setSystemTime(new Date('2026-09-16T13:00:00.000Z'));
+      const r = await montar({ lista: LISTA }).svc.listar({ fila: 'TRIAGEM' } as never);
+      expect(r.items.map((i: any) => i.id)).toEqual(['a-13', 'a-9', 'a-2']);
+      expect(r.items[0].fila).toEqual({ fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' });
+    });
   });
 
   it('detalhe: consultas sem o seguimento, e o estado vem delas', async () => {

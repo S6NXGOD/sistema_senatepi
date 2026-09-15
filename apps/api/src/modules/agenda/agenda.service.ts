@@ -19,7 +19,13 @@ import {
   recorteAtencao, recorteAtrasadas, recorteHoje, recorteSeteDias, recorteTodos, sentidoDaJanela,
   whereDaJanela, whereDoCursor, whereDoRecorte, type ContagemDosRecortes,
 } from './recortes.util';
-import { cancelarCompromissoEmTransacao, dispensarMovimentacaoLigada } from './cancelamento-em-transacao';
+import {
+  FRASE_MUDOU_NO_MEIO, cancelarCompromissoEmTransacao, dispensarMovimentacaoLigada,
+} from './cancelamento-em-transacao';
+import {
+  comFraseDeCorrida, concluirAtendimentoPelaConsulta, reabrirAtendimentoFechadoPelaConsulta,
+  travarAtendimentoAntesDaConsulta, type AtendimentoMexido,
+} from '../atendimentos/fechamento-pela-consulta';
 import { dadosDaRemarcacao, mesmoMinuto, recusarRemarcacaoParaOPassado } from './remarcacao.util';
 import {
   FRASE_CANCELAR_PELA_ROTA, FRASE_CONCLUIR_PELA_ROTA, statusDaCriacao, statusPelaEdicao,
@@ -58,6 +64,32 @@ interface Ctx {
 
 /** Quem está lendo — o que a matriz deixa ver de Processos decide o que vem junto. */
 export type Leitor = Pick<AuthUser, 'id' | 'role' | 'permissoes'>;
+
+/** O que o caso pré-processual herda da atividade concluída. */
+interface AtividadeDoCaso {
+  titulo: string;
+  descricao: string | null;
+  filiadoId: string | null;
+  responsavelId: string;
+  atendimentoId: string | null;
+  urgente?: boolean;
+  urgenteMotivo?: string | null;
+}
+
+/** O que foi validado FORA da transação, para o caso nascer dentro dela (15/09/2026). */
+interface PreparoDoCaso {
+  advogadoId: string;
+  equipeCaso: string[];
+  titulo: string;
+  observacao: string | null;
+  categoria: string | null;
+  assunto: string | null;
+}
+
+/** `{ id, numero }` do atendimento mexido pela consulta, para o aviso da tela; nulo quando nada mudou. */
+function resumoDoAtendimento(mexido: AtendimentoMexido | null): { id: string; numero: number } | null {
+  return mexido ? { id: mexido.atendimentoId, numero: mexido.numero } : null;
+}
 
 /**
  * QUEM NÃO TEM O MÓDULO DE PROCESSOS NÃO RECEBE DADO DE PROCESSO PELA AGENDA.
@@ -718,6 +750,14 @@ export class AgendaService {
           select: {
             id: true, numero: true, canal: true, desfecho: true, descricao: true, createdAt: true,
             assunto: true, assuntoOutro: true,
+            /*
+              O ADVOGADO É AVISADO NO PRÓPRIO LUGAR (15/09/2026, E5 da rodada 4):
+              "Ao registrar esta consulta, o atendimento #13 é concluído junto", e
+              depois "foi concluído junto com esta consulta". A gaveta precisa da
+              situação do atendimento e do carimbo de quem o fechou para dizer
+              qual das duas frases vale, sem adivinhar.
+            */
+            status: true, conclusaoOrigem: true, conclusaoConsultaId: true,
             atendente: { select: { id: true, nome: true, nomeExibicao: true } },
           },
         },
@@ -952,7 +992,11 @@ export class AgendaService {
   async mudarStatus(id: string, dto: MudarStatusDto, ctx: Ctx) {
     const atual = await this.prisma.compromisso.findUnique({
       where: { id },
-      select: { id: true, status: true, iniciadoEm: true, titulo: true },
+      select: {
+        id: true, status: true, iniciadoEm: true, titulo: true,
+        // Para devolver o atendimento que esta consulta fechou (ver `reabrirAtendimentoFechadoPelaConsulta`).
+        atendimentoId: true, concluidoEm: true,
+      },
     });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
 
@@ -976,25 +1020,44 @@ export class AgendaService {
     if (dto.status === StatusCompromisso.EM_ANDAMENTO && !atual.iniciadoEm) iniciadoEm = new Date();
     else if (dto.status === StatusCompromisso.PENDENTE) iniciadoEm = null;
 
-    const compromisso = await this.prisma.compromisso.update({
-      where: { id },
-      data: {
-        status: dto.status,
-        ...(iniciadoEm !== undefined ? { iniciadoEm } : {}),
-        // Reabrir limpa o fechamento anterior: manter um desfecho antigo num
-        // evento que voltou a estar aberto faria a tela mentir. O histórico
-        // permanece na Auditoria. A CATEGORIA também sai: ela ficava para trás
-        // e a atividade reaberta seguia contada em "cancelada por quê" nos
-        // relatórios.
-        ...(reabrindo
-          ? {
-              desfecho: null, desfechoObs: null, concluidoEm: null, concluidoPor: null,
-              canceladoCategoria: null, canceladoMotivo: null, canceladoEm: null, canceladoPor: null,
-            }
-          : {}),
-      },
-      select: cardSelectPara(ctx.leitor),
-    });
+    /*
+      NUMA TRANSAÇÃO, E CONDICIONAL (15/09/2026, E1 da rodada 4). Reabrir a
+      consulta concluída devolve o atendimento que ela fechou sozinha, e as duas
+      gravações andam juntas: consulta reaberta com o atendimento concluído por
+      ela deixaria a triagem sem nada na fila e o advogado sem o atendimento. A
+      gravação confere a situação lida, como o desfazer e o cancelar já faziam:
+      quem chega segundo ouve "abra de novo", e não regrava por cima.
+    */
+    const { compromisso, atendimentoReaberto } = await comFraseDeCorrida(FRASE_MUDOU_NO_MEIO, () => this.prisma.$transaction(async (tx) => {
+      // Reabrir a concluída mexe no atendimento: trava ele antes da consulta, na ordem da triagem (15/09/2026).
+      if (atual.status === StatusCompromisso.CONCLUIDO) await travarAtendimentoAntesDaConsulta(tx, atual.atendimentoId);
+      const r = await tx.compromisso.updateMany({
+        where: { id, status: atual.status },
+        data: {
+          status: dto.status,
+          ...(iniciadoEm !== undefined ? { iniciadoEm } : {}),
+          // Reabrir limpa o fechamento anterior: manter um desfecho antigo num
+          // evento que voltou a estar aberto faria a tela mentir. O histórico
+          // permanece na Auditoria. A CATEGORIA também sai: ela ficava para trás
+          // e a atividade reaberta seguia contada em "cancelada por quê" nos
+          // relatórios.
+          ...(reabrindo
+            ? {
+                desfecho: null, desfechoObs: null, concluidoEm: null, concluidoPor: null,
+                canceladoCategoria: null, canceladoMotivo: null, canceladoEm: null, canceladoPor: null,
+              }
+            : {}),
+        },
+      });
+      if (r.count !== 1) throw new BadRequestException(FRASE_MUDOU_NO_MEIO);
+      const atendimentoReaberto = atual.status === StatusCompromisso.CONCLUIDO
+        ? await reabrirAtendimentoFechadoPelaConsulta(tx, {
+            compromissoId: id, atendimentoId: atual.atendimentoId, concluidoEm: atual.concluidoEm,
+          })
+        : null;
+      const compromisso = await tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelectPara(ctx.leitor) });
+      return { compromisso, atendimentoReaberto };
+    }));
 
     await this.auditar(
       AcaoAuditoria.UPDATE,
@@ -1018,9 +1081,10 @@ export class AgendaService {
       reabrindo ? 'REABERTO' : dto.status === StatusCompromisso.EM_ANDAMENTO ? 'INICIADO' : 'EDITADO',
       narrativa,
       ctx,
-      { de: atual.status, para: dto.status },
+      { de: atual.status, para: dto.status, ...(atendimentoReaberto ? { atendimentoReaberto: atendimentoReaberto.atendimentoId } : {}) },
     );
-    return compromisso;
+    await this.auditarAtendimento(atendimentoReaberto, ctx);
+    return { ...compromisso, atendimentoReaberto: resumoDoAtendimento(atendimentoReaberto) };
   }
 
   /**
@@ -1045,6 +1109,8 @@ export class AgendaService {
       select: {
         id: true, status: true, titulo: true, descricao: true, tipo: true, inicio: true,
         filiadoId: true, processoId: true, responsavelId: true, atendimentoId: true,
+        // O seguimento herda `atendimentoId` e não fecha o atendimento — ver `concluirAtendimentoPelaConsulta`.
+        origemDesfechoId: true,
         // A urgência viaja para o caso pré-processual — ver `criarPreProcessual`.
         urgente: true, urgenteMotivo: true,
       },
@@ -1078,17 +1144,22 @@ export class AgendaService {
 
     // ---- Vínculo com processo, conforme o encaminhamento do desfecho ----
     let processoId = atual.processoId;
-    let preProcessualCriado: { id: string; titulo: string | null } | null = null;
 
     if (opcao.acao === 'VINCULAR_PROCESSO') {
       if (!dto.processoId) throw new BadRequestException('Selecione o processo a vincular.');
       processoId = await this.processoDoFiliado(dto.processoId, atual.filiadoId);
     }
 
-    if (opcao.acao === 'CRIAR_PROCESSO') {
-      preProcessualCriado = await this.criarPreProcessual(id, atual, dto, ctx);
-      processoId = preProcessualCriado.id;
-    }
+    /*
+      O CASO PRÉ-PROCESSUAL NASCE DENTRO DA TRANSAÇÃO DA CONCLUSÃO (15/09/2026).
+      Ele nascia antes, numa transação própria que já comitava. Se a triagem
+      cancelava a consulta nesse meio tempo, a gravação condicional abaixo recusava
+      ("abra de novo") e o processo ficava no acervo, ligado ao filiado e ao
+      atendimento, com a consulta cancelada e sem conclusão. Dois toques em "Virou
+      processo novo" criavam dois processos. Aqui só se valida (advogado, equipe,
+      categoria); a criação vem depois de a consulta ser gravada, e cai junto.
+    */
+    const preparoDoCaso = opcao.acao === 'CRIAR_PROCESSO' ? await this.prepararPreProcessual(id, atual, dto) : null;
 
     // ---- Atividade de seguimento (a pendência que o desfecho declara) ----
     const spec = opcao.acao === 'CRIAR_ATIVIDADE' ? opcao.seguimento : undefined;
@@ -1108,7 +1179,7 @@ export class AgendaService {
 
     // O andamento no processo só é escrito quando NÃO houve rascunho: o rascunho
     // já nasce com a conversa como primeiro andamento (ver criarRascunho).
-    const gravarAndamento = !!processoId && !preProcessualCriado;
+    const gravarAndamento = !!processoId && !preparoDoCaso;
     const agora = new Date();
 
     /*
@@ -1123,10 +1194,23 @@ export class AgendaService {
     */
     const andamentoAnteriorId = andamentoDaConclusao(await this.ultimaConclusao(id));
 
-    const { compromisso, seguimento, substituidas, andamentoId, andamentoSubstituido } =
-      await this.prisma.$transaction(async (tx) => {
-      const atualizado = await tx.compromisso.update({
-        where: { id },
+    const { compromisso, seguimento, substituidas, andamentoId, andamentoSubstituido, atendimento, preProcessualCriado } =
+      await comFraseDeCorrida(FRASE_MUDOU_NO_MEIO, () => this.prisma.$transaction(async (tx) => {
+      /*
+        PRIMEIRO O ATENDIMENTO, DEPOIS A CONSULTA (15/09/2026), a mesma ordem do
+        fechamento pela triagem: ver `travarAtendimentoAntesDaConsulta`. Vale
+        também para o seguimento, que não fecha o atendimento mas pode gravar nele
+        o processo criado.
+      */
+      await travarAtendimentoAntesDaConsulta(tx, atual.atendimentoId);
+      /*
+        A GRAVAÇÃO CONFERE A SITUAÇÃO LIDA (15/09/2026). Era um `update` por id: a
+        triagem que cancelava a consulta no mesmo instante perdia o cancelamento
+        em silêncio, e agora o cancelamento de lá também decide o atendimento.
+        Quem chega segundo ouve "abra de novo".
+      */
+      const gravada = await tx.compromisso.updateMany({
+        where: { id, status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] } },
         data: {
           status: StatusCompromisso.CONCLUIDO,
           desfecho: dto.desfecho,
@@ -1135,8 +1219,31 @@ export class AgendaService {
           concluidoPor: ctx.userId ?? null,
           processoId,
         },
-        select: cardSelectPara(ctx.leitor),
       });
+      if (gravada.count !== 1) throw new BadRequestException(FRASE_MUDOU_NO_MEIO);
+
+      // Só com a consulta gravada o caso nasce, e na mesma transação: recusa acima, nenhum processo.
+      const preProcessualCriado = preparoDoCaso ? await this.criarPreProcessual(tx, id, atual, preparoDoCaso, ctx) : null;
+      if (preProcessualCriado) {
+        processoId = preProcessualCriado.id;
+        await tx.compromisso.update({ where: { id }, data: { processoId } });
+      }
+
+      /*
+        O ATENDIMENTO DE ORIGEM FECHA JUNTO (15/09/2026, E1 da rodada 4), com o
+        MESMO instante gravado na consulta, que é o carimbo do desfazer. A regra
+        nunca lança: se o atendimento não pode fechar, a consulta fecha assim
+        mesmo e o motivo vai para o histórico abaixo.
+      */
+      const atendimento = await concluirAtendimentoPelaConsulta(tx, {
+        consulta: { id, atendimentoId: atual.atendimentoId, origemDesfechoId: atual.origemDesfechoId },
+        desfecho: dto.desfecho,
+        rotuloDesfecho: opcao.label,
+        desfechoObs: obs,
+        autorId: ctx.userId ?? null,
+        agora,
+      });
+      const atualizado = await tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelectPara(ctx.leitor) });
 
       const andamentoAntigo = andamentoAnteriorId
         ? await tx.movimentacaoInterna.findFirst({
@@ -1222,7 +1329,7 @@ export class AgendaService {
       }
 
       const substituidas = anteriores.map((a) => a.id);
-      if (!criarSeguimento) return { compromisso: atualizado, seguimento: null, substituidas, andamentoId, andamentoSubstituido };
+      if (!criarSeguimento) return { compromisso: atualizado, seguimento: null, substituidas, andamentoId, andamentoSubstituido, atendimento, preProcessualCriado };
 
       // Dia útil, nove da manhã de Teresina — a mesma conta que a prévia mostrou.
       const inicio = dto.seguimento?.inicio
@@ -1286,8 +1393,22 @@ export class AgendaService {
           metadata: { origemCompromissoId: id, desfecho: dto.desfecho },
         },
       });
-      return { compromisso: atualizado, seguimento: novo, substituidas, andamentoId, andamentoSubstituido };
-    });
+      return { compromisso: atualizado, seguimento: novo, substituidas, andamentoId, andamentoSubstituido, atendimento, preProcessualCriado };
+    }));
+
+    // A auditoria do caso, depois do commit: nunca registra um processo que a transação desfez.
+    if (preProcessualCriado) {
+      await this.audit.registrar({
+        userId: ctx.userId ?? null,
+        acao: AcaoAuditoria.CREATE,
+        entidade: 'Processo',
+        entidadeId: preProcessualCriado.id,
+        descricao: `Caso aberto em fase PRÉ-PROCESSUAL a partir da atividade "${atual.titulo}"`,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        metadata: { compromissoId: id, rascunho: true },
+      });
+    }
 
     await this.auditar(
       AcaoAuditoria.UPDATE,
@@ -1330,14 +1451,29 @@ export class AgendaService {
         substituidas,
         andamentoId,
         andamentoSubstituido,
+        /*
+          O QUE ACONTECEU COM O ATENDIMENTO, carimbado (E1). "Não fechou" também
+          é decisão, com o motivo: sem ele, a triagem que encontra o atendimento
+          aberto depois de uma consulta registrada não saberia se foi regra ou
+          defeito (memória "carimbe toda decisão").
+        */
+        atendimento: !atendimento
+          ? null
+          : 'naoFechou' in atendimento
+            ? { fechado: false, motivo: atendimento.naoFechou }
+            : { fechado: true, id: atendimento.atendimentoId, numero: atendimento.numero },
       },
     );
+    const atendimentoConcluido = atendimento && 'auditoria' in atendimento ? atendimento : null;
+    await this.auditarAtendimento(atendimentoConcluido, ctx);
     return {
       ...compromisso,
       preProcessualCriado,
       /** Nome antigo na resposta — a tela em produção ainda lê por ele. */
       rascunhoCriado: preProcessualCriado,
       seguimentoCriado: seguimento,
+      /** O atendimento da triagem que fechou junto ("Atendimento #13 concluído junto."), ou nulo. */
+      atendimentoConcluido: resumoDoAtendimento(atendimentoConcluido),
     };
   }
 
@@ -1500,14 +1636,19 @@ export class AgendaService {
   async desfazerConclusao(id: string, ctx: Ctx) {
     const atual = await this.prisma.compromisso.findUnique({
       where: { id },
-      select: { id: true, status: true, titulo: true, desfecho: true, concluidoEm: true, concluidoPor: true },
+      select: {
+        id: true, status: true, titulo: true, desfecho: true, concluidoEm: true, concluidoPor: true,
+        atendimentoId: true,
+      },
     });
     if (!atual) throw new NotFoundException('Compromisso não encontrado.');
 
     const decisao = podeDesfazerConclusao(atual, await this.ultimaConclusao(id), ctx.userId);
     if (!decisao.ok) throw new BadRequestException(decisao.motivo);
 
-    const compromisso = await this.prisma.$transaction(async (tx) => {
+    const { compromisso, atendimentoReaberto } = await comFraseDeCorrida(FRASE_MUDOU_NO_MEIO, () => this.prisma.$transaction(async (tx) => {
+      // O desfazer devolve o atendimento: trava ele antes da consulta, na ordem da triagem (15/09/2026).
+      await travarAtendimentoAntesDaConsulta(tx, atual.atendimentoId);
       const r = await tx.compromisso.updateMany({
         where: { id, status: StatusCompromisso.CONCLUIDO, concluidoPor: ctx.userId },
         data: {
@@ -1524,8 +1665,13 @@ export class AgendaService {
           where: { id: decisao.andamentoId, origem: ORIGEM_ANDAMENTO_CONCLUSAO },
         });
       }
-      return tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelectPara(ctx.leitor) });
-    });
+      // O atendimento que esta conclusão fechou volta a aguardar a consulta — só se o carimbo bater (E1).
+      const atendimentoReaberto = await reabrirAtendimentoFechadoPelaConsulta(tx, {
+        compromissoId: id, atendimentoId: atual.atendimentoId, concluidoEm: atual.concluidoEm,
+      });
+      const compromisso = await tx.compromisso.findUniqueOrThrow({ where: { id }, select: cardSelectPara(ctx.leitor) });
+      return { compromisso, atendimentoReaberto };
+    }));
 
     const rotulo = DESFECHO_LABEL[atual.desfecho ?? ''] ?? atual.desfecho ?? 'sem desfecho';
     const metadata = {
@@ -1534,12 +1680,38 @@ export class AgendaService {
       de: StatusCompromisso.CONCLUIDO,
       para: decisao.voltarPara,
       andamentoRemovido: decisao.andamentoId,
+      atendimentoReaberto: atendimentoReaberto?.atendimentoId ?? null,
     };
     await this.auditar(AcaoAuditoria.UPDATE, id, `Conclusão desfeita (${rotulo}): ${atual.titulo}`, ctx, metadata);
     // REABERTO, e não uma ação nova: a linha do tempo da tela já sabe mostrar
     // reabertura; o `via` distingue o desfazer de quem reabriu pela gaveta.
     await this.historiar(id, 'REABERTO', `Conclusão desfeita logo depois de registrada (${rotulo}).`, ctx, metadata);
-    return compromisso;
+    await this.auditarAtendimento(atendimentoReaberto, ctx);
+    return { ...compromisso, atendimentoReaberto: resumoDoAtendimento(atendimentoReaberto) };
+  }
+
+  /**
+   * A auditoria do atendimento que a consulta fechou ou devolveu, depois do
+   * commit e com quem agiu. Vai para a entidade Atendimento, e não para a
+   * atividade: é na ficha do atendimento que se procura "quem fechou o #13".
+   */
+  private async auditarAtendimento(mexido: AtendimentoMexido | null, ctx: Ctx) {
+    if (!mexido) return;
+    /*
+      Depois do commit a consulta já está registrada. Uma falha ao gravar a
+      auditoria do ATENDIMENTO não pode virar erro na tela do advogado, que
+      concluiria de novo uma consulta já concluída. Fica no log.
+    */
+    try {
+      await this.audit.registrar({
+        ...mexido.auditoria,
+        userId: ctx.userId ?? null,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
+    } catch (e) {
+      this.logger.warn(`Auditoria do atendimento ${mexido.atendimentoId} não gravada: ${(e as Error).message}`);
+    }
   }
 
   /** O registro da última conclusão desta atividade, como o histórico guardou. */
@@ -1648,21 +1820,16 @@ export class AgendaService {
    *
    * Herda o filiado e o advogado da atividade, para o caso já nascer na carteira
    * certa em vez de virar um registro solto que alguém precisa adotar.
+   *
+   * Em duas metades desde 15/09/2026: `prepararPreProcessual` valida e lê fora da
+   * transação; `criarPreProcessual` grava DENTRO da transação da conclusão, depois
+   * da gravação condicional da consulta (ver `concluir`).
    */
-  private async criarPreProcessual(
+  private async prepararPreProcessual(
     compromissoId: string,
-    atividade: {
-      titulo: string;
-      descricao: string | null;
-      filiadoId: string | null;
-      responsavelId: string;
-      atendimentoId: string | null;
-      urgente?: boolean;
-      urgenteMotivo?: string | null;
-    },
+    atividade: AtividadeDoCaso,
     dto: ConcluirCompromissoDto,
-    ctx: Ctx,
-  ): Promise<{ id: string; titulo: string | null }> {
+  ): Promise<PreparoDoCaso> {
     const nova = dto.novoProcesso ?? {};
     const advogadoId = nova.advogadoId || atividade.responsavelId;
 
@@ -1688,13 +1855,23 @@ export class AgendaService {
     } catch (e) {
       throw new BadRequestException((e as Error).message);
     }
+    return { advogadoId, equipeCaso, titulo, observacao, categoria, assunto: nova.assunto?.trim() || null };
+  }
 
-    const processo = await this.prisma.$transaction(async (tx) => {
+  /** A metade que grava: sempre com o `tx` da conclusão, que desfaz tudo se a consulta recusar. */
+  private async criarPreProcessual(
+    tx: Prisma.TransactionClient,
+    compromissoId: string,
+    atividade: AtividadeDoCaso,
+    preparo: PreparoDoCaso,
+    ctx: Ctx,
+  ): Promise<{ id: string; titulo: string | null }> {
+    const { advogadoId, equipeCaso, titulo, observacao, categoria } = preparo;
       const p = await tx.processo.create({
         data: {
           numeroCNJ: null, // ainda não ajuizado — é o que define o pré-processual
           titulo,
-          assuntoPrincipal: nova.assunto?.trim() || null,
+          assuntoPrincipal: preparo.assunto,
           categoria,
           statusInterno: StatusProcesso.PRE_PROCESSUAL,
           filiadoId: atividade.filiadoId,
@@ -1777,19 +1954,6 @@ export class AgendaService {
         });
       }
       return p;
-    });
-
-    await this.audit.registrar({
-      userId: ctx.userId ?? null,
-      acao: AcaoAuditoria.CREATE,
-      entidade: 'Processo',
-      entidadeId: processo.id,
-      descricao: `Caso aberto em fase PRÉ-PROCESSUAL a partir da atividade "${atividade.titulo}"`,
-      ip: ctx.ip,
-      userAgent: ctx.userAgent,
-      metadata: { compromissoId, rascunho: true },
-    });
-    return processo;
   }
 
   /**

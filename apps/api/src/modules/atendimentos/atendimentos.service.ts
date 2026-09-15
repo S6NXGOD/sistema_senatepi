@@ -18,14 +18,15 @@ import {
 } from '../processos/utils/data-br.util';
 import { assuntoGravavel, descreverAssunto, ROTULO_CANAL } from './assunto.util';
 import {
-  ConsultaDoEncaminhamento, ehConsultaDoAtendimento, LOCAL_DA_MODALIDADE, ModalidadeConsulta, modalidadeRemota,
-  SELECT_CONSULTA_DO_ENCAMINHAMENTO, situacaoDoEncaminhamento,
+  ConsultaDoEncaminhamento, ehConsultaDoAtendimento, filaDoAtendimento, LOCAL_DA_MODALIDADE, ModalidadeConsulta,
+  modalidadeRemota, SELECT_CONSULTA_DO_ENCAMINHAMENTO, situacaoDoEncaminhamento,
 } from './encaminhamento.util';
 import {
-  CATEGORIA_DA_CONSULTA_AO_CONCLUIR, consultasParaCancelar, decidirCancelar, decidirConcluir,
-  EscolhaDaConsulta, FRASE_ATENDIMENTO_MUDOU, FRASE_CONSULTA_MUDOU, FRASE_TELA_PROPRIA,
-  motivoDaConsultaCancelada, planoDeFechamento, PlanoDeFechamento,
+  CATEGORIA_DA_CONSULTA_AO_CONCLUIR, CATEGORIA_DA_COPIA_QUE_SOBROU, consultasParaCancelar, copiasQueSobraram,
+  decidirCancelar, decidirConcluir, FRASE_ATENDIMENTO_MUDOU, FRASE_CONSULTA_MUDOU, FRASE_TELA_PROPRIA,
+  motivoDaConsultaCancelada, motivoDaCopiaCancelada, planoDeFechamento, PlanoDeFechamento,
 } from './fechamento.util';
+import { ORIGEM_DA_CONCLUSAO, comFraseDeCorrida } from './fechamento-pela-consulta';
 import {
   AtualizarAssuntoDto, AtualizarLinkConsultaDto, CancelarAtendimentoDto, ConcluirAtendimentoDto,
   CreateAtendimentoDto, ListAtendimentosQueryDto,
@@ -434,7 +435,7 @@ export class AtendimentosService {
       where: { id },
       select: {
         id: true, numero: true, status: true,
-        concluidoEm: true, concluidoPor: true, conclusaoObs: true,
+        concluidoEm: true, concluidoPor: true, conclusaoObs: true, conclusaoOrigem: true,
         canceladoEm: true, canceladoPor: true, canceladoCategoria: true, canceladoMotivo: true,
       },
     });
@@ -451,6 +452,10 @@ export class AtendimentosService {
       data: {
         status: StatusAtendimento.PENDENTE,
         concluidoEm: null, concluidoPor: null, conclusaoObs: null,
+        // O carimbo de quem fechou sai junto (15/09/2026): um atendimento reaberto
+        // que guardasse "pela consulta X" seria devolvido de novo pelo desfazer
+        // daquela consulta, por cima da decisão de quem reabriu.
+        conclusaoOrigem: null, conclusaoConsultaId: null,
         canceladoEm: null, canceladoPor: null, canceladoCategoria: null, canceladoMotivo: null,
       },
     });
@@ -461,7 +466,10 @@ export class AtendimentosService {
           categoria: at.canceladoCategoria, motivo: at.canceladoMotivo,
           em: at.canceladoEm?.toISOString() ?? null, por: at.canceladoPor,
         }
-      : { nota: at.conclusaoObs, em: at.concluidoEm?.toISOString() ?? null, por: at.concluidoPor };
+      : {
+          nota: at.conclusaoObs, em: at.concluidoEm?.toISOString() ?? null, por: at.concluidoPor,
+          origem: at.conclusaoOrigem ?? null,
+        };
     /*
       DE ONDE PARA ONDE. "Atendimento #12 → CONCLUIDO" diz o destino e esconde
       a origem — e a pergunta que se faz é justamente "ele não estava
@@ -502,8 +510,18 @@ export class AtendimentosService {
 
     const aCancelar = decisao.consulta === 'CANCELAR' ? consultasParaCancelar(at.compromissos) : [];
     const motivo = motivoDaConsultaCancelada('CONCLUIR', at.numero, plano.consulta?.situacao ?? 'NENHUMA', decisao.texto);
+    // E4: com a vigente já registrada, as cópias abertas do laço antigo saem como duplicidade.
+    const copias = copiasQueSobraram(plano, at.compromissos);
+    const motivoDasCopias = motivoDaCopiaCancelada('CONCLUIR', at.numero, plano.consulta);
 
-    const feitos = await this.prisma.$transaction(async (tx) => {
+    /*
+      A PRIMEIRA GRAVAÇÃO É A DO ATENDIMENTO, e isso é a ordem das travas
+      (15/09/2026): a agenda trava o atendimento antes da consulta pela mesma
+      regra (`travarAtendimentoAntesDaConsulta`). Se o banco ainda abortar esta
+      transação por deadlock, quem está no balcão ouve a frase de corrida, e não
+      "Internal server error".
+    */
+    const { feitos, copiasFeitas } = await comFraseDeCorrida(FRASE_ATENDIMENTO_MUDOU, () => this.prisma.$transaction(async (tx) => {
       const r = await tx.atendimento.updateMany({
         where: { id, status: StatusAtendimento.PENDENTE },
         data: {
@@ -511,23 +529,34 @@ export class AtendimentosService {
           concluidoEm: agora,
           concluidoPor: ctx.userId ?? null,
           conclusaoObs: decisao.texto,
+          // Quem fechou foi a triagem (15/09/2026): o desfazer da consulta confere
+          // este carimbo e nunca devolve um atendimento que a triagem concluiu.
+          conclusaoOrigem: ORIGEM_DA_CONCLUSAO.TRIAGEM,
+          conclusaoConsultaId: null,
         },
       });
       if (r.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
       await this.exigirQueNenhumaConsultaSurgiu(tx, id, at.compromissos);
-      return this.cancelarConsultasEmTransacao(tx, aCancelar, CATEGORIA_DA_CONSULTA_AO_CONCLUIR, motivo, ctx, agora);
-    });
+      const feitos = await this.cancelarConsultasEmTransacao(tx, aCancelar, CATEGORIA_DA_CONSULTA_AO_CONCLUIR, motivo, ctx, agora);
+      const copiasFeitas = await this.cancelarConsultasEmTransacao(
+        tx, copias, CATEGORIA_DA_COPIA_QUE_SOBROU, motivoDasCopias, ctx, agora,
+      );
+      return { feitos, copiasFeitas };
+    }));
 
-    await this.registrarConsultasCanceladas(feitos, id, ctx);
+    const todas = [...feitos, ...copiasFeitas];
+    await this.registrarConsultasCanceladas(todas, id, ctx);
     await this.auditar(AcaoAuditoria.UPDATE, id, ctx,
       `Atendimento #${at.numero}: andamento de ${at.status} para ${StatusAtendimento.CONCLUIDO}`,
       {
         alteracoes: [{ campo: 'status', label: 'Andamento', de: at.status, para: StatusAtendimento.CONCLUIDO }],
         nota: decisao.texto,
         consulta: decisao.consulta,
-        consultasCanceladas: feitos.map((f) => f.id),
+        via: ORIGEM_DA_CONCLUSAO.TRIAGEM,
+        consultasCanceladas: todas.map((f) => f.id),
+        copiasCanceladas: copiasFeitas.map((f) => f.id),
       });
-    return this.respostaDoFechamento(id, feitos, aCancelar);
+    return this.respostaDoFechamento(id, todas, [...aCancelar, ...copias]);
   }
 
   /**
@@ -544,8 +573,16 @@ export class AtendimentosService {
 
     const aCancelar = decisao.consulta === 'CANCELAR' ? consultasParaCancelar(at.compromissos) : [];
     const motivo = motivoDaConsultaCancelada('CANCELAR', at.numero, plano.consulta?.situacao ?? 'NENHUMA', decisao.texto);
+    /*
+      As cópias que sobraram saem também no CANCELAR (15/09/2026, E4): com a
+      vigente registrada, fechar o atendimento por qualquer porta deixaria a
+      cópia pendente na agenda de alguém, esperando um filiado que não vem.
+    */
+    const copias = copiasQueSobraram(plano, at.compromissos);
+    const motivoDasCopias = motivoDaCopiaCancelada('CANCELAR', at.numero, plano.consulta);
 
-    const feitos = await this.prisma.$transaction(async (tx) => {
+    // Atendimento antes da consulta, e deadlock vira a frase de corrida: ver `concluir` (15/09/2026).
+    const { feitos, copiasFeitas } = await comFraseDeCorrida(FRASE_ATENDIMENTO_MUDOU, () => this.prisma.$transaction(async (tx) => {
       const r = await tx.atendimento.updateMany({
         where: { id, status: StatusAtendimento.PENDENTE },
         data: {
@@ -558,10 +595,15 @@ export class AtendimentosService {
       });
       if (r.count !== 1) throw new BadRequestException(FRASE_ATENDIMENTO_MUDOU);
       await this.exigirQueNenhumaConsultaSurgiu(tx, id, at.compromissos);
-      return this.cancelarConsultasEmTransacao(tx, aCancelar, dto.categoria, motivo, ctx, agora);
-    });
+      const feitos = await this.cancelarConsultasEmTransacao(tx, aCancelar, dto.categoria, motivo, ctx, agora);
+      const copiasFeitas = await this.cancelarConsultasEmTransacao(
+        tx, copias, CATEGORIA_DA_COPIA_QUE_SOBROU, motivoDasCopias, ctx, agora,
+      );
+      return { feitos, copiasFeitas };
+    }));
 
-    await this.registrarConsultasCanceladas(feitos, id, ctx);
+    const todas = [...feitos, ...copiasFeitas];
+    await this.registrarConsultasCanceladas(todas, id, ctx);
     await this.auditar(AcaoAuditoria.UPDATE, id, ctx,
       `Atendimento #${at.numero}: andamento de ${at.status} para ${StatusAtendimento.CANCELADO}`,
       {
@@ -569,9 +611,10 @@ export class AtendimentosService {
         categoria: dto.categoria,
         motivo: decisao.texto,
         consulta: decisao.consulta,
-        consultasCanceladas: feitos.map((f) => f.id),
+        consultasCanceladas: todas.map((f) => f.id),
+        copiasCanceladas: copiasFeitas.map((f) => f.id),
       });
-    return this.respostaDoFechamento(id, feitos, aCancelar);
+    return this.respostaDoFechamento(id, todas, [...aCancelar, ...copias]);
   }
 
   /** O que o fechamento precisa ler: a situação e as consultas NASCIDAS, com a foto de quem atende. */
@@ -688,7 +731,8 @@ export class AtendimentosService {
       efeitos: {
         consultasCanceladas: feitos.map((f) => {
           const c = porId.get(f.id);
-          return { id: f.id, inicio: c ? new Date(c.inicio) : null, responsavel: c?.responsavel ?? null };
+          // `categoria`: a tela separa a cópia que saiu como DUPLICIDADE da consulta cancelada (E4).
+          return { id: f.id, inicio: c ? new Date(c.inicio) : null, responsavel: c?.responsavel ?? null, categoria: f.categoria };
         }),
       },
     };
@@ -1010,12 +1054,21 @@ export class AtendimentosService {
   // Listagem
   // -------------------------------------------------------------------------
 
-  async listar(q: ListAtendimentosQueryDto) {
+  async listar(q: ListAtendimentosQueryDto, usuarioId?: string | null, agora: Date = new Date()) {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(5, Number(q.pageSize) || 20));
     const busca = q.busca?.trim();
 
     const and: Prisma.AtendimentoWhereInput[] = [];
+    /*
+      "COMIGO" É O MESMO RECORTE DO NÚMERO DO BALCÃO (15/09/2026). O painel conta
+      "Comigo, com a triagem" pelos atendimentos que a pessoa registrou
+      (`atendentePorId`), e o link abria a fila TRIAGEM da casa inteira: 1 no
+      número, 5 na lista. O filtro entra no `and`, antes do ramo da fila, que o
+      reaproveita. Sem usuário no token não há "eu": nada casa, em vez de a lista
+      virar a da casa em silêncio.
+    */
+    if (q.atendente === 'me') and.push({ atendentePorId: usuarioId || '__sem_usuario__' });
     if (q.desfecho) and.push({ desfecho: q.desfecho });
     if (q.status) and.push({ status: q.status });
     if (q.canal) and.push({ canal: q.canal });
@@ -1041,6 +1094,50 @@ export class AtendimentosService {
     if (range) and.push({ createdAt: range });
     const where: Prisma.AtendimentoWhereInput = and.length ? { AND: and } : {};
 
+    const select = {
+      id: true, numero: true, canal: true, assunto: true, assuntoOutro: true, desfecho: true, status: true,
+      tipoEncaminhamento: true, descricao: true, responsavel: true, createdAt: true,
+      conclusaoOrigem: true, conclusaoConsultaId: true,
+      filiado: filiadoLista,
+      atendente: { select: { id: true, nome: true } },
+      // Só para derivar o estado do encaminhamento e a fila; não sai na resposta.
+      compromissos: {
+        where: { origemDesfechoId: null },
+        select: SELECT_CONSULTA_DO_ENCAMINHAMENTO,
+      },
+    } as const satisfies Prisma.AtendimentoSelect;
+    type Lido = Prisma.AtendimentoGetPayload<{ select: typeof select }>;
+
+    // O estado e a fila saem da MESMA leitura, com o mesmo relógio: a etiqueta e o filtro não discordam.
+    const comEstado = ({ compromissos, ...item }: Lido) => {
+      const encaminhamento = situacaoDoEncaminhamento(compromissos, agora);
+      const fila = filaDoAtendimento(item, compromissos, agora);
+      return { ...item, ...(encaminhamento ? { encaminhamento } : {}), fila };
+    };
+    const pagina = (total: number, items: ReturnType<typeof comEstado>[]) => ({
+      items, total, page, pageSize,
+      totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
+    });
+
+    /*
+      COM A FILA, O FILTRO RODA DEPOIS DA LEITURA (15/09/2026, E3 da rodada 4).
+      A fila depende do relógio e das consultas (2 dias úteis sem registro), e
+      não existe como coluna para o banco filtrar. A leitura traz TODOS os
+      pendentes do recorte, a regra separa e a página é cortada aqui. Medido em
+      14/09: 10 atendimentos na base inteira, 2 pendentes; o custo é o de uma
+      leitura pequena. Fila só existe em pendente: outro status dá lista vazia.
+    */
+    if (q.fila) {
+      if (q.status && q.status !== StatusAtendimento.PENDENTE) return pagina(0, []);
+      const todos = await this.prisma.atendimento.findMany({
+        where: { AND: [...and, { status: StatusAtendimento.PENDENTE }] },
+        orderBy: { createdAt: 'desc' },
+        select,
+      });
+      const naFila = todos.map(comEstado).filter((i) => i.fila?.fila === q.fila);
+      return pagina(naFila.length, naFila.slice((page - 1) * pageSize, page * pageSize));
+    }
+
     const [total, items] = await this.prisma.$transaction([
       this.prisma.atendimento.count({ where }),
       this.prisma.atendimento.findMany({
@@ -1048,29 +1145,10 @@ export class AtendimentosService {
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: {
-          id: true, numero: true, canal: true, assunto: true, assuntoOutro: true, desfecho: true, status: true,
-          tipoEncaminhamento: true, descricao: true, responsavel: true, createdAt: true,
-          filiado: filiadoLista,
-          atendente: { select: { id: true, nome: true } },
-          // Só para derivar o estado do encaminhamento; não sai na resposta.
-          compromissos: {
-            where: { origemDesfechoId: null },
-            select: SELECT_CONSULTA_DO_ENCAMINHAMENTO,
-          },
-        },
+        select,
       }),
     ]);
-
-    const agora = new Date();
-    const comEstado = items.map(({ compromissos, ...item }) => {
-      const encaminhamento = situacaoDoEncaminhamento(compromissos, agora);
-      return encaminhamento ? { ...item, encaminhamento } : item;
-    });
-    return {
-      items: comEstado, total, page, pageSize,
-      totalPaginas: Math.max(1, Math.ceil(total / pageSize)),
-    };
+    return pagina(total, items.map(comEstado));
   }
 
   async detalhe(id: string, agora: Date = new Date()) {
@@ -1134,6 +1212,8 @@ export class AtendimentosService {
         canceladoPor: canceladoPorUsuario ?? null,
         consultas,
         ...(encaminhamento ? { encaminhamento } : {}),
+        // A mesma regra da lista e do painel (E3): a gaveta não discorda da linha.
+        fila: filaDoAtendimento(atendimento, consultas, agora),
         fechamento,
       },
       historico,

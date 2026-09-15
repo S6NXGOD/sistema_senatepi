@@ -8,6 +8,7 @@ import {
 } from './dto/escalas.dto';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { DadosProprios } from '../../common/permissions/dados-proprios.decorator';
 
 @ApiTags('escalas')
 @ApiBearerAuth()
@@ -62,6 +63,12 @@ export class EscalasController {
     return this.service.previaDaCopia(query);
   }
 
+  /** O mês de Teresina e os meses com plantões — para o botão "Copiar" da página (15/09/2026). */
+  @Get('meses')
+  mesesDaCopia() {
+    return this.service.mesesDaCopia();
+  }
+
   /** Escalas do mês (?mes=YYYY-MM&advogadoId=). */
   @Get()
   listar(@Query() query: ListEscalasQueryDto) {
@@ -78,7 +85,10 @@ export class EscalasController {
     @Query() query: ConsultasDoPlantaoQueryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.service.consultasDoPlantao(id, query.entra, this.leitor(user));
+    return this.service.consultasDoPlantao(id, query.entra, this.leitor(user), undefined, {
+      horaInicio: query.horaInicio,
+      horaFim: query.horaFim,
+    });
   }
 
   /** Grava a cópia — só os itens marcados, recalculados numa transação (409 se a escala mudou). */
@@ -109,6 +119,23 @@ export class EscalasController {
     @Req() req: Request,
   ) {
     return this.service.atualizar(id, dto, this.ctx(req, user));
+  }
+
+  /**
+   * DESFAZ A CÓPIA RECÉM-FEITA (15/09/2026) — a única exclusão da escala que não
+   * é só do Administrador.
+   *
+   * `@DadosProprios()` tira ESTA rota da trava global de DELETE do
+   * `PermissionsGuard`, e só dela: o que se apaga é o gesto do próprio usuário
+   * do token, e o serviço confere que foi ele quem copiou, há menos de dez
+   * minutos, sem alteração nem consulta nova no meio. A matriz continua valendo
+   * (`@Modulo('escalas')` exige EDITAR para DELETE). Declarada antes de
+   * `DELETE :id` pela regra da casa, embora os dois segmentos não colidam.
+   */
+  @Delete('copia/:loteId')
+  @DadosProprios()
+  desfazerCopia(@Param('loteId') loteId: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.desfazerCopia(loteId, this.ctx(req, user));
   }
 
   /** Remove uma escala — só Administrador (regra global de exclusão). */

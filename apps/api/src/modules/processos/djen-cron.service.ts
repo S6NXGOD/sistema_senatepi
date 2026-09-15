@@ -45,16 +45,17 @@ export class DjenCronService {
    * O CASO REAL é uma página por consulta, e cada processo é lido UMA vez por
    * noite (quem teve o histórico lido sai da janela). Medido em 14/09/2026 com a
    * simulação contra a produção: 153 processos vivos, 153 chamadas de histórico,
-   * nenhum no teto de páginas. A primeira noite, com a colheita inteira, dá
-   * ~300 chamadas, uns 22 minutos a 14 por minuto; as seguintes, menos. Três
-   * horas cobrem isso com folga.
+   * nenhum no teto de páginas. Refeita a conta em 15/09/2026: a primeira noite
+   * troca a janela desses 153 pelo histórico e fica em ~13 minutos; a noite
+   * normal, em ~170–185 chamadas, uns 12 a 14 minutos a 14 por minuto.
    *
-   * O PIOR CASO TEÓRICO DEIXOU DE CABER quando o padrão do histórico subiu de 40
-   * para 200: com tudo no teto são ~3.060 requisições, uns 220 minutos. Exigiria
-   * 200 processos com mais de 900 atos cada, e o maior da produção não chega a
-   * 100. O que importa é que a trava JAMAIS expire com a rodada correndo, porque
-   * aí duas passariam a disputar a mesma cota: quem subir
-   * `DJEN_HISTORICO_POR_RODADA` ou `DJEN_HISTORICO_MAX_PAGINAS` refaz esta conta.
+   * O PIOR CASO TEÓRICO NÃO CABE: com tudo no teto são ~3.060 requisições, uns
+   * 220 minutos. O que importa é que a trava JAMAIS expire com a rodada
+   * correndo, porque aí duas passariam a disputar a mesma cota. Quem garante
+   * isso desde 15/09/2026 é o orçamento de tempo da própria rodada
+   * (`DJEN_ORCAMENTO_DA_RODADA_MIN`, 150 minutos): as consultas por número param
+   * ali, e o resto fica para a noite seguinte. Quem mexer no TTL mexe no
+   * orçamento junto.
    */
   private readonly TRAVA_TTL_MIN = 180;
 

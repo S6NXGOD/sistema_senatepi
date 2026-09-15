@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { AcaoAuditoria, Prisma } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusCompromisso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { marcarNadaMudou } from '../../common/audit/audit.contexto';
@@ -10,6 +10,7 @@ import { AlteracaoDeCampo, diferencaDeCampos } from '../../common/audit/audit.di
 import { AuthUser } from '../../common/decorators/current-user.decorator';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import { AgendaService } from '../agenda/agenda.service';
+import { NAO_E_RESERVA } from '../agenda/equipe.util';
 import { passarConsultaEmTransacao, PassagemFeita } from '../agenda/troca-de-responsavel';
 import { diaBR, diaDeCalendarioBR, mesBR } from '../processos/utils/data-br.util';
 import { celularParaWhatsApp } from '../recadastramento/whatsapp.util';
@@ -17,12 +18,14 @@ import {
   AtualizarEscalaDto, CopiaQueryDto, CopiarEscalaDto, CriarEscalasDto, ListEscalasQueryDto,
 } from './dto/escalas.dto';
 import {
-  ConsultaClassificada, ConsultaLida, FRASE_PLANTAO_PASSOU, classificarConsultas, instanteBR,
-  motivoDaConsultaQueSaiu, selectDaConsultaDoPlantao, whereDasConsultasDoPlantao,
+  ConsultaClassificada, ConsultaLida, FRASE_PLANTAO_PASSOU, classificarConsultas, foraDoNovoHorario,
+  instanteBR, motivoDaConsultaQueSaiu, papelDeQuemSai, selectDaConsultaDoPlantao,
+  whereDasConsultasDoPlantao,
 } from './consultas-do-plantao';
 import {
-  PlantaoDaCopia, chaveDaCopia, contar, dataDaColuna, diaCurto, ehDataPuraValida, faixaValida,
-  fraseDaSobreposicao, nomeDoMes, PlantaoGravado, pessoaDepoisDeDe, pessoaNaFrase, pessoaNoInicio,
+  Faixa, JANELA_DO_DESFAZER_DA_COPIA_MS, PlantaoDaCopia, PlantaoDoLote, chaveDaCopia, contar, dataDaColuna,
+  decidirDesfazerCopia, diaCurto, ehDataPuraValida, faixaValida, fraseDaSobreposicao,
+  fraseDosDiasSemNinguem, nomeDoMes, PlantaoGravado, pessoaDepoisDeDe, pessoaNaFrase, pessoaNoInicio,
   planejarCopia, procurarSobreposicao, textoDaColuna,
 } from './escalas.regras';
 
@@ -292,7 +295,33 @@ export class EscalasService {
       .map(([mes, plantoes]) => ({ mes, plantoes }));
   }
 
-  /** GET /escalas/copia — os textos já prontos; a tela não refaz a regra. */
+  /**
+   * GET /escalas/meses — o mês de Teresina e os meses com plantões, sem prévia.
+   *
+   * O BOTÃO DA PÁGINA PRECISA SABER ANTES DE ABRIR (15/09/2026). Ele só nomeava
+   * o mês quando a origem era exatamente o anterior, e aparecia mesmo sem mês
+   * nenhum com plantões — um beco sem saída. A prévia já trazia a lista, mas
+   * pedi-la exige origem e destino, e o destino não pode ser mês passado: aberta
+   * num mês antigo, a página não teria como perguntar. Esta leitura não recusa
+   * nada, e o `mesAtual` é o de Teresina, para a tela montar "de → para" sem
+   * recalcular fuso.
+   */
+  async mesesDaCopia(agora = new Date()) {
+    return { mesAtual: mesBR(agora), mesesComPlantao: await this.mesesComPlantao() };
+  }
+
+  /**
+   * GET /escalas/copia — os textos já prontos; a tela não refaz a regra.
+   *
+   * QUALQUER DESTINO DO MÊS ATUAL EM DIANTE (V1, 15/09/2026). A tela abria sempre
+   * "do mês anterior para o mês da tela", e em setembro (já com 16 plantões) a
+   * prévia dizia "Criar 0 plantões". A regra do servidor nunca prendeu o destino
+   * ao mês seguinte à origem: vale setembro → novembro, e até outubro → setembro.
+   * As únicas travas são as de `conferirMesesDaCopia`.
+   *
+   * `diasSemNinguem` e a frase pronta dizem o buraco que a cópia deixa no destino
+   * (ver `diasSemNinguemNoDestino`).
+   */
   async previaDaCopia(q: CopiaQueryDto, agora = new Date()) {
     this.conferirMesesDaCopia(q.origem, q.destino, agora);
     const { plano, existentesNoDestino } = await this.planoDaCopia(this.prisma, q.origem, q.destino, agora);
@@ -303,6 +332,8 @@ export class EscalasService {
       existentesNoDestino,
       criar: plano.criar,
       fora: plano.fora,
+      diasSemNinguem: plano.diasSemNinguem,
+      fraseDiasSemNinguem: fraseDosDiasSemNinguem(q.destino, plano.diasSemNinguem),
     };
   }
 
@@ -362,6 +393,24 @@ export class EscalasService {
     // Carimbe toda decisão: o que ficou de fora pela regra E o que a pessoa desmarcou.
     const desmarcados = feito.plano.criar.filter((i) => !vistos.has(chaveDaCopia(i)));
     const deFora = feito.plano.fora.length + desmarcados.length;
+    /*
+      O LOTE DA CÓPIA MORA NA AUDITORIA, sem coluna nova (15/09/2026).
+
+      O desfazer precisa de três coisas: quem copiou, quando, e o que foi criado
+      exatamente como foi criado. As três já cabem na linha que esta cópia grava;
+      uma coluna `lote_copia_id` exigiria migração só para uma janela de dez
+      minutos, e nada além do desfazer a leria. `copiadaEm` é o relógio do
+      contêiner, o mesmo que o desfazer consulta — o `created_at` da auditoria
+      vem do banco. `plantoes` é a foto que prova que nada foi alterado depois.
+    */
+    const loteId = randomUUID();
+    const plantoes: PlantaoDoLote[] = feito.linhas.map((l) => ({
+      id: l.id,
+      advogadoId: l.advogadoId,
+      data: textoDaColuna(l.data),
+      horaInicio: l.horaInicio,
+      horaFim: l.horaFim,
+    }));
     await this.audit.registrar({
       userId: ctx.userId ?? null,
       acao: AcaoAuditoria.CREATE,
@@ -382,9 +431,176 @@ export class EscalasService {
         datas: feito.itens.map((i) => i.data),
         fora: feito.plano.fora.map((f) => ({ origemId: f.origemId, origemData: f.origemData, motivo: f.motivo })),
         desmarcados: desmarcados.map((i) => ({ origemId: i.origemId, data: i.data })),
+        loteId,
+        copiadaEm: agora.toISOString(),
+        plantoes: plantoes as unknown as Prisma.InputJsonValue,
       },
     });
-    return { ok: true, criadas: feito.count, ids: feito.linhas.map((l) => l.id) };
+    return {
+      ok: true,
+      criadas: feito.count,
+      ids: feito.linhas.map((l) => l.id),
+      loteId,
+      desfazerAte: new Date(agora.getTime() + JANELA_DO_DESFAZER_DA_COPIA_MS).toISOString(),
+    };
+  }
+
+  /**
+   * DELETE /escalas/copia/:loteId — desfaz a cópia recém-feita (15/09/2026).
+   *
+   * A exceção estreita à regra "só o Administrador apaga", decidida pelo dono:
+   * só quem copiou, em até dez minutos, e só se nenhum plantão do lote foi
+   * alterado nem ganhou consulta depois. As travas são as de
+   * `decidirDesfazerCopia`; aqui só se lê o banco e se escreve.
+   *
+   * A EXCLUSÃO É CONDICIONAL: cada linha só sai se continua com a pessoa, o
+   * horário e a observação vazia que a cópia gravou. Se alguém trocou um
+   * plantão entre a leitura e a exclusão, a contagem não bate e a transação
+   * volta atrás inteira — nada fica pela metade.
+   */
+  async desfazerCopia(loteId: string, ctx: Ctx, agora = new Date()) {
+    const naoAchei = new NotFoundException('Não achei esta cópia. Atualize a página e confira a escala.');
+    if (!/^[0-9a-f-]{36}$/i.test(loteId)) throw naoAchei;
+
+    const registro = await this.prisma.auditoria.findFirst({
+      where: {
+        entidade: 'EscalaAdvogado',
+        acao: AcaoAuditoria.CREATE,
+        // Um dia de folga sobre a janela: só para a busca no JSON não varrer a tabela inteira.
+        createdAt: { gte: new Date(agora.getTime() - 24 * 3_600_000) },
+        metadata: { path: ['loteId'], equals: loteId },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { userId: true, createdAt: true, metadata: true },
+    });
+    const meta = (registro?.metadata ?? null) as {
+      origem?: string; destino?: string; copiadaEm?: string; plantoes?: PlantaoDoLote[];
+    } | null;
+    if (!registro || !meta || !Array.isArray(meta.plantoes)) throw naoAchei;
+
+    const ids = meta.plantoes.map((p) => p.id);
+    const pessoas = [...new Set(meta.plantoes.map((p) => p.advogadoId))];
+    const [linhas, alteracoes, gente] = await Promise.all([
+      this.prisma.escalaAdvogado.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, advogadoId: true, data: true, horaInicio: true, horaFim: true, observacao: true },
+      }),
+      this.prisma.auditoria.findMany({
+        where: {
+          entidade: 'EscalaAdvogado',
+          acao: AcaoAuditoria.UPDATE,
+          entidadeId: { in: ids },
+          createdAt: { gte: registro.createdAt },
+        },
+        select: { entidadeId: true },
+      }),
+      this.prisma.user.findMany({
+        where: { id: { in: pessoas } },
+        select: { id: true, nome: true, nomeExibicao: true },
+      }),
+    ]);
+    const atuais = linhas.map((l) => ({ ...l, data: textoDaColuna(l.data) }));
+    const comConsultaNova = meta.copiadaEm
+      ? await this.plantoesComConsultaNova(meta.plantoes.filter((p) => ids.includes(p.id)), new Date(meta.copiadaEm))
+      : [];
+
+    const decisao = decidirDesfazerCopia({
+      copia: { userId: registro.userId, copiadaEm: meta.copiadaEm ?? null, plantoes: meta.plantoes },
+      usuarioId: ctx.userId,
+      agora,
+      atuais,
+      alteradosNaAuditoria: alteracoes.map((a) => a.entidadeId).filter((x): x is string => !!x),
+      comConsultaNova,
+      nomes: new Map(gente.map((g) => [g.id, g.nomeExibicao?.trim() || g.nome])),
+    });
+    if (!decisao.ok) {
+      if (decisao.recusa === 'OUTRA_PESSOA') throw new ForbiddenException(decisao.motivo);
+      if (decisao.recusa === 'TEMPO') throw new BadRequestException(decisao.motivo);
+      throw new ConflictException(decisao.motivo);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.escalaAdvogado.deleteMany({
+        where: {
+          OR: decisao.apagar.map((p) => ({
+            id: p.id, advogadoId: p.advogadoId, horaInicio: p.horaInicio, horaFim: p.horaFim, observacao: null,
+          })),
+        },
+      });
+      if (count !== decisao.apagar.length) {
+        throw new ConflictException('A escala mudou enquanto você desfazia a cópia. Atualize a página e confira.');
+      }
+    });
+
+    const n = decisao.apagar.length;
+    await this.audit.registrar({
+      userId: ctx.userId ?? null,
+      acao: AcaoAuditoria.DELETE,
+      entidade: 'EscalaAdvogado',
+      entidadeId: meta.destino,
+      descricao:
+        `Cópia da escala de ${meta.origem ? nomeDoMes(meta.origem) : '?'} para ${meta.destino ? nomeDoMes(meta.destino) : '?'} ` +
+        `desfeita: ${contar(n, 'plantão apagado', 'plantões apagados')}`,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { loteId, ids: decisao.apagar.map((p) => p.id), jaApagados: decisao.jaApagados },
+    });
+    return { ok: true, apagados: n, jaApagados: decisao.jaApagados };
+  }
+
+  /**
+   * Os plantões do lote que ganharam consulta DEPOIS da cópia.
+   *
+   * A mesma definição de "consulta do plantão" da troca (tipo, sem ser
+   * seguimento, aberta, a pessoa como responsável ou na equipe por gente), no
+   * dia inteiro de Teresina e só a criada depois de `copiadaEm`: a consulta que
+   * já existia antes da cópia não nasceu do plantão novo, e não impede nada.
+   * Uma consulta só ao banco, casada por pessoa e dia aqui.
+   */
+  private async plantoesComConsultaNova(plantoes: PlantaoDoLote[], copiadaEm: Date): Promise<string[]> {
+    if (!plantoes.length) return [];
+    const dias = plantoes.map((p) => p.data).sort();
+    const pessoas = [...new Set(plantoes.map((p) => p.advogadoId))];
+    const consultas = await this.prisma.compromisso.findMany({
+      where: {
+        tipo: 'CONSULTA_JURIDICA',
+        origemDesfechoId: null,
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        inicio: {
+          gte: instanteBR(dias[0], '00:00'),
+          lt: new Date(instanteBR(dias[dias.length - 1], '00:00').getTime() + 24 * 3_600_000),
+        },
+        /*
+          CRIADA OU MEXIDA DEPOIS DA CÓPIA (15/09/2026). Só `createdAt` deixava
+          passar a consulta antiga REMARCADA para o plantão novo (o remarcar é um
+          update na mesma linha) ou passada para a pessoa do plantão: o desfazer
+          apagava o plantão e a consulta ficava num dia sem ninguém. É
+          conservador de propósito: uma consulta antiga editada por outro motivo
+          também trava o desfazer. Os dois OR vão dentro de um AND, porque duas
+          chaves OR no mesmo objeto se sobrescrevem.
+        */
+        AND: [
+          { OR: [{ createdAt: { gte: copiadaEm } }, { updatedAt: { gte: copiadaEm } }] },
+          {
+            OR: [
+              { responsavelId: { in: pessoas } },
+              { equipe: { some: { usuarioId: { in: pessoas }, ...NAO_E_RESERVA } } },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true, inicio: true, responsavelId: true,
+        equipe: { select: { usuarioId: true, principal: true, origem: true } },
+      },
+    });
+    return plantoes
+      .filter((p) =>
+        consultas.some(
+          (c) => diaBR(c.inicio) === p.data && papelDeQuemSai(c as unknown as ConsultaLida, p.advogadoId) !== null,
+        ),
+      )
+      .map((p) => p.id);
   }
 
   // -------------------------------------------------------------------------
@@ -432,7 +648,14 @@ export class EscalasService {
    * umas 3 por plantão na produção; se um dia forem dezenas, trocar por uma
    * consulta só com OR sobre as janelas.
    */
-  async consultasDoPlantao(id: string, entraId: string | undefined, leitor: Leitor | undefined, agora = new Date()) {
+  async consultasDoPlantao(
+    id: string,
+    entraId: string | undefined,
+    leitor: Leitor | undefined,
+    agora = new Date(),
+    /** O horário que o plantão vai ter — o aviso de encurtar (15/09/2026). Só um lado vale o outro de agora. */
+    novoHorario?: Partial<Faixa>,
+  ) {
     const escala = await this.prisma.escalaAdvogado.findUnique({
       where: { id },
       select: {
@@ -479,6 +702,17 @@ export class EscalasService {
     const veTelefone = nivelDo(leitor, 'filiados') !== 'SEM_ACESSO';
     const classificadas = await this.consultasClassificadas(this.prisma, escala, dia, passado, entra?.id);
     const noHorario = classificadas.filter((c) => c.noHorario);
+    /*
+      O AVISO DE ENCURTAR PELA MESMA CONTA DO PATCH (15/09/2026). A contagem vai
+      para todo leitor, como `total`: quem não vê a Agenda não fica sabendo quem
+      nem a que horas, mas fica sabendo que existem consultas que o horário novo
+      deixa de fora. Faixa inválida (fim antes do início, enquanto a pessoa
+      digita) responde nulo em vez de 400: o PATCH é que recusa.
+    */
+    const faixaNova = novoHorario && (novoHorario.horaInicio || novoHorario.horaFim)
+      ? { horaInicio: novoHorario.horaInicio ?? escala.horaInicio, horaFim: novoHorario.horaFim ?? escala.horaFim }
+      : null;
+    const saemDoHorario = faixaNova && faixaValida(faixaNova) ? foraDoNovoHorario(classificadas, dia, faixaNova) : null;
 
     const podePassar = nivelAgenda === 'EDITAR' && !!entra?.veAgenda && !passado;
     let porQueNaoPassa: string | null = null;
@@ -506,8 +740,12 @@ export class EscalasService {
       podePassar,
       porQueNaoPassa,
       total: noHorario.length,
+      foraDoNovoHorario: saemDoHorario ? saemDoHorario.length : null,
     };
-    if (nivelAgenda === 'SEM_ACESSO') return { ...cabecalho, noHorario: [], foraDoHorario: [] };
+    if (nivelAgenda === 'SEM_ACESSO') {
+      return { ...cabecalho, idsForaDoNovoHorario: [] as string[], noHorario: [], foraDoHorario: [] };
+    }
+    const idsForaDoNovoHorario = (saemDoHorario ?? []).map((c) => c.consulta.id);
 
     const paraTela = async (c: ConsultaClassificada) => {
       const k = c.consulta;
@@ -544,7 +782,7 @@ export class EscalasService {
     const dentro: Awaited<ReturnType<typeof paraTela>>[] = [];
     const fora: Awaited<ReturnType<typeof paraTela>>[] = [];
     for (const c of classificadas) (c.noHorario ? dentro : fora).push(await paraTela(c));
-    return { ...cabecalho, noHorario: dentro, foraDoHorario: fora };
+    return { ...cabecalho, idsForaDoNovoHorario, noHorario: dentro, foraDoHorario: fora };
   }
 
   /** O filiado da consulta, com o celular para o wa.me só para quem vê Filiados. */
@@ -653,7 +891,7 @@ export class EscalasService {
     } | null = null;
     /** D17: o que a mudança deixou para trás sem decidir — só para a auditoria. */
     let semDecisao: string[] | null = null;
-    let foraDoNovoHorario: string[] | null = null;
+    let idsForaDoNovoHorario: string[] | null = null;
 
     if (!decideConsultas) {
       atualizada = await this.prisma.escalaAdvogado.update({ where: { id }, data: depois, select: escalaSel });
@@ -662,11 +900,8 @@ export class EscalasService {
         if (troca) {
           semDecisao = classificadas.map((c) => c.consulta.id);
         } else {
-          const novaInicio = instanteBR(dia, depois.horaInicio);
-          const novaFim = instanteBR(dia, depois.horaFim);
-          foraDoNovoHorario = classificadas
-            .filter((c) => c.noHorario && (c.consulta.inicio < novaInicio || c.consulta.inicio >= novaFim))
-            .map((c) => c.consulta.id);
+          // A mesma conta que a prévia usa para o aviso de encurtar.
+          idsForaDoNovoHorario = foraDoNovoHorario(classificadas, dia, depois).map((c) => c.consulta.id);
         }
       }
     } else {
@@ -794,7 +1029,7 @@ export class EscalasService {
           }
           : {}),
         ...(semDecisao?.length ? { consultasSemDecisao: semDecisao } : {}),
-        ...(foraDoNovoHorario?.length ? { consultasForaDoNovoHorario: foraDoNovoHorario } : {}),
+        ...(idsForaDoNovoHorario?.length ? { consultasForaDoNovoHorario: idsForaDoNovoHorario } : {}),
       },
     });
 

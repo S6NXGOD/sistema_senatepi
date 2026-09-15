@@ -81,19 +81,41 @@ describe('podeDesfazerConclusao', () => {
 
 /* ------------------------------------------------------------------------ */
 
-function montar(opcoes: { concluidoPor?: string; count?: number; concluidoEm?: Date } = {}) {
+function montar(opcoes: {
+  concluidoPor?: string;
+  count?: number;
+  concluidoEm?: Date;
+  atendimentoId?: string;
+  /** O atendimento no banco, montado com o `concluidoEm` da consulta. */
+  atendimento?: (concluidoEmDaConsulta: Date) => Record<string, any>;
+} = {}) {
   const concluida = {
     id: 'c1', status: CONCLUIDO, titulo: 'Elaborar manifestação', desfecho: 'PRAZO_CUMPRIDO',
     concluidoEm: opcoes.concluidoEm ?? new Date(Date.now() - 20_000), concluidoPor: opcoes.concluidoPor ?? 'u1',
+    atendimentoId: opcoes.atendimentoId ?? null,
   };
   const updateMany = jest.fn(async (_a: any) => ({ count: opcoes.count ?? 1 }));
   const deleteMany = jest.fn(async (_a: any) => ({ count: 1 }));
   const historico = jest.fn(async (_a: any) => ({}));
+  /* O atendimento com estado: igualdade campo a campo, datas pelo instante — como o Postgres compara o carimbo. */
+  const atendimento = opcoes.atendimento ? opcoes.atendimento(concluida.concluidoEm) : null;
+  const casa = (where: Record<string, any>) =>
+    !!atendimento && Object.entries(where).every(([k, v]) =>
+      v instanceof Date ? atendimento[k] instanceof Date && atendimento[k].getTime() === v.getTime() : atendimento[k] === v);
+  const atendimentoUpdateMany = jest.fn(async ({ where, data }: any) => {
+    if (!casa(where)) return { count: 0 };
+    Object.assign(atendimento!, data);
+    return { count: 1 };
+  });
   const prisma: any = {
     compromisso: {
       findUnique: jest.fn(async () => concluida),
       updateMany,
       findUniqueOrThrow: jest.fn(async () => ({ id: 'c1', status: EM_ANDAMENTO })),
+    },
+    atendimento: {
+      findFirst: jest.fn(async ({ where }: any) => (casa(where) ? { ...atendimento } : null)),
+      updateMany: atendimentoUpdateMany,
     },
     compromissoHistorico: {
       findFirst: jest.fn(async () => ({
@@ -107,9 +129,12 @@ function montar(opcoes: { concluidoPor?: string; count?: number; concluidoEm?: D
     movimentacaoInterna: { deleteMany },
   };
   prisma.$transaction = async (cb: (t: unknown) => unknown) => cb(prisma);
+  // A trava do atendimento (15/09/2026): consulta crua, antes de tocar a atividade.
+  const trava = jest.fn(async (_partes: TemplateStringsArray, ..._valores: unknown[]) => []);
+  prisma.$queryRaw = trava;
   const audit = { registrar: jest.fn(async () => ({})) };
   const servico = new AgendaService(prisma as never, audit as never, {} as never);
-  return { servico, updateMany, deleteMany, historico, audit };
+  return { servico, updateMany, deleteMany, historico, audit, atendimento, atendimentoUpdateMany, trava };
 }
 
 const ctx = { userId: 'u1', nome: 'Ana' };
@@ -119,7 +144,9 @@ describe('PATCH :id/desfazer-conclusao', () => {
     const m = montar();
     const r = await m.servico.desfazerConclusao('c1', ctx);
 
-    expect(r).toEqual({ id: 'c1', status: EM_ANDAMENTO });
+    // Sem atendimento de origem, nada a devolver — e nenhuma leitura do atendimento.
+    expect(r).toEqual({ id: 'c1', status: EM_ANDAMENTO, atendimentoReaberto: null });
+    expect(m.atendimentoUpdateMany).not.toHaveBeenCalled();
     expect(m.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1', status: CONCLUIDO, concluidoPor: 'u1' },
       data: { status: EM_ANDAMENTO, desfecho: null, desfechoObs: null, concluidoEm: null, concluidoPor: null },
@@ -149,5 +176,59 @@ describe('PATCH :id/desfazer-conclusao', () => {
     const m = montar({ count: 0 });
     await expect(m.servico.desfazerConclusao('c1', ctx)).rejects.toThrow('não está mais concluída');
     expect(m.deleteMany).not.toHaveBeenCalled();
+    expect(m.atendimentoUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * O ATENDIMENTO QUE A CONSULTA FECHOU VOLTA COM ELA — só se o carimbo bater
+ * (15/09/2026, E1 da rodada 4). O #13: a Dra. Shérad concluiu a consulta por
+ * engano e desfez no toast.
+ */
+describe('desfazer devolve o atendimento de origem', () => {
+  const fechadoPelaConsulta = (concluidoEm: Date) => ({
+    id: 'a-13', numero: 13, status: 'CONCLUIDO', desfecho: 'ENCAMINHADO',
+    concluidoEm: new Date(concluidoEm.getTime()), concluidoPor: 'u1', conclusaoObs: 'Prazo cumprido.',
+    conclusaoOrigem: 'CONSULTA', conclusaoConsultaId: 'c1',
+  });
+
+  it('carimbo igual: o #13 volta a aguardar a consulta, com as cinco colunas limpas e a auditoria no atendimento', async () => {
+    const m = montar({ atendimentoId: 'a-13', atendimento: fechadoPelaConsulta });
+    const r: any = await m.servico.desfazerConclusao('c1', ctx);
+
+    expect(r.atendimentoReaberto).toEqual({ id: 'a-13', numero: 13 });
+    // Travou a linha do atendimento antes de devolver a atividade: a mesma ordem da triagem.
+    expect(m.trava).toHaveBeenCalledTimes(1);
+    expect(m.trava.mock.calls[0][0].join('?')).toMatch(/FROM "atendimentos" WHERE id = \? FOR UPDATE/);
+    expect(m.trava.mock.calls[0][1]).toBe('a-13');
+    expect(m.trava.mock.invocationCallOrder[0]).toBeLessThan(m.updateMany.mock.invocationCallOrder[0]);
+    expect(m.atendimento).toMatchObject({
+      status: 'PENDENTE', concluidoEm: null, concluidoPor: null, conclusaoObs: null,
+      conclusaoOrigem: null, conclusaoConsultaId: null,
+    });
+    const doAtendimento = m.audit.registrar.mock.calls.map((c: any[]) => c[0]).find((x: any) => x.entidade === 'Atendimento');
+    expect(doAtendimento).toMatchObject({
+      entidadeId: 'a-13',
+      userId: 'u1',
+      descricao: 'Atendimento #13: andamento de CONCLUIDO para PENDENTE, a consulta voltou a ficar aberta',
+      metadata: { via: 'CONSULTA', compromissoId: 'c1', fechamentoAnterior: { nota: 'Prazo cumprido.', por: 'u1', origem: 'CONSULTA' } },
+    });
+    expect(m.historico.mock.calls[0][0].data.metadata).toMatchObject({ atendimentoReaberto: 'a-13' });
+  });
+
+  it.each<[string, (concluidoEm: Date) => Record<string, any>]>([
+    ['a triagem reabriu e fechou de novo', (em) => ({ ...fechadoPelaConsulta(em), conclusaoOrigem: 'TRIAGEM', conclusaoConsultaId: null, concluidoEm: new Date(em.getTime() + 60_000) })],
+    ['outra consulta fechou', (em) => ({ ...fechadoPelaConsulta(em), conclusaoConsultaId: 'c-outra' })],
+    ['mesma consulta, outro instante', (em) => ({ ...fechadoPelaConsulta(em), concluidoEm: new Date(em.getTime() + 1) })],
+    ['a triagem já reabriu', (em) => ({ ...fechadoPelaConsulta(em), status: 'PENDENTE' })],
+    ['concluído antes de 15/09, sem carimbo', (em) => ({ ...fechadoPelaConsulta(em), conclusaoOrigem: null, conclusaoConsultaId: null })],
+  ])('carimbo diferente (%s): a consulta volta, o atendimento fica como está', async (_caso, montarAtendimento) => {
+    const m = montar({ atendimentoId: 'a-13', atendimento: montarAtendimento });
+    const antes = { ...m.atendimento };
+    const r: any = await m.servico.desfazerConclusao('c1', ctx);
+    expect(r.atendimentoReaberto).toBeNull();
+    expect(m.atendimento).toEqual(antes);
+    expect(m.atendimentoUpdateMany).not.toHaveBeenCalled();
+    expect(m.audit.registrar.mock.calls.map((c: any[]) => c[0].entidade)).not.toContain('Atendimento');
   });
 });

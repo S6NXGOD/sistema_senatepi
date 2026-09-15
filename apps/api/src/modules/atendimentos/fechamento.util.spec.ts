@@ -1,10 +1,11 @@
 import { CATEGORIAS_CANCELAMENTO, categoriaCancelamentoValida } from '../agenda/desfechos.catalogo';
 import type { ConsultaDoEncaminhamento } from './encaminhamento.util';
 import {
-  CATEGORIAS_CANCELAMENTO_ATENDIMENTO, consultasParaCancelar, decidirCancelar, decidirConcluir,
+  CATEGORIA_DA_COPIA_QUE_SOBROU, CATEGORIAS_CANCELAMENTO_ATENDIMENTO, consultasParaCancelar, copiasQueSobraram,
+  decidirCancelar, decidirConcluir,
   FRASE_CANCELADO_REABRA, FRASE_CATEGORIA, FRASE_CONCLUIDO_REABRA, FRASE_DIGA_O_QUE_FAZER,
-  FRASE_DIGA_SE_ACONTECEU, FRASE_EM_ANDAMENTO, FRASE_JA_CANCELADO, FRASE_JA_CONCLUIDO,
-  FRASE_NOTA_CURTA, FRASE_SEM_DESFECHO, motivoDaConsultaCancelada, planoDeFechamento,
+  FRASE_EM_ANDAMENTO, FRASE_JA_CANCELADO, FRASE_JA_CONCLUIDO,
+  FRASE_NOTA_CURTA, FRASE_SEM_DESFECHO, motivoDaConsultaCancelada, motivoDaCopiaCancelada, planoDeFechamento,
   rotuloDoInstanteBR, situacaoNoFechamento,
 } from './fechamento.util';
 
@@ -115,14 +116,19 @@ describe('planoDeFechamento — o que o modal pergunta', () => {
         responsavel: DRA_SHERAD,
       },
       consultasAbertas: 1,
+      fechaSozinho: true,
       concluir: { permitido: true, recusa: null, consulta: 'CANCELAR_PARA_CONCLUIR', nota: 'OBRIGATORIA' },
       cancelar: { permitido: true, recusa: null, consulta: 'ESCOLHER' },
     });
   });
 
+  /*
+    E2 da rodada 4 (15/09/2026): a consulta que já começou e ninguém registrou não
+    pergunta mais à triagem se aconteceu. Concluir pela triagem é resolver sem a
+    consulta, que sai cancelada, com a nota obrigatória.
+  */
   it.each([
-    ['COMECOU', [consulta({ inicio: HOJE_9H })], 'ESCOLHER', 'OBRIGATORIA_SE_CANCELAR', 'ESCOLHER'],
-    ['EM_ANDAMENTO', [consulta({ inicio: HOJE_9H, status: 'EM_ANDAMENTO' })], 'SO_MANTER', 'OPCIONAL', 'SO_MANTER'],
+    ['COMECOU', [consulta({ inicio: HOJE_9H })], 'CANCELAR_PARA_CONCLUIR', 'OBRIGATORIA', 'ESCOLHER'],
     ['ATENDIDA', [consulta({ inicio: SEXTA_PASSADA, status: 'CONCLUIDO' })], 'NENHUMA', 'OPCIONAL', 'ATENDIDA'],
     ['todas canceladas', [consulta({ inicio: SEXTA_PASSADA, status: 'CANCELADO' })], 'NENHUMA', 'OBRIGATORIA', 'NENHUMA'],
     ['sem consulta', [], 'NENHUMA', 'OBRIGATORIA', 'NENHUMA'],
@@ -130,6 +136,31 @@ describe('planoDeFechamento — o que o modal pergunta', () => {
     const plano = planoDeFechamento(PENDENTE_ENCAMINHADO, consultas as ConsultaDoEncaminhamento[], AGORA);
     expect(plano.concluir).toEqual({ permitido: true, recusa: null, consulta: concluirConsulta, nota });
     expect(plano.cancelar).toEqual({ permitido: true, recusa: null, consulta: cancelarConsulta });
+  });
+
+  it('EM_ANDAMENTO: concluir é recusado com a frase de que o atendimento fecha sozinho; cancelar só mantém', () => {
+    const plano = planoDeFechamento(PENDENTE_ENCAMINHADO, [consulta({ inicio: HOJE_9H, status: 'EM_ANDAMENTO' })], AGORA);
+    expect(plano.concluir).toEqual({
+      permitido: false,
+      recusa: 'A consulta com a Dra. Shérad está em andamento. Quando for registrada, o atendimento é concluído sozinho.',
+      consulta: 'SO_MANTER',
+      nota: 'OPCIONAL',
+    });
+    expect(plano.cancelar).toEqual({ permitido: true, recusa: null, consulta: 'SO_MANTER' });
+  });
+
+  it.each<[string, { status: string; desfecho: string | null }, ConsultaDoEncaminhamento[], boolean]>([
+    ['#14, consulta futura', PENDENTE_ENCAMINHADO, [consulta({ inicio: QUINTA_9H })], true],
+    ['#13, consulta de hoje sem registro', PENDENTE_ENCAMINHADO, [consulta({ inicio: HOJE_9H })], true],
+    ['consulta em andamento', PENDENTE_ENCAMINHADO, [consulta({ inicio: HOJE_9H, status: 'EM_ANDAMENTO' })], true],
+    ['consulta já registrada (falta a triagem fechar)', PENDENTE_ENCAMINHADO, [consulta({ inicio: SEXTA_PASSADA, status: 'CONCLUIDO' })], false],
+    ['consulta cancelada', PENDENTE_ENCAMINHADO, [consulta({ inicio: QUINTA_9H, status: 'CANCELADO' })], false],
+    ['encaminhado sem consulta', PENDENTE_ENCAMINHADO, [], false],
+    ['resolvido no ato', { status: 'PENDENTE', desfecho: 'RESOLVIDO_ATO' }, [], false],
+    ['já concluído, com consulta futura', { status: 'CONCLUIDO', desfecho: 'ENCAMINHADO' }, [consulta({ inicio: QUINTA_9H })], false],
+    ['cancelado, com consulta futura', { status: 'CANCELADO', desfecho: 'ENCAMINHADO' }, [consulta({ inicio: QUINTA_9H })], false],
+  ])('fechaSozinho — %s: %s', (_caso, at, consultas, esperado) => {
+    expect(planoDeFechamento(at, consultas, AGORA).fechaSozinho).toBe(esperado);
   });
 
   it('NENHUMA sai como consulta nula — é assim que a tela reconhece o caso C', () => {
@@ -211,16 +242,32 @@ describe('decidirConcluir — o pedido contra o plano', () => {
       .toEqual({ ok: true, consulta: 'CANCELAR', texto: 'Resolveu no RH.' });
   });
 
-  it('COMECOU: sem escolha é recusado; "aconteceu" dispensa a nota; "não aconteceu" a exige', () => {
-    expect(decidirConcluir(comecou, { nota: NOTA })).toEqual({ ok: false, recusa: FRASE_DIGA_SE_ACONTECEU });
-    expect(decidirConcluir(comecou, { consulta: 'MANTER' })).toEqual({ ok: true, consulta: 'MANTER', texto: null });
+  const SEM_REGISTRO_13 =
+    'A consulta com a Dra. Shérad de seg, 14/09 às 09:00 ainda não foi registrada. '
+    + 'Se aconteceu, quem registra é quem atendeu, e o atendimento fecha sozinho. '
+    + 'Para concluir sem ela, cancele a consulta junto.';
+
+  it('COMECOU: sem escolha e "aconteceu" (o web antigo) são recusados com a frase de quem registra; cancelar exige a nota', () => {
+    expect(decidirConcluir(comecou, { nota: NOTA })).toEqual({ ok: false, recusa: SEM_REGISTRO_13 });
+    expect(decidirConcluir(comecou, { consulta: 'MANTER' })).toEqual({ ok: false, recusa: SEM_REGISTRO_13 });
     expect(decidirConcluir(comecou, { consulta: 'CANCELAR', nota: 'curta' })).toEqual({ ok: false, recusa: FRASE_NOTA_CURTA });
+    expect(decidirConcluir(comecou, { consulta: 'CANCELAR' })).toEqual({ ok: false, recusa: FRASE_NOTA_CURTA });
     expect(decidirConcluir(comecou, { consulta: 'CANCELAR', nota: NOTA })).toEqual({ ok: true, consulta: 'CANCELAR', texto: NOTA });
   });
 
-  it('EM_ANDAMENTO: cancelar é recusado, e sem escolha fica mantida', () => {
-    expect(decidirConcluir(emAndamento, { consulta: 'CANCELAR', nota: NOTA })).toEqual({ ok: false, recusa: FRASE_EM_ANDAMENTO });
-    expect(decidirConcluir(emAndamento, {})).toEqual({ ok: true, consulta: 'MANTER', texto: null });
+  it('COMECOU sem nome de responsável não inventa ninguém', () => {
+    const semNome = planoDeFechamento(PENDENTE_ENCAMINHADO, [consulta({ inicio: SEXTA_PASSADA, responsavel: null })], AGORA);
+    expect(decidirConcluir(semNome, {})).toEqual({
+      ok: false,
+      recusa: 'A consulta de sex, 11/09 às 14:00 ainda não foi registrada. Se aconteceu, quem registra é quem atendeu, e o atendimento fecha sozinho. Para concluir sem ela, cancele a consulta junto.',
+    });
+  });
+
+  it('EM_ANDAMENTO: concluir é recusado com qualquer corpo; a triagem espera o registro', () => {
+    const recusa = 'A consulta com a Dra. Shérad está em andamento. Quando for registrada, o atendimento é concluído sozinho.';
+    expect(decidirConcluir(emAndamento, {})).toEqual({ ok: false, recusa });
+    expect(decidirConcluir(emAndamento, { consulta: 'MANTER' })).toEqual({ ok: false, recusa });
+    expect(decidirConcluir(emAndamento, { consulta: 'CANCELAR', nota: NOTA })).toEqual({ ok: false, recusa });
   });
 
   it('encaminhado sem consulta viva: a nota é obrigatória, e `consulta` enviada é ignorada sem erro', () => {
@@ -235,18 +282,21 @@ describe('decidirConcluir — o pedido contra o plano', () => {
 
   /**
    * O MODAL ABERTO ÀS 08:59 PARA A CONSULTA DAS 09:00. O plano lido na abertura
-   * era FUTURA; o servidor recalcula ao gravar, e às 09:00 é COMECOU. O mesmo
-   * corpo "cancelar e concluir, com a nota" continua coerente e passa; o corpo
-   * sem escolha é recusado com a frase clara, e a tela recarrega.
+   * era FUTURA; o servidor recalcula ao gravar, e às 09:00 é COMECOU. Desde
+   * 15/09/2026 as duas situações pedem o mesmo corpo ("cancelar e concluir, com
+   * a nota"), que passa nos dois lados do minuto; sem cancelar, a recusa muda de
+   * frase junto com a situação.
    */
   it('08:59 → 09:00: o plano é o da hora de gravar', () => {
     const c = [consulta({ inicio: HOJE_9H })];
     const as0859 = planoDeFechamento(PENDENTE_ENCAMINHADO, c, new Date('2026-09-14T11:59:00.000Z'));
     const as0900 = planoDeFechamento(PENDENTE_ENCAMINHADO, c, new Date('2026-09-14T12:00:00.000Z'));
     expect(as0859.concluir.consulta).toBe('CANCELAR_PARA_CONCLUIR');
-    expect(as0900.concluir.consulta).toBe('ESCOLHER');
+    expect(as0900.concluir.consulta).toBe('CANCELAR_PARA_CONCLUIR');
+    expect(decidirConcluir(as0859, { consulta: 'CANCELAR', nota: NOTA })).toEqual({ ok: true, consulta: 'CANCELAR', texto: NOTA });
     expect(decidirConcluir(as0900, { consulta: 'CANCELAR', nota: NOTA })).toEqual({ ok: true, consulta: 'CANCELAR', texto: NOTA });
-    expect(decidirConcluir(as0900, { nota: NOTA })).toEqual({ ok: false, recusa: FRASE_DIGA_SE_ACONTECEU });
+    expect(decidirConcluir(as0859, { nota: NOTA })).toMatchObject({ ok: false, recusa: expect.stringContaining('ainda não aconteceu') });
+    expect(decidirConcluir(as0900, { nota: NOTA })).toMatchObject({ ok: false, recusa: expect.stringContaining('ainda não foi registrada') });
   });
 });
 
@@ -302,10 +352,54 @@ describe('consultasParaCancelar e o motivo gravado na consulta', () => {
 
   it.each([
     ['CONCLUIR', 'FUTURA', 'Resolveu no RH.', 'Atendimento #14 concluído antes da consulta: Resolveu no RH.'],
-    ['CONCLUIR', 'COMECOU', 'Não compareceu e resolveu por telefone.', 'Atendimento #14 concluído, e a consulta não aconteceu: Não compareceu e resolveu por telefone.'],
+    ['CONCLUIR', 'COMECOU', 'Resolveu por telefone com o RH.', 'Atendimento #14 concluído pela triagem sem a consulta: Resolveu por telefone com o RH.'],
+    ['CONCLUIR', 'COMECOU', null, 'Atendimento #14 concluído pela triagem sem a consulta.'],
     ['CANCELAR', 'FUTURA', 'Arranjou advogado próprio.', 'Atendimento #14 cancelado: Arranjou advogado próprio.'],
     ['CANCELAR', 'COMECOU', null, 'Atendimento #14 cancelado.'],
   ] as const)('%s em %s', (acao, situacao, texto, esperado) => {
     expect(motivoDaConsultaCancelada(acao, 14, situacao, texto)).toBe(esperado);
+  });
+});
+
+/**
+ * AS CÓPIAS QUE SOBRARAM (15/09/2026, E4; auditoria do atendimento, defeito 1).
+ * A vigente já registrada deixava a cópia do laço antigo pendente para sempre na
+ * agenda de outro advogado.
+ */
+describe('copiasQueSobraram e o motivo da cópia', () => {
+  const REGISTRADA = consulta({ id: 'c-14', inicio: HOJE_9H, status: 'CONCLUIDO' });
+  const COPIA_MURILO = consulta({ id: 'c-copia', inicio: HOJE_9H, responsavel: DR_MURILO, createdAt: new Date('2026-09-10T13:59:00.000Z') });
+
+  it('com a vigente ATENDIDA: só as nascidas pendentes que não são a vigente', () => {
+    const consultas = [
+      REGISTRADA,
+      COPIA_MURILO,
+      consulta({ id: 'c-andando', inicio: HOJE_9H, status: 'EM_ANDAMENTO', createdAt: new Date('2026-09-10T13:58:00.000Z') }),
+      consulta({ id: 'c-retorno', inicio: QUINTA_9H, origemDesfechoId: 'c-14' }),
+    ];
+    const plano = planoDeFechamento(PENDENTE_ENCAMINHADO, consultas, AGORA);
+    expect(plano.consulta).toMatchObject({ id: 'c-14', situacao: 'ATENDIDA' });
+    expect(plano.consultasAbertas).toBe(2);
+    expect(copiasQueSobraram(plano, consultas).map((c) => c.id)).toEqual(['c-copia']);
+    expect(CATEGORIA_DA_COPIA_QUE_SOBROU).toBe('DUPLICIDADE');
+  });
+
+  it.each<[string, ConsultaDoEncaminhamento[]]>([
+    ['futura', [consulta({ inicio: QUINTA_9H }), { ...COPIA_MURILO, inicio: new Date(QUINTA_9H) }]],
+    ['já começou', [consulta({ inicio: HOJE_9H }), COPIA_MURILO]],
+    ['sem consulta', []],
+  ])('fora da vigente ATENDIDA (%s): nenhuma — ali quem decide é a escolha da pessoa', (_caso, consultas) => {
+    const plano = planoDeFechamento(PENDENTE_ENCAMINHADO, consultas, AGORA);
+    expect(copiasQueSobraram(plano, consultas)).toEqual([]);
+  });
+
+  it('o motivo diz qual consulta foi registrada e que a cópia sobrou', () => {
+    const plano = planoDeFechamento(PENDENTE_ENCAMINHADO, [REGISTRADA, COPIA_MURILO], AGORA);
+    expect(motivoDaCopiaCancelada('CONCLUIR', 14, plano.consulta)).toBe(
+      'Atendimento #14 concluído: a consulta com a Dra. Shérad de seg, 14/09 às 09:00 já foi registrada, e esta cópia sobrou.',
+    );
+    expect(motivoDaCopiaCancelada('CANCELAR', 14, null)).toBe(
+      'Atendimento #14 cancelado: a consulta já foi registrada, e esta cópia sobrou.',
+    );
   });
 });

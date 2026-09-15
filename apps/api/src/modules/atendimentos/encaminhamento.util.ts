@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { diaBR, inicioDoDiaBR } from '../processos/utils/data-br.util';
+import { diasUteisEntre } from '../dashboard/dias-uteis';
 
 /**
  * O ENCAMINHAMENTO VOLTA — derivado da consulta na LEITURA, nunca gravado.
@@ -38,6 +39,10 @@ export interface ConsultaDoEncaminhamento {
   /** Preenchido quando a atividade é SEGUIMENTO de outra — ver abaixo. */
   origemDesfechoId?: string | null;
   createdAt?: Date;
+  /** Quantas vezes a agenda remarcou a consulta. Ausente em leitura antiga: conta como zero. */
+  remarcacoes?: number | null;
+  /** A data da primeira marcação, travada na primeira remarcação. */
+  dataOriginal?: Date | null;
   responsavel: { id: string; nome: string; nomeExibicao: string | null } | null;
 }
 
@@ -48,6 +53,14 @@ export interface SituacaoDoEncaminhamento {
   responsavel: { id: string; nome: string; nomeExibicao: string | null } | null;
   linkReuniao: string | null;
   local: string | null;
+  /**
+   * CONSULTA REMARCADA (15/09/2026, E6 da rodada 4). A triagem precisa saber
+   * que a data mudou para avisar o filiado, e o chip diz "Consulta remarcada"
+   * em tom neutro, com o WhatsApp. Nunca âmbar: o sistema não sabe se o
+   * filiado já foi avisado, e um aviso que nada apaga vira ruído permanente.
+   */
+  remarcacoes: number;
+  dataOriginal: Date | null;
 }
 
 /**
@@ -64,6 +77,8 @@ export const SELECT_CONSULTA_DO_ENCAMINHAMENTO = {
   linkReuniao: true,
   origemDesfechoId: true,
   createdAt: true,
+  remarcacoes: true,
+  dataOriginal: true,
   responsavel: { select: { id: true, nome: true, nomeExibicao: true } },
 } as const satisfies Prisma.CompromissoSelect;
 
@@ -143,7 +158,101 @@ export function situacaoDoEncaminhamento(
       : null,
     linkReuniao: escolhida.linkReuniao ?? null,
     local: escolhida.local ?? null,
+    remarcacoes: escolhida.remarcacoes ?? 0,
+    dataOriginal: escolhida.dataOriginal ? new Date(escolhida.dataOriginal) : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// De quem é a vez: a triagem ou a consulta
+// ---------------------------------------------------------------------------
+
+export type FilaDoAtendimento = 'TRIAGEM' | 'CONSULTA';
+
+export type MotivoDaFila =
+  | 'SEM_DESFECHO'
+  | 'FALTA_CONCLUIR'
+  | 'SEM_CONSULTA'
+  | 'CONSULTA_CANCELADA'
+  | 'CONSULTA_SEM_REGISTRO'
+  | 'AGUARDANDO';
+
+export interface FilaCalculada {
+  fila: FilaDoAtendimento;
+  motivo: MotivoDaFila;
+}
+
+export const FILAS_DO_ATENDIMENTO: FilaDoAtendimento[] = ['TRIAGEM', 'CONSULTA'];
+
+/**
+ * QUANTOS DIAS ÚTEIS A CONSULTA PODE FICAR SEM REGISTRO antes de voltar para a
+ * triagem.
+ *
+ * Dois, e não zero (15/09/2026, E3 da rodada 4):
+ *  - é o mesmo corte da faixa de avisos;
+ *  - nesses dias o atraso já aparece âmbar na agenda de quem vai atender, e
+ *    repetir o mesmo atraso na tela da triagem é o erro do "mesmo atraso três
+ *    vezes" que o painel já cometeu;
+ *  - passado isso, ninguém está cuidando, e aí a triagem precisa ligar.
+ * No #13 (consulta de seg 14/09 às 09:00): neutro nos dias 14 e 15, âmbar a
+ * partir de qua 16/09. Fim de semana não conta (`diasUteisEntre`).
+ */
+export const DIAS_UTEIS_ATE_VOLTAR_A_TRIAGEM = 2;
+
+/**
+ * DE QUEM É A VEZ — calculado na LEITURA, nunca gravado.
+ *
+ * POR QUE (15/09/2026, E3 da rodada 4). A lista, a gaveta e o painel pintavam
+ * "Pendente" em âmbar em todo atendimento aberto. Medido em 14/09: o #13 (consulta
+ * de hoje às 09:00) e o #14 (consulta de 17/09) apareciam iguais ao atendimento
+ * que de fato pedia a triagem, e nos dois não havia nada a fazer além de esperar.
+ * Desde a mesma data o atendimento fecha sozinho quando a consulta é registrada
+ * (`fechamento-pela-consulta.ts`), e a triagem só precisa agir quando a bola
+ * volta para ela.
+ *
+ * A MESMA função serve à lista, à gaveta e ao painel, com o mesmo `agora`: três
+ * cópias da regra discordariam no primeiro ajuste.
+ *
+ * A consulta que decide é a VIGENTE de `situacaoDoEncaminhamento` (a mais recente
+ * não cancelada). Se ela já foi registrada, a vez é da triagem mesmo que sobre
+ * uma cópia aberta do laço antigo: o fechamento sozinho não acontece com cópia
+ * de pé, e concluir pela triagem cancela as cópias (E4).
+ */
+export function filaDoAtendimento(
+  at: { status: string; desfecho: string | null },
+  consultas: ConsultaDoEncaminhamento[] | null | undefined,
+  agora: Date = new Date(),
+): FilaCalculada | null {
+  if (at.status !== 'PENDENTE') return null;
+  if (!at.desfecho) return { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' };
+  if (at.desfecho !== 'ENCAMINHADO') return { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' };
+
+  const nascidas = (consultas ?? []).filter(ehConsultaDoAtendimento);
+  const encaminhamento = situacaoDoEncaminhamento(nascidas, agora);
+  if (!encaminhamento) return { fila: 'TRIAGEM', motivo: 'SEM_CONSULTA' };
+
+  switch (encaminhamento.estado) {
+    case 'CANCELADA':
+      return { fila: 'TRIAGEM', motivo: 'CONSULTA_CANCELADA' };
+    case 'ATENDIDA':
+      return { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' };
+    case 'AGENDADA':
+    case 'HOJE':
+      return { fila: 'CONSULTA', motivo: 'AGUARDANDO' };
+    default: {
+      /*
+        FICOU_PARA_TRAS ou EM_CONSULTA. A consulta em andamento desde HOJE é o
+        advogado atendendo agora; a que foi iniciada num dia anterior e ficou
+        aberta é o mesmo esquecimento da pendente que ficou para trás, e conta
+        igual a partir do início marcado.
+      */
+      const inicio = new Date(encaminhamento.inicio);
+      if (inicio >= inicioDoDiaBR(agora)) return { fila: 'CONSULTA', motivo: 'AGUARDANDO' };
+      return diasUteisEntre(inicio, agora) >= DIAS_UTEIS_ATE_VOLTAR_A_TRIAGEM
+        ? { fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' }
+        : { fila: 'CONSULTA', motivo: 'AGUARDANDO' };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

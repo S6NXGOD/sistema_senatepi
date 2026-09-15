@@ -111,14 +111,20 @@ describe('aditivas e idempotentes', () => {
     expect(adicoes.length + valores.length).toBeGreaterThan(0);
   });
 
-  /** O Prisma aplica por ordem de nome: estas têm de ser as últimas da fila,
-   *  na ordem do plano. */
+  /** O Prisma aplica por ordem de nome: estas têm de estar juntas, na ordem do
+   *  plano, depois de todas as anteriores. */
   it('nascem depois de todas as anteriores, em ordem', () => {
     const pastas = readdirSync(PASTA, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .sort();
-    expect(pastas.slice(-3)).toEqual(Object.values(NOVAS));
+    // Juntas e em ordem. Deixaram de ser as últimas em 15/09/2026 (rodada 4,
+    // ver `migracoes-rodada-4.spec.ts`): o que vem depois tem de ser de dia
+    // posterior, nunca uma migração da rodada 3 esquecida no fim da fila.
+    const inicio = pastas.indexOf(NOVAS.diario);
+    expect(inicio).toBeGreaterThanOrEqual(0);
+    expect(pastas.slice(inicio, inicio + 3)).toEqual(Object.values(NOVAS));
+    for (const depois of pastas.slice(inicio + 3)) expect(depois >= '20260915').toBe(true);
   });
 });
 

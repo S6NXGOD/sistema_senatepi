@@ -36,6 +36,7 @@ import {
   PREFIXO_RODADA_SEM_ALVO,
   SO_CHAMADAS_AO_TRIBUNAL,
   cartaoDeAtendimentosPendentes,
+  contarFilas,
   emOrdemAlfabetica,
   itemDoCadastroACompletar,
   wheresDoPainel,
@@ -575,6 +576,7 @@ export class DashboardService {
       djenRecentes,
       organizacaoDoSindicato,
       adversariosRaw,
+      filaDosPendentes,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
       /**
@@ -714,6 +716,7 @@ export class DashboardService {
           id: true,
           numero: true,
           canal: true,
+          status: true,
           desfecho: true,
           createdAt: true,
           filiado: { select: { id: true, nomeCompleto: true } },
@@ -1025,6 +1028,29 @@ export class DashboardService {
             },
             _count: { processoId: true },
           }),
+      /*
+        AS DUAS FILAS DOS PENDENTES (15/09/2026, E3 da rodada 4) — com a triagem
+        ou aguardando a consulta. A fila depende do relógio e das consultas, e só
+        existe na leitura (`filaDoAtendimento`); por isso a contagem lê TODOS os
+        pendentes, sem o corte de 50 da lista do cartão. Medido em 14/09: 10
+        atendimentos na base, 2 pendentes.
+
+        Roda para todo perfil, como o contador antigo: são números, e nada desta
+        leitura sai na resposta (sem filiado, sem advogado, sem link).
+      */
+      this.prisma.atendimento.findMany({
+        where: { status: StatusAtendimento.PENDENTE },
+        select: {
+          status: true,
+          desfecho: true,
+          createdAt: true,
+          atendentePorId: true,
+          compromissos: {
+            where: { origemDesfechoId: null },
+            select: { id: true, status: true, inicio: true, origemDesfechoId: true, createdAt: true, responsavel: { select: { id: true, nome: true, nomeExibicao: true } } },
+          },
+        },
+      }),
     ]);
 
     /**
@@ -1270,6 +1296,9 @@ export class DashboardService {
         })()
       : null;
 
+    /** As duas filas da casa inteira, pela regra da tela de Atendimentos (ver `filaDosPendentes`). */
+    const filasDoPainel = contarFilas(filaDosPendentes, agora);
+
     /**
      * A FILA DA TRIAGEM, do ponto de vista de QUEM ESTÁ NO BALCÃO.
      *
@@ -1281,18 +1310,23 @@ export class DashboardService {
     const minhaTriagem =
       user.role === 'TRIAGEM'
         ? await (async () => {
-            const [registradosHoje, semDesfecho, filiadosHoje] = await Promise.all([
+            const [registradosHoje, filiadosHoje] = await Promise.all([
               this.prisma.atendimento.count({
                 where: { atendentePorId: user.id, createdAt: { gte: hojeIni, lt: amanhaData } },
-              }),
-              this.prisma.atendimento.count({
-                where: { atendentePorId: user.id, status: StatusAtendimento.PENDENTE },
               }),
               this.prisma.filiado.count({
                 where: { createdAt: { gte: hojeIni, lt: amanhaData } },
               }),
             ]);
-            return { registradosHoje, semDesfecho, filiadosHoje };
+            /*
+              "COMIGO, COM A TRIAGEM" (15/09/2026, E3). Contava todo pendente que a
+              pessoa registrou, inclusive o que só espera a consulta do advogado: o
+              balcão via trabalho onde não havia o que fazer. Agora é a fila
+              TRIAGEM, pela mesma regra do KPI e do cartão. `semDesfecho` fica com o
+              valor novo por uma versão, porque o web no ar ainda lê esse nome.
+            */
+            const { comATriagem } = contarFilas(filaDosPendentes, agora, user.id);
+            return { registradosHoje, semDesfecho: comATriagem, comATriagem, filiadosHoje };
           })()
         : null;
 
@@ -1304,7 +1338,12 @@ export class DashboardService {
         processosTotal,
         /** A fila que a lista padrão esconde — contada à parte, com nome. */
         processosPreProcessuais,
+        /** Todo pendente. Fica por uma versão (janela de troca): o web novo lê as duas filas abaixo. */
         atendimentosPendentes: atendimentosPendentesCount,
+        /** Pendentes que pedem uma ação da triagem — o KPI "Com a triagem" (E3). */
+        atendimentosComATriagem: filasDoPainel.comATriagem,
+        /** Pendentes que só esperam a consulta ser registrada; neutros, sem cobrança. */
+        atendimentosAguardandoConsulta: filasDoPainel.aguardandoConsulta,
         prazosSemana,
         filiadosAtivos,
         filiadosTotal,

@@ -1,5 +1,7 @@
 import {
   ConsultaDoEncaminhamento,
+  DIAS_UTEIS_ATE_VOLTAR_A_TRIAGEM,
+  filaDoAtendimento,
   LOCAL_DA_MODALIDADE,
   modalidadeRemota,
   situacaoDoEncaminhamento,
@@ -158,7 +160,17 @@ describe('situacaoDoEncaminhamento', () => {
       responsavel: DR_BRUNO,
       linkReuniao: 'https://meet.google.com/abc-defg-hij',
       local: 'Por chamada de vídeo',
+      remarcacoes: 0,
+      dataOriginal: null,
     });
+  });
+
+  it('a consulta remarcada leva quantas vezes e a data de antes, para a triagem avisar o filiado', () => {
+    const r = situacaoDoEncaminhamento(
+      [consulta({ inicio: '2026-09-17T12:00:00.000Z', remarcacoes: 1, dataOriginal: new Date('2026-09-15T12:00:00.000Z') })],
+      AGORA,
+    );
+    expect(r).toMatchObject({ estado: 'AGENDADA', remarcacoes: 1, dataOriginal: new Date('2026-09-15T12:00:00.000Z') });
   });
 
   it('campos ausentes saem nulos, nunca undefined', () => {
@@ -168,6 +180,85 @@ describe('situacaoDoEncaminhamento', () => {
     );
     expect(r?.linkReuniao).toBeNull();
     expect(r?.local).toBeNull();
+  });
+});
+
+/**
+ * DE QUEM É A VEZ — com a triagem ou aguardando a consulta (15/09/2026, E3).
+ * Os casos são os do balcão de 14/09: o #13 (consulta de seg 14/09 às 09:00,
+ * sem registro às 18:38) e o #14 (consulta de qui 17/09).
+ */
+describe('filaDoAtendimento', () => {
+  const ENCAMINHADO = { status: 'PENDENTE', desfecho: 'ENCAMINHADO' };
+  const TREZE = consulta({ id: 'c-13', inicio: '2026-09-14T12:00:00.000Z' });
+
+  it('o corte é de dois dias úteis', () => {
+    expect(DIAS_UTEIS_ATE_VOLTAR_A_TRIAGEM).toBe(2);
+  });
+
+  it.each([
+    ['seg 14/09, 18:38', '2026-09-14T21:38:00.000Z', { fila: 'CONSULTA', motivo: 'AGUARDANDO' }],
+    ['ter 15/09, 10:00', '2026-09-15T13:00:00.000Z', { fila: 'CONSULTA', motivo: 'AGUARDANDO' }],
+    ['ter 15/09, 23:59 (já quarta em UTC)', '2026-09-16T02:59:00.000Z', { fila: 'CONSULTA', motivo: 'AGUARDANDO' }],
+    ['qua 16/09, 00:01', '2026-09-16T03:01:00.000Z', { fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' }],
+    ['qui 17/09, 09:00', '2026-09-17T12:00:00.000Z', { fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' }],
+  ])('#13 em %s', (_quando, agora, esperado) => {
+    expect(filaDoAtendimento(ENCAMINHADO, [TREZE], new Date(agora))).toEqual(esperado);
+  });
+
+  it('fim de semana não conta: a consulta de sexta volta à triagem só na terça', () => {
+    const sexta = [consulta({ inicio: '2026-09-11T12:00:00.000Z' })];
+    expect(filaDoAtendimento(ENCAMINHADO, sexta, new Date('2026-09-12T13:00:00.000Z'))?.fila).toBe('CONSULTA');
+    expect(filaDoAtendimento(ENCAMINHADO, sexta, new Date('2026-09-14T13:00:00.000Z'))?.fila).toBe('CONSULTA');
+    expect(filaDoAtendimento(ENCAMINHADO, sexta, new Date('2026-09-15T03:30:00.000Z'))).toEqual({
+      fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO',
+    });
+  });
+
+  it('#14, consulta de quinta: aguardando a consulta, e remarcada continua neutra', () => {
+    expect(filaDoAtendimento(ENCAMINHADO, [consulta({ inicio: '2026-09-17T12:00:00.000Z' })], AGORA))
+      .toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+    expect(filaDoAtendimento(ENCAMINHADO, [consulta({ inicio: '2026-09-17T12:00:00.000Z', remarcacoes: 2 })], AGORA))
+      .toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+  });
+
+  it('em andamento: de hoje é o advogado atendendo; iniciada num dia anterior conta a partir do início marcado', () => {
+    // AGORA é ter 15/09, 11:00.
+    expect(filaDoAtendimento(ENCAMINHADO, [consulta({ inicio: '2026-09-15T12:00:00.000Z', status: 'EM_ANDAMENTO' })], AGORA))
+      .toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+    expect(filaDoAtendimento(ENCAMINHADO, [consulta({ inicio: '2026-09-14T13:00:00.000Z', status: 'EM_ANDAMENTO' })], AGORA))
+      .toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+    expect(filaDoAtendimento(ENCAMINHADO, [consulta({ inicio: '2026-09-11T13:00:00.000Z', status: 'EM_ANDAMENTO' })], AGORA))
+      .toEqual({ fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' });
+  });
+
+  it.each<[string, { status: string; desfecho: string | null }, ConsultaDoEncaminhamento[], unknown]>([
+    ['concluído', { status: 'CONCLUIDO', desfecho: 'ENCAMINHADO' }, [TREZE], null],
+    ['cancelado', { status: 'CANCELADO', desfecho: null }, [], null],
+    ['sem desfecho', { status: 'PENDENTE', desfecho: null }, [], { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' }],
+    ['resolvido no ato', { status: 'PENDENTE', desfecho: 'RESOLVIDO_ATO' }, [], { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' }],
+    ['encaminhado sem consulta', ENCAMINHADO, [], { fila: 'TRIAGEM', motivo: 'SEM_CONSULTA' }],
+    ['encaminhado só com o seguimento', ENCAMINHADO, [consulta({ inicio: '2026-09-18T12:00:00.000Z', origemDesfechoId: 'c-x' })], { fila: 'TRIAGEM', motivo: 'SEM_CONSULTA' }],
+    ['consulta registrada (contêiner antigo não fechou)', ENCAMINHADO, [consulta({ inicio: '2026-09-14T12:00:00.000Z', status: 'CONCLUIDO' })], { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' }],
+    ['todas canceladas', ENCAMINHADO, [consulta({ inicio: '2026-09-17T12:00:00.000Z', status: 'CANCELADO' })], { fila: 'TRIAGEM', motivo: 'CONSULTA_CANCELADA' }],
+  ])('%s', (_caso, at, consultas, esperado) => {
+    expect(filaDoAtendimento(at, consultas, AGORA)).toEqual(esperado);
+  });
+
+  it('a cópia aberta do laço antigo não esconde que a consulta vigente já foi registrada', () => {
+    const r = filaDoAtendimento(ENCAMINHADO, [
+      consulta({ id: 'copia', inicio: '2026-09-14T13:00:00.000Z', createdAt: new Date('2026-09-10T10:00:00Z') }),
+      consulta({ id: 'registrada', inicio: '2026-09-14T13:00:00.000Z', status: 'CONCLUIDO', createdAt: new Date('2026-09-10T10:01:00Z') }),
+    ], AGORA);
+    expect(r).toEqual({ fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' });
+  });
+
+  it('a cancelada e a nova marcada: vale a nova, aguardando a consulta', () => {
+    const r = filaDoAtendimento(ENCAMINHADO, [
+      consulta({ id: 'caiu', inicio: '2026-09-10T13:00:00.000Z', status: 'CANCELADO' }),
+      consulta({ id: 'nova', inicio: '2026-09-18T13:00:00.000Z' }),
+    ], AGORA);
+    expect(r).toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
   });
 });
 

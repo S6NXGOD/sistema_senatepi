@@ -327,19 +327,29 @@ describe('previa — o que a tela de envio pergunta', () => {
    * nem data de nascimento". E o CPF gravado com dígito errado aparece na ficha,
    * então a tela precisa saber que ele existe e não serve.
    */
+  /*
+    `nascimentoGravadoInvalido` (15/09/2026): 01/01/1900 na ficha fazia a tela
+    mandar "Completar a ficha" para o recadastro presencial, onde a data já
+    preenchida é somente leitura. A tela precisa saber que a data existe e não
+    serve, para levar à edição direta.
+  */
   it.each([
-    ['completo', {}, 'CPF_NASCIMENTO', true, null, false],
-    ['só CPF', { dataNascimento: null }, 'CPF', true, null, false],
-    ['só nascimento', { cpf: null }, 'NASCIMENTO', true, null, false],
-    ['nada', { cpf: null, dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', false],
-    ['desfiliado completo', { situacao: 'DESFILIADO' }, 'CPF_NASCIMENTO', false, 'DESFILIADO', false],
-    ['desfiliado sem nada', { situacao: 'DESFILIADO', cpf: null, dataNascimento: null }, 'NENHUM', false, 'DESFILIADO', false],
-    ['CPF com dígito errado e sem nascimento', { cpf: '12345678900', dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', true],
-    ['CPF com 10 dígitos e nascimento', { cpf: '2345678909' }, 'NASCIMENTO', true, null, true],
-    ['CPF só com espaços', { cpf: '   ', dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', false],
-  ])('%s → %s, podeGerar %p, motivo %p, cpfGravadoInvalido %p', async (_nome, extra, desafio, podeGerar, motivo, cpfGravadoInvalido) => {
+    ['completo', {}, 'CPF_NASCIMENTO', true, null, false, false],
+    ['só CPF', { dataNascimento: null }, 'CPF', true, null, false, false],
+    ['só nascimento', { cpf: null }, 'NASCIMENTO', true, null, false, false],
+    ['nada', { cpf: null, dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', false, false],
+    ['desfiliado completo', { situacao: 'DESFILIADO' }, 'CPF_NASCIMENTO', false, 'DESFILIADO', false, false],
+    ['desfiliado sem nada', { situacao: 'DESFILIADO', cpf: null, dataNascimento: null }, 'NENHUM', false, 'DESFILIADO', false, false],
+    ['CPF com dígito errado e sem nascimento', { cpf: '12345678900', dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', true, false],
+    ['CPF com 10 dígitos e nascimento', { cpf: '2345678909' }, 'NASCIMENTO', true, null, true, false],
+    ['CPF só com espaços', { cpf: '   ', dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', false, false],
+    ['CPF certo e nascimento 01/01/1900', { dataNascimento: new Date('1900-01-01T03:00:00.000Z') }, 'CPF', true, null, false, true],
+    ['CPF errado e nascimento de 2020', { cpf: '12345678900', dataNascimento: new Date('2020-03-01T03:00:00.000Z') }, 'NENHUM', false, 'SEM_CONFIRMACAO', true, true],
+  ])('%s → %s, podeGerar %p, motivo %p, cpfGravadoInvalido %p, nascimentoGravadoInvalido %p', async (
+    _nome, extra, desafio, podeGerar, motivo, cpfGravadoInvalido, nascimentoGravadoInvalido,
+  ) => {
     const { service } = montar({ filiado: { ...FILIADO, ...extra } });
-    expect(await service.previa('f1')).toEqual({ desafio, podeGerar, motivo, cpfGravadoInvalido });
+    expect(await service.previa('f1')).toEqual({ desafio, podeGerar, motivo, cpfGravadoInvalido, nascimentoGravadoInvalido });
   });
 
   it('não devolve dado nenhum do cadastro, não grava e não deixa o interceptor gravar', async () => {
@@ -348,7 +358,7 @@ describe('previa — o que a tela de envio pergunta', () => {
       const r = await service.previa('f1');
       return { r, calou: jaFoiAuditadoPeloServico() };
     });
-    expect(Object.keys(r).sort()).toEqual(['cpfGravadoInvalido', 'desafio', 'motivo', 'podeGerar']);
+    expect(Object.keys(r).sort()).toEqual(['cpfGravadoInvalido', 'desafio', 'motivo', 'nascimentoGravadoInvalido', 'podeGerar']);
     expect(JSON.stringify(r)).not.toContain(FILIADO.cpf);
     expect(JSON.stringify(r)).not.toContain('1980');
     expect(calou).toBe(true);
@@ -481,9 +491,25 @@ describe('submeter — o que o link grava', () => {
  * O prisma de mentira guarda `tentativas` e `revogadoEm` de verdade, para que o
  * contador seja o mesmo entre validar, foto e envio.
  */
-function montarPublico(p: { desafio?: string; situacao?: string } = {}) {
+function montarPublico(p: { desafio?: string; situacao?: string; ficha?: Record<string, unknown> } = {}) {
   const TOKEN = 'T'.repeat(43);
   const estado = { tentativas: 0, revogadoEm: null as Date | null };
+  /*
+    A FICHA DE AGORA PEDE O MESMO DESAFIO QUE O LINK, a não ser que o teste diga
+    o contrário em `ficha` (15/09/2026): o link cujo desafio mudou depois de
+    mandado responde "cancelado". Link CPF saiu de ficha sem nascimento; link
+    NASCIMENTO, de ficha sem CPF.
+  */
+  const DA_FICHA_DO_DESAFIO: Record<string, Record<string, unknown>> = {
+    CPF: { dataNascimento: null },
+    NASCIMENTO: { cpf: null },
+  };
+  const ficha = {
+    ...FILIADO,
+    ...(DA_FICHA_DO_DESAFIO[p.desafio ?? ''] ?? {}),
+    situacao: p.situacao ?? 'ATIVO',
+    ...p.ficha,
+  };
   const prisma = {
     linkRecadastramento: {
       findUnique: jest.fn(async ({ where }: { where: { tokenHash?: string; id?: string } }) =>
@@ -495,7 +521,7 @@ function montarPublico(p: { desafio?: string; situacao?: string } = {}) {
               id: 'l1', tokenHash: sha(TOKEN), desafio: p.desafio ?? 'CPF_NASCIMENTO',
               tentativas: estado.tentativas, revogadoEm: estado.revogadoEm, usadoEm: null,
               expiraEm: new Date(Date.now() + H),
-              filiado: { ...FILIADO, situacao: p.situacao ?? 'ATIVO' },
+              filiado: ficha,
             },
       ),
       update: jest.fn(async ({ data }: { data: Record<string, any> }) => {
@@ -672,6 +698,56 @@ describe('foto pelo link', () => {
     const { service, filiados, TOKEN } = montarPublico({ desafio: 'NENHUM' });
     await service.atualizarFoto(TOKEN, IMAGEM, 'image/png');
     expect(filiados.atualizarFoto).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * O LINK CUJO DESAFIO MUDOU DEPOIS DE MANDADO (15/09/2026).
+ *
+ * O desafio é gravado na geração e conferido contra a ficha de agora. A equipe
+ * apagou a data de uma ficha depois de mandar o link CPF_NASCIMENTO: o filiado
+ * queimava as 5 tentativas sem pista. Agora o link responde "cancelado" antes
+ * de gastar tentativa nenhuma.
+ */
+describe('link cujo desafio mudou depois de mandado', () => {
+  const CANCELADO = 'Este link foi cancelado. Solicite um novo ao sindicato.';
+
+  it('CPF_NASCIMENTO e a data foi apagada da ficha: nenhuma das quatro portas abre, e nada é contado', async () => {
+    const { service, filiados, prisma, estado, TOKEN } = montarPublico({ ficha: { dataNascimento: null } });
+    for (const tentativa of [
+      () => service.abrir(TOKEN),
+      () => service.validarDesafio(TOKEN, CERTO),
+      () => service.atualizarFoto(TOKEN, IMAGEM, 'image/jpeg', CERTO),
+      () => service.submeter(TOKEN, { cpfConfirmacao: CERTO.cpf, dataNascimentoConfirmacao: CERTO.dataNascimento } as never),
+    ]) {
+      const erro = await tentativa().catch((e) => e);
+      expect(erro).toBeInstanceOf(GoneException);
+      expect(erro.message).toBe(CANCELADO);
+    }
+    expect(estado.tentativas).toBe(0);
+    expect(prisma.linkRecadastramento.updateMany).not.toHaveBeenCalled();
+    expect(filiados.atualizarFoto).not.toHaveBeenCalled();
+  });
+
+  it('link CPF e o CPF foi apagado (a ficha já não pede nada): cancelado', async () => {
+    const { service, TOKEN } = montarPublico({ desafio: 'CPF', ficha: { cpf: null } });
+    await expect(service.validarDesafio(TOKEN, { cpf: CERTO.cpf })).rejects.toThrow(CANCELADO);
+  });
+
+  it('link NASCIMENTO e a equipe gravou o CPF depois: a ficha pediria os dois, cancelado', async () => {
+    const { service, TOKEN } = montarPublico({ desafio: 'NASCIMENTO', ficha: { cpf: '12345678909' } });
+    await expect(service.abrir(TOKEN)).rejects.toThrow(CANCELADO);
+  });
+
+  it('o mesmo desafio com outro valor continua abrindo: é a ficha de agora que confere', async () => {
+    const { service, TOKEN } = montarPublico({ desafio: 'CPF', ficha: { cpf: '52998224725' } });
+    await expect(service.abrir(TOKEN)).resolves.toMatchObject({ desafio: 'CPF', primeiroNome: 'MARIA' });
+    await expect(service.validarDesafio(TOKEN, { cpf: '529.982.247-25' })).resolves.toMatchObject({ desafio: 'CPF' });
+  });
+
+  it('o link NENHUM antigo não pede nada, então nada nele deixou de conferir: abre até vencer', async () => {
+    const { service, TOKEN } = montarPublico({ desafio: 'NENHUM' });
+    await expect(service.abrir(TOKEN)).resolves.toMatchObject({ desafio: 'NENHUM' });
   });
 });
 

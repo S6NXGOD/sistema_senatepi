@@ -7,6 +7,7 @@ import { contarAbertasPorPessoa } from '../relatorios/abertas-da-pessoa.util';
 import {
   SO_CHAMADAS_AO_TRIBUNAL,
   cartaoDeAtendimentosPendentes,
+  contarFilas,
   emOrdemAlfabetica,
   grupoDoAtendimento,
   itemDoCadastroACompletar,
@@ -388,20 +389,54 @@ describe('o cartão de atendimentos pendentes', () => {
     at('A7', '2026-09-10T09:00:00', null),
   ];
 
-  it('sem desfecho primeiro; depois o que voltou para a triagem; o que está correndo por último', () => {
+  /*
+    Desde 15/09/2026 (E3) a ordem sai da fila. O A4 (consulta de ontem, 14/09,
+    sem registro) passou do grupo 1 para o 2: com um dia útil, a consulta ainda
+    está com o advogado, e o atraso já aparece na agenda dele.
+  */
+  it('sem desfecho primeiro; depois a fila da triagem; o que aguarda a consulta por último', () => {
     const cartao = cartaoDeAtendimentosPendentes(ITENS, AGORA, 10);
+    expect(cartao.map((a) => a.id)).toEqual(['A1', 'A7', 'A2', 'A5', 'A6', 'A3', 'A4']);
+    expect(Object.fromEntries(cartao.map((a) => [a.id, a.fila]))).toEqual({
+      A1: { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' },
+      A7: { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' },
+      A2: { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' },
+      A5: { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' },
+      A6: { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' },
+      A3: { fila: 'CONSULTA', motivo: 'AGUARDANDO' },
+      A4: { fila: 'CONSULTA', motivo: 'AGUARDANDO' },
+    });
+  });
+
+  it('dois dias úteis depois, a consulta sem registro volta para a triagem e sobe no cartão', () => {
+    const quarta = br('2026-09-16T10:00:00');
+    const cartao = cartaoDeAtendimentosPendentes(ITENS, quarta, 10);
+    expect(cartao.find((a) => a.id === 'A4')!.fila).toEqual({ fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' });
     expect(cartao.map((a) => a.id)).toEqual(['A1', 'A7', 'A2', 'A4', 'A5', 'A6', 'A3']);
   });
 
-  it('o corte de seis deixa de fora o que está correndo, não o que pede alguém', () => {
+  it('o corte de seis deixa de fora o que aguarda a consulta, não o que pede a triagem', () => {
     expect(cartaoDeAtendimentosPendentes(ITENS, AGORA).map((a) => a.id)).toEqual([
       'A1',
       'A7',
       'A2',
-      'A4',
       'A5',
       'A6',
+      'A3',
     ]);
+  });
+
+  it('as filas contadas: todos os pendentes, e por atendente só os dele', () => {
+    expect(contarFilas(ITENS, AGORA)).toEqual({ comATriagem: 5, aguardandoConsulta: 2 });
+    const doBalcao = [
+      { ...ITENS[0], atendentePorId: 'u-ivo' }, // A3, aguardando a consulta
+      { ...ITENS[2], atendentePorId: 'u-ivo' }, // A1, sem desfecho
+      { ...ITENS[5], atendentePorId: 'u-bia' }, // A2, falta concluir
+    ];
+    expect(contarFilas(doBalcao, AGORA, 'u-ivo')).toEqual({ comATriagem: 1, aguardandoConsulta: 1 });
+    expect(contarFilas(doBalcao, AGORA, 'u-bia')).toEqual({ comATriagem: 1, aguardandoConsulta: 0 });
+    // Leitura que não filtrou status: o concluído não entra em fila nenhuma.
+    expect(contarFilas([{ ...ITENS[2], status: 'CONCLUIDO' }], AGORA)).toEqual({ comATriagem: 0, aguardandoConsulta: 0 });
   });
 
   it('o estado é o da função da tela de atendimentos, e as consultas cruas não saem', () => {
@@ -420,16 +455,13 @@ describe('o cartão de atendimentos pendentes', () => {
     expect(porId.get('A5')).not.toHaveProperty('encaminhamento');
   });
 
-  it('os grupos, um a um', () => {
-    const sit = (estado: any) => ({ estado }) as any;
-    expect(grupoDoAtendimento(null, null)).toBe(0);
-    expect(grupoDoAtendimento('RESOLVIDO_ATO', null)).toBe(1);
-    expect(grupoDoAtendimento('ENCAMINHADO', sit('ATENDIDA'))).toBe(1);
-    expect(grupoDoAtendimento('ENCAMINHADO', sit('FICOU_PARA_TRAS'))).toBe(1);
-    expect(grupoDoAtendimento('ENCAMINHADO', sit('CANCELADA'))).toBe(1);
-    expect(grupoDoAtendimento('ENCAMINHADO', sit('AGENDADA'))).toBe(2);
-    expect(grupoDoAtendimento('ENCAMINHADO', sit('HOJE'))).toBe(2);
-    expect(grupoDoAtendimento('ENCAMINHADO', sit('EM_CONSULTA'))).toBe(2);
+  it('os grupos, um a um: sem desfecho, com a triagem, aguardando a consulta', () => {
+    expect(grupoDoAtendimento(null, { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' })).toBe(0);
+    expect(grupoDoAtendimento('RESOLVIDO_ATO', { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' })).toBe(1);
+    for (const motivo of ['FALTA_CONCLUIR', 'SEM_CONSULTA', 'CONSULTA_CANCELADA', 'CONSULTA_SEM_REGISTRO'] as const) {
+      expect(`${motivo}: ${grupoDoAtendimento('ENCAMINHADO', { fila: 'TRIAGEM', motivo })}`).toBe(`${motivo}: 1`);
+    }
+    expect(grupoDoAtendimento('ENCAMINHADO', { fila: 'CONSULTA', motivo: 'AGUARDANDO' })).toBe(2);
   });
 });
 
