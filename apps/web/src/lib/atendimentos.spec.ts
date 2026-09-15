@@ -16,7 +16,7 @@ import {
   avisoDasCopiasAbertas, avisoDoConcluido, comArtigo, consultaFechaOAtendimento, consultaRemarcada, corDoStatus,
   filaDe, filtroDoSeletorDeStatus, formatDataHora, fraseDaTriagemNaConsulta, modoDoFechamento, rotuloDoConcluirNoMenu,
   rotuloDoStatus, textoDaConsultaSemRegistro, textoDaRemarcada, textoDoFechaSozinho, tituloDoConcluir,
-  valorDoSeletorDeStatus, OPCOES_DO_SELETOR_DE_STATUS,
+  valorDoSeletorDeStatus, vazioDaLista, OPCOES_DO_SELETOR_DE_STATUS,
   type CompromissoResumo, type Encaminhamento, type EscolhasDoFechamento, type FechamentoAtendimento,
 } from './atendimentos';
 
@@ -832,5 +832,27 @@ describe('modalidade da consulta já marcada (D12)', () => {
     });
     expect(m).toContain('ficou marcada para qui, 17/09, às 09:00');
     expect(m).toContain('Para entrar na hora marcada: https://meet.google.com/abc-defg-hij');
+  });
+});
+
+describe('vazioDaLista — o vazio diz o que significa (captura de 15/09/2026)', () => {
+  it('"Com a triagem" vazio é boa notícia e aponta para os que aguardam a consulta', () => {
+    const v = vazioDaLista({ status: 'PENDENTE', fila: 'TRIAGEM', atendente: '', filtrando: true });
+    expect(v.titulo).toBe('Nada com a triagem agora.');
+    expect(v.titulo).not.toMatch(/filtros/);
+    expect(v.detalhe).toContain('concluídos sozinhos');
+    expect(v.acao).toEqual({ rotulo: 'Ver os que aguardam a consulta', fila: 'CONSULTA' });
+  });
+
+  it('com "Só os meus" diz que é da pessoa; a fila da consulta vazia não oferece volta', () => {
+    expect(vazioDaLista({ status: 'PENDENTE', fila: 'TRIAGEM', atendente: 'me', filtrando: true }).titulo).toBe('Nada seu com a triagem agora.');
+    const c = vazioDaLista({ status: 'PENDENTE', fila: 'CONSULTA', atendente: '', filtrando: true });
+    expect(c.titulo).toBe('Nenhum atendimento aguardando consulta.');
+    expect(c.acao).toBeNull();
+  });
+
+  it('fora das filas continua o de sempre', () => {
+    expect(vazioDaLista({ status: 'CONCLUIDO', fila: '', atendente: '', filtrando: true }).titulo).toBe('Nenhum atendimento encontrado com esses filtros.');
+    expect(vazioDaLista({ status: '', fila: '', atendente: '', filtrando: false }).titulo).toBe('Nenhum atendimento registrado ainda.');
   });
 });

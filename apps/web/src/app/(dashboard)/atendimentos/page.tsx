@@ -27,7 +27,7 @@ import {
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl, AcaoDeFechar,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, OPCOES_DO_SELETOR_DE_STATUS, formatDataHora,
   corDoStatus, faltaConcluir, filtroDaUrl, filtroDoSeletorDeStatus, mensagemDaFalha, rotuloDoAssunto,
-  rotuloDoConcluirNoMenu, rotuloDoStatus, urlTemFiltro, valorDoSeletorDeStatus,
+  rotuloDoConcluirNoMenu, rotuloDoStatus, urlTemFiltro, valorDoSeletorDeStatus, vazioDaLista,
   type FilaDoAtendimento, type ValorDoSeletorDeStatus,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
@@ -159,6 +159,7 @@ function ListaAtendimentos() {
   const itens = data?.items ?? [];
   const totalPaginas = data?.totalPaginas ?? 1;
   const filtrando = !!(buscaDeb || status || fila || desfecho || canal || assunto || dataInicio || dataFim || atendente);
+  const vazio = vazioDaLista({ status, fila, atendente, filtrando });
 
   /**
    * O "Concluir agora?" logo depois do resolvido no ato: a rota nova, sem nota.
@@ -309,7 +310,13 @@ function ListaAtendimentos() {
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-20 text-center text-muted-foreground">
             <Inbox className="h-8 w-8 opacity-40" aria-hidden="true" />
-            {filtrando ? 'Nenhum atendimento encontrado com esses filtros.' : 'Nenhum atendimento registrado ainda.'}
+            <p className="font-medium text-foreground/80">{vazio.titulo}</p>
+            {vazio.detalhe && <p className="max-w-sm text-sm">{vazio.detalhe}</p>}
+            {vazio.acao && (
+              <Button variant="outline" className="mt-2" onClick={() => setFila(vazio.acao!.fila)}>
+                {vazio.acao.rotulo}
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -382,7 +389,7 @@ function ListaAtendimentos() {
                           {rotulo && <span className="block truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
                           <span className="line-clamp-1 text-muted-foreground">{a.descricao}</span>
                         </td>
-                        <td className="px-4 py-3"><Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge></td>
+                        <td className="px-4 py-3"><Badge className={`whitespace-nowrap ${corDoStatus(a)}`}>{rotuloDoStatus(a)}</Badge></td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">{formatDataHora(a.createdAt)}</td>
                         <td className="px-4 py-2 text-right">
                           <div className="flex items-center justify-end gap-1">

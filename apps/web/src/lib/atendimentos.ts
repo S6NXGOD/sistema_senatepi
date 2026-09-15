@@ -1418,6 +1418,32 @@ export function filtroDoSeletorDeStatus(valor: ValorDoSeletorDeStatus): { status
 }
 
 /**
+ * A LISTA VAZIA DIZ O QUE O VAZIO SIGNIFICA (15/09/2026). Na captura da
+ * produção, "Com a triagem" vazio mostrava "Nenhum atendimento encontrado com
+ * esses filtros" — soa como busca que falhou, quando é a boa notícia. E quem
+ * chegou ali procurando os 2 pendentes precisa saber onde eles estão.
+ */
+export function vazioDaLista(f: {
+  status: '' | StatusAtendimento; fila: '' | FilaDoAtendimento; atendente: '' | 'me'; filtrando: boolean;
+}): { titulo: string; detalhe: string | null; acao: { rotulo: string; fila: FilaDoAtendimento } | null } {
+  if (f.status === 'PENDENTE' && f.fila === 'TRIAGEM') {
+    return {
+      titulo: f.atendente === 'me' ? 'Nada seu com a triagem agora.' : 'Nada com a triagem agora.',
+      detalhe: 'Os encaminhados aguardam a consulta e são concluídos sozinhos quando ela for registrada na agenda.',
+      acao: { rotulo: 'Ver os que aguardam a consulta', fila: 'CONSULTA' },
+    };
+  }
+  if (f.status === 'PENDENTE' && f.fila === 'CONSULTA') {
+    return { titulo: 'Nenhum atendimento aguardando consulta.', detalhe: null, acao: null };
+  }
+  return {
+    titulo: f.filtrando ? 'Nenhum atendimento encontrado com esses filtros.' : 'Nenhum atendimento registrado ainda.',
+    detalhe: null,
+    acao: null,
+  };
+}
+
+/**
  * `/atendimentos?assunto=OUTRO&dataInicio=2026-08-01&dataFim=2026-08-31`.
  *
  * Um número que vira link precisa abrir a lista com o MESMO recorte que contou.

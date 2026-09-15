@@ -300,7 +300,9 @@ function FolhaDaCopia({
         </div>
 
         <div className="space-y-3 border-b px-5 py-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          {/* Um embaixo do outro também no computador (15/09/2026): lado a lado, a
+              captura de 1440 px cortava "16 plantõ…" — e o número é a informação. */}
+          <div className="grid gap-3">
             <div className="space-y-1.5">
               <label htmlFor="copia-origem" className="text-sm font-medium">De</label>
               <select
