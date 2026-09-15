@@ -64,6 +64,22 @@ export interface GrupoDuplicata {
   candidatos: CandidatoDuplicata[];
 }
 
+/** Um par marcado como pessoas diferentes — o que saiu da fila e ainda tem volta. */
+export interface ParDescartado {
+  /** Id da decisão: é o que `voltarParaFila` apaga. */
+  id: string;
+  autor: string | null;
+  decididoEm: Date;
+  cadastros: {
+    id: string;
+    nomeCompleto: string;
+    matricula: string;
+    cidade: string | null;
+    cpf: string | null;
+    dataNascimento: Date | null;
+  }[];
+}
+
 /**
  * Peso de cada campo na completude do cadastro.
  *
@@ -553,15 +569,104 @@ export class DuplicidadeService {
   // Ações
   // =========================================================================
 
-  /** Registra que o par é de pessoas diferentes — nunca mais será perguntado. */
+  /**
+   * Registra que o par é de pessoas diferentes e o tira da fila. Devolve o id da
+   * decisão para a tela oferecer "Desfazer" na hora.
+   */
   async marcarDistintos(idA: string, idB: string, autor?: string) {
     const [a, b] = this.ordenarPar(idA, idB);
     await this.exigirExistencia([a, b]);
 
-    await this.prisma.duplicataDecisao.upsert({
+    const decisao = await this.prisma.duplicataDecisao.upsert({
       where: { filiadoIdA_filiadoIdB: { filiadoIdA: a, filiadoIdB: b } },
       create: { filiadoIdA: a, filiadoIdB: b, decisao: DecisaoDuplicata.DISTINTOS, autor },
       update: { decisao: DecisaoDuplicata.DISTINTOS, autor },
+    });
+    return { ok: true, id: decisao.id };
+  }
+
+  /**
+   * O QUE SAIU DA FILA COMO "PESSOAS DIFERENTES" (15/09/2026).
+   *
+   * Até aqui o descarte não tinha volta nem lista: na produção, ALESSANDRA DE
+   * SOUSA (5353 com CPF × 5176 com nascimento, os dois de Teresina) e MARIA DA
+   * CRUZ DE SOUSA (3520 × 3746) saíram assim e ninguém mais os via. Par em que
+   * um dos cadastros já foi apagado não entra: não há mais o que rever.
+   */
+  async listarDescartados(): Promise<ParDescartado[]> {
+    const decisoes = await this.prisma.duplicataDecisao.findMany({
+      where: { decisao: DecisaoDuplicata.DISTINTOS },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, filiadoIdA: true, filiadoIdB: true, autor: true, createdAt: true },
+    });
+    if (!decisoes.length) return [];
+
+    const ids = [...new Set(decisoes.flatMap((d) => [d.filiadoIdA, d.filiadoIdB]))];
+    const filiados = await this.prisma.filiado.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, nomeCompleto: true, matricula: true, cidade: true, cpf: true, dataNascimento: true },
+    });
+    const porId = new Map(filiados.map((f) => [f.id, f]));
+
+    return decisoes.flatMap((d) => {
+      const a = porId.get(d.filiadoIdA);
+      const b = porId.get(d.filiadoIdB);
+      if (!a || !b) return [];
+      const resumo = (f: typeof a) => ({
+        id: f.id,
+        nomeCompleto: f.nomeCompleto,
+        matricula: f.matricula,
+        cidade: f.cidade,
+        cpf: f.cpf,
+        dataNascimento: f.dataNascimento,
+      });
+      return [{ id: d.id, autor: d.autor, decididoEm: d.createdAt, cadastros: [resumo(a), resumo(b)] }];
+    });
+  }
+
+  /**
+   * Devolve o par à fila: apaga a marcação "pessoas diferentes". A varredura lê
+   * as decisões a cada vez, então o par reaparece na próxima leitura.
+   *
+   * Só DISTINTOS. Uma consolidação não tem volta por aqui — um dos cadastros foi
+   * apagado, e a decisão FUNDIDO é o registro de para onde ele foi.
+   */
+  async voltarParaFila(id: string, autor?: string) {
+    const decisao = await this.prisma.duplicataDecisao.findUnique({ where: { id } });
+    const jaVoltou = 'Esta marcação não existe mais: o par talvez já tenha voltado para a fila.';
+    if (!decisao) throw new NotFoundException(jaVoltou);
+    if (decisao.decisao !== DecisaoDuplicata.DISTINTOS) {
+      throw new BadRequestException(
+        'Só a marcação "pessoas diferentes" volta para a fila. Cadastros consolidados não voltam: um deles foi apagado.',
+      );
+    }
+
+    // Condicional: dois cliques ao mesmo tempo não viram dois registros de auditoria.
+    const { count } = await this.prisma.duplicataDecisao.deleteMany({
+      where: { id, decisao: DecisaoDuplicata.DISTINTOS },
+    });
+    if (count === 0) throw new NotFoundException(jaVoltou);
+
+    const filiados = await this.prisma.filiado.findMany({
+      where: { id: { in: [decisao.filiadoIdA, decisao.filiadoIdB] } },
+      select: { nomeCompleto: true, matricula: true },
+    });
+    const par = filiados.map((f) => `${f.nomeCompleto} (${f.matricula})`).join(' × ');
+
+    await this.audit.registrar({
+      acao: AcaoAuditoria.DELETE,
+      entidade: 'DuplicataDecisao',
+      entidadeId: id,
+      descricao:
+        `Par de possíveis cadastros duplicados voltou para a fila${par ? `: ${par}` : ''}. ` +
+        `Tinha sido marcado como pessoas diferentes${decisao.autor ? ` por ${decisao.autor}` : ''}.`,
+      metadata: {
+        filiadoIdA: decisao.filiadoIdA,
+        filiadoIdB: decisao.filiadoIdB,
+        marcadoPor: decisao.autor,
+        marcadoEm: decisao.createdAt.toISOString(),
+        devolvidoPor: autor ?? null,
+      },
     });
     return { ok: true };
   }

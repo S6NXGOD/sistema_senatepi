@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -7,6 +7,7 @@ import { DuplicidadeAtivaGuard, duplicidadeAtiva } from './duplicidade.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { OperacaoDeSistema } from '../../common/permissions/operacao-de-sistema.decorator';
 
 class ParFiliadosDto {
   @IsString() idA!: string;
@@ -26,6 +27,15 @@ class LoteDto {
 /**
  * Mutirão de consolidação de cadastros duplicados.
  *
+ * DO ADMINISTRADOR, INTEIRO (15/09/2026). Consolidar já era, por ser DELETE. O
+ * "não é duplicado" não: Triagem e Coordenação viam só esse botão, e ele tirava
+ * o par da fila para sempre — da vista de quem podia consolidar. Na produção, 2
+ * dos 3 pares descartados vieram da Coordenação, e um deles (MARIA DA CRUZ DE
+ * SOUSA, 3520 × 3746) tem toda a cara de ser a mesma pessoa. É a lição da fusão
+ * de organizações (12/09): dizer se dois cadastros são ou não a mesma pessoa é
+ * UMA decisão, e fica com quem pode tomá-la inteira. A `status` fecha junto, e o
+ * aviso da lista de Filiados some sozinho para quem não decide.
+ *
  * REGISTRADO ANTES de FiliadosController no módulo, de propósito: o Nest
  * resolve rotas na ordem de registro, e o `@Get(':id')` de lá casaria com
  * "duplicidade", devolvendo "filiado não encontrado" em vez desta tela.
@@ -34,6 +44,7 @@ class LoteDto {
 @ApiBearerAuth()
 @ModuloTenant('filiados')
 @Modulo('filiados')
+@OperacaoDeSistema()
 @Controller('filiados/duplicidade')
 export class DuplicidadeController {
   constructor(private readonly service: DuplicidadeService) {}
@@ -82,10 +93,28 @@ export class DuplicidadeController {
     return this.service.executarLote(dto.limite ?? 25, autor);
   }
 
+  /** Tira o par da fila como pessoas diferentes. Tem volta: `DELETE distintos/:id`. */
   @Post('distintos')
   @UseGuards(DuplicidadeAtivaGuard)
   distintos(@Body() dto: ParFiliadosDto, @CurrentUser('nome') autor: string) {
     return this.service.marcarDistintos(dto.idA, dto.idB, autor);
+  }
+
+  /** Os pares marcados como pessoas diferentes, para rever o que saiu da fila. */
+  @Get('descartados')
+  @UseGuards(DuplicidadeAtivaGuard)
+  descartados() {
+    return this.service.listarDescartados();
+  }
+
+  /**
+   * Devolve o par à fila apagando a marcação "pessoas diferentes". Nunca a de
+   * uma consolidação: ali um dos cadastros já não existe.
+   */
+  @Delete('distintos/:id')
+  @UseGuards(DuplicidadeAtivaGuard)
+  voltarParaFila(@Param('id') id: string, @CurrentUser('nome') autor: string) {
+    return this.service.voltarParaFila(id, autor);
   }
 
   /**

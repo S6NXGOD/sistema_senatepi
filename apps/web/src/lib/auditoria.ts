@@ -210,6 +210,8 @@ const NOME_DO_MODELO: Record<string, string> = {
   // 13/09/2026: entidades novas do recadastro online (link preparado e resposta conferida).
   LinkRecadastramento: 'Link de recadastramento',
   Recadastramento: 'Recadastramento',
+  // 15/09/2026: devolver à fila um par marcado como "pessoas diferentes".
+  DuplicataDecisao: 'Decisão sobre cadastro duplicado',
 };
 
 export function rotuloDaEntidade(e: string | null): string {

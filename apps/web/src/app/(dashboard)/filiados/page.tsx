@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { statusDuplicidade } from '@/lib/duplicidade';
 import { useAuth } from '@/lib/auth';
-import { nivelEfetivo } from '@/lib/permissoes';
+import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
@@ -456,9 +456,13 @@ export default function FiliadosPage() {
  *   - o perfil não tem acesso (a chamada falha e o aviso não renderiza).
  */
 function AvisoDuplicados() {
+  const { user } = useAuth();
+  // Desde 15/09/2026 a fila inteira é do Administrador: os outros perfis nem perguntam.
+  const ehAdmin = podeExcluir(user?.role);
   const { data } = useQuery({
     queryKey: ['duplicados-status'],
     queryFn: statusDuplicidade,
+    enabled: ehAdmin,
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
   });

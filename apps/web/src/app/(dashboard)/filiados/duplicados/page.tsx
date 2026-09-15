@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle,
-  Keyboard, List, Merge, Users, X,
+  AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle,
+  Keyboard, List, Merge, ShieldCheck, Undo2, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,9 +19,11 @@ import { podeExcluir } from '@/lib/permissoes';
 import { cn, formatarData, mascararCpf } from '@/lib/utils';
 import {
   CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL,
-  fundirDuplicados, listarDuplicados, marcarDistintos,
+  fraseDoDescarte, fundirDuplicados, listarDescartados, listarDuplicados, marcarDistintos,
+  resumoDoCadastro, voltarParaFila,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
+import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
 
 const NIVEIS: Confianca[] = ['ALTA', 'MEDIA', 'BAIXA'];
 
@@ -45,6 +47,8 @@ export default function DuplicadosPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['duplicados'],
     queryFn: listarDuplicados,
+    // Só o Administrador decide (e a API recusa os demais): os outros nem perguntam.
+    enabled: ehAdmin,
     // A varredura percorre a base inteira: não vale refazer a cada foco.
     staleTime: 60_000,
     refetchOnWindowFocus: false,
@@ -80,18 +84,43 @@ export default function DuplicadosPage() {
     }
   }
 
+  /** Devolve à fila um par marcado como pessoas diferentes — pelo aviso ou pela lista. */
+  const devolver = useCallback(
+    async (decisaoId: string) => {
+      try {
+        await voltarParaFila(decisaoId);
+        toast.success('O par voltou para a fila.');
+        qc.invalidateQueries({ queryKey: ['duplicados'] });
+        qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'Não foi possível devolver o par à fila.');
+      }
+    },
+    [qc],
+  );
+
   const naoDuplicado = useCallback(
     async (g: GrupoDuplicata) => {
       const [a, b] = g.candidatos;
       try {
-        await marcarDistintos(a.id, b.id);
-        toast.success('Marcado como pessoas diferentes — não aparecerá de novo.');
+        const r = await marcarDistintos(a.id, b.id);
+        /*
+          O DESCARTE TEM VOLTA (15/09/2026). O aviso dizia "não aparecerá de novo",
+          e era verdade: MARIA DA CRUZ DE SOUSA (3520 × 3746) saiu assim da fila e
+          ninguém mais a viu. Agora há "Desfazer" aqui e a lista no fim da página.
+        */
+        const id = r?.id;
+        toast.success(
+          'Saiu da fila como pessoas diferentes.',
+          id ? { duration: DURACAO_DO_DESFAZER_MS, action: { label: 'Desfazer', onClick: () => void devolver(id) } } : undefined,
+        );
         qc.invalidateQueries({ queryKey: ['duplicados'] });
+        qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
       } catch (e: any) {
         toast.error(e?.response?.data?.message ?? 'Não foi possível registrar.');
       }
     },
-    [qc],
+    [qc, devolver],
   );
 
   const atual = grupos[Math.min(indice, Math.max(0, grupos.length - 1))];
@@ -129,15 +158,23 @@ export default function DuplicadosPage() {
       } else if (e.key === 'Enter') {
         e.preventDefault();
         const manter = g.candidatos.find((c) => c.id === escolhidoDoAtual);
-        if (ehAdmin && manter && g.candidatos.length === 2) setFundindo({ grupo: g, manter });
+        if (manter && g.candidatos.length === 2) setFundindo({ grupo: g, manter });
       }
     }
     window.addEventListener('keydown', aoTeclar);
     return () => window.removeEventListener('keydown', aoTeclar);
-  }, [modo, atual, grupos.length, escolhidoDoAtual, ehAdmin, naoDuplicado]);
+  }, [modo, atual, grupos.length, escolhidoDoAtual, naoDuplicado]);
 
   // Trocar de aba recomeça a fila.
   useEffect(() => { setIndice(0); }, [aba]);
+
+  /*
+    QUEM NÃO É ADMINISTRADOR NÃO VÊ UMA FILA PELA METADE (15/09/2026). Antes a
+    Triagem via os cartões com "Não é duplicado" e sem "Consolidar" — e o botão
+    que sobrava era justamente o que escondia o par de quem podia consolidar.
+  */
+  if (!user) return null;
+  if (!ehAdmin) return <SoDoAdministrador />;
 
   return (
     <div className="space-y-5">
@@ -156,7 +193,7 @@ export default function DuplicadosPage() {
       </div>
 
       {/* Consolidação em lote — só a fatia sem nada a perder. */}
-      {ehAdmin && <LoteDuplicados />}
+      <LoteDuplicados />
 
       {/* Abas por confiança */}
       <div className="flex flex-wrap items-center gap-2">
@@ -233,7 +270,6 @@ export default function DuplicadosPage() {
 
           <GrupoCard
             grupo={atual}
-            ehAdmin={ehAdmin}
             escolhidoId={escolhidoDoAtual}
             onEscolher={(id) => setEscolha((e) => ({ ...e, [atual.chave]: id }))}
             onFundir={(manter) => setFundindo({ grupo: atual, manter })}
@@ -257,7 +293,6 @@ export default function DuplicadosPage() {
             <GrupoCard
               key={g.chave}
               grupo={g}
-              ehAdmin={ehAdmin}
               escolhidoId={escolha[g.chave] ?? g.candidatos.find((c) => c.sugerido)?.id ?? null}
               onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
               onFundir={(manter) => setFundindo({ grupo: g, manter })}
@@ -266,6 +301,8 @@ export default function DuplicadosPage() {
           ))}
         </div>
       )}
+
+      <MarcadosComoDiferentes onDevolver={devolver} />
 
       <ConfirmDialog
         open={!!fundindo}
@@ -288,6 +325,102 @@ export default function DuplicadosPage() {
   );
 }
 
+/**
+ * Para quem chega pela URL sem ser Administrador: uma explicação curta, sem fila
+ * pela metade. O aviso da lista de Filiados já não aparece para esses perfis.
+ */
+function SoDoAdministrador() {
+  return (
+    <div className="mx-auto max-w-lg space-y-4 py-2 sm:py-6">
+      <Link href="/filiados" className="inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-3.5 w-3.5" /> Voltar para Filiados
+      </Link>
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted">
+              <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+            </div>
+            <h2 className="text-lg font-semibold leading-tight">A revisão de cadastros duplicados fica com o Administrador</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Consolidar apaga um dos cadastros, e marcar &ldquo;não é duplicado&rdquo; tira o par da fila.
+            As duas decisões ficam com quem administra o sistema, para nenhuma esconder a outra.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Se atender alguém com dois cadastros, passe ao Administrador o nome e as duas matrículas.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** O que saiu da fila como "pessoas diferentes", com a volta ao alcance. */
+function MarcadosComoDiferentes({ onDevolver }: { onDevolver: (decisaoId: string) => Promise<void> }) {
+  const { data } = useQuery({
+    queryKey: ['duplicados-descartados'],
+    queryFn: listarDescartados,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const [aberto, setAberto] = useState(false);
+  const [devolvendo, setDevolvendo] = useState<string | null>(null);
+
+  if (!data?.length) return null;
+
+  return (
+    <section className="rounded-xl border bg-card">
+      <button
+        type="button"
+        onClick={() => setAberto((x) => !x)}
+        aria-expanded={aberto}
+        className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="text-sm font-medium">Marcados como pessoas diferentes</span>
+          <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{data.length}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            Saíram da fila. Se algum foi engano, devolva para revisar de novo.
+          </span>
+        </span>
+        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition', aberto && 'rotate-180')} aria-hidden="true" />
+      </button>
+      {aberto && (
+        <ul className="divide-y border-t">
+          {data.map((p) => (
+            <li key={p.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-1">
+                {p.cadastros.map((c) => (
+                  <p key={c.id} className="text-sm">
+                    <span className="font-mono text-xs text-muted-foreground">{c.matricula}</span>{' '}
+                    <span className="font-medium">{c.nomeCompleto}</span>
+                    <span className="block text-xs text-muted-foreground sm:ml-2 sm:inline">{resumoDoCadastro(c)}</span>
+                  </p>
+                ))}
+                <p className="text-xs text-muted-foreground">{fraseDoDescarte(p)}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-11 shrink-0 sm:min-h-9"
+                disabled={devolvendo === p.id}
+                onClick={async () => {
+                  setDevolvendo(p.id);
+                  await onDevolver(p.id);
+                  setDevolvendo(null);
+                }}
+              >
+                <Undo2 className="h-4 w-4" /> Voltar para a fila
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function Atalho({ tecla, acao }: { tecla: string; acao: string }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -298,10 +431,9 @@ function Atalho({ tecla, acao }: { tecla: string; acao: string }) {
 }
 
 function GrupoCard({
-  grupo, ehAdmin, escolhidoId, onEscolher, onFundir, onNaoDuplicado,
+  grupo, escolhidoId, onEscolher, onFundir, onNaoDuplicado,
 }: {
   grupo: GrupoDuplicata;
-  ehAdmin: boolean;
   escolhidoId: string | null;
   onEscolher: (id: string) => void;
   onFundir: (manter: CandidatoDuplicata) => void;
@@ -324,7 +456,7 @@ function GrupoCard({
   }, [grupo]);
 
   const escolhido = grupo.candidatos.find((c) => c.id === escolhidoId) ?? null;
-  const podeFundir = ehAdmin && grupo.candidatos.length === 2 && !!escolhido;
+  const podeFundir = grupo.candidatos.length === 2 && !!escolhido;
 
   return (
     <Card>
@@ -384,7 +516,7 @@ function GrupoCard({
               <Merge className="h-4 w-4" /> Consolidar mantendo {escolhido!.matricula}
             </Button>
           )}
-          {ehAdmin && grupo.candidatos.length > 2 && (
+          {grupo.candidatos.length > 2 && (
             <p className="text-xs text-muted-foreground">
               Grupo com {grupo.candidatos.length} cadastros — consolide dois de cada vez.
             </p>

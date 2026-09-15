@@ -76,8 +76,53 @@ export async function listarDuplicados(): Promise<GrupoDuplicata[]> {
   return (await api.get('/filiados/duplicidade')).data;
 }
 
-export async function marcarDistintos(idA: string, idB: string) {
+/** Devolve o `id` da marcação (API desde 15/09/2026): é o que o "Desfazer" do aviso usa. */
+export async function marcarDistintos(idA: string, idB: string): Promise<{ ok: boolean; id?: string }> {
   return (await api.post('/filiados/duplicidade/distintos', { idA, idB })).data;
+}
+
+export interface CadastroDescartado {
+  id: string;
+  nomeCompleto: string;
+  matricula: string;
+  cidade: string | null;
+  cpf: string | null;
+  dataNascimento: string | null;
+}
+
+/** Par marcado como pessoas diferentes — saiu da fila, mas tem volta. */
+export interface ParDescartado {
+  id: string;
+  autor: string | null;
+  decididoEm: string;
+  cadastros: CadastroDescartado[];
+}
+
+export async function listarDescartados(): Promise<ParDescartado[]> {
+  return (await api.get('/filiados/duplicidade/descartados')).data;
+}
+
+export async function voltarParaFila(decisaoId: string): Promise<{ ok: boolean }> {
+  return (await api.delete(`/filiados/duplicidade/distintos/${decisaoId}`)).data;
+}
+
+const DIA_DE_TERESINA: Intl.DateTimeFormatOptions = {
+  timeZone: 'America/Fortaleza', day: '2-digit', month: '2-digit', year: 'numeric',
+};
+
+/** "Teresina · com CPF · nasc. 10/11/1970" — o que ajuda a rever se é a mesma pessoa. */
+export function resumoDoCadastro(c: Pick<CadastroDescartado, 'cidade' | 'cpf' | 'dataNascimento'>): string {
+  return [
+    c.cidade?.trim() || null,
+    c.cpf ? 'com CPF' : 'sem CPF',
+    c.dataNascimento ? `nasc. ${new Date(c.dataNascimento).toLocaleDateString('pt-BR', DIA_DE_TERESINA)}` : null,
+  ].filter(Boolean).join(' · ');
+}
+
+/** "Marcado por Julian Helton em 02/09/2026". Sem autor gravado, não inventa um. */
+export function fraseDoDescarte(p: Pick<ParDescartado, 'autor' | 'decididoEm'>): string {
+  const dia = new Date(p.decididoEm).toLocaleDateString('pt-BR', DIA_DE_TERESINA);
+  return p.autor ? `Marcado por ${p.autor} em ${dia}` : `Marcado em ${dia}`;
 }
 
 export async function fundirDuplicados(manterId: string, descartarId: string) {
