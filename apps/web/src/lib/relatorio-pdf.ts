@@ -8,7 +8,7 @@ import {
 import { formatNPU } from './processos';
 import {
   RESULTADO_LABEL, dataCurta, diaCurto, duracao, fraseDasSentencas, fraseDosOutrosAssuntos, horaDoItem,
-  totalDoAno, type Contagem, type ItemDaAgenda, type Relatorio,
+  rotuloDosConcluidos, totalDoAno, type Contagem, type ItemDaAgenda, type Relatorio,
 } from './relatorios';
 
 export type { BlocoDoPdf } from './pdf-documento';
@@ -499,6 +499,8 @@ export function planoDoPdf(
 
   if (quer('atendimentos')) {
     const a = r.atendimentos;
+    // Desde 15/09/2026 o atendimento também fecha pela consulta: o rótulo diz quantos, e a nota desde quando.
+    const concluidos = rotuloDosConcluidos(r);
     blocos.push({ tipo: 'secao', titulo: 'Atendimento ao filiado' });
     blocos.push({
       tipo: 'numeros',
@@ -507,9 +509,10 @@ export function planoDoPdf(
         ...(a.filiadosAtendidos !== undefined
           ? [{ rotulo: 'Pessoas atendidas', valor: n(a.filiadosAtendidos) }]
           : []),
-        { rotulo: 'Concluídos', valor: n(a.concluidos) },
+        { rotulo: concluidos.rotulo, valor: n(a.concluidos) },
       ],
     });
+    if (concluidos.legenda) blocos.push({ tipo: 'nota', texto: concluidos.legenda });
     blocos.push(
       contagem(
         graficos, 'Por que procuraram o sindicato', ['Assunto', 'Atendimentos'], a.porAssunto, rotulos.assunto,

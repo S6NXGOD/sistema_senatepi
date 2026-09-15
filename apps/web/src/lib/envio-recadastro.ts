@@ -148,47 +148,78 @@ export function emailUtilizavel(email: string | null | undefined): string | null
  * o desfiliado com CPF e data gravados (o que falta é reativar) e o CPF gravado
  * que não confere, que a ficha mostra enquanto a caixa dizia que ele não existe.
  * A prévia passou a mandar `motivo` e `cpfGravadoInvalido`, opcionais porque a
- * API antiga não manda; sem eles, fica o texto de antes. `completarFicha` falso
- * esconde o botão: gravar dado na ficha não reativa ninguém.
+ * API antiga não manda; sem eles, fica o texto de antes. `porta` nula esconde
+ * o botão: gravar dado na ficha não reativa ninguém.
+ *
+ * QUAL PORTA ABRE A FICHA (15/09/2026). O botão abria sempre o recadastramento
+ * presencial, e lá CPF e nascimento JÁ GRAVADOS ficam somente leitura (a API
+ * ainda descarta a troca em `protegerImutaveis`). Com o CPF que não confere, ou
+ * a data implausível (01/01/1900), a pessoa não conseguia fazer o que a caixa
+ * mandava e ainda gravava um recadastramento presencial à toa. Dado gravado
+ * errado se corrige na EDIÇÃO da ficha, que não passa por essa trava; dado
+ * que falta se completa no presencial, onde campo vazio fica aberto.
  */
+export type PortaDaFicha = 'EDITAR' | 'RECADASTRAR';
+
 export type AvisoDoEnvio =
   | { tipo: 'NADA' }
   | { tipo: 'UM_FATOR'; texto: string }
-  | { tipo: 'SEM_CONFIRMACAO'; titulo: string; texto: string; completarFicha: boolean };
+  | { tipo: 'SEM_CONFIRMACAO'; titulo: string; texto: string; porta: PortaDaFicha | null };
 
 export interface PreviaDoEnvio {
   desafio: string;
   podeGerar: boolean;
   motivo?: 'DESFILIADO' | 'SEM_CONFIRMACAO' | null;
   cpfGravadoInvalido?: boolean;
+  /** Data gravada antes de 1920 ou de menos de 14 anos. Opcional pela janela de troca. */
+  nascimentoGravadoInvalido?: boolean;
 }
 
 export function avisoDoEnvio(previa: PreviaDoEnvio, corenVisivel: boolean): AvisoDoEnvio {
+  const titulo = 'O link abriria sem confirmar quem é';
+  const volte = 'e volte aqui: o link passa a pedir essa confirmação.';
   if (!previa.podeGerar && previa.motivo === 'DESFILIADO') {
     return {
       tipo: 'SEM_CONFIRMACAO',
       titulo: 'Este cadastro está desfiliado',
       texto: 'Reative o cadastro antes de pedir o recadastramento.',
-      completarFicha: false,
+      porta: null,
+    };
+  }
+  if (!previa.podeGerar && previa.cpfGravadoInvalido && previa.nascimentoGravadoInvalido) {
+    return {
+      tipo: 'SEM_CONFIRMACAO',
+      titulo,
+      texto: `O CPF e a data de nascimento gravados na ficha não conferem. Corrija os dois na ficha ${volte}`,
+      porta: 'EDITAR',
     };
   }
   if (!previa.podeGerar && previa.cpfGravadoInvalido) {
     return {
       tipo: 'SEM_CONFIRMACAO',
-      titulo: 'O link abriria sem confirmar quem é',
+      titulo,
+      texto: `O CPF gravado na ficha não confere. Corrija o CPF na ficha ${volte}`,
+      porta: 'EDITAR',
+    };
+  }
+  if (!previa.podeGerar && previa.nascimentoGravadoInvalido) {
+    return {
+      tipo: 'SEM_CONFIRMACAO',
+      titulo,
       texto:
-        'O CPF gravado na ficha não confere. Corrija o CPF na ficha e volte aqui: o link passa a pedir essa confirmação.',
-      completarFicha: true,
+        'A data de nascimento gravada na ficha não é plausível (antes de 1920 ou de menos de 14 anos). ' +
+        `Corrija a data na ficha ${volte}`,
+      porta: 'EDITAR',
     };
   }
   if (!previa.podeGerar) {
     return {
       tipo: 'SEM_CONFIRMACAO',
-      titulo: 'O link abriria sem confirmar quem é',
+      titulo,
       texto:
         `Este cadastro não tem CPF nem data de nascimento${corenVisivel ? ', nem COREN' : ''}. ` +
-        `Pergunte os dois ao ${V.filiado}, grave na ficha e volte aqui: o link passa a pedir essa confirmação.`,
-      completarFicha: true,
+        `Pergunte os dois ao ${V.filiado}, grave na ficha ${volte}`,
+      porta: 'RECADASTRAR',
     };
   }
   if (previa.desafio === 'CPF') {
@@ -204,6 +235,47 @@ export function avisoDoEnvio(previa: PreviaDoEnvio, corenVisivel: boolean): Avis
     };
   }
   return { tipo: 'NADA' };
+}
+
+/** Para onde o botão da caixa leva, pela porta que o aviso escolheu. */
+export function caminhoDaPorta(porta: PortaDaFicha, filiadoId: string): string {
+  return porta === 'EDITAR' ? `/filiados/${filiadoId}/editar` : `/filiados/${filiadoId}/recadastrar`;
+}
+
+/** "Corrigir" quando o dado está gravado errado; "Completar" quando falta. */
+export function rotuloDaPorta(porta: PortaDaFicha): string {
+  return porta === 'EDITAR' ? 'Corrigir na ficha' : 'Completar a ficha';
+}
+
+/**
+ * O ERRO DO TOQUE, com o tom certo (15/09/2026).
+ *
+ * A recusa "Este cadastro não tem como confirmar a identidade…" chegava em
+ * VERMELHO quando a prévia tinha falhado ou ficado velha. É regra do cadastro
+ * (falta dado, está desfiliado), não falha do sistema: a API responde 4xx com
+ * a frase pronta, e isso é âmbar. Vermelho fica para o que ninguém na tela
+ * resolve sozinho: servidor fora (5xx) ou sem resposta.
+ */
+export interface ErroDoEnvio {
+  texto: string;
+  tom: 'AVISO' | 'ERRO';
+}
+
+export function erroDoEnvio(e: unknown): ErroDoEnvio {
+  const resposta = (e as { response?: { status?: unknown; data?: { message?: unknown } } })?.response;
+  const msg = resposta?.data?.message;
+  const texto =
+    Array.isArray(msg) && typeof msg[0] === 'string'
+      ? msg[0]
+      : typeof msg === 'string' && msg.trim()
+        ? msg
+        : null;
+  const status = typeof resposta?.status === 'number' ? resposta.status : null;
+  const regra = status !== null && status >= 400 && status < 500 && texto !== null;
+  return {
+    texto: texto ?? 'Não foi possível preparar o link. Tente de novo.',
+    tom: regra ? 'AVISO' : 'ERRO',
+  };
 }
 
 /**

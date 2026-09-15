@@ -34,10 +34,11 @@ import {
   ASSUNTO_OUTRO_MAX, ESTADO_ENCAMINHAMENTO, STATUS_CONSULTA_LABEL, CompromissoResumo, Encaminhamento,
   LOCAL_DA_MODALIDADE, MODALIDADES, MODALIDADE_LABEL,
   type AcaoDeFechar, type ModalidadeConsulta, type StatusAtendimento,
-  concluirEhDireto, consultasDoAtendimento, corpoDoAssunto, erroDoAssunto, faltaConcluir, fraseDoEncaminhamento,
-  fraseDoFechamento, mensagemDaConsulta, mensagemDaFalha, modalidadeDoCartao, modalidadeRemota,
-  nomeDeQuemAtende, podeMarcarNovaConsulta, rotuloDaModalidadeNoCartao, rotuloDoAssunto, rotuloDoInstante,
-  tomDoEncaminhamento,
+  concluirEhDireto, consultaRemarcada, consultasDoAtendimento, corDoStatus, corpoDoAssunto, erroDoAssunto, faltaConcluir,
+  fraseDoEncaminhamento, fraseDoFechamento, mensagemDaConsulta, mensagemDaFalha, modalidadeDoCartao, modalidadeRemota,
+  modoDoFechamento, nomeDeQuemAtende, podeMarcarNovaConsulta, rotuloDaModalidadeNoCartao, rotuloDoAssunto,
+  rotuloDoInstante, rotuloDoStatus, textoDaConsultaSemRegistro, textoDaRemarcada, textoDoFechaSozinho,
+  tomDoEncaminhamento, type FilaNaResposta,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { formatNPU } from '@/lib/processos';
@@ -86,6 +87,15 @@ export function AtendimentoDrawer({
   const filiado = at?.filiado;
   const consultas = at ? consultasDoAtendimento(at) : [];
   const temEncaminhamento = at?.desfecho === 'ENCAMINHADO' || consultas.length > 0;
+  /*
+    O ATENDIMENTO INDEPENDENTE (15/09/2026). Com a consulta de pé, a triagem não
+    tem o que concluir: o atendimento fecha quando quem atende registra a
+    consulta. As ações desse caso moram no bloco do encaminhamento, e o rodapé
+    não repete Concluir nem Cancelar.
+  */
+  const modo = at ? modoDoFechamento(at) : 'OUTRO';
+  const consultaDePe = modo === 'FECHA_SOZINHO' || modo === 'CONSULTA_SEM_REGISTRO';
+  const remarcada = at ? consultaRemarcada(at.encaminhamento, at.status) : false;
 
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['atendimento', atendimentoId] });
@@ -184,7 +194,7 @@ export function AtendimentoDrawer({
                 {at.desfecho
                   ? <Badge className={DESFECHO_COR[at.desfecho]}>{DESFECHO_LABEL[at.desfecho]}</Badge>
                   : <span className="text-sm italic text-muted-foreground">Sem desfecho</span>}
-                <Badge className={STATUS_COR[at.status]}>{STATUS_LABEL[at.status]}</Badge>
+                <Badge className={corDoStatus(at)}>{rotuloDoStatus(at)}</Badge>
                 <span className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" aria-hidden="true" /> {formatDataHora(at.createdAt)}</span>
               </div>
 
@@ -218,14 +228,35 @@ export function AtendimentoDrawer({
                     <p className="flex items-center gap-1.5 text-sm font-semibold">
                       <ArrowRight className="h-4 w-4 text-brand-700 dark:text-brand-400" aria-hidden="true" /> Encaminhamento jurídico
                     </p>
-                    <ChipEncaminhamento encaminhamento={at.encaminhamento} statusAtendimento={at.status} />
+                    <ChipEncaminhamento encaminhamento={at.encaminhamento} statusAtendimento={at.status} fila={at.fila} />
                   </div>
 
-                  {at.encaminhamento && (
+                  {at.encaminhamento && !remarcada && modo !== 'CONSULTA_SEM_REGISTRO' && (
                     <p className="text-sm">{fraseDoEncaminhamento(at.encaminhamento, at.status)}</p>
                   )}
 
-                  {podeEditar && faltaConcluir(at) && (
+                  {/* Remarcada: neutra, com o aviso ao filiado a um toque (E6). */}
+                  {remarcada && at.encaminhamento && (
+                    <AvisoDaRemarcada
+                      encaminhamento={at.encaminhamento}
+                      filiado={filiado}
+                    />
+                  )}
+
+                  {at.encaminhamento && consultaDePe && (
+                    <EsperaPelaConsulta
+                      modo={modo}
+                      encaminhamento={at.encaminhamento}
+                      podeEditar={podeEditar}
+                      podeResolverSemConsulta={!!at.fechamento?.concluir.permitido}
+                      podeVerAgenda={podeVerAgenda}
+                      onResolverSemConsulta={() => setFechar('CONCLUIR')}
+                      onCancelar={() => setFechar('CANCELAR')}
+                    />
+                  )}
+
+                  {/* API de antes (sem fila nem plano): o "falta concluir" de sempre. */}
+                  {podeEditar && modo === 'OUTRO' && faltaConcluir(at) && (
                     <Button className="w-full sm:w-auto" onClick={() => setFechar('CONCLUIR')}>
                       <CheckCircle2 className="h-4 w-4" /> Concluir atendimento
                     </Button>
@@ -249,6 +280,7 @@ export function AtendimentoDrawer({
                           consulta={c}
                           encaminhamento={at.encaminhamento ?? null}
                           statusAtendimento={at.status}
+                          fila={at.fila}
                           filiado={filiado}
                           podeEditar={podeEditar}
                           podeVerAgenda={podeVerAgenda}
@@ -305,8 +337,12 @@ export function AtendimentoDrawer({
                     <CalendarPlus className="h-4 w-4" /> Marcar nova consulta
                   </Button>
                 )}
-                {/* Sólido só quando concluir não decide nada além de fechar (atendida ou resolvido no ato). */}
-                {at.desfecho && at.status === 'PENDENTE' && !faltaConcluir(at) && (
+                {/*
+                  Sólido só quando concluir não decide nada além de fechar (atendida ou resolvido no ato).
+                  Com a fila, só aparece quando a vez é da triagem (FALTA_CONCLUIR, SEM_CONSULTA,
+                  CONSULTA_CANCELADA); sem ela, a regra de antes.
+                */}
+                {(modo === 'CONCLUIR' || (modo === 'OUTRO' && at.desfecho && at.status === 'PENDENTE' && !faltaConcluir(at))) && (
                   <Button
                     variant={concluirEhDireto(at) ? 'default' : 'outline'}
                     className="h-12 sm:h-10"
@@ -320,8 +356,11 @@ export function AtendimentoDrawer({
                     <RotateCcw className="h-4 w-4" /> Reabrir
                   </Button>
                 )}
-                {/* Concluído não vira cancelado direto: é preciso reabrir antes, como na agenda. */}
-                {at.status === 'PENDENTE' && (
+                {/*
+                  Concluído não vira cancelado direto: é preciso reabrir antes, como na agenda.
+                  Com a consulta de pé, o Cancelar mora no bloco do encaminhamento.
+                */}
+                {at.status === 'PENDENTE' && !consultaDePe && (
                   <Button
                     variant="outline"
                     className="h-12 text-amber-700 hover:bg-amber-50 sm:h-10 dark:text-amber-400 dark:hover:bg-amber-950/20"
@@ -383,6 +422,122 @@ export function AtendimentoDrawer({
         onReaberto={invalidar}
       />
     </>
+  );
+}
+
+/**
+ * ENQUANTO A CONSULTA ESTÁ DE PÉ (E2, 15/09/2026).
+ *
+ * Das 4 consultas concluídas até 14/09, as 4 exigiram a triagem concluir o
+ * atendimento à mão depois, e o #13 esperou um dia com a triagem sem ter o que
+ * fazer. Aqui a gaveta diz que o atendimento fecha sozinho e oferece só o que
+ * é da triagem: resolver sem a consulta, ou cancelar.
+ *
+ * Com 2 dias úteis sem registro, a vez volta à triagem: o bloco fica âmbar e
+ * diz com quem falar. Nenhum botão sólido "Concluir atendimento".
+ */
+function EsperaPelaConsulta({
+  modo, encaminhamento, podeEditar, podeResolverSemConsulta, podeVerAgenda, onResolverSemConsulta, onCancelar,
+}: {
+  modo: 'FECHA_SOZINHO' | 'CONSULTA_SEM_REGISTRO' | 'CONCLUIR' | 'OUTRO';
+  encaminhamento: Encaminhamento;
+  podeEditar: boolean;
+  podeResolverSemConsulta: boolean;
+  podeVerAgenda: boolean;
+  onResolverSemConsulta: () => void;
+  onCancelar: () => void;
+}) {
+  const semRegistro = modo === 'CONSULTA_SEM_REGISTRO';
+  const espera = textoDoFechaSozinho(encaminhamento.responsavel);
+  return (
+    <div
+      className={cn(
+        'animate-surgir space-y-2 rounded-lg border p-3 text-sm',
+        semRegistro
+          ? 'border-amber-300 bg-amber-50/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-200'
+          : 'bg-muted/40',
+      )}
+    >
+      {semRegistro ? (
+        <p className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{textoDaConsultaSemRegistro(encaminhamento)}</span>
+        </p>
+      ) : (
+        <>
+          <p>{espera.texto}</p>
+          <p className="text-muted-foreground">{espera.apoio}</p>
+        </>
+      )}
+      {/* Uma ação por linha a 400 px: lado a lado, um toque errado cancelava. */}
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+        {podeEditar && podeResolverSemConsulta && (
+          <Button variant="outline" className="h-12 bg-background sm:h-11" onClick={onResolverSemConsulta}>
+            <CheckCircle2 className="h-4 w-4" /> Resolvido sem a consulta
+          </Button>
+        )}
+        {podeEditar && (
+          <Button
+            variant="outline"
+            className="h-12 bg-background text-amber-700 hover:bg-amber-50 sm:h-11 dark:text-amber-400 dark:hover:bg-amber-950/20"
+            onClick={onCancelar}
+          >
+            <XCircle className="h-4 w-4" /> Cancelar atendimento
+          </Button>
+        )}
+        {!semRegistro && podeVerAgenda && (
+          <Link
+            href={`/agenda?compromisso=${encaminhamento.compromissoId}`}
+            className={cn(buttonVariants({ variant: 'ghost' }), 'h-12 sm:h-11')}
+          >
+            Abrir na agenda <ArrowRight className="h-4 w-4" />
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A CONSULTA REMARCADA (E6, 15/09/2026): neutra e com o WhatsApp à mão.
+ *
+ * Nunca âmbar: o sistema não sabe se o filiado foi avisado, e um aviso que não
+ * tem como se apagar ensina a ignorar os outros.
+ */
+function AvisoDaRemarcada({
+  encaminhamento, filiado,
+}: {
+  encaminhamento: Encaminhamento;
+  filiado: { nomeCompleto: string; telefonePrincipal: string | null; telefoneSecundario: string | null };
+}) {
+  const celular = celularParaWhatsApp(filiado.telefonePrincipal, filiado.telefoneSecundario);
+  function avisar() {
+    if (!celular) return;
+    const texto = mensagemDaConsulta({
+      nomeFiliado: filiado.nomeCompleto,
+      responsavel: encaminhamento.responsavel,
+      inicio: encaminhamento.inicio,
+      local: encaminhamento.local,
+      linkReuniao: encaminhamento.linkReuniao,
+    });
+    window.open(linkDoWhatsApp(celular, texto), '_blank', 'noopener,noreferrer');
+  }
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+      <p>{textoDaRemarcada(encaminhamento)}</p>
+      <Button
+        className="h-12 w-full bg-[#25D366] text-white hover:bg-[#20bd5a] sm:h-11 sm:w-auto"
+        disabled={!celular}
+        onClick={avisar}
+      >
+        <WhatsAppIcon className="h-4 w-4" /> Avisar pelo WhatsApp
+      </Button>
+      {!celular && (
+        <p className="text-xs text-muted-foreground">
+          O cadastro não tem celular, nem no telefone principal nem no secundário. Avise por outro meio.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -523,12 +678,13 @@ const ICONE_MODALIDADE: Record<ModalidadeConsulta, typeof Video> = {
  * demanda está escrita logo acima.
  */
 function ConsultaDoAtendimento({
-  atendimentoId, consulta: c, encaminhamento, statusAtendimento, filiado, podeEditar, podeVerAgenda, onMudou,
+  atendimentoId, consulta: c, encaminhamento, statusAtendimento, fila, filiado, podeEditar, podeVerAgenda, onMudou,
 }: {
   atendimentoId: string;
   consulta: CompromissoResumo;
   encaminhamento: Encaminhamento | null;
   statusAtendimento: StatusAtendimento;
+  fila?: FilaNaResposta;
   filiado: { nomeCompleto: string; telefonePrincipal: string | null; telefoneSecundario: string | null };
   podeEditar: boolean;
   podeVerAgenda: boolean;
@@ -546,7 +702,7 @@ function ConsultaDoAtendimento({
   const rotuloStatus = ehAVigente && encaminhamento
     ? ESTADO_ENCAMINHAMENTO[encaminhamento.estado]?.rotulo
     : STATUS_CONSULTA_LABEL[c.status] ?? c.status;
-  const pedeAtencao = ehAVigente && encaminhamento && tomDoEncaminhamento(encaminhamento.estado, statusAtendimento) === 'ambar';
+  const pedeAtencao = ehAVigente && encaminhamento && tomDoEncaminhamento(encaminhamento.estado, statusAtendimento, fila) === 'ambar';
   const aberta = c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO';
   const quem = nomeDeQuemAtende(c.responsavel);
   const localLivre = !!c.local?.trim() && modalidadeDoCartao(c.local) === null;
@@ -635,7 +791,7 @@ function ConsultaDoAtendimento({
               href={linkValido.url}
               target="_blank"
               rel="noopener noreferrer"
-              className={cn(buttonVariants({ size: 'default' }), 'h-12 w-full sm:w-auto md:h-9')}
+              className={cn(buttonVariants({ size: 'default' }), 'h-12 w-full sm:w-auto md:h-11')}
             >
               <Video className="h-4 w-4" /> Entrar na chamada · {linkValido.provedor}
             </a>
@@ -644,7 +800,7 @@ function ConsultaDoAtendimento({
               O link gravado não é um endereço seguro de chamada. Troque pelo link certo.
             </p>
           )}
-          <Button variant="outline" className="md:h-9" onClick={copiar}>
+          <Button variant="outline" className="md:h-11" onClick={copiar}>
             <Copy className="h-4 w-4" /> Copiar link
           </Button>
         </div>
@@ -711,11 +867,11 @@ function ConsultaDoAtendimento({
           )}
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button variant="outline" className="md:h-9" onClick={() => setEditando(false)} disabled={salvar.isPending}>
+            <Button variant="outline" className="md:h-11" onClick={() => setEditando(false)} disabled={salvar.isPending}>
               Cancelar
             </Button>
             <Button
-              className="md:h-9"
+              className="md:h-11"
               onClick={() => modalidade && salvar.mutate(modalidade)}
               disabled={salvar.isPending || !modalidade || nadaMudou || !!erroDoLink}
             >
@@ -728,7 +884,7 @@ function ConsultaDoAtendimento({
           {avisar && aberta && (
             <div className="w-full space-y-1">
               <Button
-                className="h-12 w-full bg-[#25D366] text-white hover:bg-[#20bd5a] sm:w-auto md:h-9"
+                className="h-12 w-full bg-[#25D366] text-white hover:bg-[#20bd5a] sm:w-auto md:h-11"
                 disabled={!celular}
                 onClick={avisarPeloWhatsApp}
               >
@@ -742,14 +898,14 @@ function ConsultaDoAtendimento({
             </div>
           )}
           {podeEditar && aberta && (
-            <Button variant="outline" className="md:h-9" onClick={abrirEdicao}>
+            <Button variant="outline" className="md:h-11" onClick={abrirEdicao}>
               <Pencil className="h-4 w-4" /> Mudar como vai ser
             </Button>
           )}
           {podeVerAgenda && (
             <Link
               href={`/agenda?compromisso=${c.id}`}
-              className={cn(buttonVariants({ variant: 'ghost' }), 'md:h-9')}
+              className={cn(buttonVariants({ variant: 'ghost' }), 'md:h-11')}
             >
               Abrir na agenda <ArrowRight className="h-4 w-4" />
             </Link>

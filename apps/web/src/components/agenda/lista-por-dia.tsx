@@ -6,7 +6,7 @@ import { Esqueleto } from '@/components/ui/esqueleto';
 import { CompromissoCard } from '@/components/agenda/compromisso-card';
 import { cn } from '@/lib/utils';
 import {
-  ehMinha,
+  ehMinha, contagemDoGrupoParaTras,
   type Compromisso, type GrupoDaLista, type JanelaDaAgenda, type StatusCompromisso,
 } from '@/lib/agenda';
 
@@ -135,7 +135,7 @@ export function RodapeDaPaginacao({
  * continua no cartão.
  */
 export function ListaPorDia({
-  grupos, vazio, vazioDeHoje, onVerSoParaTras,
+  grupos, vazio, vazioDeHoje, onVerSoParaTras, totalParaTras,
   onAbrir, onEditar, onVerTriagem, onAcao, onConcluir, onCancelar, onRemarcar, onExcluir,
   podeExcluir, podeEditar = false, apontado, meuId, onNovo,
 }: {
@@ -146,6 +146,11 @@ export function ListaPorDia({
   vazioDeHoje: string;
   /** Leva à aba "Ficaram para trás". Não vem quando a lista já é ela. */
   onVerSoParaTras?: () => void;
+  /**
+   * Quantas ficaram para trás no recorte inteiro, quando nem todas chegaram
+   * (Todas · Próximas com mais páginas). Ver `totalDoGrupoParaTras`.
+   */
+  totalParaTras?: number;
   onAbrir: (c: Compromisso) => void;
   onEditar: (c: Compromisso) => void;
   onVerTriagem: (atendimentoId: string) => void;
@@ -175,12 +180,17 @@ export function ListaPorDia({
           <main> do painel, com padding — daí a margem negativa (cobre a
           lateral) e o fundo quase opaco (o cartão que passa por baixo não
           aparece através dele).
+
+          SEM ALTURA MÍNIMA DE 44 PX NO CABEÇALHO (15/09/2026): ele não é alvo de
+          toque, e a 400 px cada dia gastava uma faixa alta só para dizer a data.
+          O único alvo é "Ver só essas", que guarda os 44 px com margem negativa
+          para não engordar a faixa.
         */
         <section key={g.chave} aria-labelledby={`dia-${g.chave}`} className="space-y-2">
           <h3
             id={`dia-${g.chave}`}
             className={cn(
-              'sticky top-0 z-10 -mx-4 flex min-h-11 items-center justify-between gap-2 border-b px-4 py-1.5 text-sm font-semibold backdrop-blur md:-mx-6 md:px-6',
+              'sticky top-0 z-10 -mx-4 flex items-center justify-between gap-2 border-b px-4 py-1.5 text-sm font-semibold backdrop-blur md:-mx-6 md:px-6',
               g.paraTras
                 ? // Âmbar, como em todo "ficou para trás" do sistema — nunca vermelho.
                   'border-amber-200 bg-amber-50/95 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/90 dark:text-amber-200'
@@ -191,13 +201,13 @@ export function ListaPorDia({
               <>
                 <span className="flex items-center gap-1.5">
                   <Clock className="h-4 w-4 shrink-0" />
-                  {g.rotulo} · <span className="tabular-nums">{g.itens.length}</span>
+                  {g.rotulo} · <span className="tabular-nums">{contagemDoGrupoParaTras(g.itens.length, totalParaTras)}</span>
                 </span>
                 {onVerSoParaTras && (
                   <button
                     type="button"
                     onClick={onVerSoParaTras}
-                    className="min-h-11 shrink-0 px-1 font-medium underline-offset-2 hover:underline"
+                    className="-my-2 min-h-11 shrink-0 px-1 font-medium underline-offset-2 hover:underline"
                   >
                     Ver só essas
                   </button>

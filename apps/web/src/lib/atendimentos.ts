@@ -37,7 +37,38 @@ export interface Encaminhamento {
   responsavel: { id: string; nome: string; nomeExibicao?: string | null } | null;
   linkReuniao: string | null;
   local: string | null;
+  /**
+   * CONSULTA REMARCADA (15/09/2026). Opcionais pela janela de troca: a API de
+   * antes não manda. Remarcada fica NEUTRA, nunca âmbar: o sistema não sabe se
+   * o filiado foi avisado, e um aviso que nunca se apaga ensina a ignorar.
+   */
+  remarcacoes?: number;
+  dataOriginal?: string | null;
 }
+
+/**
+ * DE QUEM É A VEZ (15/09/2026): da triagem ou da consulta.
+ *
+ * Calculado no servidor, na leitura (`filaDoAtendimento`). Das 4 consultas que
+ * o advogado concluiu até 14/09, as 4 exigiram que a triagem fechasse o
+ * atendimento à mão depois, sem registrar nada novo; e a lista pintava
+ * "Pendente" em âmbar enquanto a triagem só podia esperar. A fila separa o que
+ * pede a triagem do que está correndo na agenda de alguém.
+ */
+export type FilaDoAtendimento = 'TRIAGEM' | 'CONSULTA';
+export type MotivoDaFila =
+  | 'SEM_DESFECHO'
+  | 'FALTA_CONCLUIR'
+  | 'AGUARDANDO'
+  | 'CONSULTA_SEM_REGISTRO'
+  | 'CONSULTA_CANCELADA'
+  | 'SEM_CONSULTA';
+export interface SituacaoNaFila {
+  fila: FilaDoAtendimento;
+  motivo: MotivoDaFila | null;
+}
+/** Como a fila chega: o objeto, ou só a palavra. `undefined` é a API de antes. */
+export type FilaNaResposta = SituacaoNaFila | FilaDoAtendimento | null;
 
 /** Como vai ser a consulta. Mora no `local` da atividade (D11): não é canal. */
 export type ModalidadeConsulta = 'SEDE' | 'VIDEO' | 'TELEFONE';
@@ -73,6 +104,8 @@ export interface AtendimentoLista {
   atendente: Atendente;
   /** Só quando há consulta. Ausente na API anterior à rodada de 13/09. */
   encaminhamento?: Encaminhamento | null;
+  /** Triagem ou consulta. Ausente na API anterior a 15/09/2026. */
+  fila?: FilaNaResposta;
 }
 
 export interface PaginaAtendimentos {
@@ -157,7 +190,16 @@ export interface FechamentoAtendimento {
     recusa: string | null;
     consulta: 'NENHUMA' | 'ATENDIDA' | 'ESCOLHER' | 'SO_MANTER';
   };
+  /**
+   * O ATENDIMENTO FECHA SOZINHO (15/09/2026): pendente, encaminhado e com a
+   * consulta de pé (futura, começada ou em andamento). A tela lê, não recalcula.
+   * Ausente na API anterior.
+   */
+  fechaSozinho?: boolean;
 }
+
+/** Quem fechou: a triagem, à mão, ou o advogado, ao registrar a consulta. Nulo antes de 15/09/2026. */
+export type OrigemDaConclusao = 'TRIAGEM' | 'CONSULTA';
 
 export interface AtendimentoDossie {
   atendimento: {
@@ -196,6 +238,10 @@ export interface AtendimentoDossie {
     canceladoCategoria?: string | null;
     canceladoMotivo?: string | null;
     fechamento?: FechamentoAtendimento | null;
+    /* O ATENDIMENTO INDEPENDENTE (15/09/2026). Opcionais pela janela de troca. */
+    conclusaoOrigem?: OrigemDaConclusao | null;
+    conclusaoConsultaId?: string | null;
+    fila?: FilaNaResposta;
   };
   historico: {
     id: string;
@@ -263,6 +309,34 @@ export const STATUS_COR: Record<StatusAtendimento, string> = {
 };
 
 /**
+ * A fila lida da resposta, num formato só. `undefined` = a API ainda não manda
+ * (janela de troca): quem lê cai no comportamento de antes, sem inventar fila.
+ */
+export function filaDe(a: { fila?: FilaNaResposta }): SituacaoNaFila | null | undefined {
+  if (a.fila === undefined) return undefined;
+  if (a.fila === null) return null;
+  if (typeof a.fila === 'string') return { fila: a.fila, motivo: null };
+  return a.fila;
+}
+
+/*
+  "AGUARDANDO A CONSULTA" NÃO É PENDÊNCIA DA TRIAGEM (15/09/2026). O #13 e o #14
+  pintavam "Pendente" em âmbar na lista e na gaveta, e nos dois a triagem não
+  tinha o que fazer além de esperar. Âmbar só na fila da triagem.
+*/
+export const COR_AGUARDANDO_A_CONSULTA = 'bg-muted text-foreground/80';
+
+export function rotuloDoStatus(a: { status: StatusAtendimento; fila?: FilaNaResposta }): string {
+  if (a.status === 'PENDENTE' && filaDe(a)?.fila === 'CONSULTA') return 'Aguardando a consulta';
+  return STATUS_LABEL[a.status];
+}
+
+export function corDoStatus(a: { status: StatusAtendimento; fila?: FilaNaResposta }): string {
+  if (a.status === 'PENDENTE' && filaDe(a)?.fila === 'CONSULTA') return COR_AGUARDANDO_A_CONSULTA;
+  return STATUS_COR[a.status];
+}
+
+/**
  * As categorias do cancelamento do atendimento, com o texto do cartão.
  *
  * Os slugs são os do catálogo da agenda (desfechos.catalogo.ts): cancelada junto,
@@ -305,9 +379,14 @@ export const SETORES = Object.keys(SETOR_LABEL) as SetorAtendimento[];
 // Helpers
 // ---------------------------------------------------------------------------
 
+/*
+  NO FUSO DE TERESINA (15/09/2026). A criação e o histórico saíam no fuso do
+  aparelho, e as frases novas da mesma gaveta (fechamento, consulta) no de
+  Teresina: num computador com outro fuso, duas horas diferentes para o mesmo dia.
+*/
 export function formatDataHora(iso: string | null | undefined): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: FUSO_BR });
 }
 
 /** O fuso do sindicato: a data que o filiado lê é a de Teresina, não a do aparelho. */
@@ -558,19 +637,51 @@ export const ESTADO_ENCAMINHAMENTO: Record<EstadoEncaminhamento, { rotulo: strin
  * cancelado ou concluído. Aviso é estado: depois que alguém decidiu fechar, a
  * consulta cancelada não pede mais nada à triagem.
  */
-export function tomDoEncaminhamento(estado: EstadoEncaminhamento, statusAtendimento: StatusAtendimento): TomDoEstado {
-  const tom = ESTADO_ENCAMINHAMENTO[estado]?.tom ?? 'neutro';
-  if (estado === 'CANCELADA' && statusAtendimento !== 'PENDENTE') return 'neutro';
-  return tom;
+export function tomDoEncaminhamento(
+  estado: EstadoEncaminhamento,
+  statusAtendimento: StatusAtendimento,
+  fila?: FilaNaResposta,
+): TomDoEstado {
+  /*
+    O TOM OLHA A FILA (15/09/2026). "Ficou para trás" era âmbar desde a meia-noite,
+    quando o atraso já aparece na agenda de quem atende: repetir na triagem é o
+    mesmo atraso três vezes. Com a fila, âmbar só no que é da triagem; verde
+    só na consulta atendida de um atendimento concluído; o resto é neutro.
+  */
+  if (statusAtendimento !== 'PENDENTE') return estado === 'ATENDIDA' && statusAtendimento === 'CONCLUIDO' ? 'verde' : 'neutro';
+  const naFila = filaDe({ fila });
+  if (naFila) return naFila.fila === 'TRIAGEM' ? 'ambar' : 'neutro';
+  // API de antes: o tom da tabela.
+  return ESTADO_ENCAMINHAMENTO[estado]?.tom ?? 'neutro';
+}
+
+/** A consulta de pé foi remarcada? Só enquanto ela ainda vai acontecer. */
+export function consultaRemarcada(
+  e: Pick<Encaminhamento, 'estado' | 'remarcacoes'> | null | undefined,
+  statusAtendimento: StatusAtendimento,
+): boolean {
+  if (!e || statusAtendimento !== 'PENDENTE') return false;
+  return (e.remarcacoes ?? 0) > 0 && (e.estado === 'AGENDADA' || e.estado === 'HOJE');
 }
 
 /** Rótulo do chip, com "falta concluir" quando a consulta foi atendida e a demanda segue aberta. */
-export function rotuloDoEncaminhamento(estado: EstadoEncaminhamento, statusAtendimento: StatusAtendimento): string {
+export function rotuloDoEncaminhamento(
+  estado: EstadoEncaminhamento,
+  statusAtendimento: StatusAtendimento,
+  remarcacoes?: number,
+): string {
+  if (consultaRemarcada({ estado, remarcacoes }, statusAtendimento)) return 'Consulta remarcada';
   const base = ESTADO_ENCAMINHAMENTO[estado]?.rotulo ?? 'Encaminhado';
   return estado === 'ATENDIDA' && statusAtendimento === 'PENDENTE' ? `${base} · falta concluir` : base;
 }
 
-/** A consulta foi atendida e o atendimento continua aberto: oferecer "Concluir atendimento" (D13). */
+/**
+ * A consulta foi atendida e o atendimento continua aberto: oferecer "Concluir atendimento".
+ *
+ * Desde 15/09/2026 a consulta atendida fecha o atendimento sozinha; isto sobra
+ * para o que ficou aberto antes da regra, para a consulta que tinha cópia
+ * aberta e para a janela de troca (contêiner antigo não fecha nada).
+ */
 export function faltaConcluir(a: { status: StatusAtendimento; encaminhamento?: Encaminhamento | null }): boolean {
   return a.status === 'PENDENTE' && a.encaminhamento?.estado === 'ATENDIDA';
 }
@@ -771,21 +882,31 @@ export interface EscolhasDoFechamento {
  *
  * CANCELAR COM CONSULTA ABERTA VEM COM "CANCELAR TAMBÉM" MARCADO (D8): a ação
  * pesada já foi escolhida, e manter a consulta cria um fantasma que a Triagem
- * não consegue limpar (ela não edita a agenda). No CONCLUIR que pede escolha,
- * nada vem marcado: "aconteceu" ou "não aconteceu" é fato que só quem estava lá
- * sabe.
+ * não consegue limpar (ela não edita a agenda). O CONCLUIR não pergunta nada
+ * sobre a consulta desde 15/09/2026: ou não há consulta de pé, ou concluir é
+ * "resolvido sem a consulta", que a cancela.
  */
 export function escolhaInicialDaConsulta(acao: AcaoDeFechar, f: FechamentoAtendimento | null | undefined): EscolhaDaConsulta | null {
   if (acao === 'CANCELAR' && f?.cancelar.consulta === 'ESCOLHER') return 'CANCELAR';
   return null;
 }
 
+/*
+  A TRIAGEM NÃO RESPONDE MAIS PELO ADVOGADO (15/09/2026). O #13 tinha consulta
+  às 09:00 sem registro às 18:38, e o modal perguntava à triagem se ela tinha
+  acontecido. Agora quem registra a consulta é quem atendeu, e o atendimento
+  fecha junto; pela triagem, concluir com a consulta de pé é sempre "resolvido
+  sem a consulta". O plano antigo (ESCOLHER, contêiner de antes na janela de
+  troca) é lido do mesmo jeito e manda CANCELAR.
+*/
+function concluirCancelaAConsulta(f: FechamentoAtendimento): boolean {
+  return f.concluir.consulta === 'CANCELAR_PARA_CONCLUIR' || f.concluir.consulta === 'ESCOLHER';
+}
+
 /** A consulta vai ser cancelada no gesto? (lido do plano e da escolha, nunca recalculado). */
 export function vaiCancelarConsulta(acao: AcaoDeFechar, f: FechamentoAtendimento | null | undefined, e: EscolhasDoFechamento): boolean {
   if (!f?.consulta) return false;
-  if (acao === 'CONCLUIR') {
-    return f.concluir.consulta === 'CANCELAR_PARA_CONCLUIR' || (f.concluir.consulta === 'ESCOLHER' && e.consulta === 'CANCELAR');
-  }
+  if (acao === 'CONCLUIR') return concluirCancelaAConsulta(f);
   return f.cancelar.consulta === 'ESCOLHER' && e.consulta === 'CANCELAR';
 }
 
@@ -812,7 +933,6 @@ export function conferirFechamento(
   const texto = e.texto.trim();
   if (acao === 'CONCLUIR') {
     if (!f.concluir.permitido) return { pronto: false, falta: f.concluir.recusa };
-    if (f.concluir.consulta === 'ESCOLHER' && !e.consulta) return { pronto: false, falta: 'Diga se a consulta aconteceu.' };
     if (notaObrigatoria(f, e) && texto.length < NOTA_MINIMA) return { pronto: false, falta: FRASE_NOTA_CURTA };
     if (texto.length > NOTA_MAXIMA) return { pronto: false, falta: `A nota cabe em ${NOTA_MAXIMA} caracteres.` };
     return { pronto: true, falta: null };
@@ -829,8 +949,7 @@ export function corpoDoConcluir(f: FechamentoAtendimento | null | undefined, e: 
   const corpo: ConcluirAtendimentoInput = {};
   const nota = e.texto.trim();
   if (nota) corpo.nota = nota;
-  if (f?.concluir.consulta === 'CANCELAR_PARA_CONCLUIR') corpo.consulta = 'CANCELAR';
-  else if (f?.concluir.consulta === 'ESCOLHER' && e.consulta) corpo.consulta = e.consulta;
+  if (f && concluirCancelaAConsulta(f)) corpo.consulta = 'CANCELAR';
   return corpo;
 }
 
@@ -889,18 +1008,21 @@ export function resumoDoConcluir(
     case 'FUTURA':
       return {
         tom: 'ambar',
-        texto: `${aConsulta(c?.responsavel)} ainda não aconteceu: ${rotuloDoInstante(c!.inicio)}.`,
+        texto: `${aConsulta(c?.responsavel)} é ${rotuloDoInstante(c!.inicio)}.`,
         apoio:
-          `Para concluir agora, a consulta é cancelada junto. Ela sai da agenda${quem ? ` ${deQuem(quem)}` : ''} como cancelada, ` +
-          'com o seu nome, e ninguém recebe aviso fora do sistema. Se a demanda ainda precisa da consulta, deixe o atendimento pendente.',
+          `Use só se a demanda se resolveu sem a consulta. Ela sai da agenda${quem ? ` ${deQuem(quem)}` : ''} como cancelada ` +
+          '(Perdeu o objeto), com o seu nome, e ninguém recebe aviso fora do sistema. Se a demanda ainda precisa da consulta, ' +
+          `não faça nada: o atendimento é concluído sozinho quando ${sujeitoMinusculo(quem)} registrar.`,
       };
     case 'COMECOU':
       return {
         tom: 'ambar',
         texto: diaBR(c!.inicio) === diaBR(agora)
-          ? `${aConsulta(c?.responsavel)} era hoje às ${horaBR(c!.inicio)} e ninguém marcou como atendida.`
-          : `${aConsulta(c?.responsavel)} de ${rotuloDoInstante(c!.inicio)} ficou para trás: ninguém marcou como atendida.`,
-        apoio: null,
+          ? `${aConsulta(c?.responsavel)} era hoje às ${horaBR(c!.inicio)} e ainda não foi registrada.`
+          : `${aConsulta(c?.responsavel)} de ${rotuloDoInstante(c!.inicio)} ainda não foi registrada.`,
+        apoio:
+          `Se a consulta aconteceu, quem registra é ${quem ? comArtigo(quem) : 'quem atendeu'}, e o atendimento é concluído sozinho. ` +
+          'Use esta tela só se a demanda se resolveu sem a consulta: ela é cancelada como Perdeu o objeto, com a sua nota.',
       };
     case 'EM_ANDAMENTO':
     default:
@@ -975,9 +1097,163 @@ export function mostrarConfirmacaoDoFechamento(
   acao: AcaoDeFechar,
   categoria: CategoriaCancelamentoAtendimento | '',
   efeitos: EfeitosDoFechamento | null | undefined,
+  caso?: CasoDoConcluir | null,
 ): boolean {
   if (!efeitos?.consultasCanceladas?.length) return false;
-  return !(acao === 'CANCELAR' && categoria === 'DUPLICIDADE');
+  if (acao === 'CANCELAR' && categoria === 'DUPLICIDADE') return false;
+  /*
+    CÓPIA NÃO VIRA MENSAGEM (15/09/2026). Com a consulta vigente atendida,
+    concluir cancela as cópias que sobraram como "Registrado por engano": o
+    filiado já foi atendido e não precisa saber de um registro repetido.
+  */
+  if (acao === 'CONCLUIR' && caso === 'ATENDIDA') return false;
+  return !efeitos.consultasCanceladas.every((c) => c.categoria === 'DUPLICIDADE');
+}
+
+/**
+ * AS CÓPIAS ABERTAS (E4, 15/09/2026). A consulta vigente foi atendida e ainda
+ * há outra nascida do atendimento marcada: concluir cancela as que sobraram
+ * como "Registrado por engano". O modal diz antes de gravar.
+ */
+export function avisoDasCopiasAbertas(caso: CasoDoConcluir | null, f: FechamentoAtendimento | null | undefined): string | null {
+  const n = f?.consultasAbertas ?? 0;
+  if (caso !== 'ATENDIDA' || n <= 0) return null;
+  return n === 1
+    ? 'Ainda há outra consulta marcada deste atendimento. Como a consulta já foi atendida, ao concluir ela é cancelada como Registrado por engano.'
+    : `Ainda há ${n} consultas marcadas deste atendimento. Como a consulta já foi atendida, ao concluir elas são canceladas como Registrado por engano.`;
+}
+
+/** O toast depois de concluir sem a tela de confirmação: diz as cópias canceladas, quando houve. */
+export function avisoDoConcluido(efeitos: EfeitosDoFechamento | null | undefined): string {
+  const n = efeitos?.consultasCanceladas?.length ?? 0;
+  if (n === 0) return 'Atendimento concluído.';
+  return n === 1
+    ? 'Atendimento concluído. A consulta repetida foi cancelada.'
+    : `Atendimento concluído. As ${n} consultas repetidas foram canceladas.`;
+}
+
+/** O título do modal: com a consulta de pé, concluir é resolver sem ela. */
+export function tituloDoConcluir(caso: CasoDoConcluir | null, numero: number | null | undefined): string {
+  const n = numero ? ` #${numero}` : '';
+  return caso === 'FUTURA' || caso === 'COMECOU' ? `Resolver sem a consulta${n}` : `Concluir atendimento${n}`;
+}
+
+// ---------------------------------------------------------------------------
+// A gaveta do atendimento independente (15/09/2026)
+// ---------------------------------------------------------------------------
+
+/** "a Dra. Shérad", "o Dr. Murilo", "Maria" — o nome no meio da frase. */
+export function comArtigo(nome: string): string {
+  const n = nome.trim();
+  if (/^dra\.?\s/i.test(n)) return `a ${n}`;
+  if (/^dr\.?\s/i.test(n)) return `o ${n}`;
+  return n;
+}
+
+/** "ela", "ele" ou o próprio nome: sem chutar gênero de nome sem tratamento. */
+function pronomeDe(nome: string): string {
+  const n = nome.trim();
+  if (/^dra\.?\s/i.test(n)) return 'ela';
+  if (/^dr\.?\s/i.test(n)) return 'ele';
+  return n;
+}
+
+function sujeitoMinusculo(nome: string): string {
+  return nome ? comArtigo(nome) : 'quem atende';
+}
+
+/**
+ * O QUE A GAVETA OFERECE NO FECHAMENTO — lido da fila e do plano do servidor.
+ *
+ *  FECHA_SOZINHO          a consulta está de pé: nada a fazer, só esperar.
+ *  CONSULTA_SEM_REGISTRO  ficou 2 dias úteis sem registro: fale com quem atende.
+ *  CONCLUIR               a vez é da triagem, e concluir é o gesto certo.
+ *  OUTRO                  sem desfecho, fechado, ou API de antes (sem fila nem plano).
+ */
+export type ModoDoFechamento = 'FECHA_SOZINHO' | 'CONSULTA_SEM_REGISTRO' | 'CONCLUIR' | 'OUTRO';
+
+export function modoDoFechamento(at: {
+  status: StatusAtendimento;
+  desfecho: DesfechoAtendimento | null;
+  fila?: FilaNaResposta;
+  fechamento?: FechamentoAtendimento | null;
+}): ModoDoFechamento {
+  if (at.status !== 'PENDENTE' || !at.desfecho) return 'OUTRO';
+  const naFila = filaDe(at);
+  if (naFila?.motivo === 'CONSULTA_SEM_REGISTRO') return 'CONSULTA_SEM_REGISTRO';
+  if (at.fechamento?.fechaSozinho) return 'FECHA_SOZINHO';
+  if (naFila?.fila === 'TRIAGEM' && (naFila.motivo === 'FALTA_CONCLUIR' || naFila.motivo === 'SEM_CONSULTA' || naFila.motivo === 'CONSULTA_CANCELADA')) {
+    return 'CONCLUIR';
+  }
+  return 'OUTRO';
+}
+
+/** O bloco neutro de quem só espera: quem registra, e quando volta para a triagem. */
+export function textoDoFechaSozinho(responsavel: PessoaResumo | { nome: string; nomeExibicao?: string | null } | null | undefined): {
+  texto: string;
+  apoio: string;
+} {
+  const quem = nomeDeQuemAtende(responsavel);
+  return {
+    texto: `Este atendimento é concluído sozinho quando ${sujeitoMinusculo(quem)} registrar a consulta na agenda.`,
+    apoio: 'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, ele volta para a triagem.',
+  };
+}
+
+/** Dois dias úteis depois, sem registro: a triagem fala com quem atende, e o fechamento continua sendo dela. */
+export function textoDaConsultaSemRegistro(e: Pick<Encaminhamento, 'inicio' | 'responsavel'>): string {
+  const quem = nomeDeQuemAtende(e.responsavel);
+  if (!quem) {
+    return `A consulta de ${rotuloDoDia(diaBR(e.inicio))} ainda não foi registrada. `
+      + 'Quando alguém registrar, o atendimento é concluído sozinho.';
+  }
+  const pronome = pronomeDe(quem);
+  return `A consulta de ${rotuloDoDia(diaBR(e.inicio))} ${comQuem(quem)} ainda não foi registrada. `
+    + `Fale com ${pronome} ou com o ${V.filiado}: quando ${pronome} registrar, o atendimento é concluído sozinho.`;
+}
+
+/** A consulta remarcada: o dia novo, e o que fazer (avisar o filiado). */
+export function textoDaRemarcada(e: Pick<Encaminhamento, 'inicio'>): string {
+  return `A consulta foi remarcada para ${rotuloDoInstante(e.inicio)}. Avise o ${V.filiado}.`;
+}
+
+/**
+ * A atividade é a consulta que NASCEU de um atendimento? Seguimento (criado na
+ * conclusão, herda o atendimento) não fecha nada. `origemDesfechoId` ausente
+ * conta como consulta: o aviso que o usa é escrito com "se".
+ */
+export function consultaFechaOAtendimento(c: { atendimentoId?: string | null; origemDesfechoId?: string | null }): boolean {
+  return !!c.atendimentoId && !c.origemDesfechoId;
+}
+
+/**
+ * A FRASE DA TRIAGEM NA GAVETA DA CONSULTA (E5, 15/09/2026).
+ *
+ * Lida dos campos que a API manda do atendimento (`status`,
+ * `conclusaoConsultaId`). Sem eles (API de antes), não afirma nada.
+ */
+export function fraseDaTriagemNaConsulta(c: {
+  id: string;
+  status: string;
+  origemDesfechoId?: string | null;
+  atendimento: { numero: number; status?: string | null; conclusaoConsultaId?: string | null } | null;
+}): string | null {
+  const at = c.atendimento;
+  if (!at) return null;
+  if (at.conclusaoConsultaId && at.conclusaoConsultaId === c.id && at.status !== 'PENDENTE') {
+    return `O atendimento #${at.numero} foi concluído junto com esta consulta.`;
+  }
+  if (c.origemDesfechoId || at.status !== 'PENDENTE') return null;
+  if (c.status === 'PENDENTE' || c.status === 'EM_ANDAMENTO') {
+    return `Ao registrar esta consulta, o atendimento #${at.numero} é concluído junto.`;
+  }
+  if (c.status === 'CANCELADO') return `O atendimento #${at.numero} voltou para a triagem.`;
+  return null;
+}
+
+/** No menu da lista: com a consulta de pé, "concluir" é resolver sem ela. */
+export function rotuloDoConcluirNoMenu(a: { status: StatusAtendimento; fila?: FilaNaResposta }): string {
+  return a.status === 'PENDENTE' && filaDe(a)?.fila === 'CONSULTA' ? 'Resolvido sem a consulta' : 'Concluir atendimento';
 }
 
 /**
@@ -991,6 +1267,7 @@ export function fraseDoFechamento(at: {
   concluidoEm?: string | null;
   concluidoPor?: PessoaResumo | null;
   conclusaoObs?: string | null;
+  conclusaoOrigem?: OrigemDaConclusao | null;
   canceladoEm?: string | null;
   canceladoPor?: PessoaResumo | null;
   canceladoCategoria?: string | null;
@@ -1006,8 +1283,10 @@ export function fraseDoFechamento(at: {
   }
   if (at.status === 'CONCLUIDO' && at.concluidoEm) {
     const por = nomeDeQuemAtende(at.concluidoPor);
+    // Fechado pela consulta (15/09/2026): a nota é o desfecho que o advogado gravou.
+    const pela = at.conclusaoOrigem === 'CONSULTA' ? ' pela consulta' : '';
     return {
-      texto: `Concluído em ${rotuloDoInstante(at.concluidoEm)}${por ? ` por ${por}` : ''}`,
+      texto: `Concluído${pela} em ${rotuloDoInstante(at.concluidoEm)}${por ? ` por ${por}` : ''}`,
       detalhe: at.conclusaoObs?.trim() || null,
     };
   }
@@ -1024,13 +1303,36 @@ export function textoDoReabrir(at: {
   status: StatusAtendimento;
   consultas?: CompromissoResumo[];
   compromissos?: CompromissoResumo[];
+  concluidoPor?: PessoaResumo | null;
+  conclusaoOrigem?: OrigemDaConclusao | null;
+  canceladoPor?: PessoaResumo | null;
+  canceladoCategoria?: string | null;
 }): { titulo: string; descricao: string } {
-  const partes = [
-    at.status === 'CANCELADO'
-      ? 'Ele volta para os pendentes. O motivo do cancelamento sai da ficha e continua guardado na auditoria.'
-      : 'Ele volta para os pendentes. A nota de conclusão sai da ficha e continua guardada na auditoria.',
-  ];
-  if (consultasDoAtendimento(at).some((c) => c.status === 'CANCELADO')) {
+  /*
+    QUEM FECHOU E POR QUÊ (15/09/2026). O Reabrir dizia o que sai da ficha, mas
+    não o que estava sendo desfeito: "Cancelado por Julian · Filiado desistiu"
+    é o que faz a pessoa parar se tocou no atendimento errado.
+  */
+  const partes: string[] = [];
+  if (at.status === 'CANCELADO') {
+    const por = nomeDeQuemAtende(at.canceladoPor);
+    const categoria = rotuloDaCategoriaDoAtendimento(at.canceladoCategoria);
+    const quem = [por && `Cancelado por ${por}`, categoria].filter(Boolean).join(' · ');
+    if (quem) partes.push(`${quem}.`);
+    partes.push('Ele volta para os pendentes. O motivo do cancelamento sai da ficha e continua guardado na auditoria.');
+  } else {
+    const por = nomeDeQuemAtende(at.concluidoPor);
+    if (at.conclusaoOrigem === 'CONSULTA') partes.push(`Concluído pela consulta${por ? `, por ${por}` : ''}.`);
+    else if (por) partes.push(`Concluído por ${por}.`);
+    partes.push('Ele volta para os pendentes. A nota de conclusão sai da ficha e continua guardada na auditoria.');
+  }
+  /*
+    SÓ COM A CONSULTA VIGENTE CANCELADA (15/09/2026). A frase aparecia com
+    QUALQUER consulta cancelada, inclusive a antiga de um atendimento que tinha
+    uma nova, atendida. A vigente só é cancelada quando todas as nascidas são.
+  */
+  const consultas = consultasDoAtendimento(at);
+  if (consultas.length > 0 && consultas.every((c) => c.status === 'CANCELADO')) {
     partes.push('A consulta cancelada não volta: se ainda for preciso, marque outra depois.');
   }
   return { titulo: `Reabrir o atendimento #${at.numero}?`, descricao: partes.join(' ') };
@@ -1074,14 +1376,46 @@ export function mensagemDaFalha(e: any, padrao: string): string {
 
 export interface FiltroDaUrl {
   status: '' | StatusAtendimento;
+  /** Só com `status = PENDENTE`: triagem ou consulta. */
+  fila: '' | FilaDoAtendimento;
   desfecho: '' | DesfechoAtendimento;
   canal: '' | CanalAtendimento;
   assunto: string;
   dataInicio: string;
   dataFim: string;
+  /**
+   * `me`: só os que a pessoa registrou (15/09/2026). É o recorte do "Comigo,
+   * com a triagem" do painel; sem ele o link abria a fila da casa inteira.
+   */
+  atendente: '' | 'me';
 }
 
-export const PARAMETROS_DO_FILTRO = ['status', 'desfecho', 'canal', 'assunto', 'dataInicio', 'dataFim'] as const;
+export const PARAMETROS_DO_FILTRO = ['status', 'fila', 'desfecho', 'canal', 'assunto', 'dataInicio', 'dataFim', 'atendente'] as const;
+
+/**
+ * O SELETOR ÚNICO DE STATUS (15/09/2026): "Com a triagem" e "Aguardando a
+ * consulta" são recortes dos pendentes, e dois selects (status e fila) deixariam
+ * montar "Concluído + aguardando a consulta", que não existe.
+ */
+export type ValorDoSeletorDeStatus = '' | 'TRIAGEM' | 'CONSULTA' | StatusAtendimento;
+
+export const OPCOES_DO_SELETOR_DE_STATUS: { valor: ValorDoSeletorDeStatus; rotulo: string }[] = [
+  { valor: '', rotulo: 'Todos os status' },
+  { valor: 'TRIAGEM', rotulo: 'Com a triagem' },
+  { valor: 'CONSULTA', rotulo: 'Aguardando a consulta' },
+  { valor: 'PENDENTE', rotulo: 'Todos os pendentes' },
+  { valor: 'CONCLUIDO', rotulo: 'Concluído' },
+  { valor: 'CANCELADO', rotulo: 'Cancelado' },
+];
+
+export function valorDoSeletorDeStatus(status: '' | StatusAtendimento, fila: '' | FilaDoAtendimento): ValorDoSeletorDeStatus {
+  return status === 'PENDENTE' && fila ? fila : status;
+}
+
+export function filtroDoSeletorDeStatus(valor: ValorDoSeletorDeStatus): { status: '' | StatusAtendimento; fila: '' | FilaDoAtendimento } {
+  if (valor === 'TRIAGEM' || valor === 'CONSULTA') return { status: 'PENDENTE', fila: valor };
+  return { status: valor, fila: '' };
+}
 
 /**
  * `/atendimentos?assunto=OUTRO&dataInicio=2026-08-01&dataFim=2026-08-31`.
@@ -1093,19 +1427,28 @@ export const PARAMETROS_DO_FILTRO = ['status', 'desfecho', 'canal', 'assunto', '
 export function filtroDaUrl(params: { get(chave: string): string | null }): FiltroDaUrl {
   const valor = (k: string) => (params.get(k) ?? '').trim();
   const dia = (k: string) => (/^\d{4}-\d{2}-\d{2}$/.test(valor(k)) ? valor(k) : '');
-  const status = valor('status');
+  const statusLido = valor('status');
+  const filaLida = valor('fila');
   const desfecho = valor('desfecho');
   const canal = valor('canal');
   const assunto = valor('assunto');
+  const status: '' | StatusAtendimento = (['PENDENTE', 'CONCLUIDO', 'CANCELADO'] as const).includes(statusLido as StatusAtendimento)
+    ? (statusLido as StatusAtendimento)
+    : '';
+  // A fila é recorte dos pendentes: `fila=TRIAGEM` sozinha abre os pendentes da
+  // triagem; com Concluído ou Cancelado ela não quer dizer nada e é ignorada.
+  const fila: '' | FilaDoAtendimento = (filaLida === 'TRIAGEM' || filaLida === 'CONSULTA') && (status === '' || status === 'PENDENTE')
+    ? filaLida
+    : '';
   return {
-    status: (['PENDENTE', 'CONCLUIDO', 'CANCELADO'] as const).includes(status as StatusAtendimento)
-      ? (status as StatusAtendimento)
-      : '',
+    status: fila ? 'PENDENTE' : status,
+    fila,
     desfecho: desfecho === 'RESOLVIDO_ATO' || desfecho === 'ENCAMINHADO' ? desfecho : '',
     canal: (CANAIS as string[]).includes(canal) ? (canal as CanalAtendimento) : '',
     assunto: ASSUNTOS.includes(assunto) ? assunto : '',
     dataInicio: dia('dataInicio'),
     dataFim: dia('dataFim'),
+    atendente: valor('atendente') === 'me' ? 'me' : '',
   };
 }
 
@@ -1217,7 +1560,13 @@ export interface CancelarAtendimentoInput {
   consulta?: EscolhaDaConsulta;
 }
 export interface EfeitosDoFechamento {
-  consultasCanceladas: { id: string; inicio: string; responsavel: PessoaResumo | null }[];
+  consultasCanceladas: {
+    id: string;
+    inicio: string;
+    responsavel: PessoaResumo | null;
+    /** A categoria gravada na consulta. Opcional: a API de antes não manda. */
+    categoria?: string | null;
+  }[];
 }
 /** O detalhe de sempre, mais o que o servidor fez de fato com as consultas. */
 export type RespostaDoFechamento = AtendimentoDossie & { efeitos?: EfeitosDoFechamento };
@@ -1254,6 +1603,13 @@ export interface FiltroAtendimentos {
   busca?: string;
   desfecho?: DesfechoAtendimento;
   status?: StatusAtendimento;
+  /** Só com `status = PENDENTE`. A API de antes ignora o parâmetro. */
+  fila?: FilaDoAtendimento;
+  /**
+   * Só os registrados por quem pede (15/09/2026). Vai só quando marcado: a API
+   * de antes recusa parâmetro desconhecido com 400 (forbidNonWhitelisted).
+   */
+  atendente?: 'me';
   canal?: CanalAtendimento;
   assunto?: string;
   dataInicio?: string;

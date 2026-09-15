@@ -10,11 +10,12 @@ import {
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import {
   abrirLink, validarDesafio, enviarRecadastro, enviarFotoRecadastro,
   mascaraCpf, mascaraTelefone, mascaraCep,
-  pedidoDoDesafio, respostaDoDesafio, faltaNoDesafio,
+  pedidoDoDesafio, respostaDoDesafio, faltaNoDesafio, destinoDoErroDoDesafio, telaDoLinkDireto,
   SEXOS, ESTADOS_CIVIS, FORMACOES, ROTULO, TIPOS_DEPENDENTE,
   type LinkAberto, type FiliadoRecadastro, type VinculoFiliado, type DependenteFiliado,
 } from '@/lib/recadastro';
@@ -24,6 +25,12 @@ import { campoVisivel } from '@/tenant.config';
 
 const campo = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-11';
 
+/*
+  15/09/2026: o `<label>` ficava ao lado do campo, sem ligação nenhuma. O leitor
+  de tela anunciava "caixa de texto" sem nome, e tocar no rótulo não levava ao
+  campo. Envolver o campo no rótulo liga os dois em todo formulário da página,
+  sem um id para cada.
+*/
 function Campo({ label, children, dica, bloqueado }: {
   label: string;
   children: React.ReactNode;
@@ -33,11 +40,13 @@ function Campo({ label, children, dica, bloqueado }: {
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="flex items-center gap-1 text-sm font-medium">
-        {label}
-        {bloqueado && <Lock className="h-3.5 w-3.5 text-muted-foreground" />}
+      <label className="block space-y-1.5">
+        <span className="flex items-center gap-1 text-sm font-medium">
+          {label}
+          {bloqueado && <Lock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />}
+        </span>
+        {children}
       </label>
-      {children}
       {bloqueado && (
         <p className="text-xs text-muted-foreground">
           Não muda ao longo da vida. Se estiver errado, fale com o sindicato.
@@ -73,6 +82,10 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
   const [nascimento, setNascimento] = useState('');
   const [coren, setCoren] = useState('');
   const [validando, setValidando] = useState(false);
+  /** Uma tentativa já terminou: só depois dela o link direto pode dizer que falhou. */
+  const [tentouUmaVez, setTentouUmaVez] = useState(false);
+  /** A linha fixa acima do botão: dado que falta ou "Restam N tentativa(s)". */
+  const [erroDesafio, setErroDesafio] = useState<string | null>(null);
 
   // Formulário
   const [f, setF] = useState<FiliadoRecadastro | null>(null);
@@ -111,9 +124,10 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     const pedido = pedidoDoDesafio(link?.desafio);
     const falta = faltaNoDesafio(pedido, valoresDoDesafio());
     if (falta) {
-      toast.error(falta);
+      setErroDesafio(falta);
       return;
     }
+    setErroDesafio(null);
     setValidando(true);
     try {
       const r = await validarDesafio(token, respostaDoDesafio(pedido, valoresDoDesafio()));
@@ -124,9 +138,14 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
       });
       setFotoPreview(r.filiado.fotoUrl ?? null);
     } catch (e) {
-      toast.error((e as Error).message);
+      // Link morto (bloqueado na 5ª, cancelado, vencido): a tela de "Link
+      // indisponível". Dado errado: a linha fixa, com as tentativas que restam.
+      const msg = (e as Error).message;
+      if (destinoDoErroDoDesafio(e) === 'LINK') setErroLink(msg);
+      else setErroDesafio(msg);
     } finally {
       setValidando(false);
+      setTentouUmaVez(true);
     }
   }
 
@@ -289,9 +308,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
   if (carregando) {
     return (
       <Moldura>
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" /> Abrindo seu link…
-        </div>
+        <EsqueletoDaConfirmacao texto="Abrindo seu link…" />
       </Moldura>
     );
   }
@@ -341,7 +358,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     if (pedido.tipo === 'DESATUALIZADA') {
       return (
         <Moldura>
-          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-12 text-center">
+          <div className="mx-auto flex max-w-sm animate-surgir flex-col items-center gap-3 py-12 text-center">
             <AlertTriangle className="h-10 w-10 text-amber-500" aria-hidden="true" />
             <h1 className="text-lg font-bold">Olá, {link?.primeiroNome}!</h1>
             <p className="text-sm text-muted-foreground">
@@ -355,24 +372,27 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
       );
     }
 
-    // Link antigo sem confirmação: o efeito acima já está abrindo o cadastro.
+    /*
+      Link antigo sem confirmação: o efeito acima já está abrindo o cadastro.
+      15/09/2026: antes da primeira tentativa terminar é sempre "abrindo". No
+      primeiro desenho `validando` ainda era falso, e a página piscava "Não foi
+      possível abrir o seu cadastro." antes de abrir (`telaDoLinkDireto`).
+    */
     if (pedido.tipo === 'DIRETO') {
       return (
         <Moldura>
-          <div className="mx-auto flex max-w-sm flex-col items-center gap-3 py-12 text-center">
-            {validando ? (
-              <p className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" /> Abrindo seu cadastro…
+          {telaDoLinkDireto({ validando, tentouUmaVez }) === 'ABRINDO' ? (
+            <EsqueletoDaConfirmacao texto="Abrindo seu cadastro…" />
+          ) : (
+            <div className="mx-auto flex max-w-sm animate-surgir flex-col items-center gap-3 py-12 text-center">
+              <p className="text-sm text-muted-foreground">
+                {erroDesafio ?? 'Não foi possível abrir o seu cadastro.'}
               </p>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground">Não foi possível abrir o seu cadastro.</p>
-                <Button className="h-12 w-full" onClick={confirmar}>
-                  <RefreshCw className="h-4 w-4" /> Tentar de novo
-                </Button>
-              </>
-            )}
-          </div>
+              <Button className="h-12 w-full" onClick={confirmar}>
+                <RefreshCw className="h-4 w-4" /> Tentar de novo
+              </Button>
+            </div>
+          )}
         </Moldura>
       );
     }
@@ -380,7 +400,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     return (
       <Moldura>
         <form
-          className="mx-auto max-w-sm space-y-5 py-6"
+          className="mx-auto max-w-sm animate-surgir space-y-5 py-6"
           onSubmit={(e) => {
             e.preventDefault();
             void confirmar();
@@ -406,8 +426,20 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
           )}
           {pedido.campos.includes('COREN') && (
             <Campo label="Número do COREN" dica="Como está no seu registro profissional.">
-              <Input className={campo} value={coren} onChange={(e) => setCoren(e.target.value)} placeholder="COREN-PI 000000-ENF" />
+              <Input className={campo} autoComplete="off" autoCapitalize="characters" value={coren} onChange={(e) => setCoren(e.target.value)} placeholder="COREN-PI 000000-ENF" />
             </Campo>
+          )}
+
+          {/*
+            15/09/2026: "Restam N tentativa(s)" saía num toast que some. Fica
+            aqui, fixo acima do botão, até a próxima tentativa. Âmbar: é aviso
+            de quantas restam, não falha do sistema.
+          */}
+          {erroDesafio && (
+            <p role="alert" className="flex animate-surgir items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{erroDesafio}</span>
+            </p>
           )}
 
           <Button type="submit" className="h-12 w-full" disabled={validando}>
@@ -702,6 +734,33 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
         </div>
       </div>
     </Moldura>
+  );
+}
+
+/**
+ * A FORMA DA PRIMEIRA TELA enquanto o link abre (15/09/2026): saudação, dois
+ * campos e o botão, no lugar do girador. Quando o formulário chega, nada pula.
+ */
+function EsqueletoDaConfirmacao({ texto }: { texto: string }) {
+  return (
+    <Carregando texto={texto} className="mx-auto max-w-sm py-6">
+      <div className="space-y-5">
+        <div className="flex flex-col items-center gap-2">
+          <Esqueleto className="h-12 w-12 rounded-2xl" />
+          <Esqueleto className="h-5 w-40" />
+          <Esqueleto className="h-3.5 w-64 max-w-full" />
+        </div>
+        <div className="space-y-1.5">
+          <Esqueleto className="h-3.5 w-16" />
+          <Esqueleto className="h-12 w-full md:h-11" />
+        </div>
+        <div className="space-y-1.5">
+          <Esqueleto className="h-3.5 w-32" />
+          <Esqueleto className="h-12 w-full md:h-11" />
+        </div>
+        <Esqueleto className="h-12 w-full" />
+      </div>
+    </Carregando>
   );
 }
 

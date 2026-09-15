@@ -1,6 +1,10 @@
 import { api } from './api';
 import { CORES_PALETA, PALETA, type ClassesCor, type CorPaleta } from './paleta-cores';
 import { V } from '@/lib/vocabulario';
+import { rotuloCurtoDoDia } from './dia-curto';
+
+/** Mora em lib/dia-curto desde 15/09/2026, para Agenda e Escala lerem a mesma. */
+export { rotuloCurtoDoDia };
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -173,6 +177,8 @@ export interface Compromisso {
   canceladoMotivo: string | null;
   canceladoEm: string | null;
   atendimentoId: string | null;
+  /** Seguimento de uma conclusão: herda `atendimentoId` e não fecha o atendimento. Só o detalhe manda. */
+  origemDesfechoId?: string | null;
   /**
    * A PUBLICAÇÃO DO DJEN QUE ORIGINOU OU ENRIQUECEU ESTA ATIVIDADE.
    *
@@ -280,6 +286,17 @@ export interface CompromissoDetalhe extends Compromisso {
     assuntoOutro?: string | null;
     createdAt: string;
     atendente: { id: string; nome: string; nomeExibicao: string | null };
+    /**
+     * O ATENDIMENTO FECHA SOZINHO COM A CONSULTA (15/09/2026). A gaveta da
+     * consulta diz ao advogado que registrar conclui o atendimento junto, e
+     * depois diz que concluiu. Opcionais pela janela de troca: a API antiga não
+     * manda, e a gaveta então não afirma nada.
+     */
+    status?: 'PENDENTE' | 'CONCLUIDO' | 'CANCELADO';
+    /** 'TRIAGEM' | 'CONSULTA'; nulo nos fechados antes de 15/09/2026. */
+    conclusaoOrigem?: string | null;
+    /** A consulta que fechou o atendimento, quando foi ela. */
+    conclusaoConsultaId?: string | null;
   } | null;
 }
 
@@ -327,11 +344,16 @@ export const STATUS_LABEL: Record<StatusCompromisso, string> = {
 };
 export const STATUS_ORDEM: StatusCompromisso[] = ['PENDENTE', 'EM_ANDAMENTO', 'CONCLUIDO', 'CANCELADO'];
 
+/*
+  CANCELADA É UM FIM, NÃO UM ERRO (15/09/2026). O selo saía riscado, e riscar
+  diz "isto não vale" sobre uma atividade que a equipe cancelou de propósito
+  (o filiado desistiu, o juízo adiou). Neutro, legível, sem riscado.
+*/
 export const STATUS_COR: Record<StatusCompromisso, string> = {
   PENDENTE: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   EM_ANDAMENTO: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   CONCLUIDO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
-  CANCELADO: 'bg-muted text-muted-foreground line-through',
+  CANCELADO: 'bg-muted text-muted-foreground',
 };
 
 // ---------------------------------------------------------------------------
@@ -1113,32 +1135,21 @@ export function horaBRDe(iso: string): string {
   return new Date(t - FUSO_BR_MS).toISOString().slice(11, 16);
 }
 
-const DIAS_DA_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-
 function somarDiasAoYmd(ymd: string, dias: number): string {
   const [a, m, d] = ymd.split('-').map(Number);
   return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
 }
 
 /**
- * "qua, 16/09" — e "qui, 07/01/2027" quando o ano não é o de hoje.
+ * "Hoje · dom, 13/09", "Amanhã · seg, 14/09", "Ontem · sáb, 12/09" ou só "qua, 16/09".
  *
- * Calculado, nunca escrito à mão: os exemplos do pedido diziam "sex, 13/09",
- * e 13/09/2026 é domingo. Conta sobre o dia puro (Date.UTC), então não anda
- * de dia em fuso nenhum. Mesmo formato de `rotuloDoDia` dos atendimentos.
+ * O dia curto vem de `rotuloCurtoDoDia` (lib/dia-curto), calculado e nunca
+ * escrito à mão: os exemplos do pedido diziam "sex, 13/09", e 13/09/2026 é
+ * domingo. Com hoje, põe o ano quando não é o corrente.
  */
-export function rotuloCurtoDoDia(ymd: string, hojeYmd: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-  if (!m) return ymd;
-  const [, ano, mes, dia] = m;
-  const semana = DIAS_DA_SEMANA[new Date(Date.UTC(+ano, +mes - 1, +dia)).getUTCDay()];
-  return ano === hojeYmd.slice(0, 4) ? `${semana}, ${dia}/${mes}` : `${semana}, ${dia}/${mes}/${ano}`;
-}
-
-/** "Hoje · dom, 13/09", "Amanhã · seg, 14/09", "Ontem · sáb, 12/09" ou só "qua, 16/09". */
 export function rotuloDoCabecalho(ymd: string, hojeYmd: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
   const curto = rotuloCurtoDoDia(ymd, hojeYmd);
-  if (curto === ymd) return ymd;
   if (ymd === hojeYmd) return `Hoje · ${curto}`;
   if (ymd === somarDiasAoYmd(hojeYmd, 1)) return `Amanhã · ${curto}`;
   if (ymd === somarDiasAoYmd(hojeYmd, -1)) return `Ontem · ${curto}`;
@@ -1184,14 +1195,27 @@ const porInicioEId = (a: { inicio: string; id: string }, b: { inicio: string; id
  *
  * `separarParaTras` (padrão: só em `adiante`) desliga o grupo âmbar quando a
  * lista já é de um dia escolhido no calendário.
+ *
+ * `paginas` (id → página em que chegou) vale em Todas · Próximas. Sem ela, a
+ * tarefa "No dia" da página 2 subia acima das consultas de hora marcada da
+ * página 1 no mesmo dia, e o cartão que a pessoa estava lendo descia depois do
+ * "Carregar mais" (auditoria de 14/09/2026). Com ela, a página seguinte só
+ * acrescenta no fim de cada grupo; dentro de cada página a regra é a de sempre.
  */
 export function agruparPorDia<T extends ItemDaLista>(
   itens: readonly T[],
-  opcoes: { agora: number; sentido: JanelaDaAgenda; incluirHoje: boolean; separarParaTras?: boolean },
+  opcoes: {
+    agora: number;
+    sentido: JanelaDaAgenda;
+    incluirHoje: boolean;
+    separarParaTras?: boolean;
+    paginas?: ReadonlyMap<string, number>;
+  },
 ): GrupoDaLista<T>[] {
   const { agora, sentido } = opcoes;
   const hojeYmd = diaBR(agora);
   const separar = opcoes.separarParaTras ?? sentido === 'adiante';
+  const pagina = (c: { id: string }) => opcoes.paginas?.get(c.id) ?? 0;
 
   const paraTras: T[] = [];
   const porDia = new Map<string, T[]>();
@@ -1215,7 +1239,7 @@ export function agruparPorDia<T extends ItemDaLista>(
       ymd: null,
       hoje: false,
       rotulo: 'Ficaram para trás',
-      itens: [...paraTras].sort(porInicioEId),
+      itens: [...paraTras].sort((a, b) => pagina(a) - pagina(b) || porInicioEId(a, b)),
     });
   }
 
@@ -1224,12 +1248,12 @@ export function agruparPorDia<T extends ItemDaLista>(
   for (const ymd of dias) {
     const doDia = [...(porDia.get(ymd) ?? [])];
     if (sentido === 'anteriores') {
-      doDia.sort((a, b) => porInicioEId(b, a));
+      doDia.sort((a, b) => pagina(a) - pagina(b) || porInicioEId(b, a));
     } else {
       doDia.sort((a, b) => {
         const horaA = Number(acaoPrincipalDoCartao(a) === 'INICIAR');
         const horaB = Number(acaoPrincipalDoCartao(b) === 'INICIAR');
-        return horaA - horaB || porInicioEId(a, b);
+        return pagina(a) - pagina(b) || horaA - horaB || porInicioEId(a, b);
       });
     }
     grupos.push({
@@ -1242,6 +1266,176 @@ export function agruparPorDia<T extends ItemDaLista>(
     });
   }
   return grupos;
+}
+
+/**
+ * Em que página cada atividade chegou — a primeira vez que apareceu, a mesma
+ * que `semRepetidas` mantém. Alimenta `agruparPorDia({ paginas })`.
+ */
+export function paginaDeCadaItem(paginas: readonly (readonly { id: string }[])[]): Map<string, number> {
+  const mapa = new Map<string, number>();
+  paginas.forEach((pagina, i) => {
+    for (const c of pagina) if (!mapa.has(c.id)) mapa.set(c.id, i);
+  });
+  return mapa;
+}
+
+/**
+ * AS OPÇÕES DA LISTA POR DIA, NUM LUGAR SÓ (15/09/2026).
+ *
+ * Moravam soltas na página, e o único teste que as guardava procurava as linhas
+ * no fonte com `toContain`: provava que a linha existia, não que acertava.
+ * Agora a página chama esta função e o teste roda com linhas de 2026.
+ *
+ * - Anteriores só existe em Todas; fora dela a lista anda para a frente.
+ * - Hoje vazio não entra num dia escolhido, na aba "Ficaram para trás", nem em
+ *   Todas enquanto as páginas não chegaram a hoje.
+ * - O grupo âmbar não entra num dia escolhido.
+ * - A ordem por página só vale em Todas, que é a única paginada.
+ */
+export function opcoesDaLista(p: {
+  listaDeTodas: boolean;
+  diaEscolhido: boolean;
+  aba: RecorteAgenda;
+  janelaDosDados: JanelaDaAgenda;
+  itensNaOrdemDaApi: readonly { inicio: string }[];
+  temProxima: boolean;
+  agora: number;
+  paginas?: ReadonlyMap<string, number>;
+}): {
+  agora: number;
+  sentido: JanelaDaAgenda;
+  incluirHoje: boolean;
+  separarParaTras: boolean;
+  paginas?: ReadonlyMap<string, number>;
+} {
+  const sentido: JanelaDaAgenda = p.listaDeTodas ? p.janelaDosDados : 'adiante';
+  const chegouAHoje = !p.listaDeTodas || paginasChegaramAHoje(p.itensNaOrdemDaApi, p.temProxima, p.agora);
+  return {
+    agora: p.agora,
+    sentido,
+    incluirHoje: !p.diaEscolhido && p.aba !== 'atrasadas' && chegouAHoje,
+    separarParaTras: !p.diaEscolhido && sentido === 'adiante',
+    ...(p.listaDeTodas && p.paginas ? { paginas: p.paginas } : {}),
+  };
+}
+
+/**
+ * O RODAPÉ DE "CARREGAR MAIS" LÊ SÓ A PÁGINA SEGUINTE.
+ *
+ * O react-query guarda a página 1 quando a 2 falha: o erro que interessa aqui é
+ * `isFetchNextPageError`, e não o da consulta inteira (que o bloco de erro da
+ * tela já trata). Durante a troca de Próximas para Anteriores, os dados à vista
+ * ainda são da janela anterior: oferecer mais deles seria pedir a página errada.
+ */
+export function estadoDoRodape(q: {
+  hasNextPage?: boolean;
+  isPlaceholderData: boolean;
+  isFetchingNextPage: boolean;
+  isFetchNextPageError: boolean;
+}): { temMais: boolean; carregando: boolean; erro: boolean } {
+  return {
+    temMais: !!q.hasNextPage && !q.isPlaceholderData,
+    carregando: q.isFetchingNextPage,
+    erro: q.isFetchNextPageError,
+  };
+}
+
+/**
+ * QUANTAS O RECORTE TEM, E NÃO QUANTAS JÁ CHEGARAM (15/09/2026).
+ *
+ * Em Todas a lista vem de 50 em 50: "1 filtro ativo · 50 atividades" e o botão
+ * "Ver 50 atividades" do celular contavam só as páginas carregadas, com 120 no
+ * recorte. Com o total da janela (a API nova manda), vale o total; sem ele, o
+ * que está na tela. Nunca menos que o carregado: a contagem pode ter vindo antes
+ * de uma atividade nova.
+ */
+export function quantasNoRecorte(p: { listaDeTodas: boolean; carregadas: number; totalDaJanela?: number }): number {
+  if (!p.listaDeTodas || p.totalDaJanela === undefined) return p.carregadas;
+  return Math.max(p.totalDaJanela, p.carregadas);
+}
+
+/**
+ * O TOTAL DO GRUPO "FICARAM PARA TRÁS" QUANDO NEM TUDO CHEGOU.
+ *
+ * Com página de 50 e 60 atrasadas, o cabeçalho dizia "Ficaram para trás · 50"
+ * enquanto a aba dizia 60 (auditoria de 14/09/2026). Só Todas · Próximas é
+ * paginada e só ela tem esse grupo; com a última página já carregada, o que
+ * está na tela é o total e nada muda.
+ */
+export function totalDoGrupoParaTras(p: {
+  listaDeTodas: boolean;
+  janelaDosDados: JanelaDaAgenda;
+  temProxima: boolean;
+  atrasadas?: number;
+}): number | undefined {
+  if (!p.listaDeTodas || p.janelaDosDados !== 'adiante' || !p.temProxima) return undefined;
+  return p.atrasadas;
+}
+
+/** "50 de 60" quando faltam páginas; só "60" quando tudo chegou. */
+export function contagemDoGrupoParaTras(carregadas: number, total?: number): string {
+  return total !== undefined && total > carregadas ? `${carregadas} de ${total}` : String(carregadas);
+}
+
+/**
+ * QUADRO OU LISTA, com a regra de Todas (decisão de 15/09/2026).
+ *
+ * "Carregar mais" e Próximas/Anteriores só existem na lista. O computador abria
+ * no quadro, onde Todas continuava crescente, sem as duas metades e com teto de
+ * 500: o pedido do dono ("Carregar mais em Todas") não chegava a quem usa o
+ * computador. Tocar em Todas passa para a lista, a não ser que a pessoa tenha
+ * escolhido o Quadro nesta sessão, e aí a escolha dela vale. Fora de Todas,
+ * vale a escolha guardada, e sem escolha decide a largura.
+ */
+export function visaoDaAgenda(p: {
+  escolhida: VisaoDaAgenda | null;
+  telaLarga: boolean;
+  aba: RecorteAgenda;
+  quadroNaSessao: boolean;
+}): VisaoDaAgenda {
+  if (p.aba === 'todos' && !p.quadroNaSessao) return 'lista';
+  return p.escolhida ?? (p.telaLarga ? 'quadro' : 'lista');
+}
+
+/**
+ * O DIA DO CALENDÁRIO É O DIA DE TERESINA (15/09/2026).
+ *
+ * O dia escolhido filtrava por `getDate()` do aparelho, e os grupos da lista
+ * usam Teresina: num aparelho em outro fuso (ou num notebook em UTC), a consulta
+ * das 23h30 caía num dia no filtro e em outro no grupo, na mesma tela. A célula
+ * do calendário continua um `Date` local (é a grade que a pessoa vê); o que se
+ * compara é o texto 'AAAA-MM-DD' da célula com o dia de Teresina da atividade.
+ */
+export function ymdDoCalendario(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** A célula do calendário (meia-noite local) do dia de Teresina em que o instante cai. */
+export function celulaDoDiaBR(instante: string | number | Date): Date {
+  const [a, m, d] = diaBRDe(instante).split('-').map(Number);
+  return new Date(a, m - 1, d);
+}
+
+/** As atividades cujo dia de Teresina é o `ymd` — o filtro do dia escolhido e da célula. */
+export function doDiaDeTeresina<T extends { inicio: string }>(itens: readonly T[], ymd: string): T[] {
+  return itens.filter((c) => diaBRDe(c.inicio) === ymd);
+}
+
+const MESES = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+
+/**
+ * "Setembro de 2026" (15/09/2026). O cabeçalho usava a classe `capitalize`, que
+ * põe maiúscula em TODA palavra: saía "Setembro De 2026" na produção. Só a
+ * primeira letra sobe.
+ */
+export function rotuloDoMes(mes: Date): string {
+  const nome = MESES[mes.getMonth()];
+  return `${nome.charAt(0).toUpperCase()}${nome.slice(1)} de ${mes.getFullYear()}`;
 }
 
 export async function getCompromisso(id: string): Promise<CompromissoDetalhe> {
@@ -1303,6 +1497,17 @@ export interface ConcluirResposta extends Compromisso {
    */
   rascunhoCriado: { id: string; titulo: string | null } | null;
   seguimentoCriado: { id: string; titulo: string; inicio: string; tipo: string } | null;
+  /**
+   * O atendimento da triagem que fechou junto com esta consulta (15/09/2026).
+   * Nulo quando nada fechou; ausente na API antiga (janela de troca).
+   */
+  atendimentoConcluido?: { id: string; numero: number } | null;
+}
+
+/** Resposta do desfazer — o atendimento que voltou a aguardar a consulta, se voltou. */
+export interface DesfazerConclusaoResposta extends Compromisso {
+  /** Nulo quando o carimbo não bateu; ausente na API antiga (janela de troca). */
+  atendimentoReaberto?: { id: string; numero: number } | null;
 }
 
 export async function concluirCompromisso(id: string, dto: ConcluirInput): Promise<ConcluirResposta> {
@@ -1319,7 +1524,7 @@ export async function concluirCompromisso(id: string, dto: ConcluirInput): Promi
  */
 export const JANELA_DESFAZER_CONCLUSAO_MS = 120_000;
 
-export async function desfazerConclusao(id: string): Promise<Compromisso> {
+export async function desfazerConclusao(id: string): Promise<DesfazerConclusaoResposta> {
   return (await api.patch(`/compromissos/${id}/desfazer-conclusao`)).data;
 }
 

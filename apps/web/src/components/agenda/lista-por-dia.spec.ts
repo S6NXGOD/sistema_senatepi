@@ -5,7 +5,10 @@ import {
   PAGINA_DA_AGENDA,
   agruparPorDia,
   estadoDoPrazoEm,
+  estadoDoRodape,
   horaBRDe,
+  opcoesDaLista,
+  paginaDeCadaItem,
   paginasChegaramAHoje,
   proximoCursor,
   rotuloCurtoDoDia,
@@ -13,8 +16,7 @@ import {
   semRepetidas,
   type StatusCompromisso,
 } from '@/lib/agenda';
-import { useTelaLarga as daLib } from '@/lib/use-tela-larga';
-import { useTelaLarga as daEscala } from '@/components/escalas/use-tela-larga';
+import { rotuloCurtoDoDia as daLibNeutra } from '@/lib/dia-curto';
 import { RodapeDaPaginacao } from './lista-por-dia';
 
 const t = (iso: string) => new Date(iso).getTime();
@@ -279,17 +281,152 @@ describe('RodapeDaPaginacao — a página seguinte que não veio', () => {
     expect(textoDe(RodapeDaPaginacao({ ...base, erro: true, carregando: true }))).not.toContain(FRASE);
   });
 
-  it('a agenda passa o erro da página seguinte, e não o da consulta inteira', () => {
-    const pagina = readFileSync(resolve(__dirname, '../../app/(dashboard)/agenda/page.tsx'), 'utf8');
-    expect(pagina).toContain('erro={todas.isFetchNextPageError}');
-    expect(pagina).toContain("incluirHoje: !diaSelecionado && aba !== 'atrasadas' && todasChegouAHoje,");
-    expect(pagina).toContain('paginasChegaramAHoje(itensDeTodas, !!todas.hasNextPage, Date.now())');
+});
+
+/**
+ * O QUE A PÁGINA PASSA AO RODAPÉ E À LISTA (15/09/2026). Este bloco afirmava as
+ * linhas da página com `toContain`: provava que a linha existia, não que
+ * acertava. A página agora chama estas funções, e elas rodam com valores.
+ */
+describe('estadoDoRodape — o erro é o da página seguinte', () => {
+  const base = { hasNextPage: true, isPlaceholderData: false, isFetchingNextPage: false, isFetchNextPageError: false };
+
+  it('a página 2 falhou: erro, e o botão continua', () => {
+    expect(estadoDoRodape({ ...base, isFetchNextPageError: true })).toEqual({ temMais: true, carregando: false, erro: true });
+  });
+
+  it('a consulta inteira com erro não acende a frase do rodapé', () => {
+    // O objeto do react-query tem isError; o rodapé não lê.
+    expect(estadoDoRodape({ ...base, isError: true } as typeof base).erro).toBe(false);
+  });
+
+  it('trocando de Próximas para Anteriores, os dados à vista são da janela velha: nada de "Carregar mais"', () => {
+    expect(estadoDoRodape({ ...base, isPlaceholderData: true }).temMais).toBe(false);
+  });
+
+  it('última página: sem rodapé', () => {
+    expect(estadoDoRodape({ ...base, hasNextPage: false }).temMais).toBe(false);
+  });
+});
+
+describe('opcoesDaLista — as regras da página, com linhas de 2026', () => {
+  const atrasadas = Array.from({ length: PAGINA_DA_AGENDA }, (_, i) =>
+    linha(`a${String(i).padStart(2, '0')}`, '2026-09-10T09:00:00-03:00', 'PRAZO'),
+  );
+  const base = {
+    listaDeTodas: true,
+    diaEscolhido: false,
+    aba: 'todos' as const,
+    janelaDosDados: 'adiante' as const,
+    itensNaOrdemDaApi: atrasadas,
+    temProxima: true,
+    agora: AGORA,
+  };
+
+  it('Todas · Próximas com a primeira página só de atrasadas: sem Hoje vazio, com o âmbar', () => {
+    expect(opcoesDaLista(base)).toMatchObject({ sentido: 'adiante', incluirHoje: false, separarParaTras: true });
+  });
+
+  it('Todas · Próximas sem próxima página: Hoje vazio é resposta', () => {
+    expect(opcoesDaLista({ ...base, temProxima: false }).incluirHoje).toBe(true);
+  });
+
+  it('Todas · Anteriores anda para trás e não separa âmbar', () => {
+    expect(opcoesDaLista({ ...base, janelaDosDados: 'anteriores', temProxima: false })).toMatchObject({
+      sentido: 'anteriores', separarParaTras: false,
+    });
+  });
+
+  it('fora de Todas a lista anda para a frente, mesmo que a janela guardada seja Anteriores', () => {
+    const o = opcoesDaLista({ ...base, listaDeTodas: false, aba: 'hoje', janelaDosDados: 'anteriores' });
+    expect(o).toMatchObject({ sentido: 'adiante', incluirHoje: true, separarParaTras: true });
+  });
+
+  it('a aba "Ficaram para trás" não inclui Hoje; o dia escolhido não tem Hoje nem âmbar', () => {
+    expect(opcoesDaLista({ ...base, listaDeTodas: false, aba: 'atrasadas' }).incluirHoje).toBe(false);
+    expect(opcoesDaLista({ ...base, listaDeTodas: false, diaEscolhido: true })).toMatchObject({
+      incluirHoje: false, separarParaTras: false,
+    });
+  });
+
+  it('a ordem por página só vai em Todas', () => {
+    const paginas = new Map([['a00', 0]]);
+    expect(opcoesDaLista({ ...base, paginas }).paginas).toBe(paginas);
+    expect(opcoesDaLista({ ...base, listaDeTodas: false, aba: 'hoje', paginas }).paginas).toBeUndefined();
+  });
+});
+
+/**
+ * "CARREGAR MAIS" SÓ ACRESCENTA NO FIM (15/09/2026). A página 1 de Todas ·
+ * Próximas terminava na consulta das 14h de terça; a página 2 trazia a tarefa
+ * "No dia" das 16h do mesmo dia. Pela regra do dia (tarefa primeiro), ela subia
+ * acima da consulta que a pessoa já tinha lido.
+ */
+describe('agruparPorDia com paginas — Todas · Próximas', () => {
+  const pagina1 = [
+    linha('c1', '2026-09-15T09:00:00-03:00', 'CONSULTA_JURIDICA'),
+    linha('t1', '2026-09-15T10:00:00-03:00', 'PRAZO'),
+    linha('c2', '2026-09-15T14:00:00-03:00', 'CONSULTA_JURIDICA'),
+  ];
+  const pagina2 = [
+    linha('t2', '2026-09-15T16:00:00-03:00', 'PRAZO'),
+    linha('c3', '2026-09-15T17:00:00-03:00', 'AUDIENCIA'),
+    // A remarcada que veio de novo na página 2 fica onde já estava.
+    linha('c2', '2026-09-15T14:00:00-03:00', 'CONSULTA_JURIDICA'),
+  ];
+  const itens = semRepetidas([pagina1, pagina2]);
+  const paginas = paginaDeCadaItem([pagina1, pagina2]);
+
+  it('a página guardada é a primeira em que o item apareceu', () => {
+    expect([...paginas.entries()]).toEqual([['c1', 0], ['t1', 0], ['c2', 0], ['t2', 1], ['c3', 1]]);
+  });
+
+  it('com paginas, a página 2 vem depois de tudo da página 1 no mesmo dia', () => {
+    const [terca] = agruparPorDia(itens, { agora: AGORA, sentido: 'adiante', incluirHoje: false, paginas });
+    expect(ids(terca.itens)).toEqual(['t1', 'c1', 'c2', 't2', 'c3']);
+  });
+
+  it('sem paginas (as outras abas), a regra do dia de sempre: tarefas primeiro', () => {
+    const [terca] = agruparPorDia(itens, { agora: AGORA, sentido: 'adiante', incluirHoje: false });
+    expect(ids(terca.itens)).toEqual(['t1', 't2', 'c1', 'c2', 'c3']);
+  });
+});
+
+/**
+ * UMA `rotuloCurtoDoDia` SÓ (15/09/2026). Havia duas, com assinaturas
+ * diferentes: a da Agenda (com hoje) e a da Escala (sem). A neutra mora em
+ * lib/dia-curto e aceita as duas formas.
+ */
+describe('rotuloCurtoDoDia — a neutra', () => {
+  it('a Agenda exporta a mesma função da lib neutra', () => {
+    expect(rotuloCurtoDoDia).toBe(daLibNeutra);
+  });
+
+  it('sem hoje, nunca põe o ano (o que a Escala fazia), e aceita o ISO da coluna de data', () => {
+    expect(daLibNeutra('2026-10-05')).toBe('seg, 05/10');
+    expect(daLibNeutra('2026-09-29T00:00:00.000Z')).toBe('ter, 29/09');
+    expect(daLibNeutra('2027-01-07')).toBe('qui, 07/01');
+  });
+
+  it('com hoje, põe o ano só quando não é o corrente', () => {
+    expect(daLibNeutra('2027-01-07', '2026-09-14')).toBe('qui, 07/01/2027');
+    expect(daLibNeutra('2026-09-16', '2026-09-14')).toBe('qua, 16/09');
+  });
+
+  it('texto que não é dia volta como veio', () => {
+    expect(daLibNeutra('lixo')).toBe('lixo');
   });
 });
 
 describe('a largura que decide a visão é uma só', () => {
-  /** Mudou para lib/ quando a Agenda passou a usar; o caminho da Escala só reexporta. */
-  it('Escala e Agenda leem o mesmo hook', () => {
-    expect(daEscala).toBe(daLib);
+  /**
+   * Mudou para lib/ quando a Agenda passou a usar. O reexport antigo em
+   * components/escalas só era importado por este teste e saiu em 15/09/2026.
+   */
+  it('Escala e Agenda importam o hook do mesmo lugar', () => {
+    const importacao = "import { useTelaLarga } from '@/lib/use-tela-larga';";
+    for (const arquivo of ['../../app/(dashboard)/escalas/page.tsx', '../../app/(dashboard)/agenda/page.tsx']) {
+      expect(readFileSync(resolve(__dirname, arquivo), 'utf8')).toContain(importacao);
+    }
   });
 });

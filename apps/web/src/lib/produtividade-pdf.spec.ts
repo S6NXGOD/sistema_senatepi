@@ -1,15 +1,17 @@
 import { foraDaFontePadrao } from './pdf-graficos';
 import type { BlocoDoPdf, MedidorDeDocumento } from './pdf-documento';
 import {
-  DECIDIDAS_NAO_MEDIDAS, LEGENDA_DO_USO, O_QUE_NAO_MEDE, semanasDosDias, textoDoUltimoAcesso,
+  DECIDIDAS_NAO_MEDIDAS, LEGENDA_DO_USO, O_QUE_NAO_MEDE, criadaNoPeriodo, semanasDosDias, textoDoUltimoAcesso, textoDosDiasComUso,
   type LinhaDeUso, type Produtividade, type SemanaDeUso,
 } from './produtividade';
 import {
-  DECIDIDAS_SEM_ANTES, DECIDIDAS_SO_DESDE, OPCOES_DA_PRODUTIVIDADE, PE_DO_AGORA, SEMANA_INDISPONIVEL,
-  capaDaProdutividade, documentoDaProdutividade, documentoQueCabe, gradeDoPdf, linhaDosTipos, nomeDoRecorte,
-  pessoasDoRecorte, planoDaProdutividade, serieDoPerfil, somaDaEquipe, type AnteriorDaProdutividade,
-  type EscolhasDaProdutividade,
+  APERTOS_DA_FOLHA, APERTOS_DO_RESUMO, DECIDIDAS_SEM_ANTES, DECIDIDAS_SEM_ANTES_EQUIPE, DECIDIDAS_SO_DESDE,
+  LINHA_DOS_TIPOS_MAXIMO, OPCOES_DA_PRODUTIVIDADE, PE_DO_AGORA, PE_DOS_MESES, RESUMO_DA_EQUIPE, SEMANA_INDISPONIVEL,
+  avisosDoPdf, capaDaProdutividade, comoSaiOTempo, diasDoPeriodo, documentoDaProdutividade, documentoQueCabe, ehSemanal,
+  gradeDoPdf, linhaDosTipos, mesesDaCaixa, nomeDoRecorte, pessoasDoRecorte, planoDaProdutividade, serieDoPerfil,
+  somaDaEquipe, type AnteriorDaProdutividade, type EscolhasDaProdutividade,
 } from './produtividade-pdf';
+import { ATALHOS, comoData } from './relatorios';
 
 const DIA_MS = 86_400_000;
 const diasEntre = (de: string, ate: string) => {
@@ -187,11 +189,13 @@ describe('o PDF do uso do sistema', () => {
   /** A frase curta mora ao lado do número: tem de existir, caber e ser desenhável. */
   it('toda linha da legenda tem a frase curta, de até 80 caracteres, na fonte do PDF', () => {
     for (const l of LEGENDA_DO_USO) {
-      expect(l.curta.length).toBeGreaterThan(10);
-      expect(l.curta.length).toBeLessThanOrEqual(80);
-      expect(foraDaFontePadrao(l.curta)).toEqual([]);
+      for (const frase of [l.curta, ...(l.curtaEquipe ? [l.curtaEquipe] : [])]) {
+        expect(frase.length).toBeGreaterThan(10);
+        expect(frase.length).toBeLessThanOrEqual(80);
+        expect(foraDaFontePadrao(frase)).toEqual([]);
+      }
     }
-    for (const texto of [DECIDIDAS_NAO_MEDIDAS, DECIDIDAS_SO_DESDE, DECIDIDAS_SEM_ANTES]) {
+    for (const texto of [DECIDIDAS_NAO_MEDIDAS, DECIDIDAS_SO_DESDE, DECIDIDAS_SEM_ANTES, DECIDIDAS_SEM_ANTES_EQUIPE]) {
       expect(texto.length).toBeLessThanOrEqual(80);
     }
     // E a coluna "O que conta" de qualquer plano só leva frase que cabe.
@@ -278,7 +282,7 @@ describe('o documento de uma pessoa', () => {
       fundo: true,
       linhas: [
         { tipo: 'par', rotulo: 'Último acesso', valor: textoDoUltimoAcesso('2026-09-13T18:27:00.000Z', agora), alerta: false },
-        { tipo: 'par', rotulo: 'Na agenda', valor: '4 atividades em aberto', abaixo: { texto: '1 atrasada', alerta: true } },
+        { tipo: 'par', rotulo: 'Na agenda', valor: '4 atividades em aberto', alerta: false, abaixo: { texto: '1 atrasada', alerta: true } },
         { tipo: 'par', rotulo: 'Diário', valor: '2 propostas esperando decisão', alerta: true },
         { tipo: 'pe', texto: PE_DO_AGORA },
       ],
@@ -353,14 +357,21 @@ describe('o documento de uma pessoa', () => {
   });
 });
 
-/** "antes 0 · +18" de quem nem tinha conta não é crescimento: a coluna some, e uma linha diz por quê. */
+/**
+ * "antes 0 · +18" de quem nem tinha conta não é crescimento: a coluna some, e
+ * uma linha diz por quê. Na folha da pessoa essa linha mora na caixa dos dias,
+ * no lugar da comparação, e aparece UMA vez (15/09/2026): "A conta foi criada
+ * em 21/08/2026" saía na caixa e na nota, e a nota custava a linha que levava
+ * a folha para a página 2.
+ */
 describe('quando a comparação some', () => {
   it('a conta foi criada depois do começo do período anterior', () => {
     const criadaDepois = { ...BASE, pessoas: BASE.pessoas.map((l) => ({ ...l, contaCriadaEm: '2026-07-20T15:00:00.000Z' })) };
     const blocos = planoDaProdutividade(criadaDepois, escolhas({ quem: 'PESSOA:ana' }), ANTERIOR);
     expect(registros(blocos).cabecalho).toHaveLength(3);
-    expect(notas(blocos)).toEqual(['Sem comparação: a conta foi criada em 20/07/2026.']);
-    expect(textosDaCaixa(caixas(blocos).esquerda)).toContain('A conta foi criada em 20/07/2026');
+    expect(notas(blocos)).toEqual([]);
+    expect(textosDaCaixa(caixas(blocos).esquerda)).toContain('Sem comparação: a conta foi criada em 20/07/2026.');
+    expect(JSON.stringify(blocos).match(/criada em 20\/07\/2026/g)).toHaveLength(1);
   });
 
   it('nenhum dia com uso no período anterior', () => {
@@ -368,8 +379,10 @@ describe('quando a comparação some', () => {
       dados: dadosDeAntes({ diasComUso: 0 }), periodo: PERIODO_ANTERIOR,
     });
     expect(registros(blocos).cabecalho).toHaveLength(3);
-    expect(notas(blocos)).toEqual(['Sem comparação: nenhum uso do sistema de 14/07 a 13/08.']);
-    expect(textosDaCaixa(caixas(blocos).esquerda)).toContain('De 14/07 a 13/08: nenhum dia');
+    expect(notas(blocos)).toEqual([]);
+    const textos = textosDaCaixa(caixas(blocos).esquerda);
+    expect(textos).toContain('Sem comparação: nenhum uso do sistema de 14/07 a 13/08.');
+    expect(textos).not.toContain('De 14/07 a 13/08: nenhum dia');
   });
 
   it('mês inteiro contra mês inteiro diz "em julho"', () => {
@@ -377,7 +390,178 @@ describe('quando a comparação some', () => {
     const blocos = planoDaProdutividade(agosto, escolhas({ quem: 'PESSOA:ana' }), {
       dados: dadosDeAntes({ diasComUso: 0 }), periodo: { de: '2026-07-01', ate: '2026-07-31' },
     });
-    expect(notas(blocos)).toContain('Sem comparação: nenhum uso do sistema em julho.');
+    expect(textosDaCaixa(caixas(blocos).esquerda)).toContain('Sem comparação: nenhum uso do sistema em julho.');
+  });
+
+  it('no resumo da equipe, que não tem caixa dos dias, o motivo continua numa nota', () => {
+    const blocos = planoDaProdutividade(BASE, escolhas(), {
+      dados: { ...dadosDeAntes(), pessoas: dadosDeAntes().pessoas.map((l) => ({ ...l, diasComUso: 0 })) },
+      periodo: PERIODO_ANTERIOR,
+    });
+    expect(notas(blocos)).toContain('Sem comparação: nenhum uso do sistema de 14/07 a 13/08.');
+  });
+});
+
+/**
+ * A CONTA CRIADA NO MEIO DO PERÍODO (15/09/2026). Os dias de antes dela saíam
+ * cinza, como "não usou", e os dias de semana contavam o período inteiro.
+ */
+describe('a conta criada no meio do período', () => {
+  // Quinta, 20/08/2026, às 12h de Teresina.
+  const criadaNoMeio: Produtividade = {
+    ...BASE,
+    pessoas: [{
+      ...BASE.pessoas[0], contaCriadaEm: '2026-08-20T15:00:00.000Z', diasAtivos: ['2026-08-24', '2026-09-12'], diasComUso: 2,
+    }],
+  };
+
+  it('os dias antes da criação ficam fora da grade, e os dias de semana contam dali', () => {
+    const blocos = planoDaProdutividade(criadaNoMeio, escolhas({ quem: 'PESSOA:ana' }), ANTERIOR);
+    const { esquerda } = caixas(blocos);
+    // 14/08 (sexta da primeira semana) e 17 a 19/08 não existiam para esta conta.
+    expect(esquerda.grade!.semanas[0].dias.every((d) => d === null)).toBe(true);
+    expect(esquerda.grade!.semanas[1].dias.slice(0, 3)).toEqual([null, null, null]);
+    expect(esquerda.grade!.semanas[1].dias[3]).toEqual({ dia: 20, usou: false, fimDeSemana: false });
+    expect(esquerda.grade!.semanas[2].dias[0]).toEqual({ dia: 24, usou: true, fimDeSemana: false });
+    // 20 e 21/08, e três semanas inteiras de 24/08 a 11/09: 2 + 15.
+    expect(textosDaCaixa(esquerda)).toEqual([
+      '2 dias com uso',
+      'desde 20/08 são 17 dias de semana',
+      'usou em 1 dia de sábado ou domingo',
+      'Sem comparação: a conta foi criada em 20/08/2026.',
+      LEGENDA_DO_USO.find((l) => l.chave === 'diasComUso')!.curta,
+    ]);
+    expect(JSON.stringify(blocos).match(/criada em 20\/08\/2026/g)).toHaveLength(1);
+    expect(notas(blocos)).toEqual([]);
+  });
+
+  it('sem comparar, a frase dos dias de semana diz "desde" do mesmo jeito', () => {
+    const { esquerda } = caixas(planoDaProdutividade(criadaNoMeio, escolhas({ quem: 'PESSOA:ana' })));
+    expect(textosDaCaixa(esquerda).slice(0, 3)).toEqual([
+      '2 dias com uso', 'desde 20/08 são 17 dias de semana', 'usou em 1 dia de sábado ou domingo',
+    ]);
+  });
+
+  /**
+   * A MESMA FRASE NA ABA E NO PAPEL (15/09/2026). A caixa do PDF escrevia a
+   * própria frase: "Este mês" gerado no sábado 01/08 saía "o período só tem fim
+   * de semana" na tela e "o período só tem sábado e domingo" no PDF.
+   */
+  it('a frase dos dias com uso da caixa é a da aba, letra por letra, com e sem a conta criada no período', () => {
+    const soFimDeSemana = noPeriodo(
+      { ...BASE, pessoas: [{ ...BASE.pessoas[0], diasAtivos: ['2026-08-01'], diasComUso: 1 }] },
+      '2026-08-01',
+      '2026-08-02',
+    );
+    const naCaixa = (p: Produtividade) =>
+      textosDaCaixa(caixas(planoDaProdutividade(p, escolhas({ quem: 'PESSOA:ana' }))).esquerda).slice(0, 2).join(' · ');
+    const naAba = (p: Produtividade) => {
+      const l = p.pessoas.find((x) => x.usuarioId === 'ana')!;
+      return textoDosDiasComUso(l.diasComUso, p.dias, criadaNoPeriodo(l.contaCriadaEm, p.dias));
+    };
+    expect(naCaixa(soFimDeSemana)).toBe('1 dia com uso · o período só tem fim de semana');
+    for (const p of [soFimDeSemana, criadaNoMeio, BASE]) expect(naCaixa(p)).toBe(naAba(p));
+  });
+
+  it('a grade sozinha: dia antes de `desde` é nulo, e sem `desde` nada muda', () => {
+    const semDesde = gradeDoPdf(DIAS, ['2026-08-14']);
+    const comDesde = gradeDoPdf(DIAS, ['2026-08-14'], undefined, '2026-08-17');
+    expect(semDesde.semanas[0].dias[4]).toEqual({ dia: 14, usou: true, fimDeSemana: false });
+    expect(comDesde.semanas[0].dias[4]).toBeNull();
+    expect(comDesde.semanas[1].dias[0]).toEqual({ dia: 17, usou: false, fimDeSemana: false });
+  });
+});
+
+/**
+ * O CORTE SEMANAL É POR DIAS (15/09/2026). Com "até 13 semanas", o atalho
+ * "Últimos 90 dias" (91 dias) tocava 14 segundas-feiras e saía mês a mês.
+ */
+describe('o atalho "Últimos 90 dias" sai semana a semana', () => {
+  const noventaDias = (hoje: Date) => ({
+    de: comoData(ATALHOS.find((a) => a.rotulo === '90 dias')!.inicio(hoje)),
+    ate: comoData(hoje),
+  });
+
+  it('gerado em 14/09/2026: 91 dias, 14 semanas, gráfico e grade semanais, e o diálogo diz isso', () => {
+    const periodo = noventaDias(new Date(2026, 8, 14, 10, 0));
+    expect(periodo).toEqual({ de: '2026-06-16', ate: '2026-09-14' });
+    const dias = diasDoPeriodo(periodo);
+    expect(dias).toHaveLength(91);
+    expect(semanasDosDias(dias)).toHaveLength(14);
+    const blocos = planoDaProdutividade(noPeriodo(BASE, periodo.de, periodo.ate), escolhas({ quem: 'PESSOA:ana' }));
+    expect(colunas(blocos)).toMatchObject({ titulo: 'Atividades concluídas, semana a semana' });
+    expect(colunas(blocos)!.categorias).toHaveLength(14);
+    expect(caixas(blocos).esquerda.grade?.semanas).toHaveLength(14);
+    expect(caixas(blocos).esquerda.meses).toBeUndefined();
+    expect(comoSaiOTempo(periodo, true)).toBe('Sai em colunas, semana a semana (14 semanas).');
+  });
+
+  it('gerado em qualquer dia daquela semana, continua semanal', () => {
+    for (let dia = 14; dia <= 20; dia += 1) {
+      expect(ehSemanal(diasDoPeriodo(noventaDias(new Date(2026, 8, dia, 10, 0))).length)).toBe(true);
+    }
+  });
+
+  it('até 98 dias, semana a semana; de 99 em diante, mês a mês — e o diálogo diz quantos meses', () => {
+    expect(ehSemanal(98)).toBe(true);
+    expect(ehSemanal(99)).toBe(false);
+    expect(comoSaiOTempo({ de: '2026-01-01', ate: '2026-09-14' }, false)).toBe('Sai em tabela, mês a mês (9 meses).');
+    expect(comoSaiOTempo({ de: '2026-09-14', ate: '2026-09-14' }, true)).toBe('Sai em colunas, semana a semana (1 semana).');
+  });
+});
+
+/**
+ * ACIMA DE 98 DIAS, OS DIAS COM USO POR MÊS (15/09/2026). A grade de um ano
+ * tinha células de 1,4 mm e, entre 11 e 43 semanas, ficava mais alta que a
+ * de um ano.
+ */
+describe('a fileira de meses da caixa dos dias', () => {
+  it('"este ano" em setembro troca a grade pelos meses, contando da criação da conta', () => {
+    const ano = noPeriodo(BASE, '2026-01-01', '2026-09-14');
+    const pessoa = {
+      ...BASE.pessoas[0], contaCriadaEm: '2026-03-10T12:00:00.000Z', diasAtivos: ['2026-03-10', '2026-03-11', '2026-09-14'], diasComUso: 3,
+    };
+    const { esquerda } = caixas(planoDaProdutividade({ ...ano, pessoas: [pessoa] }, escolhas()));
+    expect(esquerda.grade).toBeUndefined();
+    expect(esquerda.meses).toHaveLength(9);
+    // Janeiro e fevereiro sem conta; março conta de 10/03 (16 dias de semana); setembro, até 14/09 (10).
+    expect(esquerda.meses!.slice(0, 3)).toEqual([
+      { rotulo: 'jan', dias: null, proporcao: 0 },
+      { rotulo: 'fev', dias: null, proporcao: 0 },
+      { rotulo: 'mar', dias: 2, proporcao: 2 / 16 },
+    ]);
+    expect(esquerda.meses![8]).toEqual({ rotulo: 'set', dias: 1, proporcao: 1 / 10 });
+    expect(textosDaCaixa(esquerda)).toContain(PE_DOS_MESES);
+    expect(esquerda.linhas.some((l) => l.tipo === 'chave')).toBe(false);
+  });
+
+  it('atravessando o ano, o mês leva o ano; sábado usado enche a barra, e nunca passa dela', () => {
+    const meses = mesesDaCaixa(['2025-12-31', '2026-01-03', '2026-01-04'], ['2026-01-03', '2026-01-04']);
+    expect(meses).toEqual([
+      { rotulo: 'dez/25', dias: 0, proporcao: 0 },
+      { rotulo: 'jan/26', dias: 2, proporcao: 1 },
+    ]);
+  });
+});
+
+/** "Prazo para manifestação sobre laudo pericial" quebrava a linha e levava a folha para a página 2. */
+describe('a linha "por tipo"', () => {
+  it('nome longo ganha reticências, e o tipo que não cabe soma em "outros tipos", numa linha só', () => {
+    const tipos = [
+      { tipo: 'a', nome: 'Audiência de instrução e julgamento na vara', concluidas: 80, noDiaMarcado: 7 },
+      { tipo: 'b', nome: 'Prazo para manifestação sobre laudo pericial', concluidas: 50, noDiaMarcado: 5 },
+      { tipo: 'c', nome: 'Reunião com a diretoria do sindicato', concluidas: 30, noDiaMarcado: 2 },
+      { tipo: 'd', nome: 'Perícia', concluidas: 4, noDiaMarcado: 1 },
+    ];
+    const linhaTipos = linhaDosTipos(tipos)!;
+    expect(linhaTipos).toBe('Audiência de instrução…: 80 · Prazo para manifestação…: 50 · outros tipos: 34');
+    expect(linhaTipos.length).toBeLessThanOrEqual(LINHA_DOS_TIPOS_MAXIMO);
+    // Nenhuma concluída some: a linha soma o total.
+    expect(linhaTipos.match(/\d+/g)!.map(Number).reduce((a, b) => a + b, 0)).toBe(164);
+  });
+
+  it('com nomes curtos, os três primeiros e o resto, como antes', () => {
+    expect(linhaDosTipos(BASE.pessoas[0].agenda.porTipo)).toBe('Prazo: 6 · Audiência: 3 · Reunião: 2 · outros tipos: 1');
   });
 });
 
@@ -583,17 +767,31 @@ describe('o documento da equipe', () => {
     const tabela = registros(plano());
     expect(tabela.cabecalho).toEqual(['Registro', '14/08 a 13/09', '14/07 a 13/08', 'O que conta']);
     expect(linhaDe(tabela, 'Atividades concluídas')).toEqual([
-      'Atividades concluídas', '12', '9', LEGENDA_DO_USO.find((l) => l.chave === 'concluidas')!.curta,
+      'Atividades concluídas', '12', '9', LEGENDA_DO_USO.find((l) => l.chave === 'concluidas')!.curtaEquipe,
     ]);
     expect(linhaDe(tabela, 'Atendimentos registrados')!.slice(0, 3)).toEqual(['Atendimentos registrados', '9', '9']);
     expect(titulos(plano())).toEqual(expect.arrayContaining(['A equipe no período', 'O que a equipe registrou']));
   });
 
-  it('o gráfico da equipe diz embaixo quantas pessoas usaram, sem nome', () => {
+  /** 15/09/2026: "Que a pessoa fechou…" ao lado de uma soma de quinze pessoas. */
+  it('"O que conta" da equipe fala da equipe; a folha de uma pessoa continua falando dela', () => {
+    const tabela = registros(plano());
+    const coluna = tabela.cabecalho.indexOf('O que conta');
+    const contas = tabela.linhas.filter((_, i) => !tabela.especiais?.[i]).map((l) => l[coluna]);
+    expect(contas.filter((c) => /\b(a|pela) pessoa\b/.test(c))).toEqual([]);
+    expect(linhaDe(tabela, 'Atendimentos registrados')![3]).toBe('Registrados com alguém da equipe como atendente.');
+    const daAna = registros(planoDaProdutividade(BASE, escolhas({ quem: 'PESSOA:ana' }), ANTERIOR));
+    expect(linhaDe(daAna, 'Atividades concluídas')![3]).toBe('Que a pessoa fechou, inclusive de colegas e as criadas pelo robô.');
+  });
+
+  it('o gráfico da equipe diz embaixo quantas pessoas usaram, sem nome — "nela" na semana, "nele" no mês', () => {
     expect(colunas(plano())).toMatchObject({
       titulo: 'Atividades concluídas da equipe, semana a semana',
       detalhes: ['1 pessoa', '2 pessoas', '0 pessoas', '0 pessoas', '1 pessoa'],
     });
+    expect(notas(plano())).toContain('Embaixo de cada semana, quantas pessoas usaram o sistema nela.');
+    const ano = noPeriodo(BASE, '2026-01-01', '2026-09-13');
+    expect(notas(planoDaProdutividade(ano, escolhas()))).toContain('Embaixo de cada mês, quantas pessoas usaram o sistema nele.');
   });
 
   it('por tipo de atividade: barras de COISA, só com três tipos ou mais', () => {
@@ -609,10 +807,16 @@ describe('o documento da equipe', () => {
     expect(linhaDosTipos([])).toBeNull();
   });
 
-  /** Quinze linhas com "antes" viram placar de quem caiu. */
-  it('pessoa por pessoa: página nova, sem coluna do anterior, âmbar só no que é de agora', () => {
+  /**
+   * Quinze linhas com "antes" viram placar de quem caiu. E sem página nova
+   * (15/09/2026): a tabela começa logo depois do resumo quando cabe — a prova
+   * no papel está em `paginas-dos-pdfs.spec.ts`.
+   */
+  it('pessoa por pessoa: começa na mesma página quando cabe, sem coluna do anterior, âmbar só no que é de agora', () => {
     const blocos = plano();
-    expect(blocos.find((b) => b.tipo === 'secao' && b.titulo === 'Pessoa por pessoa')).toMatchObject({ novaPagina: true });
+    const secao = blocos.find((b) => b.tipo === 'secao' && b.titulo === 'Pessoa por pessoa');
+    expect(secao).toMatchObject({ minimoNaPagina: 50 });
+    expect(secao).not.toHaveProperty('novaPagina');
     const tabela = blocos.find((b): b is Tabela => b.tipo === 'tabela' && b.cabecalho[0] === 'Pessoa')!;
     expect(tabela.cabecalho).toEqual([
       'Pessoa', 'Dias com uso', 'Concluídas', 'No dia marcado', 'Andamentos', 'Atendimentos', 'Decididas',
@@ -747,14 +951,16 @@ describe('o aperto da folha de uma pessoa', () => {
     expect(tabela.folga).toBeLessThan(1);
   });
 
-  it('a folha que cabe não aperta nada, e a observação fica na caixa', () => {
+  it('a folha que cabe não aperta nada, a observação fica na caixa, e não há aviso', () => {
     const d = documentoQueCabe(BASE, DE_UMA, CONTEXTO, ANTERIOR, {}, cabe);
     expect(d.apertos).toEqual({});
     expect(d.capa.observacao).toBe(OBSERVACAO);
     expect(colunas(d.blocos)?.altura).toBe(22);
+    expect(avisosDoPdf(d.avisos, true)).toEqual([]);
   });
 
-  it('a folha que não cabe sobe um degrau por medida até o último, e sai assim mesmo, sem cortar', () => {
+  /** 15/09/2026: no último degrau o PDF saía em 2 folhas em silêncio, com o diálogo prometendo uma. */
+  it('a folha que não cabe sobe um degrau por medida até o último, sai assim mesmo, sem cortar, e avisa', () => {
     let medidas = 0;
     const nuncaCabe: MedidorDeDocumento = (_capa, blocos) => {
       medidas += 1;
@@ -764,6 +970,25 @@ describe('o aperto da folha de uma pessoa', () => {
     expect(d.apertos).toEqual({ ana: 4 });
     expect(medidas).toBe(5);
     expect(registros(d.blocos)).toEqual(registros(noDegrau(0).blocos));
+    expect(d.avisos).toEqual({ passaram: ['Dra. Ana'], resumoPassou: false, emTabela: ['Dra. Ana'], barrasPorTipo: null, paginas: 2 });
+    expect(avisosDoPdf(d.avisos, true)).toEqual([
+      { atencao: true, texto: 'O PDF saiu em 2 folhas: mesmo apertado, o conteúdo não coube em uma.' },
+      { atencao: false, texto: 'Para caber na folha, o gráfico saiu em tabela, com os mesmos números.' },
+    ]);
+    // Quem pediu sem gráficos não é avisado de uma tabela que já pediu.
+    const semGraficos = documentoQueCabe(BASE, { ...DE_UMA, graficos: false }, CONTEXTO, ANTERIOR, {}, nuncaCabe);
+    expect(semGraficos.avisos.emTabela).toEqual([]);
+  });
+
+  it('os avisos da equipe dizem de quem é a folha, e resumem quando são muitas', () => {
+    const vazio = { passaram: [], resumoPassou: false, emTabela: [], barrasPorTipo: null, paginas: 5 };
+    expect(avisosDoPdf({ ...vazio, passaram: ['Dr. Bruno'] }, false)).toEqual([
+      { atencao: true, texto: 'A folha de Dr. Bruno passou de uma página.' },
+    ]);
+    expect(avisosDoPdf({ ...vazio, passaram: ['A', 'B', 'C'], emTabela: ['A', 'B', 'C'] }, false)).toEqual([
+      { atencao: true, texto: 'As folhas de 3 pessoas passaram de uma página.' },
+      { atencao: false, texto: 'Para caber, o gráfico saiu em tabela em 3 folhas, com os mesmos números.' },
+    ]);
   });
 
   it('com uma página por pessoa, aperta só quem passou da própria folha', () => {
@@ -783,17 +1008,136 @@ describe('o aperto da folha de uma pessoa', () => {
     };
     const d = documentoQueCabe(BASE, escolhas({ detalhe: 'PAGINAS' }), CONTEXTO, ANTERIOR, {}, brunoTransborda);
     expect(d.apertos).toEqual({ bruno: 4 });
+    // No último degrau a folha dele coube (sem colunas, sem a página a mais): não passou, mas o gráfico virou tabela.
+    expect(d.avisos).toEqual({ passaram: [], resumoPassou: false, emTabela: ['Dr. Bruno'], barrasPorTipo: null, paginas: 4 });
     // A observação da equipe é do topo do documento, e não de uma folha: continua na caixa.
     expect(d.capa.observacao).toBe(OBSERVACAO);
   });
 
-  it('a tabela da equipe e só os totais não têm folha de pessoa: nada é medido', () => {
-    for (const detalhe of ['TABELA', 'NENHUM'] as const) {
-      const medir = jest.fn(cabe);
-      const d = documentoQueCabe(BASE, escolhas({ detalhe }), CONTEXTO, ANTERIOR, {}, medir);
-      expect(medir).not.toHaveBeenCalled();
-      expect(d.desenho).toBeNull();
-      expect(d.apertos).toEqual({});
-    }
+  it('a tabela da equipe não tem folha de pessoa nem promessa de página: nada é medido', () => {
+    const medir = jest.fn(cabe);
+    const d = documentoQueCabe(BASE, escolhas({ detalhe: 'TABELA' }), CONTEXTO, ANTERIOR, {}, medir);
+    expect(medir).not.toHaveBeenCalled();
+    expect(d.desenho).toBeNull();
+    expect(d.apertos).toEqual({});
+  });
+
+  /** Defeito 9 (15/09/2026): "Só os totais" com os 5 blocos e as barras por tipo saía em 2 páginas. */
+  it('"só os totais" aperta o resumo até caber na página 1: gráfico, observação e, por último, as barras', () => {
+    const cincoTipos: Produtividade = {
+      ...BASE,
+      pessoas: BASE.pessoas.map((l) =>
+        l.usuarioId === 'ana'
+          ? { ...l, agenda: { ...l.agenda, porTipo: [...l.agenda.porTipo!, { tipo: 'DILIGENCIA', nome: 'Diligência', concluidas: 1, noDiaMarcado: 1 }] } }
+          : l,
+      ),
+    };
+    const SO_OS_TOTAIS = escolhas({ detalhe: 'NENHUM' });
+    const barras = (degrau: number) =>
+      documentoDaProdutividade(cincoTipos, SO_OS_TOTAIS, CONTEXTO, ANTERIOR, {}, { [RESUMO_DA_EQUIPE]: degrau }).blocos
+        .find((b): b is Extract<BlocoDoPdf, { tipo: 'barras' }> => b.tipo === 'barras');
+    const ultimo = APERTOS_DO_RESUMO.length - 1;
+    // Empate de 1 concluída: pelo nome.
+    expect(barras(0)?.itens.map((i) => i.rotulo)).toEqual(['Prazo', 'Audiência', 'Reunião', 'Diligência', 'Perícia']);
+    expect(barras(ultimo - 1)?.itens.map((i) => i.rotulo)).toEqual(['Prazo', 'Audiência', 'Reunião', '2 outros']);
+    expect(barras(ultimo)).toBeUndefined();
+
+    // 15/09/2026: antes de mexer nas barras, as tabelas do resumo compactam — mesmas linhas, letra 7, menos folga.
+    const compactas = APERTOS_DO_RESUMO.findIndex((a) => a.tabelasCompactas);
+    expect(compactas).toBe(APERTOS_DA_FOLHA.length);
+    expect(APERTOS_DO_RESUMO.slice(compactas).map((a) => a.tiposNasBarras)).toEqual([6, 4, 0]);
+    const noDegrauDoResumo = (degrau: number) =>
+      documentoDaProdutividade(cincoTipos, SO_OS_TOTAIS, CONTEXTO, ANTERIOR, {}, { [RESUMO_DA_EQUIPE]: degrau }).blocos;
+    const antes = noDegrauDoResumo(compactas - 1);
+    const depois = noDegrauDoResumo(compactas);
+    const perfis = (blocos: BlocoDoPdf[]) => blocos.find((b): b is Tabela => b.tipo === 'tabela' && b.cabecalho[0] === 'Perfil')!;
+    expect(barras(compactas)?.itens).toHaveLength(5);
+    expect([perfis(antes).fonte, perfis(depois).fonte, registros(antes).fonte, registros(depois).fonte]).toEqual([undefined, 7, undefined, 7]);
+    expect(perfis(depois).linhas).toEqual(perfis(antes).linhas);
+    expect(registros(depois).linhas).toEqual(registros(antes).linhas);
+
+    const resumoNaPagina2: MedidorDeDocumento = (_capa, blocos) => ({ topos: [], fim: 100, paginas: 2, paginaDoBloco: blocos.map(() => 2) });
+    const d = documentoQueCabe(cincoTipos, SO_OS_TOTAIS, CONTEXTO, ANTERIOR, {}, resumoNaPagina2);
+    expect(d.apertos).toEqual({ [RESUMO_DA_EQUIPE]: ultimo });
+    expect(d.capa.observacao).toBeUndefined();
+    expect(notas(d.blocos)).toContain(`Observação: ${OBSERVACAO}`);
+    // A linha "por tipo" da tabela continua com os três maiores e a soma dos outros.
+    expect(linhaDe(registros(d.blocos), 'por tipo')).toEqual(['   por tipo', 'Prazo: 6 · Audiência: 3 · Reunião: 2 · outros tipos: 2']);
+    // As barras saíram, e o toast diz, na mesma frase do gráfico em tabela (15/09/2026).
+    expect(d.avisos.barrasPorTipo).toBe('FORA');
+    expect(avisosDoPdf(d.avisos, false)).toEqual([
+      { atencao: true, texto: 'O resumo da equipe passou da primeira página.' },
+      {
+        atencao: false,
+        texto: 'Para caber na página, o gráfico da equipe saiu em tabela e as barras por tipo ficaram de fora; a linha por tipo mostra os três maiores.',
+      },
+    ]);
+    // Os degraus da pessoa não mudaram por causa do resumo.
+    expect(
+      APERTOS_DO_RESUMO.slice(0, APERTOS_DA_FOLHA.length).map(({ tiposNasBarras, tabelasCompactas, ...a }) => a),
+    ).toEqual(APERTOS_DA_FOLHA);
+  });
+
+  /** 15/09/2026: o degrau que encurta ou tira as barras por tipo não aparecia em aviso nenhum. */
+  it('as barras por tipo não somem em silêncio: encurtadas ou fora, com ou sem gráficos, o toast diz', () => {
+    const cincoTipos: Produtividade = {
+      ...BASE,
+      pessoas: BASE.pessoas.map((l) =>
+        l.usuarioId === 'ana'
+          ? { ...l, agenda: { ...l.agenda, porTipo: [...l.agenda.porTipo!, { tipo: 'DILIGENCIA', nome: 'Diligência', concluidas: 1, noDiaMarcado: 1 }] } }
+          : l,
+      ),
+    };
+    const SO_OS_TOTAIS = escolhas({ detalhe: 'NENHUM' });
+    const naPagina2: MedidorDeDocumento = (_capa, blocos) => ({ topos: [], fim: 100, paginas: 2, paginaDoBloco: blocos.map(() => 2) });
+    // Transborda enquanto as barras tiverem os cinco tipos: para no degrau que as encurta.
+    const cabeComQuatro: MedidorDeDocumento = (_capa, blocos) => {
+      const pagina = blocos.some((b) => b.tipo === 'barras' && b.itens.length > 4) ? 2 : 1;
+      return { topos: [], fim: 100, paginas: pagina, paginaDoBloco: blocos.map(() => pagina) };
+    };
+
+    const encurtadas = documentoQueCabe(cincoTipos, SO_OS_TOTAIS, CONTEXTO, ANTERIOR, {}, cabeComQuatro);
+    expect(encurtadas.apertos).toEqual({ [RESUMO_DA_EQUIPE]: APERTOS_DO_RESUMO.length - 2 });
+    expect(encurtadas.avisos.barrasPorTipo).toBe('REDUZIDAS');
+    expect(avisosDoPdf(encurtadas.avisos, false)).toEqual([{
+      atencao: false,
+      texto: 'Para caber na página, o gráfico da equipe saiu em tabela e as barras por tipo mostram só os três maiores e os outros somados.',
+    }]);
+
+    // Sem gráficos não há aviso de tabela, mas o das barras continua.
+    const semGraficos = documentoQueCabe(cincoTipos, { ...SO_OS_TOTAIS, graficos: false }, CONTEXTO, ANTERIOR, {}, naPagina2);
+    expect(semGraficos.avisos.emTabela).toEqual([]);
+    expect(avisosDoPdf(semGraficos.avisos, false)).toEqual([
+      { atencao: true, texto: 'O resumo da equipe passou da primeira página.' },
+      { atencao: false, texto: 'Para caber na página, as barras por tipo ficaram de fora; a linha por tipo mostra os três maiores.' },
+    ]);
+
+    // Com três tipos, encurtar para quatro não esconde nome nenhum: nada a avisar das barras.
+    const tresTipos: Produtividade = {
+      ...BASE,
+      pessoas: BASE.pessoas.map((l) => ({ ...l, agenda: { ...l.agenda, porTipo: (l.agenda.porTipo ?? []).slice(0, 1) } })),
+    };
+    const tipos = somaDaEquipe(tresTipos.pessoas).agenda.porTipo!.length;
+    const semNomePerdido = documentoQueCabe(tresTipos, SO_OS_TOTAIS, CONTEXTO, ANTERIOR, {}, (_capa, blocos) => {
+      const pagina = blocos.some((b) => b.tipo === 'tabela' && b.cabecalho[0] === 'Perfil' && b.fonte !== 7) ? 2 : 1;
+      return { topos: [], fim: 100, paginas: pagina, paginaDoBloco: blocos.map(() => pagina) };
+    });
+    expect(tipos).toBeLessThanOrEqual(4);
+    expect(semNomePerdido.avisos.barrasPorTipo).toBeNull();
+  });
+
+  it('com uma página por pessoa, o resumo que desce para a página 2 não é apertado: a tabela vem logo depois', () => {
+    const resumoDesce: MedidorDeDocumento = (_capa, blocos) => {
+      let pagina = 1;
+      const paginaDoBloco = blocos.map((b) => {
+        if (b.tipo === 'barras') pagina = 2;
+        if (b.tipo === 'pessoa') pagina += 1;
+        return pagina;
+      });
+      return { topos: [], fim: 100, paginas: pagina, paginaDoBloco };
+    };
+    const d = documentoQueCabe(BASE, escolhas({ detalhe: 'PAGINAS' }), CONTEXTO, ANTERIOR, {}, resumoDesce);
+    expect(d.apertos).toEqual({});
+    expect(d.avisos.resumoPassou).toBe(false);
   });
 });

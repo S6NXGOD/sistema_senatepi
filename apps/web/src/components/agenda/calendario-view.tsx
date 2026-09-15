@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Esqueleto } from '@/components/ui/esqueleto';
 import { parteContrariaDoProcesso } from '@/components/agenda/identidade-do-processo';
 import { cn } from '@/lib/utils';
-import { Compromisso, rotuloTipo, corDeTipo, formatHora, estaAtrasado } from '@/lib/agenda';
+import {
+  Compromisso, rotuloTipo, corDeTipo, formatHora, estaAtrasado,
+  diaBRDe, doDiaDeTeresina, rotuloDoMes, ymdDoCalendario,
+} from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -44,7 +47,12 @@ export function CalendarioView({
   onSelecionarDia?: (d: Date | null) => void;
 }) {
   const { tipos } = useTiposEvento();
-  const hoje = new Date();
+  /*
+    O DIA DAS CÉLULAS É O DE TERESINA (15/09/2026), o mesmo dos grupos da lista
+    e do filtro do dia. A grade continua local (é o calendário que a pessoa
+    vê); o que se compara é o texto do dia.
+  */
+  const hojeYmd = diaBRDe(Date.now());
   const primeiro = new Date(mes.getFullYear(), mes.getMonth(), 1);
   const inicioGrade = new Date(primeiro);
   inicioGrade.setDate(1 - primeiro.getDay()); // recua até domingo
@@ -60,17 +68,15 @@ export function CalendarioView({
   );
 
   const eventosDoDia = (dia: Date) =>
-    compromissos
-      .filter((c) => mesmaData(new Date(c.inicio), dia))
+    doDiaDeTeresina(compromissos, ymdDoCalendario(dia))
       .sort((a, b) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime());
 
   return (
     <div className="rounded-xl border bg-card" aria-busy={carregando || undefined}>
       {/* Cabeçalho do mês */}
       <div className="flex items-center justify-between border-b p-3">
-        <p className="text-lg font-bold capitalize">
-          {mes.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-        </p>
+        {/* Sem `capitalize`: ele subia toda palavra ("Setembro De 2026"). */}
+        <p className="text-lg font-bold">{rotuloDoMes(mes)}</p>
         <div className="flex gap-1">
           <Button variant="outline" size="icon" onClick={() => onMudarMes(-1)} aria-label="Mês anterior"><ChevronLeft className="h-4 w-4" /></Button>
           <Button variant="outline" size="sm" onClick={() => onMudarMes(0)}>Hoje</Button>
@@ -87,7 +93,7 @@ export function CalendarioView({
       <div className="grid grid-cols-7">
         {celulas.map((dia, i) => {
           const foraDoMes = dia.getMonth() !== mes.getMonth();
-          const ehHoje = mesmaData(dia, hoje);
+          const ehHoje = ymdDoCalendario(dia) === hojeYmd;
           const selecionado = !!diaSelecionado && mesmaData(dia, diaSelecionado);
           const eventos = eventosDoDia(dia);
           return (

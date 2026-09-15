@@ -5,10 +5,11 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Esqueleto } from '@/components/ui/esqueleto';
 import { GRUPO_DO_PERFIL, carregarProdutividade, carregarRostos } from '@/lib/produtividade';
 import {
-  OBSERVACAO_NA_FOLHA_DA_PESSOA, OPCOES_DA_PRODUTIVIDADE, gerarPdfDaProdutividade, guardarOpcoesDaProdutividade,
-  lerOpcoesDaProdutividade, pessoasDoRecorte, type DetalheDasPessoas, type QuemNoPdf,
+  OBSERVACAO_NA_FOLHA_DA_PESSOA, OPCOES_DA_PRODUTIVIDADE, comoSaiOTempo, gerarPdfDaProdutividade,
+  guardarOpcoesDaProdutividade, lerOpcoesDaProdutividade, pessoasDoRecorte, type DetalheDasPessoas, type QuemNoPdf,
 } from '@/lib/produtividade-pdf';
 import {
   hojeComoTexto, periodoAnterior, periodoDoPreset, periodoValido, type Periodo, type PresetDoPeriodo,
@@ -26,12 +27,12 @@ const DETALHES: { id: DetalheDasPessoas; titulo: string; texto: string }[] = [
   {
     id: 'PAGINAS',
     titulo: 'Uma página por pessoa',
-    texto: 'Para cada pessoa: os dias com uso, o que registrou e a semana a semana.',
+    texto: 'Para cada pessoa: os dias com uso, o que registrou e o tempo dela.',
   },
   {
     id: 'NENHUM',
     titulo: 'Só os totais',
-    texto: 'O resumo do grupo, sem o número de ninguém.',
+    texto: 'O resumo do grupo numa página, sem o número de ninguém.',
   },
 ];
 
@@ -81,8 +82,17 @@ export function PdfDaProdutividade({
    */
   const folhaDeUmaPessoa = !!data && pessoasDoRecorte(data, quem).length === 1;
   const observacaoCabe = !folhaDeUmaPessoa || observacao.trim().length <= OBSERVACAO_NA_FOLHA_DA_PESSOA;
-  const podeGerar =
-    !!data && !gerando && observacaoCabe && (preset !== 'PERSONALIZADO' || periodoValido(datas));
+  const datasValidas = preset !== 'PERSONALIZADO' || periodoValido(datas);
+  const podeGerar = !!data && !gerando && observacaoCabe && datasValidas;
+  /*
+    COMO O TEMPO VAI SAIR, com o mesmo corte do plano (15/09/2026). O texto
+    fixo "mês a mês acima de três meses" mentia para o atalho de 90 dias, que
+    passou a sair semana a semana.
+  */
+  const comoSai = datasValidas
+    ? comoSaiOTempo(periodoDoPreset(preset, hojeComoTexto(new Date()), { de, ate }, datas), graficos)
+    : 'Semana a semana até 98 dias; mês a mês acima.';
+  const temFolhaQueAperta = umaPessoa || detalhe !== 'TABELA';
 
   function voltarAoPadrao() {
     setPreset(OPCOES_DA_PRODUTIVIDADE.preset);
@@ -112,7 +122,7 @@ export function PdfDaProdutividade({
       ]);
       const antes = comparar ? periodoAnterior(periodo, preset) : null;
       const anterior = antes ? { dados: await buscar(antes), periodo: antes } : null;
-      await gerarPdfDaProdutividade(
+      const avisos = await gerarPdfDaProdutividade(
         atual,
         { quem, detalhe: umaPessoa ? 'PAGINAS' : detalhe, graficos, fotos: comFotos },
         { ...periodo, emitidoPor, titulo, observacao },
@@ -120,6 +130,11 @@ export function PdfDaProdutividade({
         rostos,
       );
       onFechar();
+      // O PDF já baixou: o que não coube vira aviso, e não descoberta no papel.
+      for (const aviso of avisos) {
+        if (aviso.atencao) toast.warning(aviso.texto);
+        else toast.info(aviso.texto);
+      }
     } catch {
       toast.error('Não foi possível gerar o PDF agora.');
     } finally {
@@ -138,7 +153,7 @@ export function PdfDaProdutividade({
           <button
             type="button"
             onClick={voltarAoPadrao}
-            className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline"
+            className="min-h-11 text-xs font-medium text-muted-foreground underline-offset-2 hover:underline sm:min-h-0"
           >
             Voltar ao padrão
           </button>
@@ -166,30 +181,34 @@ export function PdfDaProdutividade({
 
       {!pessoal && (
         <ParteDoDialogo titulo="Quem entra">
-          <select
-            value={quem}
-            onChange={(e) => setQuem(e.target.value as QuemNoPdf)}
-            disabled={!data}
-            className={campoCls}
-          >
-            <option value="TODOS">Toda a equipe</option>
-            {perfis.length > 1 && (
-              <optgroup label="Um perfil">
-                {perfis.map((perfil) => (
-                  <option key={perfil} value={`PERFIL:${perfil}`}>
-                    {GRUPO_DO_PERFIL[perfil] ?? perfil}
+          {/* Esqueleto enquanto a lista chega: o seletor desabilitado parecia quebrado. */}
+          {data ? (
+            <select
+              value={quem}
+              onChange={(e) => setQuem(e.target.value as QuemNoPdf)}
+              className={campoCls}
+            >
+              <option value="TODOS">Toda a equipe</option>
+              {perfis.length > 1 && (
+                <optgroup label="Um perfil">
+                  {perfis.map((perfil) => (
+                    <option key={perfil} value={`PERFIL:${perfil}`}>
+                      {GRUPO_DO_PERFIL[perfil] ?? perfil}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Uma pessoa">
+                {data.pessoas.map((l) => (
+                  <option key={l.usuarioId} value={`PESSOA:${l.usuarioId}`}>
+                    {l.nome}
                   </option>
                 ))}
               </optgroup>
-            )}
-            <optgroup label="Uma pessoa">
-              {(data?.pessoas ?? []).map((l) => (
-                <option key={l.usuarioId} value={`PESSOA:${l.usuarioId}`}>
-                  {l.nome}
-                </option>
-              ))}
-            </optgroup>
-          </select>
+            </select>
+          ) : (
+            <Esqueleto className="h-10 w-full" />
+          )}
 
           {!umaPessoa && (
             <div className="space-y-2.5" role="radiogroup" aria-label="Detalhe de cada pessoa">
@@ -224,7 +243,11 @@ export function PdfDaProdutividade({
           marcada={graficos}
           onMudar={setGraficos}
           titulo="Com gráficos"
-          texto="Semana a semana em colunas (mês a mês acima de três meses). Sem gráficos, sai em tabela."
+          texto={
+            temFolhaQueAperta && graficos
+              ? `${comoSai} Se faltar espaço na folha, o gráfico sai em tabela, com os mesmos números.`
+              : comoSai
+          }
         />
         {temCartaoDePessoa && (
           <Opcao
@@ -248,7 +271,7 @@ export function PdfDaProdutividade({
         {...(folhaDeUmaPessoa
           ? {
               limiteDaObservacao: OBSERVACAO_NA_FOLHA_DA_PESSOA,
-              ajudaDaObservacao: `No PDF de uma pessoa, até ${OBSERVACAO_NA_FOLHA_DA_PESSOA} caracteres: tudo tem de caber numa folha. Se faltar espaço, ela sai numa linha, sem a caixa.`,
+              ajudaDaObservacao: `No PDF de uma pessoa, até ${OBSERVACAO_NA_FOLHA_DA_PESSOA} caracteres: a folha é uma só. Se faltar espaço, ela sai numa linha, sem a caixa.`,
             }
           : {})}
       />

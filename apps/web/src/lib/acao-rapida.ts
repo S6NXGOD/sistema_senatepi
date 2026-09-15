@@ -192,21 +192,77 @@ export function pedeModalCompleto(opcao: Pick<DesfechoOpcao, 'acao'> | null | un
 export function avisoDeConcluida(
   resposta: Pick<ConcluirResposta, 'seguimentoCriado' | 'preProcessualCriado' | 'desfecho'> & {
     concluidoEm?: string | null;
+    /** O atendimento que fechou junto (15/09/2026). Ausente na API de antes. */
+    atendimentoConcluido?: { id: string; numero: number } | null;
   },
   rotulo: string,
   agora: number = Date.now(),
 ): { texto: string; desfazer: boolean } {
+  const junto = atendimentoConcluidoJunto(resposta);
   if (resposta.preProcessualCriado) {
-    return { texto: `${rotulo}. O caso foi aberto em fase pré-processual.`, desfazer: false };
+    return { texto: `${rotulo}. O caso foi aberto em fase pré-processual.${junto}`, desfazer: false };
   }
   if (resposta.seguimentoCriado) {
     const dia = diaCurto(resposta.seguimentoCriado.inicio);
     return {
-      texto: `${rotulo}. Tarefa criada: «${resposta.seguimentoCriado.titulo}»${dia ? ` para ${dia}` : ''}.`,
+      texto: `${rotulo}. Tarefa criada: «${resposta.seguimentoCriado.titulo}»${dia ? ` para ${dia}` : ''}.${junto}`,
       desfazer: false,
     };
   }
-  return { texto: rotulo, desfazer: podeDesfazerConclusao(resposta, agora) };
+  return { texto: junto ? `${rotulo}.${junto}` : rotulo, desfazer: podeDesfazerConclusao(resposta, agora) };
+}
+
+/*
+  O ADVOGADO SABE NO PRÓPRIO LUGAR (E5, 15/09/2026). Concluir a consulta nascida
+  de um atendimento fecha o atendimento junto; sem dizer, a triagem veria o
+  atendimento sumir da fila e o advogado não saberia que fechou mais que a
+  consulta. A frase sai da RESPOSTA: se havia cópia aberta, nada fechou.
+*/
+/** " Atendimento #13 concluído junto." ou nada. Com o espaço da frente, para somar à frase anterior. */
+export function atendimentoConcluidoJunto(r: { atendimentoConcluido?: { numero: number } | null }): string {
+  return r.atendimentoConcluido ? ` Atendimento #${r.atendimentoConcluido.numero} concluído junto.` : '';
+}
+
+/** O aviso depois de desfazer: diz quando o atendimento voltou junto. */
+export function avisoDeDesfeita(r: { atendimentoReaberto?: { numero: number } | null } | null | undefined): string {
+  return r?.atendimentoReaberto
+    ? `Conclusão desfeita. A atividade voltou para a fila e o atendimento #${r.atendimentoReaberto.numero} voltou a aguardar a consulta.`
+    : 'Conclusão desfeita. A atividade voltou para a fila.';
+}
+
+/*
+  REABRIR PELA AGENDA (15/09/2026). O `/status` serve a Iniciar, Voltar a
+  pendente e Reabrir, e a agenda nunca dizia nada depois de nenhum deles. Só
+  quando a API devolve o atendimento que voltou é que existe algo a dizer: sem o
+  campo (outra transição, carimbo que não bateu ou API de antes), o silêncio de
+  sempre continua.
+*/
+/** "Atividade reaberta. O atendimento #13 voltou a aguardar a consulta." ou `null`. */
+export function avisoDeReaberta(r: { atendimentoReaberto?: { numero: number } | null } | null | undefined): string | null {
+  return r?.atendimentoReaberto
+    ? `Atividade reaberta. O atendimento #${r.atendimentoReaberto.numero} voltou a aguardar a consulta.`
+    : null;
+}
+
+/**
+ * O AVISO DO MODAL DE CONCLUIR DA AGENDA — a mesma frase do painel.
+ *
+ * O modal dizia "Atividade concluída." para todo desfecho. Agora diz o rótulo
+ * gravado, o que nasceu junto e o atendimento que fechou, e oferece "Desfazer"
+ * pela mesma regra do painel. Quando o desfecho abriu um caso, quem anuncia o
+ * caso é a PÁGINA (só ela tem o "Abrir" certo): aqui sobra só o atendimento, ou
+ * nada.
+ */
+export function avisoDoConcluirPeloModal(
+  resposta: Parameters<typeof avisoDeConcluida>[0] & { rascunhoCriado?: { id: string } | null },
+  rotulo: string | null | undefined,
+  agora: number = Date.now(),
+): { texto: string | null; desfazer: boolean } {
+  if (resposta.preProcessualCriado || resposta.rascunhoCriado) {
+    const junto = atendimentoConcluidoJunto(resposta).trim();
+    return { texto: junto || null, desfazer: false };
+  }
+  return avisoDeConcluida(resposta, rotulo?.trim() || 'Atividade concluída', agora);
 }
 
 /** Quanto tempo o "Desfazer" fica na tela (D6). A API aceita até 120 s. */

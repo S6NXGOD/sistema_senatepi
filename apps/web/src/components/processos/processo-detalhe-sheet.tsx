@@ -46,7 +46,7 @@ import {
   type ItemTimeline, type InstanciaProcesso, type CategoriaMovimento,
 } from '@/lib/movimentacoes';
 import {
-  listarPublicacoes, sincronizarPublicacoes, statusDjen,
+  listarPublicacoes, sincronizarPublicacoes, statusDjen, avisoDaBuscaNoDjen,
   PROVIDENCIA_LABEL, type PublicacaoDjen,
 } from '@/lib/djen';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
@@ -428,11 +428,11 @@ export function ProcessoDetalheSheet({
   const buscarPublicacoes = useMutation({
     mutationFn: () => sincronizarPublicacoes(processoId as string),
     onSuccess: (r) => {
-      toast.success(
-        r.ingeridas > 0
-          ? `${r.ingeridas} publicação(ões) nova(s).`
-          : 'Nenhuma publicação nova no DJEN.',
-      );
+      // 15/09/2026: leitura parcial (cota, teto) é aviso, e o histórico lido diz
+      // quantas vieram. A frase mora em lib/djen.ts, testada com valores.
+      const aviso = avisoDaBuscaNoDjen(r);
+      if (aviso.tom === 'AVISO') toast.warning(aviso.texto);
+      else toast.success(aviso.texto);
       qc.invalidateQueries({ queryKey: ['djen-publicacoes', processoId] });
       recarregar();
     },
@@ -2173,7 +2173,9 @@ function AbaPublicacoes({
       <LinhaDeCobertura processoId={processoId} />
 
       {carregando ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">Carregando publicações…</p>
+        <Carregando texto="Carregando as publicações…">
+          <EsqueletoLinhas quantidade={3} altura={88} className="rounded-lg border" />
+        </Carregando>
       ) : publicacoes.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           <Inbox className="mx-auto mb-2 h-6 w-6 opacity-60" />

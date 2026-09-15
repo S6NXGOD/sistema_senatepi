@@ -521,7 +521,9 @@ const PARCELA_COR: Record<string, string> = {
   PAGO: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   VENCIDO: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-  CANCELADO: 'bg-muted text-muted-foreground line-through',
+  // 15/09/2026: cancelada é neutra e legível. O riscado fazia a parcela parecer
+  // apagada por engano, e quem confere precisa ler o valor que foi cancelado.
+  CANCELADO: 'bg-muted text-muted-foreground',
 };
 
 function AbaFinanceiro({ d }: { d: Dossie }) {

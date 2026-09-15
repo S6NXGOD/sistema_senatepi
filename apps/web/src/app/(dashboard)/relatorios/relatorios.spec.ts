@@ -6,8 +6,8 @@ import {
 } from '@/lib/relatorio-pdf';
 import { foraDaFontePadrao } from '@/lib/pdf-graficos';
 import {
-  OUTROS_NA_FRASE, fraseDasSentencas, fraseDosOutrosAssuntos, hrefDaComarca, hrefDaParteContraria, hrefDoAssunto,
-  type Relatorio,
+  LEGENDA_PELA_CONSULTA, OUTROS_NA_FRASE, fraseDasSentencas, fraseDosOutrosAssuntos, hrefDaComarca, hrefDaParteContraria,
+  hrefDoAssunto, rotuloDosConcluidos, type Relatorio,
 } from '@/lib/relatorios';
 
 const TELA = readFileSync(join(__dirname, 'page.tsx'), 'utf8');
@@ -222,6 +222,61 @@ describe('o PDF comparado com o período anterior', () => {
   it('nada no plano que a fonte do PDF não saiba desenhar', () => {
     const plano = planoDoPdf(base, TUDO_DETALHADO, rotulos, 2026, extras);
     expect(foraDaFontePadrao(JSON.stringify(plano))).toEqual([]);
+  });
+});
+
+/**
+ * E7 (15/09/2026): o atendimento encaminhado passa a fechar sozinho quando a
+ * consulta nascida dele é registrada, e "concluídos" soma os dois caminhos.
+ */
+describe('os concluídos pela consulta', () => {
+  // De 01/09 a 15/09/2026 inteiro: o fim, exclusivo, é a meia-noite de 16/09 em Teresina.
+  const setembro = { de: '2026-09-01T03:00:00.000Z', ate: '2026-09-16T03:00:00.000Z' };
+  const com = (concluidosPelaConsulta: number | undefined, periodo = setembro) => ({
+    periodo,
+    atendimentos: { ...base.atendimentos, concluidosPelaConsulta },
+  });
+
+  it('o rótulo diz quantos vieram pela consulta, e a legenda desde quando', () => {
+    expect(rotuloDosConcluidos(com(3))).toEqual({ rotulo: 'Concluídos (pela consulta: 3)', legenda: LEGENDA_PELA_CONSULTA });
+    expect(LEGENDA_PELA_CONSULTA).toContain('desde 15/09/2026');
+    // Zero depois de 15/09 é número medido: sai.
+    expect(rotuloDosConcluidos(com(0)).rotulo).toBe('Concluídos (pela consulta: 0)');
+  });
+
+  it('API de antes, ou período que termina antes de 15/09/2026: só "Concluídos", sem zero que ninguém mediu', () => {
+    expect(rotuloDosConcluidos(com(undefined))).toEqual({ rotulo: 'Concluídos', legenda: null });
+    const ate14 = { de: '2026-09-01T03:00:00.000Z', ate: '2026-09-15T03:00:00.000Z' };
+    expect(rotuloDosConcluidos(com(0, ate14))).toEqual({ rotulo: 'Concluídos', legenda: null });
+  });
+
+  it('período até 14/09 com um fechado pela consulta: o rótulo sai, na tela e no PDF (15/09/2026)', () => {
+    // O #14, criado em 14/09 e fechado pela consulta de 17/09, conta nos concluídos de 01 a 14/09.
+    const ate14 = { de: '2026-09-01T03:00:00.000Z', ate: '2026-09-15T03:00:00.000Z' };
+    expect(rotuloDosConcluidos(com(1, ate14))).toEqual({ rotulo: 'Concluídos (pela consulta: 1)', legenda: LEGENDA_PELA_CONSULTA });
+    const blocos = planoDoPdf({ ...base, ...com(1, ate14) }, ESCOLHAS_PADRAO, rotulos, 2026);
+    const i = blocos.findIndex((b) => b.tipo === 'secao' && b.titulo === 'Atendimento ao filiado');
+    expect(blocos[i + 1]).toMatchObject({
+      tipo: 'numeros',
+      itens: expect.arrayContaining([expect.objectContaining({ rotulo: 'Concluídos (pela consulta: 1)' })]),
+    });
+    expect(blocos).toContainEqual(expect.objectContaining({ tipo: 'nota', texto: LEGENDA_PELA_CONSULTA }));
+  });
+
+  it('o PDF leva o rótulo e a legenda na seção do atendimento; sem o campo, sai como antes', () => {
+    const r: Relatorio = { ...base, ...com(3) };
+    const blocos = planoDoPdf(r, ESCOLHAS_PADRAO, rotulos, 2026);
+    const i = blocos.findIndex((b) => b.tipo === 'secao' && b.titulo === 'Atendimento ao filiado');
+    expect(blocos[i + 1]).toMatchObject({
+      tipo: 'numeros',
+      itens: expect.arrayContaining([{ rotulo: 'Concluídos (pela consulta: 3)', valor: '7' }]),
+    });
+    expect(blocos[i + 2]).toEqual({ tipo: 'nota', texto: LEGENDA_PELA_CONSULTA });
+    expect(foraDaFontePadrao(JSON.stringify(blocos))).toEqual([]);
+    const antigo = planoDoPdf(base, ESCOLHAS_PADRAO, rotulos, 2026);
+    const j = antigo.findIndex((b) => b.tipo === 'secao' && b.titulo === 'Atendimento ao filiado');
+    expect(antigo[j + 1]).toMatchObject({ itens: expect.arrayContaining([{ rotulo: 'Concluídos', valor: '7' }]) });
+    expect(antigo).not.toContainEqual({ tipo: 'nota', texto: LEGENDA_PELA_CONSULTA });
   });
 });
 

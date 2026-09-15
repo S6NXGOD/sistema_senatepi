@@ -13,9 +13,9 @@ import { podeEditar } from '@/lib/permissoes';
 import { cn } from '@/lib/utils';
 import {
   gerarLinkRecadastramento, listarLinksRecadastramento, revogarLinkRecadastramento,
-  lerPreviaDoLink, DESAFIO_LABEL, type LinkRecadastramento,
+  consultaDaPreviaDoLink, DESAFIO_LABEL, type LinkRecadastramento,
 } from '@/lib/filiados';
-import { validadeCurta } from '@/lib/envio-recadastro';
+import { caminhoDaPorta, validadeCurta, type PortaDaFicha } from '@/lib/envio-recadastro';
 import { EnviarLinkRecadastro } from '@/components/filiados/enviar-link-recadastro';
 
 /** Vivo = não usado, não revogado e ainda dentro das 24h. */
@@ -87,11 +87,8 @@ export function RecadastrarModal({
     some junto com os botões de envio, em vez de voltar 400 no toque.
   */
   const { data: previa } = useQuery({
-    queryKey: ['filiado', filiadoId, 'previa-do-link'],
-    queryFn: () => lerPreviaDoLink(filiadoId),
+    ...consultaDaPreviaDoLink(filiadoId),
     enabled: open && podeEditarFiliado,
-    retry: false,
-    staleTime: 0,
   });
   const semConfirmacao = previa?.podeGerar === false;
 
@@ -99,6 +96,21 @@ export function RecadastrarModal({
     if (semNavegar) { onRecadastrarPresencial?.(filiadoId); return; }
     fechar();
     router.push(`/filiados/${filiadoId}/recadastrar`);
+  }
+
+  /*
+    A PORTA DA CAIXA "SEM CONFIRMAÇÃO" (15/09/2026). CPF ou data gravados errado
+    não se corrigem no presencial (lá o que já está gravado fica travado): vão
+    para a edição da ficha. Sem navegar (modal de importação), a edição abre em
+    outra aba para não levar embora o que já foi digitado; ao voltar, a prévia
+    se refaz pelo foco da janela.
+  */
+  function completarFicha(porta: PortaDaFicha) {
+    if (porta === 'RECADASTRAR') { abrirPresencial(); return; }
+    const caminho = caminhoDaPorta(porta, filiadoId);
+    if (semNavegar) { window.open(caminho, '_blank', 'noopener'); return; }
+    fechar();
+    router.push(caminho);
   }
 
   const gerar = useMutation({
@@ -242,7 +254,7 @@ export function RecadastrarModal({
               )}
 
               {/* A chave troca com o link novo: o estado e a mensagem de antes não valem mais. */}
-              <EnviarLinkRecadastro key={link?.url ?? 'vigente'} filiadoId={filiadoId} onCompletarFicha={abrirPresencial} />
+              <EnviarLinkRecadastro key={link?.url ?? 'vigente'} filiadoId={filiadoId} onCompletarFicha={completarFicha} />
 
               {ativo && !link && !semConfirmacao && (
                 <div className="border-t pt-3">

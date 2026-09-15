@@ -3,6 +3,9 @@ import { V } from '@/lib/vocabulario';
 import {
   assuntoDoEmail,
   avisoDoEnvio,
+  caminhoDaPorta,
+  erroDoEnvio,
+  rotuloDaPorta,
   emailUtilizavel,
   estadoDoLink,
   linkEmail,
@@ -208,7 +211,7 @@ describe('avisoDoEnvio — traduz a prévia, não recalcula', () => {
       texto:
         `Este cadastro não tem CPF nem data de nascimento, nem COREN. Pergunte os dois ao ${V.filiado}, ` +
         'grave na ficha e volte aqui: o link passa a pedir essa confirmação.',
-      completarFicha: true,
+      porta: 'RECADASTRAR',
     });
     const semCoren = avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false }, false);
     expect(semCoren.tipo).toBe('SEM_CONFIRMACAO');
@@ -228,8 +231,13 @@ describe('avisoDoEnvio — traduz a prévia, não recalcula', () => {
       tipo: 'SEM_CONFIRMACAO',
       titulo: 'Este cadastro está desfiliado',
       texto: 'Reative o cadastro antes de pedir o recadastramento.',
-      completarFicha: false,
+      porta: null,
     });
+  });
+
+  it('desfiliado com data implausível: reativar continua vindo antes, sem porta', () => {
+    const aviso = avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: 'DESFILIADO', nascimentoGravadoInvalido: true }, true);
+    expect(aviso.tipo === 'SEM_CONFIRMACAO' && aviso.porta).toBeNull();
   });
 
   it('desfiliado vence o CPF que não confere: reativar vem antes', () => {
@@ -238,13 +246,45 @@ describe('avisoDoEnvio — traduz a prévia, não recalcula', () => {
   });
 
   /** A ficha mostra o CPF; a caixa não pode dizer que ele não existe. */
-  it('CPF gravado que não confere: pede para corrigir o CPF na ficha', () => {
+  /**
+   * 15/09/2026: a porta é a EDIÇÃO da ficha. No presencial o CPF já gravado é
+   * somente leitura e a API descarta a troca: a pessoa não conseguia corrigir.
+   */
+  it('CPF gravado que não confere: pede para corrigir o CPF, pela edição da ficha', () => {
     expect(avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: 'SEM_CONFIRMACAO', cpfGravadoInvalido: true }, true)).toEqual({
       tipo: 'SEM_CONFIRMACAO',
       titulo: 'O link abriria sem confirmar quem é',
       texto: 'O CPF gravado na ficha não confere. Corrija o CPF na ficha e volte aqui: o link passa a pedir essa confirmação.',
-      completarFicha: true,
+      porta: 'EDITAR',
     });
+  });
+
+  /** Nascimento 01/01/1900 e CPF vazio: a data também fica travada no presencial. */
+  it('data de nascimento implausível: pede para corrigir a data, pela edição', () => {
+    expect(
+      avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, motivo: 'SEM_CONFIRMACAO', cpfGravadoInvalido: false, nascimentoGravadoInvalido: true }, true),
+    ).toEqual({
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'O link abriria sem confirmar quem é',
+      texto:
+        'A data de nascimento gravada na ficha não é plausível (antes de 1920 ou de menos de 14 anos). ' +
+        'Corrija a data na ficha e volte aqui: o link passa a pedir essa confirmação.',
+      porta: 'EDITAR',
+    });
+  });
+
+  it('CPF que não confere E data implausível: uma frase para os dois', () => {
+    const aviso = avisoDoEnvio({ desafio: 'NENHUM', podeGerar: false, cpfGravadoInvalido: true, nascimentoGravadoInvalido: true }, false);
+    expect(aviso).toEqual({
+      tipo: 'SEM_CONFIRMACAO',
+      titulo: 'O link abriria sem confirmar quem é',
+      texto: 'O CPF e a data de nascimento gravados na ficha não conferem. Corrija os dois na ficha e volte aqui: o link passa a pedir essa confirmação.',
+      porta: 'EDITAR',
+    });
+  });
+
+  it('data implausível num link que a API gera (pelo CPF): nada muda', () => {
+    expect(avisoDoEnvio({ desafio: 'CPF', podeGerar: true, nascimentoGravadoInvalido: true }, true).tipo).toBe('UM_FATOR');
   });
 
   it('NENHUM real, da API nova ou da antiga: o texto de sempre', () => {
@@ -306,5 +346,55 @@ describe('estadoDoLink — diz o que o sistema sabe, nunca "enviado"', () => {
         expect(estadoDoLink({ expiraEm: EXPIRA, reaproveitado, haviaLinkAtivo })).not.toMatch(/enviad/i);
       }
     }
+  });
+});
+
+/** 15/09/2026: o botão da caixa leva à porta que resolve de verdade. */
+describe('a porta da ficha', () => {
+  it('dado gravado errado vai para a edição; dado que falta, para o presencial', () => {
+    expect(caminhoDaPorta('EDITAR', 'f-7c1')).toBe('/filiados/f-7c1/editar');
+    expect(caminhoDaPorta('RECADASTRAR', 'f-7c1')).toBe('/filiados/f-7c1/recadastrar');
+  });
+
+  it('o rótulo diz o que a pessoa vai fazer lá', () => {
+    expect(rotuloDaPorta('EDITAR')).toBe('Corrigir na ficha');
+    expect(rotuloDaPorta('RECADASTRAR')).toBe('Completar a ficha');
+  });
+});
+
+/**
+ * O TOM DO ERRO DO TOQUE (15/09/2026). A recusa da API chegava em vermelho;
+ * as respostas abaixo têm o formato do axios.
+ */
+describe('erroDoEnvio', () => {
+  it('a recusa de gerar o link (400 com a frase da API) é aviso âmbar, com a frase como veio', () => {
+    const recusa =
+      'Este cadastro não tem como confirmar a identidade pelo link. Grave o CPF e a data de nascimento na ficha e mande o link de novo.';
+    expect(erroDoEnvio({ response: { status: 400, data: { message: recusa } } })).toEqual({ tom: 'AVISO', texto: recusa });
+  });
+
+  it('mensagem em lista (validação do Nest): a primeira, como aviso', () => {
+    expect(erroDoEnvio({ response: { status: 400, data: { message: ['meio deve ser WHATSAPP', 'outro'] } } })).toEqual({
+      tom: 'AVISO',
+      texto: 'meio deve ser WHATSAPP',
+    });
+  });
+
+  it('servidor fora (503) ou sem resposta: erro vermelho, com a frase de tentar de novo', () => {
+    expect(erroDoEnvio({ response: { status: 503, data: { message: 'Service Unavailable' } } })).toEqual({
+      tom: 'ERRO',
+      texto: 'Service Unavailable',
+    });
+    expect(erroDoEnvio(new Error('Network Error'))).toEqual({
+      tom: 'ERRO',
+      texto: 'Não foi possível preparar o link. Tente de novo.',
+    });
+  });
+
+  it('4xx sem frase não é regra conhecida: erro, com a frase padrão', () => {
+    expect(erroDoEnvio({ response: { status: 403, data: {} } })).toEqual({
+      tom: 'ERRO',
+      texto: 'Não foi possível preparar o link. Tente de novo.',
+    });
   });
 });

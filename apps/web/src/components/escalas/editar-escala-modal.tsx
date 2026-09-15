@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ArrowLeftRight, CalendarClock, Check, Info, Loader2, Pencil, X } from 'lucide-react';
+import { useDialogo } from './use-dialogo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
@@ -16,8 +17,8 @@ import { cn } from '@/lib/utils';
 import { SeletorDePessoa } from './seletor-de-pessoa';
 import {
   AdvogadoEscala, AlteracaoDeEscala, ConsultaDoPlantao, ConsultasDoPlantao, Escala, ResultadoDasConsultas,
-  apoioDaConsulta, atualizarEscala, avisoDaConsultaPassada, avisoDoNovoHorario, cabecalhoDasConsultas, celularDaConsultaPassada, comArtigo,
-  comMaiuscula, consultasForaDoNovoHorario, daPessoa, diaCurto, faixaDoPlantao, fraseDoChoque, frasesDasIgnoradas,
+  apoioDaConsulta, atualizarEscala, avisoDaConsultaPassada, avisoDoEncurtamento, cabecalhoDasConsultas, celularDaConsultaPassada, comArtigo,
+  comMaiuscula, consultasQueQuemEntraAssume, daPessoa, diaCurto, faixaDaPreviaDoHorario, faixaDoPlantao, fraseDoChoque, frasesDasIgnoradas,
   horaBR, listarConsultasDoPlantao, marcadaPorPadrao, mensagemDaTrocaDeAdvogado, mensagemDoErro, nomeDeExibicao,
   planejarAlteracao, planejarPassagem, resumoDaTroca, rotuloDasForaDoHorario, sobreposicaoQueVale, textoDoPlantaoPassado,
 } from '@/lib/escalas';
@@ -72,6 +73,19 @@ interface PlantaoPassado {
   consultas: Map<string, ConsultaDoPlantao>;
 }
 
+/** O tempo parado antes de pedir a prévia do horário novo. */
+const ATRASO_DA_PREVIA_MS = 300;
+
+/** O valor, só depois de ficar `ms` sem mudar: a prévia não vai à API a cada tecla. */
+function useComAtraso<T>(valor: T, ms: number): T {
+  const [atrasado, setAtrasado] = useState(valor);
+  useEffect(() => {
+    const t = setTimeout(() => setAtrasado(valor), ms);
+    return () => clearTimeout(t);
+  }, [valor, ms]);
+  return atrasado;
+}
+
 function FormularioDaEdicao({
   escala, modo, pessoas, carregandoPessoas, onClose, onSalvo,
 }: {
@@ -106,20 +120,36 @@ function FormularioDaEdicao({
 
   const mudaPessoa = !!advogadoId && advogadoId !== pessoaAtualId;
   const horarioValido = !!horaInicio && !!horaFim && horaFim > horaInicio;
-  const encurta = !mudaPessoa && horarioValido && (horaInicio > escala.horaInicio || horaFim < escala.horaFim);
+  // O horário que a pessoa está digitando, e o que vai à API depois de 300 ms
+  // parado: um campo de hora muda a cada segmento, e cada mudança seria uma GET.
+  const faixaDigitada = mudaPessoa ? null : faixaDaPreviaDoHorario(escala, { horaInicio, horaFim });
+  const [inicioPedido, fimPedido] = useComAtraso(`${horaInicio}|${horaFim}`, ATRASO_DA_PREVIA_MS).split('|');
+  const faixaPedida = mudaPessoa ? null : faixaDaPreviaDoHorario(escala, { horaInicio: inicioPedido, horaFim: fimPedido });
 
   const consultasQ = useQuery({
     queryKey: ['escalas', 'consultas', escala.id, advogadoId],
     queryFn: () => listarConsultasDoPlantao(escala.id, advogadoId),
     enabled: mudaPessoa && !passado,
     retry: 1,
+    // Com os 30 s globais, uma consulta marcada nesse meio-tempo passava sem
+    // ninguém ter visto e ia para `consultasMantidas` na auditoria (15/09/2026).
+    staleTime: 0,
   });
-  // Encurtar o horário (D17): a mesma GET sem `entra`, só para avisar.
+  /*
+    MUDAR O HORÁRIO (D17; o horário vai na GET desde 15/09/2026). Antes a GET ia
+    sem horário e a conta era daqui, só com a lista: quem não vê a Agenda recebia
+    um "alguma pode ficar fora". Agora o servidor conta pelo horário do
+    formulário — a mesma conta que a auditoria carimba — e o número vale para
+    todos. Só avisa, não trava o salvar. Enquanto a próxima resposta não chega, a
+    anterior fica na tela (`keepPreviousData`): o aviso não pisca a cada tecla.
+  */
   const doHorarioQ = useQuery({
-    queryKey: ['escalas', 'consultas', escala.id, ''],
-    queryFn: () => listarConsultasDoPlantao(escala.id),
-    enabled: encurta,
+    queryKey: ['escalas', 'consultas', escala.id, '', faixaPedida?.horaInicio ?? '', faixaPedida?.horaFim ?? ''],
+    queryFn: () => listarConsultasDoPlantao(escala.id, undefined, faixaPedida),
+    enabled: !!faixaPedida && !passado,
     retry: 1,
+    staleTime: 0,
+    placeholderData: keepPreviousData,
   });
 
   const previa = mudaPessoa ? consultasQ.data : undefined;
@@ -128,15 +158,25 @@ function FormularioDaEdicao({
   const entraPessoa = lista.find((p) => p.id === advogadoId);
   const nomeEntra = previa?.entra ? nomeDeExibicao(previa.entra) : entraPessoa ? nomeDeExibicao(entraPessoa) : '';
   const nomeSai = nomeDeExibicao(escala.advogado);
-  const avisoHorario = encurta && doHorarioQ.data
-    ? avisoDoNovoHorario(consultasForaDoNovoHorario(doHorarioQ.data.noHorario, { horaInicio, horaFim }))
+  // Horário igual ao do plantão, incompleto ou invertido: nada, na hora, sem
+  // esperar a resposta. A frase é do servidor; a faixa digitada só serve à conta
+  // local do contêiner antigo.
+  const avisoHorario = faixaDigitada && faixaPedida && horarioValido && doHorarioQ.data
+    ? avisoDoEncurtamento(doHorarioQ.data, faixaDigitada)
     : null;
+
+  const painelRef = useRef<HTMLDivElement>(null);
+  const seletorRef = useRef<HTMLSelectElement>(null);
 
   const plano = planejarAlteracao(escala, { advogadoId, horaInicio, horaFim, observacao });
 
   const salvar = useMutation({
     mutationFn: (dados: AlteracaoDeEscala) => atualizarEscala(escala.id, dados),
     onSuccess: (atualizada, dados) => {
+      // A prévia sai do cache ANTES do `invalidar` da página: ainda ativa, ela
+      // seria refeita com quem acabou de assumir e a API responderia 400 ("Quem
+      // assume já é a pessoa deste plantão.") a cada troca salva (15/09/2026).
+      qc.removeQueries({ queryKey: ['escalas', 'consultas', escala.id] });
       onSalvo();
       if (!dados.advogadoId) {
         toast.success('Plantão atualizado.');
@@ -187,6 +227,9 @@ function FormularioDaEdicao({
   // consultas; com erro, libera (e as consultas ficam com quem saiu).
   const esperandoPrevia = mudaPessoa && consultasQ.isLoading;
   const sobreposicao = sobreposicaoQueVale(previa, escala, { horaInicio, horaFim });
+  // Na troca o que falta é escolher quem assume: o foco já vai para o seletor.
+  useDialogo({ painel: painelRef, focoInicial: trocar ? seletorRef : undefined, ocupado: salvar.isPending, onFechar: onClose });
+  const assumidas = consultasQueQuemEntraAssume(previa, passar);
 
   return (
     <div
@@ -194,10 +237,14 @@ function FormularioDaEdicao({
       onClick={salvar.isPending ? undefined : onClose}
     >
       <div
+        ref={painelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={tituloId}
-        className="flex max-h-[92vh] w-full max-w-md animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+        // dvh: no celular, 92vh conta a barra do navegador e o rodapé podia
+        // ficar atrás dela (15/09/2026).
+        className="flex max-h-[92vh] w-full max-w-md animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl outline-none supports-[height:100dvh]:max-h-[92dvh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b p-5">
@@ -243,6 +290,7 @@ function FormularioDaEdicao({
                   <div className="space-y-1.5">
                     <label htmlFor="troca-pessoa" className="text-sm font-medium">Quem assume o plantão *</label>
                     <SeletorDePessoa
+                      selectRef={seletorRef}
                       id="troca-pessoa"
                       value={advogadoId}
                       onChange={(v) => { setErro(null); setAdvogadoId(v); }}
@@ -329,7 +377,7 @@ function FormularioDaEdicao({
 
             {previa && nomeEntra && (
               <p className="border-t px-5 py-2.5 text-sm font-medium" aria-live="polite">
-                {resumoDaTroca(nomeEntra, passar?.length ?? 0)}
+                {resumoDaTroca(nomeEntra, assumidas)}
               </p>
             )}
 
@@ -442,8 +490,8 @@ function SecaoDasConsultas({
   return (
     <section className="space-y-2">
       {titulo}
-      <p className="text-sm">{cabecalhoDasConsultas(d.noHorario.length, nomeSai)}</p>
-      {podeMarcar && d.noHorario.some((c) => c.selecionavel) && (
+      <p className="text-sm">{cabecalhoDasConsultas(d.noHorario.length, nomeSai, d.foraDoHorario.length)}</p>
+      {podeMarcar && [...d.noHorario, ...d.foraDoHorario].some((c) => c.selecionavel) && (
         <p className="text-xs text-muted-foreground">
           As marcadas passam para {comArtigo(nomeEntra)}. As desmarcadas continuam com {comArtigo(nomeSai)}.
         </p>
@@ -451,9 +499,10 @@ function SecaoDasConsultas({
       {motivo && <p className="text-sm text-muted-foreground">{motivo}</p>}
       {d.noHorario.length > 0 && <ul className="-mx-2 divide-y rounded-md border">{d.noHorario.map((c) => linha(c, true))}</ul>}
       {d.foraDoHorario.length > 0 && (
-        <details className="group">
+        // Sem nada no horário, as de fora são tudo o que há para decidir: abertas.
+        <details className="group" open={d.noHorario.length === 0 || undefined}>
           <summary className="flex min-h-[44px] cursor-pointer items-center text-sm text-muted-foreground hover:text-foreground">
-            {rotuloDasForaDoHorario(d.foraDoHorario.length, nomeSai)}
+            {rotuloDasForaDoHorario(d.foraDoHorario.length, nomeSai, d.noHorario.length > 0)}
           </summary>
           <ul className="-mx-2 mt-1 divide-y rounded-md border">{d.foraDoHorario.map((c) => linha(c, false))}</ul>
         </details>
@@ -526,10 +575,15 @@ function PassoDoPlantaoPassado({ passado, dia, veTelefone }: { passado: PlantaoP
   const { entra, resultado, consultas } = passado;
   const ignoradas = frasesDasIgnoradas(resultado.ignoradas);
   const pessoaEntra = { nome: entra };
+  // Nada marcava qual filiado já foi avisado: com três consultas, quem estava na
+  // tela perdia a conta (15/09/2026). O botão tocado vira "Aberto" e continua
+  // tocável, para reabrir se a conversa foi fechada sem enviar. Só na tela:
+  // abrir o WhatsApp não prova que a mensagem saiu.
+  const [abertos, setAbertos] = useState<Set<string>>(() => new Set());
 
   return (
     <div className="flex-1 space-y-4 overflow-y-auto p-5">
-      <p className="text-sm">{textoDoPlantaoPassado(entra, dia, resultado.passadas.length)}</p>
+      <p className="text-sm">{textoDoPlantaoPassado(entra, dia, resultado.passadas)}</p>
       <ul className="space-y-3">
         {resultado.passadas.map((p) => {
           const nome = p.filiado?.nomeCompleto ?? consultas.get(p.id)?.titulo ?? 'Consulta';
@@ -544,16 +598,24 @@ function PassoDoPlantaoPassado({ passado, dia, veTelefone }: { passado: PlantaoP
                 <p className="text-xs text-muted-foreground">{aviso.texto}</p>
               ) : celular && p.filiado ? (
                 <Button
-                  className="min-h-[44px] w-full bg-[#25D366] text-white hover:bg-[#20bd5a]"
-                  onClick={() =>
+                  variant={abertos.has(p.id) ? 'outline' : 'default'}
+                  aria-label={abertos.has(p.id) ? `Abrir de novo o WhatsApp de ${nome}` : undefined}
+                  className={cn(
+                    'min-h-[44px] w-full',
+                    !abertos.has(p.id) && 'bg-[#25D366] text-white hover:bg-[#20bd5a]',
+                  )}
+                  onClick={() => {
                     window.open(
                       linkWhatsApp(celular, mensagemDaTrocaDeAdvogado({ nomeFiliado: p.filiado!.nomeCompleto, entra: pessoaEntra, inicio: p.inicio })),
                       '_blank',
                       'noopener,noreferrer',
-                    )
-                  }
+                    );
+                    setAbertos((atual) => new Set(atual).add(p.id));
+                  }}
                 >
-                  <WhatsAppIcon className="h-4 w-4" /> Avisar pelo WhatsApp
+                  {abertos.has(p.id)
+                    ? <><Check className="h-4 w-4" /> Aberto</>
+                    : <><WhatsAppIcon className="h-4 w-4" /> Avisar pelo WhatsApp</>}
                 </Button>
               ) : (
                 <p className="text-xs text-muted-foreground">

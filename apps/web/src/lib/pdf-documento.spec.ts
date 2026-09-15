@@ -266,6 +266,49 @@ describe('os blocos do documento de uma pessoa', () => {
     }
   });
 
+  /** 15/09/2026: acima de 98 dias a caixa troca a grade de 53 colunas de 1,4 mm pela fileira de meses. */
+  it('a fileira de meses no lugar da grade: desenha sem NaN, com o nome do mês, e mais baixa que a grade de um ano', () => {
+    const ano = caixas(53) as Extract<BlocoDoPdf, { tipo: 'caixas' }>;
+    const meses = Array.from({ length: 13 }, (_, i) => ({
+      rotulo: i === 0 ? 'set/25' : `m${i}`, dias: i < 2 ? null : 10 + i, proporcao: i / 13,
+    }));
+    const comMeses: BlocoDoPdf = { ...ano, esquerda: { ...ano.esquerda, grade: undefined, meses } };
+    const desenhoDaGrade = gerar([ano]);
+    const desenhoDosMeses = gerar([comMeses]);
+    const saida = desenhoDosMeses.output();
+    expect(saida).not.toContain('NaN');
+    expect(saida).toContain('set/25');
+    expect(desenhoDosMeses.getNumberOfPages()).toBe(1);
+    expect(desenhoDosMeses.desenho.fim).toBeLessThan(desenhoDaGrade.desenho.fim);
+  });
+
+  /** 15/09/2026: 14 semanas embaixo do texto deixavam a caixa ~10 mm mais alta; ao lado, em quadradinhos, não. */
+  it('com a célula mínima menor, a grade de 14 semanas vai ao lado do texto e a caixa fica mais baixa', () => {
+    const quatorze = caixas(14) as Extract<BlocoDoPdf, { tipo: 'caixas' }>;
+    const aoLado: BlocoDoPdf = { ...quatorze, esquerda: { ...quatorze.esquerda, grade: { ...quatorze.esquerda.grade!, celulaMinimaAoLado: 2.6 } } };
+    const embaixo = gerar([quatorze]).desenho.fim;
+    const doLado = gerar([aoLado]);
+    expect(doLado.output()).not.toContain('NaN');
+    expect(doLado.desenho.fim).toBeLessThan(embaixo - 5);
+  });
+
+  /** 15/09/2026: a tabela pessoa por pessoa começa na mesma página quando cabe, sem ficar sozinha no pé. */
+  it('a seção com mínimo na página vai para a próxima quando não sobra esse tanto, e fica quando sobra', () => {
+    const enchimento = (quantas: number): BlocoDoPdf[] =>
+      Array.from({ length: quantas }, () => ({ tipo: 'texto' as const, texto: 'Uma linha de texto para encher a página.' }));
+    // Acha quantas linhas deixam o conteúdo entre 225 e 245 mm: sobram de 32 a 52 mm até o limite de 277.
+    let quantas = 1;
+    while (gerar(enchimento(quantas)).desenho.fim < 225) quantas += 1;
+    const fim = gerar(enchimento(quantas)).desenho.fim;
+    expect(fim).toBeLessThan(245);
+    const secao = (minimoNaPagina?: number): BlocoDoPdf => ({ tipo: 'secao', titulo: 'Pessoa por pessoa', subtitulo: 'Sem posição.', ...(minimoNaPagina ? { minimoNaPagina } : {}) });
+    const semMinimo = gerar([...enchimento(quantas), secao()]).desenho;
+    const comMinimo = gerar([...enchimento(quantas), secao(60)]).desenho;
+    expect(semMinimo.paginaDoBloco[quantas]).toBe(1);
+    expect(comMinimo.paginaDoBloco[quantas]).toBe(2);
+    expect(gerar([...enchimento(3), secao(60)]).desenho.paginaDoBloco[3]).toBe(1);
+  });
+
   it('caixa sem grade, e a pessoa no topo do documento, com e sem foto', () => {
     for (const foto of [undefined, JPEG_PEQUENO]) {
       const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });

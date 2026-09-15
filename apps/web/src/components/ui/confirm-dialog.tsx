@@ -1,9 +1,35 @@
 'use client';
 
-import { ReactNode, useId } from 'react';
+import { ReactNode, useEffect, useId } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+/**
+ * O Esc do diálogo: para o evento aqui (a gaveta embaixo não fecha junto) e só
+ * fecha quando não está gravando. Separado para o teste chamar sem navegador.
+ */
+export function aoTeclarNoDialogo(
+  ev: Pick<KeyboardEvent, 'key' | 'stopPropagation'>,
+  p: { loading: boolean; onClose: () => void },
+): void {
+  if (ev.key !== 'Escape') return;
+  ev.stopPropagation();
+  if (!p.loading) p.onClose();
+}
+
+/**
+ * O que cada botão aceita. `loading` é GRAVANDO: trava tudo, porque fechar no
+ * meio deixaria a gravação sem ninguém olhando. `confirmDisabled` é "ainda não
+ * dá para confirmar" (conferindo algo antes): trava só o botão de confirmar —
+ * desistir continua sempre à mão. Separado para o teste chamar sem navegador.
+ */
+export function travasDoDialogo(p: { loading: boolean; confirmDisabled: boolean }): {
+  confirmar: boolean;
+  cancelar: boolean;
+} {
+  return { confirmar: p.loading || p.confirmDisabled, cancelar: p.loading };
+}
 
 /**
  * Modal de confirmação reutilizável — segue o padrão de modais do projeto
@@ -18,6 +44,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancelar',
   variant = 'default',
   loading = false,
+  confirmDisabled = false,
   icon,
   onConfirm,
   onClose,
@@ -29,13 +56,31 @@ export function ConfirmDialog({
   cancelLabel?: string;
   variant?: 'default' | 'destructive';
   loading?: boolean;
+  /** Trava só o confirmar (ex.: conferindo algo antes); Cancelar, X, Esc e o toque fora continuam. */
+  confirmDisabled?: boolean;
   icon?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 }) {
   const tituloId = useId();
+
+  /*
+    ESC FECHA O DIÁLOGO, E SÓ ELE (15/09/2026). O diálogo não ouvia o Esc, e a
+    gaveta embaixo ouve no `document`: o "Reabrir" aberto pela gaveta do
+    atendimento fechava a gaveta inteira e deixava o diálogo na tela. A escuta é
+    na captura da `window`, que corre antes do `document`, e o evento para aqui.
+    Gravando, o Esc não fecha, como o toque fora.
+  */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (ev: KeyboardEvent) => aoTeclarNoDialogo(ev, { loading, onClose });
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open, loading, onClose]);
+
   if (!open) return null;
   const destructive = variant === 'destructive';
+  const travas = travasDoDialogo({ loading, confirmDisabled });
 
   /*
     SÓ ENTRADA, NUNCA SAÍDA. O diálogo continua saindo do DOM ao fechar (é o
@@ -81,13 +126,13 @@ export function ConfirmDialog({
           </button>
         </div>
         <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
-          <Button variant="outline" onClick={onClose} disabled={loading}>
+          <Button variant="outline" onClick={onClose} disabled={travas.cancelar}>
             {cancelLabel}
           </Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}
             onClick={onConfirm}
-            disabled={loading}
+            disabled={travas.confirmar}
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {confirmLabel}

@@ -1,8 +1,9 @@
 import { api } from './api';
 import type { PerfilUsuario } from './permissoes';
-import type { CanalAtendimento, DesfechoAtendimento } from './atendimentos';
+import { filaDe, type CanalAtendimento, type DesfechoAtendimento, type FilaNaResposta } from './atendimentos';
 import type { AudienciaAAgendar } from './audiencias';
 import type { RecorteAgenda } from './agenda';
+import { MOTIVO_SEM_TAREFA } from './djen';
 
 // ---------------------------------------------------------------------------
 // Tipos do payload consolidado de /dashboard/resumo
@@ -91,6 +92,8 @@ export interface AtendimentoPendente {
   filiado: { id: string; nomeCompleto: string };
   /** A consulta que o atendimento marcou, se marcou. Opcional pela janela de troca. */
   encaminhamento?: EncaminhamentoResumo | null;
+  /** Triagem ou consulta (15/09/2026). Ausente na API de antes. */
+  fila?: FilaNaResposta;
 }
 
 export interface MovimentacaoRecente {
@@ -157,7 +160,12 @@ export interface ResumoDashboard {
     processosTotal: number;
     /** A fila que a lista padrão esconde, contada à parte. */
     processosPreProcessuais: number;
+    /** @deprecated Todo pendente, inclusive o que só espera a consulta. Fica por uma versão (janela de troca). */
     atendimentosPendentes: number;
+    /** Pendentes na fila da TRIAGEM: os que pedem uma ação dela (15/09/2026). Ausente na API de antes. */
+    atendimentosComATriagem?: number;
+    /** Pendentes esperando a consulta acontecer ou ser registrada. */
+    atendimentosAguardandoConsulta?: number;
     prazosSemana: number;
     filiadosAtivos: number;
     filiadosTotal: number;
@@ -185,6 +193,11 @@ export interface ResumoDashboard {
   minhaTriagem: {
     registradosHoje: number;
     semDesfecho: number;
+    /**
+     * Os meus, na fila da TRIAGEM (15/09/2026). `semDesfecho` contava todo
+     * pendente, inclusive o que só espera a consulta. Ausente na API de antes.
+     */
+    comATriagem?: number;
     filiadosHoje: number;
   } | null;
   alertas: {
@@ -549,11 +562,16 @@ export const STATUS_COMP_LABEL: Record<StatusCompromisso, string> = {
   CANCELADO: 'Cancelado',
 };
 
+/*
+  CANCELADA NÃO É ALARME (15/09/2026). Era rosa e riscada: o vermelho dizia "deu
+  errado" sobre uma decisão tomada, e o riscado atrapalhava a leitura a 400 px.
+  A mesma regra do atendimento e da agenda: neutro.
+*/
 export const STATUS_COMP_COR: Record<StatusCompromisso, string> = {
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   EM_ANDAMENTO: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   CONCLUIDO: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  CANCELADO: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 line-through',
+  CANCELADO: 'bg-muted text-muted-foreground',
 };
 
 /**
@@ -852,6 +870,11 @@ export function mensagemDeAniversario(nome: string, sigla: string): string {
  * a lista de Processos ficava sem o caso novo e a ficha aberta sem o andamento
  * até o cache vencer (30 s); a agenda invalidava só a lista. A agenda usa esta
  * mesma constante.
+ *
+ * `['atendimentos']` e `['atendimento']` entraram em 15/09/2026: concluir a
+ * consulta nascida de um atendimento fecha o atendimento junto, e desfazer o
+ * devolve. Sem elas, a lista e a gaveta da triagem diriam "Aguardando a
+ * consulta" de um atendimento já concluído.
  */
 export const CHAVES_DEPOIS_DE_CONCLUIR: readonly (readonly string[])[] = [
   ['dashboard-resumo'],
@@ -860,7 +883,122 @@ export const CHAVES_DEPOIS_DE_CONCLUIR: readonly (readonly string[])[] = [
   ['minhas-pendencias'],
   ['processos'],
   ['processo-dossie'],
+  ['atendimentos'],
+  ['atendimento'],
 ];
+
+// ---------------------------------------------------------------------------
+// Atendimentos no painel: a fila da triagem (15/09/2026)
+// ---------------------------------------------------------------------------
+
+export const HREF_ATENDIMENTOS_COM_A_TRIAGEM = '/atendimentos?status=PENDENTE&fila=TRIAGEM';
+export const HREF_ATENDIMENTOS_AGUARDANDO_CONSULTA = '/atendimentos?status=PENDENTE&fila=CONSULTA';
+
+/**
+ * O KPI DOS ATENDIMENTOS conta o que pede a triagem, não todo pendente.
+ *
+ * Em 14/09/2026 o #13 e o #14 somavam no "Atendimentos pendentes" com a
+ * triagem sem nada a fazer: um esperava a consulta de hoje, o outro a de
+ * quinta. Sem o campo novo (API de antes), o KPI de sempre.
+ */
+export function kpiDosAtendimentos(kpis: ResumoDashboard['kpis']): { label: string; valor: number; sub: string; href: string } {
+  if (typeof kpis.atendimentosComATriagem === 'number') {
+    return { label: 'Com a triagem', valor: kpis.atendimentosComATriagem, sub: 'pedem uma ação', href: HREF_ATENDIMENTOS_COM_A_TRIAGEM };
+  }
+  return { label: 'Atendimentos pendentes', valor: kpis.atendimentosPendentes, sub: 'aguardando resolução', href: '/atendimentos?status=PENDENTE' };
+}
+
+/**
+ * O CARTÃO DOS ATENDIMENTOS: a lista é da triagem; o que espera a consulta vira
+ * uma linha neutra com link ("e mais 2 aguardando a consulta"). O mesmo
+ * atendimento não aparece em âmbar aqui e na agenda de quem atende.
+ */
+export function cartaoDosAtendimentos(r: Pick<ResumoDashboard, 'kpis' | 'atendimentosPendentes'>): {
+  titulo: string;
+  contagem: number;
+  itens: AtendimentoPendente[];
+  aguardandoConsulta: number;
+  href: string;
+  hrefAguardando: string;
+  vazio: string;
+} {
+  const todos = r.atendimentosPendentes ?? [];
+  const itens = todos.filter((a) => filaDe(a)?.fila !== 'CONSULTA');
+  const comFila = typeof r.kpis.atendimentosComATriagem === 'number';
+  const aguardandoConsulta = typeof r.kpis.atendimentosAguardandoConsulta === 'number'
+    ? r.kpis.atendimentosAguardandoConsulta
+    : todos.length - itens.length;
+  return {
+    titulo: comFila ? 'Com a triagem' : 'Atendimentos pendentes',
+    contagem: comFila ? r.kpis.atendimentosComATriagem! : r.kpis.atendimentosPendentes,
+    itens,
+    aguardandoConsulta,
+    href: comFila ? HREF_ATENDIMENTOS_COM_A_TRIAGEM : '/atendimentos?status=PENDENTE',
+    hrefAguardando: HREF_ATENDIMENTOS_AGUARDANDO_CONSULTA,
+    vazio: comFila ? 'Nenhum atendimento pedindo a triagem.' : 'Nenhum atendimento aguardando resolução.',
+  };
+}
+
+/** A barra lateral da linha: âmbar só na fila da triagem. Sem fila (API de antes), âmbar como sempre. */
+export function barraDoAtendimento(a: Pick<AtendimentoPendente, 'fila'>): string {
+  const naFila = filaDe(a);
+  if (naFila === undefined) return 'bg-amber-400';
+  return naFila?.fila === 'TRIAGEM' ? 'bg-amber-400' : 'bg-border';
+}
+
+/*
+  O MEU RECORTE DA FILA DA TRIAGEM (15/09/2026). A API conta o "Comigo, com a
+  triagem" só pelos atendimentos que a pessoa registrou (`atendentePorId`), e o
+  link abria a fila da casa inteira: 1 no número, 5 na lista, o erro do
+  Panorama de novo. `atendente=me` leva o mesmo recorte para a lista.
+*/
+export const HREF_ATENDIMENTOS_COMIGO_COM_A_TRIAGEM = `${HREF_ATENDIMENTOS_COM_A_TRIAGEM}&atendente=me`;
+
+/** "Comigo, com a triagem" pela fila; na API de antes, o "em aberto" de sempre. */
+export function kpiDoBalcao(m: NonNullable<ResumoDashboard['minhaTriagem']>): { label: string; valor: number; sub: string; href: string } {
+  if (typeof m.comATriagem === 'number') {
+    return { label: 'Comigo, com a triagem', valor: m.comATriagem, sub: 'pedem uma ação', href: HREF_ATENDIMENTOS_COMIGO_COM_A_TRIAGEM };
+  }
+  return { label: 'Comigo, em aberto', valor: m.semDesfecho, sub: 'aguardando desfecho', href: '/atendimentos' };
+}
+
+// ---------------------------------------------------------------------------
+// Publicação sem tarefa no painel (15/09/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * POR QUE O ROBÔ NÃO CRIOU TAREFA, E O QUE O PAINEL OFERECE.
+ *
+ * O painel tratava todo motivo que não fosse NOTICIA_VELHA como "a ordem é para
+ * a outra parte", inclusive a cópia do mesmo ato e o ato fora da janela, e
+ * oferecia "Criar tarefa" numa cópia cuja irmã já tinha tarefa: duas tarefas
+ * para o mesmo prazo. A explicação agora é a de MOTIVO_SEM_TAREFA, a mesma da
+ * ficha do processo; na cópia não há "Criar tarefa", e a tarefa da irmã abre
+ * quando a API diz qual é.
+ *
+ * A CÓPIA SEM IRMÃ COM TAREFA (15/09/2026). A cópia também nasce assim quando a
+ * irmã ainda é proposta aberta na caixa: nada foi decidido, e a linha ficava
+ * sem "Criar tarefa", sem "Abrir a tarefa" e com a frase "ato já decidido". O
+ * POST da tarefa já cobre esse caso (liga a irmã aberta ou cria a tarefa e a
+ * propaga às cópias), então o botão volta e a ajuda não afirma decisão.
+ */
+export const AJUDA_DA_COPIA_SEM_TAREFA =
+  'O tribunal enviou o mesmo ato mais de uma vez, uma para cada intimado, e nenhuma cópia virou tarefa ainda. Se a outra cópia está na caixa de propostas, criar a tarefa aqui resolve as duas: não nasce tarefa repetida.';
+
+export function explicacaoDaPublicacaoSemTarefa(p: {
+  temTarefa: boolean;
+  teor: { tarefaDispensadaMotivo?: string | null; tarefaDoMesmoAto?: { id: string } | null } | null | undefined;
+}): { ajuda: string | null; podeCriar: boolean; tarefaDoMesmoAtoId: string | null } {
+  if (p.temTarefa) return { ajuda: null, podeCriar: false, tarefaDoMesmoAtoId: null };
+  const motivo = p.teor?.tarefaDispensadaMotivo ?? null;
+  const ajuda = motivo ? MOTIVO_SEM_TAREFA[motivo]?.ajuda ?? null : null;
+  if (motivo === 'COPIA_DO_MESMO_ATO') {
+    const irma = p.teor?.tarefaDoMesmoAto?.id ?? null;
+    if (!irma) return { ajuda: AJUDA_DA_COPIA_SEM_TAREFA, podeCriar: true, tarefaDoMesmoAtoId: null };
+    return { ajuda, podeCriar: false, tarefaDoMesmoAtoId: irma };
+  }
+  return { ajuda, podeCriar: true, tarefaDoMesmoAtoId: null };
+}
 
 /**
  * A LINHA SAI DA FILA NA HORA — sem esperar a volta do servidor.

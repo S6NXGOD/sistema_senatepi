@@ -3,6 +3,14 @@ import { join } from 'node:path';
 import {
   CHAVES_DEPOIS_DE_CONCLUIR,
   DIAS_PARA_PARADO,
+  STATUS_COMP_COR,
+  barraDoAtendimento,
+  cartaoDosAtendimentos,
+  AJUDA_DA_COPIA_SEM_TAREFA,
+  explicacaoDaPublicacaoSemTarefa,
+  kpiDoBalcao,
+  kpiDosAtendimentos,
+  type AtendimentoPendente,
   concluirNoResumo,
   linkDaAgenda,
   linkDosPrazosDaSemana,
@@ -14,6 +22,8 @@ import {
   type ResumoDashboard,
 } from './dashboard';
 import { lerUrlDaAgenda } from './agenda';
+import { filtroDaUrl } from './atendimentos';
+import { MOTIVO_SEM_TAREFA } from './djen';
 
 /** A agenda lê a URL por `lerUrlDaAgenda`; o link do painel precisa sobreviver a ela. */
 function abrir(href: string, meuId = 'eu-mesma') {
@@ -238,7 +248,123 @@ describe('a linha concluída sai da fila na hora', () => {
     // Processos e a ficha aberta ficavam velhas até o cache vencer.
     expect(CHAVES_DEPOIS_DE_CONCLUIR).toContainEqual(['processos']);
     expect(CHAVES_DEPOIS_DE_CONCLUIR).toContainEqual(['processo-dossie']);
+    // 15/09/2026: concluir ou desfazer a consulta fecha ou devolve o atendimento.
+    expect(CHAVES_DEPOIS_DE_CONCLUIR).toContainEqual(['atendimentos']);
+    expect(CHAVES_DEPOIS_DE_CONCLUIR).toContainEqual(['atendimento']);
     expect(CHAVES_DEPOIS_DE_CONCLUIR).not.toContainEqual(['dashboard']);
     expect(CHAVES_DEPOIS_DE_CONCLUIR).not.toContainEqual(['agenda']);
+  });
+});
+
+describe('atividade cancelada no painel não é alarme', () => {
+  it('sem vermelho, rosa ou riscado', () => {
+    expect(STATUS_COMP_COR.CANCELADO).not.toMatch(/\b(red|rose)-|line-through/);
+    for (const cor of Object.values(STATUS_COMP_COR)) expect(cor).not.toContain('line-through');
+  });
+});
+
+/*
+  O PAINEL PELA FILA DA TRIAGEM (E3, 15/09/2026). Em 14/09 o #13 e o #14
+  somavam como "pendentes" com a triagem sem nada a fazer.
+*/
+describe('atendimentos no painel: o que pede a triagem', () => {
+  const atendimento = (numero: number, fila: AtendimentoPendente['fila'], desfecho: AtendimentoPendente['desfecho'] = 'ENCAMINHADO'): AtendimentoPendente => ({
+    id: `at${numero}`, numero, canal: 'PRESENCIAL', desfecho, createdAt: '2026-09-14T11:00:00.000Z',
+    filiado: { id: `f${numero}`, nomeCompleto: `Filiada ${numero}` }, fila,
+  });
+  const kpis = (extra: Partial<ResumoDashboard['kpis']> = {}) => ({ atendimentosPendentes: 3, ...extra }) as ResumoDashboard['kpis'];
+
+  it('o KPI conta a fila da triagem e abre a lista no mesmo recorte', () => {
+    const k = kpiDosAtendimentos(kpis({ atendimentosComATriagem: 1, atendimentosAguardandoConsulta: 2 }));
+    expect(k).toEqual({ label: 'Com a triagem', valor: 1, sub: 'pedem uma ação', href: '/atendimentos?status=PENDENTE&fila=TRIAGEM' });
+    expect(filtroDaUrl(new URLSearchParams(k.href.split('?')[1]))).toMatchObject({ status: 'PENDENTE', fila: 'TRIAGEM' });
+    // API de antes: o de sempre, sem inventar fila.
+    expect(kpiDosAtendimentos(kpis())).toEqual({
+      label: 'Atendimentos pendentes', valor: 3, sub: 'aguardando resolução', href: '/atendimentos?status=PENDENTE',
+    });
+  });
+
+  it('o cartão lista a triagem e resume o que espera a consulta numa linha', () => {
+    const r = {
+      kpis: kpis({ atendimentosComATriagem: 1, atendimentosAguardandoConsulta: 2 }),
+      atendimentosPendentes: [
+        atendimento(12, { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' }, null),
+        atendimento(13, { fila: 'CONSULTA', motivo: 'AGUARDANDO' }),
+        atendimento(14, 'CONSULTA'),
+      ],
+    };
+    const c = cartaoDosAtendimentos(r);
+    expect(c.titulo).toBe('Com a triagem');
+    expect(c.contagem).toBe(1);
+    expect(c.itens.map((a) => a.numero)).toEqual([12]);
+    expect(c.aguardandoConsulta).toBe(2);
+    expect(filtroDaUrl(new URLSearchParams(c.hrefAguardando.split('?')[1]))).toMatchObject({ status: 'PENDENTE', fila: 'CONSULTA' });
+    expect(c.vazio).toBe('Nenhum atendimento pedindo a triagem.');
+    // Sem o KPI novo, a linha conta pela lista.
+    expect(cartaoDosAtendimentos({ ...r, kpis: kpis({ atendimentosComATriagem: 1 }) }).aguardandoConsulta).toBe(2);
+  });
+
+  it('API de antes: a lista inteira, com o título de sempre', () => {
+    const c = cartaoDosAtendimentos({ kpis: kpis(), atendimentosPendentes: [atendimento(13, undefined), atendimento(14, undefined)] });
+    expect(c.titulo).toBe('Atendimentos pendentes');
+    expect(c.itens).toHaveLength(2);
+    expect(c.aguardandoConsulta).toBe(0);
+  });
+
+  it('a barra lateral é âmbar só na fila da triagem', () => {
+    expect(barraDoAtendimento({ fila: { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' } })).toBe('bg-amber-400');
+    expect(barraDoAtendimento({ fila: 'CONSULTA' })).toBe('bg-border');
+    expect(barraDoAtendimento({})).toBe('bg-amber-400');
+  });
+
+  it('"Meu balcão" conta pela fila quando a API manda, e o link abre só os meus', () => {
+    const k = kpiDoBalcao({ registradosHoje: 3, semDesfecho: 4, comATriagem: 1, filiadosHoje: 0 });
+    expect(k).toEqual({ label: 'Comigo, com a triagem', valor: 1, sub: 'pedem uma ação', href: '/atendimentos?status=PENDENTE&fila=TRIAGEM&atendente=me' });
+    // 15/09/2026: o número conta os da pessoa; a lista abria a fila da casa inteira (1 no número, 5 na lista).
+    expect(filtroDaUrl(new URLSearchParams(k.href.split('?')[1]))).toMatchObject({ status: 'PENDENTE', fila: 'TRIAGEM', atendente: 'me' });
+    expect(kpiDoBalcao({ registradosHoje: 3, semDesfecho: 4, filiadosHoje: 0 }))
+      .toEqual({ label: 'Comigo, em aberto', valor: 4, sub: 'aguardando desfecho', href: '/atendimentos' });
+  });
+});
+
+/*
+  O MOTIVO DO ROBÔ NO PAINEL (auditoria DJEN, defeito 3). Todo motivo que não
+  fosse NOTICIA_VELHA virava "a ordem é para a outra parte", e a cópia do mesmo
+  ato oferecia "Criar tarefa" com a irmã já tendo tarefa.
+*/
+describe('publicação sem tarefa no painel', () => {
+  it('a cópia do mesmo ato não oferece tarefa repetida, e abre a da irmã quando a API diz qual', () => {
+    const comIrma = explicacaoDaPublicacaoSemTarefa({
+      temTarefa: false,
+      teor: { tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO', tarefaDoMesmoAto: { id: 'cmp-prazo-0915' } },
+    });
+    expect(comIrma).toEqual({ ajuda: MOTIVO_SEM_TAREFA.COPIA_DO_MESMO_ATO.ajuda, podeCriar: false, tarefaDoMesmoAtoId: 'cmp-prazo-0915' });
+  });
+
+  it('a cópia que segue uma proposta ainda aberta oferece "Criar tarefa" e não diz "já decidido" (15/09/2026)', () => {
+    // A irmã é proposta na caixa, sem compromisso: a API manda tarefaDoMesmoAto nulo.
+    const semIrma = explicacaoDaPublicacaoSemTarefa({ temTarefa: false, teor: { tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO', tarefaDoMesmoAto: null } });
+    expect(semIrma).toEqual({ ajuda: AJUDA_DA_COPIA_SEM_TAREFA, podeCriar: true, tarefaDoMesmoAtoId: null });
+    expect(semIrma.ajuda).not.toMatch(/já decidid|decisão sobre a primeira/);
+    // API de antes, sem o campo: o mesmo.
+    expect(explicacaoDaPublicacaoSemTarefa({ temTarefa: false, teor: { tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO' } }).podeCriar).toBe(true);
+  });
+
+  it('cada motivo com a sua explicação; fora da janela não diz "outra parte"', () => {
+    const fora = explicacaoDaPublicacaoSemTarefa({ temTarefa: false, teor: { tarefaDispensadaMotivo: 'FORA_DA_JANELA' } });
+    expect(fora.ajuda).toBe(MOTIVO_SEM_TAREFA.FORA_DA_JANELA.ajuda);
+    expect(fora.ajuda).not.toMatch(/outra parte/);
+    expect(fora.podeCriar).toBe(true);
+    expect(explicacaoDaPublicacaoSemTarefa({ temTarefa: false, teor: { tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE' } }).ajuda)
+      .toBe(MOTIVO_SEM_TAREFA.ORDEM_DA_OUTRA_PARTE.ajuda);
+    expect(explicacaoDaPublicacaoSemTarefa({ temTarefa: false, teor: { tarefaDispensadaMotivo: 'MOTIVO_NOVO' } }))
+      .toEqual({ ajuda: null, podeCriar: true, tarefaDoMesmoAtoId: null });
+    expect(explicacaoDaPublicacaoSemTarefa({ temTarefa: false, teor: undefined }))
+      .toEqual({ ajuda: null, podeCriar: true, tarefaDoMesmoAtoId: null });
+  });
+
+  it('com tarefa, nada a explicar nem a criar', () => {
+    expect(explicacaoDaPublicacaoSemTarefa({ temTarefa: true, teor: { tarefaDispensadaMotivo: 'NOTICIA_VELHA' } }))
+      .toEqual({ ajuda: null, podeCriar: false, tarefaDoMesmoAtoId: null });
   });
 });

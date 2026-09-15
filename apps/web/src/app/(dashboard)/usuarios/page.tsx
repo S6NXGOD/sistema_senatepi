@@ -20,7 +20,7 @@ import {
   PERFIL_LABEL, PerfilUsuario, podeEditar, podeMexerNoUsuario, podeVer,
 } from '@/lib/permissoes';
 import { statusDjen } from '@/lib/djen';
-import { FRASE_SEM_OAB, idsSemOab } from '@/lib/djen-cobertura';
+import { fraseSemOab, idsSemOab } from '@/lib/djen-cobertura';
 
 const PERFIL_COR: Record<PerfilUsuario, string> = {
   ADMINISTRADOR: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
@@ -104,6 +104,7 @@ export default function UsuariosPage() {
   const linhaSemOab = (u: UsuarioSistema) =>
     semOab?.has(u.id) ? (
       <SemOab
+        {...fraseSemOab(u)}
         podeAbrir={podeMexerNoUsuario(souAdmin ? 'ADMINISTRADOR' : null, u.role)}
         onPreencher={() => editarUsuario(u, true)}
       />
@@ -164,10 +165,15 @@ export default function UsuariosPage() {
                       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', PERFIL_COR[u.role])}>{PERFIL_LABEL[u.role]}</span>
                       <StatusPill ativo={u.ativo} />
                     </div>
-                    {linhaSemOab(u)}
                   </div>
                   <Acoes u={u} onEditar={() => editarUsuario(u)} onExcluir={() => setExcluirAlvo(u)} ehProprio={u.id === user?.id} souAdmin={souAdmin} />
                 </div>
+                {/*
+                  15/09/2026: a caixa ficava dentro da coluna do nome, espremida
+                  entre o avatar e os botões, uma palavra por linha a 400 px.
+                  Embaixo da linha do nome, ela ocupa a largura do cartão.
+                */}
+                {linhaSemOab(u)}
               </Card>
             ))}
           </div>
@@ -269,12 +275,18 @@ function StatusPill({ ativo }: { ativo: boolean }) {
  * abre a edição com o campo à mostra; para a conta de um Administrador, quem
  * não é Administrador vê a frase e não o botão, a mesma trava das ações.
  */
-function SemOab({ podeAbrir, onPreencher }: { podeAbrir: boolean; onPreencher: () => void }) {
+function SemOab({ frase, acao, podeAbrir, onPreencher }: {
+  /** "Sem OAB no cadastro…" ou, com o número e sem a UF, "OAB incompleta: falta a UF…". */
+  frase: string;
+  acao: string;
+  podeAbrir: boolean;
+  onPreencher: () => void;
+}) {
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-      <span className="flex min-w-0 flex-1 items-start gap-1.5">
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200 md:mt-2">
+      <span className="flex min-w-[12rem] flex-1 items-start gap-1.5">
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span>{FRASE_SEM_OAB}</span>
+        <span>{frase}</span>
       </span>
       {podeAbrir && (
         <button
@@ -282,7 +294,7 @@ function SemOab({ podeAbrir, onPreencher }: { podeAbrir: boolean; onPreencher: (
           onClick={onPreencher}
           className="min-h-11 shrink-0 font-semibold text-amber-950 underline underline-offset-4 hover:no-underline dark:text-amber-100"
         >
-          Preencher OAB
+          {acao}
         </button>
       )}
     </div>

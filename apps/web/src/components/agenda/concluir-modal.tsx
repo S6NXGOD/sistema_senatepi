@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   CheckCircle2, Loader2, X, UserX, CalendarPlus, Paperclip,
@@ -15,10 +15,13 @@ import { cn } from '@/lib/utils';
 import { SeletorProcesso } from '@/components/processos/seletor-processo';
 import { OpcoesDeDesfecho } from '@/components/agenda/opcoes-de-desfecho';
 import {
-  concluirCompromisso, listarResponsaveis, listarDesfechos, temHoraMarcada,
-  type Compromisso, type DesfechoOpcao, type OrigemDaConclusao,
+  concluirCompromisso, desfazerConclusao, listarResponsaveis, listarDesfechos, temHoraMarcada,
+  type Compromisso, type ConcluirResposta, type DesfechoOpcao, type OrigemDaConclusao,
 } from '@/lib/agenda';
 import { listarAnexos } from '@/lib/anexos';
+import { avisoDeDesfeita, avisoDoConcluirPeloModal, DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
+import { CHAVES_DEPOIS_DE_CONCLUIR } from '@/lib/dashboard';
+import { consultaFechaOAtendimento } from '@/lib/atendimentos';
 import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-11 w-full rounded-md border border-input bg-background px-3 text-sm md:h-10';
@@ -57,8 +60,12 @@ export function ConcluirModal({
   compromisso: Compromisso | null;
   open: boolean;
   onClose: () => void;
-  /** O caso pré-processual aberto pelo desfecho, quando houve um. */
-  onConcluido: (caso: { id: string; titulo: string | null } | null) => void;
+  /**
+   * O caso pré-processual aberto pelo desfecho, quando houve um, e a RESPOSTA
+   * inteira (15/09/2026: traz `atendimentoConcluido`). Quem só lê o caso
+   * continua escrevendo `(caso) => …`.
+   */
+  onConcluido: (caso: { id: string; titulo: string | null } | null, resposta: ConcluirResposta) => void;
   /** Leva ao cancelamento com "não compareceu" pré-selecionado. */
   onNaoCompareceu?: () => void;
   /**
@@ -71,6 +78,7 @@ export function ConcluirModal({
   desfechoInicial?: string;
 }) {
   const { user } = useAuth();
+  const qc = useQueryClient();
   /**
    * A ATIVIDADE É DE OUTRA PESSOA?
    *
@@ -162,6 +170,23 @@ export function ConcluirModal({
     enabled: open && (escolhido?.acao === 'CRIAR_PROCESSO' || escolhido?.acao === 'CRIAR_ATIVIDADE'),
   });
 
+  /*
+    DESFAZER PELO AVISO. O modal já fechou quando a pessoa toca, então não é
+    mutação presa ao modal: a chamada leva o id capturado. Desfazer a consulta
+    devolve o atendimento que voltou a aguardar, e o aviso diz qual. As chaves
+    são as mesmas de concluir, atendimentos incluídos.
+  */
+  async function desfazer(id: string) {
+    try {
+      toast.success(avisoDeDesfeita(await desfazerConclusao(id)));
+    } catch (e: any) {
+      const m = e?.response?.data?.message;
+      toast.error(Array.isArray(m) ? m[0] : m ?? 'Não foi possível desfazer a conclusão.');
+    } finally {
+      for (const k of CHAVES_DEPOIS_DE_CONCLUIR) qc.invalidateQueries({ queryKey: k });
+    }
+  }
+
   const salvar = useMutation({
     mutationFn: () =>
       concluirCompromisso(compromisso!.id, {
@@ -210,14 +235,23 @@ export function ConcluirModal({
         leva à fila certa. Aqui fica o que a página não cobre.
       */
       const caso = resp.preProcessualCriado ?? resp.rascunhoCriado;
-      if (!caso) {
-        toast.success(
-          resp.seguimentoCriado
-            ? `Atividade concluída. Seguimento agendado: "${resp.seguimentoCriado.titulo}".`
-            : 'Atividade concluída.',
-        );
+      /*
+        A MESMA FRASE DO PAINEL (15/09/2026): o rótulo do desfecho, o que nasceu
+        junto e o atendimento que fechou ("Dúvida esclarecida. Atendimento #13
+        concluído junto."). Com caso aberto, só o atendimento. E o "Desfazer"
+        pela mesma regra do painel, que antes só existia lá.
+      */
+      const aviso = avisoDoConcluirPeloModal(resp, escolhido?.label);
+      const id = compromisso!.id;
+      if (aviso.texto && aviso.desfazer) {
+        toast.success(aviso.texto, {
+          duration: DURACAO_DO_DESFAZER_MS,
+          action: { label: 'Desfazer', onClick: () => desfazer(id) },
+        });
+      } else if (aviso.texto) {
+        toast.success(aviso.texto);
       }
-      onConcluido(caso);
+      onConcluido(caso, resp);
       onClose();
     },
     onError: (e: any) => {
@@ -288,6 +322,16 @@ export function ConcluirModal({
               <span className="text-muted-foreground">{V.Filiado}: </span>
               <strong>{compromisso.filiado.nomeCompleto}</strong>
             </div>
+          )}
+          {/*
+            A CONSULTA DA TRIAGEM FECHA O ATENDIMENTO JUNTO (E1, 15/09/2026). Dito
+            antes de gravar, com "se": a cópia aberta ou a triagem que já fechou
+            deixam o atendimento como está, e só a resposta sabe.
+          */}
+          {consultaFechaOAtendimento(compromisso) && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Se o atendimento da triagem ainda estiver aberto, ele é concluído junto.
+            </p>
           )}
 
           {/* Escolha do desfecho */}

@@ -25,8 +25,10 @@ import { FecharAtendimentoModal, ReabrirAtendimentoDialog } from '@/components/a
 import {
   listarAtendimentos, concluirAtendimento, excluirAtendimento,
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl, AcaoDeFechar,
-  CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, STATUS_LABEL, STATUS_COR, formatDataHora,
-  faltaConcluir, filtroDaUrl, mensagemDaFalha, rotuloDoAssunto, urlTemFiltro,
+  CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, OPCOES_DO_SELETOR_DE_STATUS, formatDataHora,
+  corDoStatus, faltaConcluir, filtroDaUrl, filtroDoSeletorDeStatus, mensagemDaFalha, rotuloDoAssunto,
+  rotuloDoConcluirNoMenu, rotuloDoStatus, urlTemFiltro, valorDoSeletorDeStatus,
+  type FilaDoAtendimento, type ValorDoSeletorDeStatus,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { V } from '@/lib/vocabulario';
@@ -87,17 +89,24 @@ function ListaAtendimentos() {
   const [busca, setBusca] = useState('');
   const [buscaDeb, setBuscaDeb] = useState('');
   const [status, setStatus] = useState<'' | StatusAtendimento>(inicial.status);
+  const [fila, setFila] = useState<'' | FilaDoAtendimento>(inicial.fila);
   const [desfecho, setDesfecho] = useState<'' | DesfechoAtendimento>(inicial.desfecho);
   const [canal, setCanal] = useState<'' | CanalAtendimento>(inicial.canal);
   const [assunto, setAssunto] = useState(inicial.assunto);
   const [dataInicio, setDataInicio] = useState(inicial.dataInicio);
   const [dataFim, setDataFim] = useState(inicial.dataFim);
+  /**
+   * "Só os meus" (15/09/2026): chega pelo "Comigo, com a triagem" do painel,
+   * que conta só os registrados pela pessoa. A URL é limpa, então o recorte
+   * fica no estado e aparece como chip removível.
+   */
+  const [atendente, setAtendente] = useState<'' | 'me'>(inicial.atendente);
   const [page, setPage] = useState(1);
 
   function aplicarFiltro(f: FiltroDaUrl) {
     setBusca(''); setBuscaDeb('');
-    setStatus(f.status); setDesfecho(f.desfecho); setCanal(f.canal);
-    setAssunto(f.assunto); setDataInicio(f.dataInicio); setDataFim(f.dataFim);
+    setStatus(f.status); setFila(f.fila); setDesfecho(f.desfecho); setCanal(f.canal);
+    setAssunto(f.assunto); setDataInicio(f.dataInicio); setDataFim(f.dataFim); setAtendente(f.atendente);
   }
 
   useEffect(() => {
@@ -131,13 +140,13 @@ function ListaAtendimentos() {
     const t = setTimeout(() => { setBuscaDeb(busca.trim()); setPage(1); }, 350);
     return () => clearTimeout(t);
   }, [busca]);
-  useEffect(() => { setPage(1); }, [status, desfecho, canal, assunto, dataInicio, dataFim]);
+  useEffect(() => { setPage(1); }, [status, fila, desfecho, canal, assunto, dataInicio, dataFim, atendente]);
 
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ['atendimentos', buscaDeb, status, desfecho, canal, assunto, dataInicio, dataFim, page],
+    queryKey: ['atendimentos', buscaDeb, status, fila, desfecho, canal, assunto, dataInicio, dataFim, atendente, page],
     queryFn: () => listarAtendimentos({
-      busca: buscaDeb || undefined, status: status || undefined, desfecho: desfecho || undefined,
-      canal: canal || undefined, assunto: assunto || undefined,
+      busca: buscaDeb || undefined, status: status || undefined, fila: fila || undefined, desfecho: desfecho || undefined,
+      atendente: atendente || undefined, canal: canal || undefined, assunto: assunto || undefined,
       dataInicio: dataInicio || undefined, dataFim: dataFim || undefined,
       page, pageSize: PAGE_SIZE,
     }),
@@ -149,7 +158,7 @@ function ListaAtendimentos() {
   };
   const itens = data?.items ?? [];
   const totalPaginas = data?.totalPaginas ?? 1;
-  const filtrando = !!(buscaDeb || status || desfecho || canal || assunto || dataInicio || dataFim);
+  const filtrando = !!(buscaDeb || status || fila || desfecho || canal || assunto || dataInicio || dataFim || atendente);
 
   /**
    * O "Concluir agora?" logo depois do resolvido no ato: a rota nova, sem nota.
@@ -197,13 +206,13 @@ function ListaAtendimentos() {
   }
   function limparFiltros() {
     setBusca('');
-    aplicarFiltro({ status: '', desfecho: '', canal: '', assunto: '', dataInicio: '', dataFim: '' });
+    aplicarFiltro({ status: '', fila: '', desfecho: '', canal: '', assunto: '', dataInicio: '', dataFim: '', atendente: '' });
   }
 
   /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */
   const ResultadoCel = ({ a }: { a: AtendimentoLista }) =>
     a.encaminhamento ? (
-      <ChipEncaminhamento encaminhamento={a.encaminhamento} statusAtendimento={a.status} />
+      <ChipEncaminhamento encaminhamento={a.encaminhamento} statusAtendimento={a.status} fila={a.fila} />
     ) : a.desfecho ? (
       <Badge className={DESFECHO_COR[a.desfecho]}>{DESFECHO_LABEL[a.desfecho]}</Badge>
     ) : (
@@ -238,11 +247,21 @@ function ListaAtendimentos() {
           {isFetching && !isLoading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" aria-hidden="true" />}
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-          <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value as any)} aria-label="Status">
-            <option value="">Todos os status</option>
-            <option value="PENDENTE">Pendente</option>
-            <option value="CONCLUIDO">Concluído</option>
-            <option value="CANCELADO">Cancelado</option>
+          {/*
+            UM SELECT SÓ PARA STATUS E FILA (15/09/2026): "Com a triagem" e
+            "Aguardando a consulta" são recortes dos pendentes.
+          */}
+          <select
+            className={inputCls}
+            value={valorDoSeletorDeStatus(status, fila)}
+            onChange={(e) => {
+              const f = filtroDoSeletorDeStatus(e.target.value as ValorDoSeletorDeStatus);
+              setStatus(f.status);
+              setFila(f.fila);
+            }}
+            aria-label="Status"
+          >
+            {OPCOES_DO_SELETOR_DE_STATUS.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
           </select>
           <select className={inputCls} value={assunto} onChange={(e) => setAssunto(e.target.value)} aria-label="Assunto">
             <option value="">Todos os assuntos</option>
@@ -263,6 +282,11 @@ function ListaAtendimentos() {
           <label className="flex min-w-0 flex-col gap-0.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:gap-1">até
             <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className={inputCls} />
           </label>
+          {atendente === 'me' && (
+            <Button variant="outline" className="col-span-2 sm:col-span-1 sm:h-10" onClick={() => setAtendente('')} aria-label="Tirar o filtro Só os meus">
+              Só os meus <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          )}
           {filtrando && (
             <Button variant="ghost" className="col-span-2 sm:col-span-1 sm:h-10" onClick={limparFiltros}>
               <X className="h-4 w-4" /> Limpar filtros
@@ -314,7 +338,7 @@ function ListaAtendimentos() {
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <Badge className="bg-muted text-muted-foreground">{CANAL_LABEL[a.canal]}</Badge>
                     <ResultadoCel a={a} />
-                    <Badge className={STATUS_COR[a.status]}>{STATUS_LABEL[a.status]}</Badge>
+                    <Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge>
                     <span className="text-muted-foreground">{formatDataHora(a.createdAt)}</span>
                   </div>
                   {podeEditar && faltaConcluir(a) && (
@@ -358,14 +382,15 @@ function ListaAtendimentos() {
                           {rotulo && <span className="block truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
                           <span className="line-clamp-1 text-muted-foreground">{a.descricao}</span>
                         </td>
-                        <td className="px-4 py-3"><Badge className={STATUS_COR[a.status]}>{STATUS_LABEL[a.status]}</Badge></td>
+                        <td className="px-4 py-3"><Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge></td>
                         <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">{formatDataHora(a.createdAt)}</td>
                         <td className="px-4 py-2 text-right">
                           <div className="flex items-center justify-end gap-1">
+                            {/* 44 px também no computador (15/09/2026): o `sm` tinha 36. */}
                             {podeEditar && faltaConcluir(a) && (
                               <Button
-                                size="sm"
                                 variant="outline"
+                                className="md:h-11"
                                 onClick={(e) => { e.stopPropagation(); setFecharAlvo({ id: a.id, acao: 'CONCLUIR' }); }}
                               >
                                 <CheckCircle2 className="h-4 w-4" /> Concluir
@@ -375,7 +400,7 @@ function ListaAtendimentos() {
                               type="button"
                               onClick={(e) => abrirMenu(e, a)}
                               aria-label={`Ações do atendimento de ${a.filiado.nomeCompleto}`}
-                              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                              className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                             >
                               <MoreVertical className="h-4 w-4" />
                             </button>
@@ -415,7 +440,7 @@ function ListaAtendimentos() {
                   <button type="button" role="menuitem" onClick={() => abrirDesfecho(menu.a)} className={menuItem}><Gavel className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar desfecho</button>
                 )}
                 {menu.a.desfecho && menu.a.status === 'PENDENTE' && (
-                  <button type="button" role="menuitem" onClick={() => { setFecharAlvo({ id: menu.a.id, acao: 'CONCLUIR' }); setMenu(null); }} className={menuItem}><CheckCircle2 className="h-4 w-4 text-emerald-600" /> Concluir atendimento</button>
+                  <button type="button" role="menuitem" onClick={() => { setFecharAlvo({ id: menu.a.id, acao: 'CONCLUIR' }); setMenu(null); }} className={menuItem}><CheckCircle2 className="h-4 w-4 text-emerald-600" /> {rotuloDoConcluirNoMenu(menu.a)}</button>
                 )}
                 {menu.a.status !== 'PENDENTE' && (
                   <button type="button" role="menuitem" onClick={() => { setReabrirAlvo(menu.a); setMenu(null); }} className={menuItem}><RotateCcw className="h-4 w-4 text-muted-foreground" /> Reabrir</button>
@@ -450,8 +475,8 @@ function ListaAtendimentos() {
           invalidar();
           /*
             SÓ O RESOLVIDO NO ATO PERGUNTA "CONCLUIR AGORA?". O encaminhado ainda
-            não terminou: a demanda acaba quando a consulta for atendida, e aí a
-            lista oferece "Concluir atendimento" (nada fecha sozinho).
+            não terminou: a demanda acaba quando a consulta for registrada, e
+            desde 15/09/2026 o atendimento fecha junto com ela.
           */
           if (desfechoAlvo && resultado === 'RESOLVIDO_ATO') setPromptConcluir({ id: desfechoAlvo.id });
         }}

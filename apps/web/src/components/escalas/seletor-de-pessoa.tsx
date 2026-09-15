@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { Ref, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { AdvogadoEscala, nomeDeExibicao, separarParaSeletor } from '@/lib/escalas';
 
@@ -22,7 +22,10 @@ export function SeletorDePessoa({
   disabled,
   className,
   ariaLabel,
+  selectRef,
 }: {
+  /** Para o diálogo da troca pôr o foco aqui ao abrir (15/09/2026). */
+  selectRef?: Ref<HTMLSelectElement>;
   id?: string;
   value: string;
   onChange: (id: string) => void;
@@ -45,6 +48,7 @@ export function SeletorDePessoa({
 
   return (
     <select
+      ref={selectRef}
       id={id}
       aria-label={ariaLabel}
       className={cn(

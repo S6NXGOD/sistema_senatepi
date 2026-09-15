@@ -1,4 +1,6 @@
-import { FRASE_SEM_OAB, idsSemOab, linhasDaCobertura } from './djen-cobertura';
+import {
+  FRASE_OAB_SEM_UF, FRASE_SEM_OAB, fraseSemOab, idsSemOab, linhasDaCobertura, partesDaCobertura,
+} from './djen-cobertura';
 
 /**
  * A LINHA DE COBERTURA E A LISTA DE QUEM ESTÁ SEM OAB — com valores.
@@ -16,7 +18,7 @@ describe('linhasDaCobertura', () => {
     linhas: [
       'Acompanhado no Diário pela OAB de Dra. Morgana e pelo número do processo.',
       'Consultado no Diário pelo número em 12/09.',
-      'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ou agora pelo botão Sincronizar.',
+      'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ou agora pelo botão Buscar no DJEN, na aba Publicações.',
     ],
   };
 
@@ -37,6 +39,80 @@ describe('linhasDaCobertura', () => {
     expect(linhasDaCobertura({ porOab: [], ultimaConsultaNumero: null })).toBeNull();
     expect(linhasDaCobertura({ ...daApi, linhas: [] })).toBeNull();
     expect(linhasDaCobertura({ ...daApi, linhas: 'texto solto' as unknown as string[] })).toBeNull();
+  });
+});
+
+/** 15/09/2026: a principal numa linha, o resto embaixo. */
+describe('partesDaCobertura', () => {
+  it('a primeira frase é a principal; a data e o histórico vão embaixo, na ordem da API', () => {
+    expect(
+      partesDaCobertura({
+        porOab: [{ id: 'u1', nome: 'Dra. Morgana' }],
+        ultimaConsultaNumero: '2026-09-12T08:07:00.000Z',
+        linhas: [
+          'Acompanhado no Diário pela OAB de Dra. Morgana e pelo número do processo.',
+          'Consultado no Diário pelo número em 12/09.',
+          'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ou agora pelo botão Buscar no DJEN, na aba Publicações.',
+        ],
+      }),
+    ).toEqual({
+      principal: 'Acompanhado no Diário pela OAB de Dra. Morgana e pelo número do processo.',
+      apoio: [
+        'Consultado no Diário pelo número em 12/09.',
+        'O histórico deste processo no Diário ainda não foi lido. Ele entra numa das próximas noites, ou agora pelo botão Buscar no DJEN, na aba Publicações.',
+      ],
+    });
+  });
+
+  it('processo sem número: só a principal, sem linha de apoio vazia', () => {
+    expect(
+      partesDaCobertura({
+        porOab: [],
+        ultimaConsultaNumero: null,
+        linhas: ['Sem número do processo: o Diário só pode ser consultado depois da distribuição.'],
+      }),
+    ).toEqual({
+      principal: 'Sem número do processo: o Diário só pode ser consultado depois da distribuição.',
+      apoio: [],
+    });
+  });
+
+  it('frase em branco na frente não vira principal vazia', () => {
+    expect(partesDaCobertura({ porOab: [], ultimaConsultaNumero: null, linhas: ['  ', 'Ainda não consultado pelo número.'] })).toEqual({
+      principal: 'Ainda não consultado pelo número.',
+      apoio: [],
+    });
+  });
+
+  it('janela de troca, sem `linhas`: nada', () => {
+    expect(partesDaCobertura(undefined)).toBeNull();
+    expect(partesDaCobertura({ porOab: [], ultimaConsultaNumero: null })).toBeNull();
+  });
+});
+
+describe('fraseSemOab — qual das duas frases', () => {
+  it('sem número de OAB: "Sem OAB no cadastro"', () => {
+    expect(fraseSemOab({ oab: null, oabUf: null })).toEqual({ frase: FRASE_SEM_OAB, acao: 'Preencher OAB' });
+    expect(fraseSemOab({ oab: '   ', oabUf: 'PI' })).toEqual({ frase: FRASE_SEM_OAB, acao: 'Preencher OAB' });
+  });
+
+  /** A Lara Cortez com o número e sem a UF lia "Sem OAB" olhando para o número. */
+  it('número sem UF: "OAB incompleta: falta a UF"', () => {
+    expect(fraseSemOab({ oab: '12345', oabUf: null })).toEqual({ frase: FRASE_OAB_SEM_UF, acao: 'Preencher a UF' });
+    expect(fraseSemOab({ oab: '12345', oabUf: '' })).toEqual({ frase: FRASE_OAB_SEM_UF, acao: 'Preencher a UF' });
+  });
+
+  it('UF com uma letra só também está incompleta (a API não consulta)', () => {
+    expect(fraseSemOab({ oab: '12.345', oabUf: 'P' }).frase).toBe(FRASE_OAB_SEM_UF);
+  });
+
+  it('campos ausentes (API antiga): a frase de sempre', () => {
+    expect(fraseSemOab({}).frase).toBe(FRASE_SEM_OAB);
+  });
+
+  it('a frase nova, sem cor de erro na palavra', () => {
+    expect(FRASE_OAB_SEM_UF).toBe('OAB incompleta: falta a UF. O robô do Diário não recebe as intimações desta pessoa.');
+    expect(FRASE_OAB_SEM_UF).not.toMatch(/erro|falh|vencid/i);
   });
 });
 

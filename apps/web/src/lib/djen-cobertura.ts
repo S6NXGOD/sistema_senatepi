@@ -66,5 +66,41 @@ export function idsSemOab(
   );
 }
 
+/**
+ * A LINHA EM DUAS (15/09/2026). As frases saíam coladas num parágrafo só de
+ * `text-xs`, e a que responde a pergunta ("por onde chega?") se perdia no meio
+ * das datas. A primeira frase é a principal; as outras (a data da consulta
+ * pelo número, o histórico ainda não lido) vão embaixo, menores.
+ */
+export function partesDaCobertura(
+  cobertura: Partial<CoberturaDoDiario> | null | undefined,
+): { principal: string; apoio: string[] } | null {
+  const linhas = linhasDaCobertura(cobertura);
+  if (!linhas) return null;
+  const [principal, ...apoio] = linhas;
+  return { principal, apoio };
+}
+
 export const FRASE_SEM_OAB =
   'Sem OAB no cadastro. O robô do Diário não recebe as intimações desta pessoa.';
+
+export const FRASE_OAB_SEM_UF =
+  'OAB incompleta: falta a UF. O robô do Diário não recebe as intimações desta pessoa.';
+
+/**
+ * QUAL DAS DUAS FRASES (15/09/2026).
+ *
+ * A API põe na lista quem não tem OAB CONSULTÁVEL (`oabConsultavel`: número e
+ * UF de duas letras). Quem tinha o número e não a UF lia "Sem OAB no cadastro"
+ * olhando para o número na própria ficha. A mesma régua aqui só escolhe a
+ * frase; quem entra na lista continua sendo decisão da API.
+ */
+export function fraseSemOab(usuario: { oab?: string | null; oabUf?: string | null }): {
+  frase: string;
+  acao: string;
+} {
+  const numero = (usuario.oab ?? '').replace(/\D/g, '');
+  const uf = (usuario.oabUf ?? '').trim().toUpperCase();
+  if (numero && !/^[A-Z]{2}$/.test(uf)) return { frase: FRASE_OAB_SEM_UF, acao: 'Preencher a UF' };
+  return { frase: FRASE_SEM_OAB, acao: 'Preencher OAB' };
+}

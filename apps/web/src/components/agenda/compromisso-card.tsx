@@ -27,7 +27,15 @@ import { V } from '@/lib/vocabulario';
  * O quadro tinha 4 botões do mesmo tamanho e peso, e nenhum dizia qual era "o"
  * próximo passo. Aqui a hierarquia é explícita: um botão cheio + secundários
  * discretos.
+ *
+ * LARGURA TOTAL SÓ NO CELULAR (15/09/2026). Na lista do computador o cartão tem
+ * ~1.000 px, e o `flex-1` esticava "Concluir" pela linha inteira (captura da
+ * produção): parecia uma faixa, não um botão. A partir de `sm` fica do tamanho
+ * do texto; no celular continua ocupando a linha, que é o alvo fácil do dedo.
  */
+export const CLASSE_ACAO_PRIMARIA =
+  'inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-900 sm:min-h-0 sm:flex-none sm:px-3';
+
 function AcaoPrimaria({
   onClick, children,
 }: {
@@ -38,7 +46,7 @@ function AcaoPrimaria({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-900 sm:min-h-0"
+      className={CLASSE_ACAO_PRIMARIA}
     >
       {children}
     </button>
@@ -149,24 +157,26 @@ export function CompromissoCard({
         cor.borda,
         draggable && 'cursor-grab active:cursor-grabbing',
         apontado && 'ring-2 ring-brand-500 ring-offset-1 ring-offset-background',
-        // Na lista, a coluna da hora ocupa a esquerda; o resto do cartão fica igual.
-        modoLista && 'relative pl-[4.75rem]',
         // Fechadas do dia continuam à vista, esmaecidas: o selo de desfecho diz como terminou.
         modoLista && estaFechado(c.status) && 'opacity-75',
       )}
     >
-      {modoLista && (
-        <div className="absolute left-3 top-3 w-14 leading-tight tabular-nums">
-          {principal === 'CONCLUIR' ? (
-            <span className="text-xs font-medium text-muted-foreground">No dia</span>
-          ) : (
-            <span className="text-sm font-semibold">{horaBRDe(c.inicio)}</span>
-          )}
-        </div>
-      )}
-      {/* Cabeçalho: tipo + ações de edição */}
+      {/* Cabeçalho: (hora na lista) + tipo + ações de edição */}
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
+          {/*
+            A HORA É O PRIMEIRO ITEM DA LINHA DO TIPO (15/09/2026). Era uma coluna
+            à esquerda com recuo no cartão inteiro: ~64 px vazios na altura toda,
+            e a 400 px sobravam ~280 px para o título. Como prefixo, a hora abre a
+            linha e o resto do cartão usa a largura inteira.
+          */}
+          {modoLista && (
+            principal === 'CONCLUIR' ? (
+              <span className="mr-0.5 text-xs font-medium text-muted-foreground">No dia</span>
+            ) : (
+              <span className="mr-0.5 text-sm font-semibold tabular-nums">{horaBRDe(c.inicio)}</span>
+            )
+          )}
           <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', cor.badge)}>
             <Gavel className="h-3 w-3" /> {rotuloTipo(c.tipo, tipos)}
           </span>
@@ -378,13 +388,17 @@ export function CompromissoCard({
         </div>
       )}
 
-      {/* Por que caiu: a categoria explica; o texto, quando existe, complementa. */}
+      {/*
+        Por que caiu: a categoria explica; o texto, quando existe, complementa.
+        Neutro desde 15/09/2026: o fundo vermelho dizia "erro" sobre um
+        cancelamento que a equipe fez de propósito.
+      */}
       {c.status === 'CANCELADO' && (c.canceladoCategoria || c.canceladoMotivo) && (
-        <p className="mt-2 flex items-start gap-1 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700 dark:bg-red-950/20 dark:text-red-300">
+        <p className="mt-2 flex items-start gap-1 rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground">
           <Ban className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0">
             {c.canceladoCategoria && (
-              <strong className="font-semibold">
+              <strong className="font-semibold text-foreground">
                 {CATEGORIA_CANCELAMENTO_LABEL[c.canceladoCategoria] ?? 'Cancelada'}
               </strong>
             )}

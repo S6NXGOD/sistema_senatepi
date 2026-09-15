@@ -1,12 +1,12 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Plus, Search, CalendarClock, CalendarDays, SlidersHorizontal, Trash2, ChevronUp,
-  UserCheck, Flame, ListFilter, AlertTriangle, RotateCw, X, Columns3, List,
+  UserCheck, Flame, ListFilter, Clock, RotateCw, X, Columns3, List,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,9 @@ import { TiposEventoModal } from '@/components/agenda/tipos-evento-modal';
 import { ConcluirModal } from '@/components/agenda/concluir-modal';
 import { CancelarModal } from '@/components/agenda/cancelar-modal';
 import { RemarcarModal } from '@/components/agenda/remarcar-modal';
+import { useRefazerNaViradaDoDia } from './virada-do-dia';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
+import { RegistrarDesfechoModal, type AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import { useTelaLarga } from '@/lib/use-tela-larga';
@@ -36,12 +38,15 @@ import {
   listarCompromissos, buscarRecortes, getCompromisso, mudarStatusCompromisso, excluirCompromisso,
   listarResponsaveis, ehMinha, estaAtrasado, temHoraMarcada,
   filtroDoServidor, contarFiltrosAtivos, lerUrlDaAgenda, RECORTES, RECORTE_PADRAO,
-  agruparPorDia, semRepetidas, proximoCursor, paginasChegaramAHoje, PAGINA_DA_AGENDA,
+  agruparPorDia, semRepetidas, proximoCursor, PAGINA_DA_AGENDA,
+  opcoesDaLista, estadoDoRodape, quantasNoRecorte, totalDoGrupoParaTras, visaoDaAgenda,
+  paginaDeCadaItem, celulaDoDiaBR, doDiaDeTeresina, ymdDoCalendario, diaBRDe,
   type Compromisso, type StatusCompromisso, type TipoCompromisso, type RecorteAgenda,
   type JanelaDaAgenda, type VisaoDaAgenda,
 } from '@/lib/agenda';
 import { chaveLocal } from '@/lib/armazenamento';
 import { CHAVES_DEPOIS_DE_CONCLUIR } from '@/lib/dashboard';
+import { avisoDeReaberta } from '@/lib/acao-rapida';
 
 /** Lembra se o calendário fica aberto — a escolha vale por navegador. */
 const CHAVE_CALENDARIO = chaveLocal('agenda', 'calendario-aberto');
@@ -64,6 +69,91 @@ function gradeDoMes(mes: Date) {
   const fim = new Date(ini);
   fim.setDate(ini.getDate() + 42);
   return { dataInicio: ini.toISOString(), dataFim: fim.toISOString() };
+}
+
+/** Escolheu o Quadro nesta sessão? Só aí Todas continua no quadro (ver `visaoDaAgenda`). */
+const CHAVE_QUADRO_NA_SESSAO = chaveLocal('agenda', 'quadro-na-sessao');
+
+/*
+  AS PREFERÊNCIAS SÃO LIDAS ANTES DO PRIMEIRO DESENHO (15/09/2026).
+
+  Eram lidas num useEffect, que roda depois de a tela aparecer: quem guardou a
+  Lista via o quadro por um instante e depois a lista, e quem fechou o calendário
+  o via abrir e fechar. Com useSyncExternalStore a navegação dentro do sistema já
+  desenha a escolha certa; no servidor (e na hidratação) vale o padrão.
+
+  A memória guarda o que foi escolhido mesmo quando o navegador recusa o
+  armazenamento: a escolha vale na sessão, só não fica lembrada.
+*/
+type Armazem = 'local' | 'sessao';
+const memoriaDasPreferencias = new Map<string, string>();
+const avisosDasPreferencias = new Set<() => void>();
+
+function armazemDe(tipo: Armazem): Storage | null {
+  try {
+    return tipo === 'local' ? window.localStorage : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function lerPreferencia(chave: string, tipo: Armazem): string | null {
+  if (typeof window === 'undefined') return null;
+  const naMemoria = memoriaDasPreferencias.get(`${tipo}:${chave}`);
+  if (naMemoria !== undefined) return naMemoria;
+  try {
+    return armazemDe(tipo)?.getItem(chave) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function gravarPreferencia(chave: string, valor: string, tipo: Armazem) {
+  memoriaDasPreferencias.set(`${tipo}:${chave}`, valor);
+  try { armazemDe(tipo)?.setItem(chave, valor); } catch { /* só não lembra */ }
+  avisosDasPreferencias.forEach((avisar) => avisar());
+}
+
+function assinarPreferencias(avisar: () => void): () => void {
+  // Outra aba mudou o localStorage: a memória desta aba deixa de valer para a chave.
+  const deOutraAba = (e: StorageEvent) => {
+    if (e.key) memoriaDasPreferencias.delete(`local:${e.key}`);
+    avisar();
+  };
+  avisosDasPreferencias.add(avisar);
+  window.addEventListener('storage', deOutraAba);
+  return () => {
+    avisosDasPreferencias.delete(avisar);
+    window.removeEventListener('storage', deOutraAba);
+  };
+}
+
+function usePreferencia(chave: string, tipo: Armazem): string | null {
+  return useSyncExternalStore(
+    assinarPreferencias,
+    () => lerPreferencia(chave, tipo),
+    () => null,
+  );
+}
+
+/**
+ * O DIA DE HOJE EM TERESINA, QUE VIRA SOZINHO (15/09/2026).
+ *
+ * Os grupos da lista calculavam "Hoje" e "Amanhã" com Date.now() dentro de um
+ * memo sem o relógio nas dependências: com a agenda aberta de um dia para o
+ * outro, o "Hoje" da tela continuava sendo ontem até alguém mexer num filtro.
+ * Conferir a cada minuto basta; o estado só muda quando o dia muda.
+ */
+function useHojeBR(): string {
+  const [hoje, setHoje] = useState(() => diaBRDe(Date.now()));
+  useEffect(() => {
+    const t = setInterval(() => {
+      const agora = diaBRDe(Date.now());
+      setHoje((antes) => (antes === agora ? antes : agora));
+    }, 60_000);
+    return () => clearInterval(t);
+  }, []);
+  return hoje;
 }
 
 /**
@@ -93,8 +183,14 @@ export default function AgendaPage() {
   return (
     <Suspense
       fallback={
+        /*
+          A forma pela largura, no CSS (15/09/2026): o celular abre na lista e
+          via primeiro o esqueleto do quadro. O CSS responde antes de qualquer
+          JavaScript, então não pisca.
+        */
         <Carregando texto="Abrindo a agenda…">
-          <EsqueletoDoQuadro />
+          <div className="md:hidden"><EsqueletoDaLista /></div>
+          <div className="hidden md:block"><EsqueletoDoQuadro /></div>
         </Carregando>
       }
     >
@@ -112,7 +208,8 @@ function AgendaConteudo() {
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'agenda') === 'EDITAR';
   const { tipos } = useTiposEvento();
 
-  const [calendarioAberto, setCalendarioAberto] = useState(true);
+  /** Aberto, a não ser que a pessoa o tenha fechado neste navegador. */
+  const calendarioAberto = usePreferencia(CHAVE_CALENDARIO, 'local') !== '0';
   /** Dia clicado no calendário; filtra o quadro logo acima. */
   const [diaSelecionado, setDiaSelecionado] = useState<Date | null>(null);
   const [aba, setAba] = useState<RecorteAgenda>(RECORTE_PADRAO);
@@ -145,8 +242,14 @@ function AgendaConteudo() {
     pessoas. É pouco, e a lista entra assim mesmo por pedido do dono.
   */
   const telaLarga = useTelaLarga();
-  const [visaoEscolhida, setVisaoEscolhida] = useState<VisaoDaAgenda | null>(null);
-  const visao: VisaoDaAgenda = visaoEscolhida ?? (telaLarga ? 'quadro' : 'lista');
+  const visaoGuardada = usePreferencia(CHAVE_VISAO, 'local');
+  const visaoEscolhida: VisaoDaAgenda | null =
+    visaoGuardada === 'quadro' || visaoGuardada === 'lista' ? visaoGuardada : null;
+  const quadroNaSessao = usePreferencia(CHAVE_QUADRO_NA_SESSAO, 'sessao') === '1';
+  /** Hoje em Teresina; muda à meia-noite e refaz os grupos. */
+  const hoje = useHojeBR();
+  // Os dados viram junto com o rótulo (15/09/2026): ver virada-do-dia.ts.
+  useRefazerNaViradaDoDia(hoje, qc);
   /** A metade de "Todas" que a lista mostra. Trocar de aba volta para Próximas. */
   const [janela, setJanela] = useState<JanelaDaAgenda>('adiante');
 
@@ -165,6 +268,12 @@ function AgendaConteudo() {
   /** Cartão apontado pela navegação — recebe um anel até a pessoa mexer. */
   const [destacado, setDestacado] = useState<string | null>(null);
   const [triagemId, setTriagemId] = useState<string | null>(null);
+  /**
+   * "Registrar desfecho" e "Marcar nova consulta" da gaveta do atendimento.
+   * Sem o modal montado aqui, os dois sumiam da gaveta aberta pela agenda
+   * enquanto Concluir e Cancelar apareciam (auditoria de 14/09/2026).
+   */
+  const [desfechoAlvo, setDesfechoAlvo] = useState<AtendimentoParaDesfecho | null>(null);
   const [excluir, setExcluir] = useState<Compromisso | null>(null);
   // Ações que exigem informação: cada uma tem o seu diálogo.
   const [concluir, setConcluir] = useState<Compromisso | null>(null);
@@ -237,19 +346,16 @@ function AgendaConteudo() {
     return p ? p.nomeExibicao || p.nome : 'pessoa selecionada';
   };
 
-  // Preferências só existem no navegador — lidas depois da montagem para não
-  // divergir do HTML renderizado no servidor.
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(CHAVE_CALENDARIO) === '0') setCalendarioAberto(false);
-      const v = localStorage.getItem(CHAVE_VISAO);
-      if (v === 'quadro' || v === 'lista') setVisaoEscolhida(v);
-    } catch { /* navegador sem armazenamento: calendário aberto, visão pela largura */ }
-  }, []);
+  /*
+    A VISÃO À VISTA. Todas vai para a lista (é ali que existem Próximas,
+    Anteriores e "Carregar mais"), a não ser que a pessoa tenha tocado em Quadro
+    nesta sessão. A escolha guardada continua valendo nas outras abas.
+  */
+  const visao: VisaoDaAgenda = visaoDaAgenda({ escolhida: visaoEscolhida, telaLarga, aba, quadroNaSessao });
 
   function escolherVisao(v: VisaoDaAgenda) {
-    setVisaoEscolhida(v);
-    try { localStorage.setItem(CHAVE_VISAO, v); } catch { /* só não lembra */ }
+    gravarPreferencia(CHAVE_VISAO, v, 'local');
+    gravarPreferencia(CHAVE_QUADRO_NA_SESSAO, v === 'quadro' ? '1' : '0', 'sessao');
   }
 
   /*
@@ -286,12 +392,17 @@ function AgendaConteudo() {
    * vazio em silêncio. O calendário continua com a própria janela do mês.
    *
    * Trocar de aba mantém o quadro anterior até o novo chegar: nada pisca.
+   *
+   * COM UM DIA ESCOLHIDO, NÃO PEDE (15/09/2026). Os cartões vêm do mês; pedir o
+   * recorte da aba mesmo assim segurava a tela no esqueleto até uma resposta que
+   * ninguém ia desenhar (dia escolhido com a aba Todas na lista). A exceção é o
+   * atalho de fora, que precisa saber se a atividade cabe na aba.
    */
   const quadro = useQuery({
     queryKey: ['compromissos', 'quadro', aba, filtro],
     queryFn: () => listarCompromissos({ ...filtro, recorte: aba }),
     placeholderData: (anterior) => anterior,
-    enabled: !listaDeTodas,
+    enabled: !listaDeTodas && (!diaSelecionado || !!veioDeFora),
   });
   /*
     A chave começa com 'compromissos': invalidar(), a gaveta e a conclusão pelo
@@ -373,7 +484,8 @@ function AgendaConteudo() {
     const alvo = listaDaAba.find((c) => c.id === veioDeFora) ?? alvoDeFora.data;
     if (!alvo) return;
 
-    const inicio = new Date(alvo.inicio);
+    // A célula do dia de Teresina, o mesmo dia do grupo da lista (15/09/2026).
+    const inicio = celulaDoDiaBR(alvo.inicio);
     // O recorte é do servidor: a atividade cabe na aba se veio na lista dela.
     const abaCabe = listaDaAba.some((c) => c.id === alvo.id);
     if (!abaCabe) setDiaSelecionado(new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate()));
@@ -396,43 +508,43 @@ function AgendaConteudo() {
    * Os dados vêm da consulta do mês, a única que garante ter o dia escolhido.
    */
   const filtrados = useMemo(() => {
-    const base = !diaSelecionado
-      ? listaDaAba
-      : compromissosDoMes.filter((c) => {
-          const d = new Date(c.inicio);
-          return (
-            d.getFullYear() === diaSelecionado.getFullYear() &&
-            d.getMonth() === diaSelecionado.getMonth() &&
-            d.getDate() === diaSelecionado.getDate()
-          );
-        });
+    // O dia de Teresina, e não o do aparelho: o mesmo dos grupos da lista.
+    const base = !diaSelecionado ? listaDaAba : doDiaDeTeresina(compromissosDoMes, ymdDoCalendario(diaSelecionado));
     return ordenarParaTrabalhar(base, user?.id, quadroCompartilhado);
-  }, [diaSelecionado, listaDaAba, compromissosDoMes, user?.id, quadroCompartilhado]);
+    // `hoje` entra porque "ficou para trás" (estaAtrasado) muda quando o dia vira.
+  }, [diaSelecionado, listaDaAba, compromissosDoMes, user?.id, quadroCompartilhado, hoje]);
 
   /*
-    OS GRUPOS DA LISTA. Anteriores só existe em Todas; o grupo âmbar e o Hoje
-    sempre presente não fazem sentido num dia escolhido no calendário, e o Hoje
-    não entra na aba que é só o que ficou para trás.
+    OS GRUPOS DA LISTA. As regras (Anteriores só em Todas; Hoje vazio só quando
+    as páginas chegaram a hoje; nada de âmbar num dia escolhido; a página
+    seguinte só acrescenta no fim) moram em `opcoesDaLista`, testada com linhas.
+    A ordem que conta para "chegou a hoje" é a da API, antes de
+    `ordenarParaTrabalhar`.
   */
-  const sentidoDaLista: JanelaDaAgenda = listaDeTodas ? janelaDosDados : 'adiante';
-  /*
-    Em Todas, o Hoje vazio só entra quando as páginas já chegaram a hoje: com a
-    primeira página cheia do que ficou para trás, as de hoje estão na seguinte
-    e o grupo vazio mentiria (14/09/2026). A ordem que conta é a da API, antes
-    de `ordenarParaTrabalhar`.
-  */
-  const todasChegouAHoje = !listaDeTodas || paginasChegaramAHoje(itensDeTodas, !!todas.hasNextPage, Date.now());
+  const paginasDeTodas = useMemo(
+    () => paginaDeCadaItem((todas.data?.pages ?? []).map((p) => p.itens)),
+    [todas.data],
+  );
+  const temProximaEmTodas = !!todas.hasNextPage;
   const grupos = useMemo(
     () =>
       visao !== 'lista'
         ? []
-        : agruparPorDia(filtrados, {
-            agora: Date.now(),
-            sentido: sentidoDaLista,
-            incluirHoje: !diaSelecionado && aba !== 'atrasadas' && todasChegouAHoje,
-            separarParaTras: !diaSelecionado && sentidoDaLista === 'adiante',
-          }),
-    [visao, filtrados, sentidoDaLista, diaSelecionado, aba, todasChegouAHoje],
+        : agruparPorDia(
+            filtrados,
+            opcoesDaLista({
+              listaDeTodas,
+              diaEscolhido: !!diaSelecionado,
+              aba,
+              janelaDosDados,
+              itensNaOrdemDaApi: itensDeTodas,
+              temProxima: temProximaEmTodas,
+              agora: Date.now(),
+              paginas: paginasDeTodas,
+            }),
+          ),
+    // `hoje` refaz os rótulos Hoje/Amanhã quando o dia vira com a tela aberta.
+    [visao, filtrados, listaDeTodas, diaSelecionado, aba, janelaDosDados, itensDeTodas, temProximaEmTodas, paginasDeTodas, hoje],
   );
 
   /** Quantas são minhas e estão em aberto — pela régua `daPessoa`, a mesma do painel. */
@@ -472,15 +584,26 @@ function AgendaConteudo() {
     // A aba fica: ela não é um filtro escondido, está destacada no topo.
   }
 
+  /*
+    O ATENDIMENTO ENTRA NAS CHAVES (15/09/2026). Concluir a consulta fecha o
+    atendimento de origem; reabrir, cancelar e remarcar mudam a fila dele. Sem
+    as duas chaves, a lista de Atendimentos e a gaveta aberta continuavam
+    dizendo "Aguardando a consulta" de um atendimento já concluído.
+  */
   const invalidar = () => {
-    for (const k of [['compromissos'], ['compromisso'], ['minhas-pendencias'], ['dashboard-resumo']]) {
+    for (const k of [['compromissos'], ['compromisso'], ['minhas-pendencias'], ['dashboard-resumo'], ['atendimentos'], ['atendimento']]) {
       qc.invalidateQueries({ queryKey: k });
     }
   };
 
   const status = useMutation({
     mutationFn: ({ id, status }: { id: string; status: StatusCompromisso }) => mudarStatusCompromisso(id, status),
-    onSuccess: () => invalidar(),
+    // Reabrir a consulta concluída devolve o atendimento que voltou a aguardar (15/09/2026): o aviso diz qual.
+    onSuccess: (r: { atendimentoReaberto?: { id: string; numero: number } | null } | null | undefined) => {
+      const aviso = avisoDeReaberta(r);
+      if (aviso) toast.success(aviso);
+      invalidar();
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível mudar a situação da atividade.'),
   });
   const remover = useMutation({
@@ -506,13 +629,10 @@ function AgendaConteudo() {
   }
 
   function alternarCalendario() {
-    setCalendarioAberto((v) => {
-      try { localStorage.setItem(CHAVE_CALENDARIO, v ? '0' : '1'); } catch { /* só não lembra */ }
-      // Fechar o calendário sem soltar o dia deixaria o quadro filtrado por um
-      // controle que não está mais visível.
-      if (v) setDiaSelecionado(null);
-      return !v;
-    });
+    gravarPreferencia(CHAVE_CALENDARIO, calendarioAberto ? '0' : '1', 'local');
+    // Fechar o calendário sem soltar o dia deixaria o quadro filtrado por um
+    // controle que não está mais visível.
+    if (calendarioAberto) setDiaSelecionado(null);
   }
 
   /*
@@ -611,12 +731,24 @@ function AgendaConteudo() {
   */
   const atrasadasHoje = aba === 'hoje' && !diaSelecionado && visao === 'quadro' ? contagem?.atrasadas ?? 0 : 0;
 
-  /* O estado da consulta que a tela está mostrando agora. */
-  const erroDaVez = listaDeTodas ? todas.isError && !todas.data : quadro.isError && !quadro.data;
-  const carregandoDaVez = listaDeTodas ? todas.isLoading : quadro.isLoading;
-  const buscandoDaVez = listaDeTodas ? todas.isFetching && !todas.isFetchingNextPage : quadro.isFetching;
+  /*
+    O estado da consulta que a tela está mostrando agora. Com um dia escolhido,
+    é a do mês (15/09/2026): a do recorte nem é pedida.
+  */
+  const erroDaVez = diaSelecionado
+    ? doMes.isError && !doMes.data
+    : listaDeTodas ? todas.isError && !todas.data : quadro.isError && !quadro.data;
+  const carregandoDaVez = diaSelecionado ? doMes.isLoading : listaDeTodas ? todas.isLoading : quadro.isLoading;
+  const buscandoDaVez = diaSelecionado
+    ? doMes.isFetching
+    : listaDeTodas ? todas.isFetching && !todas.isFetchingNextPage : quadro.isFetching;
+  /** Trocando de aba ou de Próximas para Anteriores: os cartões à vista ainda são os de antes. */
+  const trocandoDaVez = !diaSelecionado && (listaDeTodas ? todas.isPlaceholderData : quadro.isPlaceholderData);
+  const tentarDeNovo = () => (diaSelecionado ? doMes.refetch() : listaDeTodas ? todas.refetch() : quadro.refetch());
 
   const totalDaJanela = janelaDosDados === 'anteriores' ? contagem?.todosAnteriores : contagem?.todosAdiante;
+  /** O número da linha de filtros e do botão do celular: o recorte, não as páginas. */
+  const noRecorte = quantasNoRecorte({ listaDeTodas, carregadas: filtrados.length, totalDaJanela });
   const vazioDaLista = diaSelecionado
     ? 'Nenhuma atividade neste dia.'
     : aba === 'atrasadas'
@@ -633,7 +765,7 @@ function AgendaConteudo() {
       aria-pressed={visao === valor}
       onClick={() => escolherVisao(valor)}
       className={cn(
-        'flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors sm:min-h-7 sm:flex-none',
+        'flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors sm:min-h-8 sm:flex-none',
         visao === valor ? 'bg-brand-800 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted',
       )}
     >
@@ -712,14 +844,21 @@ function AgendaConteudo() {
           </div>
           {/* O calendário não é uma visão alternativa: o botão só o recolhe,
               para quem precisa da tela toda no celular. */}
+          {/*
+            No celular o texto é só "Calendário" (15/09/2026): "Ocultar
+            calendário" quebrava em duas linhas ao lado de Quadro | Lista. A seta
+            diz o estado, e o nome acessível continua completo.
+          */}
           <button
             type="button"
             onClick={alternarCalendario}
-            className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted sm:h-9 sm:flex-none"
+            className="flex h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-input bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted sm:h-9 sm:flex-none"
             aria-expanded={calendarioAberto}
+            aria-label={calendarioAberto ? 'Ocultar calendário' : 'Mostrar calendário'}
           >
             <CalendarDays className="h-4 w-4" />
-            {calendarioAberto ? 'Ocultar calendário' : 'Mostrar calendário'}
+            <span className="sm:hidden">Calendário</span>
+            <span className="hidden sm:inline">{calendarioAberto ? 'Ocultar calendário' : 'Mostrar calendário'}</span>
             <ChevronUp className={cn('h-3.5 w-3.5 transition', !calendarioAberto && 'rotate-180')} />
           </button>
         </div>
@@ -769,8 +908,8 @@ function AgendaConteudo() {
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>
               {filtrosAtivos} filtro{filtrosAtivos === 1 ? '' : 's'} ativo{filtrosAtivos === 1 ? '' : 's'} ·{' '}
-              <strong className="text-foreground">{filtrados.length}</strong> atividade
-              {filtrados.length === 1 ? '' : 's'} à vista
+              <strong className="text-foreground">{noRecorte}</strong> atividade
+              {noRecorte === 1 ? '' : 's'} encontrada{noRecorte === 1 ? '' : 's'}
             </span>
             {etiquetas.map((e) => (
               <button
@@ -815,7 +954,8 @@ function AgendaConteudo() {
       {atrasadasHoje > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
           <span className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {/* O relógio, como no grupo âmbar da lista: ficou para trás não é perigo. */}
+            <Clock className="mt-0.5 h-4 w-4 shrink-0" />
             {atrasadasHoje === 1
               ? '1 atividade de dias anteriores ficou para trás e está no topo, com a data em âmbar.'
               : `${atrasadasHoje} atividades de dias anteriores ficaram para trás e estão no topo, com a data em âmbar.`}
@@ -865,7 +1005,7 @@ function AgendaConteudo() {
           className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5 text-sm sm:flex-row sm:items-center sm:justify-between"
         >
           <span>Não deu para carregar a agenda. Confira a conexão e tente de novo.</span>
-          <Button variant="outline" onClick={() => (listaDeTodas ? todas.refetch() : quadro.refetch())}>
+          <Button variant="outline" onClick={tentarDeNovo}>
             <RotateCw className="h-4 w-4" /> Tentar de novo
           </Button>
         </div>
@@ -874,12 +1014,25 @@ function AgendaConteudo() {
           {visao === 'lista' ? <EsqueletoDaLista /> : <EsqueletoDoQuadro />}
         </Carregando>
       ) : visao === 'lista' ? (
-        <div className="space-y-3">
+        /*
+          ENTRADA E TROCA (15/09/2026). O invólucro surge quando a primeira carga
+          termina; enquanto Próximas vira Anteriores (ou a aba troca), os cartões
+          antigos ficam esmaecidos, que é o sinal de que o toque foi ouvido. A
+          opacidade mora no filho para a transição não disputar com a animação.
+        */
+        <div className="animate-surgir">
+        <div
+          className={cn('space-y-3 transition-opacity', trocandoDaVez && 'opacity-60')}
+          aria-busy={trocandoDaVez || undefined}
+        >
           <ListaPorDia
             grupos={grupos}
             vazio={vazioDaLista}
             vazioDeHoje={vazioDeHoje}
             onVerSoParaTras={aba !== 'atrasadas' ? () => setAba('atrasadas') : undefined}
+            totalParaTras={totalDoGrupoParaTras({
+              listaDeTodas, janelaDosDados, temProxima: temProximaEmTodas, atrasadas: contagem?.atrasadas,
+            })}
             onAbrir={onAbrir}
             onEditar={onEditar}
             onVerTriagem={setTriagemId}
@@ -898,14 +1051,15 @@ function AgendaConteudo() {
             <RodapeDaPaginacao
               mostrando={itensDeTodas.length}
               total={totalDaJanela}
-              temMais={!!todas.hasNextPage && !todas.isPlaceholderData}
-              carregando={todas.isFetchingNextPage}
-              erro={todas.isFetchNextPageError}
+              {...estadoDoRodape(todas)}
               onCarregarMais={() => todas.fetchNextPage()}
             />
           )}
         </div>
+        </div>
       ) : (
+        <div className="animate-surgir">
+        <div className={cn('transition-opacity', trocandoDaVez && 'opacity-60')} aria-busy={trocandoDaVez || undefined}>
         <KanbanView
           compromissos={filtrados}
           onAbrir={onAbrir}
@@ -931,6 +1085,8 @@ function AgendaConteudo() {
           */
           onNovo={onNovo}
         />
+        </div>
+        </div>
       )}
 
       {/* CALENDÁRIO — abaixo do quadro. O trabalho do dia está nos cards; o
@@ -982,7 +1138,7 @@ function AgendaConteudo() {
             </Button>
           )}
           <Button className="flex-1" onClick={() => setFiltrosAbertos(false)}>
-            Ver {filtrados.length} atividade{filtrados.length === 1 ? '' : 's'}
+            Ver {noRecorte} atividade{noRecorte === 1 ? '' : 's'}
           </Button>
         </div>
       </Sheet>
@@ -1024,6 +1180,8 @@ function AgendaConteudo() {
         onConcluido={(caso) => {
           // As mesmas chaves do painel: lista de Processos E a ficha aberta (13/09/2026).
           for (const k of CHAVES_DEPOIS_DE_CONCLUIR) qc.invalidateQueries({ queryKey: k });
+          for (const k of [['atendimentos'], ['atendimento']]) qc.invalidateQueries({ queryKey: k });
+          // A consulta concluída fecha o atendimento de origem (15/09/2026): a lista e a gaveta dele mudam junto.
           if (caso) {
             toast.success('Caso aberto em fase pré-processual.', {
               description: 'Fica na aba Pré-processuais até ser ajuizado.',
@@ -1060,7 +1218,25 @@ function AgendaConteudo() {
       />
 
       {/* Ponte com a triagem */}
-      <AtendimentoDrawer atendimentoId={triagemId} open={!!triagemId} onClose={() => setTriagemId(null)} />
+      <AtendimentoDrawer
+        atendimentoId={triagemId}
+        open={!!triagemId}
+        onClose={() => setTriagemId(null)}
+        onMudou={invalidar}
+        onRegistrarDesfecho={(a) => { setTriagemId(null); setDesfechoAlvo(a); }}
+      />
+      {/*
+        O MESMO MODAL DA TELA DE ATENDIMENTOS (15/09/2026). Ao fechar, a gaveta
+        do atendimento volta: é de onde a pessoa veio, e é ali que "Concluir
+        atendimento" aparece para o resolvido no ato, sem um segundo "Concluir
+        agora?" escrito aqui.
+      */}
+      <RegistrarDesfechoModal
+        open={!!desfechoAlvo}
+        atendimento={desfechoAlvo}
+        onClose={() => { const voltar = desfechoAlvo?.id ?? null; setDesfechoAlvo(null); setTriagemId(voltar); }}
+        onRegistrado={invalidar}
+      />
 
       {/* Excluir */}
       <ConfirmDialog

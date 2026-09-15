@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Esqueleto } from '@/components/ui/esqueleto';
 import { coberturaDoDiario } from '@/lib/djen';
-import { linhasDaCobertura } from '@/lib/djen-cobertura';
+import { partesDaCobertura } from '@/lib/djen-cobertura';
 
 /**
  * POR ONDE O DIÁRIO ALCANÇA ESTE PROCESSO — uma linha de estado na aba
@@ -13,6 +13,9 @@ import { linhasDaCobertura } from '@/lib/djen-cobertura';
  * vigiado. Os 37 processos cadastrados depois da carga de 04/09 tinham só 38,4%
  * dos dias com publicação cobertos, e a ficha não deixava ver isso. As frases
  * vêm prontas da API, que sabe se o processo é vivo, dormente ou sem número.
+ *
+ * 15/09/2026: a principal numa linha e o resto embaixo, menor. Coladas num
+ * parágrafo só, a frase que responde "por onde chega?" sumia entre as datas.
  *
  * Sem cor de alerta: é estado, não aviso. A chave fica debaixo de
  * `['djen-publicacoes', processoId]` de propósito: o "Buscar no DJEN" já
@@ -29,10 +32,26 @@ export function LinhaDeCobertura({ processoId }: { processoId: string }) {
     staleTime: 60_000,
   });
 
-  if (isLoading) return <Esqueleto className="h-4 w-3/4" />;
+  if (isLoading) {
+    return (
+      <div aria-hidden="true" className="space-y-1.5">
+        <Esqueleto className="h-3.5 w-3/4" />
+        <Esqueleto className="h-3 w-2/5" />
+      </div>
+    );
+  }
 
-  const linhas = linhasDaCobertura(data);
-  if (!linhas) return null;
+  const partes = partesDaCobertura(data);
+  if (!partes) return null;
 
-  return <p className="text-xs leading-snug text-muted-foreground">{linhas.join(' ')}</p>;
+  return (
+    <div className="animate-surgir space-y-0.5">
+      <p className="text-xs leading-snug text-foreground/80">{partes.principal}</p>
+      {partes.apoio.map((linha) => (
+        <p key={linha} className="text-[11px] leading-snug text-muted-foreground">
+          {linha}
+        </p>
+      ))}
+    </div>
+  );
 }

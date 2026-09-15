@@ -35,6 +35,7 @@ import {
   primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando, diasSemAcesso,
   linkDaAgenda, linkDosPrazosDaSemana, seloDasAudienciasDaSemana,
   textoDoLinkDeRecadastro, mensagemDeAniversario, DIAS_PARA_PARADO,
+  barraDoAtendimento, cartaoDosAtendimentos, explicacaoDaPublicacaoSemTarefa, kpiDoBalcao, kpiDosAtendimentos,
   type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
@@ -328,11 +329,14 @@ function Conteudo({
       icon: Briefcase, cor: 'bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400',
       href: '/processos',
     },
+    /*
+      COM A TRIAGEM (15/09/2026): conta só o que pede uma ação dela, e abre a
+      lista no MESMO recorte. O que espera a consulta está na agenda de quem
+      atende e não soma aqui.
+    */
     pode.atendimentos && {
-      label: 'Atendimentos pendentes', valor: kpis.atendimentosPendentes, sub: 'aguardando resolução',
+      ...kpiDosAtendimentos(kpis),
       icon: Clock, cor: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
-      // O número conta os PENDENTES; a lista abre filtrada neles.
-      href: '/atendimentos?status=PENDENTE',
     },
     pode.agenda && {
       label: 'Prazos esta semana', valor: kpis.prazosSemana, sub: 'próximos 7 dias',
@@ -519,8 +523,9 @@ function Conteudo({
           <div className="grid grid-cols-3 gap-4">
             <KpiCard label="Registrei hoje" valor={data.minhaTriagem.registradosHoje} sub="atendimentos"
               icon={Headset} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/atendimentos" destaque />
-            <KpiCard label="Comigo, em aberto" valor={data.minhaTriagem.semDesfecho} sub="aguardando desfecho"
-              icon={Clock} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" href="/atendimentos" destaque />
+            {/* Pela fila (15/09/2026): o que só espera a consulta não está "comigo". */}
+            <KpiCard {...kpiDoBalcao(data.minhaTriagem)}
+              icon={Clock} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" destaque />
             <KpiCard label="Filiações hoje" valor={data.minhaTriagem.filiadosHoje} sub="cadastros novos"
               icon={Users} cor="bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400" href="/filiados" destaque />
           </div>
@@ -2411,10 +2416,16 @@ function duracaoLegivel(horas: number): string {
 }
 
 function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
-  const itens = data.atendimentosPendentes;
+  /*
+    A FILA DA TRIAGEM (15/09/2026). A lista é do que pede a triagem; o que
+    espera a consulta vira uma linha neutra com link, porque o mesmo atraso já
+    aparece na agenda de quem atende.
+  */
+  const cartao = cartaoDosAtendimentos(data);
+  const itens = cartao.itens;
   const tm = data.tempoMedioTriagem;
   return (
-    <SectionCard title="Atendimentos pendentes" icon={Inbox} count={data.kpis.atendimentosPendentes} actionHref="/atendimentos?status=PENDENTE" actionLabel="Triagem">
+    <SectionCard title={cartao.titulo} icon={Inbox} count={cartao.contagem} actionHref={cartao.href} actionLabel="Triagem">
       {/* Tempo médio de resolução: a régua da triagem. Fica no card dos
           atendimentos porque é ali que ele significa alguma coisa — solto num
           KPI, viraria número sem contexto. */}
@@ -2427,13 +2438,13 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
         </p>
       )}
       {itens.length === 0 ? (
-        <EmptyState icon={CheckCircle2}>Nenhum atendimento aguardando resolução.</EmptyState>
+        <EmptyState icon={CheckCircle2}>{cartao.vazio}</EmptyState>
       ) : (
         <ul className="divide-y divide-border/60">
           {itens.map((a) => (
             <li key={a.id}>
               <Link href={`/atendimentos?atendimento=${a.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition hover:bg-muted/60">
-                <span className="w-1 shrink-0 self-stretch rounded-full bg-amber-400" />
+                <span className={cn('w-1 shrink-0 self-stretch rounded-full', barraDoAtendimento(a))} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     <span className="text-muted-foreground">#{a.numero}</span> {a.filiado.nomeCompleto}
@@ -2449,11 +2460,13 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
                     <ChipEncaminhamento
                       encaminhamento={a.encaminhamento}
                       statusAtendimento="PENDENTE"
+                      fila={a.fila}
                       className="mt-1"
                     />
                   )}
                 </div>
-                {!a.encaminhamento && (
+                {/* "Pendente" só para quem ainda não tem desfecho: o resto já diz em que pé está. */}
+                {!a.desfecho && (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                     Pendente
                   </span>
@@ -2462,6 +2475,14 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
             </li>
           ))}
         </ul>
+      )}
+      {cartao.aguardandoConsulta > 0 && (
+        <Link
+          href={cartao.hrefAguardando}
+          className="mt-1 flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+        >
+          e mais {cartao.aguardandoConsulta} aguardando a consulta <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </Link>
       )}
     </SectionCard>
   );
@@ -2881,6 +2902,8 @@ function LinhaPublicacao({
   const idDaTarefa = teor?.compromisso?.id ?? pub.compromissoId;
   const temTarefa = !!teor?.compromisso || pub.temTarefaAberta;
   const idDoProcesso = teor?.processo?.id ?? pub.processo?.id ?? '';
+  // O motivo do robô, pela tabela da ficha; a cópia do mesmo ato não oferece tarefa repetida.
+  const semTarefa = explicacaoDaPublicacaoSemTarefa({ temTarefa, teor });
 
   return (
     <li className="py-2 first:pt-0 last:pb-0">
@@ -3002,9 +3025,11 @@ function LinhaPublicacao({
       {aberto && (
         <div className="mt-2 rounded-lg border bg-muted/30 p-3">
           {carregandoTeor ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Buscando o teor…
-            </p>
+            <Carregando texto="Buscando o teor" className="space-y-1.5">
+              <Esqueleto className="h-3 w-full" />
+              <Esqueleto className="h-3 w-11/12" />
+              <Esqueleto className="h-3 w-2/3" />
+            </Carregando>
           ) : erroNoTeor ? (
             /*
               A FALHA É NOSSA, NÃO DO TRIBUNAL. Só `isLoading` era olhado: com a
@@ -3045,10 +3070,15 @@ function LinhaPublicacao({
               A ACAO PRINCIPAL E A QUE FALTAVA. So aparece quando ha o que fazer:
               sem tarefa, e para quem grava na agenda.
             */}
-            {!temTarefa && podeCriarTarefa && !vendoPrevia && (
+            {!temTarefa && podeCriarTarefa && !vendoPrevia && !carregandoTeor && semTarefa.podeCriar && (
               <Button size="sm" className="h-11 sm:h-9" onClick={() => setVendoPrevia(true)}>
                 <CalendarPlus className="h-4 w-4" /> Criar tarefa
               </Button>
+            )}
+            {semTarefa.tarefaDoMesmoAtoId && (
+              <Link href={`/agenda?compromisso=${semTarefa.tarefaDoMesmoAtoId}`} className={ACAO_SECUNDARIA}>
+                <CalendarClock className="h-4 w-4" /> Abrir a tarefa do mesmo ato
+              </Link>
             )}
             {temTarefa && idDaTarefa && (
               <Link href={`/agenda?compromisso=${idDaTarefa}`} className={ACAO_SECUNDARIA}>
@@ -3183,12 +3213,8 @@ function LinhaPublicacao({
             A distinção existe no dado (`tarefaDispensadaMotivo`) e é o que separa
             "o sistema pensou nisto" de "o sistema deixou passar".
           */}
-          {!temTarefa && teor?.tarefaDispensadaMotivo && (
-            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-              {teor.tarefaDispensadaMotivo === 'NOTICIA_VELHA'
-                ? 'O robô não agendou porque o ato já estava fora da janela quando chegou. Se ainda vale, crie a tarefa aqui.'
-                : 'O robô entendeu que a ordem é para a outra parte, não para nós. Se estiver errado, crie a tarefa aqui.'}
-            </p>
+          {semTarefa.ajuda && (
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{semTarefa.ajuda}</p>
           )}
         </div>
       )}

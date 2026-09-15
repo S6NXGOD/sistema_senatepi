@@ -11,7 +11,7 @@ import {
   CHAVES_DEPOIS_DE_CONCLUIR, concluirNoResumo,
   type CompromissoCard, type ResumoDashboard,
 } from '@/lib/dashboard';
-import { avisoDeConcluida, DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
+import { avisoDeConcluida, avisoDeDesfeita, DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
 
 export interface PedidoDeConclusao {
   c: CompromissoCard;
@@ -60,7 +60,8 @@ export function useConcluirNoPainel() {
 
   const desfazer = useMutation({
     mutationFn: (id: string) => desfazerConclusao(id),
-    onSuccess: () => toast.success('Conclusão desfeita. A atividade voltou para a fila.'),
+    // Desfazer a consulta devolve o atendimento que fechou junto: o aviso diz (15/09/2026).
+    onSuccess: (r) => toast.success(avisoDeDesfeita(r)),
     onError: (e) => toast.error(mensagemDaApi(e, 'Não foi possível desfazer a conclusão.')),
     onSettled: () => invalidar(),
   });

@@ -1,11 +1,24 @@
 import {
-  DESAFIOS_CONHECIDOS,
+  destinoDoErroDoDesafio,
+  ErroDoRecadastro,
   faltaNoDesafio,
   pedidoDoDesafio,
   recadastramentosAConferir,
   respostaDoDesafio,
+  telaDoLinkDireto,
   valorDaAlteracao,
+  type DesafioRecadastramento,
 } from './recadastro';
+
+/*
+  A lista sai do tipo, e não de uma constante do código (15/09/2026): a
+  `DESAFIOS_CONHECIDOS` só existia para este teste. O `Record` obriga a
+  acrescentar aqui qualquer valor novo do tipo, ou o spec não compila.
+*/
+const TODOS_OS_DESAFIOS: Record<DesafioRecadastramento, true> = {
+  CPF_NASCIMENTO: true, CPF: true, COREN: true, NASCIMENTO: true, NENHUM: true,
+};
+const DESAFIOS_CONHECIDOS = Object.keys(TODOS_OS_DESAFIOS) as DesafioRecadastramento[];
 
 /**
  * O DE→PARA DA CONFERÊNCIA.
@@ -196,5 +209,56 @@ describe('faltaNoDesafio', () => {
 
   it('link direto nunca cobra nada', () => {
     expect(faltaNoDesafio(pedidoDoDesafio('NENHUM'), vazio)).toBeNull();
+  });
+});
+
+/**
+ * ONDE O ERRO DA CONFIRMAÇÃO APARECE (15/09/2026). As frases e os status são os
+ * que `link-recadastramento.service.ts` devolve.
+ */
+describe('destinoDoErroDoDesafio', () => {
+  it('dado errado com tentativas sobrando: a linha fixa acima do botão', () => {
+    expect(destinoDoErroDoDesafio(new ErroDoRecadastro('Dados não conferem. Restam 3 tentativa(s).', 403))).toBe('LINHA');
+  });
+
+  it('a 5ª errada queima o link: tela de link indisponível', () => {
+    expect(
+      destinoDoErroDoDesafio(
+        new ErroDoRecadastro('Muitas tentativas incorretas. Este link foi bloqueado — solicite um novo ao sindicato.', 403),
+      ),
+    ).toBe('LINK');
+  });
+
+  it('cancelado, vencido ou inexistente (410 e 404): tela de link indisponível', () => {
+    expect(destinoDoErroDoDesafio(new ErroDoRecadastro('Este link foi cancelado. Solicite um novo ao sindicato.', 410))).toBe('LINK');
+    expect(destinoDoErroDoDesafio(new ErroDoRecadastro('Este link expirou. Solicite um novo ao sindicato.', 410))).toBe('LINK');
+    expect(destinoDoErroDoDesafio(new ErroDoRecadastro('Link inválido ou inexistente.', 404))).toBe('LINK');
+  });
+
+  it('falha de rede (sem status) fica na linha: dá para tentar de novo', () => {
+    expect(destinoDoErroDoDesafio(new TypeError('Failed to fetch'))).toBe('LINHA');
+    expect(destinoDoErroDoDesafio(undefined)).toBe('LINHA');
+  });
+
+  it('o erro guarda o status e a frase da API', () => {
+    const e = new ErroDoRecadastro('Dados não conferem. Restam 1 tentativa(s).', 403);
+    expect(e).toBeInstanceOf(Error);
+    expect([e.status, e.message]).toEqual([403, 'Dados não conferem. Restam 1 tentativa(s).']);
+  });
+});
+
+/** O link antigo sem confirmação mostrava "Não foi possível abrir" antes de tentar. */
+describe('telaDoLinkDireto', () => {
+  it('primeiro desenho, antes do efeito: abrindo, nunca falhou', () => {
+    expect(telaDoLinkDireto({ validando: false, tentouUmaVez: false })).toBe('ABRINDO');
+  });
+
+  it('validando: abrindo', () => {
+    expect(telaDoLinkDireto({ validando: true, tentouUmaVez: false })).toBe('ABRINDO');
+    expect(telaDoLinkDireto({ validando: true, tentouUmaVez: true })).toBe('ABRINDO');
+  });
+
+  it('só depois de uma tentativa terminada é que falhou', () => {
+    expect(telaDoLinkDireto({ validando: false, tentouUmaVez: true })).toBe('FALHOU');
   });
 });

@@ -7,29 +7,24 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import { campoVisivel } from '@/tenant.config';
 import { celularParaWhatsApp, linkWhatsApp } from '@/lib/whatsapp';
 import {
-  prepararEnvioRecadastro, listarLinksRecadastramento, lerPreviaDoLink,
+  prepararEnvioRecadastro, listarLinksRecadastramento, consultaDaPreviaDoLink,
   type EnvioRecadastro, type Filiado, type LinkRecadastramento, type MeioEnvioRecadastro,
 } from '@/lib/filiados';
 import {
-  assuntoDoEmail, avisoDoEnvio, emailUtilizavel, estadoDoLink, linkEmail, mensagemDoLink,
-  type AvisoDoEnvio,
+  assuntoDoEmail, avisoDoEnvio, emailUtilizavel, erroDoEnvio, estadoDoLink, linkEmail, mensagemDoLink,
+  rotuloDaPorta,
+  type AvisoDoEnvio, type ErroDoEnvio, type PortaDaFicha,
 } from '@/lib/envio-recadastro';
 
 type Feito = 'MENSAGEM' | 'LINK' | 'COMPARTILHADO' | null;
 
 function linkVivo(l: LinkRecadastramento): boolean {
   return !l.usadoEm && !l.revogadoEm && new Date(l.expiraEm) > new Date();
-}
-
-function mensagemDeErro(e: unknown): string {
-  const msg = (e as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
-  if (Array.isArray(msg) && typeof msg[0] === 'string') return msg[0];
-  if (typeof msg === 'string' && msg.trim()) return msg;
-  return 'Não foi possível preparar o link. Tente de novo.';
 }
 
 /**
@@ -60,11 +55,12 @@ export function EnviarLinkRecadastro({
   className?: string;
   onPreparado?: (envio: EnvioRecadastro) => void;
   /**
-   * A porta para gravar CPF e data de nascimento, quando o link não teria
-   * como confirmar a identidade. Sem ela (a atualização cadastral do
-   * atendimento, que já É o formulário), a caixa só explica.
+   * A porta para gravar ou corrigir CPF e data de nascimento, quando o link não
+   * teria como confirmar a identidade. Recebe QUAL porta (15/09/2026): dado
+   * gravado errado se corrige na edição da ficha; dado que falta se completa
+   * no presencial. Sem ela, a caixa só explica.
    */
-  onCompletarFicha?: () => void;
+  onCompletarFicha?: (porta: PortaDaFicha) => void;
 }) {
   const qc = useQueryClient();
   const corenVisivel = campoVisivel('numeroCoren');
@@ -75,19 +71,13 @@ export function EnviarLinkRecadastro({
     queryFn: async () => (await api.get(`/filiados/${filiadoId}`)).data as Filiado,
   });
   /*
-    O QUE O LINK VAI PEDIR, perguntado à API (14/09/2026). A chave fica debaixo
-    de ['filiado', filiadoId]: quem grava CPF ou data na ficha invalida esse
-    prefixo, e a prévia se refaz sozinha. `retry: false` e `staleTime: 0`: na
-    janela de troca a rota pode não existir, e a resposta muda assim que a
-    ficha muda. Erro aqui não trava nada: os botões ficam habilitados e a API
-    decide no toque.
+    O QUE O LINK VAI PEDIR, perguntado à API (14/09/2026), pela consulta única
+    de lib/filiados.ts (a mesma do modal). Erro aqui não trava nada: os botões
+    ficam habilitados e a API decide no toque.
   */
-  const { data: previa, isLoading: carregandoPrevia } = useQuery({
-    queryKey: ['filiado', filiadoId, 'previa-do-link'],
-    queryFn: () => lerPreviaDoLink(filiadoId),
-    retry: false,
-    staleTime: 0,
-  });
+  const {
+    data: previa, isLoading: carregandoPrevia, isError: previaFalhou,
+  } = useQuery(consultaDaPreviaDoLink(filiadoId));
   const { data: links } = useQuery({
     queryKey: ['links-recadastramento', filiadoId],
     queryFn: () => listarLinksRecadastramento(filiadoId),
@@ -96,7 +86,7 @@ export function EnviarLinkRecadastro({
   const [resultado, setResultado] = useState<EnvioRecadastro | null>(null);
   const [haviaAtivo, setHaviaAtivo] = useState(false);
   const [ocupado, setOcupado] = useState<MeioEnvioRecadastro | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [erro, setErro] = useState<ErroDoEnvio | null>(null);
   const [feito, setFeito] = useState<Feito>(null);
   const [copiarAMao, setCopiarAMao] = useState<string | null>(null);
   const [abrirAMao, setAbrirAMao] = useState<string | null>(null);
@@ -128,9 +118,16 @@ export function EnviarLinkRecadastro({
       ? avisoDoEnvio(previa, corenVisivel)
       : { tipo: 'NADA' };
   const semConfirmacao = aviso.tipo === 'SEM_CONFIRMACAO';
+  const porta = aviso.tipo === 'SEM_CONFIRMACAO' ? aviso.porta : null;
   // Sem a ficha (erro ao ler), deixa tentar: a rota diz se há celular.
   const celularDesconhecido = !resultado && !filiado && !carregandoFiliado;
   const whatsappDisponivel = !!celular || celularDesconhecido;
+  /*
+    15/09/2026: enquanto a ficha ou a prévia carregam, a grade vira esqueleto.
+    Antes, Compartilhar, Copiar e E-mail ficavam ATIVOS nesse meio-tempo, e o
+    toque podia chegar antes da caixa que diz que o link não pode ser gerado.
+  */
+  const carregando = !resultado && (carregandoFiliado || carregandoPrevia);
 
   function marcarFeito(qual: Feito) {
     setFeito(qual);
@@ -155,11 +152,11 @@ export function EnviarLinkRecadastro({
       void qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
       return r;
     } catch (e) {
-      setErro(mensagemDeErro(e));
+      setErro(erroDoEnvio(e));
       // A recusa pode ser justamente "sem como confirmar a identidade" (a prévia
       // tinha falhado ou a ficha mudou): perguntar de novo troca os botões pela
       // caixa que explica o que fazer.
-      void qc.invalidateQueries({ queryKey: ['filiado', filiadoId, 'previa-do-link'] });
+      void qc.invalidateQueries({ queryKey: consultaDaPreviaDoLink(filiadoId).queryKey });
       return null;
     } finally {
       setOcupado(null);
@@ -177,10 +174,12 @@ export function EnviarLinkRecadastro({
     }
     if (!r.celularWhatsApp) {
       aba?.close();
-      setErro(
-        'O cadastro não tem celular (nem no telefone principal, nem no secundário). ' +
+      setErro({
+        tom: 'AVISO',
+        texto:
+          'O cadastro não tem celular (nem no telefone principal, nem no secundário). ' +
           'Copie a mensagem e mande por onde conseguir falar com o filiado.',
-      );
+      });
       return;
     }
     const destino = linkWhatsApp(r.celularWhatsApp, mensagemDoLink(r));
@@ -242,7 +241,7 @@ export function EnviarLinkRecadastro({
     const r = await preparar('EMAIL');
     if (!r) return;
     if (!r.email) {
-      setErro('O e-mail do cadastro não parece válido. Corrija o cadastro ou copie a mensagem.');
+      setErro({ tom: 'AVISO', texto: 'O e-mail do cadastro não parece válido. Corrija o cadastro ou copie a mensagem.' });
       return;
     }
     window.location.href = linkEmail(r.email, assuntoDoEmail(), mensagemDoLink(r));
@@ -252,6 +251,11 @@ export function EnviarLinkRecadastro({
   const icone = (meio: MeioEnvioRecadastro, Icone: typeof Copy) =>
     ocupado === meio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icone className="h-4 w-4" />;
   const alvo = 'h-11 md:h-11';
+  /*
+    A recusa em âmbar some quando a caixa âmbar já está na tela: as duas diriam
+    a mesma coisa, uma embaixo da outra.
+  */
+  const erroVisivel = erro && !(semConfirmacao && erro.tom === 'AVISO') ? erro : null;
 
   return (
     <section className={cn('space-y-3', className)} aria-labelledby={`enviar-link-${filiadoId}`}>
@@ -266,9 +270,20 @@ export function EnviarLinkRecadastro({
       </div>
 
       {aviso.tipo === 'UM_FATOR' && (
-        <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p className="flex animate-surgir items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{aviso.texto}</span>
+        </p>
+      )}
+
+      {/*
+        A prévia falhou (rede, ou a API antiga na janela de troca): a tela não
+        afirma nada sobre a confirmação, mas também não fica muda. Neutro: os
+        botões continuam valendo e a API decide no toque.
+      */}
+      {previaFalhou && !previa && !resultado && (
+        <p className="text-xs text-muted-foreground">
+          Não deu para ver o que o link vai pedir; a confirmação é decidida ao enviar.
         </p>
       )}
 
@@ -278,31 +293,39 @@ export function EnviarLinkRecadastro({
         um erro.
       */}
       {aviso.tipo === 'SEM_CONFIRMACAO' ? (
-        <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
+        <div role="status" className="animate-surgir space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
           <p className="flex items-start gap-2 text-sm font-semibold text-amber-950 dark:text-amber-100">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
             {aviso.titulo}
           </p>
           <p className="text-xs text-amber-900 dark:text-amber-200">{aviso.texto}</p>
-          {onCompletarFicha && aviso.completarFicha && (
-            <Button type="button" variant="outline" className="h-11 w-full sm:w-auto md:h-11" onClick={onCompletarFicha}>
-              <PenLine className="h-4 w-4" /> Completar a ficha
+          {onCompletarFicha && porta && (
+            <Button type="button" variant="outline" className="h-11 w-full sm:w-auto md:h-11" onClick={() => onCompletarFicha(porta)}>
+              <PenLine className="h-4 w-4" /> {rotuloDaPorta(porta)}
             </Button>
           )}
         </div>
+      ) : carregando ? (
+        <Carregando texto="Vendo o que o link vai pedir…">
+          <div className="grid grid-cols-2 gap-2">
+            <Esqueleto className="col-span-2 h-11" />
+            <Esqueleto className="h-11" />
+            <Esqueleto className="h-11" />
+          </div>
+        </Carregando>
       ) : (
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid animate-surgir grid-cols-2 gap-2">
         <Button
           type="button"
           className={cn(alvo, 'col-span-2')}
-          disabled={travado || carregandoFiliado || carregandoPrevia || !whatsappDisponivel}
-          aria-describedby={!whatsappDisponivel && !carregandoFiliado ? `sem-celular-${filiadoId}` : undefined}
+          disabled={travado || !whatsappDisponivel}
+          aria-describedby={!whatsappDisponivel ? `sem-celular-${filiadoId}` : undefined}
           onClick={porWhatsApp}
         >
-          {carregandoFiliado || carregandoPrevia ? <Loader2 className="h-4 w-4 animate-spin" /> : icone('WHATSAPP', MessageCircle)}
+          {icone('WHATSAPP', MessageCircle)}
           WhatsApp
         </Button>
-        {!carregandoFiliado && !whatsappDisponivel && (
+        {!whatsappDisponivel && (
           <p id={`sem-celular-${filiadoId}`} className="col-span-2 -mt-1 text-xs text-muted-foreground">
             Sem celular no cadastro (nem no telefone principal, nem no secundário). Copie a mensagem
             e mande por onde conseguir falar com o filiado.
@@ -345,9 +368,17 @@ export function EnviarLinkRecadastro({
       )}
 
       <div aria-live="polite" className="space-y-2">
-        {erro && (
-          <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
-            {erro}
+        {erroVisivel && (
+          <p
+            role={erroVisivel.tom === 'ERRO' ? 'alert' : 'status'}
+            className={cn(
+              'rounded-lg border px-3 py-2 text-xs',
+              erroVisivel.tom === 'ERRO'
+                ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+                : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200',
+            )}
+          >
+            {erroVisivel.texto}
           </p>
         )}
 

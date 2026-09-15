@@ -221,7 +221,7 @@ export function AtualizacaoCadastralModal({
 
         {enviarLink ? (
           <div className="flex-1 overflow-y-auto p-5">
-            <EnviarLinkRecadastro filiadoId={filiado.id} />
+            <EnviarLinkRecadastro filiadoId={filiado.id} onCompletarFicha={(porta) => (porta === 'EDITAR' ? window.open(`/filiados/${filiado.id}/editar`, '_blank', 'noopener') : setEnviarLink(false))} />
           </div>
         ) : isLoading || !form ? (
           <div className="flex items-center justify-center gap-2 p-16 text-muted-foreground">

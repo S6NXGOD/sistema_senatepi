@@ -14,9 +14,9 @@ import { useAuth } from '@/lib/auth';
 import { PERFIL_LABEL, podeVer } from '@/lib/permissoes';
 import { contar } from '@/lib/plural';
 import {
-  GRUPO_DO_PERFIL, O_QUE_NAO_MEDE, RETRATO_LABEL, TITULO_DO_BLOCO, ausente, blocosDaPessoa,
-  carregarProdutividade, conteudoDoBloco, diaEMes, faixaDeUso, fraseDoPerfil, gruposPorPerfil,
-  hrefDaAuditoria, legendaDaAba, textoDoUltimoAcesso, textoDosDiasComUso,
+  GRUPO_DO_PERFIL, O_QUE_NAO_MEDE, TITULO_DO_BLOCO, agoraDaPessoa, blocosDaPessoa,
+  carregarProdutividade, conteudoDoBloco, criadaNoPeriodo, diaEMes, diaMesEAno, faixaDeUso, fraseDoPerfil,
+  gruposPorPerfil, hrefDaAuditoria, legendaDaAba, textoDosDiasComUso,
   type Bloco, type LinhaDeUso, type Produtividade, type ResumoDoPerfil,
 } from '@/lib/produtividade';
 
@@ -24,14 +24,18 @@ import {
  * USO E PRODUTIVIDADE — a aba de quem coordena.
  *
  * Grupos por perfil, pessoas em ordem alfabética, e nenhuma medalha: a ordem
- * vem da API e a tela não reordena. Cada pessoa é um cartão que responde, na
- * ordem em que a coordenação pergunta:
+ * vem da API e a tela não reordena. Cada pessoa é um cartão em DUAS ZONAS, as
+ * mesmas do PDF (15/09/2026):
  *
- *  1. ESTÁ USANDO? — o último acesso e a faixa dos dias. Quem ignora atividade
- *     atrasada muitas vezes nem entra, e isso aparece antes de qualquer número.
- *  2. O QUE REGISTROU? — os blocos do perfil, com o que pede atenção em âmbar,
- *     no lugar em que está.
- *  3. ONDE CONFERIR? — "ver o que fez" abre a auditoria já filtrada.
+ *  1. NO PERÍODO — a faixa dos dias e o que registrou, sem âmbar: o período
+ *     escolhido não pede nada;
+ *  2. AGORA — último acesso, o que está em aberto e atrasado, as propostas
+ *     esperando decisão. É o único lugar com âmbar.
+ *
+ * O cartão dizia "0 concluídas · 4 em aberto, 2 atrasadas" no mesmo quadro: o
+ * atraso de hoje parecia do mês, e o zero do mês parecia a causa dele. O texto
+ * de cada número é a frase curta da legenda, a mesma do "O que conta" do PDF.
+ * "Ver o que fez" abre a auditoria já filtrada.
  */
 export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
   const { user } = useAuth();
@@ -53,7 +57,7 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
                 <Esqueleto className="h-8 w-8 rounded-full" />
                 <div className="flex-1 space-y-1.5">
                   <Esqueleto className="h-3.5 w-2/5" />
-                  <Esqueleto className="h-3 w-3/5" />
+                  <Esqueleto className="h-3 w-1/4" />
                 </div>
               </div>
               <Esqueleto className="h-4 w-full" />
@@ -62,6 +66,7 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
                 <Esqueleto className="h-20" />
                 <Esqueleto className="hidden h-20 sm:block" />
               </div>
+              <Esqueleto className="h-16 w-full" />
             </div>
           ))}
         </div>
@@ -132,12 +137,17 @@ export function UsoEProdutividade({ de, ate }: { de: string; ate: string }) {
   );
 }
 
+const ZONAS_DA_LEGENDA = [
+  { retrato: 'PERIODO', titulo: 'No período' },
+  { retrato: 'HOJE', titulo: 'Agora' },
+] as const;
+
 /**
- * COMO LER ESTES NÚMEROS — a legenda inteira, recolhida. O PDF leva a mesma
- * regra na frase `curta`, na coluna "O que conta" (14/09/2026). A coluna do
- * retrato vira um selo: "Período" é o intervalo escolhido; "Hoje" é agora.
+ * COMO LER ESTES NÚMEROS — a legenda inteira, recolhida, nas mesmas duas zonas
+ * do cartão (15/09/2026): o que é do período escolhido e o que é de agora.
  */
 function ComoLer({ escopo }: { escopo: Produtividade['escopo'] }) {
+  const legenda = legendaDaAba(escopo);
   return (
     <details className="group max-w-3xl rounded-xl border bg-card">
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-medium [&::-webkit-details-marker]:hidden">
@@ -145,21 +155,23 @@ function ComoLer({ escopo }: { escopo: Produtividade['escopo'] }) {
         <span className="text-xs font-normal text-muted-foreground group-open:hidden">Mostrar</span>
         <span className="hidden text-xs font-normal text-muted-foreground group-open:inline">Esconder</span>
       </summary>
-      <dl className="divide-y border-t">
-        {legendaDaAba(escopo).map((l) => (
-          <div key={l.chave} className="px-4 py-2.5">
-            <dt className="flex flex-wrap items-center gap-2 text-sm font-medium">
-              {l.numero}
-              {l.retrato && (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
-                  {RETRATO_LABEL[l.retrato]}
-                </span>
-              )}
-            </dt>
-            <dd className="mt-0.5 text-xs leading-snug text-muted-foreground">{l.conta}</dd>
-          </div>
-        ))}
-      </dl>
+      {ZONAS_DA_LEGENDA.map((zona) => (
+        <div key={zona.retrato} className="border-t">
+          <h3 className="bg-muted/40 px-4 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {zona.titulo}
+          </h3>
+          <dl className="divide-y">
+            {legenda
+              .filter((l) => l.retrato === zona.retrato)
+              .map((l) => (
+                <div key={l.chave} className="px-4 py-2.5">
+                  <dt className="text-sm font-medium">{l.numero}</dt>
+                  <dd className="mt-0.5 text-xs leading-snug text-muted-foreground">{l.conta}</dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+      ))}
     </details>
   );
 }
@@ -204,6 +216,11 @@ function ResumoDosPerfis({ perfis }: { perfis: ResumoDoPerfil[] }) {
   );
 }
 
+/** O nome da zona, pequeno, em cima dela. */
+function RotuloDaZona({ children }: { children: string }) {
+  return <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{children}</p>;
+}
+
 function CartaoDaPessoa({
   p, dias, agora, hrefAuditoria,
 }: {
@@ -212,7 +229,6 @@ function CartaoDaPessoa({
   agora: Date;
   hrefAuditoria: string | null;
 }) {
-  const sumiu = ausente(p.ultimoAcesso, agora);
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-center gap-3">
@@ -221,33 +237,71 @@ function CartaoDaPessoa({
           <p className="truncate text-sm font-semibold">{p.nome}</p>
           <p className="truncate text-xs text-muted-foreground">
             {(PERFIL_LABEL as Record<string, string>)[p.perfil] ?? p.perfil}
-            {' · '}
-            <span className={cn(sumiu && 'font-medium text-amber-700 dark:text-amber-400')}>
-              {p.ultimoAcesso
-                ? `último acesso ${textoDoUltimoAcesso(p.ultimoAcesso, agora)}`
-                : 'nunca entrou no sistema'}
-            </span>
           </p>
         </div>
       </div>
 
-      <FaixaDosDias dias={dias} ativos={p.diasAtivos} total={p.diasComUso} />
+      <section aria-label="No período" className="space-y-2">
+        <RotuloDaZona>No período</RotuloDaZona>
+        <FaixaDosDias
+          dias={dias}
+          ativos={p.diasAtivos}
+          total={p.diasComUso}
+          desde={criadaNoPeriodo(p.contaCriadaEm, dias)}
+        />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {blocosDaPessoa(p).map((b) => (
+            <QuadroDoBloco key={b} bloco={b} p={p} dias={dias} />
+          ))}
+        </div>
+      </section>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {blocosDaPessoa(p).map((b) => (
-          <QuadroDoBloco key={b} bloco={b} p={p} />
-        ))}
-      </div>
+      <AgoraDaPessoa p={p} agora={agora} />
 
       {hrefAuditoria && (
         <Link
           href={hrefAuditoria}
-          className="inline-flex items-center gap-1 self-start text-xs font-medium text-brand-800 hover:underline dark:text-brand-300"
+          className="inline-flex min-h-11 items-center gap-1 self-start text-xs font-medium text-brand-800 hover:underline sm:min-h-0 dark:text-brand-300"
         >
           Ver o que fez no período <ArrowRight className="h-3 w-3" />
         </Link>
       )}
     </Card>
+  );
+}
+
+/**
+ * AGORA — os mesmos itens da caixa "Agora" do PDF (`agoraDaPessoa`), e o
+ * único âmbar do cartão. Uma linha por item, com o rótulo à esquerda e o valor
+ * à direita; a 400 px o valor desce para baixo do rótulo quando não cabe.
+ */
+function AgoraDaPessoa({ p, agora }: { p: LinhaDeUso; agora: Date }) {
+  return (
+    <section aria-label="Agora" className="rounded-lg border bg-muted/30 px-3 py-2.5">
+      <RotuloDaZona>Agora</RotuloDaZona>
+      <dl className="mt-1.5 space-y-1.5">
+        {agoraDaPessoa(p, agora).map((item) => (
+          <div key={item.chave} title={item.explica} className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+            <dt className="text-muted-foreground">{item.rotulo}</dt>
+            <dd className="text-right">
+              <span className={cn('font-medium', item.alerta && 'text-amber-700 dark:text-amber-400')}>
+                {item.valor}
+              </span>
+              {item.abaixo && (
+                <span
+                  className={cn(
+                    'ml-1.5 font-semibold',
+                    item.abaixo.alerta ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
+                  )}
+                >
+                  {item.abaixo.texto}
+                </span>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
@@ -263,18 +317,43 @@ function tomDaSemana(comUso: number, total: number): string {
  * A FAIXA DOS DIAS — um traço por dia, cheio quando a pessoa usou o sistema.
  * Fim de semana é mais claro: ninguém deve nada ao sábado, e a faixa não pode
  * sugerir o contrário.
+ *
+ * CONTA CRIADA NO MEIO DO PERÍODO (15/09/2026), a mesma regra do PDF: os dias
+ * de antes dela saíam cinza, como "não usou", e "o período tem 21 dias de
+ * semana" contava dias em que a conta nem existia. Agora viram um trecho só,
+ * tracejado, e a frase conta dali ("desde 20/08 são 8 dias de semana"). "A
+ * conta foi criada em …" aparece uma vez, embaixo da faixa.
  */
-function FaixaDosDias({ dias, ativos, total }: { dias: string[]; ativos: string[]; total: number }) {
-  const faixa = faixaDeUso(dias, ativos);
+function FaixaDosDias({
+  dias, ativos, total, desde,
+}: {
+  dias: string[];
+  ativos: string[];
+  total: number;
+  /** O dia da criação da conta, quando cai dentro do período (`criadaNoPeriodo`). */
+  desde: string | null;
+}) {
+  const faixa = faixaDeUso(dias, ativos, desde);
+  const texto = textoDosDiasComUso(total, dias, desde);
+  const antes = faixa.marcas.filter((m) => m.antesDaConta).length;
+  // A largura máxima de uma marca (12 ou 16 px) mais o vão de 2 px: o trecho ocupa o lugar das marcas que substitui.
+  const passo = faixa.tipo === 'DIA' ? 14 : 18;
   return (
     <div>
       <div
         role="img"
-        aria-label={textoDosDiasComUso(total, dias)}
+        aria-label={texto}
         className="flex h-4 items-stretch gap-[2px]"
       >
+        {antes > 0 && (
+          <span
+            title="Antes da conta existir"
+            className="rounded-[2px] border border-dashed border-muted-foreground/30"
+            style={{ flex: `${antes} ${antes} 0%`, maxWidth: `${antes * passo - 2}px`, minWidth: `${antes * 2}px` }}
+          />
+        )}
         {faixa.tipo === 'DIA'
-          ? faixa.marcas.map((m) => (
+          ? faixa.marcas.filter((m) => !m.antesDaConta).map((m) => (
               <span
                 key={m.dia}
                 title={`${diaEMes(m.dia)}${m.usou ? ': usou o sistema' : ''}`}
@@ -284,7 +363,7 @@ function FaixaDosDias({ dias, ativos, total }: { dias: string[]; ativos: string[
                 )}
               />
             ))
-          : faixa.marcas.map((m) => (
+          : faixa.marcas.filter((m) => !m.antesDaConta).map((m) => (
               <span
                 key={m.inicio}
                 title={`Semana de ${diaEMes(m.inicio)}: ${m.diasComUso} de ${m.diasNoTrecho} dias`}
@@ -293,9 +372,14 @@ function FaixaDosDias({ dias, ativos, total }: { dias: string[]; ativos: string[
             ))}
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        {textoDosDiasComUso(total, dias)}
+        {texto}
         {faixa.tipo === 'SEMANA' && ' · cada traço é uma semana'}
       </p>
+      {desde && (
+        <p className="text-[11px] text-muted-foreground">
+          A conta foi criada em {diaMesEAno(desde)}; o tracejado é o tempo antes dela.
+        </p>
+      )}
     </div>
   );
 }
@@ -308,25 +392,20 @@ const ICONE_DO_BLOCO: Record<Bloco, LucideIcon> = {
   atendimentos: Headset,
 };
 
-function QuadroDoBloco({ bloco, p }: { bloco: Bloco; p: LinhaDeUso }) {
+/** O quadro de um bloco, só com o que é do período — sem cor de alerta. */
+function QuadroDoBloco({ bloco, p, dias }: { bloco: Bloco; p: LinhaDeUso; dias: string[] }) {
   const Icone = ICONE_DO_BLOCO[bloco];
-  const c = conteudoDoBloco(bloco, p);
+  const c = conteudoDoBloco(bloco, p, dias);
   return (
-    <div className="min-w-0 rounded-lg bg-muted/40 p-2.5">
+    <div className="min-w-0 rounded-lg bg-muted/40 p-2.5" title={c.explica}>
       <p className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
         <Icone className="h-3.5 w-3.5 shrink-0" aria-hidden />
         {TITULO_DO_BLOCO[bloco]}
       </p>
-      <p className="mt-1 text-xl font-bold leading-none tabular-nums">{c.numero}</p>
+      <p className="mt-1 text-xl font-bold leading-none tabular-nums">{c.numero ?? '—'}</p>
       <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{c.rotulo}</p>
       {c.linhas.map((l) => (
-        <p
-          key={l.texto}
-          className={cn(
-            'mt-0.5 text-[11px] leading-snug',
-            l.alerta ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
-          )}
-        >
+        <p key={l.texto} className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
           {l.texto}
         </p>
       ))}

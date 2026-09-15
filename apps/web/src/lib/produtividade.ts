@@ -205,7 +205,11 @@ export function ausente(ultimoAcesso: string | null, agora: Date): boolean {
   return dias === null || dias >= DIAS_PARA_NOTAR_AUSENCIA;
 }
 
-const inicioDoDia = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+const FUSO_DE_TERESINA = 'America/Fortaleza';
+
+/** Dias de calendário entre duas datas puras (AAAA-MM-DD), sem fuso nenhum no caminho. */
+const diasDeCalendario = (de: string, ate: string) =>
+  Math.round((Date.parse(`${ate}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / DIA_MS);
 
 /**
  * O que vem depois de "Último acesso": "hoje às 14:32", "ontem", "há 5 dias",
@@ -213,29 +217,39 @@ const inicioDoDia = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDa
  *
  * Hoje e ontem são do CALENDÁRIO, e não de 24 horas: quem entrou às 23h de
  * ontem "entrou ontem", mesmo que tenha sido há 10 horas.
+ *
+ * O CALENDÁRIO É O DE TERESINA (15/09/2026). A hora e o começo do dia vinham
+ * do relógio de quem abria a tela: num aparelho em outro fuso, o acesso das
+ * 22h de Teresina saía "ontem" e com a hora trocada — e o PDF mostrava a mesma
+ * pessoa de um jeito em cada computador.
  */
 export function textoDoUltimoAcesso(ultimoAcesso: string, agora: Date): string {
   const quando = new Date(ultimoAcesso);
-  const dias = Math.round((inicioDoDia(agora) - inicioDoDia(quando)) / DIA_MS);
+  const dias = diasDeCalendario(diaEmTeresina(ultimoAcesso), diaEmTeresina(agora.toISOString()));
   if (dias <= 0) {
-    return `hoje às ${quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    return `hoje às ${quando.toLocaleTimeString('pt-BR', { timeZone: FUSO_DE_TERESINA, hour: '2-digit', minute: '2-digit' })}`;
   }
   if (dias === 1) return 'ontem';
   if (dias < 14) return `há ${dias} dias`;
   if (dias < 60) return `há ${Math.floor(dias / 7)} semanas`;
-  return `em ${quando.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+  return `em ${quando.toLocaleDateString('pt-BR', { timeZone: FUSO_DE_TERESINA, day: '2-digit', month: '2-digit', year: 'numeric' })}`;
 }
 
 export interface MarcaDoDia {
   dia: string;
   usou: boolean;
   fimDeSemana: boolean;
+  /** Dia de antes da criação da conta (15/09/2026): não é "não usou", fica fora do desenho. */
+  antesDaConta?: true;
 }
 
 export interface MarcaDaSemana {
   inicio: string;
   diasComUso: number;
+  /** Os dias da semana que contam: os de antes da criação da conta ficam de fora. */
   diasNoTrecho: number;
+  /** A semana inteira é de antes da criação da conta. */
+  antesDaConta?: true;
 }
 
 /**
@@ -308,30 +322,72 @@ export function diasDeSemana(dias: string[]): number {
  * Com sábado e domingo no denominador, quem usou o sistema em todos os dias
  * úteis parecia ter usado um terço do tempo. Não vira fração ("20 de 44"): quem
  * usou num sábado passaria de 100%. Mesma frase na aba e no PDF.
+ *
+ * `desde` é o dia em que a conta foi criada, quando cai dentro do período
+ * (`criadaNoPeriodo`, 15/09/2026): os dias de semana contam dali, com a mesma
+ * frase da caixa dos dias do PDF ("desde 20/08 são 17 dias de semana").
  */
-export function textoDosDiasComUso(diasComUso: number, dias: string[]): string {
+export function textoDosDiasComUso(diasComUso: number, dias: string[], desde?: string | null): string {
   const usou = `${diasComUso} ${diasComUso === 1 ? 'dia' : 'dias'} com uso`;
-  if (!dias.length) return usou;
-  const uteis = diasDeSemana(dias);
-  if (!uteis) return `${usou} · o período só tem fim de semana`;
-  return `${usou} · o período tem ${uteis} ${uteis === 1 ? 'dia de semana' : 'dias de semana'}`;
+  const frase = fraseDosDiasDeSemana(dias, desde);
+  return frase ? `${usou} · ${frase}` : usou;
 }
 
-export function faixaDeUso(dias: string[], diasAtivos: string[]): FaixaDeUso {
+/**
+ * "O PERÍODO TEM 21 DIAS DE SEMANA" / "DESDE 20/08 SÃO 17 DIAS DE SEMANA" — a
+ * metade de `textoDosDiasComUso` depois do " · ", e a linha da caixa dos dias
+ * no PDF. Uma função só (15/09/2026): cada lado escrevia a sua, e um período só
+ * de sábado e domingo saía "só tem fim de semana" na tela e "só tem sábado e
+ * domingo" no papel. Vazia quando não há dia nenhum. "Dias de semana", nunca
+ * "dias úteis": não existe tabela de feriados (07/09 entra na conta).
+ */
+export function fraseDosDiasDeSemana(dias: string[], desde?: string | null): string {
+  if (!dias.length) return '';
+  if (desde) {
+    const desdeACriacao = diasDeSemana(dias.filter((d) => d >= desde));
+    if (!desdeACriacao) return `desde ${diaEMes(desde)} só houve sábado e domingo`;
+    return `desde ${diaEMes(desde)} ${desdeACriacao === 1 ? 'é 1 dia de semana' : `são ${desdeACriacao} dias de semana`}`;
+  }
+  const uteis = diasDeSemana(dias);
+  if (!uteis) return 'o período só tem fim de semana';
+  return `o período tem ${uteis} ${uteis === 1 ? 'dia de semana' : 'dias de semana'}`;
+}
+
+/**
+ * O DIA EM QUE A CONTA FOI CRIADA, quando cai DENTRO do período, depois do
+ * primeiro dia (15/09/2026), no calendário de Teresina. Antes dele ninguém
+ * usa uma conta que ainda não existe: esses dias saem da faixa e dos dias de
+ * semana. Nulo quando a conta é mais antiga que o período, ou a API não manda
+ * `contaCriadaEm`. É a regra da caixa dos dias do PDF.
+ */
+export function criadaNoPeriodo(contaCriadaEm: string | null | undefined, dias: string[]): string | null {
+  if (!contaCriadaEm || !dias.length) return null;
+  const criada = diaEmTeresina(contaCriadaEm);
+  return criada > dias[0] && criada <= dias[dias.length - 1] ? criada : null;
+}
+
+export function faixaDeUso(dias: string[], diasAtivos: string[], desde?: string | null): FaixaDeUso {
   const ativos = new Set(diasAtivos);
+  const antesDaConta = (dia: string) => Boolean(desde && dia < desde);
   if (dias.length <= LIMITE_DA_FAIXA_DIARIA) {
     return {
       tipo: 'DIA',
-      marcas: dias.map((dia) => ({ dia, usou: ativos.has(dia), fimDeSemana: ehFimDeSemana(dia) })),
+      marcas: dias.map((dia): MarcaDoDia =>
+        antesDaConta(dia)
+          ? { dia, usou: false, fimDeSemana: ehFimDeSemana(dia), antesDaConta: true }
+          : { dia, usou: ativos.has(dia), fimDeSemana: ehFimDeSemana(dia) },
+      ),
     };
   }
   const marcas: MarcaDaSemana[] = [];
   for (let i = 0; i < dias.length; i += 7) {
     const trecho = dias.slice(i, i + 7);
+    const contados = trecho.filter((d) => !antesDaConta(d));
     marcas.push({
       inicio: trecho[0],
-      diasComUso: trecho.filter((d) => ativos.has(d)).length,
-      diasNoTrecho: trecho.length,
+      diasComUso: contados.filter((d) => ativos.has(d)).length,
+      diasNoTrecho: contados.length,
+      ...(contados.length ? {} : { antesDaConta: true as const }),
     });
   }
   return { tipo: 'SEMANA', marcas };
@@ -404,42 +460,51 @@ export function hrefDaAuditoria(usuarioId: string, de: string, ate: string): str
 const qtd = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
 
 export interface ConteudoDoBloco {
-  numero: number;
+  /** Nulo quando o número não foi medido no período (decididas antes de 13/09/2026). */
+  numero: number | null;
   rotulo: string;
-  linhas: { texto: string; alerta?: boolean }[];
+  linhas: { texto: string }[];
+  /** A frase curta da legenda do número grande — a mesma do "O que conta" do PDF. */
+  explica: string;
 }
 
 /**
- * O QUE CADA BLOCO DIZ, em frase de gente: um número grande (o trabalho feito)
- * e, embaixo, o que ele esconderia sozinho — com o que pede atenção marcado
- * para ganhar cor.
+ * O QUE CADA BLOCO REGISTROU NO PERÍODO, em frase de gente: um número grande
+ * (o trabalho feito) e, embaixo, o que ele esconderia sozinho.
+ *
+ * SÓ O PERÍODO (15/09/2026). O cartão dizia "0 concluídas · 4 em aberto, 2
+ * atrasadas" no mesmo quadro: o atraso de hoje parecia do mês escolhido, e o
+ * zero do mês parecia a causa dele — o mesmo defeito que o PDF já tinha
+ * corrigido. Em aberto, atrasadas e propostas esperando moram em
+ * `agoraDaPessoa`, e só lá há âmbar.
  */
-export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso): ConteudoDoBloco {
+export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso, dias: string[] = []): ConteudoDoBloco {
+  const explica = (chave: ChaveDaLegenda) => LEGENDA_DO_USO.find((x) => x.chave === chave)!.curta;
   switch (bloco) {
     case 'agenda': {
-      const { concluidas, noDiaMarcado, criadas, abertas, atrasadas } = l.agenda;
+      const { concluidas, noDiaMarcado, criadas } = l.agenda;
       return {
         numero: concluidas,
         rotulo: concluidas === 1 ? 'concluída' : 'concluídas',
         linhas: [
           ...(concluidas ? [{ texto: `${noDiaMarcado} no dia marcado` }] : []),
-          atrasadas
-            ? { texto: `${abertas} em aberto, ${qtd(atrasadas, 'atrasada', 'atrasadas')}`, alerta: true }
-            : { texto: `${abertas} em aberto` },
           ...(criadas ? [{ texto: `criou ${criadas}` }] : []),
         ],
+        explica: explica('concluidas'),
       };
     }
     case 'publicacoes': {
-      const { decididas, esperando } = l.publicacoes;
+      const { decididas } = l.publicacoes;
+      // "0 decididas" em agosto é número que ninguém mediu: a mesma regra do PDF.
+      const medicao = dias.length ? medicaoDasDecididas({ de: dias[0], ate: dias[dias.length - 1] }) : 'MEDIDO';
+      if (medicao === 'NAO_MEDIDO') {
+        return { numero: null, rotulo: 'decididas', linhas: [{ texto: 'não medido antes de 13/09/2026' }], explica: DECIDIDAS_NAO_MEDIDAS };
+      }
       return {
         numero: decididas,
         rotulo: decididas === 1 ? 'decidida' : 'decididas',
-        linhas: [
-          esperando
-            ? { texto: `${esperando} esperando decisão`, alerta: true }
-            : { texto: 'nenhuma esperando' },
-        ],
+        linhas: medicao === 'PARCIAL' ? [{ texto: 'só desde 13/09/2026' }] : [],
+        explica: explica('decididas'),
       };
     }
     case 'processos': {
@@ -451,6 +516,7 @@ export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso): ConteudoDoBloco {
           ...(cadastrados ? [{ texto: `cadastrou ${qtd(cadastrados, 'processo', 'processos')}` }] : []),
           ...(documentos ? [{ texto: `anexou ${qtd(documentos, 'documento', 'documentos')}` }] : []),
         ],
+        explica: explica('andamentos'),
       };
     }
     case 'filiados': {
@@ -462,6 +528,7 @@ export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso): ConteudoDoBloco {
         linhas: fichasAtualizadas
           ? [{ texto: `salvou ${qtd(fichasAtualizadas, 'alteração', 'alterações')} em fichas` }]
           : [],
+        explica: explica('filiadosCadastrados'),
       };
     }
     case 'atendimentos':
@@ -469,8 +536,60 @@ export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso): ConteudoDoBloco {
         numero: l.atendimentos,
         rotulo: l.atendimentos === 1 ? 'registrado' : 'registrados',
         linhas: [],
+        explica: explica('atendimentos'),
       };
   }
+}
+
+export interface ItemDoAgora {
+  chave: 'ultimoAcesso' | 'emAberto' | 'esperando';
+  rotulo: string;
+  valor: string;
+  alerta: boolean;
+  /** A segunda linha ("1 atrasada"), com o âmbar só nela. */
+  abaixo?: { texto: string; alerta: boolean };
+  /** A frase curta da legenda. */
+  explica: string;
+}
+
+/**
+ * AGORA — o retrato da hora em que a API somou, igual na aba e no PDF
+ * (15/09/2026). É o único lugar com âmbar: quem sumiu, o que atrasou e o que
+ * espera decisão. Nunca vermelho, nunca "vencido". O Diário só para quem tem o
+ * bloco de publicações.
+ */
+export function agoraDaPessoa(l: LinhaDeUso, agora: Date): ItemDoAgora[] {
+  const explica = (chave: ChaveDaLegenda) => LEGENDA_DO_USO.find((x) => x.chave === chave)!.curta;
+  const { abertas, atrasadas } = l.agenda;
+  const { esperando } = l.publicacoes;
+  return [
+    {
+      chave: 'ultimoAcesso',
+      rotulo: 'Último acesso',
+      valor: l.ultimoAcesso ? textoDoUltimoAcesso(l.ultimoAcesso, agora) : 'nunca entrou',
+      alerta: ausente(l.ultimoAcesso, agora),
+      explica: explica('ultimoAcesso'),
+    },
+    {
+      chave: 'emAberto',
+      rotulo: 'Na agenda',
+      valor: `${qtd(abertas, 'atividade', 'atividades')} em aberto`,
+      alerta: false,
+      ...(atrasadas ? { abaixo: { texto: qtd(atrasadas, 'atrasada', 'atrasadas'), alerta: true } } : {}),
+      explica: explica('emAberto'),
+    },
+    ...(blocosDaPessoa(l).includes('publicacoes')
+      ? [{
+          chave: 'esperando' as const,
+          rotulo: 'Diário',
+          valor: esperando
+            ? `${qtd(esperando, 'proposta esperando', 'propostas esperando')} decisão`
+            : 'nenhuma proposta esperando',
+          alerta: esperando > 0,
+          explica: explica('esperando'),
+        }]
+      : []),
+  ];
 }
 
 /** A linha de baixo do resumo de cada perfil: quem sumiu, ou que ninguém sumiu. */
@@ -545,6 +664,12 @@ export interface LinhaDaLegenda {
    * muda esta junto.
    */
   curta: string;
+  /**
+   * A frase curta NO PLURAL DA EQUIPE (15/09/2026). No PDF da equipe, "Que a
+   * pessoa fechou…" aparecia ao lado de uma soma de quinze pessoas. Só existe
+   * onde a frase de pessoa fala de "a pessoa"; nas outras vale `curta`.
+   */
+  curtaEquipe?: string;
   /** Do período escolhido, ou de hoje (retrato de agora). Nulo quando não se aplica. */
   retrato: Retrato | null;
 }
@@ -573,7 +698,8 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   },
   {
     chave: 'ultimoAcesso',
-    curta: 'Entrada, sessão ou ação mais recente, até a hora em que o PDF foi gerado.',
+    // Sem "o PDF" (15/09/2026): a mesma frase explica o número na aba, e ali não há PDF.
+    curta: 'A entrada, a sessão renovada ou a ação mais recente, até a hora da soma.',
     numero: 'Último acesso',
     conta:
       'A última vez que a pessoa esteve no sistema (entrada, sessão renovada ou ação), contada até a ' +
@@ -606,6 +732,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   {
     chave: 'concluidas',
     curta: 'Que a pessoa fechou, inclusive de colegas e as criadas pelo robô.',
+    curtaEquipe: 'Fechadas por alguém da equipe, inclusive as criadas pelo robô.',
     numero: 'Concluídas',
     conta:
       'Atividades da agenda que a pessoa concluiu no período, inclusive as de colegas que ela fechou e ' +
@@ -624,6 +751,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   {
     chave: 'criou',
     curta: 'Lançadas na agenda pela pessoa, para si ou para outra pessoa.',
+    curtaEquipe: 'Lançadas na agenda por alguém da equipe; as do robô não entram.',
     numero: 'Criou',
     conta:
       'Atividades que a pessoa lançou na agenda no período, para si ou para outra pessoa, mesmo que ' +
@@ -651,6 +779,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   {
     chave: 'decididas',
     curta: 'Propostas do Diário que a pessoa aceitou ou recusou.',
+    curtaEquipe: 'Propostas do Diário aceitas ou recusadas por alguém da equipe.',
     numero: 'Publicações decididas',
     conta:
       'Propostas de tarefa do Diário que a pessoa aceitou ou recusou no período. A tarefa que o sistema ' +
@@ -713,6 +842,7 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
   {
     chave: 'atendimentos',
     curta: 'Registrados com a pessoa como atendente.',
+    curtaEquipe: 'Registrados com alguém da equipe como atendente.',
     numero: 'Atendimentos',
     conta:
       'Atendimentos registrados no período com a pessoa como atendente, ou seja, quem estava no sistema ' +

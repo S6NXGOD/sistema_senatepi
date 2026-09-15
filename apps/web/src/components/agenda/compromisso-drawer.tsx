@@ -31,7 +31,7 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar, podeVer } from '@/lib/permissoes';
 import { definirAdvogadosDoProcesso, listarAdvogadosDoProcesso } from '@/lib/partes';
 import {
-  CANAL_LABEL, linkWhatsApp, mensagemSaudacao, rotuloDoAssunto, type CanalAtendimento,
+  CANAL_LABEL, fraseDaTriagemNaConsulta, linkWhatsApp, mensagemSaudacao, rotuloDoAssunto, type CanalAtendimento,
 } from '@/lib/atendimentos';
 import { listarPlantao, estaNoHorario, nomeDeExibicao } from '@/lib/escalas';
 import { PolosDoProcesso } from '@/components/agenda/polos-do-processo';
@@ -432,8 +432,9 @@ export function CompromissoDrawer({
             />
           ))}
 
+          {/* Cancelada é decisão tomada, não alarme: neutro, nunca vermelho (15/09/2026). */}
           {c.status === 'CANCELADO' && (
-            <div className="rounded-xl border border-red-200 bg-red-50/40 p-3 dark:border-red-900/40 dark:bg-red-950/10">
+            <div className="rounded-xl border bg-muted/40 p-3">
               <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <Ban className="h-3.5 w-3.5" /> Cancelada
                 {c.canceladoEm && <span className="font-normal normal-case">· {formatDataHora(c.canceladoEm)}</span>}
@@ -711,6 +712,17 @@ export function CompromissoDrawer({
                   <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                     <UserCog className="h-3.5 w-3.5" /> Triagem por <strong className="text-foreground">{c.atendimento.atendente.nomeExibicao || c.atendimento.atendente.nome}</strong> · {formatDataHora(c.atendimento.createdAt)}
                   </p>
+                  {/*
+                    O QUE REGISTRAR ESTA CONSULTA FAZ COM O ATENDIMENTO (E5, 15/09/2026).
+                    O advogado é avisado no próprio lugar: antes, que fecha junto;
+                    depois, que fechou; cancelada, que voltou para a triagem.
+                  */}
+                  {fraseDaTriagemNaConsulta(c) && (
+                    <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-foreground/80">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span>{fraseDaTriagemNaConsulta(c)}</span>
+                    </p>
+                  )}
                   {onVerTriagem && (
                     <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400">
                       <FileSearch className="h-3.5 w-3.5" /> Abrir triagem completa

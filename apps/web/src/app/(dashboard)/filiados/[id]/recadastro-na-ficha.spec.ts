@@ -64,39 +64,51 @@ describe('envio do link', () => {
   });
 
   /**
-   * 14/09/2026: a tela deixou de recalcular o desafio (`desafioPrevisto` era
-   * uma segunda cópia da regra da API) e pergunta a prévia. A chave fica debaixo
-   * de ['filiado', id]: gravar CPF ou data na ficha refaz a prévia sozinha.
+   * 14/09/2026: a tela deixou de recalcular o desafio. 15/09/2026: a chave e a
+   * função moram numa consulta só (`consultaDaPreviaDoLink`), testada com um
+   * QueryClient de verdade em lib/previa-do-link.spec.ts. Aqui só se confere
+   * que os dois lugares usam ELA, e não uma cópia montada à mão.
    */
-  it('o envio pergunta a prévia à API, e o modal lê a mesma chave', () => {
-    expect(ENVIO).toContain("queryKey: ['filiado', filiadoId, 'previa-do-link'],");
-    expect(ENVIO).toContain('queryFn: () => lerPreviaDoLink(filiadoId),');
-    expect(ENVIO).not.toContain('desafioPrevisto');
-    expect(MODAL).toContain("queryKey: ['filiado', filiadoId, 'previa-do-link'],");
+  it('o envio e o modal usam a mesma consulta da prévia', () => {
+    expect(ENVIO).toContain('useQuery(consultaDaPreviaDoLink(filiadoId))');
+    expect(MODAL).toContain('...consultaDaPreviaDoLink(filiadoId),');
+    expect(ENVIO).not.toContain("'previa-do-link'");
+    expect(MODAL).not.toContain("'previa-do-link'");
   });
 
   /** A API recusa o link sem confirmação: nenhum botão que voltaria 400. */
   it('sem como confirmar, os botões de envio e o "Gerar outro" somem', () => {
     const caixa = ENVIO.indexOf("aviso.tipo === 'SEM_CONFIRMACAO' ? (");
-    const grade = ENVIO.indexOf('<div className="grid grid-cols-2 gap-2">');
+    const grade = ENVIO.indexOf('<div className="grid animate-surgir grid-cols-2 gap-2">');
     expect(caixa).toBeGreaterThan(-1);
     expect(grade).toBeGreaterThan(caixa);
     expect(MODAL).toContain('{ativo && !link && !semConfirmacao && (');
   });
 
-  /** Desfiliado (14/09/2026): gravar dado na ficha não reativa; o botão some. */
-  it('"Completar a ficha" só aparece quando o aviso pede', () => {
-    expect(ENVIO).toContain('{onCompletarFicha && aviso.completarFicha && (');
+  /** 15/09/2026: enquanto a prévia carrega, esqueleto no lugar dos botões ativos. */
+  it('a grade de botões só aparece depois do esqueleto da carga', () => {
+    const esqueleto = ENVIO.indexOf(') : carregando ? (');
+    const grade = ENVIO.indexOf('<div className="grid animate-surgir grid-cols-2 gap-2">');
+    expect(esqueleto).toBeGreaterThan(-1);
+    expect(grade).toBeGreaterThan(esqueleto);
   });
 
-  it('"Completar a ficha" usa a mesma porta do presencial, sem navegar dentro de outro modal', () => {
-    expect(MODAL).toContain('onCompletarFicha={abrirPresencial}');
+  /** Desfiliado (14/09/2026): gravar dado na ficha não reativa; o botão some. */
+  it('o botão da caixa só aparece com porta, e diz qual', () => {
+    expect(ENVIO).toContain('{onCompletarFicha && porta && (');
+    expect(ENVIO).toContain('onClick={() => onCompletarFicha(porta)}');
+    expect(ENVIO).toContain('{rotuloDaPorta(porta)}');
+  });
+
+  it('o modal escolhe a porta, e o presencial continua sem navegar dentro de outro modal', () => {
+    expect(MODAL).toContain('onCompletarFicha={completarFicha}');
+    expect(MODAL).toContain("if (porta === 'RECADASTRAR') { abrirPresencial(); return; }");
     expect(MODAL).toContain('onClick={abrirPresencial}');
   });
 
-  it('a atualização cadastral do atendimento oferece o link a quem edita filiado', () => {
+  it('a atualização cadastral do atendimento oferece o link a quem edita filiado, e a caixa tem botão', () => {
     expect(ATUALIZACAO).toContain("podeEditar(user?.role, user?.permissoes, 'filiados')");
     expect(ATUALIZACAO).toContain('{podeMandarLink && !enviarLink && (');
-    expect(ATUALIZACAO).toContain('<EnviarLinkRecadastro filiadoId={filiado.id} />');
+    expect(ATUALIZACAO).toContain("<EnviarLinkRecadastro filiadoId={filiado.id} onCompletarFicha={(porta) => (porta === 'EDITAR'");
   });
 });

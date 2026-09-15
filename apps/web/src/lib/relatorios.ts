@@ -150,6 +150,12 @@ export interface Relatorio {
   atendimentos: {
     registrados: number;
     concluidos: number;
+    /**
+     * Dos concluídos, os que fecharam sozinhos quando o advogado registrou a
+     * consulta nascida deles (15/09/2026). Opcional pela janela de troca do
+     * deploy: a API de antes não manda, e a tela não inventa zero.
+     */
+    concluidosPelaConsulta?: number;
     /** Pessoas diferentes atendidas. */
     filiadosAtendidos?: number;
     porCanal: Contagem[];
@@ -249,6 +255,37 @@ export function fraseDosOutrosAssuntos(
   if (nomeados.length) partes.push(nomeados.join(', '));
   if (unicos && unicos > 0) partes.push(`${unicos} com texto único`);
   return partes.length ? `Em “Outro”: ${partes.join('; ')}.` : null;
+}
+
+/** O dia em que o atendimento passou a fechar sozinho pela consulta (AAAA-MM-DD, em Teresina). */
+export const CONCLUSAO_PELA_CONSULTA_DESDE = '2026-09-15';
+
+export const LEGENDA_PELA_CONSULTA =
+  'Pela consulta: concluídos sozinhos quando o advogado registrou a consulta, desde 15/09/2026.';
+
+/**
+ * "CONCLUÍDOS (PELA CONSULTA: 3)" — 15/09/2026.
+ *
+ * Desde esse dia o atendimento encaminhado fecha sozinho quando a consulta
+ * nascida dele é registrada, e "concluídos" passa a somar os dois caminhos. O
+ * rótulo diz quantos vieram pela consulta, para o número não parecer um salto
+ * da triagem. Sem o campo (API de antes), é só "Concluídos".
+ *
+ * Com o período inteiro antes de 15/09/2026, o ZERO some ("pela consulta: 0" em
+ * agosto seria número que ninguém mediu), mas um número maior que zero sai
+ * sempre (15/09/2026): a API conta pelo `createdAt` e pelo status atual, então
+ * o atendimento criado em 14/09 e fechado pela consulta de 17/09 entra nos
+ * concluídos de 01 a 14/09, e sem o rótulo pareceria trabalho da triagem.
+ */
+export function rotuloDosConcluidos(r: Pick<Relatorio, 'periodo' | 'atendimentos'>): {
+  rotulo: string;
+  legenda: string | null;
+} {
+  const pelaConsulta = r.atendimentos.concluidosPelaConsulta;
+  // `periodo.ate` é o instante do fim, exclusivo: o período alcança 15/09 se terminar depois da meia-noite desse dia.
+  const alcanca = Date.parse(r.periodo.ate) > Date.parse(`${CONCLUSAO_PELA_CONSULTA_DESDE}T03:00:00.000Z`);
+  if (typeof pelaConsulta !== 'number' || (!alcanca && pelaConsulta === 0)) return { rotulo: 'Concluídos', legenda: null };
+  return { rotulo: `Concluídos (pela consulta: ${pelaConsulta})`, legenda: LEGENDA_PELA_CONSULTA };
 }
 
 /**

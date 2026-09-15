@@ -69,6 +69,29 @@ export interface GradeDoPdf {
   semanas: { rotulo: string; dias: (DiaDaGrade | null)[] }[];
   /** O nome de cada linha ("seg", "", "qua"…); o tamanho diz quantas linhas a grade tem. */
   linhas: string[];
+  /**
+   * A menor célula, em mm, com que a grade ainda vai AO LADO do texto (padrão
+   * 4,2). Acréscimo de 15/09/2026: entre 11 e 15 semanas a grade descia para
+   * baixo do texto e a caixa crescia uns 10 mm — era o que levava a folha da
+   * pessoa com a conta criada no meio de "Últimos 90 dias" para a página 2.
+   */
+  celulaMinimaAoLado?: number;
+}
+
+/**
+ * UM MÊS NA FILEIRA DOS DIAS COM USO (15/09/2026) — o que a caixa do período
+ * desenha no lugar da grade quando o período passa de 14 semanas. Num ano a
+ * grade tinha células de 1,4 mm e, entre 11 e 43 semanas, descia para baixo do
+ * texto e ficava mais alta que a de um ano: a folha da pessoa passava para a
+ * página 2. A fileira é uma linha só, qualquer que seja o período.
+ */
+export interface MesDaCaixa {
+  /** "jan", ou "set/25" quando o período atravessa o ano. */
+  rotulo: string;
+  /** Dias com uso no mês; nulo quando nenhum dia do mês conta (a conta ainda não existia). */
+  dias: number | null;
+  /** A barrinha, de 0 a 1: os dias com uso contra os dias de semana do próprio mês. */
+  proporcao: number;
 }
 
 /** O que vai dentro de uma caixa, de cima para baixo. */
@@ -106,6 +129,13 @@ export type BlocoDoPdf =
       novaPagina?: boolean;
       /** Título de 10 pt e menos espaço em volta: a seção que precisa caber na folha da pessoa. */
       compacta?: boolean;
+      /**
+       * Quanto de página, em mm, a seção precisa para começar ali — senão vai
+       * para a próxima (15/09/2026). É o "começa na mesma página QUANDO
+       * COUBER" da tabela pessoa por pessoa: o título não fica sozinho com uma
+       * linha no pé da folha.
+       */
+      minimoNaPagina?: number;
     }
   | {
       tipo: 'numeros';
@@ -207,7 +237,8 @@ export type BlocoDoPdf =
        * à direita o retrato de agora. Mesma altura, a da mais alta.
        */
       tipo: 'caixas';
-      esquerda: CaixaDoPdf & { grade?: GradeDoPdf };
+      /** `meses` só vale sem `grade`: é a fileira de meses que a substitui nos períodos longos. */
+      esquerda: CaixaDoPdf & { grade?: GradeDoPdf; meses?: MesDaCaixa[] };
       direita: CaixaDoPdf;
     }
   | {
@@ -258,6 +289,9 @@ const FUNDO_DO_AGORA: Cor = [246, 247, 248];
 /** Altura de uma linha de texto, em mm: o jsPDF usa 1,15 de entrelinha. */
 const entrelinha = (pontos: number) => pontos * 0.3528 * 1.15;
 const somar = (partes: number[]) => partes.reduce((soma, v) => soma + Math.max(0, v), 0);
+
+/** A altura da fileira dos meses na caixa do período, em mm: nome, número e barrinha. */
+const ALTURA_DOS_MESES = 8.4;
 
 /** Até quantas linhas cabem embaixo do número; a última cortada ganha reticências. */
 const LINHAS_POR_QUADRO = 4;
@@ -481,7 +515,7 @@ export function montarDocumento(
   function secao(b: De<'secao'>) {
     if (b.novaPagina && y > topo + 0.5) novaPagina();
     if (b.compacta) {
-      cabe(22);
+      cabe(Math.max(22, b.minimoNaPagina ?? 0));
       y += 3;
       fonte(10, 'bold', VERDE);
       doc.text(caber(b.titulo, largura), MARGEM, y);
@@ -497,7 +531,7 @@ export function montarDocumento(
       }
       return;
     }
-    cabe(b.subtitulo ? 30 : 24);
+    cabe(Math.max(b.subtitulo ? 30 : 24, b.minimoNaPagina ?? 0));
     y += 4;
     fonte(12, 'bold', VERDE);
     doc.text(caber(b.titulo, largura), MARGEM, y);
@@ -974,28 +1008,32 @@ export function montarDocumento(
     const semanas = grade?.semanas.length ?? 0;
     const linhasDaGrade = grade?.linhas.length ?? 0;
     const temGrade = semanas > 0 && linhasDaGrade > 0;
+    // A fileira de meses (15/09/2026) ocupa o lugar da grade, de lado a lado, com o texto embaixo.
+    const meses = temGrade ? [] : (b.esquerda.meses ?? []);
+    const temMeses = meses.length > 0;
+    const temDesenho = temGrade || temMeses;
     const ROTULOS = temGrade ? 5.5 : 0;
     const util = larguraDaEsquerda - 2 * FOLGA;
     const TEXTO_AO_LADO = 46;
     const passoAoLado = temGrade ? Math.min(4.8, (util - ROTULOS - 3 - TEXTO_AO_LADO) / semanas) : 0;
-    const aoLado = temGrade && passoAoLado >= 4.2;
+    const aoLado = temGrade && passoAoLado >= (grade?.celulaMinimaAoLado ?? 4.2);
     const passoX = !temGrade ? 0 : aoLado ? passoAoLado : Math.min(4.8, (util - ROTULOS) / semanas);
     const passoY = !temGrade ? 0 : aoLado ? passoX : Math.min(passoX, 2.6);
-    const alturaDaGrade = temGrade ? 3 + linhasDaGrade * passoY : 0;
+    const alturaDaGrade = temGrade ? 3 + linhasDaGrade * passoY : temMeses ? ALTURA_DOS_MESES : 0;
 
     // Mede antes de desenhar, com a MESMA função: medida e desenho não divergem.
     const x0 = MARGEM + FOLGA;
     const larguraDoTextoAoLado = util - ROTULOS - semanas * passoX - 3;
     const doTexto = (l: LinhaDaCaixa) => l.tipo === 'grande' || l.tipo === 'texto' || l.tipo === 'par';
-    const primeiraColuna = aoLado || !temGrade ? b.esquerda.linhas : b.esquerda.linhas.filter(doTexto);
-    const segundaColuna = aoLado || !temGrade ? [] : b.esquerda.linhas.filter((l) => !doTexto(l));
-    const larguraDaPrimeira = !temGrade ? util : aoLado ? larguraDoTextoAoLado : util * 0.52;
+    const primeiraColuna = aoLado || !temDesenho ? b.esquerda.linhas : b.esquerda.linhas.filter(doTexto);
+    const segundaColuna = aoLado || !temDesenho ? [] : b.esquerda.linhas.filter((l) => !doTexto(l));
+    const larguraDaPrimeira = !temDesenho ? util : aoLado ? larguraDoTextoAoLado : util * 0.52;
     const larguraDaSegunda = util - larguraDaPrimeira - 3;
     const alturaDaPrimeira = linhasDaCaixa(primeiraColuna, 0, 0, larguraDaPrimeira, false);
     const alturaDaSegunda = linhasDaCaixa(segundaColuna, 0, 0, larguraDaSegunda, false);
     const alturaDoTexto = Math.max(alturaDaPrimeira, alturaDaSegunda);
     const alturaDaEsquerda =
-      TOPO + (aoLado ? Math.max(alturaDaGrade, alturaDoTexto) : alturaDaGrade + (temGrade ? 3 : 0) + alturaDoTexto) + 2.5;
+      TOPO + (aoLado ? Math.max(alturaDaGrade, alturaDoTexto) : alturaDaGrade + (temDesenho ? 3 : 0) + alturaDoTexto) + 2.5;
     const larguraDaDireitaUtil = LARGURA_DA_DIREITA - 2 * FOLGA;
     const alturaDaDireita = TOPO + linhasDaCaixa(b.direita.linhas, 0, 0, larguraDaDireitaUtil, false) + 2.5;
     const h = Math.max(30, alturaDaEsquerda, alturaDaDireita);
@@ -1016,15 +1054,46 @@ export function montarDocumento(
     }
     const yConteudo = y + TOPO;
     if (temGrade && grade) desenharGrade(grade, x0, yConteudo, passoX, passoY, ROTULOS);
+    if (temMeses) desenharMeses(meses, x0, yConteudo, util);
     if (aoLado) {
       linhasDaCaixa(primeiraColuna, x0 + ROTULOS + semanas * passoX + 3, yConteudo, larguraDaPrimeira, true);
     } else {
-      const yTexto = yConteudo + alturaDaGrade + (temGrade ? 3 : 0);
+      const yTexto = yConteudo + alturaDaGrade + (temDesenho ? 3 : 0);
       linhasDaCaixa(primeiraColuna, x0, yTexto, larguraDaPrimeira, true);
       linhasDaCaixa(segundaColuna, x0 + larguraDaPrimeira + 3, yTexto, larguraDaSegunda, true);
     }
     linhasDaCaixa(b.direita.linhas, xDireita + FOLGA, yConteudo, larguraDaDireitaUtil, true);
     y += h + VAO;
+  }
+
+  /**
+   * A FILEIRA DOS MESES: o nome, os dias com uso em negrito e uma barrinha da
+   * própria pessoa (dias com uso contra os dias de semana do mês). Nunca de
+   * gente contra gente. Mês em que a conta ainda não existia leva só o nome e
+   * um traço.
+   */
+  function desenharMeses(ms: MesDaCaixa[], x: number, y0: number, w: number) {
+    const passo = w / ms.length;
+    const larguraDaBarra = passo - Math.min(1.2, passo * 0.18);
+    ms.forEach((m, i) => {
+      const xm = x + i * passo;
+      fonte(6, 'normal', CINZA);
+      doc.text(caber(m.rotulo, larguraDaBarra), xm, y0 + 2.2);
+      if (m.dias === null) {
+        fonte(7.5, 'normal', CINZA);
+        doc.text('—', xm, y0 + 5.6);
+        return;
+      }
+      fonte(7.5, 'bold');
+      doc.text(caber(numero(m.dias), larguraDaBarra), xm, y0 + 5.6);
+      preencher(DIA_SEM_USO);
+      doc.rect(xm, y0 + 6.8, larguraDaBarra, 1.4, 'F');
+      const cheia = Math.max(0, Math.min(1, m.proporcao));
+      if (cheia > 0) {
+        preencher(VERDE);
+        doc.rect(xm, y0 + 6.8, larguraDaBarra * cheia, 1.4, 'F');
+      }
+    });
   }
 
   /** A grade: rótulo das semanas em cima, das linhas à esquerda, e uma célula por dia. */

@@ -21,10 +21,6 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
  */
 export type DesafioRecadastramento = 'CPF_NASCIMENTO' | 'CPF' | 'COREN' | 'NASCIMENTO' | 'NENHUM';
 
-export const DESAFIOS_CONHECIDOS: readonly DesafioRecadastramento[] = [
-  'CPF_NASCIMENTO', 'CPF', 'COREN', 'NASCIMENTO', 'NENHUM',
-];
-
 export interface LinkAberto {
   desafio: DesafioRecadastramento;
   expiraEm: string;
@@ -88,6 +84,14 @@ export interface FiliadoRecadastro {
   fotoUrl?: string | null;
 }
 
+/** Erro da área pública COM o status: a página decide o destino por ele. */
+export class ErroDoRecadastro extends Error {
+  constructor(message: string, readonly status: number | null) {
+    super(message);
+    this.name = 'ErroDoRecadastro';
+  }
+}
+
 async function chamar<T>(caminho: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${caminho}`, {
     ...init,
@@ -97,9 +101,43 @@ async function chamar<T>(caminho: string, init?: RequestInit): Promise<T> {
   const corpo = texto ? JSON.parse(texto) : null;
   if (!r.ok) {
     const msg = corpo?.message;
-    throw new Error(Array.isArray(msg) ? msg[0] : msg ?? 'Não foi possível concluir a operação.');
+    throw new ErroDoRecadastro(
+      Array.isArray(msg) ? msg[0] : msg ?? 'Não foi possível concluir a operação.',
+      r.status,
+    );
   }
   return corpo as T;
+}
+
+/**
+ * ONDE O ERRO DA CONFIRMAÇÃO APARECE (15/09/2026).
+ *
+ * "Dados não conferem. Restam 3 tentativa(s)." saía num toast que some em
+ * segundos, e a pessoa tentava de novo sem saber quantas restavam. Agora:
+ *  · LINHA: fica fixa acima do botão até a próxima tentativa (dado errado,
+ *    campo que falta).
+ *  · LINK: o link morreu (bloqueado na 5ª, cancelado, vencido, inexistente).
+ *    Não adianta insistir no formulário: a página troca para "Link
+ *    indisponível", com a frase da API. A API responde 410/404; a 5ª errada
+ *    volta 403 com "bloqueado" na frase, e é essa palavra que a separa.
+ */
+export function destinoDoErroDoDesafio(erro: unknown): 'LINHA' | 'LINK' {
+  const status = (erro as { status?: unknown })?.status;
+  if (status === 404 || status === 410) return 'LINK';
+  const msg = (erro as { message?: unknown })?.message;
+  return typeof msg === 'string' && /bloquead/i.test(msg) ? 'LINK' : 'LINHA';
+}
+
+/**
+ * LINK ANTIGO SEM CONFIRMAÇÃO: o que a tela mostra (15/09/2026).
+ *
+ * O efeito que abre o cadastro roda DEPOIS do primeiro desenho. Nesse desenho
+ * `validando` ainda é falso, e a página mostrava "Não foi possível abrir o seu
+ * cadastro." por um instante antes de abrir. Antes da primeira tentativa
+ * terminar, é sempre ABRINDO; FALHOU só depois de uma tentativa de verdade.
+ */
+export function telaDoLinkDireto(estado: { validando: boolean; tentouUmaVez: boolean }): 'ABRINDO' | 'FALHOU' {
+  return !estado.validando && estado.tentouUmaVez ? 'FALHOU' : 'ABRINDO';
 }
 
 /** Estado do link + qual confirmação será pedida. */

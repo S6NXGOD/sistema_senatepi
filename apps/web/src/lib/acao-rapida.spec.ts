@@ -1,5 +1,9 @@
 import {
+  atendimentoConcluidoJunto,
   avisoDeConcluida,
+  avisoDeDesfeita,
+  avisoDeReaberta,
+  avisoDoConcluirPeloModal,
   botaoDaLinha,
   hrefDeCadastro,
   observacaoValida,
@@ -292,5 +296,94 @@ describe('o aviso depois de concluir (D6)', () => {
 
   it('passada a janela da API, sem desfazer', () => {
     expect(avisoDeConcluida({ ...simples, concluidoEm: '2026-09-13T12:50:00Z' }, 'Peça protocolada', agora).desfazer).toBe(false);
+  });
+
+  /*
+    E5 (15/09/2026): a consulta nascida do atendimento fecha o atendimento junto.
+    O advogado sabe pelo aviso; a frase sai da RESPOSTA, e sem o campo nada muda.
+  */
+  it('a consulta do #13: diz que o atendimento fechou junto, e o desfazer continua', () => {
+    const consulta = { ...simples, desfecho: 'DUVIDA_ESCLARECIDA', atendimentoConcluido: { id: 'at13', numero: 13 } };
+    expect(avisoDeConcluida(consulta, 'Dúvida esclarecida', agora))
+      .toEqual({ texto: 'Dúvida esclarecida. Atendimento #13 concluído junto.', desfazer: true });
+    expect(avisoDeConcluida({ ...consulta, preProcessualCriado: { id: 'p', titulo: null } }, 'Virou processo novo', agora).texto)
+      .toBe('Virou processo novo. O caso foi aberto em fase pré-processual. Atendimento #13 concluído junto.');
+    expect(avisoDeConcluida({ ...consulta, atendimentoConcluido: null }, 'Dúvida esclarecida', agora).texto).toBe('Dúvida esclarecida');
+    expect(atendimentoConcluidoJunto({})).toBe('');
+  });
+
+  it('desfazer diz que o atendimento voltou a aguardar a consulta', () => {
+    expect(avisoDeDesfeita({ atendimentoReaberto: { numero: 13 } }))
+      .toBe('Conclusão desfeita. A atividade voltou para a fila e o atendimento #13 voltou a aguardar a consulta.');
+    expect(avisoDeDesfeita({ atendimentoReaberto: null })).toBe('Conclusão desfeita. A atividade voltou para a fila.');
+    expect(avisoDeDesfeita(undefined)).toBe('Conclusão desfeita. A atividade voltou para a fila.');
+  });
+});
+
+describe('o aviso do modal de concluir da agenda', () => {
+  const agora = Date.parse('2026-09-15T13:00:00Z');
+  const consulta = {
+    desfecho: 'DUVIDA_ESCLARECIDA',
+    seguimentoCriado: null,
+    preProcessualCriado: null,
+    rascunhoCriado: null,
+    concluidoEm: '2026-09-15T12:59:57Z',
+    atendimentoConcluido: { id: 'at13', numero: 13 },
+  };
+
+  /** "Atividade concluída." para todo desfecho escondia o desfecho e o atendimento. */
+  it('diz o rótulo do desfecho e o atendimento #13, e oferece desfazer', () => {
+    expect(avisoDoConcluirPeloModal(consulta, 'Dúvida esclarecida', agora)).toEqual({
+      texto: 'Dúvida esclarecida. Atendimento #13 concluído junto.',
+      desfazer: true,
+    });
+  });
+
+  it('sem atendimento junto, só o rótulo', () => {
+    expect(avisoDoConcluirPeloModal({ ...consulta, atendimentoConcluido: null }, 'Peça protocolada', agora))
+      .toEqual({ texto: 'Peça protocolada', desfazer: true });
+  });
+
+  it('com seguimento: a tarefa criada, o atendimento, e sem desfazer', () => {
+    const r = avisoDoConcluirPeloModal(
+      { ...consulta, seguimentoCriado: { id: 's', titulo: 'Nova tentativa de contato', inicio: '2026-09-16T12:00:00Z', tipo: 'CONTATO' } },
+      'Não conseguimos contato',
+      agora,
+    );
+    expect(r).toEqual({
+      texto: 'Não conseguimos contato. Tarefa criada: «Nova tentativa de contato» para qua., 16/09. Atendimento #13 concluído junto.',
+      desfazer: false,
+    });
+  });
+
+  /** A página anuncia o caso com o "Abrir": o modal não repete, diz só o atendimento. */
+  it('caso aberto: só o atendimento, ou nada', () => {
+    const caso = { ...consulta, desfecho: 'PROCESSO_CRIADO', preProcessualCriado: { id: 'p', titulo: null } };
+    expect(avisoDoConcluirPeloModal(caso, 'Virou processo novo', agora))
+      .toEqual({ texto: 'Atendimento #13 concluído junto.', desfazer: false });
+    expect(avisoDoConcluirPeloModal({ ...caso, atendimentoConcluido: null }, 'Virou processo novo', agora))
+      .toEqual({ texto: null, desfazer: false });
+    // API de antes: só o nome antigo do caso.
+    expect(avisoDoConcluirPeloModal({ ...consulta, rascunhoCriado: { id: 'p' }, atendimentoConcluido: undefined }, 'Virou processo novo', agora))
+      .toEqual({ texto: null, desfazer: false });
+  });
+
+  it('sem rótulo (catálogo que não chegou), a frase de sempre', () => {
+    expect(avisoDoConcluirPeloModal({ ...consulta, atendimentoConcluido: null }, undefined, agora).texto).toBe('Atividade concluída');
+    expect(avisoDoConcluirPeloModal(consulta, '  ', agora).texto).toBe('Atividade concluída. Atendimento #13 concluído junto.');
+  });
+});
+
+describe('o aviso de reabrir pela agenda', () => {
+  it('diz que o atendimento #13 voltou a aguardar a consulta', () => {
+    expect(avisoDeReaberta({ atendimentoReaberto: { numero: 13 } }))
+      .toBe('Atividade reaberta. O atendimento #13 voltou a aguardar a consulta.');
+  });
+
+  /** Iniciar e Voltar a pendente usam a mesma rota: sem o atendimento, nada a dizer. */
+  it('sem o atendimento, fica calado', () => {
+    expect(avisoDeReaberta({ atendimentoReaberto: null })).toBeNull();
+    expect(avisoDeReaberta({})).toBeNull();
+    expect(avisoDeReaberta(undefined)).toBeNull();
   });
 });

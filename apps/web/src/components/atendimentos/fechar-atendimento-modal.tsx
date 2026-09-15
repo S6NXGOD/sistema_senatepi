@@ -7,7 +7,7 @@ import { AlertTriangle, CheckCircle2, Loader2, RotateCcw, RotateCw, X, XCircle }
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
-import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
+import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
@@ -16,10 +16,10 @@ import { V } from '@/lib/vocabulario';
 import {
   getAtendimento, concluirAtendimento, cancelarAtendimento, reabrirAtendimento,
   CATEGORIAS_CANCELAMENTO_ATENDIMENTO, MOTIVO_MAXIMO, NOTA_MAXIMA, NOTA_MINIMA,
-  casoDoConcluir, conferirFechamento, corpoDoCancelar, corpoDoConcluir, deQuem, escolhaInicialDaConsulta,
-  fechamentoSujo, fraseDaConsultaCancelada, mensagemDaConsultaCancelada, mensagemDaFalha,
+  avisoDasCopiasAbertas, avisoDoConcluido, casoDoConcluir, conferirFechamento, corpoDoCancelar, corpoDoConcluir,
+  escolhaInicialDaConsulta, fechamentoSujo, fraseDaConsultaCancelada, mensagemDaConsultaCancelada, mensagemDaFalha,
   mostrarConfirmacaoDoFechamento, nomeDeQuemAtende, notaObrigatoria, resumoDoConcluir, textoDoReabrir,
-  textosDaConsultaNoCancelar,
+  textosDaConsultaNoCancelar, tituloDoConcluir,
   type AcaoDeFechar, type AtendimentoDossie, type CasoDoConcluir, type CategoriaCancelamentoAtendimento,
   type EscolhaDaConsulta, type RespostaDoFechamento, type StatusAtendimento, type TomDoEstado,
 } from '@/lib/atendimentos';
@@ -126,6 +126,7 @@ function ConteudoDoFechamento({
   const conferido = conferirFechamento(acao, f, escolhas);
   const sujo = fechamentoSujo(acao, f, escolhas);
   const recusa = f ? (acao === 'CONCLUIR' ? (f.concluir.permitido ? null : f.concluir.recusa) : (f.cancelar.permitido ? null : f.cancelar.recusa)) : null;
+  const caso = at ? casoDoConcluir(at) : null;
 
   const salvar = useMutation({
     mutationFn: () =>
@@ -135,11 +136,11 @@ function ConteudoDoFechamento({
     onSuccess: (resposta) => {
       invalidar(atendimentoId);
       onFechado?.();
-      if (mostrarConfirmacaoDoFechamento(acao, categoria, resposta?.efeitos)) {
+      if (mostrarConfirmacaoDoFechamento(acao, categoria, resposta?.efeitos, caso)) {
         setConfirmado({ resposta, acao });
         return;
       }
-      toast.success(acao === 'CONCLUIR' ? 'Atendimento concluído.' : 'Atendimento cancelado.');
+      toast.success(acao === 'CONCLUIR' ? avisoDoConcluido(resposta?.efeitos) : 'Atendimento cancelado.');
       onClose();
     },
     onError: (e: any) => {
@@ -164,20 +165,28 @@ function ConteudoDoFechamento({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [fecharPorFora, onClose]);
 
+  /*
+    O TÍTULO DA CONFIRMAÇÃO LEVA O NÚMERO (15/09/2026): "Atendimento #14
+    cancelado", e logo abaixo o que aconteceu com a consulta e o próximo passo.
+  */
+  const numeroConfirmado = confirmado?.resposta.atendimento.numero ?? at?.numero;
   const titulo = confirmado
-    ? confirmado.acao === 'CONCLUIR' ? 'Atendimento concluído' : 'Atendimento cancelado'
-    : `${acao === 'CONCLUIR' ? 'Concluir' : 'Cancelar'} atendimento${at ? ` #${at.numero}` : ''}`;
+    ? `Atendimento${numeroConfirmado ? ` #${numeroConfirmado}` : ''} ${confirmado.acao === 'CONCLUIR' ? 'concluído' : 'cancelado'}`
+    : acao === 'CONCLUIR'
+      ? tituloDoConcluir(caso, at?.numero)
+      : `Cancelar atendimento${at ? ` #${at.numero}` : ''}`;
 
   function trocarAcao(nova: AcaoDeFechar) {
     setAcao(nova);
     setConsultaTocada(undefined);
   }
 
-  const caso = at ? casoDoConcluir(at) : null;
+  // Com a consulta de pé, concluir é resolver sem ela: o botão diz o efeito, e sair é deixar aguardando.
+  const semAConsulta = acao === 'CONCLUIR' && (caso === 'FUTURA' || caso === 'COMECOU');
   const primario = acao === 'CONCLUIR'
-    ? caso === 'FUTURA' ? 'Cancelar a consulta e concluir' : 'Concluir atendimento'
+    ? semAConsulta ? 'Cancelar a consulta e concluir' : 'Concluir atendimento'
     : 'Cancelar atendimento';
-  const voltar = acao === 'CONCLUIR' && caso === 'FUTURA' ? 'Deixar pendente' : 'Voltar';
+  const voltar = semAConsulta ? 'Deixar aguardando' : 'Voltar';
 
   return (
     <div
@@ -240,8 +249,6 @@ function ConteudoDoFechamento({
                 <CorpoDoConcluir
                   at={at}
                   caso={caso!}
-                  consulta={escolhas.consulta}
-                  onConsulta={setConsultaTocada}
                   texto={texto}
                   onTexto={setTexto}
                   obrigatoria={notaObrigatoria(f, escolhas)}
@@ -373,12 +380,10 @@ function CartaoDeEscolha({
 type AtendimentoDoDetalhe = AtendimentoDossie['atendimento'];
 
 function CorpoDoConcluir({
-  at, caso, consulta, onConsulta, texto, onTexto, obrigatoria, desabilitado, tituloId,
+  at, caso, texto, onTexto, obrigatoria, desabilitado, tituloId,
 }: {
   at: AtendimentoDoDetalhe;
   caso: CasoDoConcluir;
-  consulta: EscolhaDaConsulta | null;
-  onConsulta: (e: EscolhaDaConsulta) => void;
   texto: string;
   onTexto: (t: string) => void;
   obrigatoria: boolean;
@@ -390,20 +395,27 @@ function CorpoDoConcluir({
   const responsavel = f.consulta?.responsavel ?? null;
   const quem = nomeDeQuemAtende(responsavel);
   const semDecisaoSobreConsulta = caso === 'ATENDIDA' || caso === 'RESOLVIDO_NO_ATO' || caso === 'SEM_CONSULTA' || caso === 'EM_ANDAMENTO';
+  const copias = avisoDasCopiasAbertas(caso, f);
+  /*
+    SEM A PERGUNTA "O QUE HOUVE COM A CONSULTA?" (E2, 15/09/2026). A triagem
+    respondia pelo advogado. Com a consulta futura ou começada, concluir aqui é
+    sempre resolver sem ela, e a consulta é cancelada junto.
+  */
+  const semAConsulta = caso === 'FUTURA' || caso === 'COMECOU';
 
   /*
     A NOTA SÓ É OBRIGATÓRIA quando nenhum outro registro diz como a demanda
     terminou: sem consulta atendida, ou cancelando a consulta. Obrigar nos demais
     produz eco ("consulta realizada"), a mesma lição do cancelamento da agenda.
   */
-  const rotulo = caso === 'FUTURA'
-    ? 'Como se resolveu antes da consulta?'
-    : caso === 'SEM_CONSULTA' || (caso === 'COMECOU' && consulta === 'CANCELAR')
+  const rotulo = semAConsulta
+    ? 'Como se resolveu sem a consulta?'
+    : caso === 'SEM_CONSULTA'
       ? 'Como a demanda terminou?'
       : caso === 'RESOLVIDO_NO_ATO' ? 'Quer acrescentar algo?' : 'Quer registrar algo?';
-  const placeholder = caso === 'FUTURA'
+  const placeholder = semAConsulta
     ? `Ex.: o ${V.filiado} ligou e a dúvida foi esclarecida por telefone`
-    : caso === 'SEM_CONSULTA' || (caso === 'COMECOU' && consulta === 'CANCELAR')
+    : caso === 'SEM_CONSULTA'
       ? `Ex.: o ${V.filiado} resolveu direto no RH da prefeitura`
       : caso === 'RESOLVIDO_NO_ATO' ? 'Algo que a resolução não diz' : 'Algo que a consulta não registrou';
   const curta = obrigatoria && texto.trim().length > 0 && texto.trim().length < NOTA_MINIMA;
@@ -429,24 +441,9 @@ function CorpoDoConcluir({
         <p className="text-sm text-muted-foreground">O atendimento sai dos pendentes. Dá para reabrir depois, se precisar.</p>
       )}
 
-      {caso === 'COMECOU' && f.concluir.consulta === 'ESCOLHER' && (
-        <div role="radiogroup" aria-labelledby={`${tituloId}-houve`} className="space-y-2">
-          <p id={`${tituloId}-houve`} className="text-sm font-medium">O que houve com a consulta? *</p>
-          <CartaoDeEscolha
-            marcado={consulta === 'MANTER'}
-            onEscolher={() => onConsulta('MANTER')}
-            titulo="A consulta aconteceu"
-            apoio={`Ela fica na agenda${quem ? ` ${deQuem(quem)}` : ''} para ser registrada como foi.`}
-            desabilitado={desabilitado}
-          />
-          <CartaoDeEscolha
-            marcado={consulta === 'CANCELAR'}
-            onEscolher={() => onConsulta('CANCELAR')}
-            titulo="A consulta não aconteceu"
-            apoio="Ela é cancelada como Perdeu o objeto, com a sua nota."
-            desabilitado={desabilitado}
-          />
-        </div>
+      {/* E4: a vigente foi atendida e sobrou cópia marcada; o modal diz antes de gravar. */}
+      {copias && (
+        <p className="rounded-lg border bg-muted/40 p-3 text-sm">{copias}</p>
       )}
 
       <div className="space-y-1.5">
@@ -576,8 +573,9 @@ function CorpoDoCancelar({
         <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
           <p>{textos.titulo}</p>
           <p className="text-muted-foreground">{textos.apoio}</p>
+          {/* Contorno, não fantasma (15/09/2026): dentro do bloco cinza, o fantasma sumia. */}
           {f.concluir.permitido && (
-            <Button variant="ghost" className="w-full sm:w-auto" onClick={onConcluirEmVez} disabled={desabilitado}>
+            <Button variant="outline" className="w-full bg-background sm:w-auto" onClick={onConcluirEmVez} disabled={desabilitado}>
               <CheckCircle2 className="h-4 w-4" /> Concluir em vez de cancelar
             </Button>
           )}
@@ -602,11 +600,18 @@ function ConfirmacaoDoFechamento({ resposta, onFechar }: { resposta: RespostaDoF
   const canceladas = resposta.efeitos?.consultasCanceladas ?? [];
   const filiado = resposta.atendimento.filiado;
   const celular = celularParaWhatsApp(filiado.telefonePrincipal, filiado.telefoneSecundario);
-  const primeira = canceladas[0];
+  /*
+    CÓPIA NÃO VIRA MENSAGEM (E4, 15/09/2026). A mensagem fala da consulta que o
+    filiado esperava, nunca de uma cópia cancelada como registro duplicado: com
+    a vigente e as cópias canceladas no mesmo gesto, a primeira da lista podia
+    ser a cópia, com outro dia e outra hora. Sem nenhuma que não seja cópia, não
+    há o que avisar e o botão nem aparece.
+  */
+  const avisavel = canceladas.find((c) => c.categoria !== 'DUPLICIDADE') ?? null;
 
   function avisar() {
-    if (!celular || !primeira) return;
-    const texto = mensagemDaConsultaCancelada({ nomeFiliado: filiado.nomeCompleto, inicio: primeira.inicio });
+    if (!celular || !avisavel) return;
+    const texto = mensagemDaConsultaCancelada({ nomeFiliado: filiado.nomeCompleto, inicio: avisavel.inicio });
     window.open(linkWhatsApp(celular, texto), '_blank', 'noopener,noreferrer');
   }
 
@@ -621,24 +626,30 @@ function ConfirmacaoDoFechamento({ resposta, onFechar }: { resposta: RespostaDoF
             {canceladas.map((c) => (
               <p key={c.id} className="font-medium leading-snug">{fraseDaConsultaCancelada(c)}</p>
             ))}
-            <p className="text-sm text-muted-foreground">Ninguém recebe aviso fora do sistema.</p>
+            {avisavel && (
+              <p className="text-sm text-muted-foreground">
+                Ninguém recebe aviso fora do sistema. O próximo passo é avisar o {V.filiado}.
+              </p>
+            )}
           </div>
         </div>
-        <div className="space-y-1.5">
-          <Button
-            type="button"
-            className="h-12 w-full bg-[#25D366] text-white hover:bg-[#20bd5a]"
-            disabled={!celular}
-            onClick={avisar}
-          >
-            <WhatsAppIcon className="h-4 w-4" /> Avisar pelo WhatsApp
-          </Button>
-          {!celular && (
-            <p className="text-xs text-muted-foreground">
-              O cadastro não tem celular, nem no telefone principal nem no secundário. Avise por outro meio.
-            </p>
-          )}
-        </div>
+        {avisavel && (
+          <div className="animate-surgir space-y-1.5">
+            <Button
+              type="button"
+              className="h-12 w-full bg-[#25D366] text-white hover:bg-[#20bd5a]"
+              disabled={!celular}
+              onClick={avisar}
+            >
+              <WhatsAppIcon className="h-4 w-4" /> Avisar pelo WhatsApp
+            </Button>
+            {!celular && (
+              <p className="text-xs text-muted-foreground">
+                O cadastro não tem celular, nem no telefone principal nem no secundário. Avise por outro meio.
+              </p>
+            )}
+          </div>
+        )}
       </div>
       <div
         className="flex flex-col-reverse gap-2 border-t bg-muted/30 px-4 pt-3 sm:flex-row sm:justify-end"
@@ -684,15 +695,34 @@ export function ReabrirAtendimentoDialog({
 
   const d = detalhe.data?.atendimento;
   const texto = alvo
-    ? textoDoReabrir({ numero: alvo.numero, status: alvo.status, consultas: d?.consultas, compromissos: d?.compromissos })
+    ? textoDoReabrir({
+        numero: alvo.numero,
+        status: alvo.status,
+        consultas: d?.consultas,
+        compromissos: d?.compromissos,
+        concluidoPor: d?.concluidoPor,
+        conclusaoOrigem: d?.conclusaoOrigem,
+        canceladoPor: d?.canceladoPor,
+        canceladoCategoria: d?.canceladoCategoria,
+      })
     : null;
+  /*
+    O TEXTO SÓ DEPOIS DO DETALHE (15/09/2026). Aberto pela lista, a frase da
+    consulta cancelada chegava depois e a descrição pulava. Enquanto busca, o
+    esqueleto guarda o lugar; se a busca falhar, vale o texto sem o detalhe.
+  */
+  const esperandoDetalhe = !!alvo && detalhe.isLoading;
 
   return (
     <ConfirmDialog
       open={!!alvo}
       title={texto?.titulo ?? ''}
       icon={<RotateCcw className="h-6 w-6" />}
-      description={texto?.descricao ?? ''}
+      description={
+        esperandoDetalhe
+          ? <Carregando texto="Conferindo o atendimento"><EsqueletoLinhas quantidade={2} altura={20} /></Carregando>
+          : texto?.descricao ?? ''
+      }
       confirmLabel="Reabrir"
       cancelLabel="Voltar"
       loading={reabrir.isPending}

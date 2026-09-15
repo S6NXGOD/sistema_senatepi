@@ -18,17 +18,21 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar as podeEditarModulo, podeExcluir } from '@/lib/permissoes';
 import { NovaEscalaModal } from '@/components/escalas/nova-escala-modal';
 import { EditarEscalaModal, ModoDaEdicao } from '@/components/escalas/editar-escala-modal';
-import { CopiarEscalaModal } from '@/components/escalas/copiar-escala-modal';
+import { CopiarEscalaModal, InicioDaCopia } from '@/components/escalas/copiar-escala-modal';
 import { AcoesDoPlantao, PlantaoCartao } from '@/components/escalas/plantao-cartao';
 import { SeletorDePessoa } from '@/components/escalas/seletor-de-pessoa';
 import { useTelaLarga } from '@/lib/use-tela-larga';
 import { exportarEscalasPdf } from '@/lib/escalas-pdf';
 import {
-  AdvogadoEscala, CorAdvogado, Escala, agruparPorDia, avisoDeExclusao, chaveDoDia, chaveMes, contar, diaDaEscala,
-  excluirEscala, faixaDoPlantao, hojeBR, listarAdvogadosEscala, listarConsultasDoPlantao, listarEscalas, mesAnterior,
-  mensagemDoErro, montarCoresDaTela, nomeDeExibicao, nomeDoMes as nomeDoMesDaChave, podeCopiarPara, posicaoDoPopover, rotuloDoPlantao,
-  rotuloMes,
+  AdvogadoEscala, CopiaFeita, CopiaParaDesfazer, CorAdvogado, Escala, JANELA_DO_DESFAZER_DA_COPIA_MS, agruparPorDia,
+  avisoDaCopiaDesfeita, avisoDaCopiaFeita, avisoDeExclusao, chaveDoDia, chaveMes, contar, desfazerCopia, diaDaEscala,
+  excluirEscala, faixaDoPlantao, horaBR, hojeBR, listarAdvogadosEscala, listarConsultasDoPlantao, listarEscalas, mesAnterior,
+  mensagemDoErro, montarCoresDaTela, nomeDeExibicao, nomeDoMes as nomeDoMesDaChave, padraoDaCopia, podeCopiarPara,
+  podeDesfazerCopia, posicaoDoPopover, preverCopia, rotuloDoBotaoDaPagina, rotuloDoPlantao, rotuloMes, somarMeses,
 } from '@/lib/escalas';
+
+/** O aviso de sucesso fica mais que o padrão: é nele que mora o "Desfazer a cópia". */
+const DURACAO_DO_AVISO_DA_COPIA_MS = 15_000;
 
 type Visao = 'calendario' | 'lista';
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -95,25 +99,91 @@ export default function EscalasPage() {
     diante e sem filtro de pessoa: a cópia leva a equipe inteira, e oferecê-la
     na visão filtrada daria a entender que copia só a pessoa escolhida.
   */
-  const [copiaAberta, setCopiaAberta] = useState(false);
+  const [copia, setCopia] = useState<InicioDaCopia | null>(null);
   const podeCopiar = podeEditar && !advogadoFiltro && podeCopiarPara(mesKey);
-  const mesAntes = mesAnterior(mesKey);
-  // No mês vazio o botão diz DE ONDE copia. Só afirma "de setembro" se setembro
-  // tem plantões; senão a folha escolhe a origem e o botão não promete nada.
-  const anteriorQ = useQuery({
-    queryKey: ['escalas', mesAntes, ''],
-    queryFn: () => listarEscalas(mesAntes),
-    enabled: podeCopiar && !carregando && !escalasQ.isError && escalas.length === 0,
+
+  /*
+    O BOTÃO DIZ O QUE A FOLHA VAI FAZER (V1, 15/09/2026). Só nomeava o mês se
+    fosse exatamente o anterior, e aparecia mesmo sem mês nenhum com plantões:
+    a folha abria para dizer "não tem plantões". A sonda é a própria prévia da
+    cópia (que já traz `mesesComPlantao`), com o par que a folha mais usa: mês
+    preenchido → o próximo; mês vazio → vindo do anterior. É também a primeira
+    prévia que a folha pede, então abrir costuma sair do cache.
+  */
+  const sonda = escalas.length > 0
+    ? { origem: mesKey, destino: somarMeses(mesKey, 1) }
+    : { origem: mesAnterior(mesKey), destino: mesKey };
+  const sondaQ = useQuery({
+    queryKey: ['escalas', 'copia', sonda.origem, sonda.destino],
+    queryFn: () => preverCopia(sonda.origem, sonda.destino),
+    enabled: podeCopiar && !carregando && !escalasQ.isError,
+    retry: 1,
   });
-  const rotuloDaCopia = anteriorQ.data?.length
-    ? `Copiar a escala de ${nomeDoMesDaChave(mesAntes)}`
-    : 'Copiar a escala de outro mês';
+  const padrao = sondaQ.data ? padraoDaCopia(sondaQ.data.mesesComPlantao, mesKey) : null;
+  // Sonda com erro (a API antiga no deploy, a rede): o botão fica, genérico, e a
+  // folha acerta a proposta com a primeira resposta dela.
+  const rotuloDaCopia = sondaQ.isError ? 'Copiar escala' : rotuloDoBotaoDaPagina(padrao, mesKey);
+  const mostraCopia = podeCopiar && !!rotuloDaCopia;
+  const esperandoSonda = podeCopiar && sondaQ.isLoading;
+  function abrirCopia() {
+    setCopia(padrao ? { ...padrao, decidido: true } : { ...sonda, decidido: false });
+  }
 
   const invalidar = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['escalas'] });
     // O cartão "Equipe disponível hoje" do painel lê a mesma escala.
     void qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
   }, [qc]);
+
+  // A última cópia, enquanto ainda dá para desfazer. Some sozinha no fim dos 10
+  // minutos: o aviso de sucesso dura segundos, e a linha na página, o prazo.
+  const [ultimaCopia, setUltimaCopia] = useState<CopiaParaDesfazer | null>(null);
+  useEffect(() => {
+    if (!ultimaCopia) return;
+    const resta = ultimaCopia.feitaEm + JANELA_DO_DESFAZER_DA_COPIA_MS - Date.now();
+    if (resta <= 0) { setUltimaCopia(null); return; }
+    const t = setTimeout(() => setUltimaCopia(null), resta);
+    return () => clearTimeout(t);
+  }, [ultimaCopia]);
+
+  const desfazer = useMutation({
+    mutationFn: (c: CopiaParaDesfazer) => desfazerCopia(c.loteId),
+    onSuccess: (r, c) => {
+      toast.success(avisoDaCopiaDesfeita(r?.apagados, c.destino));
+      setUltimaCopia(null);
+      invalidar();
+    },
+    onError: (e) => {
+      // Recusa definitiva (prazo, outra pessoa, plantão editado): tentar de novo
+      // não muda nada, então o convite some. Rede caída deixa tentar.
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      // A API responde o prazo vencido com 400 (escalas.service.ts, recusa TEMPO).
+      if (status && [400, 403, 404, 409, 410].includes(status)) setUltimaCopia(null);
+      toast.error(mensagemDoErro(e, 'Não foi possível desfazer a cópia. Tente de novo.'));
+    },
+  });
+
+  function pedirDesfazer(c: CopiaParaDesfazer) {
+    if (!podeDesfazerCopia(c, Date.now())) {
+      setUltimaCopia(null);
+      return void toast.error('Passaram os 10 minutos para desfazer a cópia. Quem apaga plantões agora é o Administrador.');
+    }
+    desfazer.mutate(c);
+  }
+
+  function aoCopiar({ resposta, origem, destino }: { resposta: CopiaFeita; origem: string; destino: string }) {
+    invalidar();
+    const feita = resposta.loteId
+      ? { loteId: resposta.loteId, origem, destino, criadas: resposta.criadas, feitaEm: Date.now() }
+      : null;
+    setUltimaCopia(feita);
+    toast.success(
+      avisoDaCopiaFeita(resposta.criadas, destino),
+      feita
+        ? { duration: DURACAO_DO_AVISO_DA_COPIA_MS, action: { label: 'Desfazer a cópia', onClick: () => pedirDesfazer(feita) } }
+        : undefined,
+    );
+  }
 
   const remover = useMutation({
     mutationFn: (id: string) => excluirEscala(id),
@@ -132,8 +202,15 @@ export default function EscalasPage() {
     queryFn: () => listarConsultasDoPlantao(aExcluir!.id),
     enabled: !!aExcluir,
     retry: false,
+    // A contagem é do momento de excluir, não de 30 s atrás.
+    staleTime: 0,
   });
   const avisoDaExclusao = aExcluir && consultasDoExcluidoQ.data ? avisoDeExclusao(consultasDoExcluidoQ.data) : null;
+  // Enquanto confere, uma linha de esqueleto guarda o lugar do aviso e só
+  // "Excluir" não aceita toque: o texto genérico trocava pelo das consultas
+  // debaixo do dedo (15/09/2026). Desistir continua livre — Cancelar, X, Esc e o
+  // toque fora não esperam a conferência (`confirmDisabled`, não `loading`).
+  const conferindoExclusao = !!aExcluir && consultasDoExcluidoQ.isLoading;
 
   // Pessoas escaladas no mês, em ordem alfabética (legenda — não é ranking).
   const escalados = useMemo(() => {
@@ -311,15 +388,40 @@ export default function EscalasPage() {
             {contar(escalas.length, 'plantão', 'plantões')} em {nomeDoMes}
             {escalados.length > 0 && <> · {contar(escalados.length, 'pessoa escalada', 'pessoas escaladas')}</>}
           </p>
-          {/* O cabeçalho não comporta um 3º botão a 400 px: a cópia mora aqui. */}
-          {podeCopiar && escalas.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setCopiaAberta(true)}
-              className="-ml-1 inline-flex min-h-[44px] items-center gap-1.5 px-1 text-sm font-medium text-brand-800 hover:underline dark:text-brand-400 md:min-h-[32px]"
-            >
-              <CopyPlus className="h-4 w-4" /> Copiar de outro mês
-            </button>
+          {/* O cabeçalho não comporta um 3º botão a 400 px: a cópia mora aqui.
+              Era um link de 32 px, fácil de não ver no computador: agora é botão. */}
+          {escalas.length > 0 && esperandoSonda && <Esqueleto className="h-11 w-full max-w-xs md:h-9 md:w-56" />}
+          {escalas.length > 0 && mostraCopia && (
+            <Button variant="outline" className="w-full animate-surgir sm:w-auto md:h-9" onClick={abrirCopia}>
+              <CopyPlus className="h-4 w-4" /> {rotuloDaCopia}
+            </Button>
+          )}
+          {ultimaCopia && (
+            <p className="flex animate-surgir flex-wrap items-center gap-x-3 text-sm text-muted-foreground" role="status">
+              <span>
+                Cópia de {nomeDoMesDaChave(ultimaCopia.origem)} para {nomeDoMesDaChave(ultimaCopia.destino)} feita às{' '}
+                {horaBR(new Date(ultimaCopia.feitaEm))}.
+              </span>
+              <span className="flex items-center gap-1">
+                {mesKey !== ultimaCopia.destino && (
+                  <button
+                    type="button"
+                    onClick={() => { const [a, m] = ultimaCopia.destino.split('-').map(Number); setPopover(null); setMes(new Date(a, m - 1, 1)); }}
+                    className="min-h-[44px] px-1 font-medium text-brand-800 hover:underline dark:text-brand-400 md:min-h-[32px]"
+                  >
+                    Ver {nomeDoMesDaChave(ultimaCopia.destino)}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => pedirDesfazer(ultimaCopia)}
+                  disabled={desfazer.isPending}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 px-1 font-medium text-brand-800 hover:underline disabled:opacity-50 dark:text-brand-400 md:min-h-[32px]"
+                >
+                  {desfazer.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Desfazer a cópia
+                </button>
+              </span>
+            </p>
           )}
         </div>
       )}
@@ -439,9 +541,12 @@ export default function EscalasPage() {
               </p>
               {podeCopiar && (
                 <div className="mx-auto flex max-w-xs flex-col gap-2">
-                  <Button onClick={() => setCopiaAberta(true)}>
-                    <CopyPlus className="h-4 w-4" /> {rotuloDaCopia}
-                  </Button>
+                  {esperandoSonda && <Esqueleto className="h-12 w-full md:h-10" />}
+                  {mostraCopia && (
+                    <Button className="animate-surgir" onClick={abrirCopia}>
+                      <CopyPlus className="h-4 w-4" /> {rotuloDaCopia}
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={() => novaEm()}>
                     <CalendarPlus className="h-4 w-4" /> Cadastrar plantões
                   </Button>
@@ -453,8 +558,9 @@ export default function EscalasPage() {
       ) : escalas.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 px-4 py-14 text-center">
           <p className="text-sm text-muted-foreground">Nenhum plantão em {nomeDoMes}.</p>
-          {podeCopiar && (
-            <Button className="w-full max-w-xs" onClick={() => setCopiaAberta(true)}>
+          {esperandoSonda && <Esqueleto className="h-12 w-full max-w-xs md:h-10" />}
+          {mostraCopia && (
+            <Button className="w-full max-w-xs animate-surgir" onClick={abrirCopia}>
               <CopyPlus className="h-4 w-4" /> {rotuloDaCopia}
             </Button>
           )}
@@ -561,10 +667,10 @@ export default function EscalasPage() {
 
       <NovaEscalaModal open={novaOpen} onClose={() => setNovaOpen(false)} onSalvo={invalidar} dataPre={dataPre} />
       <CopiarEscalaModal
-        destino={copiaAberta ? mesKey : null}
-        origemInicial={mesAntes}
-        onClose={() => setCopiaAberta(false)}
-        onSalvo={invalidar}
+        inicio={copia}
+        mesDaTela={mesKey}
+        onClose={() => setCopia(null)}
+        onCopiada={aoCopiar}
       />
       <EditarEscalaModal
         alvo={edicao}
@@ -582,15 +688,20 @@ export default function EscalasPage() {
           aExcluir && (
             <>
               <p>{descreverPlantao(aExcluir)}.</p>
-              <p className="mt-1">
-                {avisoDaExclusao ?? 'Se for troca entre colegas, use Trocar com… e o histórico fica certo.'}
-              </p>
+              {conferindoExclusao ? (
+                <Esqueleto className="mt-2 h-4 w-full" />
+              ) : (
+                <p className="mt-1 animate-surgir">
+                  {avisoDaExclusao ?? 'Se for troca entre colegas, use Trocar com… e o histórico fica certo.'}
+                </p>
+              )}
             </>
           )
         }
         confirmLabel="Excluir"
         loading={remover.isPending}
-        onConfirm={() => aExcluir && remover.mutate(aExcluir.id)}
+        confirmDisabled={conferindoExclusao}
+        onConfirm={() => aExcluir && !conferindoExclusao && remover.mutate(aExcluir.id)}
         onClose={() => setAExcluir(null)}
       />
     </div>

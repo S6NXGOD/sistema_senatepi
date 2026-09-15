@@ -179,6 +179,8 @@ export async function statusDjen(): Promise<StatusDjen> {
 export async function umaPublicacao(id: string): Promise<PublicacaoDjen & {
   processo: { id: string; numeroCNJ: string | null } | null;
   compromisso: { id: string; titulo: string; status: string; inicio: string } | null;
+  /** A tarefa da irmã do mesmo ato (cópia pelo link). Opcional: a API antiga não manda. */
+  tarefaDoMesmoAto?: { id: string; titulo: string; status: string; inicio: string } | null;
 }> {
   return (await api.get(`/djen/publicacoes/${id}`)).data;
 }
@@ -246,10 +248,62 @@ export async function coberturaDoDiario(processoId: string): Promise<CoberturaDo
   return data;
 }
 
+/**
+ * O que o "Buscar no DJEN" devolve. `historico`, `bateuNoTeto` e `interrompida`
+ * chegaram na API de 14/09/2026; opcionais pela janela de troca.
+ */
+export interface ResultadoDaBuscaNoDjen {
+  ingeridas: number;
+  recebidas: number;
+  /** A leitura foi a do histórico inteiro (primeira vez deste processo). */
+  historico?: boolean;
+  /** Parou no teto de páginas: pode haver publicação que não veio. */
+  bateuNoTeto?: boolean;
+  /** Uma página depois da primeira falhou (em geral, a cota do CNJ). */
+  interrompida?: boolean;
+}
+
+const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`;
+
+/**
+ * A FRASE DO TOQUE EM "BUSCAR NO DJEN" (15/09/2026).
+ *
+ * A ficha dizia "Nenhuma publicação nova no DJEN." até quando a leitura tinha
+ * parado pela cota no meio do histórico: a pessoa concluía que não havia nada,
+ * e havia. Leitura parcial é AVISO (âmbar), nunca sucesso; o histórico lido
+ * diz quantas vieram, porque "nenhuma nova" num processo que acabou de trazer
+ * 40 atos antigos soa como falha.
+ */
+export function avisoDaBuscaNoDjen(r: ResultadoDaBuscaNoDjen): { tom: 'SUCESSO' | 'AVISO'; texto: string } {
+  const novas = r.ingeridas > 0 ? `${plural(r.ingeridas, 'publicação nova', 'publicações novas')}. ` : '';
+  if (r.interrompida) {
+    return {
+      tom: 'AVISO',
+      texto: `${novas}Leitura parcial: o limite de consultas do CNJ foi atingido. Tente de novo em 1 minuto.`,
+    };
+  }
+  if (r.bateuNoTeto) {
+    return {
+      tom: 'AVISO',
+      texto: `${novas}Leitura parcial: este processo tem mais publicações do que cabe numa leitura. As mais antigas podem não ter vindo.`,
+    };
+  }
+  if (r.historico) {
+    if (r.recebidas === 0) return { tom: 'SUCESSO', texto: 'Histórico do Diário lido: nenhuma publicação para este processo.' };
+    const quantas = plural(r.recebidas, 'publicação', 'publicações');
+    const dasQuais = r.ingeridas === 0 ? 'nenhuma nova' : plural(r.ingeridas, 'nova', 'novas');
+    return { tom: 'SUCESSO', texto: `Histórico do Diário lido: ${quantas}, ${dasQuais}.` };
+  }
+  return {
+    tom: 'SUCESSO',
+    texto: r.ingeridas > 0 ? plural(r.ingeridas, 'publicação nova.', 'publicações novas.') : 'Nenhuma publicação nova no DJEN.',
+  };
+}
+
 /** Busca no DJEN sob demanda (botão da ficha do processo). */
 export async function sincronizarPublicacoes(
   processoId: string,
-): Promise<{ ingeridas: number; recebidas: number }> {
+): Promise<ResultadoDaBuscaNoDjen> {
   // Consulta o CNJ, tribunal a tribunal — não cabe no timeout de leitura.
   const { data } = await api.post(`/djen/processo/${processoId}/sincronizar`, undefined, {
     timeout: TIMEOUT_LONGO,

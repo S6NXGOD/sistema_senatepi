@@ -1,11 +1,14 @@
 import { tenant } from '@/tenant.config';
 import {
-  ConsultaDoPlantao, ConsultasDoPlantao, ItemDaCopia, agruparCopiaPorDia, apoioDaConsulta, avisoDeExclusao,
+  ConsultaDoPlantao, ConsultasDoPlantao, ItemDaCopia, JANELA_DO_DESFAZER_DA_COPIA_MS, agruparCopiaPorDia, apoioDaConsulta,
+  avisoDaCopiaDesfeita, avisoDaCopiaFeita, avisoDeExclusao, avisoDoEncurtamento,
   avisoDaConsultaPassada, avisoDoDestinoPreenchido, avisoDoNovoHorario, cabecalhoDasConsultas, celularDaConsultaPassada, chaveDaCopia,
-  comArtigo, consultasEscolhidas, consultasForaDoNovoHorario, daPessoa, delaOuDele, ehConflito, fraseDoChoque,
-  frasesDasIgnoradas, itensEscolhidosDaCopia, mensagemDaTrocaDeAdvogado, mesAnterior, nomeDoMes, nomeDoMesComAno,
-  origemPadraoDaCopia, planejarPassagem, podeCopiarPara, resumoDaCopia, resumoDaTroca, rotuloCurtoDoDia,
-  rotuloDasForaDoHorario, rotuloDoBotaoDaCopia, sobreposicaoQueVale, textoDoPlantaoPassado,
+  comArtigo, consultasEscolhidas, consultasForaDoNovoHorario, consultasQueQuemEntraAssume, daPessoa, delaOuDele,
+  destinoJaTemAEscala, ehConflito, escolhasDoDia, faixaDaPreviaDoHorario, parametrosDasConsultasDoPlantao, fraseDoChoque, fraseDoDestinoComEscala, fraseDosDiasSemNinguem,
+  frasesDasIgnoradas, itensEscolhidosDaCopia, linhaDoFora, marcadosNoDia, mensagemDaTrocaDeAdvogado, mesAnterior,
+  mesesDaOrigem, mesesDoDestino, nomeDoMes, nomeDoMesComAno, origemPadraoDaCopia, padraoDaCopia, planejarPassagem,
+  podeCopiarPara, podeDesfazerCopia, resumoDaCopia, resumoDaTroca, rotuloCurtoDoDia, rotuloDasForaDoHorario,
+  rotuloDoBotaoDaCopia, rotuloDoBotaoDaPagina, sobreposicaoQueVale, somarMeses, textoDoPlantaoPassado,
 } from './escalas';
 
 /*
@@ -318,11 +321,42 @@ describe('os irmãos: excluir e encurtar o horário só avisam', () => {
 
 describe('o passo "Plantão passado"', () => {
   it('o texto do plantão e das consultas, no plural e no singular', () => {
-    expect(textoDoPlantaoPassado('Dr. Murilo', '2026-09-15T00:00:00.000Z', 2)).toBe(
+    const responsavel = { papel: 'RESPONSAVEL' as const, jaEraResponsavel: false };
+    expect(textoDoPlantaoPassado('Dr. Murilo', '2026-09-15T00:00:00.000Z', [responsavel, responsavel])).toBe(
       'O Dr. Murilo assumiu o plantão de 15/09 e 2 consultas. Elas já estão na agenda e no painel dele. Ninguém recebe aviso fora do sistema.',
     );
-    expect(textoDoPlantaoPassado('Dra. Morgana', '2026-09-16', 1)).toBe(
+    expect(textoDoPlantaoPassado('Dra. Morgana', '2026-09-16', [responsavel])).toBe(
       'A Dra. Morgana assumiu o plantão de 16/09 e 1 consulta. Ela já está na agenda e no painel dela. Ninguém recebe aviso fora do sistema.',
+    );
+  });
+
+  /**
+   * 15/09/2026, auditoria das escalas, defeito 2: o 2º passo contava também a
+   * consulta em que a Dra. Shérad só atuava junto e a que o Dr. Murilo já
+   * atendia — "assumiu 3 consultas" quando ele passou a atender uma.
+   */
+  it('só conta como assumida a consulta em que quem saiu era o responsável e quem entrou não era', () => {
+    expect(
+      textoDoPlantaoPassado('Dr. Murilo', '2026-09-15', [
+        { papel: 'RESPONSAVEL', jaEraResponsavel: false },
+        { papel: 'PARTICIPANTE', jaEraResponsavel: false },
+        { papel: 'PARTICIPANTE', jaEraResponsavel: true },
+      ]),
+    ).toBe(
+      'O Dr. Murilo assumiu o plantão de 15/09 e 1 consulta. Ela já está na agenda e no painel dele. ' +
+        'Em mais 2 consultas, quem atende continua o mesmo. Ninguém recebe aviso fora do sistema.',
+    );
+    expect(textoDoPlantaoPassado('Dr. Murilo', '2026-09-15', [{ papel: 'PARTICIPANTE', jaEraResponsavel: true }])).toBe(
+      'O Dr. Murilo assumiu o plantão de 15/09. Quem atende a consulta continua o mesmo. Ninguém recebe aviso fora do sistema.',
+    );
+    expect(
+      textoDoPlantaoPassado('Dra. Morgana', '2026-09-16', [{ papel: 'PARTICIPANTE' }, { papel: 'PARTICIPANTE' }]),
+    ).toBe('A Dra. Morgana assumiu o plantão de 16/09. Quem atende as 2 consultas continua o mesmo. Ninguém recebe aviso fora do sistema.');
+  });
+
+  it('API antiga, sem papel: conta todas, como antes', () => {
+    expect(textoDoPlantaoPassado('Dr. Murilo', '2026-09-15', [{}, {}])).toBe(
+      'O Dr. Murilo assumiu o plantão de 15/09 e 2 consultas. Elas já estão na agenda e no painel dele. Ninguém recebe aviso fora do sistema.',
     );
   });
 
@@ -394,5 +428,296 @@ describe('o passo "Plantão passado"', () => {
     expect(celularDaConsultaPassada({ celularWhatsApp: '(86) 3222-1111' })).toBeNull();
     expect(celularDaConsultaPassada({ celularWhatsApp: null })).toBeNull();
     expect(celularDaConsultaPassada(null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rodada 4 (15/09/2026)
+// ---------------------------------------------------------------------------
+
+describe('somarMeses: aritmética de texto, virando o ano', () => {
+  it('para frente e para trás', () => {
+    expect(somarMeses('2026-09', 1)).toBe('2026-10');
+    expect(somarMeses('2026-12', 1)).toBe('2027-01');
+    expect(somarMeses('2026-09', 12)).toBe('2027-09');
+    expect(somarMeses('2027-01', -1)).toBe('2026-12');
+  });
+});
+
+/**
+ * V1 — captura da produção de 14/09/2026: setembro com 16 plantões abria a
+ * cópia DE agosto PARA setembro, "Criar 0 plantões". Mês cheio vai para o
+ * próximo; mês vazio vem do último com plantões.
+ */
+describe('padraoDaCopia e o botão da página', () => {
+  const producao = [
+    { mes: '2026-09', plantoes: 16 },
+    { mes: '2026-08', plantoes: 9 },
+  ];
+
+  it('setembro preenchido: de setembro para outubro', () => {
+    const padrao = padraoDaCopia(producao, '2026-09');
+    expect(padrao).toEqual({ origem: '2026-09', destino: '2026-10' });
+    expect(rotuloDoBotaoDaPagina(padrao, '2026-09')).toBe('Copiar setembro para outubro');
+  });
+
+  it('outubro vazio: de setembro para outubro', () => {
+    const padrao = padraoDaCopia(producao, '2026-10');
+    expect(padrao).toEqual({ origem: '2026-09', destino: '2026-10' });
+    expect(rotuloDoBotaoDaPagina(padrao, '2026-10')).toBe('Copiar a escala de setembro');
+  });
+
+  it('outubro também preenchido: o primeiro mês à frente sem plantões', () => {
+    const meses = [...producao, { mes: '2026-10', plantoes: 20 }, { mes: '2026-11', plantoes: 18 }];
+    expect(padraoDaCopia(meses, '2026-09')).toEqual({ origem: '2026-09', destino: '2026-12' });
+    expect(rotuloDoBotaoDaPagina(padraoDaCopia(meses, '2026-09'), '2026-09')).toBe('Copiar setembro para dezembro');
+  });
+
+  it('os 12 meses à frente cheios: o próximo, e a prévia diz que ele já tem a escala', () => {
+    const cheios = Array.from({ length: 13 }, (_, i) => ({ mes: somarMeses('2026-09', i), plantoes: 16 }));
+    expect(padraoDaCopia(cheios, '2026-09')).toEqual({ origem: '2026-09', destino: '2026-10' });
+  });
+
+  it('nenhum mês com plantões: sem proposta e sem botão', () => {
+    expect(padraoDaCopia([], '2026-10')).toBeNull();
+    expect(rotuloDoBotaoDaPagina(null, '2026-10')).toBeNull();
+  });
+});
+
+describe('os meses do De e do Para', () => {
+  const meses = [{ mes: '2026-09', plantoes: 16 }, { mes: '2026-08', plantoes: 9 }, { mes: '2026-07', plantoes: 0 }];
+
+  it('De: os meses com plantões fora o destino, do mais novo ao mais antigo', () => {
+    expect(mesesDaOrigem(meses, '2026-09', '2026-10').map((m) => m.mes)).toEqual(['2026-09', '2026-08']);
+    expect(mesesDaOrigem(meses, '2026-09', '2026-09').map((m) => m.mes)).toEqual(['2026-09', '2026-08']);
+    expect(mesesDaOrigem(meses, '2026-07', '2026-10')).toEqual([
+      { mes: '2026-09', plantoes: 16 }, { mes: '2026-08', plantoes: 9 }, { mes: '2026-07', plantoes: 0 },
+    ]);
+  });
+
+  it('Para: do mês de Teresina a 12 meses depois, sem a origem, com a contagem', () => {
+    const para = mesesDoDestino(meses, '2026-09', '2026-09', '2026-10');
+    expect(para[0]).toEqual({ mes: '2026-10', plantoes: 0 });
+    expect(para[para.length - 1].mes).toBe('2027-09');
+    expect(para.some((m) => m.mes === '2026-09')).toBe(false);
+    expect(para).toHaveLength(12);
+  });
+
+  it('Para com origem em agosto passado: setembro entra, com os 16 plantões', () => {
+    const para = mesesDoDestino(meses, '2026-09', '2026-08', '2026-09');
+    expect(para[0]).toEqual({ mes: '2026-09', plantoes: 16 });
+    expect(para[para.length - 1].mes).toBe('2027-09');
+  });
+});
+
+describe('"Outubro já tem a escala de setembro"', () => {
+  const fora = (motivo: 'SEM_OCORRENCIA' | 'JA_ESTA_DE_PLANTAO' | 'DIA_PASSOU' | 'PESSOA_INATIVA') => ({
+    origemId: `o-${motivo}`, origemData: '2026-09-07', data: '2026-10-05', advogado: pessoa('u-m', 'Dr. Murilo'),
+    horaInicio: '09:00', horaFim: '12:00', motivo, texto: 'já está de plantão',
+  });
+
+  it('a captura de 14/09: setembro com 16, a cópia de agosto com 9 de fora e nada a criar', () => {
+    const d = {
+      existentesNoDestino: 16,
+      criar: [],
+      fora: [...Array(7)].map(() => fora('JA_ESTA_DE_PLANTAO')).concat([fora('DIA_PASSOU'), fora('DIA_PASSOU')]),
+    };
+    expect(destinoJaTemAEscala(d)).toBe(true);
+    expect(fraseDoDestinoComEscala('2026-08', '2026-09')).toBe('Setembro já tem a escala de agosto.');
+  });
+
+  it('dia coberto por outra pessoa, vindo desmarcado, também é o destino com escala', () => {
+    expect(destinoJaTemAEscala({ existentesNoDestino: 6, criar: [item('e1', '2026-10-05', false)], fora: [] })).toBe(true);
+  });
+
+  it('com algo marcado para criar, destino vazio, ou pessoa inativa no meio: a lista de sempre', () => {
+    expect(destinoJaTemAEscala({ existentesNoDestino: 6, criar: [item('e1', '2026-10-05', true)], fora: [fora('JA_ESTA_DE_PLANTAO')] })).toBe(false);
+    expect(destinoJaTemAEscala({ existentesNoDestino: 0, criar: [], fora: [fora('DIA_PASSOU')] })).toBe(false);
+    expect(destinoJaTemAEscala({ existentesNoDestino: 6, criar: [], fora: [fora('JA_ESTA_DE_PLANTAO'), fora('PESSOA_INATIVA')] })).toBe(false);
+    expect(destinoJaTemAEscala({ existentesNoDestino: 6, criar: [], fora: [fora('DIA_PASSOU')] })).toBe(false);
+  });
+});
+
+/** Defeito 8: "seg, 03/08 · Dra. X — 07/09 já passou" — a data da origem ao lado do texto do destino. */
+describe('linhaDoFora: o dia do destino na frente', () => {
+  it('com o dia do destino, a origem vira apoio', () => {
+    expect(linhaDoFora({ origemData: '2026-08-03', data: '2026-09-07' })).toEqual({ dia: 'seg, 07/09', apoio: 'de seg, 03/08' });
+  });
+
+  it('5ª ocorrência que não existe, ou API antiga: a origem com "de"', () => {
+    expect(linhaDoFora({ origemData: '2026-09-29', data: null })).toEqual({ dia: 'de ter, 29/09', apoio: null });
+    expect(linhaDoFora({ origemData: '2026-08-03' })).toEqual({ dia: 'de seg, 03/08', apoio: null });
+  });
+});
+
+/** Defeito 1: origem parcial deixava dias do destino sem ninguém, sem aviso. */
+describe('fraseDosDiasSemNinguem', () => {
+  it('a frase da auditoria, na ordem do calendário', () => {
+    expect(fraseDosDiasSemNinguem(['2026-10-02', '2026-10-01'], '2026-10')).toBe('Dias de semana de outubro sem ninguém: 01/10, 02/10');
+    expect(fraseDosDiasSemNinguem(['2026-10-01'], '2026-10')).toBe('Dia de semana de outubro sem ninguém: 01/10');
+  });
+
+  it('muitos dias: os 8 primeiros e "e mais N"', () => {
+    const dias = ['2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-12', '2026-10-13', '2026-10-14'];
+    expect(fraseDosDiasSemNinguem(dias, '2026-10')).toBe(
+      'Dias de semana de outubro sem ninguém: 01/10, 02/10, 05/10, 06/10, 07/10, 08/10, 09/10, 12/10 e mais 2',
+    );
+  });
+
+  it('nenhum, ou a API antiga sem o campo: nada', () => {
+    expect(fraseDosDiasSemNinguem([], '2026-10')).toBeNull();
+    expect(fraseDosDiasSemNinguem(undefined, '2026-10')).toBeNull();
+  });
+});
+
+/** Feriado de 12/10/2026 (segunda): dois plantões no dia, uma ação só. */
+describe('desmarcar o dia', () => {
+  const doDia = [item('e-margareth', '2026-10-12', true), item('e-murilo', '2026-10-12', true, '14:00')];
+  const outro = item('e-tiago', '2026-10-13', true);
+
+  it('desmarca os dois do feriado e deixa a terça como estava', () => {
+    const escolhas = escolhasDoDia(doDia, {}, false);
+    expect(marcadosNoDia(doDia, escolhas)).toBe(0);
+    expect(itensEscolhidosDaCopia([...doDia, outro], escolhas)).toEqual([{ origemId: 'e-tiago', data: '2026-10-13' }]);
+  });
+
+  it('marcar o dia de novo inclui também o que o servidor mandou desmarcado', () => {
+    const coberto = [item('e-a', '2026-10-05', false), item('e-b', '2026-10-05', true)];
+    expect(marcadosNoDia(coberto, {})).toBe(1);
+    expect(marcadosNoDia(coberto, escolhasDoDia(coberto, {}, true))).toBe(2);
+  });
+
+  it('não apaga a escolha de outro dia', () => {
+    const antes = { [chaveDaCopia(outro)]: false };
+    expect(escolhasDoDia(doDia, antes, false)[chaveDaCopia(outro)]).toBe(false);
+  });
+});
+
+describe('desfazer a cópia: 10 minutos para quem copiou', () => {
+  const feita = { loteId: 'lote-1', origem: '2026-09', destino: '2026-10', criadas: 16, feitaEm: Date.parse('2026-09-15T21:40:00.000Z') };
+
+  it('dentro do prazo pode; no minuto 10 não; sem cópia não', () => {
+    expect(podeDesfazerCopia(feita, feita.feitaEm + 9 * 60_000 + 59_000)).toBe(true);
+    expect(podeDesfazerCopia(feita, feita.feitaEm + JANELA_DO_DESFAZER_DA_COPIA_MS)).toBe(false);
+    expect(podeDesfazerCopia(null, feita.feitaEm)).toBe(false);
+  });
+
+  it('relógio do aparelho voltando para trás não abre o prazo', () => {
+    expect(podeDesfazerCopia(feita, feita.feitaEm - 60_000)).toBe(false);
+  });
+
+  it('as frases', () => {
+    expect(avisoDaCopiaFeita(16, '2026-10')).toBe('16 plantões criados em outubro.');
+    expect(avisoDaCopiaFeita(1, '2026-10')).toBe('1 plantão criado em outubro.');
+    expect(avisoDaCopiaDesfeita(16, '2026-10')).toBe('Cópia desfeita: 16 plantões apagados de outubro.');
+    expect(avisoDaCopiaDesfeita(undefined, '2026-10')).toBe('Cópia desfeita. Os plantões que ela criou em outubro foram apagados.');
+  });
+});
+
+/** Defeito 2: a prévia da troca somava a consulta em que quem sai só atuava junto. */
+describe('consultasQueQuemEntraAssume', () => {
+  const d = previa({
+    noHorario: [
+      consulta('c-0900'),
+      consulta('c-1000', { papel: 'PARTICIPANTE', jaEraResponsavel: false }),
+      consulta('c-1030', { papel: 'PARTICIPANTE', jaEraResponsavel: true }),
+    ],
+    foraDoHorario: [consulta('c-1500', { inicio: '2026-09-15T18:00:00.000Z' })],
+  });
+
+  it('das três marcadas no horário, o Dr. Murilo assume uma', () => {
+    const ids = planejarPassagem(d, {}, true);
+    expect(ids).toEqual(['c-0900', 'c-1000', 'c-1030']);
+    expect(consultasQueQuemEntraAssume(d, ids)).toBe(1);
+    expect(resumoDaTroca('Dr. Murilo', consultasQueQuemEntraAssume(d, ids))).toBe('O Dr. Murilo fica com o plantão e com 1 consulta.');
+  });
+
+  it('marcar a das 15h soma; sem prévia ou sem ids, zero', () => {
+    expect(consultasQueQuemEntraAssume(d, ['c-0900', 'c-1500'])).toBe(2);
+    expect(consultasQueQuemEntraAssume(undefined, ['c-0900'])).toBe(0);
+    expect(consultasQueQuemEntraAssume(d, undefined)).toBe(0);
+    expect(consultasQueQuemEntraAssume(d, ['sumiu'])).toBe(0);
+  });
+});
+
+describe('os consertos das frases da troca, da exclusão e do encurtamento', () => {
+  /** Defeito 11: "Nenhuma consulta marcada…" e logo abaixo "Mais 1 consulta dela…". */
+  it('nada no horário e 1 fora: o cabeçalho fala do horário e o resumo perde o "Mais"', () => {
+    expect(cabecalhoDasConsultas(0, 'Dra. Shérad', 1)).toBe('Nenhuma consulta com a Dra. Shérad no horário deste plantão.');
+    expect(rotuloDasForaDoHorario(1, 'Dra. Shérad', false)).toBe('1 consulta dela neste dia, fora do horário do plantão');
+    expect(rotuloDasForaDoHorario(2, 'Dr. Murilo', true)).toBe('Mais 2 consultas dele neste dia, fora do horário do plantão');
+  });
+
+  /** Defeito 9: a troca de plantão passado não passa consultas. */
+  it('excluir plantão que já passou não manda usar "Trocar com…"', () => {
+    expect(avisoDeExclusao(previa({ passado: true, noHorario: [consulta('a')], foraDoHorario: [] }))).toBe(
+      'Há 1 consulta marcada com a Dra. Shérad neste plantão. Ela continua na agenda dela.',
+    );
+  });
+
+  /** Defeito 10: sem Agenda, as listas vêm vazias e só o total. */
+  it('encurtar sem a lista, com 2 no horário: avisa pela contagem', () => {
+    expect(avisoDoEncurtamento(previa({ noHorario: [], foraDoHorario: [], total: 2 }), { horaInicio: '09:00', horaFim: '11:00' })).toBe(
+      'Há 2 consultas marcadas com a Dra. Shérad neste plantão. Alguma pode ficar fora do novo horário; quem edita a Agenda consegue conferir.',
+    );
+    expect(avisoDoEncurtamento(previa({ noHorario: [], foraDoHorario: [], total: 0 }), { horaInicio: '09:00', horaFim: '11:00' })).toBeNull();
+  });
+
+  it('encurtar com a lista: as que saem da faixa, como antes', () => {
+    const d = previa({ noHorario: [consulta('c-0900'), consulta('c-1100', { inicio: '2026-09-15T14:00:00.000Z' })] });
+    expect(avisoDoEncurtamento(d, { horaInicio: '09:00', horaFim: '11:00' })).toBe('1 consulta às 11:00 fica fora do novo horário.');
+    expect(avisoDoEncurtamento(d, { horaInicio: '09:00', horaFim: '12:00' })).toBeNull();
+  });
+});
+
+/*
+  15/09/2026 — a GET das consultas leva o horário do formulário e a API conta
+  `foraDoNovoHorario`. A tela pede só quando o horário mudou e está completo, e a
+  frase sai do número do servidor, com ou sem a lista.
+*/
+describe('o aviso de mudar o horário, contado pela API', () => {
+  const plantao = { horaInicio: '09:00', horaFim: '12:00' };
+
+  it('pede a prévia só com horário novo e completo; a faixa invertida vai (a API responde nulo)', () => {
+    expect(faixaDaPreviaDoHorario(plantao, { horaInicio: '09:00', horaFim: '12:00' })).toBeNull();
+    expect(faixaDaPreviaDoHorario(plantao, { horaInicio: '09:00', horaFim: '' })).toBeNull();
+    expect(faixaDaPreviaDoHorario(plantao, { horaInicio: '9:00', horaFim: '11:00' })).toBeNull();
+    expect(faixaDaPreviaDoHorario(plantao, { horaInicio: '09:00', horaFim: '11:00' })).toEqual({ horaInicio: '09:00', horaFim: '11:00' });
+    expect(faixaDaPreviaDoHorario(plantao, { horaInicio: '12:00', horaFim: '08:00' })).toEqual({ horaInicio: '12:00', horaFim: '08:00' });
+  });
+
+  it('os parâmetros levam só o que foi pedido', () => {
+    expect(parametrosDasConsultasDoPlantao()).toEqual({});
+    expect(parametrosDasConsultasDoPlantao('u-murilo')).toEqual({ entra: 'u-murilo' });
+    expect(parametrosDasConsultasDoPlantao(undefined, { horaInicio: '09:00', horaFim: '11:00' })).toEqual({ horaInicio: '09:00', horaFim: '11:00' });
+    expect(parametrosDasConsultasDoPlantao(undefined, null)).toEqual({});
+  });
+
+  const comLista = { noHorario: [consulta('c-0900'), consulta('c-1100', { inicio: '2026-09-15T14:00:00.000Z' })], foraDoHorario: [] };
+  const faixa = { horaInicio: '09:00', horaFim: '11:00' };
+
+  it('1 que sai, com a lista: a hora de Teresina da consulta que a API apontou', () => {
+    const d = previa({ ...comLista, total: 2, foraDoNovoHorario: 1, idsForaDoNovoHorario: ['c-1100'] });
+    expect(avisoDoEncurtamento(d, faixa)).toBe('1 consulta às 11:00 fica fora do novo horário.');
+  });
+
+  it('sem Agenda (listas e ids vazios): só o número, sem nome nem hora', () => {
+    const um = previa({ noHorario: [], foraDoHorario: [], total: 3, foraDoNovoHorario: 1, idsForaDoNovoHorario: [] });
+    expect(avisoDoEncurtamento(um, faixa)).toBe('1 consulta fica fora do novo horário.');
+    const dois = previa({ noHorario: [], foraDoHorario: [], total: 3, foraDoNovoHorario: 2, idsForaDoNovoHorario: [] });
+    expect(avisoDoEncurtamento(dois, faixa)).toBe('2 consultas ficam fora do novo horário.');
+  });
+
+  it('o número do servidor manda sobre a conta daqui', () => {
+    // A conta local diria "1 às 11:00"; o servidor contou 2 (a das 09:00 também, na faixa 10:00–11:00).
+    const d = previa({ ...comLista, foraDoNovoHorario: 2, idsForaDoNovoHorario: ['c-0900', 'c-1100'] });
+    expect(avisoDoEncurtamento(d, faixa)).toBe('2 consultas ficam fora do novo horário.');
+    expect(avisoDoEncurtamento(previa({ ...comLista, foraDoNovoHorario: 0, idsForaDoNovoHorario: [] }), faixa)).toBeNull();
+  });
+
+  it('nulo (faixa invertida enquanto digita) não mostra nada, nem pela conta daqui', () => {
+    const d = previa({ ...comLista, foraDoNovoHorario: null, idsForaDoNovoHorario: [] });
+    expect(avisoDoEncurtamento(d, { horaInicio: '12:00', horaFim: '08:00' })).toBeNull();
+    expect(avisoDoEncurtamento(d, faixa)).toBeNull();
   });
 });

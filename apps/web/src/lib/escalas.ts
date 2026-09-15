@@ -2,6 +2,7 @@ import { api } from './api';
 import { tenant } from '@/tenant.config';
 import { modalidadeDoLocal } from './atendimentos';
 import { celularParaWhatsApp } from './whatsapp';
+import { rotuloCurtoDoDia } from './dia-curto';
 
 export interface AdvogadoEscala {
   id: string;
@@ -565,22 +566,28 @@ export const comMaiuscula = (s: string) => s.charAt(0).toUpperCase() + s.slice(1
 
 /** O mês anterior ("2026-01" → "2025-12"). */
 export function mesAnterior(mes: string): string {
-  const [ano, m] = mes.split('-').map(Number);
-  return m === 1 ? `${ano - 1}-12` : `${ano}-${String(m - 1).padStart(2, '0')}`;
+  return somarMeses(mes, -1);
 }
 
-const SEMANA_CURTA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+/** "2026-12" + 1 → "2027-01". Aritmética de texto: nunca anda de mês por fuso. */
+export function somarMeses(mes: string, n: number): string {
+  const [ano, m] = mes.split('-').map(Number);
+  const total = ano * 12 + (m - 1) + n;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+}
+
 const SEMANA_LONGA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
 /**
  * "seg, 05/10" — o cabeçalho do dia na prévia da cópia. Aritmética sobre o
  * texto: `formatDataPura` põe ponto ("seg., 05/10") e a lista fica com um
  * ponto em cada linha.
+ *
+ * Mora em `@/lib/dia-curto` desde 15/09/2026: Agenda e Escala tinham duas
+ * funções com este nome e assinaturas diferentes. Sem o dia de hoje, nunca põe
+ * o ano, que é o formato da Escala.
  */
-export function rotuloCurtoDoDia(dia: string): string {
-  const d = diaDaEscala(dia);
-  return `${SEMANA_CURTA[diaDaSemana(d)]}, ${diaCurto(d)}`;
-}
+export { rotuloCurtoDoDia };
 
 // ---------------------------------------------------------------------------
 // COPIAR A ESCALA DE UM MÊS PARA OUTRO (D15, 14/09/2026)
@@ -619,6 +626,12 @@ export interface ItemDaCopia {
 export interface ItemForaDaCopia {
   origemId: string;
   origemData: string;
+  /**
+   * O dia do DESTINO (15/09/2026). O texto fala dele ("07/09 já passou") e a
+   * linha mostrava o da origem ao lado. Opcional: o contêiner antigo não manda;
+   * `null` quando o destino não tem o dia (5ª terça que não existe).
+   */
+  data?: string | null;
   advogado: PessoaDaCopia;
   horaInicio: string;
   horaFim: string;
@@ -633,18 +646,37 @@ export interface PreviaDaCopia {
   existentesNoDestino: number;
   criar: ItemDaCopia[];
   fora: ItemForaDaCopia[];
+  /**
+   * Dias de semana (seg–sex) do destino que ficam sem ninguém depois da cópia,
+   * "AAAA-MM-DD" (15/09/2026). Opcional: a API antiga não manda, e a folha não
+   * diz nada — a regra é do servidor, não se refaz aqui.
+   */
+  diasSemNinguem?: string[];
 }
 
 export async function preverCopia(origem: string, destino: string): Promise<PreviaDaCopia> {
   return (await api.get('/escalas/copia', { params: { origem, destino } })).data;
 }
 
+/** `loteId` é o que o "Desfazer a cópia" apaga. Opcional: sem ele, a tela não oferece desfazer. */
+export interface CopiaFeita {
+  ok: boolean;
+  criadas: number;
+  ids: string[];
+  loteId?: string;
+}
+
 export async function copiarEscala(dados: {
   origem: string;
   destino: string;
   itens: { origemId: string; data: string }[];
-}) {
-  return (await api.post('/escalas/copia', dados)).data as { ok: boolean; criadas: number; ids: string[] };
+}): Promise<CopiaFeita> {
+  return (await api.post('/escalas/copia', dados)).data;
+}
+
+/** Apaga os plantões de uma cópia recém-feita. A API confere quem copiou, o prazo e se algo mudou. */
+export async function desfazerCopia(loteId: string): Promise<{ ok: boolean; apagados?: number; jaApagados?: number }> {
+  return (await api.delete(`/escalas/copia/${encodeURIComponent(loteId)}`)).data;
 }
 
 /** Espelho do `ArrayMaxSize(250)` do POST — trava de segurança, não regra de negócio. */
@@ -722,6 +754,188 @@ export function ehConflito(e: unknown): boolean {
   return (e as { response?: { status?: number } })?.response?.status === 409;
 }
 
+/*
+  DE ONDE E PARA ONDE (V1, 15/09/2026).
+
+  Na captura da produção de 14/09, a folha aberta em setembro (16 plantões)
+  copiava agosto PARA setembro: "Nenhum plantão vai ser criado em setembro · 9
+  ficaram de fora", botão "Criar 0 plantões". O destino era sempre o mês da
+  tela, e o uso natural num mês preenchido é levar este mês para o próximo.
+*/
+
+/** Quantos meses à frente a folha procura um destino vazio, e oferece no "Para". */
+export const MESES_A_FRENTE_DA_COPIA = 12;
+
+const plantoesNoMes = (meses: { mes: string; plantoes: number }[], mes: string) =>
+  meses.find((m) => m.mes === mes)?.plantoes ?? 0;
+
+/**
+ * A proposta da folha para o mês aberto na tela.
+ *
+ *  · mês da tela vazio: de o último mês com plantões (`origemPadraoDaCopia`)
+ *    para o mês da tela;
+ *  · mês da tela preenchido: dele para o primeiro mês à frente sem plantões,
+ *    até 12 meses; todos cheios, o próximo (a prévia então diz que ele já tem a
+ *    escala, e a pessoa escolhe outro).
+ *
+ * `null` quando não há nada para copiar: a página esconde o botão, em vez de
+ * abrir uma folha que só diz "não tem plantões".
+ */
+export function padraoDaCopia(
+  meses: { mes: string; plantoes: number }[],
+  mesDaTela: string,
+): { origem: string; destino: string } | null {
+  if (plantoesNoMes(meses, mesDaTela) === 0) {
+    const origem = origemPadraoDaCopia(meses, mesDaTela);
+    return origem ? { origem, destino: mesDaTela } : null;
+  }
+  for (let i = 1; i <= MESES_A_FRENTE_DA_COPIA; i++) {
+    const mes = somarMeses(mesDaTela, i);
+    if (plantoesNoMes(meses, mes) === 0) return { origem: mesDaTela, destino: mes };
+  }
+  return { origem: mesDaTela, destino: somarMeses(mesDaTela, 1) };
+}
+
+/** "Copiar setembro para outubro" (mês da tela preenchido) ou "Copiar a escala de agosto" (vazio). */
+export function rotuloDoBotaoDaPagina(padrao: { origem: string; destino: string } | null, mesDaTela: string): string | null {
+  if (!padrao) return null;
+  return padrao.origem === mesDaTela
+    ? `Copiar ${nomeDoMes(padrao.origem)} para ${nomeDoMes(padrao.destino)}`
+    : `Copiar a escala de ${nomeDoMes(padrao.origem)}`;
+}
+
+/** O "De": meses com plantões, fora o destino, e sempre o escolhido; do mais novo para o mais antigo. */
+export function mesesDaOrigem(
+  meses: { mes: string; plantoes: number }[],
+  origem: string,
+  destino: string,
+): { mes: string; plantoes: number }[] {
+  const lista = meses.filter((m) => m.mes !== destino && m.plantoes > 0);
+  if (!lista.some((m) => m.mes === origem)) lista.push({ mes: origem, plantoes: plantoesNoMes(meses, origem) });
+  return [...lista].sort((a, b) => (a.mes < b.mes ? 1 : -1));
+}
+
+/**
+ * O "Para": do mês de Teresina até 12 meses depois do mais adiante entre hoje e
+ * a origem, fora a origem, em ordem do calendário. O destino escolhido entra
+ * sempre, mesmo além da janela.
+ */
+export function mesesDoDestino(
+  meses: { mes: string; plantoes: number }[],
+  mesAtual: string,
+  origem: string,
+  destino: string,
+): { mes: string; plantoes: number }[] {
+  const base = origem > mesAtual ? origem : mesAtual;
+  const fim = somarMeses(base, MESES_A_FRENTE_DA_COPIA);
+  const lista: { mes: string; plantoes: number }[] = [];
+  for (let mes = mesAtual; mes <= fim; mes = somarMeses(mes, 1)) {
+    if (mes !== origem) lista.push({ mes, plantoes: plantoesNoMes(meses, mes) });
+  }
+  if (destino !== origem && !lista.some((m) => m.mes === destino)) {
+    lista.push({ mes: destino, plantoes: plantoesNoMes(meses, destino) });
+    lista.sort((a, b) => (a.mes < b.mes ? -1 : 1));
+  }
+  return lista;
+}
+
+/**
+ * O DESTINO JÁ TEM A ESCALA? — "Outubro já tem a escala de setembro".
+ *
+ * Copiar para um mês já preenchido listava cada plantão como "já está de
+ * plantão" (9 linhas na captura de 14/09/2026) para dizer uma coisa só. Vale
+ * quando nada vem marcado e o que impede é o destino já coberto; o dia que
+ * passou e a 5ª ocorrência que não existe não desmentem a frase.
+ */
+export function destinoJaTemAEscala(d: Pick<PreviaDaCopia, 'existentesNoDestino' | 'criar' | 'fora'>): boolean {
+  if (d.existentesNoDestino <= 0 || d.criar.some((i) => i.marcado)) return false;
+  const cobertos = d.criar.length + d.fora.filter((f) => f.motivo === 'JA_ESTA_DE_PLANTAO').length;
+  const outros = d.fora.filter((f) => f.motivo === 'PESSOA_INATIVA').length;
+  return cobertos > 0 && outros === 0;
+}
+
+/** "Outubro já tem a escala de setembro." */
+export const fraseDoDestinoComEscala = (origem: string, destino: string) =>
+  `${comMaiuscula(nomeDoMes(destino))} já tem a escala de ${nomeDoMes(origem)}.`;
+
+/**
+ * A linha de "Ficaram de fora": o dia do DESTINO na frente, o da origem de
+ * apoio. Era "seg, 03/08 · Dra. X — 07/09 já passou": duas datas que não
+ * batiam na mesma linha. Sem o dia do destino (API antiga, ou 5ª ocorrência que
+ * não existe), a data da origem vai com "de", para não parecer a do texto.
+ */
+export function linhaDoFora(f: Pick<ItemForaDaCopia, 'data' | 'origemData'>): { dia: string; apoio: string | null } {
+  if (f.data) return { dia: rotuloCurtoDoDia(f.data), apoio: `de ${rotuloCurtoDoDia(f.origemData)}` };
+  return { dia: `de ${rotuloCurtoDoDia(f.origemData)}`, apoio: null };
+}
+
+/** Quantos dias sem ninguém a frase nomeia antes de "e mais N". */
+const DIAS_SEM_NINGUEM_NA_FRASE = 8;
+
+/** "Dias de semana de outubro sem ninguém: 01/10, 02/10" — ou `null`. */
+export function fraseDosDiasSemNinguem(dias: string[] | undefined, destino: string): string | null {
+  if (!dias?.length) return null;
+  const ordenados = [...new Set(dias.map(diaDaEscala))].sort();
+  const mostrados = ordenados.slice(0, DIAS_SEM_NINGUEM_NA_FRASE).map(diaCurto).join(', ');
+  const resto = ordenados.length - DIAS_SEM_NINGUEM_NA_FRASE;
+  const inicio = ordenados.length === 1
+    ? `Dia de semana de ${nomeDoMes(destino)} sem ninguém: `
+    : `Dias de semana de ${nomeDoMes(destino)} sem ninguém: `;
+  return `${inicio}${mostrados}${resto > 0 ? ` e mais ${resto}` : ''}`;
+}
+
+/** Quantos itens do dia estão marcados, com a escolha da pessoa por cima do padrão. */
+export function marcadosNoDia(itens: ItemDaCopia[], escolhas: Record<string, boolean>): number {
+  return itens.filter((i) => escolhas[chaveDaCopia(i)] ?? i.marcado).length;
+}
+
+/**
+ * "Desmarcar o dia" (feriado) e "Marcar o dia": a escolha de cada item do dia de
+ * uma vez. O sistema não tem tabela de feriados; era desmarcar plantão por
+ * plantão, e numa segunda com dois advogados, duas caixas por feriado.
+ */
+export function escolhasDoDia(
+  itens: ItemDaCopia[],
+  escolhas: Record<string, boolean>,
+  marcar: boolean,
+): Record<string, boolean> {
+  const novas = { ...escolhas };
+  for (const i of itens) novas[chaveDaCopia(i)] = marcar;
+  return novas;
+}
+
+/*
+  DESFAZER A CÓPIA (15/09/2026) — exceção estreita à regra "só o Administrador
+  apaga". Uma cópia errada eram ~20 plantões apagados um a um pelo
+  Administrador. Só quem copiou, em até 10 minutos, e só se nenhum plantão da
+  cópia foi editado nem tem consulta passada: quem confere é a API
+  (`DELETE /escalas/copia/:loteId`); a tela só deixa de oferecer depois do prazo.
+*/
+export const JANELA_DO_DESFAZER_DA_COPIA_MS = 10 * 60_000;
+
+export interface CopiaParaDesfazer {
+  loteId: string;
+  origem: string;
+  destino: string;
+  criadas: number;
+  /** `Date.now()` de quando a resposta chegou. */
+  feitaEm: number;
+}
+
+export function podeDesfazerCopia(c: CopiaParaDesfazer | null, agora: number): c is CopiaParaDesfazer {
+  return !!c && agora >= c.feitaEm && agora - c.feitaEm < JANELA_DO_DESFAZER_DA_COPIA_MS;
+}
+
+/** "16 plantões criados em outubro." */
+export const avisoDaCopiaFeita = (criadas: number, destino: string) =>
+  `${contar(criadas, 'plantão criado', 'plantões criados')} em ${nomeDoMes(destino)}.`;
+
+/** "Cópia desfeita: 16 plantões apagados de outubro." */
+export function avisoDaCopiaDesfeita(removidas: number | undefined, destino: string): string {
+  if (removidas === undefined) return `Cópia desfeita. Os plantões que ela criou em ${nomeDoMes(destino)} foram apagados.`;
+  return `Cópia desfeita: ${contar(removidas, 'plantão apagado', 'plantões apagados')} de ${nomeDoMes(destino)}.`;
+}
+
 // ---------------------------------------------------------------------------
 // TROCA DE PLANTONISTA E AS CONSULTAS MARCADAS (D16/D17, 14/09/2026)
 // ---------------------------------------------------------------------------
@@ -741,6 +955,12 @@ export interface ConsultaDoPlantao {
   fim: string;
   status: 'PENDENTE' | 'EM_ANDAMENTO';
   papel: 'RESPONSAVEL' | 'PARTICIPANTE';
+  /**
+   * Quem sai só atua junto e quem entra JÁ É o responsável: passar só tira quem
+   * sai da equipe (15/09/2026). A API manda desde 14/09; opcional pela janela
+   * de troca. Não conta como consulta que quem entra "fica com".
+   */
+  jaEraResponsavel?: boolean;
   selecionavel: boolean;
   porQueNao: string | null;
   local: string | null;
@@ -769,6 +989,16 @@ export interface ConsultasDoPlantao {
   total: number;
   noHorario: ConsultaDoPlantao[];
   foraDoHorario: ConsultaDoPlantao[];
+  /**
+   * ENCURTAR O HORÁRIO, CONTADO PELO SERVIDOR (15/09/2026). Só vem número quando
+   * a GET leva `horaInicio`/`horaFim`: quantas consultas que estavam no horário
+   * ficam fora da faixa nova — a mesma conta que o PATCH carimba na auditoria, e
+   * vale também para quem não vê a Agenda. `null` sem horário novo ou com a faixa
+   * invertida enquanto a pessoa digita. Opcionais pela janela de troca do deploy.
+   */
+  foraDoNovoHorario?: number | null;
+  /** Os ids dessas consultas; vazio para quem não vê a Agenda. */
+  idsForaDoNovoHorario?: string[];
 }
 
 export interface ResultadoDasConsultas {
@@ -791,9 +1021,46 @@ export interface ResultadoDasConsultas {
 /** A escala como o PATCH devolve; `consultas` só vem quando `passarConsultas` foi enviado. */
 export type EscalaAtualizada = Escala & { consultas?: ResultadoDasConsultas };
 
-/** `entra` ausente: só a contagem e a lista (excluir, encurtar o horário). */
-export async function listarConsultasDoPlantao(escalaId: string, entra?: string): Promise<ConsultasDoPlantao> {
-  return (await api.get(`/escalas/${escalaId}/consultas`, { params: entra ? { entra } : {} })).data;
+/** A faixa HH:MM que a API aceita na GET das consultas (o `HORA` do DTO). */
+const HORA_DA_PREVIA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * O horário que vai na prévia de ENCURTAR, ou `null` quando não há o que pedir:
+ * horário igual ao do plantão, ou um campo vazio/incompleto (a API recusaria
+ * com 400). A faixa invertida VAI: a API responde `foraDoNovoHorario: null` e a
+ * tela apaga o aviso antigo em vez de deixá-lo falando de outro horário.
+ */
+export function faixaDaPreviaDoHorario(
+  atual: { horaInicio: string; horaFim: string },
+  formulario: { horaInicio: string; horaFim: string },
+): { horaInicio: string; horaFim: string } | null {
+  const { horaInicio, horaFim } = formulario;
+  if (!HORA_DA_PREVIA.test(horaInicio) || !HORA_DA_PREVIA.test(horaFim)) return null;
+  if (horaInicio === atual.horaInicio && horaFim === atual.horaFim) return null;
+  return { horaInicio, horaFim };
+}
+
+/** Os parâmetros da GET: só o que foi pedido, para a resposta de sempre continuar a de sempre. */
+export function parametrosDasConsultasDoPlantao(
+  entra?: string,
+  novoHorario?: { horaInicio: string; horaFim: string } | null,
+): Record<string, string> {
+  return {
+    ...(entra ? { entra } : {}),
+    ...(novoHorario ? { horaInicio: novoHorario.horaInicio, horaFim: novoHorario.horaFim } : {}),
+  };
+}
+
+/**
+ * `entra` ausente: só a contagem e a lista (excluir, encurtar o horário).
+ * `novoHorario`: a API conta quantas consultas ficam fora dele (`foraDoNovoHorario`).
+ */
+export async function listarConsultasDoPlantao(
+  escalaId: string,
+  entra?: string,
+  novoHorario?: { horaInicio: string; horaFim: string } | null,
+): Promise<ConsultasDoPlantao> {
+  return (await api.get(`/escalas/${escalaId}/consultas`, { params: parametrosDasConsultasDoPlantao(entra, novoHorario) })).data;
 }
 
 /** "a Dra. Shérad", "o Dr. Murilo", "Maria" — sem chutar gênero de nome (a regra do `comQuem`). */
@@ -859,8 +1126,15 @@ export function planejarPassagem(
   return consultasEscolhidas(d, escolhas);
 }
 
-/** "3 consultas marcadas com a Dra. Shérad neste plantão." */
-export function cabecalhoDasConsultas(n: number, sai: string): string {
+/**
+ * "3 consultas marcadas com a Dra. Shérad neste plantão."
+ *
+ * Com nada no horário e algo fora dele, a frase era "Nenhuma consulta marcada
+ * com a Dra. X neste plantão." e, logo abaixo, "Mais 1 consulta dela…": uma
+ * linha desmentia a outra (15/09/2026). Aí o cabeçalho fala só do horário.
+ */
+export function cabecalhoDasConsultas(n: number, sai: string, foraDoHorario = 0): string {
+  if (n === 0 && foraDoHorario > 0) return `Nenhuma consulta com ${comArtigo(sai)} no horário deste plantão.`;
   if (n === 0) return `Nenhuma consulta marcada com ${comArtigo(sai)} neste plantão.`;
   return `${contar(n, 'consulta marcada', 'consultas marcadas')} com ${comArtigo(sai)} neste plantão.`;
 }
@@ -871,9 +1145,27 @@ export function resumoDaTroca(entra: string, n: number): string {
   return n === 0 ? `${base}.` : `${base} e com ${contar(n, 'consulta', 'consultas')}.`;
 }
 
-/** "Mais 1 consulta dela neste dia, fora do horário do plantão". */
-export function rotuloDasForaDoHorario(n: number, sai: string): string {
-  return `Mais ${contar(n, 'consulta', 'consultas')} ${delaOuDele(sai)} neste dia, fora do horário do plantão`;
+/**
+ * QUANTAS CONSULTAS QUEM ENTRA ASSUME, das marcadas para passar (15/09/2026).
+ *
+ * Contava todo id marcado: a consulta em que quem sai só atuava junto, e a que
+ * quem entra já atendia, viravam "O Dr. Murilo fica com o plantão e com 2
+ * consultas" — e ele não passou a atender nenhuma. Só conta a em que quem sai
+ * era o responsável e quem entra não era.
+ */
+export function consultasQueQuemEntraAssume(d: Pick<ConsultasDoPlantao, 'noHorario' | 'foraDoHorario'> | undefined, ids: string[] | undefined): number {
+  if (!d || !ids?.length) return 0;
+  const porId = new Map([...d.noHorario, ...d.foraDoHorario].map((c) => [c.id, c]));
+  return ids.filter((id) => {
+    const c = porId.get(id);
+    return !!c && c.papel === 'RESPONSAVEL' && !c.jaEraResponsavel;
+  }).length;
+}
+
+/** "Mais 1 consulta dela neste dia, fora do horário do plantão" — sem o "Mais" quando nada está no horário. */
+export function rotuloDasForaDoHorario(n: number, sai: string, temNoHorario = true): string {
+  const quantas = `${contar(n, 'consulta', 'consultas')} ${delaOuDele(sai)} neste dia, fora do horário do plantão`;
+  return temNoHorario ? `Mais ${quantas}` : quantas;
 }
 
 /** "Atendimento #412 · por vídeo" / "Criada na agenda · por telefone". */
@@ -895,15 +1187,51 @@ export function fraseDoChoque(entra: string, choque: { titulo: string; inicio: s
  * Sem a lista (quem lê não tem Agenda), a API manda só `total`, e a contagem é
  * essa. `null` quando não há o que avisar.
  */
-export function avisoDeExclusao(d: Pick<ConsultasDoPlantao, 'noHorario' | 'foraDoHorario' | 'total' | 'sai'>): string | null {
+export function avisoDeExclusao(
+  d: Pick<ConsultasDoPlantao, 'noHorario' | 'foraDoHorario' | 'total' | 'sai'> & { passado?: boolean },
+): string | null {
   const semLista = d.noHorario.length === 0 && d.foraDoHorario.length === 0;
   const n = semLista ? d.total : d.noHorario.length;
   if (n <= 0) return null;
   const sai = quem(d.sai);
   const dona = delaOuDele(sai);
-  return n === 1
-    ? `Há 1 consulta marcada com ${comArtigo(sai)} neste plantão. Ela continua na agenda ${dona}. Se outra pessoa vai atender, use Trocar com…`
-    : `Há ${n} consultas marcadas com ${comArtigo(sai)} neste plantão. Elas continuam na agenda ${dona}. Se outra pessoa vai atender, use Trocar com…`;
+  const base = n === 1
+    ? `Há 1 consulta marcada com ${comArtigo(sai)} neste plantão. Ela continua na agenda ${dona}.`
+    : `Há ${n} consultas marcadas com ${comArtigo(sai)} neste plantão. Elas continuam na agenda ${dona}.`;
+  // Plantão que já passou: a troca corrige o registro e NÃO passa consultas
+  // (consultas-do-plantao.ts), então mandar usar "Trocar com…" prometia o que
+  // ela não faz (15/09/2026).
+  return d.passado ? base : `${base} Se outra pessoa vai atender, use Trocar com…`;
+}
+
+/**
+ * O aviso de ENCURTAR O HORÁRIO, com e sem a lista (15/09/2026).
+ *
+ * Lia só `noHorario`: quem não tem Agenda recebe as listas vazias e só o
+ * `total`, e não via aviso nenhum com consultas marcadas. Sem a lista não dá
+ * para saber quais saem da faixa; a frase diz quantas há e quem consegue ver.
+ */
+export function avisoDoEncurtamento(
+  d: Pick<ConsultasDoPlantao, 'noHorario' | 'foraDoHorario' | 'total' | 'sai' | 'foraDoNovoHorario' | 'idsForaDoNovoHorario'>,
+  faixa: { horaInicio: string; horaFim: string },
+): string | null {
+  // A API nova conta pelo horário do formulário (15/09/2026): a frase sai da
+  // mesma conta que a auditoria carimba, com ou sem a lista.
+  if (d.foraDoNovoHorario === null) return null;
+  if (typeof d.foraDoNovoHorario === 'number') {
+    const n = d.foraDoNovoHorario;
+    if (n <= 0) return null;
+    if (n > 1) return `${n} consultas ficam fora do novo horário.`;
+    const id = d.idsForaDoNovoHorario?.[0];
+    const c = id ? [...d.noHorario, ...d.foraDoHorario].find((x) => x.id === id) : undefined;
+    return c ? `1 consulta às ${horaBR(new Date(c.inicio))} fica fora do novo horário.` : '1 consulta fica fora do novo horário.';
+  }
+  // Contêiner antigo (janela de troca do deploy): sem o campo, a conta é daqui.
+  const semLista = d.noHorario.length === 0 && d.foraDoHorario.length === 0;
+  if (!semLista) return avisoDoNovoHorario(consultasForaDoNovoHorario(d.noHorario, faixa));
+  if (d.total <= 0) return null;
+  const ha = d.total === 1 ? 'Há 1 consulta marcada' : `Há ${d.total} consultas marcadas`;
+  return `${ha} com ${comArtigo(quem(d.sai))} neste plantão. Alguma pode ficar fora do novo horário; quem edita a Agenda consegue conferir.`;
 }
 
 /**
@@ -930,13 +1258,38 @@ export function avisoDoNovoHorario(consultas: { inicio: string }[]): string | nu
   return `${horas.length} consultas (${lista}) ficam fora do novo horário.`;
 }
 
-/** "O Dr. Murilo assumiu o plantão de 15/09 e 2 consultas. Elas já estão na agenda e no painel dele. …" */
-export function textoDoPlantaoPassado(entra: string, dia: string, n: number): string {
+/**
+ * "O Dr. Murilo assumiu o plantão de 15/09 e 2 consultas. Elas já estão na agenda e no painel dele. …"
+ *
+ * Conta só as consultas que quem entra passou a ATENDER (15/09/2026): a em que
+ * quem saiu só atuava junto, e a que quem entra já atendia, não mudam quem
+ * atende e ganham uma frase à parte. Sem `papel` (API antiga) conta como antes.
+ */
+export function textoDoPlantaoPassado(
+  entra: string,
+  dia: string,
+  passadas: Pick<ResultadoDasConsultas['passadas'][number], 'papel' | 'jaEraResponsavel'>[],
+): string {
+  const assume = passadas.filter((p) => p.papel !== 'PARTICIPANTE' && !p.jaEraResponsavel).length;
+  const mesmas = passadas.length - assume;
   const dono = delaOuDele(entra);
-  const consultas = n === 1
-    ? `1 consulta. Ela já está na agenda e no painel ${dono}.`
-    : `${n} consultas. Elas já estão na agenda e no painel ${dono}.`;
-  return `${comMaiuscula(comArtigo(entra))} assumiu o plantão de ${diaCurto(dia)} e ${consultas} Ninguém recebe aviso fora do sistema.`;
+  const quemEntra = comMaiuscula(comArtigo(entra));
+  const frases: string[] = [];
+  if (assume === 0) {
+    frases.push(`${quemEntra} assumiu o plantão de ${diaCurto(dia)}.`);
+  } else {
+    frases.push(
+      assume === 1
+        ? `${quemEntra} assumiu o plantão de ${diaCurto(dia)} e 1 consulta. Ela já está na agenda e no painel ${dono}.`
+        : `${quemEntra} assumiu o plantão de ${diaCurto(dia)} e ${assume} consultas. Elas já estão na agenda e no painel ${dono}.`,
+    );
+  }
+  if (mesmas > 0) {
+    if (assume > 0) frases.push(`Em mais ${contar(mesmas, 'consulta', 'consultas')}, quem atende continua o mesmo.`);
+    else frases.push(mesmas === 1 ? 'Quem atende a consulta continua o mesmo.' : `Quem atende as ${mesmas} consultas continua o mesmo.`);
+  }
+  frases.push('Ninguém recebe aviso fora do sistema.');
+  return frases.join(' ');
 }
 
 /** "1 consulta não mudou: já tinha sido concluída." — agrupado pelo motivo que o servidor mandou. */

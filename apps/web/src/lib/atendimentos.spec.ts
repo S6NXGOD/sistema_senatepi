@@ -13,6 +13,10 @@ import {
   modalidadeDoCartao, mostrarConfirmacaoDoFechamento, notaObrigatoria, podeMarcarNovaConsulta, resumoDoConcluir,
   rotuloDaCategoriaDoAtendimento, rotuloDaModalidadeNoCartao, sujeitoDaFrase, textoDoReabrir,
   textosDaConsultaNoCancelar, tomDoEncaminhamento,
+  avisoDasCopiasAbertas, avisoDoConcluido, comArtigo, consultaFechaOAtendimento, consultaRemarcada, corDoStatus,
+  filaDe, filtroDoSeletorDeStatus, formatDataHora, fraseDaTriagemNaConsulta, modoDoFechamento, rotuloDoConcluirNoMenu,
+  rotuloDoStatus, textoDaConsultaSemRegistro, textoDaRemarcada, textoDoFechaSozinho, tituloDoConcluir,
+  valorDoSeletorDeStatus, OPCOES_DO_SELETOR_DE_STATUS,
   type CompromissoResumo, type Encaminhamento, type EscolhasDoFechamento, type FechamentoAtendimento,
 } from './atendimentos';
 
@@ -131,7 +135,12 @@ describe('estado do encaminhamento', () => {
     expect(fraseDoEncaminhamento({ ...base, responsavel: null, local: null }, 'PENDENTE')).toBe('Consulta em ter, 15/09 às 10:00');
   });
 
-  it('"Concluir atendimento" só quando a consulta foi atendida e a demanda segue aberta (D13: nada fecha sozinho)', () => {
+  /*
+    Desde 15/09/2026 a consulta atendida fecha o atendimento sozinha: o "falta
+    concluir" sobra para o que ficou aberto antes da regra, para a consulta com
+    cópia aberta e para o contêiner antigo na janela de troca.
+  */
+  it('"Concluir atendimento" na sobra: consulta atendida e demanda ainda aberta', () => {
     expect(faltaConcluir({ status: 'PENDENTE', encaminhamento: { ...base, estado: 'ATENDIDA' } })).toBe(true);
     expect(faltaConcluir({ status: 'CONCLUIDO', encaminhamento: { ...base, estado: 'ATENDIDA' } })).toBe(false);
     expect(faltaConcluir({ status: 'PENDENTE', encaminhamento: { ...base, estado: 'HOJE' } })).toBe(false);
@@ -221,13 +230,18 @@ describe('linkWhatsApp delega à regra única de lib/whatsapp', () => {
 describe('recorte vindo da URL', () => {
   it('lê o que conhece e ignora o resto', () => {
     expect(filtroDaUrl(params('assunto=OUTRO&status=PENDENTE&dataInicio=2026-08-01&dataFim=2026-08-31'))).toEqual({
-      status: 'PENDENTE', desfecho: '', canal: '', assunto: 'OUTRO', dataInicio: '2026-08-01', dataFim: '2026-08-31',
+      status: 'PENDENTE', fila: '', desfecho: '', canal: '', assunto: 'OUTRO', dataInicio: '2026-08-01', dataFim: '2026-08-31', atendente: '',
     });
-    expect(filtroDaUrl(params('assunto=INVENTADO&status=QUALQUER&canal=VIDEO&dataInicio=01/08/2026'))).toEqual({
-      status: '', desfecho: '', canal: '', assunto: '', dataInicio: '', dataFim: '',
+    expect(filtroDaUrl(params('assunto=INVENTADO&status=QUALQUER&canal=VIDEO&dataInicio=01/08/2026&atendente=joao'))).toEqual({
+      status: '', fila: '', desfecho: '', canal: '', assunto: '', dataInicio: '', dataFim: '', atendente: '',
     });
     expect(urlTemFiltro(params('atendimento=abc'))).toBe(false);
     expect(urlTemFiltro(params('assunto=OUTRO'))).toBe(true);
+  });
+
+  it('`atendente=me` é o recorte do "Comigo, com a triagem" e sozinho já é filtro (15/09/2026)', () => {
+    expect(filtroDaUrl(params('status=PENDENTE&fila=TRIAGEM&atendente=me'))).toMatchObject({ status: 'PENDENTE', fila: 'TRIAGEM', atendente: 'me' });
+    expect(urlTemFiltro(params('atendente=me'))).toBe(true);
   });
 });
 
@@ -379,15 +393,30 @@ describe('conferir o fechamento antes de gravar (espelho das recusas da API)', (
     expect(corpoDoConcluir(f, ok)).toEqual({ nota: 'Ligou e a dúvida foi esclarecida', consulta: 'CANCELAR' });
   });
 
-  it('caso E (já começou): escolha obrigatória; a nota só pesa ao dizer que não aconteceu', () => {
-    const f = plano('COMECOU', { inicio: '2026-09-14T12:00:00.000Z' });
-    expect(conferirFechamento('CONCLUIR', f, escolhas()).falta).toBe('Diga se a consulta aconteceu.');
-    expect(notaObrigatoria(f, escolhas({ consulta: 'MANTER' }))).toBe(false);
-    expect(conferirFechamento('CONCLUIR', f, escolhas({ consulta: 'MANTER' }))).toEqual({ pronto: true, falta: null });
-    expect(corpoDoConcluir(f, escolhas({ consulta: 'MANTER' }))).toEqual({ consulta: 'MANTER' });
-    expect(notaObrigatoria(f, escolhas({ consulta: 'CANCELAR' }))).toBe(true);
-    expect(conferirFechamento('CONCLUIR', f, escolhas({ consulta: 'CANCELAR', texto: 'não veio' })).pronto).toBe(false);
-    expect(conferirFechamento('CONCLUIR', f, escolhas({ consulta: 'CANCELAR', texto: 'Não veio e desistiu por telefone' })).pronto).toBe(true);
+  /*
+    E2 (15/09/2026): a triagem não responde mais pelo advogado. Começada e sem
+    registro, concluir é "resolvido sem a consulta": cancela, com nota. O plano
+    antigo (ESCOLHER, contêiner de antes) é lido do mesmo jeito e manda CANCELAR,
+    nunca MANTER.
+  */
+  it('caso E (#13, consulta das 09:00 sem registro): concluir cancela a consulta, com nota, no plano antigo e no novo', () => {
+    const antigo = plano('COMECOU', { inicio: '2026-09-14T12:00:00.000Z' });
+    const novo: FechamentoAtendimento = { ...antigo, concluir: { permitido: true, recusa: null, consulta: 'CANCELAR_PARA_CONCLUIR', nota: 'OBRIGATORIA' } };
+    for (const f of [antigo, novo]) {
+      expect(notaObrigatoria(f, escolhas())).toBe(true);
+      expect(conferirFechamento('CONCLUIR', f, escolhas()).falta).toMatch(/pelo menos 10 caracteres/);
+      expect(conferirFechamento('CONCLUIR', f, escolhas({ texto: 'não veio' })).pronto).toBe(false);
+      const ok = escolhas({ texto: 'Resolveu direto no RH da prefeitura' });
+      expect(conferirFechamento('CONCLUIR', f, ok)).toEqual({ pronto: true, falta: null });
+      expect(corpoDoConcluir(f, ok)).toEqual({ nota: 'Resolveu direto no RH da prefeitura', consulta: 'CANCELAR' });
+      expect(corpoDoConcluir(f, escolhas({ consulta: 'MANTER', texto: 'Resolveu direto no RH' })).consulta).toBe('CANCELAR');
+    }
+  });
+
+  it('em andamento, a API nova recusa concluir, e a frase é a dela', () => {
+    const f = plano('EM_ANDAMENTO');
+    f.concluir = { permitido: false, recusa: 'A Dra. Shérad está com a consulta em andamento. Quando ela registrar, o atendimento fecha sozinho.', consulta: 'SO_MANTER', nota: 'OPCIONAL' };
+    expect(conferirFechamento('CONCLUIR', f, escolhas({ texto: 'qualquer coisa' }))).toEqual({ pronto: false, falta: f.concluir.recusa });
   });
 
   it('caso C (encaminhado sem consulta viva): nota obrigatória; A e B: opcional e sem `consulta` no corpo', () => {
@@ -440,14 +469,22 @@ describe('textos do fechamento, com os nomes da equipe e o fuso de Teresina', ()
 
     const futura = resumoDoConcluir('FUTURA', at('FUTURA'), AGORA);
     expect(futura.tom).toBe('ambar');
-    expect(futura.texto).toBe('A consulta com a Dra. Shérad ainda não aconteceu: qui, 17/09 às 09:00.');
-    expect(futura.apoio).toContain('Ela sai da agenda da Dra. Shérad como cancelada, com o seu nome');
+    expect(futura.texto).toBe('A consulta com a Dra. Shérad é qui, 17/09 às 09:00.');
+    expect(futura.apoio).toBe(
+      'Use só se a demanda se resolveu sem a consulta. Ela sai da agenda da Dra. Shérad como cancelada (Perdeu o objeto), '
+      + 'com o seu nome, e ninguém recebe aviso fora do sistema. Se a demanda ainda precisa da consulta, não faça nada: '
+      + 'o atendimento é concluído sozinho quando a Dra. Shérad registrar.',
+    );
 
     const hoje = resumoDoConcluir('COMECOU', at('COMECOU', { inicio: '2026-09-14T12:00:00.000Z' }), AGORA);
-    expect(hoje.texto).toBe('A consulta com a Dra. Shérad era hoje às 09:00 e ninguém marcou como atendida.');
+    expect(hoje.texto).toBe('A consulta com a Dra. Shérad era hoje às 09:00 e ainda não foi registrada.');
+    expect(hoje.apoio).toBe(
+      'Se a consulta aconteceu, quem registra é a Dra. Shérad, e o atendimento é concluído sozinho. '
+      + 'Use esta tela só se a demanda se resolveu sem a consulta: ela é cancelada como Perdeu o objeto, com a sua nota.',
+    );
     // 23h30 de sexta em Teresina já é sábado em UTC: o dia da frase é o de Teresina.
     const sexta = resumoDoConcluir('COMECOU', at('COMECOU', { inicio: '2026-09-12T02:30:00.000Z' }), AGORA);
-    expect(sexta.texto).toBe('A consulta com a Dra. Shérad de sex, 11/09 às 23:30 ficou para trás: ninguém marcou como atendida.');
+    expect(sexta.texto).toBe('A consulta com a Dra. Shérad de sex, 11/09 às 23:30 ainda não foi registrada.');
 
     expect(resumoDoConcluir('EM_ANDAMENTO', at('EM_ANDAMENTO'), AGORA).texto)
       .toBe('A Dra. Shérad está com a consulta em andamento agora. A consulta não é mexida: quem encerra é quem atende.');
@@ -534,6 +571,230 @@ describe('o fechamento na ficha e o reabrir', () => {
     expect(podeMarcarNovaConsulta({ status: 'CANCELADO', desfecho: 'ENCAMINHADO', consultas: [canc] })).toBe(false);
     expect(podeMarcarNovaConsulta({ status: 'PENDENTE', desfecho: 'RESOLVIDO_ATO', consultas: [canc] })).toBe(false);
     expect(podeMarcarNovaConsulta({ status: 'PENDENTE', desfecho: 'ENCAMINHADO', consultas: [] })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O atendimento independente (15/09/2026, E1–E6)
+// ---------------------------------------------------------------------------
+
+/** seg, 14/09/2026 às 09:00 em Teresina: a consulta do #13. */
+const SEG_14_09H = '2026-09-14T12:00:00.000Z';
+
+describe('a fila: triagem ou consulta', () => {
+  it('lê o objeto, a palavra, o nulo e a ausência (API de antes)', () => {
+    expect(filaDe({ fila: { fila: 'CONSULTA', motivo: 'AGUARDANDO' } })).toEqual({ fila: 'CONSULTA', motivo: 'AGUARDANDO' });
+    expect(filaDe({ fila: 'TRIAGEM' })).toEqual({ fila: 'TRIAGEM', motivo: null });
+    expect(filaDe({ fila: null })).toBeNull();
+    expect(filaDe({})).toBeUndefined();
+  });
+
+  it('#14 aguardando a consulta de quinta é neutro; o que é da triagem continua "Pendente" em âmbar', () => {
+    const aguardando = { status: 'PENDENTE' as const, fila: { fila: 'CONSULTA' as const, motivo: 'AGUARDANDO' as const } };
+    expect(rotuloDoStatus(aguardando)).toBe('Aguardando a consulta');
+    expect(corDoStatus(aguardando)).not.toMatch(/amber|red-|rose-/);
+    const daTriagem = { status: 'PENDENTE' as const, fila: { fila: 'TRIAGEM' as const, motivo: 'SEM_DESFECHO' as const } };
+    expect(rotuloDoStatus(daTriagem)).toBe('Pendente');
+    expect(corDoStatus(daTriagem)).toContain('amber');
+    // API de antes: o de sempre.
+    expect(rotuloDoStatus({ status: 'PENDENTE' })).toBe('Pendente');
+    expect(rotuloDoStatus({ status: 'CONCLUIDO', fila: null })).toBe('Concluído');
+  });
+
+  it('o tom do chip: âmbar só na fila da triagem, verde só na atendida de um atendimento concluído', () => {
+    // #13 na terça 15/09: ficou para trás há menos de 2 dias úteis, na agenda de quem atende.
+    expect(tomDoEncaminhamento('FICOU_PARA_TRAS', 'PENDENTE', { fila: 'CONSULTA', motivo: 'AGUARDANDO' })).toBe('neutro');
+    // #13 na quarta 16/09: dois dias úteis sem registro, volta para a triagem.
+    expect(tomDoEncaminhamento('FICOU_PARA_TRAS', 'PENDENTE', { fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' })).toBe('ambar');
+    expect(tomDoEncaminhamento('ATENDIDA', 'PENDENTE', 'TRIAGEM')).toBe('ambar');
+    expect(tomDoEncaminhamento('CANCELADA', 'PENDENTE', 'TRIAGEM')).toBe('ambar');
+    expect(tomDoEncaminhamento('AGENDADA', 'PENDENTE', 'CONSULTA')).toBe('neutro');
+    expect(tomDoEncaminhamento('ATENDIDA', 'CONCLUIDO', null)).toBe('verde');
+    expect(tomDoEncaminhamento('ATENDIDA', 'CANCELADO', null)).toBe('neutro');
+    expect(tomDoEncaminhamento('FICOU_PARA_TRAS', 'CANCELADO')).toBe('neutro');
+  });
+
+  it('consulta remarcada é "Consulta remarcada", neutra, só enquanto ainda vai acontecer', () => {
+    expect(rotuloDoEncaminhamento('AGENDADA', 'PENDENTE', 1)).toBe('Consulta remarcada');
+    expect(rotuloDoEncaminhamento('HOJE', 'PENDENTE', 2)).toBe('Consulta remarcada');
+    expect(rotuloDoEncaminhamento('AGENDADA', 'PENDENTE', 0)).toBe('Consulta marcada');
+    expect(rotuloDoEncaminhamento('FICOU_PARA_TRAS', 'PENDENTE', 1)).toBe('Consulta ficou para trás');
+    expect(consultaRemarcada({ estado: 'AGENDADA', remarcacoes: 1 }, 'CANCELADO')).toBe(false);
+    expect(consultaRemarcada({ estado: 'AGENDADA' }, 'PENDENTE')).toBe(false);
+    expect(textoDaRemarcada({ inicio: QUI_17_09H })).toBe(`A consulta foi remarcada para qui, 17/09 às 09:00. Avise o ${V.filiado}.`);
+  });
+
+  it('um seletor só: "Com a triagem" e "Aguardando a consulta" são recortes dos pendentes', () => {
+    expect(OPCOES_DO_SELETOR_DE_STATUS.map((o) => o.rotulo)).toEqual([
+      'Todos os status', 'Com a triagem', 'Aguardando a consulta', 'Todos os pendentes', 'Concluído', 'Cancelado',
+    ]);
+    expect(filtroDoSeletorDeStatus('TRIAGEM')).toEqual({ status: 'PENDENTE', fila: 'TRIAGEM' });
+    expect(filtroDoSeletorDeStatus('PENDENTE')).toEqual({ status: 'PENDENTE', fila: '' });
+    expect(filtroDoSeletorDeStatus('')).toEqual({ status: '', fila: '' });
+    expect(valorDoSeletorDeStatus('PENDENTE', 'CONSULTA')).toBe('CONSULTA');
+    expect(valorDoSeletorDeStatus('PENDENTE', '')).toBe('PENDENTE');
+    expect(valorDoSeletorDeStatus('CONCLUIDO', '')).toBe('CONCLUIDO');
+    for (const o of OPCOES_DO_SELETOR_DE_STATUS) {
+      const f = filtroDoSeletorDeStatus(o.valor);
+      expect(valorDoSeletorDeStatus(f.status, f.fila)).toBe(o.valor);
+    }
+  });
+
+  it('o link do painel abre o mesmo recorte; fila com concluído não quer dizer nada', () => {
+    expect(filtroDaUrl(params('status=PENDENTE&fila=TRIAGEM'))).toMatchObject({ status: 'PENDENTE', fila: 'TRIAGEM' });
+    expect(filtroDaUrl(params('fila=CONSULTA'))).toMatchObject({ status: 'PENDENTE', fila: 'CONSULTA' });
+    expect(filtroDaUrl(params('status=CONCLUIDO&fila=TRIAGEM'))).toMatchObject({ status: 'CONCLUIDO', fila: '' });
+    expect(filtroDaUrl(params('status=PENDENTE&fila=OUTRA'))).toMatchObject({ status: 'PENDENTE', fila: '' });
+    expect(urlTemFiltro(params('fila=TRIAGEM'))).toBe(true);
+  });
+
+  it('no menu da lista, com a consulta de pé, concluir é "Resolvido sem a consulta"', () => {
+    expect(rotuloDoConcluirNoMenu({ status: 'PENDENTE', fila: 'CONSULTA' })).toBe('Resolvido sem a consulta');
+    expect(rotuloDoConcluirNoMenu({ status: 'PENDENTE', fila: { fila: 'TRIAGEM', motivo: 'FALTA_CONCLUIR' } })).toBe('Concluir atendimento');
+    expect(rotuloDoConcluirNoMenu({ status: 'PENDENTE' })).toBe('Concluir atendimento');
+  });
+});
+
+describe('a gaveta enquanto a consulta está de pé (E2)', () => {
+  const base = { status: 'PENDENTE' as const, desfecho: 'ENCAMINHADO' as const };
+  const comPlano = (fechaSozinho: boolean): FechamentoAtendimento => ({ ...plano('FUTURA'), fechaSozinho });
+
+  it('o modo sai da fila e do plano do servidor', () => {
+    // #14, consulta de quinta 17/09.
+    expect(modoDoFechamento({ ...base, fila: { fila: 'CONSULTA', motivo: 'AGUARDANDO' }, fechamento: comPlano(true) })).toBe('FECHA_SOZINHO');
+    // #13 na quarta 16/09: o plano ainda diz que fecha sozinho, mas a vez voltou para a triagem.
+    expect(modoDoFechamento({ ...base, fila: { fila: 'TRIAGEM', motivo: 'CONSULTA_SEM_REGISTRO' }, fechamento: comPlano(true) })).toBe('CONSULTA_SEM_REGISTRO');
+    for (const motivo of ['FALTA_CONCLUIR', 'SEM_CONSULTA', 'CONSULTA_CANCELADA'] as const) {
+      expect(modoDoFechamento({ ...base, fila: { fila: 'TRIAGEM', motivo }, fechamento: comPlano(false) })).toBe('CONCLUIR');
+    }
+    // Sem desfecho, fechado, ou API de antes: a gaveta de sempre.
+    expect(modoDoFechamento({ ...base, desfecho: null, fila: { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' } })).toBe('OUTRO');
+    expect(modoDoFechamento({ ...base, status: 'CONCLUIDO', fechamento: comPlano(true) })).toBe('OUTRO');
+    expect(modoDoFechamento({ ...base, fechamento: plano('FUTURA') })).toBe('OUTRO');
+  });
+
+  it('o bloco neutro diz quem registra e quando volta para a triagem', () => {
+    expect(textoDoFechaSozinho(SHERAD)).toEqual({
+      texto: 'Este atendimento é concluído sozinho quando a Dra. Shérad registrar a consulta na agenda.',
+      apoio: 'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, ele volta para a triagem.',
+    });
+    expect(textoDoFechaSozinho(MURILO).texto).toBe('Este atendimento é concluído sozinho quando o Dr. Murilo registrar a consulta na agenda.');
+    expect(textoDoFechaSozinho(null).texto).toBe('Este atendimento é concluído sozinho quando quem atende registrar a consulta na agenda.');
+    expect(comArtigo('Margareth')).toBe('Margareth');
+  });
+
+  it('dois dias úteis sem registro: com quem falar', () => {
+    expect(textoDaConsultaSemRegistro({ inicio: SEG_14_09H, responsavel: SHERAD })).toBe(
+      `A consulta de seg, 14/09 com a Dra. Shérad ainda não foi registrada. Fale com ela ou com o ${V.filiado}: `
+      + 'quando ela registrar, o atendimento é concluído sozinho.',
+    );
+    expect(textoDaConsultaSemRegistro({ inicio: SEG_14_09H, responsavel: MURILO })).toContain('Fale com ele ou com o');
+    expect(textoDaConsultaSemRegistro({ inicio: SEG_14_09H, responsavel: null }))
+      .toBe('A consulta de seg, 14/09 ainda não foi registrada. Quando alguém registrar, o atendimento é concluído sozinho.');
+  });
+
+  it('o título e os botões do modal: com a consulta de pé, é resolver sem ela', () => {
+    expect(tituloDoConcluir('FUTURA', 14)).toBe('Resolver sem a consulta #14');
+    expect(tituloDoConcluir('COMECOU', 13)).toBe('Resolver sem a consulta #13');
+    expect(tituloDoConcluir('ATENDIDA', 9)).toBe('Concluir atendimento #9');
+    expect(tituloDoConcluir(null, undefined)).toBe('Concluir atendimento');
+  });
+});
+
+describe('fechado pela consulta, e as cópias que sobraram (E1, E4)', () => {
+  it('a ficha diz que foi pela consulta, com o desfecho do advogado como detalhe', () => {
+    expect(fraseDoFechamento({
+      status: 'CONCLUIDO',
+      concluidoEm: '2026-09-14T13:12:00.000Z',
+      concluidoPor: SHERAD,
+      conclusaoObs: 'Dúvida esclarecida. Orientada a juntar os contracheques de 2025.',
+      conclusaoOrigem: 'CONSULTA',
+    })).toEqual({
+      texto: 'Concluído pela consulta em seg, 14/09 às 10:12 por Dra. Shérad',
+      detalhe: 'Dúvida esclarecida. Orientada a juntar os contracheques de 2025.',
+    });
+    expect(fraseDoFechamento({ status: 'CONCLUIDO', concluidoEm: '2026-09-14T13:12:00.000Z', conclusaoOrigem: 'TRIAGEM' })!.texto)
+      .toBe('Concluído em seg, 14/09 às 10:12');
+  });
+
+  it('consulta atendida com cópia aberta: o modal avisa antes, e a cópia não vira mensagem ao filiado', () => {
+    const umaCopia = { ...plano('ATENDIDA'), consultasAbertas: 1 };
+    expect(avisoDasCopiasAbertas('ATENDIDA', umaCopia)).toBe(
+      'Ainda há outra consulta marcada deste atendimento. Como a consulta já foi atendida, ao concluir ela é cancelada como Registrado por engano.',
+    );
+    expect(avisoDasCopiasAbertas('ATENDIDA', { ...umaCopia, consultasAbertas: 2 })).toMatch(/^Ainda há 2 consultas marcadas/);
+    expect(avisoDasCopiasAbertas('ATENDIDA', plano('ATENDIDA'))).toBeNull();
+    expect(avisoDasCopiasAbertas('FUTURA', { ...plano('FUTURA'), consultasAbertas: 2 })).toBeNull();
+
+    const copia = { consultasCanceladas: [{ id: 'c14b', inicio: QUI_17_09H, responsavel: SHERAD, categoria: 'DUPLICIDADE' }] };
+    expect(mostrarConfirmacaoDoFechamento('CONCLUIR', '', copia, 'ATENDIDA')).toBe(false);
+    expect(mostrarConfirmacaoDoFechamento('CONCLUIR', '', { consultasCanceladas: [{ id: 'c14b', inicio: QUI_17_09H, responsavel: SHERAD }] }, 'ATENDIDA')).toBe(false);
+    expect(mostrarConfirmacaoDoFechamento('CONCLUIR', '', copia, 'FUTURA')).toBe(false);
+    const perdeuObjeto = { consultasCanceladas: [{ id: 'c14', inicio: QUI_17_09H, responsavel: SHERAD, categoria: 'PERDEU_OBJETO' }] };
+    expect(mostrarConfirmacaoDoFechamento('CONCLUIR', '', perdeuObjeto, 'FUTURA')).toBe(true);
+    expect(avisoDoConcluido(copia)).toBe('Atendimento concluído. A consulta repetida foi cancelada.');
+    expect(avisoDoConcluido(undefined)).toBe('Atendimento concluído.');
+  });
+
+  it('o Reabrir diz quem fechou e por quê, e a consulta cancelada só quando a vigente é a cancelada', () => {
+    expect(textoDoReabrir({
+      numero: 9, status: 'CANCELADO', canceladoPor: { id: 'u-j', nome: 'Julian Helton' }, canceladoCategoria: 'DESISTENCIA',
+      consultas: [consultaResumo('c9', 'CANCELADO', QUI_17_09H)],
+    }).descricao).toBe(
+      `Cancelado por Julian Helton · ${V.Filiado} desistiu. Ele volta para os pendentes. O motivo do cancelamento sai da ficha `
+      + 'e continua guardado na auditoria. A consulta cancelada não volta: se ainda for preciso, marque outra depois.',
+    );
+    // A antiga foi cancelada, mas houve outra, atendida: nada a dizer sobre a cancelada.
+    expect(textoDoReabrir({
+      numero: 4, status: 'CONCLUIDO', concluidoPor: SHERAD, conclusaoOrigem: 'CONSULTA',
+      consultas: [consultaResumo('a', 'CANCELADO', '2026-09-08T12:00:00.000Z'), consultaResumo('b', 'CONCLUIDO', '2026-09-10T12:00:00.000Z')],
+    }).descricao).toBe(
+      'Concluído pela consulta, por Dra. Shérad. Ele volta para os pendentes. A nota de conclusão sai da ficha e continua guardada na auditoria.',
+    );
+  });
+});
+
+describe('o advogado é avisado no próprio lugar (E5)', () => {
+  const consulta13 = { id: 'c13', atendimentoId: 'at13', status: 'PENDENTE', origemDesfechoId: null };
+
+  it('antes, depois e cancelada', () => {
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, atendimento: { numero: 13, status: 'PENDENTE' } }))
+      .toBe('Ao registrar esta consulta, o atendimento #13 é concluído junto.');
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, status: 'EM_ANDAMENTO', atendimento: { numero: 13, status: 'PENDENTE' } }))
+      .toBe('Ao registrar esta consulta, o atendimento #13 é concluído junto.');
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, status: 'CONCLUIDO', atendimento: { numero: 13, status: 'CONCLUIDO', conclusaoConsultaId: 'c13' } }))
+      .toBe('O atendimento #13 foi concluído junto com esta consulta.');
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, status: 'CANCELADO', atendimento: { numero: 13, status: 'PENDENTE' } }))
+      .toBe('O atendimento #13 voltou para a triagem.');
+  });
+
+  it('não afirma nada quando não sabe, nem no seguimento', () => {
+    // A triagem fechou à mão: o carimbo é de outra consulta, ou nenhum.
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, status: 'CONCLUIDO', atendimento: { numero: 13, status: 'CONCLUIDO', conclusaoConsultaId: null } })).toBeNull();
+    // API de antes: sem o status do atendimento.
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, atendimento: { numero: 13 } })).toBeNull();
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, origemDesfechoId: 'c12', atendimento: { numero: 13, status: 'PENDENTE' } })).toBeNull();
+    expect(fraseDaTriagemNaConsulta({ ...consulta13, atendimento: null })).toBeNull();
+    expect(consultaFechaOAtendimento(consulta13)).toBe(true);
+    expect(consultaFechaOAtendimento({ atendimentoId: 'at13', origemDesfechoId: 'c12' })).toBe(false);
+    expect(consultaFechaOAtendimento({ atendimentoId: null })).toBe(false);
+  });
+});
+
+describe('a gaveta num fuso só', () => {
+  /*
+    15/09/2026: a criação e o histórico saíam no fuso do aparelho. O jest roda
+    em Teresina (jest.config.js); aqui o processo finge um computador em Tóquio.
+  */
+  it('a criação sai no dia e na hora de Teresina, qualquer que seja o aparelho', () => {
+    const antes = process.env.TZ;
+    process.env.TZ = 'Asia/Tokyo';
+    try {
+      expect(formatDataHora('2026-09-16T02:30:00.000Z')).toBe('15/09/2026, 23:30');
+    } finally {
+      process.env.TZ = antes;
+    }
+    expect(formatDataHora(null)).toBe('—');
   });
 });
 

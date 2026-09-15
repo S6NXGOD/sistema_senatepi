@@ -91,10 +91,44 @@ describe('concluir e cancelar não passam mais pelo /status', () => {
 
 describe('concluído não vira cancelado sem reabrir', () => {
   it('na gaveta e no menu, "Cancelar atendimento" só aparece com o atendimento pendente', () => {
-    const gaveta = GAVETA.slice(0, GAVETA.indexOf("setFechar('CANCELAR')"));
-    expect(gaveta.slice(gaveta.lastIndexOf('{at.status'))).toMatch(/^\{at\.status === 'PENDENTE' && \(/);
+    // O rodapé da gaveta: guarda de pendente, e fora do caso da consulta de pé.
+    const rodape = GAVETA.slice(0, GAVETA.lastIndexOf("setFechar('CANCELAR')"));
+    expect(rodape.slice(rodape.lastIndexOf('{at.status'))).toMatch(/^\{at\.status === 'PENDENTE' && !consultaDePe && \(/);
+    // O bloco da consulta de pé só existe nos modos que exigem pendente (valores em lib/atendimentos.spec.ts).
+    const bloco = GAVETA.slice(0, GAVETA.indexOf("onCancelar={() => setFechar('CANCELAR')}"));
+    expect(bloco.slice(bloco.lastIndexOf('{at.encaminhamento &&'))).toMatch(/^\{at\.encaminhamento && consultaDePe && \(/);
+    expect(GAVETA).toContain("const consultaDePe = modo === 'FECHA_SOZINHO' || modo === 'CONSULTA_SEM_REGISTRO';");
     const pagina = PAGINA.slice(0, PAGINA.indexOf("acao: 'CANCELAR'"));
     expect(pagina.slice(pagina.lastIndexOf('{menu.a.status'))).toMatch(/^\{menu\.a\.status === 'PENDENTE' && \(/);
+  });
+});
+
+/*
+  O ATENDIMENTO INDEPENDENTE NA TELA (15/09/2026). As regras têm teste com
+  valores em lib/atendimentos.spec.ts; aqui, só a montagem.
+*/
+describe('a triagem não responde mais pelo advogado', () => {
+  it('o modal não tem mais o grupo "o que houve com a consulta?"', () => {
+    expect(MODAL).not.toContain("onConsulta('MANTER')");
+    expect(MODAL).not.toContain('titulo="A consulta aconteceu"');
+    expect(MODAL).toContain('tituloDoConcluir(caso, at?.numero)');
+  });
+
+  it('com a consulta de pé, a gaveta não oferece botão sólido de concluir', () => {
+    const ini = GAVETA.indexOf('function EsperaPelaConsulta(');
+    const bloco = GAVETA.slice(ini, GAVETA.indexOf('function AvisoDaRemarcada(', ini));
+    expect(bloco).toContain('Resolvido sem a consulta');
+    expect((bloco.match(/<Button\b/g) ?? []).length).toBe((bloco.match(/<Button\s+variant="outline"/g) ?? []).length);
+    // O Concluir do rodapé só na vez da triagem, ou na gaveta de antes.
+    expect(GAVETA).toContain("(modo === 'CONCLUIR' || (modo === 'OUTRO' && at.desfecho && at.status === 'PENDENTE' && !faltaConcluir(at)))");
+  });
+
+  it('a lista filtra pela fila e a chave da consulta acompanha o filtro', () => {
+    expect(PAGINA).toContain('filtroDoSeletorDeStatus(e.target.value as ValorDoSeletorDeStatus)');
+    // 15/09/2026: o "Só os meus" (`atendente`) entrou no filtro, então entra na chave e na volta à página 1.
+    expect(PAGINA).toContain("queryKey: ['atendimentos', buscaDeb, status, fila, desfecho, canal, assunto, dataInicio, dataFim, atendente, page]");
+    expect(PAGINA).toContain('useEffect(() => { setPage(1); }, [status, fila, desfecho, canal, assunto, dataInicio, dataFim, atendente]);');
+    expect(PAGINA).toContain('fila: fila || undefined');
   });
 });
 

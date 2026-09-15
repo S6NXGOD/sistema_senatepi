@@ -20,7 +20,7 @@ import { tenant } from '@/tenant.config';
 import {
   ASSUNTO_LABEL, ATALHOS, RESULTADO_LABEL, baixarCsvDaEquipe, carregarRelatorio, comoData,
   dataCurta, dataDoInput, diaCurto, duracao, fraseDasSentencas, fraseDosOutrosAssuntos, horaDoItem, hrefDaComarca,
-  hrefDaParteContraria, hrefDoAssunto, totalDoAno,
+  hrefDaParteContraria, hrefDoAssunto, rotuloDosConcluidos, totalDoAno,
   type AjuizadasDoAno, type Contagem, type ItemDaAgenda, type Justica, type Proximos,
   type Publicacoes, type Relatorio, type ResultadoSentenca, type Robo, type SentencasDoAno,
 } from '@/lib/relatorios';
@@ -495,6 +495,7 @@ export default function RelatoriosPage() {
               titulo="Atendimento ao filiado"
               texto="O que foi registrado no período. Atendimento que não é registrado não aparece aqui."
             />
+            <ConcluidosDoAtendimento r={data} />
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <Lista
                 titulo="Por que procuraram o sindicato"
@@ -578,6 +579,22 @@ function TituloDeSecao({ icone: Icone, titulo, texto }: { icone: LucideIcon; tit
         {titulo}
       </h2>
       {texto && <p className="mt-0.5 max-w-3xl text-xs text-muted-foreground">{texto}</p>}
+    </div>
+  );
+}
+
+/**
+ * OS ATENDIMENTOS CONCLUÍDOS, com o mesmo rótulo do PDF (`rotuloDosConcluidos`).
+ * Desde 15/09/2026 o atendimento encaminhado também fecha sozinho quando a
+ * consulta nascida dele é registrada: o rótulo diz quantos vieram por aí, e a
+ * nota diz desde quando. API de antes, ou período que termina antes desse dia:
+ * só "Concluídos", sem um zero que ninguém mediu. Sem âmbar: é resultado.
+ */
+function ConcluidosDoAtendimento({ r }: { r: Relatorio }) {
+  const { rotulo, legenda } = rotuloDosConcluidos(r);
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <Numero titulo={rotulo} valor={r.atendimentos.concluidos} nota={legenda ?? undefined} />
     </div>
   );
 }

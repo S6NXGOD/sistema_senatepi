@@ -336,10 +336,33 @@ export interface PreviaDoLink {
   motivo?: 'DESFILIADO' | 'SEM_CONFIRMACAO' | null;
   /** CPF gravado sem dígito verificador válido — não serve de confirmação. */
   cpfGravadoInvalido?: boolean;
+  /**
+   * Data gravada antes de 1920 ou de menos de 14 anos (15/09/2026). Opcional
+   * pela janela de troca: sem ele, a caixa fica como antes.
+   */
+  nascimentoGravadoInvalido?: boolean;
 }
 
 export async function lerPreviaDoLink(filiadoId: string): Promise<PreviaDoLink> {
   return (await api.get(`/filiados/${filiadoId}/link-recadastramento/previa`)).data;
+}
+
+/**
+ * A CONSULTA DA PRÉVIA, uma só para o envio e para o modal (15/09/2026).
+ *
+ * Os dois montavam a chave à mão, e o teste só conferia que a linha existia.
+ * A chave fica debaixo de ['filiado', id]: quem grava CPF ou data na ficha
+ * invalida esse prefixo, e a prévia se refaz sozinha. `retry: false` porque na
+ * janela de troca a rota pode não existir; `staleTime: 0` porque a resposta
+ * muda assim que a ficha muda (e volta ao foco depois de corrigir em outra aba).
+ */
+export function consultaDaPreviaDoLink(filiadoId: string) {
+  return {
+    queryKey: ['filiado', filiadoId, 'previa-do-link'] as const,
+    queryFn: () => lerPreviaDoLink(filiadoId),
+    retry: false as const,
+    staleTime: 0,
+  };
 }
 
 export async function gerarLinkRecadastramento(filiadoId: string): Promise<LinkRecadastramento> {
@@ -405,11 +428,10 @@ export interface Recadastramento {
   revisadoEm?: string | null;
   revisor?: { id?: string; nome: string } | null;
   alteracoes?: AlteracaoRecadastramento[];
-  /**
-   * O que o link confirmou (lido da observação na API). Ausente na API anterior
-   * a 14/09/2026 e nulo no presencial: a conferência não avisa nada.
-   */
-  confirmacao?: DesafioLink | null;
+  /*
+    `confirmacao` saiu do tipo em 15/09/2026: nenhuma tela o lia. A API ainda
+    manda; o que a conferência mostra é `avisoDaConfirmacao`, pronto.
+  */
   /**
    * A linha âmbar da conferência, pronta: o link confirmou um dado só e o
    * próprio filiado preencheu o CPF ou a data que estavam vazios. A regra mora
