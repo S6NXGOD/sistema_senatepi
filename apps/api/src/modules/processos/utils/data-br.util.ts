@@ -170,6 +170,45 @@ export function proximoHorarioUtilBR(candidato: Date, agora = new Date()): Date 
   return d > agora ? d : new Date(agora.getTime() + 3_600_000);
 }
 
+/**
+ * AS NOVE DA MANHÃ **DAQUELE DIA DE CALENDÁRIO** — a volta de `noveDaManhaBR`.
+ *
+ * As duas parecem a mesma função e não são, pela mesma razão que separa
+ * `inicioDoDiaBR` de `diaDeCalendarioBR`:
+ *
+ *   · `noveDaManhaBR` recebe um INSTANTE e pergunta "que dia era em Teresina
+ *     quando isto aconteceu?";
+ *   · esta recebe um DIA (meia-noite UTC, como o Postgres materializa `date`)
+ *     e não pergunta nada — 9h de Teresina daquele dia são 12:00 UTC, ponto.
+ *
+ * Passar um dia de calendário para a irmã volta 24 horas: meia-noite UTC do dia
+ * 9 é 21h do dia 8 em Teresina, então "as nove da manhã" saem no dia 8.
+ *
+ * ERA ISSO QUE ACONTECIA, e em silêncio. `planejarAtividade` somava os dias
+ * úteis sobre a data da publicação (coluna `@db.Date`) e entregava o resultado
+ * a `proximoHorarioUtilBR`, que o leu como instante: **toda** atividade nascida
+ * do Diário caía um dia antes do prazo calculado. Medido em 17/09/2026 com a
+ * régua de 5 dias úteis: publicação de 02/03 → conferência calculada para 09/03
+ * → tarefa na agenda em 08/03. Quatro dias de conferência onde a regra escreve
+ * cinco, em 100% das publicações.
+ */
+export function noveDaManhaDoDiaDeCalendario(dia: Date): Date {
+  return new Date(
+    Date.UTC(dia.getUTCFullYear(), dia.getUTCMonth(), dia.getUTCDate()) + 9 * 3_600_000 + OFFSET_BR_MS,
+  );
+}
+
+/**
+ * O par de `proximoHorarioUtilBR` para quem tem um DIA, e não um instante.
+ *
+ * Delega tudo — a guarda de "nunca no passado", o empurrão do fim de semana —
+ * depois de traduzir o dia no instante certo. Existe para que nenhum chamador
+ * precise lembrar da tradução, que é onde o erro mora.
+ */
+export function proximoHorarioUtilDoDiaDeCalendario(dia: Date, agora = new Date()): Date {
+  return proximoHorarioUtilBR(noveDaManhaDoDiaDeCalendario(dia), agora);
+}
+
 /** Dia da semana no fuso de Teresina — 0 domingo, 6 sábado. */
 export function ehFimDeSemanaBR(d: Date): boolean {
   const dia = new Date(d.getTime() - OFFSET_BR_MS).getUTCDay();

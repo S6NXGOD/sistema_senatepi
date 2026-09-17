@@ -66,3 +66,22 @@ export class RegistrarMovimentacaoDto {
   @IsOptional() @IsString()
   anexoId?: string;
 }
+
+// ---------------------------------------------------------------------------
+// As duas mãos sobre o andamento do tribunal (17/09/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * "JÁ CUIDEI" — a dispensa de GENTE sobre um andamento.
+ *
+ * O motivo é opcional de propósito, e é a mesma escolha já feita no radar de
+ * audiências: exigir justificativa para dizer "isto eu já resolvi" transforma
+ * um toque em formulário, e o que acontece então é que ninguém marca nada — o
+ * andamento fica pendente para sempre e o aviso perde o sentido. Quando vem,
+ * o motivo é ouro: é ele que diz onde o robô errou.
+ */
+export class JaCuideiDoAndamentoDto {
+  @ApiPropertyOptional({ description: 'Por que não há o que fazer (ex.: "prazo é da outra parte").' })
+  @IsOptional() @IsString() @MaxLength(300, { message: 'Motivo muito longo — resuma em uma linha.' })
+  motivo?: string;
+}

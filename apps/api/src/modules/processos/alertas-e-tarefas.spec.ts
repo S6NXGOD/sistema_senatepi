@@ -1,3 +1,4 @@
+import { DIAS_JANELA_DE_CAPTURA } from './utils/janela-do-robo.util';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 
@@ -97,52 +98,49 @@ describe('marcos do encerramento leem o dicionário', () => {
 });
 
 /**
- * URGENTE PRECISA SER RARO — E PRECISA DIZER POR QUÊ.
+ * O CAMINHO CEGO NÃO CRIA MAIS NADA — e por isso a urgência dele não existe.
  *
- * Duas medições na produção em 25/08/2026, das SETE tarefas que o robô criou
- * desde que entrou no ar:
+ * Este bloco cobria `criarPrazo`: a tarefa "Verificação de Intimação / Prazo"
+ * nascia urgente em 100% dos casos (sete de sete, medido em 25/08/2026) e sem
+ * motivo nenhum gravado, porque `urgente = atrasado` é verdade para qualquer ato
+ * com mais de uma semana. A correção de então foi a régua da idade.
  *
- *   · SETE estavam marcadas como urgentes (100%);
- *   · SETE tinham `urgenteMotivo` e `urgentePor` NULOS.
+ * Em 17/09/2026 o método inteiro saiu: das 48 tarefas que ele criou, 32 foram
+ * CANCELADAS (67%) e 9 das 11 concluídas terminaram em PRAZO_SEM_PECA. Sem o
+ * teor do ato — o DataJud não o manda — não havia tarefa honesta a escrever.
+ * `avaliarPrazo` avalia, carimba o motivo e deixa o aviso com o selo âmbar.
  *
- * A primeira tornava a marca inútil; a segunda a tornava inauditável — e a
- * Agenda recusa exatamente isso quando é uma pessoa que marca ("sem motivo, a
- * marca não pode ser revista depois e a fila de urgências perde o sentido").
- * O robô passava por fora da regra escrevendo os campos direto no banco.
+ * O que o robô AINDA cria (pauta, preparo, aviso, confirmação de data) continua
+ * coberto: pelos blocos abaixo e pela varredura de arquivo inteiro em "o robô
+ * nunca escreve urgência à mão".
  */
-describe('urgência do robô de prazos', () => {
-  const criarPrazo = AUTOMACAO.slice(
-    AUTOMACAO.indexOf('private async criarPrazo'),
-    AUTOMACAO.indexOf('Marca a movimentação como já processada'),
+describe('o criador cego de prazos', () => {
+  const avaliar = AUTOMACAO.slice(
+    AUTOMACAO.indexOf('private async avaliarPrazo'),
+    AUTOMACAO.indexOf('private async carimbarAvaliacao'),
   );
 
   it('o trecho existe', () => {
-    expect(criarPrazo.length).toBeGreaterThan(500);
+    expect(avaliar.length).toBeGreaterThan(200);
   });
 
-  it('`urgente = atrasado` não volta — era o que marcava tudo', () => {
-    // `atrasado` é verdade para qualquer ato com mais de ~7 dias, porque o
-    // prazo de conferência é de 5 dias úteis. Sozinho, dispara em quase tudo.
-    expect(criarPrazo).not.toMatch(/urgente:\s*atrasado/);
+  it('não cria compromisso nenhum', () => {
+    expect(avaliar).not.toContain('.create(');
+    expect(avaliar).not.toContain('TITULO_PRAZO_GENERICO');
   });
 
-  it('urgência exige que o ato ainda seja NOTÍCIA', () => {
-    expect(criarPrazo).toMatch(/const urgente = atrasado && idadeDoAtoDias <= DIAS_ATO_RECENTE/);
+  it('não calcula urgência: sem tarefa, não há o que escalar', () => {
+    // Mira CÓDIGO, não prosa: o bloco EXPLICA que "urgente sem tarefa" seria um
+    // erro, e uma negativa em português reprovaria justamente o arquivo certo.
+    // Filtrar por linha não basta — o miolo de um `/* … */` não começa com `*`.
+    const codigo = avaliar.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    expect(codigo).toContain('carimbarAvaliacao'); // não olha para o vazio
+    expect(codigo).not.toContain('montarUrgencia');
+    expect(codigo).not.toMatch(/urgente/i);
   });
 
-  it('a marca passa por `montarUrgencia`, como a da tela', () => {
-    expect(criarPrazo).toContain('montarUrgencia(');
-    expect(criarPrazo).toContain("origem: 'AUTOMACAO'");
-    // Escrever os quatro campos na mão é justamente o desvio que criou
-    // urgências sem motivo — se voltar, volta o problema inteiro.
-    expect(criarPrazo).not.toMatch(/urgenteMotivo:\s*(null|`|')/);
-    expect(criarPrazo).not.toMatch(/urgentePor:/);
-  });
-
-  it('a tarefa não urgente ainda diz que o andamento chegou atrasado', () => {
-    // Tirar o alarme não pode virar tirar a informação.
-    expect(criarPrazo).toContain('Andamento recebido com atraso');
-    expect(criarPrazo).toMatch(/já correu/);
+  it('a régua da idade é a compartilhada, não um número à mão', () => {
+    expect(avaliar).toMatch(/idadeDoAtoDias > DIAS_ATO_RECENTE/);
   });
 });
 
@@ -411,9 +409,17 @@ describe('janela de captura da automação', () => {
     PROCESSOS.indexOf('await this.automacao.processar'),
   );
 
-  it('só entra andamento dos últimos 30 dias', () => {
-    expect(disparar).toMatch(/const desde = new Date\(Date\.now\(\) - 30 \* 24 \* 3600 \* 1000\)/);
+  /*
+    A JANELA É LIDA DA RÉGUA, e não escrita aqui. Ela e a validade do selo âmbar
+    precisam ser o MESMO número: enquanto forem, "ato dentro da janela sem
+    providência" significa uma coisa só. Quando o selo passou a ler a constante
+    e a varredura ficou com o `30` à mão, mudar a régua moveria um e não o outro.
+  */
+  it('só entra andamento dentro da janela de captura, lida da régua', () => {
+    expect(disparar).toContain('DIAS_JANELA_DE_CAPTURA * 24 * 3600 * 1000');
+    expect(disparar).not.toMatch(/Date\.now\(\) - \d+ \* 24/);
     expect(disparar).toContain('dataMovimento: { gte: desde }');
+    expect(DIAS_JANELA_DE_CAPTURA).toBe(30);
   });
 
   it('andamento dispensado por uma pessoa não volta a gerar tarefa', () => {

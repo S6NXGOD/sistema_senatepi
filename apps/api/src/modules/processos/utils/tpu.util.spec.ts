@@ -10,6 +10,7 @@ import {
   atoCritico,
   diasParado,
 } from './tpu.util';
+import { DIAS_JANELA_DE_CAPTURA } from './janela-do-robo.util';
 
 /** Uma data a `dias` dias atrás de `agora`. */
 const diasAtras = (dias: number, agora: Date) =>
@@ -201,9 +202,16 @@ describe('dormência', () => {
  * janela sem tarefa" significa exatamente uma coisa: o robô falhou. É esse o
  * fato que o selo deve denunciar, e nenhum outro.
  *
- * O teste lê o CÓDIGO da automação de propósito. Duplicar a constante num
- * import faria os dois lados mudarem juntos sem ninguém perceber que o
- * significado do selo mudou junto.
+ * ESTE TESTE JÁ LEU DOIS LITERAIS, e a razão escrita era não deixar os dois
+ * lados mudarem juntos sem ninguém perceber. O que aconteceu foi o contrário, e
+ * é pior: `VALIDADE_DIAS.PRAZO` passou a ler `DIAS_JANELA_DE_CAPTURA` enquanto a
+ * varredura continuou com o `30` escrito à mão. A partir dali, mudar a constante
+ * para 45 moveria o selo e deixaria a captura em 30 — o selo passaria a acusar
+ * ato que o robô nem chega a olhar — e o teste seguiria VERDE, comparando duas
+ * coisas que já não eram a mesma.
+ *
+ * Agora os dois LEEM a constante, e o que o teste prova é a ligação: que a
+ * varredura não voltou a escrever o número, e que o selo continua amarrado nele.
  */
 describe('selo e robô na mesma janela', () => {
   const SERVICE = readFileSync(
@@ -211,15 +219,16 @@ describe('selo e robô na mesma janela', () => {
     'utf8',
   );
 
-  it('a janela da automação de prazos é de 30 dias', () => {
+  it('a varredura lê a mesma constante que dá validade ao selo', () => {
     const trecho = SERVICE.slice(
       SERVICE.indexOf('private async dispararAutomacao'),
       SERVICE.indexOf('await this.automacao.processar'),
     );
     expect(trecho.length).toBeGreaterThan(100); // o teste não olha para o vazio
-    const janela = trecho.match(/const desde = new Date\(Date\.now\(\) - (\d+) \* 24/);
-    expect(janela).not.toBeNull();
-    expect(Number(janela![1])).toBe(VALIDADE_DIAS.PRAZO);
+    expect(trecho).toContain('DIAS_JANELA_DE_CAPTURA * 24 * 3600 * 1000');
+    // E o número não voltou a ser escrito à mão ali.
+    expect(trecho).not.toMatch(/Date\.now\(\) - \d+ \* 24/);
+    expect(VALIDADE_DIAS.PRAZO).toBe(DIAS_JANELA_DE_CAPTURA);
   });
 
   it('decisão dura mais que prazo, e prazo mais que encerramento', () => {

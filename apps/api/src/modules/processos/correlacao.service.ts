@@ -3,10 +3,16 @@ import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
-import { TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
+import { TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE, MOTIVOS_DO_ROBO } from './automacao-prazos.service';
 import { diaBR, proximoHorarioUtilBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
-import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
+import {
+  aDecisaoDoDiarioAtravessa,
+  correlacionar,
+  type DecisaoDoTeor,
+  type MovimentacaoCorrelacionavel,
+} from './utils/correlacao.util';
 import { deQuemEAOrdem, deQuemEOPrazo } from './utils/de-quem-e-a-ordem.util';
+import { DIAS_ADOCAO_DO_ATO_POSTERIOR } from './utils/janela-do-robo.util';
 import { planejarAtividade, type PlanoDaAtividade } from './utils/plano-da-atividade.util';
 import { tenant } from '../../tenant/tenant.config';
 import {
@@ -44,7 +50,27 @@ import {
  * O cenário D é o que fecha o circuito: com ele, a ordem de chegada deixa de
  * importar. Sem ele, toda publicação que se antecipasse ao CNJ viraria duas
  * atividades no dia seguinte.
+ *
+ * E A DECISÃO ATRAVESSA (17/09/2026)
+ * Pareado o fato, a decisão tomada com o teor na mão é carimbada também no
+ * andamento (`carimbarAvaliacao`), para o robô cego do DataJud não refazer às
+ * cegas o julgamento que já foi feito com o texto. Só o que foi decidido LENDO:
+ * as decisões de relógio ficam onde estão, porque propagá-las trocaria tarefa
+ * inútil por silêncio.
  */
+/**
+ * Janela de trabalho, em dias — o que é mais velho que isto só é classificado.
+ *
+ * Era um campo privado desta classe, e a caixa de propostas precisou da mesma
+ * régua para não escalar um ato que já saiu da janela (17/09/2026). Duas
+ * constantes com o mesmo número em arquivos diferentes é o desenho que já
+ * custou caro nesta base; uma só, exportada, é o conserto.
+ *
+ * `DjenSyncService.DIAS_DA_JANELA_DE_TAREFA` carrega o mesmo 30 e fica onde
+ * está: ele não é território desta frente.
+ */
+export const JANELA_DE_TAREFA_DIAS = 30;
+
 @Injectable()
 export class CorrelacaoService {
   private readonly logger = new Logger(CorrelacaoService.name);
@@ -54,7 +80,7 @@ export class CorrelacaoService {
    * andamento de meses atrás geraria tarefa já vencida, que é ruído numa agenda
    * que precisa ser levada a sério.
    */
-  private readonly JANELA_DIAS = 30;
+  private readonly JANELA_DIAS = JANELA_DE_TAREFA_DIAS;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -141,24 +167,40 @@ export class CorrelacaoService {
           ehPauta: c.providencia === 'PREPARAR_AUDIENCIA',
         })),
         movimentacoes,
+        await this.movimentacoesJaPareadas(processoId),
       );
       const movPorComunicacao = new Map(pares.map((p) => [p.comunicacaoId, p.movimentacaoId]));
       const movPorId = new Map(movimentacoes.map((m) => [m.id, m]));
 
       for (const c of classificadas) {
+        const movimentacaoId = movPorComunicacao.get(c.id) ?? null;
+        const movimentacao = movimentacaoId ? movPorId.get(movimentacaoId) : undefined;
+
         if (c.providencia === 'NENHUMA') {
           // Grava a classificação mesmo sem atividade: é o que tira a
           // publicação da fila de trabalho. Sem isto ela seria reavaliada em
           // toda execução, para dar sempre o mesmo "nada a fazer".
           await this.prisma.comunicacaoDjen.update({
             where: { id: c.id },
-            data: { providencia: 'NENHUMA' },
+            /*
+              O VÍNCULO TAMBÉM É GRAVADO AQUI (17/09/2026). Antes, a publicação
+              sem providência saía sem par, e na noite seguinte o mesmo
+              andamento podia ser reivindicado por outra publicação — enquanto
+              já carregava o carimbo desta. Decisão e vínculo andam juntos.
+            */
+            data: { providencia: 'NENHUMA', ...(movimentacaoId ? { movimentacaoId } : {}) },
           });
+          /*
+            "NADA A FAZER" É UMA RESPOSTA, NÃO UM SILÊNCIO.
+
+            São 12 das 2.380 publicações hoje sem decisão nenhuma, todas com
+            providência nula ("Lista de distribuição"). Lido o teor, não há peça
+            a redigir — e o andamento irmão não precisa ser avaliado de novo às
+            cegas para chegar à mesma conclusão sem o texto na mão.
+          */
+          await this.carimbarAvaliacao(movimentacaoId, 'SEM_PROVIDENCIA', c.id);
           continue;
         }
-
-        const movimentacaoId = movPorComunicacao.get(c.id) ?? null;
-        const movimentacao = movimentacaoId ? movPorId.get(movimentacaoId) : undefined;
 
         /**
          * (A) A movimentação já virou atividade ABERTA — enriquece em vez de
@@ -208,6 +250,7 @@ export class CorrelacaoService {
                 tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE',
               },
             });
+            await this.carimbarAvaliacao(movimentacaoId, 'ORDEM_DA_OUTRA_PARTE', c.id);
             resumo.deOutraParte++;
             continue;
           }
@@ -222,6 +265,7 @@ export class CorrelacaoService {
               prazoMencionadoDias: c.prazoMencionadoDias,
             },
           });
+          await this.carimbarAvaliacao(movimentacaoId, 'VIROU_TAREFA', c.id);
           resumo.enriquecidas++;
           continue;
         }
@@ -281,6 +325,11 @@ export class CorrelacaoService {
                     tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO',
                   },
             });
+            await this.carimbarAvaliacao(
+              movimentacaoId,
+              decidida.compromissoId ? 'VIROU_TAREFA' : 'COPIA_DO_MESMO_ATO',
+              c.id,
+            );
             resumo.copias++;
             continue;
           }
@@ -336,6 +385,7 @@ export class CorrelacaoService {
               prazoMencionadoDias: c.prazoMencionadoDias,
             },
           });
+          await this.carimbarAvaliacao(movimentacaoId, 'VIROU_TAREFA', c.id);
           resumo.enriquecidas++;
           continue;
         }
@@ -393,6 +443,17 @@ export class CorrelacaoService {
               tarefaDispensadaMotivo: 'NOTICIA_VELHA',
             },
           });
+          /*
+            E AQUI NÃO HÁ CARIMBO NA MOVIMENTAÇÃO — de propósito (17/09/2026).
+
+            "Notícia velha" não é uma leitura do ato: é uma medida de RELÓGIO,
+            sobre quando a publicação chegou a nós. O andamento do DataJud pode
+            ter entrado hoje, dentro da janela, e ainda merecer o selo âmbar na
+            ficha. Propagar a dispensa calaria o único lado que ainda poderia
+            avisar — foi exatamente assim que, ao tentar matar a tarefa cega, eu
+            troquei ruído por silêncio. `carimboParaAMovimentacao` recusaria o
+            motivo de qualquer modo; a ausência da chamada é a intenção escrita.
+          */
           resumo.antigas++;
           continue;
         }
@@ -435,6 +496,13 @@ export class CorrelacaoService {
               tarefaDispensadaMotivo: 'ORDEM_DA_OUTRA_PARTE',
             },
           });
+          /*
+            ESTA ATRAVESSA: de quem é a ordem está ESCRITO no ato, e vale para o
+            fato, não para a via por onde ele chegou. O andamento pareado
+            descreve a mesma intimação — reavaliá-lo às cegas amanhã produziria
+            a tarefa que o teor acabou de dispensar.
+          */
+          await this.carimbarAvaliacao(movimentacaoId, 'ORDEM_DA_OUTRA_PARTE', c.id);
           resumo.deOutraParte++;
           continue;
         }
@@ -497,6 +565,13 @@ export class CorrelacaoService {
               tarefaPropostaPara: dono,
             },
           });
+          /*
+            PROPOSTA TAMBÉM É DECISÃO TOMADA COM O TEOR NA MÃO: "isto vai para
+            uma pessoa decidir". O andamento pareado não deve gerar, em
+            paralelo, a tarefa cega que a caixa existe para evitar — e a ficha
+            passa a poder apontar onde está o texto que gerou a proposta.
+          */
+          await this.carimbarAvaliacao(movimentacaoId, 'VIROU_PROPOSTA', c.id);
           resumo.propostas++;
           continue;
         }
@@ -518,6 +593,7 @@ export class CorrelacaoService {
             where: { id: movimentacaoId },
             data: { compromissoId },
           });
+          await this.carimbarAvaliacao(movimentacaoId, 'VIROU_TAREFA', c.id);
         }
         resumo.criadas++;
       }
@@ -598,6 +674,9 @@ export class CorrelacaoService {
         ehPauta: c.providencia === 'PREPARAR_AUDIENCIA',
       })),
       movimentacoes,
+      // A consulta acima já filtra `movimentacaoId: null`, então o que o lote
+      // sabe sobre pares é nada: quem sabe é o banco.
+      await this.movimentacoesJaPareadas(processoId),
     );
     if (!pares.length) return 0;
 
@@ -659,6 +738,21 @@ export class CorrelacaoService {
           ehPauta: c.providencia === 'PREPARAR_AUDIENCIA',
         })),
         movimentacoes,
+        // Aqui o `null` é escrito à mão no lugar do campo, então sem isto o
+        // conjunto de já-pareadas seria vazio por construção: esta passada
+        // escreve `movimentacao.compromissoId`, e escrever por cima de um
+        // andamento que outra publicação já descreve é o pior dos casos.
+        await this.movimentacoesJaPareadas(processoId),
+        /*
+          E O LADO "ANTES" VAI MAIS CURTO AQUI. Esta é a única passada que
+          silencia um andamento (o `compromissoId` apaga o selo âmbar e o tira
+          da varredura, para sempre). Com a janela cheia de 5 dias ela adotaria
+          atos POSTERIORES à publicação que são outro fato — medidos na produção:
+          "Conclusão para julgamento" dois dias depois de uma publicação de
+          recurso, "Decurso de Prazo" quatro dias depois de uma intimação.
+          Três dias é o que a publicação em D+1 mais o fim de semana explicam.
+        */
+        DIAS_ADOCAO_DO_ATO_POSTERIOR,
       );
 
       const porComunicacao = new Map(comunicacoes.map((c) => [c.id, c]));
@@ -686,6 +780,75 @@ export class CorrelacaoService {
         `[CORRELACAO] Falha ao vincular movimentações do processo ${processoId}: ${(err as Error).message}`,
       );
       return 0;
+    }
+  }
+
+  /**
+   * OS ANDAMENTOS QUE ALGUMA PUBLICAÇÃO JÁ DESCREVE, deste processo.
+   *
+   * A função pura de pareamento não tem como saber disto sozinha: ela recebe o
+   * lote da vez, e os três chamadores pedem ao banco só as publicações SEM par.
+   * Até 17/09/2026 o conjunto era derivado desse mesmo lote e, por isso, sempre
+   * vazio — o pareamento enxergava uma noite de cada vez.
+   *
+   * Uma consulta por processo, sobre índice existente, com o lote inteiro no
+   * conjunto. Volume real: 2.380 publicações em 131 processos.
+   */
+  private async movimentacoesJaPareadas(processoId: string): Promise<string[]> {
+    const pareadas = await this.prisma.comunicacaoDjen.findMany({
+      where: { processoId, movimentacaoId: { not: null } },
+      select: { movimentacaoId: true },
+    });
+    return pareadas
+      .map((p) => p.movimentacaoId)
+      .filter((id): id is string => !!id);
+  }
+
+  /**
+   * A DECISÃO DO DIÁRIO, CARIMBADA NO ANDAMENTO PAREADO (17/09/2026).
+   *
+   * QUEM DECIDE SE ATRAVESSA é `aDecisaoDoDiarioAtravessa`, lista branca: só o
+   * que foi julgado LENDO O TEOR. As decisões de relógio (`NOTICIA_VELHA`,
+   * `FORA_DA_JANELA`) ficam do lado da publicação, e o comentário de cada
+   * chamada diz por quê.
+   *
+   * O QUE VAI NA COLUNA é `TEOR_NO_DIARIO`, do vocabulário da frente irmã, que
+   * o reservou para este caminho. O andamento não repete QUAL foi a decisão: ele
+   * aponta para onde ela está. A publicação é a dona do julgamento (tarefa,
+   * proposta ou dispensa com motivo), a ficha chega nela pela relação
+   * `movimentacao.comunicacoes`, e duas cópias da mesma verdade seriam duas
+   * verdades livres para divergir.
+   *
+   * O ERRO QUE ISTO SUBSTITUI: eu tinha feito o robô carimbar
+   * `dispensadoEm/dispensadoPor/dispensadoMotivo`. Essas três colunas são a
+   * DISPENSA HUMANA do radar de audiências, e `atoAcionavel` apaga o selo âmbar
+   * quando `dispensadoEm` existe — trocar tarefa inútil por silêncio é pior que
+   * a tarefa inútil. As colunas do robô fazem o oposto: não calam o selo.
+   *
+   * `avaliadoPor` sai NULO, como no outro caminho: a decisão é do robô. E a
+   * falha do carimbo não derruba a ingestão — o julgamento já está gravado do
+   * lado da publicação, que é o lado que o advogado abre.
+   */
+  private async carimbarAvaliacao(
+    movimentacaoId: string | null,
+    decisao: DecisaoDoTeor,
+    comunicacaoId: string,
+  ): Promise<void> {
+    if (!movimentacaoId || !aDecisaoDoDiarioAtravessa(decisao)) return;
+    try {
+      await this.prisma.movimentacaoProcessual.update({
+        where: { id: movimentacaoId },
+        data: {
+          avaliadoEm: new Date(),
+          avaliadoPor: null,
+          avaliadoMotivo: MOTIVOS_DO_ROBO.TEOR_NO_DIARIO,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[CORRELACAO] Não deu para carimbar o andamento ${movimentacaoId} com o teor da ` +
+          `publicação ${comunicacaoId} (${decisao}): ${(err as Error).message}`,
+      );
     }
   }
 
@@ -1068,11 +1231,7 @@ export class CorrelacaoService {
       return null;
     }
 
-    const noAtivo = p.partes.some((x) => x.polo === 'ATIVO');
-    const noPassivo = p.partes.some((x) => x.polo === 'PASSIVO');
-    // Nos DOIS polos (recurso) não há papel a comparar — fica indefinido, e
-    // indefinido cria tarefa, como sempre.
-    const nossoPolo = noAtivo && !noPassivo ? 'ATIVO' : noPassivo && !noAtivo ? 'PASSIVO' : null;
+    const nossoPolo = nossoPoloPelasPartes(p.partes);
 
     const { partes: _partes, ...resto } = p;
     return { ...resto, responsavelId, nossoPolo };
@@ -1121,6 +1280,26 @@ interface ProcessoAlvo {
    * casos não dá para atribuir papéis, e a trava não decide nada.
    */
   nossoPolo: 'ATIVO' | 'PASSIVO' | null;
+}
+
+/**
+ * DE QUE LADO O SINDICATO ESTÁ NESTE PROCESSO — uma implementação só.
+ *
+ * Sai das PARTES ligadas ao cadastro institucional, nunca do nome: as 96 partes
+ * que são o sindicato estão todas ligadas a ele. Nos dois polos (recurso) não
+ * há papel a comparar, e `null` significa "não dá para atribuir" — que é o que
+ * faz a heurística da ordem se calar e a tarefa nascer como sempre nasceu.
+ *
+ * Virou função exportada em 17/09/2026 porque a caixa de propostas passou a
+ * precisar da mesma resposta para saber de quem é o prazo. Duas leituras do
+ * polo em arquivos diferentes é o defeito que esta base já pagou três vezes.
+ */
+export function nossoPoloPelasPartes(
+  partes: { polo: string | null }[],
+): 'ATIVO' | 'PASSIVO' | null {
+  const noAtivo = partes.some((x) => x.polo === 'ATIVO');
+  const noPassivo = partes.some((x) => x.polo === 'PASSIVO');
+  return noAtivo && !noPassivo ? 'ATIVO' : noPassivo && !noAtivo ? 'PASSIVO' : null;
 }
 
 /**

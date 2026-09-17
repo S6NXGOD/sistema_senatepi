@@ -118,21 +118,37 @@ describe('preparo antes da pauta', () => {
 });
 
 /**
- * "O ROBÔ NÃO ESTÁ CRIANDO ATIVIDADE SÓ NO DIA LIMITE?" — a pergunta era certa.
+ * "O ROBÔ NÃO ESTÁ CRIANDO ATIVIDADE SÓ NO DIA LIMITE?" — a pergunta era certa,
+ * e a resposta de 17/09/2026 foi maior que ela.
  *
- * Medido nas 39 atividades automáticas da produção: das 29 do tipo PRAZO, 16
- * nasceram para o MESMO dia em que foram criadas. Parte disso é inevitável (o
- * andamento chega atrasado e não há como conferir no passado), mas a outra
- * parte era desenho: a tarefa de conferir vinha no ÚLTIMO dia da janela.
+ * Medido então nas 39 atividades automáticas: das 29 do tipo PRAZO, 16 nasceram
+ * para o MESMO dia em que foram criadas. A correção da época foi encurtar a
+ * conferência para 3 dias úteis, deixando margem dentro da janela curta.
+ *
+ * Só que o problema não era a DATA da tarefa — era a tarefa. Sem o teor do ato
+ * (o DataJud não o manda), ela só sabia dizer "abra o PJe e descubra". Das 48
+ * criadas, 32 foram CANCELADAS (67%) e 9 das 11 concluídas terminaram em
+ * PRAZO_SEM_PECA. O criador cego saiu; o caminho AVALIA e CARIMBA o motivo, e o
+ * aviso fica no selo âmbar, que é estado e não tarefa.
+ *
+ * O número em si não morreu: virou `DIAS_UTEIS_DE_CONFERENCIA`, na régua única
+ * (`utils/janela-do-robo.util.ts`), com o porquê inteiro — para o dia em que
+ * houver um criador que SAIBA o que está pedindo.
  */
-describe('a conferência de prazo chega com margem', () => {
-  it('a janela é menor que o prazo processual mais curto', () => {
-    expect(AUTOMACAO).toContain('const PRAZO_PADRAO_DIAS_UTEIS = 3;');
+describe('a conferência de prazo virou carimbo', () => {
+  it('a régua de 3 dias úteis continua escrita, com o porquê, no lugar único', () => {
+    const JANELA = readFileSync(join(__dirname, 'utils/janela-do-robo.util.ts'), 'utf8');
+    expect(JANELA).toContain('export const DIAS_UTEIS_DE_CONFERENCIA = 3;');
+    expect(JANELA).toContain('Eram 5, e 5 é justamente o prazo processual mais comum');
   });
 
-  it('e continua sem nascer vencida quando o andamento chega tarde', () => {
-    expect(AUTOMACAO).toContain('const atrasado = calculado < hoje;');
-    expect(AUTOMACAO).toContain('proximoHorarioUtilBR(atrasado ? hoje : calculado)');
+  it('e nenhuma tarefa nasce mais desse caminho', () => {
+    const i = AUTOMACAO.indexOf('private async avaliarPrazo(');
+    expect(i).toBeGreaterThan(0);
+    const fn = AUTOMACAO.slice(i, AUTOMACAO.indexOf('private async carimbarAvaliacao(', i));
+    expect(fn).not.toContain('.create(');
+    // O método antigo não volta nem com o nome antigo.
+    expect(AUTOMACAO).not.toContain('private async criarPrazo(');
   });
 });
 
@@ -156,27 +172,42 @@ describe('o que a auditoria de perda silenciosa achou', () => {
   });
 
   /**
-   * Agrupar andamentos na tarefa do dia está certo; engolir a urgência do
-   * andamento agrupado, não. Bastava um ato manso chegar primeiro para a tarja
-   * vermelha nunca aparecer.
+   * O AGRUPAMENTO SAIU COM O CRIADOR CEGO (17/09/2026) — e não era ele o
+   * problema.
+   *
+   * O defeito que este teste guardava era real: andamentos chegam em lote, a
+   * tarefa do dia absorvia os seguintes e só a DESCRIÇÃO era mesclada, de modo
+   * que a urgência calculada para o andamento agrupado sumia em silêncio.
+   * Bastava um ato manso chegar primeiro para a tarja vermelha nunca aparecer.
+   *
+   * Hoje não há tarefa de prazo para agrupar: o caminho cego avalia, carimba o
+   * motivo e deixa o aviso no selo âmbar. A lição continua valendo para quem
+   * escrever o próximo agrupamento — está escrita aqui de propósito, para não
+   * ser reaprendida na produção.
+   *
+   * O que o teste ainda pode provar é que a peça inteira saiu, e que nada dela
+   * voltou meio pela metade.
    */
-  it('agrupar um andamento urgente ESCALA a tarefa que o absorveu', () => {
-    // Só o corpo do método: sem o limite o `slice` varre o resto do arquivo e a
-    // negativa reprova por causa de OUTRO método.
-    const i = AUTOMACAO.indexOf('private async criarPrazo(');
-    const fn = AUTOMACAO.slice(i, AUTOMACAO.indexOf('async fecharConfirmacaoDeData(', i));
-    expect(fn).toContain('const escalar =');
-    expect(fn).toContain('urgente && !existente.urgente');
-    expect(fn).toContain('...escalar');
+  it('o agrupamento cego não sobrou pela metade', () => {
+    expect(AUTOMACAO).not.toContain('const escalar =');
+    expect(AUTOMACAO).not.toContain("titulo: TITULO_PRAZO_GENERICO");
+    // A urgência que SOBE sem descer continua sendo a regra viva, no lembrete de
+    // confirmar data — o único lugar do robô que ainda escala.
+    // Só o ramo da ESCALADA: o resto do método cria a tarefa, e ela nasce
+    // deliberadamente NÃO urgente (`montarUrgencia(false, …)`), que é outra
+    // coisa e está certo.
+    const i = AUTOMACAO.indexOf('private async criarConfirmacaoDeData(');
+    const j = AUTOMACAO.indexOf('if (existente) {', i);
+    const escalada = AUTOMACAO.slice(j, AUTOMACAO.indexOf('return false;', j));
+    expect(escalada).toContain('!existente.urgente && diasCegos > DIAS_ATO_RECENTE');
     /*
-      SÓ SOBE. A condição é a prova: `urgente && !existente.urgente` nunca roda
-      quando a tarefa já está urgente, então o motivo de quem escalou antes —
-      pessoa ou robô — fica intacto. Um `montarUrgencia(false, …)` aqui dentro
-      seria o robô apagando marca alheia.
-      (Ele existe no arquivo, em `fecharConfirmacaoDeData`, e ali está certo: a
-      tarefa foi CONCLUÍDA e a urgência sai junto.)
+      SÓ SOBE. A condição é a prova: o ramo nunca roda quando a tarefa já está
+      urgente, então o motivo de quem escalou antes — pessoa ou robô — fica
+      intacto. Um `montarUrgencia(false, …)` aqui dentro seria o robô apagando
+      marca alheia. (Ele existe no arquivo, em `fecharConfirmacaoDeData`, e ali
+      está certo: a tarefa foi CONCLUÍDA e a urgência sai junto.)
     */
-    expect(fn).not.toContain('montarUrgencia(false');
+    expect(escalada).not.toContain('montarUrgencia(false');
   });
 
   /**

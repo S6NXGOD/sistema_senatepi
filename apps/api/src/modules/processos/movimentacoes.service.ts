@@ -11,7 +11,11 @@ import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './p
 import {
   CORES_ANDAMENTO, CriarTipoAndamentoDto, AtualizarTipoAndamentoDto, RegistrarMovimentacaoDto,
 } from './dto/movimentacoes.dto';
-import { formatarDataBR } from '../../modules/processos/utils/data-br.util';
+import { diaDeCalendarioBR, formatarDataBR } from '../../modules/processos/utils/data-br.util';
+import { AgendaService } from '../agenda/agenda.service';
+import { planejarAtividade } from './utils/plano-da-atividade.util';
+import { DIAS_ATO_RECENTE } from './utils/janela-do-robo.util';
+import type { Providencia } from './utils/providencia.util';
 
 interface Ctx {
   userId?: string;
@@ -46,6 +50,10 @@ export class MovimentacoesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly partes: PartesService,
+    // A atividade nasce pela AgendaService, como a do radar de audiências:
+    // um `compromisso.create` escrito aqui seria uma segunda porta de entrada
+    // na agenda, sem equipe, sem histórico e sem auditoria.
+    private readonly agenda: AgendaService,
   ) {}
 
   // =========================================================================
@@ -220,6 +228,308 @@ export class MovimentacoesService {
   }
 
   // =========================================================================
+  // AS DUAS MÃOS DO ADVOGADO SOBRE O ANDAMENTO (17/09/2026)
+  // =========================================================================
+
+  /*
+    POR QUE ESTAS DUAS ROTAS EXISTEM
+    ---------------------------------------------------------------------------
+    "Não quero tarefas já com prazo matando o advogado (...) mas não encha de
+    tarefas desnecessárias." O robô cego que criava "Verificação de Intimação /
+    Prazo" a partir do rótulo do DataJud foi desligado, e os números explicam
+    por quê: das 48 que ele criou, 32 foram canceladas (67%), 47 nasceram
+    atrasadas, e das 11 concluídas 9 fecharam com "não havia peça a fazer".
+    Quase nada do que ele criou era trabalho.
+
+    Só que desligar o robô, sozinho, é subtração: o ato continua chegando e
+    alguém continua tendo de decidir o que fazer com ele. Sem estas duas rotas,
+    a única saída do advogado seria abrir a Agenda e digitar tudo de novo — que
+    é a distância que transforma intimação em prazo perdido.
+
+    O que sobra na tela depois do desligamento não é bombardeio: 27 atos com
+    selo âmbar em 26 processos (12 do Murilo, 10 do Carlos Henrique), dominados
+    por DECISÕES — Procedência em Parte, Não-Provimento, Não-Acolhimento de
+    Embargos. É exatamente o que o dono pediu para ver. Para esses 27, duas
+    mãos: uma diz "isto é trabalho" e a outra diz "disto eu já cuidei". As duas
+    gravam FATO no banco; nenhuma deduz coisa alguma do silêncio.
+
+    O par espelha o radar de audiências (`audiencias.service.ts`:
+    agendar / dispensar), que já passou por auditoria e já provou que a decisão
+    tem de morar no banco — a varredura noturna precisa respeitá-la.
+  */
+
+  /**
+   * "VIRAR TAREFA" — o andamento vira atividade na Agenda, com dono e data.
+   *
+   * O CÁLCULO É O MESMO DO DIÁRIO. Título, dia, urgência e motivo saem de
+   * `planejarAtividade`, a função pura que o caminho do DJEN usa para criar e
+   * para mostrar a prévia. Escrever a regra aqui de novo seria a segunda
+   * implementação de algo que esta base já viu divergir (o `polo` com três
+   * leitores, o `tipoAcao` derivado num caminho e não no irmão) — e uma tarefa
+   * criada pela ficha com data diferente da criada pelo Diário seria, na
+   * prática, duas qualidades de tarefa no mesmo quadro.
+   *
+   * QUANDO HÁ TEOR, ELE MANDA. Se a publicação do DJEN já está casada com o
+   * andamento, são a providência e o prazo dela que planejam a atividade — o
+   * teor é a única fonte que diz o que se pede e de quem. Medido: 20 dos 27
+   * atos com selo âmbar já têm publicação a ±5 dias. Sem teor, o plano cai na
+   * providência genérica (`ANALISAR_INTIMACAO`), que é o que uma pessoa está
+   * pedindo ao clicar: "olhe isto".
+   *
+   * O DONO É QUEM CLICOU — e aqui a regra é o oposto da do painel do Diário,
+   * de propósito. Lá o clique diz "isto precisa ser feito" sobre a publicação
+   * de um processo alheio; aqui a pessoa está lendo a ficha deste processo e
+   * decidindo sobre este ato. Tarefa que cai na agenda de outra pessoa sem que
+   * ela saiba é exatamente o que encheu a fila que estamos esvaziando.
+   *
+   * IDEMPOTENTE pelo `compromissoId` da própria movimentação: dois toques no
+   * mesmo botão devolvem a mesma atividade em vez de criar a segunda.
+   */
+  async virarTarefa(movId: string, ctx: Ctx) {
+    const autor = this.exigirPessoa(ctx);
+    const mov = await this.carregarAndamento(movId);
+
+    if (mov.compromissoId) {
+      return { compromissoId: mov.compromissoId, criada: false };
+    }
+
+    // A publicação mais recente que pede ALGUMA coisa. `NENHUMA` é "lista de
+    // distribuição" e afins: existe teor, mas ele não pede nada.
+    const teor = mov.comunicacoes.find((c) => !!c.providencia && c.providencia !== 'NENHUMA') ?? null;
+
+    const plano = planejarAtividade(
+      {
+        nomeOrgao: teor?.nomeOrgao ?? mov.orgaoJulgador,
+        /*
+          Sem teor, o ato do DataJud faz as vezes de "disponibilização": é o dia
+          em que o tribunal praticou o ato, e é dele que qualquer prazo contaria.
+
+          MAS ELE VAI CONVERTIDO EM DIA. `dataMovimento` é `DateTime` e carrega
+          a hora; `planejarAtividade` conta dias úteis sobre um DIA. Um ato das
+          23h20 de Teresina já é o dia seguinte em UTC, e a conferência nasceria
+          um dia (ou, atravessando o fim de semana, três) fora do lugar. Não é
+          caso raro: 26% das movimentações da produção caem nessa faixa.
+
+          A publicação do DJEN não passa pela conversão porque já é `@db.Date` —
+          convertê-la voltaria um dia, que é o erro simétrico.
+        */
+        dataDisponibilizacao: teor?.dataDisponibilizacao ?? diaDeCalendarioBR(mov.dataMovimento),
+        providencia: (teor?.providencia as Providencia) ?? 'ANALISAR_INTIMACAO',
+        prazoMencionadoDias: teor?.prazoMencionadoDias ?? null,
+      },
+      mov.processo.numeroCNJ,
+      new Date(),
+      DIAS_ATO_RECENTE,
+    );
+
+    // O ATO FICA ESCRITO NA ATIVIDADE. Quem abrir a agenda amanhã precisa saber
+    // de qual andamento isto nasceu sem voltar para a ficha do processo.
+    const ato = [mov.descricao, mov.detalhe].filter(Boolean).join(' — ');
+    const descricao =
+      `${plano.descricao}\n\nAto do tribunal em ${formatarDataBR(mov.dataMovimento)}: ${ato}` +
+      (teor ? '' : '\nO tribunal não informou o teor deste ato — confira o que ele pede antes de agir.');
+
+    const compromisso = await this.agenda.criar(
+      {
+        titulo: plano.titulo,
+        tipo: plano.tipo,
+        inicio: plano.inicio.toISOString(),
+        fim: new Date(plano.inicio.getTime() + 3_600_000).toISOString(),
+        descricao,
+        urgente: plano.urgente,
+        // `planejarAtividade` nunca marca urgência sem motivo — e a Agenda
+        // recusa a marca sem ele, que é a trava que queremos manter.
+        urgenteMotivo: plano.urgenteMotivo ?? undefined,
+        responsavelId: autor,
+        processoId: mov.processo.id,
+        filiadoId: mov.processo.filiadoId ?? undefined,
+      },
+      { userId: autor, ip: ctx.ip, userAgent: ctx.userAgent },
+    );
+
+    /*
+      O VÍNCULO É A TRAVA. Com `compromissoId` gravado, `atoAcionavel` para de
+      acender o selo âmbar deste ato (ele tem dono agora) e um segundo toque
+      devolve a mesma atividade. A dispensa anterior é limpa junto: se o robô
+      tinha carimbado "não abri tarefa porque o ato é antigo", a decisão de
+      gente acabou de substituir a dele — mesmo gesto do radar ao agendar.
+    */
+    await this.prisma.movimentacaoProcessual.update({
+      where: { id: movId },
+      data: { compromissoId: compromisso.id, dispensadoEm: null, dispensadoPor: null, dispensadoMotivo: null },
+    });
+
+    /*
+      A PUBLICAÇÃO DO MESMO ATO TAMBÉM FICA RESOLVIDA.
+
+      Sem isto, o mesmo fato continuaria pendente do outro lado: a caixa de
+      propostas seguiria oferecendo o item, e o painel do Diário continuaria
+      marcando a publicação como "sem tarefa" — dois avisos vivos para um
+      trabalho já decidido. A decisão é de gente, então ela fica carimbada com
+      autor (é o que separa "aceita" de "escalada pelo robô" nos Relatórios).
+    */
+    if (teor && !teor.compromissoId) {
+      await this.prisma.comunicacaoDjen.update({
+        where: { id: teor.id },
+        data: {
+          compromissoId: compromisso.id,
+          tarefaDecididaEm: new Date(),
+          tarefaDecididaPor: autor,
+        },
+      });
+    }
+
+    await this.auditar(
+      AcaoAuditoria.UPDATE, 'MovimentacaoProcessual', movId, ctx,
+      `Andamento virou atividade na Agenda (processo ${mov.processo.numeroCNJ})`,
+      {
+        processoId: mov.processo.id,
+        compromissoId: compromisso.id,
+        titulo: plano.titulo,
+        comTeorDoDiario: !!teor,
+        publicacaoId: teor?.id ?? null,
+      },
+    );
+
+    return {
+      compromissoId: compromisso.id,
+      criada: true,
+      titulo: plano.titulo,
+      inicio: plano.inicio,
+      urgente: plano.urgente,
+    };
+  }
+
+  /**
+   * "JÁ CUIDEI" — a dispensa de GENTE, sem apagar nada.
+   *
+   * NÃO É DELETE, e não pode ser: o andamento é o que o tribunal fez, e apagá-lo
+   * seria apagar a história do processo. O que muda é o estado do AVISO — as
+   * colunas `dispensadoEm/Por/Motivo`, as mesmas que o radar de audiências usa
+   * desde sempre, lidas por `atoAcionavel` para apagar o selo âmbar.
+   *
+   * ESSAS COLUNAS SÃO DE GENTE. Por algumas horas em 17/09/2026 o criador cego
+   * carimbou nelas o próprio silêncio, e o efeito foi trocar tarefa inútil por
+   * silêncio: o selo âmbar sumiria do andamento sem que ninguém tivesse
+   * decidido nada. O robô ganhou colunas próprias (`avaliado*`); aqui
+   * `dispensadoPor` é sempre o id de quem clicou.
+   */
+  async jaCuidei(movId: string, motivo: string | undefined, ctx: Ctx) {
+    const autor = this.exigirPessoa(ctx);
+    const mov = await this.carregarAndamento(movId);
+
+    if (mov.compromissoId) {
+      throw new ConflictException(
+        'Este andamento já virou atividade na Agenda — conclua ou cancele a atividade por lá.',
+      );
+    }
+    /*
+      Só o que OUTRA PESSOA decidiu é conflito. O andamento que o robô
+      carimbou por engano nestas colunas em 17/09/2026 ficaram sem autor, e
+      travar por causa deles seria deixar a mão de gente de fora justamente
+      onde o defeito aconteceu.
+    */
+    if (mov.dispensadoPor) {
+      throw new ConflictException('Alguém já marcou este andamento como cuidado.');
+    }
+
+    const dispensadoEm = new Date();
+    await this.prisma.movimentacaoProcessual.update({
+      where: { id: movId },
+      data: { dispensadoEm, dispensadoPor: autor, dispensadoMotivo: motivo?.trim() || null },
+    });
+
+    await this.auditar(
+      AcaoAuditoria.UPDATE, 'MovimentacaoProcessual', movId, ctx,
+      `Andamento marcado como já cuidado (processo ${mov.processo.numeroCNJ})`,
+      { processoId: mov.processo.id, motivo: motivo?.trim() || null, descricao: mov.descricao },
+    );
+
+    return { ok: true, dispensado: true, dispensadoEm, dispensadoMotivo: motivo?.trim() || null };
+  }
+
+  /**
+   * DESFAZER O "JÁ CUIDEI" (17/09/2026).
+   *
+   * O irmão desta mão — o radar de audiências — sempre teve `restaurar`
+   * (`audiencias.service.ts`), e sem o par a marcação virava rua sem volta: o
+   * selo âmbar se apaga pelo `dispensadoEm`, o cartão troca os dois botões pela
+   * faixa verde, e o toque errado no celular só se consertava no banco.
+   *
+   * Trocar tarefa inútil por silêncio é exatamente o defeito que esta mudança
+   * inteira existe para desfazer; recriá-lo aqui seria trocar de lugar.
+   *
+   * Quem desfaz é qualquer pessoa com EDITAR em Processos, não só quem marcou —
+   * a mesma regra de "concluir o que é de outro": o nome de quem decidiu fica
+   * no histórico, e o que importa é o ato voltar a pedir olho.
+   */
+  async desfazerJaCuidei(movId: string, ctx: Ctx) {
+    this.exigirPessoa(ctx);
+    const mov = await this.carregarAndamento(movId);
+
+    if (!mov.dispensadoEm) {
+      throw new ConflictException('Este andamento não está marcado como já cuidado.');
+    }
+    if (mov.compromissoId) {
+      throw new ConflictException(
+        'Este andamento virou atividade na Agenda — a volta é por lá, concluindo ou cancelando a atividade.',
+      );
+    }
+
+    await this.prisma.movimentacaoProcessual.update({
+      where: { id: movId },
+      data: { dispensadoEm: null, dispensadoPor: null, dispensadoMotivo: null },
+    });
+
+    await this.auditar(
+      AcaoAuditoria.UPDATE, 'MovimentacaoProcessual', movId, ctx,
+      `"Já cuidei" desfeito no andamento (processo ${mov.processo.numeroCNJ})`,
+      { processoId: mov.processo.id, descricao: mov.descricao, marcadoAntesPor: mov.dispensadoPor },
+    );
+
+    return { ok: true, dispensado: false };
+  }
+
+  /**
+   * As duas rotas gravam AUTORIA, e por isso exigem uma pessoa. Sem o id, a
+   * dispensa ficaria indistinguível da que um robô deixou — que é justamente o
+   * defeito que estas rotas existem para corrigir.
+   */
+  private exigirPessoa(ctx: Ctx): string {
+    if (!ctx.userId) {
+      throw new BadRequestException('Sessão sem usuário identificado — entre de novo e repita a ação.');
+    }
+    return ctx.userId;
+  }
+
+  /** O andamento + o processo + o teor casado, que é tudo o que as duas rotas leem. */
+  private async carregarAndamento(movId: string) {
+    const mov = await this.prisma.movimentacaoProcessual.findUnique({
+      where: { id: movId },
+      select: {
+        id: true,
+        descricao: true,
+        detalhe: true,
+        dataMovimento: true,
+        orgaoJulgador: true,
+        compromissoId: true,
+        dispensadoEm: true,
+        dispensadoPor: true,
+        processo: { select: { id: true, numeroCNJ: true, filiadoId: true } },
+        comunicacoes: {
+          orderBy: { dataDisponibilizacao: 'desc' },
+          select: {
+            id: true, providencia: true, dataDisponibilizacao: true,
+            prazoMencionadoDias: true, nomeOrgao: true, compromissoId: true,
+          },
+        },
+      },
+    });
+    if (!mov) throw new NotFoundException('Andamento não encontrado.');
+    return mov;
+  }
+
+  // =========================================================================
   // DOSSIÊ consolidado do processo (uma chamada → a tela inteira)
   // =========================================================================
 
@@ -335,13 +645,36 @@ export class MovimentacoesService {
         ehAudiencia: m.ehAudiencia,
         audienciaData: m.audienciaData,
         /**
+         * JÁ VIROU ATIVIDADE — e a tela leva direto até ela.
+         *
+         * O vínculo existia só no banco: quem olhava a linha do tempo não tinha
+         * como saber que aquele ato já estava na agenda de alguém, e o caminho
+         * para descobrir era trocar de aba e comparar datas no olho.
+         */
+        compromissoId: m.compromissoId,
+        /**
          * O ROBÔ DECIDIU NÃO ABRIR TAREFA — E POR QUÊ (17/09/2026).
          *
          * Sem isto na tela, "andamento sem atividade" é indistinguível de falha
          * da automação, e foi a desconfiança que o dono relatou: "muitas vezes
          * não confiamos se é nossa parte que tem que atuar".
+         *
+         * CADA UM NA SUA COLUNA. O motivo do robô vem de `avaliadoMotivo`, e
+         * NÃO da dispensa: por algumas horas em 17/09/2026 o robô carimbou
+         * `dispensadoEm`, que é a dispensa humana do radar de audiências, e o
+         * efeito seria apagar o selo âmbar do andamento sem que ninguém
+         * tivesse decidido nada — tarefa inútil trocada por silêncio. As duas
+         * decisões existem, são de autores diferentes e a tela conta as duas.
          */
-        semTarefaMotivo: m.dispensadoMotivo,
+        semTarefaMotivo: m.avaliadoMotivo,
+        /**
+         * Dispensa HUMANA ("Já cuidei"): quem, quando e por quê. Sai daqui
+         * separada do carimbo do robô porque a frase da tela é outra — uma diz
+         * "o robô não abriu tarefa, e por quê", a outra diz "fulano já cuidou".
+         */
+        dispensadoEm: m.dispensadoEm,
+        dispensadoPor: m.dispensadoPor,
+        dispensadoMotivo: m.dispensadoMotivo,
         /**
          * Existe publicação do DJEN para este ato? A tela usa para acender o
          * atalho "ver teor" e saltar para a aba Publicações já na certa.
@@ -565,6 +898,7 @@ export class MovimentacoesService {
    */
   private atencaoRequerida(
     movimentacoes: {
+      id: string;
       dataMovimento: Date;
       descricao: string;
       codigoMovimento: number | null;
@@ -577,12 +911,25 @@ export class MovimentacoesService {
     const itens = movimentacoes
       .flatMap((m) => {
         const ato = atoAcionavel(m, agora);
-        return ato ? [{ nivel: ato.nivel, rotulo: ato.rotulo, data: m.dataMovimento, descricao: m.descricao }] : [];
+        return ato
+          ? [{ id: m.id, nivel: ato.nivel, rotulo: ato.rotulo, data: m.dataMovimento, descricao: m.descricao }]
+          : [];
       })
       .sort((a, b) => b.data.getTime() - a.data.getTime());
 
     return {
       total: itens.length,
+      /**
+       * QUAIS andamentos pedem atenção — a lista inteira, não os cinco do
+       * resumo. É por ela que a linha do tempo sabe em qual cartão oferecer as
+       * duas mãos ("Virar tarefa" / "Já cuidei"). Oferecê-las em todo
+       * andamento seria pôr dois botões em 3.018 cartões para atender 27.
+       *
+       * A régua é uma só (`atoAcionavel`), calculada no servidor: o dia em que
+       * o front decidir isso por conta própria, o aviso da lista e o botão da
+       * ficha voltam a discordar — foi o defeito de 25/08/2026.
+       */
+      idsAcionaveis: itens.map((i) => i.id),
       // O nível mais grave manda na cor da etiqueta: uma tutela pesa mais que um
       // prazo, e um prazo correndo pesa mais que uma decisão a ler.
       nivel: itens.find((i) => i.nivel === 'URGENTE')?.nivel

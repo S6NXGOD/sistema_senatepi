@@ -101,13 +101,21 @@ describe('aditiva e idempotente', () => {
     expect(guardadas.length).toBe(adicoes.length);
   });
 
-  /** O Prisma aplica por ordem de nome: esta tem de ser a última da fila. */
-  it('é a última da fila', () => {
+  /**
+   * O Prisma aplica por ORDEM DE NOME, e o que precisa continuar verdadeiro é
+   * que esta migração não furou a fila das que já existiam quando foi escrita.
+   *
+   * Era "é a última da fila", e era — até a rodada seguinte chegar
+   * (`20260917100000_carimbo_do_robo`, de 17/09/2026). Exigir que a de 15/09
+   * siga sendo a última transformaria este teste num alarme que dispara em toda
+   * migração nova, sem nada a ver com o que ele existe para proteger.
+   */
+  it('não furou a fila', () => {
     const pastas = readdirSync(PASTA, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .sort();
-    expect(pastas[pastas.length - 1]).toBe(NOVA);
+    expect(pastas[pastas.indexOf(NOVA) - 1]).toBe('20260914090200_desafio_de_um_fator');
   });
 });
 

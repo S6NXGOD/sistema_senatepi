@@ -2940,9 +2940,44 @@ model MovimentacaoProcessual {
   /// for excluído da agenda, a audiência volta a aparecer como pendente.
   compromissoId    String?   @map("compromisso_id")
   /// Dispensa do alerta ("não é audiência" / "já agendado fora do sistema").
+  ///
+  /// É A DISPENSA DE UMA PESSOA, e só. `atoAcionavel` (tpu.util.ts) APAGA o selo
+  /// âmbar quando `dispensadoEm` existe — por isso o robô nunca escreve aqui.
+  /// Em 17/09/2026 ele escreveu, para registrar "não abri tarefa porque o
+  /// andamento é velho", e o resultado foi trocar tarefa inútil por silêncio em
+  /// 65 andamentos: eles sumiram da agenda E da tela no mesmo movimento.
   dispensadoEm     DateTime? @map("dispensado_em")
   dispensadoPor    String?   @map("dispensado_por") // id do usuário (ver Auditoria)
   dispensadoMotivo String?   @map("dispensado_motivo")
+
+  /// O ROBÔ OLHOU ESTE ATO E DECIDIU NÃO ABRIR TAREFA — e por quê (17/09/2026).
+  ///
+  /// Colunas PRÓPRIAS do robô, separadas da dispensa humana acima, porque as
+  /// duas decisões têm efeitos opostos na tela: a da pessoa cala o aviso; a do
+  /// robô é justamente o que faz o aviso ser necessário. Um ato que o robô não
+  /// soube resolver é um ato que alguém precisa ver.
+  ///
+  /// POR QUE EXISTE. Sem carimbo, "andamento sem atividade" é indistinguível de
+  /// falha da automação — e foi a desconfiança que o dono relatou: "muitas vezes
+  /// não confiamos se é nossa parte que tem que atuar". Toda decisão do robô
+  /// fica gravada com motivo; nada se deduz da ausência.
+  ///
+  /// `avaliadoPor` é NULO quando quem decidiu foi o robô, que é o caso de todas
+  /// as linhas de hoje. A coluna existe para o dia em que uma pessoa decidir por
+  /// este caminho: aí o id dela entra, e ninguém precisa adivinhar pela ausência
+  /// de quem foi.
+  ///
+  /// `avaliadoMotivo` usa o vocabulário de `MOTIVOS_DO_ROBO`
+  /// (automacao-prazos.service.ts): SEM_TEOR_NO_DATAJUD, ANDAMENTO_ANTIGO,
+  /// TEOR_NO_DIARIO. Texto livre e não enum — o mesmo desenho da dispensa do
+  /// DJEN (`tarefaDispensadaMotivo`): motivo novo não pede migração, e a
+  /// tradução é NA LEITURA.
+  ///
+  /// SEM ÍNDICE, de propósito: as três são lidas junto com a linha da
+  /// movimentação (ficha e linha do tempo) e nunca filtradas sozinhas.
+  avaliadoEm       DateTime? @map("avaliado_em")
+  avaliadoPor      String?   @map("avaliado_por") // id do usuário quando for gente
+  avaliadoMotivo   String?   @map("avaliado_motivo")
 
   processo     Processo           @relation(fields: [processoId], references: [id], onDelete: Cascade)
   /// SetNull: apagar/recriar a instância não pode levar junto o histórico de

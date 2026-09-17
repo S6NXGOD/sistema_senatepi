@@ -14,58 +14,29 @@ import {
   proximoHorarioUtilBR,
   somarDiasUteisEmCalendario,
 } from './utils/data-br.util';
+import { DIAS_ATO_RECENTE } from './utils/janela-do-robo.util';
 
 /**
- * Dias úteis até a tarefa de CONFERIR uma intimação/citação.
+ * A RÉGUA MORA EM `utils/janela-do-robo.util.ts` DESDE 17/09/2026.
  *
- * Eram 5, e 5 é justamente o prazo processual mais comum depois de uma
- * publicação (embargos de declaração, entre outros). A tarefa que existe para
- * PERGUNTAR "isto tem prazo?" chegava no último dia da janela — a resposta
- * "tem, e vence hoje" não sobra tempo para nada.
+ * O valor e o porquê inteiro estão lá, ao lado dos outros três números que
+ * mandam na automação (janela de captura, prazo de conferência, janela do
+ * casamento). Aqui fica só a PORTA: `correlacao.service.ts` importa
+ * `DIAS_ATO_RECENTE` deste arquivo desde que a correlação existe, e trocar o
+ * caminho de importação em quem não é desta frente seria mexer onde não devo.
  *
- * Três deixa dois dias úteis de margem dentro da janela curta, sem encher a
- * agenda de lembrete prematuro. O prazo processual em si NÃO é isto: quem o
- * define é o ato, e o sistema nunca afirma data de vencimento que não leu.
- *
- * Andamento que chega atrasado (a janela de captura é de 30 dias e o DataJud
- * atrasa) continua caindo no próximo dia útil — não há como conferir no
- * passado, e antecipar aqui não muda isso.
+ * Reexportar não é duplicar: há um valor só, com um dono só.
  */
-const PRAZO_PADRAO_DIAS_UTEIS = 3;
+export { DIAS_ATO_RECENTE };
 
 /**
- * Até quantos dias um andamento chegado com atraso ainda pode ter PRAZO VIVO.
+ * Slugs de `tipos_evento` que o robô usa.
  *
- * É o que separa a urgência real do alarme decorativo, e a fronteira tem base
- * no prazo processual, não em preferência:
- *
- *  · 0 a 7 dias  — o lembrete de conferência (5 dias úteis) ainda nem venceu.
- *    Há tempo. Tarefa normal, com data no futuro.
- *
- *  · 8 a 15 dias — A ZONA DE PERIGO. O lembrete já venceu, mas o prazo
- *    processual pode estar correndo agora: 15 dias úteis é o prazo recursal do
- *    CPC (art. 1.003) e 8 dias o da CLT. Descobrir um ato aqui é descobrir algo
- *    que talvez ainda dê para salvar — e é exatamente isso que "urgente"
- *    deveria significar.
- *
- *  · mais de 15  — qualquer prazo ordinário já correu. A tarefa continua sendo
- *    criada, porque há estrago a levantar e filiado a avisar, mas chamá-la de
- *    urgente não recupera nada e rebaixa o que é urgente de verdade.
- *
- * O corte em 7 dias, que eu tinha escolhido antes, tornava a marca quase
- * inalcançável: com o lembrete vencendo em 5 dias úteis (~7 corridos), só um
- * ato de exatamente sete dias caía na janela. Uma regra que nunca dispara não é
- * conservadora, é morta.
+ * O tipo PRAZO saiu desta lista em 17/09/2026: o único lugar que o escrevia era
+ * o criador cego, e ele parou de criar. O slug continua existindo no seed e na
+ * Agenda — quem marca prazo é gente, e o caminho do Diário, que sabe qual é o
+ * prazo, escolhe o tipo por providência (`providencia.util.ts`).
  */
-/**
- * Compartilhada com a correlação do DJEN de propósito: as duas automações
- * escrevem na MESMA agenda, e réguas diferentes de urgência produziriam duas
- * noções de "urgente" convivendo na mesma coluna.
- */
-export const DIAS_ATO_RECENTE = 15;
-
-/** Slugs de `tipos_evento` que o robô usa. */
-const TIPO_PRAZO = 'PRAZO';
 const TIPO_AUDIENCIA = 'AUDIENCIA';
 const TIPO_PERICIA = 'PERICIA';
 /** Aviso ao filiado: tipo próprio, com desfechos que perguntam se ele soube. */
@@ -102,33 +73,91 @@ const TIPO_ACOMPANHAMENTO = 'ACOMPANHAMENTO';
  * Era um literal repetido nos dois arquivos. Renomear num só desligaria a
  * promoção em silêncio — nada quebraria, o título simplesmente pararia de
  * melhorar, e ninguém descobriria. Agora é uma constante só, importada lá.
+ *
+ * DESDE 17/09/2026 NINGUÉM CRIA TAREFA COM ESTE TÍTULO — e ele continua aqui de
+ * propósito. As 5 que sobraram PENDENTES na produção ainda estão na agenda de
+ * alguém, e a promoção pelo DJEN é justamente o que pode transformá-las em algo
+ * que se entenda. Apagar a constante desligaria a melhora dessas cinco.
  */
 export const TITULO_PRAZO_GENERICO = 'Verificação de Intimação / Prazo';
 
 /**
- * ANDAMENTO VELHO NÃO VIRA TAREFA — e a decisão fica gravada (17/09/2026).
+ * POR QUE O ROBÔ NÃO ABRIU TAREFA — o vocabulário do carimbo (17/09/2026).
  *
- * Relato do dono: "ainda estão sendo criadas tarefas que são da parte contrária,
- * está enchendo o sistema de atividades e muitas vezes não confiamos se é nossa
- * parte que tem que atuar".
+ * Vai para `MovimentacaoProcessual.avaliadoMotivo`, colunas PRÓPRIAS do robô.
+ * Nunca para `dispensadoEm/Por/Motivo`: aquelas são a dispensa de uma PESSOA no
+ * radar de audiências, e `atoAcionavel` apaga o selo âmbar quando as vê. Usá-las
+ * aqui, como eu fiz na primeira versão desta mudança, troca tarefa inútil por
+ * silêncio: o ato sairia da agenda E da tela no mesmo movimento.
  *
- * Medido na produção: das 48 "Verificação de Intimação / Prazo" dos últimos 90
- * dias, 47 nasceram atrasadas e 36 já nasceram avisando "o prazo processual, se
- * havia, já correu". 34 seguiam PENDENTES na agenda de cinco advogados (18 só
- * no Dr. Carlos Henrique), e 39 delas entraram num único dia.
- *
- * Aqui o robô NÃO TEM O TEOR: o DataJud entrega o rótulo ("Publicação",
- * "Expedição de documento") e deixa `conteudo` nulo, então ele não sabe nem de
- * quem é o prazo — quem sabe isso é o DJEN, que traz o texto. Com o ato mais
- * velho que qualquer prazo ordinário, a tarefa não salva prazo nenhum: só
- * empurra trabalho alheio para a agenda e ensina a equipe a desconfiar de tudo
- * o que o robô cria.
- *
- * O carimbo usa o mesmo vocabulário do DJEN (`tarefaDispensadaMotivo`): sem
- * tarefa e SEM carimbo continuaria significando "o robô devia ter criado e não
- * criou". O andamento segue inteiro na linha do tempo do processo.
+ * Toda decisão fica gravada com motivo, sempre. Sem carimbo, "andamento sem
+ * tarefa" é indistinguível de "o robô falhou", e foi exatamente essa dúvida que
+ * o dono relatou: "muitas vezes não confiamos se é nossa parte que tem que
+ * atuar".
  */
-export const MOTIVO_ANDAMENTO_ANTIGO = 'ANDAMENTO_ANTIGO_SEM_TEOR';
+export const MOTIVOS_DO_ROBO = {
+  /**
+   * O ÍNDICE DO CNJ NÃO MANDA O TEXTO — o motivo do caminho cego, sempre.
+   *
+   * O DataJud entrega o RÓTULO do ato ("Publicação", "Expedição de documento")
+   * e deixa `conteudo` nulo. Com isso o robô não sabe o que foi pedido, de quem
+   * é o prazo, nem se há prazo. A tarefa que ele conseguia escrever dizia
+   * "confira o teor no sistema do tribunal" — e o número mostra o que isso
+   * virou: das 48 "Verificação de Intimação / Prazo", 32 foram CANCELADAS
+   * (67%), 11 concluídas (9 delas com desfecho PRAZO_SEM_PECA, ou seja, "não
+   * havia peça a fazer") e 47 nasceram atrasadas.
+   *
+   * O ato não some: ele fica com o selo âmbar na tela, que é aviso (ESTADO) e
+   * não tarefa com dono e data.
+   */
+  SEM_TEOR_NO_DATAJUD: 'SEM_TEOR_NO_DATAJUD',
+
+  /**
+   * FORA DA JANELA — o ato é mais velho que qualquer prazo ordinário.
+   *
+   * Passados os 15 dias de `DIAS_ATO_RECENTE`, o prazo processual, se havia, já
+   * correu. Continua sem tarefa pelo mesmo motivo que o anterior, mas a
+   * distinção importa para a tela: "não sei o que é" e "já passou" pedem frases
+   * diferentes de quem for ler.
+   *
+   * Substitui `ANDAMENTO_ANTIGO_SEM_TEOR`, que foi o vocabulário de algumas
+   * horas em 17/09/2026 — a migração e a varredura movem o que houver com ele.
+   */
+  ANDAMENTO_ANTIGO: 'ANDAMENTO_ANTIGO',
+
+  /**
+   * O TEOR JÁ ESTÁ NO BANCO, VINDO DO DIÁRIO — quem decide é o outro caminho.
+   *
+   * ESTA FRENTE NÃO ESCREVE ESTE MOTIVO. A constante fica exportada e
+   * documentada porque quem vai carimbá-la é a frente do casamento
+   * DataJud × DJEN, e um vocabulário só tem de ter um dono só.
+   *
+   * O que ela significa: das 294 movimentações de publicação/intimação dos 60
+   * dias anteriores a 17/09/2026, 153 têm publicação do Diário até 5 dias ANTES
+   * do ato — e 106 dessas viraram tarefa cega mesmo com o teor já no banco. O
+   * DJEN chega em D+0 e o DataJud tem mediana de 62 dias de atraso: na prática o
+   * teor chega PRIMEIRO, e a janela de casamento só aceitava publicação DEPOIS
+   * do ato. Os dois lados agora têm tamanhos próprios
+   * (`DIAS_CASAMENTO_PUBLICACAO_ANTES` / `..._DEPOIS`, em `janela-do-robo.util`).
+   */
+  TEOR_NO_DIARIO: 'TEOR_NO_DIARIO',
+} as const;
+
+export type MotivoDoRobo = (typeof MOTIVOS_DO_ROBO)[keyof typeof MOTIVOS_DO_ROBO];
+
+/**
+ * O VOCABULÁRIO DE ALGUMAS HORAS — e por que ele não pode ser esquecido.
+ *
+ * `ANDAMENTO_ANTIGO_SEM_TEOR` é o que a primeira versão deste caminho gravava
+ * em `dispensado_motivo` — as colunas da DISPENSA HUMANA. Ele existe
+ * em dois lugares que precisam concordar: o UPDATE da migração
+ * `20260917100000_carimbo_do_robo` e o reparo que roda em toda varredura
+ * (`repararCarimboNasColunasDeGente`), porque o contêiner antigo pode escrevê-lo
+ * de novo durante a janela de troca do deploy.
+ *
+ * Um teste compara este literal com o do SQL: dois lados, uma palavra só.
+ */
+export const MOTIVO_ANDAMENTO_ANTIGO_LEGADO = 'ANDAMENTO_ANTIGO_SEM_TEOR';
 
 /** Título fixo — é por ele que a tarefa de confirmação é reconhecida e não duplica. */
 const TITULO_CONFIRMAR_AUDIENCIA = 'Confirmar data da audiência designada';
@@ -226,15 +255,23 @@ export class AutomacaoPrazosService {
    * ou a sincronização — perder um lembrete é aceitável, perder o processo não.
    */
   async processar(processoId: string, movimentacoes: MovimentacaoParaAutomacao[]): Promise<{
-    prazos: number;
     audiencias: number;
     tarefasSecretaria: number;
     canceladas: number;
-    /** Andamentos velhos que NÃO viraram tarefa — ver `MOTIVO_ANDAMENTO_ANTIGO`. */
-    semTarefaPorIdade: number;
+    /**
+     * Atos de prazo que o robô AVALIOU e não virou tarefa — hoje, todos eles.
+     *
+     * O contador `prazos` saiu do resumo em 17/09/2026: ele contava tarefas
+     * criadas por `criarPrazo`, e `criarPrazo` não cria mais nenhuma. Deixá-lo
+     * marcando zero para sempre seria um número que só serve para enganar quem
+     * lê o log.
+     */
+    avaliadosSemTarefa: number;
   }> {
-    const resumo = { prazos: 0, audiencias: 0, tarefasSecretaria: 0, canceladas: 0, semTarefaPorIdade: 0 };
+    const resumo = { audiencias: 0, tarefasSecretaria: 0, canceladas: 0, avaliadosSemTarefa: 0 };
     if (!movimentacoes.length) return resumo;
+
+    await this.repararCarimboNasColunasDeGente(processoId);
 
     try {
       const processo = await this.prisma.processo.findUnique({
@@ -273,9 +310,15 @@ export class AutomacaoPrazosService {
         }
 
         if (gatilho.tipo === 'PRAZO') {
-          const feito = await this.criarPrazo(processo, mov, responsavelId);
-          if (feito === 'CRIADA') resumo.prazos++;
-          if (feito === 'SEM_TAREFA_POR_IDADE') resumo.semTarefaPorIdade++;
+          /*
+            CONTA DECISÃO, NÃO PASSADA. O ato de prazo não sai mais da fila da
+            varredura — o carimbo mora em `avaliado*`, e o pré-filtro olha
+            `compromissoId`/`dispensadoEm`. Somar aqui a cada volta faria o log
+            noturno repetir os mesmos N para sempre, e quem lesse contaria
+            reavaliação como decisão nova. É exatamente a aritmética que já
+            produziu 1.243 falsos positivos nesta base.
+          */
+          resumo.avaliadosSemTarefa += (await this.avaliarPrazo(mov)).gravou;
           continue;
         }
 
@@ -315,12 +358,12 @@ export class AutomacaoPrazosService {
         if (criou.tarefa) resumo.tarefasSecretaria++;
       }
 
-      if (resumo.prazos || resumo.audiencias || resumo.canceladas || resumo.semTarefaPorIdade) {
+      if (resumo.audiencias || resumo.canceladas || resumo.avaliadosSemTarefa) {
         this.logger.log(
-          `[AUTOMACAO] ${processo.numeroCNJ}: ${resumo.prazos} prazo(s), ` +
+          `[AUTOMACAO] ${processo.numeroCNJ}: ` +
             `${resumo.audiencias} pauta(s), ${resumo.tarefasSecretaria} tarefa(s) de secretaria, ` +
             `${resumo.canceladas} cancelamento(s), ` +
-            `${resumo.semTarefaPorIdade} andamento(s) antigo(s) sem tarefa.`,
+            `${resumo.avaliadosSemTarefa} ato(s) de prazo avaliado(s) sem tarefa.`,
         );
       }
     } catch (err) {
@@ -332,202 +375,207 @@ export class AutomacaoPrazosService {
   // -------------------------------------------------------------------------
 
   /**
-   * Tarefa de conferência de prazo, vencendo em +5 dias úteis do andamento.
+   * O ATO DE PRAZO É AVALIADO E CARIMBADO — E NÃO VIRA MAIS TAREFA (17/09/2026).
    *
-   * REAPROVEITA a tarefa aberta que vença no mesmo dia em vez de criar outra.
-   * Num processo movimentado, "publicação", "intimação" e "despacho" chegam em
-   * lote e geravam uma pilha de tarefas idênticas — agenda entulhada é agenda
-   * que a equipe para de ler, e aí o prazo se perde de verdade. Agrupar mantém
-   * um lembrete por dia, com todos os andamentos listados dentro.
+   * O QUE ESTE MÉTODO ERA. Ele criava "Verificação de Intimação / Prazo": uma
+   * tarefa com dono e data cujo texto dizia, em resumo, "abra o PJe e descubra o
+   * que estão pedindo". Era o melhor que dava para escrever, porque AQUI O ROBÔ
+   * NÃO TEM O TEOR — o DataJud entrega o rótulo do ato ("Publicação",
+   * "Expedição de documento") e deixa `conteudo` nulo. Sem o texto, ele não sabe
+   * o que foi pedido, de quem é o prazo, nem se há prazo.
+   *
+   * O QUE A PRODUÇÃO DISSE SOBRE ISSO. Das 48 criadas:
+   *
+   *   · 32 CANCELADAS (67%);
+   *   · 11 concluídas — e 9 dessas com desfecho PRAZO_SEM_PECA, que é a equipe
+   *     dizendo por escrito "não havia peça a fazer";
+   *   ·  5 pendentes;
+   *   · 47 nasceram atrasadas.
+   *
+   * No acervo inteiro do robô (89 atividades) são 45 canceladas, metade. E ao
+   * lado, o contraexemplo: "Cadastrar ação do Diário" fez 12 de 12 concluídas em
+   * zero dia, nenhuma cancelada — porque ela diz exatamente o que fazer.
+   *
+   * O pedido do dono foi esse: "não quero tarefas já com prazo matando o
+   * advogado; se for algo urgente, mande um alerta, mas não encha de tarefas
+   * desnecessárias".
+   *
+   * O QUE ENTRA NO LUGAR. Um AVISO, que é estado e não tarefa: o selo âmbar de
+   * `atoAcionavel` continua aceso no ato (as colunas do robô não o calam, ver
+   * `tpu.util.ts`), e o carimbo explica na tela por que não há tarefa. Com o
+   * criador cego parado sobram 27 atos com selo, em 26 processos, espalhados por
+   * cinco advogados e dominados por DECISÕES — que é o que o dono quer ver.
+   *
+   * O QUE **NÃO** MUDOU, e de propósito: a pauta (audiência/perícia), o preparo,
+   * o aviso ao filiado e a confirmação de data continuam sendo criados. São
+   * trabalho com dono e data conhecidos, e têm aproveitamento de 100%.
    */
-  private async criarPrazo(
-    processo: ProcessoAlvo,
+  /**
+   * TIRA O CARIMBO DO ROBÔ DE CIMA DAS COLUNAS DE GENTE — toda varredura.
+   *
+   * O NÚMERO, PARA NÃO SE CONTAR HISTÓRIA: a produção tem ZERO linhas com esse
+   * carimbo (conferido em 17/09/2026). O código errado chegou a subir, mas a
+   * varredura das 02h não rodou sob ele — o defeito foi pego antes de produzir
+   * dado. As 65 dispensas que existem hoje têm AUTOR e outro motivo: são o
+   * efeito de cancelar 29 tarefas inúteis pela porta da Agenda, que é a decisão
+   * de gente funcionando como deve. Isto aqui é precaução, não faxina.
+   *
+   * POR QUE ISTO NÃO PODE SER SÓ A MIGRAÇÃO. Em 17/09/2026 a primeira versão
+   * deste caminho gravou a decisão do robô em
+   * `dispensadoEm/dispensadoPor/dispensadoMotivo`, que são a DISPENSA HUMANA do
+   * radar de audiências. `atoAcionavel` apaga o selo âmbar quando vê
+   * `dispensadoEm`: o andamento ficaria mudo — seria trocar tarefa inútil por
+   * silêncio, que é pior. A migração `20260917100000_carimbo_do_robo` move
+   * essas linhas para as colunas próprias.
+   *
+   * Só que a migração é de tiro único e o deploy desta casa tem JANELA DE TROCA:
+   * o contêiner ANTIGO atende contra o banco já migrado enquanto o novo sobe.
+   * Basta uma sincronização nessa janela — ou o cron das 02h pegá-la — para o
+   * código velho carimbar de novo, nas mesmas colunas. Essas linhas nasceriam
+   * mudas e nada mais as alcançaria: a migração já rodou, o código novo não lê
+   * `dispensado_*` do robô, e sem selo não há cartão com o botão "Desfazer"
+   * para uma pessoa consertar.
+   *
+   * AS DUAS TRAVAS SÃO AS DA MIGRAÇÃO, e elas são o que torna isto seguro:
+   * o motivo literal só foi escrito pelo robô velho, e dispensa de gente SEMPRE
+   * grava autor. Na segunda execução não casa nada — o próprio UPDATE se
+   * desarma.
+   *
+   * Se voltar a encontrar linhas, isso é notícia: significa que o contêiner
+   * antigo escreveu depois da migração. Por isso o log é `warn`.
+   */
+  private async repararCarimboNasColunasDeGente(processoId: string): Promise<void> {
+    try {
+      const n = await this.prisma.$executeRaw`
+        UPDATE "movimentacoes_processuais"
+           SET "avaliado_em" = COALESCE("avaliado_em", "dispensado_em"),
+               "avaliado_por" = NULL,
+               "avaliado_motivo" = ${MOTIVOS_DO_ROBO.ANDAMENTO_ANTIGO},
+               "dispensado_em" = NULL,
+               "dispensado_por" = NULL,
+               "dispensado_motivo" = NULL
+         WHERE "processo_id" = ${processoId}
+           AND "dispensado_motivo" = ${MOTIVO_ANDAMENTO_ANTIGO_LEGADO}
+           AND "dispensado_por" IS NULL`;
+      if (n > 0) {
+        this.logger.warn(
+          `[AUTOMACAO] Processo ${processoId}: ${n} andamento(s) tinham o carimbo do robô nas ` +
+            'colunas de dispensa humana e voltaram a mostrar o selo.',
+        );
+      }
+    } catch (err) {
+      // Nunca derruba a varredura: o reparo tenta de novo na próxima.
+      this.logger.warn(`[AUTOMACAO] Falha ao reparar carimbo antigo: ${(err as Error).message}`);
+    }
+  }
+
+  private async avaliarPrazo(
     mov: MovimentacaoParaAutomacao,
-    responsavelId: string,
-  ): Promise<'CRIADA' | 'AGRUPADA' | 'SEM_TAREFA_POR_IDADE'> {
-    const detalhe = [mov.descricao, mov.detalhe].filter(Boolean).join(' — ');
-    const linha = `• ${formatarDataBR(mov.dataMovimento)}: ${detalhe}`;
-
-    // Andamento antigo geraria tarefa já vencida (a janela de captura é de 30
-    // dias). Puxa para o próximo dia útil e avisa que chegou atrasado.
-    /*
-      `dataMovimento` é INSTANTE (`DateTime`), não dia de calendário: um
-      andamento das 23h de Teresina já é o dia seguinte em UTC. Converter antes
-      é o que faz a contagem de dias úteis começar no dia certo — sem isto, 5,7%
-      dos prazos saíam com data errada, alguns por dois dias.
-    */
-    const calculado = somarDiasUteisEmCalendario(
-      diaDeCalendarioBR(mov.dataMovimento),
-      PRAZO_PADRAO_DIAS_UTEIS,
-    );
-    const hoje = new Date();
-    const atrasado = calculado < hoje;
-    /**
-     * Nove da manhã de TERESINA, e sempre no futuro — ver
-     * `proximoHorarioUtilBR`. O `setHours(9)` daqui resolvia no fuso do
-     * contêiner e marcava "hoje às 9h" mesmo rodando às 20h.
-     */
-    const inicio = proximoHorarioUtilBR(atrasado ? hoje : calculado);
-
-    /**
-     * URGENTE É COISA RARA — ou deixa de significar alguma coisa.
-     *
-     * Medido na produção em 25/08/2026: das SETE tarefas automáticas que o
-     * sistema criou desde que entrou no ar, SETE estavam marcadas como
-     * urgentes. Quatro nasceram na mesma madrugada, de andamentos de 18 a 28
-     * dias atrás, todas vencendo no mesmo dia. Uma agenda em que tudo é urgente
-     * é uma agenda sem prioridade nenhuma.
-     *
-     * A culpa era da regra: `urgente = atrasado`, e `atrasado` é verdade para
-     * QUALQUER andamento com mais de uma semana — o prazo de conferência é de 5
-     * dias úteis e a janela de captura é de 30 dias, então a marca disparava
-     * por construção em quase tudo que o robô pegava.
-     *
-     * A distinção que faltava é entre ATRASO NOSSO e ATRASO DO TRIBUNAL:
-     *
-     *  · o andamento é RECENTE (ver DIAS_ATO_RECENTE) e o prazo de conferência
-     *    já passou → soubemos agora de algo cujo prazo processual pode ainda
-     *    estar correndo. Isso é urgente de verdade: talvez dê para salvar.
-     *
-     *  · o andamento é ANTIGO → o prazo, se havia, correu semanas atrás. Marcar
-     *    como urgente hoje não recupera nada e ainda rebaixa o que é urgente de
-     *    fato. Vira tarefa normal, com o aviso de que chegou atrasado — a
-     *    informação continua ali, sem o alarme falso.
-     */
+  ): Promise<{ motivo: MotivoDoRobo; gravou: number }> {
     const idadeDoAtoDias = Math.floor(
-      (hoje.getTime() - mov.dataMovimento.getTime()) / 86_400_000,
+      (Date.now() - mov.dataMovimento.getTime()) / 86_400_000,
     );
+
     /*
-      O ATO VELHO PARA AQUI (17/09/2026) — ver `MOTIVO_ANDAMENTO_ANTIGO`.
-
-      Antes ele virava tarefa "sem alarme", com a própria descrição dizendo que
-      o prazo já tinha corrido. Uma tarefa que nasce avisando que não dá mais
-      para agir não é tarefa: é recado — e recado na agenda de quem tem prazo
-      real é o que faz a agenda perder credibilidade.
-
-      A vinda do andamento continua registrada no processo, e o carimbo abaixo
-      diz por que o robô não abriu tarefa.
+      DOIS MOTIVOS PARA A MESMA AUSÊNCIA DE TAREFA, e a distinção é para quem
+      lê a tela: "o índice do CNJ não mandou o texto" e "isto já passou" pedem
+      frases diferentes. A régua é a de sempre (`DIAS_ATO_RECENTE`) — duas
+      réguas para a mesma pergunta seria a receita de "urgente sem tarefa".
     */
-    if (idadeDoAtoDias > DIAS_ATO_RECENTE) {
-      await this.prisma.movimentacaoProcessual.update({
-        where: { id: mov.id },
-        data: {
-          dispensadoEm: new Date(),
-          dispensadoPor: null, // é decisão do robô, não de gente
-          dispensadoMotivo: MOTIVO_ANDAMENTO_ANTIGO,
-        },
-      });
-      return 'SEM_TAREFA_POR_IDADE';
-    }
+    const motivo: MotivoDoRobo =
+      idadeDoAtoDias > DIAS_ATO_RECENTE
+        ? MOTIVOS_DO_ROBO.ANDAMENTO_ANTIGO
+        : MOTIVOS_DO_ROBO.SEM_TEOR_NO_DATAJUD;
 
-    const urgente = atrasado && idadeDoAtoDias <= DIAS_ATO_RECENTE;
+    /*
+      `gravou` é 0 quando o andamento JÁ estava com este mesmo motivo — a
+      varredura o reencontra toda noite, e reavaliação não é decisão nova.
+    */
+    const gravou = await this.carimbarAvaliacao(mov.id, motivo);
+    return { motivo, gravou };
+  }
 
-    const existente = await this.prisma.compromisso.findFirst({
+  /**
+   * GRAVA A DECISÃO DO ROBÔ na movimentação — uma vez, e sem apagar a de gente.
+   *
+   * COLUNAS PRÓPRIAS. `avaliadoEm/avaliadoPor/avaliadoMotivo` existem porque a
+   * primeira versão disto, algumas horas antes no mesmo 17/09/2026, escrevia em
+   * `dispensadoEm/dispensadoPor/dispensadoMotivo` — que é a dispensa HUMANA do
+   * radar de audiências. `atoAcionavel` apaga o selo âmbar quando vê
+   * `dispensadoEm`, então o resultado foi trocar tarefa inútil por silêncio, em
+   * o andamento inteiro. O robô nunca escreve nas colunas da pessoa.
+   *
+   * `avaliadoPor` fica NULO: é decisão do robô, não de gente. A coluna existe
+   * para o dia em que uma pessoa disser "não é nada" por este caminho — e aí o
+   * id dela entra, sem que ninguém precise adivinhar pela ausência.
+   *
+   * POR QUE `updateMany` COM CONDIÇÃO, E NÃO `update`. O ato carimbado continua
+   * elegível no pré-filtro de `dispararAutomacao` (que só exclui a dispensa de
+   * gente), então a varredura o reencontra TODA NOITE. Com `update` simples, a
+   * data da decisão viraria a data da última varredura e o "quando o robô
+   * decidiu" se perderia — e é o carimbo, não a ausência, que a casa lê.
+   *
+   * Reescreve só quando o motivo MUDA (o ato envelhece e passa de
+   * `SEM_TEOR_NO_DATAJUD` para `ANDAMENTO_ANTIGO`; ou o teor do Diário chega e
+   * a outra frente carimba `TEOR_NO_DIARIO`).
+   *
+   * O `OR` tem três braços de propósito: `{ not: X }` NÃO casa linha nula no
+   * Prisma, então sem `{ avaliadoMotivo: null }` explícito a linha carimbada por
+   * engano com motivo vazio nunca seria corrigida. Esta base já perdeu uma
+   * varredura inteira (0 de 3.150) por esse mesmo detalhe.
+   */
+  private async carimbarAvaliacao(movimentacaoId: string, motivo: MotivoDoRobo): Promise<number> {
+    const r = await this.prisma.movimentacaoProcessual.updateMany({
       where: {
-        processoId: processo.id,
-        tipo: TIPO_PRAZO,
-        origemAutomatica: true,
-        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
-        inicio: { gte: inicio, lt: new Date(inicio.getTime() + 24 * 3_600_000) },
+        id: movimentacaoId,
+        /*
+          DOIS FILTROS, E EM `AND` DE PROPÓSITO. Dois `OR` no mesmo objeto se
+          sobrescrevem no Prisma — o segundo apaga o primeiro e ninguém avisa.
+        */
+        AND: [
+          // 1. Não reescreve o mesmo motivo (senão a data da decisão do robô
+          //    vira a data da última varredura).
+          {
+            OR: [
+              { avaliadoEm: null },
+              { avaliadoMotivo: null },
+              { avaliadoMotivo: { not: motivo } },
+            ],
+          },
+          /*
+            2. E NUNCA APAGA A LEITURA DO TEOR COM UMA DEDUÇÃO DE AUSÊNCIA.
+
+            Quando o Diário chega, a frente da correlação carimba o andamento
+            com `TEOR_NO_DIARIO` e NÃO grava `compromissoId` nos ramos em que a
+            publicação foi dispensada (ordem da outra parte, cópia do mesmo ato,
+            sem providência). O andamento portanto continua caindo no pré-filtro
+            da varredura, toda noite — e o caminho cego reescreveria o carimbo
+            com `SEM_TEOR_NO_DATAJUD`, cuja frase na tela é "o tribunal avisou
+            que houve um ato, mas não disse o que ele pede".
+
+            Seria o sistema apagando o que SABE (leu o teor, soube de quem era a
+            ordem) para afirmar o que NÃO sabe. A regra da casa é a mesma desde
+            o alarme que contradizia o robô: grave a decisão, não deduza da
+            ausência — e uma decisão tomada com o texto na mão vale mais que uma
+            tomada sem ele.
+          */
+          ...(motivo === MOTIVOS_DO_ROBO.TEOR_NO_DIARIO
+            ? []
+            : [{
+              OR: [
+                { avaliadoMotivo: null },
+                { avaliadoMotivo: { not: MOTIVOS_DO_ROBO.TEOR_NO_DIARIO } },
+              ],
+            }]),
+        ],
       },
-      // Só `urgente` — o suficiente para saber se há o que escalar. Ler
-      // `urgentePor`/`urgenteEm` aqui faria a trava de urgência reprovar, com
-      // razão: quem lê os quatro campos costuma ser quem vai escrevê-los à mão.
-      select: { id: true, descricao: true, urgente: true },
-    });
-
-    if (existente) {
-      /*
-        AGRUPAR NAO PODE ENGOLIR A URGENCIA.
-
-        Andamentos chegam em lote e a tarefa do dia absorve os seguintes -- o
-        que esta certo, senao a agenda vira pilha de lembrete igual. Mas so a
-        DESCRICAO era mesclada: a urgencia calculada para ESTE andamento (ato
-        recente cujo prazo de conferencia ja venceu -- talvez ainda de para
-        salvar) era descartada em silencio. Bastava um andamento manso ter
-        chegado primeiro no mesmo dia para a tarja vermelha nunca aparecer.
-
-        So SOBE, nunca desce: se a tarefa ja esta urgente, o motivo dela fica.
-        Rebaixar seria o robo desfazendo marca que talvez uma pessoa tenha
-        posto -- e a urgencia e justamente a marca que nao pode oscilar so.
-      */
-      const escalar =
-        urgente && !existente.urgente
-          ? montarUrgencia(
-              true,
-              `Andamento de ${idadeDoAtoDias} dia(s) chegou com o prazo de conferência já vencido ` +
-                `(venceria em ${formatarDataBR(calculado)}).`,
-              { origem: 'AUTOMACAO' },
-              // Sem o 4º argumento de propósito: ele só serve para preservar o
-              // motivo de quem JÁ estava urgente, e este ramo só roda quando
-              // não estava.
-            )
-          : {};
-      await this.prisma.compromisso.update({
-        where: { id: existente.id },
-        data: { descricao: `${existente.descricao ?? ''}\n${linha}`.trim(), ...escalar },
-      });
-      await this.prisma.movimentacaoProcessual.update({
-        where: { id: mov.id },
-        data: { compromissoId: existente.id },
-      });
-      return 'AGRUPADA'; // entrou numa tarefa que já existia, não é tarefa nova
-    }
-
-    const compromisso = await this.prisma.compromisso.create({
       data: {
-        titulo: TITULO_PRAZO_GENERICO,
-        tipo: TIPO_PRAZO,
-        status: StatusCompromisso.PENDENTE,
-        inicio,
-        fim: new Date(inicio.getTime() + 3_600_000),
-        descricao:
-          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}. Conferir o teor no sistema do tribunal e o prazo aplicável.\n` +
-          (atrasado
-            ? `⚠ Andamento recebido com atraso (${idadeDoAtoDias} dias) — o prazo de conferência venceria em ` +
-              `${formatarDataBR(calculado)}. ` +
-              (urgente
-                ? 'Chegou agora: confira hoje.\n'
-                : 'O prazo processual, se havia, já correu — confira sem alarme o que ficou pendente.\n')
-            : '') +
-          `Andamentos:\n${linha}`,
-        responsavelId,
-        processoId: processo.id,
-        filiadoId: processo.filiadoId,
-        /**
-         * A URGÊNCIA PASSA PELA MESMA PORTA QUE A DA TELA.
-         *
-         * A Agenda exige motivo para marcar algo como urgente — "sem motivo, a
-         * marca não pode ser revista depois e a fila de urgências perde o
-         * sentido" (equipe.util.ts). O robô escrevia `urgente: true` no banco
-         * direto, sem passar por ali: conferido na produção em 25/08/2026, TODAS
-         * as tarefas urgentes tinham `urgenteMotivo` e `urgentePor` nulos. Quem
-         * abrisse a fila veria urgências que ninguém consegue explicar nem
-         * auditar — exatamente o que a regra existe para impedir.
-         *
-         * `origem: 'AUTOMACAO'` sempre existiu no tipo e nunca tinha sido usada.
-         * É ela que dispensa o autor humano sem dispensar a explicação.
-         */
-        ...montarUrgencia(
-          urgente,
-          urgente
-            ? `Andamento de ${idadeDoAtoDias} dia(s) chegou com o prazo de conferência já vencido ` +
-              `(venceria em ${formatarDataBR(calculado)}).`
-            : null,
-          { origem: 'AUTOMACAO' },
-        ),
-        origemAutomatica: true,
-        criadoPor: null, // sem autor humano — é o robô
+        avaliadoEm: new Date(),
+        avaliadoPor: null, // é decisão do robô, não de gente
+        avaliadoMotivo: motivo,
       },
-      select: { id: true },
     });
-
-    // Marca a movimentação como já processada (trava de idempotência).
-    await this.prisma.movimentacaoProcessual.update({
-      where: { id: mov.id },
-      data: { compromissoId: compromisso.id },
-    });
-    return 'CRIADA';
+    return r.count;
   }
 
   /**

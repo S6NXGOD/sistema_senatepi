@@ -193,8 +193,10 @@ describe('a regra de fuso é do projeto, não de um arquivo', () => {
     const prazos = CODIGO.find(
       (c) => c.arquivo === 'modules/processos/automacao-prazos.service.ts',
     )!;
-    // Instante: converte antes.
-    expect(prazos.fonte).toContain('diaDeCalendarioBR(mov.dataMovimento)');
+    // Instante: converte antes. Era `mov.dataMovimento`, no criador cego de
+    // prazos, que saiu em 17/09/2026; o preparo da pauta faz a mesma conversão,
+    // pelo mesmo motivo — `inicioDaPauta` também é instante.
+    expect(prazos.fonte).toContain('diaDeCalendarioBR(inicioDaPauta)');
 
     const correlacao = CODIGO.find(
       (c) => c.arquivo === 'modules/processos/correlacao.service.ts',

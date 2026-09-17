@@ -56,6 +56,8 @@
  * e não vale a pena adivinhar o significado.
  */
 
+import { DIAS_JANELA_DE_CAPTURA } from './janela-do-robo.util';
+
 /** Grau de atenção que o ato exige. */
 export type NivelAtencao = 'URGENTE' | 'PRAZO' | 'DECISAO' | 'ENCERRAMENTO';
 
@@ -76,8 +78,11 @@ export interface AtoCritico {
  *    foi cassada; o que estiver pendente dela virou outra coisa.
  *  · PRAZO (30) — casado de propósito com a janela da automação de prazos
  *    (`dispararAutomacao`). Enquanto os dois números forem O MESMO, "ato dentro
- *    da janela sem tarefa" significa que o robô falhou — que é exatamente o que
+ *    da janela sem providência" significa uma coisa só — que é exatamente o que
  *    o selo deve denunciar. Se algum dia divergirem, o selo volta a mentir.
+ *    Desde 17/09/2026 o número não é mais um literal casado por comentário:
+ *    vem de `DIAS_JANELA_DE_CAPTURA` (janela-do-robo.util.ts), que é o mesmo
+ *    valor que a captura lê.
  *  · DECISAO (90) — sentença e acórdão sobrevivem ao prazo recursal: há o
  *    filiado para avisar, cálculo para conferir, execução para iniciar. Três
  *    meses é o limite em que ainda se pode chamar isso de pendência; passou
@@ -87,8 +92,11 @@ export interface AtoCritico {
  *    providência e virariam alarme permanente em todo processo arquivado.
  */
 export const VALIDADE_DIAS: Record<NivelAtencao, number> = {
+  // Trinta por razão PRÓPRIA (a tutela de um mês atrás já produziu efeito ou já
+  // foi cassada) — coincide com a janela de captura sem depender dela. Mudar um
+  // não tem por que mudar o outro, e por isso este continua sendo um literal.
   URGENTE: 30,
-  PRAZO: 30,
+  PRAZO: DIAS_JANELA_DE_CAPTURA,
   DECISAO: 90,
   ENCERRAMENTO: 0,
 };
@@ -195,9 +203,31 @@ export interface MovimentacaoAvaliavel {
   detalhe?: string | null;
   /** Já virou atividade na agenda? Então não está solto. */
   compromissoId?: string | null;
-  /** Uma pessoa disse "não é isso" ou "já resolvi por fora". */
+  /**
+   * UMA PESSOA disse "não é isso" ou "já resolvi por fora". Só isto cala o
+   * selo — ver o bloco de `atoAcionavel`.
+   */
   dispensadoEm?: Date | null;
+  /**
+   * O ROBÔ olhou e decidiu não abrir tarefa. NÃO cala o selo: é o contrário —
+   * é justamente quando o robô se cala que alguém precisa ver o ato.
+   */
+  avaliadoEm?: Date | null;
+  /** Por que o robô não abriu tarefa (ver `MOTIVOS_DO_ROBO`). */
+  avaliadoMotivo?: string | null;
 }
+
+/**
+ * O ato que ainda pede providência — nível e rótulo, e só.
+ *
+ * ESTE TIPO JÁ CARREGOU `motivoDoRobo`, por algumas horas em 17/09/2026: a ideia
+ * era a tela explicar o selo ("o índice do CNJ não mandou o texto") a partir
+ * daqui. Saiu porque nenhum caminho de produção o lia — a ficha pega o motivo do
+ * PRÓPRIO andamento (`semTarefaMotivo`, de `avaliadoMotivo`), que é onde ele
+ * está gravado. Um campo que só os testes leem não tem leitor; tem dois
+ * caminhos para a mesma verdade, livres para divergir.
+ */
+export type AtoAcionavel = AtoCritico;
 
 /**
  * O ATO AINDA PEDE PROVIDÊNCIA?
@@ -210,12 +240,41 @@ export interface MovimentacaoAvaliavel {
  * Devolve `null` quando o ato não conta, por qualquer um dos seis motivos: não
  * está no dicionário; é encerramento; o complemento o desqualifica; já virou
  * tarefa; foi dispensado por uma pessoa; ou venceu.
+ *
+ * O CARIMBO DO ROBÔ NÃO É UM DELES — e este é o conserto de 17/09/2026.
+ *
+ * Em 17/09 eu fiz o criador cego carimbar `dispensadoEm/Por/Motivo` na
+ * movimentação para registrar "não abri tarefa porque o andamento é velho".
+ * Essas três colunas são a DISPENSA HUMANA do radar de audiências, e a primeira
+ * linha desta função apaga o selo âmbar quando `dispensadoEm` existe. Ou seja:
+ * seria trocar tarefa inútil por SILÊNCIO — o ato sairia da agenda E da
+ * tela no mesmo movimento, sem ninguém pedir.
+ *
+ * O robô tem colunas próprias agora (`avaliadoEm/Por/Motivo`), e elas fazem o
+ * OPOSTO de calar: um ato que o robô olhou e não soube resolver é exatamente o
+ * que precisa do olho de uma pessoa.
+ *
+ * O CASO QUE FICA DE FORA, de propósito e com número: quando o Diário decidiu
+ * LENDO O TEOR (a ordem é da outra parte, é cópia do mesmo ato), o andamento
+ * pareado recebe `TEOR_NO_DIARIO` e continua acendendo o selo — alguém poderia
+ * argumentar que aí o sistema já sabe que não há o que fazer. Medido na
+ * produção em 17/09/2026: das 2.318 publicações dispensadas, 2.310 foram por
+ * RELÓGIO (notícia velha, fora da janela), e essas por desenho não atravessam
+ * para o andamento. As decisões de leitura são OITO no acervo inteiro, duas com
+ * andamento pareado, e NENHUMA delas acende selo hoje. Calar por esse caminho
+ * seria construir um silenciador para um caso que não existe — e silenciador
+ * mal calibrado foi exatamente o erro desta rodada. Medido na produção: com o criador cego
+ * parado, sobram 27 atos com selo âmbar em 26 processos, dominados por DECISÕES
+ * (5 Procedência em Parte, 5 Não-Provimento, 4 Não-Acolhimento de Embargos, 3
+ * Improcedência, 3 Provimento, 3 Provimento em Parte) e espalhados por cinco
+ * advogados. Não é bombardeio: é o que o dono pediu para ver.
  */
 export function atoAcionavel(
   mov: MovimentacaoAvaliavel,
   agora: Date = new Date(),
-): AtoCritico | null {
-  // Já tem dono (virou atividade) ou uma pessoa já disse que não é nada.
+): AtoAcionavel | null {
+  // Já tem dono (virou atividade) ou uma PESSOA já disse que não é nada.
+  // `avaliadoEm` de propósito fora daqui: decisão de robô não cala aviso.
   if (mov.compromissoId || mov.dispensadoEm) return null;
 
   const ato = atoCritico(mov.codigoMovimento);

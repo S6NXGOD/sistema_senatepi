@@ -193,6 +193,9 @@ function avisosCom(fontes: { minhasAtrasadas?: unknown[]; souReserva?: unknown[]
   const prisma = {
     compromisso: { findMany },
     comunicacaoDjen: { findMany: jest.fn(async () => []) },
+    // A faixa também pergunta pelos ANDAMENTOS que ninguém decidiu; este caso
+    // não é sobre eles, e a lista vazia mantém o teste no seu assunto.
+    movimentacaoProcessual: { findMany: jest.fn(async () => []) },
     user: { findMany: jest.fn(async () => fontes.usuarios ?? []) },
     refreshToken: { groupBy: jest.fn(async () => []) },
     auditoria: { groupBy: jest.fn(async () => []) },

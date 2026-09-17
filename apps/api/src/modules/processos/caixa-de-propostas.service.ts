@@ -1,7 +1,14 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CorrelacaoService, mesmoAtoPeloLink } from './correlacao.service';
+import {
+  CorrelacaoService,
+  JANELA_DE_TAREFA_DIAS,
+  mesmoAtoPeloLink,
+  nossoPoloPelasPartes,
+} from './correlacao.service';
 import { trechoDaOrdem } from './utils/trecho-da-ordem.util';
+import { deQuemEOPrazo } from './utils/de-quem-e-a-ordem.util';
+import { tenant } from '../../tenant/tenant.config';
 
 /**
  * A CAIXA DE ENTRADA DO ADVOGADO — o robô propõe, a pessoa decide.
@@ -206,6 +213,25 @@ export class CaixaDePropostasService {
    *
    * A tarefa nasce marcada: o título diz que veio de proposta não respondida,
    * para ninguém confundir com o que o robô provou.
+   *
+   * DUAS PROPOSTAS NÃO ESCALAM MAIS (17/09/2026), e nenhuma delas some:
+   *
+   *  1. AQUELA CUJO PRAZO É DA OUTRA PARTE. A rede lia só "tem prazo escrito" —
+   *     o mesmo raciocínio que punha "Juntar documentos" na agenda por causa de
+   *     um prazo de 15 dias da empresa executada
+   *     (0001381-91.2023.5.22.0101). O ato foi para a caixa justamente porque a
+   *     prova não fechou; deixar o relógio fechá-la três dias depois é criar,
+   *     pela porta dos fundos, a tarefa que a porta da frente recusou.
+   *
+   *  2. AQUELA CUJO ATO JÁ SAIU DA JANELA de trabalho. Tarefa nascida de um ato
+   *     de mais de 30 dias nasce vencida, e nascer vencida é o que faz a agenda
+   *     deixar de ser levada a sério — 47 das 48 tarefas cegas eram assim.
+   *
+   * PROPOSTA NÃO EXPIRA. As duas continuam na caixa, inteiras, esperando gente;
+   * o que deixa de acontecer é virarem tarefa sozinhas. Por isso nenhuma delas
+   * recebe `tarefaDispensadaEm`: o carimbo de dispensa é o que APAGA o item da
+   * caixa, e apagar é o contrário do que se quer aqui. A decisão de não escalar
+   * aparece no log, e o item continua visível para quem decide.
    */
   async escalarEsquecidas(): Promise<number> {
     const corte = new Date(Date.now() - this.DIAS_ATE_ESCALAR * 24 * 3_600_000);
@@ -215,14 +241,52 @@ export class CaixaDePropostasService {
         compromissoId: null,
         tarefaDispensadaEm: null,
         prazoMencionadoDias: { not: null },
+        /*
+          A JANELA FICA NA CONSULTA, e não no laço, de propósito: o ato velho
+          nunca mais vai escalar, e no laço ele ocuparia uma das 50 vagas do
+          lote todas as noites, empurrando para fora a proposta nova — que é
+          exatamente a que tem prazo correndo.
+        */
+        dataDisponibilizacao: {
+          gte: new Date(Date.now() - JANELA_DE_TAREFA_DIAS * 24 * 3_600_000),
+        },
       },
-      select: { id: true, tarefaPropostaPara: true, numeroProcesso: true, processoId: true, link: true },
+      select: {
+        id: true,
+        tarefaPropostaPara: true,
+        numeroProcesso: true,
+        processoId: true,
+        link: true,
+        texto: true,
+        // O polo do sindicato NESTE processo é o que permite ler "intime-se a
+        // executada" como prazo nosso quando somos nós a executada.
+        processo: {
+          select: {
+            partes: {
+              where: { parteExterna: { institucional: true } },
+              select: { polo: true },
+            },
+          },
+        },
+      },
       take: 50,
     });
 
     let criadas = 0;
+    let deixadasNaCaixa = 0;
     for (const c of esquecidas) {
       try {
+        /*
+          DE QUEM É O PRAZO — a mesma pergunta, e a mesma função, que decide se
+          o ato vai direto para a agenda em `aplicarAposDjen`. Uma régua só: se
+          o robô não manda a tarefa na hora porque todo prazo do ato é da outra
+          parte, o relógio não pode mandar por ele três dias depois.
+        */
+        const nossoPolo = nossoPoloPelasPartes(c.processo?.partes ?? []);
+        if (deQuemEOPrazo(c.texto, nossoPolo, tenant.sigla) === 'DA_OUTRA_PARTE') {
+          deixadasNaCaixa++;
+          continue;
+        }
         /*
           A CÓPIA DO MESMO ATO NÃO ESCALA DE NOVO (14/09/2026).
 
@@ -265,6 +329,14 @@ export class CaixaDePropostasService {
     if (criadas) {
       this.logger.log(
         `[CAIXA] ${criadas} proposta(s) com prazo sem resposta em ${this.DIAS_ATE_ESCALAR} dias viraram tarefa.`,
+      );
+    }
+    if (deixadasNaCaixa) {
+      // Sai no log porque é a decisão mais nova daqui: se ela começar a segurar
+      // demais, é neste número que se vê antes de alguém perder um prazo.
+      this.logger.log(
+        `[CAIXA] ${deixadasNaCaixa} proposta(s) ficaram na caixa em vez de virar tarefa — ` +
+          'todo prazo do ato é da parte contrária.',
       );
     }
     return criadas;

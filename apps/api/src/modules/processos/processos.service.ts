@@ -34,6 +34,7 @@ import {
   CODIGOS_TPU_EXECUCAO, FaseProcessual, GRAUS_RECURSAIS, faseDoProcesso,
 } from './utils/fase.util';
 import { atoAcionavel, diasParado, type NivelAtencao } from './utils/tpu.util';
+import { DIAS_JANELA_DE_CAPTURA } from './utils/janela-do-robo.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { ORDENACAO, ordemValida } from './utils/ordenacao.util';
 import { filtroDeVarredura, STATUS_VIVOS } from './utils/varredura.util';
@@ -2282,7 +2283,15 @@ export class ProcessosService {
     // aqui carimbada e o robô a pula pela trava que ele sempre teve.
     await this.correlacao.vincularMovimentacoesNovas(processoId);
 
-    const desde = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+    /*
+      O MESMO 30 DO SELO ÂMBAR, e agora lido da mesma constante.
+
+      Era um literal aqui e outro em `VALIDADE_DIAS.PRAZO` (`tpu.util.ts`),
+      casados por comentário. Enquanto forem iguais, "ato dentro da janela sem
+      providência" significa uma coisa só — que é o que o selo denuncia. Quando
+      divergiram, a lista mostrou onze avisos que a ficha não mostrava.
+    */
+    const desde = new Date(Date.now() - DIAS_JANELA_DE_CAPTURA * 24 * 3600 * 1000);
     const pendentes = await this.prisma.movimentacaoProcessual.findMany({
       where: {
         processoId,

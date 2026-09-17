@@ -1,16 +1,18 @@
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, Req,
+  Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Query, Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { MovimentacoesService } from './movimentacoes.service';
 import { ConsultaPreviaService } from './consulta-previa.service';
 import { DatajudService } from './datajud.service';
 import {
   CriarTipoAndamentoDto, AtualizarTipoAndamentoDto, RegistrarMovimentacaoDto,
+  JaCuideiDoAndamentoDto,
 } from './dto/movimentacoes.dto';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
+import { RANK_NIVEL, nivelEfetivo } from '../../common/permissions/permissoes.constants';
 
 /**
  * Tipos de movimentação (cadastráveis) — gateado pelo módulo "processos".
@@ -87,6 +89,59 @@ export class MovimentacoesController {
   @Delete('movimentacoes/:movId')
   remover(@Param('movId') movId: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.remover(movId, this.ctx(req, user));
+  }
+
+  /*
+    AS DUAS MÃOS SOBRE O ANDAMENTO DO TRIBUNAL (17/09/2026).
+
+    Rotas em `processos/movimentacoes/:movId/...` para acompanhar a exclusão
+    que já morava aqui — e nunca em `processos/:id/...`, que casaria com o
+    `@Get(':id')` do ProcessosController. Nesta base duas rotas iguais não dão
+    erro: uma some, e foi assim que a ficha do processo caiu uma vez.
+
+    As duas ficam sob o `@Modulo('processos')` do controller e SEM `@Roles`: a
+    matriz é a única política. Nenhuma é DELETE — "Já cuidei" muda o estado do
+    aviso, não apaga o ato do tribunal.
+  */
+
+  /**
+   * "Virar tarefa": cria a atividade na Agenda a partir do andamento.
+   *
+   * Grava na Agenda, então exige permissão de EDITAR também lá — o `@Modulo`
+   * do controller só responde por "processos". Mesma checagem do radar de
+   * audiências, e ela é o que evita oferecer um botão que a API recusaria
+   * depois do clique.
+   */
+  @Post('movimentacoes/:movId/tarefa')
+  @ApiOperation({ summary: 'Cria (ou devolve) a atividade da Agenda para este andamento.' })
+  virarTarefa(@Param('movId') movId: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    if (RANK_NIVEL[nivelEfetivo(user.role, user.permissoes, 'agenda')] < RANK_NIVEL.EDITAR) {
+      throw new ForbiddenException('Você não tem permissão para criar atividades na Agenda.');
+    }
+    return this.service.virarTarefa(movId, this.ctx(req, user));
+  }
+
+  /** "Já cuidei": dispensa HUMANA do aviso, com autor e motivo. Não apaga nada. */
+  @Post('movimentacoes/:movId/ja-cuidei')
+  @ApiOperation({ summary: 'Marca o andamento como já resolvido (o selo de atenção se apaga).' })
+  jaCuidei(
+    @Param('movId') movId: string,
+    @Body() dto: JaCuideiDoAndamentoDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.jaCuidei(movId, dto.motivo, this.ctx(req, user));
+  }
+
+  /**
+   * Desfaz o "Já cuidei" — o par que o radar de audiências sempre teve
+   * (dispensar/restaurar). Sem ele, o toque errado no celular apagava o selo de
+   * atenção sem volta em produto.
+   */
+  @Post('movimentacoes/:movId/desfazer-ja-cuidei')
+  @ApiOperation({ summary: 'Desfaz a marcação "já cuidei" e devolve o selo de atenção ao andamento.' })
+  desfazerJaCuidei(@Param('movId') movId: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
+    return this.service.desfazerJaCuidei(movId, this.ctx(req, user));
   }
 }
 

@@ -1,5 +1,8 @@
 import { NpuUtils } from './npu.util';
-import { proximoHorarioUtilBR, somarDiasUteisEmCalendario } from './data-br.util';
+import {
+  diaDeCalendarioBR, noveDaManhaDoDiaDeCalendario, proximoHorarioUtilBR,
+  proximoHorarioUtilDoDiaDeCalendario, somarDiasUteisEmCalendario,
+} from './data-br.util';
 import { PROVIDENCIAS, diasParaLembrete, type Providencia } from './providencia.util';
 
 /**
@@ -34,7 +37,16 @@ export interface PublicacaoParaPlano {
   texto?: string | null;
   link?: string | null;
   nomeOrgao: string | null;
-  /** `@db.Date` — já é um dia de calendário à meia-noite UTC. */
+  /**
+   * UM DIA DE CALENDÁRIO — meia-noite UTC, como o Postgres materializa `date`.
+   *
+   * A publicação do DJEN (`@db.Date`) já chega assim. Quem trouxer um INSTANTE
+   * — `movimentacoes.dataMovimento` é `DateTime` e carrega a hora do ato —
+   * converte antes com `diaDeCalendarioBR`. Não é preciosismo: 5.388 das 20.569
+   * movimentações da produção (26%) foram praticadas entre 21h e 23h59 de
+   * Teresina, ou seja, já no dia seguinte em UTC. Sem a conversão, a contagem
+   * de dias úteis começa do dia errado em uma a cada quatro.
+   */
   dataDisponibilizacao: Date;
   providencia: Providencia;
   prazoMencionadoDias: number | null;
@@ -78,16 +90,30 @@ export function planejarAtividade(
     e voltaria um dia, que é o mesmo erro do cartão da escala.
   */
   const calculado = somarDiasUteisEmCalendario(c.dataDisponibilizacao, dias);
-  const atrasado = calculado < agora;
   /*
-    `proximoHorarioUtilBR` faz duas coisas que fixar a hora à mão não fazia:
-    crava as nove da manhã de TERESINA (e não do fuso do contêiner) e garante
-    que o horário seja futuro.
+    O DIA CALCULADO VIRA INSTANTE AQUI, E SÓ AQUI.
+
+    `calculado` é um DIA (meia-noite UTC). Entregá-lo a `proximoHorarioUtilBR`,
+    que espera um instante, voltava 24 horas — meia-noite UTC do dia 9 é 21h do
+    dia 8 em Teresina. Toda atividade do Diário nascia um dia antes do prazo que
+    a própria descrição anunciava, e a régua de 5 dias úteis entregava 4.
+
+    A tradução passou a ter nome (`...DoDiaDeCalendario`) justamente para não
+    depender de ninguém lembrar dela na próxima vez.
+  */
+  const alvo = noveDaManhaDoDiaDeCalendario(calculado);
+  const atrasado = alvo < agora;
+  /*
+    `proximoHorarioUtilDoDiaDeCalendario` faz duas coisas que fixar a hora à mão
+    não fazia: crava as nove da manhã de TERESINA (e não do fuso do contêiner) e
+    garante que o horário seja futuro.
 
     (A chamada antiga não é citada aqui de propósito: existe um teste que proíbe
     o nome dela no fonte, e ele não distingue código de explicação.)
   */
-  const inicio = proximoHorarioUtilBR(atrasado ? agora : calculado);
+  const inicio = atrasado
+    ? proximoHorarioUtilBR(agora, agora)
+    : proximoHorarioUtilDoDiaDeCalendario(calculado, agora);
 
   /*
     URGÊNCIA EXIGE PUBLICAÇÃO RECENTE — e a trava veio de uma medição.
@@ -100,7 +126,15 @@ export function planejarAtividade(
     Quinze dias é a régua do prazo recursal (art. 1.003 do CPC): passado ele, o
     que havia a perder já se perdeu. A tarefa continua existindo, sem gritar.
   */
-  const idadeDias = Math.floor((agora.getTime() - c.dataDisponibilizacao.getTime()) / 86_400_000);
+  /*
+    IDADE É DIFERENÇA DE DIAS, NÃO DE HORAS. Contar `(agora − dia) / 24h` fazia
+    a idade virar às 21h de Teresina, junto com o dia em UTC: o ato de hoje
+    passava a ter "1 dia" às nove da noite, e na fronteira dos 15 dias isso
+    ligava e desligava a urgência conforme a hora em que a varredura rodasse.
+  */
+  const idadeDias = Math.round(
+    (diaDeCalendarioBR(agora).getTime() - c.dataDisponibilizacao.getTime()) / 86_400_000,
+  );
   const recente = idadeDias <= diasAtoRecente;
   const prazoCurto = (c.prazoMencionadoDias ?? 99) <= 5;
   const urgente = recente && (atrasado || prazoCurto);

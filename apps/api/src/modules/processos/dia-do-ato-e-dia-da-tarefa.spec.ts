@@ -1,0 +1,95 @@
+import { planejarAtividade } from './utils/plano-da-atividade.util';
+import { diaBR, diaDeCalendarioBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
+
+/**
+ * O DIA DO ATO E O DIA DA TAREFA — 17/09/2026.
+ *
+ * "Não quero tarefas já com prazo matando o advogado." A frente inteira desta
+ * rodada tira tarefa inútil do caminho; este arquivo cuida do contrário — que
+ * a tarefa que SOBRA caia no dia certo.
+ *
+ * Dois erros de fuso moravam no mesmo cálculo, um em cada ponta:
+ *
+ *   NA SAÍDA. `planejarAtividade` soma os dias úteis sobre a data da publicação
+ *   (coluna `@db.Date`, meia-noite UTC) e entregava o resultado a
+ *   `proximoHorarioUtilBR`, que lê INSTANTE. Meia-noite UTC do dia 9 é 21h do
+ *   dia 8 em Teresina, então "as nove da manhã" saíam no dia 8. Toda atividade
+ *   nascida do Diário caía um dia antes do prazo que a própria descrição
+ *   anunciava — a régua de cinco dias úteis entregava quatro.
+ *
+ *   NA ENTRADA. A rota "Virar tarefa" passava `movimentacoes.dataMovimento`
+ *   cru, que é `DateTime` e carrega a hora do ato. Um ato das 23h20 de Teresina
+ *   já é o dia seguinte em UTC e a contagem começava do dia errado. Medido na
+ *   produção em 17/09/2026: 5.388 das 20.569 movimentações (26%) foram
+ *   praticadas entre 21h e 23h59 — uma a cada quatro.
+ */
+describe('a tarefa cai no dia que a régua promete', () => {
+  const base = { nomeOrgao: null, providencia: 'ANALISAR_INTIMACAO' as const, prazoMencionadoDias: null };
+
+  /**
+   * A âncora: o dia que a soma de dias úteis devolve é o dia em que a atividade
+   * aparece na agenda. Sem isto, a descrição anuncia um prazo e a agenda marca
+   * outro — e quem confere descobre pelo susto.
+   */
+  it('o dia calculado é o dia da agenda, e não a véspera', () => {
+    for (let d = 0; d < 30; d++) {
+      const publicacao = new Date(Date.UTC(2027, 2, 1 + d)); // @db.Date
+      const agora = new Date(Date.UTC(2027, 2, 1 + d, 12));
+      const calculado = somarDiasUteisEmCalendario(publicacao, 5);
+      const plano = planejarAtividade({ ...base, dataDisponibilizacao: publicacao }, null, agora, 15);
+      /*
+        `calculado` é DIA PURO: lê-se em UTC. `plano.inicio` é INSTANTE: lê-se
+        em Teresina. Usar a mesma régua nos dois é o próprio erro que este
+        arquivo testa — `diaBR` de uma meia-noite UTC devolve a véspera.
+      */
+      expect(diaBR(plano.inicio)).toBe(calculado.toISOString().slice(0, 10));
+    }
+  });
+
+  /** E às nove da manhã de Teresina — 12:00 UTC —, nunca às 9h do contêiner. */
+  it('às nove da manhã de Teresina', () => {
+    const publicacao = new Date(Date.UTC(2027, 2, 2));
+    const plano = planejarAtividade(
+      { ...base, dataDisponibilizacao: publicacao }, null, new Date(Date.UTC(2027, 2, 2, 12)), 15,
+    );
+    expect(plano.inicio.toISOString()).toMatch(/T12:00:00/);
+  });
+
+  /**
+   * O MESMO DIA EM TERESINA É A MESMA TAREFA. Este é o caso que a rota "Virar
+   * tarefa" reintroduzia: dois atos do mesmo dia, um de manhã e outro à noite,
+   * produziam tarefas em dias diferentes — e o da noite atravessava o fim de
+   * semana quando caía numa sexta.
+   */
+  it('10h e 22h do mesmo dia de Teresina dão a mesma tarefa', () => {
+    const divergentes: string[] = [];
+    for (let d = 0; d < 40; d++) {
+      const manha = new Date(Date.UTC(2027, 2, 1 + d, 13)); // 10h BR
+      const noite = new Date(Date.UTC(2027, 2, 2 + d, 1)); //  22h BR do MESMO dia
+      const agora = new Date(Date.UTC(2027, 2, 2 + d, 2));
+      // É o que `virarTarefa` faz com `dataMovimento` antes de planejar.
+      const a = planejarAtividade({ ...base, dataDisponibilizacao: diaDeCalendarioBR(manha) }, null, agora, 15);
+      const b = planejarAtividade({ ...base, dataDisponibilizacao: diaDeCalendarioBR(noite) }, null, agora, 15);
+      if (a.inicio.getTime() !== b.inicio.getTime()) {
+        divergentes.push(`${diaBR(manha)}: 10h → ${diaBR(a.inicio)} | 22h → ${diaBR(b.inicio)}`);
+      }
+    }
+    expect(divergentes).toEqual([]);
+  });
+
+  /**
+   * A IDADE TAMBÉM É DE DIAS. Ela decide a urgência na fronteira dos 15 dias, e
+   * contá-la em horas fazia o ato de hoje envelhecer às 21h de Teresina.
+   */
+  it('a idade do ato não vira com a hora', () => {
+    const publicacao = new Date(Date.UTC(2027, 2, 10));
+    const deManha = planejarAtividade(
+      { ...base, dataDisponibilizacao: publicacao }, null, new Date(Date.UTC(2027, 2, 10, 13)), 15,
+    );
+    const deNoite = planejarAtividade(
+      { ...base, dataDisponibilizacao: publicacao }, null, new Date(Date.UTC(2027, 2, 11, 1)), 15,
+    );
+    expect(deManha.idadeDias).toBe(0);
+    expect(deNoite.idadeDias).toBe(0);
+  });
+});

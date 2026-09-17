@@ -260,7 +260,15 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
    * conviverem na mesma coluna.
    */
   it('as duas automações usam a mesma régua', () => {
-    expect(PRAZOS).toContain('export const DIAS_ATO_RECENTE = 15;');
+    // Desde 17/09/2026 a régua mora em `utils/janela-do-robo.util.ts`, junto com
+    // os outros três números da automação. `automacao-prazos` a REEXPORTA, para
+    // não trocar o caminho de importação de quem já dependia dela — há um valor
+    // só, com um dono só.
+    expect(ler('src/modules/processos/utils/janela-do-robo.util.ts')).toContain(
+      'export const DIAS_ATO_RECENTE = 15;',
+    );
+    expect(PRAZOS).toMatch(/import \{ DIAS_ATO_RECENTE \} from '\.\/utils\/janela-do-robo\.util'/);
+    expect(PRAZOS).toContain('export { DIAS_ATO_RECENTE };');
     expect(CORRELACAO).toMatch(/import \{[^}]*DIAS_ATO_RECENTE[^}]*\} from '\.\/automacao-prazos\.service'/);
   });
 
@@ -345,9 +353,21 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
     expect(semComentarios(CORRELACAO)).not.toContain('setHours(9');
     expect(semComentarios(PRAZOS)).not.toContain('setHours(9');
     expect(semComentarios(PLANO)).not.toContain('setHours(9');
-    // O cálculo do horário mora no plano; `agora` entra por parâmetro, que é o
-    // que torna a regra testável sem depender do relógio de quem roda.
-    expect(PLANO).toContain('proximoHorarioUtilBR(atrasado ? agora : calculado)');
+    /*
+      O cálculo do horário mora no plano, e `agora` entra por PARÂMETRO — é o
+      que torna a regra testável sem depender do relógio de quem roda.
+
+      A linha exata não é mais fixada aqui. Ela era
+      `proximoHorarioUtilBR(atrasado ? agora : calculado)`, e essa grafia
+      carregava um defeito: `calculado` é um DIA (meia-noite UTC) e
+      `proximoHorarioUtilBR` lê INSTANTE, então as nove da manhã saíam na
+      véspera — toda tarefa do Diário nascia um dia antes do prazo que a
+      descrição anunciava. O que este teste garante é o que não pode voltar
+      (hora fixada à mão) e que a tradução dia→instante tem nome; o dia certo é
+      provado por comportamento em `dia-do-ato-e-dia-da-tarefa.spec.ts`.
+    */
+    expect(PLANO).toContain('agora: Date');
+    expect(PLANO).toContain('proximoHorarioUtilDoDiaDeCalendario(calculado, agora)');
     expect(PRAZOS).toContain('proximoHorarioUtilBR(');
   });
 
