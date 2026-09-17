@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  ArrayMaxSize, ArrayMinSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, Max, Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { DuplicidadeService } from './duplicidade.service';
 import { DuplicidadeAtivaGuard, duplicidadeAtiva } from './duplicidade.guard';
@@ -17,6 +19,16 @@ class ParFiliadosDto {
 class FundirDto {
   @IsString() manterId!: string;
   @IsString() descartarId!: string;
+}
+
+class FundirGrupoDto {
+  @IsString() manterId!: string;
+  /** Os outros cadastros do grupo — o teto acompanha o do serviço (10 no total). */
+  @IsArray() @ArrayNotEmpty() @ArrayMaxSize(9) @IsString({ each: true }) descartarIds!: string[];
+}
+
+class GrupoDto {
+  @IsArray() @ArrayMinSize(2) @ArrayMaxSize(10) @IsString({ each: true }) ids!: string[];
 }
 
 class LoteDto {
@@ -38,8 +50,9 @@ class LoteDto {
  * decisão, só que agora de quem o Administrador escolher.
  *
  * VISUALIZAR acompanha a fila. EDITAR decide tudo: "não é duplicado", devolver à
- * fila e CONSOLIDAR. Consolidar apaga, então as três rotas DELETE levam a marca
- * de exclusão delegada — sem ela a trava global as manteria só do Administrador.
+ * fila e CONSOLIDAR — um par, um grupo de três ou mais, ou o lote. Consolidar
+ * apaga, então as quatro rotas DELETE levam a marca de exclusão delegada; sem
+ * ela a trava global as manteria só do Administrador.
  *
  * `@ModuloTenant('duplicados')`, a mesma chave da permissão (o
  * `gate-por-modulo.spec.ts` exige): cada instalação liga a fila na própria lista
@@ -109,6 +122,18 @@ export class DuplicidadeController {
     return this.service.marcarDistintos(dto.idA, dto.idB, autor);
   }
 
+  /**
+   * Marca TODOS os pares do grupo como pessoas diferentes (17/09/2026).
+   *
+   * A decisão é gravada por par: em grupo de três, marcar só o primeiro par
+   * deixava os outros dois de pé e o grupo voltava na varredura seguinte.
+   */
+  @Post('distintos-grupo')
+  @UseGuards(DuplicidadeAtivaGuard)
+  distintosGrupo(@Body() dto: GrupoDto, @CurrentUser('nome') autor: string) {
+    return this.service.marcarGrupoDistinto(dto.ids, autor);
+  }
+
   /** Os pares marcados como pessoas diferentes, para rever o que saiu da fila. */
   @Get('descartados')
   @UseGuards(DuplicidadeAtivaGuard)
@@ -125,6 +150,17 @@ export class DuplicidadeController {
   @UseGuards(DuplicidadeAtivaGuard)
   voltarParaFila(@Param('id') id: string, @CurrentUser('nome') autor: string) {
     return this.service.voltarParaFila(id, autor);
+  }
+
+  /**
+   * Consolida um GRUPO inteiro no cadastro mantido — três ou mais. A checagem de
+   * CPF vem antes de qualquer exclusão; ver `DuplicidadeService.fundirGrupo`.
+   */
+  @Delete('fundir-grupo')
+  @ExclusaoDelegada()
+  @UseGuards(DuplicidadeAtivaGuard)
+  fundirGrupo(@Body() dto: FundirGrupoDto, @CurrentUser('nome') autor: string) {
+    return this.service.fundirGrupo(dto.manterId, dto.descartarIds, autor);
   }
 
   /**

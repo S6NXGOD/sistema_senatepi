@@ -19,8 +19,9 @@ import { podeEditar } from '@/lib/permissoes';
 import { cn, formatarData, mascararCpf } from '@/lib/utils';
 import {
   CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL,
-  fraseDoDescarte, fundirDuplicados, listarDescartados, listarDuplicados, marcarDistintos,
-  resumoDoCadastro, voltarParaFila,
+  avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados, listarDescartados,
+  listarDuplicados, marcarDistintos, marcarGrupoDistinto, resumoDoCadastro, rotuloDoConsolidar,
+  voltarParaFila,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
@@ -68,16 +69,21 @@ export default function DuplicadosPage() {
 
   async function confirmarFusao() {
     if (!fundindo) return;
-    const descartar = fundindo.grupo.candidatos.find((c) => c.id !== fundindo.manter.id);
-    if (!descartar) return;
+    const descartar = fundindo.grupo.candidatos.filter((c) => c.id !== fundindo.manter.id);
+    if (!descartar.length) return;
     setExecutando(true);
     try {
-      const r = await fundirDuplicados(fundindo.manter.id, descartar.id);
-      toast.success(
-        r.camposAbsorvidos?.length
-          ? `Consolidado. Aproveitados: ${r.camposAbsorvidos.join(', ')}.`
-          : 'Cadastros consolidados.',
-      );
+      /*
+        GRUPO DE TRÊS OU MAIS TAMBÉM CONSOLIDA (17/09/2026). Antes o botão nem
+        aparecia nesses grupos — eram 228 na produção, 724 cadastros parados. A
+        rota do grupo confere os CPFs antes de apagar e devolve o que não deu.
+      */
+      const r = descartar.length === 1
+        ? await fundirDuplicados(fundindo.manter.id, descartar[0].id)
+        : await fundirGrupoDuplicados(fundindo.manter.id, descartar.map((c) => c.id));
+      const aviso = avisoDaConsolidacao(r ?? {});
+      if (aviso.tom === 'ok') toast.success(aviso.texto);
+      else toast.warning(aviso.texto);
       setFundindo(null);
       qc.invalidateQueries({ queryKey: ['duplicados'] });
       qc.invalidateQueries({ queryKey: ['filiados'] });
@@ -88,16 +94,20 @@ export default function DuplicadosPage() {
     }
   }
 
-  /** Devolve à fila um par marcado como pessoas diferentes — pelo aviso ou pela lista. */
+  /**
+   * Devolve à fila o que foi marcado como pessoas diferentes — pelo aviso ou pela
+   * lista. Um grupo de três gera três decisões, e desfazer tem de trazer as três.
+   */
   const devolver = useCallback(
-    async (decisaoId: string) => {
+    async (decisao: string | string[]) => {
+      const ids = Array.isArray(decisao) ? decisao : [decisao];
       try {
-        await voltarParaFila(decisaoId);
-        toast.success('O par voltou para a fila.');
+        for (const id of ids) await voltarParaFila(id);
+        toast.success(ids.length > 1 ? 'O grupo voltou para a fila.' : 'O par voltou para a fila.');
         qc.invalidateQueries({ queryKey: ['duplicados'] });
         qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
       } catch (e: any) {
-        toast.error(e?.response?.data?.message ?? 'Não foi possível devolver o par à fila.');
+        toast.error(e?.response?.data?.message ?? 'Não foi possível devolver para a fila.');
       }
     },
     [qc],
@@ -105,18 +115,24 @@ export default function DuplicadosPage() {
 
   const naoDuplicado = useCallback(
     async (g: GrupoDuplicata) => {
-      const [a, b] = g.candidatos;
+      const ids = g.candidatos.map((c) => c.id);
       try {
-        const r = await marcarDistintos(a.id, b.id);
+        /*
+          NUM GRUPO DE TRÊS, MARCAR SÓ O PRIMEIRO PAR NÃO RESOLVIA (17/09/2026):
+          a decisão é gravada por par, e o grupo voltava na varredura seguinte.
+        */
+        const r = ids.length > 2 ? await marcarGrupoDistinto(ids) : await marcarDistintos(ids[0], ids[1]);
+        const decisoes = 'ids' in r ? r.ids : r?.id ? [r.id] : [];
         /*
           O DESCARTE TEM VOLTA (15/09/2026). O aviso dizia "não aparecerá de novo",
           e era verdade: MARIA DA CRUZ DE SOUSA (3520 × 3746) saiu assim da fila e
           ninguém mais a viu. Agora há "Desfazer" aqui e a lista no fim da página.
         */
-        const id = r?.id;
         toast.success(
-          'Saiu da fila como pessoas diferentes.',
-          id ? { duration: DURACAO_DO_DESFAZER_MS, action: { label: 'Desfazer', onClick: () => void devolver(id) } } : undefined,
+          ids.length > 2 ? `Os ${ids.length} saíram da fila como pessoas diferentes.` : 'Saiu da fila como pessoas diferentes.',
+          decisoes.length
+            ? { duration: DURACAO_DO_DESFAZER_MS, action: { label: 'Desfazer', onClick: () => void devolver(decisoes) } }
+            : undefined,
         );
         qc.invalidateQueries({ queryKey: ['duplicados'] });
         qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
@@ -153,7 +169,8 @@ export default function DuplicadosPage() {
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         setIndice((i) => Math.max(i - 1, 0));
-      } else if (podeDecidir && (e.key === '1' || e.key === '2')) {
+      // 1 a 9: em grupo de três ou mais, as duas primeiras teclas não bastavam (17/09/2026).
+      } else if (podeDecidir && /^[1-9]$/.test(e.key)) {
         const c = g.candidatos[Number(e.key) - 1];
         if (c) setEscolha((x) => ({ ...x, [g.chave]: c.id }));
       } else if (podeDecidir && e.key.toLowerCase() === 'n') {
@@ -162,7 +179,7 @@ export default function DuplicadosPage() {
       } else if (podeDecidir && e.key === 'Enter') {
         e.preventDefault();
         const manter = g.candidatos.find((c) => c.id === escolhidoDoAtual);
-        if (manter && g.candidatos.length === 2) setFundindo({ grupo: g, manter });
+        if (manter) setFundindo({ grupo: g, manter });
       }
     }
     window.addEventListener('keydown', aoTeclar);
@@ -288,7 +305,7 @@ export default function DuplicadosPage() {
               <>
                 <Atalho tecla="Enter" acao="consolidar" />
                 <Atalho tecla="N" acao="não é duplicado" />
-                <Atalho tecla="1 / 2" acao="escolher qual fica" />
+                <Atalho tecla="1…9" acao="escolher qual fica" />
               </>
             )}
             <Atalho tecla="→ ou Espaço" acao="pular" />
@@ -327,7 +344,7 @@ export default function DuplicadosPage() {
           fundindo ? (
             <ResumoFusao
               manter={fundindo.manter}
-              descartar={fundindo.grupo.candidatos.find((c) => c.id !== fundindo.manter.id)!}
+              descartar={fundindo.grupo.candidatos.filter((c) => c.id !== fundindo.manter.id)}
             />
           ) : null
         }
@@ -446,7 +463,8 @@ function GrupoCard({
   }, [grupo]);
 
   const escolhido = grupo.candidatos.find((c) => c.id === escolhidoId) ?? null;
-  const podeFundir = podeDecidir && grupo.candidatos.length === 2 && !!escolhido;
+  // Grupo de três ou mais também consolida (17/09/2026): mantém o escolhido, remove os outros.
+  const podeFundir = podeDecidir && grupo.candidatos.length >= 2 && !!escolhido;
 
   return (
     <Card>
@@ -505,13 +523,8 @@ function GrupoCard({
           )}
           {podeFundir && (
             <Button size="sm" onClick={() => onFundir(escolhido!)}>
-              <Merge className="h-4 w-4" /> Consolidar mantendo {escolhido!.matricula}
+              <Merge className="h-4 w-4" /> {rotuloDoConsolidar(grupo.candidatos.length, escolhido!.matricula)}
             </Button>
-          )}
-          {podeDecidir && grupo.candidatos.length > 2 && (
-            <p className="text-xs text-muted-foreground">
-              Grupo com {grupo.candidatos.length} cadastros — consolide dois de cada vez.
-            </p>
           )}
         </div>
       </CardContent>
@@ -575,19 +588,28 @@ function CandidatoCard({
   );
 }
 
-/** O que exatamente vai acontecer — antes de acontecer. */
-function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descartar: CandidatoDuplicata }) {
-  const absorvidos = CAMPOS_COMPARADOS.filter(({ chave }) => {
-    const meu = manter[chave as keyof CandidatoDuplicata];
-    const dele = descartar[chave as keyof CandidatoDuplicata];
-    return (meu === null || meu === undefined || meu === '') && dele !== null && dele !== undefined && dele !== '';
-  });
+/**
+ * O que exatamente vai acontecer — antes de acontecer. Serve para um cadastro
+ * removido ou para o grupo inteiro: cada campo vazio do mantido diz DE ONDE vai
+ * ser preenchido, e as matrículas removidas aparecem uma a uma.
+ */
+function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descartar: CandidatoDuplicata[] }) {
+  const valor = (c: CandidatoDuplicata, chave: string) => c[chave as keyof CandidatoDuplicata];
+  const temValor = (v: unknown) => v !== null && v !== undefined && v !== '';
+  const absorvidos = CAMPOS_COMPARADOS.map(({ chave, rotulo }) => {
+    if (temValor(valor(manter, chave))) return null;
+    const fonte = descartar.find((d) => temValor(valor(d, chave)));
+    return fonte ? { chave, rotulo, de: fonte } : null;
+  }).filter((x): x is NonNullable<typeof x> => x !== null);
+  const vinculos = descartar.reduce((n, d) => n + d.vinculos, 0);
+  const matriculas = descartar.map((d) => d.matricula);
+  const varios = descartar.length > 1;
 
   return (
     <div className="space-y-3 text-sm">
       <p>
-        Mantém <strong>{manter.matricula}</strong> e remove <strong>{descartar.matricula}</strong>{' '}
-        permanentemente.
+        Mantém <strong>{manter.matricula}</strong> e remove <strong>{matriculas.join(', ')}</strong>{' '}
+        permanentemente{varios ? ` — ${descartar.length} cadastros` : ''}.
       </p>
       {absorvidos.length > 0 ? (
         <div className="rounded-lg bg-muted/60 p-2.5">
@@ -595,26 +617,30 @@ function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descar
             Será copiado para o cadastro mantido
           </p>
           <ul className="space-y-0.5 text-xs">
-            {absorvidos.map(({ chave, rotulo }) => (
+            {absorvidos.map(({ chave, rotulo, de }) => (
               <li key={chave}>
-                {rotulo}: <strong>{formatarCampo(chave, descartar[chave as keyof CandidatoDuplicata])}</strong>
+                {rotulo}: <strong>{formatarCampo(chave, valor(de, chave))}</strong>
+                {varios && <span className="text-muted-foreground"> (de {de.matricula})</span>}
               </li>
             ))}
           </ul>
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          O cadastro removido não tem nenhum dado que o mantido já não tenha.
+          {varios ? 'Os cadastros removidos não têm' : 'O cadastro removido não tem'} nenhum dado que o mantido já não tenha.
         </p>
       )}
-      {descartar.vinculos > 0 && (
+      {vinculos > 0 && (
         <p className="text-xs">
-          {descartar.vinculos} local(is) de trabalho serão transferidos.
+          {vinculos} local(is) de trabalho serão transferidos.
         </p>
       )}
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
         <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        A matrícula {descartar.matricula} ficará registrada no histórico do cadastro mantido.
+        {varios
+          ? `As matrículas ${matriculas.join(', ')} ficarão registradas`
+          : `A matrícula ${matriculas[0]} ficará registrada`}{' '}
+        no histórico do cadastro mantido.
       </p>
     </div>
   );

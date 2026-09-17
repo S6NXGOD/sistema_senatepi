@@ -189,17 +189,17 @@ describe('a matriz é a única política de módulo', () => {
 
   /**
    * CADA ROTA COM EXCLUSÃO DELEGADA É UMA PORTA DE APAGAR QUE NÃO PASSA PELO
-   * PERFIL (15/09/2026). São as três da fila de duplicados — consolidar, o lote
-   * e devolver um par à fila — e nenhuma outra.
+   * PERFIL (15/09/2026). São as da fila de duplicados — consolidar um par, um
+   * grupo (17/09) e o lote, mais devolver um par à fila — e nenhuma outra.
    */
-  it('as exclusões delegadas são três, todas na fila de duplicados', () => {
+  it('as exclusões delegadas são quatro, todas na fila de duplicados', () => {
     const comMarca = ARQUIVOS.filter((a) => a.src.includes('@ExclusaoDelegada()')).map((a) => a.nome);
     expect(comMarca).toEqual(['duplicidade.controller.ts']);
     const total = ARQUIVOS.reduce(
       (n, a) => n + (a.src.match(/@ExclusaoDelegada\(\)/g)?.length ?? 0),
       0,
     );
-    expect(total).toBe(3);
+    expect(total).toBe(4);
   });
 });
 

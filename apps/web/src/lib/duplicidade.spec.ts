@@ -1,4 +1,31 @@
-import { fraseDoDescarte, resumoDoCadastro } from './duplicidade';
+import { avisoDaConsolidacao, fraseDoDescarte, resumoDoCadastro, rotuloDoConsolidar } from './duplicidade';
+
+/**
+ * "E QUANDO É 3 OU 4 DUPLICADOS? NEM O BOTÃO É MOSTRADO." — 17/09/2026.
+ * O botão passou a aparecer, e precisa dizer quantos vai remover.
+ */
+describe('consolidar um grupo de três ou mais', () => {
+  it('o botão diz quantos entram quando não é um par', () => {
+    expect(rotuloDoConsolidar(2, '6223')).toBe('Consolidar mantendo 6223');
+    expect(rotuloDoConsolidar(3, '008005')).toBe('Consolidar 3 mantendo 008005');
+    expect(rotuloDoConsolidar(7, '008005')).toBe('Consolidar 7 mantendo 008005');
+  });
+
+  it('o aviso conta quantos foram e o que aproveitou', () => {
+    expect(avisoDaConsolidacao({ fundidos: 2, camposAbsorvidos: ['telefone', 'e-mail'] })).toEqual({
+      tom: 'ok', texto: '2 cadastros consolidados. Aproveitados: telefone, e-mail.',
+    });
+    expect(avisoDaConsolidacao({ camposAbsorvidos: [] }).texto).toBe('Cadastros consolidados.');
+  });
+
+  /** Meia consolidação não pode virar "pronto": a pessoa tem de saber qual ficou. */
+  it('quando um cadastro fica de fora, o aviso nomeia a matrícula e o motivo', () => {
+    const r = avisoDaConsolidacao({ ok: false, fundidos: 2, falhas: [{ matricula: '7777', motivo: 'Filiado a descartar não encontrado.' }] });
+    expect(r.tom).toBe('aviso');
+    expect(r.texto).toContain('7777');
+    expect(r.texto).toContain('Filiado a descartar não encontrado.');
+  });
+});
 import { moduloDaRota } from '@/components/nav-items';
 
 /**

@@ -130,6 +130,50 @@ export async function fundirDuplicados(manterId: string, descartarId: string) {
     .data;
 }
 
+export interface ResultadoDaConsolidacao {
+  ok?: boolean;
+  fundidos?: number;
+  camposAbsorvidos?: string[];
+  vinculosTransferidos?: number;
+  falhas?: { matricula: string; motivo: string }[];
+}
+
+/** Grupo de três ou mais: o servidor confere os CPFs antes de apagar qualquer coisa. */
+export async function fundirGrupoDuplicados(
+  manterId: string,
+  descartarIds: string[],
+): Promise<ResultadoDaConsolidacao> {
+  return (await api.delete('/filiados/duplicidade/fundir-grupo', { data: { manterId, descartarIds } })).data;
+}
+
+/** Marca TODOS os pares do grupo — senão o grupo volta na varredura seguinte. */
+export async function marcarGrupoDistinto(ids: string[]): Promise<{ ok: boolean; ids: string[] }> {
+  return (await api.post('/filiados/duplicidade/distintos-grupo', { ids })).data;
+}
+
+/** "Consolidar mantendo 6223" no par; "Consolidar 3 mantendo 008005" no grupo maior. */
+export function rotuloDoConsolidar(quantos: number, matricula: string): string {
+  return quantos > 2 ? `Consolidar ${quantos} mantendo ${matricula}` : `Consolidar mantendo ${matricula}`;
+}
+
+/**
+ * O aviso depois de consolidar. O grupo pode dar certo em parte, e nesse caso a
+ * pessoa precisa saber QUAL cadastro ficou de fora — "consolidado" seco mentiria.
+ */
+export function avisoDaConsolidacao(r: ResultadoDaConsolidacao): { tom: 'ok' | 'aviso'; texto: string } {
+  const aproveitados = r.camposAbsorvidos?.length ? ` Aproveitados: ${r.camposAbsorvidos.join(', ')}.` : '';
+  if (r.falhas?.length) {
+    return {
+      tom: 'aviso',
+      texto:
+        `${r.fundidos ?? 0} consolidado(s). Ficou de fora: ${r.falhas.map((f) => f.matricula).join(', ')} — ` +
+        `${r.falhas[0].motivo}`,
+    };
+  }
+  const quantos = r.fundidos ?? 1;
+  return { tom: 'ok', texto: (quantos > 1 ? `${quantos} cadastros consolidados.` : 'Cadastros consolidados.') + aproveitados };
+}
+
 export interface ItemLote {
   manterId: string;
   descartarId: string;

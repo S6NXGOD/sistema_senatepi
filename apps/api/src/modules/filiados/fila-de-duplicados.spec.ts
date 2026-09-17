@@ -94,7 +94,7 @@ describe('quem entra na fila de duplicados', () => {
     expect(decoradores).toContain("@Modulo('duplicados')");
     expect(decoradores).toContain("@ModuloTenant('duplicados')");
     expect(CTRL.match(/@OperacaoDeSistema\(\)/g)).toBeNull();
-    expect(CTRL.match(/@ExclusaoDelegada\(\)/g)).toHaveLength(3);
+    expect(CTRL.match(/@ExclusaoDelegada\(\)/g)).toHaveLength(4);
   });
 });
 
@@ -181,5 +181,124 @@ describe('o descarte tem volta', () => {
   it('marcar devolve o id da decisão, para o "Desfazer" do aviso', async () => {
     const { svc } = montar([], [maria3520, maria3746]);
     await expect(svc.marcarDistintos('f-3746', 'f-3520', 'João Pedro')).resolves.toEqual({ ok: true, id: 'dec-nova' });
+  });
+});
+
+/**
+ * "E QUANDO É 3 OU 4 DUPLICADOS? COMO FAZ? NEM O BOTÃO É MOSTRADO." — 17/09/2026.
+ *
+ * Era beco sem saída: a tela escondia "Consolidar" em grupo de 3+ e ainda dizia
+ * "consolide dois de cada vez", sem que houvesse como. Na produção: 228 grupos
+ * (198 de três, 23 de quatro, um de sete) e 724 cadastros parados ali.
+ */
+describe('grupo de três ou mais', () => {
+  type Registro = { id: string; cpf: string | null; nomeCompleto: string; matricula: string };
+
+  function montarGrupo(registros: Registro[]) {
+    /** Cada par gravado, na ordem — é o que prova que o grupo inteiro foi julgado. */
+    const pares: string[] = [];
+    const prisma = {
+      filiado: {
+        findMany: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+          registros.filter((r) => where.id.in.includes(r.id))),
+        count: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+          registros.filter((r) => where.id.in.includes(r.id)).length),
+      },
+      duplicataDecisao: {
+        upsert: jest.fn(async ({ where }: { where: { filiadoIdA_filiadoIdB: { filiadoIdA: string; filiadoIdB: string } } }) => {
+          const { filiadoIdA, filiadoIdB } = where.filiadoIdA_filiadoIdB;
+          pares.push(`${filiadoIdA}|${filiadoIdB}`);
+          return { id: `dec-${pares.length}` };
+        }),
+      },
+    };
+    const svc = new DuplicidadeService(prisma as never, { registrar: jest.fn() } as never);
+    const fundidos: string[] = [];
+    // A fusão de dois já é testada à parte; aqui o que importa é a ORDEM e o que o grupo faz com a falha.
+    (svc as unknown as { fundir: (m: string, d: string) => Promise<unknown> }).fundir = jest.fn(async (_m, d) => {
+      if (d === 'f-erro') throw new Error('Filiado a descartar não encontrado.');
+      fundidos.push(d);
+      return { ok: true, camposAbsorvidos: d === 'f-4045' ? ['telefone'] : [], vinculosTransferidos: 1 };
+    });
+    return { svc, fundidos, pares };
+  }
+
+  const alvaro: Registro[] = [
+    { id: 'f-008005', cpf: '02678885380', nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '008005' },
+    { id: 'f-4045', cpf: null, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '4045' },
+    { id: 'f-4829', cpf: null, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '4829' },
+  ];
+
+  it('consolida os dois vazios no que tem CPF, somando o que foi aproveitado', async () => {
+    const { svc, fundidos } = montarGrupo(alvaro);
+    await expect(svc.fundirGrupo('f-008005', ['f-4045', 'f-4829'], 'Ana Bianca')).resolves.toEqual({
+      ok: true, fundidos: 2, camposAbsorvidos: ['telefone'], vinculosTransferidos: 2, falhas: [],
+    });
+    expect(fundidos).toEqual(['f-4045', 'f-4829']);
+  });
+
+  it('CPF diferente barra o grupo INTEIRO antes de apagar qualquer coisa', async () => {
+    const outroCpf = [...alvaro, { id: 'f-9999', cpf: '11122233344', nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '9999' }];
+    const { svc, fundidos } = montarGrupo(outroCpf);
+    await expect(svc.fundirGrupo('f-008005', ['f-4045', 'f-9999'])).rejects.toThrow(/9999/);
+    expect(fundidos).toEqual([]);
+  });
+
+  it('cadastro que sumiu entre a tela e o clique não funde nada pela metade', async () => {
+    const { svc, fundidos } = montarGrupo(alvaro);
+    await expect(svc.fundirGrupo('f-008005', ['f-4045', 'f-sumiu'])).rejects.toThrow(/não existe mais/);
+    expect(fundidos).toEqual([]);
+  });
+
+  it('uma falha no meio não derruba as outras: volta na resposta', async () => {
+    const comErro = [...alvaro, { id: 'f-erro', cpf: null, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '7777' }];
+    const { svc, fundidos } = montarGrupo(comErro);
+    const r = await svc.fundirGrupo('f-008005', ['f-4045', 'f-erro', 'f-4829']);
+    expect(r.fundidos).toBe(2);
+    expect(r.ok).toBe(false);
+    expect(r.falhas).toEqual([{ matricula: '7777', motivo: 'Filiado a descartar não encontrado.' }]);
+    expect(fundidos).toEqual(['f-4045', 'f-4829']);
+  });
+
+  it('o mantido na lista de descartados é ignorado, e sem ninguém para remover recusa', async () => {
+    const { svc, fundidos } = montarGrupo(alvaro);
+    const r = await svc.fundirGrupo('f-008005', ['f-008005', 'f-4045', 'f-4045']);
+    expect(r.fundidos).toBe(1);
+    expect(fundidos).toEqual(['f-4045']);
+    await expect(svc.fundirGrupo('f-008005', ['f-008005'])).rejects.toThrow(/ao menos um/);
+  });
+
+  it('"não é duplicado" num grupo de três marca os TRÊS pares — senão o grupo volta', async () => {
+    const { svc, pares } = montarGrupo(alvaro);
+    const r = await svc.marcarGrupoDistinto(['f-008005', 'f-4045', 'f-4829'], 'Ivo Ramos');
+    expect(r.ids).toHaveLength(3);
+    expect(new Set(pares).size).toBe(3);
+    // Sempre A < B: o mesmo par nunca é gravado duas vezes em ordens diferentes.
+    for (const p of pares) {
+      const [a, b] = p.split('|');
+      expect(a < b).toBe(true);
+    }
+  });
+
+  it('quatro cadastros dão seis pares, e menos de dois é recusado', async () => {
+    const quatro = [...alvaro, { id: 'f-1234', cpf: null, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '1234' }];
+    const { svc } = montarGrupo(quatro);
+    expect((await svc.marcarGrupoDistinto(quatro.map((r) => r.id))).ids).toHaveLength(6);
+    await expect(svc.marcarGrupoDistinto(['f-4045'])).rejects.toThrow(/dois cadastros/);
+  });
+
+  it('o lote também aproveita o grupo de três em que só um cadastro tem dado', async () => {
+    const { svc } = montarGrupo(alvaro);
+    const cand = (id: string, matricula: string, pontuacao: number) => ({ id, matricula, pontuacao, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO' });
+    (svc as unknown as { varrer: () => Promise<unknown[]> }).varrer = async () => [
+      { contradicoes: [], candidatos: [cand('f-008005', '008005', 7), cand('f-4045', '4045', 0), cand('f-4829', '4829', 0)] },
+      // Dois com dado: o lote não escolhe por ninguém.
+      { contradicoes: [], candidatos: [cand('f-a', 'a', 3), cand('f-b', 'b', 2)] },
+      // Com contradição, nunca.
+      { contradicoes: ['CPF'], candidatos: [cand('f-c', 'c', 3), cand('f-d', 'd', 0)] },
+    ];
+    const itens = await svc.elegiveisParaLote();
+    expect(itens.map((i) => i.descartarMatricula)).toEqual(['4045', '4829']);
+    expect(itens.every((i) => i.manterMatricula === '008005')).toBe(true);
   });
 });

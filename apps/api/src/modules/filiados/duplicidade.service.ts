@@ -87,6 +87,12 @@ export interface ParDescartado {
  * recuperável e conferível, um com telefone não. Os demais valem 1 — são
  * dados úteis, não âncoras de identidade.
  */
+/**
+ * Teto de cadastros numa decisão de grupo. O maior grupo da produção tem sete
+ * (17/09/2026); dez dá folga sem deixar uma chamada fundir meia base por engano.
+ */
+const MAXIMO_POR_GRUPO = 10;
+
 const PESOS = {
   cpf: 3,
   numeroCoren: 3,
@@ -513,21 +519,28 @@ export class DuplicidadeService {
    */
   async elegiveisParaLote(): Promise<{ manterId: string; descartarId: string; nome: string; manterMatricula: string; descartarMatricula: string }[]> {
     const grupos = await this.varrer();
+    /*
+      GRUPO DE TRÊS TAMBÉM ENTRA NO LOTE (17/09/2026), desde que só UM cadastro
+      tenha dado e os outros sejam casca (nome e matrícula). É o caso comum na
+      produção — ÁLVARO ROGÉRIO VILARINHO tinha 008005 com CPF, vínculo e
+      endereço, e 4045 e 4829 vazios. A promessa do lote continua a mesma: só
+      remove quem não tem nada a copiar.
+    */
     return grupos
-      .filter((g) => g.candidatos.length === 2 && g.contradicoes.length === 0)
-      .map((g) => {
-        const cheio = g.candidatos.find((c) => c.pontuacao > 0);
-        const vazio = g.candidatos.find((c) => c.pontuacao === 0);
-        if (!cheio || !vazio) return null;
-        return {
+      .filter((g) => g.contradicoes.length === 0)
+      .flatMap((g) => {
+        const cheios = g.candidatos.filter((c) => c.pontuacao > 0);
+        const vazios = g.candidatos.filter((c) => c.pontuacao === 0);
+        if (cheios.length !== 1 || !vazios.length) return [];
+        const cheio = cheios[0];
+        return vazios.map((vazio) => ({
           manterId: cheio.id,
           descartarId: vazio.id,
           nome: cheio.nomeCompleto,
           manterMatricula: cheio.matricula,
           descartarMatricula: vazio.matricula,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+        }));
+      });
   }
 
   /**
@@ -583,6 +596,34 @@ export class DuplicidadeService {
       update: { decisao: DecisaoDuplicata.DISTINTOS, autor },
     });
     return { ok: true, id: decisao.id };
+  }
+
+  /**
+   * O GRUPO INTEIRO É DE PESSOAS DIFERENTES (17/09/2026).
+   *
+   * A decisão é gravada por PAR. Com três cadastros, marcar só o primeiro par
+   * deixava os outros dois de pé e o grupo voltava na varredura seguinte — a
+   * pessoa decidia e via o mesmo grupo de novo. Aqui todos os pares são
+   * marcados: 3 cadastros = 3 pares, 4 = 6.
+   */
+  async marcarGrupoDistinto(ids: string[], autor?: string) {
+    const unicos = [...new Set(ids)];
+    if (unicos.length < 2) {
+      throw new BadRequestException('Informe ao menos dois cadastros.');
+    }
+    if (unicos.length > MAXIMO_POR_GRUPO) {
+      throw new BadRequestException(`São no máximo ${MAXIMO_POR_GRUPO} cadastros por vez.`);
+    }
+    await this.exigirExistencia(unicos);
+
+    const criadas: string[] = [];
+    for (let i = 0; i < unicos.length; i++) {
+      for (let j = i + 1; j < unicos.length; j++) {
+        const { id } = await this.marcarDistintos(unicos[i], unicos[j], autor);
+        criadas.push(id);
+      }
+    }
+    return { ok: true, ids: criadas };
   }
 
   /**
@@ -811,6 +852,67 @@ export class DuplicidadeService {
 
       return { ok: true, camposAbsorvidos, vinculosTransferidos: descartar.vinculos.length };
     });
+  }
+
+  /**
+   * CONSOLIDAR UM GRUPO DE TRÊS OU MAIS (17/09/2026).
+   *
+   * A tela só oferecia o botão em grupo de dois e ainda dizia "consolide dois de
+   * cada vez" — sem que houvesse como fazer isso. Eram 228 grupos parados na
+   * produção (198 de três, 23 de quatro, um de sete), 724 cadastros presos.
+   *
+   * Cada fusão continua sendo uma transação de duas pontas, em sequência. A
+   * CHECAGEM DE CPF VEM ANTES DE TUDO: se um cadastro do grupo tem CPF
+   * diferente do mantido, nada é apagado e a mensagem diz qual é — descobrir
+   * isso no meio deixaria metade do grupo fundido. Uma falha isolada depois
+   * disso não derruba as outras; ela volta na resposta, como no lote.
+   */
+  async fundirGrupo(manterId: string, descartarIds: string[], autor?: string) {
+    const ids = [...new Set(descartarIds)].filter((id) => id !== manterId);
+    if (!ids.length) throw new BadRequestException('Escolha ao menos um cadastro para remover.');
+    if (ids.length + 1 > MAXIMO_POR_GRUPO) {
+      throw new BadRequestException(`São no máximo ${MAXIMO_POR_GRUPO} cadastros por vez.`);
+    }
+
+    const registros = await this.prisma.filiado.findMany({
+      where: { id: { in: [manterId, ...ids] } },
+      select: { id: true, cpf: true, nomeCompleto: true, matricula: true },
+    });
+    const manter = registros.find((r) => r.id === manterId);
+    if (!manter) throw new NotFoundException('Filiado a manter não encontrado.');
+    if (registros.length !== ids.length + 1) {
+      throw new NotFoundException('Algum cadastro do grupo não existe mais. Recarregue a fila.');
+    }
+    const comCpfDiferente = registros.filter(
+      (r) => r.id !== manterId && r.cpf && manter.cpf && r.cpf !== manter.cpf,
+    );
+    if (comCpfDiferente.length) {
+      throw new BadRequestException(
+        `CPF diferente do cadastro mantido em ${comCpfDiferente.map((r) => r.matricula).join(', ')} — ` +
+          'são pessoas distintas. Consolide apenas os cadastros que batem.',
+      );
+    }
+
+    const camposAbsorvidos = new Set<string>();
+    let vinculosTransferidos = 0;
+    let fundidos = 0;
+    const falhas: { matricula: string; motivo: string }[] = [];
+
+    for (const id of ids) {
+      try {
+        const r = await this.fundir(manterId, id, autor);
+        r.camposAbsorvidos.forEach((c) => camposAbsorvidos.add(c));
+        vinculosTransferidos += r.vinculosTransferidos;
+        fundidos++;
+      } catch (e) {
+        falhas.push({
+          matricula: registros.find((r) => r.id === id)?.matricula ?? id,
+          motivo: e instanceof Error ? e.message : 'erro desconhecido',
+        });
+      }
+    }
+
+    return { ok: falhas.length === 0, fundidos, camposAbsorvidos: [...camposAbsorvidos], vinculosTransferidos, falhas };
   }
 
   // =========================================================================
