@@ -151,6 +151,66 @@ export async function marcarGrupoDistinto(ids: string[]): Promise<{ ok: boolean;
   return (await api.post('/filiados/duplicidade/distintos-grupo', { ids })).data;
 }
 
+/** Tira UM do grupo: distinto de cada um dos outros, sem julgar os que ficam. */
+export async function marcarForaDoGrupo(id: string, outros: string[]): Promise<{ ok: boolean; ids: string[] }> {
+  return (await api.post('/filiados/duplicidade/fora-do-grupo', { id, outros })).data;
+}
+
+export interface DescarteAgrupado {
+  chave: string;
+  autor: string | null;
+  decididoEm: string;
+  cadastros: CadastroDescartado[];
+  /** As decisões (pares) que essa linha representa — o desfazer devolve todas. */
+  ids: string[];
+}
+
+/**
+ * JUNTA O QUE FOI DECIDIDO DE UMA VEZ (17/09/2026).
+ *
+ * A decisão é gravada por PAR: marcar um grupo de três grava três pares, e tirar
+ * um cadastro de um grupo de cinco grava quatro. A lista mostrava uma linha para
+ * cada par, repetindo os mesmos nomes. Aqui os pares que se tocam viram uma
+ * linha só — e "Voltar para a fila" desfaz o conjunto, não um pedaço dele.
+ */
+export function agruparDescartes(pares: ParDescartado[]): DescarteAgrupado[] {
+  const pai = new Map<string, string>();
+  const raiz = (x: string): string => {
+    const p = pai.get(x);
+    if (!p || p === x) { pai.set(x, x); return x; }
+    const r = raiz(p);
+    pai.set(x, r);
+    return r;
+  };
+  const unir = (a: string, b: string) => {
+    const ra = raiz(a);
+    const rb = raiz(b);
+    if (ra !== rb) pai.set(ra, rb);
+  };
+  for (const p of pares) {
+    const [a, b] = p.cadastros;
+    if (a && b) unir(a.id, b.id);
+  }
+
+  const mapa = new Map<string, DescarteAgrupado>();
+  for (const p of pares) {
+    const primeiro = p.cadastros[0];
+    const chave = primeiro ? raiz(primeiro.id) : p.id;
+    const atual = mapa.get(chave);
+    if (!atual) {
+      mapa.set(chave, { chave, autor: p.autor, decididoEm: p.decididoEm, cadastros: [...p.cadastros], ids: [p.id] });
+      continue;
+    }
+    atual.ids.push(p.id);
+    for (const c of p.cadastros) {
+      if (!atual.cadastros.some((x) => x.id === c.id)) atual.cadastros.push(c);
+    }
+    // Fica a decisão mais recente do conjunto — é o que a pessoa lembra de ter feito.
+    if (p.decididoEm > atual.decididoEm) { atual.decididoEm = p.decididoEm; atual.autor = p.autor; }
+  }
+  return [...mapa.values()];
+}
+
 /** "Consolidar mantendo 6223" no par; "Consolidar 3 mantendo 008005" no grupo maior. */
 export function rotuloDoConsolidar(quantos: number, matricula: string): string {
   return quantos > 2 ? `Consolidar ${quantos} mantendo ${matricula}` : `Consolidar mantendo ${matricula}`;

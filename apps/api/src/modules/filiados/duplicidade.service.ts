@@ -627,6 +627,35 @@ export class DuplicidadeService {
   }
 
   /**
+   * UM CADASTRO SAI DO GRUPO (17/09/2026).
+   *
+   * Pergunta do dono: "num grupo de cinco, e se um deles eu não concordo que é
+   * duplicata?". Era tudo ou nada — consolidar todos ou dizer que os cinco são
+   * pessoas diferentes. Aqui sai UM: ele fica gravado como distinto de CADA um
+   * dos outros e some do grupo na próxima varredura.
+   *
+   * Os que ficam NÃO são julgados entre si, de propósito: sobre eles ninguém
+   * disse nada ainda, e a fila tem de continuar perguntando.
+   */
+  async marcarForaDoGrupo(id: string, outros: string[], autor?: string) {
+    const restantes = [...new Set(outros)].filter((o) => o !== id);
+    if (!restantes.length) {
+      throw new BadRequestException('Informe os outros cadastros do grupo.');
+    }
+    if (restantes.length + 1 > MAXIMO_POR_GRUPO) {
+      throw new BadRequestException(`São no máximo ${MAXIMO_POR_GRUPO} cadastros por vez.`);
+    }
+    await this.exigirExistencia([id, ...restantes]);
+
+    const ids: string[] = [];
+    for (const outro of restantes) {
+      const { id: decisao } = await this.marcarDistintos(id, outro, autor);
+      ids.push(decisao);
+    }
+    return { ok: true, ids };
+  }
+
+  /**
    * O QUE SAIU DA FILA COMO "PESSOAS DIFERENTES" (15/09/2026).
    *
    * Até aqui o descarte não tinha volta nem lista: na produção, ALESSANDRA DE

@@ -31,6 +31,12 @@ class GrupoDto {
   @IsArray() @ArrayMinSize(2) @ArrayMaxSize(10) @IsString({ each: true }) ids!: string[];
 }
 
+class ForaDoGrupoDto {
+  @IsString() id!: string;
+  /** Os outros do grupo — o que sai é gravado como distinto de cada um deles. */
+  @IsArray() @ArrayNotEmpty() @ArrayMaxSize(9) @IsString({ each: true }) outros!: string[];
+}
+
 class LoteDto {
   /** Teto de 100 por chamada — ver `executarLote`, sobre fatiar. */
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limite?: number;
@@ -132,6 +138,16 @@ export class DuplicidadeController {
   @UseGuards(DuplicidadeAtivaGuard)
   distintosGrupo(@Body() dto: GrupoDto, @CurrentUser('nome') autor: string) {
     return this.service.marcarGrupoDistinto(dto.ids, autor);
+  }
+
+  /**
+   * Tira UM cadastro do grupo (17/09/2026): ele é gravado como pessoa diferente
+   * de cada um dos outros, e o resto do grupo continua na fila.
+   */
+  @Post('fora-do-grupo')
+  @UseGuards(DuplicidadeAtivaGuard)
+  foraDoGrupo(@Body() dto: ForaDoGrupoDto, @CurrentUser('nome') autor: string) {
+    return this.service.marcarForaDoGrupo(dto.id, dto.outros, autor);
   }
 
   /** Os pares marcados como pessoas diferentes, para rever o que saiu da fila. */

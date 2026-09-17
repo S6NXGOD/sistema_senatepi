@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle,
-  Keyboard, List, Merge, Undo2, Users, X,
+  Keyboard, List, Merge, Undo2, UserMinus, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,9 +19,9 @@ import { podeEditar } from '@/lib/permissoes';
 import { cn, formatarData, mascararCpf } from '@/lib/utils';
 import {
   CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL,
-  avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados, listarDescartados,
-  listarDuplicados, marcarDistintos, marcarGrupoDistinto, resumoDoCadastro, rotuloDoConsolidar,
-  voltarParaFila,
+  agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
+  listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
+  resumoDoCadastro, rotuloDoConsolidar, voltarParaFila,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
@@ -111,6 +111,30 @@ export default function DuplicadosPage() {
       }
     },
     [qc],
+  );
+
+  /**
+   * TIRA UM CADASTRO DO GRUPO (17/09/2026).
+   *
+   * "Num grupo de cinco, e se um deles eu não concordo que é duplicata?" Antes
+   * era tudo ou nada. Aqui ele sai como pessoa diferente dos outros, e o resto
+   * do grupo continua na fila para decidir.
+   */
+  const foraDoGrupo = useCallback(
+    async (g: GrupoDuplicata, c: CandidatoDuplicata) => {
+      const outros = g.candidatos.filter((x) => x.id !== c.id).map((x) => x.id);
+      try {
+        const r = await marcarForaDoGrupo(c.id, outros);
+        toast.success(`${c.matricula} saiu do grupo — não é a mesma pessoa.`, r.ids?.length
+          ? { duration: DURACAO_DO_DESFAZER_MS, action: { label: 'Desfazer', onClick: () => void devolver(r.ids) } }
+          : undefined);
+        qc.invalidateQueries({ queryKey: ['duplicados'] });
+        qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'Não foi possível tirar do grupo.');
+      }
+    },
+    [qc, devolver],
   );
 
   const naoDuplicado = useCallback(
@@ -297,6 +321,7 @@ export default function DuplicadosPage() {
             onEscolher={(id) => setEscolha((e) => ({ ...e, [atual.chave]: id }))}
             onFundir={(manter) => setFundindo({ grupo: atual, manter })}
             onNaoDuplicado={() => naoDuplicado(atual)}
+            onForaDoGrupo={(c) => foraDoGrupo(atual, c)}
           />
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
@@ -325,6 +350,7 @@ export default function DuplicadosPage() {
               onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
               onFundir={(manter) => setFundindo({ grupo: g, manter })}
               onNaoDuplicado={() => naoDuplicado(g)}
+              onForaDoGrupo={(c) => foraDoGrupo(g, c)}
             />
           ))}
         </div>
@@ -357,7 +383,7 @@ export default function DuplicadosPage() {
 function MarcadosComoDiferentes({
   onDevolver, podeDecidir,
 }: {
-  onDevolver: (decisaoId: string) => Promise<void>;
+  onDevolver: (decisao: string | string[]) => Promise<void>;
   podeDecidir: boolean;
 }) {
   const { data } = useQuery({
@@ -368,8 +394,14 @@ function MarcadosComoDiferentes({
   });
   const [aberto, setAberto] = useState(false);
   const [devolvendo, setDevolvendo] = useState<string | null>(null);
+  /*
+    UMA LINHA POR DECISÃO, não por par (17/09/2026). Marcar um grupo de três
+    grava três pares e tirar um de um grupo de cinco grava quatro — a lista
+    repetia os mesmos nomes em linhas seguidas.
+  */
+  const itens = useMemo(() => agruparDescartes(data ?? []), [data]);
 
-  if (!data?.length) return null;
+  if (!itens.length) return null;
 
   return (
     <section className="rounded-xl border bg-card">
@@ -381,7 +413,7 @@ function MarcadosComoDiferentes({
       >
         <span className="min-w-0">
           <span className="text-sm font-medium">Marcados como pessoas diferentes</span>
-          <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{data.length}</span>
+          <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{itens.length}</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
             {podeDecidir
               ? 'Saíram da fila. Se algum foi engano, devolva para revisar de novo.'
@@ -392,27 +424,30 @@ function MarcadosComoDiferentes({
       </button>
       {aberto && (
         <ul className="divide-y border-t">
-          {data.map((p) => (
-            <li key={p.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          {itens.map((item) => (
+            <li key={item.chave} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-1">
-                {p.cadastros.map((c) => (
+                {item.cadastros.map((c) => (
                   <p key={c.id} className="text-sm">
                     <span className="font-mono text-xs text-muted-foreground">{c.matricula}</span>{' '}
                     <span className="font-medium">{c.nomeCompleto}</span>
                     <span className="block text-xs text-muted-foreground sm:ml-2 sm:inline">{resumoDoCadastro(c)}</span>
                   </p>
                 ))}
-                <p className="text-xs text-muted-foreground">{fraseDoDescarte(p)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {fraseDoDescarte(item)}
+                  {item.cadastros.length > 2 && ` · ${item.cadastros.length} cadastros`}
+                </p>
               </div>
               {podeDecidir && (
                 <Button
                   variant="outline"
                   size="sm"
                   className="min-h-11 shrink-0 sm:min-h-9"
-                  disabled={devolvendo === p.id}
+                  disabled={devolvendo === item.chave}
                   onClick={async () => {
-                    setDevolvendo(p.id);
-                    await onDevolver(p.id);
+                    setDevolvendo(item.chave);
+                    await onDevolver(item.ids);
                     setDevolvendo(null);
                   }}
                 >
@@ -437,10 +472,11 @@ function Atalho({ tecla, acao }: { tecla: string; acao: string }) {
 }
 
 function GrupoCard({
-  grupo, podeDecidir, escolhidoId, onEscolher, onFundir, onNaoDuplicado,
+  grupo, podeDecidir, escolhidoId, onEscolher, onFundir, onNaoDuplicado, onForaDoGrupo,
 }: {
   grupo: GrupoDuplicata;
   podeDecidir: boolean;
+  onForaDoGrupo: (c: CandidatoDuplicata) => void;
   escolhidoId: string | null;
   onEscolher: (id: string) => void;
   onFundir: (manter: CandidatoDuplicata) => void;
@@ -505,13 +541,29 @@ function GrupoCard({
 
         <div className="grid gap-3 md:grid-cols-2">
           {grupo.candidatos.map((c) => (
-            <CandidatoCard
-              key={c.id}
-              c={c}
-              escolhido={c.id === escolhidoId}
-              divergentes={divergentes}
-              onEscolher={() => onEscolher(c.id)}
-            />
+            <div key={c.id} className="space-y-1">
+              <CandidatoCard
+                c={c}
+                escolhido={c.id === escolhidoId}
+                divergentes={divergentes}
+                onEscolher={() => onEscolher(c.id)}
+              />
+              {/*
+                A SAÍDA DE UM SÓ (17/09/2026). Fora do cartão de propósito: o
+                cartão inteiro já é o botão de "manter este", e botão dentro de
+                botão não existe em HTML. Só aparece em grupo de três ou mais —
+                em grupo de dois, tirar um é o "Não é duplicado" de sempre.
+              */}
+              {podeDecidir && grupo.candidatos.length > 2 && (
+                <button
+                  type="button"
+                  onClick={() => onForaDoGrupo(c)}
+                  className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <UserMinus className="h-3.5 w-3.5" aria-hidden="true" /> Não é a mesma pessoa
+                </button>
+              )}
+            </div>
           ))}
         </div>
 

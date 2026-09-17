@@ -287,6 +287,31 @@ describe('grupo de três ou mais', () => {
     await expect(svc.marcarGrupoDistinto(['f-4045'])).rejects.toThrow(/dois cadastros/);
   });
 
+  /**
+   * "NUM GRUPO DE CINCO, E SE UM DELES EU NÃO CONCORDO QUE É DUPLICATA?" —
+   * 17/09/2026. Tirar um não pode julgar os que ficam.
+   */
+  it('tirar um do grupo o marca contra CADA um dos outros, e só isso', async () => {
+    const cinco = [
+      ...alvaro,
+      { id: 'f-1234', cpf: null, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '1234' },
+      { id: 'f-5678', cpf: '99988877766', nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', matricula: '5678' },
+    ];
+    const { svc, pares } = montarGrupo(cinco);
+    const r = await svc.marcarForaDoGrupo('f-5678', ['f-008005', 'f-4045', 'f-4829', 'f-1234'], 'Ana Bianca');
+    expect(r.ids).toHaveLength(4);
+    // Quatro pares, todos com quem saiu; os que ficaram não foram julgados entre si.
+    expect(pares).toHaveLength(4);
+    expect(pares.every((p) => p.split('|').includes('f-5678'))).toBe(true);
+    expect(pares.some((p) => p === 'f-008005|f-4045' || p === 'f-4045|f-008005')).toBe(false);
+  });
+
+  it('tirar um sem dizer de quem, ou tirar a si mesmo, é recusado', async () => {
+    const { svc } = montarGrupo(alvaro);
+    await expect(svc.marcarForaDoGrupo('f-4045', [])).rejects.toThrow(/outros cadastros/);
+    await expect(svc.marcarForaDoGrupo('f-4045', ['f-4045'])).rejects.toThrow(/outros cadastros/);
+  });
+
   it('o lote também aproveita o grupo de três em que só um cadastro tem dado', async () => {
     const { svc } = montarGrupo(alvaro);
     const cand = (id: string, matricula: string, pontuacao: number) => ({ id, matricula, pontuacao, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO' });

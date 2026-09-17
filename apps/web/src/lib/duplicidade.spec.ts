@@ -1,4 +1,44 @@
-import { avisoDaConsolidacao, fraseDoDescarte, resumoDoCadastro, rotuloDoConsolidar } from './duplicidade';
+import {
+  agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, resumoDoCadastro, rotuloDoConsolidar,
+  type ParDescartado,
+} from './duplicidade';
+
+/**
+ * "NUM GRUPO DE CINCO, E SE UM DELES EU NÃO CONCORDO QUE É DUPLICATA?" —
+ * 17/09/2026. Tirar um grava quatro pares; a lista não pode virar quatro linhas
+ * repetindo os mesmos nomes.
+ */
+describe('a lista do que saiu da fila junta o que foi decidido de uma vez', () => {
+  const cadastro = (id: string, matricula: string) => ({
+    id, matricula, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO', cidade: 'Teresina', cpf: null, dataNascimento: null,
+  });
+  const par = (id: string, a: string, b: string, quando = '2026-09-17T13:00:00.000Z'): ParDescartado => ({
+    id, autor: 'Ana Bianca', decididoEm: quando, cadastros: [cadastro('f-' + a, a), cadastro('f-' + b, b)],
+  });
+
+  it('os quatro pares de quem saiu do grupo viram UMA linha, com todos os cadastros', () => {
+    const itens = agruparDescartes([
+      par('d1', '5678', '008005'), par('d2', '5678', '4045'), par('d3', '5678', '4829'), par('d4', '5678', '1234'),
+    ]);
+    expect(itens).toHaveLength(1);
+    expect(itens[0].ids).toEqual(['d1', 'd2', 'd3', 'd4']);
+    expect(itens[0].cadastros.map((c) => c.matricula).sort()).toEqual(['008005', '1234', '4045', '4829', '5678']);
+  });
+
+  it('decisões sem cadastro em comum continuam separadas', () => {
+    const itens = agruparDescartes([par('d1', '5678', '008005'), par('d2', '9999', '7777')]);
+    expect(itens).toHaveLength(2);
+  });
+
+  it('fica a data da decisão mais recente do conjunto', () => {
+    const itens = agruparDescartes([
+      par('d1', '5678', '008005', '2026-09-02T12:06:00.000Z'),
+      par('d2', '5678', '4045', '2026-09-17T13:40:00.000Z'),
+    ]);
+    expect(itens[0].decididoEm).toBe('2026-09-17T13:40:00.000Z');
+    expect(fraseDoDescarte(itens[0])).toBe('Marcado por Ana Bianca em 17/09/2026');
+  });
+});
 
 /**
  * "E QUANDO É 3 OU 4 DUPLICADOS? NEM O BOTÃO É MOSTRADO." — 17/09/2026.
