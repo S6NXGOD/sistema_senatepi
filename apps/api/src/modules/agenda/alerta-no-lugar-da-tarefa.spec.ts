@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { atoAcionavel, VALIDADE_DIAS } from '../processos/utils/tpu.util';
+import { ATOS_CRITICOS, atoAcionavel, VALIDADE_DIAS } from '../processos/utils/tpu.util';
 
 /**
  * O ALERTA QUE ENTROU NO LUGAR DA TAREFA — 17/09/2026.
@@ -33,7 +33,14 @@ describe('a faixa ganhou o ato que ninguém decidiu', () => {
    */
   it('quem decide é `atoAcionavel`, e não uma regra escrita de novo', () => {
     expect(FONTE).toContain('atoAcionavel(m, agora)');
-    expect(FONTE).not.toMatch(/ATOS_CRITICOS|codigoMovimento === \d+/);
+    /*
+      O arquivo CITA `ATOS_CRITICOS` — mas só para o `in` da consulta, que não
+      julga nada (ver "o recorte da consulta", abaixo). O que não pode aparecer é
+      REGRA: comparação de código na mão, leitura de nível, contagem de idade.
+      Era assim que a mesma pergunta acabava respondida em dois lugares com
+      critérios diferentes.
+    */
+    expect(FONTE).not.toMatch(/codigoMovimento === \d+|\.nivel === '|VALIDADE_DIAS\[/);
   });
 
   /**
@@ -130,5 +137,57 @@ describe('a proposta sem dono continua avisando', () => {
     const consulta = FONTE.slice(FONTE.indexOf('this.prisma.comunicacaoDjen.findMany'));
     const ate = consulta.slice(0, consulta.indexOf('orderBy'));
     expect((ate.match(/\bOR:/g) ?? []).length).toBe(1);
+  });
+});
+
+/**
+ * O RECORTE NÃO PODE ESCONDER ATO — e quase escondia.
+ *
+ * A primeira versão desta consulta trazia os 200 andamentos mais recentes.
+ * Medido na produção em 17/09/2026: o advogado com mais acervo tinha 409
+ * elegíveis em 90 dias, e o corte jogava fora 209 PELA DATA — ou seja,
+ * justamente as decisões mais antigas, que são as que ainda valem 90 dias.
+ * Corte silencioso que esconde o que o aviso existe para mostrar é o mesmo
+ * silêncio de antes, com outro nome.
+ */
+describe('o recorte da consulta', () => {
+  it('filtra pelos códigos do DICIONÁRIO, e não por uma lista escrita à mão', () => {
+    expect(FONTE).toContain('codigoMovimento: { in: [...ATOS_CRITICOS.keys()] }');
+    // Nenhum código solto no arquivo: a lista tem um dono só.
+    expect(FONTE).not.toMatch(/\[\s*785\s*,|\b1061\s*,\s*60\b/);
+  });
+
+  /**
+   * O filtro não decide nada — `atoAcionavel` devolve `null` para qualquer
+   * código de fora do dicionário. Ele só evita trazer do banco o que seria
+   * descartado. Se um dia decidisse, seriam duas réguas para o mesmo aviso.
+   */
+  it('o filtro não muda o julgamento: código de fora nunca acende', () => {
+    for (const codigo of [85, 51, 11010, 581]) {
+      expect(ATOS_CRITICOS.has(codigo)).toBe(false);
+      expect(
+        atoAcionavel({
+          codigoMovimento: codigo,
+          dataMovimento: new Date(),
+          compromissoId: null,
+          dispensadoEm: null,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it('o teto é rede, e ele avisa quando encosta', () => {
+    expect(FONTE).toContain('take: TETO_DE_ANDAMENTOS');
+    expect(FONTE).toContain('andamentos.length === TETO_DE_ANDAMENTOS');
+    // O aviso vai para o LOG de quem cuida do sistema, nunca para a tela: a
+    // pessoa não pode fazer nada com "o seu aviso está incompleto".
+    expect(FONTE).toContain('this.logger.warn');
+  });
+
+  /** Quatro vezes o pior lote medido (239). Se encolher, o corte volta a morder. */
+  it('o teto é folgado sobre o pior caso medido', () => {
+    const m = FONTE.match(/const TETO_DE_ANDAMENTOS = (\d+);/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(1000);
   });
 });

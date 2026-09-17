@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, StatusCompromisso } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { inicioDoDiaBR } from '../processos/utils/data-br.util';
-import { atoAcionavel, VALIDADE_DIAS } from '../processos/utils/tpu.util';
+import { ATOS_CRITICOS, atoAcionavel, VALIDADE_DIAS } from '../processos/utils/tpu.util';
 import { ultimosUsosReais } from '../dashboard/ultimo-acesso.util';
 import {
   daPessoa, motivoParaAvisarAEquipe, ondeSouReserva, porQueAEquipePrecisa,
@@ -78,8 +78,13 @@ const MAX_EXEMPLOS = 3;
  */
 const VALIDADE_MAIS_LARGA_DIAS = Math.max(...Object.values(VALIDADE_DIAS));
 
+/** Ver a consulta dos andamentos: rede contra crescimento, não corte de rotina. */
+const TETO_DE_ANDAMENTOS = 1000;
+
 @Injectable()
 export class PendenciasService {
+  private readonly logger = new Logger(PendenciasService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async minhas(usuarioId: string): Promise<{ pendencias: Pendencia[]; total: number }> {
@@ -218,11 +223,36 @@ export class PendenciasService {
             certa de cada nível é `atoAcionavel`, logo abaixo.
           */
           dataMovimento: { gte: new Date(agora.getTime() - VALIDADE_MAIS_LARGA_DIAS * 86_400_000) },
+          /*
+            SÓ OS CÓDIGOS DO DICIONÁRIO, e a lista sai DELE — nunca escrita à
+            mão. `atoAcionavel` devolve `null` para qualquer código de fora, então
+            este filtro não decide nada: ele só evita trazer do banco o que a
+            função vai descartar.
+
+            E ele é o que torna o teto inofensivo. Medido em 17/09/2026: sem o
+            filtro, o advogado com mais acervo tinha 409 movimentações elegíveis
+            em 90 dias e o `take` de 200 CORTAVA 209 — pela data, ou seja,
+            jogando fora justamente as decisões mais antigas, que são as que
+            ainda valem 90 dias. Um corte que esconde o que o aviso existe para
+            mostrar é o mesmo silêncio de antes, com outro nome.
+          */
+          codigoMovimento: { in: [...ATOS_CRITICOS.keys()] },
           processo: { advogados: { some: { advogadoId: usuarioId } } },
         },
         orderBy: { dataMovimento: 'desc' },
-        // Teto folgado: o acervo inteiro tem ~1.350 movimentações em 90 dias.
-        take: 200,
+        /*
+          REDE, NÃO RÉGUA — e ela AVISA quando encosta.
+
+          Medido em 17/09/2026, já com o filtro de código: o maior lote por
+          advogado é 239 (Dr. Carlos Henrique). O teto de 200 que eu tinha posto
+          CORTAVA 39 pela data — jogando fora as decisões mais antigas, que são
+          justamente as que ainda valem 90 dias. Corte que esconde o que o aviso
+          existe para mostrar é o silêncio de antes com outro nome.
+
+          Mil é quatro vezes o pior caso de hoje, e se um dia encostar o log
+          reclama (ver abaixo) em vez de a tela simplesmente mostrar menos.
+        */
+        take: TETO_DE_ANDAMENTOS,
         select: {
           id: true, descricao: true, detalhe: true, codigoMovimento: true, dataMovimento: true,
           compromissoId: true, dispensadoEm: true, avaliadoEm: true, avaliadoMotivo: true,
@@ -249,6 +279,19 @@ export class PendenciasService {
       const ato = atoAcionavel(m, agora);
       return ato ? [{ m, ato }] : [];
     });
+    /*
+      O TETO NUNCA CORTA EM SILÊNCIO. Se o lote voltar cheio, alguma coisa acima
+      dele ficou de fora — e quem lê a faixa não tem como saber. O aviso vai para
+      o log de quem cuida do sistema, nunca para a tela: a pessoa não pode fazer
+      nada com "o seu aviso está incompleto".
+    */
+    if (andamentos.length === TETO_DE_ANDAMENTOS) {
+      this.logger.warn(
+        `[PENDENCIAS] O lote de andamentos do usuário ${usuarioId} encostou no teto ` +
+          `(${TETO_DE_ANDAMENTOS}). O aviso "ato sem ninguém decidir" pode estar incompleto — ` +
+          'suba o teto ou aperte o recorte.',
+      );
+    }
 
     /** Um ato = (processo, providência); as cópias da mesma publicação colapsam. */
     const atosSemTarefa = publicacoes.filter(
