@@ -242,3 +242,50 @@ describe('selo e robô na mesma janela', () => {
     expect(DIAS_ATE_DORMENTE).toBeGreaterThanOrEqual(VALIDADE_DIAS.DECISAO);
   });
 });
+
+/**
+ * O FIM QUE VEM DAS PARTES — 17/09/2026.
+ *
+ * "Acho importante informações importantes como essa desistência do recurso não
+ * ficar pra fora." Estava fora: desistência e homologação de acordo não existiam
+ * em nenhuma das tabelas de código do sistema, e o ato aparecia na linha do
+ * tempo como uma linha crua qualquer.
+ *
+ * Entraram como ENCERRAMENTO, e a escolha do nível é a regra inteira: com
+ * validade zero eles NUNCA viram aviso âmbar nem entram na faixa. Um acordo
+ * homologado não pede providência; pede que se pare de esperar.
+ */
+describe('desistência e acordo homologado', () => {
+  it.each([
+    [463, 'Desistência'],
+    [466, 'Acordo homologado'],
+    [14099, 'Acordo homologado na execução'],
+  ])('o código %i é reconhecido como %s', (codigo, rotulo) => {
+    expect(atoCritico(codigo)).toEqual({ nivel: 'ENCERRAMENTO', rotulo });
+  });
+
+  it('nenhum deles vira aviso, nem no mesmo dia', () => {
+    for (const codigo of [463, 466, 14099]) {
+      expect(atoAcionavel(mov(codigo, 0), AGORA)).toBeNull();
+    }
+  });
+
+  /**
+   * E a linha do tempo os mostra como MARCO: é assim que a informação aparece
+   * sem virar cobrança. `marcosDoEncerramento` lê o rótulo do dicionário.
+   */
+  it('a ficha os trata como marco do encerramento', () => {
+    const MOVIMENTACOES = readFileSync(
+      path.join(__dirname, '..', 'movimentacoes.service.ts'), 'utf8',
+    );
+    const marcos = MOVIMENTACOES.slice(
+      MOVIMENTACOES.indexOf('private marcosDoEncerramento'),
+      MOVIMENTACOES.indexOf('private atencaoRequerida'),
+    );
+    expect(marcos).toContain("atoCritico(codigo)?.nivel === 'ENCERRAMENTO'");
+    // O rótulo sai do dicionário — nenhum deles fica escrito à mão aqui.
+    for (const rotulo of ['Desistência', 'Acordo homologado']) {
+      expect(marcos).not.toContain(rotulo);
+    }
+  });
+});

@@ -153,6 +153,27 @@ export const ATOS_CRITICOS: ReadonlyMap<number, AtoCritico> = new Map<number, At
   [848, { nivel: 'ENCERRAMENTO', rotulo: 'Trânsito em julgado' }],
   [893, { nivel: 'ENCERRAMENTO', rotulo: 'Desarquivamento' }],
   [196, { nivel: 'ENCERRAMENTO', rotulo: 'Execução extinta' }],
+
+  /*
+    O FIM QUE VEM DAS PARTES, E NÃO DO JUÍZO — 17/09/2026.
+
+    "Acho importante informações importantes como essa desistência do recurso
+    não ficar pra fora." O dono nomeou o caso, e ele estava fora: 463
+    ("Desistência", 3 no acervo), 466 ("Homologação de Transação", 6) e 14099
+    ("Homologação de Acordo em Execução ou em Cumprimento de Sentença", 17)
+    não existiam em nenhuma das três tabelas de código do sistema. O ato
+    aparecia na linha do tempo como uma linha crua qualquer, sem nome de marco
+    e sem mudar nada na leitura do processo.
+
+    ENCERRAMENTO, e não DECISAO, de propósito: `VALIDADE_DIAS.ENCERRAMENTO` é
+    zero, então isto NUNCA vira aviso âmbar nem entra na faixa. É informação —
+    e informação que muda o acompanhamento entra como MARCO
+    (`marcosDoEncerramento`), com rótulo de gente na linha do tempo. Um acordo
+    homologado não pede providência; pede que se pare de esperar.
+  */
+  [463, { nivel: 'ENCERRAMENTO', rotulo: 'Desistência' }],
+  [466, { nivel: 'ENCERRAMENTO', rotulo: 'Acordo homologado' }],
+  [14099, { nivel: 'ENCERRAMENTO', rotulo: 'Acordo homologado na execução' }],
 ]);
 
 /**
