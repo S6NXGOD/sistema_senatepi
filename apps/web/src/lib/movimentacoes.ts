@@ -1,6 +1,6 @@
 import { api } from './api';
 import { classesCor, type ClassesCor } from './paleta-cores';
-import type { FaseProcessual, StatusProcesso, TipoAcaoProcesso } from './processos';
+import { formatData, type FaseProcessual, type StatusProcesso, type TipoAcaoProcesso } from './processos';
 import type { AdvogadoDoProcesso, ParteDoProcesso, PolosProcesso } from './partes';
 
 // ---------------------------------------------------------------------------
@@ -111,6 +111,18 @@ export type ItemTimeline =
       } | null;
       /** Por que o robô NÃO abriu tarefa para este ato — ver `fraseSemTarefa`. */
       semTarefaMotivo?: string | null;
+      /**
+       * Já virou atividade na Agenda. Com ele, a tela leva direto à tarefa em
+       * vez de oferecer de novo os botões que a criariam pela segunda vez.
+       */
+      compromissoId?: string | null;
+      /**
+       * Dispensa HUMANA ("Já cuidei") — colunas de gente, nunca do robô.
+       * `dispensadoPor` é o id de quem clicou; a ficha usa para dizer "por você".
+       */
+      dispensadoEm?: string | null;
+      dispensadoPor?: string | null;
+      dispensadoMotivo?: string | null;
     }
   | {
       id: string;
@@ -316,7 +328,15 @@ export interface DossieProcesso {
   atencao?: {
     total: number;
     nivel: 'URGENTE' | 'PRAZO' | 'DECISAO' | 'ENCERRAMENTO' | null;
-    itens: { nivel: string; rotulo: string; data: string; descricao: string }[];
+    itens: { id: string; nivel: string; rotulo: string; data: string; descricao: string }[];
+    /**
+     * QUAIS andamentos pedem atenção — a lista inteira, não os cinco do resumo.
+     * É por ela que a linha do tempo sabe em qual cartão oferecer "Virar tarefa"
+     * e "Já cuidei". Quem decide continua sendo o servidor (`atoAcionavel`): no
+     * dia em que o front decidir isso sozinho, o aviso da lista e o botão da
+     * ficha voltam a discordar.
+     */
+    idsAcionaveis?: string[];
   };
   /** Por onde o processo passou — derivado dos andamentos, sem tabela nova. */
   historicoOrgaos?: { orgao: string; de: string; ate: string; atos: number }[];
@@ -515,6 +535,46 @@ export async function excluirMovimentacao(movId: string): Promise<{ ok: boolean 
 }
 
 // ---------------------------------------------------------------------------
+// As duas mãos do advogado sobre o andamento do tribunal (17/09/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * "VIRAR TAREFA" — o andamento vira atividade na Agenda, com a mesma regra do
+ * Diário. O dono é quem clicou. Idempotente: o segundo toque devolve a mesma
+ * atividade (`criada: false`), em vez de criar a segunda.
+ */
+export async function virarTarefaDoAndamento(
+  movId: string,
+): Promise<{ compromissoId: string; criada: boolean; titulo?: string }> {
+  return (await api.post(`/processos/movimentacoes/${movId}/tarefa`)).data;
+}
+
+/**
+ * "JÁ CUIDEI" — dispensa humana do aviso. Não apaga o andamento: o ato do
+ * tribunal continua inteiro na linha do tempo, só deixa de pedir atenção.
+ */
+export async function jaCuideiDoAndamento(
+  movId: string,
+  motivo?: string,
+): Promise<{ ok: boolean; dispensado: boolean }> {
+  return (await api.post(`/processos/movimentacoes/${movId}/ja-cuidei`, {
+    motivo: motivo?.trim() || undefined,
+  })).data;
+}
+
+/**
+ * DESFAZ o "já cuidei" — o par que o radar de audiências sempre teve.
+ *
+ * Sem ele, o toque errado no celular apagava o selo de atenção sem volta: a
+ * faixa verde substitui os dois botões, e o cartão deixa de pedir olho.
+ */
+export async function desfazerJaCuideiDoAndamento(
+  movId: string,
+): Promise<{ ok: boolean; dispensado: boolean }> {
+  return (await api.post(`/processos/movimentacoes/${movId}/desfazer-ja-cuidei`)).data;
+}
+
+// ---------------------------------------------------------------------------
 // Consulta pública do tribunal
 // ---------------------------------------------------------------------------
 
@@ -584,12 +644,73 @@ export const ATENCAO_COR: Record<string, string> = {
  * é o que faz a equipe desconfiar de tudo que o robô cria.
  */
 const MOTIVO_SEM_TAREFA: Record<string, string> = {
+  // Vocabulário de algumas horas em 17/09/2026, antes das colunas próprias do
+  // robô. A migração move o que houver, mas a chave continua entendida aqui:
+  // registro histórico não se reescreve.
   ANDAMENTO_ANTIGO_SEM_TEOR:
-    'O robô não abriu tarefa: o tribunal informou este ato depois de qualquer prazo ordinário. Se ainda houver prazo, marque na Agenda.',
+    'O robô não abriu tarefa: o tribunal informou este ato depois de qualquer prazo ordinário.',
+  /*
+    OS TRÊS MOTIVOS DO ROBÔ, agora em colunas próprias dele (`avaliado*`).
+
+    Eles substituem o carimbo que por algumas horas foi parar nas colunas de
+    dispensa HUMANA — e apagaria o selo âmbar do andamento sem que ninguém
+    tivesse decidido nada. O motivo continua aparecendo aqui porque silêncio sem
+    explicação foi a desconfiança relatada; o que mudou é que agora, ao lado da
+    explicação, há o que fazer: "Virar tarefa" ou "Já cuidei".
+  */
+  /*
+    A FRASE EXPLICA; QUEM CONVIDA É O BOTÃO (17/09/2026).
+
+    Estas frases mandavam "use Virar tarefa" — e o botão só existe no cartão que
+    ainda pede atenção, para quem tem edição na Agenda. Ato de código fora do
+    dicionário, ato com mais de 30 dias, Triagem só com leitura: todos liam a
+    ordem sem nunca ver o botão, e tela que manda apertar o que não existe é a
+    mesma desconfiança por outro caminho. O convite agora mora ao lado das mãos.
+  */
+  SEM_TEOR_NO_DATAJUD:
+    'O robô não abriu tarefa: o tribunal avisou que houve um ato, mas não disse o que ele pede — e sem isso qualquer prazo seria chute.',
+  ANDAMENTO_ANTIGO:
+    'O robô não abriu tarefa: o tribunal informou este ato depois de qualquer prazo ordinário.',
+  TEOR_NO_DIARIO:
+    'O robô não abriu tarefa por aqui: o teor deste mesmo ato chegou pelo Diário, e é lá que a providência foi decidida.',
 };
+
+/**
+ * MOTIVO QUE TEM PARA ONDE APONTAR.
+ *
+ * "O teor chegou pelo Diário" sem o caminho até ele é uma frase que manda
+ * procurar: a pessoa teria de trocar de aba e comparar datas no olho para achar
+ * a publicação certa. O andamento já sabe qual é — a frase leva junto o atalho
+ * que esta ficha usa desde 12/09 ("Ver teor no DJEN").
+ */
+const MOTIVOS_QUE_LEVAM_AO_TEOR = new Set(['TEOR_NO_DIARIO']);
+
+export function motivoLevaAoTeor(motivo?: string | null): boolean {
+  return !!motivo && MOTIVOS_QUE_LEVAM_AO_TEOR.has(motivo);
+}
 
 export function fraseSemTarefa(motivo?: string | null): string | null {
   if (!motivo) return null;
   // Motivo novo (ou de outra automação) não pode virar código na tela.
   return MOTIVO_SEM_TAREFA[motivo] ?? null;
+}
+
+/**
+ * A FRASE DA DISPENSA DE GENTE — e ela nomeia quem decidiu.
+ *
+ * "Já cuidei" sem autor na tela seria o mesmo silêncio de antes, com outra
+ * roupa: quem abre a ficha depois precisa saber se aquele ato foi resolvido por
+ * alguém ou se o sistema resolveu sozinho. Quem clicou lê "por você"; os
+ * demais leem a data e o motivo, quando houver.
+ */
+export function fraseJaCuidei(
+  item: { dispensadoEm?: string | null; dispensadoPor?: string | null; dispensadoMotivo?: string | null },
+  usuarioId?: string | null,
+): string | null {
+  if (!item.dispensadoEm || !item.dispensadoPor) return null;
+  const quem = usuarioId && item.dispensadoPor === usuarioId ? 'por você' : 'pela equipe';
+  // A data sai pelo mesmo formatador do resto da ficha — uma régua só.
+  const dia = formatData(item.dispensadoEm);
+  const motivo = item.dispensadoMotivo?.trim();
+  return `Marcado como já cuidado ${quem} em ${dia}${motivo ? ` — ${motivo}` : ''}.`;
 }

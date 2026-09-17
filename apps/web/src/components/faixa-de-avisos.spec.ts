@@ -46,8 +46,29 @@ describe('o sino saiu', () => {
     }
   });
 
+  /**
+   * A LISTA É FECHADA DE PROPÓSITO: a faixa cobre toda tela do sistema, e cada
+   * tipo novo é um motivo a mais para aprender a ignorá-la. Crescer aqui tem de
+   * ser decisão, não descuido — este teste é a trava.
+   *
+   * O QUARTO ENTROU EM 17/09/2026, e não foi adição: foi TROCA. O robô do
+   * DataJud abria "Verificação de Intimação / Prazo" sem saber o que o juízo
+   * pediu — 48 tarefas, 32 canceladas, 47 nascidas atrasadas, 9 das 11
+   * concluídas com "não havia peça a fazer". "Se for algo urgente, mande um
+   * alerta, mas não encha de tarefas desnecessárias." O ato virou aviso; a
+   * agenda ficou com 48 tarefas a menos.
+   *
+   * Simulado contra a produção antes de subir: 7 dos 18 usuários ativos veriam
+   * a linha, com no máximo 8 atos — e todos são DECISÕES (recurso negado,
+   * procedência em parte). É o que o dono pediu para ver.
+   */
   it('e a faixa só carrega o que não pode esperar', () => {
-    expect(Object.keys(PENDENCIA).sort()).toEqual(['ATRASADA', 'PRECISA_DA_EQUIPE', 'PUBLICACAO_SEM_TAREFA']);
+    expect(Object.keys(PENDENCIA).sort()).toEqual([
+      'ATO_ESPERANDO_OLHO',
+      'ATRASADA',
+      'PRECISA_DA_EQUIPE',
+      'PUBLICACAO_SEM_TAREFA',
+    ]);
   });
 });
 

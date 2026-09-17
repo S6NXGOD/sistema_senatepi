@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Users } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Gavel, Users } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { podeVer } from '@/lib/permissoes';
-import { fraseDaFaixa, minhasPendencias } from '@/lib/pendencias';
+import { fraseDaFaixa, minhasPendencias, type TipoPendencia } from '@/lib/pendencias';
 
 /**
  * A FAIXA DE AVISOS — o único aviso que aparece em toda tela.
@@ -13,9 +13,15 @@ import { fraseDaFaixa, minhasPendencias } from '@/lib/pendencias';
  * TRÊS REGRAS QUE A IMPEDEM DE VIRAR RUÍDO:
  *
  *  1. Só o que não pode esperar: o que é seu e ficou para trás, a publicação que
- *     nunca virou tarefa, e a tarefa da sua equipe sem ninguém cuidando. O dia de
- *     hoje e a audiência da semana moram no painel. Faixa que aparece todo dia é
- *     cabeçalho, e cabeçalho ninguém lê.
+ *     nunca virou tarefa, a tarefa da sua equipe sem ninguém cuidando e o ato do
+ *     tribunal que ninguém decidiu. O dia de hoje e a audiência da semana moram
+ *     no painel. Faixa que aparece todo dia é cabeçalho, e cabeçalho ninguém lê.
+ *
+ *     O QUARTO ENTROU EM 17/09/2026, no lugar de uma tarefa. O robô do DataJud
+ *     abria "Verificação de Intimação / Prazo" sem saber o que o juízo pediu —
+ *     32 das 48 foram canceladas. "Se for algo urgente, mande um alerta, mas não
+ *     encha de tarefas desnecessárias": o ato passou a ser aviso, e aviso some
+ *     quando alguém decide, sem entulhar a agenda de ninguém.
  *  2. NÃO tem botão de fechar. Ela some quando o trabalho é feito, porque é
  *     estado derivado — fechar ensinaria que dá para calar o aviso sem resolver.
  *  3. Uma linha, âmbar, sem repreender ninguém. Um item só leva ao próprio item;
@@ -25,6 +31,22 @@ import { fraseDaFaixa, minhasPendencias } from '@/lib/pendencias';
  * que ninguém abria. Ficou só ela — e por isso passou a dizer QUAL é a coisa, e
  * não só quantas.
  */
+/**
+ * O DESENHO DIZ DE QUE NATUREZA É O AVISO, antes de a frase ser lida.
+ *
+ * Três naturezas diferentes com o mesmo triângulo de alerta viravam uma coisa só
+ * no canto do olho. O martelo do ato do tribunal separa "o juízo fez algo e
+ * ninguém olhou" de "você está atrasado" — que pedem reações diferentes.
+ *
+ * O `??` na leitura é a rede da janela de troca: tipo que a tela não conhece já
+ * não chega aqui (`soConhecidas`), mas um ícone faltando não pode derrubar o
+ * cabeçalho de todas as páginas.
+ */
+const ICONE: Partial<Record<TipoPendencia, typeof AlertTriangle>> = {
+  PRECISA_DA_EQUIPE: Users,
+  ATO_ESPERANDO_OLHO: Gavel,
+};
+
 export function FaixaDeAtraso() {
   const { user } = useAuth();
   const permitido = podeVer(user?.role, user?.permissoes, 'agenda');
@@ -42,7 +64,7 @@ export function FaixaDeAtraso() {
   if (!pendencias.length) return null;
 
   const [primeira, ...demais] = pendencias.map(fraseDaFaixa);
-  const Icone = pendencias[0].tipo === 'PRECISA_DA_EQUIPE' ? Users : AlertTriangle;
+  const Icone = ICONE[pendencias[0].tipo] ?? AlertTriangle;
 
   return (
     <div className="border-b border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">

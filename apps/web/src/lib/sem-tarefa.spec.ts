@@ -18,7 +18,8 @@ describe('o robô explica por que não abriu tarefa', () => {
   it('o motivo vira frase de gente, não código', () => {
     const frase = fraseSemTarefa('ANDAMENTO_ANTIGO_SEM_TEOR');
     expect(frase).toContain('não abriu tarefa');
-    expect(frase).toContain('Se ainda houver prazo, marque na Agenda.');
+    // 17/09/2026: a frase explica; quem convida é o botão, que nem sempre está na tela.
+    expect(frase).not.toContain('marque na Agenda');
     expect(frase).not.toContain('ANDAMENTO_ANTIGO_SEM_TEOR');
   });
 

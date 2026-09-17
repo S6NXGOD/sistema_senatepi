@@ -190,6 +190,23 @@ function ListaProcessos() {
   useAbrirPorUrl('processo', setDetalheId, '/processos');
 
   /**
+   * `?andamento=<id>` — O AVISO LEVA AO ATO, e não só ao processo.
+   *
+   * A faixa de avisos passou a mostrar "o ato do tribunal que ninguém decidiu"
+   * e diz qual é: "Recurso negado no processo 0001381-91…". Abrir só a ficha
+   * deixaria a pessoa procurando a linha entre dezenas de andamentos — é o
+   * mesmo defeito do aviso que apontava para `/processos` puro.
+   *
+   * LIDO ANTES, e guardado em estado: `useAbrirPorUrl` limpa a URL assim que a
+   * ficha abre, então quem ler o segundo parâmetro depois não acha mais nada.
+   */
+  const [andamentoInicial, setAndamentoInicial] = useState<string | null>(null);
+  useEffect(() => {
+    const id = searchParams.get('andamento');
+    if (id) setAndamentoInicial(id);
+  }, [searchParams]);
+
+  /**
    * `?cadastrar=<NPU>` abre o cadastro JÁ PREENCHIDO.
    *
    * É o clique que vem do sino, quando o Diário revelou uma ação do sindicato
@@ -998,7 +1015,13 @@ function ListaProcessos() {
       <ProcessoDetalheSheet
         processoId={detalheId}
         open={!!detalheId}
-        onClose={() => setDetalheId(null)}
+        andamentoInicial={andamentoInicial}
+        onClose={() => {
+          setDetalheId(null);
+          // O destaque é do link que trouxe a pessoa até aqui; reabrir a ficha
+          // pela lista não pode ressuscitar o ato de um aviso já resolvido.
+          setAndamentoInicial(null);
+        }}
         onChanged={invalidar}
       />
 

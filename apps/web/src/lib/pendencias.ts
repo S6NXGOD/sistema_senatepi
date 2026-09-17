@@ -1,4 +1,5 @@
 import { api } from './api';
+import { mascararNPU } from './processos';
 
 /**
  * O QUE NÃO PODE ESPERAR — o que alimenta a faixa em cima de toda tela.
@@ -7,11 +8,15 @@ import { api } from './api';
  * aviso some — sem clicar em nada, sem "marcar como lida", sem histórico.
  *
  * Até 12/09/2026 isto alimentava também um sino no topo, com sete grupos. O sino
- * saiu: repetia o painel numa gaveta que ninguém abria. Ficaram os três grupos
+ * saiu: repetia o painel numa gaveta que ninguém abria. Ficaram os grupos
  * que justificam interromper qualquer tela.
  */
 
-export type TipoPendencia = 'ATRASADA' | 'PRECISA_DA_EQUIPE' | 'PUBLICACAO_SEM_TAREFA';
+export type TipoPendencia =
+  | 'ATRASADA'
+  | 'PRECISA_DA_EQUIPE'
+  | 'PUBLICACAO_SEM_TAREFA'
+  | 'ATO_ESPERANDO_OLHO';
 
 export interface Pendencia {
   tipo: TipoPendencia;
@@ -78,6 +83,26 @@ export const PENDENCIA: Record<TipoPendencia, { um: string; varios: string; href
     varios: 'publicações suas sem tarefa aberta',
     href: '/publicacoes',
   },
+  /*
+    O ATO QUE O ROBÔ NÃO SOUBE RESOLVER — o alerta que entrou no lugar da tarefa
+    cega, em 17/09/2026.
+
+    "Se for algo urgente, mande um alerta, mas não encha de tarefas
+    desnecessárias." O robô do DataJud abria "Verificação de Intimação / Prazo"
+    sem saber o que o juízo pediu; 32 das 48 foram canceladas. Agora o ato
+    aparece aqui, como ESTADO, e some quando alguém decide — virando tarefa ou
+    marcando "já cuidei" na ficha.
+
+    "SEM NINGUÉM DECIDIR", e não "sem providência": o sistema não sabe se há
+    providência a tomar. Ele sabe que o tribunal praticou um ato dos que costumam
+    pedir uma, e que ninguém olhou. Prometer mais que isso é o que fez a tarefa
+    cega perder a confiança de quem a recebia.
+  */
+  ATO_ESPERANDO_OLHO: {
+    um: 'ato do tribunal está sem ninguém decidir',
+    varios: 'atos do tribunal estão sem ninguém decidir',
+    href: '/processos',
+  },
 };
 
 export function rotulo(p: Pendencia): string {
@@ -103,6 +128,15 @@ export function fraseDaFaixa(p: Pendencia): { texto: string; href: string } {
       texto: `“${unico.titulo}” precisa de alguém da equipe${unico.detalhe ? ` — ${unico.detalhe}` : ''}`,
       href: unico.href,
     };
+  }
+  /*
+    UM ATO SÓ DIZ QUAL ATO E EM QUE PROCESSO. "1 ato do tribunal está sem
+    ninguém decidir" manda procurar entre dezenas de linhas da ficha; "Recurso
+    negado no processo 0001381-91…" já é a informação.
+  */
+  if (unico && p.tipo === 'ATO_ESPERANDO_OLHO' && unico.detalhe) {
+    // O número vem cru do banco (20 dígitos); ninguém lê processo assim.
+    return { texto: `${unico.detalhe} no processo ${mascararNPU(unico.titulo)}`, href: unico.href };
   }
   if (unico) return { texto: rotulo(p), href: unico.href };
   return { texto: rotulo(p), href: PENDENCIA[p.tipo].href };

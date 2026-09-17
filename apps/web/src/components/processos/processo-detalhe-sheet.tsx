@@ -10,8 +10,9 @@ import {
   BadgeCheck, Gavel, Phone, Mail, GraduationCap, User as UserIcon, ScrollText,
   AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
   Archive, Zap, FileDown,
-  Swords,
+  Swords, Undo2,
 } from 'lucide-react';
+import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -43,7 +44,8 @@ import {
   rotuloTipoMov, corTipoMov, rotuloComplemento,
   categoriaMovimento, CATEGORIA_LABEL, CATEGORIA_COR,
   ehTituloGenerico, complementoPrincipal, rotuloGrau, urlConsultaTribunal, ATENCAO_COR, ATENCAO_LABEL,
-  fraseSemTarefa,
+  fraseSemTarefa, fraseJaCuidei,
+  virarTarefaDoAndamento, jaCuideiDoAndamento, desfazerJaCuideiDoAndamento,
   type ItemTimeline, type InstanciaProcesso, type CategoriaMovimento,
 } from '@/lib/movimentacoes';
 import {
@@ -240,17 +242,32 @@ function ValorCausaEditavel({
 }
 
 export function ProcessoDetalheSheet({
-  processoId, open, onClose, onChanged,
+  processoId, open, onClose, onChanged, andamentoInicial,
 }: {
   processoId: string | null;
   open: boolean;
   onClose: () => void;
   onChanged?: () => void;
+  /**
+   * O ato para onde a faixa de avisos mandou (`?andamento=` na URL).
+   *
+   * A faixa diz "Recurso negado no processo 0001381-91…" e precisa abrir a ficha
+   * JÁ na linha daquele ato. Sem isto o link abriria a gaveta e deixaria a
+   * pessoa rolando dezenas de andamentos atrás do que o aviso mencionou — que é
+   * a diferença entre um atalho e uma pista.
+   */
+  andamentoInicial?: string | null;
 }) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
   const podeEditar = nivelEfetivo(user?.role, user?.permissoes, 'processos') === 'EDITAR';
+  /**
+   * Criar a atividade é escrita na AGENDA, e a rota exige os DOIS módulos.
+   * Sem esta conferência a ficha ofereceria um botão que a API recusa depois do
+   * clique — mesmo cuidado já tomado no bloco do Diário no painel.
+   */
+  const podeAgendar = nivelEfetivo(user?.role, user?.permissoes, 'agenda') === 'EDITAR';
   const podeCadastrarFiliado = usePodeCadastrarFiliado();
 
   /** Filiado sendo recadastrado no modal de escolha (link ou presencial), quando há um. */
@@ -275,6 +292,18 @@ export function ProcessoDetalheSheet({
 
   /** O andamento para onde a aba Publicações mandou — o caminho de volta. */
   const [andamentoDestacado, setAndamentoDestacado] = useState<string | null>(null);
+
+  /*
+    E O QUE VEIO DA URL. A faixa de avisos abre a ficha apontando para um ato;
+    a gaveta é reaproveitada entre processos, então o destaque é semeado a cada
+    abertura e some quando a pessoa navega para outro ato por dentro.
+  */
+  useEffect(() => {
+    if (!open || !andamentoInicial) return;
+    setPublicacaoDestacada(null);
+    setAndamentoDestacado(andamentoInicial);
+    setAba('timeline');
+  }, [open, andamentoInicial, processoId]);
 
   /** Salta da linha do tempo para o teor da publicação daquele ato. */
   function verPublicacao(publicacaoId: string) {
@@ -501,6 +530,76 @@ export function ProcessoDetalheSheet({
     onSuccess: () => { toast.success('Movimentação removida.'); setMovParaExcluir(null); recarregar(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível remover.'),
   });
+
+  /*
+    AS DUAS MÃOS DO ADVOGADO SOBRE O ANDAMENTO (17/09/2026).
+
+    O robô cego que criava "Verificação de Intimação / Prazo" saiu do ar: das 48
+    tarefas dele, 32 foram canceladas e 47 nasceram atrasadas. Tirar sem
+    devolver alavanca seria só subtração — o ato continua chegando e alguém
+    continua tendo de decidir. Daqui saem as duas decisões, no lugar em que a
+    pessoa já está lendo o caso, sem abrir a Agenda e digitar tudo de novo.
+  */
+  const virarTarefa = useMutation({
+    mutationFn: (movId: string) => virarTarefaDoAndamento(movId),
+    onSuccess: (r) => {
+      // O segundo toque devolve a mesma atividade — e a tela não pode celebrar
+      // uma criação que não houve.
+      toast.success(r.criada ? 'Atividade criada na Agenda, no seu nome.' : 'Este andamento já tinha atividade na Agenda.');
+      recarregar();
+      /*
+        A ATIVIDADE NASCEU FORA DESTA TELA — e a Agenda, a faixa de avisos e o
+        painel continuavam mostrando o mundo de antes até alguém recarregar.
+        É a mesma lista de chaves que o resto da casa invalida ao criar tarefa.
+      */
+      for (const chave of [['compromissos'], ['compromisso'], ['minhas-pendencias'], ['dashboard-resumo']]) {
+        qc.invalidateQueries({ queryKey: chave });
+      }
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível criar a atividade.'),
+  });
+
+  /** Andamento esperando o "Já cuidei" — o diálogo pergunta o motivo (opcional). */
+  const [andamentoParaCuidar, setAndamentoParaCuidar] = useState<string | null>(null);
+  const [motivoDoCuidado, setMotivoDoCuidado] = useState('');
+
+  /**
+   * DESFAZER O "JÁ CUIDEI" — o par do radar de audiências (dispensar/restaurar).
+   *
+   * A marcação apaga o selo de atenção do ato; sem volta em produto, um toque
+   * errado no celular só se consertaria no banco. Fica em dois lugares porque o
+   * aviso some do dedo em segundos: no próprio aviso do toque e, depois, dentro
+   * da faixa verde do cartão.
+   */
+  const desfazerCuidado = useMutation({
+    mutationFn: (movId: string) => desfazerJaCuideiDoAndamento(movId),
+    onSuccess: () => { toast.success('Pronto — o andamento voltou a pedir atenção.'); recarregar(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível desfazer.'),
+  });
+
+  const jaCuidei = useMutation({
+    mutationFn: (p: { movId: string; motivo: string }) => jaCuideiDoAndamento(p.movId, p.motivo),
+    onSuccess: (_r, p) => {
+      toast.success('Andamento marcado como já cuidado.', {
+        duration: DURACAO_DO_DESFAZER_MS,
+        action: { label: 'Desfazer', onClick: () => desfazerCuidado.mutate(p.movId) },
+      });
+      setAndamentoParaCuidar(null);
+      setMotivoDoCuidado('');
+      recarregar();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível marcar como cuidado.'),
+  });
+
+  /**
+   * QUAIS andamentos pedem atenção — quem decide é o servidor (`atoAcionavel`),
+   * e a lista vem pronta. Oferecer as duas mãos em todo cartão seria pôr dois
+   * botões em 3.018 andamentos para atender os 27 que realmente pedem olho.
+   */
+  const acionaveis = useMemo(
+    () => new Set(p?.atencao?.idsAcionaveis ?? []),
+    [p?.atencao?.idsAcionaveis],
+  );
 
   // Filtro da linha do tempo (busca textual + origem + instância).
   const timeline = useMemo(() => {
@@ -1647,6 +1746,14 @@ export function ProcessoDetalheSheet({
                           onExcluir={() => setMovParaExcluir(item.id)}
                           onVerPublicacao={verPublicacao}
                           destacado={andamentoDestacado === item.id}
+                          pedeAtencao={acionaveis.has(item.id)}
+                          podeAgir={podeEditar}
+                          podeAgendar={podeAgendar}
+                          usuarioId={user?.id}
+                          ocupado={virarTarefa.isPending && virarTarefa.variables === item.id}
+                          onVirarTarefa={() => virarTarefa.mutate(item.id)}
+                          onJaCuidei={() => { setMotivoDoCuidado(''); setAndamentoParaCuidar(item.id); }}
+                          onDesfazerCuidado={() => desfazerCuidado.mutate(item.id)}
                         />
                       ))}
                     </ul>
@@ -1987,6 +2094,48 @@ export function ProcessoDetalheSheet({
         loading={removerMov.isPending}
         onConfirm={() => movParaExcluir && removerMov.mutate(movParaExcluir)}
         onClose={() => setMovParaExcluir(null)}
+      />
+
+      {/*
+        "JÁ CUIDEI" PERGUNTA O PORQUÊ — E ACEITA O SILÊNCIO.
+
+        O motivo é opcional de propósito: exigir justificativa para dizer "isto
+        eu já resolvi" transforma um toque em formulário, e aí ninguém marca
+        nada — o aviso fica aceso para sempre e volta a não significar coisa
+        alguma. Quando vem, é o único dado que diz ONDE o robô erra (prazo da
+        outra parte, ato já cumprido, nada a fazer).
+
+        Não é destrutivo: o ato do tribunal continua inteiro na linha do tempo.
+      */}
+      <ConfirmDialog
+        open={!!andamentoParaCuidar}
+        title="Já cuidei deste andamento"
+        icon={<Check className="h-6 w-6" />}
+        description={
+          <>
+            <p>
+              O aviso deste ato se apaga e ele <strong>continua</strong> na linha do tempo. Seu nome
+              fica registrado como quem decidiu.
+            </p>
+            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="motivo-ja-cuidei">
+              Por quê? (opcional)
+            </label>
+            <Input
+              id="motivo-ja-cuidei"
+              className="mt-1"
+              placeholder="Ex.: o prazo é da outra parte"
+              maxLength={300}
+              value={motivoDoCuidado}
+              onChange={(e) => setMotivoDoCuidado(e.target.value)}
+            />
+          </>
+        }
+        confirmLabel="Marcar como cuidado"
+        loading={jaCuidei.isPending}
+        onConfirm={() =>
+          andamentoParaCuidar && jaCuidei.mutate({ movId: andamentoParaCuidar, motivo: motivoDoCuidado })
+        }
+        onClose={() => setAndamentoParaCuidar(null)}
       />
 
       {/*
@@ -2347,6 +2496,7 @@ function ResumoInstancias({ instancias }: { instancias: InstanciaProcesso[] }) {
 
 function ItemLinhaTempo({
   item, tipos, podeExcluir, onExcluir, onVerPublicacao, destacado,
+  pedeAtencao, podeAgir, podeAgendar, usuarioId, ocupado, onVirarTarefa, onJaCuidei, onDesfazerCuidado,
 }: {
   item: ItemTimeline;
   tipos: any[];
@@ -2356,6 +2506,24 @@ function ItemLinhaTempo({
   onVerPublicacao?: (publicacaoId: string) => void;
   /** Veio da aba Publicações e é este o ato — destaca e recebe a rolagem. */
   destacado?: boolean;
+  /**
+   * Este ato ainda pede providência — quem decidiu foi o servidor
+   * (`atoAcionavel`), e é só neste caso que as duas mãos aparecem. Sem o
+   * recorte, seriam dois botões em cada um dos 3.018 andamentos do acervo.
+   */
+  pedeAtencao?: boolean;
+  /** EDITAR em Processos. */
+  podeAgir?: boolean;
+  /** EDITAR na Agenda — só quem grava lá pode "Virar tarefa". */
+  podeAgendar?: boolean;
+  /** Quem está olhando: a dispensa diz "por você" quando foi dela. */
+  usuarioId?: string | null;
+  /** A criação deste andamento está em curso. */
+  ocupado?: boolean;
+  onVirarTarefa?: () => void;
+  onJaCuidei?: () => void;
+  /** Desfaz o "já cuidei" — o par que o radar de audiências sempre teve. */
+  onDesfazerCuidado?: () => void;
 }) {
   if (item.origem === 'DATAJUD') {
     const categoria = categoriaMovimento(item.codigoMovimento, item.descricao);
@@ -2449,7 +2617,23 @@ function ItemLinhaTempo({
           {fraseSemTarefa(item.semTarefaMotivo) && (
             <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-muted/60 px-2 py-1 text-[11px] leading-snug text-muted-foreground">
               <Bot className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-              {fraseSemTarefa(item.semTarefaMotivo)}
+              <span>
+                {fraseSemTarefa(item.semTarefaMotivo)}
+                {/*
+                  "O TEOR CHEGOU PELO DIÁRIO" TEM DE DIZER ONDE.
+
+                  A frase sem o caminho manda procurar: seria trocar de aba e
+                  comparar datas no olho até achar a publicação certa. O
+                  andamento já sabe qual é — o mesmo atalho do "Ver teor no
+                  DJEN" leva direto a ela.
+                */}
+                {/*
+                  UM CAMINHO SÓ ATÉ O TEOR (17/09/2026): o botão "Ver teor no
+                  DJEN" logo abaixo já leva à mesma publicação e ainda diz a
+                  providência. Dois controles vizinhos para o mesmo destino, com
+                  nomes diferentes, é pergunta que a tela não devia fazer.
+                */}
+              </span>
             </p>
           )}
 
@@ -2479,6 +2663,87 @@ function ItemLinhaTempo({
                 )}
             </button>
           )}
+
+          {/*
+            AS DUAS MÃOS DO ADVOGADO (17/09/2026).
+
+            "Não quero tarefas já com prazo matando o advogado (...) mas não
+            encha de tarefas desnecessárias." O robô cego saiu do ar — 48
+            tarefas, 32 canceladas, 47 nascidas atrasadas — e o que sobra pedindo
+            olho são 27 atos em 26 processos, quase todos DECISÕES. Para esses,
+            a decisão volta para quem a toma, no lugar onde ela é tomada:
+            antes era abrir a Agenda e digitar tudo de novo, que é a distância
+            que transforma intimação em prazo perdido.
+
+            Três estados, nunca dois ao mesmo tempo: já tem atividade (o atalho
+            leva a ela), alguém já cuidou (a frase diz quem e quando), ou ainda
+            está em aberto (as duas mãos). A ordem importa — oferecer "Virar
+            tarefa" num ato que já virou criaria a segunda atividade do mesmo
+            trabalho.
+          */}
+          {item.compromissoId ? (
+            <Link
+              href={`/agenda?compromisso=${item.compromissoId}`}
+              className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-md border border-brand-300 bg-brand-50 px-3 text-xs font-medium text-brand-800 hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-300"
+            >
+              <CalendarDays className="h-4 w-4" /> Abrir a atividade na Agenda
+            </Link>
+          ) : fraseJaCuidei(item, usuarioId) ? (
+            /*
+              A VOLTA FICA ONDE A MARCA ESTÁ (17/09/2026). O aviso com "Desfazer"
+              passa em segundos; quem abre a ficha depois e vê a faixa verde
+              precisa da mesma saída — senão o toque errado só se conserta no banco.
+            */
+            <div className="mt-2 flex flex-col gap-1 rounded-md bg-emerald-50 px-2 py-1.5 dark:bg-emerald-950/20 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+              <p className="flex items-start gap-1.5 text-[11px] leading-snug text-emerald-800 dark:text-emerald-300">
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {fraseJaCuidei(item, usuarioId)}
+              </p>
+              {podeAgir && onDesfazerCuidado && (
+                <button
+                  type="button"
+                  onClick={onDesfazerCuidado}
+                  className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-emerald-900 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/30 sm:min-h-9"
+                >
+                  <Undo2 className="h-3.5 w-3.5" /> Desfazer
+                </button>
+              )}
+            </div>
+          ) : pedeAtencao && podeAgir ? (
+            <div className="mt-2 space-y-1.5">
+              {/*
+                O CONVITE MORA AO LADO DA MÃO, e não na frase do robô: o botão só
+                existe aqui, e a explicação do carimbo aparece em cartão que não
+                tem botão nenhum (código fora do dicionário, ato de mais de 30
+                dias, perfil sem edição).
+              */}
+              <p className="text-[11px] text-muted-foreground">
+                {podeAgendar
+                  ? 'Se for da nossa parte, vire tarefa. Se já resolveu, marque como cuidado.'
+                  : 'Se já resolveu, marque como cuidado.'}
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row">
+              {podeAgendar && (
+                <button
+                  type="button"
+                  onClick={onVirarTarefa}
+                  disabled={ocupado}
+                  className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-700 px-3 text-sm font-medium text-white transition-colors hover:bg-brand-800 disabled:opacity-60"
+                >
+                  {ocupado ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
+                  Virar tarefa
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onJaCuidei}
+                className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors hover:bg-muted"
+              >
+                <Check className="h-4 w-4" /> Já cuidei
+              </button>
+              </div>
+            </div>
+          ) : null}
 
           {item.orgaoJulgador && (
             <p className="mt-1 truncate text-[10px] text-muted-foreground/70">{item.orgaoJulgador}</p>
