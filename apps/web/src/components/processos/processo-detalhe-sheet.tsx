@@ -43,6 +43,7 @@ import {
   rotuloTipoMov, corTipoMov, rotuloComplemento,
   categoriaMovimento, CATEGORIA_LABEL, CATEGORIA_COR,
   ehTituloGenerico, complementoPrincipal, rotuloGrau, urlConsultaTribunal, ATENCAO_COR, ATENCAO_LABEL,
+  fraseSemTarefa,
   type ItemTimeline, type InstanciaProcesso, type CategoriaMovimento,
 } from '@/lib/movimentacoes';
 import {
@@ -2436,6 +2437,21 @@ function ItemLinhaTempo({
 
           {/* Síntese do ato (teor do despacho/decisão) — destaque leve */}
           {item.conteudo && <SinteseAto texto={item.conteudo} />}
+
+          {/*
+            O ROBÔ EXPLICA O PRÓPRIO SILÊNCIO (17/09/2026).
+
+            Andamento que o tribunal informa semanas depois não vira mais tarefa.
+            Sem esta linha, "andamento sem atividade" ficaria indistinguível de
+            falha da automação — e foi a desconfiança relatada: "muitas vezes não
+            confiamos se é nossa parte que tem que atuar".
+          */}
+          {fraseSemTarefa(item.semTarefaMotivo) && (
+            <p className="mt-1.5 flex items-start gap-1.5 rounded-md bg-muted/60 px-2 py-1 text-[11px] leading-snug text-muted-foreground">
+              <Bot className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+              {fraseSemTarefa(item.semTarefaMotivo)}
+            </p>
+          )}
 
           {/*
             O TEOR ESTÁ NO DJEN — e agora o andamento diz onde.

@@ -335,6 +335,14 @@ export class MovimentacoesService {
         ehAudiencia: m.ehAudiencia,
         audienciaData: m.audienciaData,
         /**
+         * O ROBÔ DECIDIU NÃO ABRIR TAREFA — E POR QUÊ (17/09/2026).
+         *
+         * Sem isto na tela, "andamento sem atividade" é indistinguível de falha
+         * da automação, e foi a desconfiança que o dono relatou: "muitas vezes
+         * não confiamos se é nossa parte que tem que atuar".
+         */
+        semTarefaMotivo: m.dispensadoMotivo,
+        /**
          * Existe publicação do DJEN para este ato? A tela usa para acender o
          * atalho "ver teor" e saltar para a aba Publicações já na certa.
          */

@@ -105,6 +105,31 @@ const TIPO_ACOMPANHAMENTO = 'ACOMPANHAMENTO';
  */
 export const TITULO_PRAZO_GENERICO = 'Verificação de Intimação / Prazo';
 
+/**
+ * ANDAMENTO VELHO NÃO VIRA TAREFA — e a decisão fica gravada (17/09/2026).
+ *
+ * Relato do dono: "ainda estão sendo criadas tarefas que são da parte contrária,
+ * está enchendo o sistema de atividades e muitas vezes não confiamos se é nossa
+ * parte que tem que atuar".
+ *
+ * Medido na produção: das 48 "Verificação de Intimação / Prazo" dos últimos 90
+ * dias, 47 nasceram atrasadas e 36 já nasceram avisando "o prazo processual, se
+ * havia, já correu". 34 seguiam PENDENTES na agenda de cinco advogados (18 só
+ * no Dr. Carlos Henrique), e 39 delas entraram num único dia.
+ *
+ * Aqui o robô NÃO TEM O TEOR: o DataJud entrega o rótulo ("Publicação",
+ * "Expedição de documento") e deixa `conteudo` nulo, então ele não sabe nem de
+ * quem é o prazo — quem sabe isso é o DJEN, que traz o texto. Com o ato mais
+ * velho que qualquer prazo ordinário, a tarefa não salva prazo nenhum: só
+ * empurra trabalho alheio para a agenda e ensina a equipe a desconfiar de tudo
+ * o que o robô cria.
+ *
+ * O carimbo usa o mesmo vocabulário do DJEN (`tarefaDispensadaMotivo`): sem
+ * tarefa e SEM carimbo continuaria significando "o robô devia ter criado e não
+ * criou". O andamento segue inteiro na linha do tempo do processo.
+ */
+export const MOTIVO_ANDAMENTO_ANTIGO = 'ANDAMENTO_ANTIGO_SEM_TEOR';
+
 /** Título fixo — é por ele que a tarefa de confirmação é reconhecida e não duplica. */
 const TITULO_CONFIRMAR_AUDIENCIA = 'Confirmar data da audiência designada';
 
@@ -205,8 +230,10 @@ export class AutomacaoPrazosService {
     audiencias: number;
     tarefasSecretaria: number;
     canceladas: number;
+    /** Andamentos velhos que NÃO viraram tarefa — ver `MOTIVO_ANDAMENTO_ANTIGO`. */
+    semTarefaPorIdade: number;
   }> {
-    const resumo = { prazos: 0, audiencias: 0, tarefasSecretaria: 0, canceladas: 0 };
+    const resumo = { prazos: 0, audiencias: 0, tarefasSecretaria: 0, canceladas: 0, semTarefaPorIdade: 0 };
     if (!movimentacoes.length) return resumo;
 
     try {
@@ -246,7 +273,9 @@ export class AutomacaoPrazosService {
         }
 
         if (gatilho.tipo === 'PRAZO') {
-          if (await this.criarPrazo(processo, mov, responsavelId)) resumo.prazos++;
+          const feito = await this.criarPrazo(processo, mov, responsavelId);
+          if (feito === 'CRIADA') resumo.prazos++;
+          if (feito === 'SEM_TAREFA_POR_IDADE') resumo.semTarefaPorIdade++;
           continue;
         }
 
@@ -286,11 +315,12 @@ export class AutomacaoPrazosService {
         if (criou.tarefa) resumo.tarefasSecretaria++;
       }
 
-      if (resumo.prazos || resumo.audiencias || resumo.canceladas) {
+      if (resumo.prazos || resumo.audiencias || resumo.canceladas || resumo.semTarefaPorIdade) {
         this.logger.log(
           `[AUTOMACAO] ${processo.numeroCNJ}: ${resumo.prazos} prazo(s), ` +
             `${resumo.audiencias} pauta(s), ${resumo.tarefasSecretaria} tarefa(s) de secretaria, ` +
-            `${resumo.canceladas} cancelamento(s).`,
+            `${resumo.canceladas} cancelamento(s), ` +
+            `${resumo.semTarefaPorIdade} andamento(s) antigo(s) sem tarefa.`,
         );
       }
     } catch (err) {
@@ -314,7 +344,7 @@ export class AutomacaoPrazosService {
     processo: ProcessoAlvo,
     mov: MovimentacaoParaAutomacao,
     responsavelId: string,
-  ): Promise<boolean> {
+  ): Promise<'CRIADA' | 'AGRUPADA' | 'SEM_TAREFA_POR_IDADE'> {
     const detalhe = [mov.descricao, mov.detalhe].filter(Boolean).join(' — ');
     const linha = `• ${formatarDataBR(mov.dataMovimento)}: ${detalhe}`;
 
@@ -367,6 +397,29 @@ export class AutomacaoPrazosService {
     const idadeDoAtoDias = Math.floor(
       (hoje.getTime() - mov.dataMovimento.getTime()) / 86_400_000,
     );
+    /*
+      O ATO VELHO PARA AQUI (17/09/2026) — ver `MOTIVO_ANDAMENTO_ANTIGO`.
+
+      Antes ele virava tarefa "sem alarme", com a própria descrição dizendo que
+      o prazo já tinha corrido. Uma tarefa que nasce avisando que não dá mais
+      para agir não é tarefa: é recado — e recado na agenda de quem tem prazo
+      real é o que faz a agenda perder credibilidade.
+
+      A vinda do andamento continua registrada no processo, e o carimbo abaixo
+      diz por que o robô não abriu tarefa.
+    */
+    if (idadeDoAtoDias > DIAS_ATO_RECENTE) {
+      await this.prisma.movimentacaoProcessual.update({
+        where: { id: mov.id },
+        data: {
+          dispensadoEm: new Date(),
+          dispensadoPor: null, // é decisão do robô, não de gente
+          dispensadoMotivo: MOTIVO_ANDAMENTO_ANTIGO,
+        },
+      });
+      return 'SEM_TAREFA_POR_IDADE';
+    }
+
     const urgente = atrasado && idadeDoAtoDias <= DIAS_ATO_RECENTE;
 
     const existente = await this.prisma.compromisso.findFirst({
@@ -418,7 +471,7 @@ export class AutomacaoPrazosService {
         where: { id: mov.id },
         data: { compromissoId: existente.id },
       });
-      return false; // agrupada, não é tarefa nova
+      return 'AGRUPADA'; // entrou numa tarefa que já existia, não é tarefa nova
     }
 
     const compromisso = await this.prisma.compromisso.create({
@@ -474,7 +527,7 @@ export class AutomacaoPrazosService {
       where: { id: mov.id },
       data: { compromissoId: compromisso.id },
     });
-    return true;
+    return 'CRIADA';
   }
 
   /**

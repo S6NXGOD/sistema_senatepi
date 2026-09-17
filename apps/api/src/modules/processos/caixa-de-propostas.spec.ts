@@ -18,10 +18,15 @@ const CONTROLLER = readFileSync(join(__dirname, 'djen.controller.ts'), 'utf8');
  * caso individual, ZERO sem dono identificável.
  */
 describe('o que vai direto e o que vira proposta', () => {
-  it('só a ordem provada COM prazo vira tarefa sem perguntar', () => {
-    expect(CORRELACAO).toContain(
-      "const provadaNossaComPrazo = lado === 'NOSSA' && c.prazoMencionadoDias != null;",
-    );
+  /**
+   * 17/09/2026: a prova ganhou uma terceira perna. Ordem nossa + prazo escrito
+   * não bastava — o ato manda "tomar ciência" para nós e dá o prazo à outra
+   * parte (0001381-91.2023.5.22.0101). Com todo prazo do ato sendo da outra
+   * parte, o ato volta para a caixa em vez de ir direto para a agenda.
+   */
+  it('só a ordem provada COM prazo NOSSO vira tarefa sem perguntar', () => {
+    expect(CORRELACAO).toContain("lado === 'NOSSA' && c.prazoMencionadoDias != null");
+    expect(CORRELACAO).toContain("prazoDeQuem !== 'DA_OUTRA_PARTE'");
     expect(CORRELACAO).toContain('if (!provadaNossaComPrazo) {');
   });
 

@@ -109,6 +109,8 @@ export type ItemTimeline =
         providencia: string | null;
         dataDisponibilizacao: string;
       } | null;
+      /** Por que o robô NÃO abriu tarefa para este ato — ver `fraseSemTarefa`. */
+      semTarefaMotivo?: string | null;
     }
   | {
       id: string;
@@ -571,3 +573,23 @@ export const ATENCAO_COR: Record<string, string> = {
   DECISAO: 'sky',
   ENCERRAMENTO: 'slate',
 };
+
+/**
+ * POR QUE ESTE ANDAMENTO NÃO VIROU TAREFA (17/09/2026).
+ *
+ * O robô passou a não abrir tarefa para andamento que chega do tribunal depois
+ * de qualquer prazo ordinário — eram 36 de 48 "Verificação de Intimação /
+ * Prazo" nascendo com "o prazo, se havia, já correu". A decisão fica gravada na
+ * movimentação, e a tela precisa dizê-la: silêncio na agenda, sem explicação,
+ * é o que faz a equipe desconfiar de tudo que o robô cria.
+ */
+const MOTIVO_SEM_TAREFA: Record<string, string> = {
+  ANDAMENTO_ANTIGO_SEM_TEOR:
+    'O robô não abriu tarefa: o tribunal informou este ato depois de qualquer prazo ordinário. Se ainda houver prazo, marque na Agenda.',
+};
+
+export function fraseSemTarefa(motivo?: string | null): string | null {
+  if (!motivo) return null;
+  // Motivo novo (ou de outra automação) não pode virar código na tela.
+  return MOTIVO_SEM_TAREFA[motivo] ?? null;
+}

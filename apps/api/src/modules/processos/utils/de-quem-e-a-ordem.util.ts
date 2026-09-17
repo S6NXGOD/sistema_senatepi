@@ -165,3 +165,71 @@ export function deQuemEAOrdem(
   if (lados.every((l) => l === 'DA_OUTRA_PARTE')) return 'DA_OUTRA_PARTE';
   return 'INDEFINIDO';
 }
+
+/**
+ * E O PRAZO ESCRITO NO ATO — DE QUEM É? (17/09/2026)
+ *
+ * A ordem e o prazo são coisas diferentes, e o ato mistura as duas. Caso real
+ * da produção (0001381-91.2023.5.22.0101, o sindicato é AUTOR):
+ *
+ *   "Fica V. Sa. intimado para tomar ciência da Decisão ID f94d451 (...)
+ *    este Juízo determinou que a executada complementasse a documentação (...)
+ *    no prazo improrrogável de 15 (quinze) dias."
+ *
+ * A ordem para nós é TOMAR CIÊNCIA. O prazo de 15 dias é da executada. Mesmo
+ * assim nasceu "Juntar documentos" na agenda, e a advogada fechou escrevendo
+ * "Prazo direcionado à empresa Reclamada". Outro caso igual no mesmo mês.
+ *
+ * COMO DECIDE: olha só as FRASES que têm prazo e pergunta de quem é a obrigação
+ * naquela frase — pelo nome do sindicato ou pelo papel processual comparado com
+ * o polo que ele ocupa. Fora disso não opina.
+ *
+ * E OPINA PARA MENOS, como o resto deste arquivo: `DA_OUTRA_PARTE` só sai
+ * quando existe prazo e TODOS são atribuíveis à outra parte. Um prazo nosso, ou
+ * um que não dê para atribuir, devolve o ato ao caminho normal.
+ */
+export type LadoDoPrazo = 'NOSSO' | 'DA_OUTRA_PARTE' | 'INDEFINIDO';
+
+/** "no prazo de 15 dias", "prazo improrrogável de 5 (cinco) dias", "prazo de 48 horas". */
+const RE_TEM_PRAZO = /\bPRAZO\b[^.;\n]{0,40}?\bDE\s+\d{1,3}\b|\bPRAZO\s+DE\s+\d{1,3}\b/;
+
+export function deQuemEOPrazo(
+  texto: string,
+  nossoPolo: 'ATIVO' | 'PASSIVO' | null,
+  sigla: string,
+): LadoDoPrazo {
+  const t = normalizarTeor(texto);
+  const siglaNormalizada = normalizarTeor(sigla).replace(/[^A-Z0-9]/g, '');
+
+  const lados: LadoDoPrazo[] = [];
+  // Frase a frase: o prazo pertence a quem a FRASE dele obriga.
+  for (const frase of t.split(/[.;\n]/)) {
+    if (!RE_TEM_PRAZO.test(frase)) continue;
+
+    const limpa = frase.replace(/[^A-Z0-9]/g, '');
+    if (siglaNormalizada.length >= 4 && limpa.includes(siglaNormalizada)) {
+      lados.push('NOSSO');
+      continue;
+    }
+    /*
+      "AS PARTES ... NO PRAZO DE" é prazo de todo mundo, o nosso incluído. E
+      "parte contrária" continua sendo relativa a quem agiu: nunca bloqueia.
+    */
+    if (TODAS_AS_PARTES.test(frase) || /\bPARTE[S]? CONTRARIA[S]?\b/.test(frase)) {
+      lados.push('NOSSO');
+      continue;
+    }
+
+    const ativo = PAPEL_ATIVO.test(frase);
+    const passivo = PAPEL_PASSIVO.test(frase);
+    if (ativo && passivo) lados.push('NOSSO'); // a frase obriga os dois lados
+    else if (!nossoPolo || (!ativo && !passivo)) lados.push('INDEFINIDO');
+    else if (ativo) lados.push(nossoPolo === 'ATIVO' ? 'NOSSO' : 'DA_OUTRA_PARTE');
+    else lados.push(nossoPolo === 'PASSIVO' ? 'NOSSO' : 'DA_OUTRA_PARTE');
+  }
+
+  if (!lados.length) return 'INDEFINIDO';
+  if (lados.includes('NOSSO')) return 'NOSSO';
+  if (lados.every((l) => l === 'DA_OUTRA_PARTE')) return 'DA_OUTRA_PARTE';
+  return 'INDEFINIDO';
+}

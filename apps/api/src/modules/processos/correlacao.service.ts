@@ -6,7 +6,7 @@ import { montarUrgencia } from '../agenda/equipe.util';
 import { TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE } from './automacao-prazos.service';
 import { diaBR, proximoHorarioUtilBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
 import { correlacionar, type MovimentacaoCorrelacionavel } from './utils/correlacao.util';
-import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
+import { deQuemEAOrdem, deQuemEOPrazo } from './utils/de-quem-e-a-ordem.util';
 import { planejarAtividade, type PlanoDaAtividade } from './utils/plano-da-atividade.util';
 import { tenant } from '../../tenant/tenant.config';
 import {
@@ -467,7 +467,23 @@ export class CorrelacaoService {
           não esconde nada, só decide o que entra na agenda.
         */
         const lado = deQuemEAOrdem(c.texto, processo.nossoPolo, tenant.sigla);
-        const provadaNossaComPrazo = lado === 'NOSSA' && c.prazoMencionadoDias != null;
+        /*
+          O PRAZO TAMBÉM TEM DONO (17/09/2026).
+
+          Ordem nossa + prazo escrito era prova suficiente para ir direto à
+          agenda. Só que o ato costuma trazer a ordem para nós ("tomar ciência")
+          e o prazo para a outra parte, e aí a prova não prova nada: foi assim
+          que "Juntar documentos" nasceu de um prazo de 15 dias que era da
+          empresa executada (0001381-91.2023.5.22.0101), e a advogada fechou a
+          tarefa escrevendo "Prazo direcionado à empresa Reclamada".
+
+          Quando TODO prazo do ato é da outra parte, isto deixa de ser prova e o
+          ato segue para a caixa de propostas — que é onde mora o que o robô não
+          sabe. Não vira dispensa: a ordem nossa existe, e quem decide é gente.
+        */
+        const prazoDeQuem = deQuemEOPrazo(c.texto, processo.nossoPolo, tenant.sigla);
+        const provadaNossaComPrazo =
+          lado === 'NOSSA' && c.prazoMencionadoDias != null && prazoDeQuem !== 'DA_OUTRA_PARTE';
 
         if (!provadaNossaComPrazo) {
           const dono = await this.donoDaProposta(processo, c.id);

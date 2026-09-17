@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deQuemEAOrdem } from './de-quem-e-a-ordem.util';
+import { deQuemEAOrdem, deQuemEOPrazo } from './de-quem-e-a-ordem.util';
 
 /**
  * O PRAZO ERA DA RECLAMADA E VIROU TAREFA DO NOSSO ADVOGADO.
@@ -169,12 +169,70 @@ describe('quem usa a regra', () => {
   });
 
   it('o robô usa o mesmo util', () => {
-    expect(CORRELACAO).toContain("import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util'");
+    expect(CORRELACAO).toContain("from './utils/de-quem-e-a-ordem.util'");
+    expect(CORRELACAO).toContain('deQuemEAOrdem(');
+    // 17/09/2026: a ordem não basta; o prazo também tem dono.
+    expect(CORRELACAO).toContain('deQuemEOPrazo(');
   });
 
   /** O polo sai do VÍNCULO institucional, nunca do nome — nos dois lados. */
   it('os dois leem o polo do cadastro institucional', () => {
     expect(BUSCA).toContain('parteExterna: { institucional: true }');
     expect(CORRELACAO).toContain('parteExterna: { institucional: true }');
+  });
+});
+
+/**
+ * E DE QUEM É O PRAZO? (17/09/2026)
+ *
+ * Os dois teores abaixo são reais. Neles a ordem para nós é "tomar ciência" e o
+ * prazo é da outra parte — a prova "ordem nossa + prazo escrito" não provava
+ * nada, e nasceu "Juntar documentos" na agenda de quem só tinha de ler.
+ */
+describe('deQuemEOPrazo', () => {
+  const SIGLA = 'SENATEPI';
+
+  /** 0001381-91.2023.5.22.0101 — o sindicato é AUTOR; quem tem prazo é a executada. */
+  const CIENCIA_COM_PRAZO_DA_EXECUTADA =
+    'Fica V. Sa. intimado para tomar ciência da Decisão ID f94d451 proferida nos autos. ' +
+    'Este Juízo determinou que a executada complementasse a documentação apresentada, ' +
+    'colacionando aos autos as fichas financeiras e/ou contracheques mensais de todos os ' +
+    'substituídos no prazo improrrogável de 15 (quinze) dias.';
+
+  it('prazo da executada, sindicato no polo ativo: é da outra parte', () => {
+    expect(deQuemEOPrazo(CIENCIA_COM_PRAZO_DA_EXECUTADA, 'ATIVO', SIGLA)).toBe('DA_OUTRA_PARTE');
+  });
+
+  it('o MESMO ato, com o sindicato no polo passivo, é prazo NOSSO', () => {
+    expect(deQuemEOPrazo(CIENCIA_COM_PRAZO_DA_EXECUTADA, 'PASSIVO', SIGLA)).toBe('NOSSO');
+  });
+
+  it('o ato que nos nomeia no prazo é nosso, qualquer que seja o papel escrito', () => {
+    const t = 'Intime-se o SENATEPI para manifestar-se sobre os cálculos no prazo de 5 dias.';
+    expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('NOSSO');
+    expect(deQuemEOPrazo(t, 'PASSIVO', SIGLA)).toBe('NOSSO');
+  });
+
+  it('um prazo nosso no meio dos da outra parte devolve NOSSO', () => {
+    const t =
+      CIENCIA_COM_PRAZO_DA_EXECUTADA +
+      ' Após, intime-se a parte autora para manifestar-se no prazo de 5 dias.';
+    expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('NOSSO');
+  });
+
+  it('"as partes" no prazo inclui a gente', () => {
+    expect(deQuemEOPrazo('Intimem-se as partes para se manifestarem no prazo de 5 dias.', 'ATIVO', SIGLA)).toBe('NOSSO');
+  });
+
+  /** Sem polo conhecido, ou sem papel na frase, o robô não opina — e a tarefa segue o caminho normal. */
+  it('sem prazo, sem polo ou sem papel: INDEFINIDO', () => {
+    expect(deQuemEOPrazo('Publique-se. Baixem os autos.', 'ATIVO', SIGLA)).toBe('INDEFINIDO');
+    expect(deQuemEOPrazo(CIENCIA_COM_PRAZO_DA_EXECUTADA, null, SIGLA)).toBe('INDEFINIDO');
+    expect(deQuemEOPrazo('Cumpra-se a determinação no prazo de 10 dias.', 'ATIVO', SIGLA)).toBe('INDEFINIDO');
+  });
+
+  it('"parte contrária" é relativa a quem agiu: nunca bloqueia', () => {
+    const t = 'Recebo os embargos opostos pela reclamada, ficando a parte contrária intimada para se manifestar no prazo de 5 dias.';
+    expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('NOSSO');
   });
 });
