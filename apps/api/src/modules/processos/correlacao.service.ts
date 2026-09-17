@@ -4,7 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
 import { montarUrgencia } from '../agenda/equipe.util';
 import { TITULO_PRAZO_GENERICO, DIAS_ATO_RECENTE, MOTIVOS_DO_ROBO } from './automacao-prazos.service';
-import { diaBR, proximoHorarioUtilBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
+import {
+  diaBR, proximoHorarioUtilBR, proximoHorarioUtilDoDiaDeCalendario, somarDiasUteisEmCalendario,
+} from './utils/data-br.util';
 import {
   aDecisaoDoDiarioAtravessa,
   correlacionar,
@@ -896,7 +898,12 @@ export class CorrelacaoService {
      */
     let antecipar: Date | null = null;
     if (c.dataDisponibilizacao) {
-      const novo = proximoHorarioUtilBR(
+      /*
+        DIA ENTRA, DIA SAI — ver `noveDaManhaDoDiaDeCalendario`. O resultado da
+        soma é um DIA; passá-lo à versão que lê INSTANTE antecipava a atividade
+        em 24 horas a mais do que o teor pedia.
+      */
+      const novo = proximoHorarioUtilDoDiaDeCalendario(
         somarDiasUteisEmCalendario(c.dataDisponibilizacao, diasParaLembrete(spec, c.prazoMencionadoDias)),
       );
       if (novo < atual.inicio) antecipar = novo;

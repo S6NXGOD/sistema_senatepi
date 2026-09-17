@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import * as path from 'node:path';
 import { planejarAtividade } from './utils/plano-da-atividade.util';
 import { diaBR, diaDeCalendarioBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
 
@@ -91,5 +93,61 @@ describe('a tarefa cai no dia que a régua promete', () => {
     );
     expect(deManha.idadeDias).toBe(0);
     expect(deNoite.idadeDias).toBe(0);
+  });
+});
+
+/**
+ * OS IRMÃOS DO MESMO DEFEITO — porque consertar um caminho não basta.
+ *
+ * Eu corrigi `planejarAtividade` e dei por encerrado. A varredura do repositório
+ * achou mais DOIS lugares fazendo exatamente a mesma coisa:
+ *
+ *   · `criarPreparoDaPauta` — o preparo de "dois dias úteis antes" da audiência
+ *     nascia TRÊS dias antes;
+ *   · `antecipar`, na correlação — quando o teor do Diário pede um prazo mais
+ *     curto que o da atividade existente, a antecipação ia 24h além do pedido.
+ *
+ * A regra é simples e o teste a aplica ao repositório inteiro: o resultado de
+ * `somarDiasUteisEmCalendario` é um DIA, e DIA só entra nas funções que leem
+ * dia. Um teste que olhasse só o arquivo que eu consertei ficaria verde com os
+ * irmãos no ar — foi assim que isto passou despercebido na primeira volta.
+ */
+describe('nenhum dia de calendário entra em função que lê instante', () => {
+  const RAIZ = path.resolve(__dirname, '..', '..');
+
+  /** Todo `.ts` de produção do serviço (sem testes). */
+  function fontes(dir: string, achados: string[] = []): string[] {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) fontes(p, achados);
+      else if (e.name.endsWith('.ts') && !e.name.endsWith('.spec.ts')) achados.push(p);
+    }
+    return achados;
+  }
+
+  it('ninguém passa `somarDiasUteisEmCalendario` para quem lê instante', () => {
+    const culpados: string[] = [];
+    for (const arquivo of fontes(RAIZ)) {
+      const fonte = readFileSync(arquivo, 'utf8');
+      // A chamada aninhada, em uma linha ou quebrada em várias.
+      const re = /\b(noveDaManhaBR|proximoHorarioUtilBR)\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?somarDiasUteisEmCalendario/g;
+      for (const m of fonte.matchAll(re)) {
+        culpados.push(`${path.relative(RAIZ, arquivo)}: ${m[1]}(somarDiasUteisEmCalendario(...))`);
+      }
+    }
+    expect(culpados).toEqual([]);
+  });
+
+  /**
+   * E a varredura não olha para o vazio: as funções existem, são usadas, e a
+   * versão de DIA tem leitores de verdade.
+   */
+  it('a varredura tem o que varrer', () => {
+    const todos = fontes(RAIZ).map((f) => readFileSync(f, 'utf8')).join('\n');
+    expect(todos).toContain('somarDiasUteisEmCalendario(');
+    expect(todos).toContain('noveDaManhaBR(');
+    expect(
+      (todos.match(/noveDaManhaDoDiaDeCalendario|proximoHorarioUtilDoDiaDeCalendario/g) ?? []).length,
+    ).toBeGreaterThanOrEqual(4);
   });
 });

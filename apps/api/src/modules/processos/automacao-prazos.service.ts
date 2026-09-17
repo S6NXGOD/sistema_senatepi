@@ -11,6 +11,7 @@ import {
   formatarDataBR,
   formatarDataHoraBR,
   noveDaManhaBR,
+  noveDaManhaDoDiaDeCalendario,
   proximoHorarioUtilBR,
   somarDiasUteisEmCalendario,
 } from './utils/data-br.util';
@@ -877,7 +878,13 @@ export class AutomacaoPrazosService {
     inicioDaPauta: Date,
     responsavelId: string,
   ): Promise<boolean> {
-    const quando = noveDaManhaBR(
+    /*
+      DIA ENTRA, DIA SAI. `somarDiasUteisEmCalendario` devolve um DIA (meia-noite
+      UTC); entregá-lo a `noveDaManhaBR`, que lê INSTANTE, voltava 24 horas — o
+      preparo de "dois dias úteis antes" nascia TRÊS dias antes. Mesmo defeito
+      que fazia toda atividade do Diário cair na véspera.
+    */
+    const quando = noveDaManhaDoDiaDeCalendario(
       somarDiasUteisEmCalendario(diaDeCalendarioBR(inicioDaPauta), -DIAS_UTEIS_DE_PREPARO),
     );
     // Nunca no passado e nunca depois da própria pauta.
