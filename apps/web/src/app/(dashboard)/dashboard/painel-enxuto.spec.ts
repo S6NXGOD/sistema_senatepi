@@ -105,7 +105,7 @@ describe('a ordem das zonas do painel', () => {
   it('o que precisa de você vem antes dos números', () => {
     const acoes = CONTEUDO.indexOf('<AcoesSemCadastro');
     const publicacoes = CONTEUDO.indexOf('<PublicacoesDjen');
-    const kpis = CONTEUDO.indexOf('{!escopoPessoal && kpiCards.length > 0 && (');
+    const kpis = CONTEUDO.indexOf('{!ehTriagem && gradeDeNumeros}');
     expect(acoes).toBeGreaterThan(-1);
     expect(acoes).toBeLessThan(kpis);
     expect(publicacoes).toBeLessThan(kpis);
@@ -122,18 +122,29 @@ describe('a ordem das zonas do painel', () => {
   });
 
   /**
-   * A FILA DA TRIAGEM TAMBÉM VEM ANTES DOS NÚMEROS (18/09/2026).
+   * OS NÚMEROS DA TRIAGEM SOBEM PARA JUNTO DO BALCÃO DELA — 18/09/2026.
    *
-   * Ela vinha DEPOIS dos KPIs da casa: a secretaria abria o sistema e via três
-   * contagens antes da própria fila. "Trabalho antes de número" é a regra da
-   * casa, e estava invertida justamente para quem tem a fila mais concreta.
+   * "Tô achando muito embaixo a informação da quantidade filiados, processos
+   * etc." Estavam: vinham depois da fila, dos aniversariantes e dos cadastros a
+   * completar, a quase uma tela de rolagem. Para ela, os números da casa não
+   * competem com o trabalho — são o pano de fundo do dia, e ficam ao lado do
+   * que ela mesma produziu. A regra "trabalho antes de número" continua valendo
+   * para a GESTÃO, que é quem tinha a tela cheia de contagem.
    */
-  it('a fila da triagem vem antes dos números', () => {
+  it('os números da triagem saem junto do balcão dela, não lá embaixo', () => {
+    const balcao = CONTEUDO.indexOf('texto="Meu balcão hoje"');
+    const numerosDela = CONTEUDO.indexOf('{ehTriagem && gradeDeNumeros &&');
     const fila = CONTEUDO.indexOf('texto="Sua fila de hoje"');
-    const kpis = CONTEUDO.indexOf('{!escopoPessoal && kpiCards.length > 0 && (');
-    expect(fila).toBeGreaterThan(-1);
-    expect(kpis).toBeGreaterThan(-1);
-    expect(fila).toBeLessThan(kpis);
+    expect(balcao).toBeLessThan(numerosDela);
+    expect(numerosDela).toBeLessThan(fila);
+  });
+
+  /** E para a gestão eles seguem depois do que precisa de gente. */
+  it('na gestão os números continuam depois do trabalho', () => {
+    const acoes = CONTEUDO.indexOf('<AcoesSemCadastro');
+    const numeros = CONTEUDO.indexOf('{!ehTriagem && gradeDeNumeros}');
+    expect(numeros).toBeGreaterThan(-1);
+    expect(acoes).toBeLessThan(numeros);
   });
 
   /**

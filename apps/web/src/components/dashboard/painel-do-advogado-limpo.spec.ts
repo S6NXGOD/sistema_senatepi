@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { segmentosDaCarteira } from './linha-da-carteira';
+import { numerosDaCarteira } from './linha-da-carteira';
 
 /**
  * "ESSA DASHBOARD DO ADVOGADO NÃO ESTÁ POUCO ORGANIZADA E MUITO POLUÍDA?" —
@@ -55,7 +55,7 @@ describe('o que saiu do painel de quem tem carteira própria', () => {
   });
 
   it('a segunda grade de KPIs da casa não vai para quem tem carteira', () => {
-    expect(PAGINA).toContain('{!escopoPessoal && kpiCards.length > 0 && (');
+    expect(PAGINA).toContain('const gradeDeNumeros = !escopoPessoal && kpiCards.length > 0 ?');
   });
 
   it('a pilha de avisos de integração vira uma linha no painel de carteira', () => {
@@ -63,15 +63,18 @@ describe('o que saiu do painel de quem tem carteira própria', () => {
   });
 
   /**
-   * A CARTEIRA NÃO É MAIS UMA GRADE. O dono pediu que ela fosse para o TOPO;
-   * o que ela ganhou foi tamanho menor e posição mantida — ver o cabeçalho de
-   * `linha-da-carteira.tsx` para o argumento inteiro.
+   * A CARTEIRA VEM ANTES DO TRABALHO, e são QUATRO cartões — não os seis
+   * originais nem a linha de texto que os substituiu por algumas horas. Ver
+   * `linha-da-carteira.tsx` para as duas correções de rota.
    */
-  it('os seis cartões da carteira viraram uma linha', () => {
-    expect(PAGINA).toContain('{minhaCarteira && <LinhaDaCarteira carteira={minhaCarteira} />}');
-    expect(PAGINA).not.toContain('label="Meus processos"');
+  it('a carteira é um bloco próprio, acima da fila, e não a grade antiga', () => {
+    expect(PAGINA).toContain('<LinhaDaCarteira carteira={minhaCarteira} prazosNaSemana=');
     expect(PAGINA).not.toContain('label="Urgentes"');
     expect(PAGINA).not.toContain('label="Minhas audiências"');
+    const carteira = PAGINA.indexOf('<LinhaDaCarteira');
+    const fila = PAGINA.indexOf('{escopoPessoal && pode.agenda && !vazio.atividadesHoje && (');
+    expect(carteira).toBeGreaterThan(-1);
+    expect(carteira).toBeLessThan(fila);
   });
 
   /**
@@ -83,43 +86,57 @@ describe('o que saiu do painel de quem tem carteira própria', () => {
   });
 });
 
-describe('a linha da carteira', () => {
-  const c = { meusProcessos: 110, preProcessuais: 4, semMovimentacao: 9 };
+/**
+ * A CARTEIRA VOLTOU A SER CARTÕES — correção de rota do mesmo dia.
+ *
+ * "A carteira principalmente, acho importante ela ser mostrada, a dashboard tem
+ * que ter dados, bonita ao usuário, animada" — o dono, depois de ver a linha de
+ * texto que eu tinha posto no lugar dos seis KPIs. Ele tem razão: painel sem
+ * número nenhum deixa de ser painel. O erro era mostrar DEZ contadores
+ * repetindo a fila logo abaixo, não mostrar a carteira.
+ */
+describe('a carteira do advogado', () => {
+  const c = { meusProcessos: 110, preProcessuais: 4, semMovimentacao: 18 };
 
-  it('são três números, e nenhum deles é fato de agenda', () => {
-    expect(segmentosDaCarteira(c).map((s) => s.chave)).toEqual([
-      'processos', 'aAjuizar', 'parados',
+  it('são quatro números, e todos falam do ACERVO ou da semana', () => {
+    expect(numerosDaCarteira(c, 9).map((n) => n.chave)).toEqual([
+      'processos', 'prazos', 'aAjuizar', 'parados',
     ]);
   });
 
-  it('cada número diz o que contou, para o title e o leitor de tela', () => {
-    const [processos, aAjuizar, parados] = segmentosDaCarteira(c);
-    expect(processos.detalhe).toBe('110 processos vinculados a você');
-    expect(aAjuizar.detalhe).toContain('pré-processual');
-    expect(parados.detalhe).toContain('sem andamento novo há');
-  });
-
-  it('um processo é "processo", não "processos"', () => {
-    const [um] = segmentosDaCarteira({ ...c, meusProcessos: 1 });
-    expect(um.rotulo).toBe('processo');
-    expect(um.detalhe).toBe('1 processo vinculado a você');
-  });
-
   /**
-   * NÚMERO CLICÁVEL ABRE O MESMO RECORTE QUE CONTOU. "Parados" fica sem link de
-   * propósito: nenhuma lista recorta "sem andamento há N dias", e `?meus=1`
-   * abriria a carteira inteira com outro número na tela.
+   * "Atrasadas" e "Urgentes" ficaram FORA: a fila logo abaixo mostra cada uma
+   * como linha, com selo e cor. Contar duas vezes é o defeito que fazia
+   * "atrasada" aparecer em quatro superfícies ao mesmo tempo.
    */
-  it('os dois que têm recorte levam a ele; o que não tem fica sem link', () => {
-    const [processos, aAjuizar, parados] = segmentosDaCarteira(c);
+  it('o que a fila já mostra linha a linha não vira cartão', () => {
+    const rotulos = numerosDaCarteira(c, 9).map((n) => n.rotulo);
+    expect(rotulos).not.toContain('Atrasadas');
+    expect(rotulos).not.toContain('Urgentes');
+  });
+
+  it('cada número diz o que contou', () => {
+    const [processos, prazos, aAjuizar, parados] = numerosDaCarteira(c, 9);
+    expect(processos.valor).toBe(110);
+    expect(prazos).toMatchObject({ valor: 9, sub: 'próximos 7 dias' });
+    expect(aAjuizar.sub).toContain('pré-processual');
+    expect(parados.sub).toContain('sem andamento há');
+  });
+
+  /** Número clicável abre o MESMO recorte que contou; sem recorte, sem link. */
+  it('os três que têm recorte levam a ele; parados fica sem link', () => {
+    const [processos, prazos, aAjuizar, parados] = numerosDaCarteira(c, 9);
     expect(processos.href).toBe('/processos?meus=1');
+    expect(prazos.href).toContain('/agenda');
     expect(aAjuizar.href).toBe('/processos?preProcessuais=1');
     expect(parados.href).toBeNull();
   });
 
   it('zero aparece — "0 parados" é a boa notícia que a pessoa precisa ler', () => {
-    const zerada = segmentosDaCarteira({ meusProcessos: 0, preProcessuais: 0, semMovimentacao: 0 });
-    expect(zerada).toHaveLength(3);
-    expect(zerada.every((s) => s.valor === 0)).toBe(true);
+    const zerada = numerosDaCarteira(
+      { meusProcessos: 0, preProcessuais: 0, semMovimentacao: 0 }, 0,
+    );
+    expect(zerada).toHaveLength(4);
+    expect(zerada.every((n) => n.valor === 0)).toBe(true);
   });
 });

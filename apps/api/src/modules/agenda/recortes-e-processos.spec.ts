@@ -32,6 +32,9 @@ interface Linha {
   id: string;
   status: StatusCompromisso;
   inicio: Date;
+  /** Quando FOI FECHADA — é outra coisa que a data dela. Ver `recorteHoje`. */
+  concluidoEm?: Date | null;
+  canceladoEm?: Date | null;
 }
 
 /*
@@ -49,6 +52,16 @@ function casa(l: Linha, w: Record<string, any>): boolean {
       return (!cond.gt || l.id > cond.gt) && (!cond.lt || l.id < cond.lt);
     }
     if (campo === 'inicio' && cond instanceof Date) return l.inicio.getTime() === cond.getTime();
+    /*
+      O AVALIADOR APRENDEU OS CARIMBOS DE FECHO em 18/09/2026, quando `hoje`
+      deixou de olhar a DATA da atividade e passou a olhar o dia em que ela foi
+      fechada. Nulo nunca casa com uma janela — é o que o Postgres faz.
+    */
+    if (campo === 'concluidoEm' || campo === 'canceladoEm') {
+      const v = l[campo as 'concluidoEm' | 'canceladoEm'];
+      if (!v) return false;
+      return (!cond.lt || v < cond.lt) && (!cond.gte || v >= cond.gte);
+    }
     if (campo === 'inicio') {
       return (
         (!cond.lt || l.inicio < cond.lt) &&
@@ -66,12 +79,26 @@ const { PENDENTE, EM_ANDAMENTO, CONCLUIDO, CANCELADO } = StatusCompromisso;
 const ACERVO: Linha[] = [
   { id: 'a-ontem-aberta', status: PENDENTE, inicio: br('2026-09-12T10:00:00') },
   { id: 'b-hoje-22h', status: PENDENTE, inicio: br('2026-09-13T22:00:00') },
-  { id: 'c-hoje-concluida', status: CONCLUIDO, inicio: br('2026-09-13T09:00:00') },
-  { id: 'd-ontem-concluida', status: CONCLUIDO, inicio: br('2026-09-12T09:00:00') },
+  { id: 'c-hoje-concluida', status: CONCLUIDO, inicio: br('2026-09-13T09:00:00'),
+    concluidoEm: br('2026-09-13T10:00:00') },
+  { id: 'd-ontem-concluida', status: CONCLUIDO, inicio: br('2026-09-12T09:00:00'),
+    concluidoEm: br('2026-09-12T11:00:00') },
   { id: 'e-dia-20', status: PENDENTE, inicio: br('2026-09-20T09:00:00') },
   { id: 'f-dia-21', status: PENDENTE, inicio: br('2026-09-21T09:00:00') },
-  { id: 'g-dia-15-cancelada', status: CANCELADO, inicio: br('2026-09-15T09:00:00') },
-  { id: 'h-julho-concluida', status: CONCLUIDO, inicio: br('2026-07-01T09:00:00') },
+  { id: 'g-dia-15-cancelada', status: CANCELADO, inicio: br('2026-09-15T09:00:00'),
+    canceladoEm: br('2026-09-11T09:00:00') },
+  { id: 'h-julho-concluida', status: CONCLUIDO, inicio: br('2026-07-01T09:00:00'),
+    concluidoEm: br('2026-07-01T09:30:00') },
+  /*
+    O CASO QUE O DONO VIU (18/09/2026): "por que essas tarefas estão aparecendo
+    no filtro de hoje sendo que foram concluídas no dia 15?". Data de HOJE,
+    fechada DIAS ANTES — nem trabalho de hoje, nem fecho de hoje.
+  */
+  { id: 'k-data-de-hoje-fechada-antes', status: CONCLUIDO, inicio: br('2026-09-13T15:00:00'),
+    concluidoEm: br('2026-09-10T16:30:00') },
+  /* O espelho: venceu semana passada e SAIU hoje — isto passou a aparecer. */
+  { id: 'l-velha-fechada-hoje', status: CONCLUIDO, inicio: br('2026-09-05T09:00:00'),
+    concluidoEm: br('2026-09-13T08:00:00') },
   { id: 'i-junho-aberta', status: PENDENTE, inicio: br('2026-06-01T09:00:00') },
   { id: 'j-hoje-23h45', status: EM_ANDAMENTO, inicio: br('2026-09-13T23:45:00') },
 ];
@@ -99,14 +126,54 @@ describe('o dia é o de Teresina', () => {
 
 describe('cada aba às 23h30', () => {
   it.each<[Recorte, string[]]>([
-    ['hoje', ['a-ontem-aberta', 'b-hoje-22h', 'c-hoje-concluida', 'i-junho-aberta', 'j-hoje-23h45']],
+    // `l-velha-fechada-hoje` entra por ter SAÍDO hoje; `k-data-de-hoje-fechada-antes`
+    // fica de fora, embora tenha a data de hoje — ver o teste logo abaixo.
+    ['hoje', ['a-ontem-aberta', 'b-hoje-22h', 'c-hoje-concluida', 'i-junho-aberta', 'j-hoje-23h45',
+      'l-velha-fechada-hoje']],
     ['atrasadas', ['a-ontem-aberta', 'i-junho-aberta']],
     ['atencao', ['a-ontem-aberta', 'b-hoje-22h', 'i-junho-aberta']],
-    ['7dias', ['a-ontem-aberta', 'b-hoje-22h', 'c-hoje-concluida', 'e-dia-20', 'g-dia-15-cancelada', 'i-junho-aberta', 'j-hoje-23h45']],
+    // 7 dias continua indo pela DATA: `k` tem data de hoje e entra.
+    ['7dias', ['a-ontem-aberta', 'b-hoje-22h', 'c-hoje-concluida', 'e-dia-20', 'g-dia-15-cancelada',
+      'i-junho-aberta', 'j-hoje-23h45', 'k-data-de-hoje-fechada-antes']],
     ['aberto', ['a-ontem-aberta', 'b-hoje-22h', 'e-dia-20', 'f-dia-21', 'i-junho-aberta', 'j-hoje-23h45']],
-    ['todos', ['a-ontem-aberta', 'b-hoje-22h', 'c-hoje-concluida', 'd-ontem-concluida', 'e-dia-20', 'f-dia-21', 'g-dia-15-cancelada', 'i-junho-aberta', 'j-hoje-23h45']],
+    ['todos', ['a-ontem-aberta', 'b-hoje-22h', 'c-hoje-concluida', 'd-ontem-concluida', 'e-dia-20',
+      'f-dia-21', 'g-dia-15-cancelada', 'i-junho-aberta', 'j-hoje-23h45',
+      'k-data-de-hoje-fechada-antes', 'l-velha-fechada-hoje']],
   ])('%s', (recorte, esperado) => {
     expect(noRecorte(recorte, NOITE)).toEqual([...esperado].sort());
+  });
+});
+
+/**
+ * "POR QUE ESSAS TAREFAS ESTÃO APARECENDO NO FILTRO DE HOJE SENDO QUE FORAM
+ * CONCLUÍDAS NO DIA 15?" — o dono, 18/09/2026.
+ *
+ * Na produção daquele dia, as TRÊS atividades com data de hoje haviam sido
+ * fechadas no dia 15 (remarcadas para o 18 e concluídas antes). A aba `hoje`
+ * olhava a DATA da atividade em qualquer status; agora olha o CARIMBO de fecho.
+ */
+describe('hoje é o trabalho de hoje e o que saiu hoje', () => {
+  const emHoje = (id: string) => noRecorte('hoje', NOITE).includes(id);
+
+  it('data de hoje, mas fechada dias antes: NÃO é de hoje', () => {
+    expect(emHoje('k-data-de-hoje-fechada-antes')).toBe(false);
+  });
+
+  it('venceu semana passada e saiu HOJE: é de hoje', () => {
+    expect(emHoje('l-velha-fechada-hoje')).toBe(true);
+  });
+
+  it('a concluída de manhã continua no quadro do dia', () => {
+    expect(emHoje('c-hoje-concluida')).toBe(true);
+  });
+
+  it('cancelada em outro dia não volta pelo fecho', () => {
+    expect(emHoje('g-dia-15-cancelada')).toBe(false);
+  });
+
+  it('e o trabalho aberto continua entrando, atrasado inclusive', () => {
+    expect(emHoje('a-ontem-aberta')).toBe(true);
+    expect(emHoje('i-junho-aberta')).toBe(true);
   });
 });
 

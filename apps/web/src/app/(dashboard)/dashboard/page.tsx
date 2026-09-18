@@ -40,6 +40,7 @@ import {
   type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { LinhaDaCarteira } from '@/components/dashboard/linha-da-carteira';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { formatNPU } from '@/lib/processos';
@@ -290,6 +291,10 @@ function Conteudo({
   role: PerfilUsuario;
 }) {
   const { kpis, minhaCarteira, alertas } = data;
+  /* Enquanto houver aniversariante sem decisão, o cartão pede alguém e divide a
+     grade com os cadastros a completar; cuidado, ele vira uma linha acima. */
+  const aniversariosPedemAlguem =
+    estadoDosAniversarios(data.aniversariantes ?? []).pendentes > 0;
   const qc = useQueryClient();
   const { user } = useAuth();
   /**
@@ -351,11 +356,19 @@ function Conteudo({
       lista no MESMO recorte. O que espera a consulta está na agenda de quem
       atende e não soma aqui.
     */
-    pode.atendimentos && {
+    /*
+      E NÃO PARA A TRIAGEM, que já tem o dela (18/09/2026). "Com a triagem" e
+      "Comigo, com a triagem" eram dois cartões quase homônimos na MESMA tela:
+      um conta a fila da casa, o outro a fila dela. Para quem trabalha a fila,
+      o número que importa é o próprio — o da casa vira ruído com nome parecido.
+    */
+    pode.atendimentos && !ehTriagem && {
       ...kpiDosAtendimentos(kpis),
       icon: Clock, cor: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
     },
-    pode.agenda && {
+    /* Prazo é do jurídico. A Triagem acompanha a agenda, mas o prazo da semana
+       não é trabalho dela e competia com os três números do balcão. */
+    pode.agenda && !ehTriagem && {
       label: 'Prazos esta semana', valor: kpis.prazosSemana, sub: 'próximos 7 dias',
       icon: AlarmClock, cor: 'bg-rose-50 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400',
       // No advogado a API conta só os prazos dele: o link leva `pessoa=eu`.
@@ -372,6 +385,51 @@ function Conteudo({
       href: '/filiados',
     },
   ].filter(Boolean) as { label: string; valor: number; sub: string; icon: typeof Briefcase; cor: string; href: string }[];
+
+  /*
+    OS NÚMEROS DA CASA — e ONDE eles ficam depende de quem está olhando.
+
+    Para quem tem CARTEIRA PRÓPRIA não vão: eram dez contadores no painel do
+    advogado (seis na carteira e mais quatro aqui), e "Filiados ativos" nunca
+    mudou uma decisão de advogado.
+
+    Para a TRIAGEM eles sobem para junto do balcão dela (18/09/2026): "tô
+    achando muito embaixo a informação da quantidade filiados, processos etc.".
+    Estavam mesmo — depois da fila, dos aniversariantes e dos cadastros a
+    completar, a quase uma tela inteira de rolagem. Junto do balcão eles são o
+    que são: o pano de fundo do dia dela, ao lado do que ela mesma produziu.
+
+    Para a gestão seguem onde estavam, depois do que precisa de gente.
+  */
+  /*
+    A GRADE ACOMPANHA O QUE EXISTE (18/09/2026). Era `lg:grid-cols-4` fixo, e a
+    Triagem — que perdeu "Com a triagem" (duplicado) e "Prazos esta semana"
+    (não é dela) — ficava com UM cartão ocupando um quarto da largura e três
+    quartos em branco. É o mesmo defeito que este arquivo já corrigiu duas vezes
+    em outros blocos.
+  */
+  const gradeDeNumeros = !escopoPessoal && kpiCards.length > 0 ? (
+    <div
+      className={cn(
+        'grid gap-4',
+        kpiCards.length === 1 && 'grid-cols-1 sm:max-w-xs',
+        kpiCards.length === 2 && 'grid-cols-2',
+        kpiCards.length === 3 && 'grid-cols-2 lg:grid-cols-3',
+        kpiCards.length >= 4 && 'grid-cols-2 lg:grid-cols-4',
+      )}
+    >
+      {kpiCards.map((c, i) => (
+        /*
+          ENTRADA POR CSS, na inserção: a revalidação de 60 s não repete nada.
+          O escalonamento tem teto (200 ms no total) e some com "reduzir
+          movimento". Era framer só para isto.
+        */
+        <div key={c.label} className="animate-surgir" style={{ animationDelay: atrasoEscalonado(i) }}>
+          <KpiCard {...c} />
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   /*
     O QUE ESTÁ VAZIO NÃO GANHA CARTÃO — GANHA UMA LINHA.
@@ -465,6 +523,17 @@ function Conteudo({
         somem: o caso pré-processual, que sai da lista padrão de propósito, e o
         processo parado há trinta dias, que ninguém percebe porque nada vence.
       */}
+      {/*
+        A CARTEIRA VEM ANTES DO TRABALHO — e isto é correção de rota do mesmo
+        dia (18/09/2026). Ver `LinhaDaCarteira`: eram dez contadores, viraram
+        uma linha de texto, e o dono pediu os números de volta ("a dashboard tem
+        que ter dados"). São quatro, custam ~200px em duas fileiras no telefone,
+        e a fila de trabalho continua visível sem rolar.
+      */}
+      {minhaCarteira && (
+        <LinhaDaCarteira carteira={minhaCarteira} prazosNaSemana={kpis.prazosSemana ?? 0} />
+      )}
+
       {escopoPessoal && pode.agenda && !vazio.atividadesHoje && (
         <AtividadesDoDia
           atrasadas={data.pendenciasAtivas ?? []}
@@ -484,15 +553,7 @@ function Conteudo({
       */}
       {pode.agenda && alertas.daEquipe && <DaSuaEquipe daEquipe={alertas.daEquipe} />}
 
-      {/*
-        A CARTEIRA VIROU UMA LINHA (18/09/2026) — ver `LinhaDaCarteira` para o
-        porquê, inclusive por que ela NÃO foi para o topo como o dono pediu.
-        Eram seis cartões em duas fileiras; sobraram os três números sem data.
-        Os outros três ("atrasadas", "urgentes", "minhas audiências") são fatos
-        de agenda e já vivem na fila de atividades, cada um como selo da própria
-        linha — "atrasada" chegou a aparecer em QUATRO superfícies ao mesmo tempo.
-      */}
-      {minhaCarteira && <LinhaDaCarteira carteira={minhaCarteira} />}
+
 
       {/*
         A FILA DO BALCÃO. O painel já mostrava "atendimentos pendentes" — o
@@ -516,6 +577,12 @@ function Conteudo({
             <KpiCard label="Filiações hoje" valor={data.minhaTriagem.filiadosHoje} sub="cadastros novos"
               icon={Users} cor="bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400" href="/filiados" destaque />
           </div>
+          {/*
+            OS NÚMEROS DA CASA LOGO ABAIXO DO BALCÃO — ver `gradeDeNumeros`.
+            Eles estavam a quase uma tela de rolagem daqui, depois da fila, dos
+            aniversariantes e dos cadastros a completar.
+          */}
+          {ehTriagem && gradeDeNumeros && <div className="mt-3">{gradeDeNumeros}</div>}
         </section>
       )}
 
@@ -692,48 +759,48 @@ function Conteudo({
               contato, e o card só aparece quando há alguém. E ao lado, os
               cadastros que dá para completar hoje — é o mesmo gesto (abrir a
               ficha de alguém e preencher o que falta), e a mesma pessoa. */}
+          {/*
+            A GRADE SÓ EXISTE QUANDO OS DOIS SÃO CARTÃO (18/09/2026).
+
+            Com o dia de aniversários já cuidado, `Aniversariantes` encolhe para
+            UMA LINHA — e dentro de uma grade de duas colunas essa linha era
+            esticada pela vizinha, que tem doze cadastros: uma caixa verde
+            VAZIA do tamanho de meia tela para dizer uma frase. Agora a linha
+            sai da grade e fica em cima, onde custa 32px.
+          */}
           {pode.filiados && (
-            <div
-              className={cn(
-                'mt-4 grid grid-cols-1 gap-4',
-                podeEditarFiliado && 'lg:grid-cols-2',
+            <div className="mt-4 space-y-4">
+              {!aniversariosPedemAlguem && (
+                <Aniversariantes
+                  data={data}
+                  podeCompletar={podeEditarFiliado}
+                  onCompletar={setRecadastrando}
+                />
               )}
-            >
-              <Aniversariantes
-                data={data}
-                podeCompletar={podeEditarFiliado}
-                onCompletar={setRecadastrando}
-              />
-              {podeEditarFiliado && (
-                <CadastrosACompletar data={data} onCompletar={setRecadastrando} />
-              )}
+              <div
+                className={cn(
+                  'grid grid-cols-1 gap-4',
+                  aniversariosPedemAlguem && podeEditarFiliado && 'lg:grid-cols-2',
+                )}
+              >
+                {aniversariosPedemAlguem && (
+                  <Aniversariantes
+                    data={data}
+                    podeCompletar={podeEditarFiliado}
+                    onCompletar={setRecadastrando}
+                  />
+                )}
+                {podeEditarFiliado && (
+                  <CadastrosACompletar data={data} onCompletar={setRecadastrando} />
+                )}
+              </div>
             </div>
           )}
         </section>
       )}
 
-      {/* ZONA 2 — os números. Estado do mundo, depois do que precisa de gente. */}
-      {/*
-        OS NÚMEROS DA CASA NÃO VÃO PARA QUEM TEM CARTEIRA PRÓPRIA (18/09/2026).
-        Eram DEZ contadores no painel do advogado: seis na carteira e mais
-        quatro aqui. "Prazos esta semana" é a própria fila logo acima, com
-        botões; "Filiados ativos" nunca mudou uma decisão de advogado. A
-        carteira dele virou uma linha de três números — ver `LinhaDaCarteira`.
-      */}
-      {!escopoPessoal && kpiCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {kpiCards.map((c, i) => (
-            /*
-              ENTRADA POR CSS, na inserção: a revalidação de 60 s não repete nada.
-              O escalonamento tem teto (200 ms no total) e some com "reduzir
-              movimento". Era framer só para isto.
-            */
-            <div key={c.label} className="animate-surgir" style={{ animationDelay: atrasoEscalonado(i) }}>
-              <KpiCard {...c} />
-            </div>
-          ))}
-        </div>
-      )}
+      {/* ZONA 2 — os números. Para a Triagem eles já saíram lá em cima. */}
+      {!ehTriagem && gradeDeNumeros}
 
 
 
@@ -806,17 +873,26 @@ function Conteudo({
         tiver permissão — o que muda é que a home dele para de assumir que ele
         quer. Nenhuma guarda deste arquivo alarga permissão; todas só escondem.
       */}
-      {ehGestao && (
-        <div
-          className={cn(
-            'grid grid-cols-1 gap-4',
-            pode.atendimentos && 'lg:grid-cols-3',
-          )}
-        >
-          <div className={cn(pode.atendimentos && 'lg:col-span-2')}>
+      {/*
+        A TRIAGEM PASSOU A VER OS GRÁFICOS — 18/09/2026.
+
+        "Esse gráfico 'Atendimentos por canal' assim como outros não deveriam
+        aparecer para a triagem também para terem base?" — e a resposta é sim.
+        Ela é quem REGISTRA o atendimento: por onde as pessoas procuram o
+        sindicato e como o volume andou nos 14 dias é a base do trabalho dela,
+        não relatório de diretoria. Gestão via, quem produz o dado não via.
+
+        A guarda passou de PERFIL para MÓDULO, que é o que a casa manda: quem
+        tem `atendimentos` vê os dois; o advogado, que tem carteira própria e
+        atendimentos só de leitura, continua fora — ali é ênfase, não acesso,
+        e o dado dele está em Relatórios.
+      */}
+      {pode.atendimentos && !escopoPessoal && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
             <GraficoTendencia data={data} podeAtend={pode.atendimentos} podeFil={pode.filiados} />
           </div>
-          {pode.atendimentos && <GraficoCanais data={data} />}
+          <GraficoCanais data={data} />
         </div>
       )}
 
@@ -2436,6 +2512,17 @@ function Aniversariantes({
   const qc = useQueryClient();
   const estado = estadoDosAniversarios(itens);
   const [salvando, setSalvando] = useState<string | null>(null);
+  /*
+    ABRIR O WHATSAPP NÃO É TER CUMPRIMENTADO — 18/09/2026.
+
+    O clique gravava PARABENIZADO na hora, assumindo que abrir a conversa é
+    falar com a pessoa. Não é: o número pode estar errado, a conversa pode não
+    ser enviada, a pessoa pode desistir no meio. O dono pediu o contrário —
+    "clicou e perguntar: você parabenizou a filiada? Se clicar sim ele é
+    dispensado" —, e ele está certo: quem sabe se o parabéns saiu é quem
+    escreveu, não o navegador.
+  */
+  const [perguntando, setPerguntando] = useState<{ id: string; tipo: 'FILIADO' | 'COLABORADOR'; nome: string } | null>(null);
 
   /*
     A DECISÃO É UM FATO, e por isso ela é gravada dos dois lados. "Deixar
@@ -2529,7 +2616,7 @@ function Aniversariantes({
                     href={zap}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => decidir(p, 'PARABENIZADO')}
+                    onClick={() => setPerguntando({ id: p.id, tipo: p.tipo, nome: p.nome })}
                     className="flex h-11 shrink-0 items-center rounded-lg bg-[#25D366] px-3 text-xs font-medium text-white transition hover:bg-[#20bd5a] sm:h-9"
                   >
                     Parabenizar
@@ -2580,6 +2667,39 @@ function Aniversariantes({
         {(estado.parabenizados > 0 || estado.deixouPassar > 0) &&
           ` Hoje: ${resumoDosAniversarios(estado)}.`}
       </p>
+
+      {/*
+        A PERGUNTA DEPOIS DO WHATSAPP. Enter confirma porque tem volta: se a
+        pessoa errar, basta abrir a conversa de novo e responder outra vez — o
+        registro é por (pessoa, dia) e se sobrescreve. "Ainda não" fecha sem
+        gravar nada, e a pessoa continua na lista.
+      */}
+      <ConfirmDialog
+        open={!!perguntando}
+        title={perguntando ? `Você parabenizou ${soOPrimeiroNome(perguntando.nome)}?` : ''}
+        confirmLabel="Sim, parabenizei"
+        /*
+          OS DOIS BOTÕES APARECEM, e por isso este diálogo NÃO usa
+          `confirmarComEnter`: com o Enter ligado o cancelar some, e aqui
+          "Ainda não" não é desistir — é a outra resposta da pergunta. Esconder
+          uma das duas respostas atrás de um X é transformar pergunta em
+          confirmação.
+        */
+        cancelLabel="Ainda não"
+        loading={salvando === perguntando?.id}
+        icon={<Cake className="h-6 w-6" />}
+        onConfirm={async () => {
+          if (perguntando) await decidir(perguntando, 'PARABENIZADO');
+          setPerguntando(null);
+        }}
+        onClose={() => setPerguntando(null)}
+        description={
+          <p className="text-sm text-muted-foreground">
+            Respondendo que sim, {perguntando ? soOPrimeiroNome(perguntando.nome) : 'a pessoa'} sai
+            da lista de hoje e fica registrado que a casa cumprimentou.
+          </p>
+        }
+      />
     </SectionCard>
   );
 }

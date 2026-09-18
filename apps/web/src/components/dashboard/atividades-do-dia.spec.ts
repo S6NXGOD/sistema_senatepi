@@ -392,16 +392,26 @@ describe('a posição do bloco muda com o escopo', () => {
 /**
  * O CORTE POR PERFIL NÃO PODE ALARGAR PERMISSÃO — só esconder.
  *
- * Gráfico é instrumento de gestão; aniversariante é trabalho de quem atende.
- * Nenhum dos dois é o dia do advogado. Mas a guarda é sempre `&&` sobre o gate
- * de módulo que já existia: se alguém trocasse `pode.filiados` por `ehGestao`,
- * um perfil passaria a ver o que não podia.
+ * Aniversariante é trabalho de quem atende, e não é o dia do advogado. Mas a
+ * guarda é sempre `&&` sobre o gate de MÓDULO que já existia: se alguém
+ * trocasse `pode.filiados` por `ehGestao`, um perfil passaria a ver o que não
+ * podia.
  */
 describe('o que saiu do painel do advogado', () => {
-  it('gráficos ficam com quem coordena', () => {
-    expect(PAINEL).toContain('{ehGestao && (');
-    const trecho = PAINEL.slice(PAINEL.indexOf('GRÁFICO É INSTRUMENTO DE GESTÃO'));
-    expect(trecho.slice(0, 1400)).toContain('<GraficoTendencia');
+  /**
+   * OS GRÁFICOS DEIXARAM DE SER "DE GESTÃO" — 18/09/2026.
+   *
+   * "Esse gráfico 'Atendimentos por canal' assim como outros não deveriam
+   * aparecer para a triagem também para terem base?" — sim. Quem REGISTRA o
+   * atendimento é ela; por onde as pessoas procuram o sindicato é a base do
+   * trabalho dela, não relatório de diretoria. A guarda virou o módulo, que é
+   * mais estrita que o perfil: continua só escondendo, nunca alargando.
+   */
+  it('os gráficos são de quem tem o módulo de atendimentos, menos quem tem carteira', () => {
+    expect(PAINEL).toContain('{pode.atendimentos && !escopoPessoal && (');
+    const trecho = PAINEL.slice(PAINEL.indexOf('{pode.atendimentos && !escopoPessoal && ('));
+    expect(trecho.slice(0, 700)).toContain('<GraficoTendencia');
+    expect(trecho.slice(0, 700)).toContain('<GraficoCanais');
   });
 
   it('aniversariantes idem, e o gate de módulo continua', () => {
@@ -438,26 +448,29 @@ describe('o que saiu do painel do advogado', () => {
  * atividades: o advogado rolava 446px para ver o primeiro prazo.
  */
 describe('o que o advogado vê sem rolar', () => {
-  it('as atividades vêm antes até da carteira', () => {
+  /**
+   * A CARTEIRA VEM PRIMEIRO, E É PEQUENA — 18/09/2026, em duas correções.
+   *
+   * Eram SEIS KPIs em duas fileiras (364px medidos num telefone de 375px) mais
+   * uma segunda grade com quatro números da casa: o advogado rolava quase meia
+   * tela de contagem antes do primeiro prazo. Encolhi para uma linha de texto e
+   * o dono pediu os números de volta — "a dashboard tem que ter dados".
+   *
+   * O acordo entre as duas coisas é o TAMANHO: quatro cartões em duas fileiras
+   * custam ~200px, e a fila de trabalho continua visível sem rolar. Os números
+   * que a fila já mostra linha a linha (atrasadas, urgentes) ficaram de fora.
+   */
+  it('a carteira é um bloco de quatro, e vem logo antes da fila', () => {
+    const carteira = PAINEL.indexOf('<LinhaDaCarteira carteira={minhaCarteira}');
     const atividades = PAINEL.indexOf('{escopoPessoal && pode.agenda && !vazio.atividadesHoje && (');
-    const carteira = PAINEL.indexOf('{minhaCarteira && <LinhaDaCarteira');
-    expect(atividades).toBeGreaterThan(-1);
     expect(carteira).toBeGreaterThan(-1);
-    expect(atividades).toBeLessThan(carteira);
+    expect(carteira).toBeLessThan(atividades);
   });
 
-  /**
-   * A CARTEIRA DEIXOU DE SER GRADE — 18/09/2026.
-   *
-   * Eram seis KPIs; passaram a três números numa linha de 44px, e a segunda
-   * grade de quatro KPIs da casa saiu do painel de quem tem carteira própria.
-   * De ~216px de contagem para ~44px, e de dez contadores para três.
-   * Ver `linha-da-carteira.tsx` — inclusive por que ela NÃO foi para o topo.
-   */
-  it('a carteira é uma linha, não uma grade de cartões', () => {
+  it('e não é a grade antiga de seis, nem a segunda grade da casa', () => {
     expect(PAINEL).not.toContain('grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6');
     expect(PAINEL).not.toContain('label="Meus processos"');
-    expect(PAINEL).toContain('<LinhaDaCarteira carteira={minhaCarteira} />');
+    expect(PAINEL).toContain('const gradeDeNumeros = !escopoPessoal && kpiCards.length > 0 ?');
   });
 });
 

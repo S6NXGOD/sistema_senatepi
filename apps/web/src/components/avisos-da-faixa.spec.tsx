@@ -43,11 +43,26 @@ jest.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { role: 'ADVOGADO', per
 jest.mock('@/lib/permissoes', () => ({ podeVer: () => true }));
 
 // eslint-disable-next-line import/first
-import { FaixaDeAtraso } from './faixa-de-atraso';
+import { FaixaDeAtraso, ListaDeAvisos } from './faixa-de-atraso';
 
+/**
+ * DESENHA A FAIXA COMO ELA CHEGA NA TELA: um aviso e a pastilha do resto.
+ *
+ * Desde 18/09/2026 ela mostra só o primeiro — três grupos viravam uma parede de
+ * 108px FIXA no alto de toda tela. O resto abre no lugar, e o estado aberto não
+ * existe num render de servidor: quem prova o conteúdo dos quatro é
+ * `desenharTodos`, que chama a lista direto.
+ */
 function desenhar(pendencias: Pendencia[]): string {
   mockResposta.atual = { pendencias, total: pendencias.reduce((s, p) => s + p.total, 0) };
   return renderToStaticMarkup(createElement(FaixaDeAtraso));
+}
+
+/** A lista com TODOS os avisos — é o que a pastilha revela. */
+function desenharTodos(pendencias: Pendencia[]): string {
+  return renderToStaticMarkup(
+    createElement(ListaDeAvisos, { avisos: avisosDaFaixa(pendencias) }),
+  );
 }
 
 // ── leitura do que foi desenhado ──────────────────────────────────────────────
@@ -150,7 +165,7 @@ describe('nada some por largura', () => {
    * INTEIRO — sem reticências, sem rolagem e sem nada que dissesse que havia mais.
    */
   it('os quatro avisos são desenhados, cada um com a sua frase inteira', () => {
-    const links = linksDesenhados(desenhar(OS_QUATRO));
+    const links = linksDesenhados(desenharTodos(OS_QUATRO));
     expect(links).toHaveLength(4);
     expect(links.map((l) => l.texto)).toEqual([
       '“Elaborar manifestação” ficou para trás',
@@ -170,14 +185,14 @@ describe('nada some por largura', () => {
     expect(someEmAlgumaLargura(' class="shrink-0 lg:hidden"')).toBe(true);
     expect(someEmAlgumaLargura(' class="truncate overflow-hidden"')).toBe(false);
 
-    const escondidos = tags(desenhar(OS_QUATRO)).filter((t) => someEmAlgumaLargura(t.attrs));
+    const escondidos = tags(desenharTodos(OS_QUATRO)).filter((t) => someEmAlgumaLargura(t.attrs));
     expect(escondidos.length).toBeGreaterThan(0); // o separador existe…
     for (const t of escondidos) expect(t.attrs).toContain('aria-hidden'); // …e é só ele.
   });
 
   /** A pastilha "+N" era `lg:hidden` — existia exatamente onde o corte NÃO acontecia. */
   it('não há atalho que esconda avisos atrás de um número', () => {
-    const html = desenhar(OS_QUATRO);
+    const html = desenharTodos(OS_QUATRO);
     expect(html).not.toMatch(/>\s*\+\d+\s*</);
     expect(html).not.toContain('lg:hidden');
   });
@@ -192,7 +207,7 @@ describe('nada some por largura', () => {
    * cortada. Aqui fica a trava do que o jest alcança.
    */
   it('todo aviso leva a frase inteira no title, e o texto que corta tem reticências', () => {
-    const html = desenhar(OS_QUATRO);
+    const html = desenharTodos(OS_QUATRO);
     /*
       E o `title` NÃO está no <a>: ali ele vira a descrição acessível e o leitor
       de tela diria a mesma frase duas vezes, na barra de toda tela.
@@ -222,7 +237,7 @@ describe('cada aviso leva ao seu lugar', () => {
    */
   it('não existe link além dos próprios avisos', () => {
     const avisos = avisosDaFaixa(OS_QUATRO);
-    const links = linksDesenhados(desenhar(OS_QUATRO));
+    const links = linksDesenhados(desenharTodos(OS_QUATRO));
     expect(links.map((l) => l.href)).toEqual(avisos.map((a) => a.href));
     expect(links.map((l) => l.href)).toEqual([
       '/agenda?compromisso=c1',
@@ -233,7 +248,7 @@ describe('cada aviso leva ao seu lugar', () => {
   });
 
   it('vários do mesmo grupo levam à lista daquele grupo, nunca a um painel só', () => {
-    const links = linksDesenhados(desenhar([atrasada(5), daEquipe(2), semTarefa(3), ato(7, 'Recurso negado')]));
+    const links = linksDesenhados(desenharTodos([atrasada(5), daEquipe(2), semTarefa(3), ato(7, 'Recurso negado')]));
     expect(links.map((l) => l.href)).toEqual(['/agenda', '/dashboard', '/publicacoes', '/processos']);
   });
 });
@@ -245,7 +260,7 @@ describe('o ícone é o da linha, não o do primeiro grupo', () => {
    * na prática era sempre o mesmo, e as quatro naturezas viravam uma só.
    */
   it('cada natureza tem o seu, na sua própria linha', () => {
-    const links = linksDesenhados(desenhar(OS_QUATRO));
+    const links = linksDesenhados(desenharTodos(OS_QUATRO));
     expect(links.map((l) => l.icone)).toEqual([
       nomeDoIcone(CalendarClock),
       nomeDoIcone(Users),
@@ -256,7 +271,7 @@ describe('o ícone é o da linha, não o do primeiro grupo', () => {
   });
 
   it('e não depende da ordem em que os grupos chegam', () => {
-    const links = linksDesenhados(desenhar([ato(1, 'Recurso negado'), atrasada(1)]));
+    const links = linksDesenhados(desenharTodos([ato(1, 'Recurso negado'), atrasada(1)]));
     expect(links.map((l) => l.icone)).toEqual([nomeDoIcone(Gavel), nomeDoIcone(CalendarClock)]);
   });
 });
@@ -286,14 +301,15 @@ describe('a faixa fala sozinha', () => {
 describe('a cor não acusa ninguém', () => {
   /** Âmbar pede você. Vermelho é só do Excluir — e o atraso do colega não é crime. */
   it('é âmbar, nunca vermelho', () => {
-    const html = desenhar(OS_QUATRO);
-    expect(html).toContain('bg-amber-50');
+    // O fundo mora na faixa; as linhas moram na lista. Os dois entram na conta.
+    expect(desenhar(OS_QUATRO)).toContain('bg-amber-50');
+    const html = desenharTodos(OS_QUATRO);
     expect(html).not.toMatch(/\b(?:bg|text|border)-(?:red|rose)-\d/);
   });
 
   /** Ela some quando o trabalho é feito — calar sem resolver não é opção. */
   it('não tem botão de fechar', () => {
-    const html = desenhar(OS_QUATRO);
+    const html = desenharTodos(OS_QUATRO);
     expect(html).not.toContain('<button');
     expect(html).not.toMatch(/dispensar|fechar aviso/i);
   });
@@ -458,5 +474,48 @@ describe('grupo vazio não vira linha', () => {
     ] as unknown as Pendencia[];
     expect(avisosDaFaixa(lista).map((a) => a.tipo)).toEqual(['ATRASADA']);
     expect(linksDesenhados(desenhar(lista))).toHaveLength(1);
+  });
+});
+
+/**
+ * A FAIXA MOSTRA UM AVISO, E O RESTO ABRE NO LUGAR — 18/09/2026.
+ *
+ * "Essas barras amarelas são muito feias. (Além de serem fixas e ocuparem muito
+ * espaço)" — o dono. Com três grupos ela virava uma parede de 108px FIXA no
+ * alto de TODA tela, antes de qualquer conteúdo. Empilhar tinha resolvido o
+ * corte silencioso e criado isto.
+ *
+ * A pastilha NÃO é um link: a "+N" que existiu antes mandava para /dashboard
+ * prometendo avisos que o painel não tem. Esta abre a lista que já está aqui.
+ */
+describe('a faixa não vira parede', () => {
+  it('com quatro avisos, desenha UM e diz quantos faltam', () => {
+    const html = desenhar(OS_QUATRO);
+    expect(linksDesenhados(html)).toHaveLength(1);
+    expect(html).toContain('e mais 3 avisos');
+  });
+
+  it('com um aviso só, não há pastilha nenhuma', () => {
+    const html = desenhar([atrasada(1)]);
+    expect(linksDesenhados(html)).toHaveLength(1);
+    expect(html).not.toContain('e mais');
+    expect(html).not.toContain('mostrar menos');
+  });
+
+  it('o singular existe', () => {
+    expect(desenhar([atrasada(1), daEquipe(2)])).toContain('e mais 1 aviso');
+  });
+
+  /** Abrir é um botão, não um link — e nenhum link novo aparece por causa dele. */
+  it('a pastilha não leva a lugar nenhum', () => {
+    const html = desenhar(OS_QUATRO);
+    expect(html).toContain('<button');
+    expect(linksDesenhados(html).map((l) => l.href)).toEqual(['/agenda?compromisso=c1']);
+  });
+
+  /** O primeiro é o que o serviço pôs em primeiro: a ordem é dele, não da tela. */
+  it('o que aparece é o primeiro da lista, sem reordenar', () => {
+    const html = desenhar([ato(1, 'Recurso negado'), atrasada(1)]);
+    expect(linksDesenhados(html)[0].texto).toContain('Recurso negado');
   });
 });

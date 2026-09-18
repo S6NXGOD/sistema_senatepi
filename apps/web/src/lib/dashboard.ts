@@ -654,7 +654,14 @@ export function primeiroNome(p: PessoaResumo): string {
  * e regras diferentes já custaram caro neste projeto.
  */
 export function soOPrimeiroNome(nome: string): string {
-  return (nome || '').trim().split(/\s+/)[0] || nome;
+  const primeiro = (nome || '').trim().split(/\s+/)[0] || nome;
+  /*
+    A BASE GRAVA EM CAIXA ALTA, e a tela não precisa gritar. "Você parabenizou
+    JOANA?" soa como cobrança; "Você parabenizou Joana?" soa como pergunta. Só
+    a primeira letra sobe — nome de duas letras ou vazio passa intacto.
+  */
+  if (!primeiro) return primeiro;
+  return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
 }
 
 /**

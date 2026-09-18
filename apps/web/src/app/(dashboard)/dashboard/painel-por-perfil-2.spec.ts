@@ -100,23 +100,29 @@ describe('hoje e os próximos dias', () => {
  */
 describe('a ordem por perfil', () => {
   /**
-   * A CARTEIRA DEIXOU DE SER UMA SEÇÃO — 18/09/2026. Eram seis KpiCard sob um
-   * `SectionTitle`; viraram uma linha de três números. Ela continua ANTES dos
-   * números da casa; o que mudou é que os números da casa nem vão para quem tem
-   * carteira própria. Ver `linha-da-carteira.tsx`.
+   * A CARTEIRA DO ADVOGADO — 18/09/2026, em duas correções de rota no mesmo
+   * dia. Eram seis KpiCard sob um `SectionTitle`; viraram uma linha de texto; e
+   * o dono pediu os números de volta. Hoje são QUATRO cartões, num bloco sem
+   * título (o rótulo mora em cada cartão), antes da fila.
+   *
+   * A COMPARAÇÃO É DE INTENÇÃO, NÃO DE ÍNDICE: os números da casa moram numa
+   * variável declarada no topo do componente, então a posição deles no ARQUIVO
+   * deixou de dizer qualquer coisa sobre a posição na TELA.
    */
-  it('o advogado abre na carteira dele, agora em uma linha', () => {
-    expect(TELA).toContain('<LinhaDaCarteira carteira={minhaCarteira} />');
+  it('o advogado abre na carteira dele, em quatro cartões', () => {
+    expect(TELA).toContain('<LinhaDaCarteira carteira={minhaCarteira} prazosNaSemana=');
     expect(TELA).not.toContain('texto="Minha carteira"');
-    expect(TELA.indexOf('<LinhaDaCarteira')).toBeLessThan(TELA.indexOf('KpiCard {...c}'));
-    // E a grade da casa não desce para ele.
-    expect(TELA).toContain('{!escopoPessoal && kpiCards.length > 0 && (');
+    // E a grade da casa nem é montada para ele.
+    expect(TELA).toContain('const gradeDeNumeros = !escopoPessoal && kpiCards.length > 0 ?');
   });
 
-  it('a triagem abre no balcão e na fila dela', () => {
+  it('a triagem abre no balcão, com os números da casa ao lado, e depois a fila', () => {
     expect(TELA).toContain('texto="Meu balcão hoje"');
     expect(TELA).toContain('texto="Sua fila de hoje"');
-    expect(TELA.indexOf('texto="Meu balcão hoje"')).toBeLessThan(TELA.indexOf('KpiCard {...c}'));
+    // Os números da casa saem DENTRO da seção do balcão, não no fim da página.
+    expect(TELA).toContain('{ehTriagem && gradeDeNumeros &&');
+    expect(TELA.indexOf('{ehTriagem && gradeDeNumeros &&'))
+      .toBeLessThan(TELA.indexOf('texto="Sua fila de hoje"'));
   });
 
   /**

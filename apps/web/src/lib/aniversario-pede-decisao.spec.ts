@@ -82,12 +82,20 @@ describe('o resumo do dia não mostra zeros', () => {
  * assinatura e regras diferentes já custaram caro neste projeto.
  */
 describe('o primeiro nome de um nome solto', () => {
-  it('pega só o primeiro', () => {
-    expect(soOPrimeiroNome('MARIA DAS GRAÇAS SILVA')).toBe('MARIA');
+  /**
+   * E ELE NÃO GRITA. A base grava em caixa alta; "Você parabenizou JOANA?" soa
+   * como cobrança, "Você parabenizou Joana?" soa como pergunta — que é o que é.
+   */
+  it('pega só o primeiro, e em caixa de gente', () => {
+    expect(soOPrimeiroNome('MARIA DAS GRAÇAS SILVA')).toBe('Maria');
   });
 
   it('aguenta espaço sobrando', () => {
-    expect(soOPrimeiroNome('  ANA   BEATRIZ ')).toBe('ANA');
+    expect(soOPrimeiroNome('  ANA   BEATRIZ ')).toBe('Ana');
+  });
+
+  it('acento sobrevive à troca de caixa', () => {
+    expect(soOPrimeiroNome('ANTÔNIA DA SILVA')).toBe('Antônia');
   });
 
   it('nome vazio devolve o que recebeu, sem quebrar', () => {

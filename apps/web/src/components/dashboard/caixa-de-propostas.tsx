@@ -419,7 +419,19 @@ function LinhaDaProposta({
         as duas primeiras já dizem de quem é; o resto está no ato do tribunal,
         no link logo abaixo.
       */}
-      <p className="mt-1.5 line-clamp-2 rounded-md bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
+      {/*
+        UMA LINHA, NÃO DUAS — 18/09/2026. "Essas '10 publicações esperando sua
+        decisão' ocupam espaço demais e achei muito grosseiro", e estava certo:
+        cada item custava ~190px e quatro somavam mais que a dobra do telefone.
+
+        A frase da ordem começa pelo VERBO ("Fica V. Sa. intimado para…"), então
+        a primeira linha já diz o que é; o inteiro teor está no link do tribunal
+        e na ficha do processo. O `title` devolve o que as reticências comeram.
+      */}
+      <p
+        title={p.ordem ?? previaSemTimbre(p.texto)}
+        className="mt-1 truncate rounded-md bg-muted/60 px-2 py-1 text-[11px] leading-snug"
+      >
         {p.ordem ?? previaSemTimbre(p.texto)}
       </p>
 
@@ -431,8 +443,14 @@ function LinhaDaProposta({
         fazer — a rede dele tem uma condição que só o teor responde, e anunciar
         uma tarefa que ele pode recusar é o alarme que contradiz o robô.
       */}
-      {selo.recado && (
-        <p className="mt-1.5 flex items-start gap-1.5 text-[11px] font-medium text-amber-900 dark:text-amber-300">
+      {/*
+        O RECADO SÓ APARECE QUANDO DIZ ALGO NOVO. Para a PARADA ele repetia a
+        pílula ("parada há 9d" logo acima) numa linha inteira; para a
+        FORA_DA_JANELA ele conta o que a pílula não conta — que a rede do robô
+        desistiu e a tarefa aberta agora já nasce atrasada.
+      */}
+      {selo.recado && p.estado === 'FORA_DA_JANELA' && (
+        <p className="mt-1 flex items-start gap-1.5 text-[11px] font-medium text-amber-900 dark:text-amber-300">
           {p.estado === 'FORA_DA_JANELA' ? (
             <History className="mt-0.5 h-3 w-3 shrink-0" />
           ) : (
@@ -444,11 +462,16 @@ function LinhaDaProposta({
 
       {!recusando ? (
         <div className="mt-2 flex gap-2">
+          {/*
+            NO COMPUTADOR OS BOTÕES NÃO PRECISAM DA LARGURA TODA. No telefone
+            sim — alvo de 44px é a regra, e dois lado a lado a 400px já ficam
+            justos. Da tela média em diante encolhem para o tamanho do texto.
+          */}
           <button
             type="button"
             onClick={onAceitar}
             disabled={ocupado}
-            className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-3 text-sm font-medium text-white transition hover:bg-brand-900 disabled:opacity-60 sm:h-9"
+            className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-800 px-3 text-sm font-medium text-white transition hover:bg-brand-900 disabled:opacity-60 sm:h-8 sm:flex-none sm:px-4 sm:text-xs"
           >
             {ocupado ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             {ehGestao ? 'Ficar com ela' : 'É minha'}
@@ -457,7 +480,7 @@ function LinhaDaProposta({
             type="button"
             onClick={onAbrirRecusa}
             disabled={ocupado}
-            className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-60 sm:h-9"
+            className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md border border-input px-3 text-sm font-medium transition hover:bg-muted disabled:opacity-60 sm:h-8 sm:flex-none sm:px-4 sm:text-xs"
           >
             <X className="h-4 w-4" />
             {ehGestao ? 'Dispensar' : 'Não é minha'}

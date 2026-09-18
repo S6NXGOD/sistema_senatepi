@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CalendarClock, ChevronRight, Gavel, Newspaper, Users } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
@@ -98,6 +99,23 @@ export function FaixaDeAtraso() {
   });
 
   const avisos = avisosDaFaixa(data?.pendencias ?? []);
+  /*
+    UM AVISO POR VEZ, E O RESTO A UM TOQUE — 18/09/2026.
+
+    Empilhar resolveu o corte silencioso, e criou outro problema: com três
+    grupos a faixa virava uma parede de 108px FIXA no alto de TODA tela, antes
+    de qualquer conteúdo. "Muito feias, fixas e ocupam muito espaço", e estava
+    certo — a faixa é moldura, não conteúdo.
+
+    Agora ela mostra o PRIMEIRO (o serviço já ordena por urgência) e uma
+    pastilha com quantos faltam. A pastilha ABRE NO LUGAR, e é essa a diferença
+    para a "+N" que existiu antes: aquela mandava para o painel prometendo
+    avisos que o painel não tem. Nada é escondido por largura; o que sobra está
+    a um toque, no mesmo lugar.
+  */
+  const [aberta, setAberta] = useState(false);
+  const visiveis = aberta ? avisos : avisos.slice(0, 1);
+  const escondidos = avisos.length - visiveis.length;
 
   /*
     A REGIÃO FICA NO DOM MESMO SEM AVISO — é o que faz o aviso novo ser falado.
@@ -116,7 +134,36 @@ export function FaixaDeAtraso() {
       }
     >
       {avisos.length > 0 && (
-        <ul className="flex flex-col px-2 py-1 md:px-4">
+        <ListaDeAvisos
+          avisos={visiveis}
+          escondidos={escondidos}
+          aberta={aberta}
+          onAlternar={() => setAberta((x) => !x)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A LISTA DE AVISOS — separada da faixa para poder ser desenhada inteira.
+ *
+ * `FaixaDeAtraso` mostra UM aviso e guarda o resto atrás da pastilha, que abre
+ * no lugar. Esta parte não sabe disso: recebe os avisos que deve desenhar. É o
+ * que permite provar, num teste de renderização no servidor, que os quatro
+ * saem com a frase inteira, o ícone da própria natureza e o destino certo —
+ * coisa que o estado fechado do componente esconderia.
+ */
+export function ListaDeAvisos({
+  avisos, escondidos = 0, aberta = false, onAlternar,
+}: {
+  avisos: ReturnType<typeof avisosDaFaixa>;
+  escondidos?: number;
+  aberta?: boolean;
+  onAlternar?: () => void;
+}) {
+  return (
+    <ul className="flex flex-col px-2 py-0.5 md:px-4">
           {avisos.map((a) => {
             const Icone = ICONE[a.tipo] ?? AlertTriangle;
             return (
@@ -186,8 +233,25 @@ export function FaixaDeAtraso() {
               </li>
             );
           })}
-        </ul>
-      )}
-    </div>
+          {/*
+            A PASTILHA ABRE NO LUGAR. Ela não é um link: o defeito da "+N"
+            anterior era mandar para /dashboard prometendo avisos que o painel
+            não tem. Aqui o conteúdo já está carregado — é só mostrar.
+          */}
+          {(escondidos > 0 || aberta) && (
+            <li>
+              <button
+                type="button"
+                onClick={onAlternar}
+                aria-expanded={aberta}
+                className="flex min-h-[1.75rem] items-center gap-1 rounded-md px-2 text-xs font-medium text-amber-800 underline-offset-4 transition-colors hover:bg-amber-100/80 hover:underline dark:text-amber-200 dark:hover:bg-amber-900/40"
+              >
+                {aberta
+                  ? 'mostrar menos'
+                  : `e mais ${escondidos} ${escondidos === 1 ? 'aviso' : 'avisos'}`}
+              </button>
+            </li>
+          )}
+    </ul>
   );
 }

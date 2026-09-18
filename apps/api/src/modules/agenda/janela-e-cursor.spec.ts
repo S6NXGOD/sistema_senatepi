@@ -40,17 +40,31 @@ interface Linha {
   nome: string;
   status: StatusCompromisso;
   inicio: Date;
+  /** Carimbo de fecho — ver `recorteHoje`. Aqui, o mesmo dia da atividade. */
+  concluidoEm?: Date | null;
+  canceladoEm?: Date | null;
 }
 
 /** Segunda-feira, 14/09/2026, 10h de Teresina. */
 const AGORA = br('2026-09-14T10:00:00');
 
-const linha = (n: number, nome: string, status: StatusCompromisso, local: string): Linha => ({
-  id: uuid(n),
-  nome,
-  status,
-  inicio: br(local),
-});
+/*
+  A LINHA FECHADA GANHA O CARIMBO NO PRÓPRIO DIA DELA (18/09/2026), porque
+  `hoje` deixou de olhar a data e passou a olhar quando a atividade foi fechada.
+  Este arquivo é sobre JANELA e CURSOR, não sobre datas de fecho: carimbar no
+  mesmo dia mantém exatamente os recortes que ele já provava.
+*/
+const linha = (n: number, nome: string, status: StatusCompromisso, local: string): Linha => {
+  const inicio = br(local);
+  return {
+    id: uuid(n),
+    nome,
+    status,
+    inicio,
+    concluidoEm: status === CONCLUIDO ? inicio : null,
+    canceladoEm: status === CANCELADO ? inicio : null,
+  };
+};
 
 /*
   Os ids NÃO seguem a ordem do horário de propósito: num empate, quem decide é
@@ -83,6 +97,11 @@ function casa(l: Linha, w: Record<string, any>): boolean {
     if (campo === 'id') {
       if (typeof cond === 'string') return l.id === cond;
       return (!cond.gt || l.id > cond.gt) && (!cond.lt || l.id < cond.lt);
+    }
+    if (campo === 'concluidoEm' || campo === 'canceladoEm') {
+      const v = l[campo as 'concluidoEm' | 'canceladoEm'];
+      if (!v) return false; // nulo nunca casa com janela, como no Postgres
+      return (!cond.lt || v < cond.lt) && (!cond.gte || v >= cond.gte);
     }
     if (campo === 'inicio') {
       if (cond instanceof Date) return l.inicio.getTime() === cond.getTime();

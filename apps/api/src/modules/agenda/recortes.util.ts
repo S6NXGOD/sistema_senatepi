@@ -98,21 +98,41 @@ export function recorteAtencao(agora: Date = new Date()): Prisma.CompromissoWher
 }
 
 /**
- * HOJE INCLUI O QUE FICOU PARA TRÁS.
+ * HOJE É O TRABALHO DE HOJE, MAIS O QUE SAIU HOJE.
  *
- * A faixa do topo acusava "2 atrasadas" e a agenda abria na aba Hoje sem elas —
- * era preciso saber que moravam em "Em aberto". Agora: aberta com início até o
- * fim de hoje (as antigas inclusive, no topo pela ordem de início) + qualquer
- * situação com início hoje, para a concluída às 10h continuar no quadro do dia.
+ * INCLUI O QUE FICOU PARA TRÁS: a faixa do topo acusava "2 atrasadas" e a
+ * agenda abria na aba Hoje sem elas — era preciso saber que moravam em
+ * "Em aberto". Aberta com início até o fim de hoje entra, as antigas inclusive.
+ *
+ * E O SEGUNDO RAMO DEIXOU DE SER A DATA (18/09/2026). Era "qualquer situação
+ * com início HOJE", para a concluída às 10h continuar no quadro do dia. Só que
+ * a data da atividade e o dia em que ela foi fechada são coisas diferentes:
+ *
+ *   "Por que essas tarefas estão aparecendo no filtro de hoje sendo que foram
+ *    concluídas no dia 15?" — o dono, 18/09/2026.
+ *
+ * Ele estava certo. As TRÊS atividades com data de hoje na produção daquele dia
+ * haviam sido fechadas no dia 15: remarcadas para o 18 e concluídas antes. Não
+ * eram trabalho de hoje nem fecho de hoje — eram ruído nas duas leituras.
+ *
+ * Agora o segundo ramo pergunta pelo CARIMBO: fechada ou cancelada hoje, seja
+ * qual for a data dela. Com isso a concluída de manhã continua no quadro (que
+ * era o objetivo), a de três dias atrás sai, e a que venceu semana passada mas
+ * foi resolvida hoje passa a aparecer — que é o que "saiu hoje" quer dizer.
  */
 export function recorteHoje(agora: Date = new Date()): Prisma.CompromissoWhereInput {
   const { hojeIni, hojeFim } = limitesDoDia(agora);
+  const fechadoHoje = { gte: hojeIni, lt: hojeFim };
   return {
     AND: [
       {
         OR: [
+          // O trabalho: aberta e já devida.
           { status: { in: STATUS_ABERTOS }, inicio: { lt: hojeFim } },
-          { inicio: { gte: hojeIni, lt: hojeFim } },
+          // O que saiu hoje. `canceladoEm` entra junto: cancelar é um desfecho,
+          // e some da tela de amanhã como qualquer outro.
+          { concluidoEm: fechadoHoje },
+          { canceladoEm: fechadoHoje },
         ],
       },
     ],
