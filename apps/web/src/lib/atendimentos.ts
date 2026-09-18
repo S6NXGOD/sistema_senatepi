@@ -299,13 +299,28 @@ export const STATUS_LABEL: Record<StatusAtendimento, string> = {
 /*
   FECHADO NÃO É ALARME (14/09/2026). Cancelado era vermelho e riscado: o
   vermelho dizia "algo deu errado" sobre uma decisão tomada, e o riscado
-  atrapalhava a leitura a 400 px. Concluído e cancelado ficam neutros; só o
-  pendente, que ainda pede alguém, é âmbar. O vermelho fica para o Excluir.
+  atrapalhava a leitura a 400 px. Só o pendente, que ainda pede alguém, é âmbar,
+  e o vermelho ficou para o Excluir.
+
+  MAS OS DOIS FECHADOS ERAM O MESMO CINZA (18/09/2026), e aí a regra passou do
+  ponto: `bg-muted text-foreground/80` para concluído e `bg-muted
+  text-muted-foreground` para cancelado são indistinguíveis numa tabela — dois
+  desfechos OPOSTOS com o mesmo selo, e a lista virava uma parede sem relevo.
+  (Na Agenda esse defeito não existe: lá concluído já é verde e cancelado é
+  cinza.) O relato foi direto: "cancelado tem que estar vermelho".
+
+  A correção NÃO é vermelho, e o motivo é aritmético: no print havia duas linhas
+  canceladas entre dezessete, e nenhuma delas pede coisa alguma — pintar de
+  alarme o que não precisa de ninguém é o jeito mais rápido de ensinar a equipe
+  a ignorar alarme. O que faltava era IDENTIDADE, não urgência: rosa suave, sem
+  preenchimento forte e sem riscado. Fica legível o bastante para o olho separar
+  as linhas de longe, e discreto o bastante para não competir com o âmbar, que
+  continua sendo a única cor que quer dizer "isto é com você".
 */
 export const STATUS_COR: Record<StatusAtendimento, string> = {
   PENDENTE: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   CONCLUIDO: 'bg-muted text-foreground/80',
-  CANCELADO: 'bg-muted text-muted-foreground',
+  CANCELADO: 'border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300',
 };
 
 /**
@@ -614,7 +629,7 @@ export function deQuem(nome: string): string {
   return `de ${n}`;
 }
 
-export type TomDoEstado = 'ambar' | 'verde' | 'neutro';
+export type TomDoEstado = 'ambar' | 'verde' | 'rosa' | 'neutro';
 
 /**
  * O rótulo curto do chip e o tom. Âmbar para o que pede atenção da triagem
@@ -648,7 +663,18 @@ export function tomDoEncaminhamento(
     mesmo atraso três vezes. Com a fila, âmbar só no que é da triagem; verde
     só na consulta atendida de um atendimento concluído; o resto é neutro.
   */
-  if (statusAtendimento !== 'PENDENTE') return estado === 'ATENDIDA' && statusAtendimento === 'CONCLUIDO' ? 'verde' : 'neutro';
+  if (statusAtendimento !== 'PENDENTE') {
+    if (estado === 'ATENDIDA' && statusAtendimento === 'CONCLUIDO') return 'verde';
+    /*
+      CANCELADA FECHADA É IDENTIDADE, NÃO ALERTA (18/09/2026). Enquanto o
+      atendimento está pendente, a consulta cancelada é trabalho da triagem
+      (remarcar ou fechar) e continua ÂMBAR. Depois que alguém fechou, ela vira
+      história — e história precisa ser reconhecível, não gritada: o rosa
+      distingue "não aconteceu" de "aconteceu" sem chamar ninguém.
+    */
+    if (estado === 'CANCELADA') return 'rosa';
+    return 'neutro';
+  }
   const naFila = filaDe({ fila });
   if (naFila) return naFila.fila === 'TRIAGEM' ? 'ambar' : 'neutro';
   // API de antes: o tom da tabela.

@@ -49,6 +49,8 @@ export function useInvalidarAtendimentoEAgenda() {
 const TOM_DO_BLOCO: Record<TomDoEstado, string> = {
   verde: 'border-emerald-300 bg-emerald-50/70 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200',
   ambar: 'border-amber-300 bg-amber-50/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/25 dark:text-amber-200',
+  // A consulta já cancelada, dentro do modal de fechar — mesma família do chip.
+  rosa: 'border-rose-200 bg-rose-50/70 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/25 dark:text-rose-200',
   neutro: 'border-border bg-muted/40 text-foreground',
 };
 

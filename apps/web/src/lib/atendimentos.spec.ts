@@ -312,10 +312,46 @@ describe('cores: fechado não é alarme', () => {
     expect(STATUS_COR.CANCELADO).not.toContain('amber');
   });
 
-  it('consulta cancelada só é âmbar enquanto o atendimento está pendente', () => {
+  /**
+   * OS DOIS FECHADOS PRECISAM SER DIFERENTES (18/09/2026).
+   *
+   * Eram o mesmo `bg-muted`. Numa tabela de dezessete linhas, "Concluído" e
+   * "Cancelado" ficavam indistinguíveis sem ler — e ler dezessete selos é
+   * exatamente o que um selo existe para evitar. (Na Agenda o defeito não
+   * existe: lá concluído já é verde.)
+   */
+  it('concluído e cancelado não usam o mesmo selo', () => {
+    expect(STATUS_COR.CANCELADO).not.toBe(STATUS_COR.CONCLUIDO);
+    expect(STATUS_COR.CANCELADO).toContain('rose');
+  });
+
+  /**
+   * E O ROSA NÃO PODE VIRAR ALARME. No print havia duas linhas canceladas entre
+   * dezessete, e nenhuma pede coisa alguma: pintar de alarme o que não precisa
+   * de ninguém é o jeito mais rápido de a equipe aprender a ignorar alarme.
+   * O vermelho continua sendo só do Excluir.
+   */
+  it('o rosa é suave: nada de red-, nada de riscado, e mais fraco que o âmbar', () => {
+    expect(STATUS_COR.CANCELADO).not.toMatch(/\bred-|line-through/);
+    // 50/200 contra o 100 do âmbar preenchido: o que pede alguém continua na frente.
+    expect(STATUS_COR.CANCELADO).toContain('bg-rose-50');
+    expect(STATUS_COR.PENDENTE).toContain('bg-amber-100');
+  });
+
+  /**
+   * 18/09/2026: "cancelado tem que estar vermelho e assim etc" — e o relato
+   * apontava um defeito real que não era o vermelho. Concluído e cancelado
+   * usavam o MESMO cinza (`bg-muted`), então dois desfechos opostos tinham o
+   * mesmo selo e a tabela virava uma parede sem relevo.
+   *
+   * A resposta é identidade, não alarme: enquanto o atendimento está pendente a
+   * consulta cancelada é trabalho da triagem e continua ÂMBAR; depois que
+   * alguém fechou, ela vira história reconhecível — rosa suave.
+   */
+  it('consulta cancelada: âmbar enquanto pede a triagem, rosa depois de fechada', () => {
     expect(tomDoEncaminhamento('CANCELADA', 'PENDENTE')).toBe('ambar');
-    expect(tomDoEncaminhamento('CANCELADA', 'CANCELADO')).toBe('neutro');
-    expect(tomDoEncaminhamento('CANCELADA', 'CONCLUIDO')).toBe('neutro');
+    expect(tomDoEncaminhamento('CANCELADA', 'CANCELADO')).toBe('rosa');
+    expect(tomDoEncaminhamento('CANCELADA', 'CONCLUIDO')).toBe('rosa');
     expect(tomDoEncaminhamento('FICOU_PARA_TRAS', 'PENDENTE')).toBe('ambar');
     expect(tomDoEncaminhamento('ATENDIDA', 'CONCLUIDO')).toBe('verde');
   });
@@ -854,5 +890,69 @@ describe('vazioDaLista — o vazio diz o que significa (captura de 15/09/2026)',
   it('fora das filas continua o de sempre', () => {
     expect(vazioDaLista({ status: 'CONCLUIDO', fila: '', atendente: '', filtrando: true }).titulo).toBe('Nenhum atendimento encontrado com esses filtros.');
     expect(vazioDaLista({ status: '', fila: '', atendente: '', filtrando: false }).titulo).toBe('Nenhum atendimento registrado ainda.');
+  });
+});
+
+/**
+ * O DESENHO NÃO PODE DIZER O CONTRÁRIO DO TEXTO — 18/09/2026.
+ *
+ * "Consulta cancelada" usava `CalendarClock`, o MESMO ícone de "Consulta
+ * marcada": na tabela as duas linhas traziam o símbolo de compromisso agendado,
+ * e só a palavra as separava. O ícone é o que o olho pega primeiro.
+ *
+ * Isto também é a rede de quem não distingue rosa de âmbar: o calendário
+ * riscado separa "não aconteceu" de "vai acontecer" mesmo em cinza.
+ */
+describe('o ícone de cada estado da consulta', () => {
+  const CHIP = readFileSync(
+    join(__dirname, '../components/atendimentos/estado-do-encaminhamento.tsx'), 'utf8',
+  );
+
+  it('cada estado tem o seu desenho, e cancelada não usa o de marcada', () => {
+    expect(CHIP).toContain('CANCELADA: CalendarX2');
+    expect(CHIP).toContain('ATENDIDA: CheckCircle2');
+    expect(CHIP).toContain('FICOU_PARA_TRAS: Clock');
+    // O padrão continua o calendário da consulta marcada.
+    expect(CHIP).toContain('?? CalendarClock');
+  });
+
+  /** A escolha é por MAPA: o ternário aninhado é como o de cancelada se perdeu. */
+  it('o mapa substituiu o ternário aninhado', () => {
+    expect(CHIP).toContain('ICONE[encaminhamento.estado]');
+    expect(CHIP).not.toMatch(/estado === 'FICOU_PARA_TRAS' \? Clock : CalendarClock/);
+  });
+});
+
+/**
+ * QUAL LINHA ACABOU DE MUDAR — 18/09/2026.
+ *
+ * Concluir ou cancelar sai de um menu no fim da linha, o modal cobre a tela, e
+ * quando ele fecha a lista re-renderiza. Numa tabela de dezessete linhas
+ * parecidas o olho perde de vista QUAL mudou, e conferir vira rolar de novo
+ * atrás do nome.
+ *
+ * O realce dura dois segundos e volta sozinho, desbotando pela transição que a
+ * linha já tinha. Sem keyframe novo, sem piscar, sem nada para fechar.
+ */
+describe('o realce da linha que mudou', () => {
+  const PAGINA = readFileSync(
+    join(__dirname, '../app/(dashboard)/atendimentos/page.tsx'), 'utf8',
+  );
+
+  it('fechar e reabrir apontam a linha, não só invalidam', () => {
+    expect(PAGINA).toContain('invalidarApontando');
+    expect(PAGINA).toContain('onFechado={() => { if (fecharAlvo) invalidarApontando(fecharAlvo.id); }}');
+    expect(PAGINA).toContain('onReaberto={() => { if (reabrirAlvo) invalidarApontando(reabrirAlvo.id); }}');
+  });
+
+  /** Volta sozinho: nada de estado preso esperando alguém fechar. */
+  it('o realce se apaga sozinho em dois segundos', () => {
+    expect(PAGINA).toContain('setTimeout(() => setMexido(null), 2000)');
+  });
+
+  /** A tabela E o cartão do celular — a triagem é usada nos dois. */
+  it('vale no desktop e no celular, com a transição que desbota', () => {
+    expect((PAGINA.match(/mexido === a\.id &&/g) ?? []).length).toBe(2);
+    expect((PAGINA.match(/transition-colors duration-700/g) ?? []).length).toBe(2);
   });
 });

@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { useAuth } from '@/lib/auth';
+import { cn } from '@/lib/utils';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import { NovoAtendimentoDrawer } from '@/components/atendimentos/novo-atendimento-drawer';
@@ -155,6 +156,32 @@ function ListaAtendimentos() {
   const invalidar = () => {
     qc.invalidateQueries({ queryKey: ['atendimentos'] });
     qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+  };
+
+  /**
+   * QUAL LINHA ACABOU DE MUDAR (18/09/2026).
+   *
+   * Concluir ou cancelar sai de um menu no fim da linha, o modal cobre a tela, e
+   * quando ele fecha a lista simplesmente re-renderiza. Numa tabela de dezessete
+   * linhas parecidas, o olho perde de vista QUAL delas mudou — e a conferência
+   * vira rolar de novo à procura do nome.
+   *
+   * O realce é o mínimo que resolve: a linha mexida fica com fundo da marca por
+   * dois segundos e volta sozinha, desbotando pela transição que a linha já tem.
+   * Sem keyframe novo, sem piscar, sem nada para fechar — quem não estava
+   * olhando não perde nada, e quem estava vê o resultado do próprio clique.
+   */
+  const [mexido, setMexido] = useState<string | null>(null);
+  useEffect(() => {
+    if (!mexido) return;
+    const t = setTimeout(() => setMexido(null), 2000);
+    return () => clearTimeout(t);
+  }, [mexido]);
+
+  /** Invalida e aponta a linha — usado por tudo que fecha, reabre ou conclui. */
+  const invalidarApontando = (id: string) => {
+    invalidar();
+    setMexido(id);
   };
   const itens = data?.items ?? [];
   const totalPaginas = data?.totalPaginas ?? 1;
@@ -326,7 +353,13 @@ function ListaAtendimentos() {
             {itens.map((a) => {
               const rotulo = rotuloDoAssunto(a.assunto, a.assuntoOutro);
               return (
-                <div key={a.id} className="rounded-xl border bg-card p-4">
+                <div
+                  key={a.id}
+                  className={cn(
+                    'rounded-xl border bg-card p-4 transition-colors duration-700',
+                    mexido === a.id && 'border-brand-200 bg-brand-50 dark:border-brand-900 dark:bg-brand-950/30',
+                  )}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <button type="button" onClick={() => setDetalheId(a.id)} className="min-w-0 flex-1 text-left">
                       <p className="truncate font-semibold">{a.filiado.nomeCompleto}</p>
@@ -381,7 +414,15 @@ function ListaAtendimentos() {
                   {itens.map((a) => {
                     const rotulo = rotuloDoAssunto(a.assunto, a.assuntoOutro);
                     return (
-                      <tr key={a.id} onClick={() => setDetalheId(a.id)} className="cursor-pointer transition-colors hover:bg-muted/40">
+                      <tr
+                        key={a.id}
+                        onClick={() => setDetalheId(a.id)}
+                        className={cn(
+                          'cursor-pointer transition-colors duration-700 hover:bg-muted/40',
+                          // Volta sozinho: some o estado, a transição desbota.
+                          mexido === a.id && 'bg-brand-50 dark:bg-brand-950/30',
+                        )}
+                      >
                         <td className="px-4 py-3 font-medium">{a.filiado.nomeCompleto}</td>
                         <td className="px-4 py-3 text-muted-foreground">{CANAL_LABEL[a.canal]}</td>
                         <td className="px-4 py-3"><ResultadoCel a={a} /></td>
@@ -508,12 +549,12 @@ function ListaAtendimentos() {
         atendimentoId={fecharAlvo?.id ?? null}
         acao={fecharAlvo?.acao ?? null}
         onClose={() => setFecharAlvo(null)}
-        onFechado={invalidar}
+        onFechado={() => { if (fecharAlvo) invalidarApontando(fecharAlvo.id); }}
       />
       <ReabrirAtendimentoDialog
         alvo={reabrirAlvo ? { id: reabrirAlvo.id, numero: reabrirAlvo.numero, status: reabrirAlvo.status } : null}
         onClose={() => setReabrirAlvo(null)}
-        onReaberto={invalidar}
+        onReaberto={() => { if (reabrirAlvo) invalidarApontando(reabrirAlvo.id); }}
       />
 
       {/* Excluir atendimento (Administrador) */}
