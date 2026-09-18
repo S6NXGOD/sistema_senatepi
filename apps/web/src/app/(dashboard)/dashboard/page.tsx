@@ -309,7 +309,13 @@ function Conteudo({
 
   // KPIs globais, filtrados pelo que o perfil pode ver.
   const kpiCards = [
-    pode.processos && {
+    /*
+      DUAS CONDIÇÕES QUE PRECISAM ANDAR JUNTAS. A permissão esconde o cartão e
+      a API manda nulo para o mesmo perfil — amarrar o render ao DADO evita que
+      uma das duas mude sozinha e o cartão apareça vazio (ou com número que não
+      deveria ter saído do servidor).
+    */
+    pode.processos && kpis.processosAtivos !== null && {
       label: 'Processos ativos', valor: kpis.processosAtivos,
       /*
         O TOTAL JUNTO porque o número sozinho engana: quem tem 5 processos

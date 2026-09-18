@@ -154,12 +154,13 @@ export interface ResumoDashboard {
   papel: PerfilUsuario;
   escopo: 'PESSOAL' | 'GLOBAL';
   kpis: {
-    processosAtivos: number;
+    /** Nulo para quem não vê processos — a API nem conta. Ver `veProcessos`. */
+    processosAtivos: number | null;
     /** Todos os processos, em qualquer status — o contexto do número de ativos. */
     /** Mesmo universo da tela de Processos: NÃO inclui os pré-processuais. */
-    processosTotal: number;
+    processosTotal: number | null;
     /** A fila que a lista padrão esconde, contada à parte. */
-    processosPreProcessuais: number;
+    processosPreProcessuais: number | null;
     /** @deprecated Todo pendente, inclusive o que só espera a consulta. Fica por uma versão (janela de troca). */
     atendimentosPendentes: number;
     /** Pendentes na fila da TRIAGEM: os que pedem uma ação dela (15/09/2026). Ausente na API de antes. */

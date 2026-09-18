@@ -579,7 +579,19 @@ export class DashboardService {
       adversariosRaw,
       filaDosPendentes,
     ] = await Promise.all([
-      this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } }),
+      /*
+        O NÚMERO DE PROCESSOS NÃO VAI PARA QUEM NÃO VÊ PROCESSOS (18/09/2026).
+
+        A tela já escondia o cartão (`pode.processos &&`), mas a API mandava os
+        três números assim mesmo — e a Triagem tem `processos: SEM_ACESSO`.
+        Conferido no payload dela: `processosAtivos`, `processosTotal` e
+        `processosPreProcessuais` chegavam preenchidos. É exatamente o que a
+        regra da casa condena: esconder na tela é conforto, não controle de
+        acesso. Nulo, e o cartão continua invisível pelo mesmo caminho.
+      */
+      veProcessos
+        ? this.prisma.processo.count({ where: { statusInterno: StatusProcesso.ATIVO } })
+        : Promise.resolve(null),
       /**
        * O TOTAL QUE O CARTÃO MOSTRA — o mesmo universo da tela de Processos.
        *
@@ -597,8 +609,12 @@ export class DashboardService {
        * Agora este conta o MESMO conjunto da tela, e a fila pré-processual vai
        * logo abaixo, com nome próprio. Os dois somam o que há no banco.
        */
-      this.prisma.processo.count({ where: { statusInterno: { notIn: PRE_PROCESSUAIS } } }),
-      this.prisma.processo.count({ where: { statusInterno: { in: PRE_PROCESSUAIS } } }),
+      veProcessos
+        ? this.prisma.processo.count({ where: { statusInterno: { notIn: PRE_PROCESSUAIS } } })
+        : Promise.resolve(null),
+      veProcessos
+        ? this.prisma.processo.count({ where: { statusInterno: { in: PRE_PROCESSUAIS } } })
+        : Promise.resolve(null),
       this.prisma.atendimento.count({ where: { status: 'PENDENTE' } }),
       this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
       this.prisma.filiado.count(),
