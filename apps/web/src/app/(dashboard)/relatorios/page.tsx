@@ -755,13 +755,29 @@ function SecaoJustica({ r, j, anoCorrente }: { r: Relatorio; j: Justica; anoCorr
           vazio="Nenhum assunto registrado."
           nota="Os nomes são os que o tribunal registrou."
         />
+        {/*
+          AS CINCO LISTAS SÃO DO ACERVO ATIVO — conferido, e eu tinha entendido
+          ao contrário (18/09/2026). A variável do servidor se chamava
+          `processosPeriodo` e guardava `statusInterno: ATIVO`; o nome me levou a
+          escrever aqui uma legenda dizendo "cadastrados no período", que estava
+          errada. O nome foi corrigido lá, e a legenda aqui diz o que a conta é.
+
+          O que FALTAVA de verdade é quantos ficam de fora por falta do dado: com
+          3 ativos e nenhum com área, a lista some inteira sem explicar.
+        */}
         <Lista
           titulo="Por área"
           itens={r.processos.porArea}
           rotular={(slug) => AREAS_JURIDICAS.find((a) => a.slug === slug)?.nome ?? slug}
-          vazio="Nenhum processo ativo."
+          vazio="Nenhum processo ativo tem área informada."
+          nota={notaDoCadastro('área', r.processos.semAreaInformada)}
         />
-        <Lista titulo="Por tribunal" itens={r.processos.porTribunal} vazio="Nenhum processo ativo." />
+        <Lista
+          titulo="Por tribunal"
+          itens={r.processos.porTribunal}
+          vazio="Nenhum processo ativo tem tribunal informado."
+          nota={notaDoCadastro('tribunal', r.processos.semTribunalInformado)}
+        />
       </div>
     </section>
   );
@@ -1034,6 +1050,21 @@ function ListaDaAgenda({
  * data: o que espera desde antes do período continua esperando. Leva direto à
  * fila, pela mesma regra que a busca de publicações usa.
  */
+/**
+ * A LEGENDA DE "POR ÁREA" E "POR TRIBUNAL" — diz o universo e o que ficou fora.
+ *
+ * Sem o "sem informação", a soma dá menos que o total de ativos e ninguém sabe
+ * se faltou dado ou faltou linha. É a mesma regra de `assuntoNaoInformado` nos
+ * atendimentos, que existe exatamente por isso.
+ */
+function notaDoCadastro(campo: string, sem: number | undefined): string {
+  const base = 'Conta o acervo ativo.';
+  if (!sem) return base;
+  return sem === 1
+    ? `${base} 1 deles ficou sem ${campo}.`
+    : `${base} ${sem} deles ficaram sem ${campo}.`;
+}
+
 /**
  * O QUADRO ASSOCIATIVO — a primeira pergunta de qualquer reunião de diretoria.
  *

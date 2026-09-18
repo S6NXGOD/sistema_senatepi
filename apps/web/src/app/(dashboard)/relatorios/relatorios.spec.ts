@@ -544,3 +544,37 @@ describe('o quadro associativo', () => {
     expect(TELA).toContain("id: 'quadro', texto: 'Quadro associativo'");
   });
 });
+
+/**
+ * "POR AREA" E "POR TRIBUNAL" SAO DO ACERVO ATIVO (18/09/2026).
+ *
+ * Eu li ao contrario: a variavel do servidor se chamava `processosPeriodo` e
+ * guardava `statusInterno: ATIVO`. O nome me fez escrever uma legenda dizendo
+ * "cadastrados no periodo" -- errada. Nome corrigido la, legenda corrigida aqui.
+ *
+ * O que faltava de verdade: com 3 ativos e NENHUM com area, a lista some
+ * inteira e nada explica que foi falta de dado.
+ */
+describe('"por área" e "por tribunal" dizem o universo e o que falta', () => {
+  it('a legenda diz que conta o acervo ativo', () => {
+    expect(TELA).toContain("const base = 'Conta o acervo ativo.';");
+    expect(TELA).not.toContain('cadastrados no período, e não o acervo ativo');
+  });
+
+  it('a lista vazia fala do mesmo universo', () => {
+    expect(TELA).toContain('Nenhum processo ativo tem área informada.');
+    expect(TELA).toContain('Nenhum processo ativo tem tribunal informado.');
+  });
+
+  /** Soma que dá menos que o total sem explicação faz desconfiar dos dois. */
+  it('diz quantos ficaram sem a informação', () => {
+    expect(TELA).toContain('deles ficou sem ${campo}');
+    expect(TELA).toContain('deles ficaram sem ${campo}');
+  });
+
+  /** "sem tribunal informada" erraria o gênero. */
+  it('a frase serve para os dois gêneros', () => {
+    const bloco = TELA.slice(TELA.indexOf('function notaDoCadastro'));
+    expect(bloco.slice(0, 600)).not.toContain('informada.`');
+  });
+});

@@ -249,8 +249,23 @@ export interface Relatorio {
     encerrados: number;
     /** Ativos sem data de distribuição: não entram em "ajuizadas" até o CNJ informar. */
     semDataDeDistribuicao: number;
+    /*
+      ESTAS DUAS SÃO DO ACERVO ATIVO, como as vizinhas — e a variável dizia o
+      contrário (18/09/2026). Ela se chamava `processosPeriodo` e guarda
+      `findMany({ statusInterno: ATIVO })`: o nome me fez ler "cadastrados no
+      período" e escrever uma legenda errada na tela. Renomeada para
+      `acervoAtivoDetalhado`, que é o que ela traz.
+    */
     porArea: Contagem[];
     porTribunal: Contagem[];
+    /**
+      Do acervo ATIVO, quantos estão sem a informação. Sem isto a lista soma
+      menos que o total de ativos e ninguém sabe se faltou dado ou faltou linha
+      — é a mesma regra de `assuntoNaoInformado` nos atendimentos. Medido na
+      cópia local: 3 ativos, ZERO com área e 3 com tribunal.
+     */
+    semAreaInformada: number;
+    semTribunalInformado: number;
   };
   atendimentos: {
     registrados: number;
@@ -409,7 +424,7 @@ export class RelatoriosService {
         processosAtivos,
         processosEncerrados,
         processosSemData,
-        processosPeriodo,
+        acervoAtivoDetalhado,
         atendimentos,
         pessoas,
       ],
@@ -583,8 +598,10 @@ export class RelatoriosService {
         ativos: processosAtivos,
         encerrados: processosEncerrados,
         semDataDeDistribuicao: processosSemData,
-        porArea: contar(processosPeriodo, (p) => p.categoria),
-        porTribunal: contar(processosPeriodo, (p) => p.tribunal),
+        porArea: contar(acervoAtivoDetalhado, (p) => p.categoria),
+        porTribunal: contar(acervoAtivoDetalhado, (p) => p.tribunal),
+        semAreaInformada: acervoAtivoDetalhado.filter((p) => !p.categoria).length,
+        semTribunalInformado: acervoAtivoDetalhado.filter((p) => !p.tribunal).length,
       },
       atendimentos: {
         registrados: atendimentos.length,

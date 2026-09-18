@@ -183,6 +183,9 @@ export interface Relatorio {
     semDataDeDistribuicao?: number;
     porArea: Contagem[];
     porTribunal: Contagem[];
+    /** Dos cadastrados no período, quantos ficaram sem a informação. */
+    semAreaInformada?: number;
+    semTribunalInformado?: number;
   };
   atendimentos: {
     registrados: number;

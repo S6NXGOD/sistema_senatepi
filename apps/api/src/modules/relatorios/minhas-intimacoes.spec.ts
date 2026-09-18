@@ -99,3 +99,36 @@ describe('o bloco no relatório', () => {
     expect((BLOCO.match(/this\.prisma\./g) ?? []).length).toBe(2); // o usuário e as linhas
   });
 });
+
+/**
+ * AS LISTAS E O "SEM INFORMACAO" SAEM DA MESMA FATIA (18/09/2026).
+ *
+ * Conferido rodando o servico contra o banco: as 12 invariantes do relatorio
+ * fecham. A que quase quebrou foi esta -- a variavel se chamava
+ * `processosPeriodo` e guardava o acervo ATIVO, e o nome me levou a escrever
+ * uma legenda dizendo "cadastrados no periodo". Se a lista e o complemento
+ * sairem de arrays diferentes, a soma para de fechar em silencio.
+ */
+describe('por área e por tribunal', () => {
+  it('a lista e o "sem informação" leem a MESMA fatia', () => {
+    const bloco = SERVICO.slice(SERVICO.indexOf('porArea: contar('));
+    const trecho = bloco.slice(0, 400);
+    expect((trecho.match(/acervoAtivoDetalhado/g) ?? []).length).toBe(4);
+  });
+
+  /**
+   * O NOME QUE MENTIA — e a negativa que eu tentei escrever brigava com o
+   * comentário que EXPLICA o renome (comentário de bloco sem asterisco na
+   * margem, que nenhum filtro simples reconhece). Afirmar a declaração é
+   * direto e não reprova a explicação.
+   */
+  it('a declaração usa o nome novo', () => {
+    expect(SERVICO).toContain('acervoAtivoDetalhado,');
+    expect(SERVICO).toContain('porArea: contar(acervoAtivoDetalhado');
+    expect(SERVICO).toContain('porTribunal: contar(acervoAtivoDetalhado');
+  });
+
+  it('a fatia é o acervo ativo, e o comentário diz isso', () => {
+    expect(SERVICO).toContain('ESTAS DUAS SÃO DO ACERVO ATIVO');
+  });
+});
