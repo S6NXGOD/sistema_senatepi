@@ -459,3 +459,29 @@ describe('intimações no espelho da pessoa', () => {
     expect(bloco.slice(0, 3000)).toContain('inscrição na OAB cadastrada no sistema');
   });
 });
+
+/**
+ * CONCORDANCIA — varrido renderizando a tela com 1 DE TUDO (18/09/2026).
+ *
+ * Sobraram tres frases no plural fixo: "1 processos ativos", "1 entraram no
+ * sistema" e "1 concluidas" (as tarefas do robo). Numero 1 e o caso mais comum
+ * num sindicato pequeno, e a frase errada tira a autoridade do relatorio.
+ */
+describe('o relatório concorda em número', () => {
+  it('o acervo de hoje flexiona', () => {
+    expect(TELA).toContain("data.processos.ativos === 1 ? 'processo ativo' : 'processos ativos'");
+    expect(TELA).toContain("data.processos.encerrados === 1 ? 'encerrado' : 'encerrados'");
+    expect(TELA).toContain("data.processos.cadastrados === 1 ? 'entrou' : 'entraram'");
+  });
+
+  it('as tarefas do robô flexionam', () => {
+    expect(TELA).toContain("robo.concluidas === 1 ? 'concluída' : 'concluídas'");
+    expect(TELA).toContain("? 'cancelada'");
+  });
+
+  /** Ternário com os dois lados iguais é defeito silencioso. */
+  it('nenhum ternário de plural tem os dois lados iguais', () => {
+    const iguais = [...TELA.matchAll(/\? '([^']+)' : '([^']+)'/g)].filter(([, a, b]) => a === b);
+    expect(iguais.map((m) => m[0])).toEqual([]);
+  });
+});

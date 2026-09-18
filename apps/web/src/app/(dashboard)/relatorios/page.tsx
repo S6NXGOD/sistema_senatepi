@@ -354,7 +354,7 @@ export default function RelatoriosPage() {
               valor={data.atividades.concluidas}
               nota={
                 data.atividades.concluidas
-                  ? `${data.atividades.automaticas} do robô · ${data.atividades.manuais} de pessoas`
+                  ? `${data.atividades.automaticas} do robô · ${data.atividades.manuais} de gente`
                   : undefined
               }
             />
@@ -377,7 +377,11 @@ export default function RelatoriosPage() {
               <Numero
                 titulo="Publicações recebidas"
                 valor={data.publicacoes.recebidas}
-                nota={`${data.publicacoes.viraramTarefa} viraram tarefa`}
+                nota={
+                  data.publicacoes.viraramTarefa === 1
+                    ? '1 virou tarefa'
+                    : `${data.publicacoes.viraramTarefa} viraram tarefa`
+                }
               />
             ) : (
               <Numero
@@ -548,10 +552,17 @@ export default function RelatoriosPage() {
             </div>
           </section>
 
+          {/*
+            CONCORDÂNCIA — varrido com 1 de tudo (18/09/2026). "1 processos ativos"
+            e "1 entraram no sistema" saíam assim nas duas larguras.
+          */}
           <p className="text-[11px] leading-snug text-muted-foreground">
-            Acervo hoje: {data.processos.ativos} processos ativos e {data.processos.encerrados}{' '}
-            encerrados. {data.processos.cadastrados} entraram no sistema no período — cadastrar não
-            é ajuizar, e o acervo antigo entrou de uma vez na migração.
+            Acervo hoje: {data.processos.ativos}{' '}
+            {data.processos.ativos === 1 ? 'processo ativo' : 'processos ativos'} e{' '}
+            {data.processos.encerrados} {data.processos.encerrados === 1 ? 'encerrado' : 'encerrados'}.{' '}
+            {data.processos.cadastrados}{' '}
+            {data.processos.cadastrados === 1 ? 'entrou' : 'entraram'} no sistema no período —
+            cadastrar não é ajuizar, e o acervo antigo entrou de uma vez na migração.
           </p>
         </>
       )}
@@ -1071,7 +1082,11 @@ function SecaoMinhasIntimacoes({
             <Numero
               titulo="Tarefas concluídas"
               valor={m.tarefasConcluidas}
-              nota={m.viraramTarefa ? `de ${m.viraramTarefa} que viraram tarefa` : undefined}
+              nota={
+                m.viraramTarefa
+                  ? `de ${m.viraramTarefa} que ${m.viraramTarefa === 1 ? 'virou' : 'viraram'} tarefa`
+                  : undefined
+              }
             />
             <Numero
               titulo="Ainda em aberto"
@@ -1083,7 +1098,7 @@ function SecaoMinhasIntimacoes({
           {m.oRoboDispensou > 0 && (
             <p className="text-xs text-muted-foreground">
               Em <strong className="text-foreground">{m.oRoboDispensou}</strong>{' '}
-              {m.oRoboDispensou === 1 ? 'delas' : 'delas'} o robô olhou e decidiu não abrir tarefa
+              {m.oRoboDispensou === 1 ? 'dela' : 'delas'} o robô olhou e decidiu não abrir tarefa
               — notícia anterior ao nosso acompanhamento, ou ordem dirigida à outra parte. É
               decisão dele, não {nome ? 'dessa pessoa' : 'sua'}.
             </p>
@@ -1098,9 +1113,9 @@ function SecaoMinhasIntimacoes({
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
               O que estes números fazem é <strong className="text-foreground">mostrar o serviço
-              </strong> que passou pelas mãos de {nome ? 'quem' : 'quem'} atende — e para isso ele
-              precisa estar registrado: tarefa concluída no sistema, atividade fechada, publicação
-              decidida. O que não é registrado não aparece em relatório nenhum.
+              </strong> que passou {nome ? `pelas mãos de ${nome}` : 'pelas suas mãos'} — e para
+              isso ele precisa estar registrado: tarefa concluída no sistema, atividade fechada,
+              publicação decidida. O que não é registrado não aparece em relatório nenhum.
             </p>
           </Card>
         </>
@@ -1159,8 +1174,12 @@ function SecaoPublicacoes({
             ) : (
               <>
                 <p className="mt-2 text-sm">
-                  {robo.criadas} no período: {robo.concluidas} concluídas, {robo.abertas} em aberto e{' '}
-                  {robo.canceladasPeloRobo + robo.canceladasPorPessoas} canceladas.
+                  {robo.criadas} no período: {robo.concluidas}{' '}
+                  {robo.concluidas === 1 ? 'concluída' : 'concluídas'}, {robo.abertas} em aberto e{' '}
+                  {robo.canceladasPeloRobo + robo.canceladasPorPessoas}{' '}
+                  {robo.canceladasPeloRobo + robo.canceladasPorPessoas === 1
+                    ? 'cancelada'
+                    : 'canceladas'}.
                 </p>
                 <p className="mt-2 text-xs leading-snug text-muted-foreground">
                   Das canceladas, {robo.canceladasPeloRobo} foram pelo próprio robô, ao achar
