@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import {
-  MOSTRAR_NA_CAIXA, quantasMostrar, rodapeDaCaixa, seloDaProposta,
+  MOSTRAR_NA_CAIXA, estadoOu, quantasMostrar, rodapeDaCaixa, seloDaProposta,
   type EstadoDaProposta,
 } from './djen';
 
@@ -178,5 +178,41 @@ describe('o cartão não reimplementa regra nenhuma', () => {
   /** Vermelho é só do Excluir. O que pede atenção aqui é âmbar. */
   it('não pinta de vermelho o que só está esperando', () => {
     expect(FONTE).not.toContain('red-');
+  });
+});
+
+/**
+ * A JANELA DE TROCA DO DEPLOY — web e API sobem em serviços separados.
+ *
+ * `estado`, `diasNaCaixa` e `diasDoAto` nasceram nesta rodada. Nos minutos em
+ * que o web novo fala com a API velha eles não vêm, e com o campo obrigatório a
+ * tela escrevia "parada há undefined d". Sem eles, toda proposta é NOVA — o
+ * comportamento de antes de eles existirem.
+ */
+describe('a caixa aguenta a API que ainda não envelheceu nada', () => {
+  it('sem estado, o item é tratado como NOVA', () => {
+    expect(estadoOu(undefined)).toBe('NOVA');
+    expect(estadoOu('PARADA')).toBe('PARADA');
+  });
+
+  it('o corte volta ao padrão em vez de "tudo pede alguém"', () => {
+    const semEstado = [{}, {}, {}, {}, {}, {}, {}];
+    expect(quantasMostrar(semEstado)).toBe(quantasMostrar([]));
+  });
+
+  it('o selo não escreve "undefined" em lugar nenhum', () => {
+    const selo = seloDaProposta({});
+    expect(selo.rotulo).toBeNull();
+    expect(JSON.stringify(seloDaProposta({ estado: 'PARADA' }))).not.toContain('undefined');
+    expect(JSON.stringify(seloDaProposta({ estado: 'FORA_DA_JANELA' }))).not.toContain('undefined');
+  });
+
+  /*
+    ASSERÇÃO POSITIVA, e não `not.toContain('parada')`: a resposta CERTA é
+    "nenhuma parada", que contém a palavra. Negativa em português bate no texto
+    correto — é o modo de errar que esta casa já catalogou.
+  */
+  it('e o rodapé afirma que nenhuma está parada', () => {
+    expect(rodapeDaCaixa([{}, {}])).toBe('Ver as outras 2, nenhuma parada');
   });
 });

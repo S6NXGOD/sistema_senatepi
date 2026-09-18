@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import {
   listarPropostas, aceitarProposta, recusarProposta,
-  quantasMostrar, rodapeDaCaixa, seloDaProposta,
+  estadoOu, quantasMostrar, rodapeDaCaixa, seloDaProposta,
   PROVIDENCIA_LABEL, PROVIDENCIA_COR, PROVIDENCIA_COR_PADRAO,
   MOTIVOS_DE_RECUSA, type PropostaDeTarefa,
 } from '@/lib/djen';
@@ -177,7 +177,8 @@ export function CaixaDePropostas() {
   const visiveis = quantasMostrar(itens);
   const mostradas = todas ? itens : itens.slice(0, visiveis);
   const rodape = rodapeDaCaixa(itens.slice(visiveis));
-  const paradas = itens.filter((i) => i.estado !== 'NOVA').length;
+  // `estadoOu` cobre a janela de troca: sem o campo, o item é NOVA.
+  const paradas = itens.filter((i) => estadoOu(i.estado) !== 'NOVA').length;
 
   return (
     <Card className="overflow-hidden border-sky-200 dark:border-sky-900/50">

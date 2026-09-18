@@ -465,12 +465,20 @@ export interface PropostaDeTarefa {
    * vem pronto: uma regra, um dono.
    */
   adversario: string | null;
-  /** Como a proposta envelheceu — ver `seloDaProposta`. */
-  estado: EstadoDaProposta;
+  /**
+   * Como a proposta envelheceu — ver `seloDaProposta`.
+   *
+   * OPCIONAIS PELA JANELA DE TROCA DO DEPLOY (18/09/2026), como o resto deste
+   * arquivo já faz. Web e API sobem em serviços separados: com o campo
+   * obrigatório, os minutos em que o web novo fala com a API velha escreviam
+   * "parada há undefined d" na tela. Sem os três, toda proposta é tratada como
+   * NOVA — que é exatamente o comportamento de antes deles existirem.
+   */
+  estado?: EstadoDaProposta;
   /** Dias inteiros desde que o robô propôs. */
-  diasNaCaixa: number;
+  diasNaCaixa?: number;
   /** Dias de calendário desde a disponibilização do ato. */
-  diasDoAto: number;
+  diasDoAto?: number;
   propostaPara: {
     id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null;
   } | null;
@@ -505,8 +513,15 @@ export const MOSTRAR_NA_CAIXA = 4;
  * mas ele cede para tudo que já pede uma pessoa. O que fica escondido é sempre
  * recente, e recente é o que ainda tem tempo.
  */
-export function quantasMostrar(itens: { estado: EstadoDaProposta }[]): number {
-  return Math.max(MOSTRAR_NA_CAIXA, itens.filter((i) => i.estado !== 'NOVA').length);
+export function quantasMostrar(itens: { estado?: EstadoDaProposta }[]): number {
+  // Sem `estado` (API da janela de troca) o item conta como NOVA: o corte volta
+  // a ser o de antes, e não "tudo pede alguém".
+  return Math.max(MOSTRAR_NA_CAIXA, itens.filter((i) => estadoOu(i.estado) !== 'NOVA').length);
+}
+
+/** O estado que a API mandou, ou NOVA — ver a nota da janela de troca acima. */
+export function estadoOu(estado: EstadoDaProposta | undefined): EstadoDaProposta {
+  return estado ?? 'NOVA';
 }
 
 /**
@@ -521,9 +536,9 @@ export function quantasMostrar(itens: { estado: EstadoDaProposta }[]): number {
  *
  * Nulo quando não sobrou nada — bloco vazio não vira linha nem botão.
  */
-export function rodapeDaCaixa(escondidas: { estado: EstadoDaProposta }[]): string | null {
+export function rodapeDaCaixa(escondidas: { estado?: EstadoDaProposta }[]): string | null {
   if (!escondidas.length) return null;
-  const paradas = escondidas.filter((i) => i.estado !== 'NOVA').length;
+  const paradas = escondidas.filter((i) => estadoOu(i.estado) !== 'NOVA').length;
   if (paradas) {
     return `Ver as outras ${escondidas.length} — ${paradas === 1 ? '1 parada' : `${paradas} paradas`}`;
   }
@@ -553,20 +568,24 @@ export interface SeloDaProposta {
  * a equipe a ignorar selo.
  */
 export function seloDaProposta(p: {
-  estado: EstadoDaProposta;
-  diasNaCaixa: number;
-  diasDoAto: number;
+  estado?: EstadoDaProposta;
+  diasNaCaixa?: number;
+  diasDoAto?: number;
 }): SeloDaProposta {
-  if (p.estado === 'FORA_DA_JANELA') {
+  const estado = estadoOu(p.estado);
+  // Zero em vez de `undefined`: o selo nunca escreve "parada há undefined d".
+  const diasNaCaixa = p.diasNaCaixa ?? 0;
+  const diasDoAto = p.diasDoAto ?? 0;
+  if (estado === 'FORA_DA_JANELA') {
     return {
       rotulo: 'ato antigo',
-      recado: `O ato tem ${p.diasDoAto} dias: tarefa aberta agora já nasce atrasada.`,
+      recado: `O ato tem ${diasDoAto} dias: tarefa aberta agora já nasce atrasada.`,
       pedeVoce: true,
     };
   }
-  if (p.estado === 'PARADA') {
+  if (estado === 'PARADA') {
     return {
-      rotulo: `parada há ${p.diasNaCaixa}d`,
+      rotulo: `parada há ${diasNaCaixa}d`,
       recado: 'Ninguém decidiu ainda — e nada muda sozinho.',
       pedeVoce: true,
     };
