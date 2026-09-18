@@ -161,3 +161,43 @@ describe('a faixa do NPU desconhecido', () => {
     expect(TELA).toContain('consultado {i.tentativas}');
   });
 });
+
+/**
+ * O NIVEL `info` NAO E UM ALARME, e parava de se vestir como um (18/09/2026).
+ *
+ * "Os avisos de integracao ocupam dois blocos grandes logo abaixo da carteira,
+ * empurrando os numeros para fora da dobra." Pela propria escala do AlertBar,
+ * `info` e "nada errado, so vale saber" -- e desenhava o mesmo retangulo com
+ * borda, fundo e quatro linhas que o "algo esta quebrado agora".
+ *
+ * A regua da casa e que o corte nunca esconde o que pede atencao. Esconder o
+ * que NAO pede e o contrario disso: e devolver espaco a quem precisa.
+ */
+describe('o aviso que não pede nada ocupa uma linha', () => {
+  it('`info` sem botão vira linha discreta, sem borda nem fundo', () => {
+    const i = TELA.indexOf("if (tom === 'info' && !aoAgir)");
+    expect(i).toBeGreaterThan(0);
+    const trecho = TELA.slice(i, TELA.indexOf('const corpo =', i));
+    expect(trecho).toContain('text-xs text-muted-foreground');
+    // Sem borda e sem fundo: é linha, não caixa.
+    expect(trecho).not.toContain('rounded-xl border');
+  });
+
+  /** `atencao` e `critico` continuam exatamente como eram. */
+  it('o que pede alguém não encolhe', () => {
+    // A faixa com botão (a alavanca "Buscar agora") segue sendo bloco.
+    expect(TELA).toContain("if (tom === 'info' && !aoAgir)");
+    expect(TELA).toContain("rotuloAcao={varrer.isPending ? 'Buscando…' : 'Buscar agora'}");
+    expect(TELA).toContain("'flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm'");
+  });
+
+  /**
+   * E SEM EXPANSOR. Eu tentei pôr a segunda frase atrás de um "por quê" — que é
+   * exatamente o padrão que já tinha sido removido daqui, por esconder o
+   * diagnóstico. O teste de cima pegou. As duas frases couberam em uma.
+   */
+  it('estado e tranquilidade na mesma frase', () => {
+    expect(TELA).toContain('a varredura roda toda madrugada');
+    expect(TELA).toContain('ela acontece toda madrugada');
+  });
+});

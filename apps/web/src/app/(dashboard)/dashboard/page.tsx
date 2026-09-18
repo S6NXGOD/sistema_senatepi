@@ -1016,6 +1016,35 @@ function AlertBar({
   }[tom];
   const { Icone } = estilo;
 
+  /*
+    O NÍVEL `info` NÃO É UM ALARME, e parava de se vestir como um (18/09/2026).
+
+    Pela própria escala desta função, `info` é "nada errado, só vale saber" — e
+    ainda assim desenhava o mesmo retângulo com borda, fundo e 4 linhas que o
+    "algo está quebrado agora". Dois desses empurravam os números do painel para
+    fora da primeira dobra no telefone.
+
+    Aqui ele vira UMA LINHA discreta: sem borda, sem fundo, texto apagado. O que
+    pede alguém — `atencao` e `critico` — continua exatamente como era. A régua
+    da casa é que o corte nunca esconde o que pede atenção; esconder o que não
+    pede é o contrário disso, é devolver espaço a quem precisa.
+  */
+  if (tom === 'info' && !aoAgir) {
+    return (
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 text-xs text-muted-foreground">
+        <span className="flex items-start gap-1.5">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+          <span className="min-w-0">{children}</span>
+        </span>
+        {href && (
+          <Link href={href} className="shrink-0 font-medium underline-offset-2 hover:underline">
+            {acao}
+          </Link>
+        )}
+      </div>
+    );
+  }
+
   const corpo = (
     <>
       <span className="flex items-start gap-2.5">
@@ -1129,9 +1158,9 @@ function PublicacoesDjen({
 
   if (djen.situacao === 'PRIMEIRA') {
     return (
+      /* Estado e tranquilidade na MESMA frase: nada de expansor — ver AlertBar. */
       <AlertBar tom="info" href="/processos" acao="Ver processos">
-        A integração com o DJEN está ligada, mas ainda não trouxe nenhuma
-        publicação. A varredura roda toda madrugada, às 5h.
+        O DJEN está ligado e ainda não trouxe publicação — a varredura roda toda madrugada.
       </AlertBar>
     );
   }
@@ -1247,11 +1276,12 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
   const aviso =
     situacao === 'PRIMEIRA' ? (
       <AlertBar tom="info" href="/processos" acao="Ver processos">
-        A primeira varredura do DataJud ainda não rodou. Ela acontece
-        automaticamente toda madrugada, e vai buscar os andamentos{' '}
+        A primeira varredura do DataJud ainda não rodou — ela acontece toda madrugada, e vai
+        buscar{' '}
         {processosMonitorados === 1
-          ? 'do processo cadastrado'
-          : `dos ${processosMonitorados} processos cadastrados`}.
+          ? 'o processo cadastrado'
+          : `os ${processosMonitorados} processos cadastrados`}
+        .
       </AlertBar>
     ) : situacao === 'ATRASADO' ? (
       <AlertBar tom="atencao" href="/processos" acao="Ver processos">
