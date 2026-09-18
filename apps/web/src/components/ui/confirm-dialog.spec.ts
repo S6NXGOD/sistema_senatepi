@@ -10,7 +10,16 @@ import { aoTeclarNoDialogo, travasDoDialogo } from './confirm-dialog';
 */
 function evento(key: string) {
   const parado = { valor: false };
-  return { ev: { key, stopPropagation: () => { parado.valor = true; } }, parado };
+  const impedido = { valor: false };
+  return {
+    ev: {
+      key,
+      stopPropagation: () => { parado.valor = true; },
+      preventDefault: () => { impedido.valor = true; },
+    },
+    parado,
+    impedido,
+  };
 }
 
 describe('o Esc do ConfirmDialog', () => {
@@ -56,5 +65,87 @@ describe('as travas dos botões do ConfirmDialog', () => {
 
   it('sem nenhuma das duas (os usos de antes da prop): nada trava', () => {
     expect(travasDoDialogo({ loading: false, confirmDisabled: false })).toEqual({ confirmar: false, cancelar: false });
+  });
+});
+
+/*
+  ENTER CONFIRMA — E SÓ ONDE A AÇÃO TEM VOLTA (18/09/2026).
+
+  A fila de cadastros duplicados é trabalho repetitivo: dezenas de grupos, a
+  mesma decisão em cada um. O relato foi "está praticamente invisível e ao
+  clicar vai diretamente executando a ação" — o conserto foi perguntar antes,
+  e perguntar sem atrapalhar exige que a resposta caiba numa tecla.
+
+  A linha que separa é o preço do engano: "não é a mesma pessoa" volta pelo
+  Desfazer e pela lista; consolidar APAGA cadastro. Por isso a opção é de quem
+  chama, e o padrão é NÃO ter o atalho.
+*/
+describe('o Enter do ConfirmDialog', () => {
+  it('confirma quando o diálogo pediu o atalho', () => {
+    const { ev, parado, impedido } = evento('Enter');
+    const feito: string[] = [];
+    aoTeclarNoDialogo(ev, {
+      loading: false,
+      onClose: () => feito.push('fechou'),
+      confirmarComEnter: true,
+      onConfirm: () => feito.push('confirmou'),
+    });
+    expect(feito).toEqual(['confirmou']);
+    // Para o evento: a tela de trás também escuta Enter (o modo foco abre a
+    // consolidação com ele) e confirmaria duas coisas de uma tecla só.
+    expect(parado.valor).toBe(true);
+    expect(impedido.valor).toBe(true);
+  });
+
+  /** O padrão continua o de sempre: Enter não decide nada. */
+  it('sem o atalho, Enter passa direto — inclusive no diálogo que APAGA', () => {
+    const { ev, parado } = evento('Enter');
+    const feito: string[] = [];
+    aoTeclarNoDialogo(ev, {
+      loading: false,
+      onClose: () => feito.push('fechou'),
+      onConfirm: () => feito.push('confirmou'),
+    });
+    expect(feito).toEqual([]);
+    expect(parado.valor).toBe(false);
+  });
+
+  it('gravando, o Enter não reenvia', () => {
+    const { ev } = evento('Enter');
+    const feito: string[] = [];
+    aoTeclarNoDialogo(ev, {
+      loading: true,
+      onClose: () => {},
+      confirmarComEnter: true,
+      onConfirm: () => feito.push('confirmou'),
+    });
+    expect(feito).toEqual([]);
+  });
+
+  /** E respeita a trava de "ainda não dá para confirmar". */
+  it('com o confirmar travado, o Enter não atropela a trava', () => {
+    const { ev } = evento('Enter');
+    const feito: string[] = [];
+    aoTeclarNoDialogo(ev, {
+      loading: false,
+      onClose: () => {},
+      confirmarComEnter: true,
+      confirmDisabled: true,
+      onConfirm: () => feito.push('confirmou'),
+    });
+    expect(feito).toEqual([]);
+  });
+
+  /** O Esc continua fechando, com ou sem o atalho novo. */
+  it('o Esc não mudou', () => {
+    const { ev } = evento('Escape');
+    const feito: string[] = [];
+    aoTeclarNoDialogo(ev, {
+      loading: false,
+      onClose: () => feito.push('fechou'),
+      confirmarComEnter: true,
+      onConfirm: () => feito.push('confirmou'),
+    });
+    expect(feito).toEqual(['fechou']);
   });
 });

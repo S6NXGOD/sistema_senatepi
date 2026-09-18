@@ -10,12 +10,36 @@ import { cn } from '@/lib/utils';
  * fecha quando não está gravando. Separado para o teste chamar sem navegador.
  */
 export function aoTeclarNoDialogo(
-  ev: Pick<KeyboardEvent, 'key' | 'stopPropagation'>,
-  p: { loading: boolean; onClose: () => void },
+  ev: Pick<KeyboardEvent, 'key' | 'stopPropagation' | 'preventDefault'>,
+  p: {
+    loading: boolean;
+    onClose: () => void;
+    /**
+     * ENTER CONFIRMA — só onde a ação TEM VOLTA (18/09/2026).
+     *
+     * A fila de duplicados é trabalho repetitivo: dezenas de grupos, a mesma
+     * decisão em cada um. Obrigar a mão a sair do teclado para clicar em
+     * "Confirmar" a cada item é o que faz alguém parar no meio.
+     *
+     * Mas não vale para tudo, e a diferença é o preço do engano: "não é a mesma
+     * pessoa" volta pela lista do fim da página e pelo Desfazer do aviso;
+     * consolidar APAGA cadastros. Quem chama liga isto — e quem apaga não liga.
+     */
+    confirmarComEnter?: boolean;
+    onConfirm?: () => void;
+    confirmDisabled?: boolean;
+  },
 ): void {
-  if (ev.key !== 'Escape') return;
-  ev.stopPropagation();
-  if (!p.loading) p.onClose();
+  if (ev.key === 'Escape') {
+    ev.stopPropagation();
+    if (!p.loading) p.onClose();
+    return;
+  }
+  if (ev.key === 'Enter' && p.confirmarComEnter && !p.loading && !p.confirmDisabled) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    p.onConfirm?.();
+  }
 }
 
 /**
@@ -45,6 +69,7 @@ export function ConfirmDialog({
   variant = 'default',
   loading = false,
   confirmDisabled = false,
+  confirmarComEnter = false,
   icon,
   onConfirm,
   onClose,
@@ -58,6 +83,12 @@ export function ConfirmDialog({
   loading?: boolean;
   /** Trava só o confirmar (ex.: conferindo algo antes); Cancelar, X, Esc e o toque fora continuam. */
   confirmDisabled?: boolean;
+  /**
+   * Enter confirma. Só para ação que TEM VOLTA — ver `aoTeclarNoDialogo`.
+   * Em fila repetitiva é a diferença entre decidir com o teclado e ter de mirar
+   * um botão a cada item.
+   */
+  confirmarComEnter?: boolean;
   icon?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
@@ -73,10 +104,11 @@ export function ConfirmDialog({
   */
   useEffect(() => {
     if (!open) return;
-    const onKey = (ev: KeyboardEvent) => aoTeclarNoDialogo(ev, { loading, onClose });
+    const onKey = (ev: KeyboardEvent) =>
+      aoTeclarNoDialogo(ev, { loading, onClose, confirmarComEnter, onConfirm, confirmDisabled });
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [open, loading, onClose]);
+  }, [open, loading, onClose, confirmarComEnter, onConfirm, confirmDisabled]);
 
   if (!open) return null;
   const destructive = variant === 'destructive';

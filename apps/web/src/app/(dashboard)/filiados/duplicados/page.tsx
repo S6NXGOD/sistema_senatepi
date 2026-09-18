@@ -121,7 +121,7 @@ export default function DuplicadosPage() {
    * do grupo continua na fila para decidir.
    */
   const foraDoGrupo = useCallback(
-    async (g: GrupoDuplicata, c: CandidatoDuplicata) => {
+    async (g: GrupoDuplicata, c: CandidatoDuplicata): Promise<boolean> => {
       const outros = g.candidatos.filter((x) => x.id !== c.id).map((x) => x.id);
       try {
         const r = await marcarForaDoGrupo(c.id, outros);
@@ -130,15 +130,17 @@ export default function DuplicadosPage() {
           : undefined);
         qc.invalidateQueries({ queryKey: ['duplicados'] });
         qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
+        return true;
       } catch (e: any) {
         toast.error(e?.response?.data?.message ?? 'Não foi possível tirar do grupo.');
+        return false;
       }
     },
     [qc, devolver],
   );
 
   const naoDuplicado = useCallback(
-    async (g: GrupoDuplicata) => {
+    async (g: GrupoDuplicata): Promise<boolean> => {
       const ids = g.candidatos.map((c) => c.id);
       try {
         /*
@@ -160,12 +162,49 @@ export default function DuplicadosPage() {
         );
         qc.invalidateQueries({ queryKey: ['duplicados'] });
         qc.invalidateQueries({ queryKey: ['duplicados-descartados'] });
+        return true;
       } catch (e: any) {
         toast.error(e?.response?.data?.message ?? 'Não foi possível registrar.');
+        return false;
       }
     },
     [qc, devolver],
   );
+
+  /**
+   * NADA SAI DA FILA SEM PERGUNTAR (18/09/2026).
+   *
+   * "Está praticamente invisível e ao clicar vai diretamente executando a ação."
+   * Era verdade nas DUAS saídas: "não é duplicado" e "não é a mesma pessoa"
+   * gravavam no primeiro toque, e a tecla N também. Num trabalho de dezenas de
+   * grupos seguidos, um clique de raspão tirava da fila um par que ninguém
+   * olhou — e a fila é justamente onde o erro se esconde melhor, porque o que
+   * sai dela não volta a aparecer sozinho.
+   *
+   * A pergunta é rápida de propósito: Enter confirma, Esc desiste, e o texto diz
+   * QUEM sai e que dá para voltar. Confirmar é um toque a mais; errar em
+   * silêncio custava um cadastro perdido.
+   */
+  const [separar, setSeparar] = useState<
+    | { tipo: 'grupo'; grupo: GrupoDuplicata }
+    | { tipo: 'um'; grupo: GrupoDuplicata; candidato: CandidatoDuplicata }
+    | null
+  >(null);
+  const [separando, setSeparando] = useState(false);
+
+  async function confirmarSeparacao() {
+    if (!separar) return;
+    setSeparando(true);
+    try {
+      const ok = separar.tipo === 'grupo'
+        ? await naoDuplicado(separar.grupo)
+        : await foraDoGrupo(separar.grupo, separar.candidato);
+      // Fechar mesmo com erro faria a falha parecer sucesso: só fecha no ok.
+      if (ok) setSeparar(null);
+    } finally {
+      setSeparando(false);
+    }
+  }
 
   const atual = grupos[Math.min(indice, Math.max(0, grupos.length - 1))];
   const escolhidoDoAtual = atual
@@ -185,6 +224,12 @@ export default function DuplicadosPage() {
       // Não sequestra o teclado enquanto se digita em algum campo.
       const alvo = e.target as HTMLElement;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(alvo.tagName)) return;
+      /*
+        COM UMA PERGUNTA NA TELA, O TECLADO É DELA. O diálogo já para o Enter e
+        o Esc na captura, mas as setas continuavam chegando aqui — e trocar o
+        grupo ATRÁS do diálogo faria a confirmação valer para outro par.
+      */
+      if (fundindo || separar) return;
       const g = atual!;
 
       if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -199,7 +244,8 @@ export default function DuplicadosPage() {
         if (c) setEscolha((x) => ({ ...x, [g.chave]: c.id }));
       } else if (podeDecidir && e.key.toLowerCase() === 'n') {
         e.preventDefault();
-        void naoDuplicado(g);
+        // Abre a pergunta, como o botão — a tecla não pode decidir sozinha.
+        setSeparar({ tipo: 'grupo', grupo: g });
       } else if (podeDecidir && e.key === 'Enter') {
         e.preventDefault();
         const manter = g.candidatos.find((c) => c.id === escolhidoDoAtual);
@@ -208,7 +254,7 @@ export default function DuplicadosPage() {
     }
     window.addEventListener('keydown', aoTeclar);
     return () => window.removeEventListener('keydown', aoTeclar);
-  }, [modo, atual, grupos.length, escolhidoDoAtual, naoDuplicado, podeDecidir]);
+  }, [modo, atual, grupos.length, escolhidoDoAtual, podeDecidir, fundindo, separar]);
 
   // Trocar de aba recomeça a fila.
   useEffect(() => { setIndice(0); }, [aba]);
@@ -320,8 +366,8 @@ export default function DuplicadosPage() {
             escolhidoId={escolhidoDoAtual}
             onEscolher={(id) => setEscolha((e) => ({ ...e, [atual.chave]: id }))}
             onFundir={(manter) => setFundindo({ grupo: atual, manter })}
-            onNaoDuplicado={() => naoDuplicado(atual)}
-            onForaDoGrupo={(c) => foraDoGrupo(atual, c)}
+            onNaoDuplicado={() => setSeparar({ tipo: 'grupo', grupo: atual })}
+            onForaDoGrupo={(c) => setSeparar({ tipo: 'um', grupo: atual, candidato: c })}
           />
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
@@ -349,14 +395,33 @@ export default function DuplicadosPage() {
               escolhidoId={escolha[g.chave] ?? g.candidatos.find((c) => c.sugerido)?.id ?? null}
               onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
               onFundir={(manter) => setFundindo({ grupo: g, manter })}
-              onNaoDuplicado={() => naoDuplicado(g)}
-              onForaDoGrupo={(c) => foraDoGrupo(g, c)}
+              onNaoDuplicado={() => setSeparar({ tipo: 'grupo', grupo: g })}
+              onForaDoGrupo={(c) => setSeparar({ tipo: 'um', grupo: g, candidato: c })}
             />
           ))}
         </div>
       )}
 
       <MarcadosComoDiferentes onDevolver={devolver} podeDecidir={podeDecidir} />
+
+      {/*
+        A PERGUNTA DAS DUAS SAÍDAS. Âmbar, e não vermelha: nada é apagado aqui —
+        o par sai da fila e volta pelo "Desfazer" do aviso ou pela lista do fim
+        da página. Enter confirma porque tem volta; o diálogo de consolidar, que
+        apaga cadastro, não ganha esse atalho de propósito.
+      */}
+      <ConfirmDialog
+        open={!!separar}
+        title={separar?.tipo === 'um' ? 'Tirar este cadastro do grupo?' : 'São pessoas diferentes?'}
+        confirmLabel={separar?.tipo === 'um' ? 'Tirar do grupo' : 'Sim, são diferentes'}
+        cancelLabel="Voltar"
+        confirmarComEnter
+        loading={separando}
+        icon={<UserMinus className="h-6 w-6" />}
+        onConfirm={confirmarSeparacao}
+        onClose={() => (separando ? null : setSeparar(null))}
+        description={separar ? <ResumoSeparacao alvo={separar} /> : null}
+      />
 
       <ConfirmDialog
         open={!!fundindo}
@@ -539,7 +604,19 @@ function GrupoCard({
           </p>
         )}
 
-        <div className="grid gap-3 md:grid-cols-2">
+        {/*
+          TRÊS CABEM NUMA LINHA (18/09/2026). Com duas colunas fixas, o grupo de
+          três desenhava dois cartões em cima, um embaixo e meia tela vazia à
+          direita — e comparar o terceiro exigia o olho descer e voltar. O
+          trabalho aqui É comparar lado a lado; a grade acompanha o tamanho do
+          grupo, e no celular continua um embaixo do outro.
+        */}
+        <div
+          className={cn(
+            'grid gap-3 md:grid-cols-2',
+            grupo.candidatos.length >= 3 && 'lg:grid-cols-3',
+          )}
+        >
           {grupo.candidatos.map((c) => (
             <div key={c.id} className="space-y-1">
               <CandidatoCard
@@ -555,12 +632,28 @@ function GrupoCard({
                 em grupo de dois, tirar um é o "Não é duplicado" de sempre.
               */}
               {podeDecidir && grupo.candidatos.length > 2 && (
+                /*
+                  ELE PRECISA PARECER UM BOTÃO (18/09/2026). Era texto cinza sem
+                  borda, do tamanho de uma legenda: "está praticamente
+                  invisível". A borda TRACEJADA é a metáfora certa — este
+                  controle destaca um cadastro do grupo, não apaga nada — e o
+                  rosa só no hover diz "isto tira algo daqui" sem pintar de
+                  alerta um cartão que ainda não foi decidido.
+
+                  44 px de altura: é alvo de dedo, e a tela é usada no celular.
+                */
                 <button
                   type="button"
                   onClick={() => onForaDoGrupo(c)}
-                  className="flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  className={cn(
+                    'flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed',
+                    'border-muted-foreground/40 text-[13px] font-medium text-muted-foreground transition',
+                    'hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700',
+                    'dark:hover:border-rose-900 dark:hover:bg-rose-950/30 dark:hover:text-rose-300',
+                  )}
                 >
-                  <UserMinus className="h-3.5 w-3.5" aria-hidden="true" /> Não é a mesma pessoa
+                  <UserMinus className="h-4 w-4" aria-hidden="true" />
+                  Não é a mesma pessoa
                 </button>
               )}
             </div>
@@ -645,6 +738,63 @@ function CandidatoCard({
  * removido ou para o grupo inteiro: cada campo vazio do mantido diz DE ONDE vai
  * ser preenchido, e as matrículas removidas aparecem uma a uma.
  */
+/**
+ * O QUE A PERGUNTA MOSTRA — nome e matrícula, não uma frase genérica.
+ *
+ * "Tem certeza?" não ajuda ninguém a decidir: numa fila de 228 grupos, o que
+ * a pessoa precisa confirmar é QUEM ela está separando. A matrícula é o que
+ * distingue dois cadastros com o mesmo nome — que é o caso inteiro desta tela.
+ */
+function ResumoSeparacao({
+  alvo,
+}: {
+  alvo:
+    | { tipo: 'grupo'; grupo: GrupoDuplicata }
+    | { tipo: 'um'; grupo: GrupoDuplicata; candidato: CandidatoDuplicata };
+}) {
+  const fica = alvo.tipo === 'um'
+    ? alvo.grupo.candidatos.filter((c) => c.id !== alvo.candidato.id)
+    : [];
+
+  return (
+    <div className="space-y-3 text-sm">
+      {alvo.tipo === 'um' ? (
+        <>
+          <p>
+            <strong>{alvo.candidato.matricula}</strong> ({alvo.candidato.nomeCompleto}) sai do grupo
+            como pessoa diferente dos outros {fica.length}.
+          </p>
+          <div className="rounded-lg bg-muted/60 p-2.5">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Continuam na fila, juntos
+            </p>
+            <p className="text-xs">{fica.map((c) => c.matricula).join(', ')}</p>
+          </div>
+        </>
+      ) : (
+        <>
+          <p>
+            {alvo.grupo.candidatos.length > 2
+              ? `Os ${alvo.grupo.candidatos.length} cadastros saem da fila como pessoas diferentes entre si.`
+              : 'Os dois cadastros saem da fila como pessoas diferentes.'}
+          </p>
+          <div className="rounded-lg bg-muted/60 p-2.5">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {alvo.grupo.candidatos[0].nomeCompleto}
+            </p>
+            <p className="text-xs">{alvo.grupo.candidatos.map((c) => c.matricula).join(', ')}</p>
+          </div>
+        </>
+      )}
+      {/* Dizer que tem volta é o que permite decidir rápido sem medo. */}
+      <p className="text-xs">
+        Nada é apagado. Dá para desfazer no aviso que aparece em seguida, ou em
+        &ldquo;Marcados como pessoas diferentes&rdquo;, no fim desta página.
+      </p>
+    </div>
+  );
+}
+
 function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descartar: CandidatoDuplicata[] }) {
   const valor = (c: CandidatoDuplicata, chave: string) => c[chave as keyof CandidatoDuplicata];
   const temValor = (v: unknown) => v !== null && v !== undefined && v !== '';
