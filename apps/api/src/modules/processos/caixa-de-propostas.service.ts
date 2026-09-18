@@ -7,7 +7,7 @@ import {
   nossoPoloPelasPartes,
 } from './correlacao.service';
 import { trechoDaOrdem } from './utils/trecho-da-ordem.util';
-import { deQuemEOPrazo } from './utils/de-quem-e-a-ordem.util';
+import { deQuemEOPrazo, oPrazoPodeVirarData } from './utils/de-quem-e-a-ordem.util';
 import { tenant } from '../../tenant/tenant.config';
 
 /**
@@ -283,7 +283,7 @@ export class CaixaDePropostasService {
           parte, o relógio não pode mandar por ele três dias depois.
         */
         const nossoPolo = nossoPoloPelasPartes(c.processo?.partes ?? []);
-        if (deQuemEOPrazo(c.texto, nossoPolo, tenant.sigla) === 'DA_OUTRA_PARTE') {
+        if (!oPrazoPodeVirarData(deQuemEOPrazo(c.texto, nossoPolo, tenant.sigla))) {
           deixadasNaCaixa++;
           continue;
         }

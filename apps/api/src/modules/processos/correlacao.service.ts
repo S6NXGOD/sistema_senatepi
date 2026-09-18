@@ -13,7 +13,7 @@ import {
   type DecisaoDoTeor,
   type MovimentacaoCorrelacionavel,
 } from './utils/correlacao.util';
-import { deQuemEAOrdem, deQuemEOPrazo } from './utils/de-quem-e-a-ordem.util';
+import { deQuemEAOrdem, deQuemEOPrazo, oPrazoPodeVirarData } from './utils/de-quem-e-a-ordem.util';
 import { DIAS_ADOCAO_DO_ATO_POSTERIOR } from './utils/janela-do-robo.util';
 import { planejarAtividade, type PlanoDaAtividade } from './utils/plano-da-atividade.util';
 import { tenant } from '../../tenant/tenant.config';
@@ -552,8 +552,17 @@ export class CorrelacaoService {
           sabe. Não vira dispensa: a ordem nossa existe, e quem decide é gente.
         */
         const prazoDeQuem = deQuemEOPrazo(c.texto, processo.nossoPolo, tenant.sigla);
+        /*
+          E O PRAZO NOSSO PODE ESTAR DORMINDO (18/09/2026). Das seis tarefas que
+          advogados fecharam escrevendo "o prazo é da parte contrária", esta
+          regra já barrava cinco; a sexta era um prazo NOSSO condicionado —
+          "cumprida a obrigação (...), intime-se o Sindicato Autor no prazo de 15
+          dias". É trabalho real, mas não é de hoje, e a data que ele produziria
+          depende de um ato que a outra parte pode nem praticar.
+          `oPrazoPodeVirarData` é a pergunta única que os dois caminhos fazem.
+        */
         const provadaNossaComPrazo =
-          lado === 'NOSSA' && c.prazoMencionadoDias != null && prazoDeQuem !== 'DA_OUTRA_PARTE';
+          lado === 'NOSSA' && c.prazoMencionadoDias != null && oPrazoPodeVirarData(prazoDeQuem);
 
         if (!provadaNossaComPrazo) {
           const dono = await this.donoDaProposta(processo, c.id);

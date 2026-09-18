@@ -188,10 +188,50 @@ export function deQuemEAOrdem(
  * quando existe prazo e TODOS são atribuíveis à outra parte. Um prazo nosso, ou
  * um que não dê para atribuir, devolve o ato ao caminho normal.
  */
-export type LadoDoPrazo = 'NOSSO' | 'DA_OUTRA_PARTE' | 'INDEFINIDO';
+export type LadoDoPrazo = 'NOSSO' | 'NOSSO_FUTURO' | 'DA_OUTRA_PARTE' | 'INDEFINIDO';
 
 /** "no prazo de 15 dias", "prazo improrrogável de 5 (cinco) dias", "prazo de 48 horas". */
 const RE_TEM_PRAZO = /\bPRAZO\b[^.;\n]{0,40}?\bDE\s+\d{1,3}\b|\bPRAZO\s+DE\s+\d{1,3}\b/;
+
+/**
+ * O PRAZO É NOSSO, MAS AINDA NÃO COMEÇOU A CORRER (18/09/2026).
+ *
+ * O caso que ensinou isto está na produção, em 0001383-61.2023.5.22.0101 — e é o
+ * ÚNICO das seis tarefas "prazo da parte contrária" que a regra anterior ainda
+ * deixava passar. O ato traz DOIS prazos de quinze dias:
+ *
+ *   1. "INTIME-SE a parte Reclamada para que, no prazo de 15 dias, cumpra a
+ *      obrigação de fazer (...)" — dela;
+ *   3. "CUMPRIDA A OBRIGAÇÃO E JUNTADOS OS DOCUMENTOS, intime-se o Sindicato
+ *      Autor para que, no prazo de 15 (quinze) dias, apresente os cálculos" —
+ *      nosso, e a advogada fechou a tarefa escrevendo exatamente isso:
+ *      "Prazo direcionado, NESTE MOMENTO, à empresa Reclamada. Intimação do
+ *      SENATEPI para cálculos será POSTERIOR à apresentação da documentação".
+ *
+ * A atribuição estava certa e a conclusão, errada: o prazo é nosso e está
+ * DORMINDO. Marcá-lo na agenda hoje é dar ao advogado uma data que depende de
+ * um ato que a outra parte pode nem praticar — e quando ela praticar, o tribunal
+ * nos intima de novo, que é quando o prazo nasce de verdade.
+ *
+ * Os gatilhos são as fórmulas com que o juízo encadeia atos. Ficam ANCORADAS NO
+ * COMEÇO da frase (`^`) de propósito: "cumprida a obrigação, intime-se X" é
+ * condição; "o réu deverá juntar os documentos, após o que..." não é a mesma
+ * coisa, e casar no meio transformaria metade dos despachos em prazo dormente.
+ */
+const RE_PRAZO_CONDICIONADO = new RegExp(
+  '^\\s*(?:' +
+    // Depende de a outra parte fazer algo primeiro.
+    'CUMPRIDA|CUMPRIDO|CUMPRIDAS|CUMPRIDOS|JUNTADA|JUNTADO|JUNTADAS|JUNTADOS|' +
+    'APRESENTADA|APRESENTADO|APRESENTADAS|APRESENTADOS|SOBREVINDO|ADVINDO|' +
+    'COM A JUNTADA|COM A APRESENTACAO|COM A VINDA|COM O RETORNO|APOS|' +
+    // Depende de um prazo alheio terminar.
+    'TRANSCORRIDO|TRANSCORRIDOS|DECORRIDO|DECORRIDOS|ESGOTADO|ESGOTADOS|' +
+    'ULTRAPASSADO|VENCIDO O PRAZO|FINDO|FINDOS|SILENTE|QUEDANDO|' +
+    'NADA SENDO REQUERIDO|NAO HAVENDO|INEXISTINDO|' +
+    // Depende de uma hipótese.
+    'CASO|SE HOUVER|HAVENDO|EM SEGUIDA|NA SEQUENCIA|POSTERIORMENTE' +
+  ')\\b',
+);
 
 export function deQuemEOPrazo(
   texto: string,
@@ -206,9 +246,17 @@ export function deQuemEOPrazo(
   for (const frase of t.split(/[.;\n]/)) {
     if (!RE_TEM_PRAZO.test(frase)) continue;
 
+    /*
+      DORMINDO OU CORRENDO? A frase que traz o prazo pode começar condicionada a
+      um ato que ainda não aconteceu. Quando começa, o prazo é nosso mas não é
+      de hoje — e `nosso(...)` devolve `NOSSO_FUTURO` no lugar de `NOSSO`.
+    */
+    const condicionado = RE_PRAZO_CONDICIONADO.test(frase.trim());
+    const nosso = (): LadoDoPrazo => (condicionado ? 'NOSSO_FUTURO' : 'NOSSO');
+
     const limpa = frase.replace(/[^A-Z0-9]/g, '');
     if (siglaNormalizada.length >= 4 && limpa.includes(siglaNormalizada)) {
-      lados.push('NOSSO');
+      lados.push(nosso());
       continue;
     }
     /*
@@ -216,20 +264,43 @@ export function deQuemEOPrazo(
       "parte contrária" continua sendo relativa a quem agiu: nunca bloqueia.
     */
     if (TODAS_AS_PARTES.test(frase) || /\bPARTE[S]? CONTRARIA[S]?\b/.test(frase)) {
-      lados.push('NOSSO');
+      lados.push(nosso());
       continue;
     }
 
     const ativo = PAPEL_ATIVO.test(frase);
     const passivo = PAPEL_PASSIVO.test(frase);
-    if (ativo && passivo) lados.push('NOSSO'); // a frase obriga os dois lados
+    if (ativo && passivo) lados.push(nosso()); // a frase obriga os dois lados
     else if (!nossoPolo || (!ativo && !passivo)) lados.push('INDEFINIDO');
-    else if (ativo) lados.push(nossoPolo === 'ATIVO' ? 'NOSSO' : 'DA_OUTRA_PARTE');
-    else lados.push(nossoPolo === 'PASSIVO' ? 'NOSSO' : 'DA_OUTRA_PARTE');
+    else if (ativo) lados.push(nossoPolo === 'ATIVO' ? nosso() : 'DA_OUTRA_PARTE');
+    else lados.push(nossoPolo === 'PASSIVO' ? nosso() : 'DA_OUTRA_PARTE');
   }
 
   if (!lados.length) return 'INDEFINIDO';
+  /*
+    A ORDEM DE DESEMPATE DIZ O QUE FAZER HOJE. Um prazo nosso que já corre manda
+    em tudo — é trabalho de agora. Sem ele, um prazo nosso DORMENTE vale mais que
+    "não sei": ele é a informação exata de que existe trabalho nosso à frente,
+    esperando a outra parte. O caso da produção cai aqui: item 1 da outra parte,
+    item 3 nosso e condicionado.
+  */
   if (lados.includes('NOSSO')) return 'NOSSO';
+  if (lados.includes('NOSSO_FUTURO')) return 'NOSSO_FUTURO';
   if (lados.every((l) => l === 'DA_OUTRA_PARTE')) return 'DA_OUTRA_PARTE';
   return 'INDEFINIDO';
+}
+
+/**
+ * O PRAZO PERMITE MARCAR UMA DATA NA AGENDA HOJE?
+ *
+ * Um lugar só para a pergunta, porque ela tem DOIS jeitos de dar não e os dois
+ * consumidores (a criação direta e a escalada da caixa) precisam concordar. Se
+ * cada um escrevesse a sua comparação, o próximo valor do vocabulário entraria
+ * num e não no outro — e a agenda voltaria a receber o que a caixa recusa.
+ *
+ * `INDEFINIDO` passa de propósito: não saber de quem é o prazo não é o mesmo que
+ * saber que não é nosso, e o caminho normal continua tendo as outras provas.
+ */
+export function oPrazoPodeVirarData(lado: LadoDoPrazo): boolean {
+  return lado !== 'DA_OUTRA_PARTE' && lado !== 'NOSSO_FUTURO';
 }

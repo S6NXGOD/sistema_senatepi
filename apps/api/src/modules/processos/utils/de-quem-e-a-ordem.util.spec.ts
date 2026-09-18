@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deQuemEAOrdem, deQuemEOPrazo } from './de-quem-e-a-ordem.util';
+import { deQuemEAOrdem, deQuemEOPrazo, oPrazoPodeVirarData } from './de-quem-e-a-ordem.util';
 
 /**
  * O PRAZO ERA DA RECLAMADA E VIROU TAREFA DO NOSSO ADVOGADO.
@@ -213,10 +213,29 @@ describe('deQuemEOPrazo', () => {
     expect(deQuemEOPrazo(t, 'PASSIVO', SIGLA)).toBe('NOSSO');
   });
 
-  it('um prazo nosso no meio dos da outra parte devolve NOSSO', () => {
+  /**
+   * A GARANTIA DESTE CASO é que o ato NÃO seja carimbado como "tudo da outra
+   * parte" só porque a maioria dos prazos é dela — isso mandaria para a dispensa
+   * um ato que tem trabalho nosso dentro.
+   *
+   * O rótulo ficou mais fino em 18/09/2026: "APÓS, intime-se a parte autora"
+   * é um prazo nosso CONDICIONADO ao prazo anterior, e por isso `NOSSO_FUTURO`.
+   * A garantia é a mesma — não é da outra parte, e o ato não é dispensado; o que
+   * muda é que ele vai para a caixa de propostas em vez de virar data na agenda.
+   */
+  it('um prazo nosso no meio dos da outra parte nunca vira DA_OUTRA_PARTE', () => {
     const t =
       CIENCIA_COM_PRAZO_DA_EXECUTADA +
       ' Após, intime-se a parte autora para manifestar-se no prazo de 5 dias.';
+    expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('NOSSO_FUTURO');
+    expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).not.toBe('DA_OUTRA_PARTE');
+  });
+
+  /** E o mesmo ato sem o encadeamento continua sendo prazo de hoje. */
+  it('sem a condição, o prazo nosso no meio dos outros é de hoje', () => {
+    const t =
+      CIENCIA_COM_PRAZO_DA_EXECUTADA +
+      ' Intime-se a parte autora para manifestar-se no prazo de 5 dias.';
     expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('NOSSO');
   });
 
@@ -234,5 +253,91 @@ describe('deQuemEOPrazo', () => {
   it('"parte contrária" é relativa a quem agiu: nunca bloqueia', () => {
     const t = 'Recebo os embargos opostos pela reclamada, ficando a parte contrária intimada para se manifestar no prazo de 5 dias.';
     expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('NOSSO');
+  });
+});
+
+/**
+ * O PRAZO NOSSO QUE AINDA NÃO COMEÇOU A CORRER — 18/09/2026.
+ *
+ * Levantei as SEIS atividades que advogados fecharam na produção escrevendo que
+ * o prazo era da parte contrária. A regra de ontem já barrava cinco. A sexta era
+ * esta: um prazo NOSSO, escrito, mas condicionado a um ato da outra parte —
+ * 0001383-61.2023.5.22.0101, que a advogada fechou com "Prazo direcionado,
+ * NESTE MOMENTO, à empresa Reclamada. Intimação do SENATEPI para cálculos será
+ * POSTERIOR à apresentação da documentação pela empresa."
+ *
+ * Marcar isso na agenda hoje é dar ao advogado uma data que depende de um ato
+ * que a outra parte pode nem praticar. O ato não some: vai para a caixa de
+ * propostas, onde uma pessoa decide.
+ *
+ * Medido no acervo inteiro depois da mudança: das 45 publicações com prazo
+ * escrito, 4 linhas (2 atos e suas cópias) deixam de virar tarefa e 13
+ * continuam virando. Nenhum falso positivo — a outra é "APRESENTADA A CONTA DE
+ * LIQUIDAÇÃO, notifique-se (...) no prazo de 08 dias".
+ */
+describe('prazo nosso, mas dormindo', () => {
+  const O_CASO_DA_PRODUCAO =
+    'INTIME-SE a parte Reclamada para que, no prazo de 15 dias, cumpra a obrigação de fazer. ' +
+    'Cumprida a obrigação e juntados os documentos, INTIME-SE o Sindicato Autor para que, ' +
+    'no prazo de 15 (quinze) dias, apresente os cálculos de liquidação.';
+
+  it('o prazo condicionado ao ato da outra parte não é prazo de hoje', () => {
+    expect(deQuemEOPrazo(O_CASO_DA_PRODUCAO, 'ATIVO', SIGLA)).toBe('NOSSO_FUTURO');
+  });
+
+  it('e por isso não pode virar data na agenda', () => {
+    expect(oPrazoPodeVirarData('NOSSO_FUTURO')).toBe(false);
+    expect(oPrazoPodeVirarData('DA_OUTRA_PARTE')).toBe(false);
+    // Os dois que passam: o prazo provado nosso e o que não dá para atribuir.
+    expect(oPrazoPodeVirarData('NOSSO')).toBe(true);
+    expect(oPrazoPodeVirarData('INDEFINIDO')).toBe(true);
+  });
+
+  /** O gatilho é a fórmula de encadeamento, não a palavra solta no meio. */
+  it.each([
+    ['Cumprida a obrigação, intime-se o SENATEPI no prazo de 10 dias.'],
+    ['Juntados os documentos, manifeste-se o Sindicato Autor no prazo de 5 dias.'],
+    ['Transcorrido o prazo do item 1, intime-se o autor para falar no prazo de 15 dias.'],
+    ['Apresentada a conta de liquidação, intimem-se as partes no prazo de 08 dias.'],
+    ['Após a juntada, intime-se o reclamante no prazo de 8 dias.'],
+    ['Decorridos os prazos, dê-se vista ao Sindicato Autor no prazo de 10 dias.'],
+    ['Caso haja impugnação, manifeste-se o autor no prazo de 5 dias.'],
+  ])('%s → dormindo', (texto) => {
+    expect(deQuemEOPrazo(texto, 'ATIVO', SIGLA)).toBe('NOSSO_FUTURO');
+  });
+
+  /**
+   * E O CONTRÁRIO — o prazo que corre AGORA não pode ser confundido com o
+   * dormente só porque a frase tem uma palavra parecida no meio. Se isto
+   * quebrar, o robô para de criar tarefa legítima, que é o erro mais caro.
+   */
+  it.each([
+    ['Intime-se o SENATEPI para manifestar-se no prazo de 5 dias.'],
+    ['Fica o Sindicato Autor intimado a apresentar cálculos no prazo de 15 dias.'],
+    ['Intimem-se as partes para se manifestarem no prazo de 5 dias.'],
+    ['O autor deverá juntar os documentos no prazo de 10 dias, após o que os autos irão conclusos.'],
+    ['Manifeste-se o reclamante, no prazo de 8 dias, sobre a proposta apresentada.'],
+  ])('%s → corre agora', (texto) => {
+    expect(deQuemEOPrazo(texto, 'ATIVO', SIGLA)).toBe('NOSSO');
+  });
+
+  /** A condição não transforma prazo da OUTRA parte em prazo nosso. */
+  it('o prazo da outra parte continua sendo dela, condicionado ou não', () => {
+    const t = 'Transcorrido o prazo, intime-se a Reclamada para pagar no prazo de 15 dias.';
+    expect(deQuemEOPrazo(t, 'ATIVO', SIGLA)).toBe('DA_OUTRA_PARTE');
+  });
+
+  /**
+   * OS DOIS CAMINHOS FAZEM A MESMA PERGUNTA. A criação direta e a escalada da
+   * caixa precisam concordar: se o robô não manda a tarefa na hora porque o
+   * prazo está dormindo, o relógio não pode mandar por ele três dias depois.
+   */
+  it('a criação direta e a escalada usam a mesma função', () => {
+    const CAIXA = readFileSync(join(__dirname, '../caixa-de-propostas.service.ts'), 'utf8');
+    const CORRELACAO = readFileSync(join(__dirname, '../correlacao.service.ts'), 'utf8');
+    expect(CORRELACAO).toContain('oPrazoPodeVirarData(prazoDeQuem)');
+    expect(CAIXA).toContain('oPrazoPodeVirarData(deQuemEOPrazo(');
+    // E nenhum dos dois compara o valor na mão, que é como eles divergiriam.
+    expect(CAIXA).not.toContain("=== 'DA_OUTRA_PARTE'");
   });
 });

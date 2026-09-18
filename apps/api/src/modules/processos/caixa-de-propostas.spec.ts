@@ -23,10 +23,17 @@ describe('o que vai direto e o que vira proposta', () => {
    * não bastava — o ato manda "tomar ciência" para nós e dá o prazo à outra
    * parte (0001381-91.2023.5.22.0101). Com todo prazo do ato sendo da outra
    * parte, o ato volta para a caixa em vez de ir direto para a agenda.
+   *
+   * 18/09/2026: e a terceira perna passou a ter DOIS jeitos de dar não. O prazo
+   * pode ser NOSSO e ainda assim não ser de hoje — "cumprida a obrigação (...),
+   * intime-se o Sindicato Autor no prazo de 15 dias" era a última das seis
+   * tarefas que advogados fecharam escrevendo "o prazo é da parte contrária".
+   * A comparação virou `oPrazoPodeVirarData`, uma pergunta só, para os dois
+   * caminhos (a criação direta e a escalada) nunca discordarem.
    */
-  it('só a ordem provada COM prazo NOSSO vira tarefa sem perguntar', () => {
+  it('só a ordem provada COM prazo que já corre vira tarefa sem perguntar', () => {
     expect(CORRELACAO).toContain("lado === 'NOSSA' && c.prazoMencionadoDias != null");
-    expect(CORRELACAO).toContain("prazoDeQuem !== 'DA_OUTRA_PARTE'");
+    expect(CORRELACAO).toContain('oPrazoPodeVirarData(prazoDeQuem)');
     expect(CORRELACAO).toContain('if (!provadaNossaComPrazo) {');
   });
 
