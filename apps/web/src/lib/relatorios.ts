@@ -90,6 +90,13 @@ export interface Justica {
   totalSentencasNoPeriodo: number;
   adversarios: ContagemComChave[];
   comarcas: ContagemComChave[];
+  /**
+   * Mediana de DIAS da distribuição à sentença, no acervo todo. Nula com menos
+   * de três julgados. Opcional: a API antiga não manda.
+   */
+  medianaAteSentencaDias?: number | null;
+  /** Sobre quantos processos a mediana foi calculada — número sem base não se discute. */
+  baseDaMediana?: number;
   temas: Contagem[];
 }
 

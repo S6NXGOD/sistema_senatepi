@@ -578,3 +578,41 @@ describe('"por área" e "por tribunal" dizem o universo e o que falta', () => {
     expect(bloco.slice(0, 600)).not.toContain('informada.`');
   });
 });
+
+/**
+ * QUANTO TEMPO ATE A SENTENCA (18/09/2026).
+ *
+ * Depois de "quantas" e "como", a pergunta seguinte da diretoria e "em quanto
+ * tempo" -- e e tambem o que o filiado pergunta no balcao. Mediana, nunca media:
+ * um caso parado sete anos descreveria um acervo que nao existe.
+ */
+describe('a duração até a sentença', () => {
+  const comDuracao = (dias: number | null, base = 37): Relatorio => ({
+    ...base2(),
+    justica: { ...base2().justica!, medianaAteSentencaDias: dias, baseDaMediana: base },
+  });
+  const base2 = (): Relatorio => base;
+  const plano = (r: Relatorio) => JSON.stringify(planoDoPdf(r, TUDO_DETALHADO, rotulos, 2026));
+
+  it('sai em palavras, e não em dias soltos', () => {
+    const texto = plano(comDuracao(613));
+    expect(texto).toContain('cerca de 1 ano e 8 meses');
+    expect(texto).not.toContain('613 dias');
+  });
+
+  /** Mediana sem a amostra vira slogan. */
+  it('a base vai junto do número', () => {
+    expect(plano(comDuracao(613, 37))).toContain('mediana de 37 processos julgados');
+    expect(plano(comDuracao(613, 1))).toContain('mediana de 1 processo julgado');
+  });
+
+  it('cala quando a API não tem o que dizer', () => {
+    expect(plano(comDuracao(null))).not.toContain('Da distribuição à sentença');
+  });
+
+  it('a tela mostra o mesmo número, com a base', () => {
+    expect(TELA).toContain('duracaoEmPalavras(j.medianaAteSentencaDias)');
+    expect(TELA).toContain('Da distribuição à sentença');
+    expect(TELA).toContain('processo julgado');
+  });
+});

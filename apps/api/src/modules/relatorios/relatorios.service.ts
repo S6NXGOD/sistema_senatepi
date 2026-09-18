@@ -7,7 +7,7 @@ import { integracaoAtiva, tenant } from '../../tenant/tenant.config';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import { anoBR, inicioDoDiaBR } from '../processos/utils/data-br.util';
 import {
-  IMPROCEDENCIA, PROCEDENCIA, PROCEDENCIA_PARCIAL, baseDoAcervo,
+  IMPROCEDENCIA, MINIMO_PARA_MEDIANA, PROCEDENCIA, PROCEDENCIA_PARCIAL, baseDoAcervo,
 } from '../processos/padroes.service';
 import { ESPERANDO_DECISAO } from '../processos/djen-busca.service';
 import { daPessoa } from '../agenda/equipe.util';
@@ -114,6 +114,23 @@ export interface Justica {
   adversarios: ContagemComChave[];
   /** Onde tramitam, no acervo ativo. `chave` é o código IBGE da comarca. */
   comarcas: ContagemComChave[];
+  /**
+   * QUANTO TEMPO DA DISTRIBUIÇÃO À SENTENÇA — mediana de dias, no acervo todo.
+   *
+   * A pergunta que a diretoria faz depois de "quantas ganhamos" é "em quanto
+   * tempo", e o relatório não respondia. Vale para a reunião e vale no balcão:
+   * é o que se diz ao filiado que pergunta quanto demora.
+   *
+   * MEDIANA, não média — um caso parado sete anos por precatório descreveria um
+   * acervo que não existe. Mesma régua do Panorama (`medianaAteSentenca`): a
+   * SENTENÇA mais recente de cada processo, pela CTE `julgamento`.
+   *
+   * Nula com menos de três julgados; `baseDaMediana` diz sobre quantos ela foi
+   * calculada, porque número sem base não se discute.
+   */
+  medianaAteSentencaDias: number | null;
+  baseDaMediana: number;
+
   /** Sobre o quê, pelos assuntos de mérito (sem os de rito). */
   temas: Contagem[];
 }
@@ -674,6 +691,7 @@ export class RelatoriosService {
       adversarios,
       temas,
       comarcasRaw,
+      duracaoRaw,
     ] = await Promise.all([
       this.prisma.processo.count({ where: { ...ativo, partes: { some: { polo: 'ATIVO', ...somosNos } } } }),
       this.prisma.processo.count({ where: { ...ativo, partes: { some: { polo: 'PASSIVO', ...somosNos } } } }),
@@ -760,8 +778,30 @@ export class RelatoriosService {
         where: { ...ativo, municipioIBGE: { not: null } },
         _count: { _all: true },
       }),
+      /*
+        QUANTO TEMPO ATÉ A SENTENÇA — a mediana, calculada no banco.
+
+        `percentile_cont` faz a conta sobre a fatia inteira sem trazer uma linha
+        por processo até aqui. A fatia é a MESMA do resto: a CTE `julgamento`
+        entrega a sentença mais recente de cada processo, com os códigos do CNJ.
+
+        Duração negativa é dado sujo, não caso relâmpago — a sentença anterior à
+        distribuição fica de fora em vez de puxar a mediana para baixo.
+      */
+      this.prisma.$queryRaw<{ mediana: number | null; base: number }[]>(Prisma.sql`
+        ${base}
+        SELECT percentile_cont(0.5) WITHIN GROUP (
+                 ORDER BY (j.data_movimento::date - p.data_distribuicao::date)
+               )::int AS mediana,
+               count(*)::int AS base
+          FROM processos p
+          JOIN julgamento j ON j.processo_id = p.id
+         WHERE p.data_distribuicao IS NOT NULL
+           AND j.data_movimento::date >= p.data_distribuicao::date
+      `),
     ]);
 
+    const baseDaMediana = duracaoRaw[0]?.base ?? 0;
     const entes = comarcasRaw.length
       ? await this.prisma.ente.findMany({
           where: { codigo: { in: comarcasRaw.map((c) => c.municipioIBGE as number) } },
@@ -812,6 +852,12 @@ export class RelatoriosService {
       adversarios,
       comarcas,
       temas,
+      /*
+        CALA COM MENOS DE TRÊS: mediana de dois é o ponto médio de dois números,
+        não um padrão — a mesma régua do Panorama.
+      */
+      medianaAteSentencaDias: baseDaMediana >= MINIMO_PARA_MEDIANA ? (duracaoRaw[0]?.mediana ?? null) : null,
+      baseDaMediana,
     };
   }
 

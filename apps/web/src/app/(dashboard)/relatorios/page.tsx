@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   ArrowRight, BarChart3, Bot, CalendarClock, Download, FileText, Gavel, Loader2, MessagesSquare,
-  Newspaper, Users, type LucideIcon,
+  Clock, Newspaper, Users, type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
@@ -38,6 +38,7 @@ import {
   CANAL_LABEL, SETOR_LABEL, type CanalAtendimento, type SetorAtendimento,
 } from '@/lib/atendimentos';
 import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
+import { duracaoEmPalavras } from '@/lib/panorama';
 import { MOTIVO_DESFILIACAO_LABEL, type MotivoDesfiliacao } from '@/lib/filiados';
 import { formatNPU } from '@/lib/processos';
 import { baixarCsvDaProdutividade } from '@/lib/produtividade';
@@ -667,6 +668,7 @@ function Numero({
 function SecaoJustica({ r, j, anoCorrente }: { r: Relatorio; j: Justica; anoCorrente: number }) {
   const frase = fraseDasSentencas(j.sentencasPorAno, anoCorrente);
   const semData = r.processos.semDataDeDistribuicao ?? 0;
+  const duracaoAteSentenca = duracaoEmPalavras(j.medianaAteSentencaDias);
 
   return (
     <section id="justica" className="scroll-mt-20 space-y-3">
@@ -710,6 +712,23 @@ function SecaoJustica({ r, j, anoCorrente }: { r: Relatorio; j: Justica; anoCorr
         <Card className="p-4 lg:col-span-2">
           <h3 className="text-sm font-semibold">Sentenças por ano</h3>
           {frase && <p className="mt-1 text-sm">{frase}</p>}
+          {/*
+            QUANTO TEMPO ATÉ A SENTENÇA (18/09/2026). Depois de "quantas" e
+            "como", a pergunta seguinte da diretoria é "em quanto tempo" — e é
+            também o que o filiado pergunta no balcão. A BASE vai junto: número
+            de mediana sem a amostra não se discute.
+          */}
+          {duracaoAteSentenca && (
+            <p className="mt-1 flex items-start gap-1.5 text-sm text-muted-foreground">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                Da distribuição à sentença,{' '}
+                <strong className="font-medium text-foreground">{duracaoAteSentenca}</strong>
+                {' '}(mediana de {j.baseDaMediana}{' '}
+                {j.baseDaMediana === 1 ? 'processo julgado' : 'processos julgados'}).
+              </span>
+            </p>
+          )}
           <SentencasPorAno serie={j.sentencasPorAno} anoCorrente={anoCorrente} />
           <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
             O CNJ costuma levar cerca de dois meses para registrar um julgamento: os meses mais

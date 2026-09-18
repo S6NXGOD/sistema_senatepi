@@ -2,6 +2,7 @@ import { tenant } from '@/tenant.config';
 import { chaveLocal } from './armazenamento';
 import { baixarDocumento, type BlocoDoPdf } from './pdf-documento';
 import { PALETA, agruparResto, numero, variacao } from './pdf-graficos';
+import { duracaoEmPalavras } from './panorama';
 import {
   periodoPorExtenso, presetValido, rotuloDoPeriodo, type Periodo, type PresetDoPeriodo,
 } from './periodo-do-pdf';
@@ -353,6 +354,20 @@ export function planoDoPdf(
     });
     const frase = fraseDasSentencas(j.sentencasPorAno, anoCorrente);
     if (frase) blocos.push({ tipo: 'texto', texto: frase });
+    /*
+      QUANTO TEMPO ATÉ A SENTENÇA, com a BASE ao lado. No papel da assembleia
+      uma mediana sem a amostra vira slogan; com "de 37 processos julgados" ela
+      vira número que se discute.
+    */
+    const duracao = duracaoEmPalavras(j.medianaAteSentencaDias);
+    if (duracao) {
+      blocos.push({
+        tipo: 'texto',
+        texto:
+          `Da distribuição à sentença, ${duracao} — mediana de ${n(j.baseDaMediana ?? 0)} ` +
+          `${(j.baseDaMediana ?? 0) === 1 ? 'processo julgado' : 'processos julgados'}.`,
+      });
+    }
     const rotuloDoAno = (ano: number) => (ano === anoCorrente ? `${ano} (até agora)` : String(ano));
     if (graficos) {
       blocos.push({
