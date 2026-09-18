@@ -31,6 +31,7 @@ import {
 import { limitesDoDia, recorteAberto } from '../agenda/recortes.util';
 import { SELECT_CONSULTA_DO_ENCAMINHAMENTO } from '../atendimentos/encaminhamento.util';
 import { SELECAO_DAS_ABERTAS, contarAbertasPorPessoa } from '../relatorios/abertas-da-pessoa.util';
+import { publicacoesQueCitam } from '../processos/utils/publicacoes-que-citam.util';
 import {
   LINHA_QUE_PROVA_QUE_RODOU,
   PREFIXO_RODADA_SEM_ALVO,
@@ -1750,31 +1751,17 @@ export class DashboardService {
    * Recortado pela janela ANTES do `jsonb_array_elements`: sem isso a expansão
    * varreria as 1.408 publicações do acervo para responder sobre sete dias.
    */
+  /**
+   * Delega à regra única — ver `publicacoes-que-citam.util`. A consulta morava
+   * aqui e ganhou um segundo dono (o relatório individual do advogado); duas
+   * cópias discordariam no dia em que uma aprendesse algo.
+   */
   private async publicacoesQueCitam(
     advogado: { oab: string | null; oabUf: string | null } | null,
     desde: Date,
   ): Promise<string[]> {
-    const numero = (advogado?.oab ?? '').replace(/\D/g, '');
-    const uf = (advogado?.oabUf ?? '').trim().toUpperCase();
-    // Advogado sem OAB no cadastro: o vínculo por citação simplesmente não
-    // existe, e o escopo cai para o acervo — que é o comportamento de antes.
-    if (!numero || !uf) return [];
-
-    const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT c."id"
-        FROM "comunicacoes_djen" c
-       WHERE c."data_disponibilizacao" >= ${desde}
-         AND c."advogados" IS NOT NULL
-         AND EXISTS (
-           SELECT 1
-             FROM jsonb_array_elements(c."advogados"::jsonb) a
-            WHERE regexp_replace(a->>'numeroOab', '\D', '', 'g') = ${numero}
-              AND upper(a->>'ufOab') = ${uf}
-         )
-    `;
-    return linhas.map((l) => l.id);
+    return publicacoesQueCitam(this.prisma, advogado, { de: desde });
   }
-
   private resumirPublicacoes(
     brutas: PublicacaoBruta[],
     idDoSindicato: string | null,

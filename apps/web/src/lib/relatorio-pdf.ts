@@ -35,7 +35,13 @@ export type { BlocoDoPdf } from './pdf-documento';
  * tabela, em ordem alfabética — barra por pessoa é pódio desenhado.
  */
 
-export type SecaoDoPdf = 'justica' | 'proximos' | 'equipe' | 'publicacoes' | 'atendimentos';
+export type SecaoDoPdf =
+  | 'justica'
+  | 'proximos'
+  | 'equipe'
+  | 'intimacoes'
+  | 'publicacoes'
+  | 'atendimentos';
 
 export type EscolhasDoPdf = Record<SecaoDoPdf, { incluir: boolean; detalhar: boolean }>;
 
@@ -69,6 +75,15 @@ export const SECOES_DO_PDF: {
       'para a diretoria ou para a assembleia.',
   },
   {
+    chave: 'intimacoes',
+    titulo: 'Intimações que citaram a pessoa',
+    resumo: 'Quantas nomearam esta inscrição na OAB e o que virou de cada uma.',
+    detalhe: 'Inclui a ressalva de que a intimação nomeia a equipe inteira.',
+    cuidado:
+      'Só existe no espelho de uma pessoa. NÃO é medida de produtividade: quem tem mais ' +
+      'processos na própria inscrição aparece com mais intimações sem ter trabalhado mais.',
+  },
+  {
     chave: 'publicacoes',
     titulo: 'Publicações e robô',
     resumo: 'O que chegou do Diário e o que virou tarefa.',
@@ -91,6 +106,8 @@ export const ESCOLHAS_PADRAO: EscolhasDoPdf = {
   justica: { incluir: true, detalhar: true },
   proximos: { incluir: true, detalhar: false },
   equipe: { incluir: true, detalhar: false },
+  // Detalhada por padrão: a ressalva é a parte que não pode faltar no papel.
+  intimacoes: { incluir: true, detalhar: true },
   publicacoes: { incluir: true, detalhar: false },
   atendimentos: { incluir: true, detalhar: false },
 };
@@ -99,6 +116,7 @@ export const ESCOLHAS_PADRAO: EscolhasDoPdf = {
 export function secaoDisponivel(r: Relatorio, secao: SecaoDoPdf): boolean {
   if (secao === 'justica') return !!r.justica;
   if (secao === 'proximos') return !!r.proximos;
+  if (secao === 'intimacoes') return !!r.minhasIntimacoes;
   if (secao === 'publicacoes') return !!r.publicacoes || !!r.robo;
   return true;
 }
@@ -466,6 +484,54 @@ export function planoDoPdf(
         texto:
           'Sem posição e sem nota: os casos não são comparáveis entre si. O tempo mediano ' +
           'considera só as atividades em que alguém usou o cronômetro.',
+      });
+    }
+  }
+
+  /*
+    AS INTIMAÇÕES DA PESSOA — e a ressalva IMPRESSA junto (18/09/2026).
+
+    Um papel com "37 intimações" ao lado de um nome, sem a frase que explica o
+    que o número é, vira régua de produtividade na mão de quem receber. A
+    ressalva por isso não é opcional: sai sempre que a seção sai.
+  */
+  if (quer('intimacoes') && r.minhasIntimacoes) {
+    const m = r.minhasIntimacoes;
+    const dono = r.focoUsuario?.nome ?? 'você';
+    blocos.push({ tipo: 'secao', titulo: `Intimações que citaram ${dono}` });
+    if (!m.temOab) {
+      blocos.push({
+        tipo: 'nota',
+        texto:
+          'Sem inscrição na OAB cadastrada não há como ligar as publicações do Diário a esta ' +
+          'pessoa — o vínculo é pelo número e pela UF.',
+      });
+    } else {
+      blocos.push({
+        tipo: 'numeros',
+        itens: [
+          { rotulo: 'Intimações no período', valor: n(m.recebidas) },
+          { rotulo: 'Viraram tarefa', valor: n(m.viraramTarefa) },
+          { rotulo: 'Tarefas concluídas', valor: n(m.tarefasConcluidas) },
+          { rotulo: 'Ainda em aberto', valor: n(m.tarefasEmAberto) },
+        ],
+      });
+      if (m.oRoboDispensou > 0) {
+        blocos.push({
+          tipo: 'nota',
+          texto:
+            `Em ${n(m.oRoboDispensou)} delas o robô decidiu não abrir tarefa (notícia anterior ao ` +
+            'acompanhamento, ou ordem dirigida à outra parte). É decisão dele, não da pessoa.',
+        });
+      }
+      blocos.push({
+        tipo: 'nota',
+        texto:
+          'ISTO NÃO MEDE PRODUTIVIDADE. A intimação do Diário nomeia a equipe inteira do ' +
+          'processo: quem tem mais casos na própria inscrição aparece com mais intimações sem ' +
+          'ter trabalhado mais, e quem atuou no processo de um colega não aparece aqui. O que ' +
+          'estes números mostram é o serviço registrado no sistema — o que não é registrado não ' +
+          'aparece em relatório nenhum.',
       });
     }
   }

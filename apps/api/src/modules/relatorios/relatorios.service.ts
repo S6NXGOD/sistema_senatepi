@@ -19,6 +19,10 @@ import {
   type SentencasDoAno, type TextoRepetido,
 } from './relatorio.util';
 import { SELECAO_DAS_ABERTAS, contarAbertasPorPessoa } from './abertas-da-pessoa.util';
+import {
+  publicacoesQueCitam,
+  temInscricao,
+} from '../processos/utils/publicacoes-que-citam.util';
 
 /**
  * RELATÓRIOS — o que a equipe entregou, o que ficou, e como o sindicato está
@@ -130,6 +134,37 @@ export interface Publicacoes {
   esperandoDecisao: number;
 }
 
+/**
+ * AS INTIMAÇÕES QUE CITAM ESTA PESSOA, e o que foi feito com elas.
+ *
+ * Pedido de 18/09/2026: "colocar no relatório individual de cada advogado as
+ * intimações que ele teve, ações que tomou". O relatório pessoal não tinha
+ * nada disso — publicações eram leitura da casa, e com razão: o CONTADOR da
+ * operação é de quem coordena. Mas "quantas intimações me nomearam e o que
+ * virou de cada uma" é outra pergunta, e é o espelho da própria pessoa.
+ *
+ * O VÍNCULO É POR CITAÇÃO (OAB), não por acervo: o ato do DJEN intima a equipe
+ * inteira, e o processo pode ser de um colega. Ver `publicacoes-que-citam`.
+ *
+ * `oRoboDispensou` está separado de propósito e NÃO é ação da pessoa: é o robô
+ * decidindo não criar tarefa (notícia velha, ordem da outra parte). Somá-lo às
+ * ações humanas diria que alguém trabalhou onde ninguém tocou.
+ */
+export interface MinhasIntimacoes {
+  /** Sem OAB no cadastro não existe vínculo por citação — a tela explica. */
+  temOab: boolean;
+  /** Publicações do período que nomeiam esta inscrição. */
+  recebidas: number;
+  /** Das recebidas, quantas viraram tarefa na agenda. */
+  viraramTarefa: number;
+  /** Dessas tarefas, quantas já foram concluídas. */
+  tarefasConcluidas: number;
+  /** Dessas tarefas, quantas continuam em aberto. */
+  tarefasEmAberto: number;
+  /** O robô olhou e decidiu não criar tarefa. Decisão dele, não da pessoa. */
+  oRoboDispensou: number;
+}
+
 export interface Robo {
   criadas: number;
   concluidas: number;
@@ -143,6 +178,9 @@ export interface Relatorio {
   escopo: 'GLOBAL' | 'PESSOAL';
   /** Quando a coordenação pediu o espelho de UMA pessoa. */
   focoUsuario: { id: string; nome: string } | null;
+
+  /** Só no espelho de uma pessoa — nulo na visão da casa. */
+  minhasIntimacoes: MinhasIntimacoes | null;
   equipe: LinhaEquipe[];
   atividades: {
     concluidas: number;
@@ -338,6 +376,7 @@ export class RelatoriosService {
         pessoas,
       ],
       [justica, proximos, publicacoes, robo],
+      minhasIntimacoes,
     ] = await Promise.all([
       Promise.all([
         /**
@@ -414,6 +453,12 @@ export class RelatoriosService {
         daCasa && djenLigado ? this.publicacoes(inicio, fim) : null,
         daCasa ? this.robo(inicio, fim) : null,
       ]),
+      /*
+        O ESPELHO DA PESSOA — o oposto de `daCasa`. Só existe quando há alvo, e
+        exige `processos`: intimação é ato do acervo, e quem não vê processo não
+        recebe número de processo por outra porta.
+      */
+      alvo && veProcessos ? this.minhasIntimacoes(alvo, inicio, fim) : null,
     ]);
 
     const duracoes = new Map<string, number[]>();
@@ -473,6 +518,7 @@ export class RelatoriosService {
       escopo: souAdvogado ? 'PESSOAL' : 'GLOBAL',
       focoUsuario:
         foco && alvoNome ? { id: alvoNome.id, nome: alvoNome.nomeExibicao || alvoNome.nome } : null,
+      minhasIntimacoes,
       equipe,
       atividades: {
         concluidas: concluidas.length,
@@ -769,6 +815,77 @@ export class RelatoriosService {
       this.prisma.comunicacaoDjen.count({ where: ESPERANDO_DECISAO }),
     ]);
     return { recebidas, viraramTarefa, dispensadas, esperandoDecisao };
+  }
+
+  /**
+   * AS INTIMAÇÕES QUE CITAM UMA PESSOA — o espelho dela, não o contador da casa.
+   *
+   * Só roda quando há alvo (o advogado olhando o próprio relatório, ou a
+   * coordenação focando alguém). Na visão da casa devolve nulo: "quantas
+   * intimações me nomearam" não é pergunta que o coletivo responda.
+   *
+   * NÃO É MEDIDA DE PRODUTIVIDADE, e a tela diz isso com todas as letras. O ato
+   * do DJEN intima a EQUIPE inteira — quem tem mais processos na OAB aparece
+   * com mais intimações sem ter trabalhado mais. O que o número serve é para a
+   * própria pessoa mostrar o serviço que passou pelas mãos dela.
+   */
+  private async minhasIntimacoes(
+    alvo: string,
+    inicio: Date,
+    fim: Date,
+  ): Promise<MinhasIntimacoes> {
+    const advogado = await this.prisma.user.findUnique({
+      where: { id: alvo },
+      select: { oab: true, oabUf: true },
+    });
+    const vazio: MinhasIntimacoes = {
+      temOab: temInscricao(advogado),
+      recebidas: 0,
+      viraramTarefa: 0,
+      tarefasConcluidas: 0,
+      tarefasEmAberto: 0,
+      oRoboDispensou: 0,
+    };
+    if (!vazio.temOab) return vazio;
+
+    const ids = await publicacoesQueCitam(this.prisma, advogado, { de: inicio, ate: fim });
+    if (!ids.length) return vazio;
+
+    /*
+      UMA CONSULTA SÓ, e não cinco contagens: os ids já estão em mãos e a
+      publicação é uma linha curta. Contar no banco cinco vezes a mesma fatia
+      custaria cinco varreduras para responder o que uma leitura resolve.
+    */
+    const linhas = await this.prisma.comunicacaoDjen.findMany({
+      where: { id: { in: ids } },
+      select: {
+        tarefaDispensadaEm: true,
+        compromisso: { select: { status: true } },
+      },
+    });
+
+    let viraramTarefa = 0;
+    let tarefasConcluidas = 0;
+    let tarefasEmAberto = 0;
+    let oRoboDispensou = 0;
+    for (const l of linhas) {
+      if (l.compromisso) {
+        viraramTarefa++;
+        if (l.compromisso.status === StatusCompromisso.CONCLUIDO) tarefasConcluidas++;
+        else if ((ABERTOS as StatusCompromisso[]).includes(l.compromisso.status)) tarefasEmAberto++;
+      } else if (l.tarefaDispensadaEm) {
+        oRoboDispensou++;
+      }
+    }
+
+    return {
+      temOab: true,
+      recebidas: linhas.length,
+      viraramTarefa,
+      tarefasConcluidas,
+      tarefasEmAberto,
+      oRoboDispensou,
+    };
   }
 
   /**

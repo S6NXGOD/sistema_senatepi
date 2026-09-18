@@ -101,6 +101,24 @@ export interface Proximos {
   totalPrazos: number;
 }
 
+/**
+ * AS INTIMAÇÕES QUE CITAM ESTA PESSOA — só no espelho dela.
+ *
+ * O vínculo é por CITAÇÃO (OAB), não por acervo: o ato do DJEN intima a equipe
+ * inteira, e o processo pode ser de um colega. Opcional porque a API antiga não
+ * manda o bloco — na janela de troca a seção simplesmente não aparece.
+ */
+export interface MinhasIntimacoes {
+  /** Sem OAB no cadastro não existe vínculo por citação. */
+  temOab: boolean;
+  recebidas: number;
+  viraramTarefa: number;
+  tarefasConcluidas: number;
+  tarefasEmAberto: number;
+  /** O robô decidiu não criar tarefa. NÃO é ação da pessoa. */
+  oRoboDispensou: number;
+}
+
 export interface Publicacoes {
   recebidas: number;
   viraramTarefa: number;
@@ -175,6 +193,7 @@ export interface Relatorio {
   };
   justica?: Justica | null;
   proximos?: Proximos | null;
+  minhasIntimacoes?: MinhasIntimacoes | null;
   publicacoes?: Publicacoes | null;
   robo?: Robo | null;
   geradoEm: string;

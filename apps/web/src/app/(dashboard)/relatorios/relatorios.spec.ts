@@ -392,3 +392,70 @@ describe('os textos de "Outro"', () => {
     ]);
   });
 });
+
+/**
+ * AS INTIMACOES QUE CITARAM A PESSOA (18/09/2026).
+ *
+ * Pedido: colocar no relatorio individual de cada advogado as intimacoes que
+ * ele teve e as acoes que tomou. O risco e o papel virar regua de produtividade
+ * na mao de quem receber — por isso a ressalva nao e opcional.
+ */
+describe('intimações no espelho da pessoa', () => {
+  const comIntimacoes = (
+    over: Partial<NonNullable<Relatorio['minhasIntimacoes']>> = {},
+  ): Relatorio => ({
+    ...base,
+    escopo: 'PESSOAL',
+    minhasIntimacoes: {
+      temOab: true, recebidas: 37, viraramTarefa: 21,
+      tarefasConcluidas: 18, tarefasEmAberto: 3, oRoboDispensou: 12,
+      ...over,
+    },
+  });
+  const plano = (r: Relatorio) => JSON.stringify(planoDoPdf(r, TUDO_DETALHADO, rotulos, 2026));
+
+  it('a seção só existe quando o bloco vem', () => {
+    expect(secaoDisponivel(base, 'intimacoes')).toBe(false);
+    expect(secaoDisponivel(comIntimacoes(), 'intimacoes')).toBe(true);
+  });
+
+  it('os quatro números entram no PDF', () => {
+    const texto = plano(comIntimacoes());
+    expect(texto).toContain('Intimações no período');
+    expect(texto).toContain('Viraram tarefa');
+    expect(texto).toContain('Tarefas concluídas');
+    expect(texto).toContain('Ainda em aberto');
+  });
+
+  /** Um papel com "37" ao lado de um nome, sem a frase, vira placar. */
+  it('a ressalva sai SEMPRE que a seção sai', () => {
+    expect(plano(comIntimacoes())).toContain('ISTO NÃO MEDE PRODUTIVIDADE');
+  });
+
+  /** A dispensa é do robô: somá-la às ações humanas inventaria trabalho. */
+  it('separa a decisão do robô, e diz de quem é', () => {
+    expect(plano(comIntimacoes())).toContain('É decisão dele, não da pessoa.');
+  });
+
+  it('sem dispensa nenhuma, a frase do robô não aparece', () => {
+    expect(plano(comIntimacoes({ oRoboDispensou: 0 }))).not.toContain('decisão dele');
+  });
+
+  /** Zero sem OAB é resultado; zero por falta de cadastro é outra coisa. */
+  it('sem OAB, explica em vez de imprimir quatro zeros', () => {
+    const texto = plano(comIntimacoes({ temOab: false }));
+    expect(texto).toContain('Sem inscrição na OAB cadastrada');
+    expect(texto).not.toContain('Intimações no período');
+  });
+
+  it('a tela também traz a ressalva, e não em letra miúda', () => {
+    expect(TELA).toContain('Isto não mede produtividade');
+    expect(TELA).toContain('mostrar o serviço');
+  });
+
+  it('a tela explica a falta de OAB em vez de mostrar zero', () => {
+    const bloco = TELA.slice(TELA.indexOf('function SecaoMinhasIntimacoes'));
+    expect(bloco.slice(0, 3000)).toContain('{!m.temOab ?');
+    expect(bloco.slice(0, 3000)).toContain('inscrição na OAB cadastrada no sistema');
+  });
+});

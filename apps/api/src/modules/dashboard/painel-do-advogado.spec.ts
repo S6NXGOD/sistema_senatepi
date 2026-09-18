@@ -5,6 +5,12 @@ import { limitesDoDia, recorteAberto } from '../agenda/recortes.util';
 import { wheresDoPainel } from './painel.regras';
 
 const DASH = readFileSync(join(__dirname, 'dashboard.module.ts'), 'utf8');
+/* A consulta saiu daqui e virou regra unica: o relatorio individual do
+ * advogado passou a precisar dela. Ver `publicacoes-que-citam.util`. */
+const CITAM = readFileSync(
+  join(__dirname, '../processos/utils/publicacoes-que-citam.util.ts'),
+  'utf8',
+);
 
 /** 23h30 de 13/09/2026 em Teresina — no UTC, já é dia 14. */
 const AGORA_BR = new Date('2026-09-13T23:30:00-03:00');
@@ -59,8 +65,9 @@ describe('as publicações do advogado', () => {
    */
   it('liga pelo número e pela UF da OAB', () => {
     expect(DASH).toContain('private async publicacoesQueCitam(');
-    expect(DASH).toContain("regexp_replace(a->>'numeroOab', '\\D', '', 'g') = ${numero}");
-    expect(DASH).toContain("upper(a->>'ufOab') = ${uf}");
+    expect(DASH).toContain('return publicacoesQueCitam(this.prisma, advogado, { de: desde });');
+    expect(CITAM).toContain("regexp_replace(a->>'numeroOab', '[^0-9]', '', 'g')");
+    expect(CITAM).toContain("upper(a->>'ufOab') = ${uf}");
   });
 
   /**
@@ -68,18 +75,14 @@ describe('as publicações do advogado', () => {
    * varreria as 1.408 publicações do acervo para responder sobre sete dias.
    */
   it('filtra a janela antes de expandir o JSON', () => {
-    const fn = DASH.slice(
-      DASH.indexOf('private async publicacoesQueCitam('),
-      DASH.indexOf('private resumirPublicacoes('),
-    );
-    expect(fn.indexOf('data_disponibilizacao" >= ${desde}')).toBeLessThan(
-      fn.indexOf('jsonb_array_elements'),
+    expect(CITAM.indexOf('data_disponibilizacao" >= ${janela.de}')).toBeLessThan(
+      CITAM.indexOf('jsonb_array_elements'),
     );
   });
 
   /** Advogado sem OAB no cadastro cai no comportamento antigo, sem quebrar. */
   it('sem OAB, o vínculo por citação simplesmente não existe', () => {
-    expect(DASH).toContain('if (!numero || !uf) return [];');
+    expect(CITAM).toContain('if (!numero || !uf) return [];');
   });
 
   /**

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { deQuemEAOrdem } from './utils/de-quem-e-a-ordem.util';
+import { publicacoesQueCitam } from './utils/publicacoes-que-citam.util';
 import { tenant } from '../../tenant/tenant.config';
 
 /**
@@ -316,21 +317,13 @@ export class DjenBuscaService {
       where: { id: advogadoId },
       select: { oab: true, oabUf: true },
     });
-    const numero = (adv?.oab ?? '').replace(/\D/g, '');
-    const uf = (adv?.oabUf ?? '').trim().toUpperCase();
-    if (!numero || !uf) return [];
-
-    const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT c."id" FROM "comunicacoes_djen" c
-       WHERE c."advogados" IS NOT NULL
-         AND EXISTS (
-           SELECT 1 FROM jsonb_array_elements(c."advogados"::jsonb) a
-            WHERE regexp_replace(a->>'numeroOab', '\D', '', 'g') = ${numero}
-              AND upper(a->>'ufOab') = ${uf}
-         )
-       LIMIT 5000
-    `;
-    return linhas.map((l) => l.id);
+    /*
+      A MESMA REGRA DO PAINEL E DO RELATÓRIO — ver `publicacoes-que-citam`.
+      Eram três cópias do mesmo SQL, e as três traziam o mesmo defeito de
+      escape: `'\D'` num template literal cozinha para 'D' e o Postgres tirava
+      a LETRA D em vez dos não-dígitos.
+    */
+    return publicacoesQueCitam(this.prisma, adv, { limite: 5000 });
   }
 
   /** Tribunais e providências presentes no acervo — alimenta os filtros. */

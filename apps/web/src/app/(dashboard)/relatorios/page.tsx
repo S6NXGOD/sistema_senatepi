@@ -22,7 +22,8 @@ import {
   dataCurta, dataDoInput, diaCurto, duracao, fraseDasSentencas, fraseDosOutrosAssuntos, horaDoItem, hrefDaComarca,
   hrefDaParteContraria, hrefDoAssunto, rotuloDosConcluidos, totalDoAno,
   type AjuizadasDoAno, type Contagem, type ItemDaAgenda, type Justica, type Proximos,
-  type Publicacoes, type Relatorio, type ResultadoSentenca, type Robo, type SentencasDoAno,
+  type MinhasIntimacoes, type Publicacoes, type Relatorio, type ResultadoSentenca, type Robo,
+  type SentencasDoAno,
 } from '@/lib/relatorios';
 import {
   ESCOLHAS_PADRAO, OPCOES_PADRAO, SECOES_DO_PDF, gerarPdfDoRelatorio, guardarEscolhas, guardarOpcoes,
@@ -173,6 +174,7 @@ export default function RelatoriosPage() {
         { id: 'justica', texto: 'Justiça', mostrar: !!data.justica },
         { id: 'proximos', texto: 'Próximos dias', mostrar: !!data.proximos },
         { id: 'equipe', texto: pessoal ? 'Seus números' : 'Equipe', mostrar: true },
+        { id: 'intimacoes', texto: 'Intimações', mostrar: !!data.minhasIntimacoes },
         { id: 'publicacoes', texto: 'Publicações', mostrar: !!(data.publicacoes || data.robo) },
         { id: 'atendimento', texto: 'Atendimento', mostrar: true },
       ].filter((s) => s.mostrar)
@@ -477,6 +479,13 @@ export default function RelatoriosPage() {
               />
             </div>
           </section>
+
+          {data.minhasIntimacoes && (
+            <SecaoMinhasIntimacoes
+              m={data.minhasIntimacoes}
+              nome={pessoal ? null : (data.focoUsuario?.nome ?? null)}
+            />
+          )}
 
           {(data.publicacoes || data.robo) && (
             <SecaoPublicacoes publicacoes={data.publicacoes} robo={data.robo} />
@@ -1007,6 +1016,99 @@ function ListaDaAgenda({
  * data: o que espera desde antes do período continua esperando. Leva direto à
  * fila, pela mesma regra que a busca de publicações usa.
  */
+/**
+ * AS INTIMAÇÕES QUE CITARAM A PESSOA — e o que virou de cada uma.
+ *
+ * Pedido de 18/09/2026: "colocar no relatório individual de cada advogado as
+ * intimações que ele teve, ações que tomou". O espelho pessoal não tinha nada
+ * disso — publicações eram leitura da casa.
+ *
+ * A RESSALVA VEM JUNTO E NÃO EM LETRA MIÚDA. O ato do DJEN intima a EQUIPE
+ * inteira: quem tem mais processos na própria OAB aparece com mais intimações
+ * sem ter trabalhado mais, e quem atuou num processo de colega não aparece.
+ * Transformar isto em régua de produtividade seria premiar o acaso do cadastro.
+ * O que ele serve é para a pessoa MOSTRAR o serviço que passou pelas mãos dela
+ * — e para isso o serviço precisa estar registrado no sistema.
+ *
+ * `oRoboDispensou` fica FORA da fileira de números e com o rótulo dizendo de
+ * quem foi a decisão: somá-lo às ações humanas diria que alguém trabalhou onde
+ * ninguém tocou.
+ */
+function SecaoMinhasIntimacoes({
+  m,
+  nome,
+}: {
+  m: MinhasIntimacoes;
+  /** Nulo quando é o próprio espelho; o nome quando a coordenação focou alguém. */
+  nome: string | null;
+}) {
+  return (
+    <section id="intimacoes" className="scroll-mt-20 space-y-3">
+      <TituloDeSecao
+        icone={Newspaper}
+        titulo={nome ? `Intimações que citaram ${nome}` : 'Intimações que citaram você'}
+        texto="Publicações do Diário em que a inscrição na OAB aparece nomeada, e o que aconteceu com cada uma."
+      />
+
+      {!m.temOab ? (
+        <Card className="p-4">
+          <p className="text-sm text-muted-foreground">
+            {nome ? `${nome} não tem` : 'Você não tem'} inscrição na OAB cadastrada no sistema, e
+            é por ela que o Diário nomeia quem foi intimado. Sem o número e a UF não dá para
+            ligar as publicações a {nome ? 'essa pessoa' : 'você'} — peça ao administrador para
+            preencher no cadastro de usuários.
+          </p>
+        </Card>
+      ) : (
+        <>
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Numero titulo="Intimações no período" valor={m.recebidas} />
+            <Numero
+              titulo="Viraram tarefa"
+              valor={m.viraramTarefa}
+              nota={m.recebidas ? `de ${m.recebidas} recebidas` : undefined}
+            />
+            <Numero
+              titulo="Tarefas concluídas"
+              valor={m.tarefasConcluidas}
+              nota={m.viraramTarefa ? `de ${m.viraramTarefa} que viraram tarefa` : undefined}
+            />
+            <Numero
+              titulo="Ainda em aberto"
+              valor={m.tarefasEmAberto}
+              alerta={m.tarefasEmAberto > 0}
+            />
+          </section>
+
+          {m.oRoboDispensou > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Em <strong className="text-foreground">{m.oRoboDispensou}</strong>{' '}
+              {m.oRoboDispensou === 1 ? 'delas' : 'delas'} o robô olhou e decidiu não abrir tarefa
+              — notícia anterior ao nosso acompanhamento, ou ordem dirigida à outra parte. É
+              decisão dele, não {nome ? 'dessa pessoa' : 'sua'}.
+            </p>
+          )}
+
+          <Card className="border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/20">
+            <p className="text-sm">
+              <strong>Isto não mede produtividade.</strong> A intimação do Diário nomeia a equipe
+              inteira do processo: quem tem mais casos na própria inscrição aparece com mais
+              intimações sem ter trabalhado mais, e quem atuou no processo de um colega não
+              aparece aqui. Uma audiência e um despacho contam "1" cada.
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              O que estes números fazem é <strong className="text-foreground">mostrar o serviço
+              </strong> que passou pelas mãos de {nome ? 'quem' : 'quem'} atende — e para isso ele
+              precisa estar registrado: tarefa concluída no sistema, atividade fechada, publicação
+              decidida. O que não é registrado não aparece em relatório nenhum.
+            </p>
+          </Card>
+        </>
+      )}
+    </section>
+  );
+}
+
 function SecaoPublicacoes({
   publicacoes, robo,
 }: {

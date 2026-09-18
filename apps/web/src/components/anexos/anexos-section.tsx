@@ -17,8 +17,27 @@ import {
   MIME_ACEITOS, TAMANHO_MAX_MB, AlvoAnexo, Anexo,
 } from '@/lib/anexos';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
+import { VisorDeImagens } from '@/components/anexos/visor-de-imagens';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { V } from '@/lib/vocabulario';
+
+/**
+ * O VISOR, e a lista de imagens que ele folheia.
+ *
+ * Fica num hook porque as DUAS listas da tela precisam dele — a do registro e
+ * a herdada da origem —, e cada uma folheia as suas próprias imagens: abrir a
+ * terceira foto do atendimento e avançar para um documento do processo seria
+ * misturar dois conjuntos que a tela mostra separados de propósito.
+ */
+function useVisor(anexos: Anexo[]) {
+  const [vendo, setVendo] = useState<number | null>(null);
+  const imagens = anexos.filter((a) => ehImagem(a.tipoMime));
+  const abrir = (a: Anexo) => {
+    const i = imagens.findIndex((x) => x.id === a.id);
+    return i < 0 ? undefined : () => setVendo(i);
+  };
+  return { imagens, vendo, setVendo, abrir, fechar: () => setVendo(null) };
+}
 
 /** Registro do qual esta seção HERDA documentos (só leitura). */
 export interface HerancaAnexos {
@@ -73,6 +92,7 @@ export function AnexosSection({
     queryFn: () => listarAnexos(alvo),
     enabled: habilitado,
   });
+  const { imagens, vendo, setVendo, abrir, fechar } = useVisor(anexos);
 
   async function enviar(files: FileList | File[]) {
     const lista = Array.from(files);
@@ -196,6 +216,7 @@ export function AnexosSection({
               // nem aparece — a API responderia 403 depois do clique.
               onExcluir={ehAdmin ? () => excluir.mutate(a.id) : undefined}
               excluindo={excluir.isPending}
+              onAbrir={abrir(a)}
             />
           ))}
         </ul>
@@ -222,6 +243,8 @@ export function AnexosSection({
           chaveCache={chave}
         />
       )}
+
+      <VisorDeImagens imagens={imagens} indice={vendo} onFechar={fechar} onIr={setVendo} />
     </section>
   );
 }
@@ -241,6 +264,7 @@ function AnexosHerdados({ heranca }: { heranca: HerancaAnexos }) {
     queryFn: () => listarAnexos(alvo),
     enabled: !!(heranca.atendimentoId || heranca.processoId),
   });
+  const { imagens, vendo, setVendo, abrir, fechar } = useVisor(anexos);
 
   if (isLoading || anexos.length === 0) return null;
 
@@ -254,9 +278,10 @@ function AnexosHerdados({ heranca }: { heranca: HerancaAnexos }) {
       </p>
       <ul className="space-y-2">
         {anexos.map((a) => (
-          <AnexoItem key={a.id} anexo={a} somenteLeitura />
+          <AnexoItem key={a.id} anexo={a} somenteLeitura onAbrir={abrir(a)} />
         ))}
       </ul>
+      <VisorDeImagens imagens={imagens} indice={vendo} onFechar={fechar} onIr={setVendo} />
       <p className="mt-2 text-[11px] text-muted-foreground">
         Já vieram da origem — não precisam ser puxados de novo.
       </p>
@@ -269,13 +294,21 @@ function AnexoItem({
   onExcluir,
   excluindo,
   somenteLeitura,
+  onAbrir,
 }: {
   anexo: Anexo;
   onExcluir?: () => void;
   excluindo?: boolean;
   somenteLeitura?: boolean;
+  /** Abre o visor. Só chega para imagem — ver `VisorDeImagens`. */
+  onAbrir?: () => void;
 }) {
-  const Icone = ehImagem(anexo.tipoMime) ? ImageIcon : FileText;
+  const imagem = ehImagem(anexo.tipoMime);
+  const Icone = imagem ? ImageIcon : FileText;
+  // A miniatura pode falhar: a URL é assinada e vale uma hora. Aí volta o ícone,
+  // em vez de deixar um quadrado quebrado na lista.
+  const [semMiniatura, setSemMiniatura] = useState(false);
+  const podeAbrir = imagem && !semMiniatura && !!onAbrir;
   // Apagar acontece onde o documento MORA. Na ficha do processo, um anexo
   // que é da atividade só se lê — senão o mesmo botão teria dois efeitos
   // diferentes dependendo da aba em que foi clicado.
@@ -283,13 +316,53 @@ function AnexoItem({
   const reaproveitado = !!(anexo.origemAnexoId || anexo.origemDocumentoId);
   return (
     <li className="flex items-center gap-3 rounded-lg border bg-card p-2.5">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-        <Icone className="h-4 w-4 text-brand-700 dark:text-brand-400" />
-      </div>
+      {/*
+        A IMAGEM É A PRÓPRIA IDENTIFICAÇÃO (18/09/2026).
+
+        Aqui havia um ícone genérico para todo mundo. Num atendimento com 17
+        fotos de celular — IMG-20250818-WA0027.jpg, …WA0024.jpg, …WA0023.jpg —
+        o nome não diz nada, e descobrir qual é a carteira de trabalho exigia
+        baixar as 17. A miniatura responde de relance e abre o visor no clique.
+
+        `loading="lazy"`: uma gaveta com 17 fotos não baixa 2 MB de uma vez.
+      */}
+      {podeAbrir ? (
+        <button
+          type="button"
+          onClick={onAbrir}
+          className="group relative h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-muted"
+          title="Ver a imagem"
+          aria-label={`Ver ${anexo.nomeArquivo}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={anexo.url}
+            alt=""
+            loading="lazy"
+            onError={() => setSemMiniatura(true)}
+            className="h-full w-full object-cover transition group-hover:scale-105"
+          />
+        </button>
+      ) : (
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <Icone className="h-4 w-4 text-brand-700 dark:text-brand-400" />
+        </div>
+      )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium" title={anexo.nomeArquivo}>
-          {anexo.nomeArquivo}
-        </p>
+        {podeAbrir ? (
+          <button
+            type="button"
+            onClick={onAbrir}
+            className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+            title={`Ver ${anexo.nomeArquivo}`}
+          >
+            {anexo.nomeArquivo}
+          </button>
+        ) : (
+          <p className="truncate text-sm font-medium" title={anexo.nomeArquivo}>
+            {anexo.nomeArquivo}
+          </p>
+        )}
         <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
           {reaproveitado && (
             <span

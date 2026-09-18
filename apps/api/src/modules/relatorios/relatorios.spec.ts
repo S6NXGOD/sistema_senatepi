@@ -212,6 +212,7 @@ describe('o CSV', () => {
     periodo: { de: '2026-08-01T03:00:00.000Z', ate: '2026-09-01T03:00:00.000Z' },
     escopo: 'GLOBAL' as const,
     focoUsuario: null,
+    minhasIntimacoes: null,
     equipe: [
       {
         usuarioId: 'u1', nome: 'Dr. Murilo', papel: 'ADVOGADO',
