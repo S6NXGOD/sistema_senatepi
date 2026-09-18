@@ -14,6 +14,7 @@ import type { Relatorio } from './relatorios';
 
 export const ROTULOS_DE_TESTE: RotulosDoPdf = {
   tipo: (s) => s, area: (s) => s, canal: (s) => s, assunto: (s) => s, setor: (s) => s,
+  motivoDesfiliacao: (s) => s,
 };
 
 export const RELATORIO_TUDO_DETALHADO = Object.fromEntries(

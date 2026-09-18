@@ -135,6 +135,25 @@ export interface Robo {
   abertas: number;
 }
 
+/**
+ * O QUADRO ASSOCIATIVO no período — a primeira pergunta de uma reunião.
+ *
+ * Opcional: a API antiga não manda o bloco, e na janela de troca a seção
+ * simplesmente não aparece.
+ */
+export interface QuadroAssociativo {
+  ativosHoje: number;
+  novos: number;
+  /** Saíram no período pelo carimbo, tenham voltado ou não. */
+  saidas: number;
+  /** Das saídas do período, quantas já foram revertidas. */
+  reativados: number;
+  saldo: number;
+  /** Ativos sem data de filiação: não entram em `novos`. */
+  semDataDeFiliacao: number;
+  porMotivo: Contagem[];
+}
+
 export interface Relatorio {
   periodo: { de: string; ate: string };
   escopo: 'GLOBAL' | 'PESSOAL';
@@ -193,6 +212,7 @@ export interface Relatorio {
   };
   justica?: Justica | null;
   proximos?: Proximos | null;
+  quadro?: QuadroAssociativo | null;
   minhasIntimacoes?: MinhasIntimacoes | null;
   publicacoes?: Publicacoes | null;
   robo?: Robo | null;

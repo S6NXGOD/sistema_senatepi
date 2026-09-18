@@ -14,6 +14,7 @@ const TELA = readFileSync(join(__dirname, 'page.tsx'), 'utf8');
 
 const rotulos: RotulosDoPdf = {
   tipo: (s) => s, area: (s) => s, canal: (s) => s, assunto: (s) => s, setor: (s) => s,
+  motivoDesfiliacao: (s) => s,
 };
 
 /** Um mês parecido com o de 12/09/2026 — nomes de pessoas inventados. */
@@ -483,5 +484,63 @@ describe('o relatório concorda em número', () => {
   it('nenhum ternário de plural tem os dois lados iguais', () => {
     const iguais = [...TELA.matchAll(/\? '([^']+)' : '([^']+)'/g)].filter(([, a, b]) => a === b);
     expect(iguais.map((m) => m[0])).toEqual([]);
+  });
+});
+
+/**
+ * O QUADRO ASSOCIATIVO — a primeira pergunta de qualquer reuniao de diretoria,
+ * e o relatorio nao respondia (18/09/2026).
+ *
+ * O painel mostrava entradas e saidas do MES num cartao; o documento que vai
+ * para a assembleia nao tinha nada.
+ */
+describe('o quadro associativo', () => {
+  const comQuadro = (over: Partial<NonNullable<Relatorio['quadro']>> = {}): Relatorio => ({
+    ...base,
+    quadro: {
+      ativosHoje: 7139, novos: 12, saidas: 3, reativados: 1, saldo: 9,
+      semDataDeFiliacao: 2378,
+      porMotivo: [{ rotulo: 'APOSENTADORIA', total: 2 }, { rotulo: 'INADIMPLENCIA', total: 1 }],
+      ...over,
+    },
+  });
+  const plano = (r: Relatorio) => JSON.stringify(planoDoPdf(r, TUDO_DETALHADO, rotulos, 2026));
+
+  it('a seção só existe quando o bloco vem', () => {
+    expect(secaoDisponivel(base, 'quadro')).toBe(false);
+    expect(secaoDisponivel(comQuadro(), 'quadro')).toBe(true);
+  });
+
+  /** Entrada sem saída ao lado é propaganda, não relatório. */
+  it('a saída sai junto da entrada, sempre', () => {
+    const texto = plano(comQuadro());
+    expect(texto).toContain('Entraram no período');
+    expect(texto).toContain('Saíram no período');
+    expect(texto).toContain('Sócios ativos hoje');
+    expect(texto).toContain('Saldo');
+  });
+
+  it('a reativação é dita à parte, para o saldo não parecer errado', () => {
+    expect(plano(comQuadro())).toContain('já foi revertida');
+    expect(plano(comQuadro({ reativados: 0 }))).not.toContain('revertida');
+  });
+
+  /** Sem isto, "entraram 12" numa base com 2.378 sem data parece o quadro inteiro. */
+  it('avisa quantos ficam fora da conta por falta de data', () => {
+    expect(plano(comQuadro())).toContain('sem data de filiação');
+    expect(plano(comQuadro({ semDataDeFiliacao: 0 }))).not.toContain('sem data de filiação');
+  });
+
+  it('o motivo da saída sai em português, e não o enum', () => {
+    const comRotulo = planoDoPdf(comQuadro(), TUDO_DETALHADO, {
+      ...rotulos, motivoDesfiliacao: () => 'Aposentadoria',
+    }, 2026);
+    expect(JSON.stringify(comRotulo)).toContain('Aposentadoria');
+  });
+
+  it('a tela tem a seção e o rótulo em português', () => {
+    expect(TELA).toContain('function SecaoQuadro');
+    expect(TELA).toContain('MOTIVO_DESFILIACAO_LABEL');
+    expect(TELA).toContain("id: 'quadro', texto: 'Quadro associativo'");
   });
 });

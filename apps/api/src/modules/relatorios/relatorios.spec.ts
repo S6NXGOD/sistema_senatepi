@@ -213,6 +213,7 @@ describe('o CSV', () => {
     escopo: 'GLOBAL' as const,
     focoUsuario: null,
     minhasIntimacoes: null,
+    quadro: null,
     equipe: [
       {
         usuarioId: 'u1', nome: 'Dr. Murilo', papel: 'ADVOGADO',

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
-  Prisma, StatusAtendimento, StatusCompromisso, StatusProcesso, UserRole,
+  Prisma, SituacaoFiliado, StatusAtendimento, StatusCompromisso, StatusProcesso, UserRole,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { integracaoAtiva, tenant } from '../../tenant/tenant.config';
@@ -173,11 +173,48 @@ export interface Robo {
   abertas: number;
 }
 
+/**
+ * O QUADRO ASSOCIATIVO — a primeira pergunta de qualquer reunião de diretoria,
+ * e o relatório não respondia (18/09/2026).
+ *
+ * O painel mostrava entradas e saídas do MÊS num cartão; o documento que vai
+ * para a assembleia não tinha nada. Quantos sócios o sindicato tem, quantos
+ * entraram e quantos saíram no período é o número que abre a reunião.
+ *
+ * `saidas` conta pelo CARIMBO `desfiliadoEm`, e não pela situação de hoje. Os
+ * campos da desfiliação são preservados na reativação de propósito — são o
+ * registro de que a saída aconteceu —, então exigir `situacao: DESFILIADO`
+ * esconderia quem saiu e voltou dentro do mesmo período. Quem voltou vem
+ * contado à parte, para o saldo não mentir nem para um lado nem para o outro.
+ *
+ * `semDataDeFiliacao` está aqui pelo mesmo motivo que em processos: sem ele,
+ * "entraram 3" numa base com 2.378 cadastros sem data parece o quadro inteiro.
+ */
+export interface QuadroAssociativo {
+  /** Estoque de HOJE — quantos sócios o sindicato tem agora. */
+  ativosHoje: number;
+  /** Filiaram-se no período (`dataFiliacao`). */
+  novos: number;
+  /** Saíram no período (`desfiliadoEm`), tenham voltado ou não. */
+  saidas: number;
+  /** Das saídas do período, quantas já foram revertidas. */
+  reativados: number;
+  /** `novos - saidas`. Com reativação no meio, ver o número acima. */
+  saldo: number;
+  /** Ativos sem data de filiação: não entram em `novos`. */
+  semDataDeFiliacao: number;
+  /** Por que saíram — a estatística que o motivo padronizado existe para dar. */
+  porMotivo: Contagem[];
+}
+
 export interface Relatorio {
   periodo: { de: string; ate: string };
   escopo: 'GLOBAL' | 'PESSOAL';
   /** Quando a coordenação pediu o espelho de UMA pessoa. */
   focoUsuario: { id: string; nome: string } | null;
+
+  /** O quadro associativo no período. Nulo para quem não vê filiados. */
+  quadro: QuadroAssociativo | null;
 
   /** Só no espelho de uma pessoa — nulo na visão da casa. */
   minhasIntimacoes: MinhasIntimacoes | null;
@@ -343,6 +380,7 @@ export class RelatoriosService {
     const role = usuario.role as UserRole;
     const veProcessos = nivelEfetivo(role, usuario.permissoes, 'processos') !== 'SEM_ACESSO';
     const veAgenda = nivelEfetivo(role, usuario.permissoes, 'agenda') !== 'SEM_ACESSO';
+    const veFiliados = nivelEfetivo(role, usuario.permissoes, 'filiados') !== 'SEM_ACESSO';
     /**
      * PUBLICAÇÕES E ROBÔ SÃO LEITURA DA CASA. Não existem no espelho de uma
      * pessoa, e o advogado não os recebe: são instrumento de quem coordena a
@@ -377,6 +415,7 @@ export class RelatoriosService {
       ],
       [justica, proximos, publicacoes, robo],
       minhasIntimacoes,
+      quadro,
     ] = await Promise.all([
       Promise.all([
         /**
@@ -459,6 +498,13 @@ export class RelatoriosService {
         recebe número de processo por outra porta.
       */
       alvo && veProcessos ? this.minhasIntimacoes(alvo, inicio, fim) : null,
+
+      /*
+        O QUADRO É LEITURA DA CASA, e exige `filiados` na matriz: quem não vê o
+        cadastro não recebe o tamanho dele por outra porta. No espelho de uma
+        pessoa não aparece — "quantos sócios temos" não é pergunta de espelho.
+      */
+      !alvo && veFiliados ? this.quadroAssociativo(inicio, fim) : null,
     ]);
 
     const duracoes = new Map<string, number[]>();
@@ -519,6 +565,7 @@ export class RelatoriosService {
       focoUsuario:
         foco && alvoNome ? { id: alvoNome.id, nome: alvoNome.nomeExibicao || alvoNome.nome } : null,
       minhasIntimacoes,
+      quadro,
       equipe,
       atividades: {
         concluidas: concluidas.length,
@@ -815,6 +862,46 @@ export class RelatoriosService {
       this.prisma.comunicacaoDjen.count({ where: ESPERANDO_DECISAO }),
     ]);
     return { recebidas, viraramTarefa, dispensadas, esperandoDecisao };
+  }
+
+  /**
+   * O QUADRO ASSOCIATIVO NO PERÍODO — ver `QuadroAssociativo`.
+   *
+   * Uma leitura da CASA: "quantos sócios temos" não é pergunta de espelho
+   * pessoal, e no recorte de uma pessoa o bloco não aparece.
+   */
+  private async quadroAssociativo(inicio: Date, fim: Date): Promise<QuadroAssociativo> {
+    const noPeriodo = { gte: inicio, lt: fim };
+    const saiuNoPeriodo: Prisma.FiliadoWhereInput = { desfiliadoEm: noPeriodo };
+    const [ativosHoje, novos, saidas, reativados, semDataDeFiliacao, motivos] = await Promise.all([
+      this.prisma.filiado.count({ where: { situacao: SituacaoFiliado.ATIVO } }),
+      this.prisma.filiado.count({ where: { dataFiliacao: noPeriodo } }),
+      this.prisma.filiado.count({ where: saiuNoPeriodo }),
+      // Saiu no período e HOJE não está desfiliado: a saída foi revertida.
+      this.prisma.filiado.count({
+        where: { ...saiuNoPeriodo, situacao: { not: SituacaoFiliado.DESFILIADO } },
+      }),
+      this.prisma.filiado.count({
+        where: { situacao: SituacaoFiliado.ATIVO, dataFiliacao: null },
+      }),
+      this.prisma.filiado.groupBy({
+        by: ['motivoDesfiliacao'],
+        where: saiuNoPeriodo,
+        _count: { _all: true },
+      }),
+    ]);
+
+    return {
+      ativosHoje,
+      novos,
+      saidas,
+      reativados,
+      saldo: novos - saidas,
+      semDataDeFiliacao,
+      porMotivo: motivos
+        .map((m) => ({ rotulo: m.motivoDesfiliacao ?? 'NAO_INFORMADO', total: m._count._all }))
+        .sort((a, b) => b.total - a.total || a.rotulo.localeCompare(b.rotulo, 'pt-BR')),
+    };
   }
 
   /**

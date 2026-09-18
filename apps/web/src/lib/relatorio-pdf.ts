@@ -37,6 +37,7 @@ export type { BlocoDoPdf } from './pdf-documento';
 
 export type SecaoDoPdf =
   | 'justica'
+  | 'quadro'
   | 'proximos'
   | 'equipe'
   | 'intimacoes'
@@ -75,6 +76,12 @@ export const SECOES_DO_PDF: {
       'para a diretoria ou para a assembleia.',
   },
   {
+    chave: 'quadro',
+    titulo: 'Quadro associativo',
+    resumo: 'Sócios ativos hoje, entradas e saídas no período.',
+    detalhe: 'Por que saíram, pelo motivo padronizado.',
+  },
+  {
     chave: 'intimacoes',
     titulo: 'Intimações que citaram a pessoa',
     resumo: 'Quantas nomearam esta inscrição na OAB e o que virou de cada uma.',
@@ -107,6 +114,8 @@ export const ESCOLHAS_PADRAO: EscolhasDoPdf = {
   proximos: { incluir: true, detalhar: false },
   equipe: { incluir: true, detalhar: false },
   // Detalhada por padrão: a ressalva é a parte que não pode faltar no papel.
+  // O número que abre a reunião: entra detalhado por padrão.
+  quadro: { incluir: true, detalhar: true },
   intimacoes: { incluir: true, detalhar: true },
   publicacoes: { incluir: true, detalhar: false },
   atendimentos: { incluir: true, detalhar: false },
@@ -116,6 +125,7 @@ export const ESCOLHAS_PADRAO: EscolhasDoPdf = {
 export function secaoDisponivel(r: Relatorio, secao: SecaoDoPdf): boolean {
   if (secao === 'justica') return !!r.justica;
   if (secao === 'proximos') return !!r.proximos;
+  if (secao === 'quadro') return !!r.quadro;
   if (secao === 'intimacoes') return !!r.minhasIntimacoes;
   if (secao === 'publicacoes') return !!r.publicacoes || !!r.robo;
   return true;
@@ -151,6 +161,8 @@ export interface RotulosDoPdf {
   canal: (slug: string) => string;
   assunto: (slug: string) => string;
   setor: (slug: string) => string;
+  /** Motivo da desfiliação em português — o enum não vai para a assembleia. */
+  motivoDesfiliacao: (slug: string) => string;
 }
 
 /**
@@ -412,6 +424,52 @@ export function planoDoPdf(
       blocos.push(
         contagem(graficos, 'Por área', ['Área', 'Processos ativos'], r.processos.porArea, rotulos.area),
       );
+    }
+  }
+
+  /*
+    O QUADRO ASSOCIATIVO vem logo depois da Justiça porque é nessa ordem que a
+    diretoria lê: o que o sindicato fez, e para quantas pessoas.
+
+    A SAÍDA SAI JUNTO DA ENTRADA, sempre. Um papel de assembleia com "entraram
+    12" e sem a linha de baixo é propaganda, não relatório.
+  */
+  if (quer('quadro') && r.quadro) {
+    const q = r.quadro;
+    blocos.push({ tipo: 'secao', titulo: 'Quadro associativo' });
+    blocos.push({
+      tipo: 'numeros',
+      itens: [
+        { rotulo: 'Sócios ativos hoje', valor: n(q.ativosHoje) },
+        { rotulo: 'Entraram no período', valor: n(q.novos) },
+        { rotulo: 'Saíram no período', valor: n(q.saidas) },
+        { rotulo: 'Saldo', valor: n(q.saldo) },
+      ],
+    });
+    if (q.reativados > 0) {
+      blocos.push({
+        tipo: 'nota',
+        texto:
+          `${n(q.reativados)} ${q.reativados === 1 ? 'dessas saídas já foi revertida' : 'dessas saídas já foram revertidas'}` +
+          ' — a pessoa voltou ao quadro, e a saída continua contada porque aconteceu.',
+      });
+    }
+    if (q.semDataDeFiliacao > 0) {
+      blocos.push({
+        tipo: 'nota',
+        texto:
+          `${n(q.semDataDeFiliacao)} ${q.semDataDeFiliacao === 1 ? 'cadastro ativo está' : 'cadastros ativos estão'}` +
+          ' sem data de filiação e ficam fora de "entraram no período".',
+      });
+    }
+    if (detalhar('quadro') && q.porMotivo.length) {
+      blocos.push({
+        tipo: 'tabela',
+        cabecalho: ['Por que saíram', 'Pessoas'],
+        linhas: q.porMotivo.map((m) => [rotulos.motivoDesfiliacao(m.rotulo), n(m.total)]),
+        numericas: [1],
+        vazio: 'Ninguém saiu no período.',
+      });
     }
   }
 

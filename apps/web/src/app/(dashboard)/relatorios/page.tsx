@@ -22,7 +22,8 @@ import {
   dataCurta, dataDoInput, diaCurto, duracao, fraseDasSentencas, fraseDosOutrosAssuntos, horaDoItem, hrefDaComarca,
   hrefDaParteContraria, hrefDoAssunto, rotuloDosConcluidos, totalDoAno,
   type AjuizadasDoAno, type Contagem, type ItemDaAgenda, type Justica, type Proximos,
-  type MinhasIntimacoes, type Publicacoes, type Relatorio, type ResultadoSentenca, type Robo,
+  type MinhasIntimacoes, type Publicacoes, type QuadroAssociativo, type Relatorio,
+  type ResultadoSentenca, type Robo,
   type SentencasDoAno,
 } from '@/lib/relatorios';
 import {
@@ -37,6 +38,7 @@ import {
   CANAL_LABEL, SETOR_LABEL, type CanalAtendimento, type SetorAtendimento,
 } from '@/lib/atendimentos';
 import { AREAS_JURIDICAS } from '@/lib/areas-juridicas';
+import { MOTIVO_DESFILIACAO_LABEL, type MotivoDesfiliacao } from '@/lib/filiados';
 import { formatNPU } from '@/lib/processos';
 import { baixarCsvDaProdutividade } from '@/lib/produtividade';
 import { UsoEProdutividade } from '@/components/relatorios/uso-e-produtividade';
@@ -143,6 +145,8 @@ export default function RelatoriosPage() {
       canal: (slug) => CANAL_LABEL[slug as CanalAtendimento] ?? slug,
       assunto: (slug) => ASSUNTO_LABEL[slug] ?? slug,
       setor: (slug) => SETOR_LABEL[slug as SetorAtendimento] ?? slug,
+      motivoDesfiliacao: (slug) =>
+        MOTIVO_DESFILIACAO_LABEL[slug as MotivoDesfiliacao] ?? 'Não informado',
     }),
     [tiposEvento],
   );
@@ -174,6 +178,7 @@ export default function RelatoriosPage() {
         { id: 'justica', texto: 'Justiça', mostrar: !!data.justica },
         { id: 'proximos', texto: 'Próximos dias', mostrar: !!data.proximos },
         { id: 'equipe', texto: pessoal ? 'Seus números' : 'Equipe', mostrar: true },
+        { id: 'quadro', texto: 'Quadro associativo', mostrar: !!data.quadro },
         { id: 'intimacoes', texto: 'Intimações', mostrar: !!data.minhasIntimacoes },
         { id: 'publicacoes', texto: 'Publicações', mostrar: !!(data.publicacoes || data.robo) },
         { id: 'atendimento', texto: 'Atendimento', mostrar: true },
@@ -402,6 +407,8 @@ export default function RelatoriosPage() {
           </section>
 
           {data.justica && <SecaoJustica r={data} j={data.justica} anoCorrente={anoCorrente} />}
+
+          {data.quadro && <SecaoQuadro q={data.quadro} />}
 
           {data.proximos && <SecaoProximos p={data.proximos} />}
 
@@ -1027,6 +1034,71 @@ function ListaDaAgenda({
  * data: o que espera desde antes do período continua esperando. Leva direto à
  * fila, pela mesma regra que a busca de publicações usa.
  */
+/**
+ * O QUADRO ASSOCIATIVO — a primeira pergunta de qualquer reunião de diretoria.
+ *
+ * O painel mostrava entradas e saídas do MÊS num cartão; o documento que vai
+ * para a assembleia não tinha nada. "Quantos sócios temos, quantos entraram e
+ * quantos saíram" é o número que abre a reunião, e ele não existia aqui.
+ *
+ * O SALDO NÃO VEM SOZINHO. Entrada sem saída ao lado é meia notícia — foi a
+ * mesma correção feita no painel. E quando alguém sai e volta no mesmo período,
+ * a reativação é dita à parte para o saldo não parecer errado.
+ */
+function SecaoQuadro({ q }: { q: QuadroAssociativo }) {
+  const cresceu = q.saldo > 0;
+  return (
+    <section id="quadro" className="scroll-mt-20 space-y-3">
+      <TituloDeSecao
+        icone={Users}
+        titulo="Quadro associativo"
+        texto="Quantos sócios o sindicato tem hoje, e como o quadro se moveu no período."
+      />
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Numero titulo="Sócios ativos hoje" valor={q.ativosHoje} />
+        <Numero titulo="Entraram no período" valor={q.novos} />
+        <Numero titulo="Saíram no período" valor={q.saidas} alerta={q.saidas > 0} />
+        <Numero
+          titulo="Saldo"
+          valor={q.saldo}
+          nota={q.saldo === 0 ? 'o quadro ficou igual' : cresceu ? 'o quadro cresceu' : 'o quadro encolheu'}
+          alerta={q.saldo < 0}
+        />
+      </section>
+
+      {(q.reativados > 0 || q.semDataDeFiliacao > 0) && (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          {q.reativados > 0 && (
+            <>
+              {q.reativados === 1
+                ? '1 dessas saídas já foi revertida — a pessoa voltou ao quadro.'
+                : `${q.reativados} dessas saídas já foram revertidas — as pessoas voltaram ao quadro.`}{' '}
+            </>
+          )}
+          {q.semDataDeFiliacao > 0 && (
+            <>
+              {q.semDataDeFiliacao === 1
+                ? '1 cadastro ativo está'
+                : `${q.semDataDeFiliacao.toLocaleString('pt-BR')} cadastros ativos estão`}{' '}
+              sem data de filiação e {q.semDataDeFiliacao === 1 ? 'fica' : 'ficam'} fora de
+              &ldquo;entraram no período&rdquo;.
+            </>
+          )}
+        </p>
+      )}
+
+      {q.porMotivo.length > 0 && (
+        <Lista
+          titulo="Por que saíram"
+          itens={q.porMotivo}
+          rotular={(r) => MOTIVO_DESFILIACAO_LABEL[r as MotivoDesfiliacao] ?? 'Não informado'}
+          vazio="Ninguém saiu no período."
+        />
+      )}
+    </section>
+  );
+}
+
 /**
  * AS INTIMAÇÕES QUE CITARAM A PESSOA — e o que virou de cada uma.
  *
