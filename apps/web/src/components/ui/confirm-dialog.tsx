@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect, useId } from 'react';
+import { ReactNode, useEffect, useId, useRef } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -40,6 +40,34 @@ export function aoTeclarNoDialogo(
     ev.stopPropagation();
     p.onConfirm?.();
   }
+}
+
+/**
+ * ONDE O FOCO CAI AO ABRIR — e por que não é sempre no mesmo botão.
+ *
+ * "As teclas de atalho funcionam bem, mas no modal ela não interage. Obrigando
+ * a utilizar o mouse para concluir a ação." (18/09/2026). O diálogo ouvia o Esc
+ * e o Enter, mas NUNCA movia o foco para dentro de si: o Tab continuava andando
+ * pela página atrás, e não havia caminho de teclado até os botões. Quem decide
+ * cinquenta duplicatas seguidas tinha de largar o teclado em cada uma.
+ *
+ * DESTRUTIVO FOCA O CANCELAR. Numa fila, a mão vem de apertar Enter para abrir
+ * o diálogo; se o foco caísse no botão que apaga, o segundo Enter — o reflexo de
+ * quem repete a mesma ação — apagaria um cadastro sem ninguém ter lido a
+ * pergunta. Com o foco no Cancelar, o caminho é Tab e Enter: duas teclas, sem
+ * mouse, e o engano custa um clique a mais em vez de um cadastro.
+ */
+export function focoInicial(destructive: boolean): 'cancelar' | 'confirmar' {
+  return destructive ? 'cancelar' : 'confirmar';
+}
+
+/**
+ * O Tab circula DENTRO do diálogo. Sem isto, tabular sai para a página de trás
+ * e o foco some atrás do overlay — a pessoa tecla e nada acontece na tela.
+ */
+export function proximoNoCiclo(atual: number, total: number, voltando: boolean): number {
+  if (total <= 0) return 0;
+  return voltando ? (atual - 1 + total) % total : (atual + 1) % total;
 }
 
 /**
@@ -94,6 +122,48 @@ export function ConfirmDialog({
   onClose: () => void;
 }) {
   const tituloId = useId();
+  const caixa = useRef<HTMLDivElement>(null);
+  const cancelar = useRef<HTMLButtonElement>(null);
+  const confirmar = useRef<HTMLButtonElement>(null);
+
+  /*
+    O FOCO ENTRA NO DIÁLOGO, e volta de onde veio ao fechar (18/09/2026).
+
+    Sem isto o Tab continuava andando pela página de trás e não havia caminho de
+    teclado até os botões — o atalho abria o diálogo e a mão tinha de ir ao
+    mouse. E devolver o foco importa tanto quanto: numa fila, quem cancela
+    precisa cair de volta no cartão que estava decidindo, não no começo da
+    página.
+  */
+  useEffect(() => {
+    if (!open) return;
+    const veioDe = document.activeElement as HTMLElement | null;
+    const alvo = focoInicial(variant === 'destructive') === 'cancelar' ? cancelar : confirmar;
+    // Depois da pintura: o botão só existe no DOM quando o diálogo renderiza.
+    const t = window.setTimeout(() => (alvo.current ?? caixa.current)?.focus(), 0);
+    return () => {
+      window.clearTimeout(t);
+      veioDe?.focus?.();
+    };
+  }, [open, variant]);
+
+  /*
+    O TAB CIRCULA DENTRO. Sair para a página atrás esconde o foco atrás do
+    overlay: a pessoa tecla e nada acontece na tela.
+  */
+  useEffect(() => {
+    if (!open) return;
+    function aoTabular(ev: KeyboardEvent) {
+      if (ev.key !== 'Tab' || !caixa.current) return;
+      const focaveis = [...caixa.current.querySelectorAll<HTMLElement>('button:not([disabled])')];
+      if (!focaveis.length) return;
+      const atual = focaveis.indexOf(document.activeElement as HTMLElement);
+      ev.preventDefault();
+      focaveis[proximoNoCiclo(atual < 0 ? -1 : atual, focaveis.length, ev.shiftKey)]?.focus();
+    }
+    window.addEventListener('keydown', aoTabular, true);
+    return () => window.removeEventListener('keydown', aoTabular, true);
+  }, [open]);
 
   /*
     ESC FECHA O DIÁLOGO, E SÓ ELE (15/09/2026). O diálogo não ouvia o Esc, e a
@@ -125,9 +195,11 @@ export function ConfirmDialog({
       onClick={loading ? undefined : onClose}
     >
       <div
+        ref={caixa}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={tituloId}
+        tabIndex={-1}
         className="w-full max-w-md animate-dialogo-entrar overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -157,11 +229,22 @@ export function ConfirmDialog({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
-          <Button variant="outline" onClick={onClose} disabled={travas.cancelar}>
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 p-4">
+          {/*
+            O CAMINHO DE TECLADO, DITO NA TELA. Quem chegou aqui por atalho não
+            adivinha que o Tab agora circula dentro do diálogo. Só no desktop:
+            no celular não há Tab nem Esc, e a linha seria ruído.
+          */}
+          <p className="mr-auto hidden text-[11px] text-muted-foreground sm:block">
+            <kbd className="rounded border px-1 font-sans">Tab</kbd> escolhe ·{' '}
+            <kbd className="rounded border px-1 font-sans">Enter</kbd> aciona ·{' '}
+            <kbd className="rounded border px-1 font-sans">Esc</kbd> fecha
+          </p>
+          <Button ref={cancelar} variant="outline" onClick={onClose} disabled={travas.cancelar}>
             {cancelLabel}
           </Button>
           <Button
+            ref={confirmar}
             variant={destructive ? 'destructive' : 'default'}
             onClick={onConfirm}
             disabled={travas.confirmar}

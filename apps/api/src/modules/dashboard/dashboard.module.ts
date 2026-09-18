@@ -103,6 +103,8 @@ export function adversarioDoProcesso(
     parteExternaId: string | null;
     /** Parte ligada a um filiado: o lado de quem representamos, quando o sindicato não é parte. */
     filiadoId?: string | null;
+    /** O cadastro canônico, quando a parte está ligada a um. */
+    parteExterna?: { nomeFantasia: string | null } | null;
   }[],
   idDoSindicato: string | null,
 ): string | null {
@@ -134,7 +136,26 @@ export function adversarioDoProcesso(
   if (!candidatos.length) return null;
 
   // A parte PRINCIPAL do polo, quando marcada; senão a primeira.
-  return (candidatos.find((p) => p.principal) ?? candidatos[0]).nome;
+  return nomeCurtoDaParte(candidatos.find((p) => p.principal) ?? candidatos[0]);
+}
+
+/**
+ * O NOME QUE CABE NA LINHA — fantasia quando há, dos autos quando não.
+ *
+ * O tribunal manda a razão social inteira e em maiúsculas: "FEDERAÇÃO DE
+ * SINDICATOS DE TRABALHADORES TECNICO-ADMINISTRATIVOS EM INSTITUIÇÕES DE ENSINO
+ * SUPERIOR PÚBLICAS DO BRASIL - FASUBRA" ocupa a linha toda do painel e some
+ * truncada, dizendo menos que "FASUBRA".
+ *
+ * O nome de fantasia é do CADASTRO, escolhido por gente — não é abreviação
+ * adivinhada. Sem ele, fica o nome dos autos, que é o que sempre foi.
+ */
+export function nomeCurtoDaParte(parte: {
+  nome: string;
+  parteExterna?: { nomeFantasia: string | null } | null;
+}): string {
+  const curto = parte.parteExterna?.nomeFantasia?.trim();
+  return curto || parte.nome;
 }
 
 /**
@@ -164,6 +185,28 @@ export function ehONossoSindicato(
 }
 
 /**
+ * OS DOIS LADOS DA LINHA — e o cuidado de não escrever o mesmo nome duas vezes.
+ *
+ * QUANDO O SINDICATO É O RÉU, as duas regras apontam para a MESMA parte: o
+ * autor é quem está no polo ativo, e o adversário é "o polo oposto ao nosso" —
+ * que, sendo nós o passivo, também é o ativo. A tela imprimia
+ * "FASUBRA × FASUBRA", com a razão social inteira repetida, e era isso que
+ * fazia a linha ocupar duas alturas e parecer pesada.
+ *
+ * Com um nome só, a linha diz o mesmo: o selo "somos réu" ao lado já informa de
+ * que lado estamos, e o adversário é a informação que distingue um processo do
+ * outro.
+ */
+export function partesDaLinha(
+  partes: Parameters<typeof adversarioDoProcesso>[0],
+  idDoSindicato: string | null,
+): { autor: string | null; adversario: string | null } {
+  const adversario = adversarioDoProcesso(partes, idDoSindicato);
+  const autor = autorQueInforma(partes, idDoSindicato);
+  return { adversario, autor: autor && autor === adversario ? null : autor };
+}
+
+/**
  * DE QUEM É O PROCESSO — e o silêncio quando a resposta é "nosso".
  *
  * O autor é o próprio sindicato em 93 dos 127 processos: escrever "SENATEPI"
@@ -179,7 +222,7 @@ export function autorQueInforma(
   const ativa =
     partes.find((x) => x.polo === 'ATIVO' && x.principal) ?? partes.find((x) => x.polo === 'ATIVO');
   if (!ativa) return null;
-  return ehONossoSindicato(ativa, idDoSindicato) ? null : ativa.nome;
+  return ehONossoSindicato(ativa, idDoSindicato) ? null : nomeCurtoDaParte(ativa);
 }
 
 /**
@@ -988,7 +1031,23 @@ export class DashboardService {
                     * Hapvida — informa.
                     */
                   partes: {
-                    select: { nome: true, polo: true, principal: true, parteExternaId: true, filiadoId: true },
+                    /*
+                      O NOME CURTO, QUANDO EXISTE (18/09/2026).
+
+                      "Essa listagem de citações em publicações não é pesada
+                      visualmente?" É, e a maior parte do peso é UMA razão social:
+                      "FEDERAÇÃO DE SINDICATOS DE TRABALHADORES TECNICO-
+                      ADMINISTRATIVOS EM INSTITUIÇÕES DE ENSINO SUPERIOR PÚBLICAS
+                      DO BRASIL - FASUBRA" ocupa a linha inteira e some truncada,
+                      quando "FASUBRA" diz a mesma coisa e cabe.
+
+                      O cadastro canônico já guarda o nome de fantasia; o que
+                      faltava era trazê-lo. Sem ele, fica o nome dos autos.
+                    */
+                    select: {
+                      nome: true, polo: true, principal: true, parteExternaId: true, filiadoId: true,
+                      parteExterna: { select: { nomeFantasia: true } },
+                    },
                   },
                   /*
                     O AVATAR VAI JUNTO. Numa lista de seis publicações, o nome
@@ -1871,9 +1930,11 @@ export class DashboardService {
         processo: pub.processo && {
           id: pub.processo.id,
           numeroCNJ: pub.processo.numeroCNJ,
-          adversario: adversarioDoProcesso(pub.processo.partes, idDoSindicato),
-          /** Só quando NÃO somos nós — ver `autorQueInforma`. */
-          autor: autorQueInforma(pub.processo.partes, idDoSindicato),
+          /*
+            Os dois de uma vez, porque um depende do outro: sendo nós o réu, as
+            duas regras apontam para a mesma parte. Ver `partesDaLinha`.
+          */
+          ...partesDaLinha(pub.processo.partes, idDoSindicato),
           nossoPolo: nossoPolo(pub.processo.partes, idDoSindicato),
           advogado: pub.processo.advogado,
         },

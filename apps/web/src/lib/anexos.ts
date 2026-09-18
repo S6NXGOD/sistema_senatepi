@@ -81,6 +81,35 @@ export interface ItemAcervo {
   jaVinculado: boolean;
 }
 
+/**
+ * O MESMO ARQUIVO JÁ ESTÁ NO ACERVO? — a pergunta que ninguém fazia antes de
+ * subir de novo (18/09/2026).
+ *
+ * A triagem fotografa a carteira de trabalho, o advogado abre o processo e
+ * fotografa de novo, e a mesma CTPS passa a existir três vezes em três
+ * registros. O botão "Puxar do acervo" resolvia isso desde sempre — para quem
+ * sabia que ele existia.
+ *
+ * O CASAMENTO É POR NOME + TAMANHO, e não por conteúdo. Comparar bytes exigiria
+ * ler o arquivo inteiro no navegador antes de cada envio; nome e tamanho pegam
+ * o caso real (o mesmo arquivo reenviado) sem custo, e não custa nada errar:
+ * o aviso PERGUNTA, não bloqueia. Nome comparado sem caixa e sem espaço nas
+ * pontas, porque "CTPS.pdf" e "ctps.pdf " são o mesmo documento.
+ */
+export function jaNoAcervo(
+  arquivo: { name: string; size: number },
+  acervo: ItemAcervo[],
+): ItemAcervo | null {
+  const nome = arquivo.name.trim().toLowerCase();
+  return (
+    acervo.find(
+      (i) =>
+        i.nomeArquivo.trim().toLowerCase() === nome &&
+        (i.tamanhoBytes === null || i.tamanhoBytes === arquivo.size),
+    ) ?? null
+  );
+}
+
 export const ORIGEM_LABEL: Record<OrigemAcervo, string> = {
   ATENDIMENTO: 'Triagem',
   PROCESSO: 'Processo',

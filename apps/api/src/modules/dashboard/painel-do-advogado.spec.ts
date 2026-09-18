@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { daPessoa } from '../agenda/equipe.util';
 import { limitesDoDia, recorteAberto } from '../agenda/recortes.util';
 import { wheresDoPainel } from './painel.regras';
+import { adversarioDoProcesso, nomeCurtoDaParte, partesDaLinha } from './dashboard.module';
 
 const DASH = readFileSync(join(__dirname, 'dashboard.module.ts'), 'utf8');
 /* A consulta saiu daqui e virou regra unica: o relatorio individual do
@@ -309,5 +310,84 @@ describe('as próximas atividades', () => {
 
   it('e viaja na resposta', () => {
     expect(DASH).toContain('proximasAtividades,');
+  });
+});
+
+/**
+ * A LINHA DA PUBLICACAO PESAVA UMA RAZAO SOCIAL INTEIRA (18/09/2026).
+ *
+ * "Essa listagem de citacoes em publicacoes nao e pesada visualmente?" E -- e a
+ * maior parte do peso era UM nome: "FEDERACAO DE SINDICATOS DE TRABALHADORES
+ * TECNICO-ADMINISTRATIVOS EM INSTITUICOES DE ENSINO SUPERIOR PUBLICAS DO BRASIL
+ * - FASUBRA" ocupa a linha toda e some truncada, dizendo menos que "FASUBRA".
+ */
+describe('o nome que cabe na linha', () => {
+  const longo = 'FEDERAÇÃO DE SINDICATOS DE TRABALHADORES TÉCNICO-ADMINISTRATIVOS';
+
+  it('usa o nome de fantasia do cadastro quando existe', () => {
+    expect(nomeCurtoDaParte({ nome: longo, parteExterna: { nomeFantasia: 'FASUBRA' } }))
+      .toBe('FASUBRA');
+  });
+
+  /** Sem fantasia, fica o nome dos autos — que é o que sempre foi. */
+  it('cai no nome dos autos sem fantasia', () => {
+    expect(nomeCurtoDaParte({ nome: longo })).toBe(longo);
+    expect(nomeCurtoDaParte({ nome: longo, parteExterna: null })).toBe(longo);
+    expect(nomeCurtoDaParte({ nome: longo, parteExterna: { nomeFantasia: '   ' } })).toBe(longo);
+  });
+
+  /** Não é abreviação adivinhada: o nome curto foi escolhido por gente. */
+  it('o adversário do processo já sai curto', () => {
+    const partes = [
+      { nome: 'SENATEPI', polo: 'ATIVO', principal: true, parteExternaId: 'nos' },
+      {
+        nome: longo, polo: 'PASSIVO', principal: true, parteExternaId: 'x',
+        parteExterna: { nomeFantasia: 'FASUBRA' },
+      },
+    ];
+    expect(adversarioDoProcesso(partes, 'nos')).toBe('FASUBRA');
+  });
+});
+
+/**
+ * "FASUBRA x FASUBRA" -- O MESMO NOME DOS DOIS LADOS (18/09/2026).
+ *
+ * Quando o sindicato e o REU, as duas regras apontam para a MESMA parte: o autor
+ * e quem esta no polo ativo, e o adversario e "o polo oposto ao nosso" -- que,
+ * sendo nos o passivo, tambem e o ativo. A linha do painel imprimia a razao
+ * social inteira DUAS VEZES, e era isso que a fazia ocupar duas alturas.
+ */
+describe('os dois lados da linha da publicação', () => {
+  const fasubra = {
+    nome: 'FEDERAÇÃO DE SINDICATOS - FASUBRA', polo: 'ATIVO', principal: true,
+    parteExternaId: 'fas', parteExterna: { nomeFantasia: 'FASUBRA' },
+  };
+  const nos = { nome: 'SENATEPI', polo: 'PASSIVO', principal: true, parteExternaId: 'nos' };
+
+  it('somos RÉU: o nome sai uma vez só', () => {
+    const r = partesDaLinha([fasubra, nos], 'nos');
+    expect(r.adversario).toBe('FASUBRA');
+    expect(r.autor).toBeNull();
+  });
+
+  /** Somos autor: o autor já era calado, e o adversário distingue a linha. */
+  it('somos AUTOR: só o adversário', () => {
+    const r = partesDaLinha(
+      [{ ...nos, polo: 'ATIVO' }, { ...fasubra, polo: 'PASSIVO' }],
+      'nos',
+    );
+    expect(r.autor).toBeNull();
+    expect(r.adversario).toBe('FASUBRA');
+  });
+
+  /** Representando o filiado: os DOIS informam, e são diferentes. */
+  it('não somos parte: mostra os dois', () => {
+    const filiada = {
+      nome: 'MARIA DA SILVA', polo: 'ATIVO', principal: true,
+      parteExternaId: null, filiadoId: 'f1',
+    };
+    const r = partesDaLinha([filiada, { ...fasubra, polo: 'PASSIVO' }], 'nos');
+    expect(r.autor).toBe('MARIA DA SILVA');
+    expect(r.adversario).toBe('FASUBRA');
   });
 });

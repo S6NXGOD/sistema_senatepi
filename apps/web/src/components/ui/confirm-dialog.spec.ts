@@ -1,4 +1,10 @@
-import { aoTeclarNoDialogo, travasDoDialogo } from './confirm-dialog';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  aoTeclarNoDialogo, focoInicial, proximoNoCiclo, travasDoDialogo,
+} from './confirm-dialog';
+
+const FONTE = readFileSync(join(__dirname, 'confirm-dialog.tsx'), 'utf8');
 
 /*
   ESC NO DIÁLOGO DE CONFIRMAÇÃO (15/09/2026).
@@ -147,5 +153,52 @@ describe('o Enter do ConfirmDialog', () => {
       onConfirm: () => feito.push('confirmou'),
     });
     expect(feito).toEqual(['fechou']);
+  });
+});
+
+/**
+ * O TECLADO PARAVA NA PORTA DO MODAL (18/09/2026).
+ *
+ * "As teclas de atalho funcionam bem, mas no modal ela nao interage. Obrigando
+ * a utilizar o mouse para concluir a acao." O dialogo ouvia Esc e Enter, mas
+ * NUNCA movia o foco para dentro de si: o Tab continuava andando pela pagina
+ * atras, e nao havia caminho de teclado ate os botoes.
+ */
+describe('o foco entra no diálogo', () => {
+  /**
+   * Numa fila, a mão vem de apertar Enter para ABRIR. Se o foco caísse no botão
+   * que apaga, o segundo Enter — o reflexo de quem repete — apagaria o cadastro.
+   */
+  it('destrutivo foca o Cancelar; o resto foca o Confirmar', () => {
+    expect(focoInicial(true)).toBe('cancelar');
+    expect(focoInicial(false)).toBe('confirmar');
+  });
+
+  it('o Tab circula, e o Shift+Tab volta', () => {
+    expect(proximoNoCiclo(0, 3, false)).toBe(1);
+    expect(proximoNoCiclo(2, 3, false)).toBe(0); // dá a volta
+    expect(proximoNoCiclo(0, 3, true)).toBe(2);
+    expect(proximoNoCiclo(-1, 3, false)).toBe(0); // sem foco ainda
+  });
+
+  it('não quebra sem nada focável', () => {
+    expect(proximoNoCiclo(0, 0, false)).toBe(0);
+  });
+
+  it('o diálogo move o foco ao abrir e devolve ao fechar', () => {
+    expect(FONTE).toContain('const veioDe = document.activeElement');
+    expect(FONTE).toContain('veioDe?.focus?.();');
+  });
+
+  it('o Tab é preso dentro da caixa', () => {
+    expect(FONTE).toContain("if (ev.key !== 'Tab'");
+    expect(FONTE).toContain("caixa.current.querySelectorAll<HTMLElement>('button:not([disabled])')");
+    expect(FONTE).toContain('ev.preventDefault();');
+  });
+
+  /** Quem chegou por atalho não adivinha que o Tab agora circula aqui dentro. */
+  it('a tela diz o caminho, e só no desktop', () => {
+    expect(FONTE).toContain('escolhe');
+    expect(FONTE).toContain('hidden text-[11px] text-muted-foreground sm:block');
   });
 });

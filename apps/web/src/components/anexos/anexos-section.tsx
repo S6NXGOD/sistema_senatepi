@@ -13,11 +13,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  listarAnexos, uploadAnexo, excluirAnexo, formatTamanho, ehImagem,
-  MIME_ACEITOS, TAMANHO_MAX_MB, AlvoAnexo, Anexo,
+  listarAnexos, listarAcervo, jaNoAcervo, uploadAnexo, excluirAnexo, formatTamanho, ehImagem,
+  MIME_ACEITOS, TAMANHO_MAX_MB, AlvoAnexo, Anexo, ItemAcervo, ORIGEM_LABEL,
 } from '@/lib/anexos';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { VisorDeImagens } from '@/components/anexos/visor-de-imagens';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { V } from '@/lib/vocabulario';
 
@@ -92,11 +93,47 @@ export function AnexosSection({
     queryFn: () => listarAnexos(alvo),
     enabled: habilitado,
   });
+  /*
+    O ACERVO SE ANUNCIA, em vez de esperar alguém lembrar do botão (18/09/2026).
+
+    "É avisado que existem documentos no acervo para não colocar repetido?" Não
+    era. O botão "Puxar do acervo" resolvia desde sempre — para quem sabia que
+    ele existia. A triagem fotografa a CTPS, o advogado abre o processo e
+    fotografa de novo, e o mesmo documento passa a existir três vezes.
+
+    A lista é curta (é o que UMA pessoa entregou) e já é buscada pelo modal:
+    trazer aqui não custa consulta nova, o cache é o mesmo.
+  */
+  const { data: acervo = [] } = useQuery({
+    queryKey: ['acervo', filiadoId, alvo],
+    queryFn: () => listarAcervo(filiadoId as string, alvo),
+    enabled: !!filiadoId && habilitado,
+    staleTime: 60_000,
+  });
+  const aPuxar = acervo.filter((i) => !i.jaVinculado).length;
+  /** O arquivo que o envio parou para perguntar — nulo quando não há dúvida. */
+  const [repetido, setRepetido] = useState<{ arquivo: File; achado: ItemAcervo } | null>(null);
   const { imagens, vendo, setVendo, abrir, fechar } = useVisor(anexos);
 
-  async function enviar(files: FileList | File[]) {
+  async function enviar(files: FileList | File[], ignorarRepetido = false) {
     const lista = Array.from(files);
     if (!lista.length || enviando) return;
+    /*
+      PARA E PERGUNTA quando reconhece o arquivo (18/09/2026).
+
+      Não bloqueia: o casamento é por nome e tamanho, e pode errar — duas fotos
+      diferentes com o nome que a câmera deu. Perguntar custa um clique e evita
+      a terceira cópia da mesma carteira de trabalho no acervo de alguém.
+
+      Só o PRIMEIRO repetido interrompe. Parar em cada um transformaria um lote
+      de dezessete fotos num interrogatório.
+    */
+    const achado = lista.map((f) => ({ f, achado: jaNoAcervo(f, acervo) })).find((x) => x.achado);
+    if (achado?.achado && !ignorarRepetido) {
+      setRepetido({ arquivo: achado.f, achado: achado.achado });
+      return;
+    }
+
     setEnviando(true);
     let ok = 0;
     for (const f of lista) {
@@ -150,6 +187,15 @@ export function AnexosSection({
             className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium text-brand-700 transition-colors hover:bg-muted dark:text-brand-400"
           >
             <FolderInput className="h-3.5 w-3.5" /> Puxar do acervo
+            {/*
+              O NÚMERO É O AVISO. Sem ele, o botão só é encontrado por quem já
+              sabe que existe — e quem não sabe sobe o arquivo de novo.
+            */}
+            {aPuxar > 0 && (
+              <span className="rounded-full bg-brand-100 px-1.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+                {aPuxar}
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -245,6 +291,46 @@ export function AnexosSection({
       )}
 
       <VisorDeImagens imagens={imagens} indice={vendo} onFechar={fechar} onIr={setVendo} />
+
+      {/*
+        O DIÁLOGO DO ARQUIVO REPETIDO. Duas saídas de verdade: puxar do acervo
+        (o certo, sem nova cópia) ou enviar assim mesmo. Não é destrutivo — nada
+        se apaga —, então o Enter confirma e o foco cai no botão de confirmar.
+      */}
+      <ConfirmDialog
+        open={!!repetido}
+        title="Este arquivo já está no acervo"
+        confirmLabel="Puxar do acervo"
+        cancelLabel="Enviar assim mesmo"
+        confirmarComEnter
+        icon={<FolderInput className="h-6 w-6" />}
+        description={
+          repetido && (
+            <div className="space-y-2">
+              <p>
+                <strong className="text-foreground">{repetido.achado.nomeArquivo}</strong> já foi
+                entregue em{' '}
+                {ORIGEM_LABEL[repetido.achado.origemTipo] ?? repetido.achado.origemRotulo} no dia{' '}
+                {new Date(repetido.achado.createdAt).toLocaleDateString('pt-BR')}.
+              </p>
+              <p>
+                Puxar de lá aproveita o mesmo arquivo, sem criar outra cópia no acervo do
+                {' '}{V.filiado}. Se for um documento diferente com o mesmo nome, envie assim mesmo.
+              </p>
+            </div>
+          )
+        }
+        onConfirm={() => {
+          setRepetido(null);
+          setPuxarAberto(true);
+        }}
+        onClose={() => {
+          const arquivo = repetido?.arquivo;
+          setRepetido(null);
+          // "Enviar assim mesmo" é o CANCELAR: a saída sem novidade é não puxar.
+          if (arquivo) void enviar([arquivo], true);
+        }}
+      />
     </section>
   );
 }
