@@ -92,3 +92,50 @@ describe('as telas usam as regras', () => {
     expect(FICHA).not.toContain('{falhouDossie ? (');
   });
 });
+
+/**
+ * O ROTULO DO CARTAO QUEBRA, NAO CORTA (18/09/2026).
+ *
+ * Conferido no telefone de 400 px, na home da Triagem: tres cartoes em
+ * `grid-cols-3` deixam ~110 px cada, e o icone a direita come mais 48. Com
+ * `truncate`, "Registrei hoje" virava "REGI...", "Com a triagem" virava "CO..."
+ * e "cadastros novos" virava "cada...". Cartao cujo rotulo nao se le nao vale a
+ * area que ocupa.
+ */
+describe('o rótulo do KpiCard cabe no telefone', () => {
+  const WIDGETS = readFileSync(path.join(__dirname, 'widgets.tsx'), 'utf8');
+  const PAINEL = readFileSync(
+    path.join(__dirname, '../../app/(dashboard)/dashboard/page.tsx'), 'utf8',
+  );
+
+  it('o rótulo quebra em duas linhas em vez de cortar', () => {
+    const bloco = WIDGETS.slice(WIDGETS.indexOf('O RÓTULO QUEBRA, NÃO CORTA'));
+    const trecho = bloco.slice(0, 1800);
+    expect(trecho).toContain('line-clamp-2');
+    expect(trecho).not.toContain('truncate text-[11px] font-medium uppercase');
+  });
+
+  it('a legenda de baixo também', () => {
+    expect(WIDGETS).toContain('mt-2 line-clamp-2 text-[11px] leading-tight');
+  });
+
+  /** Duas linhas, e não sem limite: o cartão continua com altura previsível. */
+  it('o limite continua existindo', () => {
+    expect(WIDGETS).not.toContain('line-clamp-none');
+  });
+
+  /**
+   * DUAS LINHAS SOZINHAS NÃO RESOLVIAM: com o ícone ao lado sobravam ~40 px
+   * para a palavra. O ícone é decoração; o número é o dado e o rótulo o explica.
+   * Medido depois: ZERO rótulos cortados nos dois perfis, a 400 px.
+   */
+  it('o ícone cede a vez no telefone e volta no tablet', () => {
+    expect(WIDGETS).toContain("'hidden rounded-xl p-2 sm:inline-flex sm:p-2.5'");
+  });
+
+  /** A carteira do advogado já usava `gap-2` no telefone; o balcão, não. */
+  it('o balcão da triagem usa o mesmo espaçamento da carteira', () => {
+    expect(PAINEL).toContain("grid grid-cols-3 gap-2 sm:gap-4");
+    expect(PAINEL).not.toContain('grid grid-cols-3 gap-4');
+  });
+});

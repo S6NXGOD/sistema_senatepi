@@ -526,7 +526,12 @@ function Conteudo({
       {data.minhaTriagem && (
         <section>
           <SectionTitle icon={Headset} texto="Meu balcão hoje" />
-          <div className="grid grid-cols-3 gap-4">
+          {/*
+            O MESMO ESPAÇAMENTO DA CARTEIRA. Aqui era `gap-4` no telefone
+            enquanto a carteira do advogado usa `gap-2` — 16 px a mais roubados
+            de três cartões que já estavam apertados.
+          */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <KpiCard label="Registrei hoje" valor={data.minhaTriagem.registradosHoje} sub="atendimentos"
               icon={Headset} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/atendimentos" destaque />
             {/* Pela fila (15/09/2026): o que só espera a consulta não está "comigo". */}

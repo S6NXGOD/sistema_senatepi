@@ -102,9 +102,21 @@ export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: 
         zerado && 'border-dashed',
       )}
     >
+      {/*
+        O RÓTULO QUEBRA, NÃO CORTA (18/09/2026).
+
+        Conferido no telefone de 400 px, na home da Triagem: três cartões em
+        `grid-cols-3` deixam ~110 px cada, e o ícone à direita come mais 48. Com
+        `truncate`, "Registrei hoje" virava "REGI…", "Com a triagem" virava
+        "CO…" e "cadastros novos" virava "cada…". Um cartão cujo rótulo não se
+        lê não vale a área que ocupa.
+
+        Duas linhas resolvem sem mudar a grade nem tirar o ícone, e o limite
+        continua existindo: `line-clamp-2` corta na segunda, não cresce sem fim.
+      */}
       <CardContent className="flex items-start justify-between gap-3 p-4 sm:p-5">
         <div className="min-w-0">
-          <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:text-xs">
+          <p className="line-clamp-2 text-[11px] font-medium uppercase leading-tight tracking-wide text-muted-foreground sm:text-xs">
             {label}
           </p>
           <p
@@ -117,11 +129,28 @@ export function KpiCard({ label, valor, sub, icon: Icon, cor, href, destaque }: 
           >
             {valor === undefined ? '—' : <NumeroAnimado valor={valor} />}
           </p>
-          {sub && <p className="mt-2 truncate text-[11px] text-muted-foreground sm:text-xs">{sub}</p>}
+          {sub && (
+            <p className="mt-2 line-clamp-2 text-[11px] leading-tight text-muted-foreground sm:text-xs">
+              {sub}
+            </p>
+          )}
         </div>
+        {/*
+          O ÍCONE SAI DO TELEFONE, e não é perda (18/09/2026).
+
+          Conferido a 400 px na carteira do advogado: SEIS cartões em
+          `grid-cols-3` e NENHUM rótulo legível — "MEU…", "MIN…", "ATRA…",
+          "URGE…", "A AJ…", "PARA…". O cartão tem ~110 px e o ícone com o
+          respiro dele leva quase metade, sobrando ~40 px para a palavra.
+
+          Duas linhas sozinhas não resolviam: a palavra continuava sem espaço.
+          O ícone é DECORAÇÃO — o número é o dado e o rótulo é o que o explica —,
+          então ele cede a vez onde a largura é disputada e volta a partir do
+          tablet. Um número sem rótulo legível não é informação nenhuma.
+        */}
         <span
           className={cn(
-            'rounded-xl p-2 sm:p-2.5',
+            'hidden rounded-xl p-2 sm:inline-flex sm:p-2.5',
             // O ícone só reage ao mouse quando o cartão é um clique.
             href && 'transition-transform duration-rapido group-hover:scale-110',
             zerado ? 'bg-muted text-muted-foreground' : cor,
