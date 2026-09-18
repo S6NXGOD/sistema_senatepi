@@ -155,25 +155,46 @@ describe('qual cadastro é o mais completo', () => {
 });
 
 /**
- * O BOTÃO, DA SEGUNDA VEZ. A borda tracejada continuou invisível porque o
- * problema não era contraste, era VOCABULÁRIO: neste sistema, controle
- * secundário é `Button variant="outline"`, e o olho reconhece a forma antes de
- * ler o texto.
+ * O CONTROLE, DA TERCEIRA VEZ — agora era HIERARQUIA, não contraste.
+ *
+ * "Tô achando o botão grande e o card pequeno, não me parece ter harmonia": um
+ * Button de largura cheia pendurado sob um cartão de três linhas, três vezes no
+ * mesmo grupo. A ação pertence ao cartão, então virou o RODAPÉ dele — a borda
+ * foi para o invólucro e os dois viraram um objeto só.
  */
-describe('o controle de tirar do grupo, segunda tentativa', () => {
+describe('o controle de tirar do grupo, terceira tentativa', () => {
   const BLOCO = PAGINA.slice(
-    PAGINA.indexOf('DA SEGUNDA VEZ, UM BOTÃO DE VERDADE'),
-    PAGINA.indexOf('Não é a mesma pessoa') + 40,
+    PAGINA.indexOf('A SAÍDA DE UM SÓ MORA DENTRO DO CARTÃO'),
+    PAGINA.indexOf('function CandidatoCard'),
   );
 
-  it('usa o Button do sistema, e não um botão desenhado à mão', () => {
-    expect(BLOCO).toContain('variant="outline"');
-    expect(BLOCO).not.toContain('border-dashed');
-    expect(BLOCO).toContain('min-h-11'); // 44 px de alvo continua
+  /** Âncora invertida vira string vazia, e string vazia passa em `not.toContain`. */
+  it('a fatia examinada não está vazia', () => {
+    expect(BLOCO.length).toBeGreaterThan(500);
+    expect(BLOCO).toContain('Tirar do grupo');
+  });
+
+  it('o cartão e a ação ficam num invólucro só, e a borda é dele', () => {
+    expect(BLOCO).toContain('flex flex-col overflow-hidden rounded-xl border');
+    expect(BLOCO).toContain('border-t'); // o fio que separa cartão e rodapé
+  });
+
+  /** O cartão não pode mais desenhar a própria borda, senão ficam duas. */
+  it('o cartão perde a borda própria', () => {
+    const cartao = PAGINA.slice(PAGINA.indexOf('function CandidatoCard'));
+    expect(cartao.slice(0, 900)).not.toContain("'rounded-xl border p-3 text-left transition'");
+    expect(cartao.slice(0, 900)).toContain("'flex-1 p-3 text-left transition'");
+  });
+
+  /** Alvo de dedo no celular; no desktop o ponteiro não precisa de 44 px. */
+  it('continua alvo de dedo no celular e encolhe no desktop', () => {
+    expect(BLOCO).toContain('min-h-11');
+    expect(BLOCO).toContain('md:h-9');
   });
 
   it('e o rosa continua só no hover', () => {
-    expect(BLOCO).toContain('hover:border-rose-300');
+    expect(BLOCO).toContain('hover:bg-rose-50');
+    expect(BLOCO).not.toContain('bg-rose-50 text-rose');
   });
 });
 
@@ -185,7 +206,7 @@ describe('o controle de tirar do grupo, segunda tentativa', () => {
 describe('como funciona esta fila', () => {
   it('explica as três decisões, cada uma com o efeito no cadastro', () => {
     const bloco = PAGINA.slice(PAGINA.indexOf('function ComoFunciona'));
-    for (const acao of ['Consolidar', 'Não é duplicado', 'Não é a mesma pessoa']) {
+    for (const acao of ['Consolidar', 'Não é duplicado', 'Tirar do grupo']) {
       expect(bloco).toContain(acao);
     }
     expect(bloco).toContain('nada é apagado');
@@ -238,10 +259,34 @@ describe('o placar da fila', () => {
     expect(PAGINA).toContain('<PlacarDaFila resolvidos={resolvidos}');
   });
 
-  /** Zerado, ele é só mais uma linha na tela. */
-  it('some quando ainda não há nada resolvido', () => {
+  /**
+   * APARECE DESDE A PRIMEIRA TELA (18/09/2026). Antes tinha
+   * `if (resolvidos === 0) return null` e só nascia depois da primeira decisão —
+   * quem chegava via a pilha e nada dizendo que ela acaba. Era literalmente o
+   * motivo de "não notei gamificação alguma": o único elemento que dá forma à
+   * tarefa estava escondido até você já ter trabalhado.
+   */
+  it('mostra o tamanho da fila antes de qualquer decisão', () => {
     const bloco = PAGINA.slice(PAGINA.indexOf('function PlacarDaFila'));
-    expect(bloco).toContain('if (resolvidos === 0) return null;');
+    expect(bloco).not.toContain('if (resolvidos === 0) return null;');
+    expect(bloco).toContain('if (total === 0) return null;');
+    expect(bloco).toContain('grupos para revisar');
+    expect(bloco).toContain('Nenhum resolvido nesta sessão');
+  });
+
+  /** Celular não tem teclado: a dica de atalho some lá em vez de virar ruído. */
+  it('a dica do teclado não aparece no celular', () => {
+    const bloco = PAGINA.slice(PAGINA.indexOf('function PlacarDaFila'));
+    expect(bloco).toContain('hidden text-xs text-muted-foreground md:block');
+    const foco = PAGINA.slice(PAGINA.indexOf('A legenda dos atalhos'));
+    expect(foco.slice(0, 300)).toContain('hidden flex-wrap');
+    expect(foco.slice(0, 300)).toContain('md:flex');
+  });
+
+  /** Barra em zero com zero resolvido: promessa de progresso é mentira barata. */
+  it('a barra não finge progresso que não houve', () => {
+    const bloco = PAGINA.slice(PAGINA.indexOf('function PlacarDaFila'));
+    expect(bloco).toContain('resolvidos === 0 ? 0 : Math.max(2, pct)');
   });
 
   /**
@@ -315,5 +360,44 @@ describe('o lote conversa com a fila', () => {
   it('conta em quantos a filiação antiga é preservada, e só quando há', () => {
     expect(LOTE).toContain('{!!data?.recuamFiliacao && (');
     expect(LOTE).toContain('tempo de sindicato não se perde');
+  });
+});
+
+/**
+ * O MODO QUE NINGUÉM ACHOU (18/09/2026).
+ *
+ * "Um por vez" existia desde o começo — um grupo na tela, decidido pelo teclado.
+ * Só que o seletor era um botão de 12 px encostado na direita das abas e a
+ * LISTA abria por padrão. O antídoto do tédio estava pronto e desligado, atrás
+ * de uma nota de rodapé. Daí "não notei diferença".
+ */
+describe('um por vez é o padrão', () => {
+  /*
+    A fatia termina na explicação da aba: `text-xs` é legítimo LÁ, e uma
+    negativa larga reprovava o arquivo certo por causa do vizinho.
+  */
+  const INICIO = PAGINA.indexOf('aria-label="Como revisar"');
+  const SELETOR = PAGINA.slice(INICIO, PAGINA.indexOf('</div>', INICIO));
+
+  it('a fatia examinada não está vazia', () => {
+    expect(INICIO).toBeGreaterThan(0);
+    expect(SELETOR.length).toBeGreaterThan(400);
+  });
+
+  it('a tela abre em foco, não na lista', () => {
+    expect(PAGINA).toContain("useState<'lista' | 'foco'>('foco')");
+  });
+
+  it('o seletor tem tamanho de controle, não de legenda', () => {
+    expect(SELETOR).toContain('Um por vez');
+    expect(SELETOR).toContain('min-h-9');
+    expect(SELETOR).toContain('text-sm');
+    expect(SELETOR).not.toContain('text-xs');
+  });
+
+  /** Estado de botão de alternância precisa chegar a quem usa leitor de tela. */
+  it('diz qual está ativo para a tecnologia assistiva', () => {
+    expect(SELETOR).toContain("aria-pressed={modo === 'foco'}");
+    expect(SELETOR).toContain("aria-pressed={modo === 'lista'}");
   });
 });

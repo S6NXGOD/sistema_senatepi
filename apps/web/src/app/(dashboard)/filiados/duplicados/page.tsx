@@ -48,7 +48,19 @@ export default function DuplicadosPage() {
    * cartões e mirar botões com o mouse é o que tornava a revisão exaustiva —
    * aqui a mão não sai do teclado e cada decisão é uma tecla.
    */
-  const [modo, setModo] = useState<'lista' | 'foco'>('lista');
+  /*
+    UM POR VEZ É O PADRÃO (18/09/2026).
+
+    O modo foco existia desde o começo e NINGUÉM o encontrou: era um botão de
+    12 px encostado na direita da fileira de abas, e a lista abria por padrão.
+    Construí o antídoto do tédio e deixei desligado atrás de uma nota de rodapé
+    — daí "não notei diferença".
+
+    Uma fila de 600 grupos é trabalho de triagem: um por vez, decidido pelo
+    teclado, é a ferramenta certa. A lista continua a um clique, para quem
+    quer varrer o todo com o olho.
+  */
+  const [modo, setModo] = useState<'lista' | 'foco'>('foco');
   const [indice, setIndice] = useState(0);
 
   const { data, isLoading, isError } = useQuery({
@@ -322,20 +334,33 @@ export default function DuplicadosPage() {
             <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{porNivel[n].length}</span>
           </button>
         ))}
-        <div className="ml-auto flex gap-1 rounded-lg border p-0.5">
-          <button
-            type="button"
-            onClick={() => setModo('lista')}
-            className={cn('flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs', modo === 'lista' && 'bg-muted font-semibold')}
-          >
-            <List className="h-3.5 w-3.5" /> Lista
-          </button>
+        {/*
+          O SELETOR TINHA TAMANHO DE LEGENDA e ninguém o via. Agora tem a mesma
+          altura das abas, texto legível e rótulo que diz o que faz — "Um por
+          vez" e "Lista", não "Foco", que só significa algo para quem já sabe.
+        */}
+        <div className="ml-auto flex gap-1 rounded-lg border p-1" role="group" aria-label="Como revisar">
           <button
             type="button"
             onClick={() => setModo('foco')}
-            className={cn('flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs', modo === 'foco' && 'bg-muted font-semibold')}
+            aria-pressed={modo === 'foco'}
+            className={cn(
+              'flex min-h-9 items-center gap-1.5 rounded-md px-3 text-sm transition',
+              modo === 'foco' ? 'bg-brand-800 font-semibold text-white' : 'hover:bg-muted',
+            )}
           >
-            <Keyboard className="h-3.5 w-3.5" /> Foco
+            <Keyboard className="h-4 w-4" aria-hidden="true" /> Um por vez
+          </button>
+          <button
+            type="button"
+            onClick={() => setModo('lista')}
+            aria-pressed={modo === 'lista'}
+            className={cn(
+              'flex min-h-9 items-center gap-1.5 rounded-md px-3 text-sm transition',
+              modo === 'lista' ? 'bg-brand-800 font-semibold text-white' : 'hover:bg-muted',
+            )}
+          >
+            <List className="h-4 w-4" aria-hidden="true" /> Lista
           </button>
         </div>
       </div>
@@ -389,7 +414,8 @@ export default function DuplicadosPage() {
             onForaDoGrupo={(c) => setSeparar({ tipo: 'um', grupo: atual, candidato: c })}
           />
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          {/* A legenda dos atalhos também é só de quem tem teclado. */}
+          <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground md:flex">
             <span className="font-medium">Atalhos:</span>
             {podeDecidir && (
               <>
@@ -671,63 +697,67 @@ function GrupoCard({
             grupo.candidatos.length >= 3 && 'lg:grid-cols-3',
           )}
         >
-          {grupo.candidatos.map((c) => (
-            <div key={c.id} className="space-y-1">
-              <CandidatoCard
-                c={c}
-                escolhido={c.id === escolhidoId}
-                divergentes={divergentes}
-                campos={campos}
-                mostrarVinculos={mostrarVinculos}
-                maisRico={c.id === idMaisRico}
-                onEscolher={() => onEscolher(c.id)}
-              />
-              {/*
-                A SAÍDA DE UM SÓ (17/09/2026). Fora do cartão de propósito: o
-                cartão inteiro já é o botão de "manter este", e botão dentro de
-                botão não existe em HTML. Só aparece em grupo de três ou mais —
-                em grupo de dois, tirar um é o "Não é duplicado" de sempre.
-              */}
-              {podeDecidir && grupo.candidatos.length > 2 && (
-                /*
-                  ELE PRECISA PARECER UM BOTÃO (18/09/2026). Era texto cinza sem
-                  borda, do tamanho de uma legenda: "está praticamente
-                  invisível". A borda TRACEJADA é a metáfora certa — este
-                  controle destaca um cadastro do grupo, não apaga nada — e o
-                  rosa só no hover diz "isto tira algo daqui" sem pintar de
-                  alerta um cartão que ainda não foi decidido.
+          {grupo.candidatos.map((c) => {
+            const eleEscolhido = c.id === escolhidoId;
+            /*
+              A SAÍDA DE UM SÓ MORA DENTRO DO CARTÃO (18/09/2026).
 
-                  44 px de altura: é alvo de dedo, e a tela é usada no celular.
-                */
-                /*
-                  DA SEGUNDA VEZ, UM BOTÃO DE VERDADE (18/09/2026).
+              Terceira tentativa, e a queixa mudou: "tô achando o botão grande e
+              o card pequeno, não me parece ter harmonia". Estava certo — era um
+              Button de 44 px e largura cheia, pendurado ABAIXO de um cartão de
+              três linhas, repetido três vezes no mesmo grupo. O controle pesava
+              mais que a informação que ele comanda.
 
-                  A borda tracejada cinza sobre cartão branco continuou invisível
-                  — "ainda tô achando invisível". O erro foi tratar como problema
-                  de contraste o que é de VOCABULÁRIO: neste sistema, controle
-                  secundário é `Button variant="outline"`, e o olho reconhece a
-                  forma antes de ler o texto. Um botão desenhado à mão, por mais
-                  bem pintado, nunca vai parecer botão numa tela cheia deles.
+              As duas tentativas anteriores trataram CONTRASTE; o problema desta
+              vez é HIERARQUIA. A ação pertence ao cartão, então mora nele: a
+              borda passou para o invólucro e o controle virou o RODAPÉ do
+              cartão — mesma largura, mesmo canto, separado por um fio. Continua
+              alvo de dedo no celular (44 px) e encolhe no desktop, onde o
+              ponteiro não precisa de tanto.
 
-                  O rosa entra no hover pelo mesmo motivo do selo de cancelado:
-                  diz "isto tira algo daqui" sem pintar de alarme um cartão que
-                  ninguém decidiu ainda.
-                */
-                <Button
-                  variant="outline"
-                  onClick={() => onForaDoGrupo(c)}
-                  className={cn(
-                    'min-h-11 w-full justify-center text-[13px]',
-                    'hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700',
-                    'dark:hover:border-rose-900 dark:hover:bg-rose-950/30 dark:hover:text-rose-300',
-                  )}
-                >
-                  <UserMinus className="h-4 w-4" aria-hidden="true" />
-                  Não é a mesma pessoa
-                </Button>
-              )}
-            </div>
-          ))}
+              O cartão inteiro é um <button> ("manter este"), e botão dentro de
+              botão não existe em HTML — por isso são dois irmãos dentro de um
+              invólucro, e não um dentro do outro.
+            */
+            const podeTirarDoGrupo = podeDecidir && grupo.candidatos.length > 2;
+            return (
+              <div
+                key={c.id}
+                className={cn(
+                  'flex flex-col overflow-hidden rounded-xl border transition',
+                  eleEscolhido
+                    ? 'border-brand-700 ring-1 ring-brand-700'
+                    : 'hover:border-foreground/20',
+                )}
+              >
+                <CandidatoCard
+                  c={c}
+                  escolhido={eleEscolhido}
+                  divergentes={divergentes}
+                  campos={campos}
+                  mostrarVinculos={mostrarVinculos}
+                  maisRico={c.id === idMaisRico}
+                  onEscolher={() => onEscolher(c.id)}
+                />
+                {podeTirarDoGrupo && (
+                  <button
+                    type="button"
+                    onClick={() => onForaDoGrupo(c)}
+                    aria-label={`Tirar ${c.matricula} do grupo: não é a mesma pessoa`}
+                    className={cn(
+                      'flex min-h-11 w-full items-center justify-center gap-1.5 border-t',
+                      'text-xs text-muted-foreground transition md:h-9 md:min-h-0',
+                      'hover:bg-rose-50 hover:text-rose-700',
+                      'dark:hover:bg-rose-950/30 dark:hover:text-rose-300',
+                    )}
+                  >
+                    <UserMinus className="h-3.5 w-3.5" aria-hidden="true" />
+                    Tirar do grupo
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
@@ -766,10 +796,9 @@ function CandidatoCard({
       type="button"
       onClick={onEscolher}
       className={cn(
-        'rounded-xl border p-3 text-left transition',
-        escolhido
-          ? 'border-brand-700 bg-brand-50/60 ring-1 ring-brand-700 dark:bg-brand-900/20'
-          : 'hover:bg-muted/50',
+        // A borda e o anel moram no invólucro — ver o comentário em GrupoCard.
+        'flex-1 p-3 text-left transition',
+        escolhido ? 'bg-brand-50/60 dark:bg-brand-900/20' : 'hover:bg-muted/50',
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -1091,12 +1120,13 @@ function ComoFunciona() {
             <div className="rounded-lg border p-3">
               <dt className="flex items-center gap-1.5 font-medium">
                 <UserMinus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                Não é a mesma pessoa
+                Tirar do grupo
               </dt>
               <dd className="mt-1 text-muted-foreground">
-                Para grupo de três ou mais: tira <strong>um</strong> cadastro do grupo e deixa o
-                resto para decidir. Serve quando quatro nomes iguais são, na verdade, três da mesma
-                pessoa e um de outra.
+                No rodapé de cada cartão, em grupo de três ou mais: marca que <strong>aquele</strong>
+                {' '}cadastro não é a mesma pessoa dos outros e o tira do grupo, deixando o resto
+                para decidir. Serve quando quatro nomes iguais são, na verdade, três da mesma
+                pessoa e um de outra. <strong>Nada é apagado</strong>, e também dá para desfazer.
               </dd>
             </div>
           </dl>
@@ -1135,27 +1165,56 @@ function ComoFunciona() {
  *
  * Some quando não há nada resolvido: um placar zerado é só mais uma linha.
  */
+/**
+ * O TAMANHO DA TAREFA, DESDE A PRIMEIRA TELA (18/09/2026).
+ *
+ * "Não notei diferença na UI e nem gamificação alguma." A razão é literal: este
+ * placar tinha `if (resolvidos === 0) return null` — só nascia DEPOIS da
+ * primeira decisão. Quem chega vê a pilha e nada dizendo que ela acaba; quem
+ * chega e desiste antes do primeiro clique nunca viu progresso nenhum.
+ *
+ * O que tira o tédio de uma fila não é ponto nem medalha: é ela TER FIM À
+ * VISTA. Aqui isso é dito de cara — quantos faltam, quanto saiu nesta sessão, a
+ * barra andando. Ponto e medalha seriam piores que inúteis: isto apaga cadastro
+ * de gente, e premiar velocidade é convidar ao clique rápido.
+ */
 function PlacarDaFila({ resolvidos, restantes }: { resolvidos: number; restantes: number }) {
-  if (resolvidos === 0) return null;
   const total = resolvidos + restantes;
+  if (total === 0) return null;
   const pct = Math.min(100, Math.round((resolvidos / Math.max(1, total)) * 100));
+  const acabou = restantes === 0;
   return (
     <div className="rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 dark:border-brand-900 dark:bg-brand-950/20">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
         <p className="font-medium text-brand-900 dark:text-brand-200">
-          {resolvidos === 1 ? '1 grupo resolvido agora' : `${resolvidos} grupos resolvidos agora`}
+          {acabou
+            ? 'A fila acabou.'
+            : `${restantes.toLocaleString('pt-BR')} ${restantes === 1 ? 'grupo para revisar' : 'grupos para revisar'}`}
         </p>
         <p className="text-muted-foreground">
-          {restantes === 0 ? 'A fila acabou.' : `${restantes.toLocaleString('pt-BR')} na fila`}
+          {resolvidos === 0
+            ? 'Nenhum resolvido nesta sessão'
+            : resolvidos === 1
+              ? '1 resolvido nesta sessão'
+              : `${resolvidos} resolvidos nesta sessão`}
         </p>
       </div>
       {/* Barra fina: o progresso é da SESSÃO, não da vida — por isso discreta. */}
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-brand-100 dark:bg-brand-900/50">
         <div
           className="h-full rounded-full bg-brand-700 transition-all duration-500 dark:bg-brand-500"
-          style={{ width: `${Math.max(2, pct)}%` }}
+          style={{ width: `${resolvidos === 0 ? 0 : Math.max(2, pct)}%` }}
         />
       </div>
+      {/* Teclado não existe no celular: a dica some lá em vez de virar ruído. */}
+      {!acabou && (
+        <p className="mt-2 hidden text-xs text-muted-foreground md:block">
+          Um por vez costuma ser mais rápido: o teclado decide sem tirar a mão —
+          <strong className="font-medium"> Enter</strong> consolida,
+          <strong className="font-medium"> N</strong> separa,
+          <strong className="font-medium"> →</strong> pula.
+        </p>
+      )}
     </div>
   );
 }
