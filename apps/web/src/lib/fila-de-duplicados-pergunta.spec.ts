@@ -285,7 +285,18 @@ describe('o lote conversa com a fila', () => {
    */
   it('não inventa número antes de a fila chegar, nem deixa negativo', () => {
     expect(LOTE).toContain('gruposNaFila === undefined ? null');
-    expect(LOTE).toContain('Math.max(0, gruposNaFila - total)');
+    expect(LOTE).toContain('gruposNaFila - gruposFechados');
+  });
+
+  /**
+   * A CONTA SUBTRAÍA PARES DE GRUPOS (18/09/2026). Um grupo de três gera dois
+   * pares: 925 pares saem de 798 grupos, e o painel prometia 498 quando sobram
+   * 625. Errar por baixo é pior que não dizer — a pessoa termina o lote e
+   * encontra 127 grupos que ninguém avisou.
+   */
+  it('subtrai GRUPOS fechados, não pares', () => {
+    expect(LOTE).toContain('data?.gruposResolvidos ?? total');
+    expect(LOTE).not.toContain('gruposNaFila - total');
   });
 
   /**

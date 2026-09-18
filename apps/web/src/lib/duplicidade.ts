@@ -306,7 +306,13 @@ export interface ItemLote {
  * não pontua, então 868 dos 925 removidos trazem a data — em 91 a mais antiga da
  * pessoa. `recuamFiliacao` conta esses, e a fusão preserva a data.
  */
-export async function previaLote(): Promise<{ total: number; recuamFiliacao?: number; amostra: ItemLote[] }> {
+export async function previaLote(): Promise<{
+  total: number;
+  recuamFiliacao?: number;
+  /** Quantos GRUPOS o lote fecha — um grupo de três gera dois pares. */
+  gruposResolvidos?: number;
+  amostra: ItemLote[];
+}> {
   return (await api.get('/filiados/duplicidade/lote')).data;
 }
 

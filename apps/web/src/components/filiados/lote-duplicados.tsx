@@ -42,12 +42,17 @@ export function LoteDuplicados({ gruposNaFila }: { gruposNaFila?: number }) {
 
   const total = data?.total ?? 0;
   /**
-   * Quantos GRUPOS sobram depois do lote. O lote conta PARES (um grupo de três
-   * gera dois), então o resto é estimado pelo que a fila mostra — e é por isso
-   * que ele só aparece quando a fila já chegou: número inventado seria pior que
-   * número nenhum.
+   * Quantos GRUPOS sobram depois do lote.
+   *
+   * ERRAVA POR BAIXO (18/09/2026): subtraía PARES da contagem de GRUPOS, e um
+   * grupo de três gera dois pares. Na base, 925 pares saem de 798 grupos — a
+   * conta prometia 498 quando sobram 625. Hoje a API diz quantos grupos fecha;
+   * a subtração antiga fica como reserva para a janela de deploy em que o web
+   * novo fala com a API velha, e é melhor que número nenhum.
    */
-  const restamDepois = gruposNaFila === undefined ? null : Math.max(0, gruposNaFila - total);
+  const gruposFechados = data?.gruposResolvidos ?? total;
+  const restamDepois =
+    gruposNaFila === undefined ? null : Math.max(0, gruposNaFila - gruposFechados);
   // Digitar o número é a trava. Um botão sozinho é clicado sem ler; escrever
   // "704" obriga a passar o olho no que está prestes a acontecer.
   const liberado = confirmacao.trim() === String(total) && total > 0;

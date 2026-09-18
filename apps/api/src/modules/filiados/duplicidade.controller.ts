@@ -109,6 +109,14 @@ export class DuplicidadeController {
       // Em quantos a filiação mais antiga será preservada. É o que autoriza a
       // tela a parar de dizer "o removido só tem nome e matrícula".
       recuamFiliacao: itens.filter((i) => i.recuaFiliacao).length,
+      /*
+        GRUPOS, e não pares — a tela subtraía errado (18/09/2026).
+        O painel dizia "depois deles sobram N" fazendo `fila - pares`, mas um
+        grupo de três gera dois pares: na base, 925 pares saem de 798 grupos, e
+        a conta prometia 498 quando sobram 625. Errar por baixo é pior que não
+        dizer: a pessoa termina o lote e encontra 127 grupos que não esperava.
+      */
+      gruposResolvidos: new Set(itens.map((i) => i.manterId)).size,
       amostra: itens.slice(0, 25),
     };
   }
