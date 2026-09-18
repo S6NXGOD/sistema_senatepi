@@ -442,7 +442,14 @@ export interface PropostaDeTarefa {
   nomeOrgao: string | null;
   nomeClasse: string | null;
   tipoComunicacao: string | null;
-  texto: string;
+  /**
+   * O COMEÇO DO TEOR, e só quando a prévia precisa dele.
+   *
+   * Vinha inteiro (2.476 caracteres em média) para até 100 publicações a cada
+   * abertura do painel, para alimentar uma prévia de 180. Hoje a API manda nulo
+   * quando já recortou a `ordem` — que é o caso em 70% dos atos.
+   */
+  texto: string | null;
   dataDisponibilizacao: string;
   providencia: string | null;
   prazoMencionadoDias: number | null;
@@ -450,22 +457,125 @@ export interface PropostaDeTarefa {
   link: string | null;
   /** O trecho em que o juízo manda alguém fazer algo — a prévia que decide. */
   ordem: string | null;
+  /**
+   * CONTRA QUEM É O PROCESSO, resolvido pela regra canônica do painel.
+   *
+   * O cartão calculava isto sozinho, pegando a parte do polo passivo — e
+   * imprimia o nome do PRÓPRIO SINDICATO quando a ação era contra ele. Agora
+   * vem pronto: uma regra, um dono.
+   */
+  adversario: string | null;
+  /** Como a proposta envelheceu — ver `seloDaProposta`. */
+  estado: EstadoDaProposta;
+  /** Dias inteiros desde que o robô propôs. */
+  diasNaCaixa: number;
+  /** Dias de calendário desde a disponibilização do ato. */
+  diasDoAto: number;
   propostaPara: {
     id: string; nome: string; nomeExibicao: string | null; avatarUrl: string | null;
   } | null;
   processo: {
     id: string;
     numeroCNJ: string | null;
-    partes: { nome: string; polo: string }[];
   } | null;
+}
+
+/**
+ * O QUE ACONTECE COM UMA PROPOSTA QUE ENVELHECE — a pergunta do dono.
+ *
+ * "Elas somem depois que perdem o prazo?" Não somem: não há corte de data
+ * nenhum nesta caixa, nem em listar nem em contar, e não vai haver — o corte
+ * nunca esconde o que pede atenção. O que mudou é que a proposta do dia 60
+ * deixou de ser desenhada igual à do dia 1.
+ *
+ * Os três estados são derivados no servidor (`situacaoDaProposta`), porque a
+ * régua é a mesma que o robô usa para desistir de esperar. Aqui só se lê.
+ */
+export type EstadoDaProposta = 'NOVA' | 'PARADA' | 'FORA_DA_JANELA';
+
+/** Quantas linhas a caixa abre antes do "ver as outras". */
+export const MOSTRAR_NA_CAIXA = 4;
+
+/**
+ * O CORTE NUNCA ESCONDE O QUE PEDE ATENÇÃO.
+ *
+ * Quatro vagas fixas, com a fila ordenada pelo que está parado, deixavam a
+ * quinta parada escondida atrás de um "ver as outras" que ninguém abre. O corte
+ * continua existindo — é o que impede a caixa de virar uma segunda agenda —,
+ * mas ele cede para tudo que já pede uma pessoa. O que fica escondido é sempre
+ * recente, e recente é o que ainda tem tempo.
+ */
+export function quantasMostrar(itens: { estado: EstadoDaProposta }[]): number {
+  return Math.max(MOSTRAR_NA_CAIXA, itens.filter((i) => i.estado !== 'NOVA').length);
+}
+
+/**
+ * O RODAPÉ DIZ O QUE FICOU ESCONDIDO — inclusive quando não devia ter ficado.
+ *
+ * "Ver as outras 7" não diz se vale a pena abrir, e a pessoa aprende a não
+ * abrir. Como o corte cede para o que pede alguém, o normal é o rodapé poder
+ * AFIRMAR que nada parado está escondido — e é essa afirmação que torna o corte
+ * confiável. Se algum dia um parado escapar (ordem do servidor diferente da
+ * esperada), o rodapé conta em vez de mentir: ele lê o que está de fato
+ * escondido, não o que deveria estar.
+ *
+ * Nulo quando não sobrou nada — bloco vazio não vira linha nem botão.
+ */
+export function rodapeDaCaixa(escondidas: { estado: EstadoDaProposta }[]): string | null {
+  if (!escondidas.length) return null;
+  const paradas = escondidas.filter((i) => i.estado !== 'NOVA').length;
+  if (paradas) {
+    return `Ver as outras ${escondidas.length} — ${paradas === 1 ? '1 parada' : `${paradas} paradas`}`;
+  }
+  return `Ver as outras ${escondidas.length}, nenhuma parada`;
+}
+
+export interface SeloDaProposta {
+  /** O selo curto, ao lado da providência. Nulo quando não há nada a dizer. */
+  rotulo: string | null;
+  /** A frase que diz o que acontece se ninguém decidir. */
+  recado: string | null;
+  /** Âmbar pede você. Novidade não é pendência: proposta nova não pede nada. */
+  pedeVoce: boolean;
+}
+
+/**
+ * O QUE A LINHA DIZ SOBRE A PRÓPRIA IDADE.
+ *
+ * Nada aqui promete o que o robô vai fazer. A rede do `escalarEsquecidas` tem
+ * uma segunda condição que só o teor responde (todo prazo do ato pode ser da
+ * outra parte), e anunciar uma tarefa que ele pode recusar é o erro do alarme
+ * que contradizia o robô. A linha afirma só fatos: quantos dias, e que nada
+ * muda sem alguém.
+ *
+ * PROPOSTA NOVA NÃO PEDE NADA. É a mesma regra da reserva: só vira pendência
+ * quando ninguém cuidou. Selo em item de hoje é o jeito mais rápido de ensinar
+ * a equipe a ignorar selo.
+ */
+export function seloDaProposta(p: {
+  estado: EstadoDaProposta;
+  diasNaCaixa: number;
+  diasDoAto: number;
+}): SeloDaProposta {
+  if (p.estado === 'FORA_DA_JANELA') {
+    return {
+      rotulo: 'ato antigo',
+      recado: `O ato tem ${p.diasDoAto} dias: tarefa aberta agora já nasce atrasada.`,
+      pedeVoce: true,
+    };
+  }
+  if (p.estado === 'PARADA') {
+    return {
+      rotulo: `parada há ${p.diasNaCaixa}d`,
+      recado: 'Ninguém decidiu ainda — e nada muda sozinho.',
+      pedeVoce: true,
+    };
+  }
+  return { rotulo: null, recado: null, pedeVoce: false };
 }
 
 export async function listarPropostas(todas = false): Promise<PropostaDeTarefa[]> {
   return (await api.get('/djen/propostas', { params: todas ? { todas: '1' } : {} })).data;
-}
-
-export async function contarPropostas(todas = false): Promise<{ total: number }> {
-  return (await api.get('/djen/propostas/contagem', { params: todas ? { todas: '1' } : {} })).data;
 }
 
 export async function aceitarProposta(id: string) {

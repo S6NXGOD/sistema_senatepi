@@ -1,4 +1,5 @@
 import { api } from './api';
+import { contar } from './plural';
 import { mascararNPU } from './processos';
 
 /**
@@ -60,6 +61,13 @@ export async function minhasPendencias(): Promise<MinhasPendencias> {
  * agenda, não o prazo processual. Afirmar perda de prazo é a acusação mais grave
  * que ele poderia fazer a um advogado, e ele não tem como sustentá-la. "Ficou
  * para trás" é exatamente o que o dado diz.
+ *
+ * O SINGULAR NÃO É ENFEITE. Quando há um item só, a faixa diz QUAL é ele (ver
+ * `avisoDaFaixa`) e estas frases não aparecem. Elas são a queda da janela de
+ * troca: uma API mais antiga — ou um grupo que voltou com `total` e sem
+ * `exemplos` — ainda precisa virar uma frase certa em português. Era código
+ * morto enquanto só dois tipos tinham nome; hoje os quatro têm, e os quatro
+ * singulares existem por essa razão só. `avisos-da-faixa.spec.ts` cobra cada um.
  */
 export const PENDENCIA: Record<TipoPendencia, { um: string; varios: string; href: string }> = {
   ATRASADA: {
@@ -69,9 +77,9 @@ export const PENDENCIA: Record<TipoPendencia, { um: string; varios: string; href
   },
   /*
     A TAREFA DO CASO EM QUE VOCÊ É RESERVA, E NINGUÉM ESTÁ CUIDANDO — o
-    responsável sumiu, ou o dia virou. Várias levam ao painel, onde a lista diz de
-    quem é cada uma e por quê; uma só leva direto à atividade, onde está o botão
-    "Assumir".
+    responsável sumiu, ou o dia virou. Várias levam ao painel, onde o bloco
+    "Da sua equipe" diz de quem é cada uma e por quê; uma só leva direto à
+    atividade, onde está o botão "Assumir".
   */
   PRECISA_DA_EQUIPE: {
     um: 'atividade da sua equipe está sem ninguém cuidando',
@@ -107,7 +115,55 @@ export const PENDENCIA: Record<TipoPendencia, { um: string; varios: string; href
 
 export function rotulo(p: Pendencia): string {
   const r = PENDENCIA[p.tipo];
-  return `${p.total} ${p.total === 1 ? r.um : r.varios}`;
+  return contar(p.total, r.um, r.varios);
+}
+
+/**
+ * UM AVISO DA FAIXA — em duas partes, porque a faixa desenha as duas.
+ *
+ * `texto` é a coisa (o que aconteceu, com o nome dela). `complemento` é o
+ * contorno: de quem é, em que processo. A separação existe porque colar os dois
+ * numa frase só produzia português torto — o detalhe da equipe já vem escrito
+ * como legenda pela API ("de Dr. Tiago · ficou para trás"), e emendá-lo com um
+ * travessão dava "«Elaborar manifestação» precisa de alguém da equipe — de
+ * Dr. Tiago · ficou para trás". Duas partes, e cada uma lida como foi escrita.
+ */
+export interface AvisoDaFaixa {
+  chave: string;
+  tipo: TipoPendencia;
+  texto: string;
+  complemento?: string;
+  href: string;
+}
+
+/**
+ * LINK COM PARÂMETRO VAZIO NÃO É DESTINO.
+ *
+ * A API monta o endereço do exemplo com o id que ela tem: `/processos?processo=`
+ * quando a publicação chegou sem processo casado. O endereço existe, a página
+ * abre — e não abre nada, o que é pior que não ser clicável, porque a pessoa
+ * acha que já olhou. Nesse caso o aviso cai na lista do grupo, que ao menos é
+ * um lugar onde se procura.
+ */
+const PARAMETRO_VAZIO = /[?&][^=&]+=(?:&|$)/;
+
+export function destinoCerto(href: string | undefined, lista: string): string {
+  if (!href) return lista;
+  return PARAMETRO_VAZIO.test(href) ? lista : href;
+}
+
+/**
+ * ONDE O ATO ACONTECEU — e nunca uma frase que termina no nada.
+ *
+ * O título do exemplo é o número do processo, cru (20 dígitos), e a API usa
+ * 'Processo'/'Publicação' quando não há número: o caso ainda é pré-processual
+ * ou rascunho, e `numeroCNJ` é nulo de propósito. `mascararNPU` de um texto sem
+ * dígitos devolve vazio, e era assim que nascia "Recurso negado no processo "
+ * — frase truncada, no cabeçalho de todas as telas.
+ */
+export function ondeAconteceu(titulo: string): string {
+  const npu = mascararNPU(titulo || '');
+  return npu ? `processo ${npu}` : 'processo ainda sem número';
 }
 
 /**
@@ -117,27 +173,87 @@ export function rotulo(p: Pendencia): string {
  * ficou para trás" obrigaria a abrir a agenda para descobrir qual. Vários viram
  * contagem e levam à lista. É a regra de todo aviso deste sistema: leva ao ato,
  * não à tela onde o ato mora.
+ *
+ * OS QUATRO TIPOS TÊM NOME PRÓPRIO. Faltavam dois: a publicação sem tarefa
+ * mostrava "1 publicação sua sem tarefa aberta" — número sem destino, que é
+ * exatamente o que esta regra existe para não fazer.
  */
-export function fraseDaFaixa(p: Pendencia): { texto: string; href: string } {
-  const unico = p.total === 1 ? p.exemplos[0] : undefined;
-  if (unico && p.tipo === 'ATRASADA') {
-    return { texto: `“${unico.titulo}” ficou para trás`, href: unico.href };
+export function avisoDaFaixa(p: Pendencia): AvisoDaFaixa {
+  const grupo = PENDENCIA[p.tipo];
+  const unico = p.total === 1 ? p.exemplos?.[0] : undefined;
+  const chave = p.tipo;
+
+  if (unico) {
+    const href = destinoCerto(unico.href, grupo.href);
+    if (p.tipo === 'ATRASADA') {
+      return { chave, tipo: p.tipo, texto: `“${unico.titulo}” ficou para trás`, href };
+    }
+    /*
+      O PORQUÊ VAI NO COMPLEMENTO, INTEIRO E COMO A API O ESCREVEU. Ele já é uma
+      legenda ("de Dr. Tiago · ficou para trás", "Dr. Carlos está sem entrar há
+      39 dias") e o mesmo texto aparece no painel, no bloco da equipe.
+    */
+    if (p.tipo === 'PRECISA_DA_EQUIPE') {
+      return {
+        chave,
+        tipo: p.tipo,
+        texto: `“${unico.titulo}” está sem ninguém cuidando`,
+        complemento: unico.detalhe,
+        href,
+      };
+    }
+    /*
+      UMA PUBLICAÇÃO SÓ DIZ EM QUE PROCESSO ELA CAIU. O título do exemplo é o
+      número do processo; a providência não vem, e inventar qual é seria
+      prometer o que não sabemos.
+    */
+    if (p.tipo === 'PUBLICACAO_SEM_TAREFA') {
+      return {
+        chave,
+        tipo: p.tipo,
+        texto: 'Publicação sua sem tarefa aberta',
+        complemento: ondeAconteceu(unico.titulo),
+        href,
+      };
+    }
+    /*
+      UM ATO SÓ DIZ QUAL ATO E EM QUE PROCESSO. "1 ato do tribunal está sem
+      ninguém decidir" manda procurar entre dezenas de linhas da ficha;
+      "Recurso negado · processo 0001381-91…" já é a informação.
+    */
+    if (p.tipo === 'ATO_ESPERANDO_OLHO' && unico.detalhe) {
+      return {
+        chave,
+        tipo: p.tipo,
+        texto: unico.detalhe,
+        complemento: ondeAconteceu(unico.titulo),
+        href,
+      };
+    }
+    return { chave, tipo: p.tipo, texto: rotulo(p), href };
   }
-  if (unico && p.tipo === 'PRECISA_DA_EQUIPE') {
-    return {
-      texto: `“${unico.titulo}” precisa de alguém da equipe${unico.detalhe ? ` — ${unico.detalhe}` : ''}`,
-      href: unico.href,
-    };
-  }
-  /*
-    UM ATO SÓ DIZ QUAL ATO E EM QUE PROCESSO. "1 ato do tribunal está sem
-    ninguém decidir" manda procurar entre dezenas de linhas da ficha; "Recurso
-    negado no processo 0001381-91…" já é a informação.
-  */
-  if (unico && p.tipo === 'ATO_ESPERANDO_OLHO' && unico.detalhe) {
-    // O número vem cru do banco (20 dígitos); ninguém lê processo assim.
-    return { texto: `${unico.detalhe} no processo ${mascararNPU(unico.titulo)}`, href: unico.href };
-  }
-  if (unico) return { texto: rotulo(p), href: unico.href };
-  return { texto: rotulo(p), href: PENDENCIA[p.tipo].href };
+
+  return { chave, tipo: p.tipo, texto: rotulo(p), href: grupo.href };
+}
+
+/**
+ * OS AVISOS DA FAIXA, NA ORDEM EM QUE SE RESOLVE — e só os que a tela desenha.
+ *
+ * `soConhecidas` já roda na porta da API; roda de novo aqui porque esta lista
+ * também é montada a partir de cache antigo do react-query, e um `PENDENCIA[tipo]`
+ * indefinido derrubaria o cabeçalho de todas as páginas.
+ */
+export function avisosDaFaixa(pendencias: Pendencia[]): AvisoDaFaixa[] {
+  return soConhecidas(pendencias ?? [])
+    .filter((p) => p.total > 0)
+    .map(avisoDaFaixa);
+}
+
+/**
+ * O aviso inteiro numa linha — para o `title` do link e para quem lê a tela em
+ * voz alta. A faixa corta o texto com reticências quando não cabe; o que foi
+ * cortado tem de continuar alcançável sem abrir a página.
+ */
+export function frasePlena(a: AvisoDaFaixa): string {
+  return a.complemento ? `${a.texto} — ${a.complemento}` : a.texto;
 }

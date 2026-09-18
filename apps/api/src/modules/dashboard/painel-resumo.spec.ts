@@ -488,3 +488,70 @@ describe('as atividades do painel', () => {
     }
   });
 });
+
+/**
+ * O ROBÔ É ASSUNTO DE QUEM VÊ PROCESSO (18/09/2026).
+ *
+ * `robo` ia para TODO MUNDO, sem condição, e leva duas listas com NPU, tribunal
+ * e o NOME DO FILIADO: `falhasProcessos` e `desconhecidosNoCnj`. A Triagem tem
+ * `processos: SEM_ACESSO`; a tela dela escondia o bloco e o payload chegava
+ * inteiro no navegador. Esconder na tela é conforto, não controle de acesso.
+ *
+ * Este teste olha o PAYLOAD. O que existia era um `toContain` no próprio
+ * arquivo-fonte, que continuou verde com o vazamento no ar.
+ */
+describe('o robô e as listas do CNJ se cortam no servidor', () => {
+  it('a Triagem recebe nulo, e as duas consultas nem rodam', async () => {
+    const { servico, de, consultas } = montar();
+    const r: any = await servico.resumo(usuario(UserRole.TRIAGEM));
+    expect(r.robo).toBeNull();
+    // `falhasDatajud24h` e `processosDesconhecidosNoCnj` são SQL cru.
+    const cnj = consultas.filter((c) => /sincronizacao_logs|sincronizacoes/i.test(c.sql));
+    expect(cnj).toHaveLength(0);
+    expect(de('processo.count')).toHaveLength(0);
+  });
+
+  it('nenhum NPU e nenhum nome de filiado atravessam o payload da Triagem', async () => {
+    const { servico } = montar();
+    const r = await servico.resumo(usuario(UserRole.TRIAGEM));
+    const texto = JSON.stringify(r);
+    expect(texto).not.toContain('desconhecidosNoCnj');
+    expect(texto).not.toContain('falhasProcessos');
+  });
+
+  it('o advogado recebe o bloco — ele vê processo e conserta sincronização', async () => {
+    const { servico } = montar();
+    const r: any = await servico.resumo(usuario(UserRole.ADVOGADO));
+    expect(r.robo).not.toBeNull();
+    expect(r.robo).toHaveProperty('situacao');
+  });
+
+  it('a matriz manda: Triagem com processos liberado passa a receber', async () => {
+    const { servico } = montar();
+    const r: any = await servico.resumo(usuario(UserRole.TRIAGEM, { processos: 'VISUALIZAR' }));
+    expect(r.robo).not.toBeNull();
+  });
+});
+
+/**
+ * "MOVIMENTAÇÕES RECENTES" MOSTRAVA O ACERVO DOS COLEGAS.
+ *
+ * A consulta não tinha `meuAcervo` — que existe e é aplicado nos vizinhos
+ * (adversários, DJEN, audiências a agendar). O advogado lia oito andamentos de
+ * processos que não são dele, com o nome do filiado de cada um.
+ */
+describe('as movimentações recentes respeitam o escopo pessoal', () => {
+  it('para o advogado, a consulta filtra pelo acervo dele', async () => {
+    const { servico, de } = montar();
+    await servico.resumo(usuario(UserRole.ADVOGADO, null, 'adv-1'));
+    const [chamada] = de('movimentacaoProcessual.findMany');
+    expect(chamada.args.where.processo).toEqual({ advogados: { some: { advogadoId: 'adv-1' } } });
+  });
+
+  it('para a coordenação, segue sendo a casa inteira', async () => {
+    const { servico, de } = montar();
+    await servico.resumo(usuario(UserRole.COORDENACAO));
+    const [chamada] = de('movimentacaoProcessual.findMany');
+    expect(chamada.args.where.processo).toEqual({});
+  });
+});

@@ -29,16 +29,18 @@ import {
 } from 'recharts';
 import { useAuth } from '@/lib/auth';
 import { podeEditar, podeVer, PERFIL_LABEL, type PerfilUsuario } from '@/lib/permissoes';
-import { CANAL_LABEL } from '@/lib/atendimentos';
+import { CANAIS, CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
   primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando, diasSemAcesso,
   linkDaAgenda, linkDosPrazosDaSemana, seloDasAudienciasDaSemana,
   textoDoLinkDeRecadastro, mensagemDeAniversario, DIAS_PARA_PARADO,
   barraDoAtendimento, cartaoDosAtendimentos, explicacaoDaPublicacaoSemTarefa, kpiDoBalcao, kpiDosAtendimentos,
+  fatiasDosCanais, registrarAniversario, estadoDosAniversarios, resumoDosAniversarios, soOPrimeiroNome,
   type ResumoDashboard, type FalhaDatajud, type ProcessoDesconhecidoNoCnj,
 } from '@/lib/dashboard';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { LinhaDaCarteira } from '@/components/dashboard/linha-da-carteira';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { formatNPU } from '@/lib/processos';
 // A prévia mostra QUANDO a tarefa cai na agenda — no fuso de Teresina,
@@ -180,12 +182,21 @@ function PainelIndisponivel({
  * Idade do dado do painel. Curto e honesto — o `tempoRelativo` da lib é para
  * datas de negócio (ISO) e usa outra granularidade; aqui o que importa é
  * distinguir "acabou de carregar" de "isso está velho".
+ *
+ * PASSA PARA DIAS DEPOIS DE 48 h (18/09/2026). A mesma função serve ao "atualizado
+ * há X" do cabeçalho (segundos) e ao "a última varredura foi há X" do robô, que
+ * pode estar parado há semanas. Sem o corte, a tela dizia "a última foi há
+ * 1008 h" — verdade que ninguém lê: são 42 dias. Hora acima de dois dias é
+ * número que a pessoa precisa dividir de cabeça.
  */
 function idadeDoDado(quando: number): string {
   const s = Math.max(0, Math.round((Date.now() - quando) / 1000));
   if (s < 45) return 'agora há pouco';
   if (s < 3600) return `há ${Math.round(s / 60)} min`;
-  return `há ${Math.round(s / 3600)} h`;
+  const horas = Math.round(s / 3600);
+  if (horas < 48) return `há ${horas} h`;
+  const dias = Math.round(horas / 24);
+  return dias < 60 ? `há ${dias} dias` : `há ${Math.round(dias / 30)} meses`;
 }
 
 /**
@@ -473,50 +484,15 @@ function Conteudo({
       */}
       {pode.agenda && alertas.daEquipe && <DaSuaEquipe daEquipe={alertas.daEquipe} />}
 
-      {minhaCarteira && (
-        <section>
-          <SectionTitle icon={FolderKanban} texto="Minha carteira" />
-          {/*
-            TRÊS FILEIRAS DE NÚMERO ANTES DO PRIMEIRO PRAZO.
-
-            Medido no telefone de 375px: seis `KpiCard` em `grid-cols-2` custam
-            364px — mais da metade da dobra útil (600px) gasta em contagem, e o
-            advogado abriu o painel para trabalhar, não para contar.
-
-            `grid-cols-3` põe os seis em DUAS fileiras e o cartão fica mais
-            estreito; com o `KpiCard` já compacto (número em 2xl no telefone, o
-            zero recuado), o rótulo ainda cabe. Passa de 364 para ~216px.
-          */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6">
-            <KpiCard label="Meus processos" valor={minhaCarteira.meusProcessos} sub="vinculados a mim"
-              icon={Briefcase} cor="bg-brand-50 text-brand-800 dark:bg-brand-900/30 dark:text-brand-400" href="/processos?meus=1" destaque />
-            {/*
-              CADA NÚMERO ABRE O RECORTE QUE CONTOU (C11). "Atrasadas" levava à
-              aba Hoje, onde atrasada de dia anterior nunca aparece; "Urgentes" e
-              "Minhas audiências", à agenda sem aba nem pessoa.
-
-              "Parados" não é link: nenhuma lista recorta "sem andamento há 90
-              dias", e `?meus=1` abriria a carteira inteira com outro número. O
-              texto dizia 30 dias enquanto a API contava 90.
-            */}
-            <KpiCard label="Minhas audiências" valor={minhaCarteira.minhasAudiencias} sub="esta semana"
-              icon={Gavel} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
-              href={linkDaAgenda({ aba: '7dias', tipo: 'AUDIENCIA', pessoa: 'eu' })} destaque />
-            <KpiCard label="Atrasadas" valor={minhaCarteira.atrasadas} sub="de dias anteriores"
-              icon={AlertTriangle} cor="bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-              href={linkDaAgenda({ aba: 'atrasadas', pessoa: 'eu' })} destaque />
-            <KpiCard label="Urgentes" valor={minhaCarteira.urgentes} sub="em aberto"
-              icon={Flame} cor="bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
-              href={linkDaAgenda({ aba: 'aberto', urgentes: true, pessoa: 'eu' })} destaque />
-            <KpiCard label="A ajuizar" valor={minhaCarteira.preProcessuais} sub="fase pré-processual"
-              icon={FileCheck2} cor="bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
-              href="/processos?preProcessuais=1" destaque />
-            <KpiCard label="Parados" valor={minhaCarteira.semMovimentacao} sub={`sem andamento há ${DIAS_PARA_PARADO} dias`}
-              icon={Hourglass} cor="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-              destaque />
-          </div>
-        </section>
-      )}
+      {/*
+        A CARTEIRA VIROU UMA LINHA (18/09/2026) — ver `LinhaDaCarteira` para o
+        porquê, inclusive por que ela NÃO foi para o topo como o dono pediu.
+        Eram seis cartões em duas fileiras; sobraram os três números sem data.
+        Os outros três ("atrasadas", "urgentes", "minhas audiências") são fatos
+        de agenda e já vivem na fila de atividades, cada um como selo da própria
+        linha — "atrasada" chegou a aparecer em QUATRO superfícies ao mesmo tempo.
+      */}
+      {minhaCarteira && <LinhaDaCarteira carteira={minhaCarteira} />}
 
       {/*
         A FILA DO BALCÃO. O painel já mostrava "atendimentos pendentes" — o
@@ -615,7 +591,7 @@ function Conteudo({
 
       {/* Robô do DataJud. Vem ANTES do radar de propósito: se a varredura não
           rodou, o "0 audiências a agendar" abaixo não quer dizer nada. */}
-      {pode.processos && <AvisoRobo robo={data.robo} />}
+      {pode.processos && <AvisoRobo robo={data.robo} resumido={escopoPessoal} />}
       {/*
         A MESMA COISA DUAS VEZES NÃO É DOIS AVISOS.
 
@@ -670,7 +646,13 @@ function Conteudo({
         A de "paradas há mais de 7 dias" FICA: essa não está em lista nenhuma
         do painel (é `updatedAt`, não `inicio`) e some sozinha em dia limpo.
       */}
-      {pode.agenda && alertas.semMovimentacao > 0 && (
+      {/*
+        ATIVIDADE PARADA HÁ 7 DIAS É COBRANÇA (18/09/2026). Para o advogado a
+        conta é do que é DELE; para a coordenação, da casa. Para a Triagem era a
+        casa inteira, com o rosto de cada responsável, numa tela em que ela tem
+        `agenda: VISUALIZAR` — ver que o jurídico está devendo sem poder tocar.
+      */}
+      {pode.agenda && !ehTriagem && alertas.semMovimentacao > 0 && (
         <div className="space-y-2">
           {/* Passou de vermelho sólido para info, e ganhou o número.
               "Atenção!" com fundo vermelho para uma atividade parada há uma
@@ -685,26 +667,15 @@ function Conteudo({
       )}
 
 
-      {/* ZONA 2 — os números. Estado do mundo, depois do que precisa de gente. */}
-      {/* KPIs globais */}
-      {kpiCards.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {kpiCards.map((c, i) => (
-            /*
-              ENTRADA POR CSS, na inserção: a revalidação de 60 s não repete nada.
-              O escalonamento tem teto (200 ms no total) e some com "reduzir
-              movimento". Era framer só para isto.
-            */
-            <div key={c.label} className="animate-surgir" style={{ animationDelay: atrasoEscalonado(i) }}>
-              <KpiCard {...c} />
-            </div>
-          ))}
-        </div>
-      )}
+      {/*
+        FILA DA TRIAGEM — ANTES DOS NÚMEROS (18/09/2026).
 
-      {/* FILA DA TRIAGEM. Vem logo após os KPIs porque É o trabalho dela —
-          antes, a secretaria abria a home e via o painel do jurídico com
-          buracos, sem a própria fila em lugar nenhum. */}
+        Ela vinha DEPOIS dos KPIs da casa e da faixa de atividades paradas do
+        jurídico: a secretaria abria o sistema e via três contagens e o atraso
+        dos advogados antes da própria fila. Trabalho antes de número é a regra
+        da casa, e aqui ela estava invertida justamente para quem tem a fila
+        mais concreta de todas.
+      */}
       {ehTriagem && (
         <section>
           <SectionTitle icon={Inbox} texto="Sua fila de hoje" />
@@ -740,6 +711,31 @@ function Conteudo({
           )}
         </section>
       )}
+
+      {/* ZONA 2 — os números. Estado do mundo, depois do que precisa de gente. */}
+      {/*
+        OS NÚMEROS DA CASA NÃO VÃO PARA QUEM TEM CARTEIRA PRÓPRIA (18/09/2026).
+        Eram DEZ contadores no painel do advogado: seis na carteira e mais
+        quatro aqui. "Prazos esta semana" é a própria fila logo acima, com
+        botões; "Filiados ativos" nunca mudou uma decisão de advogado. A
+        carteira dele virou uma linha de três números — ver `LinhaDaCarteira`.
+      */}
+      {!escopoPessoal && kpiCards.length > 0 && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {kpiCards.map((c, i) => (
+            /*
+              ENTRADA POR CSS, na inserção: a revalidação de 60 s não repete nada.
+              O escalonamento tem teto (200 ms no total) e some com "reduzir
+              movimento". Era framer só para isto.
+            */
+            <div key={c.label} className="animate-surgir" style={{ animationDelay: atrasoEscalonado(i) }}>
+              <KpiCard {...c} />
+            </div>
+          ))}
+        </div>
+      )}
+
+
 
       {/*
         ZONA 3 — O DIA. Cada bloco só aparece se tiver conteúdo; o que estiver
@@ -786,6 +782,10 @@ function Conteudo({
                 totalAtrasadas={alertas.atrasadas}
                 totalPassaramDaHora={alertas.passaramDaHora ?? 0}
                 pessoal={false}
+                /* O placar nominal ("Esperando por: Fulano 3") é de quem
+                   coordena. A Triagem via os nomes com o atraso de cada um numa
+                   tela em que não pode resolver nada — ver `porPessoa`. */
+                cobra={ehGestao}
                 href={(id) => `/agenda?compromisso=${id}`}
               />
             </div>
@@ -831,7 +831,15 @@ function Conteudo({
 
         Só os atendimentos da triagem continuam aqui.
       */}
-      {pode.atendimentos && !ehTriagem && !vazio.atendimentos && (
+      {/*
+        A FILA DA TRIAGEM NÃO É DO ADVOGADO (18/09/2026). O dono perguntou se
+        "Com a triagem" era mesmo necessário no painel dele. Não é: ele tem
+        `atendimentos: VISUALIZAR`, nenhum toque dele resolve uma linha daquela
+        fila, e o cartão ainda trazia a régua de desempenho da secretaria.
+        Painel que mostra trabalho que você não pode fazer ensina a não ler o
+        painel. Continua na Triagem e na Coordenação, onde é trabalho de quem vê.
+      */}
+      {pode.atendimentos && !ehTriagem && !escopoPessoal && !vazio.atendimentos && (
         <AtendimentosPendentes data={data} />
       )}
 
@@ -919,7 +927,21 @@ function Conteudo({
 
       {/* Leitura de acervo: com quem brigamos, e o que andou nos processos.
           As duas são contexto, não alerta — por isso ficam no rodapé. */}
-      {pode.processos && (
+      {/*
+        LEITURA DE ACERVO É DA CASA, NÃO DE QUEM TEM CARTEIRA (18/09/2026).
+
+        "Contra quem litigamos": o dono perguntou se era necessário. No painel
+        do advogado, não — o conteúdo já vinha recortado pelo acervo DELE
+        enquanto o título prometia a instituição, duas coisas discordando na
+        mesma moldura. O Panorama responde isso melhor, e o próprio cartão já
+        linkava para lá.
+
+        "Movimentações recentes": sai por estar ERRADA para ele, não por poluir.
+        O DataJud tem mediana de 62 dias de atraso — "recentes" é passado remoto
+        com nome de novidade — e a consulta nem filtrava pelo acervo dele (isso
+        eu consertei no servidor no mesmo dia).
+      */}
+      {pode.processos && !escopoPessoal && (
         <div
           className={cn(
             'grid grid-cols-1 gap-4',
@@ -1246,7 +1268,22 @@ function primeiroENome(p: { nome: string; nomeExibicao: string | null }): string
   return p.nomeExibicao || p.nome.split(/\s+/)[0];
 }
 
-function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
+/**
+ * O ESTADO DO ROBÔ DO DATAJUD.
+ *
+ * `resumido` é o painel de quem tem CARTEIRA PRÓPRIA (18/09/2026). Lá este
+ * componente podia empilhar TRÊS elementos — a barra do robô, a lista de
+ * processos que o CNJ recusou e a dos NPUs que ele não conhece — e, somado à
+ * faixa do DJEN logo acima, dava quatro avisos seguidos sobre saúde de
+ * integração no painel de quem não conserta integração nenhuma.
+ *
+ * Resumido, sobra UMA linha: o pior estado, com o número das listas dentro dela
+ * em vez de duas listas abertas. O corte não esconde nada que peça atenção — o
+ * aviso continua ali, e quem cuida disso (administração) segue vendo inteiro.
+ */
+function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido?: boolean }) {
+  // Nulo = quem não vê processo. Não é "tudo em dia": é "não é para você".
+  if (!robo) return null;
   const {
     situacao, processosMonitorados, ultimaSincronizacao, falhasProcessos,
     horasAteAtraso, desconhecidosNoCnj,
@@ -1255,12 +1292,34 @@ function AvisoRobo({ robo }: { robo: ResumoDashboard['robo'] }) {
     ? idadeDoDado(new Date(ultimaSincronizacao).getTime())
     : null;
 
-  const falhasBar = falhasProcessos.length > 0 && (
+  const quantosPendem = falhasProcessos.length + (desconhecidosNoCnj?.length ?? 0);
+  const falhasBar = !resumido && falhasProcessos.length > 0 && (
     <FalhasCNJ falhas={falhasProcessos} horasAteAtraso={horasAteAtraso} />
   );
-  const desconhecidosBar = !!desconhecidosNoCnj?.length && (
+  const desconhecidosBar = !resumido && !!desconhecidosNoCnj?.length && (
     <DesconhecidosNoCnj itens={desconhecidosNoCnj} />
   );
+
+  /*
+    NO PAINEL DE CARTEIRA, as duas listas viram uma linha discreta. Elas são
+    conferência de cadastro e saúde de integração — trabalho de quem administra,
+    não do advogado que abriu a tela para despachar prazo. E a linha diz o
+    número para ninguém achar que sumiu.
+  */
+  if (resumido && (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA')) {
+    if (quantosPendem === 0) return null;
+    return (
+      <p className="px-1 text-xs text-muted-foreground">
+        {quantosPendem === 1
+          ? '1 processo com pendência de leitura no CNJ'
+          : `${quantosPendem} processos com pendência de leitura no CNJ`}
+        {' — '}
+        <Link href="/processos" className="underline underline-offset-2 hover:text-foreground">
+          conferir em Processos
+        </Link>
+      </p>
+    );
+  }
 
   // Ocioso ou em dia: nenhuma barra sobre o robô. Só as falhas, se houver.
   if (situacao === 'SEM_OBJETO' || situacao === 'EM_DIA') {
@@ -2374,12 +2433,62 @@ function Aniversariantes({
   onCompletar?: (filiadoId: string) => void;
 }) {
   const itens = data.aniversariantes ?? [];
+  const qc = useQueryClient();
+  const estado = estadoDosAniversarios(itens);
+  const [salvando, setSalvando] = useState<string | null>(null);
+
+  /*
+    A DECISÃO É UM FATO, e por isso ela é gravada dos dois lados. "Deixar
+    passar" sem registro seria um botão de fechar, e a casa não tem botão de
+    fechar. O registro também impede o que acontecia antes: duas pessoas da
+    secretaria cumprimentando a mesma filiada enquanto ninguém fala com a outra.
+  */
+  async function decidir(
+    p: { id: string; tipo: 'FILIADO' | 'COLABORADOR'; nome: string },
+    desfecho: 'PARABENIZADO' | 'DEIXOU_PASSAR',
+  ) {
+    setSalvando(p.id);
+    try {
+      await registrarAniversario({ pessoaId: p.id, tipo: p.tipo, desfecho });
+      qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
+      toast.success(
+        desfecho === 'PARABENIZADO'
+          ? `${soOPrimeiroNome(p.nome)} foi cumprimentada(o).`
+          : `${soOPrimeiroNome(p.nome)} ficou para depois.`,
+      );
+    } catch {
+      toast.error('Não deu para registrar. Tente de novo.');
+    } finally {
+      setSalvando(null);
+    }
+  }
+
   if (itens.length === 0) return null; // dia sem aniversário não vira card vazio
 
+  /*
+    DIA CUIDADO VIRA UMA LINHA (18/09/2026). O cartão não some: a casa ter
+    cumprimentado três pessoas hoje é boa notícia, e boa notícia vira linha —
+    nunca desaparecimento, que a pessoa leria como "não havia ninguém".
+  */
+  if (estado.fechado) {
+    return (
+      <p className="flex flex-wrap items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50/60 px-3 py-2 text-xs text-brand-900 dark:border-brand-900 dark:bg-brand-950/20 dark:text-brand-200">
+        <Cake className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        Aniversários de hoje: {resumoDosAniversarios(estado)}.
+      </p>
+    );
+  }
+
   return (
-    <SectionCard title="Aniversariantes de hoje" icon={Cake} count={itens.length}>
+    <SectionCard title="Aniversariantes de hoje" icon={Cake} count={estado.pendentes}>
       <ul className="divide-y divide-border/60">
-        {itens.map((p) => {
+        {/*
+          QUEM JÁ FOI CUIDADO SAI DA LISTA, mas não do dia: o resumo verde no
+          rodapé conta os dois desfechos. Manter a pessoa cumprimentada na lista
+          faria o cartão nunca encolher, e um cartão que não encolhe deixa de
+          ser lido.
+        */}
+        {itens.filter((p) => !p.decisao).map((p) => {
           /*
             SÓ CELULAR ABRE CONVERSA. A montagem antiga punha "55" na frente de
             qualquer coisa: número com DDI virava 5555…, fixo abria conversa com
@@ -2387,47 +2496,73 @@ function Aniversariantes({
           */
           const celular = celularParaWhatsApp(p.telefone);
           const zap = celular ? linkWhatsApp(celular, mensagemDeAniversario(p.nome, tenant.sigla)) : null;
+          const ocupado = salvando === p.id;
           return (
-            <li key={`${p.tipo}-${p.id}`} className="flex items-center gap-3 px-2 py-2.5">
+            <li key={`${p.tipo}-${p.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-2 py-2.5">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-100 dark:bg-pink-950/40">
                 <Cake className="h-4 w-4 text-pink-700 dark:text-pink-300" />
               </span>
-              <div className="min-w-0 flex-1">
+              {/*
+                O NOME NÃO CEDE PRIMEIRO. Em 400px, com o botão verde na mesma
+                linha, "JOANA DE CONFERÊNCIA" virava "JOA…" e a idade "41 an…":
+                o `flex-1` deixava o nome encolher até nada enquanto o botão
+                ficava inteiro. A pessoa é o assunto do cartão.
+              */}
+              <div className="min-w-0 flex-1 basis-[calc(100%-3rem)]">
                 <p className="truncate text-sm font-medium">{p.nome}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {p.idade > 0 && `${p.idade} anos · `}
                   {p.tipo === 'FILIADO' ? 'Filiado(a)' : 'Equipe'}
                 </p>
               </div>
-              {zap ? (
-                <a
-                  href={zap}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex h-11 shrink-0 items-center rounded-lg bg-[#25D366] px-3 text-xs font-medium text-white transition hover:bg-[#20bd5a] sm:h-8"
-                >
-                  Parabenizar
-                </a>
-              ) : podeCompletar && p.tipo === 'FILIADO' ? (
-                /*
-                  SEM TELEFONE ERA BECO SEM SAÍDA — e é o caso mais comum.
-
-                  Medido em 04/09/2026: 7.137 dos 7.291 filiados não têm
-                  telefone. O card dizia "sem telefone" e acabava ali: não dava
-                  para parabenizar nem para consertar. O aniversário é o melhor
-                  momento para completar a ficha, porque a pessoa já está na
-                  tela e há um motivo para ligar.
-                */
+              {/* No telefone os botões descem para a própria linha, recuados
+                  sob o nome; no desktop voltam para a direita da pessoa. */}
+              <div className="ml-11 flex w-full shrink-0 items-center gap-1.5 sm:ml-0 sm:w-auto">
+                {zap && (
+                  /*
+                    ABRIR A CONVERSA JÁ É O CUMPRIMENTO. O clique leva ao
+                    WhatsApp e grava o fato no mesmo gesto — pedir depois "e aí,
+                    você falou com ela?" é a cerimônia que faz gente parar de
+                    usar a ferramenta.
+                  */
+                  <a
+                    href={zap}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => decidir(p, 'PARABENIZADO')}
+                    className="flex h-11 shrink-0 items-center rounded-lg bg-[#25D366] px-3 text-xs font-medium text-white transition hover:bg-[#20bd5a] sm:h-9"
+                  >
+                    Parabenizar
+                  </a>
+                )}
+                {!zap && podeCompletar && p.tipo === 'FILIADO' && (
+                  /*
+                    SEM TELEFONE ERA BECO SEM SAÍDA — e é o caso mais comum.
+                    Medido em 04/09/2026: 7.137 dos 7.291 filiados não têm
+                    telefone. O aniversário é o melhor momento para completar a
+                    ficha, porque há um motivo para ligar.
+                  */
+                  <button
+                    type="button"
+                    onClick={() => onCompletar?.(p.id)}
+                    className="flex h-11 shrink-0 items-center rounded-lg border px-3 text-xs font-medium transition hover:bg-muted sm:h-9"
+                  >
+                    Completar cadastro
+                  </button>
+                )}
+                {!zap && !(podeCompletar && p.tipo === 'FILIADO') && (
+                  <span className="text-[11px] text-muted-foreground">sem celular</span>
+                )}
                 <button
                   type="button"
-                  onClick={() => onCompletar?.(p.id)}
-                  className="flex h-11 shrink-0 items-center rounded-lg border px-3 text-xs font-medium transition hover:bg-muted sm:h-8"
+                  disabled={ocupado}
+                  onClick={() => decidir(p, 'DEIXOU_PASSAR')}
+                  title={`Tirar ${soOPrimeiroNome(p.nome)} da lista de hoje, registrando que ninguém cumprimentou`}
+                  className="flex h-11 shrink-0 items-center rounded-lg px-2.5 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50 sm:h-9"
                 >
-                  Completar cadastro
+                  {ocupado ? '…' : 'Deixar passar'}
                 </button>
-              ) : (
-                <span className="shrink-0 text-[11px] text-muted-foreground">sem celular</span>
-              )}
+              </div>
             </li>
           );
         })}
@@ -2442,6 +2577,8 @@ function Aniversariantes({
       */}
       <p className="border-t px-2 pt-2 text-[11px] leading-snug text-muted-foreground">
         Só aparece quem tem data de nascimento no cadastro.
+        {(estado.parabenizados > 0 || estado.deixouPassar > 0) &&
+          ` Hoje: ${resumoDosAniversarios(estado)}.`}
       </p>
     </SectionCard>
   );
@@ -2767,18 +2904,38 @@ function GraficoTendencia({ data, podeAtend, podeFil }: { data: ResumoDashboard;
   );
 }
 
+/**
+ * ATENDIMENTOS POR CANAL — "5 o quê?", perguntou o dono (18/09/2026).
+ *
+ * Ele estava lendo o markup certo: a legenda era bolinha + nome + número cru, e
+ * a única palavra que dava unidade ("Atendimentos") estava no título do cartão,
+ * a 200px e três níveis de DOM de distância. O número agora vem com a
+ * participação ao lado, o centro da rosca diz a unidade por extenso, e cada
+ * linha carrega a frase inteira para o `title` e para o leitor de tela.
+ *
+ * E O PERÍODO PASSOU A ESTAR ESCRITO. Este gráfico é de TODO o histórico e fica
+ * lado a lado com o de volume, que é de 14 dias — quem lê supõe que os dois
+ * falam do mesmo tempo. Mantive todo o histórico (em 14 dias a produção tem 10
+ * atendimentos, e uma rosca com n=10 é ruído) e escrevi o período no cabeçalho.
+ *
+ * Ver `fatiasDosCanais` para a cor por ENTIDADE e o destino de cada fatia.
+ */
 function GraficoCanais({ data }: { data: ResumoDashboard }) {
-  const dados = data.graficos.atendimentosPorCanal
-    .filter((c) => c.total > 0)
-    .map((c) => ({ nome: CANAL_LABEL[c.canal], total: c.total }));
-  const total = dados.reduce((s, d) => s + d.total, 0);
+  const fatias = fatiasDosCanais(
+    data.graficos.atendimentosPorCanal,
+    CANAL_LABEL,
+    CANAIS,
+    [...PALETA_CATEGORICA],
+  );
+  const total = fatias.reduce((s, d) => s + d.total, 0);
   const animacao = useAnimacaoDeGrafico();
 
   return (
     <Card className="h-full animate-surgir" style={{ animationDelay: atrasoEscalonado(1) }}>
-      <div className="flex items-center gap-2 border-b px-5 py-3.5">
-        <Inbox className="h-4 w-4 text-brand-800 dark:text-brand-400" />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b px-5 py-3.5">
+        <Inbox className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-400" />
         <h3 className="text-sm font-semibold">Atendimentos por canal</h3>
+        <span className="ml-auto text-[11px] text-muted-foreground">todo o histórico</span>
       </div>
       <CardContent className="p-4">
         {total === 0 ? (
@@ -2788,25 +2945,45 @@ function GraficoCanais({ data }: { data: ResumoDashboard }) {
             <div className="relative h-40 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={dados} dataKey="total" nameKey="nome" cx="50%" cy="50%" innerRadius={45} outerRadius={68} paddingAngle={2} strokeWidth={0} {...animacao}>
-                    {dados.map((_, i) => (
-                      <Cell key={i} fill={PALETA_CATEGORICA[i % PALETA_CATEGORICA.length]} />
+                  <Pie data={fatias} dataKey="total" nameKey="nome" cx="50%" cy="50%" innerRadius={45} outerRadius={68} paddingAngle={2} strokeWidth={0} {...animacao}>
+                    {fatias.map((d) => (
+                      <Cell key={d.canal} fill={d.cor} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', fontSize: 12 }} />
+                  <Tooltip
+                    formatter={(v: number) => [`${v} ${v === 1 ? 'atendimento' : 'atendimentos'}`, '']}
+                    contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', fontSize: 12 }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-2xl font-bold leading-none">{total}</span>
-                <span className="text-[11px] text-muted-foreground">total</span>
+                <span className="text-2xl font-bold leading-none tabular-nums">{total}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {total === 1 ? 'atendimento' : 'atendimentos'}
+                </span>
               </div>
             </div>
-            <ul className="grid w-full grid-cols-2 gap-x-3 gap-y-1.5">
-              {dados.map((d, i) => (
-                <li key={d.nome} className="flex items-center gap-1.5 text-xs">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: PALETA_CATEGORICA[i % PALETA_CATEGORICA.length] }} />
-                  <span className="truncate text-muted-foreground">{d.nome}</span>
-                  <span className="ml-auto font-semibold tabular-nums">{d.total}</span>
+            {/*
+              A LEGENDA VIROU O CAMINHO. `/atendimentos?canal=X` já existia e
+              ninguém chegava lá: o cartão era um beco sem saída. Uma coluna no
+              telefone — duas colunas de 170px cortavam "Presencial" e o número.
+            */}
+            <ul className="grid w-full grid-cols-1 gap-y-0.5 sm:grid-cols-2 sm:gap-x-3">
+              {fatias.map((d) => (
+                <li key={d.canal}>
+                  <Link
+                    href={d.href}
+                    title={d.descricao}
+                    aria-label={d.descricao}
+                    className="flex min-h-[32px] items-center gap-1.5 rounded-md px-1 text-xs transition hover:bg-muted"
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: d.cor }} />
+                    <span className="truncate text-muted-foreground">{d.nome}</span>
+                    <span className="ml-auto shrink-0 font-semibold tabular-nums">{d.total}</span>
+                    <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
+                      {d.fatia}%
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>

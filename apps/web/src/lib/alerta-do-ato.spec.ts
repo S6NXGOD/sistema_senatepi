@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { PENDENCIA, fraseDaFaixa, rotulo, soConhecidas, type Pendencia } from './pendencias';
+import { PENDENCIA, avisoDaFaixa, frasePlena, rotulo, soConhecidas, type Pendencia } from './pendencias';
 
 const RAIZ = path.resolve(__dirname, '..');
 const FAIXA = readFileSync(path.join(RAIZ, 'components/faixa-de-atraso.tsx'), 'utf8');
@@ -43,15 +43,28 @@ describe('a frase do ato que ninguém decidiu', () => {
    * mostrava número sem destino.
    */
   it('um ato só é nomeado, e leva direto a ele', () => {
-    const f = fraseDaFaixa(ato(1, 'Recurso negado'));
+    const f = avisoDaFaixa(ato(1, 'Recurso negado'));
     // E o número sai formatado: ninguém lê processo com 20 dígitos seguidos.
-    expect(f.texto).toBe('Recurso negado no processo 0001381-91.2023.5.22.0101');
+    expect(f.texto).toBe('Recurso negado');
+    expect(f.complemento).toBe('processo 0001381-91.2023.5.22.0101');
+    expect(frasePlena(f)).toBe('Recurso negado — processo 0001381-91.2023.5.22.0101');
     expect(f.href).toBe('/processos?processo=p1&andamento=m1');
+  });
+
+  /**
+   * O PROCESSO SEM NÚMERO NÃO ENGOLE A FRASE. Pré-processual e rascunho têm
+   * `numeroCNJ` nulo, e a API manda 'Processo' no lugar; `mascararNPU` de um
+   * texto sem dígitos devolve vazio, e a faixa escrevia "Recurso negado no
+   * processo " — terminando no nada, no cabeçalho de todas as telas.
+   */
+  it('e um processo sem número é dito, não engolido', () => {
+    const f = avisoDaFaixa({ ...ato(1, 'Recurso negado'), exemplos: [{ ...ato(1, 'Recurso negado').exemplos[0], titulo: 'Processo' }] });
+    expect(frasePlena(f)).toBe('Recurso negado — processo ainda sem número');
   });
 
   /** Sem rótulo do ato, cai na contagem — nunca numa frase pela metade. */
   it('sem o nome do ato, não inventa frase', () => {
-    expect(fraseDaFaixa(ato(1)).texto).toBe('1 ato do tribunal está sem ninguém decidir');
+    expect(avisoDaFaixa(ato(1)).texto).toBe('1 ato do tribunal está sem ninguém decidir');
   });
 
   /**
@@ -72,10 +85,23 @@ describe('a frase do ato que ninguém decidiu', () => {
   });
 });
 
+/**
+ * O QUE ESTE BLOCO VIA — e por que quase não via nada.
+ *
+ * Ele lia o fonte e exigia a linha `ATO_ESPERANDO_OLHO: Gavel`. A linha existia
+ * e a tela mostrava UM ícone só, o do PRIMEIRO grupo, para a faixa inteira:
+ * quem escolhia era `ICONE[pendencias[0].tipo]`, e como o serviço começa sempre
+ * por ATRASADA, era sempre o mesmo. Ficou verde com o defeito no ar — é a
+ * armadilha do `toContain` no código-fonte.
+ *
+ * Ícone por linha agora é conferido no desenho de verdade, em
+ * `components/avisos-da-faixa.spec.tsx`. Aqui fica só a rede da janela de
+ * troca, que por definição não aparece em desenho nenhum: um tipo sem ícone não
+ * pode derrubar o cabeçalho de todas as páginas.
+ */
 describe('o desenho da faixa separa as naturezas', () => {
-  it('o ato do tribunal tem ícone próprio, e há uma rede para o que faltar', () => {
-    expect(FAIXA).toContain('ATO_ESPERANDO_OLHO: Gavel');
-    expect(FAIXA).toContain('ICONE[pendencias[0].tipo] ?? AlertTriangle');
+  it('um tipo sem ícone cai num padrão, em vez de quebrar', () => {
+    expect(FAIXA).toContain('?? AlertTriangle');
   });
 });
 

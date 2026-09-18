@@ -34,6 +34,8 @@ type DocPdf = {
   fontSize(n: number): DocPdf;
   fillColor(c: string): DocPdf;
   text(t: string, x: number, y: number, o?: Record<string, unknown>): DocPdf;
+  /** Opcional só para não quebrar quem passa um documento de mentira num teste. */
+  widthOfString?(t: string): number;
 };
 
 export type EstiloRodape = {
@@ -78,6 +80,30 @@ export function carimbarRodape(doc: DocPdf, texto: string, estilo: EstiloRodape 
   const total = doc.bufferedPageRange().count;
   const range = doc.bufferedPageRange();
 
+  /*
+    O RODAPÉ ENCOLHE ATÉ CABER NUMA LINHA — e `lineBreak: false` não fazia isso.
+
+    O PDFKit quebra a linha sempre que recebe `width`; o `lineBreak: false` não
+    o impede. O endereço do SENATEPI mais os dois telefones e o e-mail passam de
+    uma linha em 6,5pt, então o rodapé saía em DUAS — e a segunda caía
+    exatamente em cima do "Página N de T", que é escrito 14 pontos abaixo. Nos
+    documentos sem numeração o defeito era só feio; com ela, ilegível.
+
+    Encolher a letra é a saída certa: cortar o rodapé tiraria justamente o
+    telefone e o e-mail do sindicato, que são o motivo de o rodapé existir. O
+    piso de 4,5pt existe para o texto não virar um fio — abaixo disso é melhor
+    aceitar a quebra do que fingir que cabe.
+  */
+  let corpoDoTexto = corpo;
+  if (typeof doc.widthOfString === 'function') {
+    doc.font(fonte);
+    while (corpoDoTexto > 4.5) {
+      doc.fontSize(corpoDoTexto);
+      if (doc.widthOfString(texto) <= W) break;
+      corpoDoTexto -= 0.25;
+    }
+  }
+
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i);
 
@@ -92,7 +118,7 @@ export function carimbarRodape(doc: DocPdf, texto: string, estilo: EstiloRodape 
     try {
       doc
         .font(fonte)
-        .fontSize(corpo)
+        .fontSize(corpoDoTexto)
         .fillColor(cor)
         .text(texto, X, y, { align: 'center', width: W, lineBreak: false });
       if (numerarPaginas) {

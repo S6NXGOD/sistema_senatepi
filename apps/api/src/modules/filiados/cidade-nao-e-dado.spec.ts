@@ -94,6 +94,7 @@ describe('quem entra no lote', () => {
         decidiu: true,
         contradicoes,
         esperandoDado: esperandoDado(candidatos),
+        nomeConfirmado: true,
         candidatos,
       },
     ]);
@@ -118,7 +119,13 @@ describe('quem entra no lote', () => {
     await expect(servico.elegiveisParaLote()).resolves.toHaveLength(0);
   });
 
-  it('se NINGUÉM tem dado, o lote não toca — seria juntar dois desconhecidos', async () => {
+  /*
+    MUDOU DE MOTIVO EM 18/09/2026, e o resultado continua o mesmo. Antes o lote
+    parava porque ninguém tinha dado. Hoje, com a régua do dono, nome e cidade
+    bastariam — mas aqui a cidade só existe de um lado, e um lado só não é
+    acordo. Ver `nome-e-cidade-bastam.spec.ts`.
+  */
+  it('sem cidade nos dois lados o lote não toca — não se sabe nada', async () => {
     const servico = comGrupo([
       base({ id: 'a', matricula: '0001', cidade: 'Teresina', pontuacao: 1 }),
       base({ id: 'b', matricula: '0002' }),
@@ -148,7 +155,8 @@ describe('o contador do aviso', () => {
     const servico = new DuplicidadeService({} as never, {} as never);
     const grupo = (candidatos: CandidatoDuplicata[], chave: string) => ({
       chave, confianca: 'ALTA' as const, criterio: 'nome idêntico', motivoSugestao: null,
-      decidiu: true, contradicoes: [], esperandoDado: esperandoDado(candidatos), candidatos,
+      decidiu: true, contradicoes: [], esperandoDado: esperandoDado(candidatos),
+      nomeConfirmado: true, candidatos,
     });
     jest.spyOn(servico, 'varrer').mockResolvedValue([
       grupo([base({ id: '1', cpf: '12345678900' }), base({ id: '2' })], 'a'),
@@ -170,7 +178,8 @@ describe('o contador do aviso', () => {
 describe('o resumo do lote', () => {
   const grupo = (chave: string, candidatos: CandidatoDuplicata[]) => ({
     chave, confianca: 'ALTA' as const, criterio: 'nome idêntico', motivoSugestao: null,
-    decidiu: true, contradicoes: [], esperandoDado: esperandoDado(candidatos), candidatos,
+    decidiu: true, contradicoes: [], esperandoDado: esperandoDado(candidatos),
+    nomeConfirmado: true, candidatos,
   });
 
   it('dois grupos que terminam no MESMO cadastro contam como dois grupos fechados', async () => {

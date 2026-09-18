@@ -67,6 +67,15 @@ export interface GrupoDuplicata {
    * Não é pendência: é uma pergunta sem resposta possível hoje.
    */
   esperandoDado: boolean;
+  /**
+   * O NOME BASTA COMO PROVA neste grupo — ver `nomeECidadeBastam`.
+   *
+   * Verdadeiro para nome idêntico e para abreviação ("PEDRO S. C. RIBEIRO" ×
+   * "PEDRO SILVA COSTA RIBEIRO"). FALSO para o subconjunto sem abreviação
+   * ("MARIA DAS GRAÇAS SILVA" × "MARIA DAS GRAÇAS MENDES SILVA"), em que o
+   * token extra não tem inicial que o justifique: são duas pessoas.
+   */
+  nomeConfirmado: boolean;
   candidatos: CandidatoDuplicata[];
 }
 
@@ -196,7 +205,181 @@ export interface ItemDoLote {
 }
 
 export function esperandoDado(candidatos: CandidatoDuplicata[]): boolean {
-  return !candidatos.some(temDadoProprio);
+  return !candidatos.some(temDadoProprio) && !cidadeConfirmada(candidatos);
+}
+
+const textoDe = (v: unknown): string => {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).trim().toLowerCase();
+};
+
+/** Todos têm cidade preenchida, e é a MESMA. Divergir já seria contradição. */
+export function cidadeConfirmada(candidatos: CandidatoDuplicata[]): boolean {
+  const cidades = candidatos.map((c) => textoDe(c.cidade));
+  return cidades.every((c) => c !== '') && new Set(cidades).size === 1;
+}
+
+/** Campos em que um valor do removido sumiria se divergisse do mantido. */
+const CAMPOS_QUE_SOMEM = [
+  'cpf', 'numeroCoren', 'dataNascimento', 'cidade', 'telefonePrincipal', 'email', 'endereco',
+] as const;
+
+/**
+ * NADA SE PERDE NA FUSÃO: em cada campo, ou um só lado tem valor, ou os dois
+ * têm o MESMO. É mais estrito que "sem contradição" — contradição olha quatro
+ * campos, este olha todos os que a fusão copia.
+ */
+export function semValorDivergente(candidatos: CandidatoDuplicata[]): boolean {
+  return CAMPOS_QUE_SOMEM.every((campo) => {
+    const valores = candidatos
+      .map((c) => textoDe(c[campo as keyof CandidatoDuplicata]))
+      .filter((v) => v !== '');
+    return new Set(valores).size <= 1;
+  });
+}
+
+/**
+ * O NOME E A CIDADE JÁ BASTAM — DECISÃO DO DONO, 18/09/2026.
+ *
+ * Eu havia medido e dito o contrário: dos grupos que sobravam, a maioria não
+ * concorda em NADA além de nome e cidade, porque não há mais nada preenchido em
+ * nenhum dos lados. Recomendei deixá-los fora do lote. A resposta foi direta:
+ *
+ *   "Por mim, se concordar com o nome igual e cidade, já pode tirar esses
+ *    grupos, já economiza trabalho. E se for abreviado também, exemplo, Pedro
+ *    Silva Costa Ribeiro e Pedro S. C. Ribeiro (...), pode remover também."
+ *
+ * É decisão dele, e é defensável: 62% dos filiados ATIVOS não têm CPF, então
+ * esperar por um dado que talvez nunca chegue é manter a base suja para sempre.
+ * O que o lote apaga é um cadastro sem informação, com a matrícula preservada
+ * no histórico e a filiação mais antiga prevalecendo.
+ *
+ * O QUE NÃO ENTROU, e a distinção é dos exemplos dele: os três são ABREVIAÇÃO.
+ * O outro tipo de nome parecido — "MARIA DAS GRAÇAS SILVA" × "MARIA DAS GRAÇAS
+ * MENDES SILVA", em que o token extra não tem inicial que o justifique — não é
+ * abreviação de nada, é outra pessoa, e continua na revisão um a um
+ * (`nomeConfirmado` falso).
+ *
+ * NÃO DESFAZER ISTO achando que foi descuido: ver o teste que guarda a data e
+ * a frase do pedido.
+ */
+export function nomeECidadeBastam(grupo: {
+  nomeConfirmado: boolean;
+  candidatos: CandidatoDuplicata[];
+}): boolean {
+  return (
+    grupo.nomeConfirmado &&
+    todaInicialExplicada(grupo.candidatos.map((c) => c.nomeCompleto)) &&
+    cidadeConfirmada(grupo.candidatos) &&
+    semValorDivergente(grupo.candidatos)
+  );
+}
+
+/** Ligações e iniciais soltas não distinguem ninguém — a mesma lista do SQL. */
+const SEM_VALOR_NO_NOME = new Set(['de', 'da', 'do', 'dos', 'das', 'e']);
+
+/**
+ * Tokens do nome para comparar DOIS nomes ENTRE SI.
+ *
+ * NÃO é um normalizador de nome de uso geral, e não deve virar um: já existem
+ * dois no projeto com a mesma assinatura e regras opostas, e um deles COLA o
+ * nome inteiro. Aqui só interessa tirar acento, caixa e pontuação para alinhar
+ * os tokens de duas grafias da mesma pessoa.
+ */
+function tokensDoNome(nome: string): string[] {
+  return nome
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * TODA INICIAL TEM DE EXPLICAR UM NOME — e todo nome a mais, uma inicial.
+ *
+ * O SQL do agrupamento marca `abreviacao` quando UMA inicial casa com UM token
+ * extra. Isso basta para levantar a suspeita, e não basta para apagar cadastro:
+ *
+ *   SANDRA MARIA DOS A. SILVA  ×  SANDRA MARIA DE ANDRADE PINHO SILVA
+ *
+ * o "A." explica "ANDRADE", e "PINHO" fica sem explicação nenhuma — pode ser a
+ * mesma mulher com o nome completo, pode ser outra. Já
+ *
+ *   PEDRO S. C. RIBEIRO  ×  PEDRO SILVA COSTA RIBEIRO
+ *
+ * não deixa sobra: cada nome a mais tem a sua inicial do outro lado. São os três
+ * exemplos que o dono deu, e é a linha que o lote usa.
+ *
+ * Grupo de 3+ só passa se TODOS os pares passarem.
+ */
+export function todaInicialExplicada(nomes: string[]): boolean {
+  const pares: [string[], string[]][] = [];
+  for (let i = 0; i < nomes.length; i++) {
+    for (let j = i + 1; j < nomes.length; j++) {
+      pares.push([tokensDoNome(nomes[i]), tokensDoNome(nomes[j])]);
+    }
+  }
+  return pares.every(([a, b]) => {
+    const significativos = (t: string[]) =>
+      t.filter((x) => x.length > 1 && !SEM_VALOR_NO_NOME.has(x));
+    const [curto, longo] = significativos(a).length <= significativos(b).length ? [a, b] : [b, a];
+    const sigCurto = new Set(significativos(curto));
+    const extras = significativos(longo).filter((x) => !sigCurto.has(x));
+    if (!extras.length) return true; // nomes iguais depois de normalizar
+
+    // Cada extra precisa de uma inicial PRÓPRIA no nome curto: uma inicial não
+    // explica dois sobrenomes.
+    const iniciais = curto.filter((x) => x.length === 1 && !SEM_VALOR_NO_NOME.has(x));
+    const usadas = new Set<number>();
+    return extras.every((ext) => {
+      const i = iniciais.findIndex((ini, idx) => !usadas.has(idx) && ini === ext[0]);
+      if (i < 0) return false;
+      usadas.add(i);
+      return true;
+    });
+  });
+}
+
+/**
+ * QUEM FICA, DE FORMA DETERMINÍSTICA.
+ *
+ * O caminho antigo do lote não precisava escolher: só um cadastro tinha dado.
+ * O caminho novo precisa, e a escolha não pode depender da ordem que o banco
+ * devolveu — o mesmo grupo tem de dar o mesmo resultado hoje e amanhã.
+ *
+ * A ordem: mais completo primeiro (é o cadastro que a equipe vem usando),
+ * depois a filiação mais antiga, depois o mais antigo no banco, e por fim a
+ * matrícula, para nunca haver empate. A filiação mais antiga prevalece de
+ * qualquer jeito na fusão — aqui ela só desempata QUEM sobrevive.
+ */
+export function ordemDoLote(candidatos: CandidatoDuplicata[]): CandidatoDuplicata[] {
+  const quando = (d: Date | null) => (d ? d.getTime() : Number.POSITIVE_INFINITY);
+  return [...candidatos].sort(
+    (a, b) =>
+      b.pontuacao - a.pontuacao ||
+      quando(a.dataFiliacao) - quando(b.dataFiliacao) ||
+      a.createdAt.getTime() - b.createdAt.getTime() ||
+      a.matricula.localeCompare(b.matricula, 'pt-BR'),
+  );
+}
+
+/**
+ * Um par do lote. `recuaFiliacao` conta só o caso que MUDOU de comportamento:
+ * os dois têm data e a do removido é mais antiga. Quando o mantido não tem
+ * data nenhuma, a do removido já era copiada antes e nunca se perdeu nada.
+ */
+export function montarItem(fica: CandidatoDuplicata, sai: CandidatoDuplicata): ItemDoLote {
+  return {
+    manterId: fica.id,
+    descartarId: sai.id,
+    nome: fica.nomeCompleto,
+    manterMatricula: fica.matricula,
+    descartarMatricula: sai.matricula,
+    recuaFiliacao: !!sai.dataFiliacao && !!fica.dataFiliacao && sai.dataFiliacao < fica.dataFiliacao,
+  };
 }
 
 @Injectable()
@@ -229,7 +412,13 @@ export class DuplicidadeService {
     const jaJulgado = new Set(decisoes.map((d) => `${d.filiadoIdA}|${d.filiadoIdB}`));
 
     const grupos = [
-      ...this.montarGrupos(porNome, () => 'nome idêntico (ignorando acento e caixa)'),
+      /*
+        O NOME PROVA nos dois primeiros casos e NÃO no terceiro (18/09/2026):
+        idêntico prova; abreviado prova (a inicial casa com o nome por extenso);
+        "um contém o outro" NÃO prova — o token a mais não tem inicial que o
+        justifique, e aí são duas pessoas. Ver `nomeECidadeBastam`.
+      */
+      ...this.montarGrupos(porNome, () => 'nome idêntico (ignorando acento e caixa)', undefined, () => true),
       ...this.montarGrupos(
         porSubconjunto,
         (l) =>
@@ -237,6 +426,7 @@ export class DuplicidadeService {
             ? 'nome abreviado na mesma cidade (a inicial casa com o nome por extenso)'
             : 'um nome contém o outro, na mesma cidade',
         'BAIXA',
+        (l) => l.abreviacao === true,
       ),
     ];
 
@@ -392,6 +582,7 @@ export class DuplicidadeService {
     linhas: LinhaCandidato[],
     criterio: (primeiraLinha: LinhaCandidato) => string,
     forcarConfianca?: Confianca,
+    nomeProva: (primeiraLinha: LinhaCandidato) => boolean = () => false,
   ): GrupoDuplicata[] {
     const porChave = new Map<string, LinhaCandidato[]>();
     for (const l of linhas) {
@@ -415,6 +606,7 @@ export class DuplicidadeService {
         decidiu,
         contradicoes: contradicoes.map((c) => c.rotulo),
         esperandoDado: esperandoDado(candidatos),
+        nomeConfirmado: nomeProva(membros[0]),
         candidatos: candidatos.map((c) => ({ ...c, sugerido: c.id === sugeridoId })),
       });
     }
@@ -618,17 +810,19 @@ export class DuplicidadeService {
   /**
    * Grupos elegíveis à consolidação em lote.
    *
-   * O critério é DELIBERADAMENTE estreito: nenhum campo se contradizendo e um
-   * só cadastro com dado — o que sai não tem CPF, COREN, nascimento, contato,
-   * endereço, foto nem vínculo. Só nome, matrícula, a cidade que já agrupou
-   * os dois e a data de filiação.
+   * SÃO DOIS CAMINHOS, e nenhum deles perde informação.
    *
-   * É o que torna o lote defensável. A fusão não copia NADA porque não há
-   * nada; e se por azar forem duas pessoas diferentes, o que se perde é um
-   * cadastro que não continha informação alguma — com a matrícula preservada
-   * no histórico do que ficou, e a filiação mais antiga prevalecendo.
+   *  1. UM SÓ TEM DADO. O que sai não tem CPF, COREN, nascimento, contato,
+   *     endereço, foto nem vínculo — só nome, matrícula, cidade e a data de
+   *     filiação, e as duas últimas viajam para o cadastro que fica. Ver
+   *     `temDadoProprio` para a razão de a cidade não contar.
    *
-   * Ver `temDadoProprio` para a razão de a cidade não contar.
+   *  2. O NOME E A CIDADE BASTAM (decisão do dono, 18/09/2026). Nome idêntico
+   *     ou abreviado, mesma cidade preenchida nos dois, e nenhum valor
+   *     divergente em campo nenhum. Ver `nomeECidadeBastam`.
+   *
+   * Em ambos, contradição barra antes de tudo, a matrícula do removido fica no
+   * histórico do que ficou e a filiação mais antiga prevalece.
    */
   async elegiveisParaLote(): Promise<ItemDoLote[]> {
     return this.doLote(await this.varrer());
@@ -664,34 +858,24 @@ export class DuplicidadeService {
         */
         const cheios = g.candidatos.filter(temDadoProprio);
         const vazios = g.candidatos.filter((c) => !temDadoProprio(c));
-        if (cheios.length !== 1 || !vazios.length) return [];
-        const cheio = cheios[0];
-        return vazios.map((vazio) => ({
-          manterId: cheio.id,
-          descartarId: vazio.id,
-          nome: cheio.nomeCompleto,
-          manterMatricula: cheio.matricula,
-          descartarMatricula: vazio.matricula,
-          /*
-            "PONTUAÇÃO ZERO" NÃO QUER DIZER CADASTRO VAZIO (18/09/2026).
-            `dataFiliacao` não pontua e não é contradição, então o cadastro que
-            o lote chama de casca costuma trazer justamente o dado mais antigo
-            da pessoa: 868 dos 925 removidos têm data de filiação.
 
-            AQUI SÓ CONTA O QUE MUDOU DE COMPORTAMENTO, e a diferença é grande:
-            em 737 pares o mantido não tinha data nenhuma e a do removido já era
-            copiada antes — nunca se perdeu nada ali. O caso novo são os 91 em
-            que OS DOIS têm data e a do removido é mais antiga: eram esses que o
-            cadastro novo atropelava. Contar os 828 juntos poria na tela um
-            número verdadeiro respondendo a pergunta errada.
-          */
-          recuaFiliacao:
-            !!vazio.dataFiliacao &&
-            !!cheio.dataFiliacao &&
-            vazio.dataFiliacao < cheio.dataFiliacao,
-        }));
+        /*
+          O CAMINHO NOVO: nome e cidade bastam (decisão do dono, 18/09/2026).
+          Ver `nomeECidadeBastam`. Vale quando ninguém tem dado próprio — o caso
+          que antes ia para `esperandoDado` — e também quando os dois têm, desde
+          que nenhum valor divirja. Nada se perde nas duas situações.
+        */
+        if (cheios.length !== 1 || !vazios.length) {
+          if (!nomeECidadeBastam(g)) return [];
+          const [fica, ...saem] = ordemDoLote(g.candidatos);
+          return saem.map((sai) => montarItem(fica, sai));
+        }
+
+        const cheio = cheios[0];
+        return vazios.map((vazio) => montarItem(cheio, vazio));
       });
   }
+
 
   /**
    * Executa o lote em FATIAS, e não de uma vez.

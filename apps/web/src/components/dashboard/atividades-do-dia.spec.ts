@@ -440,15 +440,24 @@ describe('o que saiu do painel do advogado', () => {
 describe('o que o advogado vê sem rolar', () => {
   it('as atividades vêm antes até da carteira', () => {
     const atividades = PAINEL.indexOf('{escopoPessoal && pode.agenda && !vazio.atividadesHoje && (');
-    const carteira = PAINEL.indexOf('{minhaCarteira && (');
+    const carteira = PAINEL.indexOf('{minhaCarteira && <LinhaDaCarteira');
     expect(atividades).toBeGreaterThan(-1);
+    expect(carteira).toBeGreaterThan(-1);
     expect(atividades).toBeLessThan(carteira);
   });
 
-  /** Seis KPIs em duas fileiras, não três: 364px viram ~216px. */
-  it('a carteira cabe em duas fileiras no telefone', () => {
-    expect(PAINEL).toContain('grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6');
-    expect(PAINEL).not.toContain('grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6');
+  /**
+   * A CARTEIRA DEIXOU DE SER GRADE — 18/09/2026.
+   *
+   * Eram seis KPIs; passaram a três números numa linha de 44px, e a segunda
+   * grade de quatro KPIs da casa saiu do painel de quem tem carteira própria.
+   * De ~216px de contagem para ~44px, e de dez contadores para três.
+   * Ver `linha-da-carteira.tsx` — inclusive por que ela NÃO foi para o topo.
+   */
+  it('a carteira é uma linha, não uma grade de cartões', () => {
+    expect(PAINEL).not.toContain('grid grid-cols-3 gap-2 sm:gap-4 lg:grid-cols-6');
+    expect(PAINEL).not.toContain('label="Meus processos"');
+    expect(PAINEL).toContain('<LinhaDaCarteira carteira={minhaCarteira} />');
   });
 });
 
@@ -467,11 +476,18 @@ describe('a proposta encolheu', () => {
     expect(CAIXA).toContain('line-clamp-2');
   });
 
-  /** O nome do adversário é o que decide — ele trunca por último. */
+  /**
+   * O nome do adversário é o que decide — ele trunca por último.
+   *
+   * O recorte do NPU subiu para uma constante quando a linha virou LINK para o
+   * processo (18/09/2026): o `slice` deixou de estar dentro do JSX, mas o
+   * comportamento é o mesmo — número cortado em 11, nome com a folga toda.
+   */
   it('o número trunca antes do nome', () => {
-    const linha = CAIXA.slice(CAIXA.indexOf('items-baseline'), CAIXA.indexOf('line-clamp-2'));
-    expect(linha).toContain('min-w-0 flex-1 truncate');
+    const linha = CAIXA.slice(CAIXA.indexOf('const npu ='), CAIXA.indexOf('line-clamp-2'));
     expect(linha).toContain('.slice(0, 11)');
+    expect(linha).toContain('min-w-0 flex-1 truncate');
+    expect(linha).toContain('shrink-0 font-mono');
   });
 });
 

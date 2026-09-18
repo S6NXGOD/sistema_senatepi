@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { PENDENCIA, fraseDaFaixa, rotulo, soConhecidas, type Pendencia } from '@/lib/pendencias';
+import { PENDENCIA, avisoDaFaixa, frasePlena, rotulo, soConhecidas, type Pendencia } from '@/lib/pendencias';
 
 const RAIZ = path.resolve(__dirname, '..');
 const ler = (p: string) => readFileSync(path.join(RAIZ, p), 'utf8');
@@ -130,24 +130,32 @@ describe('a frase da faixa', () => {
   };
 
   it('um item só leva ao próprio item, dizendo qual é', () => {
-    expect(fraseDaFaixa(grupo('ATRASADA', 1, [item]))).toEqual({
+    expect(avisoDaFaixa(grupo('ATRASADA', 1, [item]))).toMatchObject({
       texto: '“Elaborar manifestação” ficou para trás',
       href: '/agenda?compromisso=c1',
     });
   });
 
-  it('o item da equipe diz por que chegou até você', () => {
-    const f = fraseDaFaixa(
-      grupo('PRECISA_DA_EQUIPE', 1, [{ ...item, detalhe: 'Dr. Carlos Henrique está sem entrar há 39 dias' }]),
+  /**
+   * A FRASE ERA TORTA, e a emenda era a causa: o detalhe já vem da API escrito
+   * como legenda ("de Dr. Tiago · ficou para trás"), e colá-lo com um travessão
+   * produzia «"Elaborar manifestação" precisa de alguém da equipe — de Dr. Tiago
+   * · ficou para trás». Hoje são duas partes, e cada uma é lida como foi escrita.
+   */
+  it('o item da equipe diz por que chegou até você, sem emendar frase com legenda', () => {
+    const f = avisoDaFaixa(
+      grupo('PRECISA_DA_EQUIPE', 1, [{ ...item, detalhe: 'de Dr. Tiago · ficou para trás' }]),
     );
-    expect(f).toEqual({
-      texto: '“Elaborar manifestação” precisa de alguém da equipe — Dr. Carlos Henrique está sem entrar há 39 dias',
+    expect(f).toMatchObject({
+      texto: '“Elaborar manifestação” está sem ninguém cuidando',
+      complemento: 'de Dr. Tiago · ficou para trás',
       href: '/agenda?compromisso=c1',
     });
+    expect(frasePlena(f)).toBe('“Elaborar manifestação” está sem ninguém cuidando — de Dr. Tiago · ficou para trás');
   });
 
   it('vários viram contagem e levam à lista', () => {
-    expect(fraseDaFaixa(grupo('ATRASADA', 3, [item]))).toEqual({
+    expect(avisoDaFaixa(grupo('ATRASADA', 3, [item]))).toMatchObject({
       texto: '3 atividades suas ficaram para trás',
       href: '/agenda',
     });
@@ -169,6 +177,7 @@ describe('a faixa', () => {
     }
   });
 
+  /** Quem desenha a faixa de verdade é `components/avisos-da-faixa.spec.tsx`. */
   it('usa a consulta de sempre e fica fora da área que rola', () => {
     expect(FAIXA).toContain("queryKey: ['minhas-pendencias']");
     const SHELL = ler('components/dashboard-shell.tsx');

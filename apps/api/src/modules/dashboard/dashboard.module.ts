@@ -1,7 +1,8 @@
-import { Controller, Get, Injectable, Module } from '@nestjs/common';
+import { Body, Controller, Get, Injectable, Module, Post } from '@nestjs/common';
 import { diasUteisEntre } from './dias-uteis';
 import { inicioDoMesBR, mesBR } from '../processos/utils/data-br.util';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { IsIn, IsNotEmpty, IsString } from 'class-validator';
 import {
   StatusAtendimento,
   Prisma,
@@ -792,8 +793,17 @@ export class DashboardService {
         filiado, e quem escondia o bloco da Triagem era a tela (revisão de
         13/09/2026): o mesmo corte só no front que `veProcessos` condena.
       */
+      /*
+        "MOVIMENTAÇÕES RECENTES" MOSTRAVA O ACERVO DOS COLEGAS (18/09/2026).
+
+        A consulta não tinha `meuAcervo`, que existe e é aplicado em todos os
+        vizinhos — adversários, DJEN, audiências a agendar. O advogado abria o
+        painel e lia oito andamentos, quase nenhum de processo dele, com o NOME
+        DO FILIADO de cada um. Escopo pessoal é escopo pessoal em toda linha, ou
+        não é escopo nenhum.
+      */
       seTiverAcesso(veProcessos, () => this.prisma.movimentacaoProcessual.findMany({
-        where: { dataMovimento: { gte: menos7dias } },
+        where: { dataMovimento: { gte: menos7dias }, processo: meuAcervo },
         orderBy: { dataMovimento: 'desc' },
         take: 8,
         select: {
@@ -827,8 +837,22 @@ export class DashboardService {
           advogado: { select: { id: true, nome: true, nomeExibicao: true, avatarUrl: true, avatarKey: true } },
         },
       })),
-      // Gráfico: atendimentos por canal (todos)
-      this.prisma.atendimento.groupBy({ by: ['canal'], _count: { _all: true } }),
+      /*
+        POR CANAL É DE TODO O HISTÓRICO, E A TELA PRECISA DIZER ISSO (18/09/2026).
+        Ele é desenhado ao lado do gráfico de volume, que é de 14 dias — e o
+        leitor natural supõe que os dois falam do mesmo período. Mantive todo o
+        histórico de propósito: em 14 dias a produção tem 10 atendimentos, e uma
+        rosca com n=10 é ruído. Quem passou a dizer o período foi a tela.
+
+        `orderBy` não é enfeite: sem ele o Postgres devolve na ordem que quiser,
+        e a cor da fatia seguia a POSIÇÃO no array — o mesmo canal trocava de cor
+        entre dois carregamentos.
+      */
+      this.prisma.atendimento.groupBy({
+        by: ['canal'],
+        _count: { _all: true },
+        orderBy: { _count: { canal: 'desc' } },
+      }),
       // Gráfico: volume de atendimentos nos últimos 14 dias
       this.prisma.atendimento.findMany({
         where: { createdAt: { gte: new Date(agora.getTime() - 14 * DIA_MS), lte: agora } },
@@ -873,16 +897,28 @@ export class DashboardService {
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, sucesso: true },
       }),
-      this.falhasDatajud24h(new Date(agora.getTime() - DIA_MS)),
+      /*
+        SÓ PARA QUEM VÊ PROCESSO (18/09/2026). As duas listas carregam NPU,
+        tribunal e o NOME DO FILIADO, e iam para todo mundo — inclusive a
+        Triagem, que tem `processos: SEM_ACESSO`. A tela escondia; o payload
+        não. É o mesmo corte-só-no-front que este arquivo condena na linha 793.
+      */
+      seTiverAcesso(veProcessos, () => this.falhasDatajud24h(new Date(agora.getTime() - DIA_MS))),
       // NPUs que o CNJ não conhece — janela larga: o que importa é a INSISTÊNCIA.
-      this.processosDesconhecidosNoCnj(new Date(agora.getTime() - 30 * DIA_MS)),
+      seTiverAcesso(veProcessos, () =>
+        this.processosDesconhecidosNoCnj(new Date(agora.getTime() - 30 * DIA_MS)),
+      ),
       // Quantos processos o robô de fato varre — MESMO critério de
       // `ProcessosService.idsParaSincronizar`. É o denominador que faltava:
       // sem ele, "nunca rodou" virava alarme numa base sem processo nenhum,
       // acusando de parado um robô que simplesmente não tem o que fazer.
-      this.prisma.processo.count({
-        where: { statusInterno: { in: ['ATIVO', 'PENDENTE'] }, numeroCNJ: { not: null } },
-      }),
+      // Sem acesso a processos o bloco do robô nem é montado: não há razão para
+      // contar o denominador dele. Zero aqui não vira alarme — `robo` é nulo.
+      veProcessos
+        ? this.prisma.processo.count({
+            where: { statusInterno: { in: ['ATIVO', 'PENDENTE'] }, numeroCNJ: { not: null } },
+          })
+        : Promise.resolve(0),
 
       // Filiados sem data de filiação (vieram da carga sem a informação).
       // A tela informa o número em vez de fingir que a série está completa.
@@ -1607,7 +1643,16 @@ export class DashboardService {
        * sincronizar. Um estado não é um problema só por ser diferente do
        * ideal; virar alarme depende de haver trabalho pendente.
        */
-      robo: this.situacaoRobo(ultimaSync, falhasSync, desconhecidosNoCnj, processosMonitorados, agora),
+      /*
+        O ROBÔ É ASSUNTO DE QUEM VÊ PROCESSO. Para a Triagem o bloco inteiro é
+        nulo: ela não abre processo, não conserta sincronização e o aviso
+        "o CNJ ainda não publicou N processos" só lhe dava nome de filiado em
+        litígio. Nulo, e não lista vazia — a tela precisa distinguir "não é para
+        você" de "está tudo em dia".
+      */
+      robo: veProcessos
+        ? this.situacaoRobo(ultimaSync, falhasSync, desconhecidosNoCnj, processosMonitorados, agora)
+        : null,
       /**
        * AS FONTES EXTERNAS ESTÃO DE PÉ?
        *
@@ -2440,10 +2485,56 @@ export class DashboardService {
     /** Idade que a pessoa completa hoje. */
     const idade = (n: Date) => br.getUTCFullYear() - new Date(n).getUTCFullYear();
 
-    return [
+    const lista = [
       ...filiados.map((f) => ({ ...f, tipo: 'FILIADO' as const, idade: idade(f.nascimento) })),
       ...colaboradores.map((c) => ({ ...c, tipo: 'COLABORADOR' as const, idade: idade(c.nascimento) })),
     ].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+    /*
+      JÁ CUIDARAM DE ALGUÉM HOJE? (18/09/2026)
+
+      O cartão era passivo: mostrava quem faz aniversário e ninguém sabia se já
+      tinham falado com a pessoa. Agora ele pede uma decisão, e a decisão vem
+      junto da lista — senão duas pessoas da secretaria cumprimentam a mesma
+      filiada e ninguém cumprimenta a outra.
+    */
+    if (!lista.length) return [];
+    const decisoes = await this.prisma.contatoDeAniversario.findMany({
+      where: { dia: dateOnlyBR(agora), pessoaId: { in: lista.map((p) => p.id) } },
+      select: { pessoaId: true, desfecho: true, autor: true, createdAt: true },
+    });
+    const porPessoa = new Map(decisoes.map((d) => [d.pessoaId, d]));
+    return lista.map((p) => {
+      const d = porPessoa.get(p.id);
+      return {
+        ...p,
+        decisao: d ? { desfecho: d.desfecho, autor: d.autor, em: d.createdAt } : null,
+      };
+    });
+  }
+
+  /**
+   * REGISTRA QUE O SINDICATO CUIDOU DO ANIVERSÁRIO — ou decidiu não cuidar.
+   *
+   * Os dois desfechos entram. "Deixou passar" sem gravar seria um botão de
+   * fechar, e a casa não tem botão de fechar: o que apaga um aviso é o FATO.
+   *
+   * `upsert` pela chave natural (pessoa, dia): clicar duas vezes não duplica e
+   * trocar de ideia no mesmo dia corrige em vez de acumular.
+   */
+  async registrarAniversario(
+    user: AuthUser,
+    dados: { pessoaId: string; tipo: 'FILIADO' | 'COLABORADOR'; desfecho: 'PARABENIZADO' | 'DEIXOU_PASSAR' },
+  ) {
+    const dia = dateOnlyBR(new Date());
+    const autor = user.nome ?? null;
+    const linha = await this.prisma.contatoDeAniversario.upsert({
+      where: { pessoaId_dia: { pessoaId: dados.pessoaId, dia } },
+      create: { pessoaId: dados.pessoaId, tipo: dados.tipo, dia, desfecho: dados.desfecho, autor },
+      update: { desfecho: dados.desfecho, autor },
+      select: { pessoaId: true, desfecho: true, autor: true, createdAt: true },
+    });
+    return { ok: true, decisao: linha };
   }
 
   /**
@@ -2527,6 +2618,33 @@ export class DashboardService {
   }
 }
 
+
+/*
+  DECLARADO ANTES DO CONTROLLER DE PROPÓSITO: `class` não sobe como `function`.
+  Com o DTO definido depois, o `@Body() dto: RegistrarAniversarioDto` da rota
+  avalia `undefined` no carregamento do módulo e o arquivo inteiro quebra —
+  o que derruba o spec com "Tests: 0 total", o modo de falhar que esta casa já
+  conhece por outro nome (spec que não compila SOME e o jest diz que passou).
+*/
+/**
+ * A DECISÃO SOBRE O ANIVERSÁRIO DE HOJE.
+ *
+ * `class-validator` aqui e não `zod` porque o resto do módulo e o pipe global
+ * são assim. `IsIn` fecha os dois desfechos: qualquer outro texto viraria uma
+ * linha que o painel não sabe ler.
+ */
+class RegistrarAniversarioDto {
+  @IsString()
+  @IsNotEmpty()
+  pessoaId!: string;
+
+  @IsIn(['FILIADO', 'COLABORADOR'])
+  tipo!: 'FILIADO' | 'COLABORADOR';
+
+  @IsIn(['PARABENIZADO', 'DEIXOU_PASSAR'])
+  desfecho!: 'PARABENIZADO' | 'DEIXOU_PASSAR';
+}
+
 @ApiTags('dashboard')
 @ApiBearerAuth()
 @ModuloTenant('dashboard')
@@ -2539,6 +2657,26 @@ class DashboardController {
   @Get('resumo')
   resumo(@CurrentUser() user: AuthUser) {
     return this.service.resumo(user);
+  }
+
+  /**
+   * "JÁ CUIDAMOS DO ANIVERSÁRIO DE FULANO?" — a decisão da secretaria.
+   *
+   * MÓDULO `filiados`, e não `dashboard`, de propósito: a classe inteira é
+   * `@Modulo('dashboard')`, em que todo perfil tem VISUALIZAR — um POST ali
+   * passaria por qualquer um que abra a home. Registrar contato com filiado é
+   * ato de quem cuida do cadastro, e a Triagem tem `filiados: EDITAR`.
+   *
+   * O guard resolve o método sobre a classe (`getAllAndOverride`), então esta
+   * linha manda. Sem `@Roles`: a matriz é a única política.
+   */
+  @Post('aniversario')
+  @Modulo('filiados')
+  aniversario(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RegistrarAniversarioDto,
+  ) {
+    return this.service.registrarAniversario(user, dto);
   }
 
   @Get('indicadores') indicadores() {
@@ -2599,3 +2737,5 @@ function ehCopiaDePublicacao(a: PublicacaoBruta, b: PublicacaoBruta): boolean {
   if (a.link && b.link && a.link === b.link) return true;
   return semelhancaDeTexto(a.texto ?? '', b.texto ?? '') >= 0.9;
 }
+
+

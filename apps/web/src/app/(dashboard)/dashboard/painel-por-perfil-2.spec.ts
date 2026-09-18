@@ -99,9 +99,18 @@ describe('hoje e os próximos dias', () => {
  * A permissão continua sendo cortada no backend; aqui é sobre o que vem ANTES.
  */
 describe('a ordem por perfil', () => {
-  it('o advogado abre na carteira dele', () => {
-    expect(TELA).toContain('texto="Minha carteira"');
-    expect(TELA.indexOf('texto="Minha carteira"')).toBeLessThan(TELA.indexOf('KpiCard {...c}'));
+  /**
+   * A CARTEIRA DEIXOU DE SER UMA SEÇÃO — 18/09/2026. Eram seis KpiCard sob um
+   * `SectionTitle`; viraram uma linha de três números. Ela continua ANTES dos
+   * números da casa; o que mudou é que os números da casa nem vão para quem tem
+   * carteira própria. Ver `linha-da-carteira.tsx`.
+   */
+  it('o advogado abre na carteira dele, agora em uma linha', () => {
+    expect(TELA).toContain('<LinhaDaCarteira carteira={minhaCarteira} />');
+    expect(TELA).not.toContain('texto="Minha carteira"');
+    expect(TELA.indexOf('<LinhaDaCarteira')).toBeLessThan(TELA.indexOf('KpiCard {...c}'));
+    // E a grade da casa não desce para ele.
+    expect(TELA).toContain('{!escopoPessoal && kpiCards.length > 0 && (');
   });
 
   it('a triagem abre no balcão e na fila dela', () => {

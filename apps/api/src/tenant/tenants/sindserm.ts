@@ -23,6 +23,8 @@ import { TenantConfig } from '../tenant.types';
 export const sindserm: TenantConfig = {
   id: 'sindserm',
   sigla: 'SINDSERM',
+  /** Azul escuro institucional — o tom 800 da paleta (`tenant/tenants/sindserm.ts` do web). */
+  corInstitucional: '#0F4C81',
   nome: 'SINDICATO DOS SERVIDORES PÚBLICOS MUNICIPAIS DE TERESINA',
   nomeCurto: 'Sindicato dos Servidores Municipais de Teresina',
   cnpj: '23.649.007/0001-34',

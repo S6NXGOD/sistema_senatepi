@@ -105,7 +105,7 @@ describe('a ordem das zonas do painel', () => {
   it('o que precisa de você vem antes dos números', () => {
     const acoes = CONTEUDO.indexOf('<AcoesSemCadastro');
     const publicacoes = CONTEUDO.indexOf('<PublicacoesDjen');
-    const kpis = CONTEUDO.indexOf('{/* KPIs globais */}');
+    const kpis = CONTEUDO.indexOf('{!escopoPessoal && kpiCards.length > 0 && (');
     expect(acoes).toBeGreaterThan(-1);
     expect(acoes).toBeLessThan(kpis);
     expect(publicacoes).toBeLessThan(kpis);
@@ -119,6 +119,21 @@ describe('a ordem das zonas do painel', () => {
     expect(CONTEUDO.indexOf('minhaCarteira &&')).toBeLessThan(
       CONTEUDO.indexOf('<AcoesSemCadastro'),
     );
+  });
+
+  /**
+   * A FILA DA TRIAGEM TAMBÉM VEM ANTES DOS NÚMEROS (18/09/2026).
+   *
+   * Ela vinha DEPOIS dos KPIs da casa: a secretaria abria o sistema e via três
+   * contagens antes da própria fila. "Trabalho antes de número" é a regra da
+   * casa, e estava invertida justamente para quem tem a fila mais concreta.
+   */
+  it('a fila da triagem vem antes dos números', () => {
+    const fila = CONTEUDO.indexOf('texto="Sua fila de hoje"');
+    const kpis = CONTEUDO.indexOf('{!escopoPessoal && kpiCards.length > 0 && (');
+    expect(fila).toBeGreaterThan(-1);
+    expect(kpis).toBeGreaterThan(-1);
+    expect(fila).toBeLessThan(kpis);
   });
 
   /**
@@ -193,7 +208,10 @@ describe('as guardas de vazio não mexem em permissão', () => {
     expect(CONTEUDO).toContain('pode.escalas && !vazio.equipeHoje');
     expect(CONTEUDO).toContain('pode.agenda && !vazio.audienciasSemana');
     expect(CONTEUDO).toContain('pode.agenda && !vazio.atividadesHoje');
-    expect(CONTEUDO).toContain('pode.atendimentos && !ehTriagem && !vazio.atendimentos');
+    // O bloco ganhou `!escopoPessoal` em 18/09/2026 (a fila da Triagem saiu do
+    // painel de quem tem carteira própria) — e o gate de MÓDULO segue intacto,
+    // que é o que este teste guarda.
+    expect(CONTEUDO).toContain('pode.atendimentos && !ehTriagem && !escopoPessoal && !vazio.atendimentos');
   });
 
   /** O cálculo de vazio JÁ nasce recortado pela permissão: sem o módulo, não

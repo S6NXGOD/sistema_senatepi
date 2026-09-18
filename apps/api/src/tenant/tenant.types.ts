@@ -106,6 +106,20 @@ export interface TenantConfig {
   /** Identificador técnico, em minúsculas — é o valor de `TENANT` no ambiente. */
   id: string;
   sigla: string;
+  /**
+   * A COR INSTITUCIONAL, para o que o servidor desenha (PDF).
+   *
+   * É o tom 800 da paleta do cliente — o mesmo hex que o Tailwind compila no
+   * web. Ele mora aqui porque o servidor não tem a paleta: antes, o dossiê
+   * levava `#1B7F0A` cravado, o verde do PRIMEIRO cliente, e sairia verde num
+   * documento do SINDSERM.
+   *
+   * A tela de Identidade Visual continua mandando quando o Administrador
+   * escolhe uma cor; isto é a queda, e a queda tem de ser a cor DA CASA — não
+   * um cinza neutro, que faria o SENATEPI perder o verde só por nunca ter
+   * aberto aquela tela.
+   */
+  corInstitucional: string;
   /** Razão social completa, como sai em documento oficial. */
   nome: string;
   /** Versão curta para rodapé e assinatura. */

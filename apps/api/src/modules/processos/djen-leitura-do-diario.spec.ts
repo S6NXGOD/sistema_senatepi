@@ -815,6 +815,13 @@ describe('o histórico antigo nunca vira trabalho', () => {
         update: jest.fn(async () => ({})),
       },
       sugestaoProcesso: { findMany: jest.fn(async () => []) },
+      /*
+        A ORGANIZAÇÃO DO PRÓPRIO SINDICATO — a caixa a procura pelo CNPJ do
+        tenant para saber de que lado estamos em cada processo. Nula aqui: estes
+        testes olham a CÓPIA do ato, não o nome do adversário, e a regra
+        canônica aceita nulo (cai para a rede do nome com a sigla).
+      */
+      parteExterna: { findFirst: jest.fn(async () => null) },
     };
 
     // O processo já era vigiado: uma publicação dele entrou em 01/09.

@@ -4,6 +4,8 @@ import { TenantConfig } from '../tenant.types';
 export const senatepi: TenantConfig = {
   id: 'senatepi',
   sigla: 'SENATEPI',
+  /** Verde escuro institucional — o tom 800 da paleta (`tenant/tenants/senatepi.ts` do web). */
+  corInstitucional: '#1B7F0A',
   nome: 'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ',
   nomeCurto: 'Sindicato dos Enfermeiros do Piauí',
   cnpj: '11.378.331/0001-86',

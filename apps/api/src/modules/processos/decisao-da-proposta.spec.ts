@@ -65,12 +65,31 @@ describe('aceitar e recusar gravam quem decidiu', () => {
     const d = dados();
     expect(d).toMatchObject({
       tarefaDispensadaMotivo: 'RECUSADA_PELO_ADVOGADO',
-      tarefaPropostaPara: 'u-ana',
       motivoDaRecusa: 'já cumprido',
       tarefaDecididaPor: 'u-ana',
     });
     expect(d.tarefaDecididaEm).toBeInstanceOf(Date);
     expect(d.tarefaDecididaEm).toBe(d.tarefaDispensadaEm);
+  });
+
+  /**
+   * A RECUSA NÃO APAGA MAIS PARA QUEM O ROBÔ MANDOU (18/09/2026).
+   *
+   * `recusar` escrevia `tarefaPropostaPara: usuarioId`, com a justificativa de
+   * que assim "a caixa some para quem recusou". Não era isso que a linha fazia:
+   * a caixa filtra por `tarefaDispensadaEm: null`, então a proposta já sai da
+   * lista pela dispensa, seja de quem for. O efeito real era destruir o único
+   * registro de A QUEM o robô endereçou — a coluna com que se mede se o
+   * endereçamento acerta —, e a proposta recusada pela colega passava a parecer
+   * endereçada a ela.
+   *
+   * Quem decidiu continua gravado, em `tarefaDecididaPor`.
+   */
+  it('recusar não reescreve o destinatário da proposta', async () => {
+    const { caixa, dados } = caixaCom({ ...aberta(), tarefaPropostaPara: 'u-morgana' });
+    await caixa.recusar('pub-1', 'u-ana', 'já foi resolvido');
+    expect(dados()).not.toHaveProperty('tarefaPropostaPara');
+    expect(dados().tarefaDecididaPor).toBe('u-ana');
   });
 
   it('proposta já decidida não é decidida de novo', async () => {

@@ -556,6 +556,45 @@ model FiliadoHistorico {
   @@map("filiado_historico")
 }
 
+/// O SINDICATO CUMPRIMENTOU (ou decidiu não cumprimentar) NO ANIVERSÁRIO.
+///
+/// Por que existe (18/09/2026): o cartão de aniversariantes da home era passivo
+/// — mostrava quem faz aniversário e ficava por isso mesmo, sem ninguém saber
+/// se alguém já tinha falado com a pessoa. O dono pediu que ele PEÇA uma
+/// decisão: parabenizar ou deixar passar. "Deixar passar" sem registro seria um
+/// botão de fechar, e a casa não tem botão de fechar: o que fecha é o FATO.
+///
+/// Guarda os dois desfechos de propósito. Saber que ninguém falou com a Maria
+/// é tão útil quanto saber que a Ana foi cumprimentada — e é o que permite o
+/// cartão sumir sem esconder nada.
+///
+/// POLIMÓRFICO como a própria lista da home: filiado e colaborador aparecem
+/// lado a lado ali. Sem FK, pelo mesmo motivo de `concluido_por`: apagar a
+/// pessoa não pode travar a exclusão, e a linha é trilha de relacionamento.
+model ContatoDeAniversario {
+  id       String @id @default(uuid())
+  pessoaId String @map("pessoa_id")
+  /// FILIADO | COLABORADOR — o mesmo par da lista do painel.
+  tipo     String
+
+  /// O DIA do aniversário, não o instante. `@db.Date` porque a pergunta é "já
+  /// cuidaram do aniversário de hoje?", e hoje é um dia de calendário em
+  /// Teresina — ver `data-pura`.
+  dia      DateTime @db.Date
+  /// PARABENIZADO | DEIXOU_PASSAR
+  desfecho String
+  /// Quem decidiu, pelo nome de exibição. Texto, como `autor` do histórico.
+  autor    String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// A CHAVE NATURAL. Clicar duas vezes não gera duas linhas, e trocar de ideia
+  /// no mesmo dia atualiza em vez de acumular.
+  @@unique([pessoaId, dia])
+  @@index([dia])
+  @@map("contatos_de_aniversario")
+}
+
 /// LOCAL DE TRABALHO do filiado. Um filiado pode ter vários — duplo vínculo é a
 /// regra na enfermagem, não a exceção.
 model VinculoProfissional {

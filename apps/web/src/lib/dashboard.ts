@@ -395,6 +395,15 @@ export interface ResumoDashboard {
     tipo: string;
     processos: number;
   }[];
+  /**
+   * NULO PARA QUEM NÃO VÊ PROCESSO (18/09/2026).
+   *
+   * O bloco inteiro é do robô do DataJud e leva NPU, tribunal e o nome do
+   * filiado nas duas listas. Ia sem condição para todo mundo — inclusive a
+   * Triagem, que tem `processos: SEM_ACESSO`: a tela escondia e o payload
+   * chegava. Nulo, e não objeto vazio, para a tela distinguir "não é para
+   * você" de "está tudo em dia".
+   */
   robo: {
     /**
      * SEM_OBJETO  nada monitorado — o robô não tem o que varrer (sem alerta)
@@ -424,7 +433,7 @@ export interface ResumoDashboard {
     falhasProcessos: FalhaDatajud[];
     /** NPUs que o CNJ não encontra — conferência de cadastro, não falha. */
     desconhecidosNoCnj?: ProcessoDesconhecidoNoCnj[];
-  };
+  } | null;
   /**
    * Carga da equipe — quem está sobrecarregado e quem está atrasado.
    * NULO para o advogado: é instrumento de gestão, não ranking do time.
@@ -504,6 +513,14 @@ export interface ResumoDashboard {
     nascimento: string;
     idade: number;
     tipo: 'FILIADO' | 'COLABORADOR';
+    /**
+     * JÁ CUIDARAM DESTA PESSOA HOJE? (18/09/2026)
+     *
+     * O cartão era passivo e ninguém sabia se alguém já tinha falado com a
+     * aniversariante — duas pessoas cumprimentavam a mesma e nenhuma a outra.
+     * Nulo = ainda pede alguém. Opcional pela janela de troca do deploy.
+     */
+    decisao?: { desfecho: 'PARABENIZADO' | 'DEIXOU_PASSAR'; autor: string | null; em: string } | null;
   }[];
   /**
    * Tempo médio da triagem, da abertura ao desfecho (30 dias).
@@ -626,6 +643,18 @@ export function horaCurta(iso: string): string {
 
 export function primeiroNome(p: PessoaResumo): string {
   return p.nomeExibicao || p.nome;
+}
+
+/**
+ * O PRIMEIRO NOME DE UM NOME SOLTO.
+ *
+ * Irmã de `primeiroNome`, que recebe a PESSOA e prefere o nome de exibição.
+ * Aqui só existe o texto — o aniversariante vem da consulta crua, sem o objeto
+ * de pessoa. Nomes diferentes de propósito: duas funções com a mesma assinatura
+ * e regras diferentes já custaram caro neste projeto.
+ */
+export function soOPrimeiroNome(nome: string): string {
+  return (nome || '').trim().split(/\s+/)[0] || nome;
 }
 
 /**
@@ -1037,4 +1066,116 @@ export function concluirNoResumo(r: ResumoDashboard, id: string, agora: number =
     ),
     ...(r.proximasAtividades ? { proximasAtividades: r.proximasAtividades.filter((c) => c.id !== id) } : {}),
   };
+}
+
+/**
+ * AS FATIAS DO GRÁFICO "ATENDIMENTOS POR CANAL".
+ *
+ * TRÊS CONSERTOS NUMA FUNÇÃO SÓ (18/09/2026), depois de o dono perguntar
+ * "aparece um: 5, 5 o quê?" — e ele estava lendo o markup certo:
+ *
+ *  1. A COR SEGUIA A POSIÇÃO no array já filtrado, contra o contrato escrito da
+ *     paleta ("a cor acompanha a ENTIDADE; filtrar um canal não pode repintar
+ *     os que sobraram"). Um dia sem atendimento presencial repintava o WhatsApp.
+ *     Aqui o índice é o do canal em `CANAIS`, que é fixo.
+ *  2. O NÚMERO NÃO TINHA UNIDADE e o rótulo mais próximo estava a 200px. Cada
+ *     fatia passa a carregar a frase inteira, que vira o `title` e o texto do
+ *     leitor de tela.
+ *  3. ERA UM BECO SEM SAÍDA. `/atendimentos?canal=X` já existia e ninguém
+ *     chegava lá: a fatia agora leva à lista daquele canal.
+ *
+ * `fatia` é a participação arredondada; ela pode não somar 100 e isso é
+ * esperado — a soma que vale é a dos ATENDIMENTOS, que é exata.
+ */
+export interface FatiaDeCanal {
+  canal: string;
+  nome: string;
+  total: number;
+  cor: string;
+  fatia: number;
+  href: string;
+  descricao: string;
+}
+
+export function fatiasDosCanais(
+  bruto: { canal: string; total: number }[],
+  rotulo: Record<string, string>,
+  ordemFixa: string[],
+  paleta: string[],
+): FatiaDeCanal[] {
+  const comDados = bruto.filter((c) => c.total > 0);
+  const soma = comDados.reduce((s, c) => s + c.total, 0);
+  return comDados
+    .map((c) => {
+      const i = ordemFixa.indexOf(c.canal);
+      const nome = rotulo[c.canal] ?? c.canal;
+      const fatia = soma ? Math.round((c.total / soma) * 100) : 0;
+      return {
+        canal: c.canal,
+        nome,
+        total: c.total,
+        // Canal que o web ainda não conhece (enum novo na API) não rouba a cor
+        // de ninguém: cai na última da paleta, e o nome sai cru em vez de vazio.
+        cor: paleta[(i < 0 ? paleta.length - 1 : i) % paleta.length],
+        fatia,
+        href: `/atendimentos?canal=${encodeURIComponent(c.canal)}`,
+        descricao: `${nome}: ${c.total} ${c.total === 1 ? 'atendimento' : 'atendimentos'} (${fatia}%)`,
+      };
+    })
+    .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+/**
+ * REGISTRA A DECISÃO SOBRE O ANIVERSÁRIO DE HOJE.
+ *
+ * Os DOIS desfechos são gravados. "Deixou passar" sem registro seria um botão
+ * de fechar, e a casa não tem botão de fechar: o que faz um aviso sumir é o
+ * FATO. E é o registro que impede duas pessoas de cumprimentarem a mesma
+ * filiada enquanto ninguém fala com a outra.
+ */
+export async function registrarAniversario(dados: {
+  pessoaId: string;
+  tipo: 'FILIADO' | 'COLABORADOR';
+  desfecho: 'PARABENIZADO' | 'DEIXOU_PASSAR';
+}): Promise<{ ok: boolean }> {
+  return (await api.post('/dashboard/aniversario', dados)).data;
+}
+
+/**
+ * O QUE O CARTÃO DE ANIVERSARIANTES DIZ — e se ele ainda pede alguém.
+ *
+ * `pendentes` é o que move o cartão: enquanto houver um, ele fica aberto e
+ * âmbar (âmbar pede você). Zerado, encolhe para UMA linha verde com o que foi
+ * feito — não some, porque o fato de a casa ter cumprimentado três pessoas hoje
+ * é boa notícia, e boa notícia vira linha, não desaparecimento.
+ */
+export function estadoDosAniversarios(
+  itens: { decisao?: { desfecho: string } | null }[],
+): { pendentes: number; parabenizados: number; deixouPassar: number; fechado: boolean } {
+  const pendentes = itens.filter((p) => !p.decisao).length;
+  const parabenizados = itens.filter((p) => p.decisao?.desfecho === 'PARABENIZADO').length;
+  const deixouPassar = itens.filter((p) => p.decisao?.desfecho === 'DEIXOU_PASSAR').length;
+  return {
+    pendentes,
+    parabenizados,
+    deixouPassar,
+    fechado: itens.length > 0 && pendentes === 0,
+  };
+}
+
+/** "3 cumprimentados · 1 deixou passar" — o resumo do dia, sem zeros. */
+export function resumoDosAniversarios(e: {
+  parabenizados: number;
+  deixouPassar: number;
+}): string {
+  const partes: string[] = [];
+  if (e.parabenizados) {
+    partes.push(
+      e.parabenizados === 1 ? '1 pessoa cumprimentada' : `${e.parabenizados} pessoas cumprimentadas`,
+    );
+  }
+  if (e.deixouPassar) {
+    partes.push(e.deixouPassar === 1 ? '1 deixada para depois' : `${e.deixouPassar} deixadas para depois`);
+  }
+  return partes.join(' · ');
 }

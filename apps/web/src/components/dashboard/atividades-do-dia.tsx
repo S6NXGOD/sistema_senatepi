@@ -76,6 +76,7 @@ export function AtividadesDoDia({
   totalAtrasadas,
   totalPassaramDaHora,
   pessoal,
+  cobra,
   href,
 }: {
   /** Abertas que venceram em DIA ANTERIOR — as de hoje já vêm em `hoje`. */
@@ -94,6 +95,8 @@ export function AtividadesDoDia({
   totalPassaramDaHora: number;
   /** Carteira própria: sem nome de responsável repetido e sem teto de linhas. */
   pessoal: boolean;
+  /** Mostra o placar nominal por pessoa — só para quem COBRA (gestão). */
+  cobra?: boolean;
   /**
    * Para onde vai o título da linha.
    *
@@ -239,7 +242,19 @@ export function AtividadesDoDia({
     ORDEM ALFABÉTICA, e não "quem tem mais": ordenar pessoas por atraso é um
     pódio ao contrário. O número ao lado já diz o que é preciso.
   */
-  const porPessoa = pessoal
+  /*
+    O PLACAR NOMINAL É INSTRUMENTO DE COBRANÇA — 18/09/2026.
+
+    "Esperando por: Carlos 1 · Ícaro 1 · Murilo 3" é para quem coordena. A
+    TRIAGEM recebia a mesma linha: os nomes dos advogados com o número de
+    atrasadas de cada um, numa tela em que ela tem `agenda: VISUALIZAR` e não
+    resolve uma linha sequer. Ver quem está devendo sem poder ajudar não é
+    informação, é fofoca institucional.
+
+    A LISTA CONTINUA para ela: saber que o jurídico está cheio ajuda a marcar
+    consulta. O que sai é o placar por pessoa.
+  */
+  const porPessoa = pessoal || !cobra
     ? []
     : [...precisamDeGente
         .reduce((acc, c) => {

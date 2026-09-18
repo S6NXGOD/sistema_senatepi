@@ -1,10 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { diasDesdeDataPura } from '@/lib/data-pura';
+import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Inbox, Check, X, ChevronDown, Clock, Loader2, RefreshCw } from 'lucide-react';
+import {
+  Inbox, Check, X, ChevronDown, Clock, Loader2, RefreshCw,
+  Hourglass, History, ExternalLink, UserX,
+} from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { cn } from '@/lib/utils';
@@ -12,6 +15,7 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import {
   listarPropostas, aceitarProposta, recusarProposta,
+  quantasMostrar, rodapeDaCaixa, seloDaProposta,
   PROVIDENCIA_LABEL, PROVIDENCIA_COR, PROVIDENCIA_COR_PADRAO,
   MOTIVOS_DE_RECUSA, type PropostaDeTarefa,
 } from '@/lib/djen';
@@ -37,17 +41,35 @@ import { separarTimbre } from '@/lib/timbre-do-tribunal';
  * Ordem nossa provada COM prazo escrito vira tarefa direto. Pedir aprovação
  * para um prazo já demonstrado é cerimônia, e cerimônia faz gente parar de ler.
  *
- * VOLUME MEDIDO (08/09/2026, últimos 30 dias): 40 propostas no mês para a
- * equipe inteira — 2,6 por semana no pior caso individual, 0,2 no melhor. Não é
- * uma segunda caixa de trabalho; é meia dúzia de decisões de um toque.
+ * "ELAS SOMEM DEPOIS QUE PERDEM O PRAZO?" — a pergunta do dono, 18/09/2026.
+ *
+ * Não somem, e não vão sumir: não há corte de data nesta caixa, e esconder
+ * prazo é o pior defeito possível aqui. O problema era o contrário — a proposta
+ * do dia 60 era desenhada IGUAL à do dia 1, e a caixa parecia um depósito.
+ *
+ * Medido na produção no mesmo dia: 16 propostas na casa inteira, a mais velha
+ * com 9 dias, e 15 das 16 SEM prazo escrito no ato — ou seja, sem a rede que
+ * transforma proposta esquecida em tarefa. Quinze itens que ficariam ali para
+ * sempre se ninguém olhasse, todos com a mesma cara.
+ *
+ * O que mudou, e nada disso é enfeite:
+ *
+ *  1. IDADE VIROU ESTADO (servidor, `situacaoDaProposta`). Passado o prazo em
+ *     que o robô desiste de esperar, o item fica ÂMBAR e diz há quantos dias
+ *     está parado. Ato fora da janela de trabalho ganha selo próprio: o robô
+ *     não age mais, e essa desistência era silenciosa.
+ *  2. O QUE PEDE ALGUÉM SOBE, e o corte cede para ele — nunca o contrário.
+ *  3. O ITEM TEM DESTINO. O comentário antigo prometia que "o resto está a um
+ *     toque"; não havia um único link. Agora a linha das partes abre o
+ *     processo e o ato inteiro abre no tribunal.
+ *  4. O DONO APARECE para quem coordena — é a caixa em que entram as ÓRFÃS, e
+ *     "sem dono" era invisível justamente na tela feita para vê-las.
  *
  * MOBILE-FIRST: no celular cada proposta é um cartão empilhado com os dois
  * botões lado a lado ocupando a largura toda — alvos de 44px, sem menu, sem
  * navegação. No desktop a mesma coisa em linha, com o trecho da ordem à
  * esquerda e os botões à direita.
  */
-const MOSTRAR = 4;
-
 export function CaixaDePropostas() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -147,8 +169,15 @@ export function CaixaDePropostas() {
   const itens = q.data ?? [];
   if (!itens.length) return null;
 
-  const mostradas = todas ? itens : itens.slice(0, MOSTRAR);
-  const sobra = itens.length - MOSTRAR;
+  /*
+    O CORTE CEDE PARA O QUE PEDE ALGUÉM — ver `quantasMostrar`. A fila já chega
+    ordenada pelo servidor, com o parado na frente; aqui só se garante que
+    nenhum parado fique atrás do "ver as outras".
+  */
+  const visiveis = quantasMostrar(itens);
+  const mostradas = todas ? itens : itens.slice(0, visiveis);
+  const rodape = rodapeDaCaixa(itens.slice(visiveis));
+  const paradas = itens.filter((i) => i.estado !== 'NOVA').length;
 
   return (
     <Card className="overflow-hidden border-sky-200 dark:border-sky-900/50">
@@ -169,6 +198,22 @@ export function CaixaDePropostas() {
                 */
                 'Entram aqui as suas e as que não têm dono. "Ficar com ela" põe a tarefa na SUA agenda; se o prazo é de outro advogado, avise quem responde pelo caso.'
               : 'O robô não teve certeza de que o prazo é seu. Confira a ordem do juízo e decida — nada entra na sua agenda sem você.'}
+          </p>
+          {/*
+            A RESPOSTA DA PERGUNTA, escrita onde ela é feita.
+
+            Publicação não expira nem é arquivada por tempo: sem decisão, ela
+            fica. Dizer isso uma vez no cabeçalho evita a dúvida que levou a
+            esta revisão — e, quando há item parado, o número vem junto, porque
+            aí a frase deixa de ser tranquilizadora e passa a ser um pedido.
+          */}
+          <p className={cn(
+            'mt-1 text-xs',
+            paradas ? 'font-medium text-amber-900 dark:text-amber-300' : 'text-muted-foreground',
+          )}>
+            {paradas
+              ? `${paradas === 1 ? '1 está parada' : `${paradas} estão paradas`} esperando uma pessoa — e nenhuma some com o tempo.`
+              : 'Nada some daqui por tempo.'}
           </p>
         </div>
       </div>
@@ -192,18 +237,37 @@ export function CaixaDePropostas() {
         ))}
       </ul>
 
-      {sobra > 0 && (
+      {rodape && (
         <button
           type="button"
           onClick={() => setTodas((v) => !v)}
           aria-expanded={todas}
           className="flex min-h-11 w-full items-center justify-between gap-2 border-t border-sky-100 px-4 py-2.5 text-left text-xs font-medium text-brand-800 transition hover:bg-muted/60 dark:border-sky-900/30 dark:text-brand-300"
         >
-          {todas ? 'Mostrar só as primeiras' : `Ver as outras ${sobra} esperando decisão`}
+          {todas ? 'Mostrar só as primeiras' : rodape}
           <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', todas && 'rotate-180')} />
         </button>
       )}
     </Card>
+  );
+}
+
+/**
+ * O SELO DA IDADE — âmbar, porque âmbar é a cor de "pede você".
+ *
+ * Vermelho não entra: vermelho é do Excluir, e o sistema não afirma que o prazo
+ * venceu — ele só sabe há quantos dias ninguém decidiu. E os dois selos têm
+ * ÍCONES diferentes antes da cor: "parada" e "ato antigo" pedem coisas
+ * diferentes (uma decisão versus uma decisão que já nasce atrasada), e dois
+ * significados nunca dividem o mesmo desenho.
+ */
+function SeloDaIdade({ estado, rotulo }: { estado: PropostaDeTarefa['estado']; rotulo: string }) {
+  const Icone = estado === 'FORA_DA_JANELA' ? History : Hourglass;
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+      <Icone className="h-3 w-3" />
+      {rotulo}
+    </span>
   );
 }
 
@@ -226,18 +290,20 @@ function LinhaDaProposta({
   onRecusar: (motivo: string) => void;
 }) {
   const [livre, setLivre] = useState('');
-  const adversario = (p.processo?.partes ?? []).find((x) => x.polo === 'PASSIVO')?.nome;
+  const selo = seloDaProposta(p);
   /*
-    DIAS POR CALENDÁRIO, não por milissegundos.
+    OS DIAS VÊM DO SERVIDOR, e não de uma conta aqui.
 
-    `dataDisponibilizacao` é `@db.Date`: chega como meia-noite UTC. Subtrair um
-    instante disso erra por até um dia inteiro — e "há 2 dias" numa publicação
-    de ontem é o tipo de número que faz alguém tratar como velho o que é novo.
+    `dataDisponibilizacao` é `@db.Date`: chega como meia-noite UTC, e subtrair
+    um instante disso erra por até um dia inteiro. A conta certa já existia dos
+    dois lados — e duas contas são duas verdades. Hoje o número que a tela
+    mostra é exatamente o que define o ESTADO da proposta.
   */
-  const dias = Math.max(0, diasDesdeDataPura(p.dataDisponibilizacao) ?? 0);
+  const dias = p.diasDoAto;
+  const npu = (formatNPU(p.numeroProcesso) || p.numeroProcesso).slice(0, 11);
 
   return (
-    <li className="px-4 py-3">
+    <li className={cn('px-4 py-3', selo.pedeVoce && 'bg-amber-50/40 dark:bg-amber-950/10')}>
       <div className="flex flex-wrap items-center gap-1.5">
         {p.providencia && PROVIDENCIA_LABEL[p.providencia] && (
           <span
@@ -259,34 +325,82 @@ function LinhaDaProposta({
             menciona {p.prazoMencionadoDias} dias
           </span>
         )}
+        {selo.rotulo && <SeloDaIdade estado={p.estado} rotulo={selo.rotulo} />}
         <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
           <Clock className="h-3 w-3" />
           {dias === 0 ? 'hoje' : `há ${dias}d`}
         </span>
+        {/*
+          O DONO SÓ APARECE PARA QUEM COORDENA.
+
+          Na caixa do advogado toda proposta é dele — desenhar o próprio rosto
+          em cada linha é gastar espaço para não dizer nada. Na da gestão entram
+          as ÓRFÃS, e "sem dono" é a informação que faz a tela existir: um prazo
+          sem responsável corre igual.
+        */}
+        {ehGestao && (
+          <span className="ml-auto flex items-center gap-1 text-[11px]">
+            {p.propostaPara ? (
+              <>
+                <AvatarPessoa
+                  nome={p.propostaPara.nomeExibicao || p.propostaPara.nome}
+                  url={p.propostaPara.avatarUrl}
+                  tamanho="xs"
+                />
+                <span className="max-w-[9rem] truncate text-muted-foreground">
+                  {p.propostaPara.nomeExibicao || p.propostaPara.nome}
+                </span>
+              </>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                <UserX className="h-3 w-3" /> sem dono
+              </span>
+            )}
+          </span>
+        )}
       </div>
 
       {/*
-        UMA LINHA, NÃO DUAS. Medido no telefone: cada proposta custava 192px, e
-        quatro delas somavam 898px — mais que a dobra inteira (600px). O NPU
-        ocupava uma linha inteira para si; agora divide com o adversário, que é
-        quem a pessoa lê primeiro. O número trunca antes do nome porque vinte
-        dígitos não decidem nada.
+        UMA LINHA, NÃO DUAS — e agora ela LEVA A ALGUM LUGAR.
+
+        Medido no telefone: cada proposta custava 192px, e quatro delas somavam
+        898px — mais que a dobra inteira (600px). O NPU divide a linha com o
+        adversário, que é quem a pessoa lê primeiro; o número trunca antes do
+        nome porque vinte dígitos não decidem nada.
+
+        O ADVERSÁRIO VEM PRONTO DO SERVIDOR. Aqui se fazia
+        `partes.find(polo === 'PASSIVO')` — uma segunda implementação da regra
+        do painel, e a errada: quando a ação é contra o sindicato, o passivo
+        somos nós, e a linha imprimia o nome do próprio sindicato como
+        adversário.
       */}
-      <p className="mt-1 flex min-w-0 items-baseline gap-1.5 text-sm">
-        <span className="min-w-0 flex-1 truncate">
-          {adversario ? (
-            <>
-              <span className="text-muted-foreground">× </span>
-              {adversario}
-            </>
-          ) : (
-            <span className="text-muted-foreground">{p.nomeClasse ?? 'Publicação'}</span>
-          )}
-        </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-          {(formatNPU(p.numeroProcesso) || p.numeroProcesso).slice(0, 11)}…
-        </span>
-      </p>
+      {(() => {
+        const linha = (
+          <>
+            <span className="min-w-0 flex-1 truncate">
+              {p.adversario ? (
+                <>
+                  <span className="text-muted-foreground">× </span>
+                  {p.adversario}
+                </>
+              ) : (
+                <span className="text-muted-foreground">{p.nomeClasse ?? 'Publicação'}</span>
+              )}
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{npu}…</span>
+          </>
+        );
+        return p.processo?.id ? (
+          <Link
+            href={`/processos?processo=${p.processo.id}`}
+            className="mt-1 flex min-w-0 items-baseline gap-1.5 text-sm underline-offset-2 hover:underline"
+          >
+            {linha}
+          </Link>
+        ) : (
+          <p className="mt-1 flex min-w-0 items-baseline gap-1.5 text-sm">{linha}</p>
+        );
+      })()}
 
       {/*
         A PRÉVIA QUE FAZ A DECISÃO DURAR UM SEGUNDO.
@@ -296,17 +410,36 @@ function LinhaDaProposta({
         alguém fazer algo — é ali que está o "de quem é isto".
 
         Sem ordem legível cai para o começo do teor: 29,9% dos atos não têm
-        ordem nenhuma escrita, e inventar uma seria pior que mostrar o texto.
-      */}
-      {/*
-        DUAS LINHAS DE PRÉVIA, NÃO TRÊS. 180 caracteres a 319px de largura
-        ocupam três linhas; `line-clamp-2` corta em duas e o resto está a um
-        toque, na publicação. A frase da ordem começa pelo verbo, então as duas
-        primeiras linhas já dizem de quem é.
+        ordem nenhuma escrita, e inventar uma seria pior que mostrar o texto. É
+        só nesse caso que a API manda texto — ver `PropostaDeTarefa.texto`.
+
+        DUAS LINHAS, NÃO TRÊS: 180 caracteres a 319px de largura ocupam três, e
+        `line-clamp-2` corta em duas. A frase da ordem começa pelo verbo, então
+        as duas primeiras já dizem de quem é; o resto está no ato do tribunal,
+        no link logo abaixo.
       */}
       <p className="mt-1.5 line-clamp-2 rounded-md bg-muted/60 px-2 py-1.5 text-[11px] leading-snug">
         {p.ordem ?? previaSemTimbre(p.texto)}
       </p>
+
+      {/*
+        O RECADO DA IDADE — o que acontece se ninguém decidir.
+
+        É ESTADO, não evento: nasce da data, não tem o que fechar e volta a
+        aparecer amanhã se o item continuar aqui. E não promete o que o robô vai
+        fazer — a rede dele tem uma condição que só o teor responde, e anunciar
+        uma tarefa que ele pode recusar é o alarme que contradiz o robô.
+      */}
+      {selo.recado && (
+        <p className="mt-1.5 flex items-start gap-1.5 text-[11px] font-medium text-amber-900 dark:text-amber-300">
+          {p.estado === 'FORA_DA_JANELA' ? (
+            <History className="mt-0.5 h-3 w-3 shrink-0" />
+          ) : (
+            <Hourglass className="mt-0.5 h-3 w-3 shrink-0" />
+          )}
+          {selo.recado}
+        </p>
+      )}
 
       {!recusando ? (
         <div className="mt-2 flex gap-2">
@@ -385,6 +518,27 @@ function LinhaDaProposta({
           </div>
         </div>
       )}
+
+      {/*
+        O ATO INTEIRO, A UM TOQUE — e este toque não existia.
+
+        O comentário que ficava aqui dizia que "o resto está a um toque, na
+        publicação". Não havia link nenhum no item: quem quisesse ler o
+        despacho tinha de sair do painel, abrir Publicações e procurar. Duas
+        linhas de prévia são o bastante para decidir na maioria dos casos, mas
+        quando não são, o documento do tribunal é o destino certo — é o texto
+        oficial, e é ele que tira a dúvida.
+      */}
+      {p.link && !recusando && (
+        <a
+          href={p.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex min-h-11 items-center gap-1 text-[11px] font-medium text-brand-800 underline-offset-2 hover:underline sm:min-h-0 dark:text-brand-300"
+        >
+          <ExternalLink className="h-3 w-3" /> Ler o ato no tribunal
+        </a>
+      )}
     </li>
   );
 }
@@ -399,8 +553,14 @@ function LinhaDaProposta({
  *
  * `separarTimbre` é a mesma função que o cartão de publicação usa e que já tem
  * teste — não existe segunda cópia da régua do timbre.
+ *
+ * NULO ENTRA E NÃO DERRUBA A TELA. A API só manda texto quando não conseguiu
+ * recortar a ordem, e o `(corpo || texto)` antigo estourava num `texto`
+ * ausente: `separarTimbre` devolve corpo vazio, o `||` caía no argumento, e o
+ * `.replace` de um nulo derruba o painel inteiro.
  */
-function previaSemTimbre(texto: string): string {
+function previaSemTimbre(texto: string | null): string {
+  if (!texto) return 'Sem prévia — abra o ato no tribunal.';
   const { corpo } = separarTimbre(texto);
   const limpo = (corpo || texto).replace(/\s+/g, ' ').trim();
   return limpo.length > 180 ? `${limpo.slice(0, 180)}…` : limpo;
