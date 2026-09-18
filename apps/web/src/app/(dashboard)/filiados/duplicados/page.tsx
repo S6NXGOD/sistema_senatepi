@@ -297,7 +297,7 @@ export default function DuplicadosPage() {
 
       {/* Consolidação em lote — só a fatia sem nada a perder. */}
       {podeDecidir ? (
-        <LoteDuplicados />
+        <LoteDuplicados gruposNaFila={(data ?? []).length} />
       ) : (
         <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
           Você acompanha a fila. Consolidar e marcar &ldquo;não é duplicado&rdquo; ficam com quem tem edição em

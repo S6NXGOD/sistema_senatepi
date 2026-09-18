@@ -21,7 +21,7 @@ import { executarLote, previaLote } from '@/lib/duplicidade';
  * dados) fica FORA e continua na revisão um a um. Foi a linha escolhida de
  * propósito: automatizar o que não tem dúvida, não o que dá trabalho.
  */
-export function LoteDuplicados() {
+export function LoteDuplicados({ gruposNaFila }: { gruposNaFila?: number }) {
   const qc = useQueryClient();
   const [confirmacao, setConfirmacao] = useState('');
   const [rodando, setRodando] = useState(false);
@@ -37,6 +37,13 @@ export function LoteDuplicados() {
   });
 
   const total = data?.total ?? 0;
+  /**
+   * Quantos GRUPOS sobram depois do lote. O lote conta PARES (um grupo de três
+   * gera dois), então o resto é estimado pelo que a fila mostra — e é por isso
+   * que ele só aparece quando a fila já chegou: número inventado seria pior que
+   * número nenhum.
+   */
+  const restamDepois = gruposNaFila === undefined ? null : Math.max(0, gruposNaFila - total);
   // Digitar o número é a trava. Um botão sozinho é clicado sem ler; escrever
   // "704" obriga a passar o olho no que está prestes a acontecer.
   const liberado = confirmacao.trim() === String(total) && total > 0;
@@ -109,6 +116,21 @@ export function LoteDuplicados() {
               sem contato, sem endereço, sem local de trabalho. Não há nada para copiar, e nada
               a perder.
             </p>
+            {/*
+              O NÚMERO SOZINHO NÃO DIZ QUE É A MAIOR PARTE DO TRABALHO
+              (18/09/2026). O painel anunciava "825 podem ser consolidados" ao
+              lado de abas somando 1.174, e as duas informações nunca se
+              encontravam: quem olha a fila vê mil e pouco e desiste antes de
+              perceber que a maioria sai num clique. Dizer o que SOBRA é o que
+              transforma uma pilha sem fim numa tarefa com fim.
+            */}
+            {restamDepois !== null && (
+              <p className="mt-1.5 text-sm font-medium text-brand-900 dark:text-brand-200">
+                {restamDepois === 0
+                  ? 'É a fila inteira — depois disto não sobra nada para revisar.'
+                  : `Depois deles sobram ${restamDepois.toLocaleString('pt-BR')} para olhar um a um.`}
+              </p>
+            )}
           </div>
         </div>
 

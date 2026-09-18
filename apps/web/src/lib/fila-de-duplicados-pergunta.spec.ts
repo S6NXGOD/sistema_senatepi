@@ -232,3 +232,39 @@ describe('o placar da fila', () => {
     expect(PAGINA).not.toMatch(/api\.(post|put|patch)\([^)]*resolvidos/);
   });
 });
+
+/**
+ * O LOTE PRECISA DIZER QUE É A MAIOR PARTE DO TRABALHO — 18/09/2026.
+ *
+ * O painel anunciava "825 podem ser consolidados de uma vez" logo acima de abas
+ * somando 1.174, e as duas informações nunca se encontravam. Quem olha a fila vê
+ * mil e pouco e desiste antes de perceber que a maioria sai num clique — medido:
+ * dos 947 pares do acervo, só 26 são empate de verdade com dados divergentes, e
+ * apenas 12 têm CPF diferente nos dois (esses nunca podem ser fundidos).
+ *
+ * Dizer o que SOBRA é o que transforma pilha sem fim em tarefa com fim.
+ */
+describe('o lote conversa com a fila', () => {
+  const LOTE = readFileSync(
+    path.join(RAIZ, 'components/filiados/lote-duplicados.tsx'), 'utf8',
+  );
+
+  it('a página passa o tamanho da fila para o painel', () => {
+    expect(PAGINA).toContain('<LoteDuplicados gruposNaFila={(data ?? []).length} />');
+  });
+
+  it('e o painel diz quantos sobram depois', () => {
+    expect(LOTE).toContain('sobram ${restamDepois.toLocaleString(\'pt-BR\')} para olhar um a um');
+    expect(LOTE).toContain('depois disto não sobra nada para revisar');
+  });
+
+  /**
+   * NÚMERO INVENTADO É PIOR QUE NÚMERO NENHUM: enquanto a fila não chegou, a
+   * frase não aparece. E o lote conta PARES, a fila conta GRUPOS — a subtração
+   * nunca pode ficar negativa.
+   */
+  it('não inventa número antes de a fila chegar, nem deixa negativo', () => {
+    expect(LOTE).toContain('gruposNaFila === undefined ? null');
+    expect(LOTE).toContain('Math.max(0, gruposNaFila - total)');
+  });
+});
