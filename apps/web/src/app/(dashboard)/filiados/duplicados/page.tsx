@@ -942,13 +942,28 @@ function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descar
       {filiacaoPreservada && (
         <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 p-2.5 text-xs text-brand-900 dark:bg-brand-950/40 dark:text-brand-200">
           <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {/*
+            DUAS FRASES, PORQUE SÃO DUAS SITUAÇÕES. Quando o mantido não tem data,
+            não há "mais antiga" — há UMA, e ela vem do cadastro que sai. Dizer
+            "a mais antiga é preservada" com um só valor na tela faz o operador
+            procurar a outra.
+          */}
           <span>
-            A filiação mais antiga é preservada:{' '}
-            <strong>{formatarCampo('dataFiliacao', filiacaoPreservada.dataFiliacao)}</strong>
-            {manter.dataFiliacao && (
-              <> (o cadastro mantido dizia {formatarCampo('dataFiliacao', manter.dataFiliacao)})</>
+            {manter.dataFiliacao ? (
+              <>
+                A filiação <strong>mais antiga</strong> é preservada:{' '}
+                <strong>{formatarCampo('dataFiliacao', filiacaoPreservada.dataFiliacao)}</strong>, do
+                cadastro removido — o mantido dizia{' '}
+                {formatarCampo('dataFiliacao', manter.dataFiliacao)}. O tempo de sindicato não se
+                perde na consolidação.
+              </>
+            ) : (
+              <>
+                A data de filiação vem do cadastro removido:{' '}
+                <strong>{formatarCampo('dataFiliacao', filiacaoPreservada.dataFiliacao)}</strong>. O
+                mantido não tinha nenhuma.
+              </>
             )}
-            . O tempo de sindicato não se perde na consolidação.
           </span>
         </p>
       )}
