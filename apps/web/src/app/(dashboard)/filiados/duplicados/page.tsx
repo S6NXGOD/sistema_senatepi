@@ -18,10 +18,10 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import { cn, formatarData, mascararCpf } from '@/lib/utils';
 import {
-  CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL,
+  CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL, frasesDaRiqueza,
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
   listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
-  resumoDoCadastro, rotuloDoConsolidar, voltarParaFila,
+  quantosDados, resumoDoCadastro, rotuloDoConsolidar, temValor, voltarParaFila,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
@@ -85,6 +85,7 @@ export default function DuplicadosPage() {
       if (aviso.tom === 'ok') toast.success(aviso.texto);
       else toast.warning(aviso.texto);
       setFundindo(null);
+      setResolvidos((n) => n + 1);
       qc.invalidateQueries({ queryKey: ['duplicados'] });
       qc.invalidateQueries({ queryKey: ['filiados'] });
     } catch (e: any) {
@@ -192,6 +193,20 @@ export default function DuplicadosPage() {
   >(null);
   const [separando, setSeparando] = useState(false);
 
+  /**
+   * QUANTOS VOCÊ JÁ RESOLVEU NESTA SESSÃO (18/09/2026).
+   *
+   * "Não tem como deixar menos tedioso esse processo que é tão chato?" Tem, e a
+   * resposta honesta NÃO é ponto nem medalha — é mostrar que a fila anda. São
+   * 1.174 grupos: sem nenhuma marca de progresso, cada decisão parece a primeira
+   * e a pilha parece infinita.
+   *
+   * O número mora só na memória da aba de propósito: é "quanto eu andei agora",
+   * não uma estatística de produtividade. Gravar isso no servidor viraria
+   * medida de desempenho de pessoa, que é outra conversa e não é esta.
+   */
+  const [resolvidos, setResolvidos] = useState(0);
+
   async function confirmarSeparacao() {
     if (!separar) return;
     setSeparando(true);
@@ -200,7 +215,7 @@ export default function DuplicadosPage() {
         ? await naoDuplicado(separar.grupo)
         : await foraDoGrupo(separar.grupo, separar.candidato);
       // Fechar mesmo com erro faria a falha parecer sucesso: só fecha no ok.
-      if (ok) setSeparar(null);
+      if (ok) { setSeparar(null); setResolvidos((n) => n + 1); }
     } finally {
       setSeparando(false);
     }
@@ -276,6 +291,9 @@ export default function DuplicadosPage() {
           </p>
         </div>
       </div>
+
+      <ComoFunciona />
+      <PlacarDaFila resolvidos={resolvidos} restantes={(data ?? []).length} />
 
       {/* Consolidação em lote — só a fatia sem nada a perder. */}
       {podeDecidir ? (
@@ -563,6 +581,41 @@ function GrupoCard({
     return set;
   }, [grupo]);
 
+  /*
+    SÓ AS LINHAS QUE ALGUÉM PREENCHEU (18/09/2026).
+
+    "Ainda acho muito igual a antes e extremamente chato." Estava certo, e o
+    motivo é aritmético: medido no acervo, a tela desenhava 20.920 células nos
+    1.174 grupos e só 6.557 tinham conteúdo — **69% de traço**. Em 533 grupos há
+    UM campo preenchido no grupo inteiro; em 143, nenhum. O olho varria oito
+    linhas por cartão para achar uma.
+
+    Escondendo o que ninguém tem, o cartão de um grupo comum cai de oito linhas
+    para duas, e a comparação deixa de ser leitura e vira olhada.
+  */
+  const campos = useMemo(
+    () => CAMPOS_COMPARADOS.filter(({ chave }) =>
+      grupo.candidatos.some((c) => temValor(c[chave as keyof CandidatoDuplicata]))),
+    [grupo],
+  );
+  const mostrarVinculos = useMemo(
+    () => grupo.candidatos.some((c) => c.vinculos > 0),
+    [grupo],
+  );
+  /**
+   * O cadastro com mais dados — e SÓ quando ele é único. Com empate não existe
+   * "o mais completo", e fingir que existe é o mesmo que sortear.
+   */
+  const idMaisRico = useMemo(() => {
+    const contagens = grupo.candidatos.map((c) => ({
+      id: c.id,
+      n: quantosDados(c as unknown as Record<string, unknown>),
+    }));
+    const maior = Math.max(...contagens.map((x) => x.n));
+    const lideres = contagens.filter((x) => x.n === maior);
+    return maior > 0 && lideres.length === 1 ? lideres[0].id : null;
+  }, [grupo]);
+
   const escolhido = grupo.candidatos.find((c) => c.id === escolhidoId) ?? null;
   // Grupo de três ou mais também consolida (17/09/2026): mantém o escolhido, remove os outros.
   const podeFundir = podeDecidir && grupo.candidatos.length >= 2 && !!escolhido;
@@ -623,6 +676,9 @@ function GrupoCard({
                 c={c}
                 escolhido={c.id === escolhidoId}
                 divergentes={divergentes}
+                campos={campos}
+                mostrarVinculos={mostrarVinculos}
+                maisRico={c.id === idMaisRico}
                 onEscolher={() => onEscolher(c.id)}
               />
               {/*
@@ -642,19 +698,32 @@ function GrupoCard({
 
                   44 px de altura: é alvo de dedo, e a tela é usada no celular.
                 */
-                <button
-                  type="button"
+                /*
+                  DA SEGUNDA VEZ, UM BOTÃO DE VERDADE (18/09/2026).
+
+                  A borda tracejada cinza sobre cartão branco continuou invisível
+                  — "ainda tô achando invisível". O erro foi tratar como problema
+                  de contraste o que é de VOCABULÁRIO: neste sistema, controle
+                  secundário é `Button variant="outline"`, e o olho reconhece a
+                  forma antes de ler o texto. Um botão desenhado à mão, por mais
+                  bem pintado, nunca vai parecer botão numa tela cheia deles.
+
+                  O rosa entra no hover pelo mesmo motivo do selo de cancelado:
+                  diz "isto tira algo daqui" sem pintar de alarme um cartão que
+                  ninguém decidiu ainda.
+                */
+                <Button
+                  variant="outline"
                   onClick={() => onForaDoGrupo(c)}
                   className={cn(
-                    'flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed',
-                    'border-muted-foreground/40 text-[13px] font-medium text-muted-foreground transition',
+                    'min-h-11 w-full justify-center text-[13px]',
                     'hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700',
                     'dark:hover:border-rose-900 dark:hover:bg-rose-950/30 dark:hover:text-rose-300',
                   )}
                 >
                   <UserMinus className="h-4 w-4" aria-hidden="true" />
                   Não é a mesma pessoa
-                </button>
+                </Button>
               )}
             </div>
           ))}
@@ -678,13 +747,19 @@ function GrupoCard({
 }
 
 function CandidatoCard({
-  c, escolhido, divergentes, onEscolher,
+  c, escolhido, divergentes, campos, mostrarVinculos, maisRico, onEscolher,
 }: {
   c: CandidatoDuplicata;
   escolhido: boolean;
   divergentes: Set<string>;
+  /** Só os campos que ALGUÉM do grupo preencheu — ver `camposComAlgumValor`. */
+  campos: typeof CAMPOS_COMPARADOS[number][];
+  mostrarVinculos: boolean;
+  /** Este cartão é o que carrega mais dados, sozinho? */
+  maisRico: boolean;
   onEscolher: () => void;
 }) {
+  const dados = quantosDados(c as unknown as Record<string, unknown>);
   return (
     <button
       type="button"
@@ -702,9 +777,27 @@ function CandidatoCard({
           {escolhido ? 'MANTER' : 'remover'}
         </span>
       </div>
-      <p className="mb-2 truncate text-sm font-medium">{c.nomeCompleto}</p>
+      <p className="truncate text-sm font-medium">{c.nomeCompleto}</p>
+      {/*
+        QUANTOS DADOS, ANTES DE LER QUALQUER CAMPO (18/09/2026).
+
+        "Queria uma dica para deixar o que está mais rico de dados." O sistema já
+        sugeria, mas a razão morava numa frase acima dos cartões. Aqui o número
+        fica em cima de cada um: a comparação vira "3 dados contra 1" de relance,
+        e nos 143 grupos em que ninguém tem nada ele diz isso de uma vez.
+      */}
+      <p className="mb-2 mt-0.5 flex items-center gap-1 text-[11px]">
+        <span className={cn(dados === 0 ? 'text-muted-foreground/70' : 'font-medium text-foreground/70')}>
+          {frasesDaRiqueza(dados)}
+        </span>
+        {maisRico && (
+          <span className="rounded-full bg-brand-100 px-1.5 font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+            o mais completo
+          </span>
+        )}
+      </p>
       <dl className="space-y-1 text-xs">
-        {CAMPOS_COMPARADOS.map(({ chave, rotulo }) => {
+        {campos.map(({ chave, rotulo }) => {
           const bruto = c[chave as keyof CandidatoDuplicata];
           const vazio = bruto === null || bruto === undefined || bruto === '';
           return (
@@ -722,13 +815,25 @@ function CandidatoCard({
             </div>
           );
         })}
+        {mostrarVinculos && (
         <div className="flex justify-between gap-2 border-t pt-1">
           <dt className="text-muted-foreground">Locais de trabalho</dt>
           <dd className={cn('text-right', c.vinculos === 0 && 'text-muted-foreground/40')}>
             {c.vinculos}
           </dd>
         </div>
+        )}
       </dl>
+      {/*
+        E QUANDO NÃO SOBRA CAMPO NENHUM, a ausência é dita com palavra — um
+        cartão com só o nome e a data deixaria a pessoa procurando o que não
+        existe. São 143 grupos assim no acervo.
+      */}
+      {campos.length <= 1 && !mostrarVinculos && (
+        <p className="mt-1 text-[11px] italic text-muted-foreground">
+          Nenhum outro dado cadastrado.
+        </p>
+      )}
     </button>
   );
 }
@@ -858,4 +963,131 @@ function formatarCampo(chave: string, v: unknown): string {
   if (chave === 'cpf') return mascararCpf(String(v));
   if (chave === 'dataNascimento' || chave === 'dataFiliacao') return formatarData(String(v));
   return String(v);
+}
+
+/**
+ * COMO FUNCIONA — porque a tela pede três decisões e não explicava nenhuma.
+ *
+ * "Queria que também houvesse uma explicação em algum lugar de como funciona
+ * esse processo de remover duplicados e consolidar." Quem abre esta fila pela
+ * primeira vez encontra três botões com verbos parecidos — consolidar, não é
+ * duplicado, não é a mesma pessoa — e nenhum lugar dizendo o que cada um faz
+ * com o cadastro. A dúvida mais cara é a que ninguém faz em voz alta: "isto
+ * apaga o dado da pessoa?".
+ *
+ * Fica RECOLHIDO por padrão: quem já sabe não precisa passar por cima dele todo
+ * dia, e quem não sabe acha pelo rótulo. Aberto, cabe numa tela de celular.
+ */
+function ComoFunciona() {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <section className="rounded-xl border bg-card">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex min-h-11 w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-muted/40"
+      >
+        <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        Como funciona esta fila
+        <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 text-muted-foreground transition', aberto && 'rotate-180')} />
+      </button>
+      {aberto && (
+        <div className="space-y-3 border-t px-4 py-4 text-sm">
+          <p className="text-muted-foreground">
+            O sistema junta cadastros que <strong>parecem</strong> ser da mesma pessoa. Ele nunca
+            decide sozinho: cada grupo espera alguém dizer o que é.
+          </p>
+
+          <dl className="space-y-3">
+            <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-900 dark:bg-brand-950/20">
+              <dt className="flex items-center gap-1.5 font-medium">
+                <Merge className="h-4 w-4 text-brand-800 dark:text-brand-400" aria-hidden="true" />
+                Consolidar
+              </dt>
+              <dd className="mt-1 text-muted-foreground">
+                É a mesma pessoa. O cadastro marcado como <strong>MANTER</strong> fica, e tudo o que
+                só existia nos outros — CPF, telefone, endereço, processos, mensalidades — é copiado
+                para ele <em>antes</em> de os duplicados saírem. <strong>Nenhum dado se perde</strong>;
+                o que some é a linha repetida. A matrícula removida fica no histórico.
+              </dd>
+            </div>
+
+            <div className="rounded-lg border p-3">
+              <dt className="flex items-center gap-1.5 font-medium">
+                <X className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                Não é duplicado
+              </dt>
+              <dd className="mt-1 text-muted-foreground">
+                São pessoas diferentes que por acaso têm o mesmo nome. O grupo sai da fila e não
+                volta a aparecer — <strong>nada é apagado</strong>. Dá para desfazer no aviso, ou em
+                &ldquo;Marcados como pessoas diferentes&rdquo;, no fim desta página.
+              </dd>
+            </div>
+
+            <div className="rounded-lg border p-3">
+              <dt className="flex items-center gap-1.5 font-medium">
+                <UserMinus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                Não é a mesma pessoa
+              </dt>
+              <dd className="mt-1 text-muted-foreground">
+                Para grupo de três ou mais: tira <strong>um</strong> cadastro do grupo e deixa o
+                resto para decidir. Serve quando quatro nomes iguais são, na verdade, três da mesma
+                pessoa e um de outra.
+              </dd>
+            </div>
+          </dl>
+
+          {/*
+            A DICA QUE O DONO PEDIU — e que o número em cada cartão agora mostra.
+          */}
+          <div className="rounded-lg bg-muted/60 p-3">
+            <p className="font-medium">Na dúvida, qual manter?</p>
+            <p className="mt-1 text-muted-foreground">
+              O que tem <strong>mais dados</strong> — é o que aparece marcado, com a etiqueta
+              &ldquo;o mais completo&rdquo;. Cada cartão mostra quantos dados carrega, então dá para
+              comparar de relance. Se os dois estiverem igualmente vazios, o sistema diz isso e
+              qualquer um serve: a consolidação copia o que faltar de um para o outro de qualquer
+              forma. Quando houver <strong>CPF em um só</strong>, mantenha esse.
+            </p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * O PLACAR DA FILA — "quanto eu andei" e "quanto falta", numa linha.
+ *
+ * "Não tem como deixar menos tedioso esse processo que é tão chato?" Tem, e a
+ * resposta não é medalha: são 1.174 grupos, e sem nenhuma marca de progresso
+ * cada decisão parece a primeira. Duas informações bastam — o que você acabou
+ * de resolver e o que sobrou — porque juntas elas mostram a pilha diminuindo.
+ *
+ * Some quando não há nada resolvido: um placar zerado é só mais uma linha.
+ */
+function PlacarDaFila({ resolvidos, restantes }: { resolvidos: number; restantes: number }) {
+  if (resolvidos === 0) return null;
+  const total = resolvidos + restantes;
+  const pct = Math.min(100, Math.round((resolvidos / Math.max(1, total)) * 100));
+  return (
+    <div className="rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 dark:border-brand-900 dark:bg-brand-950/20">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+        <p className="font-medium text-brand-900 dark:text-brand-200">
+          {resolvidos === 1 ? '1 grupo resolvido agora' : `${resolvidos} grupos resolvidos agora`}
+        </p>
+        <p className="text-muted-foreground">
+          {restantes === 0 ? 'A fila acabou.' : `${restantes.toLocaleString('pt-BR')} na fila`}
+        </p>
+      </div>
+      {/* Barra fina: o progresso é da SESSÃO, não da vida — por isso discreta. */}
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-brand-100 dark:bg-brand-900/50">
+        <div
+          className="h-full rounded-full bg-brand-700 transition-all duration-500 dark:bg-brand-500"
+          style={{ width: `${Math.max(2, pct)}%` }}
+        />
+      </div>
+    </div>
+  );
 }

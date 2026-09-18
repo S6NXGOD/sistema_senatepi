@@ -110,6 +110,42 @@ const DIA_DE_TERESINA: Intl.DateTimeFormatOptions = {
   timeZone: 'America/Fortaleza', day: '2-digit', month: '2-digit', year: 'numeric',
 };
 
+/** Um campo "tem valor"? Vazio, nulo e string em branco contam como nada. */
+export function temValor(v: unknown): boolean {
+  return v !== null && v !== undefined && String(v).trim() !== '';
+}
+
+/**
+ * QUANTOS DADOS ESTE CADASTRO CARREGA — a régua de "qual é o mais rico".
+ *
+ * POR QUE ELA EXISTE. Medido no acervo em 18/09/2026: dos 7.033 filiados,
+ * **3.259 (46%) não têm NENHUM** dos sete campos comparados, e 2.208 têm um só.
+ * A tela desenhava as oito linhas sempre, então o olho varria 20.920 células em
+ * 1.174 grupos para encontrar 6.557 com conteúdo — **69% de traço**. Comparar
+ * dois cadastros virava ler dezesseis linhas para achar duas.
+ *
+ * Com o número na frente, a comparação vira "3 dados contra 1" antes de ler
+ * campo nenhum — e nos 143 grupos em que ninguém tem nada, o número diz isso de
+ * uma vez: não há o que comparar, escolha qualquer um.
+ *
+ * `dataFiliacao` fica FORA da conta de propósito: toda linha tem uma, então ela
+ * não separa ninguém. Ela continua aparecendo no cartão porque ajuda a lembrar
+ * qual é o cadastro antigo.
+ */
+export const CAMPOS_DE_RIQUEZA = [
+  'cpf', 'numeroCoren', 'dataNascimento', 'cidade', 'telefonePrincipal', 'email', 'endereco',
+] as const;
+
+export function quantosDados(c: Partial<Record<string, unknown>>): number {
+  return CAMPOS_DE_RIQUEZA.filter((k) => temValor(c[k])).length;
+}
+
+/** "3 dados", "1 dado", "sem dados" — do jeito que uma pessoa diria. */
+export function frasesDaRiqueza(n: number): string {
+  if (n === 0) return 'sem dados';
+  return n === 1 ? '1 dado' : `${n} dados`;
+}
+
 /** "Teresina · com CPF · nasc. 10/11/1970" — o que ajuda a rever se é a mesma pessoa. */
 export function resumoDoCadastro(c: Pick<CadastroDescartado, 'cidade' | 'cpf' | 'dataNascimento'>): string {
   return [
