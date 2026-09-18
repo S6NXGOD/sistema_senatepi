@@ -1,7 +1,9 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { planejarAtividade } from './utils/plano-da-atividade.util';
-import { diaBR, diaDeCalendarioBR, somarDiasUteisEmCalendario } from './utils/data-br.util';
+import {
+  diaBR, diaDeCalendarioBR, noveDaManhaDoDiaDeCalendario, somarDiasUteisEmCalendario,
+} from './utils/data-br.util';
 
 /**
  * O DIA DO ATO E O DIA DA TAREFA — 17/09/2026.
@@ -149,5 +151,64 @@ describe('nenhum dia de calendário entra em função que lê instante', () => {
     expect(
       (todos.match(/noveDaManhaDoDiaDeCalendario|proximoHorarioUtilDoDiaDeCalendario/g) ?? []).length,
     ).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/**
+ * NENHUMA TAREFA DO ROBÔ NASCE NUM SÁBADO — 18/09/2026.
+ *
+ * O aviso ao filiado dizia "2 dias úteis de antecedência" e subtraía 2 dias
+ * CORRIDOS, com uma função que não empurra fim de semana. Pauta na segunda
+ * mandava o telefonema para sábado; pauta na terça, para domingo. Dois em cinco.
+ * E na segunda o item já apareceria na faixa como ATRASADO, com a audiência
+ * acontecendo antes de alguém ligar para o filiado.
+ *
+ * Nunca chegou a acontecer (zero tarefas deste título na produção — o aviso
+ * exige pauta com filiado vinculado), então este bloco é a rede, não o conserto.
+ */
+describe('a antecedência do robô é em dias ÚTEIS', () => {
+  const diaDaSemanaBR = (d: Date) => new Date(d.getTime() - 3 * 3_600_000).getUTCDay();
+
+  /**
+   * As duas contas que o robô faz para trás: o preparo do advogado e o aviso da
+   * secretaria. Percorre um ano inteiro de pautas — se alguma cair no fim de
+   * semana, o teste nomeia o dia.
+   */
+  it('nem o preparo nem o aviso caem em sábado ou domingo, em 365 pautas', () => {
+    const caidos: string[] = [];
+    for (let i = 0; i < 365; i++) {
+      const pauta = new Date(Date.UTC(2027, 0, 4 + i, 13)); // 10h BR
+      for (const dias of [2, 3]) {
+        const quando = noveDaManhaDoDiaDeCalendario(
+          somarDiasUteisEmCalendario(diaDeCalendarioBR(pauta), -dias),
+        );
+        const dow = diaDaSemanaBR(quando);
+        if (dow === 0 || dow === 6) {
+          caidos.push(`pauta ${diaBR(pauta)} (−${dias} úteis) → ${diaBR(quando)} (dow ${dow})`);
+        }
+      }
+    }
+    expect(caidos).toEqual([]);
+  });
+
+  /** E a antecedência é real: sempre ANTES da pauta, nunca no dia dela. */
+  it('a tarefa nasce antes da pauta, sempre', () => {
+    for (let i = 0; i < 60; i++) {
+      const pauta = new Date(Date.UTC(2027, 1, 1 + i, 13));
+      const quando = noveDaManhaDoDiaDeCalendario(
+        somarDiasUteisEmCalendario(diaDeCalendarioBR(pauta), -2),
+      );
+      expect(quando.getTime()).toBeLessThan(pauta.getTime());
+    }
+  });
+
+  /**
+   * E o fonte não pode voltar a contar dias corridos. Mira a subtração de
+   * milissegundos sobre a data da pauta, que é a forma exata do defeito.
+   */
+  it('o robô não subtrai 48 horas da pauta para achar o dia', () => {
+    const fonte = readFileSync(path.join(__dirname, 'automacao-prazos.service.ts'), 'utf8');
+    expect(fonte).not.toMatch(/inicio\.getTime\(\)\s*-\s*\d+\s*\*\s*24\s*\*\s*3_600_000/);
+    expect(fonte).toContain('-DIAS_UTEIS_DE_AVISO');
   });
 });

@@ -60,6 +60,16 @@ const TIPO_PREPARO = 'DILIGENCIA';
  * documento ao filiado, falar com testemunha e ler o processo.
  */
 const DIAS_UTEIS_DE_PREPARO = 2;
+
+/**
+ * DIAS ÚTEIS DE ANTECEDÊNCIA DO AVISO AO FILIADO.
+ *
+ * Mesmo número do preparo, e constante separada de propósito: são trabalhos
+ * diferentes, de pessoas diferentes (a secretaria telefona; o advogado lê o
+ * processo). Se um dia o telefonema precisar de mais fôlego que a leitura, um
+ * número muda sem arrastar o outro.
+ */
+const DIAS_UTEIS_DE_AVISO = 2;
 const TIPO_ACOMPANHAMENTO = 'ACOMPANHAMENTO';
 /**
  * TÍTULO GENÉRICO DA TAREFA DE PRAZO — e uma SENTINELA, não só um rótulo.
@@ -799,11 +809,26 @@ export class AutomacaoPrazosService {
     // atribuir e se o processo tem filiado vinculado.
     let tarefa = false;
     if (secretariaId && processo.filiadoId) {
-      // Avisar com 2 dias úteis de antecedência (nunca depois da pauta).
-      const aviso = new Date(inicio.getTime() - 2 * 24 * 3_600_000);
+      /*
+        DOIS DIAS ÚTEIS — e até 18/09/2026 esta linha dizia isso e fazia outra
+        coisa: `inicio - 2 * 24h` são dois dias CORRIDOS, e `noveDaManhaBR` não
+        empurra fim de semana (quem empurra é `proximoHorarioUtilBR`). Pauta na
+        segunda mandava o telefonema para SÁBADO; pauta na terça, para domingo.
+        Dois dias em cinco caíam num dia em que ninguém abre o sistema — e na
+        segunda o item já apareceria na faixa como ATRASADO, com a audiência
+        acontecendo antes de alguém ligar para o filiado.
+
+        Nunca aconteceu na produção (zero tarefas deste título até hoje: o aviso
+        exige pauta COM filiado vinculado, e ainda não houve uma), então isto é
+        prevenção, não conserto de dado. A régua agora é a mesma do preparo, que
+        fica quatro linhas abaixo.
+      */
+      const aviso = noveDaManhaDoDiaDeCalendario(
+        somarDiasUteisEmCalendario(diaDeCalendarioBR(inicio), -DIAS_UTEIS_DE_AVISO),
+      );
       // O aviso é ANTES da pauta; se a antecedência já passou, vale agora — e
       // não o próximo dia útil, que poderia cair depois da própria audiência.
-      const inicioAviso = aviso > new Date() ? noveDaManhaBR(aviso) : new Date();
+      const inicioAviso = aviso > new Date() ? aviso : new Date();
 
       /*
         UM AVISO POR PAUTA -- mas a checagem era larga demais.

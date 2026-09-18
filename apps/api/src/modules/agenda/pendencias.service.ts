@@ -221,8 +221,19 @@ export class PendenciasService {
             Não-Acolhimento de Embargos...). Cortar em 30 aqui esconderia a maior
             parte do que este aviso existe para mostrar. Quem aplica a validade
             certa de cada nível é `atoAcionavel`, logo abaixo.
+
+            E COM UM DIA DE FOLGA, porque as duas contas não são da mesma
+            natureza: aqui o corte é por INSTANTE (`agora − 90 × 24h`) e lá o
+            julgamento é por DIA (`floor(diferença / 24h) > 90`). Um ato de 90
+            dias e meio passa no julgamento e não passava no corte: por até 24
+            horas a ficha acendia o selo âmbar e a faixa não contava o item —
+            a mesma divergência lista × ficha que este aviso existe para não
+            repetir. A folga faz o recorte grosso ser sempre mais largo que a
+            régua, que é o que ele deve ser.
           */
-          dataMovimento: { gte: new Date(agora.getTime() - VALIDADE_MAIS_LARGA_DIAS * 86_400_000) },
+          dataMovimento: {
+            gte: new Date(agora.getTime() - (VALIDADE_MAIS_LARGA_DIAS + 1) * 86_400_000),
+          },
           /*
             SÓ OS CÓDIGOS DO DICIONÁRIO, e a lista sai DELE — nunca escrita à
             mão. `atoAcionavel` devolve `null` para qualquer código de fora, então

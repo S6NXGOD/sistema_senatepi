@@ -191,3 +191,38 @@ describe('o recorte da consulta', () => {
     expect(Number(m![1])).toBeGreaterThanOrEqual(1000);
   });
 });
+
+/**
+ * O CORTE DO BANCO TEM DE SER MAIS LARGO QUE A RÉGUA — 18/09/2026.
+ *
+ * As duas contas não são da mesma natureza: a consulta corta por INSTANTE
+ * (`agora − 90 × 24h`) e `atoAcionavel` julga por DIA
+ * (`floor(diferença / 24h) > 90`). Um ato de 90 dias e meio passa no julgamento
+ * e não passava no corte — por até 24 horas a ficha acendia o selo âmbar e a
+ * faixa não contava o item. É a divergência lista × ficha que este aviso existe
+ * para não repetir, na menor escala possível.
+ */
+describe('a folga entre o recorte e a régua', () => {
+  it('a consulta pede um dia a mais que a maior validade', () => {
+    expect(FONTE).toContain('(VALIDADE_MAIS_LARGA_DIAS + 1) * 86_400_000');
+  });
+
+  /**
+   * O caso concreto: o ato que o julgamento ACEITA tem de caber na consulta.
+   * Sem a folga, este par de datas era exatamente a janela cega.
+   */
+  it('o ato de 90 dias e meio ainda acende — e portanto tem de ser trazido', () => {
+    const agora = new Date('2026-09-18T13:00:00.000Z');
+    const ato = new Date('2026-06-19T17:00:00.000Z'); // 90,83 dias antes
+    const idadeDias = Math.floor((agora.getTime() - ato.getTime()) / 86_400_000);
+    expect(idadeDias).toBe(VALIDADE_DIAS.DECISAO); // 90 — ainda dentro
+    expect(
+      atoAcionavel({ codigoMovimento: 239, dataMovimento: ato, compromissoId: null, dispensadoEm: null }, agora),
+    ).not.toBeNull();
+
+    const corteAntigo = new Date(agora.getTime() - VALIDADE_DIAS.DECISAO * 86_400_000);
+    const corteNovo = new Date(agora.getTime() - (VALIDADE_DIAS.DECISAO + 1) * 86_400_000);
+    expect(ato >= corteAntigo).toBe(false); // ficava de fora
+    expect(ato >= corteNovo).toBe(true); // agora entra
+  });
+});
