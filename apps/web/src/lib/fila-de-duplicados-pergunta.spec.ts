@@ -54,17 +54,33 @@ describe('nada sai da fila sem perguntar', () => {
   });
 
   /**
-   * ENTER SÓ NO QUE TEM VOLTA. Separar volta pelo Desfazer e pela lista do fim
-   * da página; consolidar APAGA cadastro. E no modo foco o Enter já abre a
-   * consolidação — se o diálogo dela também confirmasse com Enter, duas teclas
-   * seguidas apagariam um cadastro.
+   * O ENTER CONFIRMA OS DOIS — E ISSO MUDOU EM 18/09/2026, por decisão do dono.
+   *
+   * A regra era "Enter só no que tem volta": separar volta pelo Desfazer e pela
+   * lista do fim da página; consolidar APAGA cadastro, e no modo foco o Enter já
+   * abre o diálogo — duas teclas seguidas apagariam um cadastro.
+   *
+   * O dono usou a fila e pediu o contrário: "quero que precise só apertar enter
+   * de novo para confirmar a consolidação; não quero tab nem botão de cancelar,
+   * para cancelar é só esc". Quem decide centenas de duplicatas paga caro por
+   * largar o teclado em cada uma. O risco fica REGISTRADO aqui, não escondido:
+   * consolidar não tem desfazer.
    */
-  it('o Enter confirma a separação e NÃO a consolidação', () => {
+  it('o Enter confirma os dois diálogos da fila', () => {
     const separar = PAGINA.slice(PAGINA.indexOf('open={!!separar}'), PAGINA.indexOf('open={!!fundindo}'));
     expect(separar).toContain('confirmarComEnter');
     const fundir = PAGINA.slice(PAGINA.indexOf('open={!!fundindo}'));
-    expect(fundir.slice(0, 900)).not.toContain('confirmarComEnter');
-    expect(fundir.slice(0, 900)).toContain('variant="destructive"');
+    expect(fundir.slice(0, 1400)).toContain('confirmarComEnter');
+    // Continua VERMELHO: o atalho mudou, o peso da ação não.
+    expect(fundir.slice(0, 1400)).toContain('variant="destructive"');
+  });
+
+  /**
+   * A LEGENDA DIZ DOIS ENTER. Escrever só "consolidar" ao lado da tecla fazia
+   * parecer que UMA tecla apaga o cadastro — o primeiro Enter abre a pergunta.
+   */
+  it('o rodapé avisa que são dois Enter', () => {
+    expect(PAGINA).toContain('acao="consolidar (2×)"');
   });
 
   /** Separar não apaga nada: a pergunta é âmbar, não vermelha. */

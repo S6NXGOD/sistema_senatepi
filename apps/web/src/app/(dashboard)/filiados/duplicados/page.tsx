@@ -419,7 +419,12 @@ export default function DuplicadosPage() {
             <span className="font-medium">Atalhos:</span>
             {podeDecidir && (
               <>
-                <Atalho tecla="Enter" acao="consolidar" />
+                {/*
+                  DOIS ENTER, e a legenda diz isso: o primeiro abre a pergunta,
+                  o segundo confirma. Escrever só "consolidar" fazia parecer que
+                  uma tecla apaga o cadastro.
+                */}
+                <Atalho tecla="Enter" acao="consolidar (2×)" />
                 <Atalho tecla="N" acao="não é duplicado" />
                 <Atalho tecla="1…9" acao="escolher qual fica" />
               </>
@@ -452,8 +457,9 @@ export default function DuplicadosPage() {
       {/*
         A PERGUNTA DAS DUAS SAÍDAS. Âmbar, e não vermelha: nada é apagado aqui —
         o par sai da fila e volta pelo "Desfazer" do aviso ou pela lista do fim
-        da página. Enter confirma porque tem volta; o diálogo de consolidar, que
-        apaga cadastro, não ganha esse atalho de propósito.
+        da página. Enter confirma porque tem volta — e, desde 18/09/2026, o
+        diálogo de consolidar também confirma com Enter, por decisão do dono:
+        ver o comentário lá embaixo.
       */}
       <ConfirmDialog
         open={!!separar}
@@ -473,6 +479,17 @@ export default function DuplicadosPage() {
         variant="destructive"
         title="Consolidar os cadastros?"
         confirmLabel="Consolidar e remover"
+        /*
+          ENTER CONFIRMA TAMBÉM AQUI — decisão do dono (18/09/2026).
+
+          Este diálogo era o único da fila SEM o atalho, de propósito: consolidar
+          apaga cadastro e não tem desfazer. O dono usou a fila e pediu o
+          contrário — "só apertar enter de novo para confirmar" —, porque quem
+          decide centenas de duplicatas paga caro por largar o teclado em cada
+          uma. Com o atalho ligado o botão de cancelar sai: Enter confirma, Esc
+          volta, e o X do canto atende o telefone, que não tem nenhuma das duas.
+        */
+        confirmarComEnter
         loading={executando}
         onConfirm={confirmarFusao}
         onClose={() => (executando ? null : setFundindo(null))}

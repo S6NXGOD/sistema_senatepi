@@ -57,7 +57,23 @@ export function aoTeclarNoDialogo(
  * pergunta. Com o foco no Cancelar, o caminho é Tab e Enter: duas teclas, sem
  * mouse, e o engano custa um clique a mais em vez de um cadastro.
  */
-export function focoInicial(destructive: boolean): 'cancelar' | 'confirmar' {
+export function focoInicial(destructive: boolean, confirmarComEnter = false): 'cancelar' | 'confirmar' {
+  /*
+    COM O ENTER LIGADO, O FOCO É O CONFIRMAR — decisão do dono (18/09/2026).
+
+    "Quero que precise só apertar enter de novo para confirmar a consolidação.
+    Não quero tab e nem botão de cancelar; para cancelar é só apertar esc."
+
+    Eu havia travado o Enter em ação destrutiva pelo risco do segundo Enter
+    reflexo. O dono viu a implementação e escolheu a fila rápida: quem decide
+    centenas de duplicatas paga o preço de largar o teclado em cada uma. A
+    escolha é dele; o que fica registrado é que o preço do engano aqui é um
+    cadastro apagado, e que o desfazer não existe para consolidação.
+
+    Por isso o atalho é OPT-IN: só liga onde alguém pediu. Excluir filiado,
+    cancelar atividade e apagar cobrança continuam exigindo o clique.
+  */
+  if (confirmarComEnter) return 'confirmar';
   return destructive ? 'cancelar' : 'confirmar';
 }
 
@@ -138,7 +154,8 @@ export function ConfirmDialog({
   useEffect(() => {
     if (!open) return;
     const veioDe = document.activeElement as HTMLElement | null;
-    const alvo = focoInicial(variant === 'destructive') === 'cancelar' ? cancelar : confirmar;
+    const alvo =
+      focoInicial(variant === 'destructive', confirmarComEnter) === 'cancelar' ? cancelar : confirmar;
     // Depois da pintura: o botão só existe no DOM quando o diálogo renderiza.
     const t = window.setTimeout(() => (alvo.current ?? caixa.current)?.focus(), 0);
     return () => {
@@ -236,13 +253,25 @@ export function ConfirmDialog({
             no celular não há Tab nem Esc, e a linha seria ruído.
           */}
           <p className="mr-auto hidden text-[11px] text-muted-foreground sm:block">
-            <kbd className="rounded border px-1 font-sans">Tab</kbd> escolhe ·{' '}
-            <kbd className="rounded border px-1 font-sans">Enter</kbd> aciona ·{' '}
+            {!confirmarComEnter && (
+              <>
+                <kbd className="rounded border px-1 font-sans">Tab</kbd> escolhe ·{' '}
+              </>
+            )}
+            <kbd className="rounded border px-1 font-sans">Enter</kbd>{' '}
+            {confirmarComEnter ? 'confirma' : 'aciona'} ·{' '}
             <kbd className="rounded border px-1 font-sans">Esc</kbd> fecha
           </p>
-          <Button ref={cancelar} variant="outline" onClick={onClose} disabled={travas.cancelar}>
-            {cancelLabel}
-          </Button>
+          {/*
+            SEM BOTÃO DE CANCELAR quando o Enter confirma: duas teclas, uma
+            decisão. O X do canto FICA — no telefone não existe Esc, e sem ele a
+            única saída seria tocar fora, que ninguém descobre sozinho.
+          */}
+          {!confirmarComEnter && (
+            <Button ref={cancelar} variant="outline" onClick={onClose} disabled={travas.cancelar}>
+              {cancelLabel}
+            </Button>
+          )}
           <Button
             ref={confirmar}
             variant={destructive ? 'destructive' : 'default'}

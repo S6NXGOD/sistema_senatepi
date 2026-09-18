@@ -174,6 +174,31 @@ describe('o foco entra no diálogo', () => {
     expect(focoInicial(false)).toBe('confirmar');
   });
 
+  /**
+   * COM O ENTER LIGADO, O FOCO É O CONFIRMAR — decisão do dono (18/09/2026):
+   * "só apertar enter de novo para confirmar; para cancelar é só esc".
+   * Opt-in: só vale onde alguém pediu.
+   */
+  it('com o Enter ligado, o foco vai para o Confirmar mesmo sendo destrutivo', () => {
+    expect(focoInicial(true, true)).toBe('confirmar');
+    expect(focoInicial(false, true)).toBe('confirmar');
+  });
+
+  it('o botão de cancelar sai quando o Enter confirma', () => {
+    expect(FONTE).toContain('{!confirmarComEnter && (');
+    expect(FONTE).toContain('<Button ref={cancelar} variant="outline"');
+  });
+
+  /** No telefone não existe Esc: sem o X a única saída seria tocar fora. */
+  it('o X do canto fica sempre', () => {
+    const bloco = FONTE.slice(FONTE.indexOf('aria-label="Fechar"'));
+    expect(bloco.slice(0, 400)).not.toContain('confirmarComEnter');
+  });
+
+  it('a dica do teclado some o Tab quando ele não é preciso', () => {
+    expect(FONTE).toContain("{confirmarComEnter ? 'confirma' : 'aciona'}");
+  });
+
   it('o Tab circula, e o Shift+Tab volta', () => {
     expect(proximoNoCiclo(0, 3, false)).toBe(1);
     expect(proximoNoCiclo(2, 3, false)).toBe(0); // dá a volta
