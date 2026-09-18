@@ -254,14 +254,18 @@ export class PendenciasService {
         /*
           REDE, NÃO RÉGUA — e ela AVISA quando encosta.
 
-          Medido em 17/09/2026, já com o filtro de código: o maior lote por
-          advogado é 239 (Dr. Carlos Henrique). O teto de 200 que eu tinha posto
-          CORTAVA 39 pela data — jogando fora as decisões mais antigas, que são
+          Medido em 18/09/2026, com a consulta desta linha: o maior lote por
+          advogado é 258 (Dr. Carlos Henrique). O teto de 200 que eu tinha posto
+          CORTAVA pela data — jogando fora as decisões mais antigas, que são
           justamente as que ainda valem 90 dias. Corte que esconde o que o aviso
           existe para mostrar é o silêncio de antes com outro nome.
 
-          Mil é quatro vezes o pior caso de hoje, e se um dia encostar o log
-          reclama (ver abaixo) em vez de a tela simplesmente mostrar menos.
+          E o corte não era teórico: com ele, a faixa do Dr. Carlos Henrique
+          mostrava 8 atos; sem ele, 14. Medir com o defeito dentro é medir o
+          defeito — foi assim que o primeiro número que escrevi saiu errado.
+
+          Mil é quase quatro vezes o pior caso de hoje, e se um dia encostar o
+          log reclama (ver abaixo) em vez de a tela simplesmente mostrar menos.
         */
         take: TETO_DE_ANDAMENTOS,
         select: {

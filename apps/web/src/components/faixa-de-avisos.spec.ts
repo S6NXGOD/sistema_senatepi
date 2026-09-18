@@ -58,9 +58,15 @@ describe('o sino saiu', () => {
    * alerta, mas não encha de tarefas desnecessárias." O ato virou aviso; a
    * agenda ficou com 48 tarefas a menos.
    *
-   * Simulado contra a produção antes de subir: 7 dos 18 usuários ativos veriam
-   * a linha, com no máximo 8 atos — e todos são DECISÕES (recurso negado,
-   * procedência em parte). É o que o dono pediu para ver.
+   * Simulado contra a produção: 7 dos 18 usuários ativos veem a linha, 27 atos
+   * distintos no total, no máximo 14 numa pessoa — e TODOS são DECISÕES
+   * (procedência em parte, recurso negado, recurso provido em parte). É o que o
+   * dono pediu para ver.
+   *
+   * O primeiro número que medi era 8, e ele estava errado por um motivo que vale
+   * guardar: a consulta tinha um teto de 200 andamentos, e o teto CORTAVA. Medir
+   * com o defeito dentro é medir o defeito. Ver "o recorte da consulta", em
+   * `alerta-no-lugar-da-tarefa.spec.ts`.
    */
   it('e a faixa só carrega o que não pode esperar', () => {
     expect(Object.keys(PENDENCIA).sort()).toEqual([

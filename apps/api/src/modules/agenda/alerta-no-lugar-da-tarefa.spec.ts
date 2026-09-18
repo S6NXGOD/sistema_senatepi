@@ -184,7 +184,7 @@ describe('o recorte da consulta', () => {
     expect(FONTE).toContain('this.logger.warn');
   });
 
-  /** Quatro vezes o pior lote medido (239). Se encolher, o corte volta a morder. */
+  /** Quase quatro vezes o pior lote medido (258). Se encolher, o corte volta a morder. */
   it('o teto é folgado sobre o pior caso medido', () => {
     const m = FONTE.match(/const TETO_DE_ANDAMENTOS = (\d+);/);
     expect(m).not.toBeNull();
