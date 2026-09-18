@@ -314,13 +314,29 @@ describe('grupo de três ou mais', () => {
 
   it('o lote também aproveita o grupo de três em que só um cadastro tem dado', async () => {
     const { svc } = montarGrupo(alvaro);
-    const cand = (id: string, matricula: string, pontuacao: number) => ({ id, matricula, pontuacao, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO' });
+    /*
+      O DADO É LIDO DOS CAMPOS, NÃO DA PONTUAÇÃO (18/09/2026). O fixture passava
+      só `pontuacao`, e o critério do lote deixou de usá-la: `cidade` pontua e
+      NÃO é dado a perder, então quem decide agora é o que está preenchido.
+    */
+    const cand = (id: string, matricula: string, dados: Record<string, unknown> = {}) => ({
+      id, matricula, nomeCompleto: 'ÁLVARO ROGÉRIO VILARINHO',
+      cpf: null, numeroCoren: null, dataNascimento: null, telefonePrincipal: null,
+      email: null, endereco: null, temFoto: false, vinculos: 0, ...dados,
+    });
     (svc as unknown as { varrer: () => Promise<unknown[]> }).varrer = async () => [
-      { contradicoes: [], candidatos: [cand('f-008005', '008005', 7), cand('f-4045', '4045', 0), cand('f-4829', '4829', 0)] },
+      // Um com CPF e dois com nada além da cidade — a fatia que o lote existe para resolver.
+      { contradicoes: [], candidatos: [
+        cand('f-008005', '008005', { cpf: '12345678900', endereco: 'Rua A, 100' }),
+        cand('f-4045', '4045', { cidade: 'Teresina' }),
+        cand('f-4829', '4829'),
+      ] },
       // Dois com dado: o lote não escolhe por ninguém.
-      { contradicoes: [], candidatos: [cand('f-a', 'a', 3), cand('f-b', 'b', 2)] },
+      { contradicoes: [], candidatos: [
+        cand('f-a', 'a', { cpf: '98765432100' }), cand('f-b', 'b', { telefonePrincipal: '86999990000' }),
+      ] },
       // Com contradição, nunca.
-      { contradicoes: ['CPF'], candidatos: [cand('f-c', 'c', 3), cand('f-d', 'd', 0)] },
+      { contradicoes: ['CPF'], candidatos: [cand('f-c', 'c', { cpf: '11122233344' }), cand('f-d', 'd')] },
     ];
     const itens = await svc.elegiveisParaLote();
     expect(itens.map((i) => i.descartarMatricula)).toEqual(['4045', '4829']);

@@ -12,10 +12,10 @@ import { executarLote, previaLote } from '@/lib/duplicidade';
 /**
  * Consolidação em lote da fatia SEM RISCO DE PERDA.
  *
- * Só entram aqui os grupos em que o cadastro descartado não tem CPF, contato,
- * endereço nem local de trabalho. A fusão quase nada copia; e se por azar forem
- * duas pessoas, o que se perde é um registro sem informação, com a matrícula
- * preservada no histórico.
+ * Só entram aqui os grupos em que o cadastro descartado não tem CPF, COREN,
+ * nascimento, contato, endereço, foto nem vínculo. A fusão quase nada copia; e
+ * se por azar forem duas pessoas, o que se perde é um registro sem informação,
+ * com a matrícula preservada no histórico.
  *
  * "Completamente vazio" era o que estava escrito aqui e não era verdade: a DATA
  * DE FILIAÇÃO não pontua, então viajava invisível — 868 dos 925. A fusão hoje
@@ -53,6 +53,19 @@ export function LoteDuplicados({ gruposNaFila }: { gruposNaFila?: number }) {
   const gruposFechados = data?.gruposResolvidos ?? total;
   const restamDepois =
     gruposNaFila === undefined ? null : Math.max(0, gruposNaFila - gruposFechados);
+  /*
+    O QUE SOBRA TEM DOIS TIPOS, E SÓ UM É TRABALHO (18/09/2026). Na produção,
+    dos 274 grupos que ficam, 251 não têm como ser decididos por ninguém —
+    nenhum cadastro do grupo tem um dado sequer. Anunciar "sobram 274 para olhar
+    um a um" é prometer 251 decisões impossíveis; o número honesto é 23.
+
+    O NÚMERO VEM DO SERVIDOR, do mesmo `resumoDoLote` que conta os grupos
+    fechados. Calculá-lo aqui usaria a fila de HOJE, que ainda inclui os grupos
+    que o próprio lote dissolve — e o painel fala do DEPOIS.
+  */
+  const gruposEsperandoDado = data?.gruposEsperandoDado ?? 0;
+  const pedemAlguem =
+    restamDepois === null ? null : Math.max(0, restamDepois - gruposEsperandoDado);
   // Digitar o número é a trava. Um botão sozinho é clicado sem ler; escrever
   // "704" obriga a passar o olho no que está prestes a acontecer.
   const liberado = confirmacao.trim() === String(total) && total > 0;
@@ -127,10 +140,14 @@ export function LoteDuplicados({ gruposNaFila }: { gruposNaFila?: number }) {
               contradição, então passava invisível pelo critério do lote. Em 91
               deles era a data MAIS ANTIGA, média de 2.685 dias: sete anos de
               sindicato por cadastro, num clique, sem aviso.
+
+              A CIDADE entrou na frase no mesmo dia, ao alargar a regra: ela
+              também viaja para o cadastro mantido, e também não some.
             */}
             <p className="text-sm text-muted-foreground">
-              Nesses, o cadastro removido não tem CPF, contato, endereço nem local de
-              trabalho — <strong>só nome, matrícula e a data de filiação</strong>.
+              Nesses, o cadastro removido não tem CPF, COREN, nascimento, contato,
+              endereço nem local de trabalho — <strong>só nome, matrícula, cidade e a
+              data de filiação</strong>, que seguem para o cadastro que fica.
             </p>
             {!!data?.recuamFiliacao && (
               <p className="mt-1.5 flex items-start gap-1.5 text-sm text-muted-foreground">
@@ -150,11 +167,19 @@ export function LoteDuplicados({ gruposNaFila }: { gruposNaFila?: number }) {
               perceber que a maioria sai num clique. Dizer o que SOBRA é o que
               transforma uma pilha sem fim numa tarefa com fim.
             */}
-            {restamDepois !== null && (
+            {pedemAlguem !== null && (
               <p className="mt-1.5 text-sm font-medium text-brand-900 dark:text-brand-200">
-                {restamDepois === 0
-                  ? 'É a fila inteira — depois disto não sobra nada para revisar.'
-                  : `Depois deles sobram ${restamDepois.toLocaleString('pt-BR')} para olhar um a um.`}
+                {/*
+                  O NÚMERO DO "ESPERANDO DADO" NÃO REPETE AQUI (18/09/2026).
+                  O painel fala do DEPOIS do lote e o rodapé da fila de HOJE,
+                  que ainda conta os grupos que o lote dissolve: duas frases
+                  quase iguais com números diferentes na mesma tela fazem quem lê
+                  procurar o erro. Ele mora no rodapé, uma vez; aqui fica só o
+                  que vira trabalho de gente.
+                */}
+                {pedemAlguem === 0
+                  ? 'É tudo que dá para decidir — depois disto não sobra nada para olhar um a um.'
+                  : `Depois deles sobram ${pedemAlguem.toLocaleString('pt-BR')} para olhar um a um.`}
               </p>
             )}
           </div>

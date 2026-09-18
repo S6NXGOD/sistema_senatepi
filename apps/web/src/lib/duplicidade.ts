@@ -40,7 +40,36 @@ export interface GrupoDuplicata {
   /** Falso = o sistema NÃO sabe escolher; a decisão é inteiramente humana. */
   decidiu: boolean;
   contradicoes: string[];
+  /** Ninguém no grupo tem dado que identifique pessoa — ver `separarDecidiveis`. */
+  esperandoDado?: boolean;
   candidatos: CandidatoDuplicata[];
+}
+
+/**
+ * TIRA DA FILA O QUE NINGUÉM TEM COMO DECIDIR (18/09/2026).
+ *
+ * São grupos em que NENHUM cadastro tem CPF, COREN, nascimento, contato,
+ * endereço, foto ou vínculo: nomes iguais e mais nada. Ninguém — nem o sistema,
+ * nem a Coordenação — consegue dizer se são a mesma pessoa. Deixá-los na fila
+ * de decisões é pedir um julgamento impossível. Na produção de 18/09/2026, 251
+ * dos 274 grupos que sobram do lote são assim: a fila parecia 274 decisões
+ * atrasadas quando 23 pediam alguém.
+ *
+ * Eles NÃO somem: ficam a um clique, e voltam sozinhos quando o cadastro ganhar
+ * um dado — num recadastramento, num atendimento, numa ficha de processo.
+ *
+ * A API antiga não manda o campo. Sem ele, `esperandoDado` é indefinido e tudo
+ * continua na fila, como antes: a tela não inventa um balde durante a janela de
+ * troca do deploy.
+ */
+export function separarDecidiveis(grupos: GrupoDuplicata[]): {
+  decidiveis: GrupoDuplicata[];
+  esperando: GrupoDuplicata[];
+} {
+  return {
+    decidiveis: grupos.filter((g) => !g.esperandoDado),
+    esperando: grupos.filter((g) => g.esperandoDado === true),
+  };
 }
 
 export const CONFIANCA_LABEL: Record<Confianca, string> = {
@@ -62,7 +91,13 @@ export const CONFIANCA_EXPLICACAO: Record<Confianca, string> = {
   BAIXA: 'Há campo divergente ou o nome só é parecido — confira antes de decidir.',
 };
 
-export async function statusDuplicidade(): Promise<{ ativo: boolean; pendentes: number }> {
+export async function statusDuplicidade(): Promise<{
+  ativo: boolean;
+  /** Grupos que ALGUÉM consegue decidir — é o que o aviso âmbar promete. */
+  pendentes: number;
+  /** Grupos sem dado nenhum: existem, mas não pedem ninguém. */
+  esperandoDado?: number;
+}> {
   try {
     return (await api.get('/filiados/duplicidade/status')).data;
   } catch {
@@ -299,18 +334,21 @@ export interface ItemLote {
 }
 
 /**
- * Prévia do lote — os grupos em que o cadastro descartado não tem CPF, contato,
- * endereço nem local de trabalho. São a maior parte da fila.
+ * Prévia do lote — os grupos em que o cadastro descartado não tem CPF, COREN,
+ * nascimento, contato, endereço, foto nem vínculo. São a maior parte da fila.
  *
- * "Completamente vazio" era o que estava escrito aqui, e não era: `dataFiliacao`
- * não pontua, então 868 dos 925 removidos trazem a data — em 91 a mais antiga da
- * pessoa. `recuamFiliacao` conta esses, e a fusão preserva a data.
+ * "Completamente vazio" era o que estava escrito aqui, e não era: nem a data de
+ * filiação nem a cidade pontuam para esse fim, e ambas seguem para o cadastro
+ * mantido na fusão. `recuamFiliacao` conta aqueles em que a data que vem é a
+ * mais antiga da pessoa — o tempo de sindicato que seria perdido.
  */
 export async function previaLote(): Promise<{
   total: number;
   recuamFiliacao?: number;
   /** Quantos GRUPOS o lote fecha — um grupo de três gera dois pares. */
   gruposResolvidos?: number;
+  /** Dos grupos que SOBRAM, os que ninguém tem como decidir. */
+  gruposEsperandoDado?: number;
   amostra: ItemLote[];
 }> {
   return (await api.get('/filiados/duplicidade/lote')).data;

@@ -21,8 +21,8 @@ import {
   CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL, frasesDaRiqueza,
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
   listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
-  planejarConsolidacao, quantosDados, resumoDoCadastro, rotuloDoConsolidar, temValor,
-  voltarParaFila,
+  planejarConsolidacao, quantosDados, resumoDoCadastro, rotuloDoConsolidar,
+  separarDecidiveis, temValor, voltarParaFila,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
@@ -38,7 +38,11 @@ export default function DuplicadosPage() {
     pessoa acompanha; com EDITAR, consolida, descarta e devolve à fila.
   */
   const podeDecidir = podeEditar(user?.role, user?.permissoes, 'duplicados');
-  const [aba, setAba] = useState<Confianca>('ALTA');
+  /**
+   * 'ESPERANDO' não é um quarto nível de confiança: é o balde do que NINGUÉM
+   * tem como decidir. Fica fora da fileira de abas de propósito — ver o rodapé.
+   */
+  const [aba, setAba] = useState<Confianca | 'ESPERANDO'>('ALTA');
   const [fundindo, setFundindo] = useState<{ grupo: GrupoDuplicata; manter: CandidatoDuplicata } | null>(null);
   const [executando, setExecutando] = useState(false);
   /** Escolha do operador quando ele discorda do sugerido (ou não há sugestão). */
@@ -72,13 +76,21 @@ export default function DuplicadosPage() {
     refetchOnWindowFocus: false,
   });
 
+  /*
+    A FILA É SÓ O QUE ALGUÉM CONSEGUE DECIDIR (18/09/2026). Ver `separarDecidiveis`:
+    na produção, 255 dos 389 grupos não têm um dado sequer em nenhum dos
+    cadastros. Pedir julgamento neles é pedir sorteio, e é o que fazia a fila
+    parecer interminável. Continuam a um clique, no rodapé.
+  */
+  const { decidiveis, esperando } = useMemo(() => separarDecidiveis(data ?? []), [data]);
+
   const porNivel = useMemo(() => {
     const mapa: Record<Confianca, GrupoDuplicata[]> = { ALTA: [], MEDIA: [], BAIXA: [] };
-    for (const g of data ?? []) mapa[g.confianca].push(g);
+    for (const g of decidiveis) mapa[g.confianca].push(g);
     return mapa;
-  }, [data]);
+  }, [decidiveis]);
 
-  const grupos = porNivel[aba];
+  const grupos = aba === 'ESPERANDO' ? esperando : porNivel[aba];
 
   async function confirmarFusao() {
     if (!fundindo) return;
@@ -306,7 +318,7 @@ export default function DuplicadosPage() {
       </div>
 
       <ComoFunciona />
-      <PlacarDaFila resolvidos={resolvidos} restantes={(data ?? []).length} />
+      <PlacarDaFila resolvidos={resolvidos} restantes={decidiveis.length} />
 
       {/* Consolidação em lote — só a fatia em que o removido não tem dado a copiar. */}
       {podeDecidir ? (
@@ -334,6 +346,19 @@ export default function DuplicadosPage() {
             <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{porNivel[n].length}</span>
           </button>
         ))}
+        {/*
+          SÓ APARECE QUANDO VOCÊ ESTÁ DENTRO DELE (18/09/2026). É um marcador de
+          lugar, não uma aba: sem isso, quem abre o balde vê as três abas
+          apagadas e nenhuma dizendo onde está. Como só existe nesse modo, não
+          volta a encher a fileira com 397 itens que ninguém decide — e sair é
+          tocar em qualquer confiança ao lado.
+        */}
+        {aba === 'ESPERANDO' && (
+          <span className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+            Esperando dado
+            <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{esperando.length}</span>
+          </span>
+        )}
         {/*
           O SELETOR TINHA TAMANHO DE LEGENDA e ninguém o via. Agora tem a mesma
           altura das abas, texto legível e rótulo que diz o que faz — "Um por
@@ -364,7 +389,11 @@ export default function DuplicadosPage() {
           </button>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">{CONFIANCA_EXPLICACAO[aba]}</p>
+      <p className="text-xs text-muted-foreground">
+        {aba === 'ESPERANDO'
+          ? 'Nenhum cadastro destes grupos tem CPF, COREN, nascimento ou contato — não há como afirmar que são a mesma pessoa nem que são diferentes.'
+          : CONFIANCA_EXPLICACAO[aba]}
+      </p>
 
       {isLoading && (
         <Card><CardContent className="p-4">
@@ -383,7 +412,9 @@ export default function DuplicadosPage() {
       {!isLoading && !isError && grupos.length === 0 && (
         <Card><CardContent className="flex flex-col items-center gap-2 py-12 text-center">
           <CheckCircle2 className="h-8 w-8 text-brand-700 dark:text-brand-400" />
-          <p className="text-sm font-medium">Nada pendente nesta confiança</p>
+          <p className="text-sm font-medium">
+            {aba === 'ESPERANDO' ? 'Nenhum grupo esperando dado' : 'Nada pendente nesta confiança'}
+          </p>
           <p className="max-w-sm text-xs text-muted-foreground">
             Os grupos resolvidos não voltam a aparecer.
           </p>
@@ -451,6 +482,13 @@ export default function DuplicadosPage() {
           ))}
         </div>
       )}
+
+      <EsperandoDado
+        quantos={esperando.length}
+        aberto={aba === 'ESPERANDO'}
+        onAbrir={() => setAba('ESPERANDO')}
+        onFechar={() => setAba('ALTA')}
+      />
 
       <MarcadosComoDiferentes onDevolver={devolver} podeDecidir={podeDecidir} />
 
@@ -1195,6 +1233,49 @@ function ComoFunciona() {
  * barra andando. Ponto e medalha seriam piores que inúteis: isto apaga cadastro
  * de gente, e premiar velocidade é convidar ao clique rápido.
  */
+/**
+ * O QUE NÃO É TRABALHO DE NINGUÉM — uma linha, no rodapé (18/09/2026).
+ *
+ * São grupos em que nenhum cadastro tem um dado sequer. Três decisões possíveis
+ * e nenhuma honesta: consolidar é juntar desconhecidos, "não é duplicado" é
+ * chutar, e deixar na fila é cobrar 255 vezes uma resposta que não existe.
+ *
+ * Por que NÃO é uma quarta aba: ao lado das três confianças, um "Esperando dado
+ * 255" domina a tela e recria a sensação de fila infinita que o lote acabou de
+ * resolver. E por que não some de vez: alguém da Coordenação pode
+ * reconhecer os nomes e decidir por conhecimento próprio — a porta fica aberta,
+ * só não fica no caminho.
+ */
+function EsperandoDado({
+  quantos, aberto, onAbrir, onFechar,
+}: { quantos: number; aberto: boolean; onAbrir: () => void; onFechar: () => void }) {
+  if (quantos === 0) return null;
+  if (aberto) {
+    return (
+      <button
+        type="button"
+        onClick={onFechar}
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground transition hover:bg-muted"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+        Voltar para a fila de decisões
+      </button>
+    );
+  }
+  return (
+    <p className="flex flex-wrap items-baseline justify-center gap-x-1.5 gap-y-0.5 px-1 text-xs text-muted-foreground">
+      <span>
+        Outros <strong className="font-semibold">{quantos.toLocaleString('pt-BR')}</strong> grupos
+        esperam um dado para poderem ser decididos — nenhum dos cadastros tem CPF, contato ou
+        nascimento.
+      </span>
+      <button type="button" onClick={onAbrir} className="underline underline-offset-2 hover:text-foreground">
+        Ver assim mesmo
+      </button>
+    </p>
+  );
+}
+
 function PlacarDaFila({ resolvidos, restantes }: { resolvidos: number; restantes: number }) {
   const total = resolvidos + restantes;
   if (total === 0) return null;

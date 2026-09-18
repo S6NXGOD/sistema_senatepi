@@ -62,6 +62,11 @@ export interface GrupoDuplicata {
   decidiu: boolean;
   /** Campos que divergem entre os candidatos (o que derruba a confiança). */
   contradicoes: string[];
+  /**
+   * NINGUÉM do grupo tem dado que identifique pessoa — ver `esperandoDado`.
+   * Não é pendência: é uma pergunta sem resposta possível hoje.
+   */
+  esperandoDado: boolean;
   candidatos: CandidatoDuplicata[];
 }
 
@@ -137,6 +142,63 @@ interface LinhaCandidato {
   abreviacao?: boolean;
 }
 
+/**
+ * O CADASTRO CARREGA ALGUMA INFORMAÇÃO DE VERDADE?
+ *
+ * A CIDADE NÃO CONTA (18/09/2026). Ela vale 1 na pontuação de completude — o que
+ * é justo para escolher QUAL cadastro fica —, mas não serve para decidir se o
+ * outro pode sair, por duas razões:
+ *
+ *  1. Ela não se perde. `fundir` copia a cidade para o cadastro que fica quando
+ *     lá está vazia, junto com bairro, endereço e o resto. A promessa do lote
+ *     ("nada do que sai se perde") continua inteira.
+ *  2. Ela não distingue ninguém. Uma cidade num lado e nenhuma no outro não é
+ *     indício de que são pessoas diferentes; e quando as duas cidades DIVERGEM
+ *     isso já é contradição, e o grupo nem chega ao lote.
+ *
+ * MEDIDO NA PRODUÇÃO (18/09/2026, 389 grupos na fila): com a régua antiga o
+ * lote oferecia ZERO pares — estava esgotado, e os 389 pareciam todos trabalho
+ * de gente. Com a cidade fora, entram 128 pares e 115 grupos se fecham; em 110
+ * deles o cadastro removido tinha exatamente uma cidade e mais nada.
+ *
+ * O mesmo critério responde à outra pergunta: se NINGUÉM do grupo tem dado
+ * próprio, não há como decidir — ver `esperandoDado`.
+ */
+export function temDadoProprio(c: CandidatoDuplicata): boolean {
+  const cheio = (v: unknown) => v !== null && v !== undefined && String(v).trim() !== '';
+  return (
+    cheio(c.cpf) || cheio(c.numeroCoren) || !!c.dataNascimento ||
+    cheio(c.telefonePrincipal) || cheio(c.email) || cheio(c.endereco) ||
+    c.temFoto || c.vinculos > 0
+  );
+}
+
+/**
+ * O GRUPO NÃO TEM COMO SER DECIDIDO — por ninguém, nem por gente.
+ *
+ * Nenhum dos cadastros tem CPF, COREN, nascimento, contato, endereço, foto ou
+ * vínculo: são nomes iguais e mais nada. Não dá para consolidar (seria juntar
+ * dois desconhecidos) nem para afirmar que são pessoas diferentes.
+ *
+ * Isto NÃO é uma pendência da equipe, e cobrá-la como se fosse é o que faz uma
+ * fila de 1.400 itens parecer trabalho atrasado. A saída não é decidir: é o
+ * cadastro ganhar um dado — no recadastramento, num atendimento, numa ficha de
+ * processo. Aí o grupo volta a ser decidível sozinho.
+ */
+/** Um par do lote: quem fica, quem sai, e se a filiação antiga vem junto. */
+export interface ItemDoLote {
+  manterId: string;
+  descartarId: string;
+  nome: string;
+  manterMatricula: string;
+  descartarMatricula: string;
+  recuaFiliacao: boolean;
+}
+
+export function esperandoDado(candidatos: CandidatoDuplicata[]): boolean {
+  return !candidatos.some(temDadoProprio);
+}
+
 @Injectable()
 export class DuplicidadeService {
   constructor(
@@ -187,9 +249,22 @@ export class DuplicidadeService {
       });
   }
 
-  /** Quantos grupos ainda esperam decisão — alimenta o status da tela. */
-  async pendentes(): Promise<number> {
-    return (await this.varrer()).length;
+  /**
+   * Quantos grupos esperam decisão — alimenta o aviso da tela de filiados.
+   *
+   * CONTA SÓ O DECIDÍVEL (18/09/2026). O aviso é âmbar e diz "aguardando
+   * revisão": é pedido de trabalho. Na produção, 255 dos 389 grupos não têm um
+   * dado sequer em nenhum cadastro — somá-los fazia o aviso pedir 389 revisões
+   * quando 134 são decidíveis, e punha na tela dois números que se
+   * contradizem, porque a fila já separa.
+   *
+   * `esperandoDado` vem junto para a tela conseguir manter a porta aberta sem
+   * pintar de âmbar o que não pede ninguém.
+   */
+  async pendentes(): Promise<{ pendentes: number; esperandoDado: number }> {
+    const grupos = await this.varrer();
+    const esperando = grupos.filter((g) => g.esperandoDado).length;
+    return { pendentes: grupos.length - esperando, esperandoDado: esperando };
   }
 
   // =========================================================================
@@ -339,6 +414,7 @@ export class DuplicidadeService {
         motivoSugestao: motivo,
         decidiu,
         contradicoes: contradicoes.map((c) => c.rotulo),
+        esperandoDado: esperandoDado(candidatos),
         candidatos: candidatos.map((c) => ({ ...c, sugerido: c.id === sugeridoId })),
       });
     }
@@ -495,6 +571,7 @@ export class DuplicidadeService {
       contradicoes: contradicoes.map((c) => c.rotulo),
       motivoSugestao: motivo,
       decidiu,
+      esperandoDado: esperandoDado(restantes),
       candidatos: restantes.map((c) => ({ ...c, sugerido: c.id === sugeridoId })),
     };
   }
@@ -504,22 +581,65 @@ export class DuplicidadeService {
   // =========================================================================
 
   /**
+   * O LOTE E O QUE SOBRA DEPOIS DELE — de UMA varredura só.
+   *
+   * As duas contas saíam de lugares diferentes e discordavam na tela
+   * (18/09/2026): o painel contava `manterId` distintos e a fila contava grupos
+   * — na cópia local, 978 contra 1.020. Um cadastro pode estar em DOIS grupos
+   * — no de nome idêntico e no de nome contido —, então "quantos donos" não é
+   * "quantos grupos somem".
+   *
+   * Aqui a pergunta é uma só: depois do lote, QUAIS GRUPOS AINDA EXISTEM? Some
+   * o grupo cujos cadastros foram todos tocados pelo lote, por este grupo ou
+   * por outro. E do que resta, separa o que pede alguém do que espera um dado.
+   */
+  async resumoDoLote(): Promise<{
+    itens: ItemDoLote[];
+    gruposResolvidos: number;
+    /** Grupos que SOBRAM e ninguém tem como decidir — não são trabalho. */
+    gruposEsperandoDado: number;
+  }> {
+    const grupos = await this.varrer();
+    const itens = this.doLote(grupos);
+    /*
+      "GRUPOS QUE SOMEM", e não "quantos donos" (18/09/2026): dois grupos podem
+      terminar no mesmo cadastro mantido, e aí o painel promete trabalho que não
+      vai existir. Na produção, 128 pares fecham 115 grupos.
+    */
+    const tocados = new Set(itens.flatMap((i) => [i.manterId, i.descartarId]));
+    const sobram = grupos.filter((g) => !g.candidatos.every((c) => tocados.has(c.id)));
+    return {
+      itens,
+      gruposResolvidos: grupos.length - sobram.length,
+      gruposEsperandoDado: sobram.filter((g) => g.esperandoDado).length,
+    };
+  }
+
+  /**
    * Grupos elegíveis à consolidação em lote.
    *
-   * O critério é DELIBERADAMENTE estreito: exatamente dois cadastros, nenhum
-   * campo se contradizendo, e o que sai com pontuação ZERO — ou seja, só nome
-   * e matrícula, sem CPF, sem contato, sem endereço, sem local de trabalho.
+   * O critério é DELIBERADAMENTE estreito: nenhum campo se contradizendo e um
+   * só cadastro com dado — o que sai não tem CPF, COREN, nascimento, contato,
+   * endereço, foto nem vínculo. Só nome, matrícula, a cidade que já agrupou
+   * os dois e a data de filiação.
    *
    * É o que torna o lote defensável. A fusão não copia NADA porque não há
    * nada; e se por azar forem duas pessoas diferentes, o que se perde é um
    * cadastro que não continha informação alguma — com a matrícula preservada
-   * no histórico do que ficou.
+   * no histórico do que ficou, e a filiação mais antiga prevalecendo.
    *
-   * São 704 dos 1.224 pares na base: 58% do trabalho, na fatia de menor risco.
-   * O resto continua exigindo olho humano, e é assim de propósito.
+   * Ver `temDadoProprio` para a razão de a cidade não contar.
    */
-  async elegiveisParaLote(): Promise<{ manterId: string; descartarId: string; nome: string; manterMatricula: string; descartarMatricula: string; recuaFiliacao: boolean }[]> {
-    const grupos = await this.varrer();
+  async elegiveisParaLote(): Promise<ItemDoLote[]> {
+    return this.doLote(await this.varrer());
+  }
+
+  /**
+   * A REGRA DO LOTE, PURA — a mesma para a prévia, para a execução e para a
+   * conta do que sobra. Separada da varredura para que nenhuma delas possa
+   * reimplementá-la e discordar das outras na tela.
+   */
+  private doLote(grupos: GrupoDuplicata[]): ItemDoLote[] {
     /*
       GRUPO DE TRÊS TAMBÉM ENTRA NO LOTE (17/09/2026), desde que só UM cadastro
       tenha dado e os outros sejam casca (nome e matrícula). É o caso comum na
@@ -530,8 +650,20 @@ export class DuplicidadeService {
     return grupos
       .filter((g) => g.contradicoes.length === 0)
       .flatMap((g) => {
-        const cheios = g.candidatos.filter((c) => c.pontuacao > 0);
-        const vazios = g.candidatos.filter((c) => c.pontuacao === 0);
+        /*
+          A CIDADE NÃO É DADO A PERDER — ver `temDadoProprio`. Era `pontuacao > 0`,
+          e a cidade vale 1: o descartado que só tinha "Teresina" ficava fora do
+          lote, e a fusão copiaria essa cidade de qualquer jeito.
+
+          O efeito tem DOIS sinais, e o segundo é de propósito: entram os pares
+          cujo removido só tinha cidade, e SAEM aqueles em que o cadastro mantido
+          também não tinha nada além dela. Esses eram fusão de dois
+          desconhecidos; agora caem em `esperandoDado`, que é o nome honesto do
+          que eles são. Na cópia local, onde a fila ainda é grande, foram 405
+          para dentro e 122 para fora.
+        */
+        const cheios = g.candidatos.filter(temDadoProprio);
+        const vazios = g.candidatos.filter((c) => !temDadoProprio(c));
         if (cheios.length !== 1 || !vazios.length) return [];
         const cheio = cheios[0];
         return vazios.map((vazio) => ({

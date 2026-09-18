@@ -467,7 +467,31 @@ function AvisoDuplicados() {
     refetchOnWindowFocus: false,
   });
 
-  if (!data?.ativo || data.pendentes === 0) return null;
+  if (!data?.ativo) return null;
+
+  /*
+    NADA A DECIDIR, MAS A PORTA FICA ABERTA (18/09/2026).
+
+    Quando sobram só os grupos sem dado nenhum, o aviso âmbar mentiria: âmbar
+    pede você, e não há o que fazer. Mas some-lo por inteiro tranca a fila —
+    este é o único link para ela. Vira uma linha discreta, que é o que ela é.
+  */
+  const esperando = data.esperandoDado ?? 0;
+  if (data.pendentes === 0) {
+    if (esperando === 0) return null;
+    return (
+      <Link
+        href="/filiados/duplicados"
+        className="flex items-center gap-2 rounded-xl px-1 py-1 text-xs text-muted-foreground transition hover:text-foreground"
+      >
+        <CopyCheck className="h-3.5 w-3.5 shrink-0" />
+        <span>
+          {esperando.toLocaleString('pt-BR')} grupos de possíveis duplicados esperam um dado para
+          poderem ser decididos.
+        </span>
+      </Link>
+    );
+  }
 
   return (
     <Link

@@ -335,8 +335,56 @@ describe('o lote conversa com a fila', () => {
   });
 
   it('e o painel diz quantos sobram depois', () => {
-    expect(LOTE).toContain('sobram ${restamDepois.toLocaleString(\'pt-BR\')} para olhar um a um');
-    expect(LOTE).toContain('depois disto não sobra nada para revisar');
+    expect(LOTE).toContain('sobram ${pedemAlguem.toLocaleString(\'pt-BR\')} para olhar um a um');
+    expect(LOTE).toContain('não sobra nada para olhar um a um');
+  });
+
+  /**
+   * O QUE SOBRA NÃO É TUDO TRABALHO (18/09/2026). Na produção, dos 274 grupos
+   * que ficam depois do lote, 251 não têm um dado sequer em nenhum cadastro —
+   * ninguém consegue decidi-los. Prometer "sobram 274 para olhar um a um" é
+   * anunciar 251 decisões impossíveis; o número que o painel mostra é 23.
+   */
+  it('o que sobra desconta o que ninguém tem como decidir', () => {
+    expect(LOTE).toContain('restamDepois - gruposEsperandoDado');
+    // E não repete o número do balde: ele mora no rodapé da fila, uma vez só.
+    expect(LOTE).not.toContain('esperam um dado para poderem ser decididos');
+    // O número é do SERVIDOR: a fila de hoje inclui 12 grupos que o lote
+    // dissolve, e o painel fala do depois. Contá-los aqui erra para cima.
+    expect(LOTE).toContain('data?.gruposEsperandoDado ?? 0');
+  });
+
+  /**
+   * A FILA CONTA SÓ O DECIDÍVEL, E NÃO GANHA UMA QUARTA ABA.
+   *
+   * Ao lado das três confianças, um "Esperando dado 255" volta a encher a tela
+   * com trabalho que não existe — é o mesmo efeito que o lote acabou de
+   * desfazer. O balde mora no rodapé, numa linha, a um clique.
+   */
+  /**
+   * ÂMBAR PEDE VOCÊ. Sem nada a decidir, o aviso da tela de filiados não pode
+   * continuar âmbar — mas também não pode sumir: é o único link para a fila.
+   */
+  it('o aviso da tela de filiados vira linha discreta quando não há o que decidir', () => {
+    const FILIADOS = readFileSync(path.join(RAIZ, 'app/(dashboard)/filiados/page.tsx'), 'utf8');
+    expect(FILIADOS).toContain('if (data.pendentes === 0) {');
+    expect(FILIADOS).toContain('if (esperando === 0) return null;');
+    expect(FILIADOS).toContain('esperam um dado para');
+    // A linha discreta é muted, não âmbar — nada ali pede ninguém. A fatia
+    // termina no fim do ramo: o aviso âmbar vem logo depois e é âmbar de direito.
+    const inicio = FILIADOS.indexOf('if (data.pendentes === 0) {');
+    const discreta = FILIADOS.slice(inicio, FILIADOS.indexOf('return (', inicio + 400));
+    expect(discreta).toContain('text-muted-foreground');
+    expect(discreta).not.toContain('amber');
+  });
+
+  it('o placar e as abas contam só quem alguém consegue decidir', () => {
+    expect(PAGINA).toContain('separarDecidiveis(data ?? [])');
+    expect(PAGINA).toContain('restantes={decidiveis.length}');
+    expect(PAGINA).toContain('for (const g of decidiveis)');
+    // A fileira de abas continua com os três níveis de confiança, e só eles.
+    expect(PAGINA).toContain("const NIVEIS: Confianca[] = ['ALTA', 'MEDIA', 'BAIXA'];");
+    expect(PAGINA).not.toContain("NIVEIS: (Confianca | 'ESPERANDO')");
   });
 
   /**
@@ -370,7 +418,10 @@ describe('o lote conversa com a fila', () => {
    */
   it('não diz mais que o removido só tem nome e matrícula', () => {
     expect(LOTE).not.toContain('apenas nome e matrícula');
-    expect(LOTE).toContain('só nome, matrícula e a data de filiação');
+    expect(LOTE).toContain('só nome, matrícula, cidade e a');
+    // A cidade entrou na lista no dia em que passou a não barrar o lote: ela
+    // viaja para o cadastro que fica, e a frase precisa dizer isso.
+    expect(LOTE).toContain('que seguem para o cadastro que fica');
   });
 
   it('conta em quantos a filiação antiga é preservada, e só quando há', () => {

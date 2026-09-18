@@ -90,7 +90,8 @@ export class DuplicidadeController {
   @Get('status')
   async status() {
     const ativo = duplicidadeAtiva();
-    return { ativo, pendentes: ativo ? await this.service.pendentes() : 0 };
+    if (!ativo) return { ativo, pendentes: 0, esperandoDado: 0 };
+    return { ativo, ...(await this.service.pendentes()) };
   }
 
   @Get()
@@ -103,7 +104,7 @@ export class DuplicidadeController {
   @Get('lote')
   @UseGuards(DuplicidadeAtivaGuard)
   async previaLote() {
-    const itens = await this.service.elegiveisParaLote();
+    const { itens, gruposResolvidos, gruposEsperandoDado } = await this.service.resumoDoLote();
     return {
       total: itens.length,
       // Em quantos a filiação mais antiga será preservada. É o que autoriza a
@@ -115,8 +116,18 @@ export class DuplicidadeController {
         grupo de três gera dois pares: na base, 925 pares saem de 798 grupos, e
         a conta prometia 498 quando sobram 625. Errar por baixo é pior que não
         dizer: a pessoa termina o lote e encontra 127 grupos que não esperava.
+
+        E não é `manterId` distinto: dois grupos podem terminar no mesmo
+        cadastro. Quem responde é `resumoDoLote`, de uma varredura só.
       */
-      gruposResolvidos: new Set(itens.map((i) => i.manterId)).size,
+      gruposResolvidos,
+      /*
+        DO QUE SOBRA, o que ninguém tem como decidir. Vem daqui, e não da tela:
+        a fila de HOJE inclui grupos que o próprio lote dissolve, e o painel
+        fala do DEPOIS. Contar dos dois jeitos põe dois números para a mesma
+        pergunta na mesma tela (na cópia local, 397 contra 385).
+      */
+      gruposEsperandoDado,
       amostra: itens.slice(0, 25),
     };
   }

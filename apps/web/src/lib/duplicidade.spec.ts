@@ -1,6 +1,7 @@
 import {
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, resumoDoCadastro, rotuloDoConsolidar,
-  type ParDescartado,
+  separarDecidiveis,
+  type GrupoDuplicata, type ParDescartado,
 } from './duplicidade';
 
 /**
@@ -113,5 +114,37 @@ describe('pares marcados como pessoas diferentes', () => {
     expect(resumoDoCadastro({ cidade: 'Teresina', cpf: '11122233344', dataNascimento: '1970-11-10T03:00:00.000Z' }))
       .toBe('Teresina · com CPF · nasc. 10/11/1970');
     expect(resumoDoCadastro({ cidade: '  ', cpf: null, dataNascimento: null })).toBe('sem CPF');
+  });
+});
+
+/**
+ * O QUE NINGUÉM TEM COMO DECIDIR SAI DA FILA (18/09/2026).
+ *
+ * Na produção, 255 dos 389 grupos não têm um dado sequer em nenhum cadastro.
+ * Continuar pedindo decisão neles é pedir sorteio 255 vezes.
+ */
+describe('a fila separa o decidível do impossível', () => {
+  const grupo = (chave: string, esperandoDado?: boolean): GrupoDuplicata => ({
+    chave, confianca: 'ALTA', criterio: 'nome idêntico', motivoSugestao: null,
+    decidiu: true, contradicoes: [], esperandoDado, candidatos: [],
+  });
+
+  it('quem espera dado sai da fila e vai para o balde do rodapé', () => {
+    const { decidiveis, esperando } = separarDecidiveis([
+      grupo('a', false), grupo('b', true), grupo('c', true),
+    ]);
+    expect(decidiveis.map((g) => g.chave)).toEqual(['a']);
+    expect(esperando.map((g) => g.chave)).toEqual(['b', 'c']);
+  });
+
+  it('API antiga não manda o campo: TUDO continua na fila, como antes', () => {
+    /*
+      A JANELA DE TROCA DO DEPLOY. O web novo conversa com a API velha por
+      alguns minutos; sem o campo, o certo é não inventar um balde vazio e
+      sumir com a fila inteira da tela.
+    */
+    const { decidiveis, esperando } = separarDecidiveis([grupo('a'), grupo('b')]);
+    expect(decidiveis).toHaveLength(2);
+    expect(esperando).toHaveLength(0);
   });
 });
