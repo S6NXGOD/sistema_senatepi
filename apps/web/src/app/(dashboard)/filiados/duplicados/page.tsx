@@ -287,8 +287,8 @@ export default function DuplicadosPage() {
           <h2 className="text-2xl font-bold">Possíveis cadastros duplicados</h2>
           <p className="max-w-2xl text-sm text-muted-foreground">
             A mesma pessoa cadastrada mais de uma vez. Consolidar copia para o registro
-            mantido o que só existe no outro, e só então remove o duplicado — nenhum dado
-            se perde.
+            mantido o que só existe no outro, preserva a filiação mais antiga e só então
+            remove o duplicado.
           </p>
         </div>
       </div>
@@ -296,7 +296,7 @@ export default function DuplicadosPage() {
       <ComoFunciona />
       <PlacarDaFila resolvidos={resolvidos} restantes={(data ?? []).length} />
 
-      {/* Consolidação em lote — só a fatia sem nada a perder. */}
+      {/* Consolidação em lote — só a fatia em que o removido não tem dado a copiar. */}
       {podeDecidir ? (
         <LoteDuplicados gruposNaFila={(data ?? []).length} />
       ) : (

@@ -256,8 +256,28 @@ export function rotuloDoConsolidar(quantos: number, matricula: string): string {
  * O aviso depois de consolidar. O grupo pode dar certo em parte, e nesse caso a
  * pessoa precisa saber QUAL cadastro ficou de fora — "consolidado" seco mentiria.
  */
+/**
+ * Nome do campo em português. O aviso mostrava `dataFiliacao` e `telefonePrincipal`
+ * crus para quem nunca viu o banco — e, depois que a filiação passou a ser
+ * preservada, `dataFiliacao` virou o campo mais frequente do aviso.
+ */
+const NOME_DO_CAMPO: Record<string, string> = {
+  cpf: 'CPF', rg: 'RG', ufRg: 'UF do RG', dataNascimento: 'nascimento', sexo: 'sexo',
+  estadoCivil: 'estado civil', naturalidade: 'naturalidade', telefonePrincipal: 'telefone',
+  telefoneSecundario: 'telefone secundário', email: 'e-mail', cep: 'CEP', endereco: 'endereço',
+  numero: 'número', complemento: 'complemento', bairro: 'bairro', cidade: 'cidade',
+  estado: 'estado', numeroCoren: 'COREN', dataAdmissao: 'admissão', formacao: 'formação',
+  formacaoOutro: 'formação', dataFiliacao: 'data de filiação',
+  modalidadeContribuicao: 'contribuição', fotoKey: 'foto', fotoThumbKey: 'foto',
+};
+
+export function nomeDoCampo(chave: string): string {
+  return NOME_DO_CAMPO[chave] ?? chave;
+}
 export function avisoDaConsolidacao(r: ResultadoDaConsolidacao): { tom: 'ok' | 'aviso'; texto: string } {
-  const aproveitados = r.camposAbsorvidos?.length ? ` Aproveitados: ${r.camposAbsorvidos.join(', ')}.` : '';
+  const aproveitados = r.camposAbsorvidos?.length
+    ? ` Aproveitados: ${r.camposAbsorvidos.map(nomeDoCampo).join(', ')}.`
+    : '';
   if (r.falhas?.length) {
     return {
       tom: 'aviso',
@@ -279,9 +299,12 @@ export interface ItemLote {
 }
 
 /**
- * Prévia do lote — só os grupos em que o cadastro descartado está
- * COMPLETAMENTE vazio (nome e matrícula, nada mais). São 58% do total, e a
- * fusão neles não copia nada porque não há nada a copiar.
+ * Prévia do lote — os grupos em que o cadastro descartado não tem CPF, contato,
+ * endereço nem local de trabalho. São a maior parte da fila.
+ *
+ * "Completamente vazio" era o que estava escrito aqui, e não era: `dataFiliacao`
+ * não pontua, então 868 dos 925 removidos trazem a data — em 91 a mais antiga da
+ * pessoa. `recuamFiliacao` conta esses, e a fusão preserva a data.
  */
 export async function previaLote(): Promise<{ total: number; recuamFiliacao?: number; amostra: ItemLote[] }> {
   return (await api.get('/filiados/duplicidade/lote')).data;

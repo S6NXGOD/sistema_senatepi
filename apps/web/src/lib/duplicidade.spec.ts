@@ -58,6 +58,20 @@ describe('consolidar um grupo de três ou mais', () => {
     expect(avisoDaConsolidacao({ camposAbsorvidos: [] }).texto).toBe('Cadastros consolidados.');
   });
 
+  /**
+   * O AVISO FALAVA EM NOME DE COLUNA (18/09/2026). Vinha do servidor como
+   * `dataFiliacao`, `telefonePrincipal` — e depois que a filiação passou a ser
+   * preservada, `dataFiliacao` virou o campo mais frequente da mensagem.
+   */
+  it('traduz o nome do campo em vez de mostrar a coluna do banco', () => {
+    const r = avisoDaConsolidacao({ camposAbsorvidos: ['dataFiliacao', 'telefonePrincipal', 'numeroCoren'] });
+    expect(r.texto).toBe('Cadastros consolidados. Aproveitados: data de filiação, telefone, COREN.');
+  });
+
+  it('campo desconhecido não vira buraco na frase', () => {
+    expect(avisoDaConsolidacao({ camposAbsorvidos: ['campoNovo'] }).texto).toContain('campoNovo');
+  });
+
   /** Meia consolidação não pode virar "pronto": a pessoa tem de saber qual ficou. */
   it('quando um cadastro fica de fora, o aviso nomeia a matrícula e o motivo', () => {
     const r = avisoDaConsolidacao({ ok: false, fundidos: 2, falhas: [{ matricula: '7777', motivo: 'Filiado a descartar não encontrado.' }] });

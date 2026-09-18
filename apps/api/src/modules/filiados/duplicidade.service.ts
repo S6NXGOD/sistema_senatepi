@@ -500,7 +500,7 @@ export class DuplicidadeService {
   }
 
   // =========================================================================
-  // Lote — só o caso em que não há absolutamente nada a perder
+  // Lote — a fatia em que o cadastro removido não tem dado a copiar
   // =========================================================================
 
   /**
