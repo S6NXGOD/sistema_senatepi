@@ -4,6 +4,7 @@ import {
   baseDoAcervo,
   historicoDe,
   lerConcentracao,
+  medianaAteSentenca,
   montarPadroes,
   type Historico,
   type LinhaDoAcervo,
@@ -120,6 +121,83 @@ describe('leitura de uma concentração', () => {
   });
 });
 
+/**
+ * QUANTO TEMPO ATÉ A SENTENÇA.
+ *
+ * A tela dizia quantas e como foram julgadas, nunca em quanto tempo — e é o
+ * número que decide se vale entrar com a ação.
+ */
+describe('mediana até a sentença', () => {
+  const julgado = (distribuicao: string, sentenca: string) =>
+    processo({
+      dataDistribuicao: new Date(`${distribuicao}T03:00:00Z`),
+      dataJulgamento: new Date(`${sentenca}T03:00:00Z`),
+      julgamento: 219,
+    });
+
+  it('com três julgados, devolve o do meio', () => {
+    const linhas = [
+      julgado('2020-01-01', '2020-01-11'), // 10
+      julgado('2020-01-01', '2020-02-30'.replace('30', '20')), // 50
+      julgado('2020-01-01', '2021-01-01'), // 366
+    ];
+    expect(medianaAteSentenca(linhas)).toBe(50);
+  });
+
+  it('com número par, é a média dos dois do meio', () => {
+    const linhas = [
+      julgado('2020-01-01', '2020-01-11'), // 10
+      julgado('2020-01-01', '2020-01-21'), // 20
+      julgado('2020-01-01', '2020-01-31'), // 30
+      julgado('2020-01-01', '2020-02-10'), // 40
+    ];
+    expect(medianaAteSentenca(linhas)).toBe(25);
+  });
+
+  /** Mediana de dois é o ponto médio de dois números, não um padrão. */
+  it('cala com menos de três julgados', () => {
+    expect(medianaAteSentenca([julgado('2020-01-01', '2021-01-01')])).toBeNull();
+    expect(medianaAteSentenca([
+      julgado('2020-01-01', '2021-01-01'),
+      julgado('2020-01-01', '2020-06-01'),
+    ])).toBeNull();
+  });
+
+  it('não julgado não entra na conta', () => {
+    const linhas = [
+      julgado('2020-01-01', '2020-01-11'),
+      julgado('2020-01-01', '2020-01-21'),
+      processo(), // sem sentença
+    ];
+    expect(medianaAteSentenca(linhas)).toBeNull();
+  });
+
+  /** Um caso parado sete anos descreveria um acervo que não existe. */
+  it('o caso muito longo não puxa a mediana como puxaria a média', () => {
+    const linhas = [
+      julgado('2020-01-01', '2020-01-11'), // 10
+      julgado('2020-01-01', '2020-01-21'), // 20
+      julgado('2020-01-01', '2027-01-01'), // 2557
+    ];
+    expect(medianaAteSentenca(linhas)).toBe(20);
+  });
+
+  /** Sentença antes da distribuição é dado sujo, não caso relâmpago. */
+  it('ignora duração negativa', () => {
+    const linhas = [
+      julgado('2020-01-01', '2019-01-01'),
+      julgado('2020-01-01', '2020-01-11'),
+      julgado('2020-01-01', '2020-01-21'),
+    ];
+    expect(medianaAteSentenca(linhas)).toBeNull(); // sobraram dois
+  });
+
+  it('sem data de sentença não dá para medir', () => {
+    const linhas = [1, 2, 3].map(() => processo({ julgamento: 219, dataJulgamento: null }));
+    expect(medianaAteSentenca(linhas)).toBeNull();
+  });
+});
+
 /* ------------------------------------------------------------------------ */
 
 let seq = 0;
@@ -133,6 +211,7 @@ const processo = (n: Partial<LinhaDoAcervo> = {}): LinhaDoAcervo => ({
   adversario: 'HAPVIDA',
   tipoAdversario: 'JURIDICA',
   julgamento: null,
+  dataJulgamento: null,
   recursoDepois: false,
   ...n,
 });
@@ -448,8 +527,43 @@ describe('a rota', () => {
     expect(Object.keys(concentracoes[0]).sort()).toEqual(
       [
         'adversario', 'desde', 'historico', 'improcedentes', 'individuais', 'julgados',
-        'leituras', 'parciais', 'parteExternaId', 'pedidos', 'procedentes', 'processos', 'tipo',
+        'leituras', 'medianaDias', 'parciais', 'parteExternaId', 'pedidos', 'procedentes',
+        'processos', 'tipo',
       ].sort(),
     );
+  });
+});
+
+/**
+ * TERCEIRO NÃO É POLO, e as duas réguas têm de dizer o mesmo (18/09/2026).
+ *
+ * O cartão "Representamos o filiado" conta e o link lista. Se o Panorama e o
+ * `FILTRO_RAPIDO` discordarem sobre o sindicato ASSISTENTE, o número abre uma
+ * lista de outro tamanho — e foi assim que a fila de duplicados já mentiu.
+*/
+describe('quem representa o filiado', () => {
+  const SERVICO = readFileSync(
+    path.join(__dirname, 'padroes.service.ts'), 'utf8',
+  );
+  const LISTAGEM = readFileSync(
+    path.join(__dirname, 'processos.service.ts'), 'utf8',
+  );
+
+  it('o Panorama exclui o sindicato só quando ele está em POLO', () => {
+    const bloco = SERVICO.slice(SERVICO.indexOf('TERCEIRO NÃO É POLO'));
+    expect(bloco.slice(0, 1200)).toContain("polo: { in: ['ATIVO' as const, 'PASSIVO' as const] }");
+    expect(bloco.slice(0, 2500)).toContain('partes: { none: emPolo }');
+  });
+
+  it('a listagem usa a mesma régua', () => {
+    expect(LISTAGEM).toContain('const somosNosEmPolo =');
+    expect(LISTAGEM).toContain('partes: { none: somosNosEmPolo }');
+  });
+
+  /** O link do cartão novo precisa de um filtro que exista de verdade. */
+  it('existe o filtro de "sem parte nenhuma", e ele não é o de "sem réu"', () => {
+    expect(LISTAGEM).toContain('semPartes: (): Prisma.ProcessoWhereInput => ({');
+    expect(LISTAGEM).toContain('partes: { none: {} }');
+    expect(LISTAGEM).toContain("if (q.semPartes === 'true')");
   });
 });

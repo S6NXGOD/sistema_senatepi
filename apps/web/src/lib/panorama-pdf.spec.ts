@@ -168,10 +168,35 @@ describe('o réu e o pedido', () => {
   it('a tabela de réus traz as julgadas do histórico e o título da leitura', () => {
     const plano = planoDoPanorama(panorama(), ESCOLHAS_PADRAO_DO_PANORAMA, 2026);
     const tabela = de(plano, 'tabela')[0];
-    expect(tabela.cabecalho).toEqual(['Réu', 'Ações ativas', 'Individuais', 'Julgadas (p · pp · i)', 'Leitura']);
-    expect(tabela.linhas[0]).toEqual([
-      'Hapvida Assistência Médica', '5', '4', '5 (2 · 2 · 1)', 'São ações individuais pedindo a mesma coisa',
+    expect(tabela.cabecalho).toEqual([
+      'Réu', 'Ações ativas', 'Individuais', 'Julgadas (p · pp · i)', 'Até a sentença', 'Leitura',
     ]);
+    // Sem mediana no fixture, a coluna sai com travessão — e não em branco, que
+    // numa tabela impressa se lê como dado esquecido.
+    expect(tabela.linhas[0]).toEqual([
+      'Hapvida Assistência Médica', '5', '4', '5 (2 · 2 · 1)', '—',
+      'São ações individuais pedindo a mesma coisa',
+    ]);
+  });
+
+  /**
+   * QUANTO TEMPO ATÉ A SENTENÇA no papel da diretoria (18/09/2026). É o número
+   * que decide se vale entrar com a ação, e não existia em tela nem em PDF.
+   */
+  it('a duração entra nas duas tabelas, em palavras', () => {
+    const plano = planoDoPanorama(
+      panorama({
+        concentracoes: [concentracao({ medianaDias: 613 })],
+        dispersoes: [dispersao({ medianaDias: 760 })],
+      }),
+      ESCOLHAS_PADRAO_DO_PANORAMA,
+      2026,
+    );
+    const tabelas = de(plano, 'tabela');
+    expect(tabelas[0].cabecalho).toContain('Até a sentença');
+    expect(tabelas[0].linhas[0]).toContain('cerca de 1 ano e 8 meses');
+    expect(tabelas[1].cabecalho).toContain('Até a sentença');
+    expect(tabelas[1].linhas[0]).toContain('cerca de 2 anos e 1 mês');
   });
 
   /** Um papel da diretoria com o nome de uma pessoa física ao lado de "sempre contrário" expõe alguém. */

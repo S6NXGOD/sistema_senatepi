@@ -427,6 +427,16 @@ export class ListProcessosQueryDto {
   @ApiPropertyOptional({ description: 'Só os que ainda não têm réu/parte contrária cadastrada.' })
   @IsOptional() @IsString() semParteContraria?: string;
 
+  /*
+    SEM PARTE NENHUMA — mais estreito que `semParteContraria`, e é outra fila.
+    Sem réu é o processo que tem autor e não tem adversário; SEM PARTE é o que
+    não tem lado algum, e por isso não entra em nenhum dos três cartões de "De
+    que lado estamos". O Panorama linka para cá, e o número de lá tem de abrir
+    exatamente este conjunto.
+  */
+  @ApiPropertyOptional({ description: 'Só os que não têm NENHUMA parte cadastrada.' })
+  @IsOptional() @IsString() semPartes?: string;
+
   @ApiPropertyOptional({ description: 'Só os com movimentação nos últimos N dias (padrão 7).' })
   @IsOptional() @IsString() movimentacaoRecente?: string;
   /** Fase processual (ver `fase.util.ts`). */

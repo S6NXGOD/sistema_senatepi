@@ -3,7 +3,7 @@ import { chaveLocal } from './armazenamento';
 import { baixarDocumento, type BlocoDoPdf, type CapaDoDocumento } from './pdf-documento';
 import { PALETA, numero } from './pdf-graficos';
 import {
-  LEITURA, desfechosParaLer, rotuloDoAno, tendencia,
+  LEITURA, desfechosParaLer, duracaoEmPalavras, rotuloDoAno, tendencia,
   type Concentracao, type Historico, type LeituraConcentracao, type Panorama,
 } from './panorama';
 
@@ -254,12 +254,17 @@ export function planoDoPanorama(
     });
     blocos.push({
       tipo: 'tabela',
-      cabecalho: ['Réu', 'Ações ativas', 'Individuais', 'Julgadas (p · pp · i)', 'Leitura'],
+      // QUANTO TEMPO ATÉ A SENTENÇA entra no papel da diretoria: é o número que
+      // decide se vale entrar com a ação, e não existia em tela nem em PDF.
+      cabecalho: [
+        'Réu', 'Ações ativas', 'Individuais', 'Julgadas (p · pp · i)', 'Até a sentença', 'Leitura',
+      ],
       linhas: reus.map((c) => [
         nomeDoReu(c),
         n(c.processos),
         n(c.individuais),
         julgadasEmPartes(desfechosParaLer(c)),
+        duracaoEmPalavras(c.medianaDias) ?? '—',
         c.leituras.map((s) => LEITURA[s]?.titulo ?? s).join('; '),
       ]),
       numericas: [1, 2, 3],
@@ -353,13 +358,17 @@ export function planoDoPanorama(
     });
     blocos.push({
       tipo: 'tabela',
-      cabecalho: ['Pedido', 'Ações ativas', 'Réus distintos', 'Individuais', 'Julgadas (p · pp · i)'],
+      cabecalho: [
+        'Pedido', 'Ações ativas', 'Réus distintos', 'Individuais', 'Julgadas (p · pp · i)',
+        'Até a sentença',
+      ],
       linhas: pedidos.map((d) => [
         d.assunto,
         n(d.processos),
         n(d.adversarios),
         n(d.individuais),
         julgadasEmPartes(desfechosParaLer(d)),
+        duracaoEmPalavras(d.medianaDias) ?? '—',
       ]),
       numericas: [1, 2, 3, 4],
       vazio: 'Nenhum pedido repetido em seis ou mais ações ativas contra cinco ou mais réus.',

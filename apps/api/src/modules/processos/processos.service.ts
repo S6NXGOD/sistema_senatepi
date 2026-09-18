@@ -191,6 +191,17 @@ export const FILTRO_RAPIDO = {
   semReu: (): Prisma.ProcessoWhereInput => ({
     partes: { none: { polo: 'PASSIVO' } },
   }),
+
+  /**
+   * Sem parte NENHUMA — não dá para dizer nem quem move nem contra quem.
+   *
+   * É mais estreito que `semReu` e responde a outra pergunta. O Panorama conta
+   * estes fora dos três cartões de papel (não há lado a afirmar) e linka para
+   * cá: o número e a lista têm de ser o mesmo conjunto.
+   */
+  semPartes: (): Prisma.ProcessoWhereInput => ({
+    partes: { none: {} },
+  }),
   /**
    * O TRIBUNAL SE MEXEU NA JANELA — pelas DUAS portas por onde ele fala.
    *
@@ -255,15 +266,24 @@ export const FILTRO_RAPIDO = {
     if (papel === 'AUTOR') return { partes: { some: { polo: 'ATIVO', ...somosNos } } };
     if (papel === 'REU') return { partes: { some: { polo: 'PASSIVO', ...somosNos } } };
     /*
-      Não figuramos em polo nenhum: a ação é do filiado e nós somos o patrono.
+      Não figuramos em POLO nenhum: a ação é do filiado e nós somos o patrono.
 
       O `some: {}` NÃO É REDUNDANTE. Sem ele, um processo importado sem parte
       nenhuma entraria aqui — "não tem o sindicato entre as partes" é verdade
       trivial quando não há partes. Hoje são zero, mas a fila "Sem réu
       cadastrado" existe justamente porque isso acontece, e o número mentiria
       em silêncio no dia em que acontecer de novo.
+
+      TERCEIRO NÃO É POLO (18/09/2026). A exclusão olhava o sindicato em
+      QUALQUER posição, então a ação em que ele entra como ASSISTENTE do
+      filiado caía fora das três: não é autor, não é réu, e "representamos o
+      filiado" a recusava só porque o nome dele aparece nas partes. É
+      exatamente o caso que a terceira categoria existe para nomear — o
+      sindicato ao lado do filiado, sem ser parte. E `lado` do Panorama já lia
+      assim (`polo <> 'TERCEIRO'`): as duas réguas discordavam entre si.
     */
-    return { AND: [{ partes: { some: {} } }, { partes: { none: somosNos } }] };
+    const somosNosEmPolo = { polo: { in: [PoloProcesso.ATIVO, PoloProcesso.PASSIVO] }, ...somosNos };
+    return { AND: [{ partes: { some: {} } }, { partes: { none: somosNosEmPolo } }] };
   },
 } as const;
 
@@ -1198,6 +1218,7 @@ export class ProcessosService {
     if (q.meus === 'true' && usuarioId) and.push(FILTRO_RAPIDO.meus(usuarioId));
     if (q.semFiliado === 'true') and.push(FILTRO_RAPIDO.semFiliado());
     if (q.semParteContraria === 'true') and.push(FILTRO_RAPIDO.semReu());
+    if (q.semPartes === 'true') and.push(FILTRO_RAPIDO.semPartes());
     if (q.etiqueta) and.push({ etiquetas: { has: q.etiqueta } });
     if (q.categoria) and.push({ categoria: q.categoria });
     if (q.urgente === 'true') and.push(FILTRO_RAPIDO.urgentes());

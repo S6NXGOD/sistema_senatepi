@@ -169,6 +169,11 @@ export interface Concentracao extends Desfechos {
   /** Os pedidos que se repetem em três ou mais das ações ativas contra este réu. */
   pedidos: PedidoRecorrente[];
   historico: Historico;
+  /**
+   * Mediana de dias da distribuição à sentença — nula com menos de três
+   * julgados. Ver `medianaAteSentenca`.
+   */
+  medianaDias: number | null;
   /** Zero, uma ou duas leituras — nunca uma verdade única. Ver `lerConcentracao`. */
   leituras: LeituraConcentracao[];
 }
@@ -197,6 +202,8 @@ export interface Dispersao extends Desfechos {
    * ações de 27 ajuizadas e 2024 com 12 de 20. É a régua de "Ações ajuizadas
    * por ano" dos Relatórios, para as duas telas desenharem a mesma série.
    */
+  /** Mediana de dias da distribuição à sentença — ver `medianaAteSentenca`. */
+  medianaDias: number | null;
   porAno: PorAno[];
 }
 
@@ -258,6 +265,8 @@ export interface LinhaDoAcervo {
   tipoAdversario: string | null;
   /** Código da sentença mais recente (219/220/221), nulo se não houve. */
   julgamento: number | null;
+  /** Data dessa sentença — é o que permite medir quanto o caso levou. */
+  dataJulgamento: Date | null;
   /** Recurso julgado (237/238/239) depois dessa sentença. */
   recursoDepois: boolean;
 }
@@ -321,6 +330,43 @@ function desdeDe(linhas: LinhaDoAcervo[]): string | null {
     .map((l) => l.dataDistribuicao?.getTime())
     .filter((t): t is number => typeof t === 'number' && Number.isFinite(t));
   return datas.length ? new Date(Math.min(...datas)).toISOString().slice(0, 10) : null;
+}
+
+/**
+ * QUANTO TEMPO ATÉ A SENTENÇA — a pergunta que a diretoria faz e o Panorama
+ * não respondia (18/09/2026).
+ *
+ * A tela contava QUANTAS e COMO foram julgadas, nunca EM QUANTO TEMPO. É o
+ * número que decide se vale entrar com a ação: "contra esta operadora a
+ * sentença sai em dois anos" muda a conversa com o filiado na porta.
+ *
+ * MEDIANA, não média: um caso parado sete anos por precatório puxaria a média
+ * e descreveria um acervo que não existe. E ela CALA com menos de três
+ * julgados — mediana de dois é o ponto médio de dois números, não um padrão.
+ *
+ * Mede da distribuição à SENTENÇA mais recente, que é o que o resto da tela
+ * já usa. Não é o fim do processo: o recurso vem depois, e a ressalva ao lado
+ * continua dizendo isso.
+ */
+export const MINIMO_PARA_MEDIANA = 3;
+
+export function medianaAteSentenca(linhas: LinhaDoAcervo[]): number | null {
+  const dias = linhas
+    .filter((l) => l.julgamento !== null && SENTENCAS.includes(l.julgamento))
+    .map((l) => {
+      const de = l.dataDistribuicao?.getTime();
+      const ate = l.dataJulgamento?.getTime();
+      if (typeof de !== 'number' || typeof ate !== 'number') return null;
+      const d = Math.round((ate - de) / 86_400_000);
+      // Sentença anterior à distribuição é dado sujo, não caso relâmpago.
+      return d >= 0 ? d : null;
+    })
+    .filter((d): d is number => d !== null)
+    .sort((x, y) => x - y);
+
+  if (dias.length < MINIMO_PARA_MEDIANA) return null;
+  const meio = Math.floor(dias.length / 2);
+  return dias.length % 2 ? dias[meio] : Math.round((dias[meio - 1] + dias[meio]) / 2);
 }
 
 const porNome = (a: string, b: string) => a.localeCompare(b, 'pt-BR');
@@ -395,6 +441,9 @@ export function montarPadroes(
       ...base,
       ...desfechosDe(ativas),
       desde: desdeDe(ativas),
+      // Sobre TODAS as ajuizadas, como o histórico: o caso que já encerrou é
+      // justamente o que tem duração completa para contar.
+      medianaDias: medianaAteSentenca(todas),
       pedidos,
       leituras: lerConcentracao(base),
     });
@@ -424,6 +473,7 @@ export function montarPadroes(
       ...desfechosDe(ativas),
       desde: desdeDe(ativas),
       historico: historicoDe(todas),
+      medianaDias: medianaAteSentenca(todas),
       porAno: serieCompleta([...porAno].map(([ano, n]) => ({ ano, processos: n }))),
     });
   }
@@ -449,7 +499,15 @@ export class PadroesService {
     concentracoes: Concentracao[];
     dispersoes: Dispersao[];
     /** De que lado a entidade está — ver `deQueLadoEstamos`. */
-    nossoPapel: { autor: number; reu: number; representando: number };
+    nossoPapel: {
+      autor: number;
+      reu: number;
+      representando: number;
+      /** Ativos sem parte nenhuma: não entram em cartão algum. */
+      semPartes: number;
+      /** Sindicato nos dois polos: contado em autor E em réu. */
+      ambosOsPolos: number;
+    };
     acervoAtivo: number;
     geradoEm: string;
   }> {
@@ -468,6 +526,7 @@ export class PadroesService {
                coalesce(a.nome_fantasia, a.nome)           AS adversario,
                a.tipo                                      AS "tipoAdversario",
                j.codigo                                    AS julgamento,
+               j.data_movimento                            AS "dataJulgamento",
                coalesce(j.recurso_depois, false)           AS "recursoDepois"
         FROM processos p
         LEFT JOIN adversario a ON a.processo_id = p.id
@@ -524,17 +583,48 @@ export class PadroesService {
       respondem à mesma pergunta.
     */
     const ativo = { statusInterno: 'ATIVO' as const };
-    const [autor, reu, representando] = await Promise.all([
+    /*
+      TERCEIRO NÃO É POLO — a mesma correção de `FILTRO_RAPIDO.nossoPapel`, e
+      tem de ser a mesma: o cartão conta e o link lista, e se as duas réguas
+      discordarem o número abre uma lista de outro tamanho.
+    */
+    const emPolo = { polo: { in: ['ATIVO' as const, 'PASSIVO' as const] }, ...somosNos };
+    /*
+      OS DOIS NÚMEROS QUE FAZEM A CONTA FECHAR (18/09/2026).
+
+      Os três cartões não cobrem o acervo, e a tela não dizia. Um processo
+      ativo SEM PARTE NENHUMA não entra em cartão algum — de propósito, porque
+      não dá para afirmar o lado — e o sindicato nos DOIS polos (reconvenção)
+      é contado duas vezes. Com o rodapé anunciando "161 processos ativos"
+      logo abaixo de três cartões somando 155, quem confere encontra um buraco
+      de seis e nenhuma explicação.
+
+      Todo processo ativo cai em exatamente uma destas caixas: sindicato no
+      polo ativo, no passivo (podendo ser os dois), em nenhum polo mas com
+      partes, ou sem partes. Devolvendo as duas bordas, a tela consegue dizer
+      a verdade em vez de deixar a subtração para o leitor.
+    */
+    const [autor, reu, representando, semPartes, ambosOsPolos] = await Promise.all([
       this.prisma.processo.count({ where: { ...ativo, partes: { some: { polo: 'ATIVO', ...somosNos } } } }),
       this.prisma.processo.count({ where: { ...ativo, partes: { some: { polo: 'PASSIVO', ...somosNos } } } }),
       // `some: {}` junto: processo sem parte nenhuma não é "representamos o
       // filiado", é processo com cadastro incompleto. Ver o comentário gêmeo
       // em `FILTRO_RAPIDO.nossoPapel`.
       this.prisma.processo.count({
-        where: { ...ativo, AND: [{ partes: { some: {} } }, { partes: { none: somosNos } }] },
+        where: { ...ativo, AND: [{ partes: { some: {} } }, { partes: { none: emPolo } }] },
+      }),
+      this.prisma.processo.count({ where: { ...ativo, partes: { none: {} } } }),
+      this.prisma.processo.count({
+        where: {
+          ...ativo,
+          AND: [
+            { partes: { some: { polo: 'ATIVO', ...somosNos } } },
+            { partes: { some: { polo: 'PASSIVO', ...somosNos } } },
+          ],
+        },
       }),
     ]);
-    return { autor, reu, representando };
+    return { autor, reu, representando, semPartes, ambosOsPolos };
   }
 
   private comBase(cnpj: string): Prisma.Sql {

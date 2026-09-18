@@ -53,6 +53,12 @@ export interface Concentracao extends Desfechos {
   desde: string | null;
   pedidos: PedidoRecorrente[];
   historico?: Historico;
+  /**
+   * Mediana de DIAS da distribuição à sentença. Opcional: a API antiga não a
+   * manda, e nula quando há menos de três julgados — mediana de dois é o ponto
+   * médio de dois números, não um padrão.
+   */
+  medianaDias?: number | null;
   leituras: LeituraConcentracao[];
 }
 
@@ -74,18 +80,38 @@ export interface Dispersao extends Desfechos {
    * não só as que continuam ativas: o ano antigo encolhia por construção.
    */
   porAno: PorAno[];
+  /**
+   * Mediana de DIAS da distribuição à sentença. Opcional: a API antiga não a
+   * manda, e nula quando há menos de três julgados — mediana de dois é o ponto
+   * médio de dois números, não um padrão.
+   */
+  medianaDias?: number | null;
+}
+
+export interface NossoPapel {
+  autor: number;
+  reu: number;
+  representando: number;
+  /** Ativos sem parte nenhuma — fora dos três cartões. Ausente na API antiga. */
+  semPartes?: number;
+  /** Sindicato nos dois polos — contado em autor E em réu. Ausente na API antiga. */
+  ambosOsPolos?: number;
 }
 
 export interface Panorama {
   concentracoes: Concentracao[];
   dispersoes: Dispersao[];
   /**
-   * De que lado a entidade está, no acervo ATIVO. As três NÃO somam o acervo:
-   * processo sem parte cadastrada não entra em "representando", e o sindicato
-   * como TERCEIRO não entra em nenhuma. Nunca calcule "sem papel" pela
-   * diferença — pode dar negativo.
+   * De que lado a entidade está, no acervo ATIVO. As três NÃO somam o acervo, e
+   * NUNCA calcule "sem papel" pela diferença: pode dar negativo, porque o
+   * sindicato nos dois polos entra em autor E em réu.
+   *
+   * Desde 18/09/2026 o sindicato como TERCEIRO deixou de cair fora das três —
+   * assistente do filiado é "representamos o filiado". O que continua fora é o
+   * processo SEM PARTE nenhuma, e ele vem nomeado em `semPartes` para a tela
+   * poder dizer isso em vez de deixar a subtração para o leitor.
    */
-  nossoPapel: { autor: number; reu: number; representando: number };
+  nossoPapel: NossoPapel;
   acervoAtivo: number;
   geradoEm: string;
 }
@@ -229,6 +255,30 @@ export function ressalvaDoRecurso(h: Historico | null | undefined): string | nul
   const n = h?.comRecursoDepois ?? 0;
   if (!(n > 0)) return null;
   return `${n} ${n === 1 ? 'teve' : 'tiveram'} recurso julgado depois — o resultado final pode ser outro`;
+}
+
+/**
+ * A MEDIANA EM LINGUAGEM DE GENTE — "cerca de 1 ano e 8 meses".
+ *
+ * "613 dias" é preciso e não cabe na cabeça de ninguém. Quem lê quer saber se
+ * a ação demora meses ou anos, e é essa a pergunta que o filiado faz na porta.
+ *
+ * O arredondamento é DELIBERADO e o "cerca de" está lá por isso: uma mediana
+ * de três ou sete casos não merece precisão de dias, e escrevê-la com dois
+ * decimais fingiria uma certeza que a amostra não tem.
+ */
+export function duracaoEmPalavras(dias: number | null | undefined): string | null {
+  if (dias === null || dias === undefined || !Number.isFinite(dias) || dias < 0) return null;
+  if (dias < 45) return `cerca de ${dias} dia${dias === 1 ? '' : 's'}`;
+
+  const meses = Math.round(dias / 30.44);
+  if (meses < 12) return `cerca de ${meses} meses`;
+
+  const anos = Math.floor(meses / 12);
+  const resto = meses % 12;
+  const parteAnos = `${anos} ano${anos === 1 ? '' : 's'}`;
+  if (resto === 0) return `cerca de ${parteAnos}`;
+  return `cerca de ${parteAnos} e ${resto} ${resto === 1 ? 'mês' : 'meses'}`;
 }
 
 /** "2026 (até agora)": o ano corrente não se compara em pé de igualdade com os fechados. */

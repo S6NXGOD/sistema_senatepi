@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Swords, Layers, Inbox, ArrowRight, Scale, TrendingUp, TrendingDown, Download,
+  Swords, Layers, Inbox, ArrowRight, Clock, Scale, TrendingUp, TrendingDown, Download,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,11 @@ import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
 import { PdfDoPanorama } from '@/components/processos/pdf-do-panorama';
 import { tenant } from '@/tenant.config';
 import {
-  carregarPanorama, desfechosParaLer, julgadasNoHistorico, LEITURA, ressalvaDoRecurso, resumoDesfechos,
+  carregarPanorama, desfechosParaLer, duracaoEmPalavras, julgadasNoHistorico, LEITURA,
+  ressalvaDoRecurso, resumoDesfechos,
   rotuloDoAno, tendencia,
-  type Concentracao, type Desfechos, type Dispersao, type Historico, type PorAno,
+  type Concentracao, type Desfechos, type Dispersao, type Historico, type NossoPapel,
+  type PorAno,
 } from '@/lib/panorama';
 
 /**
@@ -172,6 +174,7 @@ export default function PanoramaPage() {
               href="/processos?nossoPapel=REU&status=ATIVO"
             />
           </div>
+          <ContaQueNaoFecha papel={data.nossoPapel} acervoAtivo={data.acervoAtivo} />
         </section>
       )}
 
@@ -242,6 +245,60 @@ export default function PanoramaPage() {
  * informação, e esconder faria a ausência do cartão significar duas coisas
  * (não há, ou não carregou).
  */
+/**
+ * OS TRÊS CARTÕES NÃO COBREM O ACERVO, E A TELA NÃO DIZIA (18/09/2026).
+ *
+ * O rodapé anuncia "161 processos ativos" logo abaixo de três cartões somando
+ * 155. Quem confere encontra um buraco de seis e nenhuma explicação — e a
+ * explicação é boa: são processos ATIVOS sem parte nenhuma cadastrada, em que
+ * não dá para afirmar o lado. Forçá-los para dentro de um cartão seria pior
+ * que o buraco; dizer que existem é trabalho de cadastro à vista.
+ *
+ * E a conta pode fechar por cima: o sindicato nos DOIS polos (reconvenção) é
+ * contado em autor e em réu. Aí a soma passa do acervo, e a frase muda.
+ *
+ * A linha só nasce quando há o que dizer. Com o acervo redondo, ela não
+ * aparece — bloco vazio vira uma linha, e linha sem conteúdo vira nada.
+ */
+function ContaQueNaoFecha({
+  papel,
+  acervoAtivo,
+}: {
+  papel: NossoPapel;
+  acervoAtivo: number;
+}) {
+  // A API velha não manda os dois campos: na janela de troca a linha cala em
+  // vez de inventar diferença. Ver `senatepi-deploy-janela-de-troca`.
+  if (papel.semPartes === undefined || papel.ambosOsPolos === undefined) return null;
+  const { semPartes, ambosOsPolos } = papel;
+  if (!semPartes && !ambosOsPolos) return null;
+
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">
+      {semPartes > 0 && (
+        <span>
+          <Link
+            href="/processos?semPartes=true&status=ATIVO"
+            className="font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            {semPartes === 1 ? '1 processo ativo' : `${semPartes} processos ativos`}
+          </Link>{' '}
+          {semPartes === 1 ? 'não tem' : 'não têm'} parte nenhuma cadastrada — sem elas não dá
+          para dizer o lado, e {semPartes === 1 ? 'ele fica' : 'eles ficam'} fora dos três
+          cartões.
+        </span>
+      )}
+      {ambosOsPolos > 0 && (
+        <span>
+          {ambosOsPolos === 1
+            ? 'Em 1 deles o sindicato está nos dois polos, e ele aparece em autor e em réu.'
+            : `Em ${ambosOsPolos} deles o sindicato está nos dois polos, e aparecem em autor e em réu.`}
+        </span>
+      )}
+      <span className="opacity-70">Ao todo, {acervoAtivo.toLocaleString('pt-BR')} ativos.</span>
+    </p>
+  );
+}
 function CartaoPapel({
   titulo, valor, nota, href,
 }: {
@@ -287,7 +344,7 @@ function CartaoConcentracao({ c }: { c: Concentracao }) {
       */}
       <p className="mt-0.5 text-xs text-muted-foreground">
         {c.processos} {c.processos === 1 ? 'ativa' : 'ativas'}
-        {c.individuais > 0 && <> ({c.individuais} individuais)</>}
+        {c.individuais > 0 && <> ({c.individuais} {c.individuais === 1 ? 'individual' : 'individuais'})</>}
         {julgadas && <> · {julgadas}</>}
       </p>
 
@@ -366,9 +423,13 @@ function CartaoDispersao({ d, anoCorrente }: { d: Dispersao; anoCorrente: number
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        <strong className="text-foreground">{d.processos}</strong> ativas contra{' '}
-        <strong className="text-foreground">{d.adversarios}</strong> partes contrárias diferentes
-        {d.individuais > 0 && <> · {d.individuais} individuais</>}
+        <strong className="text-foreground">{d.processos}</strong>{' '}
+        {d.processos === 1 ? 'ativa' : 'ativas'} contra{' '}
+        <strong className="text-foreground">{d.adversarios}</strong>{' '}
+        {d.adversarios === 1 ? 'parte contrária' : 'partes contrárias diferentes'}
+        {d.individuais > 0 && (
+          <> · {d.individuais} {d.individuais === 1 ? 'individual' : 'individuais'}</>
+        )}
         {julgadas && <> · {julgadas}</>}
       </p>
 
@@ -407,15 +468,28 @@ function CartaoDispersao({ d, anoCorrente }: { d: Dispersao; anoCorrente: number
  * recurso julgado depois: a sentença não é o resultado final, e em 12/09/2026
  * eram 49 dos 109 processos ativos julgados.
  */
-function BarraDeDesfechos({ d }: { d: Desfechos & { historico?: Historico | null } }) {
+function BarraDeDesfechos({
+  d,
+}: {
+  d: Desfechos & { historico?: Historico | null; medianaDias?: number | null };
+}) {
   const h = desfechosParaLer(d);
   if (!h.julgados) return null;
+  /*
+    "1 PROCEDENTES" (18/09/2026). A legenda colava o número num rótulo fixo no
+    plural. `resumoDesfechos` e `ressalvaDoRecurso` já flexionavam; esta lista,
+    escrita depois, não — e a tela mostrava "1 procedentes em parte" em todo
+    réu com um julgado só.
+  */
   const faixas = [
-    { n: h.procedentes, cor: 'bg-emerald-600', nome: 'procedentes' },
-    { n: h.parciais, cor: 'bg-teal-500', nome: 'procedentes em parte' },
-    { n: h.improcedentes, cor: 'bg-amber-500', nome: 'improcedentes' },
-  ].filter((f) => f.n > 0);
+    { n: h.procedentes, cor: 'bg-emerald-600', um: 'procedente', varios: 'procedentes' },
+    { n: h.parciais, cor: 'bg-teal-500', um: 'procedente em parte', varios: 'procedentes em parte' },
+    { n: h.improcedentes, cor: 'bg-amber-500', um: 'improcedente', varios: 'improcedentes' },
+  ]
+    .filter((f) => f.n > 0)
+    .map((f) => ({ ...f, nome: f.n === 1 ? f.um : f.varios }));
   const ressalva = ressalvaDoRecurso(h);
+  const duracao = duracaoEmPalavras(d.medianaDias);
 
   return (
     <div className="mt-2">
@@ -447,6 +521,19 @@ function BarraDeDesfechos({ d }: { d: Desfechos & { historico?: Historico | null
       {ressalva && (
         <p className="mt-1 text-[11px] leading-snug text-amber-800 dark:text-amber-300">
           {ressalva}.
+        </p>
+      )}
+      {/*
+        QUANTO TEMPO ATÉ A SENTENÇA (18/09/2026). A tela contava quantas e como
+        foram julgadas, nunca em quanto tempo — e é o número que o filiado pede
+        na porta e a diretoria pede na reunião. Cala com menos de três julgados.
+      */}
+      {duracao && (
+        <p className="mt-1 flex items-start gap-1 text-[11px] leading-snug text-muted-foreground">
+          <Clock className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>
+            Da distribuição à sentença, <strong className="font-medium">{duracao}</strong>.
+          </span>
         </p>
       )}
     </div>

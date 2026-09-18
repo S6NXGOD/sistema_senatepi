@@ -43,13 +43,36 @@ describe('o papel do sindicato no processo', () => {
    * partes. Hoje são zero na produção, mas a fila "Sem réu cadastrado" existe
    * justamente porque isso acontece, e o número mentiria em silêncio.
    */
-  it('REPRESENTANDO exige ter partes, e o sindicato fora delas', () => {
+  /**
+   * TERCEIRO NÃO É POLO (18/09/2026). A exclusão olhava o sindicato em QUALQUER
+   * posição, então a ação em que ele entra como ASSISTENTE do filiado caía fora
+   * das três categorias: não é autor, não é réu, e "representamos o filiado" a
+   * recusava só porque o nome dele aparece nas partes — que é exatamente o caso
+   * que a terceira categoria existe para nomear.
+   */
+  it('REPRESENTANDO exige ter partes, e o sindicato fora dos POLOS', () => {
     expect(FILTRO_RAPIDO.nossoPapel('REPRESENTANDO')).toEqual({
       AND: [
         { partes: { some: {} } },
-        { partes: { none: { parteExterna: { institucional: true } } } },
+        {
+          partes: {
+            none: {
+              polo: { in: ['ATIVO', 'PASSIVO'] },
+              parteExterna: { institucional: true },
+            },
+          },
+        },
       ],
     });
+  });
+
+  /** Sindicato ASSISTENTE continua sendo "representamos o filiado". */
+  it('não exclui o sindicato que figura como TERCEIRO', () => {
+    const f = FILTRO_RAPIDO.nossoPapel('REPRESENTANDO') as {
+      AND: { partes: { none?: { polo?: { in: string[] } } } }[];
+    };
+    const polos = f.AND[1].partes.none?.polo?.in ?? [];
+    expect(polos).not.toContain('TERCEIRO');
   });
 
   /**
@@ -89,12 +112,29 @@ describe('a leitura no panorama', () => {
     expect(trecho).toContain("const somosNos = { parteExterna: { institucional: true } };");
     expect(trecho).toContain("polo: 'ATIVO', ...somosNos");
     expect(trecho).toContain("polo: 'PASSIVO', ...somosNos");
-    expect(trecho).toContain('partes: { none: somosNos }');
+    // TERCEIRO não é polo: assistente do filiado é "representamos o filiado".
+    expect(trecho).toContain('partes: { none: emPolo }');
+    expect(trecho).toContain("polo: { in: ['ATIVO' as const, 'PASSIVO' as const] }");
   });
 
   it('entra no payload do panorama', () => {
-    expect(PADROES).toContain('nossoPapel: { autor: number; reu: number; representando: number };');
+    expect(PADROES).toContain('nossoPapel: {');
     expect(PADROES).toContain('this.deQueLadoEstamos(),');
+  });
+
+  /**
+   * OS TRÊS NÃO COBREM O ACERVO, e o payload tem de dizer quanto falta.
+   *
+   * O rodapé anuncia o total de ativos logo abaixo de três cartões que somam
+   * menos. Sem estes dois números a tela só poderia subtrair — e a subtração
+   * pode dar negativo, porque o sindicato nos dois polos conta duas vezes.
+   */
+  it('devolve o que fica fora e o que conta em dobro', () => {
+    const trecho = PADROES.slice(PADROES.indexOf('private async deQueLadoEstamos()'));
+    expect(trecho).toContain('semPartes');
+    expect(trecho).toContain('ambosOsPolos');
+    expect(trecho).toContain('partes: { none: {} }');
+    expect(trecho).toContain('return { autor, reu, representando, semPartes, ambosOsPolos };');
   });
 
   /**
@@ -121,8 +161,13 @@ describe('a leitura no panorama', () => {
 
   it('os três papéis contam só o acervo ativo', () => {
     const trecho = PADROES.slice(PADROES.indexOf('private async deQueLadoEstamos()'));
-    const corpo = trecho.slice(0, trecho.indexOf('return { autor, reu, representando };'));
+    const corpo = trecho.slice(
+      0,
+      trecho.indexOf('return { autor, reu, representando, semPartes, ambosOsPolos };'),
+    );
     expect(corpo).toContain("const ativo = { statusInterno: 'ATIVO' as const };");
-    expect(corpo.match(/where: \{ \.\.\.ativo,/g)?.length).toBe(3);
+    // Cinco contagens agora: os três papéis, os sem parte e os de polo duplo.
+    expect(corpo.match(/where: \{ \.\.\.ativo,/g)?.length).toBe(4);
+    expect(corpo).toContain('...ativo,' );
   });
 });

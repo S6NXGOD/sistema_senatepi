@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import {
-  LEITURA, desfechosParaLer, julgadasNoHistorico, ressalvaDoRecurso, resumoDesfechos, rotuloDoAno, tendencia,
+  LEITURA, desfechosParaLer, duracaoEmPalavras, julgadasNoHistorico, ressalvaDoRecurso,
+  resumoDesfechos, rotuloDoAno, tendencia,
 } from '@/lib/panorama';
 import { moduloDaRota } from '@/components/nav-items';
 
@@ -286,5 +287,101 @@ describe('o histórico dos desfechos', () => {
     expect(PAGINA).toContain('ressalvaDoRecurso(h)');
     expect(PAGINA).toContain('julgadasNoHistorico(c)');
     expect(PAGINA).toContain('julgadasNoHistorico(d)');
+  });
+});
+
+/**
+ * "1 PROCEDENTES" — a legenda da barra colava o número num rótulo fixo no
+ * plural (18/09/2026). `resumoDesfechos` e `ressalvaDoRecurso` já flexionavam;
+ * esta lista, escrita depois, não.
+ */
+describe('a legenda da barra concorda em número', () => {
+  const BLOCO = PAGINA.slice(PAGINA.indexOf('"1 PROCEDENTES"'), PAGINA.indexOf('const ressalva ='));
+
+  it('a fatia examinada não está vazia', () => {
+    expect(BLOCO.length).toBeGreaterThan(300);
+  });
+
+  /**
+   * O MESMO DEFEITO EM TRÊS LUGARES (18/09/2026). Depois da legenda, a tela
+   * ainda dizia "3 ativas (1 individuais)" e "contra 1 partes contrárias
+   * diferentes". Consertar um caminho não basta: procure os irmãos.
+   */
+  it('a contagem de individuais concorda em número', () => {
+    expect(PAGINA).toContain("c.individuais === 1 ? 'individual' : 'individuais'");
+    expect(PAGINA).toContain("d.individuais === 1 ? 'individual' : 'individuais'");
+  });
+
+  it('a contagem de ativas e de partes contrárias também', () => {
+    expect(PAGINA).toContain("d.processos === 1 ? 'ativa' : 'ativas'");
+    expect(PAGINA).toContain("c.processos === 1 ? 'ativa' : 'ativas'");
+    expect(PAGINA).toContain("d.adversarios === 1 ? 'parte contrária'");
+  });
+
+  it('cada faixa tem singular e plural, e a escolha é pelo número', () => {
+    expect(BLOCO).toContain("um: 'procedente'");
+    expect(BLOCO).toContain("um: 'procedente em parte'");
+    expect(BLOCO).toContain("um: 'improcedente'");
+    expect(BLOCO).toContain('f.n === 1 ? f.um : f.varios');
+  });
+});
+
+/**
+ * QUANTO TEMPO ATÉ A SENTENÇA — "613 dias" é preciso e não cabe na cabeça de
+ * ninguém. Quem lê quer saber se demora meses ou anos.
+ */
+describe('duracaoEmPalavras', () => {
+  it('cala sem número', () => {
+    expect(duracaoEmPalavras(null)).toBeNull();
+    expect(duracaoEmPalavras(undefined)).toBeNull();
+    expect(duracaoEmPalavras(-3)).toBeNull();
+  });
+
+  it('poucos dias saem em dias, e o singular é singular', () => {
+    expect(duracaoEmPalavras(1)).toBe('cerca de 1 dia');
+    expect(duracaoEmPalavras(20)).toBe('cerca de 20 dias');
+  });
+
+  it('de mês e meio a um ano sai em meses', () => {
+    expect(duracaoEmPalavras(60)).toBe('cerca de 2 meses');
+    expect(duracaoEmPalavras(300)).toBe('cerca de 10 meses');
+  });
+
+  it('acima de um ano sai em anos e meses', () => {
+    expect(duracaoEmPalavras(365)).toBe('cerca de 1 ano');
+    expect(duracaoEmPalavras(613)).toBe('cerca de 1 ano e 8 meses');
+    expect(duracaoEmPalavras(760)).toBe('cerca de 2 anos e 1 mês');
+  });
+
+  /** Arredondar é deliberado: mediana de três casos não merece precisão de dias. */
+  it('o "cerca de" nunca sai da frase', () => {
+    for (const d of [10, 90, 400, 2000]) expect(duracaoEmPalavras(d)).toContain('cerca de');
+  });
+});
+
+/**
+ * OS TRÊS CARTÕES NÃO COBREM O ACERVO, e a tela precisa dizer em vez de deixar
+ * a subtração para quem lê — o rodapé anuncia o total logo abaixo deles.
+ */
+describe('a conta que não fecha', () => {
+  const BLOCO = PAGINA.slice(PAGINA.indexOf('function ContaQueNaoFecha'));
+
+  it('cala quando não há diferença a explicar', () => {
+    expect(BLOCO.slice(0, 1200)).toContain('if (!semPartes && !ambosOsPolos) return null;');
+  });
+
+  /** Na janela de troca a API velha não manda os campos: calar > inventar. */
+  it('cala também quando a API não manda os números', () => {
+    expect(BLOCO.slice(0, 1200)).toContain('=== undefined');
+  });
+
+  it('nomeia o que ficou de fora e leva o recorte no link', () => {
+    expect(BLOCO).toContain('parte nenhuma cadastrada');
+    expect(BLOCO).toContain('/processos?semPartes=true&status=ATIVO');
+  });
+
+  it('não calcula a diferença por subtração', () => {
+    expect(BLOCO).not.toContain('acervoAtivo -');
+    expect(BLOCO).not.toContain('- papel.autor');
   });
 });
