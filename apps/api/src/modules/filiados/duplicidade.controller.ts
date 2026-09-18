@@ -19,6 +19,16 @@ class ParFiliadosDto {
 class FundirDto {
   @IsString() manterId!: string;
   @IsString() descartarId!: string;
+  /**
+   * QUANDO OS DOIS CPFs DIVERGEM, qual fica — só dígitos.
+   *
+   * Opcional, e sem ele a fusão continua barrada como sempre foi. É a única
+   * trava do sistema que uma pessoa pode liberar, e por isso vem como decisão
+   * EXPLÍCITA em vez de um "forçar": quem envia está dizendo qual dos dois é o
+   * CPF certo. O servidor ainda confere o dígito verificador e recusa se a
+   * escolha for o inválido. Ver `DuplicidadeService.fundir`.
+   */
+  @IsOptional() @IsString() cpfQueFica?: string;
 }
 
 class FundirGrupoDto {
@@ -212,6 +222,8 @@ export class DuplicidadeController {
   @ExclusaoDelegada()
   @UseGuards(DuplicidadeAtivaGuard)
   fundir(@Body() dto: FundirDto, @CurrentUser('nome') autor: string) {
-    return this.service.fundir(dto.manterId, dto.descartarId, autor);
+    return this.service.fundir(dto.manterId, dto.descartarId, autor, {
+      cpfQueFica: dto.cpfQueFica,
+    });
   }
 }

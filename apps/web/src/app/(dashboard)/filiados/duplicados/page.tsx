@@ -22,7 +22,8 @@ import {
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
   listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
   planejarConsolidacao, quantosDados, resumoDoCadastro, rotuloDoConsolidar,
-  separarDecidiveis, temValor, voltarParaFila,
+  separarDecidiveis, soDigitosDoCpf, temValor, veredictoDoCpf, voltarParaFila,
+  type AnaliseDeCpf, type VeredictoDoCpf,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
@@ -45,6 +46,29 @@ export default function DuplicadosPage() {
   const [aba, setAba] = useState<Confianca | 'ESPERANDO'>('ALTA');
   const [fundindo, setFundindo] = useState<{ grupo: GrupoDuplicata; manter: CandidatoDuplicata } | null>(null);
   const [executando, setExecutando] = useState(false);
+  /*
+    QUAL CPF FICA, quando os dois divergem — ver `veredictoDoCpf`.
+
+    Reposto toda vez que o diálogo abre, com a escolha que o sistema já sabe
+    fazer (o único que passa no dígito verificador). Deixar de repor faria a
+    escolha do grupo anterior vazar para o próximo, e este é o campo que decide
+    qual CPF sobrevive.
+  */
+  const [cpfQueFica, setCpfQueFica] = useState<string | null>(null);
+  const conflitoDeCpf = fundindo?.grupo.cpfEmConflito ?? null;
+  const veredictoCpf = conflitoDeCpf ? veredictoDoCpf(conflitoDeCpf) : null;
+  /*
+    A ESCOLHA PADRÃO VEM DO SISTEMA, e é reposta aqui em vez de em cada lugar
+    que abre o diálogo — são três, e um quarto esqueceria. Sem conflito de CPF
+    isto zera, que é o estado normal.
+  */
+  useEffect(() => {
+    setCpfQueFica(veredictoCpf?.escolhaPadrao ?? null);
+    // A dependência é a ABERTURA do diálogo, não o objeto derivado dela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fundindo]);
+  /** Falta escolher, ou os dois CPFs são válidos: não dá para confirmar. */
+  const fusaoTravada = !!conflitoDeCpf && (!veredictoCpf?.liberado || !cpfQueFica);
   /** Escolha do operador quando ele discorda do sugerido (ou não há sugestão). */
   const [escolha, setEscolha] = useState<Record<string, string>>({});
   /**
@@ -104,7 +128,7 @@ export default function DuplicadosPage() {
         rota do grupo confere os CPFs antes de apagar e devolve o que não deu.
       */
       const r = descartar.length === 1
-        ? await fundirDuplicados(fundindo.manter.id, descartar[0].id)
+        ? await fundirDuplicados(fundindo.manter.id, descartar[0].id, cpfQueFica ?? undefined)
         : await fundirGrupoDuplicados(fundindo.manter.id, descartar.map((c) => c.id));
       const aviso = avisoDaConsolidacao(r ?? {});
       if (aviso.tom === 'ok') toast.success(aviso.texto);
@@ -529,6 +553,13 @@ export default function DuplicadosPage() {
         */
         confirmarComEnter
         loading={executando}
+        /*
+          COM CPFs DIVERGENTES O ENTER NÃO CONFIRMA SOZINHO. `confirmDisabled`
+          trava o botão E o atalho: quem decide precisa ler o que os dígitos
+          verificadores dizem antes de apagar um cadastro. Com os dois CPFs
+          válidos, nada libera.
+        */
+        confirmDisabled={fusaoTravada}
         onConfirm={confirmarFusao}
         onClose={() => (executando ? null : setFundindo(null))}
         description={
@@ -536,6 +567,10 @@ export default function DuplicadosPage() {
             <ResumoFusao
               manter={fundindo.manter}
               descartar={fundindo.grupo.candidatos.filter((c) => c.id !== fundindo.manter.id)}
+              conflitoDeCpf={conflitoDeCpf}
+              veredicto={veredictoCpf}
+              cpfQueFica={cpfQueFica}
+              onEscolherCpf={setCpfQueFica}
             />
           ) : null
         }
@@ -985,7 +1020,16 @@ function ResumoSeparacao({
   );
 }
 
-function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descartar: CandidatoDuplicata[] }) {
+function ResumoFusao({
+  manter, descartar, conflitoDeCpf, veredicto, cpfQueFica, onEscolherCpf,
+}: {
+  manter: CandidatoDuplicata;
+  descartar: CandidatoDuplicata[];
+  conflitoDeCpf?: AnaliseDeCpf | null;
+  veredicto?: VeredictoDoCpf | null;
+  cpfQueFica?: string | null;
+  onEscolherCpf?: (cpf: string) => void;
+}) {
   const valor = (c: CandidatoDuplicata, chave: string) => c[chave as keyof CandidatoDuplicata];
   /*
     A PRÉVIA LÊ A MESMA REGRA (18/09/2026). Este resumo recalculava o efeito da
@@ -993,7 +1037,11 @@ function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descar
     inteira — o que se copia, o que se APAGA por divergência e a filiação mais
     antiga que é preservada — mora em `planejarConsolidacao`, testada sozinha.
   */
-  const { absorvidos, perdidos, filiacaoPreservada } = planejarConsolidacao(manter, descartar);
+  const { absorvidos, perdidos, filiacaoPreservada } = planejarConsolidacao(
+    manter,
+    descartar,
+    cpfQueFica,
+  );
   const vinculos = descartar.reduce((n, d) => n + d.vinculos, 0);
   const matriculas = descartar.map((d) => d.matricula);
   const varios = descartar.length > 1;
@@ -1004,6 +1052,76 @@ function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descar
         Mantém <strong>{manter.matricula}</strong> e remove <strong>{matriculas.join(', ')}</strong>{' '}
         permanentemente{varios ? ` — ${descartar.length} cadastros` : ''}.
       </p>
+
+      {/*
+        CPFs QUE DIVERGEM — ver `veredictoDoCpf` (18/09/2026).
+
+        Vem antes de tudo porque é o único ponto do diálogo em que a decisão
+        pode estar ERRADA de um jeito que ninguém percebe depois: o CPF que a
+        tela mantinha era o do cadastro escolhido, e no caso que abriu isto ele
+        era justamente o inválido.
+      */}
+      {conflitoDeCpf && veredicto && (
+        <div
+          className={cn(
+            'space-y-2 rounded-lg border p-2.5',
+            veredicto.liberado
+              ? 'border-amber-300 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20'
+              : 'border-rose-300 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-950/20',
+          )}
+        >
+          <p className="font-semibold">{veredicto.titulo}</p>
+          <p className="text-xs leading-snug text-muted-foreground">{veredicto.recado}</p>
+          {veredicto.liberado && (
+            <ul className="space-y-1">
+              {conflitoDeCpf.porCadastro.map((c) => {
+                const digitos = soDigitosDoCpf(c.cpf);
+                const marcado = cpfQueFica === digitos;
+                return (
+                  <li key={c.id}>
+                    <label
+                      className={cn(
+                        'flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5',
+                        marcado ? 'border-foreground/40 bg-background' : 'border-transparent',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="cpf-que-fica"
+                        className="h-4 w-4 shrink-0"
+                        checked={marcado}
+                        onChange={() => onEscolherCpf?.(digitos)}
+                      />
+                      {/* O CPF em UMA linha: quebrado no meio ("840.053.869-
+34")
+                          ele deixa de ser um número e vira dois. O veredito desce
+                          para a segunda linha no telefone. */}
+                      <span className="min-w-0 flex-1">
+                        <span className="block whitespace-nowrap font-mono text-xs">
+                          {mascararCpf(c.cpf)}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          matrícula {c.matricula}
+                          <span
+                            className={cn(
+                              'ml-1.5 font-medium',
+                              c.valido
+                                ? 'text-brand-800 dark:text-brand-300'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            · {c.valido ? 'válido' : 'dígito não bate'}
+                          </span>
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
       {absorvidos.length > 0 ? (
         <div className="rounded-lg bg-muted/60 p-2.5">
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

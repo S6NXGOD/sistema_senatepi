@@ -1,4 +1,6 @@
 import { api } from './api';
+// A base grava CPF com e sem pontuação; o veredito é lido por gente.
+import { mascararCpf } from './utils';
 
 /**
  * Mutirão de consolidação de cadastros duplicados.
@@ -40,6 +42,11 @@ export interface GrupoDuplicata {
   /** Falso = o sistema NÃO sabe escolher; a decisão é inteiramente humana. */
   decidiu: boolean;
   contradicoes: string[];
+  /**
+   * Quando o CPF é um dos campos que divergem: o que o dígito verificador diz.
+   * Nulo sem conflito. Opcional pela janela de troca do deploy.
+   */
+  cpfEmConflito?: AnaliseDeCpf | null;
   /** Ninguém no grupo tem dado que identifique pessoa — ver `separarDecidiveis`. */
   esperandoDado?: boolean;
   candidatos: CandidatoDuplicata[];
@@ -196,9 +203,20 @@ export function fraseDoDescarte(p: Pick<ParDescartado, 'autor' | 'decididoEm'>):
   return p.autor ? `Marcado por ${p.autor} em ${dia}` : `Marcado em ${dia}`;
 }
 
-export async function fundirDuplicados(manterId: string, descartarId: string) {
-  return (await api.delete('/filiados/duplicidade/fundir', { data: { manterId, descartarId } }))
-    .data;
+/**
+ * `cpfQueFica` só vai quando os dois CPFs divergem e alguém escolheu — ver
+ * `AnaliseDeCpf`. Sem ele o servidor recusa a fusão, como sempre fez.
+ */
+export async function fundirDuplicados(
+  manterId: string,
+  descartarId: string,
+  cpfQueFica?: string,
+) {
+  return (
+    await api.delete('/filiados/duplicidade/fundir', {
+      data: { manterId, descartarId, ...(cpfQueFica ? { cpfQueFica } : {}) },
+    })
+  ).data;
 }
 
 export interface ResultadoDaConsolidacao {
@@ -403,6 +421,18 @@ export interface PlanoDaConsolidacao {
 export function planejarConsolidacao(
   manter: CandidatoDuplicata,
   descartar: CandidatoDuplicata[],
+  /**
+   * O CPF ESCOLHIDO QUANDO OS DOIS DIVERGEM — só dígitos, ver `veredictoDoCpf`.
+   *
+   * SEM ISTO A PRÉVIA SE CONTRADIZ (18/09/2026). O bloco do conflito dizia
+   * "fica o da matrícula 5811" e, três linhas abaixo, o resumo de sempre dizia
+   * "SERÁ APAGADO: CPF 840.053.863-34" — o MESMO número. Dois avisos opostos na
+   * mesma tela, no diálogo que apaga cadastro.
+   *
+   * A prévia tem de calcular o que o servidor calcula: com a escolha em mãos, o
+   * CPF perdido é o NÃO escolhido, venha ele de qual lado vier.
+   */
+  cpfQueFica?: string | null,
 ): PlanoDaConsolidacao {
   const ler = (c: CandidatoDuplicata, chave: string) => c[chave as keyof CandidatoDuplicata];
   const igual = (a: unknown, b: unknown) =>
@@ -426,6 +456,28 @@ export function planejarConsolidacao(
     }
   }
 
+  /*
+    O CPF ESCOLHIDO REESCREVE AS DUAS LISTAS. Quando quem decide diz qual CPF
+    fica, ele deixa de seguir o cadastro mantido: o escolhido é absorvido (se
+    vier do removido) e o outro é o que se perde.
+  */
+  if (cpfQueFica) {
+    const digitos = (v: unknown) => String(v ?? '').replace(/[^0-9]/g, '');
+    const semCpf = <T extends { chave: string }>(l: T[]) => l.filter((x) => x.chave !== 'cpf');
+    absorvidos.splice(0, absorvidos.length, ...semCpf(absorvidos));
+    perdidos.splice(0, perdidos.length, ...semCpf(perdidos));
+
+    const vindoDoRemovido = descartar.find((d) => digitos(d.cpf) === cpfQueFica);
+    if (vindoDoRemovido && digitos(manter.cpf) !== cpfQueFica) {
+      absorvidos.push({ chave: 'cpf', rotulo: 'CPF', de: vindoDoRemovido });
+    }
+    for (const d of descartar) {
+      if (temValor(d.cpf) && digitos(d.cpf) !== cpfQueFica) {
+        perdidos.push({ chave: 'cpf', rotulo: 'CPF', de: d });
+      }
+    }
+  }
+
   const filiacaoPreservada = descartar.reduce<CandidatoDuplicata | null>((melhor, d) => {
     if (!d.dataFiliacao) return melhor;
     if (manter.dataFiliacao && String(d.dataFiliacao) >= String(manter.dataFiliacao)) return melhor;
@@ -435,3 +487,75 @@ export function planejarConsolidacao(
 
   return { absorvidos, perdidos, filiacaoPreservada };
 }
+
+/**
+ * O QUE O DÍGITO VERIFICADOR DIZ SOBRE DOIS CPFs QUE DIVERGEM.
+ *
+ * Vem pronto do servidor — a mesma função que decide se a fusão passa. A tela
+ * não recalcula nada: duas implementações da mesma conta acabariam discordando
+ * na hora de apagar cadastro.
+ */
+export interface AnaliseDeCpf {
+  porCadastro: { id: string; matricula: string; cpf: string; valido: boolean }[];
+  umSoValido: boolean;
+  todosValidos: boolean;
+  cpfBom: string | null;
+}
+
+/**
+ * O QUE A TELA DEVE DIZER, E SE DÁ PARA CONSOLIDAR.
+ *
+ * CASO QUE ABRIU ISTO (18/09/2026) — LUANA DE GÓIS SILVA FERNANDES, matrículas
+ * 4002 e 5811, com CPFs que diferem em UM dígito. O dono reconheceu o erro de
+ * digitação e pediu para conseguir consolidar mesmo assim. Só que o CPF que a
+ * tela ia MANTER era o inválido, e o que ela ia APAGAR era o válido: aceitar
+ * cegamente a consolidação teria gravado o errado para sempre.
+ *
+ * Então a tela deixou de só barrar e passou a responder QUAL é o certo.
+ */
+export interface VeredictoDoCpf {
+  /** A frase principal, em português, sobre o que os dígitos dizem. */
+  titulo: string;
+  /** O que fazer a respeito. */
+  recado: string;
+  /** Dá para consolidar? Falso quando os dois CPFs são válidos. */
+  liberado: boolean;
+  /** Já escolhido pelo sistema quando ele sabe; nulo quando a escolha é humana. */
+  escolhaPadrao: string | null;
+}
+
+export function veredictoDoCpf(a: AnaliseDeCpf): VeredictoDoCpf {
+  if (a.todosValidos) {
+    return {
+      titulo: 'Os dois CPFs são válidos.',
+      recado:
+        'Dois CPFs que passam no dígito verificador são duas pessoas. Se tiver certeza de que ' +
+        'é a mesma, corrija o CPF errado na ficha e consolide depois — assim nada é apagado ' +
+        'por engano.',
+      liberado: false,
+      escolhaPadrao: null,
+    };
+  }
+  if (a.umSoValido) {
+    const bom = a.porCadastro.find((c) => c.valido)!;
+    const ruim = a.porCadastro.filter((c) => !c.valido);
+    return {
+      titulo: `Só ${mascararCpf(bom.cpf)} passa no dígito verificador.`,
+      recado:
+        `${ruim.map((c) => mascararCpf(c.cpf)).join(' e ')} não ` +
+        `${ruim.length > 1 ? 'passam' : 'passa'} na ` +
+        `conta — é erro de digitação. Ao consolidar, fica o da matrícula ${bom.matricula}, ` +
+        'mesmo que seja o do cadastro que sai.',
+      liberado: true,
+      escolhaPadrao: soDigitosDoCpf(bom.cpf),
+    };
+  }
+  return {
+    titulo: 'Nenhum dos CPFs passa no dígito verificador.',
+    recado: 'Os dois estão errados e não identificam ninguém. Escolha qual deve ficar.',
+    liberado: true,
+    escolhaPadrao: null,
+  };
+}
+
+export const soDigitosDoCpf = (v: string) => v.replace(/[^0-9]/g, '');

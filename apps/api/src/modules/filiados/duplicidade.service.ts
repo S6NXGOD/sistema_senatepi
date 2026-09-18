@@ -12,6 +12,10 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { formatarDataBR } from '../processos/utils/data-br.util';
+// O validador de CPF já existe na importação — reusar em vez de escrever um
+// terceiro: duas funções com a mesma pergunta e regras diferentes já
+// custaram caro neste projeto (ver as duas `normalizarNome`).
+import { cpfValido } from '../importacao/mapeamento.util';
 
 /**
  * Confiança de que o grupo é a MESMA pessoa cadastrada mais de uma vez.
@@ -62,6 +66,11 @@ export interface GrupoDuplicata {
   decidiu: boolean;
   /** Campos que divergem entre os candidatos (o que derruba a confiança). */
   contradicoes: string[];
+  /**
+   * Quando o CPF é um dos campos que divergem: o que o dígito verificador diz.
+   * Nulo quando não há conflito de CPF. Ver `analisarCpfs`.
+   */
+  cpfEmConflito: AnaliseDeCpf | null;
   /**
    * NINGUÉM do grupo tem dado que identifique pessoa — ver `esperandoDado`.
    * Não é pendência: é uma pergunta sem resposta possível hoje.
@@ -382,6 +391,67 @@ export function montarItem(fica: CandidatoDuplicata, sai: CandidatoDuplicata): I
   };
 }
 
+/**
+ * O QUE OS DÍGITOS VERIFICADORES DIZEM SOBRE DOIS CPFs QUE DIVERGEM.
+ *
+ * CASO REAL QUE ABRIU ISTO (18/09/2026) — LUANA DE GÓIS SILVA FERNANDES:
+ *
+ *   4002 (o que a tela mandava manter)  840.053.86**9**-34  → dígito não bate
+ *   5811 (o que a tela ia apagar)       840.053.86**3**-34  → válido
+ *
+ * Um dígito de diferença: alguém digitou errado. E a tela estava prestes a
+ * destruir o CPF CERTO e ficar com o errado, porque "quem fica" era decidido
+ * por completude e o CPF ia junto com o cadastro.
+ *
+ * O CPF tem dois dígitos verificadores. Quando dois cadastros do mesmo grupo
+ * trazem CPFs diferentes e só UM passa na conta, o sistema não precisa
+ * perguntar nada: ele SABE qual é o erro de digitação.
+ *
+ * AS TRÊS SITUAÇÕES, e elas não recebem o mesmo tratamento:
+ *
+ *  - UM SÓ VÁLIDO: erro de digitação. A consolidação é liberada, e o CPF que
+ *    prevalece é o válido — mesmo que ele esteja no cadastro que vai sair.
+ *  - OS DOIS VÁLIDOS: dois CPFs que passam na conta são duas pessoas. Continua
+ *    barrado, e nenhuma confirmação libera. Quem tiver certeza corrige o CPF na
+ *    ficha e consolida depois — o caminho existe e não apaga nada por engano.
+ *  - NENHUM VÁLIDO: os dois são lixo e não identificam ninguém. Liberado, com
+ *    a escolha explícita de quem decide.
+ */
+export interface AnaliseDeCpf {
+  porCadastro: { id: string; matricula: string; cpf: string; valido: boolean }[];
+  /** Exatamente um passa no dígito verificador — o sistema sabe qual vale. */
+  umSoValido: boolean;
+  /** Todos passam: são pessoas diferentes, e nada libera a fusão. */
+  todosValidos: boolean;
+  /** O CPF que deve prevalecer, quando o sistema sabe. Nulo quando não sabe. */
+  cpfBom: string | null;
+}
+
+export function analisarCpfs(
+  candidatos: { id: string; matricula: string; cpf: string | null }[],
+): AnaliseDeCpf | null {
+  const comCpf = candidatos.filter((c) => (c.cpf ?? '').trim() !== '');
+  const distintos = new Set(comCpf.map((c) => soDigitos(c.cpf!)));
+  // Sem conflito não há o que analisar: este bloco só existe para a divergência.
+  if (comCpf.length < 2 || distintos.size < 2) return null;
+
+  const porCadastro = comCpf.map((c) => ({
+    id: c.id,
+    matricula: c.matricula,
+    cpf: c.cpf!,
+    valido: cpfValido(c.cpf),
+  }));
+  const validos = porCadastro.filter((c) => c.valido);
+  return {
+    porCadastro,
+    umSoValido: validos.length === 1,
+    todosValidos: validos.length === porCadastro.length,
+    cpfBom: validos.length === 1 ? soDigitos(validos[0].cpf) : null,
+  };
+}
+
+const soDigitos = (v: string) => v.replace(/[^0-9]/g, '');
+
 @Injectable()
 export class DuplicidadeService {
   constructor(
@@ -605,6 +675,7 @@ export class DuplicidadeService {
         motivoSugestao: motivo,
         decidiu,
         contradicoes: contradicoes.map((c) => c.rotulo),
+        cpfEmConflito: analisarCpfs(candidatos),
         esperandoDado: esperandoDado(candidatos),
         nomeConfirmado: nomeProva(membros[0]),
         candidatos: candidatos.map((c) => ({ ...c, sugerido: c.id === sugeridoId })),
@@ -761,6 +832,7 @@ export class DuplicidadeService {
       ...grupo,
       confianca: this.classificar(restantes, contradicoes),
       contradicoes: contradicoes.map((c) => c.rotulo),
+      cpfEmConflito: analisarCpfs(restantes),
       motivoSugestao: motivo,
       decidiu,
       esperandoDado: esperandoDado(restantes),
@@ -1084,7 +1156,21 @@ export class DuplicidadeService {
    * depois destruiria o que se pretendia salvar. Se qualquer passo falhar,
    * nada acontece.
    */
-  async fundir(manterId: string, descartarId: string, autor?: string) {
+  async fundir(
+    manterId: string,
+    descartarId: string,
+    autor?: string,
+    opcoes?: {
+      /**
+       * QUANDO OS CPFs DIVERGEM, qual deles fica — só dígitos.
+       *
+       * Não tem padrão de propósito: sem este campo a fusão continua barrada,
+       * como sempre foi. É uma decisão de gente, uma por vez, e o lote nunca a
+       * envia. Ver `analisarCpfs`.
+       */
+      cpfQueFica?: string;
+    },
+  ) {
     if (manterId === descartarId) {
       throw new BadRequestException('Os dois registros informados são o mesmo.');
     }
@@ -1097,13 +1183,48 @@ export class DuplicidadeService {
       if (!manter) throw new NotFoundException('Filiado a manter não encontrado.');
       if (!descartar) throw new NotFoundException('Filiado a descartar não encontrado.');
 
-      // Guarda de segurança: CPFs diferentes e ambos preenchidos são pessoas
-      // diferentes. A tela já não sugere esse caso, mas a regra vive aqui —
-      // uma chamada direta à API não pode furar o que a interface protege.
-      if (manter.cpf && descartar.cpf && manter.cpf !== descartar.cpf) {
-        throw new BadRequestException(
-          'Os dois cadastros têm CPFs diferentes — são pessoas distintas e não podem ser fundidos.',
-        );
+      /*
+        CPFs QUE DIVERGEM: a trava continua, e agora ela SABE do que está
+        falando (18/09/2026). Ver `analisarCpfs` para o caso que abriu isto —
+        um dígito trocado, e a tela ia apagar justamente o CPF certo.
+
+        A regra vive aqui, e não na tela: uma chamada direta à API não pode
+        furar o que a interface protege.
+      */
+      const conflito = analisarCpfs([manter, descartar]);
+      let cpfEscolhido: string | null = null;
+      if (conflito) {
+        const escolhido = (opcoes?.cpfQueFica ?? '').replace(/[^0-9]/g, '');
+        const naoBate = (c: { cpf: string }) => c.cpf.replace(/[^0-9]/g, '') !== escolhido;
+
+        if (conflito.todosValidos) {
+          throw new BadRequestException(
+            'Os dois CPFs passam no dígito verificador — são pessoas diferentes, e a ' +
+              'consolidação não é liberada nem com confirmação. Se tiver certeza de que é a ' +
+              'mesma pessoa, corrija o CPF errado na ficha e consolide depois.',
+          );
+        }
+        if (!escolhido) {
+          const bom = conflito.porCadastro.find((c) => c.valido);
+          throw new BadRequestException(
+            conflito.umSoValido
+              ? `Os CPFs divergem, e só o da matrícula ${bom!.matricula} (${bom!.cpf}) passa no ` +
+                'dígito verificador. Confirme qual CPF deve ficar para consolidar.'
+              : 'Os CPFs divergem e nenhum dos dois passa no dígito verificador. ' +
+                'Escolha qual deve ficar para consolidar.',
+          );
+        }
+        if (conflito.porCadastro.every(naoBate)) {
+          throw new BadRequestException('O CPF escolhido não é o de nenhum dos dois cadastros.');
+        }
+        if (conflito.umSoValido && escolhido !== conflito.cpfBom) {
+          const bom = conflito.porCadastro.find((c) => c.valido)!;
+          throw new BadRequestException(
+            `O CPF escolhido não passa no dígito verificador. O válido é ${bom.cpf}, ` +
+              `da matrícula ${bom.matricula}.`,
+          );
+        }
+        cpfEscolhido = escolhido;
       }
 
       // 1) Absorve os campos que só o descartado tem.
@@ -1136,6 +1257,35 @@ export class DuplicidadeService {
           'fotoKey', 'fotoThumbKey',
         ] as const
       ).forEach(copiar);
+
+      /*
+        O CPF ESCOLHIDO PREVALECE, venha de onde vier (18/09/2026).
+
+        `copiar` só preenche buraco: com os dois lados preenchidos, o do mantido
+        ficava e o do removido ia para `descartados`. Mas quando um dos CPFs é
+        erro de digitação, o certo pode estar justamente no cadastro que sai —
+        foi o caso da LUANA, em que a tela ia guardar o inválido.
+
+        Aqui a escolha de quem decide passa por cima da completude. Guarda-se a
+        grafia como está no cadastro de origem, não os dígitos limpos: a base
+        grava com pontuação e trocar isso na surdina viraria outra divergência.
+      */
+      let cpfTrocado: { de: string | null; para: string } | null = null;
+      if (cpfEscolhido) {
+        const origem = [manter, descartar].find(
+          (c) => (c.cpf ?? '').replace(/[^0-9]/g, '') === cpfEscolhido,
+        );
+        const comoEstaGravado = origem?.cpf ?? cpfEscolhido;
+        if ((manter.cpf ?? '').replace(/[^0-9]/g, '') !== cpfEscolhido) {
+          absorvidos.cpf = comoEstaGravado;
+          delete descartados.cpf;
+          cpfTrocado = { de: manter.cpf, para: comoEstaGravado };
+        } else {
+          // O escolhido já é o do mantido: o outro sai, e isso já está em
+          // `descartados` pela cópia acima. Nada a fazer além de registrar.
+          cpfTrocado = { de: null, para: comoEstaGravado };
+        }
+      }
 
       /**
        * A FILIAÇÃO MAIS ANTIGA PREVALECE — e é uma regra, não uma cópia.
@@ -1196,6 +1346,20 @@ export class DuplicidadeService {
             (camposDescartados.length
               ? ` Valores do cadastro removido que NÃO foram aproveitados porque o ` +
                 `mantido já tinha outro: ${camposDescartados.join(', ')}.`
+              : '') +
+            /*
+              O CONFLITO DE CPF FICA ESCRITO POR EXTENSO. É a única fusão que
+              uma pessoa libera contra uma trava do sistema: quem ler esta ficha
+              daqui a um ano precisa achar aqui por que dois CPFs viraram um, e
+              qual deles ficou.
+            */
+            (cpfTrocado
+              ? ` CPFs divergentes: ficou ${cpfTrocado.para}` +
+                (cpfTrocado.de ? `, no lugar de ${cpfTrocado.de}` : '') +
+                `, por decisão de ${autor ?? 'um operador'}` +
+                (conflito?.umSoValido
+                  ? ' — é o único que passa no dígito verificador.'
+                  : ' — nenhum dos dois passa no dígito verificador.')
               : '') +
             (descartar.vinculos.length
               ? ` ${descartar.vinculos.length} local(is) de trabalho transferido(s).`

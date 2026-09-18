@@ -148,7 +148,7 @@ describe('o lote com a régua do dono', () => {
         motivoSugestao: null,
         decidiu: true,
         contradicoes: over.contradicoes ?? [],
-        esperandoDado: esperandoDado(candidatos),
+        cpfEmConflito: null, esperandoDado: esperandoDado(candidatos),
         nomeConfirmado: over.nomeConfirmado ?? true,
         candidatos,
       },

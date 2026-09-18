@@ -93,7 +93,7 @@ describe('quem entra no lote', () => {
         motivoSugestao: null,
         decidiu: true,
         contradicoes,
-        esperandoDado: esperandoDado(candidatos),
+        cpfEmConflito: null, esperandoDado: esperandoDado(candidatos),
         nomeConfirmado: true,
         candidatos,
       },
@@ -155,7 +155,7 @@ describe('o contador do aviso', () => {
     const servico = new DuplicidadeService({} as never, {} as never);
     const grupo = (candidatos: CandidatoDuplicata[], chave: string) => ({
       chave, confianca: 'ALTA' as const, criterio: 'nome idêntico', motivoSugestao: null,
-      decidiu: true, contradicoes: [], esperandoDado: esperandoDado(candidatos),
+      decidiu: true, contradicoes: [], cpfEmConflito: null, esperandoDado: esperandoDado(candidatos),
       nomeConfirmado: true, candidatos,
     });
     jest.spyOn(servico, 'varrer').mockResolvedValue([
@@ -178,7 +178,7 @@ describe('o contador do aviso', () => {
 describe('o resumo do lote', () => {
   const grupo = (chave: string, candidatos: CandidatoDuplicata[]) => ({
     chave, confianca: 'ALTA' as const, criterio: 'nome idêntico', motivoSugestao: null,
-    decidiu: true, contradicoes: [], esperandoDado: esperandoDado(candidatos),
+    decidiu: true, contradicoes: [], cpfEmConflito: null, esperandoDado: esperandoDado(candidatos),
     nomeConfirmado: true, candidatos,
   });
 
