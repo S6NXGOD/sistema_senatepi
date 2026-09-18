@@ -283,7 +283,7 @@ export interface ItemLote {
  * COMPLETAMENTE vazio (nome e matrícula, nada mais). São 58% do total, e a
  * fusão neles não copia nada porque não há nada a copiar.
  */
-export async function previaLote(): Promise<{ total: number; amostra: ItemLote[] }> {
+export async function previaLote(): Promise<{ total: number; recuamFiliacao?: number; amostra: ItemLote[] }> {
   return (await api.get('/filiados/duplicidade/lote')).data;
 }
 
@@ -311,3 +311,60 @@ export const CAMPOS_COMPARADOS = [
   { chave: 'endereco', rotulo: 'Endereço' },
   { chave: 'dataFiliacao', rotulo: 'Filiação' },
 ] as const;
+
+/**
+ * O QUE A CONSOLIDAÇÃO GANHA E O QUE ELA APAGA.
+ *
+ * A confirmação mostrava só metade da conta — o que seria COPIADO. Quando os
+ * dois cadastros têm o mesmo campo preenchido com valores diferentes, o do
+ * removido some junto com o registro, e a tela dizia "não tem nenhum dado que o
+ * mantido já não tenha": verdade que engana. Aqui as duas metades saem da MESMA
+ * regra, para a prévia não poder discordar do que o servidor faz.
+ *
+ * `dataFiliacao` fica de fora das duas listas porque tem regra própria: a mais
+ * antiga prevalece, sempre, e nunca se adianta. Não é perda nem cópia — é
+ * preservação de tempo de sindicato, e a tela precisa dizer isso com outras
+ * palavras.
+ */
+export interface PlanoDaConsolidacao {
+  absorvidos: { chave: string; rotulo: string; de: CandidatoDuplicata }[];
+  perdidos: { chave: string; rotulo: string; de: CandidatoDuplicata }[];
+  /** O cadastro removido cuja filiação é mais antiga — nulo quando não há. */
+  filiacaoPreservada: CandidatoDuplicata | null;
+}
+
+export function planejarConsolidacao(
+  manter: CandidatoDuplicata,
+  descartar: CandidatoDuplicata[],
+): PlanoDaConsolidacao {
+  const ler = (c: CandidatoDuplicata, chave: string) => c[chave as keyof CandidatoDuplicata];
+  const igual = (a: unknown, b: unknown) =>
+    String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+
+  const absorvidos: PlanoDaConsolidacao['absorvidos'] = [];
+  const perdidos: PlanoDaConsolidacao['perdidos'] = [];
+
+  for (const { chave, rotulo } of CAMPOS_COMPARADOS) {
+    if (chave === 'dataFiliacao') continue;
+    const meu = ler(manter, chave);
+    if (!temValor(meu)) {
+      // Buraco: o primeiro que tiver valor preenche, como faz o servidor.
+      const fonte = descartar.find((d) => temValor(ler(d, chave)));
+      if (fonte) absorvidos.push({ chave, rotulo, de: fonte });
+      continue;
+    }
+    for (const d of descartar) {
+      const dele = ler(d, chave);
+      if (temValor(dele) && !igual(dele, meu)) perdidos.push({ chave, rotulo, de: d });
+    }
+  }
+
+  const filiacaoPreservada = descartar.reduce<CandidatoDuplicata | null>((melhor, d) => {
+    if (!d.dataFiliacao) return melhor;
+    if (manter.dataFiliacao && String(d.dataFiliacao) >= String(manter.dataFiliacao)) return melhor;
+    if (melhor && String(melhor.dataFiliacao) <= String(d.dataFiliacao)) return melhor;
+    return d;
+  }, null);
+
+  return { absorvidos, perdidos, filiacaoPreservada };
+}

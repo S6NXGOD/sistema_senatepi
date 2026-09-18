@@ -188,8 +188,28 @@ describe('como funciona esta fila', () => {
     for (const acao of ['Consolidar', 'Não é duplicado', 'Não é a mesma pessoa']) {
       expect(bloco).toContain(acao);
     }
-    expect(bloco).toContain('Nenhum dado se perde');
     expect(bloco).toContain('nada é apagado');
+  });
+
+  /**
+   * "NENHUM DADO SE PERDE" ERA FALSO E ESTAVA AQUI COMO EXIGÊNCIA (18/09/2026).
+   *
+   * Campo preenchido diferente nos dois lados: vale o do mantido e o outro ia
+   * embora com o registro. O texto prometia o contrário, e o teste cobrava a
+   * promessa — um teste pode fixar uma mentira tão bem quanto uma verdade.
+   */
+  it('não promete que nada se perde: diz o que acontece com o valor divergente', () => {
+    const bloco = PAGINA.slice(PAGINA.indexOf('function ComoFunciona'));
+    expect(bloco).not.toContain('Nenhum dado se perde');
+    expect(bloco).toContain('vale o do');
+    expect(bloco).toContain('histórico');
+  });
+
+  /** A filiação é a exceção da fusão, e a tela tem de dizer qual é. */
+  it('avisa que a filiação mais antiga prevalece', () => {
+    const bloco = PAGINA.slice(PAGINA.indexOf('function ComoFunciona'));
+    expect(bloco).toContain('mais antiga');
+    expect(bloco).toContain('Tempo de sindicato');
   });
 
   it('e responde "na dúvida, qual manter?"', () => {
@@ -266,5 +286,23 @@ describe('o lote conversa com a fila', () => {
   it('não inventa número antes de a fila chegar, nem deixa negativo', () => {
     expect(LOTE).toContain('gruposNaFila === undefined ? null');
     expect(LOTE).toContain('Math.max(0, gruposNaFila - total)');
+  });
+
+  /**
+   * O PAINEL AFIRMAVA ALGO FALSO — 18/09/2026.
+   *
+   * "O cadastro removido tem apenas nome e matrícula" era o texto. Medido na
+   * base: 868 dos 925 removidos têm DATA DE FILIAÇÃO, e em 91 ela é mais antiga
+   * que a do cadastro que fica. A data não pontua e não é contradição, então
+   * atravessava o critério do lote sem ser vista.
+   */
+  it('não diz mais que o removido só tem nome e matrícula', () => {
+    expect(LOTE).not.toContain('apenas nome e matrícula');
+    expect(LOTE).toContain('só nome, matrícula e a data de filiação');
+  });
+
+  it('conta em quantos a filiação antiga é preservada, e só quando há', () => {
+    expect(LOTE).toContain('{!!data?.recuamFiliacao && (');
+    expect(LOTE).toContain('tempo de sindicato não se perde');
   });
 });

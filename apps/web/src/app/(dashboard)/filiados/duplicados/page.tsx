@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle,
+  AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle,
   Keyboard, List, Merge, Undo2, UserMinus, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
@@ -21,7 +21,8 @@ import {
   CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL, frasesDaRiqueza,
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
   listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
-  quantosDados, resumoDoCadastro, rotuloDoConsolidar, temValor, voltarParaFila,
+  planejarConsolidacao, quantosDados, resumoDoCadastro, rotuloDoConsolidar, temValor,
+  voltarParaFila,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
@@ -902,12 +903,13 @@ function ResumoSeparacao({
 
 function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descartar: CandidatoDuplicata[] }) {
   const valor = (c: CandidatoDuplicata, chave: string) => c[chave as keyof CandidatoDuplicata];
-  const temValor = (v: unknown) => v !== null && v !== undefined && v !== '';
-  const absorvidos = CAMPOS_COMPARADOS.map(({ chave, rotulo }) => {
-    if (temValor(valor(manter, chave))) return null;
-    const fonte = descartar.find((d) => temValor(valor(d, chave)));
-    return fonte ? { chave, rotulo, de: fonte } : null;
-  }).filter((x): x is NonNullable<typeof x> => x !== null);
+  /*
+    A PRÉVIA LÊ A MESMA REGRA (18/09/2026). Este resumo recalculava o efeito da
+    fusão por conta própria e mostrava só metade: o que seria COPIADO. A conta
+    inteira — o que se copia, o que se APAGA por divergência e a filiação mais
+    antiga que é preservada — mora em `planejarConsolidacao`, testada sozinha.
+  */
+  const { absorvidos, perdidos, filiacaoPreservada } = planejarConsolidacao(manter, descartar);
   const vinculos = descartar.reduce((n, d) => n + d.vinculos, 0);
   const matriculas = descartar.map((d) => d.matricula);
   const varios = descartar.length > 1;
@@ -936,6 +938,41 @@ function ResumoFusao({ manter, descartar }: { manter: CandidatoDuplicata; descar
         <p className="text-xs text-muted-foreground">
           {varios ? 'Os cadastros removidos não têm' : 'O cadastro removido não tem'} nenhum dado que o mantido já não tenha.
         </p>
+      )}
+      {filiacaoPreservada && (
+        <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 p-2.5 text-xs text-brand-900 dark:bg-brand-950/40 dark:text-brand-200">
+          <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            A filiação mais antiga é preservada:{' '}
+            <strong>{formatarCampo('dataFiliacao', filiacaoPreservada.dataFiliacao)}</strong>
+            {manter.dataFiliacao && (
+              <> (o cadastro mantido dizia {formatarCampo('dataFiliacao', manter.dataFiliacao)})</>
+            )}
+            . O tempo de sindicato não se perde na consolidação.
+          </span>
+        </p>
+      )}
+      {perdidos.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+            Será apagado junto com o cadastro
+          </p>
+          <ul className="space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
+            {perdidos.map(({ chave, rotulo, de }) => (
+              <li key={`${chave}-${de.id}`}>
+                {rotulo}: <strong>{formatarCampo(chave, valor(de, chave))}</strong>
+                {varios && <span className="opacity-80"> (de {de.matricula})</span>}
+                <span className="opacity-80">
+                  {' '}— o mantido tem {formatarCampo(chave, valor(manter, chave))}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-amber-800 dark:text-amber-300">
+            Fica registrado no histórico. Se o valor certo for esse, escolha o outro cadastro
+            para manter.
+          </p>
+        </div>
       )}
       {vinculos > 0 && (
         <p className="text-xs">
@@ -1005,11 +1042,22 @@ function ComoFunciona() {
                 <Merge className="h-4 w-4 text-brand-800 dark:text-brand-400" aria-hidden="true" />
                 Consolidar
               </dt>
-              <dd className="mt-1 text-muted-foreground">
-                É a mesma pessoa. O cadastro marcado como <strong>MANTER</strong> fica, e tudo o que
-                só existia nos outros — CPF, telefone, endereço, processos, mensalidades — é copiado
-                para ele <em>antes</em> de os duplicados saírem. <strong>Nenhum dado se perde</strong>;
-                o que some é a linha repetida. A matrícula removida fica no histórico.
+              <dd className="mt-1 space-y-1.5 text-muted-foreground">
+                <span className="block">
+                  É a mesma pessoa. O cadastro marcado como <strong>MANTER</strong> fica, e tudo o
+                  que só existia nos outros — CPF, telefone, endereço, processos, mensalidades — é
+                  copiado para ele <em>antes</em> de os duplicados saírem. A matrícula removida fica
+                  no histórico.
+                </span>
+                <span className="block">
+                  Quando o mesmo campo está preenchido <strong>diferente</strong> nos dois, vale o do
+                  mantido — e o outro valor fica escrito no histórico, nunca some calado. A tela de
+                  confirmação lista o que será copiado <em>e</em> o que será apagado.
+                </span>
+                <span className="block">
+                  A <strong>data de filiação</strong> é exceção: prevalece sempre a mais antiga, mesmo
+                  que esteja no cadastro que vai sair. Tempo de sindicato não se perde aqui.
+                </span>
               </dd>
             </div>
 
@@ -1049,6 +1097,11 @@ function ComoFunciona() {
               comparar de relance. Se os dois estiverem igualmente vazios, o sistema diz isso e
               qualquer um serve: a consolidação copia o que faltar de um para o outro de qualquer
               forma. Quando houver <strong>CPF em um só</strong>, mantenha esse.
+            </p>
+            <p className="mt-2 text-muted-foreground">
+              E a escolha pesa menos do que parece: a <strong>filiação mais antiga fica de
+              qualquer jeito</strong>, e o que for divergente vai para o histórico. No empate,
+              escolher errado não custa caro — custa caro é o grupo continuar aqui.
             </p>
           </div>
         </div>

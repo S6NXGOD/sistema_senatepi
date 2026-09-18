@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { formatarDataBR } from '../processos/utils/data-br.util';
 
 /**
  * Confiança de que o grupo é a MESMA pessoa cadastrada mais de uma vez.
@@ -517,7 +518,7 @@ export class DuplicidadeService {
    * São 704 dos 1.224 pares na base: 58% do trabalho, na fatia de menor risco.
    * O resto continua exigindo olho humano, e é assim de propósito.
    */
-  async elegiveisParaLote(): Promise<{ manterId: string; descartarId: string; nome: string; manterMatricula: string; descartarMatricula: string }[]> {
+  async elegiveisParaLote(): Promise<{ manterId: string; descartarId: string; nome: string; manterMatricula: string; descartarMatricula: string; recuaFiliacao: boolean }[]> {
     const grupos = await this.varrer();
     /*
       GRUPO DE TRÊS TAMBÉM ENTRA NO LOTE (17/09/2026), desde que só UM cadastro
@@ -539,6 +540,23 @@ export class DuplicidadeService {
           nome: cheio.nomeCompleto,
           manterMatricula: cheio.matricula,
           descartarMatricula: vazio.matricula,
+          /*
+            "PONTUAÇÃO ZERO" NÃO QUER DIZER CADASTRO VAZIO (18/09/2026).
+            `dataFiliacao` não pontua e não é contradição, então o cadastro que
+            o lote chama de casca costuma trazer justamente o dado mais antigo
+            da pessoa: 868 dos 925 removidos têm data de filiação.
+
+            AQUI SÓ CONTA O QUE MUDOU DE COMPORTAMENTO, e a diferença é grande:
+            em 737 pares o mantido não tinha data nenhuma e a do removido já era
+            copiada antes — nunca se perdeu nada ali. O caso novo são os 91 em
+            que OS DOIS têm data e a do removido é mais antiga: eram esses que o
+            cadastro novo atropelava. Contar os 828 juntos poria na tela um
+            número verdadeiro respondendo a pergunta errada.
+          */
+          recuaFiliacao:
+            !!vazio.dataFiliacao &&
+            !!cheio.dataFiliacao &&
+            vazio.dataFiliacao < cheio.dataFiliacao,
         }));
       });
   }
@@ -774,22 +792,55 @@ export class DuplicidadeService {
 
       // 1) Absorve os campos que só o descartado tem.
       const absorvidos: Record<string, unknown> = {};
+      /**
+       * O QUE SE PERDE TAMBÉM TEM DE FICAR ESCRITO (18/09/2026).
+       *
+       * A cópia só preenche buraco: campo que o mantido já tem fica como está.
+       * Quando os dois lados têm valor e eles DIFEREM, o do descartado some
+       * junto com o registro — e o histórico só falava do que foi aproveitado.
+       * Medido na base: 15 pares perdem cidade, endereço ou nascimento assim,
+       * sem deixar rastro em lugar nenhum. Agora fica.
+       */
+      const descartados: Record<string, unknown> = {};
       const copiar = <K extends keyof typeof manter>(campo: K) => {
         const atual = manter[campo];
         const outro = descartar[campo];
         const vazio = atual === null || atual === undefined || atual === '';
         const temOutro = outro !== null && outro !== undefined && outro !== '';
-        if (vazio && temOutro) absorvidos[campo as string] = outro;
+        if (!temOutro) return;
+        if (vazio) absorvidos[campo as string] = outro;
+        else if (String(atual) !== String(outro)) descartados[campo as string] = outro;
       };
       (
         [
           'cpf', 'rg', 'ufRg', 'dataNascimento', 'sexo', 'estadoCivil', 'naturalidade',
           'telefonePrincipal', 'telefoneSecundario', 'email', 'cep', 'endereco', 'numero',
           'complemento', 'bairro', 'cidade', 'estado', 'numeroCoren', 'dataAdmissao',
-          'formacao', 'formacaoOutro', 'dataFiliacao', 'modalidadeContribuicao',
+          'formacao', 'formacaoOutro', 'modalidadeContribuicao',
           'fotoKey', 'fotoThumbKey',
         ] as const
       ).forEach(copiar);
+
+      /**
+       * A FILIAÇÃO MAIS ANTIGA PREVALECE — e é uma regra, não uma cópia.
+       *
+       * `dataFiliacao` estava na lista acima, onde só entra o que o mantido não
+       * tem. Os dois quase sempre têm: 868 dos 925 pares do lote. Então o
+       * cadastro novo vencia o antigo e o filiado ENVELHECIA AO CONTRÁRIO —
+       * 91 pares do lote de um clique, média de 2.685 dias, o pior recuando
+       * RENATA DOS ANJOS MACENA de 2010 para 2023: treze anos e meio de
+       * sindicato apagados num clique, sem nada na tela avisando.
+       *
+       * Duas fichas da mesma pessoa não são duas filiações; é uma filiação
+       * cadastrada duas vezes. A verdadeira é a primeira — a segunda só existe
+       * porque alguém preencheu a ficha de novo. A regra só RECUA a data, nunca
+       * adianta, e fica registrada no histórico com o valor anterior.
+       */
+      const filiacaoAnterior = manter.dataFiliacao;
+      const recuaFiliacao =
+        !!descartar.dataFiliacao &&
+        (!manter.dataFiliacao || descartar.dataFiliacao < manter.dataFiliacao);
+      if (recuaFiliacao) absorvidos.dataFiliacao = descartar.dataFiliacao;
 
       if (Object.keys(absorvidos).length) {
         await tx.filiado.update({ where: { id: manterId }, data: absorvidos });
@@ -809,6 +860,8 @@ export class DuplicidadeService {
       //    virar um número que não existe em lugar nenhum: quem procurar por
       //    ela mais tarde encontra aqui o registro de para onde foi.
       const camposAbsorvidos = Object.keys(absorvidos);
+      const camposDescartados = Object.keys(descartados);
+      const dia = (d: Date | null) => (d ? formatarDataBR(d) : null);
       await tx.filiadoHistorico.create({
         data: {
           filiadoId: manterId,
@@ -819,6 +872,15 @@ export class DuplicidadeService {
             (camposAbsorvidos.length
               ? `Dados aproveitados: ${camposAbsorvidos.join(', ')}.`
               : 'Nenhum dado adicional a aproveitar.') +
+            (recuaFiliacao
+              ? ` Filiação recuada para ${dia(descartar.dataFiliacao)}` +
+                (filiacaoAnterior ? ` (antes ${dia(filiacaoAnterior)})` : '') +
+                ', que é a do cadastro removido.'
+              : '') +
+            (camposDescartados.length
+              ? ` Valores do cadastro removido que NÃO foram aproveitados porque o ` +
+                `mantido já tinha outro: ${camposDescartados.join(', ')}.`
+              : '') +
             (descartar.vinculos.length
               ? ` ${descartar.vinculos.length} local(is) de trabalho transferido(s).`
               : ''),
@@ -829,6 +891,11 @@ export class DuplicidadeService {
             descartadoNome: descartar.nomeCompleto,
             descartadoCpf: descartar.cpf,
             camposAbsorvidos,
+            // O valor, e não só o nome do campo: o registro foi apagado, e este
+            // é o único lugar onde ele ainda existe.
+            valoresDescartados: descartados as Prisma.InputJsonValue,
+            filiacaoAnterior: filiacaoAnterior ? filiacaoAnterior.toISOString() : null,
+            filiacaoRecuada: recuaFiliacao,
             vinculosTransferidos: descartar.vinculos.length,
           } as Prisma.InputJsonValue,
         },

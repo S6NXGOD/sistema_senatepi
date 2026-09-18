@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CheckCircle2, Loader2, Sparkles, TriangleAlert } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Loader2, Sparkles, TriangleAlert } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,10 +12,14 @@ import { executarLote, previaLote } from '@/lib/duplicidade';
 /**
  * Consolidação em lote da fatia SEM RISCO DE PERDA.
  *
- * Só entram aqui os grupos em que o cadastro descartado está completamente
- * vazio — nome e matrícula, nada mais. A fusão não copia nada porque não há
- * nada; e se por azar forem duas pessoas, o que se perde é um registro que
- * não continha informação alguma, com a matrícula preservada no histórico.
+ * Só entram aqui os grupos em que o cadastro descartado não tem CPF, contato,
+ * endereço nem local de trabalho. A fusão quase nada copia; e se por azar forem
+ * duas pessoas, o que se perde é um registro sem informação, com a matrícula
+ * preservada no histórico.
+ *
+ * "Completamente vazio" era o que estava escrito aqui e não era verdade: a DATA
+ * DE FILIAÇÃO não pontua, então viajava invisível — 868 dos 925. A fusão hoje
+ * preserva a mais antiga e o painel diz em quantos isso acontece.
  *
  * Tudo que exige julgamento (empate, campos divergentes, os dois lados com
  * dados) fica FORA e continua na revisão um a um. Foi a linha escolhida de
@@ -111,11 +115,28 @@ export function LoteDuplicados({ gruposNaFila }: { gruposNaFila?: number }) {
             <p className="font-semibold">
               {total.toLocaleString('pt-BR')} podem ser consolidados de uma vez
             </p>
+            {/*
+              "NADA A PERDER" ERA MENTIRA, E EU TINHA ESCRITO (18/09/2026).
+              O texto prometia que o removido só tinha nome e matrícula. Medido:
+              868 dos 925 têm DATA DE FILIAÇÃO — ela não pontua e não é
+              contradição, então passava invisível pelo critério do lote. Em 91
+              deles era a data MAIS ANTIGA, média de 2.685 dias: sete anos de
+              sindicato por cadastro, num clique, sem aviso.
+            */}
             <p className="text-sm text-muted-foreground">
-              Nesses, o cadastro removido tem <strong>apenas nome e matrícula</strong> — sem CPF,
-              sem contato, sem endereço, sem local de trabalho. Não há nada para copiar, e nada
-              a perder.
+              Nesses, o cadastro removido não tem CPF, contato, endereço nem local de
+              trabalho — <strong>só nome, matrícula e a data de filiação</strong>.
             </p>
+            {!!data?.recuamFiliacao && (
+              <p className="mt-1.5 flex items-start gap-1.5 text-sm text-muted-foreground">
+                <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
+                <span>
+                  Em <strong>{data.recuamFiliacao.toLocaleString('pt-BR')}</strong> deles o
+                  removido é filiado há mais tempo que o que fica: a data antiga é que vale, e
+                  o tempo de sindicato não se perde na consolidação.
+                </span>
+              </p>
+            )}
             {/*
               O NÚMERO SOZINHO NÃO DIZ QUE É A MAIOR PARTE DO TRABALHO
               (18/09/2026). O painel anunciava "825 podem ser consolidados" ao

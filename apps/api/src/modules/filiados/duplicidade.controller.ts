@@ -104,7 +104,13 @@ export class DuplicidadeController {
   @UseGuards(DuplicidadeAtivaGuard)
   async previaLote() {
     const itens = await this.service.elegiveisParaLote();
-    return { total: itens.length, amostra: itens.slice(0, 25) };
+    return {
+      total: itens.length,
+      // Em quantos a filiação mais antiga será preservada. É o que autoriza a
+      // tela a parar de dizer "o removido só tem nome e matrícula".
+      recuamFiliacao: itens.filter((i) => i.recuaFiliacao).length,
+      amostra: itens.slice(0, 25),
+    };
   }
 
   /**
