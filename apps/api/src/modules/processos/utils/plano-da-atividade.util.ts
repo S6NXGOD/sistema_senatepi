@@ -146,9 +146,33 @@ export function planejarAtividade(
     não tinha onde mostrá-lo. Agora que tem, embutir duplica: o mesmo teor na
     descrição E no bloco, e com duas publicações irmãs, três vezes.
   */
+  /*
+    A DATA NÃO É O VENCIMENTO, E A TAREFA PRECISA DIZER ISSO (18/09/2026).
+
+    A pergunta veio do dono olhando a agenda: "seg., 21/09 09:00 Elaborar
+    manifestação — está correto ser assim no futuro? Ela é criada na data
+    limite?". Não é: 21/09 são cinco dias úteis depois da publicação de 14/09, e
+    o ato falava em prazo de 8 dias. Só que a tarefa não dizia NADA disso — nem
+    o prazo que o ato menciona, nem que aquela data é o dia de sentar.
+
+    Quem abre a agenda vê uma data e um título. Sem esta linha, a única leitura
+    possível é "o prazo é dia 21" — e é exatamente a leitura errada, porque o
+    sistema NÃO calcula vencimento (a contagem depende de dia útil forense,
+    feriado da comarca, forma de intimação e suspensão).
+
+    Só entra quando o ato menciona prazo: sem prazo escrito não há ambiguidade a
+    desfazer, e uma linha em toda tarefa vira ruído que se aprende a pular.
+  */
+  const linhaDoPrazo =
+    c.prazoMencionadoDias != null
+      ? `\nO ato menciona prazo de ${c.prazoMencionadoDias} dia(s). A data acima é o dia ` +
+        'reservado para fazer, com folga — a contagem do prazo processual é do advogado.'
+      : '';
+
   const descricao =
     `Processo ${NpuUtils.formatar(numeroCNJ) || '(rascunho)'}` +
     `${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.` +
+    linhaDoPrazo +
     (atrasado
       ? `\n⚠ Publicação de ${idadeDias} dia(s) atrás — o prazo calculado já venceu. ` +
         `${recente ? 'Confira com urgência.' : 'Confira sem alarme o que ficou pendente.'}`

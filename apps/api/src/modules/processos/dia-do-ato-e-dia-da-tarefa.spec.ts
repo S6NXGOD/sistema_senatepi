@@ -212,3 +212,73 @@ describe('a antecedência do robô é em dias ÚTEIS', () => {
     expect(fonte).toContain('-DIAS_UTEIS_DE_AVISO');
   });
 });
+
+/**
+ * A DATA NÃO É O VENCIMENTO — e a tarefa passou a dizer isso (18/09/2026).
+ *
+ * A pergunta veio do dono olhando a agenda: "seg., 21/09 09:00 Elaborar
+ * manifestação — está correto ser assim no futuro? Ela é criada na data
+ * limite?". O caso é real: publicação de 14/09, ato mencionando prazo de 8
+ * dias, atividade em 21/09 (cinco dias úteis depois, atravessando o fim de
+ * semana). A conta estava certa; a tarefa é que não contava nada.
+ *
+ * Quem abre a agenda vê uma data e um título. Sem uma linha explicando, a
+ * única leitura possível é "o prazo é dia 21" — e o sistema NÃO calcula
+ * vencimento, de propósito: a contagem depende de dia útil forense, feriado da
+ * comarca, forma de intimação e suspensão.
+ */
+describe('a tarefa diz o que a data significa', () => {
+  const base = { nomeOrgao: 'Vara do Trabalho de Parnaíba', providencia: 'ELABORAR_MANIFESTACAO' as const };
+
+  /** O caso exato da produção: 0001407-89.2023.5.22.0004. */
+  it('com prazo escrito, a descrição traz o prazo e desfaz a ambiguidade', () => {
+    const plano = planejarAtividade(
+      { ...base, dataDisponibilizacao: new Date(Date.UTC(2026, 8, 14)), prazoMencionadoDias: 8 },
+      '00014078920235220004',
+      new Date(Date.UTC(2026, 8, 17, 11)),
+      15,
+    );
+    expect(plano.descricao).toContain('prazo de 8 dia(s)');
+    expect(plano.descricao).toContain('dia reservado para fazer');
+    expect(plano.descricao).toContain('contagem do prazo processual é do advogado');
+    // E a conta continua a mesma: 14/09 + 5 dias úteis = 21/09.
+    expect(diaBR(plano.inicio)).toBe('2026-09-21');
+  });
+
+  /**
+   * SEM PRAZO ESCRITO NÃO HÁ AMBIGUIDADE A DESFAZER, e uma linha em toda tarefa
+   * vira ruído que se aprende a pular.
+   */
+  it('sem prazo escrito, a descrição não ganha linha nenhuma', () => {
+    const plano = planejarAtividade(
+      { ...base, dataDisponibilizacao: new Date(Date.UTC(2026, 8, 14)), prazoMencionadoDias: null },
+      '00014078920235220004',
+      new Date(Date.UTC(2026, 8, 17, 11)),
+      15,
+    );
+    expect(plano.descricao).not.toContain('reservado para fazer');
+    expect(plano.descricao).not.toMatch(/prazo de \d+ dia/);
+  });
+
+  /**
+   * O LEMBRETE VEM ANTES DO PRAZO, sempre. Dois dias de folga sobre o prazo
+   * citado, e nunca depois do padrão da providência — é o que impede a tarefa
+   * de nascer no dia do vencimento, que era a preocupação do relato.
+   */
+  it.each([
+    [3, 1],  // prazo curto: 3−2 = 1 dia útil
+    [5, 3],
+    [8, 5],  // limitado pelo padrão da providência (5)
+    [15, 5],
+    [30, 5],
+  ])('prazo de %i dia(s) no ato → lembrete em %i dia(s) úteis', (prazo, esperado) => {
+    const pub = new Date(Date.UTC(2026, 8, 14)); // segunda-feira
+    const plano = planejarAtividade(
+      { ...base, dataDisponibilizacao: pub, prazoMencionadoDias: prazo },
+      null,
+      new Date(Date.UTC(2026, 8, 14, 11)),
+      15,
+    );
+    expect(diaBR(plano.inicio)).toBe(somarDiasUteisEmCalendario(pub, esperado).toISOString().slice(0, 10));
+  });
+});

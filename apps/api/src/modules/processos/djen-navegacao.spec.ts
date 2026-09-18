@@ -395,8 +395,15 @@ describe('a primeira ingestão não pode inundar a agenda', () => {
   it('a descrição não carrega o teor da publicação', () => {
     expect(PLANO).not.toContain('blocoTeor');
     expect(PLANO).not.toContain('Publicação (DJEN)');
-    const bloco = PLANO.slice(PLANO.indexOf('A DESCRIÇÃO DIZ O QUE FAZER'));
-    expect(bloco.slice(0, 900)).toContain('Processo ${NpuUtils.formatar(numeroCNJ)');
+    /*
+      ANCORADO NA ATRIBUIÇÃO, não numa fatia de N caracteres depois de um
+      comentário: a janela de 900 quebrou quando o bloco ganhou mais prosa, e
+      um teste que depende do tamanho do comentário reprova o arquivo certo.
+    */
+    const atribuicao = PLANO.slice(PLANO.indexOf('const descricao ='));
+    expect(atribuicao.slice(0, 400)).toContain('Processo ${NpuUtils.formatar(numeroCNJ)');
+    // E o que entra na descrição é só o cabeçalho, o prazo citado e o atraso.
+    expect(atribuicao.slice(0, 400)).not.toContain('c.texto');
   });
 
   /**
