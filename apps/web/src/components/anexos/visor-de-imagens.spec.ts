@@ -58,6 +58,18 @@ describe('o visor de imagens', () => {
     expect(VISOR).toContain('{varias && (');
   });
 
+  /**
+   * AS SETAS SOBRE A FOTO — conferido na tela (18/09/2026). A 400 px a imagem
+   * ocupava a largura toda e espremia as setas para fora, justamente no
+   * aparelho onde não existe teclado e elas são o único jeito de folhear.
+   */
+  it('as setas ficam sobre a foto, e cabem em qualquer largura', () => {
+    const setas = VISOR.slice(VISOR.indexOf('function Seta'));
+    expect(setas).toContain('absolute top-1/2');
+    expect(setas).toContain('left-2');
+    expect(setas).toContain('right-2');
+  });
+
   /** A tela é usada no celular: alvo de dedo sobre a foto. */
   it('os controles são alvo de dedo', () => {
     const setas = VISOR.slice(VISOR.indexOf('function Seta'));
@@ -78,6 +90,19 @@ describe('o visor de imagens', () => {
   it('a falha de carregamento vira frase, não quadrado quebrado', () => {
     expect(VISOR).toContain('setFalhou(true)');
     expect(VISOR).toContain('vale por uma hora');
+  });
+
+  /**
+   * PORTAL PARA O BODY — conferido na tela (18/09/2026).
+   *
+   * Dentro da gaveta de atendimento o visor cobria só a gaveta, uma faixa à
+   * direita. A gaveta anima com `transform`, e elemento transformado vira o
+   * bloco de contenção de `position: fixed`: o `inset-0` passa a valer para ela.
+   */
+  it('sai da gaveta e cobre a janela inteira', () => {
+    expect(VISOR).toContain("import { createPortal } from 'react-dom';");
+    expect(VISOR).toContain('return createPortal(');
+    expect(VISOR).toContain('document.body,');
   });
 
   /** Rolar o fundo atrás de um visor de tela cheia desorienta. */

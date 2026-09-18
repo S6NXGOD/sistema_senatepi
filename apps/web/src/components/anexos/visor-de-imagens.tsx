@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Download, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { formatTamanho, type Anexo } from '@/lib/anexos';
 
 /**
@@ -77,7 +79,16 @@ export function VisorDeImagens({
   if (!atual) return null;
   const varias = imagens.length > 1;
 
-  return (
+  /*
+    PORTAL PARA O BODY, e não é detalhe de organização (18/09/2026).
+
+    Conferido na tela: dentro da gaveta de atendimento o visor cobria só a
+    gaveta — uma faixa à direita — em vez da tela inteira. A gaveta anima com
+    `transform`, e elemento transformado vira o bloco de contenção de
+    `position: fixed`: o `inset-0` passa a valer para ela, não para a janela.
+    Sair para o `body` é o que devolve o sentido de "tela cheia".
+  */
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -117,7 +128,15 @@ export function VisorDeImagens({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center gap-1 px-1 pb-3 sm:gap-3 sm:px-3">
+      {/*
+        AS SETAS FICAM SOBRE A FOTO, e não ao lado dela (18/09/2026).
+
+        Conferido na tela: a 400 px a imagem ocupava a largura toda e espremia
+        as setas para fora — justamente no aparelho onde NÃO existe teclado e
+        elas são o único jeito de folhear. Sobrepostas, cabem em qualquer
+        largura e não roubam espaço da foto.
+      */}
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-2 pb-3 sm:px-14">
         {varias && (
           <Seta lado="anterior" onClick={(e) => { e.stopPropagation(); anterior(); }} />
         )}
@@ -146,7 +165,8 @@ export function VisorDeImagens({
           <Seta lado="proxima" onClick={(e) => { e.stopPropagation(); proxima(); }} />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -162,8 +182,13 @@ function Seta({
     <button
       type="button"
       onClick={onClick}
-      // 44 px de alvo: a tela é usada no celular, e a seta fica sobre a foto.
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      className={cn(
+        // 44 px de alvo: a tela é usada no celular, e a seta fica sobre a foto.
+        'absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center',
+        'rounded-full bg-black/50 text-white backdrop-blur-sm transition-colors',
+        'hover:bg-black/70',
+        lado === 'anterior' ? 'left-2 sm:left-3' : 'right-2 sm:right-3',
+      )}
       title={lado === 'anterior' ? 'Anterior (←)' : 'Próxima (→)'}
       aria-label={lado === 'anterior' ? 'Imagem anterior' : 'Próxima imagem'}
     >
