@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { DuplicidadeService, analisarCpfs } from './duplicidade.service';
 import { cpfValido } from '../importacao/mapeamento.util';
 
@@ -116,7 +117,18 @@ describe('a fusão com CPFs divergentes', () => {
   };
 
   function montar(cpfManter: string | null, cpfDescartar: string | null) {
-    const gravado: { update?: Record<string, unknown>; historico?: Record<string, unknown> } = {};
+    const gravado: {
+      update?: Record<string, unknown>;
+      historico?: Record<string, unknown>;
+      /*
+        A SEQUÊNCIA DE ESCRITAS, e ela é o ponto deste arquivo desde 18/09/2026.
+        `cpf` é ÚNICO no banco: gravar no mantido um número que o removido ainda
+        tem derruba a transação inteira com 500. Um banco falso não tem
+        restrição de unicidade — se o teste só olhasse o RESULTADO, continuaria
+        verde com o defeito no ar, que foi exatamente o que aconteceu.
+      */
+      passos: string[];
+    } = { passos: [] };
     const tx = {
       filiado: {
         findUnique: ({ where }: { where: { id: string } }) =>
@@ -125,11 +137,17 @@ describe('a fusão com CPFs divergentes', () => {
               ? { ...FILIADO, id: 'manter', matricula: '4002', cpf: cpfManter }
               : { ...FILIADO, id: 'descartar', matricula: '5811', cpf: cpfDescartar },
           ),
-        update: ({ data }: { data: Record<string, unknown> }) => {
-          gravado.update = data;
+        update: ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          gravado.passos.push(
+            `update ${where.id}${'cpf' in data ? ` cpf=${String(data.cpf)}` : ''}`,
+          );
+          if (where.id === 'manter') gravado.update = data;
           return Promise.resolve({});
         },
-        delete: () => Promise.resolve({}),
+        delete: ({ where }: { where: { id: string } }) => {
+          gravado.passos.push(`delete ${where.id}`);
+          return Promise.resolve({});
+        },
       },
       vinculoProfissional: { update: () => Promise.resolve({}) },
       filiadoHistorico: {
@@ -178,6 +196,36 @@ describe('a fusão com CPFs divergentes', () => {
     expect(descricao).toContain('dígito verificador');
   });
 
+  /**
+   * O 500 QUE O DONO VIU NO PRIMEIRO USO REAL — JOANA DARC, 18/09/2026.
+   *
+   * O CPF escolhido vinha do cadastro que SAI, e o `update` do mantido tentava
+   * gravar um número que o removido ainda tinha na mão. `cpf String? @unique`
+   * recusa, a transação cai inteira e a tela recebe "Internal server error".
+   *
+   * O teste olha a ORDEM das escritas, não só o resultado: o banco falso não
+   * tem unicidade, então o resultado ficava certo com o defeito no ar.
+   */
+  it('libera o CPF no removido ANTES de gravá-lo no mantido', async () => {
+    const { service, gravado } = montar(LUANA_4002, LUANA_5811);
+    await service.fundir('manter', 'descartar', 'João Pedro', { cpfQueFica: '84005386334' });
+
+    const liberou = gravado.passos.indexOf('update descartar cpf=null');
+    const gravou = gravado.passos.findIndex((x) => x.startsWith('update manter'));
+    const apagou = gravado.passos.indexOf('delete descartar');
+    expect(liberou).toBeGreaterThan(-1);
+    expect(liberou).toBeLessThan(gravou);
+    // E o removido só é apagado depois de tudo — a cópia vem antes da exclusão.
+    expect(gravou).toBeLessThan(apagou);
+  });
+
+  /** Quando o CPF que fica já é o do mantido, não há nada a liberar. */
+  it('não mexe no removido quando o CPF escolhido já é o do mantido', async () => {
+    const { service, gravado } = montar(LUANA_5811, LUANA_4002);
+    await service.fundir('manter', 'descartar', 'João Pedro', { cpfQueFica: '84005386334' });
+    expect(gravado.passos).not.toContain('update descartar cpf=null');
+  });
+
   it('escolher o INVÁLIDO é recusado — a decisão não passa por cima da conta', async () => {
     const { service } = montar(LUANA_4002, LUANA_5811);
     await expect(
@@ -216,5 +264,68 @@ describe('a fusão com CPFs divergentes', () => {
     // Buraco preenchido pela cópia normal, sem conflito e sem nota no histórico.
     expect(gravado.update?.cpf).toBe(LUANA_5811);
     expect(String(gravado.historico?.descricao)).not.toContain('CPFs divergentes');
+  });
+
+  /**
+   * O DEFEITO É MAIS VELHO QUE A ESCOLHA DE CPF — medido em 18/09/2026 contra
+   * um banco de verdade, que tem o índice único.
+   *
+   * Basta o mantido estar SEM CPF e o removido ter um: `copiar('cpf')` preenche
+   * o buraco, e o número ainda pertence a quem vai sair. O lote nunca esbarrou
+   * porque a regra dele mantém justamente o cadastro que TEM dado; quem
+   * esbarrava era quem consolidava à mão e escolhia ficar com o mais pobre.
+   */
+  it('a cópia COMUM de CPF também libera antes de gravar', async () => {
+    const { service, gravado } = montar(null, LUANA_5811);
+    await service.fundir('manter', 'descartar');
+    const liberou = gravado.passos.indexOf('update descartar cpf=null');
+    const gravou = gravado.passos.findIndex((x) => x.startsWith('update manter'));
+    expect(liberou).toBeGreaterThan(-1);
+    expect(liberou).toBeLessThan(gravou);
+  });
+
+  /** Sem CPF a copiar, ninguém mexe no removido antes da hora. */
+  it('fusão sem CPF nenhum não faz escrita extra', async () => {
+    const { service, gravado } = montar(null, null);
+    await service.fundir('manter', 'descartar');
+    expect(gravado.passos).not.toContain('update descartar cpf=null');
+  });
+});
+
+/**
+ * "INTERNAL SERVER ERROR" NÃO É RESPOSTA — 18/09/2026.
+ *
+ * Foi o que a tela mostrou quando o índice único do CPF recusou a fusão. A
+ * causa daquele dia está consertada; o modo de FALHAR não estava, e a próxima
+ * trava do banco daria o mesmo 500 seco.
+ */
+describe('quando o banco recusa, a tela recebe uma frase', () => {
+  it('a violação de unicidade vira mensagem, com o campo e a garantia', async () => {
+    const service = new DuplicidadeService(
+      {
+        $transaction: () =>
+          Promise.reject(
+            Object.assign(
+              new Prisma.PrismaClientKnownRequestError('dup', {
+                code: 'P2002',
+                clientVersion: '5',
+                meta: { target: ['cpf'] },
+              }),
+            ),
+          ),
+      } as never,
+      { registrar: () => Promise.resolve(undefined) } as never,
+    );
+    await expect(service.fundir('a', 'b')).rejects.toThrow(/cpf/);
+    await expect(service.fundir('a', 'b')).rejects.toThrow(/Nada foi apagado/);
+  });
+
+  /** O que não dá para nomear sobe como estava: explicação inventada é pior. */
+  it('erro desconhecido não ganha explicação falsa', async () => {
+    const service = new DuplicidadeService(
+      { $transaction: () => Promise.reject(new Error('conexão caiu')) } as never,
+      { registrar: () => Promise.resolve(undefined) } as never,
+    );
+    await expect(service.fundir('a', 'b')).rejects.toThrow('conexão caiu');
   });
 });

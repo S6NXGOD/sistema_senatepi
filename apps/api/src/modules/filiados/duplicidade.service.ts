@@ -1308,6 +1308,33 @@ export class DuplicidadeService {
         (!manter.dataFiliacao || descartar.dataFiliacao < manter.dataFiliacao);
       if (recuaFiliacao) absorvidos.dataFiliacao = descartar.dataFiliacao;
 
+      /*
+        O CPF É ÚNICO NO BANCO, E PRECISA SER LIBERADO ANTES DE SER COPIADO.
+
+        Encontrado pelo dono no primeiro uso real (18/09/2026): "Internal server
+        error" ao consolidar a JOANA DARC. O `update` do mantido tentava gravar
+        um CPF que o removido AINDA TINHA na mão, e `cpf String? @unique` recusa
+        — a transação inteira cai e a tela recebe um 500 sem explicação.
+
+        O DEFEITO É MAIS VELHO QUE A ESCOLHA DE CPF, e isto foi medido: a cópia
+        comum já quebrava. Basta o mantido estar SEM CPF e o removido ter um —
+        `copiar('cpf')` preenche o buraco, e o número ainda pertence a quem vai
+        sair. O lote nunca esbarrou nisso porque a regra dele mantém justamente
+        o cadastro que TEM dado; quem esbarrava era quem consolidava à mão e
+        escolhia ficar com o cadastro mais pobre.
+
+        Zerar o CPF do removido é inofensivo: ele é apagado no passo 4 desta
+        mesma transação, e o número fica no histórico do cadastro que fica. Se
+        qualquer passo falhar, nada disso aconteceu.
+
+        É O ÚNICO CAMPO ÚNICO DA CÓPIA. `matricula` e `qrToken` também são
+        únicos e NUNCA entram em `copiar` — se um dia entrarem, esta liberação
+        tem de crescer junto, e o teste de ordem reprova quem esquecer.
+      */
+      if (absorvidos.cpf) {
+        await tx.filiado.update({ where: { id: descartarId }, data: { cpf: null } });
+      }
+
       if (Object.keys(absorvidos).length) {
         await tx.filiado.update({ where: { id: manterId }, data: absorvidos });
       }
@@ -1427,6 +1454,27 @@ export class DuplicidadeService {
       });
 
       return { ok: true, camposAbsorvidos, vinculosTransferidos: descartar.vinculos.length };
+    }).catch((erro) => {
+      /*
+        "INTERNAL SERVER ERROR" NÃO É RESPOSTA — 18/09/2026.
+
+        Foi o que a tela mostrou quando o índice único do CPF recusou a fusão:
+        um 500 seco, sem dizer o que travou nem o que fazer. A causa daquele dia
+        está consertada (ver a liberação do CPF acima), mas o modo de FALHAR
+        continuava o mesmo para a próxima trava do banco.
+
+        Só o que dá para nomear vira mensagem; o resto sobe como estava, porque
+        inventar explicação para erro desconhecido é pior que não explicar.
+      */
+      if (erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002') {
+        const alvo = ([] as string[]).concat((erro.meta?.target as string[]) ?? []).join(', ');
+        throw new BadRequestException(
+          `A consolidação parou numa trava do banco${alvo ? ` (${alvo})` : ''}: ` +
+            'o valor já pertence a outro cadastro. Nada foi apagado. ' +
+            'Avise o administrador com as duas matrículas.',
+        );
+      }
+      throw erro;
     });
   }
 
