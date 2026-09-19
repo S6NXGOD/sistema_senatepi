@@ -115,6 +115,25 @@ export function semanaBR(d: Date): string {
 }
 
 /**
+ * A SEGUNDA-FEIRA DA SEMANA DE UMA COLUNA `date` (yyyy-mm-dd).
+ *
+ * IRMÃ DE `semanaBR`, E DIFERENTE DELA pelo mesmo motivo que separa
+ * `diaDeCalendarioBR` de `inicioDoDiaBR`: uma coluna `@db.Date` chega do
+ * Postgres como MEIA-NOITE UTC, e `semanaBR` desconta as três horas de Teresina
+ * antes de ler o dia. Numa data pura isso volta um dia — e uma publicação de
+ * SEGUNDA vira domingo, que é a semana anterior. O gráfico perderia a primeira
+ * publicação de toda semana para a semana de trás.
+ *
+ * Use esta para `data_disponibilizacao`, `data_nascimento`, `data_filiacao` e
+ * qualquer outra coluna `date`; use `semanaBR` para `timestamp`.
+ */
+export function semanaDaDataPura(d: Date): string {
+  const meiaNoite = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const desdeSegunda = (new Date(meiaNoite).getUTCDay() + 6) % 7;
+  return new Date(meiaNoite - desdeSegunda * 24 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/**
  * IDADE EM ANOS COMPLETOS, pelo calendário daqui.
  *
  * Comparar `getMonth()/getDate()` dos dois lados mistura o fuso do processo com

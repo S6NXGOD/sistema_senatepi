@@ -555,3 +555,80 @@ describe('as movimentações recentes respeitam o escopo pessoal', () => {
     expect(chamada.args.where.processo).toEqual({});
   });
 });
+
+/**
+ * O GRÁFICO DO DIÁRIO NO PAYLOAD — 18/09/2026.
+ *
+ * Provado aqui, e não no texto do arquivo: o furo do `robo` (NPU, tribunal e
+ * nome de filiado indo para a Triagem, que tem `processos: SEM_ACESSO`) passou
+ * meses com um teste verde que só conferia se a linha existia no fonte.
+ */
+describe('o movimento no Diário', () => {
+  /*
+    O DJEN LIGADO PELA VARIÁVEL, e não pelo tenant — senão este bloco inteiro
+    só valeria no SENATEPI. O SINDSERM não declara a integração, e no job dele
+    os quatro testes caíam com "Cannot read properties of null": é a CI
+    vermelha crônica de sempre, teste que afirma um cliente. `integracaoAtiva`
+    dá precedência à variável, então aqui ela decide para os dois.
+
+    E ela fica ligada TAMBÉM no teste da Triagem, de propósito: nulo com o DJEN
+    desligado não prova nada sobre permissão.
+  */
+  const antes = process.env.DJEN_INTEGRACAO;
+  beforeAll(() => { process.env.DJEN_INTEGRACAO = '1'; });
+  afterAll(() => {
+    if (antes === undefined) delete process.env.DJEN_INTEGRACAO;
+    else process.env.DJEN_INTEGRACAO = antes;
+  });
+
+  const PUBS = [
+    // Duas cópias do mesmo ato — o DJEN manda uma por destinatário.
+    { link: 'l1', providencia: 'AVALIAR_RECURSO', dataDisponibilizacao: new Date('2026-09-14T00:00:00.000Z') },
+    { link: 'l1', providencia: 'AVALIAR_RECURSO', dataDisponibilizacao: new Date('2026-09-14T00:00:00.000Z') },
+    { link: 'l2', providencia: 'NENHUMA', dataDisponibilizacao: new Date('2026-09-07T00:00:00.000Z') },
+  ];
+  const comPublicacoes = (role: UserRole, permissoes: unknown = null) =>
+    montar({
+      'comunicacaoDjen.findMany': (args: any) =>
+        args?.select?.providencia && args?.select?.link && !args?.select?.texto ? PUBS : [],
+    }).servico.resumo(usuario(role, permissoes));
+
+  it('o advogado recebe as oito semanas, sem as cópias', async () => {
+    const r: any = await comPublicacoes(UserRole.ADVOGADO);
+    expect(r.movimentoNoDiario.total).toBe(2);
+    expect(r.movimentoNoDiario.semanas).toHaveLength(8);
+    expect(r.movimentoNoDiario.escopo).toBe('PESSOAL');
+    /* A semana de uma coluna `date` não anda para trás: 14/09 é segunda. */
+    expect(r.movimentoNoDiario.semanas.at(-1)).toEqual({ semana: '2026-09-14', total: 1 });
+  });
+
+  it('o edital conta como ato e não entra na lista do que pediram', async () => {
+    const r: any = await comPublicacoes(UserRole.ADVOGADO);
+    expect(r.movimentoNoDiario.providencias).toEqual([{ chave: 'AVALIAR_RECURSO', total: 1 }]);
+  });
+
+  /** Gestão vê a casa: mesmo bloco, outro rótulo — o título muda com o escopo. */
+  it('quem não tem carteira recebe o escopo GLOBAL', async () => {
+    const r: any = await comPublicacoes(UserRole.ADMINISTRADOR);
+    expect(r.movimentoNoDiario.escopo).toBe('GLOBAL');
+  });
+
+  /**
+   * O CORTE É NO SERVIDOR. A Triagem tem `processos: SEM_ACESSO`: recebe NULO,
+   * e a consulta das oito semanas nem chega a rodar.
+   */
+  it('a Triagem recebe nulo, e a consulta não acontece', async () => {
+    const { servico, de } = montar();
+    const r: any = await servico.resumo(usuario(UserRole.TRIAGEM));
+    expect(r.movimentoNoDiario).toBeNull();
+    expect(
+      de('comunicacaoDjen.findMany').filter((c) => c.args?.select?.providencia),
+    ).toHaveLength(0);
+  });
+
+  it('a matriz manda: Triagem com processos liberado passa a receber', async () => {
+    const r: any = await comPublicacoes(UserRole.TRIAGEM, { processos: 'VISUALIZAR' });
+    expect(r.movimentoNoDiario).not.toBeNull();
+    expect(r.movimentoNoDiario.escopo).toBe('GLOBAL');
+  });
+});

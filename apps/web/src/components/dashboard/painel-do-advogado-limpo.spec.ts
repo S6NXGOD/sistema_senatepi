@@ -44,14 +44,29 @@ describe('o que saiu do painel de quem tem carteira própria', () => {
     );
   });
 
-  it('contra quem litigamos e movimentações saem do escopo pessoal', () => {
-    expect(PAGINA).toContain('{pode.processos && !escopoPessoal && (');
-    // Os dois moram no mesmo gate: um só `!escopoPessoal` cobre os dois.
-    const trecho = PAGINA.slice(
-      PAGINA.indexOf('{pode.processos && !escopoPessoal && ('),
-      PAGINA.indexOf('<MovimentacoesRecentes data={data} />'),
+  /**
+   * O ACERVO VOLTOU PARA O ADVOGADO — correção de rota do mesmo dia.
+   *
+   * "'Contra quem litigamos' aparece para a triagem, por que não ao advogado?"
+   * — e ele tem razão. O defeito nunca foi o conteúdo: era o RÓTULO. O título
+   * institucional prometia a casa e entregava a carteira de uma pessoa.
+   */
+  it('contra quem litigamos e andamentos voltaram, para todo mundo que vê processo', () => {
+    expect(PAGINA).toContain('{pode.processos && (');
+    expect(PAGINA).not.toContain('{pode.processos && !escopoPessoal && (');
+  });
+
+  it('e o título diz de quem é a lista', () => {
+    expect(PAGINA).toContain(
+      "title={pessoal ? 'Contra quem você mais litiga' : 'Contra quem litigamos'}",
     );
-    expect(trecho).toContain('<AdversariosRecorrentes data={data} />');
+    expect(PAGINA).toContain('<AdversariosRecorrentes data={data} pessoal={escopoPessoal} />');
+  });
+
+  /** "Recente" era falso: o DataJud atrasa 62 dias na mediana neste acervo. */
+  it('os andamentos não se chamam mais de recentes', () => {
+    expect(PAGINA).not.toContain('Movimentações recentes (DataJud');
+    expect(PAGINA).toContain('Últimos andamentos que o CNJ publicou');
   });
 
   it('a segunda grade de KPIs da casa não vai para quem tem carteira', () => {

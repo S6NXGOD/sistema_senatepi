@@ -303,3 +303,103 @@ export const PREFIXO_RODADA_SEM_ALVO = 'Rodada sem alvo';
 export const LINHA_QUE_PROVA_QUE_RODOU: Prisma.LogSincronizacaoDatajudWhereInput = {
   OR: [{ processoId: { not: null } }, { numeroCNJ: { not: null } }, { sucesso: true }],
 };
+
+/**
+ * O MOVIMENTO NO DIÁRIO — a única leitura de gráfico que o advogado tem.
+ *
+ * "Não há mais gráficos e informações que deveriam aparecer para os advogados?"
+ * — o dono, 18/09/2026, e a pergunta tinha resposta medida: a Triagem tinha
+ * QUATRO gráficos no painel (canal, 14 dias, crescimento, quadro) e o advogado,
+ * ZERO. Os quatro falam de atendimento e filiação, que não são trabalho dele.
+ *
+ * ESCOLHI O DIÁRIO, e não o DataJud, por causa do que a produção mostrou no
+ * mesmo dia: nos acervos dos NOVE advogados, o DataJud entregou 0 movimentações
+ * em 7 dias (a base pública atrasa 62 dias na mediana), enquanto o DJEN entregou
+ * 19 atos para um deles e 26 para a casa. O que se move é o Diário.
+ *
+ * TRÊS DECISÕES QUE O NÚMERO PRECISA RESPEITAR:
+ *
+ * 1. CONTA ATOS, NÃO CÓPIAS. O DJEN manda uma linha por destinatário e o `link`
+ *    é a identidade do documento — a mesma régua do contador de 7 dias do
+ *    painel. Sem isso, um ato que intima quatro advogados vira quatro barras.
+ * 2. A SEMANA É DATA PURA. `data_disponibilizacao` é `@db.Date`; ler o dia com
+ *    o fuso de Teresina volta 24h e joga a publicação de segunda para a semana
+ *    anterior. Por isso `semanaDaDataPura`, nunca `semanaBR`.
+ * 3. SEMANA VAZIA APARECE. Um buraco de recesso é informação; pular a semana
+ *    encosta duas barras distantes e mente sobre o ritmo.
+ */
+export interface LinhaDoDiario {
+  link: string | null;
+  providencia: string | null;
+  dataDisponibilizacao: Date;
+}
+
+export interface MovimentoNoDiario {
+  /** Uma entrada por semana, da mais ANTIGA para a mais nova. Inclui as zeradas. */
+  semanas: { semana: string; total: number }[];
+  /** Atos no período inteiro, sem as cópias. */
+  total: number;
+  /** A maior barra — a tela precisa dela para a escala, e 0 nunca divide. */
+  pico: number;
+  /**
+   * O QUE PEDIRAM, em ordem. `NENHUMA` fica de fora: é o edital e a lista de
+   * distribuição, que chegam às dezenas e não pedem nada de ninguém (18 dos 114
+   * atos do maior acervo). A lista não soma o total, e a tela não promete isso.
+   */
+  providencias: { chave: string; total: number }[];
+}
+
+export function movimentoNoDiario(
+  linhas: readonly LinhaDoDiario[],
+  semanaDe: (d: Date) => string,
+  semanaAtual: string,
+  quantasSemanas = 8,
+): MovimentoNoDiario {
+  /*
+    A DEDUPLICAÇÃO É POR ATO, e o desempate importa: duas cópias do mesmo
+    documento podem ter providências diferentes se o robô classificou em
+    momentos diferentes. Fica a PRIMEIRA que não for nula — é o mesmo texto,
+    e uma providência conhecida vale mais que um nulo.
+  */
+  const atos = new Map<string, LinhaDoDiario>();
+  linhas.forEach((l, i) => {
+    const chave = l.link ?? `sem-link-${i}`;
+    const anterior = atos.get(chave);
+    if (!anterior) atos.set(chave, l);
+    else if (!anterior.providencia && l.providencia) atos.set(chave, l);
+  });
+
+  /* As `quantasSemanas` segundas-feiras até a de hoje, inclusive. */
+  const SEMANA_MS = 7 * 24 * 3_600_000;
+  const base = Date.parse(`${semanaAtual}T00:00:00.000Z`);
+  const grade = Array.from({ length: quantasSemanas }, (_, i) =>
+    new Date(base - (quantasSemanas - 1 - i) * SEMANA_MS).toISOString().slice(0, 10),
+  );
+  const contagem = new Map(grade.map((s) => [s, 0]));
+
+  const porProvidencia = new Map<string, number>();
+  let total = 0;
+  for (const ato of atos.values()) {
+    const s = semanaDe(ato.dataDisponibilizacao);
+    // Fora da grade é ruído de consulta (linha mais velha que o corte): não
+    // entra no total, senão a soma das barras não bate com o número escrito.
+    if (!contagem.has(s)) continue;
+    contagem.set(s, contagem.get(s)! + 1);
+    total += 1;
+    const p = ato.providencia;
+    if (p && p !== 'NENHUMA') porProvidencia.set(p, (porProvidencia.get(p) ?? 0) + 1);
+  }
+
+  const semanas = grade.map((semana) => ({ semana, total: contagem.get(semana)! }));
+  return {
+    semanas,
+    total,
+    pico: Math.max(0, ...semanas.map((s) => s.total)),
+    providencias: [...porProvidencia.entries()]
+      .map(([chave, t]) => ({ chave, total: t }))
+      /* Empate resolvido pelo nome: sem isso a ordem muda a cada consulta e a
+         lista "pula" entre dois recarregamentos iguais. */
+      .sort((a, b) => b.total - a.total || a.chave.localeCompare(b.chave))
+      .slice(0, 4),
+  };
+}

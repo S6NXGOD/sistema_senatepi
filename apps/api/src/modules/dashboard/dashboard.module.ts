@@ -1,6 +1,11 @@
 import { Body, Controller, Get, Injectable, Module, Post } from '@nestjs/common';
 import { diasUteisEntre } from './dias-uteis';
-import { inicioDoMesBR, mesBR } from '../processos/utils/data-br.util';
+import {
+  diaDeCalendarioBR,
+  inicioDoMesBR,
+  mesBR,
+  semanaDaDataPura,
+} from '../processos/utils/data-br.util';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsNotEmpty, IsString } from 'class-validator';
 import {
@@ -41,6 +46,7 @@ import {
   contarFilas,
   emOrdemAlfabetica,
   itemDoCadastroACompletar,
+  movimentoNoDiario,
   wheresDoPainel,
   type LinhaDoCadastroACompletar,
 } from './painel.regras';
@@ -417,6 +423,12 @@ export class DashboardService {
      */
     const seteDiasAtras = new Date(agora.getTime() - 7 * DIA_MS);
     const menos7dias = new Date(agora.getTime() - 7 * DIA_MS);
+    /*
+      O GRÁFICO DO DIÁRIO SÃO OITO SEMANAS, e o corte é generoso de propósito:
+      pega 56 dias corridos e a grade descarta o que cair antes da primeira
+      segunda-feira. Cortar exato deixaria a barra mais antiga pela metade.
+    */
+    const oitoSemanasAtras = new Date(agora.getTime() - 63 * DIA_MS);
     const inicioMes = (() => {
       const br = new Date(agora.getTime() - OFFSET_BR);
       return new Date(Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), 1) + OFFSET_BR);
@@ -619,6 +631,7 @@ export class DashboardService {
       djenPublicacoes7d,
       djenUltimaPublicacao,
       djenRecentes,
+      diarioDoPeriodo,
       organizacaoDoSindicato,
       adversariosRaw,
       filaDosPendentes,
@@ -1100,6 +1113,22 @@ export class DashboardService {
                 },
               },
             },
+          }),
+      /**
+       * O MOVIMENTO NO DIÁRIO — as OITO semanas, para o único gráfico que o
+       * advogado tem. A régua mora em `movimentoNoDiario`; aqui só se busca.
+       *
+       * Três colunas de um recorte de oito semanas: 114 linhas no maior acervo
+       * medido, 220 na casa inteira. O `texto` fica de fora de propósito — é a
+       * coluna cara, e agrupar aqui é pelo `link`.
+       */
+      !veProcessos
+        ? Promise.resolve<
+            { link: string | null; providencia: string | null; dataDisponibilizacao: Date }[]
+          >([])
+        : this.prisma.comunicacaoDjen.findMany({
+            where: { dataDisponibilizacao: { gte: oitoSemanasAtras }, ...meuDjen },
+            select: { link: true, providencia: true, dataDisponibilizacao: true },
           }),
       /**
        * A ORGANIZAÇÃO DO PRÓPRIO SINDICATO, achada pelo CNPJ do tenant.
@@ -1624,6 +1653,26 @@ export class DashboardService {
         organizacaoDoSindicato?.id ?? null,
         new Set(idsQueMeCitam),
       ),
+      /**
+       * O RITMO DO DIÁRIO — oito semanas, e o gráfico do advogado.
+       *
+       * NULO, não zerado, para quem não vê processo: a Triagem não tem o que
+       * fazer com o volume do Diário, e zero significaria "semana calma".
+       * Nulo também quando a integração está desligada — barra nenhuma é
+       * melhor que oito barras vazias que parecem recesso.
+       */
+      movimentoNoDiario:
+        veProcessos && this.djenAtivo
+          ? {
+              ...movimentoNoDiario(
+                diarioDoPeriodo,
+                semanaDaDataPura,
+                semanaDaDataPura(diaDeCalendarioBR(agora)),
+              ),
+              /** PESSOAL no advogado, GLOBAL no resto — o título muda com ele. */
+              escopo: souAdvogado ? ('PESSOAL' as const) : ('GLOBAL' as const),
+            }
+          : null,
       /**
        * Contra quem o sindicato mais litiga hoje. Vazio quando ninguém
        * aparece três vezes — e aí a tela não desenha o bloco.

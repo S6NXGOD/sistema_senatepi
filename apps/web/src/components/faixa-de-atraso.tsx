@@ -2,11 +2,14 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CalendarClock, ChevronRight, Gavel, Newspaper, Users } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { podeVer } from '@/lib/permissoes';
-import { avisosDaFaixa, frasePlena, minhasPendencias, type TipoPendencia } from '@/lib/pendencias';
+import {
+  avisosDaFaixa, avisosNaTela, frasePlena, minhasPendencias, type TipoPendencia,
+} from '@/lib/pendencias';
 
 /**
  * A FAIXA DE AVISOS — o único aviso que aparece em toda tela.
@@ -98,7 +101,17 @@ export function FaixaDeAtraso() {
     retry: false,
   });
 
-  const avisos = avisosDaFaixa(data?.pendencias ?? []);
+  /*
+    ELA CALA O QUE A TELA JÁ DIZ — ver `avisosNaTela`, que tem a tabela e o
+    porquê de cada linha. No painel a mesma atividade já está na fila com selo
+    e botão; na agenda, "ficaram para trás" aparecia três vezes na mesma dobra.
+    Repetir ensina a não ler a faixa, e aí ela perde as telas em que é a única
+    voz.
+  */
+  const avisos = avisosNaTela(avisosDaFaixa(data?.pendencias ?? []), {
+    caminho: usePathname() ?? '',
+    veProcessos: podeVer(user?.role, user?.permissoes, 'processos'),
+  });
   /*
     UM AVISO POR VEZ, E O RESTO A UM TOQUE — 18/09/2026.
 

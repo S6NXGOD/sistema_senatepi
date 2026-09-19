@@ -257,3 +257,71 @@ export function avisosDaFaixa(pendencias: Pendencia[]): AvisoDaFaixa[] {
 export function frasePlena(a: AvisoDaFaixa): string {
   return a.complemento ? `${a.texto} — ${a.complemento}` : a.texto;
 }
+
+/**
+ * A FAIXA CALA O QUE A TELA JÁ DIZ — 18/09/2026.
+ *
+ * "A barra amarela continua ali, muito feia e pra mim não chama atenção e nem
+ * vai fazer o advogado realizar nenhuma ação."
+ *
+ * Ela não chamava atenção porque estava REPETINDO. Medido em duas telas, com o
+ * navegador aberto:
+ *
+ *  · no PAINEL, o aviso dizia «Elaborar manifestação» ficou para trás e, dois
+ *    dedos abaixo, a mesma atividade aparecia na fila com selo ATRASADA e um
+ *    botão que resolve;
+ *  · na AGENDA, "ficaram para trás" aparecia TRÊS vezes na mesma dobra: a
+ *    faixa no topo, a aba "Ficaram para trás 5" e um segundo aviso âmbar dentro
+ *    da lista, com "Ver só essas" — este último filtrando de verdade.
+ *
+ * Aviso que repete o que está logo abaixo, e que faz menos que o que está logo
+ * abaixo, ensina a não ler a faixa. E aí ela perde as telas em que é a única voz.
+ *
+ * A REGRA É POR TELA E POR TIPO, escrita à mão e não deduzida do destino do
+ * link: cada linha aqui corresponde a uma superfície que eu abri e conferi.
+ * Deduzir de `href` calaria o ato do tribunal em /processos, onde a lista não
+ * tem recorte nenhum para ele.
+ *
+ *  /dashboard   ATRASADA              → a fila "Minhas atividades", com selo,
+ *                                       cor e o botão de desfecho na linha
+ *               PRECISA_DA_EQUIPE     → o bloco "Da sua equipe", que diz de
+ *                                       quem é e por quê
+ *               PUBLICACAO_SEM_TAREFA → o bloco "Suas publicações" — que só
+ *                                       existe para quem vê processos, por
+ *                                       isso esta depende da permissão
+ *  /agenda      ATRASADA              → a aba "Ficaram para trás" e o aviso da
+ *                                       própria lista, que filtra
+ *  /publicacoes PUBLICACAO_SEM_TAREFA → o filtro "Sem tarefa na agenda"
+ *
+ * O QUE NUNCA SOME: ATO_ESPERANDO_OLHO. O ato do tribunal só existe na ficha
+ * do processo, e nenhuma lista o recorta — suprimi-lo seria esconder o único
+ * aviso que não tem outro lugar. Foi a objeção que derrubou a primeira versão
+ * desta ideia, e ela continua valendo.
+ *
+ * Em qualquer outra tela, nada é suprimido: lá a faixa é a única voz.
+ */
+const TELA_JA_DIZ: Record<string, TipoPendencia[]> = {
+  '/dashboard': ['ATRASADA', 'PRECISA_DA_EQUIPE', 'PUBLICACAO_SEM_TAREFA'],
+  '/agenda': ['ATRASADA'],
+  '/publicacoes': ['PUBLICACAO_SEM_TAREFA'],
+};
+
+/** Só o primeiro segmento: `/agenda?compromisso=1` e `/agenda/x` são a Agenda. */
+export function telaDoCaminho(caminho: string): string {
+  return `/${(caminho ?? '').split('?')[0].split('/').filter(Boolean)[0] ?? ''}`;
+}
+
+export function avisosNaTela(
+  avisos: AvisoDaFaixa[],
+  tela: { caminho: string; veProcessos: boolean },
+): AvisoDaFaixa[] {
+  const calados = TELA_JA_DIZ[telaDoCaminho(tela.caminho)];
+  if (!calados) return avisos;
+  return avisos.filter((a) => {
+    if (!calados.includes(a.tipo)) return true;
+    /* O bloco "Suas publicações" do painel não existe sem o módulo de
+       processos; sem ele, o painel não diz nada e a faixa continua. */
+    if (a.tipo === 'PUBLICACAO_SEM_TAREFA') return !tela.veProcessos;
+    return false;
+  });
+}

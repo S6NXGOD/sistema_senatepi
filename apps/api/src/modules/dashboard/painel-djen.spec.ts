@@ -150,9 +150,17 @@ describe('painel do DJEN na home', () => {
     expect(PAINEL).toContain(
       "const veProcessos = nivelEfetivo(user.role, user.permissoes, 'processos') !== 'SEM_ACESSO';",
     );
-    // As consultas nem chegam a rodar — não é filtro depois, é ausência antes.
+    /*
+      AS CONSULTAS NEM CHEGAM A RODAR — não é filtro depois, é ausência antes.
+      O número é um CONTADOR DE PORTEIRAS, e ele existe para quebrar quando
+      alguém acrescentar uma consulta de acervo sem porteira: se este teste
+      ficou vermelho ao lado de uma consulta nova, a resposta certa quase
+      sempre é gatear a consulta, não subir o número. Subiu para 6 em
+      18/09/2026, com a leitura das oito semanas do Diário (o gráfico do
+      advogado), que nasceu gateada.
+    */
     const guardas = PAINEL.split("!veProcessos").length - 1;
-    expect(guardas).toBe(5);
+    expect(guardas).toBe(6);
     expect(PAINEL).toContain("if (!veProcessos) return [];");
   });
 

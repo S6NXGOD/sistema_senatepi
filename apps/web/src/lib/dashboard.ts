@@ -386,6 +386,19 @@ export interface ResumoDashboard {
     }[];
   };
   /**
+   * O RITMO DO DIÁRIO, oito semanas — o gráfico de quem trabalha com processo.
+   *
+   * NULO para quem não vê processo e para integração desligada. Zero seria
+   * "semana calma", que é outra coisa.
+   */
+  movimentoNoDiario: {
+    semanas: { semana: string; total: number }[];
+    total: number;
+    pico: number;
+    providencias: { chave: string; total: number }[];
+    escopo: 'PESSOAL' | 'GLOBAL';
+  } | null;
+  /**
    * Contra quem o sindicato mais litiga — organizações com três ou mais
    * processos ativos. Vazio quando não há padrão; a tela não desenha.
    */
@@ -607,11 +620,31 @@ export const STATUS_COMP_COR: Record<StatusCompromisso, string> = {
  */
 
 /** Saudação pela hora local. */
+/**
+ * TÍTULO NÃO É NOME — 18/09/2026.
+ *
+ * "Boa noite 'dr. o quê?'", perguntou o dono ao abrir o painel de um advogado.
+ * A saudação pegava a PRIMEIRA PALAVRA do nome de exibição, e quando ele começa
+ * por "Dr." a tela cumprimentava o título: "Boa noite, Dr.". Os nove advogados
+ * da casa estão cadastrados assim.
+ *
+ * Pular o tratamento devolve a pessoa. Se sobrar só o título — alguém cadastrado
+ * como "Dra." e mais nada —, ele volta: cumprimentar por um tratamento é feio,
+ * cumprimentar o vazio é defeito.
+ */
+const TRATAMENTOS = new Set([
+  'dr', 'dra', 'drs', 'dras', 'sr', 'sra', 'srs', 'sras', 'exmo', 'exma', 'prof', 'profa',
+]);
+
 export function saudacao(nome: string): string {
   const h = new Date().getHours();
   const prefixo = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
-  const primeiro = nome?.trim().split(/\s+/)[0] ?? '';
-  return `${prefixo}, ${primeiro}`;
+  const partes = (nome ?? '').trim().split(/\s+/).filter(Boolean);
+  const semTratamento = partes.filter(
+    (p) => !TRATAMENTOS.has(p.replace(/\./g, '').toLowerCase()),
+  );
+  const primeiro = (semTratamento[0] ?? partes[0] ?? '').trim();
+  return primeiro ? `${prefixo}, ${primeiro}` : prefixo;
 }
 
 /** "Quarta-feira, 29 de julho" (só a inicial em maiúscula). */

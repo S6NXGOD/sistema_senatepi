@@ -42,6 +42,7 @@ import {
 import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { LinhaDaCarteira } from '@/components/dashboard/linha-da-carteira';
+import { MovimentoNoDiario } from '@/components/dashboard/movimento-no-diario';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { formatNPU } from '@/lib/processos';
 // A prévia mostra QUANDO a tarefa cai na agenda — no fuso de Teresina,
@@ -1004,27 +1005,38 @@ function Conteudo({
       {/* Leitura de acervo: com quem brigamos, e o que andou nos processos.
           As duas são contexto, não alerta — por isso ficam no rodapé. */}
       {/*
-        LEITURA DE ACERVO É DA CASA, NÃO DE QUEM TEM CARTEIRA (18/09/2026).
+        O ACERVO VOLTOU PARA O ADVOGADO — e a correção é do título, não do bloco.
 
-        "Contra quem litigamos": o dono perguntou se era necessário. No painel
-        do advogado, não — o conteúdo já vinha recortado pelo acervo DELE
-        enquanto o título prometia a instituição, duas coisas discordando na
-        mesma moldura. O Panorama responde isso melhor, e o próprio cartão já
-        linkava para lá.
+        Eu tinha tirado os dois do painel dele. O dono: "'Contra quem litigamos'
+        aparece para a triagem, por que não ao advogado? Não há mais gráficos e
+        informações que deveriam aparecer para os advogados?" — e ele está
+        certo. Saber contra quem se litiga mais e o que andou nos processos É
+        informação de advogado; o defeito nunca foi o conteúdo.
 
-        "Movimentações recentes": sai por estar ERRADA para ele, não por poluir.
-        O DataJud tem mediana de 62 dias de atraso — "recentes" é passado remoto
-        com nome de novidade — e a consulta nem filtrava pelo acervo dele (isso
-        eu consertei no servidor no mesmo dia).
+        O DEFEITO ERA O RÓTULO. "Contra quem litigamos" com conteúdo recortado
+        pelo acervo DELE prometia a instituição e entregava a carteira — duas
+        coisas discordando na mesma moldura. E "Movimentações recentes" chamava
+        de recente o que o DataJud entrega com mediana de 62 dias de atraso.
+        Os dois títulos passaram a dizer a verdade — ver `AdversariosRecorrentes`
+        e `MovimentacoesRecentes`, mais abaixo neste arquivo.
       */}
-      {pode.processos && !escopoPessoal && (
+      {/*
+        E O ADVOGADO GANHOU UM GRÁFICO. Ele tinha ZERO e a Triagem, quatro —
+        todos sobre atendimento e filiação. O ritmo do Diário é o dele, é
+        diário de verdade (o DataJud atrasa 62 dias) e mora aqui, na leitura,
+        porque não pede nada: o que pede está em "Suas publicações", acima.
+      */}
+      {pode.processos && (
         <div
           className={cn(
             'grid grid-cols-1 gap-4',
-            !vazio.movimentacoes && 'lg:grid-cols-2',
+            (data.movimentoNoDiario ? 1 : 0) + (vazio.movimentacoes ? 0 : 1) +
+              (data.adversarios.length ? 1 : 0) >
+              1 && 'lg:grid-cols-2',
           )}
         >
-          <AdversariosRecorrentes data={data} />
+          {data.movimentoNoDiario && <MovimentoNoDiario mov={data.movimentoNoDiario} />}
+          <AdversariosRecorrentes data={data} pessoal={escopoPessoal} />
           {!vazio.movimentacoes && <MovimentacoesRecentes data={data} />}
         </div>
       )}
@@ -2798,7 +2810,15 @@ function AtendimentosPendentes({ data }: { data: ResumoDashboard }) {
  * Três processos é o piso: menos que isso é coincidência, não padrão. O bloco
  * some sozinho quando ninguém alcança o piso.
  */
-function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
+/**
+ * OS ADVERSÁRIOS QUE MAIS APARECEM — da casa, ou da carteira de quem olha.
+ *
+ * O CONTEÚDO SEMPRE FOI RECORTADO PELO ESCOPO (a API filtra pelo acervo do
+ * advogado em `meuAcervo`); o que mentia era o título, que dizia "litigamos"
+ * para uma lista que é de UMA pessoa. Cheguei a remover o bloco do painel dele
+ * por causa disso — errado: o conserto é o rótulo, não a ausência.
+ */
+function AdversariosRecorrentes({ data, pessoal }: { data: ResumoDashboard; pessoal: boolean }) {
   // `?? []` não é paranoia: web e API são serviços separados no Railway e
   // sobem em minutos diferentes. Num rollback da API, o campo some e o
   // acesso direto derrubaria a home inteira — não só este bloco.
@@ -2808,7 +2828,7 @@ function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
 
   return (
     <SectionCard
-      title="Contra quem litigamos"
+      title={pessoal ? 'Contra quem você mais litiga' : 'Contra quem litigamos'}
       icon={Swords}
       count={itens.length}
       actionHref="/panorama"
@@ -2854,10 +2874,21 @@ function AdversariosRecorrentes({ data }: { data: ResumoDashboard }) {
   );
 }
 
+/**
+ * O TÍTULO DIZ DE ONDE VEM, E NÃO CHAMA DE RECENTE O QUE NÃO É (18/09/2026).
+ *
+ * Era "Movimentações recentes (DataJud · 7 dias)". "Recente" é falso: a base
+ * pública do CNJ entrega com mediana de 62 dias de atraso neste acervo. Quem lê
+ * "recentes" e não encontra o ato de ontem conclui que o sistema perdeu alguma
+ * coisa — quando o que aconteceu é que o tribunal ainda não publicou.
+ *
+ * A lista é do acervo de quem olha: a consulta ganhou `meuAcervo` no mesmo dia,
+ * e antes disso o advogado lia oito andamentos de processos dos colegas.
+ */
 function MovimentacoesRecentes({ data }: { data: ResumoDashboard }) {
   const itens = data.movimentacoesRecentes;
   return (
-    <SectionCard title="Movimentações recentes (DataJud · 7 dias)" icon={Landmark} count={itens.length} actionHref="/processos">
+    <SectionCard title="Últimos andamentos que o CNJ publicou" icon={Landmark} count={itens.length} actionHref="/processos">
       {itens.length === 0 ? (
         <EmptyState icon={Landmark}>Nenhuma movimentação processual nos últimos 7 dias.</EmptyState>
       ) : (
