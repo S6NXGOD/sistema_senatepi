@@ -2437,11 +2437,19 @@ function SaudeDasIntegracoes({
     // noutra tela, porque é uma passada única e cara.
     mutationFn: () => varrerDjenAgora(),
     onSuccess: (r) => {
-      toast.success(
-        r.ingeridas > 0
-          ? `${r.ingeridas} publicação(ões) nova(s) do Diário.`
-          : 'Busca concluída — nada novo no Diário.',
-      );
+      /*
+        A BUSCA PODE TERMINAR SEM TER BUSCADO NADA — ver `resultadoDaVarredura`.
+
+        "Aqui deu 'busca concluída e nada novo no diário' mas a barra amarela
+        persiste. Realmente a busca foi um sucesso?" Não era: o log da produção
+        naquele minuto dizia "Varredura sem resposta: as 165 consulta(s)
+        falharam". A tela olhava só `ingeridas === 0` e usava a MESMA frase para
+        "o Diário não tinha nada" e para "o Diário não respondeu nada".
+      */
+      const { tom, texto } = resultadoDaVarredura(r);
+      if (tom === 'erro') toast.error(texto);
+      else if (tom === 'aviso') toast.warning(texto);
+      else toast.success(texto);
       qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
     },
     onError: (e: any) =>
@@ -2479,9 +2487,23 @@ function SaudeDasIntegracoes({
           >
             {instavel ? (
               <>
+                {/*
+                  "LEITURAS REGISTRADAS", E NÃO "CONSULTAS" (21/09/2026).
+
+                  `falhas24`/`ok24` são `count(*)` de LINHAS DO LOG, e cada
+                  rodada escreve várias: o resumo e uma por processo. A faixa
+                  dizia "recusou 4 de 4 consultas hoje" numa noite em que o log
+                  interno registrava "as 165 consulta(s) falharam" — o número
+                  certo estava dentro da mensagem, e o da tela era outra coisa
+                  com o mesmo nome. Contar linha e chamar de consulta é o mesmo
+                  defeito que fazia o alarme contradizer o robô.
+
+                  O número em si serve — ele mede a proporção de tentativas que
+                  não voltaram. O que estava errado era o substantivo.
+                */}
                 <strong className="font-semibold">{fonte.incompleto}</strong> O{' '}
-                {fonte.nome} recusou {i.falhas24} de {i.ok24 + i.falhas24}{' '}
-                consultas hoje.
+                {fonte.nome} recusou {i.falhas24} das {i.ok24 + i.falhas24}{' '}
+                leituras registradas hoje.
               </>
             ) : (
               <>

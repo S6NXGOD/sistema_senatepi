@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { resultadoDaVarredura } from './djen';
 
 /**
@@ -64,5 +66,34 @@ describe('o que dizer depois de buscar no Diário', () => {
     const { tom, texto } = r({});
     expect(tom).toBe('aviso');
     expect(texto).toContain('OAB');
+  });
+});
+
+/**
+ * E A TELA TEM DE USAR A FUNÇÃO — sem isto, os testes acima passam com o texto
+ * velho no ar, que foi exatamente o que aconteceu: a função nasceu certa, a
+ * ligação se perdeu num script que falhou no meio, os seis testes ficaram
+ * verdes e o aviso na tela continuou dizendo "nada novo no Diário". Quem pegou
+ * foi a conferência no navegador.
+ */
+describe('o painel usa a função, e não uma frase própria', () => {
+  const PAGINA = readFileSync(
+    join(__dirname, '../app/(dashboard)/dashboard/page.tsx'),
+    'utf8',
+  );
+
+  it('o resultado da busca vem de `resultadoDaVarredura`', () => {
+    expect(PAGINA).toContain('const { tom, texto } = resultadoDaVarredura(r);');
+  });
+
+  /** O tom decide a cor do aviso: erro não pode sair em verde. */
+  it('o tom escolhe entre erro, aviso e sucesso', () => {
+    expect(PAGINA).toContain("if (tom === 'erro') toast.error(texto);");
+    expect(PAGINA).toContain("else if (tom === 'aviso') toast.warning(texto);");
+  });
+
+  /** A frase antiga não pode voltar por um atalho. */
+  it('o painel não escreve mais a frase de sucesso à mão', () => {
+    expect(PAGINA).not.toContain("'Busca concluída — nada novo no Diário.'");
   });
 });
