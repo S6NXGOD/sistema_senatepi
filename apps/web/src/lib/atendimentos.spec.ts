@@ -709,11 +709,22 @@ describe('a gaveta enquanto a consulta está de pé (E2)', () => {
     expect(modoDoFechamento({ ...base, fechamento: plano('FUTURA') })).toBe('OUTRO');
   });
 
-  it('o bloco neutro diz quem registra e quando volta para a triagem', () => {
+  /**
+   * "E ISSO EXCLUI A ATIVIDADE DO ADVOGADO?" — o dono, 21/09/2026, lendo esta
+   * frase. Não exclui: `filaDoAtendimento` é função PURA, escolhe onde o
+   * atendimento aparece e não escreve nada. A pergunta provou que o texto dava
+   * a entender o contrário, e o texto passou a dizer as duas coisas.
+   */
+  it('o bloco neutro diz quem registra, e que nada é apagado', () => {
     expect(textoDoFechaSozinho(SHERAD)).toEqual({
       texto: 'Este atendimento é concluído sozinho quando a Dra. Shérad registrar a consulta na agenda.',
-      apoio: 'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, ele volta para a triagem.',
+      apoio:
+        'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, este atendimento volta a '
+        + 'aparecer na fila da triagem para alguém ir atrás. A atividade continua na agenda de quem '
+        + 'atende — nada é apagado.',
     });
+    // A promessa que a pergunta dele exigiu por escrito.
+    expect(textoDoFechaSozinho(SHERAD).apoio).toContain('nada é apagado');
     expect(textoDoFechaSozinho(MURILO).texto).toBe('Este atendimento é concluído sozinho quando o Dr. Murilo registrar a consulta na agenda.');
     expect(textoDoFechaSozinho(null).texto).toBe('Este atendimento é concluído sozinho quando quem atende registrar a consulta na agenda.');
     expect(comArtigo('Margareth')).toBe('Margareth');

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
   Loader2, Search, Plus, Headset, ChevronLeft, ChevronRight, Inbox, MoreVertical,
   Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2, AlertTriangle, RotateCw, X, Clock, Flame,
+  CalendarClock,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,7 @@ import {
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl, AcaoDeFechar,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, OPCOES_DO_SELETOR_DE_STATUS, formatDataHora,
   corDoStatus, faltaConcluir, filtroDaUrl, filtroDoSeletorDeStatus, mensagemDaFalha, rotuloDoAssunto,
-  oSeloDeSituacaoAcrescenta,
+  oSeloDeSituacaoAcrescenta, tempoDoAtendimento,
   rotuloDoConcluirNoMenu, rotuloDoStatus, urlTemFiltro, valorDoSeletorDeStatus, vazioDaLista,
   type FilaDoAtendimento, type ValorDoSeletorDeStatus,
 } from '@/lib/atendimentos';
@@ -240,28 +241,48 @@ function ListaAtendimentos() {
   }
 
   /**
-   * HÁ QUANTO TEMPO ESTE ATENDIMENTO ESPERA — e é a pergunta desta tela.
+   * A COLUNA DO TEMPO — e de quem é a espera (21/09/2026, correção de rota).
    *
-   * A coluna era "Data" e trazia o instante do registro, ao minuto. Preciso, e
-   * respondendo a pergunta errada: quem abre a fila da triagem quer saber o que
-   * está parado há mais tempo, não em que minuto de terça alguém digitou.
+   * Eu criei esta coluna na véspera contando os dias desde o registro para TODO
+   * atendimento pendente. O dono viu o resultado: "por que fica essa espera há
+   * 4 dias sendo que não é problema da triagem? A triagem já fez a parte dela
+   * direcionando" — e "dá a impressão que a triagem está atrasando".
    *
-   * ABERTO conta os dias e ganha cor a partir de três — o corte é o mesmo
-   * "dois dias úteis" com que o resto da casa mede silêncio, arredondado para
-   * cima em dias corridos. FECHADO mostra a data, porque aí a pergunta é
-   * "quando terminou" e não "há quanto tempo".
-   *
-   * A data completa continua no `title`: some da vista, não do sistema.
+   * Tinha razão. Cobrar de quem já entregou é o jeito mais rápido de a coluna
+   * virar paisagem. Ver `tempoDoAtendimento`: só há espera quando a bola é
+   * desta tela; com consulta marcada, o que se mostra é a DATA dela, neutra.
    */
   const EsperaCel = ({ a }: { a: AtendimentoLista }) => {
+    const t = tempoDoAtendimento(a);
     const completa = formatDataHora(a.createdAt);
-    if (a.status !== 'PENDENTE') {
-      return <span className="tabular-nums text-xs text-muted-foreground" title={completa}>{formatData(a.createdAt)}</span>;
+
+    if (t.tipo === 'DATA') {
+      return (
+        <span className="tabular-nums text-xs text-muted-foreground" title={completa}>
+          {formatData(t.quando)}
+        </span>
+      );
     }
-    const dias = diasDeAtraso(a.createdAt);
+    /*
+      AGENDADO NÃO É ATRASO. Neutro de propósito: a cor âmbar desta tela quer
+      dizer "alguém daqui precisa agir", e aqui ninguém daqui precisa.
+    */
+    if (t.tipo === 'CONSULTA') {
+      return (
+        <span
+          className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
+          title={`Consulta marcada para ${formatDataHora(t.quando)} — a triagem já encaminhou.`}
+        >
+          <CalendarClock className="h-3 w-3 shrink-0" />
+          consulta {formatData(t.quando)}
+        </span>
+      );
+    }
+
+    const dias = diasDeAtraso(t.desde);
     return (
       <span
-        title={completa}
+        title={`Aguardando a triagem desde ${completa}.`}
         className={cn(
           'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums',
           dias >= 7
@@ -479,7 +500,7 @@ function ListaAtendimentos() {
                     <th className="px-4 py-3 font-medium">{V.Filiado}</th>
                     <th className="px-4 py-3 font-medium">Situação</th>
                     <th className="px-4 py-3 font-medium">Demanda</th>
-                    <th className="px-4 py-3 font-medium">Espera</th>
+                    <th className="px-4 py-3 font-medium">Quando</th>
                     <th className="px-4 py-3"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>

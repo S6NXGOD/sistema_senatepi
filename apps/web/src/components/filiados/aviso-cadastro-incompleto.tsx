@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { AlertTriangle, IdCard, Send, UserCog } from 'lucide-react';
+import { EnviarLinkModal } from '@/components/filiados/enviar-link-modal';
 import { cn } from '@/lib/utils';
 import { V } from '@/lib/vocabulario';
 import {
   fraseDoCadastroIncompleto,
   gravidadeDoCadastro,
+  listarEmPortugues,
   oQueFaltaNoCadastro,
   podeMandarLink,
   type CadastroDoFiliado,
@@ -37,18 +40,28 @@ import {
 export function AvisoCadastroIncompleto({
   filiado,
   filiadoId,
-  onMandarLink,
+  nome,
   compacto,
   className,
 }: {
   filiado: CadastroDoFiliado | null | undefined;
   filiadoId: string;
-  /** Abre o envio do link aqui mesmo. Sem ele, o botão leva à ficha. */
-  onMandarLink?: () => void;
+  /** Vai no cabeçalho do modal do link — confirma de quem é, no meio do atendimento. */
+  nome?: string | null;
   /** Na gaveta do atendimento o espaço é menor: some a explicação longa. */
   compacto?: boolean;
   className?: string;
 }) {
+  /*
+    O LINK ABRE EM MODAL, e não numa outra tela (21/09/2026).
+
+    "Quando clico em mandar link de recadastro, não gera link nenhum, na verdade
+    vai pra tela do filiado detalhado." Era um `Link` para a ficha: quem clicava
+    saía do atendimento no meio do registro. Agora o próprio aviso carrega o
+    diálogo, e todo lugar que usa este componente ganha o comportamento certo —
+    inclusive os que ainda nem existem.
+  */
+  const [mandando, setMandando] = useState(false);
   const faltando = oQueFaltaNoCadastro(filiado);
   const gravidade = gravidadeDoCadastro(faltando);
   if (gravidade === 'OK') return null;
@@ -81,7 +94,9 @@ export function AvisoCadastroIncompleto({
         <span className="min-w-0">
           {compacto ? (
             <>
-              Falta <strong className="font-semibold">{faltando.join(', ')}</strong> no cadastro.
+              {/* "CPF e e-mail", não "CPF, e-mail": é frase, e frase leva "e". */}
+              Falta <strong className="font-semibold">{listarEmPortugues(faltando)}</strong> no
+              cadastro.
             </>
           ) : (
             fraseDoCadastroIncompleto(faltando)
@@ -96,23 +111,15 @@ export function AvisoCadastroIncompleto({
         atende de celular.
       */}
       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {podeLink &&
-          (onMandarLink ? (
-            <button
-              type="button"
-              onClick={onMandarLink}
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-brand-300 bg-card px-3 text-xs font-medium text-brand-800 transition hover:bg-brand-50 dark:border-brand-900/60 dark:text-brand-300 dark:hover:bg-brand-950/30"
-            >
-              <Send className="h-3.5 w-3.5" /> Mandar link de recadastro
-            </button>
-          ) : (
-            <Link
-              href={`/filiados/${filiadoId}?recadastro=1`}
-              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-brand-300 bg-card px-3 text-xs font-medium text-brand-800 transition hover:bg-brand-50 dark:border-brand-900/60 dark:text-brand-300 dark:hover:bg-brand-950/30"
-            >
-              <Send className="h-3.5 w-3.5" /> Mandar link de recadastro
-            </Link>
-          ))}
+        {podeLink && (
+          <button
+            type="button"
+            onClick={() => setMandando(true)}
+            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-brand-300 bg-card px-3 text-xs font-medium text-brand-800 transition hover:bg-brand-50 dark:border-brand-900/60 dark:text-brand-300 dark:hover:bg-brand-950/30"
+          >
+            <Send className="h-3.5 w-3.5" /> Mandar link de recadastro
+          </button>
+        )}
         <Link
           href={`/filiados/${filiadoId}/recadastrar`}
           className={cn(
@@ -130,6 +137,13 @@ export function AvisoCadastroIncompleto({
           por aqui.
         </p>
       )}
+
+      <EnviarLinkModal
+        filiadoId={filiadoId}
+        nome={nome}
+        open={mandando}
+        onClose={() => setMandando(false)}
+      />
     </div>
   );
 }

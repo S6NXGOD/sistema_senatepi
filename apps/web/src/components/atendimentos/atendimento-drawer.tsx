@@ -197,6 +197,7 @@ export function AtendimentoDrawer({
                   compacto
                   className="mt-3"
                   filiadoId={filiado.id}
+                  nome={filiado.nomeCompleto}
                   filiado={{
                     cpf: filiado.cpf,
                     telefone: filiado.telefonePrincipal,

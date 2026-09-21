@@ -377,6 +377,52 @@ export function rotuloDoStatus(a: { status: StatusAtendimento; fila?: FilaNaResp
  *  · PENDENTE esperando consulta o chip "Consulta marcada" já diz isso: some;
  *  · CONCLUIDO ................. "Consulta atendida" já diz isso: some.
  */
+/**
+ * O QUE MOSTRAR NA COLUNA DO TEMPO — e de quem é a espera.
+ *
+ * "Por que fica essa 'espera há 4 dias' sendo que não é problema da triagem? A
+ * triagem já fez a parte dela direcionando." e "essa espera na listagem está
+ * confusa, dá a impressão que a triagem está atrasando" — o dono, 21/09/2026.
+ *
+ * Ele está certo, e o defeito era meu: a coluna que eu criei na véspera contava
+ * os dias desde o registro para TODO atendimento pendente, inclusive os que
+ * estão "Aguardando a consulta". Só que ali a bola não é da triagem — é do
+ * advogado, e a consulta TEM data marcada. Pintar isso de âmbar cobra quem já
+ * fez a parte dela, e é o contrário do que a fila TRIAGEM × CONSULTA veio
+ * resolver em 15/09.
+ *
+ * As três respostas:
+ *
+ *  · ESPERANDO A TRIAGEM ...... "há N dias", com cor a partir de três. É a
+ *                               única em que alguém desta tela precisa agir.
+ *  · AGUARDANDO A CONSULTA .... a DATA da consulta, neutra. Nada está atrasado:
+ *                               está agendado, e a agenda é de outra pessoa.
+ *  · FECHADO .................. a data do registro. A pergunta ali é "quando
+ *                               foi", não "há quanto tempo espera".
+ */
+export type TempoDoAtendimento =
+  | { tipo: 'ESPERA'; desde: string }
+  | { tipo: 'CONSULTA'; quando: string }
+  | { tipo: 'DATA'; quando: string };
+
+export function tempoDoAtendimento(a: {
+  status: StatusAtendimento;
+  createdAt: string;
+  fila?: FilaNaResposta;
+  encaminhamento?: Encaminhamento | null;
+}): TempoDoAtendimento {
+  if (a.status !== 'PENDENTE') return { tipo: 'DATA', quando: a.createdAt };
+  /*
+    A CONSULTA MARCADA MANDA — mesmo que a API antiga não tenha mandado a fila.
+    Tendo data de consulta, existe um compromisso na agenda de alguém, e a
+    triagem não tem o que fazer até ele acontecer.
+  */
+  if (filaDe(a)?.fila === 'CONSULTA' && a.encaminhamento?.inicio) {
+    return { tipo: 'CONSULTA', quando: a.encaminhamento.inicio };
+  }
+  return { tipo: 'ESPERA', desde: a.createdAt };
+}
+
 export function oSeloDeSituacaoAcrescenta(a: {
   status: StatusAtendimento;
   fila?: FilaNaResposta;
@@ -1257,7 +1303,23 @@ export function modoDoFechamento(at: {
   return 'OUTRO';
 }
 
-/** O bloco neutro de quem só espera: quem registra, e quando volta para a triagem. */
+/**
+ * O BLOCO NEUTRO DE QUEM SÓ ESPERA — e a frase que assustou (21/09/2026).
+ *
+ * "'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, ele volta
+ * para a triagem.' — E isso exclui a atividade do advogado? Se for assim, eu
+ * não quero, às vezes o advogado esquece de resolver."
+ *
+ * NÃO EXCLUI NADA, e a pergunta mostrou que a frase dava a entender que sim.
+ * "Voltar para a triagem" é só onde o ATENDIMENTO aparece — `filaDoAtendimento`
+ * é função PURA, de leitura: ela escolhe a fila e não escreve uma linha no
+ * banco. A atividade do advogado continua na agenda dele, continua contando
+ * como atrasada e continua no lembrete semanal. O que muda é que a triagem
+ * passa a ver o atendimento de novo, para ir atrás — que é exatamente o caso
+ * do "às vezes o advogado esquece".
+ *
+ * A frase agora diz as duas coisas: o que volta, e o que não sai do lugar.
+ */
 export function textoDoFechaSozinho(responsavel: PessoaResumo | { nome: string; nomeExibicao?: string | null } | null | undefined): {
   texto: string;
   apoio: string;
@@ -1265,7 +1327,10 @@ export function textoDoFechaSozinho(responsavel: PessoaResumo | { nome: string; 
   const quem = nomeDeQuemAtende(responsavel);
   return {
     texto: `Este atendimento é concluído sozinho quando ${sujeitoMinusculo(quem)} registrar a consulta na agenda.`,
-    apoio: 'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, ele volta para a triagem.',
+    apoio:
+      'Se a consulta for cancelada, ou ficar 2 dias úteis sem registro, este atendimento volta a '
+      + 'aparecer na fila da triagem para alguém ir atrás. A atividade continua na agenda de quem '
+      + 'atende — nada é apagado.',
   };
 }
 

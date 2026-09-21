@@ -15,7 +15,6 @@ import {
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
 import { AvisoCadastroIncompleto } from '@/components/filiados/aviso-cadastro-incompleto';
-import { EnviarLinkRecadastro } from '@/components/filiados/enviar-link-recadastro';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
 import { useAuth } from '@/lib/auth';
@@ -113,9 +112,6 @@ export function NovoAtendimentoDrawer({
     }, 300);
     return () => clearTimeout(t);
   }, [busca]);
-
-  /** O envio do link abre embaixo do aviso, sem tirar ninguém do atendimento. */
-  const [mandandoLink, setMandandoLink] = useState(false);
 
   async function abrirCadastral() {
     if (!filiadoId) return;
@@ -236,19 +232,16 @@ export function NovoAtendimentoDrawer({
                     lado da linha. Ver `AvisoCadastroIncompleto`: some quando
                     não falta nada, e traz as duas saídas reais.
                   */}
+                  {/*
+                    O ENVIO ABRE EM MODAL, por dentro do próprio aviso — tirar a
+                    triagem do meio do atendimento para mandar um link é o jeito
+                    mais rápido de o link não ser mandado.
+                  */}
                   <AvisoCadastroIncompleto
                     filiado={fichaDoFiliado}
                     filiadoId={filiadoId}
-                    onMandarLink={() => setMandandoLink((v) => !v)}
+                    nome={filiadoNome}
                   />
-                  {/*
-                    O ENVIO ABRE AQUI, e não noutra tela. É o MESMO bloco da
-                    ficha do filiado (`EnviarLinkRecadastro`) — com a mensagem
-                    pronta para copiar, o botão de WhatsApp e o de e-mail. Tirar
-                    a triagem do meio do atendimento para mandar um link é o
-                    jeito mais rápido de o link não ser mandado.
-                  */}
-                  {mandandoLink && <EnviarLinkRecadastro filiadoId={filiadoId} />}
                   {acervo.length > 0 && (
                     <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
                       <FolderInput className="mt-0.5 h-3.5 w-3.5 shrink-0" />

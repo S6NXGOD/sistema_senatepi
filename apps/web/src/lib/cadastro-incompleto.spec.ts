@@ -130,3 +130,46 @@ describe('dá para mandar o link?', () => {
     expect(podeMandarLink({ telefone: null, telefoneSecundario: null, email: null })).toBe(false);
   });
 });
+
+/**
+ * OS DOIS NOMES DO TELEFONE — o bug que o dono viu na tela (21/09/2026).
+ *
+ * Print: uma filiada COM telefone cadastrado, o aviso dizendo "Falta CPF, data
+ * de nascimento e e-mail", o botão "Mandar link de recadastro" ESCONDIDO e o
+ * rodapé afirmando "sem telefone e sem e-mail não há para onde mandar o link".
+ *
+ * A causa: no banco a coluna é `telefone_principal` e a API devolve
+ * `telefonePrincipal`; esta régua só conhecia `telefone`. E como
+ * `'telefone' in f` era falso, ela nem acusava a falta — o defeito ficava mudo
+ * dos dois lados, e só a tela mostrou.
+ */
+describe('o telefone vem com dois nomes', () => {
+  it('`telefonePrincipal` conta como telefone', () => {
+    expect(oQueFaltaNoCadastro({ telefonePrincipal: '86 99846-1100' })).toEqual([]);
+    expect(podeMandarLink({ telefonePrincipal: '86 99846-1100' })).toBe(true);
+  });
+
+  it('o caso do print: falta CPF, nascimento e e-mail — e o link PODE ser mandado', () => {
+    const erica = {
+      cpf: null,
+      telefonePrincipal: '86 99846-1100',
+      telefoneSecundario: null,
+      dataNascimento: null,
+      email: null,
+    };
+    expect(oQueFaltaNoCadastro(erica)).toEqual(['CPF', 'data de nascimento', 'e-mail']);
+    expect(oQueFaltaNoCadastro(erica)).not.toContain('telefone');
+    expect(podeMandarLink(erica)).toBe(true);
+  });
+
+  it('`telefonePrincipal` vazio e sem secundário: aí falta mesmo', () => {
+    expect(
+      oQueFaltaNoCadastro({ telefonePrincipal: '', telefoneSecundario: null }),
+    ).toContain('telefone');
+    expect(podeMandarLink({ telefonePrincipal: '', telefoneSecundario: null })).toBe(false);
+  });
+
+  it('o nome antigo continua valendo — os dois convivem', () => {
+    expect(podeMandarLink({ telefone: '86 99999-0000' })).toBe(true);
+  });
+});

@@ -25,11 +25,29 @@ import { V } from '@/lib/vocabulario';
  */
 export interface CadastroDoFiliado {
   cpf?: string | null;
+  /**
+   * OS DOIS NOMES DO MESMO CAMPO — e o bug que eles causaram (21/09/2026).
+   *
+   * No banco a coluna é `telefone_principal`, e a API devolve
+   * `telefonePrincipal`. A ficha do dossiê usa esse nome; outros pontos do
+   * sistema falam em `telefone`. Esta régua só conhecia `telefone`, e o
+   * resultado apareceu na tela do dono: uma filiada COM telefone cadastrado, e
+   * o botão "Mandar link de recadastro" escondido, com o rodapé dizendo "sem
+   * telefone e sem e-mail não há para onde mandar o link".
+   *
+   * Pior: como `'telefone' in f` era falso, a régua nem acusava a falta — o
+   * defeito ficava mudo dos dois lados. Aceitar os dois nomes é a correção
+   * honesta; normalizar só um obrigaria cada chamador a lembrar qual.
+   */
   telefone?: string | null;
+  telefonePrincipal?: string | null;
   telefoneSecundario?: string | null;
   dataNascimento?: string | null;
   email?: string | null;
 }
+
+/** O telefone, venha ele com o nome que vier. */
+const telefoneDe = (f: CadastroDoFiliado) => f.telefone ?? f.telefonePrincipal ?? null;
 
 export type CampoQueFalta = 'CPF' | 'telefone' | 'data de nascimento' | 'e-mail';
 
@@ -54,11 +72,11 @@ export function oQueFaltaNoCadastro(f: CadastroDoFiliado | null | undefined): Ca
     `in` e não `!= null`: quem manda o campo com `null` está dizendo "olhei, e
     está vazio"; quem não manda está dizendo "não perguntei".
   */
-  const perguntou = (campo: keyof CadastroDoFiliado) => campo in f;
+  const perguntou = (...campos: (keyof CadastroDoFiliado)[]) => campos.some((c) => c in f);
   return [
     perguntou('cpf') && vazio(f.cpf) && ('CPF' as const),
-    perguntou('telefone') &&
-      vazio(f.telefone) &&
+    perguntou('telefone', 'telefonePrincipal') &&
+      vazio(telefoneDe(f)) &&
       vazio(f.telefoneSecundario) &&
       ('telefone' as const),
     perguntou('dataNascimento') && !f.dataNascimento && ('data de nascimento' as const),
@@ -119,5 +137,5 @@ export function fraseDoCadastroIncompleto(faltando: CampoQueFalta[]): string {
  */
 export function podeMandarLink(f: CadastroDoFiliado | null | undefined): boolean {
   if (!f) return false;
-  return !vazio(f.telefone) || !vazio(f.telefoneSecundario) || !vazio(f.email);
+  return !vazio(telefoneDe(f)) || !vazio(f.telefoneSecundario) || !vazio(f.email);
 }
