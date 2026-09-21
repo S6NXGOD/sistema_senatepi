@@ -1,6 +1,6 @@
 import {
   CaixaDePropostasService,
-  DIAS_ATE_ESCALAR,
+  DIAS_ATE_COBRAR,
   itemDaCaixa,
   ordemDaCaixa,
   situacaoDaProposta,
@@ -18,7 +18,7 @@ import { tenant } from '../../tenant/tenant.config';
  *
  * Medido na produção no mesmo dia: 16 propostas na casa inteira, a mais velha
  * com 9 dias, NENHUMA acima de 30 — e só 1 das 16 menciona prazo no texto. Ou
- * seja, 15 sem a rede do `escalarEsquecidas`, todas com a mesma cara, paradas
+ * seja, 15 sem a rede do `cobrarEsquecidas`, todas com a mesma cara, paradas
  * para sempre se ninguém olhasse.
  */
 
@@ -48,14 +48,14 @@ describe('a idade da proposta vira estado', () => {
   /**
    * A MESMA RÉGUA DO ROBÔ, e é isso que faz o estado significar algo.
    *
-   * `escalarEsquecidas` desiste de esperar em `DIAS_ATE_ESCALAR`. Se a proposta
+   * `cobrarEsquecidas` desiste de esperar em `DIAS_ATE_COBRAR`. Se a proposta
    * ainda está na caixa depois disso, ou a rede não a alcança (sem prazo
    * escrito, ou com o prazo da parte contrária) ou ela não existia para ela —
    * nos dois casos, quem resolve é uma pessoa. Daí o âmbar.
    */
-  it(`no dia ${DIAS_ATE_ESCALAR} ela passa a pedir uma pessoa`, () => {
-    expect(situacao(DIAS_ATE_ESCALAR - 1).estado).toBe('NOVA');
-    expect(situacao(DIAS_ATE_ESCALAR).estado).toBe('PARADA');
+  it(`no dia ${DIAS_ATE_COBRAR} ela passa a pedir uma pessoa`, () => {
+    expect(situacao(DIAS_ATE_COBRAR - 1).estado).toBe('NOVA');
+    expect(situacao(DIAS_ATE_COBRAR).estado).toBe('PARADA');
     expect(situacao(9)).toMatchObject({ estado: 'PARADA', diasNaCaixa: 9 });
   });
 

@@ -468,8 +468,8 @@ export class DjenSyncService {
 
       Custa uma consulta quando não há nada a escalar, que é o caso normal.
     */
-    await this.etapa(resumo, 'propostas esquecidas', async () => {
-      await this.caixa.escalarEsquecidas();
+    await this.etapa(resumo, 'propostas esperando decisao', async () => {
+      await this.caixa.cobrarEsquecidas();
     });
     await this.etapa(resumo, 'advogados do ato', async () => {
       await this.ligarAdvogadosDoAto();

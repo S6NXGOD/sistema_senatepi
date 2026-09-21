@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 
 import {
   Clock, MapPin, Pencil, Trash2, History, Timer,
-  Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel, Video,
+  Play, CalendarClock, CheckCircle2, RotateCcw, Ban, FileSearch, Bot, PenLine, Gavel, Video, Paperclip, Quote,
 } from 'lucide-react';
 import { abrirChamada } from '@/lib/link-reuniao';
 import { cn } from '@/lib/utils';
@@ -151,7 +151,18 @@ export function CompromissoCard({
     <div
       ref={alvo}
       draggable={draggable}
-      onDragStart={onDragStart}
+      /*
+        O `setData` NÃO É ENFEITE. O Firefox só inicia um arrasto depois que
+        alguém escreve alguma coisa no `dataTransfer`; sem isso o `dragstart`
+        dispara e o `drop` nunca chega, e o cartão volta para o lugar como se
+        nada tivesse acontecido. O Chrome perdoa, e foi por isso que passou.
+        O id vai junto porque é dado de verdade e custa zero.
+      */
+      onDragStart={(e) => {
+        e.dataTransfer?.setData('text/plain', c.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        onDragStart?.();
+      }}
       className={cn(
         'rounded-lg border border-l-4 bg-card p-3 shadow-sm transition-shadow',
         cor.borda,
@@ -415,11 +426,50 @@ export function CompromissoCard({
         </p>
       )}
 
-      {c.atendimentoId && (
-        <button type="button" onClick={() => onVerTriagem(c.atendimentoId!)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400">
-          <FileSearch className="h-3 w-3" /> Ver triagem de origem
-        </button>
+      {/*
+        O QUE O FILIADO PEDIU, NO CARTÃO — 21/09/2026.
+
+        "Existe alguma maneira de (...) mostrar diretamente o que foi escrito
+        pela triagem? (...) Ou pode haver até previews nos cartões da atividade."
+
+        A demanda é a razão de a consulta existir e vivia a dois cliques: abrir a
+        gaveta, rolar até "Triagem de origem". Duas linhas aqui respondem "do que
+        se trata" sem abrir nada — e o link para a triagem inteira continua logo
+        abaixo, para quem precisa do resto.
+
+        `line-clamp-2` e não `truncate`: a demanda é frase, não rótulo, e uma
+        linha só corta no meio da primeira ideia ("Olá! Sou técnica de
+        enfermagem e atualmente…").
+      */}
+      {c.atendimento?.descricao && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md bg-muted/60 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+          <Quote className="mt-0.5 h-3 w-3 shrink-0 opacity-70" />
+          <span className="line-clamp-2 min-w-0">{c.atendimento.descricao}</span>
+        </p>
       )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        {c.atendimentoId && (
+          <button type="button" onClick={() => onVerTriagem(c.atendimentoId!)} className="inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400">
+            <FileSearch className="h-3 w-3" /> Ver triagem de origem
+          </button>
+        )}
+        {/*
+          O CLIPE. Quem tem documento anexado não tem como saber disso sem abrir
+          e rolar — e é justamente a informação que muda o que a pessoa faz a
+          seguir (baixar a peça antes de começar). Não é botão: abrir a gaveta
+          já é o caminho, e um segundo alvo de toque aqui competiria com ele.
+        */}
+        {!!c._count?.anexos && (
+          <span
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+            title={c._count.anexos === 1 ? '1 arquivo anexado' : `${c._count.anexos} arquivos anexados`}
+          >
+            <Paperclip className="h-3 w-3" />
+            {c._count.anexos} {c._count.anexos === 1 ? 'anexo' : 'anexos'}
+          </span>
+        )}
+      </div>
 
       {/*
         AÇÕES POR ETAPA — uma ação PRINCIPAL em destaque + as secundárias como

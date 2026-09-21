@@ -146,7 +146,7 @@ describe('a varredura do DataJud grava a linha em toda saída', () => {
  * AS ETAPAS FINAIS DO DJEN FALHAM SOZINHAS — e a rede de prazo roda primeiro.
  *
  * Rodavam em fila sem proteção: uma falha de topo em "ligar advogados" pulava
- * `escalarEsquecidas`, a rede que transforma em tarefa a proposta com prazo que
+ * `cobrarEsquecidas`, a rede que transforma em tarefa a proposta com prazo que
  * ninguém respondeu (auditoria dos robôs, 13/09/2026).
  */
 describe('as etapas finais da varredura do DJEN', () => {
@@ -178,7 +178,7 @@ describe('as etapas finais da varredura do DJEN', () => {
       lerPorProcesso: jest.fn(async () => leitura('NPU 00008146120265220002')),
     };
     const logSync = { registrar: jest.fn(async (..._args: unknown[]) => undefined) };
-    const caixa = { escalarEsquecidas: jest.fn(async () => 0) };
+    const caixa = { cobrarEsquecidas: jest.fn(async () => 0) };
     const vinculo = {
       aplicarNosProcessos: jest.fn(async () => {
         if (quebra.advogados) throw quebra.advogados;
@@ -206,7 +206,7 @@ describe('as etapas finais da varredura do DJEN', () => {
   it('a rede de prazo roda logo depois da correlação, antes das outras', async () => {
     const { svc, caixa, vinculo, partes } = montar();
     await svc.varrer();
-    const [escalar] = caixa.escalarEsquecidas.mock.invocationCallOrder;
+    const [escalar] = caixa.cobrarEsquecidas.mock.invocationCallOrder;
     expect(escalar).toBeLessThan(vinculo.aplicarNosProcessos.mock.invocationCallOrder[0]);
     expect(escalar).toBeLessThan(partes.reconciliarTodos.mock.invocationCallOrder[0]);
   });
@@ -214,7 +214,7 @@ describe('as etapas finais da varredura do DJEN', () => {
   it('correlação quebrada: a rede e as demais etapas rodam, e a falha vai para a linha', async () => {
     const { svc, prisma, logSync, caixa, vinculo, partes } = montar({ correlacao: new Error('banco instável') });
     const resumo = await svc.varrer();
-    expect(caixa.escalarEsquecidas).toHaveBeenCalledTimes(1);
+    expect(caixa.cobrarEsquecidas).toHaveBeenCalledTimes(1);
     expect(vinculo.aplicarNosProcessos).toHaveBeenCalledTimes(1);
     expect(partes.reconciliarTodos).toHaveBeenCalledTimes(1);
     // conferência da fila + tarefa de cadastro
@@ -234,7 +234,7 @@ describe('as etapas finais da varredura do DJEN', () => {
   it('duas etapas quebradas aparecem as duas, na ordem em que rodaram', async () => {
     const { svc, caixa } = montar({ advogados: new Error('a'), partes: new Error('b') });
     const resumo = await svc.varrer();
-    expect(caixa.escalarEsquecidas).toHaveBeenCalled();
+    expect(caixa.cobrarEsquecidas).toHaveBeenCalled();
     expect(resumo.etapasComFalha).toEqual(['advogados do ato (a)', 'partes do ato (b)']);
   });
 
@@ -252,7 +252,7 @@ describe('as etapas finais da varredura do DJEN', () => {
     const { svc, prisma, logSync, caixa } = montar();
     prisma.user.findMany.mockRejectedValueOnce(new Error('sem conexão'));
     await expect(svc.varrer()).rejects.toThrow('sem conexão');
-    expect(caixa.escalarEsquecidas).not.toHaveBeenCalled();
+    expect(caixa.cobrarEsquecidas).not.toHaveBeenCalled();
     expect(logSync.registrar).toHaveBeenCalledWith(
       expect.objectContaining({ sucesso: false, mensagemErro: 'Varredura interrompida: sem conexão' }),
     );

@@ -328,16 +328,101 @@ describe('prazo nosso, mas dormindo', () => {
   });
 
   /**
-   * OS DOIS CAMINHOS FAZEM A MESMA PERGUNTA. A criação direta e a escalada da
-   * caixa precisam concordar: se o robô não manda a tarefa na hora porque o
-   * prazo está dormindo, o relógio não pode mandar por ele três dias depois.
+   * OS DOIS CAMINHOS FAZEM A MESMA PERGUNTA. A criação direta e a COBRANÇA da
+   * caixa precisam concordar: o que o robô não manda para a agenda também não
+   * vira cobrança do relógio três dias depois.
+   *
+   * A comparação é sobre o código SEM ESPAÇO: a chamada da caixa passou a
+   * ocupar três linhas quando `cobrarEsquecidas` nasceu (21/09/2026), e um
+   * teste que depende de onde o prettier quebra a linha reprova formatação, não
+   * regra.
    */
-  it('a criação direta e a escalada usam a mesma função', () => {
-    const CAIXA = readFileSync(join(__dirname, '../caixa-de-propostas.service.ts'), 'utf8');
-    const CORRELACAO = readFileSync(join(__dirname, '../correlacao.service.ts'), 'utf8');
-    expect(CORRELACAO).toContain('oPrazoPodeVirarData(prazoDeQuem)');
+  it('a criação direta e a cobrança usam a mesma função', () => {
+    const semEspaco = (arquivo: string) =>
+      readFileSync(join(__dirname, arquivo), 'utf8').replace(/\s+/g, '');
+    const CAIXA = semEspaco('../caixa-de-propostas.service.ts');
+    expect(semEspaco('../correlacao.service.ts')).toContain('oPrazoPodeVirarData(prazoDeQuem)');
     expect(CAIXA).toContain('oPrazoPodeVirarData(deQuemEOPrazo(');
     // E nenhum dos dois compara o valor na mão, que é como eles divergiriam.
-    expect(CAIXA).not.toContain("=== 'DA_OUTRA_PARTE'");
+    expect(CAIXA).not.toContain("==='DA_OUTRA_PARTE'");
+  });
+});
+
+/**
+ * O VOCABULÁRIO DA EXECUÇÃO — 21/09/2026.
+ *
+ * O dono mandou o print de uma tarefa fechada com "Intimação direcionada à
+ * empresa. Apresentamos conta de liquidação e a empresa foi intimada para
+ * impugnar", e perguntou se dava para analisar isso mais criteriosamente.
+ *
+ * Dava: na liquidação o juízo para de escrever "reclamante/reclamada" e passa a
+ * escrever "credora/devedora", e a régua não conhecia as duas palavras. A frase
+ * caía em INDEFINIDO — que cria tarefa — em vez de DA_OUTRA_PARTE.
+ *
+ * Os teores abaixo são da produção, encurtados só no cabeçalho do tribunal.
+ */
+describe('credora e devedora são os papéis da execução', () => {
+  const CONTA_DE_LIQUIDACAO =
+    'ATOrd 0001407-89.2023.5.22.0004 AUTOR: SINDICATO DOS ENFERMEIROS - SENATEPI ' +
+    'RÉU: NEPHRON SERVICOS MEDICOS LTDA INTIMAÇÃO Fica V. Sa. intimado para tomar ' +
+    'ciência do Despacho ID 175d27b proferido nos autos. DESPACHO Diante do trânsito ' +
+    'em julgado da sentença de mérito, a parte credora apresentou sua conta de ' +
+    'liquidação. Elaborada a conta e tornada líquida, notifique-se a parte devedora ' +
+    'para a respectiva impugnação, no prazo de 08 (oito) dias.';
+
+  it('somos a credora: o prazo de 8 dias é da devedora', () => {
+    expect(deQuemEOPrazo(CONTA_DE_LIQUIDACAO, 'ATIVO', 'SENATEPI')).toBe('DA_OUTRA_PARTE');
+    expect(oPrazoPodeVirarData(deQuemEOPrazo(CONTA_DE_LIQUIDACAO, 'ATIVO', 'SENATEPI'))).toBe(false);
+  });
+
+  /**
+   * E A SIMETRIA PRECISA VALER. Se o sindicato for o devedor — executado numa
+   * ação contra ele —, o mesmo prazo passa a ser nosso. Sem este teste, a
+   * palavra nova viraria uma forma nova de perder prazo.
+   */
+  it('se o sindicato é o devedor, o mesmo prazo é NOSSO', () => {
+    expect(deQuemEOPrazo(CONTA_DE_LIQUIDACAO, 'PASSIVO', 'SENATEPI')).toBe('NOSSO');
+  });
+
+  it('o polo desconhecido continua não opinando', () => {
+    expect(deQuemEOPrazo(CONTA_DE_LIQUIDACAO, null, 'SENATEPI')).toBe('INDEFINIDO');
+  });
+});
+
+/**
+ * O PRAZO SEM NÚMERO — "no prazo legal", "no prazo assinalado".
+ *
+ * Caso real 0002664-81.2025.5.22.0101: o recurso da reclamada foi julgado
+ * deserto e o juízo notificou "a parte recorrente" para se manifestar "no prazo
+ * legal". A frase não tinha número, então nem chegava a ser lida — e a advogada
+ * cancelou a tarefa escrevendo "O prazo assinalado é da Reclamada e foi gerado
+ * pelo sistema por engano".
+ */
+describe('prazo sem número também tem dono', () => {
+  it('"no prazo legal" é frase de prazo', () => {
+    const t =
+      'Intime-se a reclamada para manifestar-se no prazo legal.';
+    expect(deQuemEOPrazo(t, 'ATIVO', 'SENATEPI')).toBe('DA_OUTRA_PARTE');
+  });
+
+  it('"no prazo assinalado" também', () => {
+    const t = 'Notifique-se a executada para pagar no prazo assinalado.';
+    expect(deQuemEOPrazo(t, 'ATIVO', 'SENATEPI')).toBe('DA_OUTRA_PARTE');
+  });
+
+  /** E quando é nosso, continua nosso — a frase nova não vira bloqueio. */
+  it('o mesmo prazo sem número, dirigido a nós, é NOSSO', () => {
+    const t = 'Intime-se o SENATEPI para manifestar-se no prazo legal.';
+    expect(deQuemEOPrazo(t, 'ATIVO', 'SENATEPI')).toBe('NOSSO');
+  });
+
+  /**
+   * "PRAZO EM DOBRO" NÃO É ORDEM DE NINGUÉM SOZINHA — é a prerrogativa da
+   * Fazenda, citada de passagem. Sem papel na frase, continua indefinido, que é
+   * o caminho normal.
+   */
+  it('menção solta a prazo em dobro não atribui nada', () => {
+    expect(deQuemEOPrazo('Contam-se em prazo em dobro os atos da Fazenda.', 'ATIVO', 'X'))
+      .toBe('INDEFINIDO');
   });
 });

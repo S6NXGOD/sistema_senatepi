@@ -8,7 +8,7 @@ import {
   X, Loader2, Pencil, Trash2, Clock, MapPin, Timer, User, Phone, Mail,
   GraduationCap, Gavel, UserCog, FileSearch, CalendarClock, ExternalLink, Users,
   Ban, Bot, CheckCircle2, Play, RotateCcw, PenLine, Newspaper, HandHelping, UserMinus, AlertTriangle,
-  Video, Copy,
+  Video, Copy, Paperclip,
 } from 'lucide-react';
 import { Sheet } from '@/components/ui/sheet';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
@@ -398,6 +398,110 @@ export function CompromissoDrawer({
             <PassosDaTarefa providencia={c.origemComunicacoes?.[0]?.providencia ?? null} />
           )}
 
+          {/*
+            "TEM ANEXO?" — respondido no topo, e a um toque de distância.
+
+            Os documentos moram no rodapé da gaveta, depois de tudo. Para saber
+            se existem era preciso rolar a gaveta inteira — e no celular, na
+            hora da chamada, ninguém rola. Esta linha diz QUANTOS e leva até
+            lá; a lista continua onde estava, porque é lá que se baixa e se
+            envia. Um número só, sem lista duplicada.
+          */}
+          {!!c._count?.anexos && (
+            <button
+              type="button"
+              onClick={() =>
+                document
+                  .getElementById(`anexos-${c.id}`)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+              className="flex w-full items-center gap-2 rounded-lg border border-brand-200 bg-brand-50/60 px-3 py-2.5 text-left transition hover:bg-brand-100/60 dark:border-brand-900/50 dark:bg-brand-950/20 dark:hover:bg-brand-950/40"
+            >
+              <Paperclip className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-300" />
+              <span className="min-w-0 flex-1 text-sm font-medium">
+                {c._count.anexos === 1
+                  ? '1 documento anexado'
+                  : `${c._count.anexos} documentos anexados`}
+              </span>
+              <span className="shrink-0 text-xs font-medium text-brand-800 dark:text-brand-300">
+                ver
+              </span>
+            </button>
+          )}
+
+          {/*
+            O QUE O FILIADO PEDIU SUBIU — 21/09/2026.
+
+            "Para ao clicar na atividade para detalhar, ele já veja o mais
+            importante primeiro e que não seja obrigado a rolar até embaixo."
+
+            O bloco da triagem estava ABAIXO de responsável, também atuam e
+            registrado por — três blocos de metadado na frente da única coisa
+            que responde "do que se trata". Ele não foi copiado para cá: foi
+            MOVIDO, porque a mesma informação em dois lugares da mesma gaveta é
+            o defeito que a faixa e o painel já custaram a corrigir.
+          */}
+            {c.atendimento && (
+            <Bloco titulo="Triagem de origem">
+              <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-900/40 dark:bg-sky-950/10">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <span className="font-medium text-muted-foreground">#{c.atendimento.numero}</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{CANAL_LABEL[c.atendimento.canal as CanalAtendimento] ?? c.atendimento.canal}</span>
+                  {rotuloDoAssunto(c.atendimento.assunto, c.atendimento.assuntoOutro) && (
+                    <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-300">
+                      {rotuloDoAssunto(c.atendimento.assunto, c.atendimento.assuntoOutro)}
+                    </span>
+                  )}
+                </div>
+                {/*
+                  O QUE O FILIADO PEDIU — a razão de a consulta existir. A API
+                  sempre mandou e a gaveta não mostrava: o advogado precisava
+                  abrir a triagem inteira, e no celular, na hora da chamada, é
+                  exatamente o que não se faz.
+                */}
+                {c.atendimento.descricao && (
+                  <div className="mt-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      O que foi pedido
+                    </p>
+                    <p className={cn('mt-0.5 whitespace-pre-wrap text-sm', !demandaInteira && 'line-clamp-3')}>
+                      {c.atendimento.descricao}
+                    </p>
+                    {(c.atendimento.descricao.length > DEMANDA_CURTA || c.atendimento.descricao.split('\n').length > 3) && (
+                      <button
+                        type="button"
+                        onClick={() => setDemandaInteira((v) => !v)}
+                        aria-expanded={demandaInteira}
+                        className="mt-0.5 min-h-9 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
+                      >
+                        {demandaInteira ? 'Mostrar menos' : 'Ver tudo'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <UserCog className="h-3.5 w-3.5" /> Triagem por <strong className="text-foreground">{c.atendimento.atendente.nomeExibicao || c.atendimento.atendente.nome}</strong> · {formatDataHora(c.atendimento.createdAt)}
+                </p>
+                {/*
+                  O QUE REGISTRAR ESTA CONSULTA FAZ COM O ATENDIMENTO (E5, 15/09/2026).
+                  O advogado é avisado no próprio lugar: antes, que fecha junto;
+                  depois, que fechou; cancelada, que voltou para a triagem.
+                */}
+                {fraseDaTriagemNaConsulta(c) && (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-foreground/80">
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span>{fraseDaTriagemNaConsulta(c)}</span>
+                  </p>
+                )}
+                {onVerTriagem && (
+                  <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400">
+                    <FileSearch className="h-3.5 w-3.5" /> Abrir triagem completa
+                  </button>
+                )}
+              </div>
+            </Bloco>
+          )}
+
           {c.descricao && (
             <Bloco titulo="Descrição">
               <p className="whitespace-pre-wrap text-sm">{c.descricao}</p>
@@ -671,67 +775,6 @@ export function CompromissoDrawer({
               </Bloco>
             ) : null}
 
-            {c.atendimento && (
-              <Bloco titulo="Triagem de origem">
-                <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-900/40 dark:bg-sky-950/10">
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                    <span className="font-medium text-muted-foreground">#{c.atendimento.numero}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{CANAL_LABEL[c.atendimento.canal as CanalAtendimento] ?? c.atendimento.canal}</span>
-                    {rotuloDoAssunto(c.atendimento.assunto, c.atendimento.assuntoOutro) && (
-                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-300">
-                        {rotuloDoAssunto(c.atendimento.assunto, c.atendimento.assuntoOutro)}
-                      </span>
-                    )}
-                  </div>
-                  {/*
-                    O QUE O FILIADO PEDIU — a razão de a consulta existir. A API
-                    sempre mandou e a gaveta não mostrava: o advogado precisava
-                    abrir a triagem inteira, e no celular, na hora da chamada, é
-                    exatamente o que não se faz.
-                  */}
-                  {c.atendimento.descricao && (
-                    <div className="mt-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        O que foi pedido
-                      </p>
-                      <p className={cn('mt-0.5 whitespace-pre-wrap text-sm', !demandaInteira && 'line-clamp-3')}>
-                        {c.atendimento.descricao}
-                      </p>
-                      {(c.atendimento.descricao.length > DEMANDA_CURTA || c.atendimento.descricao.split('\n').length > 3) && (
-                        <button
-                          type="button"
-                          onClick={() => setDemandaInteira((v) => !v)}
-                          aria-expanded={demandaInteira}
-                          className="mt-0.5 min-h-9 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400"
-                        >
-                          {demandaInteira ? 'Mostrar menos' : 'Ver tudo'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <UserCog className="h-3.5 w-3.5" /> Triagem por <strong className="text-foreground">{c.atendimento.atendente.nomeExibicao || c.atendimento.atendente.nome}</strong> · {formatDataHora(c.atendimento.createdAt)}
-                  </p>
-                  {/*
-                    O QUE REGISTRAR ESTA CONSULTA FAZ COM O ATENDIMENTO (E5, 15/09/2026).
-                    O advogado é avisado no próprio lugar: antes, que fecha junto;
-                    depois, que fechou; cancelada, que voltou para a triagem.
-                  */}
-                  {fraseDaTriagemNaConsulta(c) && (
-                    <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-foreground/80">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                      <span>{fraseDaTriagemNaConsulta(c)}</span>
-                    </p>
-                  )}
-                  {onVerTriagem && (
-                    <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400">
-                      <FileSearch className="h-3.5 w-3.5" /> Abrir triagem completa
-                    </button>
-                  )}
-                </div>
-              </Bloco>
-            )}
-
             {c.processo && (
               <Bloco titulo="Processo vinculado">
                 {/* `?processo=<id>` abre a FICHA daquele processo, não a lista.
@@ -814,6 +857,7 @@ export function CompromissoDrawer({
           {/* Documentos da atividade.
               Os anexos da triagem/processo de origem aparecem HERDADOS, em bloco
               separado: o que foi puxado lá não precisa ser puxado de novo aqui. */}
+          <div id={`anexos-${c.id}`} className="scroll-mt-4">
           <AnexosSection
             compromissoId={c.id}
             filiadoId={c.filiado?.id}
@@ -829,6 +873,7 @@ export function CompromissoDrawer({
                   : undefined
             }
           />
+          </div>
         </div>
       )}
 

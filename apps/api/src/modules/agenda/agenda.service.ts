@@ -32,6 +32,14 @@ import {
 } from './porta-do-status.util';
 import { andamentoDaConclusao, podeDesfazerConclusao, type RegistroDaConclusao } from './desfazer-conclusao.util';
 import { linkReuniaoParaGravar } from '../../common/link-reuniao.util';
+/**
+ * QUANTOS DIAS ENTRE UM LEMBRETE DE ATRASADAS E O SEGUINTE.
+ *
+ * Sete: o dono pediu "ao menos 1 vez por semana", e mais que isso vira
+ * cabeçalho. Fica exportado porque o teste cobra os dois lados do corte.
+ */
+export const DIAS_ENTRE_AVISOS = 7;
+
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 import { ultimosUsosReais } from '../dashboard/ultimo-acesso.util';
@@ -40,6 +48,7 @@ import { PARTE_ORDER } from '../processos/partes.service';
 import {
   CancelarCompromissoDto,
   ConcluirCompromissoDto,
+  CorrigirDesfechoDto,
   CreateCompromissoDto,
   ListCompromissosQueryDto,
   MudarStatusDto,
@@ -196,6 +205,31 @@ const cardSelect = {
   // `origem` viaja: a tela precisa distinguir quem foi escolhido por gente de
   // quem o robô anexou como reserva da equipe do caso.
   equipe: { select: { principal: true, origem: true, usuario: responsavelSel }, orderBy: EQUIPE_ORDER },
+  /**
+   * O CLIPE NO CARTÃO — 21/09/2026.
+   *
+   * "Existe alguma maneira de sinalizar que a atividade tem anexo ao advogado
+   * (...)? Para ao clicar na atividade para detalhar, ele já veja o mais
+   * importante primeiro e que não seja obrigado a rolar até embaixo para ver se
+   * existem anexos."
+   *
+   * Os anexos moram no rodapé da gaveta, depois de responsável, equipe, triagem
+   * e processo — para saber SE existem era preciso rolar a gaveta inteira. A
+   * contagem vem no cartão, então dá para ver antes de abrir: é `_count`, não a
+   * lista, porque o cartão só precisa saber se há e quantos.
+   */
+  _count: { select: { anexos: true } },
+  /**
+   * O QUE A TRIAGEM ESCREVEU, no cartão.
+   *
+   * A demanda é a razão de a consulta existir e vivia a dois cliques ("Ver
+   * triagem de origem" → gaveta → rolar). Uma linha dela no cartão responde
+   * "do que se trata" sem abrir nada. Só os campos da prévia; a triagem inteira
+   * continua onde estava.
+   */
+  atendimento: {
+    select: { id: true, numero: true, descricao: true, assunto: true, assuntoOutro: true },
+  },
 } as const;
 
 /** O cartão de quem não vê Processos: o processo se identifica, as partes não vêm. */
@@ -630,6 +664,9 @@ export class AgendaService {
     const compromisso = await this.prisma.compromisso.findUnique({
       where: { id },
       include: {
+        /* A contagem vai junto para a gaveta poder dizer "3 anexos" no TOPO, sem
+           esperar a seção de documentos carregar lá embaixo (21/09/2026). */
+        _count: { select: { anexos: true } },
         // Detalhe expõe mais do filiado (contato) — a tela é de trabalho interno.
         filiado: {
           select: {
@@ -1071,8 +1108,10 @@ export class AgendaService {
 
     // Reabrir apaga o desfecho/motivo do registro; o histórico é o único lugar
     // onde a decisão anterior continua visível para a equipe.
+    const motivo = dto.motivo?.trim() || null;
     const narrativa = reabrindo
-      ? `Reaberta (estava ${atual.status === StatusCompromisso.CONCLUIDO ? 'concluída' : 'cancelada'}).`
+      ? `Reaberta (estava ${atual.status === StatusCompromisso.CONCLUIDO ? 'concluída' : 'cancelada'})` +
+        (motivo ? `: ${motivo}` : '.')
       : dto.status === StatusCompromisso.EM_ANDAMENTO
         ? 'Iniciada.'
         : 'Voltou para pendente.';
@@ -1081,7 +1120,12 @@ export class AgendaService {
       reabrindo ? 'REABERTO' : dto.status === StatusCompromisso.EM_ANDAMENTO ? 'INICIADO' : 'EDITADO',
       narrativa,
       ctx,
-      { de: atual.status, para: dto.status, ...(atendimentoReaberto ? { atendimentoReaberto: atendimentoReaberto.atendimentoId } : {}) },
+      {
+        de: atual.status,
+        para: dto.status,
+        ...(motivo ? { motivo } : {}),
+        ...(atendimentoReaberto ? { atendimentoReaberto: atendimentoReaberto.atendimentoId } : {}),
+      },
     );
     await this.auditarAtendimento(atendimentoReaberto, ctx);
     return { ...compromisso, atendimentoReaberto: resumoDoAtendimento(atendimentoReaberto) };
@@ -2004,6 +2048,156 @@ export class AgendaService {
       const p = await this.prisma.processo.findUnique({ where: { id: processoId }, select: { id: true } });
       if (!p) throw new BadRequestException('Processo inválido.');
     }
+  }
+
+  /**
+   * CORRIGIR O DESFECHO SEM REABRIR — 21/09/2026.
+   *
+   * "Quero que para reabrir, abra um modal e não somente reabra. Se eu tiver
+   * reaberto, no caso, eu tenho que dá uma conclusão de novo ou tem opção
+   * melhor?" — o dono. Tem, e é esta.
+   *
+   * REABRIR E CORRIGIR SÃO COISAS DIFERENTES. Reabrir é para quando o TRABALHO
+   * voltou: a atividade sai de "Concluído", volta para a fila e `mudarStatus`
+   * limpa `desfecho`, `desfechoObs`, `concluidoEm` e `concluidoPor` — de
+   * propósito, porque um evento aberto com desfecho velho faria a tela mentir.
+   * Só que quem errou o RÓTULO não quer nada disso: quer trocar a palavra e
+   * seguir. Pelo caminho antigo ele perdia a data e o autor da conclusão
+   * original, o item voltava para a fila de alguém e, sendo consulta, o
+   * atendimento que ela fechou reabria junto.
+   *
+   * O QUE ESTA ROTA NÃO TOCA, e é o ponto: status, `concluidoEm`,
+   * `concluidoPor`, e todo efeito que a conclusão já produziu — o seguimento
+   * criado, o processo aberto, o atendimento fechado. Esses são FATOS. O
+   * desfecho é o rótulo que se deu a eles, e rótulo se corrige.
+   *
+   * E NÃO DISPARA EFEITO NOVO: trocar para um desfecho que CRIA seguimento não
+   * cria seguimento nenhum. Quem quiser o efeito conclui de novo, pela porta
+   * que existe para isso. Sem essa trava, corrigir um rótulo abriria trabalho
+   * para outra pessoa em silêncio.
+   */
+  async corrigirDesfecho(id: string, dto: CorrigirDesfechoDto, ctx: Ctx) {
+    const atual = await this.prisma.compromisso.findUnique({
+      where: { id },
+      select: { id: true, tipo: true, status: true, titulo: true, desfecho: true, desfechoObs: true },
+    });
+    if (!atual) throw new NotFoundException('Compromisso não encontrado.');
+    if (atual.status !== StatusCompromisso.CONCLUIDO) {
+      throw new BadRequestException('Só dá para corrigir o desfecho de uma atividade concluída.');
+    }
+
+    // A MESMA validação da conclusão: o desfecho pertence ao TIPO da atividade.
+    const opcao = acharDesfecho(atual.tipo, dto.desfecho);
+    if (!opcao) {
+      const validos = desfechosDoTipo(atual.tipo).map((d) => d.label).join(', ');
+      throw new BadRequestException(
+        `Desfecho inválido para este tipo de atividade. Opções: ${validos}.`,
+      );
+    }
+    const obs = dto.desfechoObs?.trim() || null;
+    if (opcao.exigeObs && !obs) {
+      throw new BadRequestException(
+        `Descreva o que aconteceu — "${opcao.label}" exige a observação.`,
+      );
+    }
+    if (opcao.slug === atual.desfecho && obs === (atual.desfechoObs ?? null)) {
+      return this.cartao(id, ctx.leitor);
+    }
+
+    /*
+      GRAVAÇÃO CONDICIONAL, como o resto do módulo: se alguém reabriu a
+      atividade enquanto este modal estava aberto, a correção não pode cair
+      sobre um evento que já voltou a estar aberto.
+    */
+    const r = await this.prisma.compromisso.updateMany({
+      where: { id, status: StatusCompromisso.CONCLUIDO },
+      data: { desfecho: opcao.slug, desfechoObs: obs },
+    });
+    if (r.count !== 1) throw new BadRequestException(FRASE_MUDOU_NO_MEIO);
+
+    const antes = DESFECHO_LABEL[atual.desfecho ?? ''] ?? atual.desfecho ?? 'sem desfecho';
+    await this.historiar(
+      id,
+      'DESFECHO_CORRIGIDO',
+      `Desfecho corrigido: "${antes}" passou a "${opcao.label}".`,
+      ctx,
+      { de: atual.desfecho, para: opcao.slug, obsAnterior: atual.desfechoObs ?? null },
+    );
+    return this.cartao(id, ctx.leitor);
+  }
+
+  /**
+   * O LEMBRETE SEMANAL DO QUE FICOU PARA TRÁS — 21/09/2026.
+   *
+   * "Queria uma animação bem bonita e suave para os advogados que estão com
+   * atividades atrasadas, que aparecesse ao menos 1 vez por semana. Como se
+   * fosse um POP-UP assim que ele loga no sistema listando as atividades dele
+   * que estão atrasadas e dizendo que eles devem concluir." — o dono.
+   *
+   * QUATRO REGRAS, e três delas existem para o lembrete não virar cabeçalho:
+   *
+   * 1. SÓ QUEM TEM ATRASADA. Nada atrasado, nada na tela. Um pop-up que abre
+   *    todo dia para dizer "está tudo bem" é o que ensina a fechar sem ler.
+   * 2. UMA VEZ POR SEMANA, por PESSOA (`avisoAtrasadasEm`). Ver o lembrete
+   *    carimba a data; sete dias depois ele volta, se ainda houver atraso.
+   * 3. É O ESCOPO DELA. A mesma régua `daPessoa` da agenda e do painel: o que
+   *    ela responde ou o que a equipe dela responde com ela dentro. Ninguém é
+   *    cobrado pelo atraso de outro.
+   * 4. QUEM NÃO VÊ AGENDA NÃO RECEBE. O corte é no servidor, como todo o resto.
+   *
+   * E ELE NÃO ACUSA PERDA DE PRAZO. O sistema conhece a data que alguém marcou
+   * na agenda, não o prazo processual — "ficou para trás" é o que o dado diz, e
+   * é a mesma palavra que o resto do sistema usa.
+   */
+  async avisoDeAtrasadas(user: AuthUser) {
+    const vazio = { mostrar: false, total: 0, itens: [] as unknown[] };
+    if (nivelEfetivo(user.role, user.permissoes, 'agenda') === 'SEM_ACESSO') return vazio;
+
+    const eu = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { avisoAtrasadasEm: true },
+    });
+    const agora = new Date();
+    const visto = eu?.avisoAtrasadasEm;
+    const naSemana =
+      !!visto && agora.getTime() - visto.getTime() < DIAS_ENTRE_AVISOS * 24 * 3_600_000;
+    if (naSemana) return vazio;
+
+    const meu = daPessoa(user.id);
+    const where = { ...meu, ...recorteAtrasadas(agora) };
+    const [total, itens] = await Promise.all([
+      this.prisma.compromisso.count({ where }),
+      this.prisma.compromisso.findMany({
+        where,
+        orderBy: { inicio: 'asc' },
+        // Cinco linhas: o suficiente para reconhecer o trabalho, e pouco o
+        // bastante para caber num telefone sem virar uma lista para rolar.
+        take: 5,
+        select: {
+          id: true, titulo: true, tipo: true, inicio: true, urgente: true,
+          filiado: { select: { nomeCompleto: true } },
+          processo: { select: { numeroCNJ: true } },
+        },
+      }),
+    ]);
+    if (!total) return vazio;
+    return { mostrar: true, total, itens };
+  }
+
+  /**
+   * "JÁ VI" — e é o próprio ato de mostrar que carimba, não um botão.
+   *
+   * Se o carimbo dependesse de a pessoa clicar em algum lugar, fechar no X ou
+   * no Esc faria o lembrete voltar no próximo login, todo dia, até alguém
+   * acertar o botão certo. O que ele promete é "uma vez por semana", e é isso
+   * que a data grava.
+   */
+  async marcarAvisoDeAtrasadasVisto(user: AuthUser) {
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { avisoAtrasadasEm: new Date() },
+    });
+    return { ok: true };
   }
 
   /**

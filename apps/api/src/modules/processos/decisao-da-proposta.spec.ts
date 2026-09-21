@@ -101,15 +101,25 @@ describe('aceitar e recusar gravam quem decidiu', () => {
 });
 
 describe('o que o robô faz sozinho NÃO é decisão', () => {
-  /** A rede cria a tarefa, mas ninguém decidiu: nada de `tarefaDecidida*`. */
-  it('escalarEsquecidas liga a tarefa e não carimba decisão', async () => {
-    const { caixa, prisma, correlacao, dados } = caixaCom(null);
+  /**
+   * O RELÓGIO NÃO DECIDE — e, desde 21/09/2026, também não cria (ver
+   * `proposta-nao-escala-sozinha.spec.ts`). Ele conta e vai embora: nenhuma
+   * atividade, nenhuma coluna de decisão, nenhuma escrita.
+   */
+  it('cobrarEsquecidas conta e não escreve nada', async () => {
+    const { caixa, prisma, correlacao } = caixaCom(null);
     prisma.comunicacaoDjen.findMany.mockResolvedValueOnce([
-      { id: 'pub-2', tarefaPropostaPara: 'u-morgana', numeroProcesso: '0000814-61.2026.5.22.0002' },
+      {
+        id: 'pub-2',
+        tarefaPropostaPara: 'u-morgana',
+        numeroProcesso: '0000814-61.2026.5.22.0002',
+        texto: 'Intimo a parte autora a apresentar réplica no prazo de 15 dias.',
+        processo: { partes: [{ polo: 'ATIVO' }] },
+      },
     ]);
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(1);
-    expect(correlacao.criarAtividadeDaProposta).toHaveBeenCalledWith('pub-2', 'u-morgana', true);
-    expect(dados()).toEqual({ compromissoId: 'comp-1' });
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(1);
+    expect(correlacao.criarAtividadeDaProposta).not.toHaveBeenCalled();
+    expect(prisma.comunicacaoDjen.update).not.toHaveBeenCalled();
   });
 
   /**

@@ -106,6 +106,10 @@ export interface AtendimentoLista {
   encaminhamento?: Encaminhamento | null;
   /** Triagem ou consulta. Ausente na API anterior a 15/09/2026. */
   fila?: FilaNaResposta;
+  /** Marcada como urgente no registro. Ausente na API anterior a 21/09/2026. */
+  urgente?: boolean;
+  /** O porquê da urgência — a API a exige ao marcar; aqui é o `title` da chama. */
+  urgenteMotivo?: string | null;
 }
 
 export interface PaginaAtendimentos {
@@ -344,6 +348,45 @@ export const COR_AGUARDANDO_A_CONSULTA = 'bg-muted text-foreground/80';
 export function rotuloDoStatus(a: { status: StatusAtendimento; fila?: FilaNaResposta }): string {
   if (a.status === 'PENDENTE' && filaDe(a)?.fila === 'CONSULTA') return 'Aguardando a consulta';
   return STATUS_LABEL[a.status];
+}
+
+/**
+ * O SELO DE SITUAÇÃO ACRESCENTA ALGUMA COISA AO CHIP DO ENCAMINHAMENTO?
+ *
+ * "Essa listagem da triagem/atendimento está boa? Não há algo para melhorar na
+ * UI, coloração, filtros e listagem?" — o dono, 21/09/2026. Há, e o maior
+ * problema é ESTE: a tabela tinha duas colunas dizendo o mesmo fato.
+ *
+ *   RESULTADO                STATUS
+ *   Consulta marcada    ×    Aguardando a consulta
+ *   Consulta atendida   ×    Concluído
+ *
+ * Nas onze linhas do print, as duas colunas nunca discordaram — e não podiam:
+ * desde 15/09/2026 o atendimento fecha SOZINHO quando o advogado conclui a
+ * consulta, então "atendida" e "concluído" são o mesmo acontecimento contado
+ * duas vezes. Duas colunas para um fato é o mesmo defeito do atraso que
+ * aparecia em quatro lugares no painel do advogado.
+ *
+ * ENTÃO O SELO SÓ APARECE QUANDO DIZ O QUE O CHIP NÃO DIZ:
+ *
+ *  · sem chip .................. o selo é a única voz, aparece sempre;
+ *  · CANCELADO ................. o chip fala da consulta, nunca do cancelamento;
+ *  · PENDENTE com a TRIAGEM .... o chip diz o que foi encaminhado, e o selo diz
+ *                                que a bola ainda é da triagem — coisas
+ *                                diferentes;
+ *  · PENDENTE esperando consulta o chip "Consulta marcada" já diz isso: some;
+ *  · CONCLUIDO ................. "Consulta atendida" já diz isso: some.
+ */
+export function oSeloDeSituacaoAcrescenta(a: {
+  status: StatusAtendimento;
+  fila?: FilaNaResposta;
+  encaminhamento?: unknown;
+}): boolean {
+  if (!a.encaminhamento) return true;
+  if (a.status === 'CANCELADO') return true;
+  if (a.status === 'CONCLUIDO') return false;
+  // Pendente: só acrescenta quando a bola é da triagem.
+  return filaDe(a)?.fila !== 'CONSULTA';
 }
 
 export function corDoStatus(a: { status: StatusAtendimento; fila?: FilaNaResposta }): string {

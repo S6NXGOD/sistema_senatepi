@@ -54,13 +54,35 @@ export type LadoDaOrdem = 'NOSSA' | 'DA_OUTRA_PARTE' | 'INDEFINIDO';
 const RE_ORDEM =
   /(?:INTIME[- ]?SE|INTIMEM[- ]?SE|INTIMO|NOTIFIQUE[- ]?SE|NOTIFIQUEM[- ]?SE|CITE[- ]?SE|CITEM[- ]?SE|FICA[M]? (?:A PARTE |O |A )?INTIMAD[OA]S?)\s+(?:(?:ÀS|AS|OS|À|A|O)\s+)?([^.;:\n]{0,70})/g;
 
-/** Papéis de quem PROPÔS a ação. */
+/**
+ * Papéis de quem PROPÔS a ação.
+ *
+ * CREDOR/CREDORA ENTRARAM EM 21/09/2026, com o caso que o dono mandou por print.
+ * Na liquidação e na execução o juízo troca o vocabulário — some "reclamante",
+ * entra "parte credora" — e a régua parava de reconhecer os dois lados
+ * justamente na fase em que quase todo despacho tem prazo:
+ *
+ *   "Diante do trânsito em julgado (...) a parte credora apresentou sua conta
+ *    de liquidação. Elaborada a conta e tornada líquida, notifique-se a parte
+ *    devedora para a respectiva impugnação, no prazo de 08 (oito) dias."
+ *
+ * Somos a credora (ATIVO), o prazo de 8 dias é da devedora, e a advogada fechou
+ * a tarefa escrevendo "Intimação direcionada à empresa. Apresentamos conta de
+ * liquidação e a empresa foi intimada para impugnar". Sem as duas palavras a
+ * frase caía em INDEFINIDO e virava data na agenda de gente.
+ *
+ * RECORRENTE E RECORRIDO FICAM DE FORA, DE PROPÓSITO. Eles são posição
+ * RECURSAL, não polo da ação: num recurso da empresa contra nós, o sindicato
+ * AUTOR é o RECORRIDO. Mapeá-los pelo polo diria "da outra parte" para um prazo
+ * NOSSO — e perder prazo é o erro caro, que é a assimetria que desenha este
+ * arquivo inteiro.
+ */
 const PAPEL_ATIVO =
-  /\b(AUTOR|AUTORA|RECLAMANTE|EXEQUENTE|REQUERENTE|IMPETRANTE|EMBARGANTE|AGRAVANTE|SUSCITANTE)\b/;
+  /\b(AUTOR|AUTORA|RECLAMANTE|EXEQUENTE|REQUERENTE|IMPETRANTE|EMBARGANTE|AGRAVANTE|SUSCITANTE|CREDOR|CREDORA)\b/;
 
-/** Papéis de contra quem a ação foi proposta. */
+/** Papeis de contra quem a acao foi proposta -- com a devedora da execucao. */
 const PAPEL_PASSIVO =
-  /\b(REU|RE|RECLAMAD[AO]|EXECUTAD[AO]|REQUERID[AO]|IMPETRAD[AO]|EMBARGAD[AO]|AGRAVAD[AO]|SUSCITAD[AO])\b/;
+  /\b(REU|RE|RECLAMAD[AO]|EXECUTAD[AO]|REQUERID[AO]|IMPETRAD[AO]|EMBARGAD[AO]|AGRAVAD[AO]|SUSCITAD[AO]|DEVEDOR|DEVEDORA)\b/;
 
 /**
  * "TODAS AS PARTES" é ordem nossa também — e é comum no fim de despacho.
@@ -190,8 +212,24 @@ export function deQuemEAOrdem(
  */
 export type LadoDoPrazo = 'NOSSO' | 'NOSSO_FUTURO' | 'DA_OUTRA_PARTE' | 'INDEFINIDO';
 
-/** "no prazo de 15 dias", "prazo improrrogável de 5 (cinco) dias", "prazo de 48 horas". */
-const RE_TEM_PRAZO = /\bPRAZO\b[^.;\n]{0,40}?\bDE\s+\d{1,3}\b|\bPRAZO\s+DE\s+\d{1,3}\b/;
+/**
+ * "no prazo de 15 dias", "prazo improrrogavel de 5 (cinco) dias", "prazo de 48
+ * horas" -- e, desde 21/09/2026, o PRAZO SEM NUMERO.
+ *
+ * O juizo escreve "no prazo legal" e "no prazo assinalado" sem dizer quantos
+ * dias sao. A frase TEM prazo, e era descartada aqui antes de alguem perguntar
+ * de quem ele e. Caso real (0002664-81.2025.5.22.0101):
+ *
+ *   "deixo de receber o recurso ordinario interposto pela parte reclamada (...)
+ *    Notifique-se a parte recorrente para, querendo, manifestar-se no prazo
+ *    legal."
+ *
+ * A advogada cancelou a tarefa: "O prazo assinalado e da Reclamada e foi gerado
+ * pelo sistema por engano". Reconhecer a frase nao inventa data nenhuma -- quem
+ * conta dias e `providencia.util`, e ele continua sem achar numero. Serve so
+ * para a frase ser LIDA e o dono do prazo, apurado.
+ */
+const RE_TEM_PRAZO = /\bPRAZO\b[^.;\n]{0,40}?\bDE\s+\d{1,3}\b|\bPRAZO\s+DE\s+\d{1,3}\b|\bPRAZO\s+(?:LEGAL|ASSINALADO|ASSINADO|DA\s+LEI|EM\s+DOBRO)\b/;
 
 /**
  * O PRAZO É NOSSO, MAS AINDA NÃO COMEÇOU A CORRER (18/09/2026).

@@ -14,6 +14,8 @@ import {
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
+import { AvisoCadastroIncompleto } from '@/components/filiados/aviso-cadastro-incompleto';
+import { EnviarLinkRecadastro } from '@/components/filiados/enviar-link-recadastro';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
 import { useAuth } from '@/lib/auth';
@@ -86,6 +88,22 @@ export function NovoAtendimentoDrawer({
     enabled: open && !!filiadoId,
   });
 
+  /**
+   * A FICHA DO FILIADO, assim que ele é escolhido — para o aviso de cadastro
+   * furado aparecer ANTES de o atendimento ser registrado (21/09/2026).
+   *
+   * É a mesma consulta que o botão "Atualização cadastral" já fazia sob
+   * demanda; agora ela roda sozinha e serve aos dois. Medido na produção: 62%
+   * dos ativos não têm CPF, então na maior parte dos atendimentos há algo a
+   * pedir — e o balcão é o único momento em que pedir é barato.
+   */
+  const { data: fichaDoFiliado } = useQuery({
+    queryKey: ['filiado', filiadoId],
+    queryFn: async () => (await api.get(`/filiados/${filiadoId}`)).data,
+    enabled: open && !!filiadoId,
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     const termo = busca.trim();
     if (termo.length < 2) { setResultados([]); return; }
@@ -95,6 +113,9 @@ export function NovoAtendimentoDrawer({
     }, 300);
     return () => clearTimeout(t);
   }, [busca]);
+
+  /** O envio do link abre embaixo do aviso, sem tirar ninguém do atendimento. */
+  const [mandandoLink, setMandandoLink] = useState(false);
 
   async function abrirCadastral() {
     if (!filiadoId) return;
@@ -210,6 +231,24 @@ export function NovoAtendimentoDrawer({
                       {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
                     </Button>
                   )}
+                  {/*
+                    O CADASTRO FURADO É COBRADO AQUI, com o filiado do outro
+                    lado da linha. Ver `AvisoCadastroIncompleto`: some quando
+                    não falta nada, e traz as duas saídas reais.
+                  */}
+                  <AvisoCadastroIncompleto
+                    filiado={fichaDoFiliado}
+                    filiadoId={filiadoId}
+                    onMandarLink={() => setMandandoLink((v) => !v)}
+                  />
+                  {/*
+                    O ENVIO ABRE AQUI, e não noutra tela. É o MESMO bloco da
+                    ficha do filiado (`EnviarLinkRecadastro`) — com a mensagem
+                    pronta para copiar, o botão de WhatsApp e o de e-mail. Tirar
+                    a triagem do meio do atendimento para mandar um link é o
+                    jeito mais rápido de o link não ser mandado.
+                  */}
+                  {mandandoLink && <EnviarLinkRecadastro filiadoId={filiadoId} />}
                   {acervo.length > 0 && (
                     <p className="flex items-start gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
                       <FolderInput className="mt-0.5 h-3.5 w-3.5 shrink-0" />

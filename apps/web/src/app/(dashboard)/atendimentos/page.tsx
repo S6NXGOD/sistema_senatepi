@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Loader2, Search, Plus, Headset, ChevronLeft, ChevronRight, Inbox, MoreVertical,
-  Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2, AlertTriangle, RotateCw, X,
+  Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2, AlertTriangle, RotateCw, X, Clock, Flame,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,10 +28,12 @@ import {
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl, AcaoDeFechar,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, OPCOES_DO_SELETOR_DE_STATUS, formatDataHora,
   corDoStatus, faltaConcluir, filtroDaUrl, filtroDoSeletorDeStatus, mensagemDaFalha, rotuloDoAssunto,
+  oSeloDeSituacaoAcrescenta,
   rotuloDoConcluirNoMenu, rotuloDoStatus, urlTemFiltro, valorDoSeletorDeStatus, vazioDaLista,
   type FilaDoAtendimento, type ValorDoSeletorDeStatus,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
+import { diasDeAtraso, formatData } from '@/lib/agenda';
 import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
@@ -237,7 +239,45 @@ function ListaAtendimentos() {
     aplicarFiltro({ status: '', fila: '', desfecho: '', canal: '', assunto: '', dataInicio: '', dataFim: '', atendente: '' });
   }
 
-  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */
+  /**
+   * HÁ QUANTO TEMPO ESTE ATENDIMENTO ESPERA — e é a pergunta desta tela.
+   *
+   * A coluna era "Data" e trazia o instante do registro, ao minuto. Preciso, e
+   * respondendo a pergunta errada: quem abre a fila da triagem quer saber o que
+   * está parado há mais tempo, não em que minuto de terça alguém digitou.
+   *
+   * ABERTO conta os dias e ganha cor a partir de três — o corte é o mesmo
+   * "dois dias úteis" com que o resto da casa mede silêncio, arredondado para
+   * cima em dias corridos. FECHADO mostra a data, porque aí a pergunta é
+   * "quando terminou" e não "há quanto tempo".
+   *
+   * A data completa continua no `title`: some da vista, não do sistema.
+   */
+  const EsperaCel = ({ a }: { a: AtendimentoLista }) => {
+    const completa = formatDataHora(a.createdAt);
+    if (a.status !== 'PENDENTE') {
+      return <span className="tabular-nums text-xs text-muted-foreground" title={completa}>{formatData(a.createdAt)}</span>;
+    }
+    const dias = diasDeAtraso(a.createdAt);
+    return (
+      <span
+        title={completa}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums',
+          dias >= 7
+            ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
+            : dias >= 3
+              ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
+              : 'text-muted-foreground',
+        )}
+      >
+        <Clock className="h-3 w-3 shrink-0" />
+        {dias === 0 ? 'hoje' : dias === 1 ? 'há 1 dia' : `há ${dias} dias`}
+      </span>
+    );
+  };
+
+  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */
   const ResultadoCel = ({ a }: { a: AtendimentoLista }) =>
     a.encaminhamento ? (
       <ChipEncaminhamento encaminhamento={a.encaminhamento} statusAtendimento={a.status} fila={a.fila} />
@@ -362,7 +402,17 @@ function ListaAtendimentos() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <button type="button" onClick={() => setDetalheId(a.id)} className="min-w-0 flex-1 text-left">
-                      <p className="truncate font-semibold">{a.filiado.nomeCompleto}</p>
+                      <p className="flex items-center gap-1.5 truncate font-semibold">
+                        {a.urgente && (
+                          <Flame
+                            className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400"
+                            aria-label={a.urgenteMotivo ? `Urgente: ${a.urgenteMotivo}` : 'Urgente'}
+                          >
+                            <title>{a.urgenteMotivo ?? 'Urgente'}</title>
+                          </Flame>
+                        )}
+                        <span className="truncate">{a.filiado.nomeCompleto}</span>
+                      </p>
                       {rotulo && <p className="truncate text-xs text-muted-foreground">{rotulo}</p>}
                       <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{a.descricao}</p>
                     </button>
@@ -375,11 +425,20 @@ function ListaAtendimentos() {
                       <MoreVertical className="h-4 w-4" />
                     </button>
                   </div>
+                  {/*
+                    NO CELULAR A MESMA PODA (21/09/2026): quatro pastilhas numa
+                    linha de 368px quebravam em duas fileiras, e duas delas
+                    diziam o mesmo. Fica o resultado, o selo que acrescenta, a
+                    espera — e o canal em texto, sem pastilha, porque ele é
+                    contexto e não estado.
+                  */}
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <Badge className="bg-muted text-muted-foreground">{CANAL_LABEL[a.canal]}</Badge>
                     <ResultadoCel a={a} />
-                    <Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge>
-                    <span className="text-muted-foreground">{formatDataHora(a.createdAt)}</span>
+                    {oSeloDeSituacaoAcrescenta(a) && (
+                      <Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge>
+                    )}
+                    <EsperaCel a={a} />
+                    <span className="text-muted-foreground">· {CANAL_LABEL[a.canal]}</span>
                   </div>
                   {podeEditar && faltaConcluir(a) && (
                     <Button
@@ -401,12 +460,26 @@ function ListaAtendimentos() {
               <table className="w-full text-sm">
                 <thead className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
+                    {/*
+                      QUATRO COLUNAS, E NÃO SEIS (21/09/2026).
+
+                      CANAL saiu: nas onze linhas do print, dez diziam
+                      "WhatsApp" — uma coluna inteira sem variação, ocupando
+                      largura que a demanda precisava. Virou um ícone ao lado do
+                      nome, onde informa sem custar coluna.
+
+                      RESULTADO e STATUS viraram SITUAÇÃO: as duas diziam o
+                      mesmo fato ("Consulta marcada" × "Aguardando a consulta").
+                      Ver `oSeloDeSituacaoAcrescenta`.
+
+                      DATA virou ESPERA: "21/09/2026, 09:52" é preciso e não
+                      responde a pergunta de quem abre esta tela, que é "faz
+                      quanto tempo que ninguém mexe nisto?".
+                    */}
                     <th className="px-4 py-3 font-medium">{V.Filiado}</th>
-                    <th className="px-4 py-3 font-medium">Canal</th>
-                    <th className="px-4 py-3 font-medium">Resultado</th>
+                    <th className="px-4 py-3 font-medium">Situação</th>
                     <th className="px-4 py-3 font-medium">Demanda</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Data</th>
+                    <th className="px-4 py-3 font-medium">Espera</th>
                     <th className="px-4 py-3"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
@@ -423,15 +496,37 @@ function ListaAtendimentos() {
                           mexido === a.id && 'bg-brand-50 dark:bg-brand-950/30',
                         )}
                       >
-                        <td className="px-4 py-3 font-medium">{a.filiado.nomeCompleto}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{CANAL_LABEL[a.canal]}</td>
-                        <td className="px-4 py-3"><ResultadoCel a={a} /></td>
-                        <td className="max-w-[280px] px-4 py-3">
-                          {rotulo && <span className="block truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
-                          <span className="line-clamp-1 text-muted-foreground">{a.descricao}</span>
+                        <td className="px-4 py-3">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            {a.urgente && (
+                              <Flame
+                                className="h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400"
+                                aria-label={a.urgenteMotivo ? `Urgente: ${a.urgenteMotivo}` : 'Urgente'}
+                              >
+                                <title>{a.urgenteMotivo ?? 'Urgente'}</title>
+                              </Flame>
+                            )}
+                            {a.filiado.nomeCompleto}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {CANAL_LABEL[a.canal]}
+                          </span>
                         </td>
-                        <td className="px-4 py-3"><Badge className={`whitespace-nowrap ${corDoStatus(a)}`}>{rotuloDoStatus(a)}</Badge></td>
-                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">{formatDataHora(a.createdAt)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <ResultadoCel a={a} />
+                            {oSeloDeSituacaoAcrescenta(a) && (
+                              <Badge className={`whitespace-nowrap ${corDoStatus(a)}`}>{rotuloDoStatus(a)}</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="max-w-[360px] px-4 py-3">
+                          {rotulo && <span className="block truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
+                          <span className="line-clamp-2 text-muted-foreground">{a.descricao}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <EsperaCel a={a} />
+                        </td>
                         <td className="px-4 py-2 text-right">
                           <div className="flex items-center justify-end gap-1">
                             {/* 44 px também no computador (15/09/2026): o `sm` tinha 36. */}

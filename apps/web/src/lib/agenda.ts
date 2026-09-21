@@ -177,6 +177,26 @@ export interface Compromisso {
   canceladoMotivo: string | null;
   canceladoEm: string | null;
   atendimentoId: string | null;
+  /**
+   * QUANTOS ANEXOS — no cartão, antes de abrir (21/09/2026).
+   *
+   * Os anexos moram no rodapé da gaveta; para saber SE existem era preciso
+   * rolar tudo. É só a contagem: a lista continua na gaveta.
+   */
+  _count?: { anexos: number };
+  /**
+   * A PRÉVIA DA TRIAGEM — o que o filiado pediu, em uma linha.
+   *
+   * O detalhe traz o bloco inteiro (`atendimento` na gaveta, com atendente,
+   * canal e data); aqui vêm só os campos que cabem num cartão.
+   */
+  atendimento?: {
+    id: string;
+    numero: number;
+    descricao: string | null;
+    assunto?: string | null;
+    assuntoOutro?: string | null;
+  } | null;
   /** Seguimento de uma conclusão: herda `atendimentoId` e não fecha o atendimento. Só o detalhe manda. */
   origemDesfechoId?: string | null;
   /**
@@ -474,6 +494,48 @@ export const TRANSICOES: Record<StatusCompromisso, StatusCompromisso[]> = {
   CANCELADO: ['PENDENTE'],
 };
 
+/**
+ * O QUE UM ARRASTO NO QUADRO PODE FAZER — e por que NÃO é `TRANSICOES`.
+ *
+ * "O drag and drop não está funcionando? Tentei arrastar uma atividade para
+ * concluída e não aconteceu nada." — o dono, 21/09/2026. Não acontecia mesmo,
+ * e o motivo estava escrito duas linhas acima: `TRANSICOES` é o mapa da rota
+ * `PATCH /:id/status`, que RECUSA `CONCLUIDO` e `CANCELADO` de propósito —
+ * concluir e cancelar têm rotas próprias porque exigem desfecho e motivo.
+ *
+ * O quadro usava esse mapa para decidir se a coluna aceitava o cartão. Como
+ * nenhuma transição leva a "Concluído", a coluna nunca aceitava, o `onDragOver`
+ * nem chamava `preventDefault` (então o navegador recusava o drop) e o código
+ * que abriria o diálogo de conclusão era INALCANÇÁVEL:
+ *
+ *     if (!card || !aceita(destino)) return;        // <- parava aqui, sempre
+ *     if (destino === 'CONCLUIDO') return onConcluir(card);   // <- nunca rodava
+ *
+ * São duas perguntas diferentes e por isso são dois mapas:
+ *  · `TRANSICOES` ...... o que a rota de status grava sozinha;
+ *  · este ............... o que soltar o cartão ali PROPÕE, mesmo que o
+ *                         caminho seja abrir um diálogo.
+ *
+ * Soltar em "Concluído" abre o modal de desfecho; em "Cancelado", o de motivo;
+ * em "Pendente"/"Em andamento", a partir de um cartão fechado, abre o de
+ * reabertura. Nenhum arrasto grava decisão sem passar por uma pergunta.
+ */
+export const DESTINOS_DO_ARRASTO: Record<StatusCompromisso, StatusCompromisso[]> = {
+  PENDENTE: ['EM_ANDAMENTO', 'CONCLUIDO', 'CANCELADO'],
+  EM_ANDAMENTO: ['PENDENTE', 'CONCLUIDO', 'CANCELADO'],
+  /* Reabrir é permitido, e desde 21/09/2026 passa por um diálogo. */
+  CONCLUIDO: ['PENDENTE', 'EM_ANDAMENTO'],
+  CANCELADO: ['PENDENTE', 'EM_ANDAMENTO'],
+};
+
+export function oArrastoPodeSoltar(
+  origem: StatusCompromisso,
+  destino: StatusCompromisso,
+): boolean {
+  if (origem === destino) return false;
+  return DESTINOS_DO_ARRASTO[origem]?.includes(destino) ?? false;
+}
+
 /** Um evento fechado (concluído/cancelado) precisa ser reaberto para mudar. */
 export function estaFechado(status: StatusCompromisso): boolean {
   return status === 'CONCLUIDO' || status === 'CANCELADO';
@@ -487,6 +549,26 @@ export function formatDataHora(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 }
+/**
+ * HÁ QUANTOS DIAS A DATA PASSOU — em dias de CALENDÁRIO, nunca em horas.
+ *
+ * "Ficou para trás ontem às 9h" e "ficou para trás ontem às 18h" são a mesma
+ * coisa para quem vai resolver hoje: 1 dia. Dividir milissegundos por 86.400.000
+ * diria 0 para a segunda, e um item atrasado aparecendo como "0 dias" é o tipo
+ * de número que faz a pessoa desconfiar da tela inteira.
+ *
+ * A conta é no fuso daqui: o dia vira às 00h de Teresina, não às 00h UTC.
+ */
+export function diasDeAtraso(iso: string, agora: Date = new Date()): number {
+  const OFFSET_BR = 3 * 3_600_000;
+  const diaDe = (d: Date) => {
+    const br = new Date(d.getTime() - OFFSET_BR);
+    return Date.UTC(br.getUTCFullYear(), br.getUTCMonth(), br.getUTCDate());
+  };
+  const dias = Math.round((diaDe(agora) - diaDe(new Date(iso))) / 86_400_000);
+  return Math.max(0, dias);
+}
+
 export function formatData(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -1450,8 +1532,24 @@ export async function atualizarCompromisso(id: string, dto: Partial<CriarComprom
  * Avanço simples: iniciar, voltar a pendente, reabrir. Concluir e cancelar têm
  * funções próprias — a API recusa esses dois aqui, porque exigem desfecho/motivo.
  */
-export async function mudarStatusCompromisso(id: string, status: StatusCompromisso) {
-  return (await api.patch(`/compromissos/${id}/status`, { status })).data;
+export async function mudarStatusCompromisso(
+  id: string,
+  status: StatusCompromisso,
+  /** Só na reabertura: vai para o histórico, onde o desfecho apagado sobrevive. */
+  motivo?: string,
+) {
+  return (await api.patch(`/compromissos/${id}/status`, { status, motivo })).data;
+}
+
+/**
+ * CORRIGE O DESFECHO SEM REABRIR — a saída que o dono pediu em 21/09/2026.
+ *
+ * Reabrir é para quando o trabalho voltou. Errar o rótulo é outra coisa, e pelo
+ * caminho antigo consertar um rótulo custava a data e o autor da conclusão, o
+ * item voltava para a fila e o atendimento fechado pela consulta reabria junto.
+ */
+export async function corrigirDesfecho(id: string, desfecho: string, desfechoObs?: string) {
+  return (await api.patch(`/compromissos/${id}/desfecho`, { desfecho, desfechoObs })).data;
 }
 
 export interface ConcluirInput {

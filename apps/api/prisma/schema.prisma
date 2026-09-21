@@ -341,6 +341,11 @@ model User {
   preferencias       Json?     @map("preferencias")
   ativo              Boolean   @default(true)
   ultimoLoginEm      DateTime? @map("ultimo_login_em")
+  /// Quando esta pessoa viu, pela última vez, o lembrete das atividades que
+  /// ficaram para trás. O lembrete volta uma vez por semana — e por PESSOA,
+  /// nunca por navegador: `localStorage` reapareceria a cada aparelho novo e
+  /// sumiria de vez para quem trocasse de máquina.
+  avisoAtrasadasEm   DateTime? @map("aviso_atrasadas_em")
   /// CORTE DE SESSÃO: todo token de acesso emitido ANTES deste instante é
   /// recusado.
   ///

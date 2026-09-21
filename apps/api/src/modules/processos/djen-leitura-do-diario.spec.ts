@@ -263,7 +263,7 @@ function montar(opcoes: {
     logSync as never,
     correlacao as never,
     {} as never,
-    { escalarEsquecidas: jest.fn(async () => 0) } as never,
+    { cobrarEsquecidas: jest.fn(async () => 0) } as never,
     vinculo as never,
     { reconciliarTodos: jest.fn(async () => undefined) } as never,
   );
@@ -905,21 +905,27 @@ describe('o histórico antigo nunca vira trabalho', () => {
     expect(compromissos.length).toBe(recente.compromissoId ? 1 : 0);
   });
 
-  it('quatro dias depois, sem ninguém responder: a rede escala a de 3 dias e continua sem tocar nas antigas', async () => {
+  /**
+   * DESDE 21/09/2026 O RELÓGIO NÃO CRIA TAREFA — ele conta quem espera decisão.
+   * A proposta do ato recente continua inteira na caixa, e a antiga continua
+   * apenas rotulada: o que mudou é que ninguém acorda com trabalho que uma
+   * pessoa não aceitou.
+   */
+  it('quatro dias depois, sem ninguém responder: a caixa COBRA e nada vira tarefa', async () => {
     relogio('2026-09-14T08:00:00Z');
     const { svc, caixa, pub, compromissos } = montarDeVerdade();
     await svc.varrer();
 
     relogio('2026-09-18T08:00:00Z');
     await svc.varrer();
-    await caixa.escalarEsquecidas();
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(1);
 
     nuncaVirouTrabalho(pub('h-56-dias'));
     nuncaVirouTrabalho(pub('h-31-dias'));
-    expect(pub('h-3-dias').compromissoId).not.toBeNull();
-    // Uma tarefa só existe, e é a do ato recente.
-    expect(compromissos).toHaveLength(1);
-    expect(compromissos[0].processoId).toBe('proc-1');
+    // A de 3 dias segue como PROPOSTA: esperando gente, sem data na agenda.
+    expect(pub('h-3-dias').tarefaPropostaEm).not.toBeNull();
+    expect(pub('h-3-dias').compromissoId).toBeNull();
+    expect(compromissos).toHaveLength(0);
   });
 
   it('pelo botão da ficha: o histórico antigo ganha o rótulo na hora, sem esperar a noite', async () => {
@@ -949,7 +955,7 @@ describe('o histórico antigo nunca vira trabalho', () => {
   const COPIA_REU = copia('h-copia-reclamada');
   const abertas = (caixa: CaixaDePropostasService) => caixa.listar('u-morgana', true);
 
-  it('as duas cópias na mesma noite: uma proposta só e, esquecida, uma tarefa só', async () => {
+  it('as duas cópias na mesma noite: uma proposta só, e ela continua proposta', async () => {
     relogio('2026-09-14T08:00:00Z');
     const { svc, caixa, pub, compromissos } = montarDeVerdade([COPIA_AUTOR, COPIA_REU]);
     await svc.varrer();
@@ -960,8 +966,11 @@ describe('o histórico antigo nunca vira trabalho', () => {
 
     relogio('2026-09-18T08:00:00Z');
     await svc.varrer();
-    await caixa.escalarEsquecidas();
-    expect(compromissos).toHaveLength(1);
+    // A cobrança conta UMA (a cópia dispensada não pede decisão de ninguém)...
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(1);
+    // ...e não escreve tarefa nenhuma: a caixa segue com o item esperando gente.
+    expect(compromissos).toHaveLength(0);
+    expect(await abertas(caixa)).toHaveLength(1);
   });
 
   it('a recusa fica: a cópia que chega depois não vira proposta de novo', async () => {
@@ -982,7 +991,7 @@ describe('o histórico antigo nunca vira trabalho', () => {
     expect(await abertas(caixa)).toHaveLength(0);
 
     relogio('2026-09-19T08:00:00Z');
-    await caixa.escalarEsquecidas();
+    await caixa.cobrarEsquecidas();
     expect(compromissos).toHaveLength(0);
   });
 
@@ -999,7 +1008,7 @@ describe('o histórico antigo nunca vira trabalho', () => {
 
     expect(pub('h-copia-reclamada')).toMatchObject({ compromissoId, tarefaPropostaEm: null });
     relogio('2026-09-19T08:00:00Z');
-    await caixa.escalarEsquecidas();
+    await caixa.cobrarEsquecidas();
     expect(compromissos).toHaveLength(1);
     expect(await abertas(caixa)).toHaveLength(0);
   });
@@ -1009,7 +1018,7 @@ describe('o histórico antigo nunca vira trabalho', () => {
     também não pode escalar duas cópias em duas tarefas, nem escalar por cima de
     uma recusa.
   */
-  it('a rede: duas cópias esquecidas viram uma tarefa; a cópia de um ato recusado não vira nenhuma', async () => {
+  it('a cobrança conta ATOS: duas cópias do mesmo despacho pedem uma decisão só', async () => {
     relogio('2026-09-14T08:00:00Z');
     const { caixa, comunicacoes, compromissos } = montarDeVerdade([]);
     const proposta = (id: string, link: string, extra: Record<string, unknown> = {}) => ({
@@ -1026,10 +1035,18 @@ describe('o histórico antigo nunca vira trabalho', () => {
       proposta('rec-2', 'https://pje/ato-b'),
     );
 
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(1);
-    expect(compromissos).toHaveLength(1);
+    /*
+      DOIS ATOS ESPERAM DECISÃO, NÃO QUATRO PROPOSTAS. `esq-1` e `esq-2` são a
+      mesma intimação (mesmo link) mandada a dois destinatários, e `rec-2` é a
+      cópia de um ato que a advogada já recusou — mas a recusa está em `rec-1`,
+      e a cobrança conta pelo LINK, então o par b entra uma vez só.
+    */
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(2);
+    // E nada foi criado nem carimbado: a caixa é de quem decide.
+    expect(compromissos).toHaveLength(0);
     const porId = (id: string) => comunicacoes.find((c) => c.id === id)!;
-    expect(porId('esq-2').compromissoId).toBe(porId('esq-1').compromissoId);
-    expect(porId('rec-2')).toMatchObject({ compromissoId: null, tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO' });
+    expect(porId('esq-1').compromissoId).toBeNull();
+    expect(porId('esq-2').compromissoId).toBeNull();
+    expect(porId('rec-2')).toMatchObject({ compromissoId: null, tarefaDispensadaMotivo: null });
   });
 });

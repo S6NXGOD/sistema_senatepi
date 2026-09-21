@@ -76,22 +76,28 @@ describe('o que vai direto e o que vira proposta', () => {
  * prazo é perder prazo, e nenhuma melhoria de ruído vale isso.
  */
 describe('a proposta esquecida', () => {
-  it('vira tarefa sozinha quando menciona prazo', () => {
-    expect(CAIXA).toContain('async escalarEsquecidas()');
-    expect(CAIXA).toContain('prazoMencionadoDias: { not: null }');
-  });
-
-  /** Sem prazo NUNCA escala: não há relógio para correr. */
-  it('mas a sem prazo espera para sempre', () => {
-    const fn = CAIXA.slice(CAIXA.indexOf('async escalarEsquecidas()'));
+  /**
+   * DESDE 21/09/2026 O RELÓGIO NÃO CRIA MAIS NADA. Ele conta quantas esperam
+   * decisão e escreve no log; a atividade só nasce quando uma pessoa clica.
+   * As três que ele chegou a criar na produção deram zero de trabalho real.
+   */
+  it('é contada, não transformada, e só quando menciona prazo', () => {
+    expect(CAIXA).toContain('async cobrarEsquecidas()');
+    expect(CAIXA).not.toContain('async escalarEsquecidas()');
+    const fn = CAIXA.slice(CAIXA.indexOf('async cobrarEsquecidas()'));
     expect(fn.slice(0, 900)).toContain('prazoMencionadoDias: { not: null }');
   });
 
-  /** Uma proposta que falha não pode travar as outras. */
-  it('uma falha não derruba o lote', () => {
-    const fn = CAIXA.slice(CAIXA.indexOf('async escalarEsquecidas()'));
-    expect(fn).toContain('} catch (err) {');
-    expect(fn).toContain('continue;');
+  /** A prova de que ela não escreve: nenhum caminho de escrita no corpo. */
+  it('a cobrança não cria atividade nem carimba coluna nenhuma', () => {
+    const fn = CAIXA.slice(CAIXA.indexOf('async cobrarEsquecidas()'));
+    const corpo = fn.slice(0, fn.indexOf('\n  }'));
+    expect(corpo).not.toContain('criarAtividadeDaProposta');
+    expect(corpo).not.toContain('.update(');
+    expect(corpo).not.toContain('.create(');
+    /* `tarefaDispensadaEm: null` aparece no WHERE, que e LEITURA. A negativa
+       mira o que grava: nenhuma escrita depois do `data:`. */
+    expect(corpo).not.toContain('data: {');
   });
 
   /** Quem lê a agenda precisa saber que o sistema decidiu por ela. */

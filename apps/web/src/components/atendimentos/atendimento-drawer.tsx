@@ -20,6 +20,7 @@ import { podeEditar as podeEditarModulo, podeVer } from '@/lib/permissoes';
 import { normalizarLinkReuniao } from '@/lib/link-reuniao';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
 import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
+import { AvisoCadastroIncompleto } from '@/components/filiados/aviso-cadastro-incompleto';
 import { AnexosSection } from '@/components/anexos/anexos-section';
 import { AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
 import { ChipEncaminhamento } from '@/components/atendimentos/estado-do-encaminhamento';
@@ -184,6 +185,27 @@ export function AtendimentoDrawer({
                 <p className="mt-2 text-xs text-muted-foreground">
                   Sem WhatsApp: o cadastro não tem celular, nem no telefone principal nem no secundário.
                 </p>
+              )}
+              {/*
+                O CADASTRO FURADO TAMBÉM É COBRADO AQUI — a triagem volta a esta
+                gaveta para acompanhar o atendimento, e é mais uma chance de
+                pedir a atualização enquanto o assunto está aberto. Compacto: a
+                explicação longa já apareceu no registro.
+              */}
+              {filiado.id && (
+                <AvisoCadastroIncompleto
+                  compacto
+                  className="mt-3"
+                  filiadoId={filiado.id}
+                  filiado={{
+                    cpf: filiado.cpf,
+                    telefone: filiado.telefonePrincipal,
+                    telefoneSecundario: filiado.telefoneSecundario,
+                    /* O dossiê não traz o nascimento; sem ele a régua não
+                       tem como saber se falta, e não inventa que falta. */
+                    email: filiado.email,
+                  }}
+                />
               )}
             </div>
 

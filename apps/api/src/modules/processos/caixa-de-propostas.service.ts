@@ -24,7 +24,7 @@ const DIA_MS = 24 * 3_600_000;
  * de propósito: o dia em que o robô desiste de esperar é o dia em que o item
  * passa a pedir uma pessoa. Duas constantes dariam duas verdades.
  */
-export const DIAS_ATE_ESCALAR = 3;
+export const DIAS_ATE_COBRAR = 3;
 
 /**
  * QUANTOS CARACTERES DO TEOR VIAJAM ATÉ O NAVEGADOR — e por que não o teor.
@@ -57,7 +57,7 @@ const CHARS_PARA_A_PREVIA = 1_400;
  * Então o envelhecimento virou ESTADO — derivado na leitura, sem tabela, sem
  * evento e sem nada para fechar:
  *
- *  NOVA           chegou há menos de `DIAS_ATE_ESCALAR` dias. Ninguém está
+ *  NOVA           chegou há menos de `DIAS_ATE_COBRAR` dias. Ninguém está
  *                 atrasado: ou o robô ainda vai escalar (se há prazo escrito),
  *                 ou a pessoa ainda tem folga para olhar. Não pede nada.
  *
@@ -111,7 +111,7 @@ export function situacaoDaProposta(
   const estado: EstadoDaProposta =
     diasDoAto > JANELA_DE_TAREFA_DIAS
       ? 'FORA_DA_JANELA'
-      : diasNaCaixa >= DIAS_ATE_ESCALAR
+      : diasNaCaixa >= DIAS_ATE_COBRAR
         ? 'PARADA'
         : 'NOVA';
   return { estado, diasNaCaixa, diasDoAto };
@@ -271,7 +271,7 @@ export class CaixaDePropostasService {
   private readonly logger = new Logger(CaixaDePropostasService.name);
 
   /** Ver a constante do módulo: uma régua só para a rede e para o estado. */
-  private readonly DIAS_ATE_ESCALAR = DIAS_ATE_ESCALAR;
+  private readonly DIAS_ATE_COBRAR = DIAS_ATE_COBRAR;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -474,61 +474,60 @@ export class CaixaDePropostasService {
   }
 
   /**
-   * A REDE: proposta com prazo que ninguém respondeu vira tarefa sozinha.
+   * O RELÓGIO COBRA, E NÃO CRIA MAIS (21/09/2026).
    *
-   * O modo de falhar da caixa de entrada é "ninguém abriu". Para uma proposta
-   * sem prazo isso é inofensivo — ela espera. Para uma COM prazo é perder
-   * prazo, e nenhuma melhoria de ruído vale isso.
+   * "Ainda me parece que está vindo intimações declaradas a outra parte.
+   *  Atividades que não são feitas para os nossos advogados. Tem como analisar
+   *  isso mais criteriosamente (...) ou que a criação de uma atividade nesse
+   *  cunho seja direcionada a decisão do advogado?" — o dono.
    *
-   * A tarefa nasce marcada: o título diz que veio de proposta não respondida,
-   * para ninguém confundir com o que o robô provou.
+   * A segunda alternativa dele é a certa, e o número da produção decidiu.
+   * Medido em 21/09/2026, sobre TODAS as atividades que o robô já criou:
    *
-   * DUAS PROPOSTAS NÃO ESCALAM MAIS (17/09/2026), e nenhuma delas some:
+   *   direto do Diário ..... 64 — 40 canceladas, 2 "nada a fazer", 9 trabalho
+   *                               (e 29 das 64 nasceram no dia da primeira
+   *                               carga, já corrigida pela janela)
+   *   ESCALADA pelo relógio . 3 — 2 "nada a fazer", 1 aberta, ZERO trabalho
    *
-   *  1. AQUELA CUJO PRAZO É DA OUTRA PARTE. A rede lia só "tem prazo escrito" —
-   *     o mesmo raciocínio que punha "Juntar documentos" na agenda por causa de
-   *     um prazo de 15 dias da empresa executada
-   *     (0001381-91.2023.5.22.0101). O ato foi para a caixa justamente porque a
-   *     prova não fechou; deixar o relógio fechá-la três dias depois é criar,
-   *     pela porta dos fundos, a tarefa que a porta da frente recusou.
+   * Três atividades, nenhuma útil, e uma delas é exatamente a que ele mandou
+   * por print: "Criada automaticamente: a proposta mencionava prazo e ficou três
+   * dias sem resposta na caixa de entrada", fechada com "Intimação direcionada à
+   * empresa".
    *
-   *  2. AQUELA CUJO ATO JÁ SAIU DA JANELA de trabalho. Tarefa nascida de um ato
-   *     de mais de 30 dias nasce vencida, e nascer vencida é o que faz a agenda
-   *     deixar de ser levada a sério — 47 das 48 tarefas cegas eram assim.
+   * A REDE EXISTIA CONTRA UM RISCO REAL — "ninguém abriu a caixa" não pode
+   * custar um prazo. Só que ela pagava esse seguro com trabalho falso, e a
+   * própria caixa já é o alarme: a proposta parada há três dias ganha o selo
+   * "parada há Nd" com `pedeVoce`, e a caixa mora no painel de quem vê processo
+   * (`seloDaProposta`, em `lib/djen.ts`). Alarme a gente tinha; o que sobrava
+   * era o relógio assinando tarefa no lugar do advogado.
    *
-   * PROPOSTA NÃO EXPIRA. As duas continuam na caixa, inteiras, esperando gente;
-   * o que deixa de acontecer é virarem tarefa sozinhas. Por isso nenhuma delas
-   * recebe `tarefaDispensadaEm`: o carimbo de dispensa é o que APAGA o item da
-   * caixa, e apagar é o contrário do que se quer aqui. A decisão de não escalar
-   * aparece no log, e o item continua visível para quem decide.
+   * ENTÃO ESTE MÉTODO NÃO ESCREVE NADA. Ele CONTA e registra no log — é o número
+   * que diz, antes de alguém perder um prazo, se a caixa parou de ser aberta.
+   * Nenhuma proposta recebe `tarefaDispensadaEm`: esse carimbo APAGA o item da
+   * caixa, e apagar é o contrário do que se quer.
+   *
+   * Continua respeitando as duas exclusões de 17/09/2026 na CONTAGEM, porque o
+   * número tem de ser de quem espera decisão de verdade: o ato cujo prazo é
+   * todo da outra parte e o que já saiu da janela não são cobrança de ninguém.
    */
-  async escalarEsquecidas(): Promise<number> {
-    const corte = new Date(Date.now() - this.DIAS_ATE_ESCALAR * 24 * 3_600_000);
+  async cobrarEsquecidas(): Promise<number> {
+    const corte = new Date(Date.now() - this.DIAS_ATE_COBRAR * 24 * 3_600_000);
     const esquecidas = await this.prisma.comunicacaoDjen.findMany({
       where: {
         tarefaPropostaEm: { not: null, lt: corte },
         compromissoId: null,
         tarefaDispensadaEm: null,
         prazoMencionadoDias: { not: null },
-        /*
-          A JANELA FICA NA CONSULTA, e não no laço, de propósito: o ato velho
-          nunca mais vai escalar, e no laço ele ocuparia uma das 50 vagas do
-          lote todas as noites, empurrando para fora a proposta nova — que é
-          exatamente a que tem prazo correndo.
-        */
         dataDisponibilizacao: {
           gte: new Date(Date.now() - JANELA_DE_TAREFA_DIAS * 24 * 3_600_000),
         },
       },
       select: {
         id: true,
-        tarefaPropostaPara: true,
         numeroProcesso: true,
-        processoId: true,
-        link: true,
         texto: true,
-        // O polo do sindicato NESTE processo é o que permite ler "intime-se a
-        // executada" como prazo nosso quando somos nós a executada.
+        // O `link` é a identidade do ATO no tribunal — ver a deduplicação abaixo.
+        link: true,
         processo: {
           select: {
             partes: {
@@ -538,77 +537,35 @@ export class CaixaDePropostasService {
           },
         },
       },
-      take: 50,
+      take: 200,
     });
 
-    let criadas = 0;
-    let deixadasNaCaixa = 0;
-    for (const c of esquecidas) {
-      try {
-        /*
-          DE QUEM É O PRAZO — a mesma pergunta, e a mesma função, que decide se
-          o ato vai direto para a agenda em `aplicarAposDjen`. Uma régua só: se
-          o robô não manda a tarefa na hora porque todo prazo do ato é da outra
-          parte, o relógio não pode mandar por ele três dias depois.
-        */
-        const nossoPolo = nossoPoloPelasPartes(c.processo?.partes ?? []);
-        if (!oPrazoPodeVirarData(deQuemEOPrazo(c.texto, nossoPolo, tenant.sigla))) {
-          deixadasNaCaixa++;
-          continue;
-        }
-        /*
-          A CÓPIA DO MESMO ATO NÃO ESCALA DE NOVO (14/09/2026).
-
-          O DJEN manda uma comunicação por destinatário, com o mesmo link. Duas
-          cópias esquecidas na caixa viravam duas tarefas para o mesmo ato, e a
-          cópia de um ato que o advogado RECUSOU virava tarefa três dias depois,
-          por cima da recusa. A correlação já não cria esse par; isto cuida do
-          que estiver na caixa e do que ela deixar passar. As duas cópias do
-          lote saem na ordem: a primeira cria, a segunda encontra a tarefa.
-        */
-        const irma = await this.irmaDecidida(c);
-        if (irma) {
-          await this.prisma.comunicacaoDjen.update({
-            where: { id: c.id },
-            data: irma.compromissoId
-              ? { compromissoId: irma.compromissoId }
-              : { tarefaDispensadaEm: new Date(), tarefaDispensadaMotivo: 'COPIA_DO_MESMO_ATO' },
-          });
-          continue;
-        }
-        const compromissoId = await this.correlacao.criarAtividadeDaProposta(
-          c.id,
-          c.tarefaPropostaPara,
-          true,
-        );
-        if (!compromissoId) continue;
-        await this.prisma.comunicacaoDjen.update({
-          where: { id: c.id },
-          data: { compromissoId },
-        });
-        criadas++;
-      } catch (err) {
-        // Uma proposta que falha não pode travar as outras — a rede existe para
-        // reduzir risco, nunca para criar um novo.
-        this.logger.warn(
-          `[CAIXA] Não deu para escalar a proposta do ${c.numeroProcesso}: ${(err as Error).message}`,
-        );
-      }
-    }
-    if (criadas) {
+    /*
+      DE QUEM É O PRAZO — a mesma função que decide se o ato vai direto para a
+      agenda em `aplicarAposDjen`. Uma régua só: o que o robô não manda para a
+      agenda também não vira cobrança.
+    */
+    const pedindoGente = esquecidas.filter((c) =>
+      oPrazoPodeVirarData(
+        deQuemEOPrazo(c.texto, nossoPoloPelasPartes(c.processo?.partes ?? []), tenant.sigla),
+      ),
+    );
+    /*
+      CONTA ATOS, NÃO CÓPIAS — o DJEN manda uma comunicação por destinatário,
+      com o mesmo `link`. Duas cópias esquecidas do mesmo despacho são UMA
+      decisão para o advogado, e contá-las duas vezes faria o log pedir o dobro
+      do trabalho que existe. Mesma régua do contador de publicações do painel.
+      Sem link (nunca visto nas medições, mas a coluna é opcional), cada linha
+      conta por si: é o palpite seguro.
+    */
+    const atos = new Set(pedindoGente.map((c, i) => c.link ?? `sem-link-${i}`));
+    if (atos.size) {
       this.logger.log(
-        `[CAIXA] ${criadas} proposta(s) com prazo sem resposta em ${this.DIAS_ATE_ESCALAR} dias viraram tarefa.`,
+        `[CAIXA] ${atos.size} ato(s) com prazo esperando decisão há mais de ` +
+          `${this.DIAS_ATE_COBRAR} dias. O robô não abre tarefa por eles — quem decide é gente.`,
       );
     }
-    if (deixadasNaCaixa) {
-      // Sai no log porque é a decisão mais nova daqui: se ela começar a segurar
-      // demais, é neste número que se vê antes de alguém perder um prazo.
-      this.logger.log(
-        `[CAIXA] ${deixadasNaCaixa} proposta(s) ficaram na caixa em vez de virar tarefa — ` +
-          'todo prazo do ato é da parte contrária.',
-      );
-    }
-    return criadas;
+    return atos.size;
   }
 
   /** Outra cópia do mesmo ato (mesmo processo e link) que já virou atividade. */
@@ -619,35 +576,6 @@ export class CaixaDePropostasService {
         ...mesmoAtoPeloLink({ id: c.id, processoId: c.processoId, link: c.link }),
         compromissoId: { not: null },
       },
-      select: { compromissoId: true },
-    });
-  }
-
-  /**
-   * Outra cópia do mesmo ato que já tem decisão: atividade ou dispensa.
-   *
-   * A com atividade vem primeiro: se uma cópia foi recusada e a outra aceita,
-   * vale o aceite, e a tarefa que existe é a que se liga.
-   *
-   * A dispensa COPIA_DO_MESMO_ATO NÃO é decisão: ela só segue a proposta ainda
-   * aberta. Contá-la dispensava a própria proposta que ela seguia, e o ato
-   * ficava sem tarefa nenhuma (o teste das duas cópias pegou isso). O motivo
-   * nulo entra pelo `OR` porque `{ not: X }` não traz a linha nula.
-   */
-  private irmaDecidida(c: { id: string; processoId: string | null; link: string | null }) {
-    if (!c.processoId || !c.link) return Promise.resolve(null);
-    return this.prisma.comunicacaoDjen.findFirst({
-      where: {
-        ...mesmoAtoPeloLink({ id: c.id, processoId: c.processoId, link: c.link }),
-        OR: [
-          { compromissoId: { not: null } },
-          {
-            tarefaDispensadaEm: { not: null },
-            OR: [{ tarefaDispensadaMotivo: null }, { tarefaDispensadaMotivo: { not: 'COPIA_DO_MESMO_ATO' } }],
-          },
-        ],
-      },
-      orderBy: { compromissoId: { sort: 'asc', nulls: 'last' } },
       select: { compromissoId: true },
     });
   }

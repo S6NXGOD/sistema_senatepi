@@ -1097,6 +1097,15 @@ export class AtendimentosService {
     const select = {
       id: true, numero: true, canal: true, assunto: true, assuntoOutro: true, desfecho: true, status: true,
       tipoEncaminhamento: true, descricao: true, responsavel: true, createdAt: true,
+      /* A URGÊNCIA VAI PARA A LISTA desde 21/09/2026: ela existia no cadastro e
+         só aparecia na gaveta — numa fila ordenada por data, o urgente de
+         ontem ficava abaixo do comum de hoje sem nada que o distinguisse.
+
+         E VAI COM O MOTIVO, sempre: selo que diz "Urgente" e não diz por quê é
+         o defeito que a coluna `urgenteMotivo` existe para não repetir. Na
+         lista ele é o `title` da chama. */
+      urgente: true,
+      urgenteMotivo: true,
       conclusaoOrigem: true, conclusaoConsultaId: true,
       filiado: filiadoLista,
       atendente: { select: { id: true, nome: true } },

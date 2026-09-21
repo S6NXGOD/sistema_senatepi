@@ -6,7 +6,8 @@ import { CompromissoCard } from '@/components/agenda/compromisso-card';
 import { Esqueleto } from '@/components/ui/esqueleto';
 import { cn } from '@/lib/utils';
 import {
-  Compromisso, StatusCompromisso, STATUS_ORDEM, STATUS_LABEL, TRANSICOES,
+  Compromisso, StatusCompromisso, STATUS_ORDEM, STATUS_LABEL, oArrastoPodeSoltar,
+  estaFechado,
   ehMinha,
 } from '@/lib/agenda';
 
@@ -105,7 +106,7 @@ export function EsqueletoDoQuadro() {
  */
 export function KanbanView({
   compromissos, onAbrir, onEditar, onVerTriagem, onAcao,
-  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, podeEditar = false, apontado, onNovo, meuId,
+  onConcluir, onCancelar, onRemarcar, onExcluir, podeExcluir, podeEditar = false, apontado, onNovo, onReabrir, meuId,
 }: {
   compromissos: Compromisso[];
   onAbrir: (c: Compromisso) => void;
@@ -131,6 +132,13 @@ export function KanbanView({
    * Ver o comentário do estado vazio, abaixo.
    */
   onNovo?: () => void;
+  /**
+   * Abre o diálogo de reabertura. Recebe o cartão e a coluna de destino, porque
+   * a mesma pergunta serve para "voltar a pendente" e "voltar a em andamento".
+   * Sem ele o quadro cai no caminho antigo (grava direto) — é o que mantém o
+   * componente utilizável em qualquer tela que ainda não tenha o diálogo.
+   */
+  onReabrir?: (c: Compromisso, destino: StatusCompromisso) => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [sobre, setSobre] = useState<StatusCompromisso | null>(null);
@@ -140,11 +148,13 @@ export function KanbanView({
   const porStatus = (s: StatusCompromisso) => compromissos.filter((c) => c.status === s);
   const arrastado = compromissos.find((c) => c.id === dragId) ?? null;
 
-  /** A coluna aceita o card? (mesma regra da API — a tela não promete o que o servidor recusa.) */
+  /**
+   * A COLUNA ACEITA O CARD? Ver `DESTINOS_DO_ARRASTO` — e NÃO `TRANSICOES`, que
+   * é o mapa da rota de status e recusa concluir/cancelar de propósito. Era
+   * por isso que arrastar para "Concluído" não fazia nada.
+   */
   function aceita(destino: StatusCompromisso): boolean {
-    if (!arrastado) return false;
-    if (arrastado.status === destino) return false;
-    return TRANSICOES[arrastado.status]?.includes(destino) ?? false;
+    return !!arrastado && oArrastoPodeSoltar(arrastado.status, destino);
   }
 
   function soltar(destino: StatusCompromisso) {
@@ -155,6 +165,12 @@ export function KanbanView({
     // Concluir e cancelar precisam de informação — abrem o diálogo próprio.
     if (destino === 'CONCLUIDO') return onConcluir(card);
     if (destino === 'CANCELADO') return onCancelar(card);
+    /*
+      TIRAR DE UMA COLUNA FECHADA É REABRIR, e reabrir apaga o desfecho do
+      cartão. Um arrasto de dois centímetros não pode desfazer o registro do
+      que aconteceu sem perguntar — ver `ReabrirModal`.
+    */
+    if (estaFechado(card.status) && onReabrir) return onReabrir(card, destino);
     onAcao(card.id, destino);
   }
 
@@ -198,6 +214,8 @@ export function KanbanView({
                     minha={ehMinha(c, meuId)}
                     draggable={podeEditar}
                     onDragStart={() => setDragId(c.id)}
+                    /* Ver `CompromissoCard`: o Firefox só inicia o arrasto
+                       depois de `dataTransfer.setData`. */
                     podeEditar={podeEditar}
                     onAbrir={onAbrir}
                     onEditar={onEditar}

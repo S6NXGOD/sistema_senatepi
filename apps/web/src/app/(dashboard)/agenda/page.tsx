@@ -27,6 +27,7 @@ import { CompromissoDrawer } from '@/components/agenda/compromisso-drawer';
 import { TiposEventoModal } from '@/components/agenda/tipos-evento-modal';
 import { ConcluirModal } from '@/components/agenda/concluir-modal';
 import { CancelarModal } from '@/components/agenda/cancelar-modal';
+import { ReabrirModal } from '@/components/agenda/reabrir-modal';
 import { RemarcarModal } from '@/components/agenda/remarcar-modal';
 import { useRefazerNaViradaDoDia } from './virada-do-dia';
 import { AtendimentoDrawer } from '@/components/atendimentos/atendimento-drawer';
@@ -35,7 +36,7 @@ import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAbrirPorUrl } from '@/lib/use-abrir-por-url';
 import { useTelaLarga } from '@/lib/use-tela-larga';
 import {
-  listarCompromissos, buscarRecortes, getCompromisso, mudarStatusCompromisso, excluirCompromisso,
+  listarCompromissos, buscarRecortes, getCompromisso, mudarStatusCompromisso, excluirCompromisso, estaFechado,
   listarResponsaveis, ehMinha, estaAtrasado, temHoraMarcada,
   filtroDoServidor, contarFiltrosAtivos, lerUrlDaAgenda, RECORTES, RECORTE_PADRAO,
   agruparPorDia, semRepetidas, proximoCursor, PAGINA_DA_AGENDA,
@@ -280,6 +281,12 @@ function AgendaConteudo() {
   const [cancelar, setCancelar] = useState<Compromisso | null>(null);
   /** Categoria pré-escolhida quando o cancelamento vem de um atalho. */
   const [cancelarCategoria, setCancelarCategoria] = useState<string | undefined>();
+  /**
+   * REABRIR PASSA POR UM DIÁLOGO (21/09/2026). Guarda o cartão E o destino: o
+   * mesmo diálogo serve para "voltar a pendente" e "voltar a em andamento", e
+   * a frase do aviso muda com isso.
+   */
+  const [reabrir, setReabrir] = useState<{ c: Compromisso; destino: StatusCompromisso } | null>(null);
   const [remarcar, setRemarcar] = useState<Compromisso | null>(null);
 
   useEffect(() => {
@@ -615,7 +622,20 @@ function AgendaConteudo() {
   const onEditar = (c: Compromisso) => { setDetalheId(null); setEditar(c); setFormOpen(true); };
   const onAbrir = (c: Compromisso) => setDetalheId(c.id);
   const onNovo = () => { setEditar(null); setFormOpen(true); };
-  const onAcao = (id: string, s: StatusCompromisso) => status.mutate({ id, status: s });
+  /**
+   * SAIR DE UMA COLUNA FECHADA É REABRIR, e reabrir apaga o desfecho do cartão
+   * — passa pelo diálogo. Iniciar e voltar para pendente a partir de uma
+   * atividade ABERTA continuam num toque só: não apagam nada.
+   */
+  const onAcao = (id: string, s: StatusCompromisso) => {
+    const c = compromissos.find((x) => x.id === id);
+    if (c && estaFechado(c.status)) return onReabrir(c, s);
+    status.mutate({ id, status: s });
+  };
+  const onReabrir = (c: Compromisso, destino: StatusCompromisso) => {
+    setDetalheId(null);
+    setReabrir({ c, destino });
+  };
   // Fecham o detalhe antes de abrir o diálogo — dois modais empilhados confundem.
   const onConcluir = (c: Compromisso) => { setDetalheId(null); setConcluir(c); };
   const onCancelar = (c: Compromisso) => { setDetalheId(null); setCancelar(c); };
@@ -1066,6 +1086,7 @@ function AgendaConteudo() {
           onEditar={onEditar}
           onVerTriagem={setTriagemId}
           onAcao={onAcao}
+          onReabrir={onReabrir}
           onConcluir={onConcluir}
           onCancelar={onCancelar}
           onRemarcar={onRemarcar}
@@ -1192,6 +1213,13 @@ function AgendaConteudo() {
       />
 
       {/* Cancelar — categoria obrigatória */}
+      <ReabrirModal
+        compromisso={reabrir?.c ?? null}
+        destino={reabrir?.destino ?? 'PENDENTE'}
+        open={!!reabrir}
+        onClose={() => setReabrir(null)}
+        onPronto={invalidar}
+      />
       <CancelarModal
         compromisso={cancelar}
         open={!!cancelar}

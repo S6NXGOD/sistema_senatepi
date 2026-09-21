@@ -97,67 +97,77 @@ function caixaCom(propostas: Linha[]) {
   return { caixa, correlacao, prisma, item };
 }
 
-describe('a proposta esquecida que vira tarefa sozinha', () => {
-  /** O controle: sem ele, os testes abaixo poderiam estar passando no vazio. */
-  it('com o prazo NOSSO, a rede funciona como sempre funcionou', async () => {
+describe('o relógio cobra a decisão, e não assina tarefa por ninguém', () => {
+  /**
+   * A MUDANÇA DE 21/09/2026, e o número que a decidiu.
+   *
+   * Das TRÊS atividades que o relógio já criou na produção, nenhuma virou
+   * trabalho: duas fecharam com "Analisado — nada a protocolar" e uma continua
+   * aberta. Uma delas é a que o dono mandou por print — "Criada automaticamente:
+   * a proposta mencionava prazo e ficou três dias sem resposta na caixa de
+   * entrada", fechada com "Intimação direcionada à empresa".
+   *
+   * A rede continua existindo; o que mudou é o que ela produz. Antes: uma
+   * atividade com data na agenda de alguém. Agora: um número no log, e a
+   * proposta seguindo na caixa com o selo "parada há Nd", que já pede gente.
+   */
+  it('com o prazo NOSSO, ela CONTA e não cria atividade nenhuma', async () => {
     const { caixa, correlacao, item } = caixaCom([proposta('p-nossa', REPLICA, 6)]);
 
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(1);
-    expect(correlacao.criarAtividadeDaProposta).toHaveBeenCalledWith('p-nossa', 'u-murilo', true);
-    expect(item('p-nossa').compromissoId).toBe('comp-1');
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(1);
+    expect(correlacao.criarAtividadeDaProposta).not.toHaveBeenCalled();
+    expect(item('p-nossa').compromissoId).toBeNull();
   });
 
-  it('com TODO prazo do ato da parte contrária, não escala — e continua na caixa', async () => {
-    const { caixa, correlacao, item } = caixaCom([proposta('p-alheia', PRAZO_DA_EXECUTADA, 6)]);
+  /** E NADA É ESCRITO na publicação — nem a dispensa, que a apagaria da caixa. */
+  it('nenhuma coluna da proposta é tocada', async () => {
+    const { caixa, prisma, item } = caixaCom([proposta('p-nossa', REPLICA, 6)]);
 
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(0);
-    expect(correlacao.criarAtividadeDaProposta).not.toHaveBeenCalled();
-    expect(item('p-alheia').compromissoId).toBeNull();
-    // Proposta NÃO expira: sem dispensa, ela segue visível esperando gente.
-    expect(item('p-alheia').tarefaDispensadaEm).toBeNull();
-    expect(item('p-alheia').tarefaDispensadaMotivo).toBeNull();
+    await caixa.cobrarEsquecidas();
+    expect(prisma.comunicacaoDjen.update).not.toHaveBeenCalled();
+    expect(item('p-nossa').tarefaDispensadaEm).toBeNull();
+    expect(item('p-nossa').tarefaPropostaPara).toBe('u-murilo');
   });
 
   /**
-   * Tarefa nascida de um ato de mais de 30 dias nasce vencida — 47 das 48
-   * "Verificação de Intimação / Prazo" eram assim. O corte fica na CONSULTA
-   * porque o ato velho nunca mais vai escalar: no laço ele ocuparia uma das 50
-   * vagas do lote toda noite, empurrando para fora a proposta nova.
+   * A CONTAGEM É DE QUEM ESPERA DECISÃO DE VERDADE. As duas exclusões de
+   * 17/09/2026 continuam valendo: cobrar por um ato cujo prazo é todo da outra
+   * parte é pedir à pessoa que decida o que o robô já sabe.
    */
-  it('o ato fora da janela de trabalho não escala, e também fica', async () => {
-    const { caixa, correlacao, item } = caixaCom([proposta('p-velha', REPLICA, 35)]);
+  it('o prazo todo da parte contrária não entra na cobrança', async () => {
+    const { caixa, item } = caixaCom([proposta('p-alheia', PRAZO_DA_EXECUTADA, 6)]);
 
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(0);
-    expect(correlacao.criarAtividadeDaProposta).not.toHaveBeenCalled();
-    expect(item('p-velha').compromissoId).toBeNull();
-    expect(item('p-velha').tarefaDispensadaEm).toBeNull();
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(0);
+    expect(item('p-alheia').compromissoId).toBeNull();
+    expect(item('p-alheia').tarefaDispensadaEm).toBeNull();
   });
 
-  /** Uma proposta segurada não segura as outras. */
-  it('o lote continua: a de prazo alheio fica, a nossa vira tarefa', async () => {
-    const { caixa, correlacao, item } = caixaCom([
+  it('o ato fora da janela de trabalho também não é cobrança', async () => {
+    const { caixa } = caixaCom([proposta('p-velha', REPLICA, 35)]);
+
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(0);
+  });
+
+  it('conta as que pedem gente e ignora as que não pedem, no mesmo lote', async () => {
+    const { caixa } = caixaCom([
       proposta('p-alheia', PRAZO_DA_EXECUTADA, 6),
       proposta('p-nossa', REPLICA, 4),
+      proposta('p-velha', REPLICA, 35),
     ]);
 
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(1);
-    expect(correlacao.criarAtividadeDaProposta).toHaveBeenCalledTimes(1);
-    expect(item('p-nossa').compromissoId).toBe('comp-1');
-    expect(item('p-alheia').compromissoId).toBeNull();
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(1);
   });
 
   /**
-   * O processo sem o sindicato nas partes (a ação é do filiado e nós só
-   * patrocinamos) não tem polo a comparar: o prazo fica INDEFINIDO, e
-   * indefinido escala, como indefinido sempre criou tarefa. Deixar de avisar um
-   * prazo custa o prazo; avisar um que não era nosso custa um clique.
+   * Sem o sindicato nas partes não há polo a comparar e o prazo fica INDEFINIDO.
+   * Indefinido continua CONTANDO: não saber de quem é o prazo é exatamente o
+   * caso em que se quer uma pessoa olhando.
    */
-  it('sem polo do sindicato no processo, a dúvida continua escalando', async () => {
-    const { caixa, correlacao } = caixaCom([
+  it('sem polo do sindicato, a dúvida vira cobrança', async () => {
+    const { caixa } = caixaCom([
       proposta('p-sem-polo', PRAZO_DA_EXECUTADA, 6, { processo: { partes: [] } }),
     ]);
 
-    await expect(caixa.escalarEsquecidas()).resolves.toBe(1);
-    expect(correlacao.criarAtividadeDaProposta).toHaveBeenCalledTimes(1);
+    await expect(caixa.cobrarEsquecidas()).resolves.toBe(1);
   });
 });

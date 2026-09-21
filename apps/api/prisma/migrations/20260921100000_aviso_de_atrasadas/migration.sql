@@ -1,0 +1,16 @@
+-- O LEMBRETE SEMANAL DAS ATIVIDADES QUE FICARAM PARA TRÁS (21/09/2026).
+--
+-- "Queria uma animação bem bonita e suave para os advogados que estão com
+--  atividades atrasadas, que aparecesse ao menos 1 vez por semana. Como se
+--  fosse um POP-UP assim que ele loga no sistema listando as atividades dele
+--  que estão atrasadas e dizendo que eles devem concluir."
+--
+-- POR QUE UMA COLUNA E NÃO O NAVEGADOR: "uma vez por semana" só é verdade se o
+-- sistema lembrar por PESSOA. Guardado no `localStorage`, o lembrete voltaria a
+-- cada aparelho novo, a cada janela anônima e a cada limpeza de dados — e
+-- sumiria de vez para quem trocasse de máquina. A coluna é de quem abre o
+-- sistema, não do navegador que ele usou naquele dia.
+--
+-- Aditiva e idempotente: o contêiner antigo atende contra o banco já migrado
+-- durante a janela de troca, e ele nunca lê esta coluna.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "aviso_atrasadas_em" TIMESTAMP(3);

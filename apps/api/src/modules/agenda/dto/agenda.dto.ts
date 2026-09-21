@@ -126,6 +126,21 @@ export class MudarStatusDto {
   @ApiProperty({ enum: StatusCompromisso })
   @IsEnum(StatusCompromisso)
   status: StatusCompromisso;
+
+  /**
+   * POR QUE ESTÁ REABRINDO — opcional na rota, pedido na tela (21/09/2026).
+   *
+   * Reabrir APAGA o desfecho do cartão, e o histórico passa a ser o único lugar
+   * onde a decisão anterior existe. Uma linha "Reaberta (estava concluída)" sem
+   * dizer por quê obriga quem lê depois a adivinhar — e quem reabre sabe o
+   * motivo no momento em que clica, que é o único momento em que ele é barato.
+   *
+   * Opcional aqui porque a mesma rota atende "iniciar" e "voltar para
+   * pendente", que não apagam nada e não têm o que justificar.
+   */
+  @ApiPropertyOptional({ description: 'Motivo da reabertura — vai para o histórico da atividade.' })
+  @IsOptional() @IsString() @MaxLength(500)
+  motivo?: string;
 }
 
 /**
@@ -202,6 +217,30 @@ export class SeguimentoDto {
   @ApiPropertyOptional({ description: 'Instrução para quem vai executar (padrão: a observação do desfecho).' })
   @IsOptional() @IsString() @MaxLength(5000)
   descricao?: string;
+}
+
+/**
+ * CORRIGIR O DESFECHO DE UMA ATIVIDADE JÁ CONCLUÍDA — sem reabrir.
+ *
+ * "Se eu tiver reaberto, no caso, eu tenho que dá uma conclusão de novo ou tem
+ * opção melhor?" — o dono, 21/09/2026. Tem, e é esta: reabrir existe para
+ * quando o TRABALHO voltou; escolher o desfecho errado é outra coisa, e obrigar
+ * a reabrir para consertar um rótulo apaga a data e o autor da conclusão
+ * original (`mudarStatus` limpa `concluidoEm`/`concluidoPor`), derruba o item
+ * de volta na fila de alguém e ainda mexe no atendimento que a consulta fechou.
+ *
+ * A correção troca o rótulo e o texto, e só. Quem concluiu, quando concluiu e
+ * os efeitos (seguimento, processo criado, atendimento fechado) ficam de pé —
+ * são fatos, não rótulos. A troca vai para o histórico com o valor anterior.
+ */
+export class CorrigirDesfechoDto {
+  @ApiProperty({ description: 'O desfecho correto — tem de pertencer ao tipo da atividade.' })
+  @IsString()
+  desfecho: string;
+
+  @ApiPropertyOptional({ description: 'O comentário do desfecho, corrigido junto.' })
+  @IsOptional() @IsString() @MaxLength(5000)
+  desfechoObs?: string;
 }
 
 export class ConcluirCompromissoDto {

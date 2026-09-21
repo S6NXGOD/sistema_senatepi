@@ -8,6 +8,7 @@ import { desfechosComSugestao, CATEGORIAS_CANCELAMENTO } from './desfechos.catal
 import {
   CancelarCompromissoDto,
   ConcluirCompromissoDto,
+  CorrigirDesfechoDto,
   CreateCompromissoDto,
   ListCompromissosQueryDto,
   MudarStatusDto,
@@ -111,6 +112,29 @@ export class AgendaController {
     return this.service.contarRecortes(query, user);
   }
 
+  /**
+   * O LEMBRETE SEMANAL DAS QUE FICARAM PARA TRÁS — ver `avisoDeAtrasadas`.
+   *
+   * ANTES DE `@Get(':id')`, pelo mesmo motivo de `conflitos` e `recortes`:
+   * declarada depois, o Nest casaria "aviso-de-atrasadas" como um id e a
+   * rota sumiria sem erro nenhum. É o defeito que já derrubou a ficha do
+   * processo neste repositório.
+   * Vem vazio quando não há atraso, quando a pessoa já viu esta semana ou
+   * quando ela não vê a agenda.
+   */
+  @Get('aviso-de-atrasadas')
+  @ApiOperation({ summary: 'As atividades da pessoa que ficaram para trás, no máximo uma vez por semana.' })
+  avisoDeAtrasadas(@CurrentUser() user: AuthUser) {
+    return this.service.avisoDeAtrasadas(user);
+  }
+
+  /** Carimba que a pessoa viu o lembrete — o relógio da semana começa aqui. */
+  @Post('aviso-de-atrasadas/visto')
+  @ApiOperation({ summary: 'Registra que o lembrete foi mostrado a esta pessoa.' })
+  marcarAvisoDeAtrasadasVisto(@CurrentUser() user: AuthUser) {
+    return this.service.marcarAvisoDeAtrasadasVisto(user);
+  }
+
   @Get()
   listar(@Query() query: ListCompromissosQueryDto, @CurrentUser() user: AuthUser) {
     return this.service.listar(query, user);
@@ -154,6 +178,21 @@ export class AgendaController {
   @ApiOperation({ summary: 'Desfaz a conclusão feita há pouco pela mesma pessoa.' })
   desfazerConclusao(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.service.desfazerConclusao(id, this.ctx(req, user));
+  }
+
+  /**
+   * CORRIGE O RÓTULO, sem reabrir. Ver `corrigirDesfecho` no serviço: reabrir
+   * é para quando o TRABALHO voltou; desfecho errado é outra coisa.
+   */
+  @Patch(':id/desfecho')
+  @ApiOperation({ summary: 'Corrige o desfecho de uma atividade já concluída, sem reabrir.' })
+  corrigirDesfecho(
+    @Param('id') id: string,
+    @Body() dto: CorrigirDesfechoDto,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.service.corrigirDesfecho(id, dto, this.ctx(req, user));
   }
 
   @Patch(':id/cancelar')
