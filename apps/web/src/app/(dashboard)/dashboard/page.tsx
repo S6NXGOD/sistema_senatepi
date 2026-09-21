@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  criarTarefaDaPublicacao, previaDaTarefa, umaPublicacao, varrerDjenAgora,
+  criarTarefaDaPublicacao, previaDaTarefa, umaPublicacao, varrerDjenAgora, resultadoDaVarredura,
 } from '@/lib/djen';
 import { atrasoEscalonado } from '@/lib/movimento';
 import { useAnimacaoDeGrafico } from '@/lib/grafico';

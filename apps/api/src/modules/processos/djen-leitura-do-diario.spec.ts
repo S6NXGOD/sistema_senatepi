@@ -396,7 +396,7 @@ describe('quem o robô não enxerga', () => {
     expect(linha()).toMatchObject({
       sucesso: false,
       mensagemErro:
-        'ATENÇÃO: 1 advogado(s) sem OAB não foram consultados. Varredura sem resposta: as 1 consulta(s) falharam.',
+        'ATENÇÃO: 1 advogado(s) sem OAB não foram consultados. Varredura sem resposta: as 1 consulta(s) falharam. Motivo mais frequente: timeout',
     });
   });
 

@@ -142,7 +142,14 @@ export function ConcluirModal({
   useEffect(() => {
     if (!spec || !compromisso) return;
     setCriarSeg(true);
-    setSegTitulo(spec.titulo);
+    /*
+      TÍTULO GENÉRICO NÃO ENTRA PRÉ-PREENCHIDO (21/09/2026). Ver
+      `pedeTituloProprio`: aceitar o padrão era o caminho mais curto, e foi o
+      que produziu as duas "Encaminhamento da reunião" atrasadas na produção.
+      Vazio, o campo obriga a dizer o que precisa ser feito — e a trava de
+      "pode salvar" já exige título não vazio.
+    */
+    setSegTitulo(spec.pedeTituloProprio ? '' : spec.titulo);
     setSegResponsavelId(compromisso.responsavel.id);
     setSegData(diaDoSeguimento(spec));
   }, [spec, compromisso]);
@@ -478,7 +485,7 @@ export function ConcluirModal({
                   </p>
                   <p className="text-[11px] leading-snug text-indigo-800/80 dark:text-indigo-300/80">
                     {spec.obrigatorio
-                      ? 'A pendência precisa de dono e data — sem isso ela vira só um texto que ninguém relê.'
+                      ? 'A pendência precisa de dono e data — sem isso ela vira só um texto que ninguém relê. Se não sobrou nada a fazer, o desfecho é outro.'
                       : 'Desmarque se não sobrou nada a acompanhar.'}
                   </p>
                 </div>
@@ -500,8 +507,15 @@ export function ConcluirModal({
                     <Input
                       value={segTitulo}
                       onChange={(e) => setSegTitulo(e.target.value)}
-                      placeholder="Ex.: Cobrar laudo pericial"
+                      placeholder={spec.exemplo ? `Ex.: ${spec.exemplo}` : 'Ex.: Cobrar laudo pericial'}
+                      autoFocus={spec.pedeTituloProprio}
                     />
+                    {spec.pedeTituloProprio && (
+                      <p className="text-[11px] leading-snug text-muted-foreground">
+                        Escreva a ação, não o nome da reunião: quem abrir a agenda daqui a uma
+                        semana precisa saber o que fazer sem reabrir a ata.
+                      </p>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">

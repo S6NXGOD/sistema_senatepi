@@ -343,12 +343,63 @@ export async function varrerDjenAgora(
   /** Das descartadas, quantas eram ações NOSSAS ainda sem cadastro. */
   sugeridas: number;
   falhas: number;
+  /** Por que falharam, do motivo mais frequente para o menos. */
+  motivosDeFalha?: Record<string, number>;
 }> {
   const { data } = await api.post('/djen/sincronizar', undefined, {
     timeout: 600_000,
     ...(dias ? { params: { dias } } : {}),
   });
   return data;
+}
+
+/**
+ * O QUE DIZER DEPOIS DA BUSCA — e por que não basta olhar `ingeridas`.
+ *
+ * 21/09/2026, o dono: "Aqui deu 'busca concluída e nada novo no diário' mas a
+ * barra amarela persiste. Realmente a busca foi um sucesso?"
+ *
+ * Não foi. O log da produção daquele minuto: "Varredura sem resposta: as 165
+ * consulta(s) falharam." A tela só olhava `ingeridas === 0` e concluía "nada
+ * novo" — a mesma frase para "o Diário não tinha nada" e para "o Diário não
+ * respondeu nada". São coisas opostas: a primeira é boa notícia, a segunda é um
+ * buraco de informação que ninguém percebe.
+ *
+ * Quatro respostas, e o tom segue a régua da casa: consequência na frente,
+ * nunca comemorar o que não aconteceu.
+ */
+export type TomDaBusca = 'ok' | 'aviso' | 'erro';
+
+export function resultadoDaVarredura(r: {
+  ingeridas: number;
+  falhas: number;
+  advogadosConsultados: number;
+  processosConsultados: number;
+}): { tom: TomDaBusca; texto: string } {
+  const tentativas = r.advogadosConsultados + r.processosConsultados + r.falhas;
+  const respondeu = tentativas - r.falhas;
+
+  if (tentativas === 0) {
+    return { tom: 'aviso', texto: 'Nada a consultar: nenhum advogado com OAB no cadastro.' };
+  }
+  /* NENHUMA respondeu: não se sabe nada sobre o Diário, e dizer "nada novo"
+     seria afirmar justamente o que não se apurou. */
+  if (respondeu === 0) {
+    return {
+      tom: 'erro',
+      texto: `O Diário não respondeu a nenhuma das ${tentativas} consultas. Nada foi buscado — a faixa continua até uma busca voltar com resposta.`,
+    };
+  }
+  if (r.falhas > 0) {
+    const achou = r.ingeridas > 0 ? `${r.ingeridas} publicação(ões) nova(s), mas ` : '';
+    return {
+      tom: 'aviso',
+      texto: `${achou}${r.falhas} de ${tentativas} consultas falharam — pode haver publicação que não chegou.`,
+    };
+  }
+  return r.ingeridas > 0
+    ? { tom: 'ok', texto: `${r.ingeridas} publicação(ões) nova(s) do Diário.` }
+    : { tom: 'ok', texto: `Busca concluída: ${tentativas} consultas responderam, nada novo no Diário.` };
 }
 
 export async function statusDatajud(): Promise<{ multiInstancia: boolean }> {

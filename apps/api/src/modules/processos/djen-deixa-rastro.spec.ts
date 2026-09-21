@@ -51,7 +51,7 @@ describe('a rodada grava que aconteceu', () => {
     expect(SYNC).toContain('await this.executarVarredura(resumo, aguardar, diasDeHistorico);');
     expect(SYNC).toContain('} finally {');
     expect(SYNC).toContain('await this.registrarResumo(resumo, origem, iniciadaEm, quebrou);');
-    expect(SYNC).toContain('sucesso: !quebrou && tentativas > 0 && !tudoFalhou');
+    expect(SYNC).toContain('sucesso: !quebrou && tentativas > 0 && !aMaioriaFalhou');
     expect(SYNC).toContain('`Varredura interrompida: ${quebrou}`');
   });
 
@@ -76,8 +76,27 @@ describe('a rodada grava que aconteceu', () => {
 
   /** Rodar e não achar nada é SUCESSO — é o caso normal de fim de semana. */
   it('não achar nada não é falha', () => {
-    expect(SYNC).toContain('tentativas > 0 && !tudoFalhou');
-    expect(SYNC).toContain('const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;');
+    expect(SYNC).toContain('tentativas > 0 && !aMaioriaFalhou');
+  });
+
+  /**
+   * MAS A MAIORIA EM FALHA É (21/09/2026). A régua era `falhas === tentativas`,
+   * e por isso a produção gravou como BEM-SUCEDIDA uma rodada com "159 de 165
+   * consulta(s) em falha" — a faixa de saúde não acendeu, e no dia seguinte o
+   * dono clicou em "Buscar agora" e ouviu "nada novo no Diário" de uma rodada
+   * em que NENHUMA das 165 respondeu.
+   */
+  it('a maioria em falha reprova a rodada', () => {
+    expect(SYNC).toContain(
+      'resumo.falhas / tentativas >= FRACAO_DE_FALHA_QUE_REPROVA',
+    );
+    expect(SYNC).toContain('export const FRACAO_DE_FALHA_QUE_REPROVA = 0.25;');
+  });
+
+  /** E a linha diz POR QUÊ: sem isso, o motivo só existia no stdout do Railway. */
+  it('o motivo mais frequente entra na linha do log', () => {
+    expect(SYNC).toContain('Motivo mais frequente:');
+    expect(SYNC).toContain('private anotarFalha(');
   });
 
   /** O manual precisa aparecer como manual — senão o log mente sobre a origem. */

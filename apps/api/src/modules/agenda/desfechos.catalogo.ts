@@ -49,6 +49,27 @@ export interface SeguimentoSpec {
    * criação mas permite desmarcar.
    */
   obrigatorio?: boolean;
+  /**
+   * O TÍTULO PADRÃO NÃO SERVE COMO TÍTULO — quem conclui tem de escrever o seu.
+   *
+   * 21/09/2026, varrendo as atrasadas da produção: das cinco, DUAS eram
+   * "Encaminhamento da reunião", as duas do mesmo advogado, as duas com o
+   * título padrão intacto e a data padrão de +7 dias. O dono perguntou se a
+   * atividade era mesmo necessária.
+   *
+   * É — uma deliberação que não vira tarefa com dono e data é uma deliberação
+   * que ninguém executa. O que não servia era o TÍTULO: "Encaminhamento da
+   * reunião" não diz o que fazer, então ninguém sabe se já fez. "Cobrar da SGEP
+   * a resposta sobre o reajuste" é tarefa; o outro é eco.
+   *
+   * Com esta marca, a tela abre o campo VAZIO e usa `exemplo` como placeholder.
+   * Aceitar o padrão deixa de ser um caminho — a pessoa escreve ou não conclui.
+   * O `titulo` continua existindo: é o que a API grava se alguém chamar a rota
+   * sem informar nada.
+   */
+  pedeTituloProprio?: boolean;
+  /** O que escrever ali — um encaminhamento de verdade, não o nome do desfecho. */
+  exemplo?: string;
 }
 
 export interface DesfechoOpcao {
@@ -189,6 +210,10 @@ export const DESFECHOS_POR_TIPO: Record<string, DesfechoOpcao[]> = {
         titulo: 'Encaminhamento da reunião',
         emDias: 7,
         obrigatorio: true,
+        // Ver `pedeTituloProprio`: as duas atrasadas de 21/09/2026 eram este
+        // título padrão, aceito como estava, em reuniões diferentes.
+        pedeTituloProprio: true,
+        exemplo: 'Cobrar da SGEP a resposta sobre o reajuste',
       },
     },
     {

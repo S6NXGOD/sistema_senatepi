@@ -64,6 +64,22 @@ const POLO_NA_TAREFA: Record<string, string> = {
 };
 
 /** Resumo de uma varredura, para o log e para a rota manual. */
+/**
+ * A FRAÇÃO DE CONSULTAS EM FALHA A PARTIR DA QUAL A RODADA NÃO É SUCESSO.
+ *
+ * ERA 100% — `falhas === tentativas` — e foi assim que a produção registrou
+ * como BEM-SUCEDIDA, em 20/09/2026, uma rodada com "159 de 165 consulta(s) em
+ * falha". Com a rodada marcada OK, a faixa de saúde não acendeu, e no dia
+ * seguinte o dono clicou em "Buscar agora" e recebeu "Busca concluída — nada
+ * novo no Diário" de uma varredura em que NENHUMA das 165 consultas respondeu.
+ *
+ * Um quarto é folgado dos dois lados: nos dez dias anteriores ao incidente, o
+ * número normal de falhas por rodada foi ZERO — então não há alarme falso a
+ * temer — e ainda assim ele pega qualquer queda que deixe a leitura
+ * incompleta a ponto de ninguém poder confiar no silêncio.
+ */
+export const FRACAO_DE_FALHA_QUE_REPROVA = 0.25;
+
 export interface ResumoVarreduraDjen {
   advogadosConsultados: number;
   processosConsultados: number;
@@ -89,6 +105,16 @@ export interface ResumoVarreduraDjen {
    */
   sugeridas: number;
   falhas: number;
+  /**
+   * POR QUE ELAS FALHARAM — a contagem por mensagem, do mais frequente.
+   *
+   * As mensagens de erro de cada consulta iam só para o `logger` do Nest, que
+   * no Railway tem retenção própria: a linha que sobrava no BANCO dizia "as 165
+   * consulta(s) falharam" e não dizia por quê. Quem lê a faixa precisa saber se
+   * é o CNJ fora do ar, se é a ponte brasileira caída ou se é cota — três
+   * problemas com três donos diferentes.
+   */
+  motivosDeFalha?: Record<string, number>;
   /**
    * Consultas que pararam no teto de páginas, pelo rótulo público (OAB ou NPU).
    *
@@ -238,6 +264,23 @@ export class DjenSyncService {
    * vazio, e a tela diria "não rodou" sobre uma rodada que rodou e explodiu.
    * Seria trocar um diagnóstico errado por outro.
    */
+  /**
+   * ANOTA POR QUE UMA CONSULTA FALHOU — e guarda a CLASSE do erro, não o texto.
+   *
+   * "Falha na OAB 9226/PI: ..." e "Falha na OAB 3311/PI: ..." são o mesmo
+   * problema com dois rótulos; contadas separadas, nenhuma seria a maioria e a
+   * linha do log não diria nada. O número da OAB e o NPU saem da chave.
+   */
+  private anotarFalha(resumo: ResumoVarreduraDjen, err: unknown) {
+    const cru = (err as Error)?.message ?? 'erro desconhecido';
+    const classe = cru
+      .replace(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g, "NPU")
+      .replace(/\b\d{3,7}\/?[A-Z]{0,2}\b/g, "N")
+      .slice(0, 160);
+    resumo.motivosDeFalha = resumo.motivosDeFalha ?? {};
+    resumo.motivosDeFalha[classe] = (resumo.motivosDeFalha[classe] ?? 0) + 1;
+  }
+
   async varrer(
     aguardar: () => Promise<void> = async () => {},
     origem: OrigemSincronizacao = OrigemSincronizacao.CRON,
@@ -384,6 +427,7 @@ export class DjenSyncService {
         }
       } catch (err) {
         resumo.falhas++;
+        this.anotarFalha(resumo, err);
         // Isola a falha: um advogado com OAB inválida não pode derrubar a
         // varredura dos demais.
         this.logger.warn(
@@ -658,6 +702,7 @@ export class DjenSyncService {
       if (historicoCarimbado) resumo.historicosLidos++;
       return true;
     } catch (err) {
+      this.anotarFalha(resumo, err);
       resumo.falhas++;
       this.logger.warn(`[DJEN-SYNC] Falha no NPU ${proc.numeroCNJ}: ${(err as Error).message}`);
       return false;
@@ -1580,14 +1625,30 @@ export class DjenSyncService {
     const naFrente = avisoSemOab + avisoDeTempo + avisoDeTeto + falhaDeEtapa;
     const tentativas =
       resumo.advogadosConsultados + resumo.processosConsultados + resumo.falhas;
+    /*
+      A MAIORIA EM FALHA JÁ REPROVA A RODADA (21/09/2026) — ver
+      `FRACAO_DE_FALHA_QUE_REPROVA`. Era `falhas === tentativas`, e foi assim
+      que "159 de 165 consulta(s) em falha" entrou no log como SUCESSO.
+    */
     const tudoFalhou = tentativas > 0 && resumo.falhas === tentativas;
+    const aMaioriaFalhou =
+      tentativas > 0 && resumo.falhas / tentativas >= FRACAO_DE_FALHA_QUE_REPROVA;
+    /*
+      E A LINHA DIZ POR QUÊ. O motivo mais frequente vai junto do número: sem
+      ele, "as 165 consultas falharam" manda quem lê procurar no stdout do
+      Railway, que tem retenção própria e some.
+    */
+    const dominante = Object.entries(resumo.motivosDeFalha ?? {})
+      .sort((x, y) => y[1] - x[1])[0];
+    const porQue = dominante ? ` Motivo mais frequente: ${dominante[0]}` : '';
     await this.logSync.registrar({
       fonte: FONTE_DJEN,
       origem,
-      // Uma rodada em que TUDO falhou não é bem-sucedida. Uma que consultou e
-      // não achou nada é — e é o caso normal de fim de semana. Etapa final que
-      // quebrou também não é: a tarefa que ela criaria não nasceu.
-      sucesso: !quebrou && tentativas > 0 && !tudoFalhou && etapas.length === 0,
+      // Uma rodada em que a MAIORIA falhou não é bem-sucedida. Uma que
+      // consultou e não achou nada é — e é o caso normal de fim de semana.
+      // Etapa final que quebrou também não é: a tarefa que ela criaria não
+      // nasceu.
+      sucesso: !quebrou && tentativas > 0 && !aMaioriaFalhou && etapas.length === 0,
       novasMovimentacoes: resumo.ingeridas,
       duracaoMs: Date.now() - iniciadaEm,
       mensagemErro: naFrente + (quebrou
@@ -1595,9 +1656,9 @@ export class DjenSyncService {
         : tentativas === 0
           ? 'Varredura sem alvo: nenhum advogado com OAB e nenhum processo elegível.'
           : tudoFalhou
-            ? `Varredura sem resposta: as ${tentativas} consulta(s) falharam.`
+            ? `Varredura sem resposta: as ${tentativas} consulta(s) falharam.${porQue}`
             : resumo.falhas > 0
-              ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha${maiorLeitura}.`
+              ? `Varredura concluída com ${resumo.falhas} de ${tentativas} consulta(s) em falha${maiorLeitura}.${porQue}`
               : `Varredura concluída: ${tentativas} consulta(s), ${resumo.ingeridas} publicação(ões) nova(s)` +
                 maiorLeitura +
                 // Quantos processos tiveram o histórico lido inteiro esta noite: é

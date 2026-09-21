@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { deQuemEAOrdem, deQuemEOPrazo, oPrazoPodeVirarData } from './de-quem-e-a-ordem.util';
+import {
+  deQuemEAOrdem,
+  deQuemEOPrazo,
+  oPrazoPodeVirarData,
+  outraEntidadeNomeada,
+} from './de-quem-e-a-ordem.util';
 
 /**
  * O PRAZO ERA DA RECLAMADA E VIROU TAREFA DO NOSSO ADVOGADO.
@@ -424,5 +429,71 @@ describe('prazo sem número também tem dono', () => {
   it('menção solta a prazo em dobro não atribui nada', () => {
     expect(deQuemEOPrazo('Contam-se em prazo em dobro os atos da Fazenda.', 'ATIVO', 'X'))
       .toBe('INDEFINIDO');
+  });
+});
+
+/**
+ * OUTRO SINDICATO NOMEADO PELA SIGLA — 21/09/2026.
+ *
+ * "Analise essas atividades que estão abertas e atrasadas na produção e veja se
+ * não é para a parte contrária." Das cinco, UMA era: ConPag
+ * 0001310-36.2016.5.22.0101, um despacho que manda intimar o SINDEACS-PI para
+ * se manifestar em 5 dias. O SENATEPI é um dos intimados, mas só para tomar
+ * ciência. A atividade foi cancelada na produção; estes testes existem para o
+ * caso não voltar.
+ *
+ * A régua errava DUAS vezes no mesmo ato: a ordem virava NOSSA ("Sindicato"
+ * genérico contava como nós) e o prazo ficava INDEFINIDO (sem papel na frase).
+ */
+describe('o despacho que nomeia outro sindicato', () => {
+  const CONSIGNACAO =
+    'ConPag 0001310-36.2016.5.22.0101 CONSIGNANTE: MUNICIPIO DE COCAL ' +
+    'CONSIGNATÁRIO: SINDICATO ESTADUAL DOS AGENTES COMUNITARIOS DE SAUDE E COMBATE ' +
+    'AS ENDEMIAS DO PIAUI-SINDEACS-PI E OUTROS (4) INTIMAÇÃO Fica V. Sa. intimado ' +
+    'para tomar ciência do Despacho ID 2b344e3. Sendo assim, intime-se o Sindicato ' +
+    'consignatário (SINDEACS-PI), por meio de seus procuradores, para que tome ' +
+    'ciência do extrato bancário anexado e, no prazo de 5 (cinco) dias, manifeste-se ' +
+    'acerca da ausência do estorno na conta judicial.';
+
+  it('o prazo de 5 dias é do outro sindicato', () => {
+    expect(deQuemEOPrazo(CONSIGNACAO, 'ATIVO', 'SENATEPI')).toBe('DA_OUTRA_PARTE');
+    expect(oPrazoPodeVirarData(deQuemEOPrazo(CONSIGNACAO, 'ATIVO', 'SENATEPI'))).toBe(false);
+  });
+
+  it('e a ordem também deixa de ser nossa', () => {
+    expect(deQuemEAOrdem(CONSIGNACAO, 'ATIVO', 'SENATEPI')).not.toBe('NOSSA');
+  });
+
+  /**
+   * A REGRA NÃO PODE ROUBAR PRAZO NOSSO. Se o ato nomeia o SENATEPI na mesma
+   * frase, ele é nosso — a sigla vem antes de qualquer outra coisa.
+   */
+  it('com a nossa sigla na frase, volta a ser nosso', () => {
+    const t = 'Intime-se o SENATEPI e o SINDEACS-PI para, no prazo de 5 dias, manifestarem-se.';
+    expect(deQuemEOPrazo(t, 'ATIVO', 'SENATEPI')).toBe('NOSSO');
+  });
+
+  /** "SINDICATO" por extenso, sem sigla alheia, continua valendo como nós. */
+  it('sindicato por extenso, sem outra sigla, não vira da outra parte', () => {
+    const t = 'Intime-se o Sindicato autor para, no prazo de 5 dias, manifestar-se.';
+    expect(deQuemEOPrazo(t, 'ATIVO', 'SENATEPI')).toBe('NOSSO');
+  });
+
+  /**
+   * O PAPEL PROCESSUAL MANDA MAIS QUE A SIGLA. Numa ação NOSSA contra outro
+   * sindicato, "intime-se a reclamada (SINDHOSPI)" já era da outra parte pelo
+   * papel — e tem de continuar sendo, pela mesma razão.
+   */
+  it('havendo papel na frase, é o papel que decide', () => {
+    const t = 'Intime-se a reclamada SINDHOSPI para pagar no prazo de 15 dias.';
+    expect(deQuemEOPrazo(t, 'ATIVO', 'SENATEPI')).toBe('DA_OUTRA_PARTE');
+    const nosso = 'Intime-se a parte autora SINDHOSPI para replicar no prazo de 15 dias.';
+    expect(deQuemEOPrazo(nosso, 'ATIVO', 'SENATEPI')).toBe('NOSSO');
+  });
+
+  it('a palavra SINDICATO sozinha nunca é "outra entidade"', () => {
+    expect(outraEntidadeNomeada('O SINDICATO AUTOR', 'SENATEPI')).toBe(false);
+    expect(outraEntidadeNomeada('O SINDEACS-PI', 'SENATEPI')).toBe(true);
+    expect(outraEntidadeNomeada('O SENATEPI E O SINDEACS-PI', 'SENATEPI')).toBe(false);
   });
 });

@@ -114,6 +114,16 @@ export interface SeguimentoSpec {
   /** Quando true, a criação não pode ser desmarcada. */
   obrigatorio?: boolean;
   /**
+   * O TÍTULO PADRÃO É UM EXEMPLO, NÃO UM TÍTULO — a tela abre o campo VAZIO.
+   *
+   * Das cinco atividades atrasadas da produção em 21/09/2026, duas eram
+   * "Encaminhamento da reunião" com o padrão intacto. Título que não diz o que
+   * fazer não é tarefa, é eco da reunião.
+   */
+  pedeTituloProprio?: boolean;
+  /** O que escrever no lugar — vira o placeholder do campo. */
+  exemplo?: string;
+  /**
    * A DATA QUE O SERVIDOR VAI USAR (ISO), já em dia útil às 9h de Teresina.
    *
    * A tela mostra esta, e não soma `emDias` no navegador: somar dias corridos

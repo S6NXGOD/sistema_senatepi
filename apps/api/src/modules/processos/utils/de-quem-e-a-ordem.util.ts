@@ -95,6 +95,48 @@ const PAPEL_PASSIVO =
 const TODAS_AS_PARTES =
   /^PARTES\b|\b(AS PARTES|AMBAS AS PARTES|OS INTERESSADOS|TODOS OS INTERESSADOS)\b/;
 
+/**
+ * OUTRO SINDICATO, NOMEADO PELA SIGLA — 21/09/2026, a brecha que sobrou.
+ *
+ * Caso real (ConPag 0001310-36.2016.5.22.0101), achado varrendo as atividades
+ * atrasadas da produção a pedido do dono:
+ *
+ *   "intime-se o Sindicato consignatário (SINDEACS-PI), por meio de seus
+ *    procuradores, (...) e, no prazo de 5 (cinco) dias, manifeste-se acerca da
+ *    ausência do estorno na conta judicial."
+ *
+ * O SENATEPI está entre os intimados — mas só para TOMAR CIÊNCIA: o prazo de
+ * cinco dias é do SINDEACS-PI. A régua errou duas vezes no mesmo ato: a ordem
+ * virou NOSSA (porque "Sindicato" genérico contava como nós) e o prazo ficou
+ * INDEFINIDO (nenhum papel processual na frase) — e indefinido cria tarefa.
+ * A atividade foi para a agenda do Dr. Carlos e ficou lá, atrasada.
+ *
+ * A fragilidade de "SINDICATO" já estava escrita neste arquivo: em ação contra
+ * outro sindicato a palavra aparece dos dois lados. O que faltava era o
+ * DESEMPATE, e ele estava no próprio ato — a SIGLA da outra entidade.
+ *
+ * `SIND` + duas letras cobre o vocabulário real do acervo (SINDEACS-PI, SINSEP,
+ * SINDHOSPI, SINDSERM) e exclui de propósito a palavra "SINDICATO", que é o
+ * substantivo comum: confundir os dois devolveria o bug ao contrário, dizendo
+ * "da outra parte" num ato dirigido a nós e escrito por extenso.
+ */
+const RE_SIGLA_DE_SINDICATO = /\bSIND[A-Z]{2,}(?:-[A-Z]{2})?\b/g;
+
+export function outraEntidadeNomeada(frase: string, siglaNormalizada: string): boolean {
+  // O ato nos nomeia: não há "outra" que valha contra isso.
+  if (siglaNormalizada.length >= 4 && frase.replace(/[^A-Z0-9]/g, '').includes(siglaNormalizada)) {
+    return false;
+  }
+  RE_SIGLA_DE_SINDICATO.lastIndex = 0;
+  for (const m of frase.matchAll(RE_SIGLA_DE_SINDICATO)) {
+    const s = m[0].replace(/[^A-Z0-9]/g, '');
+    if (s === 'SINDICATO' || s === 'SINDICATOS') continue;
+    if (siglaNormalizada.length >= 4 && s.includes(siglaNormalizada)) continue;
+    return true;
+  }
+  return false;
+}
+
 /** Sem acento, maiúsculo, espaço único — a mesma régua do resto do módulo. */
 export function normalizarTeor(texto: string): string {
   return (texto || '')
@@ -131,7 +173,13 @@ function ladoDoDestinatario(
     acervo) a palavra aparece dos dois lados, e tratá-la como nossa devolveria
     o bug com outra roupa.
   */
-  const ehSindicatoGenerico = /\bSINDICATO\b/.test(d);
+  /*
+    "SINDICATO" GENÉRICO SÓ VALE SE NÃO HOUVER OUTRA ENTIDADE NOMEADA na mesma
+    ordem. "Intime-se o Sindicato consignatário (SINDEACS-PI)" tem a palavra e
+    tem o dono — e o dono não somos nós. Ver `outraEntidadeNomeada`.
+  */
+  const ehSindicatoGenerico =
+    /\bSINDICATO\b/.test(d) && !outraEntidadeNomeada(d, siglaNormalizada);
 
   /*
     "A PARTE CONTRÁRIA" É RELATIVA A QUEM AGIU — e muitas vezes somos nós.
@@ -309,7 +357,20 @@ export function deQuemEOPrazo(
     const ativo = PAPEL_ATIVO.test(frase);
     const passivo = PAPEL_PASSIVO.test(frase);
     if (ativo && passivo) lados.push(nosso()); // a frase obriga os dois lados
-    else if (!nossoPolo || (!ativo && !passivo)) lados.push('INDEFINIDO');
+    /*
+      NENHUM PAPEL, MAS OUTRA ENTIDADE NOMEADA — ver `outraEntidadeNomeada`.
+      "Intime-se o Sindicato consignatário (SINDEACS-PI) (...) no prazo de 5
+      dias" não tem autor nem réu na frase, e por isso caía em INDEFINIDO, que
+      cria tarefa. A sigla de quem tem o prazo está escrita ali, e não é a nossa.
+
+      Só entra quando NENHUM papel foi reconhecido: com papel na frase, a
+      comparação com o polo é mais forte e continua mandando — uma ação nossa
+      contra outro sindicato ("intime-se a reclamada, SINDHOSPI") não pode virar
+      "da outra parte" quando o réu é ele e o prazo é dele de qualquer forma.
+    */
+    else if (!ativo && !passivo && outraEntidadeNomeada(frase, siglaNormalizada)) {
+      lados.push('DA_OUTRA_PARTE');
+    } else if (!nossoPolo || (!ativo && !passivo)) lados.push('INDEFINIDO');
     else if (ativo) lados.push(nossoPolo === 'ATIVO' ? nosso() : 'DA_OUTRA_PARTE');
     else lados.push(nossoPolo === 'PASSIVO' ? nosso() : 'DA_OUTRA_PARTE');
   }
