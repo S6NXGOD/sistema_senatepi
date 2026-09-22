@@ -9,6 +9,9 @@ import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { buscarFiliados, FiliadoBusca } from '@/lib/colonia';
 import {
+  avisoDeNomeRepetido, comoDistinguir, nomeComparavel, nomesRepetidos,
+} from '@/lib/distinguir-filiado';
+import {
   criarAtendimento, CanalAtendimento, CANAIS, CANAL_LABEL,
   ASSUNTO_OUTRO_MAX, erroDoAssunto, limparAssuntoOutro,
 } from '@/lib/atendimentos';
@@ -253,18 +256,46 @@ export function NovoAtendimentoDrawer({
                     <Input className="pl-9" placeholder={`Selecionar ${V.filiado} (nome ou CPF)…`} value={busca} onChange={(e) => setBusca(e.target.value)} />
                     {buscando && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />}
                   </div>
-                  {resultados.length > 0 && (
-                    <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-input bg-card shadow-lg">
-                      {resultados.map((f) => (
-                        <li key={f.id}>
-                          <button type="button" onClick={() => { setFiliadoId(f.id); setFiliadoNome(f.nome); setBusca(''); setResultados([]); }} className="flex min-h-11 w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted">
-                            <span className="font-medium">{f.nome}</span>
-                            <span className="text-xs text-muted-foreground">{f.cpfMascarado}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  {/*
+                    DUAS FICHAS COM O MESMO NOME PRECISAM PARECER DIFERENTES —
+                    22/09/2026.
+
+                    A linha de apoio mostrava só o CPF mascarado, e 62% dos
+                    ativos não têm CPF: sem ele, ficava VAZIA, e duas fichas
+                    homônimas apareciam iguaizinhas. Foi assim que o dono topou
+                    com duas "ÉRICA CINARA FRAZÃO PESSOA" sem ter como escolher.
+
+                    `comoDistinguir` mostra o dado mais forte que a ficha tem, e
+                    acrescenta a matrícula SÓ quando o nome se repete na lista.
+                    Ver o porquê de não ser "duplicata" em `distinguir-filiado`.
+                  */}
+                  {resultados.length > 0 && (() => {
+                    const repetidos = nomesRepetidos(resultados);
+                    const aviso = avisoDeNomeRepetido(resultados);
+                    return (
+                      <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-input bg-card shadow-lg">
+                        {aviso && (
+                          <p className="flex items-start gap-1.5 border-b bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+                            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            {aviso}
+                          </p>
+                        )}
+                        <ul className="max-h-56 overflow-auto">
+                          {resultados.map((f) => {
+                            const apoio = comoDistinguir(f, repetidos.has(nomeComparavel(f.nome)));
+                            return (
+                              <li key={f.id}>
+                                <button type="button" onClick={() => { setFiliadoId(f.id); setFiliadoNome(f.nome); setBusca(''); setResultados([]); }} className="flex min-h-11 w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted">
+                                  <span className="font-medium">{f.nome}</span>
+                                  {apoio && <span className="text-xs text-muted-foreground">{apoio}</span>}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

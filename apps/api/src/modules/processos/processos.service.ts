@@ -29,6 +29,7 @@ import {
   ParteDoPoloDto,
 } from './dto/processos.dto';
 import { CpfMatcherUtils } from './utils/cpf-matcher.util';
+import { buscarContaPublicaDoReu } from './utils/reu-com-conta-publica.util';
 import { escolherPrincipal, temInstanciaViva } from './utils/instancia.util';
 import {
   CODIGOS_TPU_EXECUCAO, FaseProcessual, GRAUS_RECURSAIS, faseDoProcesso,
@@ -1542,8 +1543,13 @@ export class ProcessosService {
       },
     });
     if (!processo) throw new NotFoundException('Processo não encontrado.');
-    return { ...processo, polos: this.partes.agruparPorPolo(processo.partes) };
+    return {
+      ...processo,
+      polos: this.partes.agruparPorPolo(processo.partes),
+      contaPublica: await buscarContaPublicaDoReu(this.prisma, processo.partes),
+    };
   }
+
 
   async atualizar(id: string, dto: AtualizarProcessoDto, ctx: Ctx) {
     const atual = await this.prisma.processo.findUnique({

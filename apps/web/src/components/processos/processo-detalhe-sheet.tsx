@@ -35,6 +35,7 @@ import { registrarMovimentacao } from '@/lib/movimentacoes';
 import { corDesfecho, rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL } from '@/lib/agenda';
 import { EtiquetasInput } from './etiquetas-input';
 import { PartesPanel } from './partes-panel';
+import { ContaPublicaDoReuCard, SeloFiscalDoReu } from './conta-publica-do-reu';
 import { VincularFiliadoModal } from './vincular-filiado-modal';
 import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
@@ -799,6 +800,13 @@ export function ProcessoDetalheSheet({
                     {p.polos?.confronto?.reu ? (
                       <>
                         <span className="font-semibold text-foreground">{p.polos.confronto.reu.nome}</span>
+                        {/* O percentual do réu público, em um selo. Clicar leva
+                            ao bloco inteiro, na aba Partes. */}
+                        {p.contaPublica && (
+                          <button type="button" onClick={() => setAba('partes')} title="Ver a conta pública deste réu">
+                            <SeloFiscalDoReu conta={p.contaPublica} />
+                          </button>
+                        )}
                         {(p.polos?.confronto?.outrosPassivo ?? 0) > 0 && (
                           <span className="text-xs text-muted-foreground">+{p.polos?.confronto?.outrosPassivo}</span>
                         )}
@@ -1892,6 +1900,23 @@ export function ProcessoDetalheSheet({
               {/* ---------------- PARTES ---------------- */}
               {aba === 'partes' && (
                 <>
+                  {/*
+                    A CONTA PÚBLICA DO RÉU — 22/09/2026.
+
+                    Fica AQUI, e não no cabeçalho, por dois motivos. O cabeçalho
+                    já é a parte mais densa da ficha (o próprio código explica
+                    por que ele some no celular); e esta aba é justamente onde
+                    "quem está do outro lado" é o assunto. No cabeçalho ficou só
+                    um selo com o percentual, ao lado do nome do réu, que traz
+                    para cá.
+
+                    Só aparece quando o réu é ente público COM número — 52 dos
+                    191 processos não arquivados. Ver `reu-com-conta-publica`.
+                  */}
+                  {p.contaPublica && (
+                    <ContaPublicaDoReuCard conta={p.contaPublica} />
+                  )}
+
                   {/* SEM FILIADO — a mesma regra do cabeçalho.
                       O aviso era amarelo e dizia, no próprio texto, que "o
                       processo pode ficar assim": um alerta que explica não ser

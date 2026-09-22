@@ -126,6 +126,15 @@ export interface FiliadoBusca {
   nome: string;
   cpf: string;
   cpfMascarado: string;
+  /**
+   * O DESEMPATE DE ÚLTIMO RECURSO (22/09/2026).
+   *
+   * 145 grupos de nome idêntico na produção, e a matrícula é o único campo
+   * preenchido em 100% das fichas e distinto em todas. Só aparece na tela
+   * quando o nome se repete na lista — ver `lib/distinguir-filiado.ts`.
+   */
+  matricula: string | null;
+  dataFiliacao: string | null;
   coren: string | null;
   corenNumero: string | null;
   formacao: FormacaoColonia | null;

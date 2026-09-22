@@ -2,6 +2,7 @@ import { api } from './api';
 import { classesCor, type ClassesCor } from './paleta-cores';
 import { formatData, type FaseProcessual, type StatusProcesso, type TipoAcaoProcesso } from './processos';
 import type { AdvogadoDoProcesso, ParteDoProcesso, PolosProcesso } from './partes';
+import type { ContaPublicaDoReu } from '@/components/processos/conta-publica-do-reu';
 
 // ---------------------------------------------------------------------------
 // Tipos de movimentação (cadastráveis)
@@ -264,6 +265,12 @@ export const siglaGrau = (grau: string | null | undefined, tribunal?: string | n
 };
 
 export interface DossieProcesso {
+  /**
+   * A CONTA PÚBLICA DO RÉU (22/09/2026) — quando a parte adversária é um ente
+   * do IBGE e o Tesouro já foi consultado. Nulo na maioria: 52 dos 191
+   * processos não arquivados têm réu público. Ver `conta-publica-do-reu`.
+   */
+  contaPublica?: ContaPublicaDoReu | null;
   id: string;
   numeroCNJ: string;
   classeProcessual: string | null;

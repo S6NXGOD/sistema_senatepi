@@ -438,6 +438,22 @@ export class FiliadosService {
         id: true,
         nomeCompleto: true,
         cpf: true,
+        /*
+          A MATRÍCULA VEM JUNTO — 22/09/2026, e é o desempate de último recurso.
+
+          Medido na produção: 145 grupos de nome IDÊNTICO (317 fichas), e a
+          matrícula é o único campo preenchido em 100% delas e distinto em
+          todas. 62% dos ativos não têm CPF, então a linha de apoio da busca
+          ficava VAZIA e duas fichas homônimas apareciam iguaizinhas — foi
+          assim que o dono topou com duas "ÉRICA CINARA FRAZÃO PESSOA" sem ter
+          como escolher.
+
+          Não é indício de que sejam pessoas diferentes (é chave do registro,
+          não da pessoa). Serve para a pessoa que está escolhendo saber que são
+          DUAS fichas, e qual foi escolhida.
+        */
+        matricula: true,
+        dataFiliacao: true,
         numeroCoren: true,
         formacao: true,
         email: true,
@@ -459,6 +475,8 @@ export class FiliadosService {
       nome: f.nomeCompleto,
       cpf: f.cpf,
       cpfMascarado: mascararCpf(f.cpf),
+      matricula: f.matricula,
+      dataFiliacao: f.dataFiliacao,
       coren: f.numeroCoren,
       // Só os dígitos do COREN (o sufixo -ENF/-TE/-AE é derivado da formação no front).
       corenNumero: f.numeroCoren ? f.numeroCoren.replace(/\D/g, '').slice(0, 6) || null : null,

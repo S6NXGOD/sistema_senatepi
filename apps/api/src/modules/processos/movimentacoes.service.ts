@@ -8,6 +8,7 @@ import { CODIGOS_TPU_EXECUCAO, faseDoProcesso } from './utils/fase.util';
 import { etiquetasDerivadas } from './utils/etiquetas.util';
 import { AuditService } from '../../common/audit/audit.service';
 import { PartesService, PARTE_INCLUDE, PARTE_ORDER, ADVOGADO_INCLUDE } from './partes.service';
+import { buscarContaPublicaDoReu } from './utils/reu-com-conta-publica.util';
 import {
   CORES_ANDAMENTO, CriarTipoAndamentoDto, AtualizarTipoAndamentoDto, RegistrarMovimentacaoDto,
 } from './dto/movimentacoes.dto';
@@ -616,6 +617,7 @@ export class MovimentacoesService {
     });
     if (!processo) throw new NotFoundException('Processo não encontrado.');
     const polos = this.partes.agruparPorPolo(processo.partes);
+    const contaPublica = await buscarContaPublicaDoReu(this.prisma, processo.partes);
 
     // Notas internas não vão para quem só pode VISUALIZAR o módulo? Aqui a regra
     // é mais simples e explícita: nota interna é da equipe — todos os perfis com
@@ -744,6 +746,15 @@ export class MovimentacoesService {
       linhaDoTempo,
       /** Partes agrupadas + o confronto "Autor × Réu" pronto para o cabeçalho. */
       polos,
+      /**
+       * A CONTA PÚBLICA DO RÉU — 22/09/2026.
+       *
+       * Sai da MESMA função que `/processos/:id` usa. A primeira versão vivia
+       * só lá, e o bloco simplesmente não aparecia na tela: a gaveta carrega
+       * por AQUI. A API respondia certo num endpoint e calada no outro, e
+       * nenhum teste unitário pegaria — os dois estavam certos no seu canto.
+       */
+      contaPublica,
       /** Atos recentes que pedem o olho de alguém (ver utils/tpu.util.ts). */
       atencao: this.atencaoRequerida(movimentacoes),
       /** Por onde o processo passou — derivado, sem tabela nova. */

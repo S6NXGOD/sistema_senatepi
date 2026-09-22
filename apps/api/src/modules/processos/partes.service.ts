@@ -33,6 +33,15 @@ export const PARTE_INCLUDE = {
     select: {
       id: true, tipo: true, nome: true, nomeFantasia: true,
       documento: true, ativo: true, institucional: true,
+      /*
+        O CÓDIGO DO IBGE VIAJA JUNTO — 22/09/2026.
+
+        É o que liga a parte adversária às Contas Públicas: com ele, a ficha do
+        processo mostra quanto o ente réu gasta com pessoal e o que o art. 22 da
+        LRF permite ou proíbe. Medido: 52 dos 191 processos não arquivados têm
+        uma parte com ente ligado.
+      */
+      enteCodigo: true,
     },
   },
 } satisfies Prisma.ParteProcessoInclude;
