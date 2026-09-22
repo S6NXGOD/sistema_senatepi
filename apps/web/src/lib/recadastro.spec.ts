@@ -17,6 +17,7 @@ import {
 */
 const TODOS_OS_DESAFIOS: Record<DesafioRecadastramento, true> = {
   CPF_NASCIMENTO: true, CPF: true, COREN: true, NASCIMENTO: true, NENHUM: true,
+  IDENTIFICACAO: true,
 };
 const DESAFIOS_CONHECIDOS = Object.keys(TODOS_OS_DESAFIOS) as DesafioRecadastramento[];
 

@@ -209,7 +209,13 @@ describe('o desafio de um fator', () => {
   it('o enum do client tem os valores novos, e MATRICULA não entrou', () => {
     const e = Prisma.dmmf.datamodel.enums.find((x) => x.name === 'DesafioRecadastramento');
     const valores = e?.values.map((v) => v.name);
-    expect(valores).toEqual(['CPF_NASCIMENTO', 'COREN', 'NENHUM', 'CPF', 'NASCIMENTO']);
+    // 22/09/2026: IDENTIFICACAO entrou no fim, pela migração
+    // `20260922120000_link_de_identificacao`. A ORDEM importa — no Postgres um
+    // valor de enum tem posição, e esta lista existe para que ninguém
+    // reordene nem apague sem perceber.
+    expect(valores).toEqual([
+      'CPF_NASCIMENTO', 'COREN', 'NENHUM', 'CPF', 'NASCIMENTO', 'IDENTIFICACAO',
+    ]);
     expect(valores).not.toContain('MATRICULA');
   });
 

@@ -5,7 +5,7 @@ import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Lock, Save, User,
-  Upload, Plus, Trash2, Briefcase, Users, RefreshCw,
+  Upload, Plus, Trash2, Briefcase, Users, RefreshCw, IdCard, ArrowRight,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import {
   SEXOS, ESTADOS_CIVIS, FORMACOES, ROTULO, TIPOS_DEPENDENTE,
   type LinkAberto, type FiliadoRecadastro, type VinculoFiliado, type DependenteFiliado,
 } from '@/lib/recadastro';
+import { erroDoCpf } from '@/lib/cpf';
 import { travado, type CampoImutavel } from '@/lib/campos-imutaveis';
 import { tenant } from '@/tenant.config';
 import { campoVisivel } from '@/tenant.config';
@@ -31,12 +32,20 @@ const campo = 'h-12 w-full rounded-md border border-input bg-background px-3 tex
   campo. Envolver o campo no rótulo liga os dois em todo formulário da página,
   sem um id para cada.
 */
-function Campo({ label, children, dica, bloqueado }: {
+function Campo({ label, children, dica, bloqueado, alerta }: {
   label: string;
   children: React.ReactNode;
   dica?: string;
   /** Dado que não muda e já consta no cadastro. */
   bloqueado?: boolean;
+  /**
+   * A dica está IMPEDINDO de seguir, e não só informando.
+   *
+   * Mesma linha, mesmo lugar — muda a cor. Um segundo aviso em outro canto
+   * dizendo a mesma frase é o erro que a Agenda já cometeu: a pessoa lê duas
+   * vezes e procura a diferença que não existe.
+   */
+  alerta?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
@@ -52,7 +61,11 @@ function Campo({ label, children, dica, bloqueado }: {
           Não muda ao longo da vida. Se estiver errado, fale com o sindicato.
         </p>
       )}
-      {dica && <p className="text-xs text-muted-foreground">{dica}</p>}
+      {dica && (
+        <p className={alerta ? 'text-xs font-medium text-amber-700 dark:text-amber-400' : 'text-xs text-muted-foreground'}>
+          {dica}
+        </p>
+      )}
     </div>
   );
 }
@@ -131,7 +144,31 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
     setValidando(true);
     try {
       const r = await validarDesafio(token, respostaDoDesafio(pedido, valoresDoDesafio()));
-      setF(r.filiado);
+      /*
+        O QUE A PESSOA ACABOU DE DIGITAR JÁ VAI PREENCHIDO — 22/09/2026, e sem
+        isto o recurso inteiro não fecha o ciclo.
+
+        Visto na tela: numa ficha em branco, a pessoa informa CPF e nascimento
+        no portão, entra no formulário — e os dois campos estão VAZIOS, porque
+        o formulário é preenchido com o que o banco tem, e o banco não tem
+        nada. Pedir para digitar duas vezes seguidas o mesmo número já é ruim;
+        pior é o que acontece se ela não digitar de novo: o recadastramento
+        salva sem CPF, a ficha continua em branco, e o próximo link volta a ser
+        IDENTIFICACAO. O trabalho todo se perde em silêncio.
+
+        Só em IDENTIFICACAO. Nos outros desafios o cadastro TEM os valores, e
+        eles vêm do banco — que é a fonte certa.
+
+        `travadoOriginal` continua recebendo o que veio do BANCO (nulo), e é o
+        que mantém os dois campos editáveis: `protegerImutaveis` só libera
+        campo vazio, e é a ficha vazia que estamos preenchendo.
+      */
+      const identificou = link?.desafio === 'IDENTIFICACAO';
+      setF(
+        identificou
+          ? { ...r.filiado, cpf: cpf.replace(/\D/g, ''), dataNascimento: nascimento }
+          : r.filiado,
+      );
       setTravadoOriginal({
         cpf: r.filiado.cpf, rg: r.filiado.rg, ufRg: r.filiado.ufRg,
         dataNascimento: r.filiado.dataNascimento, naturalidade: r.filiado.naturalidade,
@@ -350,6 +387,13 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
 
   if (!f) {
     const pedido = pedidoDoDesafio(link?.desafio);
+    /*
+      FICHA EM BRANCO: a tela PEDE, não confere (22/09/2026). Muda o ícone, o
+      verbo do botão e o rodapé — o formulário é o mesmo, porque os campos são
+      os mesmos. Ver `pedidoDoDesafio` e a migração
+      `20260922120000_link_de_identificacao`.
+    */
+    const identificacao = link?.desafio === 'IDENTIFICACAO';
 
     /*
       Valor que esta página não conhece: nunca cair no formulário de CPF e data
@@ -406,16 +450,34 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
             void confirmar();
           }}
         >
+          {/*
+            O CADEADO MENTE QUANDO NÃO HÁ O QUE CONFERIR — 22/09/2026.
+
+            Nos outros desafios a tela está checando um segredo guardado, e o
+            cadeado diz isso. Numa ficha em branco não há segredo: a tela está
+            PEDINDO um dado pela primeira vez. Manter o cadeado faria a pessoa
+            achar que o sistema conferiu alguma coisa — e faria a equipe achar
+            o mesmo. Documento aberto, não cadeado.
+          */}
           <div className="text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-900/30">
-              <Lock className="h-6 w-6 text-brand-800 dark:text-brand-400" />
+              {identificacao ? (
+                <IdCard className="h-6 w-6 text-brand-800 dark:text-brand-400" />
+              ) : (
+                <Lock className="h-6 w-6 text-brand-800 dark:text-brand-400" />
+              )}
             </div>
             <h1 className="text-lg font-bold">Olá, {link?.primeiroNome}!</h1>
             <p className="mt-1 text-sm text-muted-foreground">{pedido.frase}</p>
           </div>
 
+          {/*
+            O AVISO DO CPF SAI ENQUANTO SE DIGITA, e só depois do 11º número:
+            campo que fica vermelho no primeiro caractere ensina a ignorar o
+            vermelho. Ver `erroDoCpf`.
+          */}
           {pedido.campos.includes('CPF') && (
-            <Campo label="CPF">
+            <Campo label="CPF" dica={erroDoCpf(cpf) ?? undefined} alerta={!!erroDoCpf(cpf)}>
               <Input className={campo} inputMode="numeric" autoComplete="off" value={cpf} onChange={(e) => setCpf(mascaraCpf(e.target.value))} placeholder="000.000.000-00" />
             </Campo>
           )}
@@ -435,7 +497,16 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
             aqui, fixo acima do botão, até a próxima tentativa. Âmbar: é aviso
             de quantas restam, não falha do sistema.
           */}
-          {erroDesafio && (
+          {/*
+            A FAIXA CALA O QUE O CAMPO JÁ DIZ — 22/09/2026.
+
+            Com o dígito verificador conferido na tela, "Este CPF não parece
+            certo" saía DUAS vezes: embaixo do campo e outra vez aqui. A faixa
+            existe para o que a tela não mostra (quantas tentativas restam, o
+            link bloqueado); repetir a linha do campo só faz procurar a
+            diferença entre as duas.
+          */}
+          {erroDesafio && erroDesafio !== erroDoCpf(cpf) && (
             <p role="alert" className="flex animate-surgir items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{erroDesafio}</span>
@@ -443,11 +514,25 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
           )}
 
           <Button type="submit" className="h-12 w-full" disabled={validando}>
-            {validando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-            Confirmar e continuar
+            {validando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : identificacao ? (
+              <ArrowRight className="h-4 w-4" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            {identificacao ? 'Continuar' : 'Confirmar e continuar'}
           </Button>
+          {/*
+            O RODAPÉ TEM DE SER VERDADE. "5 tentativas erradas" é o contador do
+            desafio, e em IDENTIFICACAO errar a digitação NÃO gasta tentativa —
+            a API trata o formato antes de reservar. Repetir a frase ali
+            assustaria à toa quem só errou um número.
+          */}
           <p className="text-center text-xs text-muted-foreground">
-            Depois de 5 tentativas erradas o link é bloqueado por segurança.
+            {identificacao
+              ? 'Estes dados entram no seu cadastro e o sindicato confere depois.'
+              : 'Depois de 5 tentativas erradas o link é bloqueado por segurança.'}
           </p>
         </form>
       </Moldura>

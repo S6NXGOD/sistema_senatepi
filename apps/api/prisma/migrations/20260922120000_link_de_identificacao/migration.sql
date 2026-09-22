@@ -1,0 +1,34 @@
+-- O LINK QUE PEDE OS DADOS EM VEZ DE EXIGIR QUE JÁ EXISTAM — 22/09/2026.
+--
+-- O CICLO QUE ISTO QUEBRA. Desde 14/09 o desafio NENHUM não gera link: a equipe
+-- tem de perguntar CPF e nascimento na conversa, gravar na ficha, e só então
+-- mandar. Só que a ficha está vazia exatamente porque ninguém coletou — e são
+-- 5.007 ativos nessa situação. O trabalho todo recaía sobre a Triagem, um a um.
+--
+-- IDENTIFICACAO inverte: o link abre, e a PRIMEIRA TELA pede CPF e data de
+-- nascimento ao próprio filiado, com validação de dígito verificador e recusa de
+-- CPF que já pertence a outra ficha. O recadastramento nasce PENDENTE, como
+-- todos, e a equipe confere depois.
+--
+-- O QUE ISTO NÃO É, e está escrito também no código: para uma ficha VAZIA não
+-- existe conferência possível — não há segredo guardado com o que comparar.
+-- Este link não autentica ninguém; ele COLETA. A proteção continua sendo o
+-- token (uso único, 24h) e o canal: quem manda é a Triagem, dentro da conversa
+-- que já está tendo com a pessoa.
+--
+-- SÓ FICHA EM BRANCO. Se há CPF gravado com dígito errado, ou data implausível,
+-- o desafio continua NENHUM e a equipe corrige na edição — porque
+-- `protegerImutaveis` descarta a troca de um campo JÁ preenchido, e o filiado
+-- não conseguiria arrumar o que a tela mandasse arrumar.
+--
+-- ENUM, e não coluna nova, pelo mesmo motivo de 14/09: o contêiner antigo que
+-- ler um link com valor novo quebra ao desserializar e responde 500 — FALHA
+-- FECHADO. Na janela de troca o contêiner velho não GERA links novos (o código
+-- dele ainda devolve NENHUM e recusa), então nada nasce órfão.
+--
+-- MIGRAÇÃO SOZINHA: o PostgreSQL não deixa USAR um valor de enum na mesma
+-- transação que o criou (precedentes: `20260730180000_status_processo_expandido`
+-- e `20260914090200_desafio_de_um_fator`). Nada aqui grava nem compara.
+--
+-- ADITIVA E IDEMPOTENTE: `ADD VALUE IF NOT EXISTS`, nada removido nem renomeado.
+ALTER TYPE "DesafioRecadastramento" ADD VALUE IF NOT EXISTS 'IDENTIFICACAO';

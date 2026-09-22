@@ -320,6 +320,10 @@ export const DESAFIO_LABEL: Record<DesafioLink, string> = {
   // 14/09/2026: a API não gera mais link sem confirmação. O rótulo sobra para
   // os links antigos que ainda aparecem na lista.
   NENHUM: 'Acesso direto (link antigo, sem confirmação)',
+  // 22/09/2026: ficha em branco. O link não confere — ele PEDE, e a equipe
+  // confere depois. O rótulo da lista tem de dizer isso, senão um link
+  // destes parece igual aos outros no histórico da ficha.
+  IDENTIFICACAO: 'Pede CPF + nascimento ao filiado (a conferir)',
 };
 
 /**

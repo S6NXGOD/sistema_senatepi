@@ -18,7 +18,8 @@ import { RespostaDoDesafioDto } from './dto/resposta-do-desafio.dto';
 import { camposDoLink, vinculosPeloLink } from './dados-do-link';
 import {
   CadastroDoDesafio, O_QUE_O_LINK_CONFIRMA, RECUSA_SEM_CONFIRMACAO, conferirResposta, cpfUtil,
-  definirDesafio, nascimentoUtil, observacaoDoRecadastramentoOnline, podeGerarLink,
+  definirDesafio, identificacaoValida, nascimentoUtil, observacaoDoRecadastramentoOnline,
+  podeGerarLink,
 } from './desafio-do-link';
 import {
   MeioDeEnvio, deveRegistrarPreparo, emailUtilizavel, fraseDoPreparo, planejarEnvio, primeiroNome,
@@ -682,6 +683,7 @@ export class LinkRecadastramentoService {
   private async exigirDesafio(
     link: {
       id: string;
+      filiadoId: string;
       desafio: DesafioRecadastramento;
       tentativas: number;
       filiado: CadastroDoDesafio;
@@ -690,6 +692,30 @@ export class LinkRecadastramentoService {
   ): Promise<void> {
     // Link NENHUM que já estava vivo antes de 14/09/2026: abre até vencer.
     if (link.desafio === DesafioRecadastramento.NENHUM) return;
+
+    /*
+      ERRO DE DIGITAÇÃO NÃO GASTA TENTATIVA — 22/09/2026, e só em IDENTIFICACAO.
+
+      Nos outros desafios toda resposta errada é um palpite contra um segredo
+      guardado, e gastar tentativa é o ponto. Aqui não há segredo: qualquer CPF
+      com dígito certo "passa" nesta etapa. Uma resposta malformada não revela
+      nada e não aproxima ninguém de nada — é a pessoa errando a digitação no
+      celular. Cobrar por ela mataria o link em 5 tropeços, e quem perde é o
+      filiado que estava fazendo a coisa certa.
+
+      A checagem vem ANTES da reserva, de propósito: assim o contador continua
+      intocado. A proteção contra disparo em paralelo segue valendo para o que
+      importa aqui, que é a recusa de CPF de outra ficha — essa reserva e conta.
+    */
+    if (
+      link.desafio === DesafioRecadastramento.IDENTIFICACAO &&
+      !identificacaoValida(resposta)
+    ) {
+      throw new BadRequestException(
+        'Confira o CPF e a data de nascimento. O CPF precisa ter 11 dígitos, ' +
+          'e a data, o dia em que você nasceu.',
+      );
+    }
 
     const reserva = await this.prisma.linkRecadastramento.updateMany({
       where: {
@@ -706,6 +732,36 @@ export class LinkRecadastramentoService {
     }
 
     if (conferirResposta(link.desafio, link.filiado, resposta)) {
+      /*
+        O CPF INFORMADO NÃO PODE SER DE OUTRA FICHA — 22/09/2026.
+
+        Vale só para IDENTIFICACAO, e é a terceira trava do validador (as duas
+        primeiras, dígito verificador e data plausível, são puras e já rodaram
+        em `conferirResposta`). Esta precisa de banco.
+
+        POR QUE NA PORTA, se `garantirUnicidade` já roda no envio: porque no
+        envio a pessoa já preencheu a ficha inteira. Descobrir no fim que o CPF
+        é de outro é perder tudo o que digitou, e num celular isso quer dizer
+        desistir.
+
+        A TENTATIVA É CONSUMIDA, e a frase não diz de quem é o CPF. Sem isso o
+        link viraria um oráculo: digitar CPFs até um responder "já cadastrado"
+        revelaria quem é filiado. Com o contador, são 5 por link — e o link é de
+        uso único e vale 24h.
+      */
+      if (link.desafio === DesafioRecadastramento.IDENTIFICACAO) {
+        const cpf = (resposta.cpf ?? '').replace(/\D/g, '');
+        const outro = await this.prisma.filiado.findFirst({
+          where: { cpf, id: { not: link.filiadoId } },
+          select: { id: true },
+        });
+        if (outro) {
+          throw new ForbiddenException(
+            'Não foi possível usar este CPF. Confira os números e, se estiverem certos, ' +
+              'fale com o sindicato.',
+          );
+        }
+      }
       // Acertou: zera o contador, inclusive a tentativa que acabou de reservar.
       await this.prisma.linkRecadastramento.update({ where: { id: link.id }, data: { tentativas: 0 } });
       return;

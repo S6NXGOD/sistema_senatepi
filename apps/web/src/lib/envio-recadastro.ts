@@ -164,6 +164,15 @@ export type PortaDaFicha = 'EDITAR' | 'RECADASTRAR';
 export type AvisoDoEnvio =
   | { tipo: 'NADA' }
   | { tipo: 'UM_FATOR'; texto: string }
+  /**
+   * FICHA EM BRANCO: o link PEDE os dados em vez de conferir (22/09/2026).
+   *
+   * Variante própria, e não `UM_FATOR` com outro texto, porque a semântica é
+   * outra: em UM_FATOR o link confere um dado que o cadastro TEM; aqui não há
+   * nada com o que conferir, e o link coleta. Quem ler o código daqui a um ano
+   * precisa ver essa diferença no nome.
+   */
+  | { tipo: 'PEDE_AO_FILIADO'; titulo: string; texto: string }
   | { tipo: 'SEM_CONFIRMACAO'; titulo: string; texto: string; porta: PortaDaFicha | null };
 
 export interface PreviaDoEnvio {
@@ -220,6 +229,33 @@ export function avisoDoEnvio(previa: PreviaDoEnvio, corenVisivel: boolean): Avis
         `Este cadastro não tem CPF nem data de nascimento${corenVisivel ? ', nem COREN' : ''}. ` +
         `Pergunte os dois ao ${V.filiado}, grave na ficha ${volte}`,
       porta: 'RECADASTRAR',
+    };
+  }
+  /*
+    O CICLO QUE ISTO QUEBRA — 22/09/2026.
+
+    "Como faço para deixar de depender isso do atendimento. Quero jogar essa
+    responsabilidade ao filiado também. Com validador."
+
+    Ele está certo, e o ciclo era real: o link exigia CPF ou nascimento gravado,
+    e estava vazio justamente porque ninguém coletou — 5.007 ativos assim. A
+    caixa antiga mandava a Triagem perguntar na conversa, gravar na ficha e
+    voltar. Todo o trabalho num lado só.
+
+    Agora o link abre e pede os dois AO FILIADO, com validação de dígito
+    verificador e recusa de CPF que já é de outra ficha. A caixa deixou de
+    bloquear e passou a explicar — e continua dizendo "mande só para ele",
+    porque para uma ficha vazia o que protege é o token e o canal.
+  */
+  if (previa.desafio === 'IDENTIFICACAO') {
+    return {
+      tipo: 'PEDE_AO_FILIADO',
+      titulo: `O próprio ${V.filiado} vai informar os dados`,
+      texto:
+        'Este cadastro não tem CPF nem data de nascimento, então o link pede os dois a ele — ' +
+        'confere o CPF dígito por dígito e recusa um que já seja de outra ficha. ' +
+        'Você não precisa perguntar nada antes. Como não há o que conferir contra a ficha, ' +
+        'mande só para ele; a equipe revisa o que chegar.',
     };
   }
   if (previa.desafio === 'CPF') {

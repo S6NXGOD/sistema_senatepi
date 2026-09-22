@@ -6,6 +6,8 @@
  * que, por definição, não tem sessão. Aqui a credencial é o token do link.
  */
 
+import { cpfValido } from './cpf';
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
 
 /**
@@ -19,7 +21,14 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333/api';
  * `lib/filiados.ts` e `lib/envio-recadastro.ts` reusam este tipo: três cópias
  * da mesma lista já divergiram uma vez.
  */
-export type DesafioRecadastramento = 'CPF_NASCIMENTO' | 'CPF' | 'COREN' | 'NASCIMENTO' | 'NENHUM';
+export type DesafioRecadastramento =
+  | 'CPF_NASCIMENTO'
+  | 'CPF'
+  | 'COREN'
+  | 'NASCIMENTO'
+  | 'NENHUM'
+  /** Ficha em branco: o link PEDE o CPF e o nascimento (22/09/2026). */
+  | 'IDENTIFICACAO';
 
 export interface LinkAberto {
   desafio: DesafioRecadastramento;
@@ -216,6 +225,26 @@ export function pedidoDoDesafio(desafio: string | null | undefined): PedidoDoDes
         campos: ['NASCIMENTO'],
         frase: 'Para sua segurança, confirme a sua data de nascimento antes de atualizar o cadastro.',
       };
+    /*
+      FICHA EM BRANCO: "informe", nunca "confirme" — 22/09/2026.
+
+      As outras frases dizem "confirme seus dados", e ali é verdade: o sistema
+      compara com o que guardou. Aqui não há o que comparar — é a primeira vez
+      que o sindicato registra esses dados. Escrever "confirme" seria simular
+      uma conferência que não acontece, e a pessoa do outro lado ficaria
+      achando que o sistema já a conhecia.
+
+      Os campos são os mesmos do CPF_NASCIMENTO, então a tela inteira é
+      reaproveitada; muda o que ela diz.
+    */
+    case 'IDENTIFICACAO':
+      return {
+        tipo: 'FORMULARIO',
+        campos: ['CPF', 'NASCIMENTO'],
+        frase:
+          'O sindicato ainda não tem o seu CPF nem a sua data de nascimento. ' +
+          'Informe os dois para começar — eles entram no seu cadastro.',
+      };
     case 'NENHUM':
       return { tipo: 'DIRETO' };
     default:
@@ -269,6 +298,21 @@ export function faltaNoDesafio(pedido: PedidoDoDesafio, valores: ValoresDoDesafi
     const digitos = valores.cpf.replace(/\D/g, '');
     if (!digitos) return 'Preencha o CPF.';
     if (digitos.length !== 11) return 'Confira o CPF: são 11 números.';
+    /*
+      O DÍGITO VERIFICADOR ENTRA AQUI, e vale para TODOS os desafios com CPF —
+      22/09/2026.
+
+      Em IDENTIFICACAO é a peça nova: não há CPF gravado para comparar, então o
+      dígito verificador é a única checagem possível antes de gravar.
+
+      Nos outros também ajuda, e de graça: `definirDesafio` só escolhe CPF ou
+      CPF_NASCIMENTO quando o CPF gravado passa no `cpfUtil`. Logo um CPF
+      digitado que não fecha o dígito NUNCA vai bater com o guardado — mandar
+      para a API só gastaria uma das 5 tentativas para ouvir "dados não
+      conferem", que é a mensagem errada: o problema é a digitação, não a
+      identidade.
+    */
+    if (!cpfValido(digitos)) return 'Este CPF não parece certo. Confira os números.';
   }
   if (pedido.campos.includes('NASCIMENTO') && !valores.nascimento) {
     return 'Preencha a data de nascimento.';

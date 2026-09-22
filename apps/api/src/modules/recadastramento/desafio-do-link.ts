@@ -30,10 +30,21 @@ import { cpfValido } from '../importacao/mapeamento.util';
  * Não é autenticação, e não se vende como tal.
  */
 
-/** A frase da recusa, igual em `gerar` e em `prepararEnvio` (e a tela a mostra como veio). */
+/**
+ * A frase da recusa, igual em `gerar` e em `prepararEnvio` (e a tela a mostra
+ * como veio).
+ *
+ * MUDOU O QUE ELA COBRE — 22/09/2026. Ela dizia "grave o CPF e a data de
+ * nascimento na ficha", e valia para dois casos: a ficha vazia e a ficha com
+ * dado imprestável. A ficha vazia deixou de recusar (agora o link pede ao
+ * filiado, `IDENTIFICACAO`), e sobrou só o segundo — onde "grave" é o conselho
+ * ERRADO: o campo já está preenchido, e preencher de novo não muda nada porque
+ * `protegerImutaveis` descarta a troca. O que resolve é CORRIGIR, na edição.
+ */
 export const RECUSA_SEM_CONFIRMACAO =
-  'Este cadastro não tem como confirmar a identidade pelo link. ' +
-  'Grave o CPF e a data de nascimento na ficha e mande o link de novo.';
+  'O CPF ou a data de nascimento gravados nesta ficha não conferem, e o link ' +
+  'não consegue confirmar a identidade com eles. Corrija na edição da ficha e ' +
+  'mande o link de novo.';
 
 export interface CadastroDoDesafio {
   cpf: string | null;
@@ -96,6 +107,31 @@ export function nascimentoUtil(data: Date | null | undefined, agora: Date = new 
  * SINDSERM o COREN é oculto e nunca vira desafio, mesmo que um dado importado
  * o traga (pedir número de conselho de enfermagem a servidor público).
  */
+/**
+ * FICHA EM BRANCO: nada gravado, nem certo nem errado.
+ *
+ * A distinção é o que separa IDENTIFICACAO de NENHUM, e ela existe por causa de
+ * `protegerImutaveis`: campo JÁ preenchido é descartado no recadastramento, só
+ * o vazio passa. Num cadastro com CPF gravado de dígito errado, mandar o link
+ * pedir o CPF certo seria pedir o que o sistema vai jogar fora — a pessoa
+ * digita, salva, e nada muda. Esse caso continua sendo da equipe, na edição.
+ *
+ * Olha o valor CRU, não o `cpfUtil`: aqui a pergunta é "tem alguma coisa?", não
+ * "o que tem presta?".
+ */
+export function fichaEmBranco(
+  cadastro: CadastroDoDesafio,
+  opcoes: { corenVisivel?: boolean } = {},
+): boolean {
+  const corenVisivel = opcoes.corenVisivel ?? campoVisivel('numeroCoren');
+  return (
+    !soDigitos(cadastro.cpf) &&
+    !cadastro.dataNascimento &&
+    // COREN oculto no cliente não conta: lá o campo não existe na tela.
+    !(corenVisivel && cadastro.numeroCoren?.trim())
+  );
+}
+
 export function definirDesafio(
   cadastro: CadastroDoDesafio,
   opcoes: { agora?: Date; corenVisivel?: boolean } = {},
@@ -110,6 +146,16 @@ export function definirDesafio(
   if (cpf) return DesafioRecadastramento.CPF;
   if (coren) return DesafioRecadastramento.COREN;
   if (nascimento) return DesafioRecadastramento.NASCIMENTO;
+  /*
+    NADA GRAVADO: o link PEDE em vez de conferir (22/09/2026). Ver
+    `IDENTIFICACAO` no schema e a migração `20260922120000_link_de_identificacao`.
+  */
+  if (fichaEmBranco(cadastro, { corenVisivel })) return DesafioRecadastramento.IDENTIFICACAO;
+  /*
+    Sobrou o caso em que HÁ dado gravado e ele não presta (CPF com dígito
+    errado, data de 01/01/1900). Continua NENHUM, continua sem gerar link: é
+    correção de ficha, e ela é da equipe.
+  */
   return DesafioRecadastramento.NENHUM;
 }
 
@@ -123,6 +169,33 @@ export function definirDesafio(
  */
 export function podeGerarLink(desafio: DesafioRecadastramento): boolean {
   return desafio !== DesafioRecadastramento.NENHUM;
+}
+
+/**
+ * O LINK QUE COLETA — e por que ele NÃO é uma conferência.
+ *
+ * Para uma ficha vazia não existe conferência possível: não há segredo guardado
+ * com o que comparar. Qualquer tela que pedisse "confirme seu CPF" ali estaria
+ * mentindo — não há com o que confirmar. Então este desafio não afirma que
+ * confirmou ninguém; ele VALIDA o que foi digitado e deixa registrado que veio
+ * do próprio filiado.
+ *
+ * O que o validador faz de verdade:
+ *
+ *   1. 11 dígitos e dígito verificador certo — CPF inventado não passa;
+ *   2. data de 1920 para cá e de pelo menos 14 anos atrás;
+ *   3. (no serviço, que é quem tem banco) o CPF não pode ser de OUTRA ficha.
+ *
+ * O que protege de fato continua sendo o token — uso único, 24 horas — e o
+ * canal: quem manda é a Triagem, dentro da conversa que já está tendo. Está
+ * escrito aqui para ninguém vender isto como autenticação depois.
+ */
+export function identificacaoValida(resposta: RespostaDoDesafio, agora = new Date()): boolean {
+  const cpf = soDigitos(resposta.cpf);
+  if (!(cpf.length === 11 && cpfValido(cpf))) return false;
+  const dia = (resposta.dataNascimento ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return false;
+  return nascimentoUtil(new Date(`${dia}T00:00:00.000Z`), agora);
 }
 
 /**
@@ -156,6 +229,12 @@ export function conferirResposta(
   switch (desafio) {
     case DesafioRecadastramento.NENHUM:
       return true;
+    /*
+      IDENTIFICACAO não compara com nada — não há nada. Valida o que chegou.
+      A unicidade do CPF fica no serviço, que é quem tem banco.
+    */
+    case DesafioRecadastramento.IDENTIFICACAO:
+      return identificacaoValida(resposta);
     case DesafioRecadastramento.CPF_NASCIMENTO:
       return cpfConfere() && nascimentoConfere();
     case DesafioRecadastramento.CPF:
@@ -179,6 +258,7 @@ export const O_QUE_O_LINK_CONFIRMA: Record<DesafioRecadastramento, string> = {
   COREN: 'confirma só o COREN',
   NASCIMENTO: 'confirma só a data de nascimento',
   NENHUM: 'sem confirmação de identidade',
+  IDENTIFICACAO: 'pede o CPF e a data de nascimento ao próprio filiado',
 };
 
 /**
@@ -196,6 +276,13 @@ const MIOLO_DA_OBSERVACAO: Record<DesafioRecadastramento, string> = {
   COREN: 'link; confirmado só pelo COREN',
   NASCIMENTO: 'link; confirmado só pela data de nascimento',
   NENHUM: 'link; sem confirmação de identidade',
+  /*
+    A FRASE DIZ A VERDADE, e é ela que a conferência mostra. A ficha estava
+    vazia: ninguém conferiu nada, o próprio filiado informou. Quem for
+    conferir precisa saber disso — é a diferença entre um dado que o sistema
+    bateu com o que já tinha e um que chegou pela primeira vez.
+  */
+  IDENTIFICACAO: 'link; CPF e nascimento informados pelo próprio filiado, a conferir',
 };
 
 const INICIO_DA_OBSERVACAO = 'Recadastramento ONLINE feito pelo próprio filiado';

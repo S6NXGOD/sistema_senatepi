@@ -2,9 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  AlertTriangle, Check, Copy, ExternalLink, Link2, Loader2, Mail, MessageCircle, PenLine, Share2,
-} from 'lucide-react';
+import { AlertTriangle, Check, Copy, ExternalLink, Link2, Loader2, Mail, MessageCircle, PenLine, Share2, UserPlus } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
@@ -274,6 +272,29 @@ export function EnviarLinkRecadastro({
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{aviso.texto}</span>
         </p>
+      )}
+
+      {/*
+        FICHA EM BRANCO: a caixa EXPLICA, não bloqueia (22/09/2026).
+
+        Onde antes havia "não dá para mandar, vá preencher a ficha", agora há o
+        que vai acontecer. Os botões ficam: o link existe. Âmbar porque ainda há
+        uma instrução para quem manda — "mande só para ele" — e não porque algo
+        deu errado.
+      */}
+      {aviso.tipo === 'PEDE_AO_FILIADO' && (
+        <div
+          role="status"
+          className="animate-surgir space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-900/20"
+        >
+          <p className="flex items-start gap-2 text-sm font-semibold text-amber-950 dark:text-amber-100">
+            <UserPlus className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            {aviso.titulo}
+          </p>
+          <p className="pl-6 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+            {aviso.texto}
+          </p>
+        </div>
       )}
 
       {/*

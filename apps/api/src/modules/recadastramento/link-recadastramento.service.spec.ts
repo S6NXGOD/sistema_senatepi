@@ -244,52 +244,61 @@ describe('prepararEnvio — recusas', () => {
  * NENHUM NÃO GERA MAIS — decisão D23 de 14/09/2026. Medido: 5.007 ativos cairiam
  * nele (9 com atendimento ou processo). A recusa vem ANTES de revogar.
  */
-describe('cadastro sem como confirmar a identidade', () => {
-  const RECUSA =
-    'Este cadastro não tem como confirmar a identidade pelo link. ' +
-    'Grave o CPF e a data de nascimento na ficha e mande o link de novo.';
+describe('ficha em branco × ficha com dado que não presta', () => {
+  /**
+   * A DISTINÇÃO QUE MUDOU EM 22/09/2026, e o porquê dela.
+   *
+   * Até aqui os dois casos caíam no mesmo lugar: sem CPF útil e sem nascimento
+   * útil, o link não era gerado. Mas eles pedem coisas opostas.
+   *
+   *  · FICHA EM BRANCO (5.007 ativos): não há nada gravado. O link PEDE ao
+   *    filiado, porque campo vazio é o único que `protegerImutaveis` deixa
+   *    preencher — e porque esperar a Triagem coletar um a um nunca fechava.
+   *  · DADO GRAVADO QUE NÃO PRESTA (CPF com dígito errado, 01/01/1900): o
+   *    campo está preenchido, e preenchido o recadastramento DESCARTA. Mandar
+   *    o link pedir o CPF certo seria pedir o que o sistema joga fora. Esse é
+   *    da equipe, na edição da ficha.
+   */
   const SEM_NADA = { ...FILIADO, cpf: null, dataNascimento: null, numeroCoren: null };
 
-  it('gerar: 400 com a frase, sem revogar nem criar nem registrar', async () => {
-    const { service, prisma, audit } = montar({ filiado: SEM_NADA });
-    const erro = await service.gerar('f1', { userId: 'u1' }).catch((e) => e);
-    expect(erro).toBeInstanceOf(BadRequestException);
-    expect(erro.message).toBe(RECUSA);
-    expect(prisma.linkRecadastramento.updateMany).not.toHaveBeenCalled();
-    expect(prisma.linkRecadastramento.create).not.toHaveBeenCalled();
-    expect(audit.registrar).not.toHaveBeenCalled();
+  it('ficha em branco: GERA, com desafio IDENTIFICACAO', async () => {
+    const { service, criados } = montar({ filiado: SEM_NADA });
+    const r = await service.gerar('f1', { userId: 'u1' });
+    expect(r.desafio).toBe('IDENTIFICACAO');
+    expect(criados[0].desafio).toBe('IDENTIFICACAO');
   });
 
-  it('envio: 400 antes até de olhar os links vivos — o NENHUM vivo não é reapresentado', async () => {
-    const base = montar().service;
-    const { service, prisma, audit } = montar({
-      filiado: SEM_NADA,
-      vivos: [linkVivo(base, { desafio: 'NENHUM' })],
-    });
-    await expect(service.prepararEnvio('f1', 'WHATSAPP', { userId: 'u1' })).rejects.toThrow(RECUSA);
-    expect(prisma.linkRecadastramento.findMany).not.toHaveBeenCalled();
-    expect(prisma.linkRecadastramento.updateMany).not.toHaveBeenCalled();
-    expect(prisma.linkRecadastramento.create).not.toHaveBeenCalled();
-    expect(audit.registrar).not.toHaveBeenCalled();
+  it('ficha em branco: o envio também passa', async () => {
+    const { service } = montar({ filiado: SEM_NADA });
+    const r = await service.prepararEnvio('f1', 'WHATSAPP', { userId: 'u1' });
+    expect(r.desafio).toBe('IDENTIFICACAO');
   });
 
-  it('CPF gravado com dígito errado e sem nascimento também é "sem como confirmar"', async () => {
+  it('CPF gravado com dígito errado e sem nascimento: continua recusando', async () => {
     const { service, prisma } = montar({ filiado: { ...SEM_NADA, cpf: '12345678900' } });
-    await expect(service.gerar('f1', {})).rejects.toThrow(RECUSA);
+    await expect(service.gerar('f1', {})).rejects.toThrow(BadRequestException);
     expect(prisma.linkRecadastramento.create).not.toHaveBeenCalled();
   });
 
-  /** A CI roda os dois sindicatos: no SINDSERM o COREN é oculto e não salva ninguém. */
-  it('só com COREN: gera COREN onde o campo aparece, recusa onde é oculto', async () => {
+  it('data implausível gravada e sem CPF: continua recusando', async () => {
+    const { service, prisma } = montar({
+      filiado: { ...SEM_NADA, dataNascimento: new Date('1900-01-01T00:00:00.000Z') },
+    });
+    await expect(service.gerar('f1', {})).rejects.toThrow(BadRequestException);
+    expect(prisma.linkRecadastramento.create).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A CI roda os dois sindicatos. No SINDSERM o COREN é oculto, então para
+   * aquele cliente esta MESMA ficha está em branco — e é IDENTIFICACAO, não
+   * recusa. Foi o que mudou aqui: antes o filiado do SINDSERM ficava sem
+   * caminho nenhum por causa de um campo que a tela dele nem mostra.
+   */
+  it('só com COREN: COREN onde o campo aparece, IDENTIFICACAO onde é oculto', async () => {
     const { service, criados } = montar({ filiado: { ...SEM_NADA, numeroCoren: '123456' } });
-    if (campoVisivel('numeroCoren')) {
-      const r = await service.gerar('f1', {});
-      expect(r.desafio).toBe('COREN');
-      expect(criados[0].desafio).toBe('COREN');
-    } else {
-      await expect(service.gerar('f1', {})).rejects.toThrow(RECUSA);
-      expect(criados).toHaveLength(0);
-    }
+    const r = await service.gerar('f1', {});
+    expect(r.desafio).toBe(campoVisivel('numeroCoren') ? 'COREN' : 'IDENTIFICACAO');
+    expect(criados[0].desafio).toBe(r.desafio);
   });
 });
 
@@ -337,12 +346,17 @@ describe('previa — o que a tela de envio pergunta', () => {
     ['completo', {}, 'CPF_NASCIMENTO', true, null, false, false],
     ['só CPF', { dataNascimento: null }, 'CPF', true, null, false, false],
     ['só nascimento', { cpf: null }, 'NASCIMENTO', true, null, false, false],
-    ['nada', { cpf: null, dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', false, false],
+    // 22/09/2026: ficha em branco gera link — ele PEDE os dados ao filiado.
+    ['nada', { cpf: null, dataNascimento: null }, 'IDENTIFICACAO', true, null, false, false],
     ['desfiliado completo', { situacao: 'DESFILIADO' }, 'CPF_NASCIMENTO', false, 'DESFILIADO', false, false],
-    ['desfiliado sem nada', { situacao: 'DESFILIADO', cpf: null, dataNascimento: null }, 'NENHUM', false, 'DESFILIADO', false, false],
+    // DESFILIADO MANDA SOBRE O DESAFIO, e continua mandando: mesmo com a ficha
+    // em branco, o caminho é reativar, não recadastrar. O desafio mudou de
+    // nome; a recusa e o motivo não mudaram.
+    ['desfiliado sem nada', { situacao: 'DESFILIADO', cpf: null, dataNascimento: null }, 'IDENTIFICACAO', false, 'DESFILIADO', false, false],
     ['CPF com dígito errado e sem nascimento', { cpf: '12345678900', dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', true, false],
     ['CPF com 10 dígitos e nascimento', { cpf: '2345678909' }, 'NASCIMENTO', true, null, true, false],
-    ['CPF só com espaços', { cpf: '   ', dataNascimento: null }, 'NENHUM', false, 'SEM_CONFIRMACAO', false, false],
+    // Espaço em branco não é dado gravado: a ficha está vazia.
+    ['CPF só com espaços', { cpf: '   ', dataNascimento: null }, 'IDENTIFICACAO', true, null, false, false],
     ['CPF certo e nascimento 01/01/1900', { dataNascimento: new Date('1900-01-01T03:00:00.000Z') }, 'CPF', true, null, false, true],
     ['CPF errado e nascimento de 2020', { cpf: '12345678900', dataNascimento: new Date('2020-03-01T03:00:00.000Z') }, 'NENHUM', false, 'SEM_CONFIRMACAO', true, true],
   ])('%s → %s, podeGerar %p, motivo %p, cpfGravadoInvalido %p, nascimentoGravadoInvalido %p', async (

@@ -289,6 +289,12 @@ enum DesafioRecadastramento {
   /// sozinha: `20260914090200_desafio_de_um_fator`.
   CPF // só CPF no cadastro
   NASCIMENTO // só data de nascimento no cadastro (e sem COREN)
+  /// Ficha EM BRANCO (22/09/2026): o link não confirma, ele PEDE. A primeira
+  /// tela coleta CPF e nascimento do próprio filiado, valida dígito
+  /// verificador e recusa CPF de outra ficha; o recadastramento nasce PENDENTE
+  /// para a equipe conferir. Não autentica — para uma ficha vazia não há
+  /// segredo com o que comparar. Migração `20260922120000_link_de_identificacao`.
+  IDENTIFICACAO
 }
 
 /// Link de recadastramento ONLINE enviado ao filiado.

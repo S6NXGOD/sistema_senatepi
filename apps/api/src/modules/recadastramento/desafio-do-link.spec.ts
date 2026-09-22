@@ -73,16 +73,43 @@ describe('definirDesafio — a hierarquia', () => {
     expect(decidir(cadastro({ numeroCoren: '123456', dataNascimento: NASC_OK }), true)).toBe('COREN');
     // No SINDSERM o COREN é oculto: cai no nascimento, ou em nada.
     expect(decidir(cadastro({ numeroCoren: '123456', dataNascimento: NASC_OK }), false)).toBe('NASCIMENTO');
-    expect(decidir(cadastro({ numeroCoren: '123456' }), false)).toBe('NENHUM');
-    expect(decidir(cadastro({ numeroCoren: '   ' }), true)).toBe('NENHUM');
+    // 22/09/2026: COREN oculto no cliente não conta como dado — para aquele
+    // sindicato a ficha está VAZIA, e ficha vazia pede IDENTIFICACAO.
+    expect(decidir(cadastro({ numeroCoren: '123456' }), false)).toBe('IDENTIFICACAO');
+    expect(decidir(cadastro({ numeroCoren: '   ' }), true)).toBe('IDENTIFICACAO');
   });
 
   it('só o nascimento útil: NASCIMENTO', () => {
     expect(decidir(cadastro({ dataNascimento: NASC_OK }))).toBe('NASCIMENTO');
   });
 
-  it('nada: NENHUM', () => {
-    expect(decidir(cadastro())).toBe('NENHUM');
+  /**
+   * FICHA EM BRANCO DEIXOU DE SER BECO — 22/09/2026.
+   *
+   * Eram 5.007 ativos aqui, e a regra de 14/09 mandava a equipe perguntar CPF e
+   * nascimento na conversa, gravar na ficha e só então mandar o link. O dado
+   * faltava justamente porque ninguém tinha coletado; o ciclo não fechava
+   * sozinho nunca. Agora o link PEDE ao filiado.
+   */
+  it('nada gravado: IDENTIFICACAO — o link pede em vez de conferir', () => {
+    expect(decidir(cadastro())).toBe('IDENTIFICACAO');
+  });
+
+  /**
+   * E O QUE CONTINUA SENDO NENHUM: dado gravado que não presta.
+   *
+   * A distinção não é preciosismo, é `protegerImutaveis`: campo JÁ preenchido é
+   * descartado no recadastramento, só o vazio passa. Mandar o link pedir o CPF
+   * certo a quem tem um CPF errado gravado seria pedir o que o sistema vai
+   * jogar fora — a pessoa digita, salva, e a ficha continua errada. Esse caso é
+   * da equipe, na edição.
+   */
+  it('dado gravado que não presta continua NENHUM, e não vira IDENTIFICACAO', () => {
+    expect(decidir(cadastro({ cpf: '11111111111' }))).toBe('NENHUM');
+    expect(decidir(cadastro({ dataNascimento: new Date('1900-01-01T00:00:00.000Z') }))).toBe('NENHUM');
+    expect(
+      decidir(cadastro({ cpf: '11111111111', dataNascimento: new Date('1900-01-01T00:00:00.000Z') })),
+    ).toBe('NENHUM');
   });
 
   /** O desafio impossível que a regra antiga montava: agora o dado ruim desce. */
@@ -95,14 +122,19 @@ describe('definirDesafio — a hierarquia', () => {
 
   it('MATRICULA não é valor possível (0 filiados na medição)', () => {
     const possiveis = new Set(Object.keys(O_QUE_O_LINK_CONFIRMA));
-    expect([...possiveis].sort()).toEqual(['COREN', 'CPF', 'CPF_NASCIMENTO', 'NASCIMENTO', 'NENHUM']);
+    expect([...possiveis].sort()).toEqual([
+      'COREN', 'CPF', 'CPF_NASCIMENTO', 'IDENTIFICACAO', 'NASCIMENTO', 'NENHUM',
+    ]);
   });
 });
 
 describe('podeGerarLink', () => {
-  it('só o NENHUM é recusado', () => {
-    expect(['CPF_NASCIMENTO', 'CPF', 'COREN', 'NASCIMENTO', 'NENHUM'].map((d) => podeGerarLink(d as never)))
-      .toEqual([true, true, true, true, false]);
+  it('só o NENHUM é recusado — IDENTIFICACAO gera', () => {
+    expect(
+      ['CPF_NASCIMENTO', 'CPF', 'COREN', 'NASCIMENTO', 'IDENTIFICACAO', 'NENHUM'].map((d) =>
+        podeGerarLink(d as never),
+      ),
+    ).toEqual([true, true, true, true, true, false]);
   });
 });
 
