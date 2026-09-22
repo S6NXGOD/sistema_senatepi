@@ -221,6 +221,32 @@ const JANELA_MS = 60_000;
 const RESERVA_MINIMA = 2;
 /** Tentativas extras quando o CNJ corta por excesso (403/429). */
 const MAX_TENTATIVAS = 3;
+
+/**
+ * O RECUO DEPOIS DE UMA RECUSA QUE NÃO É COTA — 22/09/2026.
+ *
+ * Medido contra a ponte, no ritmo exato do cron (14/min, 4,3 s entre chamadas):
+ *
+ *   direto do CNJ, do Brasil ...... 12 de 12 respondem
+ *   pela ponte .................... 8 de 16, em BLOCOS: ~4 passam, ~4 recusam
+ *
+ * E o saldo devolvido pelo CNJ nunca desce de 18 nos dois casos — ou seja, **não
+ * é cota**. É o CDN recusando rajadas vindas do IP da VPS, que é de datacenter e
+ * apanha de regra mais dura que um IP residencial. O bloco de recusa dura uns
+ * 15 a 20 segundos e passa sozinho.
+ *
+ * O RETRY EXISTIA E NÃO SALVAVA, e o motivo estava na conta da espera: ela usava
+ * `esperaAteJanelaVirar()`, que mede a COTA LOCAL. Com a rodada em ritmo, a
+ * requisição mais antiga da janela já tem quase 60 s, então a espera calculada
+ * caía para o mínimo de **1 segundo** — e as três tentativas se esgotavam
+ * dentro do mesmo bloco de recusa, em três segundos.
+ *
+ * Cota e recusa do CDN pedem esperas diferentes: a cota espera a janela virar
+ * (é isso que a repõe); a recusa do CDN espera o bloco passar, e para isso o
+ * que serve é um recuo que CRESCE. 5 s cobre o fim de um bloco, 15 s cobre um
+ * bloco inteiro, 45 s cobre o pior caso observado com folga.
+ */
+const RECUO_APOS_RECUSA_MS = [5_000, 15_000, 45_000];
 /** Recusas de origem seguidas antes de suspender as tentativas. */
 /**
  * POR QUANTO TEMPO UM 200 AINDA VALE COMO PROVA DE QUE A ORIGEM PASSA.
@@ -559,15 +585,30 @@ export class DjenService {
         throw new DjenBloqueadoError();
       }
 
-      // Cota: espera a janela e tenta de novo, sem incomodar o usuário.
+      // Recusado: espera e tenta de novo, sem incomodar o usuário.
       if ((res.status === 403 || res.status === 429) && tentativa < MAX_TENTATIVAS) {
         clearTimeout(timer);
-        const espera = this.esperaAteJanelaVirar();
+        /*
+          DUAS RECUSAS, DUAS ESPERAS. Ver `RECUO_APOS_RECUSA_MS`.
+
+          COM saldo no cabeçalho, quem recusou foi a contagem do CNJ: o que
+          repõe é a janela virar, e é isso que se espera.
+
+          SEM saldo, foi o CDN recusando uma rajada — e a janela local não diz
+          nada sobre quanto esse bloco dura. Era aqui que a espera virava 1
+          segundo e o retry queimava as três tentativas dentro do mesmo bloco.
+        */
+        const ehCota = this.saldoInformado !== null;
+        const espera = ehCota
+          ? this.esperaAteJanelaVirar()
+          : (RECUO_APOS_RECUSA_MS[tentativa - 1] ?? RECUO_APOS_RECUSA_MS.at(-1)!);
         this.logger.warn(
-          `[DJEN] HTTP ${res.status} (cota excedida) — aguardando ${Math.ceil(espera / 1000)}s ` +
-            `e tentando de novo (${tentativa + 1}/${MAX_TENTATIVAS}).`,
+          `[DJEN] HTTP ${res.status} (${ehCota ? 'cota do CNJ' : 'recusa do CDN'}) — ` +
+            `aguardando ${Math.ceil(espera / 1000)}s e tentando de novo ` +
+            `(${tentativa + 1}/${MAX_TENTATIVAS}).`,
         );
-        this.historico.length = 0; // a janela vai virar; a contagem antiga não vale mais
+        // Só a cota repõe com a janela; na recusa do CDN a contagem local continua valendo.
+        if (ehCota) this.historico.length = 0;
         await dormir(espera);
         return this.consultarAgora(params, tentativa + 1, esperarCota);
       }
