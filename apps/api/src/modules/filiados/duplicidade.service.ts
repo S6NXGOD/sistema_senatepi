@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -475,6 +476,13 @@ const soDigitos = (v: string) => v.replace(/[^0-9]/g, '');
 
 @Injectable()
 export class DuplicidadeService {
+  /**
+   * Existe para uma coisa só: gritar quando uma ficha foi apagada e a auditoria
+   * não conseguiu registrar. Sem isto, o dado some e nada sobra dizendo que
+   * sumiu — foi o que aconteceu com duas fichas em 22/09/2026.
+   */
+  private readonly logger = new Logger(DuplicidadeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -1630,31 +1638,60 @@ export class DuplicidadeService {
       );
     }
 
-    for (const r of registros) {
-      await this.prisma.filiado.delete({ where: { id: r.id } });
-      /*
-        `autor` É O NOME, NÃO O ID — e passá-lo como `userId` derruba a rota com
-        500: a coluna é chave estrangeira para `users`. Descobri rodando, com 21
-        testes verdes: o `audit` do spec é um mock e aceita qualquer coisa.
+    /*
+      TUDO OU NADA — 22/09/2026, e esta lição custou duas fichas.
 
-        As outras auditorias desta classe nunca mandam `userId` (o interceptor
-        preenche a partir da sessão) e põem o nome no texto. Aqui é igual.
-      */
-      await this.audit.registrar({
-        acao: AcaoAuditoria.DELETE,
-        entidade: 'Filiado',
-        entidadeId: r.id,
-        descricao:
-          `Ficha vazia de importação descartada (nome "${r.nomeCompleto}", matrícula ` +
-          `${r.matricula}): sem dado que identifique e sem histórico nenhum` +
-          `${autor ? `, por ${autor}` : ''}.`,
-        metadata: {
-          matricula: r.matricula, nomeCompleto: r.nomeCompleto, grupo: unicos, autor: autor ?? null,
-        },
-      });
+      A primeira versão apagava num laço solto: `delete`, auditoria, próxima. A
+      auditoria quebrou (mandei o NOME num campo que é id) e a rota respondeu
+      500 — mas as fichas já apagadas **não voltaram**. O dono clicou duas vezes
+      vendo "Internal server error" as duas, e sumiram DUAS fichas da produção
+      sem uma linha de auditoria. A tela dizia que nada tinha acontecido.
+
+      Agora os DELETE moram numa transação: ou some o grupo inteiro, ou não some
+      nada. É o mesmo que `fundir` já fazia, e eu não segui.
+    */
+    await this.prisma.$transaction(async (tx) => {
+      for (const r of registros) await tx.filiado.delete({ where: { id: r.id } });
+    });
+
+    /*
+      A AUDITORIA VEM DEPOIS, E NÃO DERRUBA A RESPOSTA. As fichas já não existem
+      — responder 500 aqui faria a pessoa achar que nada aconteceu e clicar de
+      novo, que foi exatamente o que aconteceu. O que falhar vai para o log e
+      para o aviso da resposta, com o nome e a matrícula do que sumiu.
+    */
+    let semAuditoria = 0;
+    for (const r of registros) {
+      try {
+        await this.audit.registrar({
+          acao: AcaoAuditoria.DELETE,
+          entidade: 'Filiado',
+          entidadeId: r.id,
+          descricao:
+            `Ficha vazia de importação descartada (nome "${r.nomeCompleto}", matrícula ` +
+            `${r.matricula}): sem dado que identifique e sem histórico nenhum` +
+            `${autor ? `, por ${autor}` : ''}.`,
+          metadata: {
+            matricula: r.matricula, nomeCompleto: r.nomeCompleto, grupo: unicos,
+            autor: autor ?? null,
+          },
+        });
+      } catch (e) {
+        semAuditoria++;
+        this.logger.error(
+          `Ficha ${r.matricula} ("${r.nomeCompleto}", id ${r.id}) foi apagada e a auditoria ` +
+            `falhou: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     }
 
-    return { ok: true, removidos: registros.length, matriculas: registros.map((r) => r.matricula) };
+    return {
+      ok: true,
+      removidos: registros.length,
+      matriculas: registros.map((r) => r.matricula),
+      /** Quantas exclusões não conseguiram deixar linha de auditoria. Zero é o normal. */
+      semAuditoria,
+    };
   }
 
   /** O motivo, em português, ou null quando a ficha é mesmo uma linha vazia. */

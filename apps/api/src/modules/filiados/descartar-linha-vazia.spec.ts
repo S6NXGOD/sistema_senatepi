@@ -36,20 +36,37 @@ const ficha = (id: string, nomeCompleto: string, extra: Record<string, unknown> 
   id, nomeCompleto, matricula: id, ...VAZIO, ...extra,
 });
 
-function montar(registros: Array<Record<string, unknown>>) {
+function montar(
+  registros: Array<Record<string, unknown>>,
+  opcoes: { auditoriaFalha?: boolean; deleteFalhaNo?: number } = {},
+) {
   const apagados: string[] = [];
-  const prisma = {
-    filiado: {
-      findMany: jest.fn().mockResolvedValue(registros),
-      delete: jest.fn(async ({ where }: { where: { id: string } }) => {
-        apagados.push(where.id);
-        return {};
-      }),
-    },
+  let n = 0;
+  const apagar = async ({ where }: { where: { id: string } }) => {
+    n++;
+    if (opcoes.deleteFalhaNo === n) throw new Error('banco recusou');
+    apagados.push(where.id);
+    return {};
   };
-  const audit = { registrar: jest.fn().mockResolvedValue(undefined) };
+  const prisma = {
+    filiado: { findMany: jest.fn().mockResolvedValue(registros), delete: jest.fn(apagar) },
+    /*
+      A TRANSAÇÃO DE VERDADE DESFAZ; este arnês só precisa provar que os DELETE
+      acontecem DENTRO dela. Quando um deles quebra, o mock deixa o erro subir e
+      a lista de apagados fica como estava — o teste então afirma que o serviço
+      não seguiu apagando os outros.
+    */
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn({
+      filiado: { delete: jest.fn(apagar) },
+    })),
+  };
+  const audit = {
+    registrar: opcoes.auditoriaFalha
+      ? jest.fn().mockRejectedValue(new Error('auditoria fora do ar'))
+      : jest.fn().mockResolvedValue(undefined),
+  };
   const service = new DuplicidadeService(prisma as never, audit as never);
-  return { service, apagados, audit };
+  return { service, apagados, audit, prisma };
 }
 
 describe('o nome que não é nome', () => {
@@ -84,7 +101,9 @@ describe('descartar o grupo vazio', () => {
       ficha('3067', '0'), ficha('3124', '0'), ficha('3169', '0'), ficha('3451', '0'),
     ]);
     const r = await service.descartarGrupoVazio(['3067', '3124', '3169', '3451'], 'joão');
-    expect(r).toEqual({ ok: true, removidos: 4, matriculas: ['3067', '3124', '3169', '3451'] });
+    expect(r).toEqual({
+      ok: true, removidos: 4, matriculas: ['3067', '3124', '3169', '3451'], semAuditoria: 0,
+    });
     expect(apagados).toHaveLength(4);
     expect(audit.registrar).toHaveBeenCalledTimes(4);
   });
@@ -190,5 +209,53 @@ describe('descartar o grupo vazio', () => {
     expect(chamada.userId).toBeUndefined();
     expect(chamada.descricao).toContain('João Pedro');
     expect(chamada.metadata.autor).toBe('João Pedro');
+  });
+});
+
+/**
+ * TUDO OU NADA — a lição que custou duas fichas da produção (22/09/2026).
+ *
+ * A primeira versão apagava num laço solto: `delete`, auditoria, próxima. A
+ * auditoria quebrou (mandei o NOME num campo que é id), a rota respondeu 500 —
+ * e as fichas já apagadas NÃO voltaram. O dono clicou duas vezes vendo
+ * "Internal server error" as duas, e sumiram DUAS fichas sem uma linha de
+ * auditoria, com a tela dizendo que nada tinha acontecido.
+ */
+describe('a exclusão é tudo ou nada', () => {
+  it('os DELETE acontecem dentro de uma transação', async () => {
+    const { service, prisma } = montar([ficha('1', '0'), ficha('2', '0')]);
+    await service.descartarGrupoVazio(['1', '2']);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  /** Quebrou no meio: o que já saiu volta pela transação, e o resto nem tenta. */
+  it('se um DELETE falha, o serviço não segue apagando os outros', async () => {
+    const { service, apagados } = montar(
+      [ficha('1', '0'), ficha('2', '0'), ficha('3', '0')],
+      { deleteFalhaNo: 2 },
+    );
+    await expect(service.descartarGrupoVazio(['1', '2', '3'])).rejects.toThrow('banco recusou');
+    expect(apagados).toEqual(['1']);
+  });
+
+  /**
+   * AUDITORIA FORA DO AR NÃO DERRUBA A RESPOSTA. As fichas já não existem —
+   * responder 500 faria a pessoa achar que nada aconteceu e clicar de novo, que
+   * foi exatamente o que aconteceu. A resposta conta quantas ficaram sem linha.
+   */
+  it('auditoria que falha vira aviso, não erro', async () => {
+    const { service, apagados } = montar([ficha('1', '0'), ficha('2', '0')], {
+      auditoriaFalha: true,
+    });
+    const r = await service.descartarGrupoVazio(['1', '2']);
+    expect(r.ok).toBe(true);
+    expect(r.removidos).toBe(2);
+    expect(r.semAuditoria).toBe(2);
+    expect(apagados).toHaveLength(2);
+  });
+
+  it('no caminho normal, nenhuma exclusão fica sem auditoria', async () => {
+    const { service } = montar([ficha('1', '0'), ficha('2', '0')]);
+    expect((await service.descartarGrupoVazio(['1', '2'])).semAuditoria).toBe(0);
   });
 });
