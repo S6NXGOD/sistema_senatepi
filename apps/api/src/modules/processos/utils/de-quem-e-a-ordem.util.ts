@@ -319,6 +319,76 @@ const RE_PRAZO_CONDICIONADO = new RegExp(
   ')\\b',
 );
 
+/**
+ * QUEM FOI INTIMADO — o destinatário da ordem, não quem é citado na frase.
+ *
+ * O CASO DA PRODUÇÃO (22/09/2026), e ele custou uma tarefa cancelada à mão:
+ *
+ *   "INTIME-SE **A EXECUTADA** (INSTITUTO SAÚDE E CIDADANIA - ISAC) para que,
+ *    no prazo de 15 dias, comprove o cumprimento da obrigação (...) acostando
+ *    a relação nominal de todos os empregados representados pelo **sindicato
+ *    autor**"
+ *
+ * A frase tem papel ATIVO ("sindicato autor") e PASSIVO ("executada"), e a
+ * regra concluía "obriga os dois lados" → prazo NOSSO → tarefa na agenda. Mas
+ * a ordem é de UM só: a executada. Nós aparecemos cem caracteres depois, dentro
+ * da DESCRIÇÃO do que ela tem de entregar.
+ *
+ * O destinatário de "INTIME-SE" é quem vem logo depois do verbo. Esta janela é
+ * curta de propósito — o suficiente para pegar "A EXECUTADA (ISAC)" e parar
+ * antes de "acostando a relação nominal dos empregados representados pelo...".
+ *
+ * Devolve null quando não há verbo de ordem, quando os dois papéis aparecem
+ * DENTRO da janela (aí obriga mesmo os dois) ou quando nenhum aparece. Nesses
+ * casos o caminho antigo continua valendo inteiro: esta regra só acrescenta
+ * certeza, nunca tira.
+ */
+const RE_VERBO_DE_ORDEM = /\b(INTIME-?SE|INTIMEM-?SE|NOTIFIQUE-?SE|CITE-?SE|CITEM-?SE)\b/;
+/** Cabe "A EXECUTADA (INSTITUTO SAUDE E CIDADANIA - ISAC) PARA QUE, NO PRAZO". */
+const JANELA_DO_DESTINATARIO = 80;
+
+/**
+ * O PRAZO QUE SÓ COMEÇA DEPOIS — a condição que vem DEPOIS do prazo.
+ *
+ * `RE_PRAZO_CONDICIONADO` está ancorado no começo da frase e pega
+ * "APRESENTADA a documentação, intime-se o sindicato no prazo de 15 dias". Não
+ * pega a outra forma, que é tão comum quanto — o gatilho pendurado NO PRAZO:
+ *
+ *   "O SENATEPI deverá comprovar nos autos, no prazo de 30 (trinta) dias
+ *    **APÓS O RECEBIMENTO DE CADA PARCELA**, o repasse dos valores"
+ *
+ * (produção, sentença homologatória de acordo com a Clínica Santa Fé, 04/09).
+ * O prazo é NOSSO e a obrigação é real — só que o relógio não começou: nenhuma
+ * parcela foi recebida. Virou tarefa com data e foi cancelada à mão.
+ *
+ * A LISTA DE EXCEÇÕES É O CORAÇÃO DISTO. "no prazo de 15 dias a contar da
+ * PUBLICAÇÃO" e "após a INTIMAÇÃO" descrevem o prazo que começa AGORA — são a
+ * forma normal de escrever despacho, e tratá-las como condição faria metade do
+ * acervo virar proposta. Só entram eventos que ainda não aconteceram.
+ */
+const RE_GATILHO_FUTURO = new RegExp(
+  'PRAZO[^.;]{0,60}?' +
+    '(?:APOS|A PARTIR D[AO]|A CONTAR D[AO]|CONTADOS? D[AO]|DEPOIS D[AEO])\\s+' +
+    '(?:A |O |AS |OS )?' +
+    '(?:RECEBIMENTO|TRANSITO|JUNTADA|CUMPRIMENTO|PAGAMENTO|APRESENTACAO|RETORNO|' +
+    'HOMOLOGACAO|DEPOSITO|LIBERACAO|ENCERRAMENTO|CONCLUSAO|VINDA|IMPLANTACAO)',
+);
+
+/** O prazo desta frase depende de um evento que ainda não aconteceu? */
+export function prazoPendurado(frase: string): boolean {
+  return RE_GATILHO_FUTURO.test(frase);
+}
+
+export function quemFoiIntimado(frase: string): 'ATIVO' | 'PASSIVO' | null {
+  const m = RE_VERBO_DE_ORDEM.exec(frase);
+  if (!m) return null;
+  const janela = frase.slice(m.index + m[0].length, m.index + m[0].length + JANELA_DO_DESTINATARIO);
+  const ativo = PAPEL_ATIVO.test(janela);
+  const passivo = PAPEL_PASSIVO.test(janela);
+  if (ativo === passivo) return null; // os dois, ou nenhum: não decide
+  return ativo ? 'ATIVO' : 'PASSIVO';
+}
+
 export function deQuemEOPrazo(
   texto: string,
   nossoPolo: 'ATIVO' | 'PASSIVO' | null,
@@ -337,8 +407,29 @@ export function deQuemEOPrazo(
       um ato que ainda não aconteceu. Quando começa, o prazo é nosso mas não é
       de hoje — e `nosso(...)` devolve `NOSSO_FUTURO` no lugar de `NOSSO`.
     */
-    const condicionado = RE_PRAZO_CONDICIONADO.test(frase.trim());
+    /*
+      DUAS FORMAS DE O PRAZO ESTAR DORMINDO, e as duas contam:
+        · a condição ABRE a frase  → `RE_PRAZO_CONDICIONADO` (ancorada em `^`);
+        · a condição PENDURA no prazo → `prazoPendurado` ("no prazo de 30 dias
+          após o recebimento de cada parcela").
+    */
+    const condicionado =
+      RE_PRAZO_CONDICIONADO.test(frase.trim()) || prazoPendurado(frase);
     const nosso = (): LadoDoPrazo => (condicionado ? 'NOSSO_FUTURO' : 'NOSSO');
+
+    /*
+      QUEM FOI INTIMADO MANDA SOBRE QUEM FOI CITADO — ver `quemFoiIntimado`.
+
+      Vem ANTES da busca pela sigla de propósito: "intime-se a executada para
+      pagar ao SENATEPI" tem a nossa sigla na frase e o prazo é dela. Só decide
+      quando a janela logo após o verbo aponta UM lado; no empate ou no silêncio
+      devolve null e tudo segue como antes.
+    */
+    const intimado = quemFoiIntimado(frase);
+    if (intimado && nossoPolo) {
+      lados.push(intimado === nossoPolo ? nosso() : 'DA_OUTRA_PARTE');
+      continue;
+    }
 
     const limpa = frase.replace(/[^A-Z0-9]/g, '');
     if (siglaNormalizada.length >= 4 && limpa.includes(siglaNormalizada)) {
