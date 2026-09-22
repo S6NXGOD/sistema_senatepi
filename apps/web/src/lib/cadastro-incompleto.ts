@@ -1,4 +1,3 @@
-import { V } from '@/lib/vocabulario';
 
 /**
  * O CADASTRO ESTÁ FURADO — e a triagem tem de ser cobrada disso na hora.
@@ -106,36 +105,41 @@ export function listarEmPortugues(itens: string[]): string {
 }
 
 /**
- * A FRASE DO AVISO — o que falta, e por que isso importa um dia.
+ * POR QUE ISSO FAZ FALTA — a metade da frase que vem depois do travessão.
  *
- * O dono escreveu o tom que queria: "Atualize os dados desse filiado, pois
- * estão muito desatualizados e podemos precisar um dia". A frase daqui diz a
- * mesma coisa sendo específica, porque "desatualizado" não diz o que fazer e
- * "falta o CPF" diz.
+ * O aviso tem duas partes e elas têm donos diferentes: o que falta é FATO
+ * (`listarEmPortugues`), e por que faz falta é CONSEQUÊNCIA. Separar as duas
+ * deixa a tela montar a frase do jeito dela — a gaveta do atendimento mostra
+ * só o fato, que é onde o espaço é curto; o modal mostra as duas.
  *
- * E ELA NÃO CULPA NINGUÉM. Quem está lendo não foi quem deixou o campo vazio —
- * a maior parte veio da carga do sistema antigo. O sujeito da frase é o
- * cadastro, nunca a pessoa que atende.
+ * E A FRASE NÃO CULPA NINGUÉM. Quem está lendo não foi quem deixou o campo
+ * vazio: a maior parte veio da carga do sistema antigo. O sujeito é o cadastro,
+ * nunca a pessoa que atende.
  */
-export function fraseDoCadastroIncompleto(faltando: CampoQueFalta[]): string {
-  if (!faltando.length) return '';
-  const lista = listarEmPortugues(faltando);
+export function porQueFazFalta(faltando: CampoQueFalta[]): string {
   const critico = faltando.includes('CPF') || faltando.includes('telefone');
   return critico
-    ? `Falta ${lista} no cadastro. Aproveite que o ${V.filiado} está aí e peça a atualização — sem esses dados não dá para achar a pessoa nos autos nem avisá-la de um prazo.`
-    : `Falta ${lista} no cadastro. Aproveite o contato e peça a atualização.`;
+    ? 'sem esses dados não dá para achar a pessoa nos autos nem avisá-la de um prazo.'
+    : 'aproveite o contato e peça a atualização.';
 }
 
-/**
- * O QUE O LINK DE RECADASTRAMENTO RESOLVE — e o que ele NÃO resolve.
- *
- * "Caso o filiado não tenha CPF no cadastro, o filiado poderá colocar." Pode:
- * o formulário público pede os dados que faltam. Só que o link é ENVIADO por
- * WhatsApp ou e-mail — sem telefone e sem e-mail não há por onde mandar, e aí
- * a única saída é o presencial. A tela precisa saber disso antes de oferecer
- * um botão que não leva a lugar nenhum.
- */
-export function podeMandarLink(f: CadastroDoFiliado | null | undefined): boolean {
-  if (!f) return false;
-  return !vazio(telefoneDe(f)) || !vazio(f.telefoneSecundario) || !vazio(f.email);
-}
+/*
+  `podeMandarLink` SAIU, e a regra dela estava errada — 22/09/2026.
+
+  Ela respondia "sem telefone e sem e-mail não há para onde mandar o link", e o
+  aviso escondia a saída inteira quando o cadastro não tinha nenhum dos dois.
+
+  É falso. O link não é ENVIADO pelo sistema: a tela de envio gera o endereço e
+  oferece **Copiar mensagem**, **Copiar só o link** e **Compartilhar**, além do
+  atalho de WhatsApp. Só o atalho precisa do número — o resto é copiar e colar,
+  que é exatamente o que a triagem faz, porque ela já está na conversa do
+  WhatsApp com a pessoa (o canal da esmagadora maioria dos atendimentos).
+
+  Ou seja: a regra escondia a saída mais útil justamente no caso em que o
+  telefone falta no cadastro E está na tela de quem atende.
+
+  Quem decide se o link pode existir é o servidor, que conhece o desafio da
+  ficha (CPF+nascimento > CPF > COREN > nascimento; sem nenhum, não gera) e
+  devolve o motivo. Adivinhar isso aqui seria uma segunda cópia da regra, livre
+  para divergir — o mesmo erro que `desafioPrevisto` já custou uma vez.
+*/

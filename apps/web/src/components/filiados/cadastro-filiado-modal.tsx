@@ -9,6 +9,7 @@ import { podeEditar } from '@/lib/permissoes';
 import { Button } from '@/components/ui/button';
 import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { V } from '@/lib/vocabulario';
+import { Portal } from '@/components/ui/portal';
 
 /**
  * O CADASTRO DE VERDADE, sem sair de onde se está.
@@ -59,79 +60,81 @@ export function CadastroFiliadoModal({
   const recadastro = !!filiadoId;
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      onClick={onClose}
-    >
+    <Portal>
       <div
-        className="flex max-h-[92vh] w-full max-w-3xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-[70] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
+        onClick={onClose}
       >
-        <div className="flex items-start justify-between gap-3 border-b p-5">
-          <div className="min-w-0">
-            <h3 className="text-base font-bold">
-              {recadastro ? `Recadastrar ${V.filiado}` : `Cadastrar ${V.filiado}`}
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {recadastro
-                ? 'Confira e atualize os dados. O que já está preenchido continua valendo.'
-                : 'Ao salvar, ele já entra vinculado ao que você estava fazendo.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-            aria-label="Fechar"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          {!pode ? (
-            <div className="space-y-3">
-              <p className="rounded-md border bg-muted/50 px-3 py-2.5 text-[12px] leading-snug">
-                O cadastro de {V.filiados} é feito pela secretaria. Peça a inclusão e volte para
-                vincular — enquanto isso, dá para seguir com o nome da parte e resolver depois.
+        <div
+          className="flex max-h-[92vh] w-full max-w-3xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3 border-b p-5">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold">
+                {recadastro ? `Recadastrar ${V.filiado}` : `Cadastrar ${V.filiado}`}
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {recadastro
+                  ? 'Confira e atualize os dados. O que já está preenchido continua valendo.'
+                  : 'Ao salvar, ele já entra vinculado ao que você estava fazendo.'}
               </p>
-              <div className="flex justify-end">
-                <Button type="button" variant="outline" onClick={onClose}>
-                  Entendi
-                </Button>
-              </div>
             </div>
-          ) : recadastro && ficha.isLoading ? (
-            <Carregando texto="Carregando a ficha…" className="space-y-4 py-2">
-              <Esqueleto className="h-2 w-full rounded-full" />
-              <Esqueleto className="h-11 w-full" />
-              <Esqueleto className="h-11 w-full" />
-              <Esqueleto className="h-11 w-2/3" />
-            </Carregando>
-          ) : recadastro && !ficha.data ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Não foi possível carregar a ficha deste {V.filiado}.
-            </p>
-          ) : (
-            <FiliadoForm
-              emPassos
-              modo={recadastro ? 'recadastrar' : 'criar'}
-              inicial={
-                recadastro
-                  ? ficha.data
-                  : (nomeInicial?.trim()
-                      ? ({ nomeCompleto: nomeInicial.trim() } as never)
-                      : undefined)
-              }
-              onCancelar={onClose}
-              onSalvo={(id) => {
-                onSalvo(id);
-                onClose();
-              }}
-            />
-          )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-5">
+            {!pode ? (
+              <div className="space-y-3">
+                <p className="rounded-md border bg-muted/50 px-3 py-2.5 text-[12px] leading-snug">
+                  O cadastro de {V.filiados} é feito pela secretaria. Peça a inclusão e volte para
+                  vincular — enquanto isso, dá para seguir com o nome da parte e resolver depois.
+                </p>
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" onClick={onClose}>
+                    Entendi
+                  </Button>
+                </div>
+              </div>
+            ) : recadastro && ficha.isLoading ? (
+              <Carregando texto="Carregando a ficha…" className="space-y-4 py-2">
+                <Esqueleto className="h-2 w-full rounded-full" />
+                <Esqueleto className="h-11 w-full" />
+                <Esqueleto className="h-11 w-full" />
+                <Esqueleto className="h-11 w-2/3" />
+              </Carregando>
+            ) : recadastro && !ficha.data ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Não foi possível carregar a ficha deste {V.filiado}.
+              </p>
+            ) : (
+              <FiliadoForm
+                emPassos
+                modo={recadastro ? 'recadastrar' : 'criar'}
+                inicial={
+                  recadastro
+                    ? ficha.data
+                    : (nomeInicial?.trim()
+                        ? ({ nomeCompleto: nomeInicial.trim() } as never)
+                        : undefined)
+                }
+                onCancelar={onClose}
+                onSalvo={(id) => {
+                  onSalvo(id);
+                  onClose();
+                }}
+              />
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }

@@ -12,7 +12,7 @@ import {
 } from '@/lib/datas-limite';
 import { UFS, mascararCep, buscarCep, municipiosDaUF } from '@/lib/endereco';
 import { toast } from 'sonner';
-import { Loader2, Upload, Plus, Trash2, Lock } from 'lucide-react';
+import { Loader2, Upload, Plus, Trash2, Lock, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -411,6 +411,23 @@ export function FiliadoForm({
   const sel = 'h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm';
 
   /** Card visível? Fora do modo passos, todos são. */
+  /*
+    AS COLUNAS SÃO DA CAIXA, NÃO DA JANELA — 22/09/2026.
+
+    `lg:grid-cols-3` pergunta a largura da JANELA. Num modal de 768px aberto
+    numa tela de 1440, o Tailwind aplica as três colunas assim mesmo e cada
+    campo fica com ~240px: "Modalidade de contribuição" quebra em duas linhas,
+    "Técnico(a)" aparece cortado dentro do select e a etapa inteira parece
+    espremida — foi o que o dono viu no print. Na PÁGINA as três continuam
+    certas, porque ali a caixa é a janela.
+
+    Tailwind 3 só faz container query com plugin; enquanto não houver, a regra
+    fica explícita aqui: dentro do modal, no máximo duas colunas.
+  */
+  const colunas = emPassos
+    ? 'grid grid-cols-1 gap-4 sm:grid-cols-2'
+    : 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3';
+
   const mostrar = (n: number) => !emPassos || passo === n;
 
   /**
@@ -461,28 +478,92 @@ export function FiliadoForm({
       }}
       className="space-y-6"
     >
+      {/*
+        A TRILHA DOS PASSOS — 22/09/2026.
+
+        A versão anterior era quatro caixas iguais dividindo a largura, com o
+        número em cima e o título `truncate` embaixo. Em quatro fatias de um
+        modal, "Contato e endereço" virava "Contato e e…" e "Dependentes" virava
+        "Depend…" — e rótulo cortado não diz em que etapa a pessoa está, que é a
+        única coisa que uma trilha precisa dizer.
+
+        Duas apresentações, porque são duas larguras diferentes de verdade:
+
+        · NO CELULAR não cabem quatro rótulos, e fingir que cabem é o erro. Sai
+          o título da etapa atual, por extenso, com "Passo 2 de 4" ao lado e uma
+          barra fina mostrando o avanço. Uma linha, sem corte.
+        · DE TABLET PARA CIMA, os quatro com bolinha e rótulo inteiro, ligados
+          por um traço que acende conforme avança. O feito vira ✓ e volta a ser
+          clicável; o que ainda não veio fica apagado e inerte.
+      */}
       {emPassos && (
-        <ol className="flex items-center gap-1.5" aria-label="Etapas do cadastro">
-          {PASSOS.map((x) => (
-            <li key={x.n} className="flex-1">
-              <button
-                type="button"
-                /* Voltar é sempre permitido; avançar passa pela validação. */
-                onClick={() => x.n < passo && setPasso(x.n)}
-                disabled={x.n > passo}
-                className={cn(
-                  'w-full rounded-md border px-2 py-1.5 text-left text-[11px] font-medium transition',
-                  x.n === passo && 'border-brand-500 bg-brand-50 text-brand-900 dark:bg-brand-900/20 dark:text-brand-200',
-                  x.n < passo && 'text-muted-foreground hover:bg-muted',
-                  x.n > passo && 'text-muted-foreground/60',
-                )}
-              >
-                <span className="block tabular-nums opacity-60">{x.n}</span>
-                <span className="block truncate">{x.titulo}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
+        <div>
+          <div className="flex items-baseline justify-between gap-3 sm:hidden">
+            <p className="text-sm font-semibold leading-tight">
+              {PASSOS[passo - 1]?.titulo}
+            </p>
+            <p className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              Passo {passo} de {PASSOS.length}
+            </p>
+          </div>
+          <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted sm:hidden">
+            <div
+              className="h-full rounded-full bg-brand-600 transition-all duration-base ease-entrada"
+              style={{ width: `${(passo / PASSOS.length) * 100}%` }}
+            />
+          </div>
+
+          <ol className="hidden items-center sm:flex" aria-label="Etapas do cadastro">
+            {PASSOS.map((x, i) => {
+              const feito = x.n < passo;
+              const atual = x.n === passo;
+              return (
+                <li key={x.n} className={cn('flex items-center', i < PASSOS.length - 1 && 'flex-1')}>
+                  <button
+                    type="button"
+                    /* Voltar é sempre permitido; avançar passa pela validação. */
+                    onClick={() => feito && setPasso(x.n)}
+                    disabled={!feito}
+                    aria-current={atual ? 'step' : undefined}
+                    className={cn(
+                      'flex min-h-11 items-center gap-2 rounded-full pr-2.5 text-left transition',
+                      feito ? 'hover:bg-muted' : 'cursor-default',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums transition',
+                        atual && 'border-brand-600 bg-brand-600 text-white',
+                        feito &&
+                          'border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-900/60 dark:bg-brand-900/30 dark:text-brand-200',
+                        !feito && !atual && 'border-border text-muted-foreground/60',
+                      )}
+                    >
+                      {feito ? <Check className="h-3.5 w-3.5" /> : x.n}
+                    </span>
+                    <span
+                      className={cn(
+                        'whitespace-nowrap text-xs font-medium',
+                        atual ? 'text-foreground' : 'text-muted-foreground',
+                      )}
+                    >
+                      {x.titulo}
+                    </span>
+                  </button>
+                  {i < PASSOS.length - 1 && (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'mx-1.5 h-px flex-1 transition-colors',
+                        feito ? 'bg-brand-300 dark:bg-brand-900/60' : 'bg-border',
+                      )}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       )}
 
       {/* A foto sai do modal: ela abre um segundo diálogo por cima deste, e a
@@ -511,7 +592,7 @@ export function FiliadoForm({
       {mostrar(1) && (
       <Card>
         <CardHeader><CardTitle>Informações pessoais</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <CardContent className={colunas}>
           <Campo label="Nome completo *" erro={errors.nomeCompleto?.message}><Input {...register('nomeCompleto')} /></Campo>
           <Campo label="CPF *" erro={errors.cpf?.message} bloqueado={bloq('cpf')}>
             <Input readOnly={bloq('cpf')} className={bloq('cpf') ? 'bg-muted' : ''} {...register('cpf')} />
@@ -541,7 +622,7 @@ export function FiliadoForm({
       {mostrar(2) && (
       <Card>
         <CardHeader><CardTitle>Contato</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <CardContent className={colunas}>
           <Campo label="Telefone principal *" erro={errors.telefonePrincipal?.message}><Input {...register('telefonePrincipal')} /></Campo>
           <Campo label="Telefone secundário"><Input {...register('telefoneSecundario')} /></Campo>
           <Campo label="E-mail" erro={errors.email?.message}><Input type="email" {...register('email')} /></Campo>
@@ -552,7 +633,7 @@ export function FiliadoForm({
       {mostrar(2) && (
       <Card>
         <CardHeader><CardTitle>Endereço</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <CardContent className={colunas}>
           {/* CEP puxa o resto do endereço. Os campos preenchidos continuam
               EDITÁVEIS de propósito: o ViaCEP erra e desatualiza, e travá-los
               deixaria o operador sem saída num caso legítimo. */}
@@ -648,7 +729,7 @@ export function FiliadoForm({
       <Card>
         <CardHeader><CardTitle>Informações profissionais</CardTitle></CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className={colunas}>
             {/* FORMAÇÃO e COREN são da enfermagem. Num sindicato de servidores
                 municipais o que vale é o cargo, que já existe no vínculo
                 profissional — por isso os dois campos podem ser desligados por

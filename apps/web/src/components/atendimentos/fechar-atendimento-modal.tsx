@@ -55,6 +55,7 @@ const TOM_DO_BLOCO: Record<TomDoEstado, string> = {
 };
 
 const textareaCls = 'min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm';
+import { Portal } from '@/components/ui/portal';
 
 /**
  * FECHAR O ATENDIMENTO — concluir ou cancelar, num modal só (D11, 14/09/2026).
@@ -191,127 +192,129 @@ function ConteudoDoFechamento({
   const voltar = semAConsulta ? 'Deixar aguardando' : 'Voltar';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      onClick={fecharPorFora ? onClose : undefined}
-    >
+    <Portal>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={tituloId}
-        className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
-        onClick={(ev) => ev.stopPropagation()}
+        className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
+        onClick={fecharPorFora ? onClose : undefined}
       >
-        <div className="flex items-start justify-between gap-2 border-b py-3 pl-4 pr-2">
-          <div className="min-w-0 pt-1">
-            <h3 id={tituloId} className="text-lg font-bold leading-tight">{titulo}</h3>
-            {at && <p className="truncate text-sm text-muted-foreground">{at.filiado.nomeCompleto}</p>}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={salvando}
-            aria-label="Fechar"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-50"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {confirmado ? (
-          <ConfirmacaoDoFechamento resposta={confirmado.resposta} onFechar={onClose} />
-        ) : (
-          <>
-            <div className="flex-1 space-y-4 overflow-y-auto p-4">
-              {isLoading || (!data && !isError) ? (
-                <Carregando texto="Conferindo o que fechar vai causar" className="space-y-3">
-                  <Esqueleto className="h-20 w-full rounded-lg" />
-                  <Esqueleto className="h-5 w-2/3" />
-                  <Esqueleto className="h-24 w-full rounded-md" />
-                </Carregando>
-              ) : !at ? (
-                <FalhaComNovaTentativa
-                  texto="Não deu para abrir este atendimento."
-                  carregando={isFetching}
-                  onTentar={() => refetch()}
-                />
-              ) : !f ? (
-                <FalhaComNovaTentativa
-                  texto="Esta tela ainda não chegou ao servidor, e sem ela não dá para saber o que fechar causa na consulta. Tente de novo daqui a alguns minutos."
-                  carregando={isFetching}
-                  onTentar={() => refetch()}
-                />
-              ) : recusa ? (
-                /* Recusado pelo plano (já fechado por outra pessoa, sem desfecho…): a frase é do servidor. */
-                <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-sm">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-                  <span>{recusa}</span>
-                </p>
-              ) : acao === 'CONCLUIR' ? (
-                <CorpoDoConcluir
-                  at={at}
-                  caso={caso!}
-                  texto={texto}
-                  onTexto={setTexto}
-                  obrigatoria={notaObrigatoria(f, escolhas)}
-                  desabilitado={salvando}
-                  tituloId={tituloId}
-                />
-              ) : (
-                <CorpoDoCancelar
-                  at={at}
-                  usuarioId={user?.id ?? null}
-                  categoria={categoria}
-                  onCategoria={setCategoria}
-                  consulta={escolhas.consulta}
-                  onConsulta={setConsultaTocada}
-                  texto={texto}
-                  onTexto={setTexto}
-                  onConcluirEmVez={() => trocarAcao('CONCLUIR')}
-                  desabilitado={salvando}
-                  tituloId={tituloId}
-                />
-              )}
-
-              {/*
-                O que ainda falta para o botão acender. Antes de escolher a
-                categoria, o rótulo com * já diz; e a nota curta tem aviso
-                próprio embaixo do campo.
-              */}
-              {f && !recusa && !conferido.pronto && conferido.falta
-                && (acao === 'CONCLUIR' || !!categoria)
-                && !conferido.falta.startsWith('Conte em poucas palavras') && (
-                <p className="text-xs text-muted-foreground" aria-live="polite">{conferido.falta}</p>
-              )}
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={tituloId}
+          className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+          onClick={(ev) => ev.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-2 border-b py-3 pl-4 pr-2">
+            <div className="min-w-0 pt-1">
+              <h3 id={tituloId} className="text-lg font-bold leading-tight">{titulo}</h3>
+              {at && <p className="truncate text-sm text-muted-foreground">{at.filiado.nomeCompleto}</p>}
             </div>
-
-            {/* No DOM, Voltar vem antes: no celular o principal fica em cima, em largura total. */}
-            <div
-              className="flex flex-col-reverse gap-2 border-t bg-muted/30 px-4 pt-3 sm:flex-row sm:justify-end"
-              style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={salvando}
+              aria-label="Fechar"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
-              <Button variant="outline" className="h-12 w-full sm:h-10 sm:w-auto" onClick={onClose} disabled={salvando}>
-                {voltar}
-              </Button>
-              <Button
-                className={cn(
-                  'h-12 w-full sm:h-10 sm:w-auto',
-                  // Cancelar é reversível: âmbar escuro. O vermelho é só do Excluir.
-                  acao === 'CANCELAR' && 'bg-amber-700 text-white hover:bg-amber-800',
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {confirmado ? (
+            <ConfirmacaoDoFechamento resposta={confirmado.resposta} onFechar={onClose} />
+          ) : (
+            <>
+              <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                {isLoading || (!data && !isError) ? (
+                  <Carregando texto="Conferindo o que fechar vai causar" className="space-y-3">
+                    <Esqueleto className="h-20 w-full rounded-lg" />
+                    <Esqueleto className="h-5 w-2/3" />
+                    <Esqueleto className="h-24 w-full rounded-md" />
+                  </Carregando>
+                ) : !at ? (
+                  <FalhaComNovaTentativa
+                    texto="Não deu para abrir este atendimento."
+                    carregando={isFetching}
+                    onTentar={() => refetch()}
+                  />
+                ) : !f ? (
+                  <FalhaComNovaTentativa
+                    texto="Esta tela ainda não chegou ao servidor, e sem ela não dá para saber o que fechar causa na consulta. Tente de novo daqui a alguns minutos."
+                    carregando={isFetching}
+                    onTentar={() => refetch()}
+                  />
+                ) : recusa ? (
+                  /* Recusado pelo plano (já fechado por outra pessoa, sem desfecho…): a frase é do servidor. */
+                  <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-sm">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+                    <span>{recusa}</span>
+                  </p>
+                ) : acao === 'CONCLUIR' ? (
+                  <CorpoDoConcluir
+                    at={at}
+                    caso={caso!}
+                    texto={texto}
+                    onTexto={setTexto}
+                    obrigatoria={notaObrigatoria(f, escolhas)}
+                    desabilitado={salvando}
+                    tituloId={tituloId}
+                  />
+                ) : (
+                  <CorpoDoCancelar
+                    at={at}
+                    usuarioId={user?.id ?? null}
+                    categoria={categoria}
+                    onCategoria={setCategoria}
+                    consulta={escolhas.consulta}
+                    onConsulta={setConsultaTocada}
+                    texto={texto}
+                    onTexto={setTexto}
+                    onConcluirEmVez={() => trocarAcao('CONCLUIR')}
+                    desabilitado={salvando}
+                    tituloId={tituloId}
+                  />
                 )}
-                onClick={() => salvar.mutate()}
-                disabled={salvando || !conferido.pronto}
+
+                {/*
+                  O que ainda falta para o botão acender. Antes de escolher a
+                  categoria, o rótulo com * já diz; e a nota curta tem aviso
+                  próprio embaixo do campo.
+                */}
+                {f && !recusa && !conferido.pronto && conferido.falta
+                  && (acao === 'CONCLUIR' || !!categoria)
+                  && !conferido.falta.startsWith('Conte em poucas palavras') && (
+                  <p className="text-xs text-muted-foreground" aria-live="polite">{conferido.falta}</p>
+                )}
+              </div>
+
+              {/* No DOM, Voltar vem antes: no celular o principal fica em cima, em largura total. */}
+              <div
+                className="flex flex-col-reverse gap-2 border-t bg-muted/30 px-4 pt-3 sm:flex-row sm:justify-end"
+                style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
               >
-                {salvando
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : acao === 'CONCLUIR' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                {primario}
-              </Button>
-            </div>
-          </>
-        )}
+                <Button variant="outline" className="h-12 w-full sm:h-10 sm:w-auto" onClick={onClose} disabled={salvando}>
+                  {voltar}
+                </Button>
+                <Button
+                  className={cn(
+                    'h-12 w-full sm:h-10 sm:w-auto',
+                    // Cancelar é reversível: âmbar escuro. O vermelho é só do Excluir.
+                    acao === 'CANCELAR' && 'bg-amber-700 text-white hover:bg-amber-800',
+                  )}
+                  onClick={() => salvar.mutate()}
+                  disabled={salvando || !conferido.pronto}
+                >
+                  {salvando
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : acao === 'CONCLUIR' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                  {primario}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }
 

@@ -29,6 +29,7 @@ import {
 import { V } from '@/lib/vocabulario';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
+import { Portal } from '@/components/ui/portal';
 
 export interface AtendimentoParaDesfecho {
   id: string;
@@ -268,387 +269,389 @@ export function RegistrarDesfechoModal({
     .filter(({ q }) => q && (q.isError || (q.data?.length ?? 0) > 0));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      onClick={fechar}
-    >
+    <Portal>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={tituloId}
-        className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
+        onClick={fechar}
       >
-        <div className="flex items-center justify-between gap-2 border-b py-3 pl-5 pr-2">
-          <h3 id={tituloId} className="text-lg font-bold">
-            {registrado ? 'Consulta marcada' : atendimento.novaConsulta ? 'Marcar nova consulta' : 'Registrar desfecho'}
-          </h3>
-          <button
-            type="button"
-            onClick={fechar}
-            aria-label="Fechar"
-            className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={tituloId}
+          className="flex max-h-[92vh] w-full max-w-lg animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-2 border-b py-3 pl-5 pr-2">
+            <h3 id={tituloId} className="text-lg font-bold">
+              {registrado ? 'Consulta marcada' : atendimento.novaConsulta ? 'Marcar nova consulta' : 'Registrar desfecho'}
+            </h3>
+            <button
+              type="button"
+              onClick={fechar}
+              aria-label="Fechar"
+              className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
-        {registrado ? (
-          <Confirmacao dossie={registrado} onFechar={onClose} />
-        ) : (
-          <>
-            <div className="flex-1 space-y-5 overflow-y-auto p-5">
-              {/* Contexto do atendimento */}
-              <div className="rounded-lg bg-muted/50 p-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Atendimento #{atendimento.numero}</p>
-                <p className="font-semibold">{atendimento.filiado.nomeCompleto}</p>
-                <p className="line-clamp-2 text-sm text-muted-foreground">{atendimento.descricao}</p>
-              </div>
-
-              {atendimento.novaConsulta && (
-                <p className="text-sm text-muted-foreground">
-                  A consulta anterior foi cancelada. A nova nasce ligada a este atendimento, como a primeira.
-                </p>
-              )}
-
-              {/* Resultado */}
-              {!atendimento.novaConsulta && (
-              <fieldset className="space-y-1.5">
-                <legend className="mb-1.5 text-sm font-medium">Como terminou? *</legend>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {([
-                    { v: 'RESOLVIDO_ATO', titulo: 'Resolvido no ato', apoio: 'Orientação dada, sem consulta', Icone: CheckCircle2 },
-                    { v: 'ENCAMINHADO', titulo: 'Encaminhar a um advogado', apoio: 'Marca uma consulta na agenda', Icone: ArrowRight },
-                  ] as const).map(({ v, titulo, apoio, Icone }) => (
-                    <button
-                      key={v}
-                      type="button"
-                      aria-pressed={resultado === v}
-                      onClick={() => setResultado(v)}
-                      className={cn(
-                        'flex min-h-14 items-start gap-2.5 rounded-lg border p-3 text-left transition-colors',
-                        resultado === v
-                          ? 'border-brand-700 bg-brand-50 ring-1 ring-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:ring-brand-400'
-                          : 'border-input hover:bg-muted',
-                      )}
-                    >
-                      <Icone className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" aria-hidden="true" />
-                      <span>
-                        <span className="block text-sm font-medium">{titulo}</span>
-                        <span className="block text-xs text-muted-foreground">{apoio}</span>
-                      </span>
-                    </button>
-                  ))}
+          {registrado ? (
+            <Confirmacao dossie={registrado} onFechar={onClose} />
+          ) : (
+            <>
+              <div className="flex-1 space-y-5 overflow-y-auto p-5">
+                {/* Contexto do atendimento */}
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Atendimento #{atendimento.numero}</p>
+                  <p className="font-semibold">{atendimento.filiado.nomeCompleto}</p>
+                  <p className="line-clamp-2 text-sm text-muted-foreground">{atendimento.descricao}</p>
                 </div>
-              </fieldset>
-              )}
 
-              {/* Sobre o que era — o momento em que mais se sabe o assunto é este. */}
-              {!atendimento.novaConsulta && (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium" htmlFor={`${tituloId}-assunto`}>
-                  Sobre o que era? <span className="font-normal text-muted-foreground">(opcional)</span>
-                </label>
-                <select
-                  id={`${tituloId}-assunto`}
-                  className={inputCls}
-                  value={assunto}
-                  onChange={(e) => setAssunto(e.target.value)}
-                >
-                  <option value="">Sem assunto</option>
-                  {ASSUNTOS.map((a) => <option key={a} value={a}>{ASSUNTO_LABEL[a]}</option>)}
-                </select>
-                {assunto === 'OUTRO' && (
-                  <Input
-                    autoFocus={!atendimento.assuntoOutro}
-                    maxLength={ASSUNTO_OUTRO_MAX}
-                    value={assuntoOutro}
-                    onChange={(e) => setAssuntoOutro(e.target.value)}
-                    placeholder="Qual assunto? Ex.: aposentadoria, plano de saúde"
-                    aria-label="Qual assunto?"
-                  />
+                {atendimento.novaConsulta && (
+                  <p className="text-sm text-muted-foreground">
+                    A consulta anterior foi cancelada. A nova nasce ligada a este atendimento, como a primeira.
+                  </p>
                 )}
-              </div>
-              )}
 
-              {resultado === 'RESOLVIDO_ATO' && (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium" htmlFor={`${tituloId}-obs`}>O que foi resolvido?</label>
-                  <textarea
-                    id={`${tituloId}-obs`}
-                    className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm"
-                    placeholder={`Descreva a orientação ou a solução dada ao ${V.filiado}…`}
-                    value={desfechoObs}
-                    onChange={(e) => setDesfechoObs(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {resultado === 'ENCAMINHADO' && (
-                <>
-                  {/* Como vai ser */}
-                  <fieldset>
-                    <legend className="mb-1.5 text-sm font-medium">Como vai ser a consulta?</legend>
-                    <div className="grid grid-cols-3 gap-2">
-                      {MODALIDADES.map((m) => {
-                        const Icone = ICONE_MODALIDADE[m];
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            aria-pressed={modalidade === m}
-                            onClick={() => setModalidade(m)}
-                            className={cn(
-                              'flex h-12 items-center justify-center gap-1.5 rounded-lg border px-2 text-sm transition-colors',
-                              modalidade === m
-                                ? 'border-brand-700 bg-brand-50 font-medium text-brand-900 ring-1 ring-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-200 dark:ring-brand-400'
-                                : 'border-input hover:bg-muted',
-                            )}
-                          >
-                            <Icone className="h-4 w-4 shrink-0" aria-hidden="true" />
-                            {MODALIDADE_LABEL[m]}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-
-                  {modalidade === 'VIDEO' && (
-                    <div className="space-y-1.5">
-                      <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor={`${tituloId}-link`}>
-                        <Link2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                        Link da chamada <span className="font-normal text-muted-foreground">(cole agora ou depois)</span>
-                      </label>
-                      <Input
-                        id={`${tituloId}-link`}
-                        inputMode="url"
-                        maxLength={2000}
-                        value={linkReuniao}
-                        onChange={(e) => setLinkReuniao(e.target.value)}
-                        placeholder="meet.google.com/abc-defg-hij"
-                        aria-invalid={!!erroDoLink}
-                        aria-describedby={`${tituloId}-link-ajuda`}
-                      />
-                      <p
-                        id={`${tituloId}-link-ajuda`}
-                        className={cn('break-all text-xs', erroDoLink ? 'text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
-                      >
-                        {erroDoLink
-                          ?? (linkConferido?.ok
-                            ? `${linkConferido.provedor}: ${linkConferido.url}`
-                            : 'Pode colar o convite inteiro: o sistema pega o link de dentro dele.')}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Data e hora */}
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium" htmlFor={`${tituloId}-data`}>
-                      Dia e hora da consulta{modalidadeRemota(modalidade) ? ' *' : ''}
-                    </label>
-                    <Input
-                      id={`${tituloId}-data`}
-                      type="datetime-local"
-                      value={dataConsulta}
-                      onChange={(e) => setDataConsulta(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {modalidadeRemota(modalidade)
-                        ? 'Obrigatório por vídeo ou telefone: combine o horário com o filiado.'
-                        : dataConsulta
-                          ? 'Apague para deixar no próximo dia útil, às 9h.'
-                          : dataPadrao
-                            ? `Em branco, a consulta fica para ${rotuloDoDia(dataPadrao)}, às 9h.`
-                            : 'Em branco, a consulta fica para o próximo dia útil, às 9h.'}
-                    </p>
-                    {dataJaPassou(dataConsulta) && (
-                      <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50/70 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        Esse dia e hora já passaram. Assim a consulta entra na agenda como algo que ficou para trás. Confira se não é engano de digitação.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Plantão do dia da consulta */}
-                  <div className="space-y-1.5">
-                    <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
-                      {tituloPlantao} — toque para escolher
-                    </p>
-                    {plantaoQuery.isError ? (
-                      <ErroComNovaTentativa
-                        texto="Não deu para carregar a escala deste dia."
-                        onTentar={() => plantaoQuery.refetch()}
-                      />
-                    ) : plantaoQuery.isLoading || !diaAlvo ? (
-                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Conferindo a escala…
-                      </p>
-                    ) : plantao.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">Ninguém escalado neste dia. Escolha na lista abaixo.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">{plantao.map((p) => <ChipPlantao key={p.id} item={p} />)}</div>
-                    )}
-                  </div>
-
-                  {/* Quem atende */}
-                  <div className="space-y-1.5">
-                    <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor={`${tituloId}-equipe`}>
-                      <Users className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Quem vai atender *
-                    </label>
-                    {selecionados.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {selecionados.map((s, i) => (
-                          <span key={s.id} className="inline-flex min-h-11 items-center gap-1 rounded-full bg-brand-100 pl-3 text-sm font-medium text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
-                            {s.nome}
-                            {i === 0 && selecionados.length > 1 && (
-                              <span className="text-xs font-normal opacity-80">· responsável</span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => remAdv(s.id)}
-                              aria-label={`Tirar ${s.nome}`}
-                              className="flex h-11 w-10 items-center justify-center rounded-full hover:text-foreground"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {padrao.isError ? (
-                      <ErroComNovaTentativa
-                        texto="Não deu para carregar a equipe."
-                        onTentar={() => padrao.refetch()}
-                      />
-                    ) : (
-                      <select
-                        id={`${tituloId}-equipe`}
-                        className={inputCls}
-                        value=""
-                        disabled={padrao.isLoading}
-                        onChange={(e) => {
-                          const a = (padrao.data?.advogados ?? []).find((x) => x.id === e.target.value);
-                          if (a) addAdv(a.id, a.nomeExibicao || a.nome);
-                        }}
-                      >
-                        <option value="">{padrao.isLoading ? 'Carregando a equipe…' : 'Escolher pessoa…'}</option>
-                        {equipe.advogados.length > 0 && equipe.outros.length > 0 ? (
-                          <>
-                            <optgroup label="Advogados">
-                              {equipe.advogados.filter((a) => !idsSelec.has(a.id)).map((a) => (
-                                <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="Outros da equipe">
-                              {equipe.outros.filter((a) => !idsSelec.has(a.id)).map((a) => (
-                                <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
-                              ))}
-                            </optgroup>
-                          </>
-                        ) : (
-                          [...equipe.advogados, ...equipe.outros].filter((a) => !idsSelec.has(a.id)).map((a) => (
-                            <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
-                          ))
+                {/* Resultado */}
+                {!atendimento.novaConsulta && (
+                <fieldset className="space-y-1.5">
+                  <legend className="mb-1.5 text-sm font-medium">Como terminou? *</legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      { v: 'RESOLVIDO_ATO', titulo: 'Resolvido no ato', apoio: 'Orientação dada, sem consulta', Icone: CheckCircle2 },
+                      { v: 'ENCAMINHADO', titulo: 'Encaminhar a um advogado', apoio: 'Marca uma consulta na agenda', Icone: ArrowRight },
+                    ] as const).map(({ v, titulo, apoio, Icone }) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={resultado === v}
+                        onClick={() => setResultado(v)}
+                        className={cn(
+                          'flex min-h-14 items-start gap-2.5 rounded-lg border p-3 text-left transition-colors',
+                          resultado === v
+                            ? 'border-brand-700 bg-brand-50 ring-1 ring-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:ring-brand-400'
+                            : 'border-input hover:bg-muted',
                         )}
-                      </select>
-                    )}
-                    {selecionados.length > 1 && (
-                      <p className="text-xs text-muted-foreground">
-                        A primeira pessoa responde pela consulta; as outras entram como participantes.
-                      </p>
-                    )}
-
-                    {/* Choque de horário: avisa, não bloqueia. */}
-                    {choquesVisiveis.length > 0 && (
-                      <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/70 p-2.5 dark:border-amber-900 dark:bg-amber-950/20">
-                        {choquesVisiveis.map(({ pessoa, q }) => (
-                          q.isError ? (
-                            <p key={pessoa.id} className="text-xs text-muted-foreground">
-                              Não deu para conferir a agenda de {pessoa.nome}.
-                            </p>
-                          ) : (
-                            <div key={pessoa.id} className="space-y-0.5">
-                              {(q.data ?? []).map((c) => (
-                                <p key={c.id} className="flex items-start gap-1.5 text-xs text-amber-900 dark:text-amber-200">
-                                  <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                  <span className="min-w-0 break-words">
-                                    {pessoa.nome} já tem {c.titulo}, das {horaBR(c.inicio)} às {horaBR(c.fim)}
-                                  </span>
-                                </p>
-                              ))}
-                            </div>
-                          )
-                        ))}
-                        <p className="text-[11px] text-muted-foreground">
-                          Dá para encaminhar assim mesmo. Só confira se não é engano.
-                        </p>
-                      </div>
-                    )}
+                      >
+                        <Icone className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" aria-hidden="true" />
+                        <span>
+                          <span className="block text-sm font-medium">{titulo}</span>
+                          <span className="block text-xs text-muted-foreground">{apoio}</span>
+                        </span>
+                      </button>
+                    ))}
                   </div>
+                </fieldset>
+                )}
 
-                  {/* Tipo de encaminhamento */}
-                  <div className="space-y-1.5">
-                    <label className="text-sm font-medium" htmlFor={`${tituloId}-tipo`}>Tipo de encaminhamento *</label>
-                    <select
-                      id={`${tituloId}-tipo`}
-                      className={inputCls}
-                      value={tipoEnc}
-                      onChange={(e) => { setTipoEnc(e.target.value as TipoEncaminhamento); setProcessoId(''); }}
-                    >
-                      <option value="CONSULTA_NOVA">{TIPO_ENC_LABEL.CONSULTA_NOVA}</option>
-                      <option value="ANDAMENTO_PROCESSO">{TIPO_ENC_LABEL.ANDAMENTO_PROCESSO}</option>
-                    </select>
-                  </div>
-
-                  {tipoEnc === 'ANDAMENTO_PROCESSO' && (
-                    <div className="space-y-1.5">
-                      <label className="text-sm font-medium" htmlFor={`${tituloId}-processo`}>Processo existente *</label>
-                      {processos.isError ? (
-                        <ErroComNovaTentativa texto="Não deu para carregar os processos." onTentar={() => processos.refetch()} />
-                      ) : (
-                        <select id={`${tituloId}-processo`} className={inputCls} value={processoId} onChange={(e) => setProcessoId(e.target.value)}>
-                          <option value="">{processos.isLoading ? 'Carregando…' : 'Selecionar processo…'}</option>
-                          {(processos.data?.items ?? []).map((p) => (
-                            <option key={p.id} value={p.id}>{formatNPU(p.numeroCNJ)}{p.classeProcessual ? ` — ${p.classeProcessual}` : ''}</option>
-                          ))}
-                        </select>
-                      )}
-                      {processos.isSuccess && (processos.data?.items ?? []).length === 0 && (
-                        <p className="text-xs text-muted-foreground">Este {V.filiado} não tem processos cadastrados.</p>
-                      )}
-                    </div>
+                {/* Sobre o que era — o momento em que mais se sabe o assunto é este. */}
+                {!atendimento.novaConsulta && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium" htmlFor={`${tituloId}-assunto`}>
+                    Sobre o que era? <span className="font-normal text-muted-foreground">(opcional)</span>
+                  </label>
+                  <select
+                    id={`${tituloId}-assunto`}
+                    className={inputCls}
+                    value={assunto}
+                    onChange={(e) => setAssunto(e.target.value)}
+                  >
+                    <option value="">Sem assunto</option>
+                    {ASSUNTOS.map((a) => <option key={a} value={a}>{ASSUNTO_LABEL[a]}</option>)}
+                  </select>
+                  {assunto === 'OUTRO' && (
+                    <Input
+                      autoFocus={!atendimento.assuntoOutro}
+                      maxLength={ASSUNTO_OUTRO_MAX}
+                      value={assuntoOutro}
+                      onChange={(e) => setAssuntoOutro(e.target.value)}
+                      placeholder="Qual assunto? Ex.: aposentadoria, plano de saúde"
+                      aria-label="Qual assunto?"
+                    />
                   )}
+                </div>
+                )}
 
+                {resultado === 'RESOLVIDO_ATO' && (
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium" htmlFor={`${tituloId}-nota`}>
-                      Nota para quem vai atender <span className="font-normal text-muted-foreground">(opcional)</span>
-                    </label>
+                    <label className="text-sm font-medium" htmlFor={`${tituloId}-obs`}>O que foi resolvido?</label>
                     <textarea
-                      id={`${tituloId}-nota`}
-                      className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm"
-                      placeholder="Algo que a descrição não diz"
+                      id={`${tituloId}-obs`}
+                      className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm"
+                      placeholder={`Descreva a orientação ou a solução dada ao ${V.filiado}…`}
                       value={desfechoObs}
                       onChange={(e) => setDesfechoObs(e.target.value)}
                     />
                   </div>
-                </>
-              )}
-            </div>
+                )}
 
-            <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
-              <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
-              <Button onClick={submeter} disabled={salvar.isPending || !resultado}>
-                {salvar.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : resultado === 'ENCAMINHADO' ? <ArrowRight className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                {atendimento.novaConsulta ? 'Marcar consulta' : resultado === 'ENCAMINHADO' ? 'Encaminhar' : 'Registrar'}
-              </Button>
-            </div>
-          </>
-        )}
+                {resultado === 'ENCAMINHADO' && (
+                  <>
+                    {/* Como vai ser */}
+                    <fieldset>
+                      <legend className="mb-1.5 text-sm font-medium">Como vai ser a consulta?</legend>
+                      <div className="grid grid-cols-3 gap-2">
+                        {MODALIDADES.map((m) => {
+                          const Icone = ICONE_MODALIDADE[m];
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              aria-pressed={modalidade === m}
+                              onClick={() => setModalidade(m)}
+                              className={cn(
+                                'flex h-12 items-center justify-center gap-1.5 rounded-lg border px-2 text-sm transition-colors',
+                                modalidade === m
+                                  ? 'border-brand-700 bg-brand-50 font-medium text-brand-900 ring-1 ring-brand-700 dark:border-brand-400 dark:bg-brand-900/20 dark:text-brand-200 dark:ring-brand-400'
+                                  : 'border-input hover:bg-muted',
+                              )}
+                            >
+                              <Icone className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              {MODALIDADE_LABEL[m]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+
+                    {modalidade === 'VIDEO' && (
+                      <div className="space-y-1.5">
+                        <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor={`${tituloId}-link`}>
+                          <Link2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                          Link da chamada <span className="font-normal text-muted-foreground">(cole agora ou depois)</span>
+                        </label>
+                        <Input
+                          id={`${tituloId}-link`}
+                          inputMode="url"
+                          maxLength={2000}
+                          value={linkReuniao}
+                          onChange={(e) => setLinkReuniao(e.target.value)}
+                          placeholder="meet.google.com/abc-defg-hij"
+                          aria-invalid={!!erroDoLink}
+                          aria-describedby={`${tituloId}-link-ajuda`}
+                        />
+                        <p
+                          id={`${tituloId}-link-ajuda`}
+                          className={cn('break-all text-xs', erroDoLink ? 'text-amber-800 dark:text-amber-300' : 'text-muted-foreground')}
+                        >
+                          {erroDoLink
+                            ?? (linkConferido?.ok
+                              ? `${linkConferido.provedor}: ${linkConferido.url}`
+                              : 'Pode colar o convite inteiro: o sistema pega o link de dentro dele.')}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Data e hora */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor={`${tituloId}-data`}>
+                        Dia e hora da consulta{modalidadeRemota(modalidade) ? ' *' : ''}
+                      </label>
+                      <Input
+                        id={`${tituloId}-data`}
+                        type="datetime-local"
+                        value={dataConsulta}
+                        onChange={(e) => setDataConsulta(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {modalidadeRemota(modalidade)
+                          ? 'Obrigatório por vídeo ou telefone: combine o horário com o filiado.'
+                          : dataConsulta
+                            ? 'Apague para deixar no próximo dia útil, às 9h.'
+                            : dataPadrao
+                              ? `Em branco, a consulta fica para ${rotuloDoDia(dataPadrao)}, às 9h.`
+                              : 'Em branco, a consulta fica para o próximo dia útil, às 9h.'}
+                      </p>
+                      {dataJaPassou(dataConsulta) && (
+                        <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50/70 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                          Esse dia e hora já passaram. Assim a consulta entra na agenda como algo que ficou para trás. Confira se não é engano de digitação.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Plantão do dia da consulta */}
+                    <div className="space-y-1.5">
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
+                        {tituloPlantao} — toque para escolher
+                      </p>
+                      {plantaoQuery.isError ? (
+                        <ErroComNovaTentativa
+                          texto="Não deu para carregar a escala deste dia."
+                          onTentar={() => plantaoQuery.refetch()}
+                        />
+                      ) : plantaoQuery.isLoading || !diaAlvo ? (
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Conferindo a escala…
+                        </p>
+                      ) : plantao.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Ninguém escalado neste dia. Escolha na lista abaixo.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">{plantao.map((p) => <ChipPlantao key={p.id} item={p} />)}</div>
+                      )}
+                    </div>
+
+                    {/* Quem atende */}
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-1.5 text-sm font-medium" htmlFor={`${tituloId}-equipe`}>
+                        <Users className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> Quem vai atender *
+                      </label>
+                      {selecionados.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {selecionados.map((s, i) => (
+                            <span key={s.id} className="inline-flex min-h-11 items-center gap-1 rounded-full bg-brand-100 pl-3 text-sm font-medium text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
+                              {s.nome}
+                              {i === 0 && selecionados.length > 1 && (
+                                <span className="text-xs font-normal opacity-80">· responsável</span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => remAdv(s.id)}
+                                aria-label={`Tirar ${s.nome}`}
+                                className="flex h-11 w-10 items-center justify-center rounded-full hover:text-foreground"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {padrao.isError ? (
+                        <ErroComNovaTentativa
+                          texto="Não deu para carregar a equipe."
+                          onTentar={() => padrao.refetch()}
+                        />
+                      ) : (
+                        <select
+                          id={`${tituloId}-equipe`}
+                          className={inputCls}
+                          value=""
+                          disabled={padrao.isLoading}
+                          onChange={(e) => {
+                            const a = (padrao.data?.advogados ?? []).find((x) => x.id === e.target.value);
+                            if (a) addAdv(a.id, a.nomeExibicao || a.nome);
+                          }}
+                        >
+                          <option value="">{padrao.isLoading ? 'Carregando a equipe…' : 'Escolher pessoa…'}</option>
+                          {equipe.advogados.length > 0 && equipe.outros.length > 0 ? (
+                            <>
+                              <optgroup label="Advogados">
+                                {equipe.advogados.filter((a) => !idsSelec.has(a.id)).map((a) => (
+                                  <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
+                                ))}
+                              </optgroup>
+                              <optgroup label="Outros da equipe">
+                                {equipe.outros.filter((a) => !idsSelec.has(a.id)).map((a) => (
+                                  <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
+                                ))}
+                              </optgroup>
+                            </>
+                          ) : (
+                            [...equipe.advogados, ...equipe.outros].filter((a) => !idsSelec.has(a.id)).map((a) => (
+                              <option key={a.id} value={a.id}>{a.nomeExibicao || a.nome}</option>
+                            ))
+                          )}
+                        </select>
+                      )}
+                      {selecionados.length > 1 && (
+                        <p className="text-xs text-muted-foreground">
+                          A primeira pessoa responde pela consulta; as outras entram como participantes.
+                        </p>
+                      )}
+
+                      {/* Choque de horário: avisa, não bloqueia. */}
+                      {choquesVisiveis.length > 0 && (
+                        <div className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50/70 p-2.5 dark:border-amber-900 dark:bg-amber-950/20">
+                          {choquesVisiveis.map(({ pessoa, q }) => (
+                            q.isError ? (
+                              <p key={pessoa.id} className="text-xs text-muted-foreground">
+                                Não deu para conferir a agenda de {pessoa.nome}.
+                              </p>
+                            ) : (
+                              <div key={pessoa.id} className="space-y-0.5">
+                                {(q.data ?? []).map((c) => (
+                                  <p key={c.id} className="flex items-start gap-1.5 text-xs text-amber-900 dark:text-amber-200">
+                                    <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    <span className="min-w-0 break-words">
+                                      {pessoa.nome} já tem {c.titulo}, das {horaBR(c.inicio)} às {horaBR(c.fim)}
+                                    </span>
+                                  </p>
+                                ))}
+                              </div>
+                            )
+                          ))}
+                          <p className="text-[11px] text-muted-foreground">
+                            Dá para encaminhar assim mesmo. Só confira se não é engano.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tipo de encaminhamento */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor={`${tituloId}-tipo`}>Tipo de encaminhamento *</label>
+                      <select
+                        id={`${tituloId}-tipo`}
+                        className={inputCls}
+                        value={tipoEnc}
+                        onChange={(e) => { setTipoEnc(e.target.value as TipoEncaminhamento); setProcessoId(''); }}
+                      >
+                        <option value="CONSULTA_NOVA">{TIPO_ENC_LABEL.CONSULTA_NOVA}</option>
+                        <option value="ANDAMENTO_PROCESSO">{TIPO_ENC_LABEL.ANDAMENTO_PROCESSO}</option>
+                      </select>
+                    </div>
+
+                    {tipoEnc === 'ANDAMENTO_PROCESSO' && (
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium" htmlFor={`${tituloId}-processo`}>Processo existente *</label>
+                        {processos.isError ? (
+                          <ErroComNovaTentativa texto="Não deu para carregar os processos." onTentar={() => processos.refetch()} />
+                        ) : (
+                          <select id={`${tituloId}-processo`} className={inputCls} value={processoId} onChange={(e) => setProcessoId(e.target.value)}>
+                            <option value="">{processos.isLoading ? 'Carregando…' : 'Selecionar processo…'}</option>
+                            {(processos.data?.items ?? []).map((p) => (
+                              <option key={p.id} value={p.id}>{formatNPU(p.numeroCNJ)}{p.classeProcessual ? ` — ${p.classeProcessual}` : ''}</option>
+                            ))}
+                          </select>
+                        )}
+                        {processos.isSuccess && (processos.data?.items ?? []).length === 0 && (
+                          <p className="text-xs text-muted-foreground">Este {V.filiado} não tem processos cadastrados.</p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor={`${tituloId}-nota`}>
+                        Nota para quem vai atender <span className="font-normal text-muted-foreground">(opcional)</span>
+                      </label>
+                      <textarea
+                        id={`${tituloId}-nota`}
+                        className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm"
+                        placeholder="Algo que a descrição não diz"
+                        value={desfechoObs}
+                        onChange={(e) => setDesfechoObs(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 border-t bg-muted/30 p-4">
+                <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>Cancelar</Button>
+                <Button onClick={submeter} disabled={salvar.isPending || !resultado}>
+                  {salvar.isPending
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : resultado === 'ENCAMINHADO' ? <ArrowRight className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {atendimento.novaConsulta ? 'Marcar consulta' : resultado === 'ENCAMINHADO' ? 'Encaminhar' : 'Registrar'}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }
 

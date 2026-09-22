@@ -16,6 +16,7 @@ import {
   ORIGEM_COR, ORIGEM_LABEL, type AlvoAnexo, type ItemAcervo, type OrigemAcervo,
 } from '@/lib/anexos';
 import { V } from '@/lib/vocabulario';
+import { Portal } from '@/components/ui/portal';
 
 /**
  * "Puxar documento de outro atendimento".
@@ -121,122 +122,124 @@ export function PuxarDocumentosModal({
   const origensPresentes = [...new Set(acervo.map((i) => i.origemTipo))];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      onClick={puxar.isPending ? undefined : fechar}
-    >
+    <Portal>
       <div
-        className="flex max-h-[92vh] w-full max-w-2xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:max-h-[85vh] sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
+        onClick={puxar.isPending ? undefined : fechar}
       >
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between gap-3 border-b p-5">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
-              <FolderInput className="h-[18px] w-[18px] text-brand-700 dark:text-brand-400" />
-            </span>
-            <div className="min-w-0">
-              <h3 className="text-base font-bold">Puxar documentos do {V.filiado}</h3>
-              <p className="truncate text-xs text-muted-foreground">
-                Reaproveita o que já foi entregue — sem pedir o arquivo de novo.
-              </p>
+        <div
+          className="flex max-h-[92vh] w-full max-w-2xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:max-h-[85vh] sm:rounded-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between gap-3 border-b p-5">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 dark:bg-brand-900/30">
+                <FolderInput className="h-[18px] w-[18px] text-brand-700 dark:text-brand-400" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-base font-bold">Puxar documentos do {V.filiado}</h3>
+                <p className="truncate text-xs text-muted-foreground">
+                  Reaproveita o que já foi entregue — sem pedir o arquivo de novo.
+                </p>
+              </div>
             </div>
+            <button type="button" onClick={fechar} className="text-muted-foreground hover:text-foreground">
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button type="button" onClick={fechar} className="text-muted-foreground hover:text-foreground">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
 
-        {/* Busca e filtros */}
-        <div className="space-y-3 border-b p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome do arquivo ou origem…"
-              className="pl-9"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
-          </div>
-          {origensPresentes.length > 1 && (
-            <div className="flex flex-wrap gap-1.5">
-              <Chip ativo={filtro === 'TODOS'} onClick={() => setFiltro('TODOS')}>
-                Todos ({acervo.length})
-              </Chip>
-              {origensPresentes.map((o) => (
-                <Chip key={o} ativo={filtro === o} onClick={() => setFiltro(o)}>
-                  {ORIGEM_LABEL[o]} ({acervo.filter((i) => i.origemTipo === o).length})
+          {/* Busca e filtros */}
+          <div className="space-y-3 border-b p-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nome do arquivo ou origem…"
+                className="pl-9"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+            {origensPresentes.length > 1 && (
+              <div className="flex flex-wrap gap-1.5">
+                <Chip ativo={filtro === 'TODOS'} onClick={() => setFiltro('TODOS')}>
+                  Todos ({acervo.length})
                 </Chip>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Lista */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {isLoading ? (
-            <Carregando texto="Procurando os documentos do filiado…">
-              <EsqueletoLinhas quantidade={4} altura={60} className="-mx-4" />
-            </Carregando>
-          ) : acervo.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Este filiado ainda não tem nenhum documento no sistema.
-            </p>
-          ) : visiveis.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Nenhum documento corresponde à busca.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {visiveis.map((item) => (
-                <ItemLinha
-                  key={`${item.origemTipo}:${item.origemId}`}
-                  item={item}
-                  marcado={selecionados.has(item.origemId)}
-                  onToggle={() => alternar(item)}
-                />
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Rodapé */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4">
-          <div className="flex items-center gap-3">
-            {disponiveis.length > 0 && (
-              <button
-                type="button"
-                onClick={selecionarTodos}
-                className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
-              >
-                Selecionar todos os visíveis
-              </button>
+                {origensPresentes.map((o) => (
+                  <Chip key={o} ativo={filtro === o} onClick={() => setFiltro(o)}>
+                    {ORIGEM_LABEL[o]} ({acervo.filter((i) => i.origemTipo === o).length})
+                  </Chip>
+                ))}
+              </div>
             )}
-            <span className="text-xs text-muted-foreground">
-              {selecionados.size > 0
-                ? `${selecionados.size} selecionado(s)`
-                : `${disponiveis.length} disponível(is) para puxar`}
-            </span>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={fechar} disabled={puxar.isPending}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => puxar.mutate()}
-              disabled={selecionados.size === 0 || puxar.isPending}
-            >
-              {puxar.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FolderInput className="h-4 w-4" />
+
+          {/* Lista */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {isLoading ? (
+              <Carregando texto="Procurando os documentos do filiado…">
+                <EsqueletoLinhas quantidade={4} altura={60} className="-mx-4" />
+              </Carregando>
+            ) : acervo.length === 0 ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Este filiado ainda não tem nenhum documento no sistema.
+              </p>
+            ) : visiveis.length === 0 ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">
+                Nenhum documento corresponde à busca.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {visiveis.map((item) => (
+                  <ItemLinha
+                    key={`${item.origemTipo}:${item.origemId}`}
+                    item={item}
+                    marcado={selecionados.has(item.origemId)}
+                    onToggle={() => alternar(item)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Rodapé */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4">
+            <div className="flex items-center gap-3">
+              {disponiveis.length > 0 && (
+                <button
+                  type="button"
+                  onClick={selecionarTodos}
+                  className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400"
+                >
+                  Selecionar todos os visíveis
+                </button>
               )}
-              Puxar {selecionados.size > 0 ? `(${selecionados.size})` : ''}
-            </Button>
+              <span className="text-xs text-muted-foreground">
+                {selecionados.size > 0
+                  ? `${selecionados.size} selecionado(s)`
+                  : `${disponiveis.length} disponível(is) para puxar`}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={fechar} disabled={puxar.isPending}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => puxar.mutate()}
+                disabled={selecionados.size === 0 || puxar.isPending}
+              >
+                {puxar.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FolderInput className="h-4 w-4" />
+                )}
+                Puxar {selecionados.size > 0 ? `(${selecionados.size})` : ''}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }
 

@@ -1,9 +1,8 @@
 import {
-  fraseDoCadastroIncompleto,
   gravidadeDoCadastro,
   listarEmPortugues,
   oQueFaltaNoCadastro,
-  podeMandarLink,
+  porQueFazFalta,
 } from './cadastro-incompleto';
 
 /**
@@ -92,18 +91,15 @@ describe('quão furado está', () => {
   });
 });
 
-describe('a frase do aviso', () => {
-  it('diz o que falta, com nome', () => {
-    expect(fraseDoCadastroIncompleto(['CPF'])).toContain('Falta CPF no cadastro');
-  });
-
+describe('por que faz falta', () => {
   it('a crítica explica a consequência; a leve, não', () => {
-    expect(fraseDoCadastroIncompleto(['CPF'])).toContain('achar a pessoa nos autos');
-    expect(fraseDoCadastroIncompleto(['e-mail'])).not.toContain('achar a pessoa nos autos');
+    expect(porQueFazFalta(['CPF'])).toContain('achar a pessoa nos autos');
+    expect(porQueFazFalta(['e-mail'])).toContain('peça a atualização');
   });
 
-  it('sem nada faltando, frase vazia — e quem chama não escreve nada', () => {
-    expect(fraseDoCadastroIncompleto([])).toBe('');
+  /** Só o telefone já é crítico: sem ele não se avisa ninguém de um prazo. */
+  it('telefone sozinho puxa a frase crítica', () => {
+    expect(porQueFazFalta(['telefone'])).toContain('avisá-la de um prazo');
   });
 
   it('a lista sai em português, com vírgula e "e"', () => {
@@ -114,20 +110,39 @@ describe('a frase do aviso', () => {
 });
 
 /**
- * O LINK É ENVIADO — por WhatsApp ou e-mail. Sem nenhum dos dois não há para
- * onde mandar, e oferecer o botão seria oferecer um caminho que não existe.
+ * O LINK NÃO DEPENDE DE TELEFONE — a regra que eu tinha escrito ao contrário.
+ *
+ * `podeMandarLink` existia e respondia "sem telefone e sem e-mail não há para
+ * onde mandar o link"; o aviso escondia a saída inteira nesse caso. É falso: o
+ * sistema não ENVIA o link, ele o GERA — e a tela de envio oferece "Copiar
+ * mensagem", "Copiar só o link" e "Compartilhar" além do atalho de WhatsApp.
+ * Só o atalho precisa do número.
+ *
+ * E o caso que a regra escondia era o pior de todos: a triagem atende POR
+ * WhatsApp (é o canal da esmagadora maioria dos atendimentos desta lista), ou
+ * seja, ela tem a conversa aberta com a pessoa cujo telefone não está no
+ * cadastro. Era exatamente ali que a saída mais servia.
+ *
+ * Quem decide se o link pode existir é o servidor, que conhece o desafio da
+ * ficha. Não há mais régua nenhuma aqui — e este bloco fica para o próximo que
+ * for "consertar" a ausência dela.
  */
-describe('dá para mandar o link?', () => {
-  it('com celular, dá', () => {
-    expect(podeMandarLink({ telefone: '86 99999-0000' })).toBe(true);
+describe('o link e o telefone', () => {
+  it('faltar telefone é motivo para AVISAR, nunca para esconder a saída', () => {
+    const semNada = {
+      cpf: null,
+      telefonePrincipal: null,
+      telefoneSecundario: null,
+      dataNascimento: null,
+      email: null,
+    };
+    expect(oQueFaltaNoCadastro(semNada)).toContain('telefone');
+    expect(gravidadeDoCadastro(oQueFaltaNoCadastro(semNada))).toBe('CRITICO');
   });
 
-  it('só com e-mail, também', () => {
-    expect(podeMandarLink({ telefone: null, email: 'a@b.c' })).toBe(true);
-  });
-
-  it('sem telefone e sem e-mail, não — sobra o presencial', () => {
-    expect(podeMandarLink({ telefone: null, telefoneSecundario: null, email: null })).toBe(false);
+  it('a régua que escondia a saída não existe mais', async () => {
+    const lib = await import('./cadastro-incompleto');
+    expect('podeMandarLink' in lib).toBe(false);
   });
 });
 
@@ -146,7 +161,6 @@ describe('dá para mandar o link?', () => {
 describe('o telefone vem com dois nomes', () => {
   it('`telefonePrincipal` conta como telefone', () => {
     expect(oQueFaltaNoCadastro({ telefonePrincipal: '86 99846-1100' })).toEqual([]);
-    expect(podeMandarLink({ telefonePrincipal: '86 99846-1100' })).toBe(true);
   });
 
   it('o caso do print: falta CPF, nascimento e e-mail — e o link PODE ser mandado', () => {
@@ -159,17 +173,15 @@ describe('o telefone vem com dois nomes', () => {
     };
     expect(oQueFaltaNoCadastro(erica)).toEqual(['CPF', 'data de nascimento', 'e-mail']);
     expect(oQueFaltaNoCadastro(erica)).not.toContain('telefone');
-    expect(podeMandarLink(erica)).toBe(true);
   });
 
   it('`telefonePrincipal` vazio e sem secundário: aí falta mesmo', () => {
     expect(
       oQueFaltaNoCadastro({ telefonePrincipal: '', telefoneSecundario: null }),
     ).toContain('telefone');
-    expect(podeMandarLink({ telefonePrincipal: '', telefoneSecundario: null })).toBe(false);
   });
 
   it('o nome antigo continua valendo — os dois convivem', () => {
-    expect(podeMandarLink({ telefone: '86 99999-0000' })).toBe(true);
+    expect(oQueFaltaNoCadastro({ telefone: '86 99999-0000' })).not.toContain('telefone');
   });
 });

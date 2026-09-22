@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useId, useRef } from 'react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { Portal } from '@/components/ui/portal';
 
 /**
  * O Esc do diálogo: para o evento aqui (a gaveta embaixo não fecha junto) e só
@@ -207,82 +208,84 @@ export function ConfirmDialog({
     mantê-lo montado, e ele reabriria com o estado antigo.
   */
   return (
-    <div
-      className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
-      onClick={loading ? undefined : onClose}
-    >
+    <Portal>
       <div
-        ref={caixa}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={tituloId}
-        tabIndex={-1}
-        className="w-full max-w-md animate-dialogo-entrar overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
+        onClick={loading ? undefined : onClose}
       >
-        <div className="flex items-start gap-3 p-5">
-          <div
-            className={cn(
-              'shrink-0 rounded-xl p-2',
-              destructive
-                ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400'
-                : 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400',
-            )}
-          >
-            {icon ?? <AlertTriangle className="h-6 w-6" />}
+        <div
+          ref={caixa}
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby={tituloId}
+          tabIndex={-1}
+          className="w-full max-w-md animate-dialogo-entrar overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start gap-3 p-5">
+            <div
+              className={cn(
+                'shrink-0 rounded-xl p-2',
+                destructive
+                  ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400'
+                  : 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400',
+              )}
+            >
+              {icon ?? <AlertTriangle className="h-6 w-6" />}
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 id={tituloId} className="font-semibold leading-tight">{title}</h3>
+              <div className="text-sm text-muted-foreground">{description}</div>
+            </div>
+            {/* 44 px de alvo no telefone; a margem negativa mantém o X no lugar. */}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading}
+              aria-label="Fechar"
+              className="-m-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <div className="flex-1 space-y-1">
-            <h3 id={tituloId} className="font-semibold leading-tight">{title}</h3>
-            <div className="text-sm text-muted-foreground">{description}</div>
-          </div>
-          {/* 44 px de alvo no telefone; a margem negativa mantém o X no lugar. */}
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={loading}
-            aria-label="Fechar"
-            className="-m-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 p-4">
-          {/*
-            O CAMINHO DE TECLADO, DITO NA TELA. Quem chegou aqui por atalho não
-            adivinha que o Tab agora circula dentro do diálogo. Só no desktop:
-            no celular não há Tab nem Esc, e a linha seria ruído.
-          */}
-          <p className="mr-auto hidden text-[11px] text-muted-foreground sm:block">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/30 p-4">
+            {/*
+              O CAMINHO DE TECLADO, DITO NA TELA. Quem chegou aqui por atalho não
+              adivinha que o Tab agora circula dentro do diálogo. Só no desktop:
+              no celular não há Tab nem Esc, e a linha seria ruído.
+            */}
+            <p className="mr-auto hidden text-[11px] text-muted-foreground sm:block">
+              {!confirmarComEnter && (
+                <>
+                  <kbd className="rounded border px-1 font-sans">Tab</kbd> escolhe ·{' '}
+                </>
+              )}
+              <kbd className="rounded border px-1 font-sans">Enter</kbd>{' '}
+              {confirmarComEnter ? 'confirma' : 'aciona'} ·{' '}
+              <kbd className="rounded border px-1 font-sans">Esc</kbd> fecha
+            </p>
+            {/*
+              SEM BOTÃO DE CANCELAR quando o Enter confirma: duas teclas, uma
+              decisão. O X do canto FICA — no telefone não existe Esc, e sem ele a
+              única saída seria tocar fora, que ninguém descobre sozinho.
+            */}
             {!confirmarComEnter && (
-              <>
-                <kbd className="rounded border px-1 font-sans">Tab</kbd> escolhe ·{' '}
-              </>
+              <Button ref={cancelar} variant="outline" onClick={onClose} disabled={travas.cancelar}>
+                {cancelLabel}
+              </Button>
             )}
-            <kbd className="rounded border px-1 font-sans">Enter</kbd>{' '}
-            {confirmarComEnter ? 'confirma' : 'aciona'} ·{' '}
-            <kbd className="rounded border px-1 font-sans">Esc</kbd> fecha
-          </p>
-          {/*
-            SEM BOTÃO DE CANCELAR quando o Enter confirma: duas teclas, uma
-            decisão. O X do canto FICA — no telefone não existe Esc, e sem ele a
-            única saída seria tocar fora, que ninguém descobre sozinho.
-          */}
-          {!confirmarComEnter && (
-            <Button ref={cancelar} variant="outline" onClick={onClose} disabled={travas.cancelar}>
-              {cancelLabel}
+            <Button
+              ref={confirmar}
+              variant={destructive ? 'destructive' : 'default'}
+              onClick={onConfirm}
+              disabled={travas.confirmar}
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {confirmLabel}
             </Button>
-          )}
-          <Button
-            ref={confirmar}
-            variant={destructive ? 'destructive' : 'default'}
-            onClick={onConfirm}
-            disabled={travas.confirmar}
-          >
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {confirmLabel}
-          </Button>
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }

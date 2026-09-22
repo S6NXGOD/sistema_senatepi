@@ -5,6 +5,7 @@ import Cropper from 'react-easy-crop';
 import { Loader2, ZoomIn, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { recortarImagem, Area } from '@/lib/cropImage';
+import { Portal } from '@/components/ui/portal';
 
 /**
  * Diálogo de recorte de foto. Recebe o arquivo selecionado, deixa o usuário
@@ -45,48 +46,50 @@ export function PhotoCropDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg animate-dialogo-entrar rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-semibold">Ajustar foto</h3>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
-        </div>
+    <Portal>
+      <div className="fixed inset-0 z-50 flex animate-overlay-entrar items-center justify-center bg-black/60 p-4" onClick={onClose}>
+        <div className="w-full max-w-lg animate-dialogo-entrar rounded-xl bg-card p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-semibold">Ajustar foto</h3>
+            <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          </div>
 
-        <div className="relative h-80 w-full overflow-hidden rounded-lg bg-muted">
-          <Cropper
-            image={src}
-            crop={crop}
-            zoom={zoom}
-            aspect={aspect}
-            onCropChange={setCrop}
-            onZoomChange={setZoom}
-            onCropComplete={onCropComplete}
-            cropShape="rect"
-            showGrid
-          />
-        </div>
+          <div className="relative h-80 w-full overflow-hidden rounded-lg bg-muted">
+            <Cropper
+              image={src}
+              crop={crop}
+              zoom={zoom}
+              aspect={aspect}
+              onCropChange={setCrop}
+              onZoomChange={setZoom}
+              onCropComplete={onCropComplete}
+              cropShape="rect"
+              showGrid
+            />
+          </div>
 
-        <div className="mt-4 flex items-center gap-3">
-          <ZoomIn className="h-4 w-4 text-muted-foreground" />
-          <input
-            type="range"
-            min={1}
-            max={3}
-            step={0.01}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-            className="w-full accent-brand-800"
-          />
-        </div>
+          <div className="mt-4 flex items-center gap-3">
+            <ZoomIn className="h-4 w-4 text-muted-foreground" />
+            <input
+              type="range"
+              min={1}
+              max={3}
+              step={0.01}
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="w-full accent-brand-800"
+            />
+          </div>
 
-        <div className="mt-5 flex justify-end gap-3">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={confirmar} disabled={processando}>
-            {processando && <Loader2 className="h-4 w-4 animate-spin" />}
-            Aplicar recorte
-          </Button>
+          <div className="mt-5 flex justify-end gap-3">
+            <Button variant="outline" onClick={onClose}>Cancelar</Button>
+            <Button onClick={confirmar} disabled={processando}>
+              {processando && <Loader2 className="h-4 w-4 animate-spin" />}
+              Aplicar recorte
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }
