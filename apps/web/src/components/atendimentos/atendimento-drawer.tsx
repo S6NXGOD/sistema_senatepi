@@ -19,7 +19,6 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar as podeEditarModulo, podeVer } from '@/lib/permissoes';
 import { normalizarLinkReuniao } from '@/lib/link-reuniao';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
-import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
 import { AvisoCadastroIncompleto } from '@/components/filiados/aviso-cadastro-incompleto';
 import { AnexosSection } from '@/components/anexos/anexos-section';
 import { AtendimentoParaDesfecho } from '@/components/atendimentos/registrar-desfecho-modal';
@@ -68,7 +67,6 @@ export function AtendimentoDrawer({
   const podeEditar = podeEditarModulo(user?.role, user?.permissoes, 'atendimentos');
   const podeVerAgenda = podeVer(user?.role, user?.permissoes, 'agenda');
   const podeEditarFiliados = podeEditarModulo(user?.role, user?.permissoes, 'filiados');
-  const [cadastral, setCadastral] = useState(false);
   /*
     CONCLUIR, CANCELAR E REABRIR ABREM DIÁLOGO (14/09/2026). Eram seis toques
     únicos entre a gaveta e a lista, sem dizer o que acontecia com a consulta.
@@ -175,11 +173,9 @@ export function AtendimentoDrawer({
                 >
                   <WhatsAppIcon className="h-4 w-4" /> WhatsApp
                 </Button>
-                {podeEditarFiliados && (
-                  <Button variant="outline" onClick={() => setCadastral(true)}>
-                    <UserCog className="h-4 w-4" /> Atualização cadastral
-                  </Button>
-                )}
+                {/* Ver o mesmo comentário no `novo-atendimento-drawer`: o
+                    formulário paralelo saiu, e a porta de edição mora no aviso
+                    de cadastro incompleto, logo abaixo. */}
               </div>
               {!celularLink && (
                 <p className="mt-2 text-xs text-muted-foreground">
@@ -424,14 +420,6 @@ export function AtendimentoDrawer({
           </div>
         )}
       </Sheet>
-
-      {cadastral && filiado && (
-        <AtualizacaoCadastralModal
-          filiado={filiado}
-          onClose={() => setCadastral(false)}
-          onSaved={invalidar}
-        />
-      )}
 
       <FecharAtendimentoModal
         atendimentoId={open && fechar && at ? at.id : null}

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { AlertTriangle, IdCard, Send, UserCog } from 'lucide-react';
 import { EnviarLinkModal } from '@/components/filiados/enviar-link-modal';
+import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';
 import { cn } from '@/lib/utils';
 import { V } from '@/lib/vocabulario';
 import {
@@ -62,11 +63,67 @@ export function AvisoCadastroIncompleto({
     inclusive os que ainda nem existem.
   */
   const [mandando, setMandando] = useState(false);
+  /*
+    O PRESENCIAL TAMBÉM É MODAL — e é o MESMO formulário do cadastro (22/09/2026).
+
+    "Preencher aqui com filiado e atualização cadastral ficou redundante.
+    Basicamente é para ser um modal de recadastramento, completo, mesmo que
+    fique multi step se necessário."
+
+    Ele tem razão duas vezes. Era um `Link` para `/filiados/<id>/recadastrar`,
+    que tira a triagem do atendimento; e havia, ao lado, um segundo botão
+    ("Atualização cadastral") abrindo um formulário próprio de 29 campos — uma
+    segunda implementação do mesmo cadastro, livre para divergir.
+
+    `CadastroFiliadoModal` com `filiadoId` já fazia exatamente isto: carrega a
+    ficha, roda o `FiliadoForm` em `modo="recadastrar"` e `emPassos` (que é o
+    multi step), e respeita os campos travados do recadastramento. Não escrevi
+    tela nova nenhuma — só parei de duplicar a que existia.
+  */
+  const [recadastrando, setRecadastrando] = useState(false);
   const faltando = oQueFaltaNoCadastro(filiado);
   const gravidade = gravidadeDoCadastro(faltando);
-  if (gravidade === 'OK') return null;
-
   const podeLink = podeMandarLink(filiado);
+
+  const modais = (
+    <>
+      <EnviarLinkModal
+        filiadoId={filiadoId}
+        nome={nome}
+        open={mandando}
+        onClose={() => setMandando(false)}
+      />
+      <CadastroFiliadoModal
+        open={recadastrando}
+        filiadoId={filiadoId}
+        onClose={() => setRecadastrando(false)}
+        onSalvo={() => setRecadastrando(false)}
+      />
+    </>
+  );
+
+  /*
+    CADASTRO EM ORDEM NÃO GANHA AVISO — mas a PORTA não pode sumir junto.
+
+    Tirar o botão "Atualização cadastral" deixaria quem tem o cadastro completo
+    sem nenhum caminho para editar dali: a pessoa mudou de endereço, trocou de
+    telefone, e nada disso "falta". Fica uma linha discreta, sem cor e sem
+    moldura — ela não pede nada, só existe para quando alguém precisar.
+  */
+  if (gravidade === 'OK') {
+    return (
+      <div className={className}>
+        <button
+          type="button"
+          onClick={() => setRecadastrando(true)}
+          className="inline-flex min-h-11 items-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+        >
+          <UserCog className="h-3.5 w-3.5" /> Atualizar cadastro
+        </button>
+        {modais}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -120,15 +177,16 @@ export function AvisoCadastroIncompleto({
             <Send className="h-3.5 w-3.5" /> Mandar link de recadastro
           </button>
         )}
-        <Link
-          href={`/filiados/${filiadoId}/recadastrar`}
+        <button
+          type="button"
+          onClick={() => setRecadastrando(true)}
           className={cn(
             'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border bg-card px-3 text-xs font-medium transition hover:bg-muted',
             !podeLink && 'sm:col-span-2',
           )}
         >
           <UserCog className="h-3.5 w-3.5" /> Preencher aqui, com o {V.filiado}
-        </Link>
+        </button>
       </div>
 
       {!podeLink && (
@@ -138,12 +196,7 @@ export function AvisoCadastroIncompleto({
         </p>
       )}
 
-      <EnviarLinkModal
-        filiadoId={filiadoId}
-        nome={nome}
-        open={mandando}
-        onClose={() => setMandando(false)}
-      />
+      {modais}
     </div>
   );
 }

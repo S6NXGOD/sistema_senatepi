@@ -15,7 +15,7 @@ const ler = (rel: string) => readFileSync(join(RAIZ, rel), 'utf8').replace(/\r\n
 const FICHA = ler('app/(dashboard)/filiados/[id]/page.tsx');
 const ENVIO = ler('components/filiados/enviar-link-recadastro.tsx');
 const MODAL = ler('components/filiados/recadastrar-modal.tsx');
-const ATUALIZACAO = ler('components/atendimentos/atualizacao-cadastral-modal.tsx');
+const AVISO = ler('components/filiados/aviso-cadastro-incompleto.tsx');
 
 describe('ficha do filiado', () => {
   /** O advogado só visualiza filiado: Recadastrar e Editar levariam 403 no fim. */
@@ -106,9 +106,42 @@ describe('envio do link', () => {
     expect(MODAL).toContain('onClick={abrirPresencial}');
   });
 
-  it('a atualização cadastral do atendimento oferece o link a quem edita filiado, e a caixa tem botão', () => {
-    expect(ATUALIZACAO).toContain("podeEditar(user?.role, user?.permissoes, 'filiados')");
-    expect(ATUALIZACAO).toContain('{podeMandarLink && !enviarLink && (');
-    expect(ATUALIZACAO).toContain("<EnviarLinkRecadastro filiadoId={filiado.id} onCompletarFicha={(porta) => (porta === 'EDITAR'");
+  /**
+   * O ATENDIMENTO TEM UMA PORTA SÓ PARA CADA COISA — 22/09/2026.
+   *
+   * "Preencher aqui com filiado e atualização cadastral ficou redundante.
+   * Basicamente é para ser um modal de recadastramento, completo, mesmo que
+   * fique multi step se necessário."
+   *
+   * Tinha razão: ao lado de "Preencher aqui, com o filiado" havia um segundo
+   * formulário de 29 campos (`atualizacao-cadastral-modal.tsx`, apagado), uma
+   * implementação paralela do mesmo cadastro e livre para divergir. Ficou o
+   * `FiliadoForm` em passos, que é o formulário canônico — o mesmo do cadastro
+   * e do recadastramento presencial da ficha.
+   */
+  it('o presencial do atendimento abre o formulário canônico, em modal e em passos', () => {
+    expect(AVISO).toContain(
+      "import { CadastroFiliadoModal } from '@/components/filiados/cadastro-filiado-modal';",
+    );
+    expect(AVISO).toContain('<CadastroFiliadoModal');
+    expect(AVISO).toContain('filiadoId={filiadoId}');
+    // Botão, nunca link: navegar tira a triagem do meio do atendimento.
+    expect(AVISO).toContain('onClick={() => setRecadastrando(true)}');
+    expect(AVISO).not.toContain('/recadastrar`}');
+  });
+
+  /** O formulário paralelo não pode voltar por um atalho. */
+  it('não existe mais um segundo formulário de cadastro no atendimento', () => {
+    expect(() => ler('components/atendimentos/atualizacao-cadastral-modal.tsx')).toThrow();
+  });
+
+  /**
+   * E A PORTA NÃO SOME QUANDO O CADASTRO ESTÁ EM ORDEM. Tirar o botão antigo
+   * deixaria quem tem tudo preenchido sem caminho nenhum para editar dali — a
+   * pessoa mudou de endereço, e isso não "falta".
+   */
+  it('cadastro completo mantém uma linha discreta para atualizar', () => {
+    expect(AVISO).toContain("if (gravidade === 'OK') {");
+    expect(AVISO).toContain('Atualizar cadastro');
   });
 });

@@ -15,9 +15,18 @@ A API aponta para ela por `DJEN_BASE_URL`.
 
 ---
 
-## 1. Diagnóstico — cole no terminal da VPS
+## 1. Diagnóstico
 
-Só leitura. Responde **por que parou** e **o que falta**:
+**Comece pelo Railway, não pelo servidor.** Em 20/09/2026 eu comecei pelo
+servidor, testei um caminho que a configuração daquela época não atendia, recebi
+o `404` previsto e conclui que a ponte estava desconfigurada — quando o problema
+estava na variável. Então, na ordem:
+
+1. **`DJEN_BASE_URL` existe e está correta?** Sem ela a API chama o CNJ direto e
+   toma 403 em tudo, em silêncio.
+2. **O endereço DELA responde?** Use a URL exata da variável, com o cabeçalho
+   exato — nunca um caminho inventado.
+3. Só então, na VPS, o bloco abaixo (só leitura):
 
 ```bash
 echo "== nginx =="; systemctl is-active nginx; nginx -v 2>&1
@@ -38,8 +47,8 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 |---|---|---|
 | `sites-enabled` vazio ou sem o arquivo da ponte | a configuração sumiu | passo 2 |
 | o arquivo existe mas `nginx -T` não o mostra | falta o link simbólico, ou `nginx -t` falhou e o reload não aconteceu | passo 2 |
-| `server_name` com um domínio | a API chama por IP e o `Host` não casa → cai no *default server* → 404 | passo 2 (`server_name _`) |
-| o `apt` aparece atualizando o nginx perto da data em que parou | o pacote reiniciou o serviço e ele releu só o que estava **em disco** | passo 2 |
+| `server_name` com um domínio e a API chama por IP | o `Host` não casa → cai no *default server* | passo 2 (`server_name _`) |
+| `location / { return 404; }` e você testou outro caminho | **a ponte está viva** e recusando um caminho que ela não atende — foi o meu erro de 20/09 | teste a URL EXATA da variável |
 | o `curl` final **não** dá 200 | aí sim o problema é fora: rede da VPS ou o próprio CNJ | pare e investigue isso antes |
 
 ---
@@ -146,9 +155,48 @@ Desde 21/09/2026 ele diz a verdade sozinho:
 
 ## Histórico
 
-**20–21/09/2026 — a configuração sumiu do Nginx.** O passo 1 devolveu: CNJ `200`
-do Brasil, VPS `404` em `/api/v1/comunicacao` **e na raiz**, Nginx no ar, tráfego
-de saída de 0,0 MB no painel da Hostinger. Sem a ponte, a API cai no endereço
-público (default literal do código) e sai pelo IP do Railway — 403 em tudo, e
-nenhuma publicação entrou desde 19/09. O DataJud seguiu funcionando o tempo
-todo: são duas APIs diferentes.
+### 20–21/09/2026 — parou, e o meu primeiro diagnóstico estava errado
+
+**O que eu disse:** "a configuração sumiu do Nginx".
+**O que era:** a configuração estava lá o tempo todo, intacta desde 03/09.
+
+A ponte antiga usava **caminho secreto** e hostname `nip.io`:
+
+```nginx
+server_name 179-199-142-206.nip.io;
+location ~ ^/ponte-<hash>/(.*)$ { proxy_pass https://$djen/api/v1/$1$is_args$args; }
+location / { return 404; }
+```
+
+Eu testei `https://179.199.142.206/api/v1/comunicacao` — um caminho que aquela
+configuração **não** atende — e recebi o `404` do `location /`. Li a resposta
+CORRETA de uma configuração viva como "não há configuração". Conferido depois:
+`https://179-199-142-206.nip.io/ponte-<hash>/comunicacao` devolvia **200** no
+mesmo minuto em que eu afirmava que a ponte estava morta.
+
+**A causa real, então, estava do outro lado:** `DJEN_BASE_URL`, no Railway. Sem
+ela — ou apontando para um endereço que não responde — a API cai no default
+literal do código (`https://comunicaapi.pje.jus.br/api/v1`), sai pelo IP do
+Railway e toma 403 em tudo, sem quebrar nada na subida. Não dá para saber o
+valor anterior: ele foi substituído antes de eu olhar.
+
+**A lição, e é o motivo de o passo 1 desta página ter mudado de ordem:** quando
+uma integração com ponte para de responder, a primeira pergunta é *"o que a
+aplicação está chamando?"*, e só depois *"o servidor responde?"*. Testar um
+caminho inventado contra um proxy de caminho secreto produz exatamente o
+sintoma que se procura — e confirma a hipótese errada.
+
+**O DataJud nunca parou** — rodou em 21/09 às 05:16, 157 processos. São duas
+APIs: o DataJud tem chave e aceita qualquer origem; só o DJEN bloqueia por país.
+
+### 22/09/2026 — a ponte nova, com cabeçalho
+
+A configuração deste documento substituiu a antiga: `server_name _` com
+`default_server` (a API chama por IP) e segredo no **cabeçalho** em vez de no
+caminho. Testado de fora: sem chave `403`, com chave `200` com dados de 21/09.
+
+> **Se a configuração antiga ainda estiver habilitada**, há duas portas abertas
+> — e a antiga não exige o cabeçalho, só o caminho. Para fechá-la:
+> ```bash
+> rm -f /etc/nginx/sites-enabled/ponte-djen && nginx -t && systemctl reload nginx
+> ```

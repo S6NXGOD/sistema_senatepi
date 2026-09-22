@@ -13,7 +13,6 @@ import {
   ASSUNTO_OUTRO_MAX, erroDoAssunto, limparAssuntoOutro,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
-import { AtualizacaoCadastralModal } from '@/components/atendimentos/atualizacao-cadastral-modal';
 import { AvisoCadastroIncompleto } from '@/components/filiados/aviso-cadastro-incompleto';
 import { PuxarDocumentosModal } from '@/components/anexos/puxar-documentos-modal';
 import { listarAcervo } from '@/lib/anexos';
@@ -58,8 +57,6 @@ export function NovoAtendimentoDrawer({
   const [descricao, setDescricao] = useState('');
   const [urgente, setUrgente] = useState(false);
   const [urgenteMotivo, setUrgenteMotivo] = useState('');
-  const [cadastral, setCadastral] = useState<any | null>(null);
-  const [carregandoContato, setCarregandoContato] = useState(false);
   /** A atualização cadastral grava na ficha: sem EDITAR filiados, a API recusaria. */
   const { user } = useAuth();
   const podeEditarFiliados = podeEditar(user?.role, user?.permissoes, 'filiados');
@@ -113,13 +110,6 @@ export function NovoAtendimentoDrawer({
     return () => clearTimeout(t);
   }, [busca]);
 
-  async function abrirCadastral() {
-    if (!filiadoId) return;
-    setCarregandoContato(true);
-    try { setCadastral((await api.get(`/filiados/${filiadoId}`)).data); }
-    catch { toast.error(`Não foi possível carregar os dados do ${V.filiado}.`); }
-    finally { setCarregandoContato(false); }
-  }
 
   const criar = useMutation({
     mutationFn: () =>
@@ -162,11 +152,7 @@ export function NovoAtendimentoDrawer({
     criar.mutate();
   }
 
-  if (!open) {
-    return cadastral ? (
-      <AtualizacaoCadastralModal filiado={cadastral} onClose={() => setCadastral(null)} onSaved={() => {}} />
-    ) : null;
-  }
+  if (!open) return null;
 
   // Atendimento já registrado: o formulário sai de cena e entra a escolha dos
   // documentos do acervo. Fechar aqui encerra o fluxo (puxar é opcional).
@@ -222,11 +208,18 @@ export function NovoAtendimentoDrawer({
                       <button type="button" onClick={() => { setFiliadoId(''); setFiliadoNome(''); }} className="-my-2 -mr-2 flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground" aria-label={`Trocar ${V.filiado}`}><X className="h-4 w-4" /></button>
                     )}
                   </div>
-                  {podeEditarFiliados && (
-                    <Button variant="outline" size="sm" className="w-full" onClick={abrirCadastral} disabled={carregandoContato}>
-                      {carregandoContato ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />} Atualização cadastral
-                    </Button>
-                  )}
+                  {/*
+                    "ATUALIZAÇÃO CADASTRAL" SAIU (22/09/2026). Era um segundo
+                    formulário de 29 campos para o mesmo cadastro, ao lado de
+                    "Preencher aqui, com o filiado" — duas portas para a mesma
+                    coisa, e uma delas uma implementação paralela, livre para
+                    divergir. Ficou a do aviso, que é o `FiliadoForm` em passos.
+
+                    O botão só existia quando faltava algo? Não: ele aparecia
+                    sempre. Agora a porta de edição acompanha o aviso — e quando
+                    não falta nada, não há o que atualizar com o filiado na
+                    linha. A ficha completa continua a um clique em Filiados.
+                  */}
                   {/*
                     O CADASTRO FURADO É COBRADO AQUI, com o filiado do outro
                     lado da linha. Ver `AvisoCadastroIncompleto`: some quando
@@ -384,9 +377,6 @@ export function NovoAtendimentoDrawer({
         </div>
       </div>
 
-      {cadastral && (
-        <AtualizacaoCadastralModal filiado={cadastral} onClose={() => setCadastral(null)} onSaved={() => {}} />
-      )}
     </>
   );
 }
