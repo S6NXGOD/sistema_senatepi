@@ -222,6 +222,15 @@ const RESERVA_MINIMA = 2;
 /** Tentativas extras quando o CNJ corta por excesso (403/429). */
 const MAX_TENTATIVAS = 3;
 /** Recusas de origem seguidas antes de suspender as tentativas. */
+/**
+ * POR QUANTO TEMPO UM 200 AINDA VALE COMO PROVA DE QUE A ORIGEM PASSA.
+ *
+ * Cinco minutos: uma varredura inteira leva minutos, então o sucesso do começo
+ * cobre o 403 de cota do meio. E é curto o bastante para um bloqueio de origem
+ * que comece no meio da noite ser reconhecido na rodada seguinte.
+ */
+const JANELA_DE_SUCESSO_RECENTE_MS = 5 * 60_000;
+
 const BLOQUEIOS_PARA_ABRIR = 3;
 /** Quanto tempo o serviço para de tentar depois de confirmar o bloqueio. */
 const PAUSA_APOS_BLOQUEIO_MS = 60 * 60_000;
@@ -260,6 +269,26 @@ export class DjenService {
    */
   private bloqueiosSeguidos = 0;
   private bloqueadoAte = 0;
+  /**
+   * QUANDO O CNJ NOS RESPONDEU PELA ÚLTIMA VEZ — o desempate do 403.
+   *
+   * 22/09/2026, com a ponte de volta no ar: a varredura entrou, gravou 7
+   * publicações e mesmo assim registrou "159 de 165 consulta(s) em falha" — em
+   * SEIS SEGUNDOS. Seis segundos para 165 chamadas é o disjuntor aberto, não
+   * rede lenta.
+   *
+   * Medido contra a ponte, do meu lado: 20 chamadas seguidas devolvem 12 × 200
+   * e 8 × 403, com `X-RateLimit-Limit: 20` nos 200 e `X-Amz-Cf-Pop: GRU1`
+   * (São Paulo) — ou seja, a ponte funciona e o CNJ recusa por VOLUME. Só que
+   * nesse 403 ele não manda `X-RateLimit-*`, e a heurística de 14/09 ("403 sem
+   * o cabeçalho = o CDN recusou a origem") classificava cota como bloqueio,
+   * abria o disjuntor por 60 minutos e derrubava as outras 159.
+   *
+   * O cabeçalho não basta para distinguir os dois — mas o HISTÓRICO basta: se o
+   * CNJ respondeu 200 a esta mesma origem há instantes, ele não está
+   * bloqueando a origem. Está dizendo "devagar".
+   */
+  private ultimoSucessoEm = 0;
 
   /**
    * A CHAVE DA PONTE — 22/09/2026.
@@ -506,7 +535,17 @@ export class DjenService {
       // Com `X-RateLimit-*`, a requisição chegou ao CNJ e foi barrada por
       // volume: vale esperar a janela e repetir. SEM eles, quem recusou foi o
       // CDN, antes da API — repetir não muda nada e só gasta tempo.
-      if (res.status === 403 && this.saldoInformado === null) {
+      /*
+        O 403 DEPOIS DE UM SUCESSO RECENTE É COTA, NÃO ORIGEM (22/09/2026).
+
+        O CDN bloqueia a origem por IP: ou recusa tudo, ou não recusa nada — não
+        alterna. Um 403 chegando poucos minutos depois de um 200 pela mesma rota
+        só pode ser volume. Cair no ramo do disjuntor aqui custa a rodada
+        inteira, e foi o que aconteceu no dia em que a ponte voltou.
+      */
+      const respondeuHaPouco =
+        Date.now() - this.ultimoSucessoEm < JANELA_DE_SUCESSO_RECENTE_MS;
+      if (res.status === 403 && this.saldoInformado === null && !respondeuHaPouco) {
         clearTimeout(timer);
         this.bloqueiosSeguidos++;
         if (this.bloqueiosSeguidos >= BLOQUEIOS_PARA_ABRIR) {
@@ -549,6 +588,8 @@ export class DjenService {
       }
 
       this.bloqueiosSeguidos = 0;
+      // O carimbo do 200 é o que distingue "cota" de "origem" no próximo 403.
+      this.ultimoSucessoEm = Date.now();
       const json = (await res.json()) as { items?: unknown };
       const itens = Array.isArray(json?.items) ? json.items : [];
       return itens
