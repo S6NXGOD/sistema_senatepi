@@ -261,9 +261,25 @@ export class DjenService {
   private bloqueiosSeguidos = 0;
   private bloqueadoAte = 0;
 
+  /**
+   * A CHAVE DA PONTE — 22/09/2026.
+   *
+   * O repassador brasileiro (`DJEN_BASE_URL`) é, por natureza, um proxy aberto
+   * para a API do CNJ: quem descobrir o IP consome a cota em nome do sindicato,
+   * e a cota é POR IP (20/min). Um cabeçalho combinado é o mínimo que separa a
+   * nossa chamada da de qualquer um — o Nginx recusa quem não o traz.
+   *
+   * VAZIA, NENHUM CABEÇALHO É ENVIADO. É o que permite ligar os dois lados em
+   * qualquer ordem, e é o que faz a chamada direta ao CNJ (sem ponte) continuar
+   * funcionando igual — ele não conhece este cabeçalho e o ignoraria, mas
+   * mandar segredo para fora de casa não se faz.
+   */
+  private readonly ponteChave: string;
+
   constructor(private readonly config: ConfigService) {
     this.baseUrl =
       this.config.get<string>('DJEN_BASE_URL') || 'https://comunicaapi.pje.jus.br/api/v1';
+    this.ponteChave = (this.config.get<string>('DJEN_PONTE_CHAVE') ?? '').trim();
     this.timeoutMs = Number(this.config.get('DJEN_TIMEOUT_MS')) || 30_000;
     this.janelaDias = Number(this.config.get('DJEN_JANELA_DIAS')) || 3;
     this.limitePorMinuto =
@@ -455,7 +471,16 @@ export class DjenService {
     try {
       this.historico.push(Date.now());
       const res = await fetch(url, {
-        headers: { Accept: 'application/json' },
+        /*
+          A CHAVE SÓ VAI PELA PONTE. Ver `ponteChave`: mandá-la na chamada
+          direta ao CNJ seria entregar um segredo nosso a um servidor de fora.
+        */
+        headers: {
+          Accept: 'application/json',
+          ...(this.ponteChave && !this.baseUrl.includes('pje.jus.br')
+            ? { 'X-Ponte-Chave': this.ponteChave }
+            : {}),
+        },
         signal: controller.signal,
       });
 
