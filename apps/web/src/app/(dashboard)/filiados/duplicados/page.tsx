@@ -1078,7 +1078,13 @@ function GrupoCard({
               <Merge className="h-4 w-4" /> {rotuloDoConsolidar(grupo.candidatos.length, escolhido!.matricula)}
             </Button>
           )}
-          {podeFundir && soLinhaVazia && (
+          {/*
+            NÃO DEPENDE DE ESCOLHER QUEM FICA — e foi assim que o botão não
+            apareceu na primeira conferência de tela. `podeFundir` exige um
+            cadastro escolhido, porque consolidar precisa saber quem sobra.
+            Aqui não sobra ninguém: a condição é só poder decidir.
+          */}
+          {podeDecidir && soLinhaVazia && (
             <Button size="sm" variant="destructive" onClick={onDescartarVazio}>
               <Trash2 className="h-4 w-4" /> Excluir as {grupo.candidatos.length} fichas vazias
             </Button>

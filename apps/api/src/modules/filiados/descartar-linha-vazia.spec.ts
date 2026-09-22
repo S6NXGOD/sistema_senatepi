@@ -175,4 +175,20 @@ describe('descartar o grupo vazio', () => {
     expect(chamada.descricao).toContain('3067');
     expect(chamada.metadata.matricula).toBe('3067');
   });
+
+  /**
+   * O AUTOR É UM NOME, NÃO UM ID — e este teste existe porque a primeira versão
+   * mandava `userId: autor` e a rota devolvia **500**: a coluna é chave
+   * estrangeira para `users`. Os 21 testes daqui passaram assim mesmo, porque o
+   * `audit` deste arnês é um mock e engole qualquer campo. Quem reprovou foi
+   * chamar a rota de verdade.
+   */
+  it('o autor vai no TEXTO e no metadata, nunca como userId', async () => {
+    const { service, audit } = montar([ficha('3067', '0'), ficha('3124', '0')]);
+    await service.descartarGrupoVazio(['3067', '3124'], 'João Pedro');
+    const chamada = audit.registrar.mock.calls[0][0];
+    expect(chamada.userId).toBeUndefined();
+    expect(chamada.descricao).toContain('João Pedro');
+    expect(chamada.metadata.autor).toBe('João Pedro');
+  });
 });

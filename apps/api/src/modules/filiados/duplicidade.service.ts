@@ -1632,15 +1632,25 @@ export class DuplicidadeService {
 
     for (const r of registros) {
       await this.prisma.filiado.delete({ where: { id: r.id } });
+      /*
+        `autor` É O NOME, NÃO O ID — e passá-lo como `userId` derruba a rota com
+        500: a coluna é chave estrangeira para `users`. Descobri rodando, com 21
+        testes verdes: o `audit` do spec é um mock e aceita qualquer coisa.
+
+        As outras auditorias desta classe nunca mandam `userId` (o interceptor
+        preenche a partir da sessão) e põem o nome no texto. Aqui é igual.
+      */
       await this.audit.registrar({
-        userId: autor ?? null,
         acao: AcaoAuditoria.DELETE,
         entidade: 'Filiado',
         entidadeId: r.id,
         descricao:
           `Ficha vazia de importação descartada (nome "${r.nomeCompleto}", matrícula ` +
-          `${r.matricula}): sem dado que identifique e sem histórico nenhum.`,
-        metadata: { matricula: r.matricula, nomeCompleto: r.nomeCompleto, grupo: unicos },
+          `${r.matricula}): sem dado que identifique e sem histórico nenhum` +
+          `${autor ? `, por ${autor}` : ''}.`,
+        metadata: {
+          matricula: r.matricula, nomeCompleto: r.nomeCompleto, grupo: unicos, autor: autor ?? null,
+        },
       });
     }
 
