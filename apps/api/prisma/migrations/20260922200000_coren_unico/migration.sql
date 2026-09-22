@@ -1,0 +1,37 @@
+-- O COREN É ÚNICO POR PESSOA, e o banco não garantia — 22/09/2026.
+--
+-- A PERGUNTA DO DONO: "O sistema impede criação com CPF igual? RG também e
+-- outras coisas que são chave única?"
+--
+-- O QUE HAVIA: único de verdade eram `cpf`, `matricula` e `qr_token`. O COREN
+-- não — embora o serviço de recadastramento (`garantirUnicidade`) já RECUSE um
+-- COREN que pertença a outra ficha. Ou seja: um caminho do código assumia a
+-- unicidade e o banco não a impunha; bastava outro caminho gravar para a
+-- premissa quebrar em silêncio.
+--
+-- MEDIDO ANTES DE CRIAR: zero COREN repetido na produção (e zero RG, zero
+-- e-mail). O índice entra sem conflito.
+--
+-- ÍNDICE PARCIAL, e é isso que o torna seguro: só vale para linhas com COREN
+-- preenchido. Em Postgres vários NULL não colidem, mas string VAZIA colide —
+-- e a base importada tem campo em branco. Sem o `WHERE`, a primeira ficha sem
+-- COREN passaria e a segunda quebraria a importação inteira.
+--
+-- RG FICA DE FORA, DE PROPÓSITO. Não é único no país: estados diferentes emitem
+-- o mesmo número, e dois filiados com "RG 1234567" de UFs distintas são duas
+-- pessoas. Um único em `rg` recusaria cadastro legítimo. (r,uf) seria
+-- defensável, mas a base tem RG antigo e digitado à mão — o custo de barrar
+-- gente de verdade é maior que o de conviver com a repetição.
+--
+-- E-MAIL TAMBÉM FICA DE FORA: família compartilha e-mail. Mãe e filha filiadas
+-- com o mesmo endereço é caso real, não erro.
+--
+-- ADITIVA E IDEMPOTENTE: `IF NOT EXISTS`, nenhuma coluna alterada.
+-- A CHAVE É O NÚMERO APARADO. O serviço compara com `.trim()`; se o índice
+-- guardasse o valor cru, " 12345" e "12345" passariam pelas duas travas e o
+-- banco aceitaria a repetição que a tela recusa. Índice sobre `btrim(...)` faz
+-- as duas regras dizerem a mesma coisa. Conferido na produção: 283 fichas com
+-- COREN, zero repetição também depois de aparar.
+CREATE UNIQUE INDEX IF NOT EXISTS "filiados_numero_coren_unico"
+  ON "filiados" (btrim("numero_coren"))
+  WHERE "numero_coren" IS NOT NULL AND btrim("numero_coren") <> '';

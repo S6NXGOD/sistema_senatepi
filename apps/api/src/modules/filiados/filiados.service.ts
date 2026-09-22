@@ -171,12 +171,72 @@ export class FiliadosService {
     });
   }
 
+  /**
+   * O COREN TAMBÉM É ÚNICO — 22/09/2026.
+   *
+   * "O sistema impede criação com CPF igual? RG também e outras coisas que são
+   * chave única?" O CPF sim, desde sempre. O COREN não — embora o
+   * recadastramento (`garantirUnicidade`) já o recusasse: um caminho assumia a
+   * unicidade e o outro não, e o banco não impunha nenhuma.
+   *
+   * Agora há índice único parcial no banco (migração
+   * `20260922200000_coren_unico`) e esta checagem antes, para a pessoa ler uma
+   * frase em vez de um erro de constraint.
+   *
+   * RG E E-MAIL FICAM DE FORA, e a migração explica: RG não é único no país
+   * (estados repetem número) e família compartilha e-mail.
+   */
+  /**
+   * O COREN JÁ É DE OUTRA FICHA? Recusa com o nome de quem o tem.
+   *
+   * CONSULTA CRUA DE PROPÓSITO: o índice único do banco é sobre
+   * `btrim(numero_coren)`, e a base importada tem número com espaço sobrando.
+   * Um `findFirst` por igualdade exata deixaria passar " 12345" contra "12345"
+   * — a tela diria "pode", e o banco recusaria com P2002 e uma mensagem que
+   * ninguém entende. As duas travas têm de comparar a MESMA coisa.
+   */
+  /**
+   * O COREN GRAVADO É O APARADO. O índice único do banco é sobre
+   * `btrim(numero_coren)`: gravar " 12345" faria a ficha ocupar a chave do
+   * "12345" sem se parecer com ele em nenhuma busca. Campo em branco vira
+   * NULL, que é o que "não tenho COREN" quer dizer — vazio colide no índice,
+   * NULL não. `undefined` continua `undefined`: num PATCH parcial ele
+   * significa "não mexi nisso".
+   */
+  private static corenGravavel(v: string | null | undefined) {
+    if (v === undefined) return undefined;
+    return (v ?? '').trim() || null;
+  }
+
+  private async exigirCorenLivre(numeroCoren: string | null | undefined, exceto?: string) {
+    const coren = (numeroCoren ?? '').trim();
+    if (!coren) return;
+    const [outro] = await this.prisma.$queryRaw<
+      { nomeCompleto: string; matricula: string }[]
+    >`
+      SELECT nome_completo AS "nomeCompleto", matricula
+        FROM filiados
+       WHERE btrim(numero_coren) = ${coren}
+         AND id <> ${exceto ?? ''}
+       LIMIT 1
+    `;
+    if (outro) {
+      throw new BadRequestException(
+        `O COREN ${coren} já está no cadastro de ${outro.nomeCompleto} (matrícula ` +
+          `${outro.matricula}). Confira o número — se forem a mesma pessoa, use a fila de ` +
+          'possíveis duplicados.',
+      );
+    }
+  }
+
   async create(dto: CreateFiliadoDto, autor?: string) {
     const cpf = dto.cpf.replace(/\D/g, '');
     if (await this.prisma.filiado.findUnique({ where: { cpf } }))
       throw new BadRequestException('Já existe filiado com este CPF');
+    await this.exigirCorenLivre(dto.numeroCoren);
 
-    const { vinculos, dependentes, ...dados } = dto;
+    const { vinculos, dependentes, ...resto } = dto;
+    const dados = { ...resto, numeroCoren: FiliadosService.corenGravavel(dto.numeroCoren) };
 
     const filiado = await this.comMatriculaLivre((matricula) =>
       this.prisma.filiado.create({
@@ -609,7 +669,19 @@ export class FiliadosService {
   ) {
     await this.exigirPortaCerta(id, dto.situacao);
     await this.findOne(id);
-    const { vinculos, dependentes, ...dados } = dto;
+    // O mesmo guarda da criação: editar não pode furar o que criar recusa.
+    await this.exigirCorenLivre(dto.numeroCoren, id);
+    const { vinculos, dependentes, ...resto } = dto;
+    /*
+      A CHAVE SÓ ENTRA SE VEIO. `Object.keys(dados)` é o que o log de auditoria
+      grava como "campos enviados" e é o que monta o SELECT do estado de antes:
+      pôr `numeroCoren: undefined` sempre faria todo PATCH parcial declarar um
+      campo que o formulário não mandou.
+    */
+    const dados =
+      dto.numeroCoren === undefined
+        ? resto
+        : { ...resto, numeroCoren: FiliadosService.corenGravavel(dto.numeroCoren) };
 
     /*
       O ESTADO DE ANTES, lido do banco na hora — é a metade que faltava.
