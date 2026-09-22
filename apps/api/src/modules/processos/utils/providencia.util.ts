@@ -324,6 +324,69 @@ export function corpoDaPublicacao(textoNormalizado: string): string {
   return corpo.length >= MIN_CORPO ? corpo : textoNormalizado;
 }
 
+/**
+ * O QUE O JULGADO MANDA FAZER — e o que ele apenas CONTA — 22/09/2026.
+ *
+ * O CASO QUE ENSINOU. Um acórdão do TST (SBDI-II) com **48.864 caracteres**
+ * virou "Analisar sentença, prazo hoje" para a Dra. Morgana. Nenhuma das duas
+ * coisas era verdade, e os dois erros vieram do MESMO lugar:
+ *
+ *   · "SENTENCA PROFERIDA" casou a 14% do texto — era a sentença de **2014**
+ *     que a FASUBRA queria rescindir, citada no relatório;
+ *   · "PRAZO DE 15 DIAS" casou a 21% — prazo dado à FASUBRA anos atrás para
+ *     emendar a petição inicial.
+ *
+ * O dispositivo estava a **99%**: "ACORDAM (...) negar provimento ao recurso
+ * ordinário". Ou seja, a decisão era FAVORÁVEL ao nosso lado e não pedia nada.
+ *
+ * A DIFERENÇA ENTRE UMA INTIMAÇÃO E UM ACÓRDÃO. Na intimação, o texto inteiro é
+ * a ordem — por isso a leitura sempre foi do documento todo, e está certa: a
+ * média do acervo é de 3.064 caracteres. No julgado, o texto é uma HISTÓRIA, e
+ * só o fim é ordem. Ler o relatório como se fosse comando é ler o passado como
+ * se fosse hoje.
+ *
+ * O CORTE SÓ VALE NO ATO LONGO E COM DISPOSITIVO. Sem marca de dispositivo, ou
+ * curto demais para ser julgado, devolve o texto inteiro — perder o prazo de
+ * uma intimação de verdade é muito mais caro que classificar um acórdão a mais
+ * pelo relatório. Medido no acervo: 239 das 2.395 publicações passam de 5.000
+ * caracteres, e 12 delas tiveram prazo extraído.
+ *
+ * Pega a ÚLTIMA marca, não a primeira: um acórdão com voto divergente traz
+ * "ACORDAM" no meio e o dispositivo de verdade depois.
+ */
+const MARCAS_DE_DISPOSITIVO = [
+  'ISTO POSTO',
+  'POSTO ISSO',
+  'ANTE O EXPOSTO',
+  'DIANTE DO EXPOSTO',
+  'PELO EXPOSTO',
+  'ACORDAM',
+];
+
+/**
+ * Abaixo disto o ato não é julgado: é intimação, e o texto todo vale.
+ *
+ * 5.000 caracteres é onde a distribuição do acervo separa os dois (média de
+ * 3.064; as três atividades abertas legítimas nasceram de atos de 782 a 865).
+ */
+const MIN_JULGADO = 5_000;
+
+/** O trecho que decide; o texto inteiro quando não for um julgado longo. */
+export function trechoQueDecide(textoNormalizado: string): string {
+  if (textoNormalizado.length < MIN_JULGADO) return textoNormalizado;
+
+  let corte = -1;
+  for (const marca of MARCAS_DE_DISPOSITIVO) {
+    const i = textoNormalizado.lastIndexOf(marca);
+    if (i > corte) corte = i;
+  }
+  if (corte < 0) return textoNormalizado;
+
+  const fim = textoNormalizado.slice(corte).trim();
+  // Dispositivo curto demais para conter ordem nenhuma: melhor o texto inteiro.
+  return fim.length >= MIN_CORPO ? fim : textoNormalizado;
+}
+
 export interface ClassificacaoProvidencia {
   providencia: Providencia;
   /**
@@ -361,8 +424,15 @@ export function classificarProvidencia(
   // A classificação olha só o CORPO — o cabeçalho descreve o processo, não o
   // que está sendo pedido. O prazo, ao contrário, sai do texto INTEIRO: alguns
   // tribunais o anunciam antes do corpo do ato.
-  const t = corpoDaPublicacao(completo);
-  const prazoMencionadoDias = extrairPrazoDias(completo);
+  /*
+    NUM JULGADO LONGO, SÓ O DISPOSITIVO VALE — ver `trechoQueDecide`. O
+    relatório de um acórdão narra sentenças e prazos de anos atrás, e lê-los
+    como ordem de hoje foi o que pôs "Analisar sentença, prazo hoje" na agenda
+    por causa de um acórdão que NOS DEU RAZÃO.
+  */
+  const queDecide = trechoQueDecide(completo);
+  const t = corpoDaPublicacao(queDecide);
+  const prazoMencionadoDias = extrairPrazoDias(queDecide);
 
   const tipo = normalizar(tipoComunicacao ?? '');
   const resolver = (providencia: Providencia): ClassificacaoProvidencia => ({
