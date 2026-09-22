@@ -129,8 +129,14 @@ describe('a grade acompanha o tamanho do grupo', () => {
  */
 describe('a tela mostra o que existe, e não o que falta', () => {
   it('as linhas do cartão saem dos campos que ALGUÉM preencheu', () => {
-    expect(PAGINA).toContain('CAMPOS_COMPARADOS.filter(({ chave }) =>');
-    expect(PAGINA).toContain('grupo.candidatos.some((c) => temValor(');
+    /*
+      22/09/2026: a asserção era a LINHA exata `CAMPOS_COMPARADOS.filter(...)`,
+      e quebrou quando o balde "sem dado para decidir" passou a acrescentar a
+      data da ficha à lista. O que importa não é de qual array a lista sai — é
+      que só entra campo que ALGUÉM do grupo preencheu. É isso que se afirma.
+    */
+    const semEspaco = PAGINA.replace(/\s+/g, ' ');
+    expect(semEspaco).toContain('grupo.candidatos.some((c) => temValor(');
     /*
       A NEGATIVA É DENTRO DO CARTÃO, e não no arquivo inteiro: `ResumoFusao`
       percorre `CAMPOS_COMPARADOS` de propósito, para listar o que vai ser
@@ -197,9 +203,17 @@ describe('o controle de tirar do grupo, terceira tentativa', () => {
 
   /** O cartão não pode mais desenhar a própria borda, senão ficam duas. */
   it('o cartão perde a borda própria', () => {
-    const cartao = PAGINA.slice(PAGINA.indexOf('function CandidatoCard'));
-    expect(cartao.slice(0, 900)).not.toContain("'rounded-xl border p-3 text-left transition'");
-    expect(cartao.slice(0, 900)).toContain("'flex-1 p-3 text-left transition'");
+    /*
+      A JANELA DE 900 CARACTERES QUEBROU EM 22/09/2026, quando um comentário
+      entrou no meio do componente. Ela media POSIÇÃO, não comportamento: o
+      `className` continuava certo, dez linhas abaixo. Agora o recorte vai até o
+      fim da função, que é o que a frase do teste sempre quis dizer.
+    */
+    const inicio = PAGINA.indexOf('function CandidatoCard');
+    const proxima = PAGINA.indexOf('function ', inicio + 'function CandidatoCard'.length);
+    const cartao = PAGINA.slice(inicio, proxima === -1 ? undefined : proxima);
+    expect(cartao).not.toContain("'rounded-xl border p-3 text-left transition'");
+    expect(cartao).toContain("'flex-1 p-3 text-left transition'");
   });
 
   /** Alvo de dedo no celular; no desktop o ponteiro não precisa de 44 px. */

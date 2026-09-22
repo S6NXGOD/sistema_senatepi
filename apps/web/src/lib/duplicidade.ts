@@ -79,6 +79,67 @@ export function separarDecidiveis(grupos: GrupoDuplicata[]): {
   };
 }
 
+/**
+ * O QUE A TELA DIZ QUANDO NÃO HÁ NADA PARA DECIDIR — 22/09/2026.
+ *
+ * O DONO ABRIU A FILA E VIU UM BECO: "Confiança Alta 0 · Média 0 · Baixa 0",
+ * um ✓ verde dizendo "Nada pendente nesta confiança", e — em cinza de 11px, no
+ * rodapé — "Outros 148 grupos esperam um dado (...) Ver assim mesmo". A
+ * resposta dele foi exatamente a certa: **"aqui não aparece nada pra fazer"**.
+ *
+ * O ✓ verde estava MENTINDO. Ele quer dizer "acabou", e não acabou: há 148
+ * grupos de nome igual do outro lado de um link que ninguém vê.
+ *
+ * A ESCOLHA DE 18/09 NÃO ESTAVA ERRADA — ficou velha. Naquele dia o balde foi
+ * escondido para a fileira de abas não exibir "397 pendências" que ninguém
+ * decide, e havia trabalho real nas outras confianças. Com as três em ZERO, o
+ * único balde com conteúdo é o escondido, e escondê-lo é esconder a tela
+ * inteira.
+ *
+ * Três estados, e cada um diz uma coisa diferente:
+ *
+ *  · `TUDO_RESOLVIDO` — não há nem decidível nem esperando. Aí sim, ✓ verde.
+ *  · `SO_ESPERANDO`   — nada a decidir AQUI, mas há grupos sem dado. O ✓ sai de
+ *                       cena e a tela oferece a porta como AÇÃO, não rodapé.
+ *  · `TEM_EM_OUTRA`   — esta confiança está vazia e outra tem fila. Mandar para
+ *                       lá é mais útil que anunciar vazio.
+ */
+export type EstadoDaFila = 'TUDO_RESOLVIDO' | 'SO_ESPERANDO' | 'TEM_EM_OUTRA';
+
+export function estadoDaFila(entrada: {
+  /** Grupos na aba aberta agora. */
+  nestaAba: number;
+  /** Decidíveis em QUALQUER confiança. */
+  decidiveis: number;
+  /** Grupos sem nenhum dado que os distinga. */
+  esperando: number;
+}): EstadoDaFila | null {
+  if (entrada.nestaAba > 0) return null;
+  if (entrada.decidiveis > 0) return 'TEM_EM_OUTRA';
+  return entrada.esperando > 0 ? 'SO_ESPERANDO' : 'TUDO_RESOLVIDO';
+}
+
+/**
+ * O QUE DISTINGUE DUAS FICHAS QUANDO NÃO HÁ DADO NENHUM.
+ *
+ * Nos grupos que esperam dado, os cartões mostram nome, matrícula e "Nenhum
+ * outro dado cadastrado" — e a pessoa precisa decidir alguma coisa com isso.
+ * Sobram três fatos, e eles não estavam todos na tela:
+ *
+ *   · a MATRÍCULA (sempre existe, é única nas 5.832 fichas);
+ *   · QUANDO a pessoa se filiou (113 dos 145 grupos têm datas diferentes);
+ *   · QUANDO a ficha foi criada — que é o que separa "duas fichas do mesmo dia,
+ *     matrículas consecutivas" de "uma de 2014 e outra da carga de 2026".
+ *
+ * Nenhum dos três PROVA nada, e a frase que acompanha diz isso. Mas decidir com
+ * três fatos é decidir; decidir com zero é sortear.
+ */
+export const CAMPOS_DE_ULTIMO_RECURSO: ReadonlyArray<{ chave: string; rotulo: string }> = [
+  // `dataFiliacao` já está em `CAMPOS_COMPARADOS` e sai sozinha; aqui entra só
+  // o que não estava em lugar nenhum.
+  { chave: 'createdAt', rotulo: 'Ficha criada em' },
+];
+
 export const CONFIANCA_LABEL: Record<Confianca, string> = {
   ALTA: 'Alta',
   MEDIA: 'Média',

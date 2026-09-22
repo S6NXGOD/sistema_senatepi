@@ -5,8 +5,7 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle,
-  Keyboard, List, Merge, Undo2, UserMinus, Users, X,
+  AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Keyboard, List, Merge, Search, Send, Undo2, UserMinus, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,15 +17,17 @@ import { useAuth } from '@/lib/auth';
 import { podeEditar } from '@/lib/permissoes';
 import { cn, formatarData, mascararCpf } from '@/lib/utils';
 import {
-  CAMPOS_COMPARADOS, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL, frasesDaRiqueza,
+  CAMPOS_COMPARADOS, CAMPOS_DE_ULTIMO_RECURSO, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL, frasesDaRiqueza,
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
   listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
   planejarConsolidacao, quantosDados, resumoDoCadastro, rotuloDoConsolidar,
-  separarDecidiveis, soDigitosDoCpf, temValor, veredictoDoCpf, voltarParaFila,
+  estadoDaFila, separarDecidiveis, soDigitosDoCpf, temValor, veredictoDoCpf, voltarParaFila,
   type AnaliseDeCpf, type VeredictoDoCpf,
   type CandidatoDuplicata, type Confianca, type GrupoDuplicata,
 } from '@/lib/duplicidade';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
+import { EnviarLinkModal } from '@/components/filiados/enviar-link-modal';
+import { V } from '@/lib/vocabulario';
 
 const NIVEIS: Confianca[] = ['ALTA', 'MEDIA', 'BAIXA'];
 
@@ -115,6 +116,12 @@ export default function DuplicadosPage() {
   }, [decidiveis]);
 
   const grupos = aba === 'ESPERANDO' ? esperando : porNivel[aba];
+  /** O que dizer quando a aba está vazia — ver `estadoDaFila`. */
+  const estadoVazio = estadoDaFila({
+    nestaAba: grupos.length,
+    decidiveis: decidiveis.length,
+    esperando: esperando.length,
+  });
 
   async function confirmarFusao() {
     if (!fundindo) return;
@@ -371,17 +378,32 @@ export default function DuplicadosPage() {
           </button>
         ))}
         {/*
-          SÓ APARECE QUANDO VOCÊ ESTÁ DENTRO DELE (18/09/2026). É um marcador de
-          lugar, não uma aba: sem isso, quem abre o balde vê as três abas
-          apagadas e nenhuma dizendo onde está. Como só existe nesse modo, não
-          volta a encher a fileira com 397 itens que ninguém decide — e sair é
-          tocar em qualquer confiança ao lado.
+          O BALDE VIROU ABA DE VERDADE — 22/09/2026.
+
+          Em 18/09 ele só aparecia quando você já estava dentro, para a fileira
+          não exibir "397 pendências" que ninguém decide. A escolha não estava
+          errada; ficou velha. Com as três confianças em ZERO, o único balde com
+          conteúdo era o escondido, e a tela inteira parecia resolvida — o dono
+          abriu, viu um ✓ verde e disse "aqui não aparece nada pra fazer".
+
+          Continua TRACEJADO e continua fora da conta de pendências: não é
+          trabalho atrasado, é trabalho que depende de um dado chegar. Mas está
+          na fileira, com o número, do lado das outras.
         */}
-        {aba === 'ESPERANDO' && (
-          <span className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            Esperando dado
+        {esperando.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setAba('ESPERANDO')}
+            className={cn(
+              'rounded-lg border border-dashed px-3 py-2 text-sm transition',
+              aba === 'ESPERANDO'
+                ? 'border-brand-800 bg-brand-50 font-semibold dark:bg-brand-900/30'
+                : 'text-muted-foreground hover:bg-muted',
+            )}
+          >
+            Sem dado para decidir
             <span className="ml-2 rounded-full bg-muted px-1.5 text-xs">{esperando.length}</span>
-          </span>
+          </button>
         )}
         {/*
           O SELETOR TINHA TAMANHO DE LEGENDA e ninguém o via. Agora tem a mesma
@@ -413,10 +435,27 @@ export default function DuplicadosPage() {
           </button>
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {aba === 'ESPERANDO'
-          ? 'Nenhum cadastro destes grupos tem CPF, COREN, nascimento ou contato — não há como afirmar que são a mesma pessoa nem que são diferentes.'
-          : CONFIANCA_EXPLICACAO[aba]}
+      {/*
+        A EXPLICAÇÃO DO BALDE PRECISA DIZER O QUE FAZER — 22/09/2026.
+
+        Ela dizia só o que falta ("não há como afirmar..."), e parava aí. Quem
+        chega precisa saber que sobram três fatos para olhar e que existe um
+        caminho para conseguir o dado que resolve. E precisa saber o resultado
+        que MEDIMOS: nos 3 grupos da base em que havia como saber, os CPFs eram
+        diferentes — eram pessoas diferentes nos 3.
+      */}
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {aba === 'ESPERANDO' ? (
+          <>
+            Nenhuma ficha destes grupos tem CPF, COREN, nascimento ou contato — o sistema não
+            consegue afirmar que são a mesma pessoa <strong>nem</strong> que são diferentes. Sobram
+            a matrícula e as datas. Nos 3 grupos desta base em que deu para conferir, os CPFs eram{' '}
+            <strong>diferentes</strong>: eram pessoas diferentes nos três. Peça o CPF pelo link e o
+            grupo se resolve sozinho.
+          </>
+        ) : (
+          CONFIANCA_EXPLICACAO[aba]
+        )}
       </p>
 
       {isLoading && (
@@ -433,15 +472,49 @@ export default function DuplicadosPage() {
         </CardContent></Card>
       )}
 
+      {/*
+        O ✓ VERDE SÓ QUANDO ACABOU MESMO — 22/09/2026.
+
+        Ele dizia "Nada pendente nesta confiança" com 148 grupos do outro lado
+        de um link cinza no rodapé. ✓ verde quer dizer "acabou", e não tinha
+        acabado. Ver `estadoDaFila`.
+      */}
       {!isLoading && !isError && grupos.length === 0 && (
-        <Card><CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-          <CheckCircle2 className="h-8 w-8 text-brand-700 dark:text-brand-400" />
-          <p className="text-sm font-medium">
-            {aba === 'ESPERANDO' ? 'Nenhum grupo esperando dado' : 'Nada pendente nesta confiança'}
-          </p>
-          <p className="max-w-sm text-xs text-muted-foreground">
-            Os grupos resolvidos não voltam a aparecer.
-          </p>
+        <Card><CardContent className="flex flex-col items-center gap-2.5 py-12 text-center">
+          {estadoVazio === 'TUDO_RESOLVIDO' ? (
+            <>
+              <CheckCircle2 className="h-8 w-8 text-brand-700 dark:text-brand-400" />
+              <p className="text-sm font-medium">Nenhum cadastro duplicado na fila</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Os grupos resolvidos não voltam a aparecer.
+              </p>
+            </>
+          ) : estadoVazio === 'SO_ESPERANDO' ? (
+            <>
+              <Search className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm font-medium">Nada a decidir com o que o cadastro tem hoje</p>
+              <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
+                Há <strong className="font-semibold text-foreground">{esperando.length}</strong> grupos
+                de nome igual em que <strong>nenhuma</strong> das fichas tem CPF, contato ou
+                nascimento — não dá para afirmar que são a mesma pessoa. Dá para olhar mesmo assim,
+                pela matrícula e pelas datas, ou pedir o dado ao {V.filiado} pelo link de
+                recadastramento.
+              </p>
+              <Button className="mt-1" onClick={() => setAba('ESPERANDO')}>
+                Ver os {esperando.length} grupos
+              </Button>
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="h-8 w-8 text-brand-700 dark:text-brand-400" />
+              <p className="text-sm font-medium">
+                {aba === 'ESPERANDO' ? 'Nenhum grupo sem dado' : 'Nada pendente nesta confiança'}
+              </p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Ainda há grupos em outra confiança — toque nas abas acima.
+              </p>
+            </>
+          )}
         </CardContent></Card>
       )}
 
@@ -506,13 +579,6 @@ export default function DuplicadosPage() {
           ))}
         </div>
       )}
-
-      <EsperandoDado
-        quantos={esperando.length}
-        aberto={aba === 'ESPERANDO'}
-        onAbrir={() => setAba('ESPERANDO')}
-        onFechar={() => setAba('ALTA')}
-      />
 
       <MarcadosComoDiferentes onDevolver={devolver} podeDecidir={podeDecidir} />
 
@@ -710,15 +776,41 @@ function GrupoCard({
     Escondendo o que ninguém tem, o cartão de um grupo comum cai de oito linhas
     para duas, e a comparação deixa de ser leitura e vira olhada.
   */
-  const campos = useMemo(
-    () => CAMPOS_COMPARADOS.filter(({ chave }) =>
-      grupo.candidatos.some((c) => temValor(c[chave as keyof CandidatoDuplicata]))),
-    [grupo],
-  );
+  /*
+    NOS GRUPOS SEM DADO, A DATA DA FICHA ENTRA — 22/09/2026.
+
+    Ali os cartões mostravam nome, matrícula e "Nenhum outro dado cadastrado", e
+    a pessoa tinha de decidir com isso. `createdAt` é o fato que separa "duas
+    fichas criadas no mesmo dia, matrículas consecutivas" (que na produção deu
+    DUAS PESSOAS, com CPFs distintos) de "uma de 2014 e outra da carga de 2026".
+    Não prova nada sozinho, e a frase abaixo dos cartões diz isso — mas decidir
+    com três fatos é decidir; com zero é sortear.
+
+    Só nesse balde: num grupo que já tem CPF ou contato, a data da ficha é ruído.
+  */
+  const campos = useMemo(() => {
+    const lista: ReadonlyArray<{ chave: string; rotulo: string }> =
+      grupo.esperandoDado === true
+        ? [...CAMPOS_COMPARADOS, ...CAMPOS_DE_ULTIMO_RECURSO]
+        : CAMPOS_COMPARADOS;
+    const vistos = new Set<string>();
+    return lista.filter(({ chave }) => {
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return grupo.candidatos.some((c) => temValor(c[chave as keyof CandidatoDuplicata]));
+    });
+  }, [grupo]);
   const mostrarVinculos = useMemo(
     () => grupo.candidatos.some((c) => c.vinculos > 0),
     [grupo],
   );
+  /**
+   * NINGUÉM NO GRUPO TEM DADO QUE IDENTIFIQUE — é o balde "sem dado para
+   * decidir". Só aqui aparece o botão de pedir o CPF: num grupo que já tem o
+   * dado, pedir de novo é ruído.
+   */
+  const semDadoNenhum = grupo.esperandoDado === true;
+  const [pedindoDado, setPedindoDado] = useState<{ id: string; nome: string } | null>(null);
   /**
    * O cadastro com mais dados — e SÓ quando ele é único. Com empate não existe
    * "o mais completo", e fingir que existe é o mesmo que sortear.
@@ -829,6 +921,34 @@ function GrupoCard({
                   maisRico={c.id === idMaisRico}
                   onEscolher={() => onEscolher(c.id)}
                 />
+                {/*
+                  PEDIR O DADO É A ÚNICA SAÍDA QUE RESOLVE — 22/09/2026.
+
+                  Nestes grupos ninguém tem CPF, e é o CPF que decide: se as
+                  duas fichas receberem o MESMO, o sistema recusa a segunda por
+                  unicidade — e isso PROVA que são a mesma pessoa. Se vierem
+                  diferentes, o grupo se resolve sozinho como pessoas
+                  diferentes, que foi o que aconteceu nos 3 grupos da base em
+                  que havia como saber.
+
+                  Antes de 22/09 este botão não existiria: ficha em branco não
+                  gerava link. Agora gera, e é ela quem preenche.
+                */}
+                {semDadoNenhum && (
+                  <button
+                    type="button"
+                    onClick={() => setPedindoDado({ id: c.id, nome: c.nomeCompleto })}
+                    aria-label={`Pedir o CPF a ${c.matricula} pelo link de recadastramento`}
+                    className={cn(
+                      'flex min-h-11 w-full items-center justify-center gap-1.5 border-t',
+                      'text-xs font-medium text-brand-800 transition md:h-9 md:min-h-0',
+                      'hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950/30',
+                    )}
+                  >
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    Pedir o CPF a esta pessoa
+                  </button>
+                )}
                 {podeTirarDoGrupo && (
                   <button
                     type="button"
@@ -849,6 +969,15 @@ function GrupoCard({
             );
           })}
         </div>
+
+        {pedindoDado && (
+          <EnviarLinkModal
+            filiadoId={pedindoDado.id}
+            nome={pedindoDado.nome}
+            open
+            onClose={() => setPedindoDado(null)}
+          />
+        )}
 
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
           {podeDecidir && (
@@ -874,7 +1003,12 @@ function CandidatoCard({
   escolhido: boolean;
   divergentes: Set<string>;
   /** Só os campos que ALGUÉM do grupo preencheu — ver `camposComAlgumValor`. */
-  campos: typeof CAMPOS_COMPARADOS[number][];
+  /*
+    Lista aberta, e não `typeof CAMPOS_COMPARADOS[number][]`: no balde "sem
+    dado para decidir" entra também "Ficha criada em", que não pertence à lista
+    fixa. Ver `CAMPOS_DE_ULTIMO_RECURSO`.
+  */
+  campos: ReadonlyArray<{ chave: string; rotulo: string }>;
   mostrarVinculos: boolean;
   /** Este cartão é o que carrega mais dados, sozinho? */
   maisRico: boolean;
@@ -1215,7 +1349,9 @@ function normalizarValor(v: unknown): string {
 function formatarCampo(chave: string, v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   if (chave === 'cpf') return mascararCpf(String(v));
-  if (chave === 'dataNascimento' || chave === 'dataFiliacao') return formatarData(String(v));
+  if (chave === 'dataNascimento' || chave === 'dataFiliacao' || chave === 'createdAt') {
+    return formatarData(String(v));
+  }
   return String(v);
 }
 
