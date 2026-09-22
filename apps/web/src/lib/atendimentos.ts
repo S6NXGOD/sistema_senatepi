@@ -423,6 +423,37 @@ export function tempoDoAtendimento(a: {
   return { tipo: 'ESPERA', desde: a.createdAt };
 }
 
+/**
+ * O QUE VAI ABAIXO DA DATA DA TRIAGEM — *"não seria interessante também ter a
+ * data da triagem na listagem?"*, o dono em 22/09/2026.
+ *
+ * A data do registro passou a ser a ÂNCORA da coluna, em todos os estados:
+ * antes ela só aparecia com o atendimento FECHADO, e era justamente nos outros
+ * dois que a pergunta "quando essa pessoa procurou o sindicato?" aparece.
+ *
+ * Com a data sempre na tela, esta função responde o que ainda ACRESCENTA
+ * embaixo dela — e a regra é uma só: **nada que a data já diga**.
+ *
+ *  · fechado ................... nada. A data do registro é a resposta inteira.
+ *  · registrado hoje ........... nada. "hoje" é a data de cima em outra língua.
+ *  · esperando a triagem ....... "há N dias", porque o tempo já corre.
+ *  · aguardando a consulta ..... a data da CONSULTA, que é outro dia.
+ *
+ * Recebe `dias` pronto (de `diasDeAtraso`) para não ler o relógio: assim a
+ * regra é pura e o teste não depende do dia em que roda.
+ */
+export type EstadoDoTempo =
+  | { tipo: 'NADA' }
+  | { tipo: 'CONSULTA'; quando: string }
+  | { tipo: 'ESPERA'; desde: string; dias: number };
+
+export function estadoDoTempoNaListagem(t: TempoDoAtendimento, dias: number): EstadoDoTempo {
+  if (t.tipo === 'DATA') return { tipo: 'NADA' };
+  if (t.tipo === 'CONSULTA') return { tipo: 'CONSULTA', quando: t.quando };
+  if (dias <= 0) return { tipo: 'NADA' };
+  return { tipo: 'ESPERA', desde: t.desde, dias };
+}
+
 export function oSeloDeSituacaoAcrescenta(a: {
   status: StatusAtendimento;
   fila?: FilaNaResposta;

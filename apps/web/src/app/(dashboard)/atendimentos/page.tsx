@@ -29,7 +29,7 @@ import {
   CanalAtendimento, DesfechoAtendimento, StatusAtendimento, AtendimentoLista, FiltroDaUrl, AcaoDeFechar,
   CANAIS, CANAL_LABEL, DESFECHO_LABEL, DESFECHO_COR, OPCOES_DO_SELETOR_DE_STATUS, formatDataHora,
   corDoStatus, faltaConcluir, filtroDaUrl, filtroDoSeletorDeStatus, mensagemDaFalha, rotuloDoAssunto,
-  oSeloDeSituacaoAcrescenta, tempoDoAtendimento,
+  oSeloDeSituacaoAcrescenta, tempoDoAtendimento, estadoDoTempoNaListagem,
   rotuloDoConcluirNoMenu, rotuloDoStatus, urlTemFiltro, valorDoSeletorDeStatus, vazioDaLista,
   type FilaDoAtendimento, type ValorDoSeletorDeStatus,
 } from '@/lib/atendimentos';
@@ -241,6 +241,29 @@ function ListaAtendimentos() {
   }
 
   /**
+   * A DATA DA TRIAGEM — *"não seria interessante também ter a data da triagem
+   * na listagem?"* (22/09/2026).
+   *
+   * Tinha razão de novo: a coluna só mostrava o dia do registro quando o
+   * atendimento já estava FECHADO. Nos dois casos em que a pergunta mais
+   * aparece — "quando essa pessoa procurou o sindicato?" — a data estava
+   * escondida: com consulta marcada a coluna mostrava a data DELA, e com a
+   * triagem a coluna mostrava "há 4 dias", que é a mesma data em outra língua,
+   * mas não serve para dizer à filiada *"a senhora veio no dia 12"*.
+   *
+   * Agora a data é a ÂNCORA da coluna, sempre, em todos os estados. Embaixo
+   * dela fica só o que ela não diz.
+   */
+  const DataDaTriagemCel = ({ a }: { a: AtendimentoLista }) => (
+    <span
+      className="tabular-nums text-xs text-muted-foreground"
+      title={`Triagem registrada em ${formatDataHora(a.createdAt)}.`}
+    >
+      {formatData(a.createdAt)}
+    </span>
+  );
+
+  /**
    * A COLUNA DO TEMPO — e de quem é a espera (21/09/2026, correção de rota).
    *
    * Eu criei esta coluna na véspera contando os dias desde o registro para TODO
@@ -254,51 +277,44 @@ function ListaAtendimentos() {
    */
   const EsperaCel = ({ a }: { a: AtendimentoLista }) => {
     const t = tempoDoAtendimento(a);
-    const completa = formatDataHora(a.createdAt);
+    const e = estadoDoTempoNaListagem(t, t.tipo === 'ESPERA' ? diasDeAtraso(t.desde) : 0);
 
-    if (t.tipo === 'DATA') {
-      return (
-        <span className="tabular-nums text-xs text-muted-foreground" title={completa}>
-          {formatData(t.quando)}
-        </span>
-      );
-    }
+    if (e.tipo === 'NADA') return null;
     /*
       AGENDADO NÃO É ATRASO. Neutro de propósito: a cor âmbar desta tela quer
       dizer "alguém daqui precisa agir", e aqui ninguém daqui precisa.
     */
-    if (t.tipo === 'CONSULTA') {
+    if (e.tipo === 'CONSULTA') {
       return (
         <span
           className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
-          title={`Consulta marcada para ${formatDataHora(t.quando)} — a triagem já encaminhou.`}
+          title={`Consulta marcada para ${formatDataHora(e.quando)} — a triagem já encaminhou.`}
         >
           <CalendarClock className="h-3 w-3 shrink-0" />
-          consulta {formatData(t.quando)}
+          consulta {formatData(e.quando)}
         </span>
       );
     }
 
-    const dias = diasDeAtraso(t.desde);
     return (
       <span
-        title={`Aguardando a triagem desde ${completa}.`}
+        title={`Aguardando a triagem desde ${formatDataHora(a.createdAt)}.`}
         className={cn(
           'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums',
-          dias >= 7
+          e.dias >= 7
             ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
-            : dias >= 3
+            : e.dias >= 3
               ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
               : 'text-muted-foreground',
         )}
       >
         <Clock className="h-3 w-3 shrink-0" />
-        {dias === 0 ? 'hoje' : dias === 1 ? 'há 1 dia' : `há ${dias} dias`}
+        {e.dias === 1 ? 'há 1 dia' : `há ${e.dias} dias`}
       </span>
     );
   };
 
-  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */
+  /** Resultado: o estado do encaminhamento vale mais que o "Encaminhado" genérico. */
   const ResultadoCel = ({ a }: { a: AtendimentoLista }) =>
     a.encaminhamento ? (
       <ChipEncaminhamento encaminhamento={a.encaminhamento} statusAtendimento={a.status} fila={a.fila} />
@@ -454,6 +470,7 @@ function ListaAtendimentos() {
                     contexto e não estado.
                   */}
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <DataDaTriagemCel a={a} />
                     <ResultadoCel a={a} />
                     {oSeloDeSituacaoAcrescenta(a) && (
                       <Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge>
@@ -500,7 +517,7 @@ function ListaAtendimentos() {
                     <th className="px-4 py-3 font-medium">{V.Filiado}</th>
                     <th className="px-4 py-3 font-medium">Situação</th>
                     <th className="px-4 py-3 font-medium">Demanda</th>
-                    <th className="px-4 py-3 font-medium">Quando</th>
+                    <th className="px-4 py-3 font-medium">Triagem</th>
                     <th className="px-4 py-3"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
@@ -546,7 +563,10 @@ function ListaAtendimentos() {
                           <span className="line-clamp-2 text-muted-foreground">{a.descricao}</span>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
-                          <EsperaCel a={a} />
+                          <div className="flex flex-col items-start gap-1">
+                            <DataDaTriagemCel a={a} />
+                            <EsperaCel a={a} />
+                          </div>
                         </td>
                         <td className="px-4 py-2 text-right">
                           <div className="flex items-center justify-end gap-1">

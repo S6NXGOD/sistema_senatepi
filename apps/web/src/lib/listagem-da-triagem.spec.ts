@@ -1,4 +1,4 @@
-import { oSeloDeSituacaoAcrescenta, tempoDoAtendimento } from './atendimentos';
+import { estadoDoTempoNaListagem, oSeloDeSituacaoAcrescenta, tempoDoAtendimento } from './atendimentos';
 import { diasDeAtraso } from './agenda';
 
 /**
@@ -146,5 +146,65 @@ describe('de quem é a espera', () => {
     expect(
       tempoDoAtendimento({ status: 'PENDENTE', createdAt: '2026-09-17T12:00:00.000Z' }).tipo,
     ).toBe('ESPERA');
+  });
+});
+
+/**
+ * A DATA DA TRIAGEM NA LISTAGEM — *"não seria interessante também ter a data da
+ * triagem na listagem?"*, o dono em 22/09/2026.
+ *
+ * A data do registro virou a âncora fixa da coluna, em TODOS os estados; antes
+ * ela só aparecia com o atendimento fechado. O que estes testes protegem é o
+ * outro lado do mesmo conserto: a pastilha de baixo não pode repetir o que a
+ * data de cima já diz. Repetir é o defeito que o painel do advogado já cobrou
+ * (o mesmo atraso em quatro superfícies) e que a faixa de avisos já cobrou
+ * (três vezes na mesma dobra da Agenda).
+ */
+describe('o que acrescenta abaixo da data da triagem', () => {
+  const espera = (desde: string) => ({ tipo: 'ESPERA' as const, desde });
+
+  it('fechado: a data do registro é a resposta inteira, nada embaixo', () => {
+    expect(
+      estadoDoTempoNaListagem({ tipo: 'DATA', quando: '2026-09-15T12:00:00.000Z' }, 0),
+    ).toEqual({ tipo: 'NADA' });
+  });
+
+  /** "hoje" é a data de cima em outra língua — e a pastilha vira paisagem. */
+  it('registrado hoje: nada embaixo', () => {
+    expect(estadoDoTempoNaListagem(espera('2026-09-22T09:00:00.000Z'), 0)).toEqual({ tipo: 'NADA' });
+  });
+
+  it('um dia parado já acrescenta: o tempo começou a correr', () => {
+    expect(estadoDoTempoNaListagem(espera('2026-09-21T09:00:00.000Z'), 1)).toEqual({
+      tipo: 'ESPERA', desde: '2026-09-21T09:00:00.000Z', dias: 1,
+    });
+  });
+
+  /** A consulta é OUTRO dia: a data de cima não a contém. */
+  it('com consulta marcada, a data dela acrescenta mesmo sem espera', () => {
+    expect(
+      estadoDoTempoNaListagem({ tipo: 'CONSULTA', quando: '2026-09-24T14:30:00.000Z' }, 0),
+    ).toEqual({ tipo: 'CONSULTA', quando: '2026-09-24T14:30:00.000Z' });
+  });
+
+  /**
+   * DIA NEGATIVO NÃO EXISTE MAS ACONTECE: `diasDeAtraso` devolve negativo para
+   * data no futuro, e há registro com `createdAt` adiantado pelo relógio da
+   * máquina de quem digitou. "há -1 dias" seria vexame na tela.
+   */
+  it('data no futuro não vira pastilha', () => {
+    expect(estadoDoTempoNaListagem(espera('2026-09-30T09:00:00.000Z'), -8)).toEqual({ tipo: 'NADA' });
+  });
+
+  /** A ponta a ponta: pendente com a triagem há 4 dias mostra a pastilha. */
+  it('de ponta a ponta, o caso do print', () => {
+    const t = tempoDoAtendimento({
+      status: 'PENDENTE',
+      createdAt: '2026-09-18T12:00:00.000Z',
+      fila: { fila: 'TRIAGEM', motivo: 'SEM_DESFECHO' },
+    });
+    expect(estadoDoTempoNaListagem(t, 4)).toEqual({
+      tipo: 'ESPERA', desde: '2026-09-18T12:00:00.000Z', dias: 4,
+    });
   });
 });
