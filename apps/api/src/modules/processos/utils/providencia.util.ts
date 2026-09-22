@@ -354,7 +354,7 @@ export function corpoDaPublicacao(textoNormalizado: string): string {
  * Pega a ÚLTIMA marca, não a primeira: um acórdão com voto divergente traz
  * "ACORDAM" no meio e o dispositivo de verdade depois.
  */
-const MARCAS_DE_DISPOSITIVO = [
+export const MARCAS_DE_DISPOSITIVO = [
   'ISTO POSTO',
   'POSTO ISSO',
   'ANTE O EXPOSTO',

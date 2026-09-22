@@ -296,6 +296,37 @@ export async function fundirGrupoDuplicados(
   return (await api.delete('/filiados/duplicidade/fundir-grupo', { data: { manterId, descartarIds } })).data;
 }
 
+/**
+ * DESCARTA O GRUPO INTEIRO — só a linha vazia de importação (22/09/2026).
+ *
+ * As travas moram no SERVIDOR (nome que não é nome, zero dado, zero histórico);
+ * aqui só se pergunta. Se qualquer ficha do grupo falhar numa delas, NADA é
+ * apagado e a resposta diz qual e por quê.
+ */
+export async function descartarGrupoVazio(
+  ids: string[],
+): Promise<{ ok: boolean; removidos: number; matriculas: string[] }> {
+  return (await api.delete('/filiados/duplicidade/descartar-grupo-vazio', { data: { ids } })).data;
+}
+
+/**
+ * O GRUPO NÃO TEM NINGUÉM PARA CONSOLIDAR?
+ *
+ * Espelha a primeira trava do servidor, e SÓ para decidir se o botão aparece —
+ * quem apaga confere de novo, com os dados completos. Um nome que não é nome
+ * (só dígitos, ou menos de quatro letras) e nenhum campo preenchido em ficha
+ * nenhuma: consolidar isso deixa de pé uma ficha chamada "0".
+ */
+export function grupoSoTemLinhaVazia(grupo: {
+  candidatos: Array<{ nomeCompleto: string; pontuacao: number; vinculos: number }>;
+}): boolean {
+  if (grupo.candidatos.length < 2) return false;
+  return grupo.candidatos.every((c) => {
+    const letras = (c.nomeCompleto ?? '').replace(/[^\p{L}]/gu, '');
+    return letras.length < 4 && c.pontuacao === 0 && c.vinculos === 0;
+  });
+}
+
 /** Marca TODOS os pares do grupo — senão o grupo volta na varredura seguinte. */
 export async function marcarGrupoDistinto(ids: string[]): Promise<{ ok: boolean; ids: string[] }> {
   return (await api.post('/filiados/duplicidade/distintos-grupo', { ids })).data;

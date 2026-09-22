@@ -83,10 +83,18 @@ describe('nada sai da fila sem perguntar', () => {
     expect(PAGINA).toContain('acao="consolidar (2×)"');
   });
 
-  /** Separar não apaga nada: a pergunta é âmbar, não vermelha. */
+  /**
+   * Separar não apaga nada: a pergunta é âmbar, não vermelha.
+   *
+   * 22/09/2026: o recorte ia até `open={!!fundindo}` e passou a engolir o
+   * diálogo NOVO de descartar linha vazia, que é vermelho com razão — ele
+   * apaga. O fim do recorte agora é o `/>` do próprio diálogo da separação;
+   * medir até o começo de OUTRO componente sempre foi frágil.
+   */
   it('a pergunta da separação não se veste de exclusão', () => {
-    const separar = PAGINA.slice(PAGINA.indexOf('open={!!separar}'), PAGINA.indexOf('open={!!fundindo}'));
-    expect(separar).not.toContain('variant="destructive"');
+    const ini = PAGINA.indexOf('open={!!separar}');
+    const fim = PAGINA.indexOf('/>', PAGINA.indexOf('description={separar', ini));
+    expect(PAGINA.slice(ini, fim)).not.toContain('variant="destructive"');
   });
 });
 
@@ -285,7 +293,9 @@ describe('como funciona esta fila', () => {
  */
 describe('o placar da fila', () => {
   it('conta o que foi resolvido nesta sessão, nas três decisões', () => {
-    expect((PAGINA.match(/setResolvidos\(\(n\) => n \+ 1\)/g) ?? []).length).toBe(2);
+    // 22/09/2026: passaram a ser TRÊS. Descartar um grupo de linhas vazias
+    // também resolve o grupo, e o placar precisa contá-lo.
+    expect((PAGINA.match(/setResolvidos\(\(n\) => n \+ 1\)/g) ?? []).length).toBe(3);
     expect(PAGINA).toContain('<PlacarDaFila resolvidos={resolvidos}');
   });
 

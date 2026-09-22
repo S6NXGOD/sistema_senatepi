@@ -203,6 +203,27 @@ export function temDadoProprio(c: CandidatoDuplicata): boolean {
  * cadastro ganhar um dado — no recadastramento, num atendimento, numa ficha de
  * processo. Aí o grupo volta a ser decidível sozinho.
  */
+/**
+ * O NOME NÃO É NOME — a primeira trava do descarte de linha vazia.
+ *
+ * Na produção há quatro fichas chamadas **"0"** e uma chamada **"AIM"**, todas
+ * da carga de 03/07/2026. As quatro primeiras não têm absolutamente nada; a
+ * "AIM" tem CPF, e por isso é gente de verdade com o nome perdido — o que ela
+ * precisa é que alguém CORRIJA o nome, não que a apaguem.
+ *
+ * O corte é grosseiro de propósito: só dígitos, ou menos de quatro letras.
+ * Nome curto de verdade existe ("ANA", "ELI"), e é por isso que esta regra
+ * NUNCA decide sozinha — ela é uma das três travas, e as outras duas exigem
+ * ficha sem nenhum dado e sem nenhum histórico.
+ */
+export function nomeQueNaoEhNome(nome: string | null | undefined): boolean {
+  const limpo = (nome ?? '').trim();
+  if (!limpo) return true;
+  if (/^[\d\s.,-]+$/.test(limpo)) return true;
+  const letras = limpo.replace(/[^\p{L}]/gu, '');
+  return letras.length < 4;
+}
+
 /** Um par do lote: quem fica, quem sai, e se a filiação antiga vem junto. */
 export interface ItemDoLote {
   manterId: string;
@@ -1537,6 +1558,132 @@ export class DuplicidadeService {
     }
 
     return { ok: falhas.length === 0, fundidos, camposAbsorvidos: [...camposAbsorvidos], vinculosTransferidos, falhas };
+  }
+
+  /**
+   * DESCARTAR UM GRUPO INTEIRO — só quando não há o que consolidar (22/09/2026).
+   *
+   * O CASO. O dono abriu a fila e encontrou um grupo de QUATRO fichas chamadas
+   * **"0"**, todas da carga de 03/07, e a única saída oferecida era "Consolidar
+   * 4 mantendo 3067" — que deixa de pé uma ficha chamada "0". A pergunta dele
+   * foi exata: *"esse aí não serve para nada. Como posso remover todos?"*.
+   *
+   * O QUE ESTA AÇÃO **NÃO** É: não é fundir em lote, e não é atalho para a fila
+   * dos 148. Fundir por nome, nesta base, apagaria gente — nos 3 grupos em que
+   * existe veredito, os CPFs eram DIFERENTES nos 3. Aqui não há pessoa nenhuma
+   * para apagar: há linha de importação com o nome em branco.
+   *
+   * AS TRÊS TRAVAS, e elas vivem no SERVIDOR porque tela se contorna:
+   *
+   *   1. o NOME não é nome — só dígitos, ou menos de 4 letras;
+   *   2. NENHUM dado que identifique alguém: sem CPF, COREN, nascimento,
+   *      contato, endereço ou cidade;
+   *   3. NENHUM histórico: sem vínculo, atendimento, processo, dependente,
+   *      agenda ou cobrança.
+   *
+   * Basta UMA ficha do grupo falhar em qualquer uma delas e nada é apagado —
+   * com o motivo, para a pessoa entender em vez de tentar de novo. A "AIM" da
+   * produção é justamente esse caso: nome de três letras, mas COM CPF. É gente
+   * de verdade com o nome perdido na importação, e o que ela precisa é que
+   * alguém corrija o NOME.
+   *
+   * Continua sendo exclusão de verdade (`filiado.delete`), como a fusão — e por
+   * isso fica atrás da mesma permissão e deixa a mesma linha de auditoria.
+   */
+  async descartarGrupoVazio(ids: string[], autor?: string) {
+    const unicos = [...new Set(ids)];
+    if (unicos.length < 2) {
+      throw new BadRequestException('Informe ao menos dois cadastros do grupo.');
+    }
+    if (unicos.length > MAXIMO_POR_GRUPO) {
+      throw new BadRequestException(`São no máximo ${MAXIMO_POR_GRUPO} cadastros por vez.`);
+    }
+
+    const registros = await this.prisma.filiado.findMany({
+      where: { id: { in: unicos } },
+      select: {
+        id: true, nomeCompleto: true, matricula: true,
+        cpf: true, numeroCoren: true, dataNascimento: true,
+        telefonePrincipal: true, telefoneSecundario: true, email: true,
+        endereco: true, cidade: true,
+        _count: {
+          select: {
+            vinculos: true, atendimentos: true, dependentes: true,
+            partesProcesso: true, compromissos: true,
+          },
+        },
+      },
+    });
+    if (registros.length !== unicos.length) {
+      throw new NotFoundException('Algum cadastro do grupo não existe mais. Recarregue a fila.');
+    }
+
+    const impedimentos: string[] = [];
+    for (const r of registros) {
+      const motivo = this.porQueNaoPodeDescartar(r);
+      if (motivo) impedimentos.push(`${r.matricula}: ${motivo}`);
+    }
+    if (impedimentos.length) {
+      throw new BadRequestException(
+        `Estes cadastros não são linhas vazias de importação — ${impedimentos.join('; ')}. ` +
+          'Nada foi apagado.',
+      );
+    }
+
+    for (const r of registros) {
+      await this.prisma.filiado.delete({ where: { id: r.id } });
+      await this.audit.registrar({
+        userId: autor ?? null,
+        acao: AcaoAuditoria.DELETE,
+        entidade: 'Filiado',
+        entidadeId: r.id,
+        descricao:
+          `Ficha vazia de importação descartada (nome "${r.nomeCompleto}", matrícula ` +
+          `${r.matricula}): sem dado que identifique e sem histórico nenhum.`,
+        metadata: { matricula: r.matricula, nomeCompleto: r.nomeCompleto, grupo: unicos },
+      });
+    }
+
+    return { ok: true, removidos: registros.length, matriculas: registros.map((r) => r.matricula) };
+  }
+
+  /** O motivo, em português, ou null quando a ficha é mesmo uma linha vazia. */
+  private porQueNaoPodeDescartar(r: {
+    nomeCompleto: string;
+    cpf: string | null;
+    numeroCoren: string | null;
+    dataNascimento: Date | null;
+    telefonePrincipal: string | null;
+    telefoneSecundario: string | null;
+    email: string | null;
+    endereco: string | null;
+    cidade: string | null;
+    _count: {
+      vinculos: number; atendimentos: number; dependentes: number;
+      partesProcesso: number; compromissos: number;
+    };
+  }): string | null {
+    if (!nomeQueNaoEhNome(r.nomeCompleto)) return 'o nome é um nome de gente';
+
+    const dados: Array<[string, unknown]> = [
+      ['CPF', r.cpf], ['COREN', r.numeroCoren], ['data de nascimento', r.dataNascimento],
+      ['telefone', r.telefonePrincipal || r.telefoneSecundario], ['e-mail', r.email],
+      ['endereço', r.endereco], ['cidade', r.cidade],
+    ];
+    const tem = dados.find(([, v]) => (v instanceof Date ? true : String(v ?? '').trim() !== ''));
+    if (tem) return `tem ${tem[0]} cadastrado`;
+
+    const historico: Array<[string, number]> = [
+      ['vínculo profissional', r._count.vinculos],
+      ['atendimento', r._count.atendimentos],
+      ['dependente', r._count.dependentes],
+      ['processo', r._count.partesProcesso],
+      ['atividade na agenda', r._count.compromissos],
+    ];
+    const comHistorico = historico.find(([, n]) => n > 0);
+    if (comHistorico) return `tem ${comHistorico[1]} ${comHistorico[0]}(s)`;
+
+    return null;
   }
 
   // =========================================================================

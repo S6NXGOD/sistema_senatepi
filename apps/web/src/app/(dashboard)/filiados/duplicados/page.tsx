@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Keyboard, List, Merge, Search, Send, Undo2, UserMinus, Users, X,
+  AlertCircle, ArrowLeft, CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Keyboard, List, Merge, Search, Send, Trash2, Undo2, UserMinus, Users, X,
 } from 'lucide-react';
 import { LoteDuplicados } from '@/components/filiados/lote-duplicados';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import {
   CAMPOS_COMPARADOS, CAMPOS_DE_ULTIMO_RECURSO, CONFIANCA_COR, CONFIANCA_EXPLICACAO, CONFIANCA_LABEL, frasesDaRiqueza,
   agruparDescartes, avisoDaConsolidacao, fraseDoDescarte, fundirDuplicados, fundirGrupoDuplicados,
   listarDescartados, listarDuplicados, marcarDistintos, marcarForaDoGrupo, marcarGrupoDistinto,
+  descartarGrupoVazio, grupoSoTemLinhaVazia,
   planejarConsolidacao, quantosDados, resumoDoCadastro, rotuloDoConsolidar,
   estadoDaFila, separarDecidiveis, soDigitosDoCpf, temValor, veredictoDoCpf, voltarParaFila,
   type AnaliseDeCpf, type VeredictoDoCpf,
@@ -122,6 +123,36 @@ export default function DuplicadosPage() {
     decidiveis: decidiveis.length,
     esperando: esperando.length,
   });
+
+  /**
+   * DESCARTAR O GRUPO VAZIO — 22/09/2026.
+   *
+   * É o oposto da consolidação, e por isso tem confirmação própria: consolidar
+   * escolhe QUEM FICA; aqui não fica ninguém, porque não há ninguém. Quatro
+   * fichas chamadas "0", sem um dado sequer, sem um atendimento sequer.
+   *
+   * As travas são do servidor. Se qualquer ficha do grupo tiver um dado ou um
+   * histórico, NADA é apagado e a mensagem diz qual e por quê — é ela que
+   * aparece no toast, sem tradução.
+   */
+  const [descartando, setDescartando] = useState<GrupoDuplicata | null>(null);
+
+  async function confirmarDescarte() {
+    if (!descartando) return;
+    setExecutando(true);
+    try {
+      const r = await descartarGrupoVazio(descartando.candidatos.map((c) => c.id));
+      toast.success(`${r.removidos} ficha(s) vazia(s) removida(s): ${r.matriculas.join(', ')}.`);
+      setDescartando(null);
+      setResolvidos((n) => n + 1);
+      qc.invalidateQueries({ queryKey: ['duplicados'] });
+      qc.invalidateQueries({ queryKey: ['filiados'] });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Não foi possível remover.');
+    } finally {
+      setExecutando(false);
+    }
+  }
 
   async function confirmarFusao() {
     if (!fundindo) return;
@@ -539,6 +570,7 @@ export default function DuplicadosPage() {
             onEscolher={(id) => setEscolha((e) => ({ ...e, [atual.chave]: id }))}
             onFundir={(manter) => setFundindo({ grupo: atual, manter })}
             onNaoDuplicado={() => setSeparar({ tipo: 'grupo', grupo: atual })}
+            onDescartarVazio={() => setDescartando(atual)}
             onForaDoGrupo={(c) => setSeparar({ tipo: 'um', grupo: atual, candidato: c })}
           />
 
@@ -574,6 +606,7 @@ export default function DuplicadosPage() {
               onEscolher={(id) => setEscolha((e) => ({ ...e, [g.chave]: id }))}
               onFundir={(manter) => setFundindo({ grupo: g, manter })}
               onNaoDuplicado={() => setSeparar({ tipo: 'grupo', grupo: g })}
+              onDescartarVazio={() => setDescartando(g)}
               onForaDoGrupo={(c) => setSeparar({ tipo: 'um', grupo: g, candidato: c })}
             />
           ))}
@@ -600,6 +633,39 @@ export default function DuplicadosPage() {
         onConfirm={confirmarSeparacao}
         onClose={() => (separando ? null : setSeparar(null))}
         description={separar ? <ResumoSeparacao alvo={separar} /> : null}
+      />
+
+      {/*
+        SEM ATALHO DE ENTER AQUI, e é deliberado. O Enter foi ligado na
+        consolidação porque quem decide centenas paga caro por largar o teclado.
+        Este caso é raro (um grupo na base inteira) e apaga sem escolher quem
+        fica — não há rotina para acelerar, e há um erro possível para evitar.
+      */}
+      <ConfirmDialog
+        open={!!descartando}
+        variant="destructive"
+        title="Remover as fichas vazias?"
+        confirmLabel={`Remover ${descartando?.candidatos.length ?? 0} fichas`}
+        loading={executando}
+        onConfirm={confirmarDescarte}
+        onClose={() => setDescartando(null)}
+        description={
+          descartando ? (
+            <div className="space-y-2 text-sm">
+              <p>
+                Estas {descartando.candidatos.length} fichas não têm nome de gente, nenhum dado
+                cadastrado e nenhum histórico — são linhas que entraram em branco na importação.
+              </p>
+              <p className="font-mono text-xs text-muted-foreground">
+                {descartando.candidatos.map((c) => c.matricula).join(', ')}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Se alguma delas tiver qualquer dado ou histórico, nada é apagado e o sistema diz
+                qual. Não há desfazer.
+              </p>
+            </div>
+          ) : null
+        }
       />
 
       <ConfirmDialog
@@ -739,6 +805,7 @@ function Atalho({ tecla, acao }: { tecla: string; acao: string }) {
 
 function GrupoCard({
   grupo, podeDecidir, escolhidoId, onEscolher, onFundir, onNaoDuplicado, onForaDoGrupo,
+  onDescartarVazio,
 }: {
   grupo: GrupoDuplicata;
   podeDecidir: boolean;
@@ -747,6 +814,8 @@ function GrupoCard({
   onEscolher: (id: string) => void;
   onFundir: (manter: CandidatoDuplicata) => void;
   onNaoDuplicado: () => void;
+  /** Só chamado quando o grupo é linha vazia de importação. */
+  onDescartarVazio: () => void;
 }) {
   /**
    * Um campo só é "divergente" quando os dois lados têm valor e diferem.
@@ -810,6 +879,11 @@ function GrupoCard({
    * dado, pedir de novo é ruído.
    */
   const semDadoNenhum = grupo.esperandoDado === true;
+  /**
+   * Grupo que não tem ninguém para consolidar — ver `grupoSoTemLinhaVazia`.
+   * Aqui só decide o que a tela oferece; quem apaga confere de novo.
+   */
+  const soLinhaVazia = useMemo(() => grupoSoTemLinhaVazia(grupo), [grupo]);
   const [pedindoDado, setPedindoDado] = useState<{ id: string; nome: string } | null>(null);
   /**
    * O cadastro com mais dados — e SÓ quando ele é único. Com empate não existe
@@ -979,15 +1053,34 @@ function GrupoCard({
           />
         )}
 
+        {/*
+          NÃO HÁ NINGUÉM PARA CONSOLIDAR — 22/09/2026.
+
+          O dono topou com QUATRO fichas chamadas "0" e a única saída era
+          "Consolidar 4 mantendo 3067" — que deixa de pé uma ficha chamada "0".
+          A frase dele: *"esse aí não serve para nada. Como posso remover
+          todos?"*.
+
+          Quando o grupo é só linha vazia de importação, o consolidar SAI de
+          cena e entra o descarte das N fichas. Não é o caminho da fila comum: é
+          o oposto dela. Na fila, o risco é apagar gente; aqui não há gente —
+          nome que não é nome, zero dado, zero histórico, e o servidor confere
+          as três de novo antes de apagar.
+        */}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          {podeDecidir && (
+          {podeDecidir && !soLinhaVazia && (
             <Button variant="outline" size="sm" onClick={onNaoDuplicado}>
               <X className="h-4 w-4" /> Não é duplicado
             </Button>
           )}
-          {podeFundir && (
+          {podeFundir && !soLinhaVazia && (
             <Button size="sm" onClick={() => onFundir(escolhido!)}>
               <Merge className="h-4 w-4" /> {rotuloDoConsolidar(grupo.candidatos.length, escolhido!.matricula)}
+            </Button>
+          )}
+          {podeFundir && soLinhaVazia && (
+            <Button size="sm" variant="destructive" onClick={onDescartarVazio}>
+              <Trash2 className="h-4 w-4" /> Excluir as {grupo.candidatos.length} fichas vazias
             </Button>
           )}
         </div>

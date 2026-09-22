@@ -88,13 +88,19 @@ describe('quem entra na fila de duplicados', () => {
     ).toThrow('Apenas o Administrador pode excluir registros do sistema.');
   });
 
-  it('o controller declara o módulo novo nos dois decoradores e marca as três exclusões', () => {
+  /*
+    22/09/2026: passaram a ser CINCO. A nova é `descartar-grupo-vazio`, que
+    apaga o grupo quando não há ninguém para consolidar — quatro fichas
+    chamadas "0", sem um dado e sem um histórico. Ela apaga, então carrega a
+    mesma marca das outras.
+  */
+  it('o controller declara o módulo novo nos dois decoradores e marca as cinco exclusões', () => {
     const inicio = CTRL.indexOf('export class DuplicidadeController');
     const decoradores = CTRL.slice(CTRL.lastIndexOf('@ApiTags', inicio), inicio);
     expect(decoradores).toContain("@Modulo('duplicados')");
     expect(decoradores).toContain("@ModuloTenant('duplicados')");
     expect(CTRL.match(/@OperacaoDeSistema\(\)/g)).toBeNull();
-    expect(CTRL.match(/@ExclusaoDelegada\(\)/g)).toHaveLength(4);
+    expect(CTRL.match(/@ExclusaoDelegada\(\)/g)).toHaveLength(5);
   });
 });
 

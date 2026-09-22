@@ -204,6 +204,23 @@ export class DuplicidadeController {
   }
 
   /**
+   * DESCARTA O GRUPO INTEIRO — só quando não há ninguém ali para consolidar.
+   *
+   * O dono topou com quatro fichas chamadas "0" e a única saída era "Consolidar
+   * 4 mantendo 3067", que deixa de pé uma ficha chamada "0". Esta rota apaga as
+   * quatro — e SÓ apaga quando as três travas do serviço passam (nome que não é
+   * nome, zero dado, zero histórico). Reusa `GrupoDto`: a forma é a mesma.
+   *
+   * `@ExclusaoDelegada` e o mesmo Guard da fusão: o que ela faz É exclusão.
+   */
+  @Delete('descartar-grupo-vazio')
+  @ExclusaoDelegada()
+  @UseGuards(DuplicidadeAtivaGuard)
+  descartarGrupoVazio(@Body() dto: GrupoDto, @CurrentUser('nome') autor: string) {
+    return this.service.descartarGrupoVazio(dto.ids, autor);
+  }
+
+  /**
    * Consolida um GRUPO inteiro no cadastro mantido — três ou mais. A checagem de
    * CPF vem antes de qualquer exclusão; ver `DuplicidadeService.fundirGrupo`.
    */
