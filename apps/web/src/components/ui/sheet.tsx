@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
+import { desempilharSobreposicao, ehOTopo, empilharSobreposicao } from '@/lib/sobreposicoes';
 
 /**
  * Sheet (painel deslizante) — hand-rolled no estilo dos demais componentes do
@@ -20,10 +21,29 @@ export function Sheet({
   className?: string;
   children: React.ReactNode;
 }) {
+  /*
+    O ESC É DO TOPO (23/09/2026).
+
+    Conferido na tela: com o modal de recadastramento aberto DENTRO desta
+    gaveta, um Esc fechava os dois — e Esc é a tecla que se aperta para fechar
+    o calendário nativo de um campo de data. Tudo que estava digitado sumia, e
+    a pessoa voltava para a lista sem entender o que tinha feito.
+
+    O ouvinte continua no `document` (é assim que ele funciona mesmo com o foco
+    solto), mas agora se cala enquanto houver outra sobreposição por cima. Ver
+    `lib/sobreposicoes`.
+  */
+  const id = React.useId();
+  React.useEffect(() => {
+    if (!open) return;
+    empilharSobreposicao(id);
+    return () => desempilharSobreposicao(id);
+  }, [open, id]);
+
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && ehOTopo(id)) onClose();
     };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
@@ -32,7 +52,7 @@ export function Sheet({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose]);
+  }, [open, onClose, id]);
 
   const painelPos =
     side === 'bottom'

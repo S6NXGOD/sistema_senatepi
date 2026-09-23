@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { FiliadoForm } from '@/components/filiados/filiado-form';
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { V } from '@/lib/vocabulario';
 import { Portal } from '@/components/ui/portal';
+import { useSobreposicao } from '@/components/ui/use-sobreposicao';
 
 /**
  * O CADASTRO DE VERDADE, sem sair de onde se está.
@@ -49,6 +51,35 @@ export function CadastroFiliadoModal({
   const { user } = useAuth();
   const pode = podeEditar(user?.role, user?.permissoes, 'filiados');
 
+  /*
+    NADA DIGITADO SE PERDE SEM PERGUNTA (23/09/2026).
+
+    "Antes de eu concluir e colocar os dependentes, o cadastro já tá fechando
+    sozinho." Eram três caminhos, todos calados: Esc (que fechava a gaveta
+    junto), arrastar de dentro para fora, e o segundo toque de um clique duplo
+    caindo onde a caixa estava antes de encolher. Ver `lib/sobreposicoes`.
+
+    As saídas continuam três — o X, o Cancelar e o fundo —, mas nenhuma joga
+    fora um cadastro começado sem perguntar. `mexeu` sai dos próprios eventos
+    dos campos: não precisa saber nada do formulário para saber que alguém
+    digitou.
+  */
+  const [mexeu, setMexeu] = useState(false);
+  const [confirmandoSaida, setConfirmandoSaida] = useState(false);
+
+  const sair = useCallback(() => {
+    setMexeu(false);
+    setConfirmandoSaida(false);
+    onClose();
+  }, [onClose]);
+
+  const tentarSair = useCallback(() => {
+    if (mexeu) { setConfirmandoSaida(true); return; }
+    sair();
+  }, [mexeu, sair]);
+
+  const { fundo } = useSobreposicao(open, tentarSair);
+
   const ficha = useQuery({
     queryKey: ['filiado', filiadoId],
     queryFn: async () => (await api.get(`/filiados/${filiadoId}`)).data,
@@ -63,10 +94,10 @@ export function CadastroFiliadoModal({
     <Portal>
       <div
         className="fixed inset-0 z-[70] flex animate-overlay-entrar items-end justify-center bg-black/50 sm:items-center sm:p-4"
-        onClick={onClose}
+        {...fundo}
       >
         <div
-          className="flex max-h-[92vh] w-full max-w-3xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
+          className="relative flex max-h-[92vh] w-full max-w-3xl animate-dialogo-entrar flex-col overflow-hidden rounded-t-2xl bg-card shadow-xl sm:rounded-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-3 border-b p-5">
@@ -82,7 +113,7 @@ export function CadastroFiliadoModal({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={tentarSair}
               className="shrink-0 text-muted-foreground hover:text-foreground"
               aria-label="Fechar"
             >
@@ -90,7 +121,11 @@ export function CadastroFiliadoModal({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5">
+          <div
+            className="flex-1 overflow-y-auto p-5"
+            onInput={() => setMexeu(true)}
+            onChange={() => setMexeu(true)}
+          >
             {!pode ? (
               <div className="space-y-3">
                 <p className="rounded-md border bg-muted/50 px-3 py-2.5 text-[12px] leading-snug">
@@ -98,7 +133,7 @@ export function CadastroFiliadoModal({
                   vincular — enquanto isso, dá para seguir com o nome da parte e resolver depois.
                 </p>
                 <div className="flex justify-end">
-                  <Button type="button" variant="outline" onClick={onClose}>
+                  <Button type="button" variant="outline" onClick={sair}>
                     Entendi
                   </Button>
                 </div>
@@ -125,14 +160,38 @@ export function CadastroFiliadoModal({
                         ? ({ nomeCompleto: nomeInicial.trim() } as never)
                         : undefined)
                 }
-                onCancelar={onClose}
+                onCancelar={tentarSair}
                 onSalvo={(id) => {
                   onSalvo(id);
-                  onClose();
+                  sair();
                 }}
               />
             )}
           </div>
+
+          {/*
+            A PERGUNTA MORA DENTRO DA CAIXA, de propósito: uma segunda
+            sobreposição por cima desta seria mais uma coisa para o Esc fechar,
+            e o problema aqui começou justamente com caixa sobre caixa.
+          */}
+          {confirmandoSaida && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-card/95 p-6 backdrop-blur-sm">
+              <div className="w-full max-w-sm text-center">
+                <p className="text-base font-semibold">Sair sem salvar?</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  O que você preencheu até agora não foi gravado e será perdido.
+                </p>
+                <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-center">
+                  <Button variant="outline" className="sm:min-w-40" onClick={sair}>
+                    Sair e perder
+                  </Button>
+                  <Button className="sm:min-w-40" onClick={() => setConfirmandoSaida(false)}>
+                    Continuar preenchendo
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </Portal>

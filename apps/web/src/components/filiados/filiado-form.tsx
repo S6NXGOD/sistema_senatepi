@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useForm, Controller } from 'react-hook-form';
@@ -155,6 +155,8 @@ type Modo = 'criar' | 'editar' | 'recadastrar';
  * A divisão segue a ORDEM EM QUE A INFORMAÇÃO CHEGA numa conversa de balcão:
  * quem é, como falo com ela, onde trabalha, quem depende dela.
  */
+import { oCliqueEDoPassoAtual } from '@/lib/passos-do-formulario';
+
 const PASSOS = [
   { n: 1, titulo: 'Quem é', campos: ['nomeCompleto', 'cpf', 'dataNascimento'] as const },
   { n: 2, titulo: 'Contato e endereço', campos: ['telefonePrincipal', 'email', 'cidade', 'estado'] as const },
@@ -175,6 +177,15 @@ export function FiliadoForm({
 }) {
   const router = useRouter();
   const [passo, setPasso] = useState(1);
+  /*
+    QUANDO CHEGAMOS A ESTE PASSO. Ver `lib/passos-do-formulario`: o botão do
+    rodapé troca de papel ao mudar de passo, e sem esta marca o mesmo gesto que
+    avança também conclui.
+  */
+  const chegadaNoPasso = useRef(Date.now());
+  useEffect(() => { chegadaNoPasso.current = Date.now(); }, [passo]);
+  const doPassoAtual = () =>
+    oCliqueEDoPassoAtual({ emPassos, msNoPasso: Date.now() - chegadaNoPasso.current });
   const qc = useQueryClient();
   const [enviando, setEnviando] = useState(false);
   const [fotoPreview, setFotoPreview] = useState<string | null>(inicial?.fotoUrl ?? null);
@@ -315,6 +326,12 @@ export function FiliadoForm({
   }
 
   async function onSubmit(d: FormData) {
+    /*
+      A TRAVA DO "FECHOU SOZINHO". O botão que conclui acabou de nascer no
+      lugar do "Continuar"; um envio que chega junto com a troca é a sobra do
+      clique anterior, não uma decisão. Ver `lib/passos-do-formulario`.
+    */
+    if (!doPassoAtual()) return;
     setEnviando(true);
     try {
       // Linhas em branco são descartadas; a lista enviada substitui a atual.
@@ -436,6 +453,8 @@ export function FiliadoForm({
    * formulário que não envia e não diz por quê.
    */
   async function avancar() {
+    // Um gesto, um passo: o segundo toque do clique duplo não pula etapa.
+    if (!doPassoAtual()) return;
     const campos = PASSOS.find((x) => x.n === passo)?.campos ?? [];
     const ok = campos.length === 0 || (await trigger(campos as unknown as (keyof FormData)[]));
     if (ok) setPasso((v) => Math.min(v + 1, PASSOS.length));
@@ -927,10 +946,16 @@ export function FiliadoForm({
             Voltar
           </Button>
         )}
+        {/*
+          CHAVES DIFERENTES, DE PROPÓSITO. Sem elas o React reaproveita o MESMO
+          elemento do DOM entre "Continuar" e "Concluir" — e o foco fica no
+          botão que passou a enviar, então um Enter depois do clique conclui o
+          cadastro. Com chave, um desmonta e o outro nasce sem foco.
+        */}
         {emPassos && passo < PASSOS.length ? (
-          <Button type="button" onClick={avancar}>Continuar</Button>
+          <Button key="continuar" type="button" onClick={avancar}>Continuar</Button>
         ) : (
-          <Button type="submit" disabled={enviando}>
+          <Button key="concluir" type="submit" disabled={enviando}>
             {enviando && <Loader2 className="h-4 w-4 animate-spin" />}
             {modo === 'criar' ? 'Cadastrar filiação' : modo === 'recadastrar' ? 'Concluir recadastramento' : 'Salvar alterações'}
           </Button>
