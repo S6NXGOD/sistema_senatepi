@@ -231,6 +231,51 @@ describe('uso e produtividade — o que a tela diz', () => {
     ]);
   });
 
+  /**
+   * "COMO SABER SE ESTÃO RECADASTRANDO OS FILIADOS?" — o dono, 23/09/2026.
+   *
+   * Recadastrar não é a mesma coisa que alterar: alterar é corrigir um campo,
+   * recadastrar é sentar com a pessoa e conferir a ficha inteira. Somados,
+   * some justamente o que ele quer ver — por isso são duas linhas, e a do
+   * recadastramento vem primeiro, que é a que custa tempo de gente.
+   */
+  it('fichas: o recadastramento tem linha própria, antes da alteração solta', () => {
+    expect(
+      conteudoDoBloco('filiados', linha({
+        filiados: { cadastrados: 0, fichasAtualizadas: 3, recadastramentos: 2 },
+      })).linhas,
+    ).toEqual([
+      { texto: 'recadastrou 2 fichas' },
+      { texto: 'salvou 3 alterações em fichas' },
+    ]);
+  });
+
+  it('uma só fica no singular', () => {
+    expect(
+      conteudoDoBloco('filiados', linha({
+        filiados: { cadastrados: 0, fichasAtualizadas: 0, recadastramentos: 1 },
+      })).linhas,
+    ).toEqual([{ texto: 'recadastrou 1 ficha' }]);
+  });
+
+  /**
+   * A API DA JANELA DE TROCA ainda não manda o campo. Ausente, a linha some —
+   * escrever "recadastrou 0 fichas" seria afirmar que ninguém recadastrou,
+   * quando a verdade é que este servidor ainda não sabe responder.
+   */
+  it('sem o campo (API de antes), a linha não aparece', () => {
+    expect(
+      conteudoDoBloco('filiados', linha({ filiados: { cadastrados: 1, fichasAtualizadas: 0 } })).linhas,
+    ).toEqual([]);
+  });
+
+  /** E o bloco aparece por causa do recadastramento, mesmo sem cadastro novo. */
+  it('só recadastramento já faz o bloco valer a pena', () => {
+    expect(
+      blocosDaPessoa(linha({ filiados: { cadastrados: 0, fichasAtualizadas: 0, recadastramentos: 4 } })),
+    ).toContain('filiados');
+  });
+
   it('o resumo do perfil diz quem sumiu — ou que ninguém sumiu', () => {
     expect(
       fraseDoPerfil({ perfil: 'ADVOGADO', pessoas: 9, usaram: 7, semAcessoRecente: 1, nuncaEntraram: 2 }),

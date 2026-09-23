@@ -56,12 +56,37 @@ export const DIAS_PARA_NOTAR_AUSENCIA = 7;
  *                          ação.
  *   ficha atualizada ..... `UPDATE Filiado` (31) — o registro que diz quais
  *                          campos mudaram.
+ *   recadastramento ...... `CREATE /api/filiados/:id/recadastramento` — ver
+ *                          abaixo.
+ *
+ * O RECADASTRAMENTO ENTROU EM 23/09/2026, a pedido: *"Como saber pela auditoria
+ * se estão recadastrando os filiados? Tem como ver dados retroativos?"*
+ *
+ * Dava, mas só garimpando o banco — e é diferente de "ficha atualizada":
+ * atualizar é corrigir um campo, recadastrar é sentar com a pessoa e conferir a
+ * ficha inteira. Somar os dois esconderia justamente o que ele quer ver.
+ *
+ * MEDIDO NA PRODUÇÃO ANTES DE ESCOLHER a fonte: há 4 recadastramentos, todos de
+ * 23/09, e a auditoria nomeia os três autores. A tabela `recadastramentos`
+ * seria a fonte mais óbvia, mas o `revisor_id` dela é NULO nos quatro — ele só
+ * é preenchido quando alguém CONFERE um envio pelo link. Quem fez o
+ * presencial só está na auditoria.
+ *
+ * O nome do registro é o caminho da rota, como em `filiadoCadastrado`: é o que
+ * o interceptor gravou desde sempre, e trocar por um nome bonito agora partiria
+ * o histórico em dois — o retroativo pararia em 23/09/2026. Um teste abaixo
+ * amarra o caminho ao controller, para a contagem não virar zero em silêncio se
+ * a rota mudar.
  */
 export const REGISTROS = {
   processoCadastrado: { acao: AcaoAuditoria.CREATE, entidade: 'Processo' },
   documentoAnexado: { acao: AcaoAuditoria.CREATE, entidade: 'AnexoDocumento' },
   filiadoCadastrado: { acao: AcaoAuditoria.CREATE, entidade: '/api/filiados' },
   fichaAtualizada: { acao: AcaoAuditoria.UPDATE, entidade: 'Filiado' },
+  recadastramento: {
+    acao: AcaoAuditoria.CREATE,
+    entidade: '/api/filiados/:id/recadastramento',
+  },
 } as const;
 
 /**
@@ -135,7 +160,7 @@ export interface LinhaDeUso {
   };
   /** `andamentos`: só os lançados à mão (origem nula) — ver `montar`. */
   processos: { cadastrados: number; andamentos: number; documentos: number };
-  filiados: { cadastrados: number; fichasAtualizadas: number };
+  filiados: { cadastrados: number; fichasAtualizadas: number; recadastramentos: number };
   atendimentos: number;
   /**
    * MÊS A MÊS, para o PDF de um ano inteiro — os dias de uso e o trabalho que
@@ -609,6 +634,7 @@ export class ProdutividadeService {
           filiados: {
             cadastrados: contar(u.id, REGISTROS.filiadoCadastrado),
             fichasAtualizadas: contar(u.id, REGISTROS.fichaAtualizada),
+            recadastramentos: contar(u.id, REGISTROS.recadastramento),
           },
           atendimentos: atendimentosDe.get(u.id) ?? 0,
           porMes: meses.map((mes): MesDeUso => ({ mes, ...noMes(u.id, mes) })),
@@ -647,7 +673,7 @@ export function csvDaProdutividade(p: Produtividade): string {
     'Concluídas no dia marcado', 'Atividades criadas', 'Em aberto', 'Atrasadas',
     'Publicações decididas', 'Publicações esperando', 'Processos cadastrados',
     'Andamentos internos', 'Documentos anexados', 'Filiados cadastrados',
-    'Fichas atualizadas', 'Atendimentos',
+    'Fichas atualizadas', 'Recadastramentos', 'Atendimentos',
   ];
   const linhas = p.pessoas.map((l) =>
     [
@@ -655,7 +681,8 @@ export function csvDaProdutividade(p: Produtividade): string {
       l.agenda.concluidas, l.agenda.noDiaMarcado, l.agenda.criadas, l.agenda.abertas,
       l.agenda.atrasadas, l.publicacoes.decididas, l.publicacoes.esperando,
       l.processos.cadastrados, l.processos.andamentos, l.processos.documentos,
-      l.filiados.cadastrados, l.filiados.fichasAtualizadas, l.atendimentos,
+      l.filiados.cadastrados, l.filiados.fichasAtualizadas, l.filiados.recadastramentos,
+      l.atendimentos,
     ]
       .map(campo)
       .join(';'),

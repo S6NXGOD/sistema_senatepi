@@ -45,7 +45,7 @@ export interface LinhaDeUso {
   };
   publicacoes: { decididas: number; esperando: number };
   processos: { cadastrados: number; andamentos: number; documentos: number };
-  filiados: { cadastrados: number; fichasAtualizadas: number };
+  filiados: { cadastrados: number; fichasAtualizadas: number; recadastramentos?: number };
   atendimentos: number;
   /** Mês a mês, para o PDF de um ano. Opcional pela janela de troca do deploy. */
   porMes?: MesDeUso[];
@@ -423,7 +423,9 @@ export function temRegistro(l: LinhaDeUso, bloco: Bloco): boolean {
     case 'processos':
       return l.processos.cadastrados + l.processos.andamentos + l.processos.documentos > 0;
     case 'filiados':
-      return l.filiados.cadastrados + l.filiados.fichasAtualizadas > 0;
+      return (
+        l.filiados.cadastrados + l.filiados.fichasAtualizadas + (l.filiados.recadastramentos ?? 0) > 0
+      );
     case 'atendimentos':
       return l.atendimentos > 0;
   }
@@ -521,13 +523,26 @@ export function conteudoDoBloco(bloco: Bloco, l: LinhaDeUso, dias: string[] = []
     }
     case 'filiados': {
       const { cadastrados, fichasAtualizadas } = l.filiados;
+      /*
+        RECADASTRAMENTO VEM ANTES DA ALTERAÇÃO SOLTA (23/09/2026). São coisas
+        diferentes: alterar é corrigir um campo, recadastrar é sentar com a
+        pessoa e conferir a ficha inteira. O campo é opcional porque a API da
+        janela de troca ainda não o manda — ausente, a linha simplesmente não
+        aparece, em vez de escrever "0".
+      */
+      const recadastramentos = l.filiados.recadastramentos ?? 0;
       return {
         numero: cadastrados,
         rotulo: cadastrados === 1 ? 'cadastrado' : 'cadastrados',
         // Conta salvamentos, e não fichas: a mesma ficha salva três vezes conta três.
-        linhas: fichasAtualizadas
-          ? [{ texto: `salvou ${qtd(fichasAtualizadas, 'alteração', 'alterações')} em fichas` }]
-          : [],
+        linhas: [
+          ...(recadastramentos
+            ? [{ texto: `recadastrou ${qtd(recadastramentos, 'ficha', 'fichas')}` }]
+            : []),
+          ...(fichasAtualizadas
+            ? [{ texto: `salvou ${qtd(fichasAtualizadas, 'alteração', 'alterações')} em fichas` }]
+            : []),
+        ],
         explica: explica('filiadosCadastrados'),
       };
     }
@@ -648,7 +663,7 @@ export type ChaveDaLegenda =
   | 'concluidas' | 'noDiaMarcado' | 'criou' | 'emAberto' | 'atrasadas'
   | 'decididas' | 'esperando'
   | 'processosCadastrados' | 'andamentos' | 'documentos'
-  | 'filiadosCadastrados' | 'alteracoesEmFichas'
+  | 'filiadosCadastrados' | 'alteracoesEmFichas' | 'recadastramentos'
   | 'atendimentos' | 'mesAMes' | 'antes';
 
 export interface LinhaDaLegenda {
@@ -837,6 +852,17 @@ export const LEGENDA_DO_USO: LinhaDaLegenda[] = [
       'Vezes que a pessoa salvou alteração no cadastro de um filiado: a mesma ficha salva três vezes ' +
       'conta três; ligar de uma vez vários filiados a um município conta uma. Desfiliação e reativação ' +
       'não entram.',
+    retrato: 'PERIODO',
+  },
+  {
+    chave: 'recadastramentos',
+    curta: 'Ficha inteira conferida com o filiado, no balcão ou pelo link.',
+    numero: 'Recadastramentos',
+    conta:
+      'Vezes que a pessoa concluiu um recadastramento — a conferência da ficha inteira, campo a ' +
+      'campo, com o filiado na frente ou na linha. É diferente de "alterações em fichas", que conta ' +
+      'a correção de um campo avulso. O envio que o próprio filiado faz pelo link não tem dono e ' +
+      'não entra em linha de ninguém.',
     retrato: 'PERIODO',
   },
   {

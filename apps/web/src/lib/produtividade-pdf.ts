@@ -590,6 +590,7 @@ export function linhasDoBloco(
       const f = l.filiados;
       linhas = [
         numeroDe('Filiados cadastrados', 'filiadosCadastrados', f.cadastrados, antes?.filiados.cadastrados),
+        numeroDe('Recadastramentos', 'recadastramentos', f.recadastramentos ?? 0, antes?.filiados.recadastramentos ?? 0),
         numeroDe('Alterações em fichas', 'alteracoesEmFichas', f.fichasAtualizadas, antes?.filiados.fichasAtualizadas),
       ];
       break;
@@ -916,6 +917,7 @@ export function somaDaEquipe(pessoas: LinhaDeUso[]): LinhaDeUso {
     filiados: {
       cadastrados: s((l) => l.filiados.cadastrados),
       fichasAtualizadas: s((l) => l.filiados.fichasAtualizadas),
+      recadastramentos: s((l) => l.filiados.recadastramentos ?? 0),
     },
     atendimentos: s((l) => l.atendimentos),
     ...(semanasDeCada

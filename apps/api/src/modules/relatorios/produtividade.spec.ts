@@ -23,7 +23,7 @@ const linha = (over: Partial<LinhaDeUso>): LinhaDeUso => ({
   agenda: semAgenda,
   publicacoes: { decididas: 0, esperando: 0 },
   processos: { cadastrados: 0, andamentos: 0, documentos: 0 },
-  filiados: { cadastrados: 0, fichasAtualizadas: 0 },
+  filiados: { cadastrados: 0, fichasAtualizadas: 0, recadastramentos: 0 },
   atendimentos: 0,
   porMes: [],
   porSemana: [],
@@ -95,6 +95,9 @@ describe('uso e produtividade — as regras', () => {
     expect(REGISTROS.documentoAnexado).toEqual({ acao: 'CREATE', entidade: 'AnexoDocumento' });
     expect(REGISTROS.filiadoCadastrado).toEqual({ acao: 'CREATE', entidade: '/api/filiados' });
     expect(REGISTROS.fichaAtualizada).toEqual({ acao: 'UPDATE', entidade: 'Filiado' });
+    expect(REGISTROS.recadastramento).toEqual({
+      acao: 'CREATE', entidade: '/api/filiados/:id/recadastramento',
+    });
     expect(SERVICO).toContain('acao: { not: AcaoAuditoria.LOGIN }');
     expect(SERVICO).not.toContain("'/api/processos/instancias/reavaliar'");
   });
@@ -131,7 +134,11 @@ describe('uso e produtividade — as regras', () => {
     const csv = csvDaProdutividade(p);
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     expect(csv.split('\r\n')[0]).toContain('"Dias com uso"');
-    expect(csv.split('\r\n')[0].split(';')).toHaveLength(17);
+    // 18 colunas desde 23/09/2026: "Recadastramentos" entrou ao lado de
+    // "Fichas atualizadas", porque conferir a ficha inteira com o filiado não é
+    // a mesma coisa que corrigir um campo.
+    expect(csv.split('\r\n')[0].split(';')).toHaveLength(18);
+    expect(csv.split('\r\n')[0]).toContain('"Recadastramentos"');
     expect(csv).toContain('"Aspas ""no"" nome";"ADVOGADO";"2026-09-12";"4"');
   });
 
@@ -414,7 +421,7 @@ describe('uso e produtividade — montado', () => {
     });
     expect(ana.publicacoes).toEqual({ decididas: 1, esperando: 2 });
     expect(ana.processos).toEqual({ cadastrados: 1, andamentos: 3, documentos: 1 });
-    expect(ana.filiados).toEqual({ cadastrados: 1, fichasAtualizadas: 0 });
+    expect(ana.filiados).toEqual({ cadastrados: 1, fichasAtualizadas: 0, recadastramentos: 0 });
     // Mês a mês, para o PDF de um ano: o mesmo trabalho, com o mês de Teresina.
     expect(r.meses).toEqual(['2026-09']);
     expect(ana.porMes).toEqual([
@@ -533,5 +540,37 @@ describe('uso e produtividade — montado', () => {
     // 3 lançados à mão; o eco da conclusão, a conversão, a planilha e o robô ficam fora.
     expect(r.pessoas[0].processos.andamentos).toBe(3);
     expect(r.pessoas[0].porMes[0].andamentos).toBe(3);
+  });
+});
+
+/**
+ * O NOME DO REGISTRO É UM CAMINHO DE ROTA, e caminho muda. Se alguém mover o
+ * `@Post('recadastramento')` ou o `@Controller('filiados/:id')`, a contagem
+ * viraria ZERO sem ninguém perceber — o relatório diria "não estão
+ * recadastrando" com a equipe recadastrando todo dia.
+ *
+ * Este teste amarra os dois: o caminho que o interceptor grava é montado do
+ * prefixo do controller mais o do método, e é exatamente o que `REGISTROS`
+ * espera. É o mesmo cuidado de [[senatepi-alarme-contradizia-o-robo]]: a
+ * ausência de linha não pode ser lida como ausência de trabalho.
+ */
+describe('o caminho gravado na auditoria é o caminho da rota', () => {
+  const fonte = readFileSync(
+    join(__dirname, '../recadastramento/recadastramento.controller.ts'),
+    'utf8',
+  );
+
+  it('o controller ainda atende em filiados/:id', () => {
+    expect(fonte).toContain("@Controller('filiados/:id')");
+  });
+
+  it('o método ainda é POST recadastramento', () => {
+    expect(fonte).toContain("@Post('recadastramento')");
+  });
+
+  it('e é isso que REGISTROS.recadastramento procura', () => {
+    const prefixo = /@Controller\('([^']+)'\)/.exec(fonte)?.[1];
+    const metodo = /@Post\('([^']+)'\)/.exec(fonte)?.[1];
+    expect(REGISTROS.recadastramento.entidade).toBe(`/api/${prefixo}/${metodo}`);
   });
 });
