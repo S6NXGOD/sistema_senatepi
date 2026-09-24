@@ -522,3 +522,45 @@ async function ehCarteirinhaNaoEmitida(e: unknown): Promise<boolean> {
     return true;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Acesso ao Portal do Filiado (lado da secretaria)
+// ---------------------------------------------------------------------------
+
+export interface AcessoAoPortal {
+  liberado: boolean;
+  /** Liberado mas nunca trocou a senha: a provisória ainda está valendo. */
+  aguardandoPrimeiroAcesso: boolean;
+  senhaDefinidaEm: string | null;
+  ultimoAcessoEm: string | null;
+  /**
+   * Por onde a pessoa consegue entrar.
+   *
+   * Medido: só 39% dos ativos têm CPF. Sem este aviso, a secretaria dita "entre
+   * com seu CPF" para quem não tem CPF no cadastro — e a ligação volta.
+   */
+  entraPor: string[];
+  matricula: string;
+}
+
+export async function buscarAcessoAoPortal(filiadoId: string): Promise<AcessoAoPortal | null> {
+  return (await api.get(`/filiados/${filiadoId}/portal`)).data;
+}
+
+export interface SenhaEmitida {
+  senhaProvisoria: string;
+  matricula: string;
+  nomeCompleto: string;
+}
+
+/**
+ * Emite a senha provisória. Ela volta EM CLARO, uma vez só — o banco guarda o
+ * hash, e nem o Administrador consegue lê-la depois. A tela precisa dizer isso.
+ */
+export async function emitirSenhaDoPortal(filiadoId: string): Promise<SenhaEmitida> {
+  return (await api.post(`/filiados/${filiadoId}/portal/senha`)).data;
+}
+
+export async function revogarAcessoAoPortal(filiadoId: string): Promise<{ revogado: boolean }> {
+  return (await api.delete(`/filiados/${filiadoId}/portal/senha`)).data;
+}

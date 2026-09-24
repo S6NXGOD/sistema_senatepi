@@ -544,6 +544,20 @@ model Filiado {
   historico            FiliadoHistorico[]
   registrosAcesso      RegistroAcesso[]
 
+  /// PORTAL DO FILIADO — o acesso da própria pessoa, separado do login da equipe.
+  ///
+  /// NULO em `portalSenhaHash` = sem acesso liberado. É o estado de todos os
+  /// 5.810 hoje, e é o que a estratégia do portal confere para derrubar a sessão
+  /// na hora em que a secretaria revogar — sem esperar o token expirar.
+  ///
+  /// O login aceita CPF **ou** matrícula: medido, só 39% dos ativos têm CPF e
+  /// 100% têm matrícula (que sai impressa na carteirinha).
+  portalSenhaHash       String?   @map("portal_senha_hash")
+  /// A senha ainda é a provisória: o token fica preso na tela de troca.
+  portalPrimeiroAcesso  Boolean   @default(true) @map("portal_primeiro_acesso")
+  portalSenhaDefinidaEm DateTime? @map("portal_senha_definida_em")
+  portalUltimoAcessoEm  DateTime? @map("portal_ultimo_acesso_em")
+
   municipio Ente? @relation(fields: [municipioCodigo], references: [codigo], onDelete: SetNull)
 
   @@index([municipioCodigo])

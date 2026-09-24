@@ -37,6 +37,15 @@ const SEM_MATRIZ: Record<string, string> = {
   profile: 'Autoatendimento: `@DadosProprios()` restringe ao usuário do token.',
   'portal-empresa': 'Realm separado: a empresa contribuinte não é usuário do sistema.',
   'portal-empresa/auth': 'Login do realm da empresa.',
+  /*
+    O filiado não é usuário do sistema: realm próprio, segredo de JWT próprio e
+    `FiliadoJwtGuard` declarado na classe. A matriz governa PERFIS DA EQUIPE, e
+    aplicá-la aqui recusaria todo mundo — o token do portal não carrega perfil.
+    A liberação do acesso, essa sim, é da equipe: mora em
+    `portal-filiado-admin.controller`, com `@Modulo('filiados')` e SEM `@Roles`.
+  */
+  'portal-filiado/auth': 'Login do realm do filiado.',
+  'portal-filiado/eu': 'Realm separado: o filiado não é usuário do sistema.',
 };
 
 describe('todo controller passa pela matriz, ou está na lista de exceções', () => {
@@ -75,6 +84,22 @@ describe('todo controller passa pela matriz, ou está na lista de exceções', (
  */
 describe('as rotas novas moram no módulo certo', () => {
   const ler = (rel: string) => readFileSync(path.join(RAIZ, rel), 'utf8');
+
+  /**
+   * O PORTAL DO FILIADO TEM DOIS LADOS, e eles não se misturam.
+   *
+   * O lado de fora (`portal-filiado/eu`) é do filiado e não passa pela matriz —
+   * o token dele não tem perfil. O lado da secretaria (liberar, reemitir e
+   * revogar o acesso) passa, e pelo módulo `filiados`: quem pode editar a ficha
+   * de alguém pode liberar o portal dessa pessoa. É a mesma decisão.
+   */
+  it('liberar o acesso ao portal é do módulo filiados, e sem @Roles', () => {
+    const src = ler('portal-filiado/portal-filiado-admin.controller.ts');
+    expect(src).toContain("@Modulo('filiados')");
+    expect(src).toContain("@ModuloTenant('filiados')");
+    expect(src).toContain("@Controller('filiados/:id/portal')");
+    expect(src.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('@Roles');
+  });
 
   it('a fila de vínculos é do módulo processos', () => {
     const src = ler('processos/partes.controller.ts');

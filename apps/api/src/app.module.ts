@@ -26,6 +26,7 @@ import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { EscalasModule } from './modules/escalas/escalas.module';
 import { EmpresasModule } from './modules/empresas/empresas.module';
 import { PortalEmpresaModule } from './modules/portal-empresa/portal-empresa.module';
+import { PortalFiliadoModule } from './modules/portal-filiado/portal-filiado.module';
 import { EventosModule } from './modules/eventos/eventos.module';
 import { PresencasModule } from './modules/presencas/presencas.module';
 import { AcessosModule } from './modules/acessos/acessos.module';
@@ -72,6 +73,7 @@ import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-v
     EscalasModule,
     EmpresasModule,
     PortalEmpresaModule,
+    PortalFiliadoModule,
     EventosModule,
     PresencasModule,
     AcessosModule,

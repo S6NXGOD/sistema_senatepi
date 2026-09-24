@@ -22,6 +22,7 @@ import {
 import { useAuth } from '@/lib/auth';
 import { podeEditar, podeExcluir } from '@/lib/permissoes';
 import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
+import { AcessoAoPortal } from '@/components/filiados/acesso-ao-portal';
 import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
 import { ReativarModal } from '@/components/filiados/reativar-modal';
 import { ConferirRecadastramento } from '@/components/filiados/conferir-recadastramento';
@@ -568,6 +569,13 @@ export default function PerfilFiliadoPage() {
               )}
             </CardContent>
           </Card>
+
+          {/*
+            ACESSO AO PORTAL, logo abaixo da carteirinha — é a mesma conversa.
+            Quem acaba de emitir a carteirinha de alguém é quem vai querer
+            liberar o portal para a pessoa baixá-la sozinha da próxima vez.
+          */}
+          <AcessoAoPortal filiadoId={f.id} situacao={f.situacao} />
 
           {/* Termos gerados */}
           <Card>
