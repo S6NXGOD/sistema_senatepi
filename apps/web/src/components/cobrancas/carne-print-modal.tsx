@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { Printer, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   getCarne, CarneData, TIPO_LABEL, formatBRL, formatData, formatCpf,
 } from '@/lib/cobrancas';
@@ -41,8 +42,24 @@ export function CarnePrintModal({
   onClose: () => void;
 }) {
   const [montado, setMontado] = useState(false);
-  /** `null` = carnê inteiro. Começa no que quem abriu pediu. */
-  const [somente, setSomente] = useState<string | null>(parcelaId ?? null);
+  /*
+    QUAIS PARCELAS VÃO SAIR — `null` é "todas" (24/09/2026).
+
+    "E se eu quiser selecionar mais de uma parcela para imprimir? Para eu gerar
+    um carnê só com as parcelas selecionadas?"
+
+    Era uma OU todas. Virou um conjunto: quem abre pelo menu de uma parcela
+    começa com ela marcada, quem abre pelo carnê começa com todas, e a fileira
+    de números deixa montar qualquer recorte — as três vencidas, o semestre que
+    falta, só as de um trimestre.
+
+    `null` em vez de "todas as ids" de propósito: a cobrança pode ganhar parcela
+    depois, e um conjunto congelado passaria a significar "todas menos as
+    novas" sem ninguém perceber.
+  */
+  const [selecao, setSelecao] = useState<Set<string> | null>(
+    parcelaId ? new Set([parcelaId]) : null,
+  );
   useEffect(() => setMontado(true), []);
 
   useEffect(() => {
@@ -65,24 +82,34 @@ export function CarnePrintModal({
     "o carnê inteiro" são a mesma folha, e oferecer a troca seria oferecer nada.
   */
   const total = data?.parcelas.length ?? 0;
-  const aParcela = somente ? data?.parcelas.find((p) => p.id === somente) : null;
+  const escolhidas = data ? data.parcelas.filter((p) => !selecao || selecao.has(p.id)) : [];
+  const n = escolhidas.length;
+  /* Com UMA parcela não há o que escolher: a fileira seria um botão só. */
   const vale = total > 1;
 
   const titulo = !data
     ? 'Pré-visualização do carnê'
-    : aParcela
-      ? `Parcela ${aParcela.numero} de ${data.cobranca.totalParcelas}`
-      : `Carnê completo · ${total} ${total === 1 ? 'parcela' : 'parcelas'}`;
+    : !selecao
+      ? `Carnê completo · ${total} ${total === 1 ? 'parcela' : 'parcelas'}`
+      : n === 1
+        ? `Parcela ${escolhidas[0].numero} de ${data.cobranca.totalParcelas}`
+        : `${n} de ${total} parcelas`;
 
-  const rotuloImprimir = aParcela ? 'Imprimir parcela' : 'Imprimir';
+  const rotuloImprimir = !data || !selecao || n === total
+    ? 'Imprimir'
+    : n === 1 ? 'Imprimir parcela' : `Imprimir ${n}`;
 
-  const outraOpcao = !vale
-    ? null
-    : somente
-      ? { rotulo: `Imprimir o carnê inteiro (${total})`, aoClicar: () => setSomente(null) }
-      : parcelaId
-        ? { rotulo: 'Voltar para só esta parcela', aoClicar: () => setSomente(parcelaId) }
-        : null;
+  /** Marca/desmarca uma parcela sem sair da tela. */
+  const alternar = (id: string) => {
+    setSelecao((atual) => {
+      const proxima = new Set(atual ?? data!.parcelas.map((p) => p.id));
+      if (proxima.has(id)) proxima.delete(id);
+      else proxima.add(id);
+      /* Voltou a ser tudo? Volta a ser `null`, para acompanhar parcela nova. */
+      if (proxima.size === total) return null;
+      return proxima;
+    });
+  };
 
   const conteudo = (
     <div id="carne-print-root">
@@ -99,23 +126,99 @@ export function CarnePrintModal({
         <div className="no-print mx-auto mb-4 flex w-full max-w-[210mm] flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-white">{titulo}</p>
-            {outraOpcao && (
+            {vale && (
               <button
                 type="button"
-                onClick={outraOpcao.aoClicar}
+                onClick={() => setSelecao(selecao ? null : new Set())}
                 className="text-xs text-white/75 underline underline-offset-2 hover:text-white"
               >
-                {outraOpcao.rotulo}
+                {selecao ? `Voltar ao carnê inteiro (${total})` : 'Escolher as parcelas'}
               </button>
             )}
           </div>
           <div className="flex shrink-0 gap-2">
             <Button variant="outline" onClick={onClose}><X className="h-4 w-4" /> Fechar</Button>
-            <Button onClick={() => window.print()} disabled={isLoading || isError || !data}>
+            <Button onClick={() => window.print()} disabled={isLoading || isError || !data || n === 0}>
               <Printer className="h-4 w-4" /> {rotuloImprimir}
             </Button>
           </div>
         </div>
+
+        {/*
+          A FILEIRA DE NÚMEROS — o recorte se monta aqui, e só aparece quando
+          alguém pediu para escolher.
+
+          Números, e não uma lista com data e valor: são doze itens e a pessoa
+          já sabe qual parcela quer (a vencida, as do semestre). Uma lista
+          ocuparia a tela inteira acima do papel e empurraria a pré-visualização
+          para fora — e é a pré-visualização que responde "é isso mesmo?".
+
+          A parcela paga fica marcada com um ponto: dá para imprimir de novo (o
+          filiado pediu a segunda via), mas ninguém a inclui num carnê de
+          cobrança por engano.
+        */}
+        {vale && selecao && data && (
+          <div className="no-print mx-auto mb-4 w-full max-w-[210mm] rounded-xl bg-white/10 p-3 backdrop-blur-sm">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-white/80">
+                Toque nas parcelas que devem sair no carnê.
+              </p>
+              <div className="flex gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSelecao(null)}
+                  className="text-white/80 underline underline-offset-2 hover:text-white"
+                >
+                  Marcar todas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelecao(new Set())}
+                  className="text-white/80 underline underline-offset-2 hover:text-white"
+                >
+                  Limpar
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {data.parcelas.map((p) => {
+                const marcada = selecao.has(p.id);
+                const paga = p.status === 'PAGO';
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => alternar(p.id)}
+                    aria-pressed={marcada}
+                    title={`Parcela ${p.numero} · vence ${formatDataPura(p.dataVencimento)}${paga ? ' · já paga' : ''}`}
+                    className={cn(
+                      'relative h-9 w-9 rounded-lg text-sm font-semibold tabular-nums transition',
+                      marcada
+                        ? 'bg-white text-gray-900'
+                        : 'bg-white/15 text-white/80 hover:bg-white/25',
+                    )}
+                  >
+                    {p.numero}
+                    {paga && (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'absolute right-1 top-1 h-1.5 w-1.5 rounded-full',
+                          marcada ? 'bg-emerald-600' : 'bg-emerald-400',
+                        )}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {n === 0 && (
+              <p className="mt-2 text-xs text-amber-200">
+                Nenhuma parcela marcada — escolha pelo menos uma para imprimir.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Papel A4 */}
         <div className="carne-paper mx-auto w-full max-w-[210mm] bg-white p-[10mm] text-[#111] shadow-xl">
@@ -125,11 +228,9 @@ export function CarnePrintModal({
             <p className="py-20 text-center text-sm text-red-600">Não foi possível carregar o carnê.</p>
           ) : (
             <div className="space-y-3">
-              {data.parcelas
-                .filter((p) => !somente || p.id === somente)
-                .map((p) => (
-                  <CarneBloco key={p.id} data={data} parcela={p} />
-                ))}
+              {escolhidas.map((p) => (
+                <CarneBloco key={p.id} data={data} parcela={p} />
+              ))}
             </div>
           )}
         </div>

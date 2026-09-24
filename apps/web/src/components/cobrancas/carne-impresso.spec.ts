@@ -116,21 +116,47 @@ describe('imprimir uma parcela só', () => {
     expect(acoes).toContain('parcelaId={parcela.id}');
   });
 
-  it('o diálogo filtra pela parcela pedida', () => {
-    expect(modal).toContain('.filter((p) => !somente || p.id === somente)');
+  it('o diálogo começa com a parcela pedida marcada', () => {
+    expect(modal).toContain('parcelaId ? new Set([parcelaId]) : null');
+    expect(modal).toContain('(p) => !selecao || selecao.has(p.id)');
   });
 
   /**
-   * A ESCOLHA NÃO FICA PRESA. Quem abriu por engano pela parcela troca para o
-   * carnê no próprio diálogo, sem fechar e procurar outro caminho.
+   * "E SE EU QUISER SELECIONAR MAIS DE UMA PARCELA?" — 24/09/2026.
+   *
+   * Era uma OU todas. Virou um conjunto: a fileira de números monta qualquer
+   * recorte (as três vencidas, o semestre que falta) e o papel mostra só o que
+   * foi marcado, antes de imprimir.
    */
-  it('dá para trocar entre a parcela e o carnê sem fechar', () => {
-    expect(modal).toContain('Imprimir o carnê inteiro');
-    expect(modal).toContain('Voltar para só esta parcela');
+  it('a escolha é um conjunto, não uma parcela', () => {
+    expect(modal).toContain('useState<Set<string> | null>');
+    expect(modal).toContain('const alternar = (id: string) =>');
+    expect(modal).toContain('escolhidas.map((p) => (');
   });
 
-  /** Com UMA parcela, "esta parcela" e "o carnê" são a mesma folha. */
-  it('com uma parcela só, não oferece troca nenhuma', () => {
+  it('dá para marcar todas e limpar de uma vez', () => {
+    expect(modal).toContain('Marcar todas');
+    expect(modal).toContain('Limpar');
+  });
+
+  /**
+   * `null` É "TODAS", e não a lista congelada das ids de agora: a cobrança pode
+   * ganhar parcela depois, e um conjunto fixo passaria a significar "todas
+   * menos as novas" sem ninguém perceber. Por isso, ao marcar tudo de volta, o
+   * estado VOLTA a ser `null`.
+   */
+  it('marcar tudo volta a ser "todas", não uma lista congelada', () => {
+    expect(modal).toContain('if (proxima.size === total) return null;');
+  });
+
+  /** Sem nada marcado não há o que imprimir — e o botão diz isso. */
+  it('nenhuma marcada desabilita o imprimir', () => {
+    expect(modal).toContain('|| n === 0}');
+    expect(modal).toContain('Nenhuma parcela marcada');
+  });
+
+  /** Com UMA parcela, escolher seria escolher entre uma coisa só. */
+  it('com uma parcela só, não oferece escolha nenhuma', () => {
     expect(modal).toContain('const vale = total > 1;');
   });
 
