@@ -1,4 +1,5 @@
 import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
+import { ehCotaEstourada } from './utils/cota-do-cnj.util';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { OrigemSincronizacao } from '@prisma/client';
@@ -117,6 +118,15 @@ export class ProcessosCronService {
   private readonly TAMANHO_LOTE = 10;
   private readonly PAUSA_ENTRE_LOTES = 5000;
   /**
+   * Quanto esperar antes de repetir quem levou 429.
+   *
+   * A cota do CNJ é por minuto; um minuto inteiro é o menor intervalo que
+   * garante que a janela virou. Numa rodada de madrugada, sessenta segundos não
+   * custam nada — e é a diferença entre o processo ser lido hoje ou daqui a
+   * oito dias, se ele estiver na faixa lenta.
+   */
+  private readonly PAUSA_APOS_COTA = 60_000;
+  /**
    * Validade da trava. A varredura leva ~5s por processo (2–3s de espera + a
    * consulta, que o CNJ responde em 10–25s nos casos ruins); 3h dão folga larga
    * sobre o acervo atual sem chegar perto do intervalo de 24h entre execuções.
@@ -194,7 +204,14 @@ export class ProcessosCronService {
     const inicio = Date.now();
     // Fora do `try`: a linha de resumo do `finally` precisa do que já foi
     // contado mesmo quando a rodada quebra no meio.
-    const rodada = { elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0, quebrou: null as string | null };
+    const rodada = {
+      elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0,
+      /** Quantos voltaram na segunda tentativa depois de um 429. */
+      recuperados: 0,
+      quebrou: null as string | null,
+    };
+    /** Os que levaram 429: a cota era de outro, e eles merecem uma segunda vez. */
+    const paraTentarDeNovo: string[] = [];
 
     try {
       // Ativos E pendentes: um processo recém-cadastrado (PENDENTE) também
@@ -228,6 +245,7 @@ export class ProcessosCronService {
             // Isola a falha (rate limit, CNJ fora do ar, tribunal desconhecido).
             // O motivo detalhado já foi para `logs_sincronizacao_datajud`.
             this.logger.warn(`[DATAJUD-SYNC] Falha no processo ${id}: ${(err as Error).message}`);
+            if (ehCotaEstourada(err)) paraTentarDeNovo.push(id);
           }
           if (i < lote.length - 1) await this.aguardar();
         }
@@ -239,10 +257,64 @@ export class ProcessosCronService {
         }
       }
 
+      /*
+        O 429 NÃO É DEFEITO DO PROCESSO — é a vez de outro (24/09/2026).
+
+        O dono perguntou se valia espaçar as chamadas ou dividir a varredura em
+        duas janelas. MEDIDO antes de decidir, e a medição derrubou as duas
+        ideias:
+
+          ritmo real da varredura ..... 1 a 2 chamadas por MINUTO
+          cota do CNJ ................. 20 por minuto
+          429 em 24/09 ................ 9 de 169 (5,3%)
+          429 nos 8 dias anteriores ... ZERO
+
+        Não somos nós que estouramos a cota: estamos a um décimo dela. O 429 veio
+        de fora — o IP do Railway é compartilhado, e naquela manhã alguém mais
+        gastou a cota antes. Espaçar mais só alongaria a rodada sem ganhar nada,
+        e dividir em duas janelas DOBRARIA a exposição ao começo de rodada, que
+        é justamente onde os 429 caíram.
+
+        O que faltava era simples: 429 quer dizer "tente daqui a pouco", e a
+        rodada nunca tentava. Estes voltam UMA vez, no fim, com um respiro maior
+        — custa segundos numa rodada de madrugada e devolve o dia de atualização
+        que aqueles processos perderam por um motivo que não era deles.
+
+        Uma vez só, de propósito: se a cota ainda estiver estourada na segunda
+        tentativa, insistir vira parte do problema.
+      */
+      if (paraTentarDeNovo.length) {
+        this.logger.log(
+          `[DATAJUD-SYNC] ${paraTentarDeNovo.length} processo(s) levaram 429 (cota do CNJ); ` +
+            'tentando de novo uma vez, no fim da rodada.',
+        );
+        await new Promise((r) => setTimeout(r, this.PAUSA_APOS_COTA));
+        for (let i = 0; i < paraTentarDeNovo.length; i++) {
+          const id = paraTentarDeNovo[i];
+          try {
+            const { novas } = await this.processos.ressincronizarSilencioso(id);
+            rodada.ok++;
+            rodada.falhas--;
+            rodada.recuperados++;
+            if (novas > 0) {
+              rodada.comNovas++;
+              rodada.novas += novas;
+            }
+          } catch (err) {
+            this.logger.warn(
+              `[DATAJUD-SYNC] ${id} falhou de novo depois da cota: ${(err as Error).message}`,
+            );
+          }
+          if (i < paraTentarDeNovo.length - 1) await this.aguardar();
+        }
+      }
+
       this.logger.log(
         `[DATAJUD-SYNC] Concluído em ${Math.round((Date.now() - inicio) / 1000)}s — ` +
           `${rodada.ok} sincronizado(s), ${rodada.comNovas} com novidades (${rodada.novas} mov.), ` +
-          `${rodada.falhas} falha(s).`,
+          `${rodada.falhas} falha(s)` +
+          (rodada.recuperados ? `, ${rodada.recuperados} recuperado(s) da cota` : '') +
+          '.',
       );
     } catch (err) {
       rodada.quebrou = (err as Error).message;

@@ -93,6 +93,8 @@ describe('a varredura do DataJud grava a linha em toda saída', () => {
     const cron = new ProcessosCronService({} as never, processos as never, audiencias as never, logSync as never);
     // Sem os 2–3 s entre consultas: o que se testa é a contagem, não a cadência.
     (cron as unknown as { aguardar: () => Promise<void> }).aguardar = async () => undefined;
+    // E sem o minuto de espera da repescagem de cota, pelo mesmo motivo.
+    (cron as unknown as { PAUSA_APOS_COTA: number }).PAUSA_APOS_COTA = 0;
     const varrer = () => (cron as unknown as { varrer: () => Promise<void> }).varrer();
     return { processos, logSync, varrer };
   };
@@ -105,8 +107,14 @@ describe('a varredura do DataJud grava a linha em toda saída', () => {
   it('conta sucesso, novidade e falha de cada processo, numa linha sem processo', async () => {
     const { logSync, varrer } = montar({
       ids: async () => ['a', 'b', 'c'],
+      /*
+        O ERRO GENÉRICO DEIXOU DE SER '429' (24/09/2026): desde a repescagem da
+        cota, 429 quer dizer "tente de novo" e o processo volta no fim da
+        rodada — este teste conta falhas, e passaria a contar zero. O que ele
+        mede continua sendo a contagem; o 429 tem teste próprio abaixo.
+      */
       ressincronizar: async (id) => {
-        if (id === 'b') throw new Error('429');
+        if (id === 'b') throw new Error('tribunal desconhecido');
         return { novas: id === 'a' ? 2 : 0 };
       },
     });
@@ -123,6 +131,60 @@ describe('a varredura do DataJud grava a linha em toda saída', () => {
         'Rodada concluída com 1 de 3 consulta(s) em falha; 2 processo(s) consultado(s), 1 com novidade (2 movimentação(ões) nova(s)).',
     });
     expect(typeof l.duracaoMs).toBe('number');
+  });
+
+  /**
+   * A REPESCAGEM DA COTA — decidida medindo, em 24/09/2026.
+   *
+   * A varredura faz 1 a 2 chamadas por MINUTO contra uma cota de 20/min: não
+   * somos nós que a estouramos. Os 9 erros 429 daquela manhã (contra ZERO nos
+   * oito dias anteriores) vieram do IP compartilhado do Railway. 429 quer dizer
+   * "tente daqui a pouco", e a rodada nunca tentava.
+   */
+  it('quem levou 429 volta no fim da rodada, e deixa de contar como falha', async () => {
+    let tentativasDeB = 0;
+    const { processos, logSync, varrer } = montar({
+      ids: async () => ['a', 'b', 'c'],
+      ressincronizar: async (id) => {
+        if (id !== 'b') return { novas: 0 };
+        tentativasDeB++;
+        if (tentativasDeB === 1) throw new Error('O DATAJUD retornou HTTP 429.');
+        return { novas: 1 };
+      },
+    });
+    await varrer();
+    expect(tentativasDeB).toBe(2);
+    expect(processos.ressincronizarSilencioso).toHaveBeenCalledTimes(4);
+    const l = linha(logSync);
+    expect(l.sucesso).toBe(true);
+    // Nenhuma falha sobra: o 'b' foi recuperado.
+    expect(l.mensagemErro).toBe(
+      'Rodada concluída: 3 processo(s) consultado(s), 1 com novidade (1 movimentação(ões) nova(s)).',
+    );
+  });
+
+  /** Uma vez só: insistir com a cota estourada é virar parte do problema. */
+  it('se o 429 insistir, tenta só mais uma vez e conta a falha', async () => {
+    let tentativas = 0;
+    const { processos, logSync, varrer } = montar({
+      ids: async () => ['a'],
+      ressincronizar: async () => { tentativas++; throw new Error('429'); },
+    });
+    await varrer();
+    expect(tentativas).toBe(2);
+    expect(processos.ressincronizarSilencioso).toHaveBeenCalledTimes(2);
+    expect(linha(logSync).sucesso).toBe(false);
+  });
+
+  /** Timeout NÃO é cota: repetir não resolve, e a rodada não gasta chamada à toa. */
+  it('timeout não entra na repescagem', async () => {
+    let tentativas = 0;
+    const { varrer } = montar({
+      ids: async () => ['a'],
+      ressincronizar: async () => { tentativas++; throw new Error('timeout of 45000ms exceeded'); },
+    });
+    await varrer();
+    expect(tentativas).toBe(1);
   });
 
   it('a lista de elegíveis que quebra ainda grava a linha, como falha', async () => {
