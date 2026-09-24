@@ -52,7 +52,7 @@ export interface HerancaAnexos {
  * Seção reutilizável de "Anexos" (drag & drop + lista para download rápido).
  * Vincula-se a um Atendimento (triagem), a um Processo ou a uma atividade da Agenda.
  *
- * Com `filiadoId`, ganha o botão "Puxar do acervo": documentos que o filiado já
+ * Com `filiadoId`, ganha a oferta do acervo: os documentos que a pessoa já
  * entregou em outro atendimento entram aqui sem novo upload.
  *
  * Com `heranca`, mostra também (em bloco separado e só leitura) os documentos do
@@ -180,24 +180,6 @@ export function AnexosSection({
             </span>
           )}
         </h4>
-        {filiadoId && habilitado && (
-          <button
-            type="button"
-            onClick={() => setPuxarAberto(true)}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium text-brand-700 transition-colors hover:bg-muted dark:text-brand-400"
-          >
-            <FolderInput className="h-3.5 w-3.5" /> Puxar do acervo
-            {/*
-              O NÚMERO É O AVISO. Sem ele, o botão só é encontrado por quem já
-              sabe que existe — e quem não sabe sobe o arquivo de novo.
-            */}
-            {aPuxar > 0 && (
-              <span className="rounded-full bg-brand-100 px-1.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-900/40 dark:text-brand-300">
-                {aPuxar}
-              </span>
-            )}
-          </button>
-        )}
       </div>
 
       {/* Dropzone */}
@@ -246,6 +228,47 @@ export function AnexosSection({
           </>
         )}
       </button>
+
+      {/*
+        O ACERVO FALA NO MOMENTO DA ESCOLHA (24/09/2026).
+
+        MEDIDO na produção: dos 83 anexos enviados, `veio_do_acervo` era ZERO —
+        e nos 18 do atendimento, 17 tinham documento disponível para puxar. O
+        recurso não faltava; faltava PESO. O dropzone tracejado ocupa a largura
+        inteira e o acervo era um chip de 11px no canto do cabeçalho, brigando
+        por espaço com o título. Quem nunca tinha visto o botão subia o arquivo
+        de novo — e é assim que a mesma CTPS passa a existir três vezes.
+
+        Agora a frase fica ENTRE o dropzone e a lista: no caminho do olho, na
+        hora em que a pessoa decide de onde vem o arquivo. E diz o FATO que ela
+        não sabe — quantos documentos essa pessoa já entregou ao sindicato.
+
+        PORTA ÚNICA: o chip do cabeçalho saiu. Duas entradas para o mesmo modal
+        na mesma dobra é o que a régua do painel proíbe. E quando não há nada
+        para puxar — 21 pessoas com acervo na produção inteira — NADA aparece:
+        botão que abre lista vazia é beco, não recurso.
+
+        O substantivo vem do vocabulário do cliente: "filiado" no SENATEPI,
+        "servidor" no SINDSERM.
+      */}
+      {aPuxar > 0 && (
+        <button
+          type="button"
+          onClick={() => setPuxarAberto(true)}
+          className="mt-2 flex w-full items-center gap-2.5 rounded-xl border border-brand-200 bg-brand-50/70 px-3 py-2.5 text-left transition-colors hover:bg-brand-50 dark:border-brand-900/70 dark:bg-brand-900/20 dark:hover:bg-brand-900/30"
+        >
+          <FolderInput className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
+          <span className="min-w-0 flex-1 text-xs leading-snug">
+            <span className="font-semibold text-brand-800 dark:text-brand-200">
+              Este {V.filiado} já entregou {aPuxar} documento{aPuxar > 1 ? 's' : ''}
+            </span>
+            <span className="text-muted-foreground">
+              {aPuxar > 1 ? ' — puxe os que servirem.' : ' — puxe em vez de enviar de novo.'}
+            </span>
+          </span>
+          <ArrowRight className="h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />
+        </button>
+      )}
 
       {/* Lista de arquivos */}
       {isLoading ? (
