@@ -178,9 +178,20 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
   );
 }
 
+/*
+  PAPEL NÃO TEM RETICÊNCIAS (24/09/2026).
+
+  `truncate` corta com "…" — o que faz sentido numa tabela, onde dá para abrir
+  a linha, e nenhum num documento impresso: "MARA BIANCA AMORIM CAMP…" no
+  canhoto é o campo mais importante do controle do sindicato virando adivinha,
+  e ninguém pode "clicar para ver o resto" num papel.
+
+  Nome grande quebra em duas linhas. Há espaço de sobra: o canhoto termina com
+  um vão vazio, e o recibo cresce alguns milímetros no máximo.
+*/
 function MiniLinha({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
-    <p className="truncate">
+    <p className="leading-snug">
       <span className="text-gray-500">{rotulo}: </span>
       <span className="font-medium text-gray-800">{valor}</span>
     </p>
@@ -191,7 +202,7 @@ function Campo({ rotulo, valor, destaque, className }: { rotulo: string; valor: 
   return (
     <div className={`min-w-0 ${className ?? ''}`}>
       <p className="text-[8px] uppercase tracking-wide text-gray-500">{rotulo}</p>
-      <p className={`truncate ${destaque ? 'text-sm font-bold text-brand-800' : 'font-medium text-gray-800'}`}>{valor}</p>
+      <p className={`leading-snug ${destaque ? 'text-sm font-bold text-brand-800' : 'font-medium text-gray-800'}`}>{valor}</p>
     </div>
   );
 }

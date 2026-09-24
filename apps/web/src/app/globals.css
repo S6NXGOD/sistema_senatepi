@@ -64,25 +64,58 @@
   #carne-print-root .no-print {
     display: none !important;
   }
+  /*
+    O FUNDO BRANCO É DE UM ELEMENTO, não só do `html`.
+
+    24/09/2026: "a fatura quando é emitida em A4 fica com as bordas pretas".
+    Aqui a impressão sai branca em retrato e paisagem, com e sem "gráficos de
+    plano de fundo" — o PDF gerado pinta um retângulo branco de página inteira.
+    Mas a faixa branca vinha SÓ do `html`/`body`, e um `position: static` deixa
+    a sobreposição do tamanho do conteúdo: uns 8cm no topo de uma folha de 29.
+    Todo o resto dependia da tela de fundo do documento, que é justamente o que
+    alguns visualizadores e drivers de PDF deixam transparente — e transparente,
+    num visualizador escuro, é PRETO.
+
+    `min-height: 100vh` faz a própria caixa cobrir a folha. É barato e tira a
+    dúvida.
+  */
   #carne-print-root .carne-overlay {
     position: static !important;
     inset: auto !important;
     overflow: visible !important;
     background: #fff !important;
+    min-height: 100vh;
     padding: 0 !important;
   }
+  /*
+    A FOLHA TEM LARGURA MÁXIMA, e centralizada.
+
+    Sem isto a etiqueta esticava até a largura útil da página: em paisagem são
+    27cm de fita horizontal, com a assinatura jogada no canto e um vão enorme no
+    meio. 186mm é a largura útil de um A4 em pé com estas margens — em retrato
+    não muda nada, em paisagem para de esticar.
+  */
   #carne-print-root .carne-paper {
-    max-width: none !important;
+    max-width: 186mm !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
     padding: 0 !important;
     box-shadow: none !important;
+    background: #fff !important;
   }
   * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  /*
+    `size: auto` E NÃO `size: A4` — o dono pediu "adaptado tanto para A4 em pé
+    quanto horizontal". Cravar `A4` é cravar RETRATO: quem escolhe paisagem na
+    caixa de impressão briga com o CSS. Com `auto`, a orientação é de quem
+    imprime, e o `max-width` acima cuida de a etiqueta não se esticar.
+  */
   @page {
-    size: A4;
-    margin: 10mm;
+    size: auto;
+    margin: 12mm;
   }
 }
 
