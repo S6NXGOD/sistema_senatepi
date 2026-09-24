@@ -64,6 +64,7 @@ export class DossieService {
         telefonePrincipal: true, telefoneSecundario: true, email: true,
         cidade: true, estado: true, bairro: true, endereco: true, numero: true,
         fotoThumbKey: true, createdAt: true, aprovadoEm: true, dataAdmissao: true,
+        dataFiliacao: true,
         vinculos: { orderBy: { ordem: 'asc' }, select: { empresa: true, cargo: true } },
         _count: { select: { dependentes: true } },
       },
@@ -104,7 +105,15 @@ export class DossieService {
       recadastramentos: { total: recadastramentos.total, ultimoEm: recadastramentos.ultimoEm },
       /** Data do primeiro e do último contato de qualquer natureza. */
       relacionamento: {
-        desde: filiado.createdAt,
+        /*
+          `dataFiliacao` PRIMEIRO, `createdAt` só como último recurso.
+
+          `createdAt` é quando a LINHA nasceu, e a carga legada carimbou 1.903
+          pessoas com o dia da importação — o dossiê dizia que uma filiada de
+          2010 se relaciona com o sindicato "desde 2026". Ver o comentário do
+          campo no schema, e o mesmo conserto na carteirinha.
+        */
+        desde: filiado.dataFiliacao ?? filiado.createdAt,
         ultimoContatoEm: this.maisRecente([
           atendimentos.resumo.ultimoEm,
           atividades.resumo.ultimaEm,

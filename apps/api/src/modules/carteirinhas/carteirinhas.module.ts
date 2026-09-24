@@ -237,7 +237,27 @@ export class CarteirinhasService {
     const PANEL = 150; // largura do painel colorido da frente
     const x = 24;
     const util = W - PANEL - 40; // largura de texto da frente
-    const dataFiliacao = formatarDataBR(filiado.aprovadoEm ?? filiado.createdAt);
+    /*
+      A DATA DE FILIAÇÃO É `dataFiliacao`, E SÓ ELA.
+
+      O cartão vinha de `aprovadoEm ?? createdAt`, e isso está errado de duas
+      formas medidas na produção:
+
+        divergem de `dataFiliacao` .......... 1.015 ativos
+        sairiam como "desde 2026" ........... 1.999 ativos
+        ano real mais comum ................. 2010, 2013, 2011
+
+      `createdAt` acumula dois significados desde a carga legada (ver o comentário
+      do campo no schema), e `aprovadoEm` é a aprovação do cadastro, não a entrada
+      no quadro. Num cartão de sócio a ANTIGUIDADE é metade do que o documento
+      diz: imprimir 2026 para quem é filiado desde 2010 é errar justamente o que
+      a pessoa mostraria com orgulho.
+
+      E QUANDO NÃO SE SABE (908 ativos vieram da planilha sem a data), a linha
+      simplesmente NÃO SAI — a grade é montada com o que existe. Inventar uma
+      data seria pior do que omitir.
+    */
+    const dataFiliacao = filiado.dataFiliacao ? formatarDataBR(filiado.dataFiliacao) : null;
     const mostraFormacao = campoVisivel('formacao');
     const mostraCoren = campoVisivel('numeroCoren');
 
@@ -309,10 +329,11 @@ export class CarteirinhasService {
         ['Matrícula', filiado.matricula],
         ['Válida até', validade],
       ]);
-      const ultima: Array<[string, string]> = [['Filiado(a) desde', dataFiliacao]];
+      const ultima: Array<[string, string]> = [];
+      if (dataFiliacao) ultima.push(['Filiado(a) desde', dataFiliacao]);
       if (mostraCoren && filiado.numeroCoren) ultima.push(['COREN', filiado.numeroCoren]);
       else if (filiado.cidade) ultima.push(['Município', filiado.cidade]);
-      grade.push(ultima);
+      if (ultima.length) grade.push(ultima);
 
       /*
         A GRADE FICA CENTRADA NA FAIXA, não ancorada no topo.
@@ -469,7 +490,7 @@ export class CarteirinhasService {
         140,
       );
 
-      campo('Filiado(a) desde', dataFiliacao, col[0], 94, 150);
+      campo('Filiado(a) desde', dataFiliacao ?? '—', col[0], 94, 150);
       campo('Situação', ROTULO_SITUACAO_FILIADO[filiado.situacao], col[1], 94, 150);
       /*
         A TERCEIRA COLUNA MUDA COM O CLIENTE: o COREN é o registro profissional

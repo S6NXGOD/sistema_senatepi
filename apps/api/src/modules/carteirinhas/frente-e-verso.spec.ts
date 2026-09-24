@@ -102,6 +102,46 @@ describe('nada do SENATEPI está cravado no desenho', () => {
 });
 
 /**
+ * "FILIADO(A) DESDE" É `dataFiliacao`, E OS IRMÃOS FORAM CONTADOS.
+ *
+ * O cartão saiu no ar lendo `aprovadoEm ?? createdAt`. MEDIDO na produção:
+ *
+ *   ativos ....................... 5.810
+ *   divergem de `dataFiliacao` ... 1.015
+ *   sairiam como "desde 2026" .... 1.999   (o ano real é 2010, 2013, 2011)
+ *   sem data nenhuma ............. 908
+ *
+ * `createdAt` acumula dois significados desde a carga legada e `aprovadoEm` é a
+ * aprovação do cadastro. Num cartão de sócio a ANTIGUIDADE é metade do que o
+ * documento diz — imprimir 2026 para quem entrou em 2010 erra justamente o que
+ * a pessoa mostraria com orgulho.
+ */
+describe('a data de filiação vem do campo que a guarda', () => {
+  it('o cartão lê dataFiliacao, e não a data da linha', () => {
+    expect(fonte).toContain('filiado.dataFiliacao ? formatarDataBR(filiado.dataFiliacao) : null');
+    expect(fonte).not.toContain('aprovadoEm ?? filiado.createdAt');
+  });
+
+  /** Sem data, a linha NÃO SAI: 908 vieram da planilha sem ela, e inventar é pior. */
+  it('sem data, a linha some da frente em vez de mentir', () => {
+    expect(fonte).toContain("if (dataFiliacao) ultima.push(['Filiado(a) desde', dataFiliacao]);");
+    expect(fonte).toContain('if (ultima.length) grade.push(ultima);');
+  });
+
+  /**
+   * O IRMÃO, CONTADO: o dossiê dizia `relacionamento.desde = createdAt`, que
+   * para os 1.903 da carga é o dia da importação. Consertar só o cartão
+   * deixaria a mesma mentira numa tela que a equipe olha todo dia.
+   */
+  it('e o dossiê não usa mais a data da linha', () => {
+    const dossie = readFileSync(join(__dirname, '../filiados/dossie.service.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(dossie).toContain('desde: filiado.dataFiliacao ?? filiado.createdAt');
+    expect(dossie).not.toContain('desde: filiado.createdAt');
+  });
+});
+
+/**
  * E O CONTRATO COM QUEM ENTRAR DEPOIS: um sindicato novo que não declare
  * endereço reprova aqui, e não no verso do cartão de alguém.
  */
