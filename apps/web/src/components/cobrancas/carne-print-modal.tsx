@@ -21,8 +21,28 @@ const LGPD =
  * (esquerda, controle do sindicato) + recibo (direita, filiado) — com QR do PIX.
  * O CSS global de `@media print` esconde a navegação e mostra só o carnê.
  */
-export function CarnePrintModal({ cobrancaId, onClose }: { cobrancaId: string; onClose: () => void }) {
+export function CarnePrintModal({
+  cobrancaId,
+  parcelaId,
+  onClose,
+}: {
+  cobrancaId: string;
+  /**
+   * Abre mostrando SÓ esta parcela.
+   *
+   * 24/09/2026: "E se eu quiser enviar só o carnê de uma parcela? Sou obrigado
+   * enviar o carnê inteiro no final das contas." Estava — e o pior é que a
+   * ação já vivia no menu DA PARCELA: clicar em "Imprimir carnê" na parcela 2
+   * imprimia as doze. O menu prometia uma coisa e fazia outra.
+   *
+   * A escolha não fica presa: o cabeçalho troca entre as duas sem fechar nada.
+   */
+  parcelaId?: string;
+  onClose: () => void;
+}) {
   const [montado, setMontado] = useState(false);
+  /** `null` = carnê inteiro. Começa no que quem abriu pediu. */
+  const [somente, setSomente] = useState<string | null>(parcelaId ?? null);
   useEffect(() => setMontado(true), []);
 
   useEffect(() => {
@@ -38,16 +58,61 @@ export function CarnePrintModal({ cobrancaId, onClose }: { cobrancaId: string; o
 
   if (!montado) return null;
 
+  /*
+    O QUE ESTÁ NA TELA, em uma frase — e qual é a outra saída.
+
+    Nada disto existe quando a cobrança tem UMA parcela só: aí "esta parcela" e
+    "o carnê inteiro" são a mesma folha, e oferecer a troca seria oferecer nada.
+  */
+  const total = data?.parcelas.length ?? 0;
+  const aParcela = somente ? data?.parcelas.find((p) => p.id === somente) : null;
+  const vale = total > 1;
+
+  const titulo = !data
+    ? 'Pré-visualização do carnê'
+    : aParcela
+      ? `Parcela ${aParcela.numero} de ${data.cobranca.totalParcelas}`
+      : `Carnê completo · ${total} ${total === 1 ? 'parcela' : 'parcelas'}`;
+
+  const rotuloImprimir = aParcela ? 'Imprimir parcela' : 'Imprimir';
+
+  const outraOpcao = !vale
+    ? null
+    : somente
+      ? { rotulo: `Imprimir o carnê inteiro (${total})`, aoClicar: () => setSomente(null) }
+      : parcelaId
+        ? { rotulo: 'Voltar para só esta parcela', aoClicar: () => setSomente(parcelaId) }
+        : null;
+
   const conteudo = (
     <div id="carne-print-root">
       <div className="carne-overlay fixed inset-0 z-[60] overflow-auto bg-black/60 p-4">
-        {/* Barra de ações — não sai na impressão */}
-        <div className="no-print mx-auto mb-4 flex w-full max-w-[210mm] items-center justify-between gap-2">
-          <p className="text-sm font-medium text-white">Pré-visualização do carnê</p>
-          <div className="flex gap-2">
+        {/*
+          A BARRA DIZ O QUE VAI SAIR, e deixa trocar sem fechar nada.
+
+          Antes dizia só "Pré-visualização do carnê" e imprimia sempre as doze
+          parcelas — inclusive quando aberta pelo menu de UMA. Agora o título é
+          o conteúdo ("Parcela 3 de 12" ou "Carnê completo · 12 parcelas") e ao
+          lado fica a outra opção, em texto, porque é troca de recorte e não
+          ação: botão daria a ela o mesmo peso de "Imprimir".
+        */}
+        <div className="no-print mx-auto mb-4 flex w-full max-w-[210mm] flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-white">{titulo}</p>
+            {outraOpcao && (
+              <button
+                type="button"
+                onClick={outraOpcao.aoClicar}
+                className="text-xs text-white/75 underline underline-offset-2 hover:text-white"
+              >
+                {outraOpcao.rotulo}
+              </button>
+            )}
+          </div>
+          <div className="flex shrink-0 gap-2">
             <Button variant="outline" onClick={onClose}><X className="h-4 w-4" /> Fechar</Button>
             <Button onClick={() => window.print()} disabled={isLoading || isError || !data}>
-              <Printer className="h-4 w-4" /> Imprimir
+              <Printer className="h-4 w-4" /> {rotuloImprimir}
             </Button>
           </div>
         </div>
@@ -60,9 +125,11 @@ export function CarnePrintModal({ cobrancaId, onClose }: { cobrancaId: string; o
             <p className="py-20 text-center text-sm text-red-600">Não foi possível carregar o carnê.</p>
           ) : (
             <div className="space-y-3">
-              {data.parcelas.map((p) => (
-                <CarneBloco key={p.id} data={data} parcela={p} />
-              ))}
+              {data.parcelas
+                .filter((p) => !somente || p.id === somente)
+                .map((p) => (
+                  <CarneBloco key={p.id} data={data} parcela={p} />
+                ))}
             </div>
           )}
         </div>
@@ -159,8 +226,45 @@ function CarneBloco({ data, parcela }: { data: CarneData; parcela: CarneData['pa
             <div className="mt-3 flex justify-end">
               <div className="text-center">
                 {config?.assinaturaPresidenteUrl ? (
+                  /*
+                    A ASSINATURA PARECIA COLADA — e estava (24/09/2026).
+
+                    "Pelo que me parece, a assinatura do presidente tá como se
+                    fosse um fundo. Como se ela tivesse colada."
+
+                    Baixei a imagem da produção e medi: é um PNG 243×52 COM
+                    canal alfa e com **100% dos pixels opacos** — ou seja, uma
+                    foto do papel, com o papel dentro. O fundo tem luminância
+                    mediana 239 e puxa para o verde (um canto é 214,239,210);
+                    sobre a folha branca isso vira um retângulo acinzentado em
+                    volta da assinatura. Só 5,2% dos pixels são tinta.
+
+                    O campo é uma URL na Configuração, não um upload, então não
+                    dá para limpar a imagem na origem: o conserto é na hora de
+                    desenhar. Os números saíram de simular o filtro sobre os
+                    pixels reais:
+
+                      filtro                         fundo   tinta   meio-tom
+                      nenhum ....................... 11,4%    0,1%     88,5%
+                      brightness(1.1) contrast(3) .. 91,5%    2,4%      6,1%   ← come a assinatura
+                      brightness(.78) contrast(7) .. 88,1%    8,0%      4,0%   ← escolhido
+
+                    O `contrast(3)` mais "suave" derruba a tinta de 5,2% para
+                    2,4%: clareia o traço junto com o papel. O escolhido leva o
+                    fundo a branco puro, ENGROSSA o traço (5,2% → 8%) e deixa só
+                    4% de meio-tom, que é a borda do traço — e borda de traço
+                    tem de ser meio-tom mesmo.
+
+                    Imagem já recortada (fundo transparente) não é prejudicada:
+                    filtro de cor não mexe no canal alfa, e tinta cinza só fica
+                    mais preta.
+                  */
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={config.assinaturaPresidenteUrl} alt="" className="mx-auto h-8 object-contain" />
+                  <img
+                    src={config.assinaturaPresidenteUrl}
+                    alt=""
+                    className="mx-auto h-8 object-contain [filter:grayscale(1)_brightness(0.78)_contrast(7)]"
+                  />
                 ) : (
                   <div className="h-8" />
                 )}

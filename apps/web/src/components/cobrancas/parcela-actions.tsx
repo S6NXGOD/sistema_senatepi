@@ -165,9 +165,23 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
               <CheckCircle2 className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Registrar pagamento
             </button>
           )}
+          {/*
+            O MENU É DA PARCELA — e agora imprime a parcela (24/09/2026).
+
+            "E se eu quiser enviar só o carnê de uma parcela? Sou obrigado
+            enviar o carnê inteiro no final das contas."
+
+            Estava. E o pior é que a ação já vivia aqui, no menu DE UMA
+            parcela: clicar em "Imprimir carnê" na parcela 2 mandava as doze.
+            O menu prometia uma coisa e fazia outra — o rótulo dizia "carnê"
+            justamente porque o código mandava o carnê.
+
+            O carnê inteiro continua a um clique: sai do cabeçalho da cobrança
+            (que é o lugar dele) e do próprio diálogo, que oferece a troca.
+          */}
           {podeImprimir && (
             <button className={item} onClick={() => { setAberto(false); setCarneAberto(true); }}>
-              <Printer className="h-4 w-4 text-muted-foreground" /> Imprimir carnê
+              <Printer className="h-4 w-4 text-muted-foreground" /> Imprimir esta parcela
             </button>
           )}
           {podeCobrar && (
@@ -223,7 +237,11 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
       />
 
       {carneAberto && (
-        <CarnePrintModal cobrancaId={parcela.cobrancaId} onClose={() => setCarneAberto(false)} />
+        <CarnePrintModal
+          cobrancaId={parcela.cobrancaId}
+          parcelaId={parcela.id}
+          onClose={() => setCarneAberto(false)}
+        />
       )}
     </div>
   );
