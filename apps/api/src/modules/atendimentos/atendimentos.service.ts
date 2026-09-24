@@ -1109,6 +1109,18 @@ export class AtendimentosService {
       conclusaoOrigem: true, conclusaoConsultaId: true,
       filiado: filiadoLista,
       atendente: { select: { id: true, nome: true } },
+      /*
+        OS ARQUIVOS, CONTADOS NA LISTA (24/09/2026).
+
+        "A atividade inclusive tinha 17 anexos, mas não tá avisando no card. E
+        nem na triagem." Medido: o atendimento #23 tem DEZESSETE arquivos, e a
+        linha dele na lista era igual à de um atendimento sem nenhum. Quem
+        precisa decidir por onde começar não tinha como saber onde está o
+        trabalho já reunido.
+
+        `_count`, não a lista: a linha só precisa dizer que existem e quantos.
+      */
+      _count: { select: { anexos: true } },
       // Só para derivar o estado do encaminhamento e a fila; não sai na resposta.
       compromissos: {
         where: { origemDesfechoId: null },

@@ -493,9 +493,30 @@ export function CompromissoDrawer({
                     <span>{fraseDaTriagemNaConsulta(c)}</span>
                   </p>
                 )}
+                {/*
+                  OS ARQUIVOS DA TRIAGEM, ANUNCIADOS AQUI (24/09/2026).
+
+                  "A atividade inclusive tinha 17 anexos, mas não tá avisando no
+                  card." Medido: a consulta tinha ZERO anexos próprios — os 17
+                  estavam no ATENDIMENTO que a originou. A gaveta contava certo
+                  e informava nada: o advogado abria a consulta sem saber que
+                  dezessete documentos estavam a um clique.
+
+                  Fica junto do botão que leva até eles, porque contar sem dizer
+                  onde pegar é o aviso que obriga a procurar.
+                */}
+                {!!c.atendimento?._count?.anexos && (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-foreground/80">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    {c.atendimento._count.anexos === 1
+                      ? '1 arquivo veio com a triagem'
+                      : `${c.atendimento._count.anexos} arquivos vieram com a triagem`}
+                  </p>
+                )}
                 {onVerTriagem && (
                   <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400">
-                    <FileSearch className="h-3.5 w-3.5" /> Abrir triagem completa
+                    <FileSearch className="h-3.5 w-3.5" />
+                    {c.atendimento?._count?.anexos ? 'Abrir a triagem e os arquivos' : 'Abrir triagem completa'}
                   </button>
                 )}
               </div>
@@ -539,9 +560,47 @@ export function CompromissoDrawer({
           {/* Cancelada é decisão tomada, não alarme: neutro, nunca vermelho (15/09/2026). */}
           {c.status === 'CANCELADO' && (
             <div className="rounded-xl border bg-muted/40 p-3">
-              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-1 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <Ban className="h-3.5 w-3.5" /> Cancelada
                 {c.canceladoEm && <span className="font-normal normal-case">· {formatDataHora(c.canceladoEm)}</span>}
+              </p>
+              {/*
+                QUEM CANCELOU — a pergunta que a tela não respondia (24/09/2026).
+
+                "Aqui diz que a atividade foi cancelada, filiado não compareceu.
+                Mas quem cancelou?"
+
+                O dado SEMPRE esteve lá: `cancelado_por` está preenchido em 45
+                dos 61 cancelamentos da produção, e a API já mandava
+                `canceladoPorUsuario` junto. O bloco de "concluída" mostra o
+                autor logo acima; o de cancelada, não — omissão, não decisão.
+
+                Cancelar uma consulta é decisão de gente, e decisão sem nome é
+                boato. Os 16 sem autor são anteriores à coluna e ao robô: aí a
+                linha DIZ isso, em vez de ficar em branco — ausência de nome se
+                lê como dado perdido.
+              */}
+              <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                {c.canceladoPorUsuario ? (
+                  <>
+                    <AvatarPessoa
+                      nome={c.canceladoPorUsuario.nomeExibicao || c.canceladoPorUsuario.nome}
+                      url={c.canceladoPorUsuario.avatarUrl}
+                      tamanho="xs"
+                    />
+                    <span>
+                      por{' '}
+                      <strong className="font-semibold text-foreground">
+                        {c.canceladoPorUsuario.nomeExibicao || c.canceladoPorUsuario.nome}
+                      </strong>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Bot className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    <span>autor não registrado (cancelamento antigo)</span>
+                  </>
+                )}
               </p>
               {c.canceladoCategoria ? (
                 <p className="text-sm font-semibold">

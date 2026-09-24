@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   Loader2, Search, Plus, Headset, ChevronLeft, ChevronRight, Inbox, MoreVertical,
   Eye, Gavel, CheckCircle2, XCircle, RotateCcw, Trash2, AlertTriangle, RotateCw, X, Clock, Flame,
-  CalendarClock,
+  CalendarClock, Paperclip,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -254,6 +254,30 @@ function ListaAtendimentos() {
    * Agora a data é a ÂNCORA da coluna, sempre, em todos os estados. Embaixo
    * dela fica só o que ela não diz.
    */
+  /*
+    OS ARQUIVOS QUE VIERAM COM O ATENDIMENTO (24/09/2026).
+
+    "A atividade inclusive tinha 17 anexos, mas não tá avisando no card. E nem
+    na triagem." Medido: o atendimento #23 tem DEZESSETE arquivos e a linha
+    dele era igual à de um atendimento sem nenhum.
+
+    Só aparece quando existe: clipe com "0" seria ruído em 99% das linhas —
+    dos atendimentos da produção, só dois têm arquivo.
+  */
+  const AnexosCel = ({ a }: { a: AtendimentoLista }) => {
+    const n = a._count?.anexos ?? 0;
+    if (!n) return null;
+    return (
+      <span
+        className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
+        title={n === 1 ? '1 arquivo anexado' : `${n} arquivos anexados`}
+      >
+        <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span className="tabular-nums">{n}</span>
+      </span>
+    );
+  };
+
   const DataDaTriagemCel = ({ a }: { a: AtendimentoLista }) => (
     <span
       className="tabular-nums text-xs text-muted-foreground"
@@ -471,6 +495,7 @@ function ListaAtendimentos() {
                   */}
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <DataDaTriagemCel a={a} />
+                    <AnexosCel a={a} />
                     <ResultadoCel a={a} />
                     {oSeloDeSituacaoAcrescenta(a) && (
                       <Badge className={corDoStatus(a)}>{rotuloDoStatus(a)}</Badge>
@@ -559,7 +584,10 @@ function ListaAtendimentos() {
                           </div>
                         </td>
                         <td className="max-w-[360px] px-4 py-3">
-                          {rotulo && <span className="block truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
+                          <span className="flex items-center gap-2">
+                            {rotulo && <span className="min-w-0 truncate text-xs font-medium text-foreground/80">{rotulo}</span>}
+                            <AnexosCel a={a} />
+                          </span>
                           <span className="line-clamp-2 text-muted-foreground">{a.descricao}</span>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">

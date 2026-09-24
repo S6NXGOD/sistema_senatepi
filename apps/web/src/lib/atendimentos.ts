@@ -110,6 +110,14 @@ export interface AtendimentoLista {
   urgente?: boolean;
   /** O porquê da urgência — a API a exige ao marcar; aqui é o `title` da chama. */
   urgenteMotivo?: string | null;
+  /**
+   * Quantos arquivos vieram com este atendimento.
+   *
+   * 24/09/2026: o #23 tem DEZESSETE e a linha dele era igual à de um sem
+   * nenhum. Opcional — a API da janela de troca ainda não manda, e ausente a
+   * lista simplesmente não mostra o clipe (em vez de escrever "0").
+   */
+  _count?: { anexos: number };
 }
 
 export interface PaginaAtendimentos {

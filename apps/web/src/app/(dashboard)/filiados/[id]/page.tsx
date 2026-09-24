@@ -6,9 +6,9 @@ import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, Pencil, RefreshCw, IdCard, QrCode as QrIcon, FileText, Upload,
+  ArrowLeft, Pencil, RefreshCw, IdCard, FileText, Upload,
   Trash2, Loader2, Clock, UserPlus, ShieldCheck, FileSignature, CreditCard, Baby,
-  History, Building2,
+  History, Building2, UserCog, UserMinus,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,13 +16,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatarData, mascararCpf, cn } from '@/lib/utils';
 import {
-  FORMACAO_LABEL, MODALIDADE_LABEL, SITUACAO_COR, SITUACAO_LABEL, SITUACOES,
+  FORMACAO_LABEL, MODALIDADE_LABEL, SITUACAO_COR, SITUACAO_LABEL,
   type ModalidadeContribuicao,
 } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
 import { podeEditar, podeExcluir } from '@/lib/permissoes';
-import { QrCodeDialog } from '@/components/qrcode-dialog';
 import { RecadastrarModal } from '@/components/filiados/recadastrar-modal';
+import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
+import { ReativarModal } from '@/components/filiados/reativar-modal';
 import { ConferirRecadastramento } from '@/components/filiados/conferir-recadastramento';
 import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { DependentesSection } from '@/components/filiados/dependentes-section';
@@ -99,6 +100,8 @@ function Info({ label, valor }: { label: string; valor?: string | null }) {
 export default function PerfilFiliadoPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  /** Qual porta de situação está aberta — as duas exigem formulário próprio. */
+  const [acaoSituacao, setAcaoSituacao] = useState<null | 'desfiliar' | 'reativar'>(null);
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
   // Recadastrar, Editar, situação, carteirinha e anexo gravam no cadastro: a API
@@ -108,7 +111,6 @@ export default function PerfilFiliadoPage() {
   // matriz: a tela espelha as duas travas para não oferecer o 403.
   const podeEmitirCarteirinha =
     podeEditarFiliado && (user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO');
-  const [qrAberto, setQrAberto] = useState(false);
   const [recadastrarAberto, setRecadastrarAberto] = useState(false);
   const [dossieAberto, setDossieAberto] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -204,7 +206,22 @@ export default function PerfilFiliadoPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setDossieAberto(true)}><History className="h-4 w-4" /> Dossiê</Button>
-          <Button variant="outline" onClick={() => setQrAberto(true)}><QrIcon className="h-4 w-4" /> QR</Button>
+          {/*
+            O BOTÃO "QR" SAIU (24/09/2026).
+
+            "Esse QR Code de filiado nunca vai ser usado pra nada, nem pra
+            baixar e nem pra abrir no sistema."
+
+            Medido antes de tirar: a tabela `presencas` tem ZERO linhas — o QR
+            nunca foi lido, nem uma vez, em 5.827 filiados com token. E ele
+            nem era exclusivo desta tela: o MESMO código já vai impresso na
+            carteirinha, que é o que a pessoa carrega. Eram dois artefatos para
+            um uso que ainda não começou.
+
+            O `qrToken` FICA, e a carteirinha continua levando o QR: quando o
+            primeiro check-in de evento acontecer, é dela que ele vai ser lido.
+            O que saiu foi a segunda via avulsa, para a equipe imprimir.
+          */}
           {/*
             BAIXAR, e não abrir numa aba. O `blob:` de uma aba nova não carrega
             nome nenhum, e o visualizador salva com o UUID do blob — era essa a
@@ -415,18 +432,70 @@ export default function PerfilFiliadoPage() {
                 </Badge>
                 {mudarSituacao.isPending && <Loader2 className="h-4 w-4 animate-spin text-brand-800" />}
               </div>
+              {/*
+                O SELETOR DE SITUAÇÃO SAIU (24/09/2026).
+
+                "Esse select de situação de filiado pelo jeito não tá servindo
+                pra nada. Tem que ser mais profissionalizado cada ação."
+
+                Ele tinha razão, e o defeito era medido: das TRÊS opções que
+                oferecia, DUAS devolviam erro. Desfiliar caía em "Para
+                desfiliar, use a ação Desfiliar" (o print dele) e reativar caía
+                na recusa gêmea — as duas transições têm porta própria desde
+                27/08, porque exigem motivo, mês de corte e termo assinado. Só
+                ATIVO ↔ INATIVO passava, e é o que explica 4 inativos em 5.827
+                filiados: o seletor quase nunca fez alguma coisa.
+
+                Um controle que recusa dois terços do que oferece não é um
+                controle, é uma armadilha com aparência de campo.
+
+                No lugar, as AÇÕES que existem de verdade — cada uma com nome,
+                cada uma fazendo uma coisa. Os dois modais já existiam e viviam
+                só no menu da listagem; a ficha, que é onde se decide, não os
+                tinha.
+              */}
               {podeEditarFiliado && (
-                <div>
-                  <label className="text-xs uppercase text-muted-foreground">Alterar situação</label>
-                  <select
-                    className="mt-1 h-12 w-full rounded-md border border-input md:h-10 bg-background px-3 text-base md:text-sm"
-                    value={f.situacao}
-                    disabled={mudarSituacao.isPending}
-                    onChange={(e) => { if (e.target.value !== f.situacao) mudarSituacao.mutate(e.target.value); }}
-                  >
-                    {SITUACOES.map((s) => <option key={s} value={s}>{SITUACAO_LABEL[s]}</option>)}
-                  </select>
-                  <p className="mt-1 text-xs text-muted-foreground">A alteração fica registrada no histórico.</p>
+                <div className="space-y-2">
+                  <p className="text-xs uppercase text-muted-foreground">O que fazer</p>
+                  {f.situacao === 'DESFILIADO' ? (
+                    <>
+                      <Button variant="outline" className="w-full justify-start" onClick={() => setAcaoSituacao('reativar')}>
+                        <RefreshCw className="h-4 w-4" /> Reativar a filiação…
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        Limpa os dados da saída e pede o motivo do retorno.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      {/*
+                        INATIVO É ESTADO ADMINISTRATIVO, não saída: a pessoa
+                        continua filiada e volta com um clique. Por isso ele é
+                        o único que muda direto, sem formulário.
+                      */}
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        disabled={mudarSituacao.isPending}
+                        onClick={() => mudarSituacao.mutate(f.situacao === 'INATIVO' ? 'ATIVO' : 'INATIVO')}
+                      >
+                        {mudarSituacao.isPending
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <UserCog className="h-4 w-4" />}
+                        {f.situacao === 'INATIVO' ? 'Voltar para ativo' : 'Marcar como inativo'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                        onClick={() => setAcaoSituacao('desfiliar')}
+                      >
+                        <UserMinus className="h-4 w-4" /> Desfiliar…
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        Desfiliar pede motivo, mês de corte e o termo assinado. Tudo fica no histórico.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -510,7 +579,6 @@ export default function PerfilFiliadoPage() {
         </div>
       </div>
 
-      {qrAberto && <QrCodeDialog endpoint={`/filiados/${f.id}/qrcode`} titulo="QR Code do filiado" onClose={() => setQrAberto(false)} />}
 
       <RecadastrarModal
         open={recadastrarAberto}
@@ -518,6 +586,32 @@ export default function PerfilFiliadoPage() {
         filiadoId={f.id}
         filiadoNome={f.nomeCompleto}
       />
+
+      {/*
+        AS DUAS PORTAS DE SITUAÇÃO — os mesmos modais do menu da listagem.
+        Eles já existiam e a ficha, que é onde se decide, não os tinha: quem
+        estava aqui tentava pelo seletor e levava um erro.
+      */}
+      {acaoSituacao === 'desfiliar' && (
+        <DesfiliarModal
+          filiado={{ id: f.id, nomeCompleto: f.nomeCompleto }}
+          onClose={() => setAcaoSituacao(null)}
+          onConfirmed={() => {
+            setAcaoSituacao(null);
+            qc.invalidateQueries({ queryKey: ['filiado', id] });
+          }}
+        />
+      )}
+      {acaoSituacao === 'reativar' && (
+        <ReativarModal
+          filiado={{ id: f.id, nomeCompleto: f.nomeCompleto }}
+          onClose={() => setAcaoSituacao(null)}
+          onConfirmed={() => {
+            setAcaoSituacao(null);
+            qc.invalidateQueries({ queryKey: ['filiado', id] });
+          }}
+        />
+      )}
 
       {/* Dossiê — o histórico consolidado (triagem, agenda, processos, financeiro) */}
       <DossieDrawer

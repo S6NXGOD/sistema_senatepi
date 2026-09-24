@@ -796,6 +796,22 @@ export class AgendaService {
             */
             status: true, conclusaoOrigem: true, conclusaoConsultaId: true,
             atendente: { select: { id: true, nome: true, nomeExibicao: true } },
+            /*
+              OS ARQUIVOS DA TRIAGEM, CONTADOS (24/09/2026).
+
+              "A atividade inclusive tinha 17 anexos, mas não tá avisando no
+              card. E nem na triagem."
+
+              Medido: a consulta da EDILENE tem ZERO anexos — os 17 estão no
+              ATENDIMENTO #23, que a originou. A gaveta já contava os anexos da
+              própria atividade (`_count.anexos`) e mostrava "0", correto e
+              inútil: o advogado abria a consulta sem saber que dezessete
+              documentos estavam a um clique, dentro da triagem de origem.
+
+              É `_count`, não a lista: o bloco só precisa dizer que existem e
+              quantos, e quem quiser abre a triagem completa.
+            */
+            _count: { select: { anexos: true } },
           },
         },
       },

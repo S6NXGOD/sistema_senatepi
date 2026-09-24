@@ -206,6 +206,14 @@ export interface Compromisso {
     descricao: string | null;
     assunto?: string | null;
     assuntoOutro?: string | null;
+    /**
+     * Quantos arquivos a TRIAGEM juntou — e não esta atividade.
+     *
+     * A consulta da EDILENE tinha zero anexos próprios e dezessete no
+     * atendimento que a originou. O advogado abria sem saber que existiam.
+     * Opcional: só o detalhe manda, e a API da janela de troca não manda.
+     */
+    _count?: { anexos: number };
   } | null;
   /** Seguimento de uma conclusão: herda `atendimentoId` e não fecha o atendimento. Só o detalhe manda. */
   origemDesfechoId?: string | null;
@@ -316,6 +324,14 @@ export interface CompromissoDetalhe extends Compromisso {
     assuntoOutro?: string | null;
     createdAt: string;
     atendente: { id: string; nome: string; nomeExibicao: string | null };
+    /**
+     * Quantos arquivos a TRIAGEM juntou — e não esta atividade.
+     *
+     * A consulta da EDILENE tinha zero anexos próprios e DEZESSETE no
+     * atendimento que a originou: o advogado abria sem saber que existiam.
+     * Opcional pela janela de troca.
+     */
+    _count?: { anexos: number };
     /**
      * O ATENDIMENTO FECHA SOZINHO COM A CONSULTA (15/09/2026). A gaveta da
      * consulta diz ao advogado que registrar conclui o atendimento junto, e
