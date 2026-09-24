@@ -131,6 +131,17 @@ export interface FalhaDatajud {
    * a ausência como "não sei", não como "nunca".
    */
   ultimoSucesso?: string | null;
+  /**
+   * O processo está na faixa LENTA da varredura (encerrado, arquivado…), que o
+   * robô relê a cada sete dias em vez de toda noite. Muda a régua do atraso.
+   */
+  dormente?: boolean;
+  /**
+   * Já decidido no SERVIDOR, com a régua do ciclo deste processo — a tela não
+   * recalcula. Ausente na API da janela de troca; aí a tela cai na régua antiga
+   * de 48h, que é o comportamento de antes.
+   */
+  atrasada?: boolean;
 }
 
 /**
@@ -444,6 +455,12 @@ export interface ResumoDashboard {
     horasAteAtraso?: number;
     /** QUAIS processos falharam, para o aviso poder virar trabalho. */
     falhasProcessos: FalhaDatajud[];
+    /**
+     * Quantas falhas cabem em `falhasProcessos`. Menor que `falhas24h` quando o
+     * corte agiu — e a tela diz isso em vez de fingir que a lista é tudo.
+     * Ausente na API antiga.
+     */
+    falhasMostradas?: number;
     /** NPUs que o CNJ não encontra — conferência de cadastro, não falha. */
     desconhecidosNoCnj?: ProcessoDesconhecidoNoCnj[];
   } | null;

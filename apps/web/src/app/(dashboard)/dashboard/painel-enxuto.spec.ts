@@ -156,7 +156,20 @@ describe('a ordem das zonas do painel', () => {
     for (const bloco of ['SaudeDasIntegracoes', 'AvisoRobo', 'PublicacoesDjen']) {
       const i = PAGINA.indexOf(`function ${bloco}(`);
       expect(i).toBeGreaterThan(-1);
-      expect(PAGINA.slice(i, i + 2500)).toContain('return null');
+      /*
+        A JANELA VAI ATÉ O CORPO DA FUNÇÃO, não até um número de caracteres.
+
+        Era `slice(i, i + 2500)`. Em 24/09/2026 um comentário novo dentro de
+        `SaudeDasIntegracoes` empurrou o `return null` para além dos 2.500 e o
+        teste reprovou um arquivo correto — o mesmo defeito de janela posicional
+        que já tinha mordido em outras specs. O que importa é que a desistência
+        venha ANTES do `return (` que desenha, e é isso que se afirma.
+      */
+      const corpo = PAGINA.slice(i);
+      const desiste = corpo.indexOf('return null');
+      const desenha = corpo.indexOf('return (');
+      expect(desiste).toBeGreaterThan(-1);
+      expect(desiste).toBeLessThan(desenha);
     }
   });
 });

@@ -73,9 +73,53 @@ describe('a faixa da varredura', () => {
     expect(TELA).toContain('Nenhum processo ficou para trás');
   });
 
-  it('e o alarme fala de quem está sem leitura, não de quem falhou', () => {
-    expect(TELA).toContain('sem leitura do');
-    expect(TELA).toContain('tropecaram nesta rodada mas');
+  /**
+   * "HÁ MAIS DE 48H" SAIU DA FRASE (24/09/2026).
+   *
+   * Com duas faixas de varredura — vivo toda noite, dormente a cada sete dias —
+   * não existe um número só que sirva para todas as linhas. "Perdeu as duas
+   * últimas leituras" é o que as duas têm em comum, e é o que diz à pessoa o
+   * que ela precisa saber: não foi soluço, é padrão.
+   */
+  it('o alarme fala de quem PERDEU AS LEITURAS, não de quem falhou', () => {
+    expect(TELA).toContain('últimas leituras do CNJ');
+    expect(TELA).toContain('tropeçaram nesta rodada mas');
+    // A frase antiga cravava 48h para todo mundo, inclusive o dormente.
+    expect(TELA).not.toMatch(/sem leitura do\s+CNJ há mais de/);
+  });
+
+  /**
+   * A RÉGUA É DO SERVIDOR. Recalcular na tela era a terceira cópia da mesma
+   * regra — e a que não sabia o ciclo de cada processo.
+   */
+  it('a tela usa o veredito do servidor quando ele vem', () => {
+    expect(TELA).toContain('if (f.atrasada !== undefined) return f.atrasada;');
+  });
+
+  /**
+   * OS NÚMEROS SÃO OS DO SERVIDOR, não os da lista. Contar em cima da lista
+   * cortada foi o que produziu "1 processo" onde eram 3, e "outros 24" com 27
+   * falhas no banco.
+   */
+  it('os números não saem da lista cortada', () => {
+    expect(TELA).toContain('const n = total ?? falhas.length;');
+    expect(TELA).toContain('const atrasados = atrasadosNoServidor ?? pedemAtencao.length;');
+  });
+
+  /**
+   * SÓ TROPEÇO NÃO TEM LISTA. Abrir 25 linhas de processos que estão EM DIA foi
+   * o que encheu a primeira tela do painel — e quem clicava em "Ver quais"
+   * procurava justamente "qual é o que eu preciso olhar?".
+   */
+  it('sem atrasado, não há o que abrir', () => {
+    expect(TELA).toContain('{aberto && !soTropeco && (');
+    expect(TELA).toContain('{pedemAtencao.map((f) => {');
+    expect(TELA).toContain('disabled={soTropeco}');
+  });
+
+  /** E quando o corte agir, a lista diz que cortou. */
+  it('a lista truncada não se apresenta como inteira', () => {
+    expect(TELA).toContain('{naoCouberam > 0 && (');
   });
 
   /**
@@ -128,5 +172,41 @@ describe('a barra dos NPUs desconhecidos', () => {
     const bloco = TELA.slice(i, i + 1500);
     expect(bloco).not.toContain('amber');
     expect(bloco).toContain('border-input bg-muted/40');
+  });
+});
+
+/**
+ * DUAS FAIXAS PARA O MESMO FATO, COM CONCLUSÕES OPOSTAS (24/09/2026).
+ *
+ * Na mesma dobra do painel, uma embaixo da outra:
+ *
+ *   "Alguns andamentos podem não ter chegado. O DataJud recusou 27 das 170
+ *    leituras registradas hoje."
+ *   "O CNJ não respondeu a 27 consultas na última varredura. Nenhum processo
+ *    ficou para trás."
+ *
+ * A segunda é a que serve — ela sabe QUAIS processos ficaram para trás. A
+ * primeira mede a proporção de tentativas que não voltaram, que é telemetria da
+ * rodada, e telemetria não vai para a tela.
+ */
+describe('o DataJud instável não é anunciado duas vezes', () => {
+  it('a faixa da fonte se cala quando a dos processos vai falar', () => {
+    expect(TELA).toContain('const aFaixaDosProcessosVaiFalar =');
+    expect(TELA).toContain(
+      "!(i.fonte === 'DATAJUD' && i.situacao === 'INSTAVEL' && aFaixaDosProcessosVaiFalar)",
+    );
+  });
+
+  /**
+   * MAS SÓ O DATAJUD INSTÁVEL. "Parada" e "não rodou" falam de outra coisa (o
+   * robô não rodou), e o DJEN não tem faixa de processos que o substitua.
+   */
+  it('parada, não rodou e o DJEN continuam aparecendo', () => {
+    expect(TELA).toContain("i.situacao === 'PARADA' || i.situacao === 'INSTAVEL' || i.situacao === 'NAO_RODOU'");
+  });
+
+  /** Quem não vê processos não recebe a outra faixa: para ele, esta é a voz. */
+  it('sem acesso a processos, o aviso da fonte volta', () => {
+    expect(TELA).toContain('data.robo?.falhasProcessos?.length ?? 0');
   });
 });

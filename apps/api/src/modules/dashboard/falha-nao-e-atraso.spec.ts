@@ -46,17 +46,44 @@ describe('a última leitura bem-sucedida, que faltava', () => {
   });
 
   /**
-   * A varredura roda uma vez por dia: perder UMA rodada é rotina do índice
-   * público do CNJ; perder DUAS é outra conversa.
+   * A REGRA SAIU DAQUI — e este teste virou melhor por isso (24/09/2026).
+   *
+   * Ele afirmava duas LINHAS do arquivo: `const limite = agora.getTime() - …` e
+   * `atrasados24h: atrasados.length`. Provava que o código tinha aquele texto,
+   * não que ele acertava — e quando a régua mudou de 48h fixas para o ciclo de
+   * cada processo, o que reprovou foi o teste, não um defeito.
+   *
+   * Hoje a régua é uma função pura com teste próprio
+   * (`falha-do-cnj.spec.ts`), e o que sobra aqui é o que só o arquivo pode
+   * garantir: que ele USA a função em vez de refazer a conta.
    */
-  it('o corte de atraso é 48h', () => {
-    expect(DASH).toContain('HORAS_ATE_ATRASO = 48');
-    expect(DASH).toContain('const limite = agora.getTime() - DashboardService.HORAS_ATE_ATRASO * HORA;');
+  it('a régua do atraso vem de `falha-do-cnj.util`, não de uma conta local', () => {
+    expect(DASH).toContain("from './falha-do-cnj.util'");
+    expect(DASH).toContain('estaAtrasada(f, agora)');
+    // A conta antiga, refeita à mão, não pode voltar.
+    expect(DASH).not.toContain('HORAS_ATE_ATRASO * HORA');
   });
 
-  it('separa quem falhou de quem ficou para trás', () => {
-    expect(DASH).toContain('falhas24h: lista.length');
-    expect(DASH).toContain('atrasados24h: atrasados.length');
+  it('separa quem falhou de quem ficou para trás, e pelo número REAL', () => {
+    expect(DASH).toContain('falhas24h: resumo.total');
+    expect(DASH).toContain('atrasados24h: resumo.atrasados');
+  });
+
+  /**
+   * O CORTE NÃO PODE VIR DO BANCO POR RECÊNCIA. Era `ORDER BY created_at DESC
+   * LIMIT 25`, e em 24/09/2026 ele comeu 2 dos 3 processos atrasados — que
+   * haviam falhado no COMEÇO da rodada. Quem corta agora é `ordenarFalhas`,
+   * depois de pôr na frente o que pede atenção.
+   */
+  it('a lista é ordenada pelo abandono antes de ser cortada', () => {
+    expect(DASH).toContain('ordenarFalhas(lista, agora)');
+    expect(DASH).toContain('DashboardService.FALHAS_NA_TELA');
+    expect(DASH).not.toMatch(/ORDER BY u\.created_at DESC\s+LIMIT 25/);
+  });
+
+  /** E a tela precisa saber que o corte agiu, em vez de parecer completa. */
+  it('diz quantas couberam', () => {
+    expect(DASH).toContain('falhasMostradas: resumo.mostrando');
   });
 
   /** A duração distingue "demorou demais" de "não respondeu". */

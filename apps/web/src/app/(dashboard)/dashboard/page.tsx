@@ -1382,7 +1382,12 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
 
   const quantosPendem = falhasProcessos.length + (desconhecidosNoCnj?.length ?? 0);
   const falhasBar = !resumido && falhasProcessos.length > 0 && (
-    <FalhasCNJ falhas={falhasProcessos} horasAteAtraso={horasAteAtraso} />
+    <FalhasCNJ
+      falhas={falhasProcessos}
+      horasAteAtraso={horasAteAtraso}
+      total={robo.falhas24h}
+      atrasadosNoServidor={robo.atrasados24h}
+    />
   );
   const desconhecidosBar = !resumido && !!desconhecidosNoCnj?.length && (
     <DesconhecidosNoCnj itens={desconhecidosNoCnj} />
@@ -1624,16 +1629,25 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
 function FalhasCNJ({
   falhas,
   horasAteAtraso = 48,
+  total,
+  atrasadosNoServidor,
 }: {
   falhas: FalhaDatajud[];
   horasAteAtraso?: number;
+  /**
+   * O número REAL de processos que falharam — a lista pode vir cortada. Sem
+   * ele, "outros 24" era `25 - 1` calculado em cima do próprio corte, e mentia
+   * quando havia 27 (foi o caso em 24/09/2026).
+   */
+  total?: number;
+  /** Quantos estão atrasados de verdade, contados no servidor, sem corte. */
+  atrasadosNoServidor?: number;
 }) {
   const [aberto, setAberto] = useState(false);
-  const n = falhas.length;
   // Uma chave recusada ou um NPU que o CNJ não reconhece falham de novo
   // amanhã: separá-los evita prometer que "a próxima varredura resolve"
   // quando ela não resolve.
-  const persistentes = falhas.filter((f) => !motivoFalhaDatajud(f).passageiro).length;
+  const ehPersistente = (f: FalhaDatajud) => !motivoFalhaDatajud(f).passageiro;
 
   /*
     "TENTATIVA QUE FALHOU" NÃO É "PROCESSO DESATUALIZADO" — e a faixa dizia que
@@ -1654,15 +1668,43 @@ function FalhasCNJ({
     continua visível, porque instabilidade do CNJ é informação — mas em tom de
     informação.
   */
+  /*
+    E EM 24/09/2026, O MESMO DEFEITO DO OUTRO LADO. A régua de 48h era aplicada
+    também ao processo DORMENTE — encerrado, arquivado —, que o robô relê a cada
+    sete dias, de propósito. Os três acusados naquela manhã tinham o ciclo
+    31/08 → 08/09 → 16/09 → 24/09 em dia. Cobrar 48h de quem o robô visita a
+    cada oito dias é uma acusação que nunca deixaria de aparecer.
+
+    Hoje quem decide é o SERVIDOR (`falha-do-cnj.util`), com o ciclo de cada
+    processo: dois ciclos sem leitura, sejam 48h ou 14 dias. A tela não
+    recalcula — recalcular era a terceira cópia da mesma regra.
+  */
   const atrasado = (f: FalhaDatajud) => {
-    // Sem `ultimoSucesso` (API antiga na janela de troca), não dá para afirmar
-    // que está em dia: trata como atrasado, que é o lado seguro de errar.
+    if (f.atrasada !== undefined) return f.atrasada;
+    // API da janela de troca: cai na régua antiga, que é o comportamento de
+    // antes. Sem `ultimoSucesso` não dá para afirmar que está em dia, e tratar
+    // como atrasado é o lado seguro de errar.
     if (f.ultimoSucesso === undefined) return true;
     if (!f.ultimoSucesso) return true;
     return Date.now() - new Date(f.ultimoSucesso).getTime() > horasAteAtraso * 3_600_000;
   };
-  const atrasados = falhas.filter(atrasado).length;
+  /*
+    OS NÚMEROS SÃO OS DO SERVIDOR, não os da lista. A lista vem cortada em 25;
+    contar em cima dela foi o que produziu "1 processo" onde eram 3, e
+    "outros 24" onde eram 24 de 27.
+  */
+  const pedemAtencao = falhas.filter(atrasado);
+  const n = total ?? falhas.length;
+  const atrasados = atrasadosNoServidor ?? pedemAtencao.length;
   const soTropeco = atrasados === 0;
+  const naoCouberam = Math.max(0, atrasados - pedemAtencao.length);
+  /*
+    "NÃO É PROBLEMA PASSAGEIRO" SÓ VALE PARA QUEM ESTÁ ATRASADO. Antes contava
+    o motivo de TODAS as falhas, inclusive as dos 24 que estão em dia — e aí a
+    frase dizia "3 não são problemas passageiros" sobre processos que ninguém
+    precisava olhar.
+  */
+  const persistentes = pedemAtencao.filter(ehPersistente).length;
 
   return (
     <div
@@ -1673,11 +1715,21 @@ function FalhasCNJ({
           : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200',
       )}
     >
+      {/*
+        SEM NADA PARA VER, NAO HA BOTAO. Quando so houve tropeco, a lista seria
+        de processos que estao EM DIA — foi exatamente isso que encheu a tela
+        com 25 linhas iguais em 24/09/2026, e o que a pessoa procurava ali era
+        "qual e o que eu preciso olhar?". A frase ja responde tudo.
+      */}
       <button
         type="button"
-        onClick={() => setAberto((v) => !v)}
-        aria-expanded={aberto}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+        onClick={() => !soTropeco && setAberto((v) => !v)}
+        aria-expanded={soTropeco ? undefined : aberto}
+        disabled={soTropeco}
+        className={cn(
+          'flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition',
+          soTropeco ? 'cursor-default' : 'hover:brightness-[0.98]',
+        )}
       >
         <span className="flex items-center gap-2.5">
           {soTropeco ? (
@@ -1695,14 +1747,21 @@ function FalhasCNJ({
               <>
                 O CNJ não respondeu a <strong>{n}</strong>{' '}
                 {n === 1 ? 'consulta' : 'consultas'} na última varredura.{' '}
-                <strong>Nenhum processo ficou para trás</strong> — todos foram lidos
-                nas últimas {horasAteAtraso}h.
+                <strong>Nenhum processo ficou para trás</strong> — todos estão dentro
+                do prazo de releitura.
               </>
             ) : (
+              /*
+                "HÁ MAIS DE 48H" SAIU DA FRASE. Com duas faixas de varredura, o
+                número seria diferente para cada linha — 48h para o processo
+                vivo, 14 dias para o dormente. "Perdeu a vez duas vezes
+                seguidas" é o que as duas têm em comum, e é o que a pessoa
+                precisa saber: não é soluço, é padrão.
+              */
               <>
                 <strong>{atrasados}</strong>{' '}
-                {atrasados === 1 ? 'processo está' : 'processos estão'} sem leitura do
-                CNJ há mais de {horasAteAtraso}h.{' '}
+                {atrasados === 1 ? 'processo perdeu' : 'processos perderam'} as duas
+                últimas leituras do CNJ.{' '}
                 {persistentes === 0 ? (
                   <>A próxima varredura tenta de novo; se insistir, alguém precisa olhar.</>
                 ) : (
@@ -1714,7 +1773,7 @@ function FalhasCNJ({
                 )}
                 {n > atrasados && (
                   <>
-                    {' '}Outros <strong>{n - atrasados}</strong> tropecaram nesta rodada mas
+                    {' '}Outros <strong>{n - atrasados}</strong> tropeçaram nesta rodada mas
                     seguem em dia.
                   </>
                 )}
@@ -1722,20 +1781,22 @@ function FalhasCNJ({
             )}
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
-          {aberto ? 'Ocultar' : 'Ver quais'}
-          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
-        </span>
+        {!soTropeco && (
+          <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+            {aberto ? 'Ocultar' : `Ver ${pedemAtencao.length === 1 ? 'qual' : 'quais'}`}
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
+          </span>
+        )}
       </button>
 
-      {aberto && (
-        <ul className={cn('border-t', soTropeco ? 'border-input' : 'border-amber-300/70 dark:border-amber-900/50')}>
-          {falhas.map((f) => {
+      {aberto && !soTropeco && (
+        <ul className="border-t border-amber-300/70 dark:border-amber-900/50">
+          {pedemAtencao.map((f) => {
             const motivo = motivoFalhaDatajud(f);
             const npu = formatNPU(f.numeroCNJ);
             const conteudo = (
               <>
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0 flex-1 basis-full sm:basis-1/2">
                   <span className="block truncate font-mono text-xs font-semibold">{npu}</span>
                   <span className="block truncate text-xs opacity-80">
                     {f.filiado ?? 'Sem filiado vinculado'}
@@ -1755,10 +1816,22 @@ function FalhasCNJ({
                         : ''}
                   </span>
                 </span>
-                <span className="flex shrink-0 items-center gap-2 text-xs">
+                {/*
+                  NO CELULAR, O MOTIVO NÃO PODE COMER O NÚMERO (24/09/2026).
+
+                  A pastilha era `shrink-0` e o texto dela — "nossa varredura
+                  passou do limite de consultas do CNJ" — não quebra. A 400px
+                  ela tomava a linha inteira e o NPU, que é QUEM o item é,
+                  sumia: sobrava um motivo técnico sem dono.
+
+                  Agora ela encolhe e corta antes do número. Quem precisa do
+                  motivo inteiro tem o `title`; quem precisa saber de qual
+                  processo se trata — que é todo mundo — lê o NPU sempre.
+                */}
+                <span className="flex w-full min-w-0 shrink items-center gap-2 text-xs sm:w-auto sm:shrink-0">
                   <span
                     className={cn(
-                      'rounded-full px-2 py-0.5 font-medium',
+                      'truncate rounded-full px-2 py-0.5 font-medium',
                       motivo.passageiro
                         ? 'bg-amber-200/70 dark:bg-amber-900/50'
                         : 'bg-rose-200/80 text-rose-900 dark:bg-rose-900/50 dark:text-rose-200',
@@ -1769,7 +1842,7 @@ function FalhasCNJ({
                     {motivo.texto}
                   </span>
                   <span className="hidden opacity-70 sm:inline">{tempoRelativo(f.createdAt)}</span>
-                  {f.processoId && <ChevronRight className="h-3.5 w-3.5 opacity-70" />}
+                  {f.processoId && <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-70" />}
                 </span>
               </>
             );
@@ -1778,19 +1851,39 @@ function FalhasCNJ({
               <li key={f.processoId ?? f.numeroCNJ} className="border-t border-amber-300/40 first:border-t-0 dark:border-amber-900/30">
                 {/* Sem processoId o processo foi excluído depois da falha: o log
                     sobrevive, mas não há ficha para abrir. */}
+                {/*
+                  NO CELULAR A LINHA VIRA DUAS: número em cima, motivo embaixo.
+                  Lado a lado a 400px, um dos dois some — e o que sumia era o
+                  número, que é a identidade do item.
+                */}
                 {f.processoId ? (
                   <Link
                     href={`/processos?processo=${f.processoId}`}
-                    className="flex items-center gap-3 px-4 py-2.5 transition hover:brightness-[0.97]"
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 transition hover:brightness-[0.97]"
                   >
                     {conteudo}
                   </Link>
                 ) : (
-                  <span className="flex items-center gap-3 px-4 py-2.5 opacity-70">{conteudo}</span>
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 opacity-70">
+                    {conteudo}
+                  </span>
                 )}
               </li>
             );
           })}
+          {/*
+            O CORTE DIZ QUE CORTOU. Em 24/09/2026 o corte comeu 2 dos 3
+            atrasados e ninguem soube: a tela dizia "1" e parecia completa.
+            Lista truncada que se apresenta como inteira e pior que lista
+            nenhuma — ver o cabecalho de falha-do-cnj.util na API.
+          */}
+          {naoCouberam > 0 && (
+            <li className="border-t border-amber-300/40 px-4 py-2.5 text-xs opacity-80 dark:border-amber-900/30">
+              e mais <strong>{naoCouberam}</strong>{' '}
+              {naoCouberam === 1 ? 'processo' : 'processos'} na mesma situação — abra a
+              lista de processos para ver todos.
+            </li>
+          )}
         </ul>
       )}
     </div>
@@ -2393,6 +2486,20 @@ const O_QUE_A_FONTE_TRAZ: Record<
     oQue: 'os andamentos dos processos',
     incompleto: 'Alguns andamentos podem não ter chegado.',
   },
+  /*
+    O SICONFI FALTAVA AQUI, e o texto reserva vazava para a tela (24/09/2026):
+    "O sistema não recebe OS DADOS DESSA FONTE desde terça-feira, 22/09" — uma
+    frase que não diz o que ficou faltando e que ninguém sabe se é grave.
+
+    Na produção o robô do Tesouro rodou hoje e a faixa não apareceu; bastava um
+    dia ruim. Fonte nova sem entrada neste mapa continua caindo no reserva — é
+    a rede, não o normal.
+  */
+  SICONFI: {
+    nome: 'Tesouro Nacional',
+    oQue: 'as contas públicas dos municípios',
+    incompleto: 'Algumas contas públicas podem estar desatualizadas.',
+  },
 };
 
 /**
@@ -2456,8 +2563,32 @@ function SaudeDasIntegracoes({
       toast.error(e?.response?.data?.message ?? 'Não foi possível buscar no Diário agora.'),
   });
 
+  /*
+    DUAS FAIXAS PARA O MESMO FATO — e elas se CONTRADIZIAM (24/09/2026).
+
+    Na mesma dobra do painel liam-se, uma embaixo da outra:
+
+      "Alguns andamentos podem não ter chegado. O DataJud recusou 27 das 170
+       leituras registradas hoje."
+      "O CNJ não respondeu a 27 consultas na última varredura. Nenhum processo
+       ficou para trás."
+
+    O mesmo evento, contado duas vezes, com conclusões opostas. E a segunda é
+    a que serve: ela sabe QUAIS processos ficaram para trás — que é a pergunta
+    de quem lê. A primeira mede a proporção de tentativas que não voltaram, o
+    que é telemetria da rodada.
+
+    Então, quando a faixa dos processos vai falar, esta se cala sobre o DataJud
+    instável. Quem não vê processos (`robo` nulo) continua recebendo o aviso da
+    fonte, que aí é a única voz. Mesma régua de
+    `faixa-cala-o-que-a-tela-diz`.
+  */
+  const aFaixaDosProcessosVaiFalar = (data.robo?.falhasProcessos?.length ?? 0) > 0;
+
   const problemas = (data.integracoes ?? []).filter(
-    (i) => i.situacao === 'PARADA' || i.situacao === 'INSTAVEL' || i.situacao === 'NAO_RODOU',
+    (i) =>
+      (i.situacao === 'PARADA' || i.situacao === 'INSTAVEL' || i.situacao === 'NAO_RODOU') &&
+      !(i.fonte === 'DATAJUD' && i.situacao === 'INSTAVEL' && aFaixaDosProcessosVaiFalar),
   );
   if (problemas.length === 0) return null;
 

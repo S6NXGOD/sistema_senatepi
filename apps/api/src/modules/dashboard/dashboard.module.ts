@@ -32,6 +32,13 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 import { nivelEfetivo } from '../../common/permissions/permissoes.constants';
 import { ultimoUsoReal, ultimosUsosReais } from './ultimo-acesso.util';
 import {
+  ordenarFalhas,
+  resumirFalhas,
+  estaAtrasada,
+  type ResumoDasFalhas,
+} from './falha-do-cnj.util';
+import { DORMENTES } from '../processos/utils/varredura.util';
+import {
   daPessoa, motivoParaAvisarAEquipe, ondeSouReserva, porQueAEquipePrecisa, type AvisoParaAEquipe,
 } from '../agenda/equipe.util';
 import { limitesDoDia, recorteAberto } from '../agenda/recortes.util';
@@ -154,6 +161,14 @@ interface FalhaDatajud {
   processoId: string | null;
   numeroCNJ: string;
   tribunal: string | null;
+  /**
+   * O processo está na faixa LENTA da varredura (ENCERRADO, ARQUIVADO,
+   * SUSPENSO, IMPROCEDENTE) — relido a cada `DIAS_RECHECAGEM_DORMENTE` dias,
+   * não toda noite. É o que decide a régua do atraso; ver `falha-do-cnj.util`.
+   */
+  dormente: boolean;
+  /** Já decidido no servidor, com a régua do ciclo dele. A tela não recalcula. */
+  atrasada?: boolean;
   httpStatus: number | null;
   mensagemErro: string | null;
   createdAt: Date;
@@ -1919,6 +1934,18 @@ export class DashboardService {
    */
   private static readonly HORAS_ATE_ATRASO = 48;
 
+  /**
+   * Quantas falhas vão na lista da faixa.
+   *
+   * O corte existe para a faixa não virar uma página; o que mudou em
+   * 24/09/2026 é a ORDEM em que ele corta. Antes era por recência da tentativa
+   * e comia justamente os atrasados (que falharam no começo da rodada): a tela
+   * dizia "1" onde eram 3, com 27 falhas e o corte em 25. Hoje
+   * ordenarFalhas põe o que pede atenção na frente, e o que sobra é o que
+   * não estava pedindo nada.
+   */
+  private static readonly FALHAS_NA_TELA = 25;
+
   private situacaoRobo(
     ultimaSync: { createdAt: Date; sucesso: boolean } | null,
     falhas: FalhaDatajud[],
@@ -1958,20 +1985,34 @@ export class DashboardService {
 
       Então a pergunta muda: não é "alguma tentativa falhou?", é "algum processo
       está sem leitura há tempo demais?". Só esses pedem ação.
+
+      E EM 24/09/2026 O MESMO DEFEITO APARECEU DO OUTRO LADO: a régua de 48h
+      era aplicada também ao processo DORMENTE, que o robô relê de propósito a
+      cada `DIAS_RECHECAGEM_DORMENTE` dias. Os três acusados naquela manhã eram
+      ENCERRADO, com o ciclo 31/08 → 08/09 → 16/09 → 24/09 em dia. Hoje a régua
+      é o CICLO DE CADA UM, e mora em `falha-do-cnj.util`.
     */
-    const limite = agora.getTime() - DashboardService.HORAS_ATE_ATRASO * HORA;
-    const atrasados = lista.filter(
-      (f) => !f.ultimoSucesso || f.ultimoSucesso.getTime() < limite,
-    );
+    const ordenadas = ordenarFalhas(lista, agora).map((f) => ({
+      ...f,
+      atrasada: estaAtrasada(f, agora),
+    }));
+    const resumo: ResumoDasFalhas = resumirFalhas(lista, agora, DashboardService.FALHAS_NA_TELA);
 
     return {
       situacao,
       processosMonitorados,
       ultimaSincronizacao: ultimaSync?.createdAt ?? null,
       ultimaComSucesso: ultimaSync?.sucesso ?? null,
-      falhas24h: lista.length,
-      /** Destes, quantos estão de fato sem leitura há mais de 48h. */
-      atrasados24h: atrasados.length,
+      /** O número REAL de processos que falharam, sem corte nenhum. */
+      falhas24h: resumo.total,
+      /** Destes, quantos perderam dois ciclos inteiros do próprio ritmo. */
+      atrasados24h: resumo.atrasados,
+      /**
+       * Quantos cabem em `falhasProcessos`. Quando é menor que `falhas24h`, o
+       * corte agiu — e a tela precisa dizer isso em vez de fingir que a lista é
+       * tudo. Corte silencioso foi o que escondeu 2 dos 3 atrasados em 24/09.
+       */
+      falhasMostradas: resumo.mostrando,
       horasAteAtraso: DashboardService.HORAS_ATE_ATRASO,
       /**
        * QUAIS processos o CNJ recusou. O número sozinho não era acionável: a
@@ -1979,7 +2020,7 @@ export class DashboardService {
        * distinguia os dois do resto. Com a lista, o aviso vira trabalho —
        * cada item abre o processo que falhou.
        */
-      falhasProcessos: lista,
+      falhasProcessos: ordenadas.slice(0, DashboardService.FALHAS_NA_TELA),
       /**
        * NPUs QUE O CNJ NÃO CONHECE — lista própria, porque não é falha do robô.
        * A consulta funciona; o índice é que não tem o processo. Ficava invisível
@@ -2062,13 +2103,34 @@ export class DashboardService {
                  AND s.sucesso = true
                  AND (s.processo_id = u.processo_id
                       OR (u.processo_id IS NULL AND s.numero_cnj = u.numero_cnj))
-             ) AS "ultimoSucesso"
+             ) AS "ultimoSucesso",
+             /*
+               7. EM QUE RITMO O ROBO LE ESTE PROCESSO.
+
+               O que esta na faixa LENTA da varredura e relido a cada
+               DIAS_RECHECAGEM_DORMENTE dias, de proposito: cobrar 48h dele e
+               acusar de atraso quem esta em dia por desenho. A regua mora em
+               falha-do-cnj.util. Processo ja excluido (p.id IS NULL) conta
+               como vivo, porque sem status o lado seguro de errar e o mais
+               exigente.
+
+               SEM CRASE NESTE COMENTARIO: ele vive dentro de um template
+               literal, e uma crase aqui FECHA a string e quebra o arquivo.
+             */
+             (p.status_interno IS NOT NULL
+              AND p.status_interno::text = ANY(${DORMENTES})) AS "dormente"
         FROM ultima u
         LEFT JOIN processos p ON p.id = u.processo_id
         LEFT JOIN filiados  f ON f.id = p.filiado_id
        WHERE u.sucesso = false
+       /*
+         SEM CORTE AQUI — a ordem que importa não é a da tentativa, é a do
+         abandono, e ela depende do ritmo de cada processo. Quem corta é
+         ordenarFalhas no TypeScript, depois de marcar quem está atrasado.
+         O teto de 200 é só cinto: o acervo tem 194 processos.
+       */
        ORDER BY u.created_at DESC
-       LIMIT 25
+       LIMIT 200
     `;
   }
 
