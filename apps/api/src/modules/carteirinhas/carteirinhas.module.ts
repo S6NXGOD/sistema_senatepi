@@ -32,8 +32,20 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 import { lerLogoDaMarca } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { tenant } from '../../tenant/tenant.config';
+import {
+  campoVisivel,
+  contatosEmLinha,
+  enderecoEmLinha,
+  tenant,
+} from '../../tenant/tenant.config';
 import { coresDaCarteirinha } from './cor-da-carteirinha.util';
+import { buscarAssinatura } from './assinatura-do-presidente.util';
+import {
+  ROTULO_SITUACAO_FILIADO,
+  categoriaDoCartao,
+  iniciaisDoNome,
+  nomeParaCartao,
+} from './rotulos-do-cartao.util';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
@@ -209,12 +221,25 @@ export class CarteirinhasService {
     const payload = this.qr.montarPayload(filiado.id, TipoPessoa.FILIADO, filiado.qrToken);
     const qrImagem = await this.qr.gerarImagemDataUrl(payload);
     const fotoBuffer = filiado.fotoKey ? await this.storage.getBuffer(filiado.fotoKey) : null;
+    /*
+      A assinatura da presidência é a mesma que o carnê já imprime. Buscar pode
+      falhar de várias formas e nenhuma delas derruba o cartão — ver as travas
+      em `assinatura-do-presidente.util`.
+    */
+    const cfg = await this.prisma.configuracaoSindicato.findFirst({
+      select: { assinaturaPresidenteUrl: true },
+    });
+    const assinatura = await buscarAssinatura(cfg?.assinaturaPresidenteUrl);
 
-    // Dimensões do cartão (paisagem)
+    // Dimensões do cartão (paisagem). As DUAS faces têm o mesmo tamanho.
     const W = 520;
     const H = 320;
-    const PANEL = 150; // largura do painel lateral verde
+    const PANEL = 150; // largura do painel colorido da frente
+    const x = 24;
+    const util = W - PANEL - 40; // largura de texto da frente
     const dataFiliacao = formatarDataBR(filiado.aprovadoEm ?? filiado.createdAt);
+    const mostraFormacao = campoVisivel('formacao');
+    const mostraCoren = campoVisivel('numeroCoren');
 
     const pdf = await new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: [W, H], margin: 0 });
@@ -223,94 +248,328 @@ export class CarteirinhasService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Fundo branco + borda
-      doc.rect(0, 0, W, H).fill('#FFFFFF');
-
-      // Faixa superior fina (verde)
-      doc.rect(0, 0, W - PANEL, 8).fill(COR_CLARA);
-
-      // ----- Cabeçalho (lado esquerdo) -----
-      const x = 24;
-      /*
-        O NOME É O DO CLIENTE. Estava escrito em duas linhas fixas com o nome do
-        SENATEPI; `nomeCurto` do tenant já existia e cabe nas mesmas duas linhas
-        (o PDFKit quebra sozinho dentro da largura), com `height` para nenhum
-        nome comprido invadir o corpo do cartão.
-      */
-      doc.fillColor(COR_FORTE).font('Helvetica-Bold').fontSize(13);
-      doc.text(tenant.nomeCurto, x, 26, { width: W - PANEL - 40, height: 32, ellipsis: true });
-      doc.moveTo(x, 64).lineTo(W - PANEL - 16, 64).strokeColor('#D1D5DB').lineWidth(1).stroke();
-      doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11).text('CARTEIRA DE ASSOCIADO', x, 72);
-
-      // ----- Campos -----
+      /** Rótulo pequeno em cima, valor em negrito embaixo — as duas faces usam. */
       const campo = (label: string, valor: string, cx: number, cy: number, w = 220) => {
         doc.fillColor(COR_CLARA).font('Helvetica').fontSize(6.5).text(label.toUpperCase(), cx, cy);
-        doc.fillColor('#111827').font('Helvetica-Bold').fontSize(10).text(valor || '-', cx, cy + 9, { width: w });
+        doc
+          .fillColor('#111827')
+          .font('Helvetica-Bold')
+          .fontSize(10)
+          .text(valor || '—', cx, cy + 9, { width: w, height: 13, ellipsis: true });
       };
 
-      let y = 98;
-      campo('Profissional associado(a)', filiado.nomeCompleto, x, y, W - PANEL - 40);
-      y += 34;
-      campo('Categoria', filiado.formacao ?? '-', x, y, 140);
-      campo('Situação', filiado.situacao, x + 150, y, 80);
-      campo('UF', filiado.estado ?? 'PI', x + 240, y, 40);
-      y += 34;
-      campo('Data de filiação', dataFiliacao, x, y, 140);
-      campo('Matrícula', filiado.matricula, x + 150, y, 130);
-      y += 34;
-      campo('RG', `${filiado.rg ?? '-'}${filiado.ufRg ? ' - ' + filiado.ufRg : ''}`, x, y, 140);
-      campo('CPF', mascararCpf(filiado.cpf), x + 150, y, 130);
+      // ==================== FRENTE ====================
+      /*
+        A FRENTE É A IDENTIDADE: quem é, de que categoria, até quando vale.
 
-      // ----- Assinatura -----
-      const sy = H - 40;
-      doc.moveTo(x, sy).lineTo(x + 180, sy).strokeColor('#9CA3AF').lineWidth(0.8).stroke();
-      doc.fillColor('#6B7280').font('Helvetica').fontSize(7).text('Assinatura do(a) Presidente', x, sy + 4);
-      doc.fillColor('#9CA3AF').fontSize(6).text(`Nº ${carteirinha.numero}  ·  Válida até ${formatarDataBR(carteirinha.validaAte)}`, x, sy + 16);
+        Tudo o que é conferência — CPF, RG, nascimento, base legal, assinatura —
+        foi para o verso. O cartão antigo tinha NOVE campos, a assinatura e o QR
+        na mesma face, e nenhum deles respirava.
+      */
+      doc.rect(0, 0, W, H).fill('#FFFFFF');
+      doc.rect(0, 0, W - PANEL, 8).fill(COR_CLARA);
 
-      // ----- Painel lateral (verde) -----
+      doc.fillColor(COR_FORTE).font('Helvetica-Bold').fontSize(13);
+      doc.text(tenant.nomeCurto, x, 26, { width: util, height: 32, ellipsis: true });
+      doc.moveTo(x, 64).lineTo(W - PANEL - 16, 64).strokeColor('#D1D5DB').lineWidth(1).stroke();
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(11)
+        .text('CARTEIRA DE ASSOCIADO', x, 72);
+
+      /*
+        O NOME EM CORPO 14, maior que qualquer outra coisa da face. Só encurta
+        para primeiro + último quando o nome inteiro não couber na linha — medir
+        antes é mais honesto do que reduzir a fonte até o nome ficar menor que a
+        matrícula, num documento cuja razão de existir é dizer quem a pessoa é.
+      */
+      doc.fillColor(COR_CLARA).font('Helvetica').fontSize(6.5).text('NOME', x, 104);
+      doc.font('Helvetica-Bold').fontSize(14).fillColor('#111827');
+      const nome = nomeParaCartao(filiado.nomeCompleto, (t) => doc.widthOfString(t) <= util);
+      doc.text(nome, x, 114, { width: util, height: 20, ellipsis: true });
+
+      /*
+        A GRADE SE MONTA COM O QUE O CLIENTE TEM, em vez de dois desenhos fixos.
+
+        O SENATEPI mostra categoria e COREN; o SINDSERM oculta os dois — são
+        servidores municipais de toda espécie, sem categoria profissional única
+        e sem conselho de classe. Montando a lista e distribuindo depois, a face
+        fica cheia nos dois casos, e um cliente novo não precisa de mais um
+        `else` para não sair com um buraco no meio do cartão.
+      */
+      const validade = carteirinha.validaAte
+        ? formatarDataBR(carteirinha.validaAte)
+        : 'Indeterminada';
+      const grade: Array<Array<[string, string]>> = [];
+      if (mostraFormacao) {
+        grade.push([['Categoria', categoriaDoCartao(filiado.formacao, filiado.formacaoOutro)]]);
+      }
+      grade.push([
+        ['Matrícula', filiado.matricula],
+        ['Válida até', validade],
+      ]);
+      const ultima: Array<[string, string]> = [['Filiado(a) desde', dataFiliacao]];
+      if (mostraCoren && filiado.numeroCoren) ultima.push(['COREN', filiado.numeroCoren]);
+      else if (filiado.cidade) ultima.push(['Município', filiado.cidade]);
+      grade.push(ultima);
+
+      /*
+        A GRADE FICA CENTRADA NA FAIXA, não ancorada no topo.
+
+        O SENATEPI enche três linhas e o SINDSERM duas. Ancorada no topo, a face
+        do SINDSERM ficava com 64pt de branco entre o último campo e a régua do
+        rodapé — a mesma sensação de cartão inacabado que este desenho veio
+        consertar. Centrar distribui a sobra dos dois lados.
+      */
+      const PASSO = 42;
+      const TOPO = 148;
+      const FAIXA = 106; // de TOPO até onde o último valor pode terminar
+      const altura = (grade.length - 1) * PASSO + 22;
+      const inicio = TOPO + Math.max(0, (FAIXA - altura) / 2);
+
+      /* Linha só ocupa a largura inteira quando está sozinha nela. */
+      grade.forEach((linha, i) => {
+        const cy = inicio + i * PASSO;
+        linha.forEach(([label, valor], j) => {
+          const cw = linha.length === 1 ? util : j === 0 ? 170 : 150;
+          campo(label, valor, x + j * 180, cy, cw);
+        });
+      });
+
+      doc.moveTo(x, 276).lineTo(W - PANEL - 16, 276).strokeColor('#E5E7EB').lineWidth(1).stroke();
+      doc
+        .fillColor('#9CA3AF')
+        .font('Helvetica')
+        .fontSize(6.5)
+        .text(
+          `Nº ${carteirinha.numero}  ·  Emitida em ${formatarDataBR(carteirinha.emitidaEm)}  ·  Dados e assinatura no verso`,
+          x,
+          285,
+          { width: util },
+        );
+
+      // ----- Painel lateral (colorido) -----
       doc.rect(W - PANEL, 0, PANEL, H).fill(COR_FORTE);
 
-      // Foto no topo do painel
       const fw = 110;
       const fh = 132;
       const fx = W - PANEL + (PANEL - fw) / 2;
       const fy = 22;
       doc.save();
       doc.roundedRect(fx, fy, fw, fh, 6).clip();
+      let fotoDesenhada = false;
       if (fotoBuffer) {
         try {
           doc.image(fotoBuffer, fx, fy, { width: fw, height: fh, align: 'center', valign: 'center' });
+          fotoDesenhada = true;
         } catch {
-          doc.rect(fx, fy, fw, fh).fill('#FFFFFF');
+          fotoDesenhada = false;
         }
-      } else {
-        doc.rect(fx, fy, fw, fh).fill('#E5E7EB');
+      }
+      if (!fotoDesenhada) {
+        /*
+          SEM FOTO, MONOGRAMA — não um retângulo cinza.
+
+          MEDIDO: 1 de 5.810 filiados ativos tem foto. O desenho antigo pintava
+          `#E5E7EB` num terço do cartão, e era esse o cartão de 5.809 pessoas.
+          As iniciais sobre o branco parecem escolha; o buraco cinza parecia
+          defeito de impressão.
+        */
+        doc.rect(fx, fy, fw, fh).fill('#FFFFFF');
+        doc
+          .fillColor(COR_FORTE)
+          .font('Helvetica-Bold')
+          .fontSize(44)
+          .text(iniciaisDoNome(filiado.nomeCompleto), fx, fy + fh / 2 - 24, {
+            width: fw,
+            align: 'center',
+          });
       }
       doc.restore();
 
-      // Logo (imagem branca) com fallback textual
       const logo = lerLogoDaMarca();
+      let logoDesenhado = false;
       if (logo) {
         try {
-          doc.image(logo, W - PANEL + 20, fy + fh + 10, {
-            fit: [PANEL - 40, 34],
+          doc.image(logo, W - PANEL + 20, fy + fh + 12, {
+            fit: [PANEL - 40, 30],
             align: 'center',
             valign: 'center',
           });
+          logoDesenhado = true;
         } catch {
-          doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text(tenant.sigla, W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
+          logoDesenhado = false;
         }
-      } else {
-        doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(22).text(tenant.sigla, W - PANEL, fy + fh + 14, { width: PANEL, align: 'center' });
+      }
+      if (!logoDesenhado) {
+        doc
+          .fillColor('#FFFFFF')
+          .font('Helvetica-Bold')
+          .fontSize(22)
+          .text(tenant.sigla, W - PANEL, fy + fh + 16, { width: PANEL, align: 'center' });
       }
 
-      // QR Code no painel
-      const qrSize = 92;
+      const qrSize = 86;
       const qx = W - PANEL + (PANEL - qrSize) / 2;
-      const qy = fy + fh + 44;
+      /* +52 e não +44: com +44 a moldura branca do QR subia por cima do logo. */
+      const qy = fy + fh + 52;
       doc.rect(qx - 5, qy - 5, qrSize + 10, qrSize + 10).fill('#FFFFFF');
       const qrBase64 = qrImagem.split(',')[1];
       doc.image(Buffer.from(qrBase64, 'base64'), qx, qy, { width: qrSize, height: qrSize });
+      /*
+        A LEGENDA EXISTE PARA NINGUÉM ESPERAR UM SITE. O código identifica a
+        pessoa na leitura do sindicato (eventos, portaria); apontar a câmera do
+        celular devolve o JSON assinado, e sem esta linha isso pareceria defeito.
+      */
+      doc
+        .fillColor('#FFFFFF')
+        .font('Helvetica')
+        .fontSize(5)
+        .text('IDENTIFICAÇÃO INTERNA', W - PANEL, qy + qrSize + 9, {
+          width: PANEL,
+          align: 'center',
+          characterSpacing: 0.6,
+        });
+
+      // ==================== VERSO ====================
+      /*
+        O VERSO É A CONFERÊNCIA: o que se compara com um documento na mão, a
+        base legal do cartão, a assinatura de quem responde por ele e o endereço
+        do sindicato. É a divisão que as duas referências fazem, e é a que os
+        documentos de identificação usam há décadas.
+      */
+      doc.addPage({ size: [W, H], margin: 0 });
+      doc.rect(0, 0, W, H).fill('#FFFFFF');
+      doc.rect(0, 0, W, 8).fill(COR_CLARA);
+
+      const vx = 28;
+      const vutil = W - vx * 2;
+
+      doc
+        .fillColor(COR_FORTE)
+        .font('Helvetica-Bold')
+        .fontSize(9)
+        .text('DADOS DO(A) ASSOCIADO(A)', vx, 26);
+      doc
+        .fillColor('#9CA3AF')
+        .font('Helvetica')
+        .fontSize(7)
+        .text(`Nº ${carteirinha.numero}`, vx, 27, { width: vutil, align: 'right' });
+      doc.moveTo(vx, 42).lineTo(W - vx, 42).strokeColor('#E5E7EB').lineWidth(1).stroke();
+
+      const col = [vx, vx + 158, vx + 316];
+      campo('CPF', mascararCpf(filiado.cpf), col[0], 54, 150);
+      campo('RG', `${filiado.rg ?? '—'}${filiado.ufRg ? ' - ' + filiado.ufRg : ''}`, col[1], 54, 150);
+      campo(
+        'Nascimento',
+        filiado.dataNascimento ? formatarDataBR(filiado.dataNascimento) : '—',
+        col[2],
+        54,
+        140,
+      );
+
+      campo('Filiado(a) desde', dataFiliacao, col[0], 94, 150);
+      campo('Situação', ROTULO_SITUACAO_FILIADO[filiado.situacao], col[1], 94, 150);
+      /*
+        A TERCEIRA COLUNA MUDA COM O CLIENTE: o COREN é o registro profissional
+        que identifica o enfermeiro e não existe no SINDSERM, que o oculta. Onde
+        não existe, entra o município — que serve aos dois.
+      */
+      if (mostraCoren) {
+        campo('COREN', filiado.numeroCoren ?? '—', col[2], 94, 140);
+      } else {
+        campo(
+          'Município / UF',
+          [filiado.cidade, filiado.estado].filter(Boolean).join(' / ') || '—',
+          col[2],
+          94,
+          140,
+        );
+      }
+
+      doc.moveTo(vx, 134).lineTo(W - vx, 134).strokeColor('#E5E7EB').lineWidth(1).stroke();
+      doc
+        .fillColor('#6B7280')
+        .font('Helvetica')
+        .fontSize(6.8)
+        /*
+          O QUE O CARTÃO AFIRMA TEM DE SER VERDADE NO PAPEL.
+
+          A primeira versão desta frase dizia "a autenticidade pode ser conferida
+          pelo QR Code impresso na frente". NÃO PODE: o QR carrega um JSON
+          `{id, tipo, validacao}` assinado por HMAC — não é URL, não existe
+          página pública que o resolva, e quem apontar a câmera vê um punhado de
+          texto sem sentido. Frase impressa em cinco mil cartões não se corrige
+          com um deploy.
+        */
+        .text(
+          `Documento de identificação sindical emitido pelo ${tenant.sigla} nos termos do art. 8º da ` +
+            'Constituição Federal. Válido mediante apresentação de documento oficial com foto. ' +
+            'Em caso de perda, ou de dúvida sobre a validade, procure a secretaria do sindicato.',
+          vx,
+          144,
+          { width: vutil, align: 'justify', lineGap: 1.5 },
+        );
+
+      // ----- Assinatura da presidência -----
+      const larguraLinha = 190;
+      const lx = (W - larguraLinha) / 2;
+      const ly = 244;
+      if (assinatura) {
+        try {
+          /*
+            A imagem fica ACIMA da linha, não em cima dela: assinatura cruzando
+            o próprio traço é o que fez o carnê parecer "colado". `fit` para
+            nenhuma proporção esticar o traço de ninguém.
+          */
+          doc.image(assinatura, lx, ly - 50, {
+            fit: [larguraLinha, 42],
+            align: 'center',
+            valign: 'bottom',
+          });
+        } catch {
+          /* imagem ilegível: sobra a linha, que é o que o cartão sempre teve */
+        }
+      }
+      doc.moveTo(lx, ly).lineTo(lx + larguraLinha, ly).strokeColor('#9CA3AF').lineWidth(0.8).stroke();
+      doc
+        .fillColor('#6B7280')
+        .font('Helvetica')
+        .fontSize(7)
+        .text(`Presidência do ${tenant.sigla}`, lx, ly + 5, {
+          width: larguraLinha,
+          align: 'center',
+        });
+
+      /*
+        ----- Rodapé institucional, em DUAS linhas -----
+
+        `rodapeInstitucional()` junta endereço e contatos com " | " e serve bem
+        a uma folha A4. Aqui a linha tem 464pt e o texto foi cortado justo no
+        e-mail — o rodapé existe para dizer onde procurar o sindicato, e sem o
+        contato ele não diz nada. Endereço em cima, contatos embaixo.
+      */
+      const alturaRodape = 26;
+      doc.rect(0, H - alturaRodape, W, alturaRodape).fill(COR_FORTE);
+      const contatos = contatosEmLinha();
+      /* Sem contatos informados (é o caso do SINDSERM), a única linha centra. */
+      const topoRodape = H - alturaRodape + (contatos ? 7 : 11);
+      doc.fillColor('#FFFFFF').font('Helvetica').fontSize(5.5);
+      doc.text(`DIRETORIA ${tenant.sigla} — ${enderecoEmLinha()}`, vx, topoRodape, {
+        width: vutil,
+        align: 'center',
+        height: 8,
+        ellipsis: true,
+      });
+      if (contatos) {
+        doc.text(contatos, vx, topoRodape + 9, {
+          width: vutil,
+          align: 'center',
+          height: 8,
+          ellipsis: true,
+        });
+      }
 
       doc.end();
     });
