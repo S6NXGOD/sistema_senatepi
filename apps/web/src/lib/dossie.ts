@@ -273,7 +273,23 @@ function inicioDoDia(d: Date): number {
  */
 export function desde(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const dias = Math.round((inicioDoDia(new Date()) - inicioDoDia(new Date(iso))) / 86_400_000);
+  return emPalavras(
+    Math.round((inicioDoDia(new Date()) - inicioDoDia(new Date(iso))) / 86_400_000),
+  );
+}
+
+/**
+ * A MESMA FRASE, a partir de um número de dias já contado.
+ *
+ * Existe porque nem toda data é um instante: uma coluna `@db.Date` (o Diário,
+ * o vencimento do carnê) conta os dias por CALENDÁRIO, com
+ * `diasDesdeDataPura`, e passar o instante dela para `desde` erra um dia. Com
+ * a frase separada da contagem, as duas contas terminam no mesmo vocabulário —
+ * em vez de existirem duas listas de "ontem / há 3 dias / há 2 meses" que um
+ * dia discordariam.
+ */
+export function emPalavras(dias: number | null | undefined): string {
+  if (dias === null || dias === undefined || Number.isNaN(dias)) return '—';
   if (dias === 0) return 'hoje';
   if (dias === 1) return 'ontem';
   if (dias === -1) return 'amanhã';

@@ -122,14 +122,28 @@ describe('a coluna "última movimentação" lê as três fontes', () => {
   });
 
   /**
-   * `dataDisponibilizacao` é `@db.Date` — chega à meia-noite — e a nota interna
-   * tem hora cheia. No mesmo dia a nota ganharia sempre, e a tela diria "nós"
-   * onde quem falou foi o juízo.
+   * O DESEMPATE POR ORDEM DO ARRAY NÃO BASTAVA — e nunca bastou (24/09/2026).
+   *
+   * O comentário aqui dizia a coisa certa (`dataDisponibilizacao` é `@db.Date`,
+   * chega à meia-noite) e a defesa era torcer para o `reduce` varrer na ordem
+   * DataJud → Diário → nota. Isso só resolve o EMPATE exato. O caso real que o
+   * dono encontrou não era empate: a publicação de hoje (`24/09 00:00Z`) ficava
+   * ANTES de uma nota escrita ontem às 22h de Teresina (`24/09 01:00Z`), e
+   * perdia no `>` mesmo vindo antes no array.
+   *
+   * Hoje quem compara é `paraComparar`, que põe a data pura no FIM do dia dela
+   * em Teresina. O detalhe está em `utils/ultima-movimentacao.spec.ts`.
    */
-  it('a mais recente vence, e o empate não vai para a nota', () => {
-    expect(bloco).toContain('candidatos.reduce((a, b) => (b.data > a.data ? b : a))');
-    expect(bloco.indexOf("origem: 'TRIBUNAL'")).toBeLessThan(bloco.indexOf("origem: 'EQUIPE'"));
-    expect(bloco.indexOf("origem: 'DIARIO'")).toBeLessThan(bloco.indexOf("origem: 'EQUIPE'"));
+  it('a mais recente vence pela régua do tipo de data', () => {
+    expect(bloco).toContain('paraComparar(b) > paraComparar(a)');
+    expect(bloco).not.toContain('b.data > a.data');
+  });
+
+  it('e a publicação é a única declarada como dia de calendário', () => {
+    const doDiario = bloco.slice(bloco.indexOf("origem: 'DIARIO'"), bloco.indexOf("origem: 'EQUIPE'"));
+    expect(doDiario).toContain('diaPuro: true');
+    const doTribunal = bloco.slice(bloco.indexOf("origem: 'TRIBUNAL'"), bloco.indexOf("origem: 'DIARIO'"));
+    expect(doTribunal).toContain('diaPuro: false');
   });
 
   /** A publicação precisa chegar na listagem — senão o bloco acima lê `undefined`. */

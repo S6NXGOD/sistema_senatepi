@@ -42,7 +42,8 @@ import {
   listarSugestoesDeProcesso,
 } from '@/lib/processos';
 import { rotuloGrau, siglaGrau } from '@/lib/movimentacoes';
-import { dataBr, desde } from '@/lib/dossie';
+import { dataBr, desde, emPalavras } from '@/lib/dossie';
+import { diasDesdeDataPura, formatDataPura } from '@/lib/data-pura';
 import { useAbrirPorUrl, useFiltroPorUrl } from '@/lib/use-abrir-por-url';
 import { tenant } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
@@ -1281,11 +1282,29 @@ function CelulaUltimaMov({ p }: { p: ProcessoLista }) {
   }
   const texto = ultima.detalhe?.trim() || ultima.descricao;
   const alerta = p.alerta;
+  /*
+    DIA DE CALENDÁRIO NÃO SE FORMATA COMO INSTANTE (24/09/2026).
+
+    "Na listagem, diz que a última movimentação do processo foi ontem. Mas fui
+    ver e teve publicação do DJEN hoje." A publicação de 24/09 chega como
+    `2026-09-24T00:00:00.000Z` — a coluna é `@db.Date` — e em Teresina isso é
+    23/09 às 21h. A coluna escrevia "23/09 · ontem" para o ato de hoje, na
+    fonte de onde sai a intimação COM PRAZO.
+
+    `lib/data-pura` já existia para isto; o que faltava era o servidor dizer
+    qual das três datas é pura (`diaPuro`).
+  */
+  const quando = ultima.diaPuro
+    ? formatDataPura(ultima.data)
+    : dataBr(ultima.data);
+  const haQuantoTempo = ultima.diaPuro
+    ? emPalavras(diasDesdeDataPura(ultima.data))
+    : desde(ultima.data);
   return (
     <div className="min-w-0 leading-snug">
       <p className="flex items-center gap-1.5 text-[13px] font-medium tabular-nums">
-        {dataBr(ultima.data)}
-        <span className="text-[11px] font-normal text-muted-foreground">{desde(ultima.data)}</span>
+        {quando}
+        <span className="text-[11px] font-normal text-muted-foreground">{haQuantoTempo}</span>
       </p>
       <p className="flex items-center gap-1 truncate text-xs text-muted-foreground" title={texto}>
         {/*

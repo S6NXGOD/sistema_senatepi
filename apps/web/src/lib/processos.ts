@@ -138,6 +138,19 @@ export interface ProcessoLista {
      * próprio: não pode se confundir nem com andamento nem com nota interna.
      */
     origem: 'TRIBUNAL' | 'DIARIO' | 'EQUIPE';
+    /**
+     * A DATA É UM DIA DE CALENDÁRIO, sem hora — e por isso não tem fuso.
+     *
+     * Só o Diário: `comunicacoes_djen.data_disponibilizacao` é `@db.Date`.
+     * Formatar isso como instante anda um dia para trás em Teresina, e foi o
+     * que fez a listagem escrever "23/09 · ontem" para a intimação publicada
+     * hoje (24/09/2026). Quando `true`, use `lib/data-pura`; quando `false`, a
+     * data tem hora de verdade e o fuso importa.
+     *
+     * Opcional: a API da janela de troca não manda o campo. Ausente, a tela
+     * cai no caminho de instante, que é o comportamento de antes.
+     */
+    diaPuro?: boolean;
   } | null;
   movimentacoes?: {
     dataMovimento: string;

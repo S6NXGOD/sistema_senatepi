@@ -14,6 +14,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import {
   DatajudService, InstanciaDatajud, ParteDatajud, ProcessoDatajud,
 } from './datajud.service';
+import { paraComparar } from './utils/ultima-movimentacao.util';
 import { CorrelacaoService } from './correlacao.service';
 import { InstanciasService } from './instancias.service';
 import { SincronizacaoLogService } from './sincronizacao-log.service';
@@ -1480,6 +1481,7 @@ export class ProcessosService {
               descricao: cnj.descricao,
               detalhe: cnj.detalhe,
               origem: 'TRIBUNAL' as const,
+              diaPuro: false,
             },
             pub && {
               data: pub.dataDisponibilizacao,
@@ -1488,26 +1490,54 @@ export class ProcessosService {
               descricao: pub.tipoComunicacao || pub.tipoDocumento || 'Publicação no Diário',
               detalhe: pub.nomeOrgao,
               origem: 'DIARIO' as const,
+              /**
+               * ESTA DATA NÃO TEM HORA — e a tela precisa saber disso.
+               *
+               * 24/09/2026: *"na listagem diz que a última movimentação foi
+               * ontem, mas teve publicação do DJEN hoje."* Estava certo. A
+               * publicação de 24/09 chega do Prisma como
+               * `2026-09-24T00:00:00.000Z`, porque a coluna é `@db.Date`;
+               * formatada em Teresina (UTC−3) ela vira **23/09 às 21h**, e a
+               * coluna escrevia "ontem" para o ato de hoje.
+               *
+               * O campo `ultimaMovimentacao` carrega DOIS tipos de tempo no
+               * mesmo lugar — instante (DataJud, nota) e dia de calendário
+               * (Diário) — e sem esta bandeira quem lê não tem como saber qual
+               * é qual. `lib/data-pura` no web já resolvia o problema; faltava
+               * dizer a ele quando usar.
+               */
+              diaPuro: true,
             },
             (() => {
               const d = dataDaNota(nota);
               return nota && d
-                ? { data: d, descricao: nota.descricao, detalhe: null, origem: 'EQUIPE' as const }
+                ? {
+                    data: d, descricao: nota.descricao, detalhe: null,
+                    origem: 'EQUIPE' as const, diaPuro: false,
+                  }
                 : null;
             })(),
           ].filter(Boolean) as {
             data: Date; descricao: string; detalhe: string | null;
-            origem: 'TRIBUNAL' | 'DIARIO' | 'EQUIPE';
+            origem: 'TRIBUNAL' | 'DIARIO' | 'EQUIPE'; diaPuro: boolean;
           }[];
 
           if (!candidatos.length) return null;
           /*
-            EMPATE VAI PARA O TRIBUNAL. `dataDisponibilizacao` é `@db.Date` —
-            chega à meia-noite — enquanto a nota interna tem hora cheia. Num
-            mesmo dia a nota ganharia sempre, e a tela diria "nós" onde quem
-            falou foi o juízo. A ordem do array desempata: DataJud, Diário, nota.
+            E A COMPARAÇÃO TAMBÉM ERRAVA. Colocar a meia-noite UTC do dia D ao
+            lado de instantes fazia a publicação do dia D perder para uma nota
+            escrita no dia D−1 às 22h (que em UTC é o dia D às 01h). A data pura
+            entra na disputa como o FIM do seu dia em Teresina: nada do mesmo
+            dia é mais novo que ela, que é exatamente o que "disponibilizado no
+            dia D" significa quando não se sabe a hora.
+
+            Isto substitui o desempate por ordem do array que havia aqui: em vez
+            de torcer para o `reduce` chegar na ordem certa, cada candidato diz
+            quando aconteceu.
           */
-          return candidatos.reduce((a, b) => (b.data > a.data ? b : a));
+          return candidatos.reduce((a, b) =>
+            paraComparar(b) > paraComparar(a) ? b : a,
+          );
         })(),
         /**
          * Etiquetas que o sistema mantém sozinho. Derivadas AQUI, na leitura, e

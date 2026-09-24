@@ -88,13 +88,27 @@ describe('coluna "última movimentação"', () => {
   });
 
   /**
-   * A REGRA CRESCEU PARA TRÊS FONTES e mudou de forma: virou uma lista de
-   * candidatos com `reduce`, porque `if` encadeado com três datas era onde o
-   * próximo empate ia se esconder. O detalhe de cada fonte está em
-   * `andamento-do-tribunal.spec.ts`; aqui fica a propriedade que não muda.
+   * A REGRA CRESCEU PARA TRÊS FONTES, e a comparação saiu daqui (24/09/2026).
+   *
+   * Este teste afirmava a LINHA `candidatos.reduce((a, b) => (b.data > a.data …`
+   * — e essa linha estava errada: ela punha a meia-noite UTC de uma coluna
+   * `@db.Date` ao lado de instantes, então a publicação do Diário de HOJE
+   * perdia para uma nota escrita ONTEM às 22h. O teste passava com o defeito no
+   * ar, porque afirmava que o texto existia, não que ele acertava.
+   *
+   * A comparação agora é `paraComparar`, uma função pura com teste próprio
+   * (`utils/ultima-movimentacao.spec.ts`). O que sobra aqui é o que só o
+   * arquivo pode garantir: que ele USA a função, em vez de refazer a conta.
    */
-  it('escolhe a mais recente, seja de quem for', () => {
-    expect(bloco).toContain('candidatos.reduce((a, b) => (b.data > a.data ? b : a))');
+  it('escolhe a mais recente pela régua de `paraComparar`, não por uma conta local', () => {
+    expect(bloco).toContain('paraComparar(b) > paraComparar(a)');
+    expect(bloco).not.toContain('b.data > a.data');
+  });
+
+  /** E cada candidato declara se a data dele tem hora ou é dia de calendário. */
+  it('cada fonte diz se a data é um dia puro', () => {
+    expect(bloco).toContain('diaPuro: false');
+    expect(bloco).toContain('diaPuro: true');
   });
 
   it('diz de onde veio — publicação oficial não é anotação interna', () => {

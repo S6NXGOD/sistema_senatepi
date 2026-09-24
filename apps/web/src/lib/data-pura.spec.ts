@@ -136,6 +136,29 @@ describe('todo campo de data pura usa a regra única', () => {
     expect(ler(arquivo)).not.toContain(chamadaAntiga);
   });
 
+  /**
+   * O IRMÃO QUE ESCAPOU DESTA LISTA — e por que ele escapou (24/09/2026).
+   *
+   * "Na listagem, diz que a última movimentação do processo foi ontem. Mas fui
+   * ver e teve publicação do DJEN hoje."
+   *
+   * A coluna "Última movimentação" recebe UM campo (`ultimaMovimentacao.data`)
+   * que às vezes é instante (DataJud, nota da equipe) e às vezes é dia de
+   * calendário (Diário). Nenhuma regra de nome de campo pegaria isso: `data`
+   * não anuncia que é `@db.Date`, e os casos acima só funcionam porque o nome
+   * do campo entrega o tipo.
+   *
+   * Hoje o servidor manda `diaPuro` junto, e a tela escolhe o caminho. O que
+   * este teste trava é a ESCOLHA existir — sem ela a coluna volta a escrever
+   * "ontem" para o ato de hoje, na fonte de onde sai a intimação com prazo.
+   */
+  it('a coluna de última movimentação escolhe o caminho pela bandeira do servidor', () => {
+    const fonte = ler('app/(dashboard)/processos/page.tsx');
+    expect(fonte).toContain('ultima.diaPuro');
+    expect(fonte).toContain('formatDataPura(ultima.data)');
+    expect(fonte).toContain('diasDesdeDataPura(ultima.data)');
+  });
+
   /** `timeZone` não é opção de quem chama — senão o bug volta pela porta. */
   it('formatDataPura não deixa o chamador escolher o fuso', () => {
     const fonte = readFileSync(join(__dirname, 'data-pura.ts'), 'utf8');
