@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { baixarPdf } from '@/lib/pdf';
-import { excluirFiliado, Filiado } from '@/lib/filiados';
+import { excluirFiliado, baixarCarteirinha, Filiado } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
 import { DesfiliarModal } from '@/components/filiados/desfiliar-modal';
@@ -105,8 +105,20 @@ export function FiliadoRowActions({
             <MenuItem icon={<Pencil className="h-4 w-4" />} onClick={() => run(() => router.push(`/filiados/${filiado.id}/editar`))}>
               Editar
             </MenuItem>
-            <MenuItem icon={<IdCard className="h-4 w-4" />} onClick={() => run(() => baixarPdf(`/filiados/${filiado.id}/carteirinha/pdf`))}>
-              Carteirinha (QR)
+            {/*
+              "Clico em carteirinha qr e não acontece nada" (24/09/2026): o item
+              baixava um PDF que, para 173 ativos, não existe — e a falha era
+              muda. Agora emite se faltar e entrega; sem permissão de emitir,
+              explica em vez de devolver 403. Ver `baixarCarteirinha`.
+            */}
+            <MenuItem
+              icon={<IdCard className="h-4 w-4" />}
+              onClick={() => run(() => baixarCarteirinha(filiado.id, {
+                podeEmitir: user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO',
+                ativo: filiado.situacao === 'ATIVO',
+              }))}
+            >
+              Carteirinha
             </MenuItem>
             <MenuItem icon={<FileText className="h-4 w-4" />} onClick={() => run(() => baixarPdf(`/filiados/${filiado.id}/termo/pdf`))}>
               Ficha de Filiação (PDF)

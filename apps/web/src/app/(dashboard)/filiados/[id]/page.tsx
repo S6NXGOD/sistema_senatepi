@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { formatarData, mascararCpf, cn } from '@/lib/utils';
 import {
-  FORMACAO_LABEL, MODALIDADE_LABEL, SITUACAO_COR, SITUACAO_LABEL,
+  FORMACAO_LABEL, MODALIDADE_LABEL, SITUACAO_COR, SITUACAO_LABEL, baixarCarteirinha,
   type ModalidadeContribuicao,
 } from '@/lib/filiados';
 import { useAuth } from '@/lib/auth';
@@ -32,6 +32,7 @@ import { DossieDrawer } from '@/components/filiados/dossie-drawer';
 import { abrirPdf, baixarPdf } from '@/lib/pdf';
 import { campoVisivel } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const HIST_ICON: Record<string, any> = {
   FILIACAO: UserPlus,
@@ -102,6 +103,8 @@ export default function PerfilFiliadoPage() {
   const qc = useQueryClient();
   /** Qual porta de situação está aberta — as duas exigem formulário próprio. */
   const [acaoSituacao, setAcaoSituacao] = useState<null | 'desfiliar' | 'reativar'>(null);
+  /** Inativar tira oito coisas do filiado: pergunta antes. */
+  const [confirmarInativo, setConfirmarInativo] = useState(false);
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
   // Recadastrar, Editar, situação, carteirinha e anexo gravam no cadastro: a API
@@ -231,7 +234,16 @@ export default function PerfilFiliadoPage() {
             abrir o arquivo baixado.
           */}
           <Button variant="outline" onClick={() => baixarPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Baixar Termo</Button>
-          <Button variant="secondary" onClick={() => baixarPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Carteirinha</Button>
+          {/* Um clique: emite se faltar e entrega. Ver `baixarCarteirinha`. */}
+          <Button
+            variant="secondary"
+            onClick={() => baixarCarteirinha(f.id, {
+              podeEmitir: podeEmitirCarteirinha,
+              ativo: f.situacao === 'ATIVO',
+            })}
+          >
+            <IdCard className="h-4 w-4" /> Carteirinha
+          </Button>
           {/* Abre a escolha: presencial (equipe) ou link de 24h para o filiado */}
           {podeEditarFiliado && (
             <>
@@ -473,11 +485,31 @@ export default function PerfilFiliadoPage() {
                         continua filiada e volta com um clique. Por isso ele é
                         o único que muda direto, sem formulário.
                       */}
+                      {/*
+                        INATIVAR PEDE CONFIRMAÇÃO; REATIVAR, NÃO (24/09/2026).
+
+                        "Esse botão marcar como inativo, basta eu clicar, não
+                        modal de confirmação, não tem consequências, não tem
+                        nada disso." Tinha razão — e eu fiz esse botão ontem.
+
+                        Levantei o que DEPENDE de estar ATIVO, no código:
+                        emitir carteirinha, check-in em evento, votar, entrar na
+                        lista de presença, valer o QR de acesso, contar no
+                        painel, cobrir os dependentes e entrar no mapa por
+                        município. São oito, e o clique disparava na hora.
+
+                        Reativar não pergunta: devolve tudo, não tira nada. É a
+                        régua de sempre — confirmação é para o que TIRA.
+                      */}
                       <Button
                         variant="outline"
                         className="w-full justify-start"
                         disabled={mudarSituacao.isPending}
-                        onClick={() => mudarSituacao.mutate(f.situacao === 'INATIVO' ? 'ATIVO' : 'INATIVO')}
+                        onClick={() =>
+                          f.situacao === 'INATIVO'
+                            ? mudarSituacao.mutate('ATIVO')
+                            : setConfirmarInativo(true)
+                        }
                       >
                         {mudarSituacao.isPending
                           ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -592,6 +624,36 @@ export default function PerfilFiliadoPage() {
         Eles já existiam e a ficha, que é onde se decide, não os tinha: quem
         estava aqui tentava pelo seletor e levava um erro.
       */}
+      {/*
+        O QUE INATIVAR TIRA — a lista é o que o código realmente checa, não um
+        aviso genérico. Quem lê decide sabendo; e a última linha diz que volta,
+        porque a diferença entre inativar e desfiliar é justamente essa.
+      */}
+      <ConfirmDialog
+        open={confirmarInativo}
+        title={`Marcar ${f.nomeCompleto.split(' ')[0]} como inativo?`}
+        icon={<UserCog className="h-6 w-6" />}
+        description={
+          <>
+            <p>Enquanto estiver inativo, esta pessoa:</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              <li>não pode <strong>emitir carteirinha</strong>;</li>
+              <li>não faz <strong>check-in em evento</strong> e não pode <strong>votar</strong>;</li>
+              <li>sai da <strong>lista de presença</strong> e do <strong>contador de ativos</strong>;</li>
+              <li>deixa os <strong>dependentes sem cobertura</strong>.</li>
+            </ul>
+            <p className="mt-3">
+              A filiação <strong>continua</strong> — isto não é desfiliação, e volta para ativo
+              com um clique. A mudança fica no histórico.
+            </p>
+          </>
+        }
+        confirmLabel="Marcar como inativo"
+        loading={mudarSituacao.isPending}
+        onConfirm={() => { mudarSituacao.mutate('INATIVO'); setConfirmarInativo(false); }}
+        onClose={() => setConfirmarInativo(false)}
+      />
+
       {acaoSituacao === 'desfiliar' && (
         <DesfiliarModal
           filiado={{ id: f.id, nomeCompleto: f.nomeCompleto }}

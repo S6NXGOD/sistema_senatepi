@@ -1,4 +1,6 @@
+import { toast } from 'sonner';
 import { api } from './api';
+import { baixarPdf } from './pdf';
 import type { DesafioRecadastramento } from './recadastro';
 
 export type SituacaoFiliado = 'ATIVO' | 'INATIVO' | 'DESFILIADO';
@@ -451,4 +453,72 @@ export async function listarRecadastramentos(filiadoId: string): Promise<Recadas
 /** Marca como conferido (APROVADO, com quem conferiu e quando). */
 export async function conferirRecadastramento(id: string): Promise<Recadastramento> {
   return (await api.patch(`/recadastramentos/${id}/conferir`)).data;
+}
+
+/**
+ * A CARTEIRINHA EM UM CLIQUE — emite se faltar, e entrega.
+ *
+ * 24/09/2026: *"Clico em carteirinha qr e não acontece nada. Emitir carteirinha
+ * também não acontece nada."*
+ *
+ * Eram TRÊS defeitos empilhados:
+ *
+ *  1. emitir devolvia **500** — o número saía de `count() + 1` e colidia (ver
+ *     `carteirinhas.module`, corrigido);
+ *  2. baixar um PDF de carteirinha não emitida devolve 404 com a mensagem
+ *     certa, e `baixarPdf` engolia (corrigido em `lib/pdf`);
+ *  3. e, mesmo com os dois consertados, sobrava um beco: "Carteirinha não
+ *     emitida" é um aviso que não leva a lugar nenhum. Dos 5.827 filiados,
+ *     **173 ativos não têm carteirinha** — é o caso comum, não a exceção.
+ *
+ * Emitir não é decisão de ninguém: o número é uma sequência e a validade é um
+ * ano. Então quem clica em "Carteirinha" quer a carteirinha — se ela não
+ * existe, o sistema a cria e entrega, sem pedir um segundo clique.
+ *
+ * A PERMISSÃO É RESPEITADA, e por isso `podeEmitir` vem de fora: a rota de
+ * emitir carrega `@Roles(ADMINISTRADOR, COORDENACAO)` além da matriz, e quem
+ * não tem esse perfil recebe a explicação em vez de um 403 mudo.
+ */
+export async function baixarCarteirinha(
+  filiadoId: string,
+  opcoes: { podeEmitir: boolean; ativo: boolean },
+): Promise<void> {
+  const pdf = `/filiados/${filiadoId}/carteirinha/pdf`;
+  try {
+    await api.get(pdf, { responseType: 'blob' });
+    await baixarPdf(pdf);
+    return;
+  } catch (e) {
+    if (!(await ehCarteirinhaNaoEmitida(e))) {
+      await baixarPdf(pdf); // deixa o aviso padrão falar
+      return;
+    }
+  }
+  if (!opcoes.ativo) {
+    toast.error('A carteirinha só pode ser emitida para filiado ATIVO.');
+    return;
+  }
+  if (!opcoes.podeEmitir) {
+    toast.error('A carteirinha ainda não foi emitida. Peça à coordenação ou à administração.');
+    return;
+  }
+  try {
+    await api.post(`/filiados/${filiadoId}/carteirinha/emitir`);
+    toast.success('Carteirinha emitida.');
+    await baixarPdf(pdf);
+  } catch (e: any) {
+    toast.error(e?.response?.data?.message ?? 'Não foi possível emitir a carteirinha.');
+  }
+}
+
+/** O 404 específico de "ainda não emitida" — o corpo vem como Blob. */
+async function ehCarteirinhaNaoEmitida(e: unknown): Promise<boolean> {
+  const res = (e as { response?: { status?: number; data?: unknown } })?.response;
+  if (res?.status !== 404) return false;
+  if (!(res.data instanceof Blob)) return true;
+  try {
+    return /não emitida/i.test(await res.data.text());
+  } catch {
+    return true;
+  }
 }

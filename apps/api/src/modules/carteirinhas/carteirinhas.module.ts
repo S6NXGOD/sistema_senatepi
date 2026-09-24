@@ -1,11 +1,13 @@
-import { QrCodeService, StorageService, mascararCpf } from '@core/infra';
+import { QrCodeService, StorageService, mascararCpf, proximoSequencial } from '@core/infra';
 import { anoBR, daquiAUmAnoBR, formatarDataBR } from '../../modules/processos/utils/data-br.util';
 import {
   BadRequestException,
+  ConflictException,
   Controller,
   Get,
   Header,
   Injectable,
+  Logger,
   Module,
   NotFoundException,
   Param,
@@ -19,6 +21,7 @@ import {
 } from '@core/infra';
 import PDFDocument from 'pdfkit';
 import {
+  Prisma,
   SituacaoFiliado,
   StatusCarteirinha,
   TipoHistoricoFiliado,
@@ -45,8 +48,15 @@ import { Modulo } from '../../common/permissions/modulo.decorator';
 */
 const { forte: COR_FORTE, clara: COR_CLARA } = coresDaCarteirinha(tenant.corInstitucional);
 
+/** O prefixo do número da carteirinha — o mesmo desde a carga de 03/07/2026. */
+const PREFIXO_CARTEIRINHA = 'CART';
+/** Quantas vezes recalcular o número antes de desistir, na corrida. */
+const TENTATIVAS_NUMERO = 3;
+
 @Injectable()
 export class CarteirinhasService {
+  private readonly logger = new Logger(CarteirinhasService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly qr: QrCodeService,
@@ -63,19 +73,15 @@ export class CarteirinhasService {
     const existente = await this.prisma.carteirinha.findUnique({ where: { filiadoId } });
     if (existente) return existente;
 
-    const total = await this.prisma.carteirinha.count();
     /* Um ano pelo calendário DAQUI — `setFullYear` lê o relógio do contêiner,
        que às 21h de 31/12 já virou o ano. Ver `daquiAUmAnoBR`. */
     const validaAte = daquiAUmAnoBR();
 
-    const carteirinha = await this.prisma.carteirinha.create({
-      data: {
-        filiadoId,
-        numero: `CART-${anoBR()}-${String(total + 1).padStart(6, '0')}`,
-        validaAte,
-        status: StatusCarteirinha.ATIVA,
-      },
-    });
+    const carteirinha = await this.comNumeroLivre((numero) =>
+      this.prisma.carteirinha.create({
+        data: { filiadoId, numero, validaAte, status: StatusCarteirinha.ATIVA },
+      }),
+    );
 
     await this.prisma.filiadoHistorico.create({
       data: {
@@ -85,6 +91,74 @@ export class CarteirinhasService {
       },
     });
     return carteirinha;
+  }
+
+  /**
+   * O PRÓXIMO NÚMERO DE CARTEIRINHA — e por que ele não é `count() + 1`.
+   *
+   * 24/09/2026: *"Emitir carteirinha também não acontece nada."* O que
+   * acontecia era **HTTP 500**, e o log dizia
+   * `Unique constraint failed on the fields: (numero)`.
+   *
+   * O número saía de `count() + 1`. Medido na produção: há **5.654**
+   * carteirinhas, mas a maior é **CART-2026-007166** — a carga de 03/07 numerou
+   * pela matrícula, com buracos. `count() + 1` dava `CART-2026-005655`, que já
+   * existe. E o defeito **nunca se corrige sozinho**: o `create` falha, nada é
+   * gravado, o `count()` não muda e a próxima tentativa colide igual. Emitir
+   * carteirinha estava quebrado para os 173 ativos que ainda não tinham uma.
+   *
+   * É LETRA POR LETRA O INCIDENTE DA MATRÍCULA DE 14/08/2026 — `gerarMatricula(
+   * 'SEN', count() + 1)` parou o cadastro um dia inteiro. A correção de lá
+   * (`proximoSequencial`, que olha a MAIOR já emitida) tem teste próprio; aqui
+   * ela é reusada em vez de reescrita, junto com a reação à corrida.
+   *
+   * Números fora do padrão não empurram o contador — é o que `proximoSequencial`
+   * garante, e é o que impede um "CART-antigo-9999" da carga legada de saltar a
+   * numeração.
+   */
+  private async proximoNumero(): Promise<string> {
+    const emitidas = await this.prisma.carteirinha.findMany({
+      where: { numero: { startsWith: `${PREFIXO_CARTEIRINHA}-` } },
+      select: { numero: true },
+    });
+    const seq = proximoSequencial(PREFIXO_CARTEIRINHA, emitidas.map((c) => c.numero));
+    return `${PREFIXO_CARTEIRINHA}-${anoBR()}-${String(seq).padStart(6, '0')}`;
+  }
+
+  /**
+   * Cria com um número livre, reagindo à CORRIDA.
+   *
+   * Duas emissões simultâneas leem a mesma "maior emitida" e disputam o mesmo
+   * número; o índice único recusa a segunda. A segunda recalcula e tenta de
+   * novo, em vez de virar 500 na cara de quem clicou. O limite existe para que
+   * um defeito DIFERENTE não vire laço infinito — e aí o erro sobe traduzido.
+   */
+  private async comNumeroLivre<T>(criar: (numero: string) => Promise<T>): Promise<T> {
+    for (let tentativa = 1; tentativa <= TENTATIVAS_NUMERO; tentativa++) {
+      const numero = await this.proximoNumero();
+      try {
+        return await criar(numero);
+      } catch (e) {
+        const colidiu =
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002' &&
+          String((e.meta?.target as string[] | undefined)?.join(',') ?? '').includes('numero');
+        if (!colidiu || tentativa === TENTATIVAS_NUMERO) {
+          if (colidiu) {
+            throw new ConflictException(
+              'O número de carteirinha gerado já está em uso. Tente de novo; ' +
+                'se persistir, avise o suporte (numeração fora de sincronia).',
+            );
+          }
+          throw e;
+        }
+        this.logger.warn(
+          `Carteirinha ${numero} foi tomada por outra emissão simultânea; ` +
+            `tentativa ${tentativa + 1} de ${TENTATIVAS_NUMERO}.`,
+        );
+      }
+    }
+    throw new ConflictException('Não foi possível gerar o número da carteirinha.');
   }
 
   /** Dados para a versão mobile/JSON da carteirinha. */

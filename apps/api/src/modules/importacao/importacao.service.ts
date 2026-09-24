@@ -556,9 +556,41 @@ export class ImportacaoService {
   ) {
     const inicio = Date.now();
 
-    // Base para gerar matrículas/números de carteirinha sequenciais
-    let seqFiliado = await this.prisma.filiado.count();
-    let seqCarteira = await this.prisma.carteirinha.count();
+    /*
+      A BASE É A MAIOR JÁ EMITIDA, NUNCA A CONTAGEM (24/09/2026).
+
+      Era `count()` nos dois. É o mesmo defeito que parou o cadastro de filiados
+      em 14/08 e que devolveu 500 ao emitir carteirinha em 24/09: com qualquer
+      buraco na numeração — e a carga de 03/07 deixou vários —, a contagem fica
+      ATRÁS do maior número usado e devolve um que já existe.
+
+      Medido: 5.654 carteirinhas na produção, a maior é CART-2026-007166.
+      `count()` começaria em 5.654 e a primeira importação colidiria.
+
+      A matrícula tinha um `do/while (usadas.has(...))` que a salvava; o número
+      da carteirinha não tinha nada. Agora as duas partem de
+      `proximoSequencial`, a mesma função com teste que o cadastro usa.
+    */
+    let seqFiliado =
+      proximoSequencial(
+        'SEN',
+        (
+          await this.prisma.filiado.findMany({
+            where: { matricula: { startsWith: 'SEN-' } },
+            select: { matricula: true },
+          })
+        ).map((f) => f.matricula),
+      ) - 1;
+    let seqCarteira =
+      proximoSequencial(
+        'CART',
+        (
+          await this.prisma.carteirinha.findMany({
+            where: { numero: { startsWith: 'CART-' } },
+            select: { numero: true },
+          })
+        ).map((c) => c.numero),
+      ) - 1;
     const ano = anoBR(); // calendário daqui: o contêiner vira o ano às 21h de 31/12
     // Matrículas já usadas (no sistema + as criadas durante esta importação) — garante unicidade
     const usadas = new Set(
