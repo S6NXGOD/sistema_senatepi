@@ -30,11 +30,20 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { lerLogoDaMarca } from '../../common/assets.util';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { tenant } from '../../tenant/tenant.config';
+import { coresDaCarteirinha } from './cor-da-carteirinha.util';
 import { ModuloTenant } from '../../common/tenant/modulo-tenant.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
 
-const VERDE_ESCURO = '#1B7F0A';
-const VERDE_MEDIO = '#4FA11B';
+/*
+  AS CORES SÃO DA CASA, NÃO DO SENATEPI (24/09/2026).
+
+  Estavam cravadas aqui — e com elas o nome, duas linhas abaixo. A carteirinha
+  do SINDSERM sairia VERDE, com o nome do sindicato dos enfermeiros. Ver
+  `cor-da-carteirinha.util`: as duas saem de `tenant.corInstitucional`, e o tom
+  claro derivado reproduz o par que estava à mão (#1B7F0A → #5E9F4D, contra o
+  #4FA11B de antes).
+*/
+const { forte: COR_FORTE, clara: COR_CLARA } = coresDaCarteirinha(tenant.corInstitucional);
 
 @Injectable()
 export class CarteirinhasService {
@@ -144,19 +153,24 @@ export class CarteirinhasService {
       doc.rect(0, 0, W, H).fill('#FFFFFF');
 
       // Faixa superior fina (verde)
-      doc.rect(0, 0, W - PANEL, 8).fill(VERDE_MEDIO);
+      doc.rect(0, 0, W - PANEL, 8).fill(COR_CLARA);
 
       // ----- Cabeçalho (lado esquerdo) -----
       const x = 24;
-      doc.fillColor(VERDE_ESCURO).font('Helvetica-Bold').fontSize(13);
-      doc.text('Sindicato dos Enfermeiros, Auxiliares e', x, 26, { width: W - PANEL - 40 });
-      doc.text('Técnicos em Enfermagem do Piauí', x, 42, { width: W - PANEL - 40 });
+      /*
+        O NOME É O DO CLIENTE. Estava escrito em duas linhas fixas com o nome do
+        SENATEPI; `nomeCurto` do tenant já existia e cabe nas mesmas duas linhas
+        (o PDFKit quebra sozinho dentro da largura), com `height` para nenhum
+        nome comprido invadir o corpo do cartão.
+      */
+      doc.fillColor(COR_FORTE).font('Helvetica-Bold').fontSize(13);
+      doc.text(tenant.nomeCurto, x, 26, { width: W - PANEL - 40, height: 32, ellipsis: true });
       doc.moveTo(x, 64).lineTo(W - PANEL - 16, 64).strokeColor('#D1D5DB').lineWidth(1).stroke();
       doc.fillColor('#111827').font('Helvetica-Bold').fontSize(11).text('CARTEIRA DE ASSOCIADO', x, 72);
 
       // ----- Campos -----
       const campo = (label: string, valor: string, cx: number, cy: number, w = 220) => {
-        doc.fillColor(VERDE_MEDIO).font('Helvetica').fontSize(6.5).text(label.toUpperCase(), cx, cy);
+        doc.fillColor(COR_CLARA).font('Helvetica').fontSize(6.5).text(label.toUpperCase(), cx, cy);
         doc.fillColor('#111827').font('Helvetica-Bold').fontSize(10).text(valor || '-', cx, cy + 9, { width: w });
       };
 
@@ -180,7 +194,7 @@ export class CarteirinhasService {
       doc.fillColor('#9CA3AF').fontSize(6).text(`Nº ${carteirinha.numero}  ·  Válida até ${formatarDataBR(carteirinha.validaAte)}`, x, sy + 16);
 
       // ----- Painel lateral (verde) -----
-      doc.rect(W - PANEL, 0, PANEL, H).fill(VERDE_ESCURO);
+      doc.rect(W - PANEL, 0, PANEL, H).fill(COR_FORTE);
 
       // Foto no topo do painel
       const fw = 110;
