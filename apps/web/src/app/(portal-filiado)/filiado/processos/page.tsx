@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, FileText, Lock } from 'lucide-react';
+import { ArrowRight, FileText, Lock, MessageSquareText } from 'lucide-react';
 import { CascaDoPortal } from '@/components/portal-filiado/casca';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { buscarMeusProcessos, type MeuProcesso } from '@/lib/portal-filiado';
@@ -80,6 +80,17 @@ function CartaoDoProcesso({ processo: p }: { processo: MeuProcesso }) {
           {p.segredoJustica && (
             <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <Lock className="h-3 w-3" /> Segredo de justiça
+            </span>
+          )}
+          {/*
+            O RECADO NÃO PODE FICAR ESCONDIDO ATRÁS DE UM TOQUE. Se alguém
+            escreveu para esta pessoa, ela tem de ver na lista — senão o
+            advogado escreve e ninguém lê.
+          */}
+          {p.recadosNovos > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+              <MessageSquareText className="h-3 w-3" />
+              {p.recadosNovos === 1 ? 'Recado novo' : `${p.recadosNovos} recados novos`}
             </span>
           )}
         </div>

@@ -1,12 +1,23 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { StorageService } from '@core/infra';
-import { AcaoAuditoria, Prisma, StatusParcela } from '@prisma/client';
+import { StorageService, dataCalendario } from '@core/infra';
+import {
+  AcaoAuditoria,
+  Prisma,
+  StatusParcela,
+  StatusRecadastramento,
+  TipoHistoricoFiliado,
+} from '@prisma/client';
 import { CobrancasService } from '../cobrancas/cobrancas.service';
+import { FiliadosService } from '../filiados/filiados.service';
+import { camposDoLink, vinculosPeloLink } from '../recadastramento/dados-do-link';
+import { CAMPOS_DO_CADASTRO_PELO_LINK } from '../recadastramento/dto/recadastro-publico.dto';
+import { montarSincronizacaoDependentes } from '../dependentes/dependentes.sync';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CarteirinhasService } from '../carteirinhas/carteirinhas.module';
 import { moduloAtivo } from '../../tenant/tenant.config';
+import { ondeEstaAgora, traduzirMovimento } from './linguagem-do-processo.util';
 import { diaDeCalendarioBR } from '../processos/utils/data-br.util';
 import { AtualizarMeuCadastroDto } from './dto/portal-filiado.dto';
 import {
@@ -70,6 +81,9 @@ const MIME_DO_COMPROVANTE: Record<string, string> = {
 /** 10 MB: uma foto de celular passa longe disso, e um PDF de banco também. */
 const COMPROVANTE_TAMANHO_MAX = 10 * 1024 * 1024;
 
+/** O mesmo teto do link público de recadastramento. */
+const FOTO_TAMANHO_MAX = 8 * 1024 * 1024;
+
 @Injectable()
 export class PortalFiliadoService {
   constructor(
@@ -80,6 +94,9 @@ export class PortalFiliadoService {
     // O PIX é o MESMO que o carnê imprime: uma segunda implementação geraria
     // dois códigos para a mesma parcela, e o banco aceitaria os dois.
     private readonly cobrancasDaCasa: CobrancasService,
+    // O mesmo processamento de foto que a equipe usa — recorte, miniatura e o
+    // apagar da anterior. Duas implementações gerariam duas miniaturas.
+    private readonly filiados: FiliadosService,
   ) {}
 
   // =========================================================================
@@ -96,7 +113,7 @@ export class PortalFiliadoService {
   async resumo(filiadoId: string) {
     const cobrancasLigadas = moduloAtivo('cobrancas');
 
-    const [filiado, processos, emAberto] = await Promise.all([
+    const [filiado, processos, emAberto, recadosNovos] = await Promise.all([
       this.prisma.filiado.findUnique({
         where: { id: filiadoId },
         select: {
@@ -109,6 +126,7 @@ export class PortalFiliadoService {
       }),
       this.contarProcessos(filiadoId),
       cobrancasLigadas ? this.contarParcelasEmAberto(filiadoId) : Promise.resolve(null),
+      this.contarRecadosNovos(filiadoId),
     ]);
     if (!filiado) throw new NotFoundException('Cadastro não encontrado.');
 
@@ -126,6 +144,12 @@ export class PortalFiliadoService {
       processos,
       /** `null` (e não zero) quando o cliente não tem o módulo: a aba nem existe. */
       cobrancas: emAberto,
+      /*
+        O RECADO NOVO É O ÚNICO AVISO DO PORTAL, e por isso sobe para a home:
+        alguém escreveu para ESTA pessoa e está esperando. Tudo o mais na home é
+        estado; isto é gente falando com gente.
+      */
+      recadosNovos,
     };
   }
 
@@ -212,6 +236,19 @@ export class PortalFiliadoService {
         telefonePrincipal: true,
         telefoneSecundario: true,
         email: true,
+        sexo: true,
+        estadoCivil: true,
+        naturalidade: true,
+        dataAdmissao: true,
+        fotoKey: true,
+        vinculos: {
+          orderBy: { ordem: 'asc' },
+          select: { empresa: true, cargo: true, matricula: true },
+        },
+        dependentes: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, nome: true, tipo: true, dataNascimento: true },
+        },
       },
     });
     if (!f) throw new NotFoundException('Cadastro não encontrado.');
@@ -224,7 +261,12 @@ export class PortalFiliadoService {
       divergência apareceria como campo que a pessoa preenche e o servidor
       ignora em silêncio.
     */
-    return { ...f, editaveis: CAMPOS_QUE_O_FILIADO_EDITA };
+    return {
+      ...f,
+      editaveis: CAMPOS_QUE_O_FILIADO_EDITA,
+      /** A foto atual, se houver — o portal é onde ela finalmente vai existir. */
+      fotoUrl: f.fotoKey ? await this.storage.getSignedUrl(f.fotoKey).catch(() => null) : null,
+    };
   }
 
   /**
@@ -241,23 +283,86 @@ export class PortalFiliadoService {
   async atualizarCadastro(filiadoId: string, dto: AtualizarMeuCadastroDto, ctx: Ctx) {
     const antes = await this.prisma.filiado.findUnique({
       where: { id: filiadoId },
-      select: { id: true, nomeCompleto: true, matricula: true, ...SELECT_EDITAVEIS },
+      include: { vinculos: true, dependentes: true },
     });
     if (!antes) throw new NotFoundException('Cadastro não encontrado.');
 
-    const dados = this.somenteOsEditaveis(dto);
-    if (!Object.keys(dados).length) {
+    /*
+      OS MESMOS FILTROS DO LINK, e de propósito.
+
+      `camposDoLink` é a defesa em profundidade que existe desde 14/09: o DTO já
+      recusa o que não está na lista, mas se um dia a rota perder a tipagem pela
+      CLASSE, o serviço ainda copia só o que está aqui — `situacao`, `matricula`
+      e `cobrancas` não chegam ao Prisma nem se vierem no corpo.
+
+      `vinculosPeloLink` preserva o que a EQUIPE registrou no vínculo
+      (`descontoEmFolha`, a ligação com a organização, quadro e lotação): a
+      lista enviada SUBSTITUI a gravada, e sem essa herança o filiado apagaria,
+      sem saber, em qual folha o financeiro desconta.
+    */
+    const dados = camposDoLink(dto as unknown as Record<string, unknown>);
+    const temVinculos = Array.isArray(dto.vinculos);
+    const temDependentes = Array.isArray(dto.dependentes);
+    if (!Object.keys(dados).length && !temVinculos && !temDependentes) {
       throw new BadRequestException('Nada para atualizar.');
     }
 
-    const depois = await this.prisma.filiado.update({
-      where: { id: filiadoId },
-      data: dados,
-      select: { id: true, nomeCompleto: true, matricula: true, ...SELECT_EDITAVEIS },
+    const antesJson: Prisma.InputJsonValue = JSON.parse(
+      JSON.stringify({ ...antes, fotoKey: undefined, fotoThumbKey: undefined }),
+    );
+
+    const depois = await this.prisma.$transaction(async (tx) => {
+      return tx.filiado.update({
+        where: { id: filiadoId },
+        data: {
+          ...(dados as Prisma.FiliadoUpdateInput),
+          dataNascimento: dataCalendario(dados.dataNascimento as string | undefined),
+          dataAdmissao: dataCalendario(dados.dataAdmissao as string | undefined),
+          vinculos: temVinculos
+            ? {
+                deleteMany: {},
+                create: vinculosPeloLink(dto.vinculos ?? [], antes.vinculos),
+              }
+            : undefined,
+          dependentes: temDependentes
+            ? montarSincronizacaoDependentes(dto.dependentes, antes.dependentes)
+            : undefined,
+        },
+        include: { vinculos: true, dependentes: true },
+      });
     });
 
-    const mudou = CAMPOS_QUE_O_FILIADO_EDITA.filter(
-      (c) => (antes as Record<string, unknown>)[c] !== (depois as Record<string, unknown>)[c],
+    /*
+      ISTO É UM RECADASTRAMENTO, e entra no histórico como tal.
+
+      "Aqui não era pra ser possível o filiado fazer um recadastramento?" — era.
+      Gravar só o `filiado.update` deixaria a mudança invisível: a secretaria
+      veria os dados novos sem saber de onde vieram nem o que havia antes. O
+      registro guarda o de→para, igual ao do link, e é o que permite desfazer o
+      que tiver sido digitado errado.
+    */
+    await this.prisma.recadastramento.create({
+      data: {
+        filiadoId,
+        status: StatusRecadastramento.PENDENTE,
+        dadosAnteriores: antesJson,
+        dadosNovos: JSON.parse(JSON.stringify(dados)) as Prisma.InputJsonValue,
+        observacao: 'Atualizado pelo próprio filiado no portal (login por CPF e senha).',
+      },
+    });
+    await this.prisma.filiadoHistorico.create({
+      data: {
+        filiadoId,
+        tipo: TipoHistoricoFiliado.RECADASTRAMENTO,
+        descricao: 'Cadastro atualizado pelo próprio filiado no portal.',
+        autor: `${antes.nomeCompleto} (portal)`,
+      },
+    });
+
+    const mudou = Object.keys(dados).filter(
+      (c) =>
+        JSON.stringify((antes as Record<string, unknown>)[c]) !==
+        JSON.stringify((depois as Record<string, unknown>)[c]),
     );
 
     await this.audit.registrar({
@@ -273,7 +378,58 @@ export class PortalFiliadoService {
       metadata: { matricula: antes.matricula, campos: mudou },
     });
 
-    return { ...depois, editaveis: CAMPOS_QUE_O_FILIADO_EDITA, alterados: mudou };
+    return { ...(await this.cadastro(filiadoId)), alterados: mudou };
+  }
+
+  /**
+   * A FOTO, tirada do próprio celular.
+   *
+   * MEDIDO: **1 de 5.810** filiados ativos tem foto. Nenhum esforço da
+   * secretaria vai resolver isso — quem tem a câmera na mão é a pessoa, e o
+   * portal é o primeiro lugar do sistema onde ela está logada com o celular.
+   *
+   * Reaproveita `FiliadosService.atualizarFoto`: é o mesmo processamento
+   * (recorte, miniatura, storage) que a equipe usa, e o mesmo apagar da foto
+   * antiga. Uma segunda implementação geraria duas miniaturas de tamanhos
+   * diferentes para a mesma pessoa.
+   */
+  async atualizarMinhaFoto(filiadoId: string, arquivo: Express.Multer.File, ctx: Ctx) {
+    if (!arquivo) throw new BadRequestException('Envie a foto.');
+    if (!/^image\/(jpe?g|png|webp)$/i.test(arquivo.mimetype)) {
+      throw new BadRequestException('Envie uma foto JPG, PNG ou WEBP.');
+    }
+    if (arquivo.size > FOTO_TAMANHO_MAX) {
+      throw new BadRequestException('A foto passa de 8 MB. Tire outra com menos resolução.');
+    }
+
+    const f = await this.prisma.filiado.findUnique({
+      where: { id: filiadoId },
+      select: { nomeCompleto: true, matricula: true },
+    });
+    if (!f) throw new NotFoundException('Cadastro não encontrado.');
+
+    await this.filiados.atualizarFoto(filiadoId, arquivo.buffer, `${f.nomeCompleto} (portal)`);
+
+    await this.audit.registrar({
+      userId: null,
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'Filiado',
+      entidadeId: filiadoId,
+      descricao: `Foto enviada pelo PRÓPRIO filiado no portal: ${f.nomeCompleto}`,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { matricula: f.matricula },
+    });
+
+    const atual = await this.prisma.filiado.findUnique({
+      where: { id: filiadoId },
+      select: { fotoKey: true },
+    });
+    return {
+      fotoUrl: atual?.fotoKey
+        ? await this.storage.getSignedUrl(atual.fotoKey).catch(() => null)
+        : null,
+    };
   }
 
   // =========================================================================
@@ -290,6 +446,13 @@ export class PortalFiliadoService {
    */
   private vinculoDoFiliado(filiadoId: string): Prisma.ProcessoWhereInput {
     return { OR: [{ filiadoId }, { partes: { some: { filiadoId } } }] };
+  }
+
+  /** Quantos recados do sindicato esta pessoa ainda não abriu. */
+  private contarRecadosNovos(filiadoId: string) {
+    return this.prisma.recadoDoProcesso.count({
+      where: { vistoEm: null, processo: this.vinculoDoFiliado(filiadoId) },
+    });
   }
 
   private async contarProcessos(filiadoId: string) {
@@ -323,9 +486,13 @@ export class PortalFiliadoService {
         statusInterno: true,
         ultimoMovimentoEm: true,
         segredoJustica: true,
+        _count: { select: { recados: { where: { vistoEm: null } } } },
       },
     });
-    return lista.map((p) => this.apresentarProcesso(p));
+    return lista.map(({ _count, ...p }) => ({
+      ...this.apresentarProcesso(p),
+      recadosNovos: _count.recados,
+    }));
   }
 
   async processo(filiadoId: string, processoId: string) {
@@ -353,20 +520,61 @@ export class PortalFiliadoService {
           take: MOVIMENTACOES_NA_FICHA,
           // `conteudo` e `complementos` ficam de fora: é o TEOR do ato, que
           // costuma nomear as outras partes e os advogados delas.
-          select: { id: true, dataMovimento: true, descricao: true, orgaoJulgador: true },
+          select: {
+            id: true,
+            dataMovimento: true,
+            descricao: true,
+            orgaoJulgador: true,
+            codigoMovimento: true,
+          },
+        },
+        recados: {
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, texto: true, autorNome: true, createdAt: true, vistoEm: true },
         },
       },
     });
     if (!p) throw new NotFoundException('Processo não encontrado.');
 
-    const { advogado, movimentacoes, valorCausa, grau, ...resto } = p;
+    /*
+      MARCA COMO VISTO AO ABRIR, e não num botão.
+
+      Um "marcar como lido" obrigaria a pessoa a fazer a contabilidade do
+      advogado. O carimbo é dado por MOSTRAR — a mesma régua dos avisos da
+      equipe. Falhar aqui não pode derrubar a ficha: o recado continua na tela.
+    */
+    const naoVistos = p.recados.filter((r) => !r.vistoEm).map((r) => r.id);
+    if (naoVistos.length) {
+      await this.prisma.recadoDoProcesso
+        .updateMany({ where: { id: { in: naoVistos } }, data: { vistoEm: new Date() } })
+        .catch(() => null);
+    }
+
+    const { advogado, movimentacoes, recados, valorCausa, grau, ...resto } = p;
     return {
       ...this.apresentarProcesso(resto),
       valorCausa: valorCausa ? Number(valorCausa) : null,
       grau,
       /** O advogado do sindicato que responde pelo caso — quem a pessoa procura. */
       advogadoResponsavel: advogado?.nome ?? null,
-      movimentacoes,
+      /*
+        ONDE ESTÁ AGORA, numa frase. É a primeira coisa que alguém quer saber, e
+        a linha do tempo não responde: ela conta a história de trás para a
+        frente e exige ler três itens para montar o presente.
+      */
+      agora: ondeEstaAgora(movimentacoes),
+      recados: recados.map((r) => ({ ...r, novo: !r.vistoEm })),
+      /*
+        A TRADUÇÃO É DO SERVIDOR. Fazer no navegador significaria manter o
+        dicionário da TPU em dois lugares — e o dia em que os dois divergissem,
+        o advogado e o filiado leriam nomes diferentes para o mesmo ato.
+      */
+      movimentacoes: movimentacoes.map((m) => ({
+        id: m.id,
+        dataMovimento: m.dataMovimento,
+        orgaoJulgador: m.orgaoJulgador,
+        ...traduzirMovimento(m.codigoMovimento, m.descricao),
+      })),
       totalDeMovimentacoes: movimentacoes.length,
     };
   }
@@ -595,31 +803,15 @@ interface Ctx {
 }
 
 /**
- * OS CAMPOS QUE O FILIADO MUDA SOZINHO — a lista, num lugar só.
+ * OS CAMPOS QUE O FILIADO MUDA SOZINHO — os MESMOS do link, por construção.
  *
- * O que NÃO está aqui é o que importa: nome, CPF, matrícula, RG, nascimento,
- * situação, data de filiação, formação e COREN. Não é desconfiança — mudar o
- * CPF trocaria a chave de login e a identidade da pessoa no acervo; mudar a
- * situação ou a data de filiação desfaria decisão do sindicato, que tem portas
- * próprias (desfiliação, reativação) com motivo e termo assinado.
+ * Era uma lista própria de dez campos (endereço e contato) enquanto o link
+ * mandado por WhatsApp deixava atualizar o cadastro inteiro. Duas portas para a
+ * mesma pessoa, com regras diferentes, e a mais completa era a que exigia
+ * alguém lembrar de enviar.
  *
- * Sobra o que muda na vida de qualquer pessoa e o sindicato só descobre
- * perguntando: onde mora e como falar com ela.
+ * Reexportado daqui porque é isto que a tela lê para montar o formulário: uma
+ * segunda lista no navegador viraria campo que a pessoa preenche e o servidor
+ * ignora em silêncio.
  */
-export const CAMPOS_QUE_O_FILIADO_EDITA = [
-  'endereco',
-  'numero',
-  'complemento',
-  'bairro',
-  'cidade',
-  'estado',
-  'cep',
-  'telefonePrincipal',
-  'telefoneSecundario',
-  'email',
-] as const;
-
-const SELECT_EDITAVEIS = CAMPOS_QUE_O_FILIADO_EDITA.reduce(
-  (acc, c) => ({ ...acc, [c]: true }),
-  {} as Record<(typeof CAMPOS_QUE_O_FILIADO_EDITA)[number], true>,
-);
+export const CAMPOS_QUE_O_FILIADO_EDITA = CAMPOS_DO_CADASTRO_PELO_LINK;

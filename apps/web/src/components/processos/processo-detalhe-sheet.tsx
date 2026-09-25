@@ -11,6 +11,7 @@ import {
   AlertTriangle, Plus, Tag, Bot, Newspaper, Layers, Inbox, Check, ChevronRight, PenLine,
   Archive, Zap, FileDown,
   Swords, Undo2,
+  MessageSquareText,
 } from 'lucide-react';
 import { DURACAO_DO_DESFAZER_MS } from '@/lib/acao-rapida';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ import { PainelPreProcessual } from './painel-pre-processual';
 import { AjuizarCasoModal } from './ajuizar-caso-modal';
 import { nivelEfetivo, podeExcluir } from '@/lib/permissoes';
 import { AnexosSection } from '@/components/anexos/anexos-section';
+import { RecadoAoFiliado } from '@/components/processos/recado-ao-filiado';
 import { RegistrarMovimentacaoForm } from './registrar-movimentacao-form';
 import {
   sincronizarProcesso, excluirProcesso, atualizarProcesso, formatNPU, formatData, formatDataHora,
@@ -69,7 +71,10 @@ const ABAS: { key: Aba; label: string; icon: any }[] = [
   // Publicações fica ao lado da linha do tempo de propósito: é a mesma
   // pergunta ("o que aconteceu?") respondida com o teor, e não com o rótulo.
   { key: 'publicacoes', label: 'Publicações', icon: Newspaper },
-  { key: 'notas', label: 'Notas Internas', icon: Lock },
+  // As DUAS caixas de texto do processo moram juntas de propósito: a única
+  // coisa que impede estratégia de virar recado é quem escreve ver, lado a
+  // lado, que uma sai e a outra não.
+  { key: 'notas', label: 'Recados e Notas', icon: MessageSquareText },
   { key: 'documentos', label: 'Documentos', icon: FileText },
   { key: 'agenda', label: 'Agenda', icon: CalendarDays },
   // Antes era "Filiados". Virou "Partes" porque um processo tem dois lados: o
@@ -1790,9 +1795,23 @@ export function ProcessoDetalheSheet({
                 />
               )}
 
-              {/* ---------------- NOTAS INTERNAS ---------------- */}
+              {/* ---------------- RECADOS E NOTAS ---------------- */}
               {aba === 'notas' && (
                 <>
+                  <RecadoAoFiliado
+                    processoId={p.id}
+                    temFiliado={!!p.filiado?.id || (p.partes ?? []).some((x: any) => x.filiadoId)}
+                    podeEditar={podeEditar}
+                  />
+
+                  <div className="my-5 flex items-center gap-3">
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Só a equipe vê daqui para baixo
+                    </span>
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+
                   <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
                     <p className="flex items-center gap-1.5 font-semibold">
                       <Lock className="h-3.5 w-3.5" /> Observações da equipe

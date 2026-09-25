@@ -5,6 +5,7 @@ import { AudienciasController } from './audiencias.controller';
 import { AudienciasService } from './audiencias.service';
 import { ProcessosController } from './processos.controller';
 import { ProcessosService } from './processos.service';
+import { RecadosDoProcessoController } from './recados.controller';
 import { DatajudService } from './datajud.service';
 import { DjenService } from './djen.service';
 import { DjenSyncService } from './djen-sync.service';
@@ -52,6 +53,7 @@ import { OrganizacoesHerdadasService } from './organizacoes-herdadas.service';
     FusaoDeOrganizacoesController,
     PartesExternasController,
     PadroesController,
+    RecadosDoProcessoController,
   ],
   providers: [
     SugestoesService,

@@ -1,5 +1,11 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional, PickType } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsArray, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { UpdateFiliadoDto } from '../../filiados/dto/filiado.dto';
+import {
+  CAMPOS_DO_CADASTRO_PELO_LINK,
+  VinculoPeloLinkDto,
+} from '../../recadastramento/dto/recadastro-publico.dto';
 import { TAMANHO_MINIMO_SENHA } from '../senha-provisoria.util';
 
 export class LoginFiliadoDto {
@@ -32,29 +38,37 @@ export class TrocarSenhaDto {
 }
 
 /**
- * O QUE O FILIADO PODE MUDAR SOZINHO.
+ * O RECADASTRAMENTO PELO PORTAL — a MESMA lista do link, por construção.
  *
- * "O que o filiado recadastrar e digitar é o dado válido, não precisa alguém
- * confirmar nada." — o dono, 24/09/2026. É como o link de recadastramento já
- * funciona (grava direto, sem fila).
+ * "Aqui não era pra ser possível o filiado fazer um recadastramento se quiser?"
+ * — o dono, 25/09/2026, olhando a aba Cadastro. Era, e não era: o portal deixava
+ * mexer só em endereço e telefone, enquanto o link mandado por WhatsApp deixava
+ * atualizar o cadastro inteiro. Duas portas para a mesma pessoa, com regras
+ * diferentes, e a mais completa era a que exigia alguém lembrar de enviar.
  *
- * O QUE **NÃO** ESTÁ AQUI é a lista que importa: nome, CPF, matrícula, situação
- * e data de filiação ficam de fora. Não por desconfiança — é que mudar o
- * próprio CPF trocaria a chave de login e a identidade da pessoa no acervo, e
- * mudar a situação ou a data de filiação desfaria decisão do sindicato. Essas
- * passam pela secretaria, que tem as portas próprias (desfiliação, reativação).
+ * `PickType(UpdateFiliadoDto, CAMPOS_DO_CADASTRO_PELO_LINK)` é o que impede as
+ * duas de divergirem: **não existe uma segunda lista**. O dia em que um campo
+ * entrar ou sair do link, entra ou sai daqui junto — e o serviço ainda filtra
+ * por `camposDoLink()`, a mesma defesa em profundidade que o link tem.
+ *
+ * O QUE CONTINUA FORA: matrícula, situação e data de filiação. Não é
+ * desconfiança — mudar a situação ou a data de filiação desfaria decisão do
+ * sindicato, que tem portas próprias (desfiliação, reativação) com motivo e
+ * termo assinado.
+ *
+ * O CPF ENTRA, como no link — mas ele é a CHAVE DE LOGIN do portal, então a
+ * tela avisa em letras claras antes de deixar mexer.
  */
-export class AtualizarMeuCadastroDto {
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(160) endereco?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(12) numero?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) complemento?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) bairro?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) cidade?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2) estado?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(9) cep?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) telefonePrincipal?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) telefoneSecundario?: string;
-  @ApiPropertyOptional() @IsOptional() @IsEmail({}, { message: 'E-mail inválido.' }) email?: string;
+export class AtualizarMeuCadastroDto extends PickType(UpdateFiliadoDto, [
+  ...CAMPOS_DO_CADASTRO_PELO_LINK,
+  'dependentes',
+] as const) {
+  @ApiPropertyOptional({ type: [VinculoPeloLinkDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VinculoPeloLinkDto)
+  vinculos?: VinculoPeloLinkDto[];
 }
 
 /** Filiado autenticado, anexado à requisição pela estratégia JWT do portal. */

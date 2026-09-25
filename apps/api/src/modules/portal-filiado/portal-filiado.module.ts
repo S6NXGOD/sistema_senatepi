@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { CarteirinhasModule } from '../carteirinhas/carteirinhas.module';
 import { CobrancasModule } from '../cobrancas/cobrancas.module';
+import { FiliadosModule } from '../filiados/filiados.module';
 import { PortalFiliadoAuthController } from './portal-filiado-auth.controller';
 import { PortalFiliadoAdminController } from './portal-filiado-admin.controller';
 import { PortalFiliadoController } from './portal-filiado.controller';
@@ -27,6 +28,8 @@ import { FiliadoJwtStrategy } from './strategies/filiado-jwt.strategy';
     CarteirinhasModule,
     // O PIX da parcela é o MESMO que o carnê imprime.
     CobrancasModule,
+    // E a foto passa pelo MESMO processamento da equipe (recorte + miniatura).
+    FiliadosModule,
   ],
   controllers: [PortalFiliadoAuthController, PortalFiliadoController, PortalFiliadoAdminController],
   providers: [PortalFiliadoAuthService, PortalFiliadoService, FiliadoJwtStrategy],

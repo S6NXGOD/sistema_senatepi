@@ -145,6 +145,8 @@ export interface ResumoDoPortal {
   processos: { total: number; emAndamento: number };
   /** `null` quando o cliente não usa cobrança pelo sistema — a aba nem aparece. */
   cobrancas: { emAberto: number; vencidas: number; total: number } | null;
+  /** Recados do sindicato que a pessoa ainda não abriu. */
+  recadosNovos: number;
 }
 
 export async function buscarResumo(): Promise<ResumoDoPortal> {
@@ -168,6 +170,12 @@ export async function buscarCarteirinha(): Promise<CarteirinhaDoPortal> {
   return chamar<CarteirinhaDoPortal>('/portal-filiado/eu/carteirinha', { comToken: true });
 }
 
+export interface MeuVinculo {
+  empresa: string;
+  cargo: string | null;
+  matricula: string | null;
+}
+
 export interface MeuCadastro {
   nomeCompleto: string;
   matricula: string;
@@ -175,8 +183,12 @@ export interface MeuCadastro {
   rg: string | null;
   ufRg: string | null;
   dataNascimento: string | null;
+  sexo: string | null;
+  estadoCivil: string | null;
+  naturalidade: string | null;
   situacao: string;
   dataFiliacao: string | null;
+  dataAdmissao: string | null;
   formacao: string | null;
   formacaoOutro: string | null;
   numeroCoren: string | null;
@@ -190,6 +202,10 @@ export interface MeuCadastro {
   telefonePrincipal: string | null;
   telefoneSecundario: string | null;
   email: string | null;
+  vinculos: MeuVinculo[];
+  dependentes: Array<{ id: string; nome: string; tipo: string; dataNascimento: string }>;
+  /** A foto atual, assinada — `null` enquanto não houver. */
+  fotoUrl: string | null;
   /** A lista vem do SERVIDOR: o formulário não mantém uma segunda cópia dela. */
   editaveis: string[];
 }
@@ -199,13 +215,40 @@ export async function buscarMeuCadastro(): Promise<MeuCadastro> {
 }
 
 export async function salvarMeuCadastro(
-  dados: Partial<Record<string, string | null>>,
+  dados: Record<string, unknown>,
 ): Promise<MeuCadastro & { alterados: string[] }> {
   return chamar('/portal-filiado/eu/cadastro', {
     method: 'PATCH',
     comToken: true,
     body: JSON.stringify(dados),
   });
+}
+
+/**
+ * A foto do próprio celular.
+ *
+ * `FormData` sem `Content-Type` à mão: o navegador precisa pôr o `boundary`
+ * junto. Por isso esta não passa por `chamar`.
+ */
+export async function enviarMinhaFoto(arquivo: File): Promise<{ fotoUrl: string | null }> {
+  const corpo = new FormData();
+  corpo.append('foto', arquivo);
+  const token = lerToken();
+  const r = await fetch(`${BASE}/portal-filiado/eu/foto`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: corpo,
+  });
+  const texto = await r.text();
+  const dado = texto ? JSON.parse(texto) : null;
+  if (!r.ok) {
+    const m = dado?.message;
+    throw new ErroPortal(
+      Array.isArray(m) ? m[0] : (m ?? 'Não foi possível enviar a foto.'),
+      r.status,
+    );
+  }
+  return dado;
 }
 
 export interface MeuProcesso {
@@ -222,18 +265,43 @@ export interface MeuProcesso {
   situacao: string;
   ultimoMovimentoEm: string | null;
   segredoJustica: boolean;
+  recadosNovos: number;
+}
+
+/** Quanto o andamento muda a vida de quem é parte — ver a util da API. */
+export type PesoDoAndamento = 'MARCO' | 'ANDAMENTO' | 'TRAMITE';
+
+export interface AndamentoTraduzido {
+  id: string;
+  dataMovimento: string;
+  orgaoJulgador: string | null;
+  /** Já em português de gente. Igual ao `original` quando não há tradução. */
+  titulo: string;
+  explica: string | null;
+  peso: PesoDoAndamento;
+  /** O texto do TRIBUNAL, sempre — é o que o advogado vê no sistema do TRT. */
+  original: string;
+  traduzido: boolean;
+}
+
+export interface RecadoDoSindicato {
+  id: string;
+  texto: string;
+  autorNome: string;
+  createdAt: string;
+  vistoEm: string | null;
+  novo: boolean;
 }
 
 export interface MeuProcessoDetalhe extends MeuProcesso {
   valorCausa: number | null;
   grau: string | null;
   advogadoResponsavel: string | null;
-  movimentacoes: Array<{
-    id: string;
-    dataMovimento: string;
-    descricao: string;
-    orgaoJulgador: string | null;
-  }>;
+  /** Onde o processo está AGORA, numa frase. `null` quando só houve trâmite. */
+  agora: { titulo: string; explica: string | null; em: string } | null;
+  recados: RecadoDoSindicato[];
+  movimentacoes: AndamentoTraduzido[];
+  totalDeMovimentacoes: number;
 }
 
 export async function buscarMeusProcessos(): Promise<MeuProcesso[]> {

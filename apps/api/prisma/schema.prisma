@@ -2589,6 +2589,9 @@ model Processo {
   sugestaoOrigem        SugestaoProcesso?
   movimentacoes         MovimentacaoProcessual[]
   movimentacoesInternas MovimentacaoInterna[]
+  /// Recados que o sindicato escreveu PARA O FILIADO ler no portal. Não
+  /// confundir com `movimentacoesInternas`, que é a conversa da equipe.
+  recados               RecadoDoProcesso[]
   anexos                AnexoDocumento[]
   compromissos          Compromisso[]
   atendimentos          Atendimento[]
@@ -3377,6 +3380,31 @@ model MovimentacaoInterna {
   @@index([processoId, origemSistema, createdAt])
   @@index([tipo])
   @@map("movimentacoes_internas")
+}
+
+/// O RECADO DO SINDICATO PARA O FILIADO, lido no portal.
+///
+/// NÃO É `MovimentacaoInterna`. Aquela é a conversa da EQUIPE sobre o caso e
+/// nunca sai do sistema; esta nasce sabendo que a pessoa vai ler. A diferença
+/// está na cabeça de quem escreve — e misturar as duas numa tabela só acabaria
+/// com estratégia processual no celular da parte contrária, levada pelo próprio
+/// cliente.
+model RecadoDoProcesso {
+  id         String    @id @default(uuid())
+  processoId String    @map("processo_id")
+  texto      String
+  autorId    String?   @map("autor_id")
+  /// Congelado na linha: o advogado pode sair, o recado continua tendo autor.
+  autorNome  String    @map("autor_nome")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  /// Quando o filiado abriu. Em ação coletiva significaria "alguém viu" — hoje
+  /// não existe nenhuma (medido: 194 processos, nenhum com 2+ filiados).
+  vistoEm    DateTime? @map("visto_em")
+
+  processo Processo @relation(fields: [processoId], references: [id], onDelete: Cascade)
+
+  @@index([processoId])
+  @@map("recados_do_processo")
 }
 
 /// Situação da contribuição patronal declarada pela empresa no portal.

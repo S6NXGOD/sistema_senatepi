@@ -83,6 +83,24 @@ export class PortalFiliadoController {
     return this.service.atualizarCadastro(id, dto, this.ctx(req));
   }
 
+  /**
+   * A FOTO, tirada do próprio celular.
+   *
+   * Medido: 1 de 5.810 ativos tem foto. Nenhum esforço da secretaria resolve
+   * isso — quem tem a câmera na mão é a pessoa, e este é o primeiro lugar do
+   * sistema onde ela está logada com o celular.
+   */
+  @Post('foto')
+  @UseInterceptors(FileInterceptor('foto', { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
+  @ApiConsumes('multipart/form-data')
+  foto(
+    @FiliadoAtual('id') id: string,
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Req() req: Request,
+  ) {
+    return this.service.atualizarMinhaFoto(id, arquivo, this.ctx(req));
+  }
+
   // ---- Processos ----
 
   @Get('processos')

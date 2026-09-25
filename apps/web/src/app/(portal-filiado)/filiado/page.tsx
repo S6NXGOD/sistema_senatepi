@@ -2,7 +2,14 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, FileText, IdCard, Receipt } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  FileText,
+  IdCard,
+  MessageSquareText,
+  Receipt,
+} from 'lucide-react';
 import { CascaDoPortal } from '@/components/portal-filiado/casca';
 import { Carregando, EsqueletoLinhas } from '@/components/ui/esqueleto';
 import { buscarResumo } from '@/lib/portal-filiado';
@@ -55,6 +62,33 @@ export default function InicioDoPortalPage() {
               )}
             </div>
           </section>
+
+          {/*
+            ---- O RECADO SOBE PARA O TOPO DA HOME ----
+
+            Tudo o mais nesta tela é ESTADO (sua carteirinha, seus processos,
+            suas cobranças). O recado é gente falando com gente, e está
+            esperando resposta — por isso vem antes até da cobrança vencida.
+          */}
+          {data.recadosNovos > 0 && (
+            <Link
+              href="/filiado/processos"
+              className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100 dark:border-amber-900/70 dark:bg-amber-900/20 dark:hover:bg-amber-900/30"
+            >
+              <MessageSquareText className="h-5 w-5 shrink-0 text-amber-700 dark:text-amber-400" />
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="font-semibold text-amber-900 dark:text-amber-200">
+                  {data.recadosNovos === 1
+                    ? 'Você tem um recado do sindicato'
+                    : `Você tem ${data.recadosNovos} recados do sindicato`}
+                </p>
+                <p className="text-xs text-amber-800/90 dark:text-amber-300/90">
+                  Sobre {data.recadosNovos === 1 ? 'o seu processo' : 'os seus processos'}.
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+            </Link>
+          )}
 
           {/* ---- O que pede atenção, quando pede ---- */}
           {data.cobrancas && data.cobrancas.vencidas > 0 && (
