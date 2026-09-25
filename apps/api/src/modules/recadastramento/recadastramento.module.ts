@@ -8,6 +8,7 @@ import {
 import { RecadastramentoController, RecadastramentosController } from './recadastramento.controller';
 import { RecadastramentoService } from './recadastramento.service';
 import { FiliadosModule } from '../filiados/filiados.module';
+import { PortalFiliadoModule } from '../portal-filiado/portal-filiado.module';
 
 /*
   O controller e o serviço do recadastro presencial moravam neste arquivo. Saíram
@@ -18,7 +19,9 @@ import { FiliadosModule } from '../filiados/filiados.module';
 @Module({
   // FiliadosModule entra por causa da foto: o recadastramento online reaproveita
   // o mesmo processamento de imagem usado pela equipe.
-  imports: [FiliadosModule],
+  // PortalFiliadoModule entra para o link poder criar o PRIMEIRO acesso ao
+  // portal na hora em que o filiado conclui o recadastramento.
+  imports: [FiliadosModule, PortalFiliadoModule],
   controllers: [
     RecadastramentoController,
     RecadastramentosController,

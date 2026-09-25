@@ -221,6 +221,8 @@ describe('a porta do link de identificação', () => {
       { get: () => undefined } as never,
       {} as never,
       { getSignedUrl: jest.fn() } as never,
+      // O portal: o link cria o PRIMEIRO acesso ao concluir o recadastramento.
+      { emitirSenhaProvisoria: jest.fn() } as never,
     );
     return { service, prisma, token: service.tokenDoLink('l1') };
   }

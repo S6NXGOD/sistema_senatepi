@@ -163,12 +163,23 @@ export const validarDesafio = (
     { method: 'POST', body: JSON.stringify(resposta) },
   );
 
+/**
+ * O PRIMEIRO ACESSO AO PORTAL, quando nasce junto com o recadastramento.
+ *
+ * `null` quando a pessoa JÁ tinha acesso: regerar derrubaria a senha em uso.
+ */
+export interface PrimeiroAcessoAoPortal {
+  senhaProvisoria: string;
+  /** "CPF" e/ou "matrícula" — medido, só 39% dos ativos têm CPF. */
+  entraPor: string[];
+}
+
 /** Grava o recadastramento (o link é queimado no servidor). */
 export const enviarRecadastro = (token: string, dados: Record<string, unknown>) =>
-  chamar<{ ok: boolean; nome: string }>(`/recadastro/${token}/enviar`, {
-    method: 'POST',
-    body: JSON.stringify(dados),
-  });
+  chamar<{ ok: boolean; nome: string; portal: PrimeiroAcessoAoPortal | null }>(
+    `/recadastro/${token}/enviar`,
+    { method: 'POST', body: JSON.stringify(dados) },
+  );
 
 /** As respostas do desafio, como a pessoa digitou na primeira tela. */
 export interface ConfirmacaoDeIdentidade {

@@ -1,4 +1,5 @@
 import { StorageService, dataCalendario } from '@core/infra';
+import { PortalFiliadoAuthService } from '../portal-filiado/portal-filiado-auth.service';
 import {
   BadRequestException, ConflictException, ForbiddenException, GoneException,
   Injectable, Logger, NotFoundException,
@@ -76,6 +77,7 @@ export class LinkRecadastramentoService {
     private readonly config: ConfigService,
     private readonly filiados: FiliadosService,
     private readonly storage: StorageService,
+    private readonly portal: PortalFiliadoAuthService,
   ) {}
 
   /** Guardamos só o hash — o token em claro existe apenas na URL enviada. */
@@ -607,7 +609,58 @@ export class LinkRecadastramentoService {
       metadata: { linkId: link.id, desafio: link.desafio },
     });
 
-    return { ok: true, nome: filiado.nomeCompleto };
+    /*
+      O PRIMEIRO ACESSO AO PORTAL NASCE AQUI (24/09/2026).
+
+      "uma senha provisória gerada pelo sistema tanto pelo admin como no
+      recadastramento (caso seja o primeiro login)" — o dono.
+
+      **"CASO SEJA O PRIMEIRO LOGIN" É A PARTE QUE IMPORTA.** Gerar sempre
+      derrubaria a senha de quem JÁ usa o portal: a pessoa se recadastra, e na
+      semana seguinte não entra mais. Só nasce quando ainda não há hash.
+
+      E não derruba o recadastramento: se a emissão falhar por qualquer motivo,
+      o cadastro já foi gravado e a resposta sai sem a senha. A secretaria gera
+      depois, pela ficha.
+    */
+    const portal = await this.senhaDoPortalSeForPrimeiraVez(atual.id, ip);
+
+    return { ok: true, nome: filiado.nomeCompleto, portal };
+  }
+
+  /**
+   * A senha provisória do portal, quando a pessoa ainda não tinha acesso.
+   *
+   * Devolve `null` quando ela já tem (não se mexe no que está em uso) e quando
+   * a emissão falha — nunca um erro, porque o recadastramento já terminou.
+   */
+  private async senhaDoPortalSeForPrimeiraVez(
+    filiadoId: string,
+    ip?: string,
+  ): Promise<{ senhaProvisoria: string; entraPor: string[] } | null> {
+    try {
+      const f = await this.prisma.filiado.findUnique({
+        where: { id: filiadoId },
+        select: { portalSenhaHash: true, cpf: true },
+      });
+      if (!f || f.portalSenhaHash) return null;
+
+      const { senhaProvisoria } = await this.portal.emitirSenhaProvisoria(
+        filiadoId,
+        // Não foi a equipe: foi o próprio filiado, pelo link.
+        { id: null, nome: 'recadastramento online' },
+        { ip },
+      );
+      /*
+        POR ONDE ELA VAI ENTRAR. Medido: só 39% dos ativos têm CPF. Quem acabou
+        de INFORMAR o CPF no recadastramento passa a ter os dois caminhos — e a
+        tela precisa dizer qual, senão a pessoa tenta o CPF que o sindicato não
+        tem e conclui que não recebeu acesso.
+      */
+      return { senhaProvisoria, entraPor: f.cpf ? ['CPF', 'matrícula'] : ['matrícula'] };
+    } catch {
+      return null;
+    }
   }
 
   // =========================================================================

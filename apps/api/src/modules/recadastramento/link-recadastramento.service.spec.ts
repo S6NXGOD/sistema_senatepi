@@ -67,6 +67,8 @@ function montar(opts: {
   };
   const service = new LinkRecadastramentoService(
     prisma as never, audit as never, config as never, {} as never, {} as never,
+    // O portal: o link cria o PRIMEIRO acesso ao concluir o recadastramento.
+    { emitirSenhaProvisoria: jest.fn() } as never,
   );
   return { service, prisma, audit, criados };
 }
@@ -426,6 +428,7 @@ describe('submeter — o que o link grava', () => {
     const config = { get: () => undefined };
     const service = new LinkRecadastramentoService(
       prisma as never, audit as never, config as never, {} as never, {} as never,
+      { emitirSenhaProvisoria: jest.fn() } as never,
     );
     return { service, prisma };
   }
@@ -569,6 +572,7 @@ function montarPublico(p: { desafio?: string; situacao?: string; ficha?: Record<
   const filiados = { atualizarFoto: jest.fn().mockResolvedValue({}) };
   const service = new LinkRecadastramentoService(
     prisma as never, audit as never, { get: () => undefined } as never, filiados as never, {} as never,
+    { emitirSenhaProvisoria: jest.fn() } as never,
   );
   return { service, prisma, audit, filiados, estado, TOKEN };
 }

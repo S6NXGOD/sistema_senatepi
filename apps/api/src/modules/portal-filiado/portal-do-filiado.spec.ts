@@ -259,6 +259,37 @@ describe('a senha provisória não vaza pelo log', () => {
 });
 
 /**
+ * O PRIMEIRO ACESSO NASCE NO RECADASTRAMENTO — mas SÓ o primeiro.
+ *
+ * "uma senha provisória gerada pelo sistema tanto pelo admin como no
+ * recadastramento (caso seja o primeiro login)" — o dono, 24/09/2026.
+ *
+ * "CASO SEJA O PRIMEIRO LOGIN" É A PARTE QUE IMPORTA. Gerar sempre derrubaria a
+ * senha de quem JÁ usa o portal: a pessoa se recadastra e, na semana seguinte,
+ * não entra mais — sem nenhum aviso, porque o recadastramento deu certo.
+ */
+describe('o recadastramento cria o acesso só quando ainda não existe', () => {
+  const link = semComentario('../recadastramento/link-recadastramento.service.ts');
+
+  it('só emite quando não há hash', () => {
+    expect(link).toContain('if (!f || f.portalSenhaHash) return null;');
+  });
+
+  /** E a emissão NUNCA derruba o recadastramento, que já foi gravado. */
+  it('falha na emissão não desfaz o recadastramento', () => {
+    const trecho = link.slice(link.indexOf('senhaDoPortalSeForPrimeiraVez('));
+    expect(trecho).toContain('try {');
+    expect(trecho).toContain('} catch {');
+    expect(trecho).toContain('return null;');
+  });
+
+  /** Quem gerou foi o próprio filiado, não a equipe: a auditoria diz isso. */
+  it('a auditoria não atribui a emissão a um usuário da equipe', () => {
+    expect(link).toContain("{ id: null, nome: 'recadastramento online' }");
+  });
+});
+
+/**
  * DESFILIADO PERDE O PORTAL NA HORA.
  *
  * A desfiliação tem porta própria desde 27/08 e nenhuma delas mexe na senha.

@@ -5,8 +5,7 @@ import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ShieldCheck, Loader2, CheckCircle2, AlertTriangle, Lock, Save, User,
-  Upload, Plus, Trash2, Briefcase, Users, RefreshCw, IdCard, ArrowRight,
-} from 'lucide-react';
+  Upload, Plus, Trash2, Briefcase, Users, RefreshCw, IdCard, ArrowRight, KeyRound,} from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +13,7 @@ import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { PhotoCropDialog } from '@/components/photo-crop-dialog';
 import {
   abrirLink, validarDesafio, enviarRecadastro, enviarFotoRecadastro,
+  type PrimeiroAcessoAoPortal,
   mascaraCpf, mascaraTelefone, mascaraCep,
   pedidoDoDesafio, respostaDoDesafio, faltaNoDesafio, destinoDoErroDoDesafio, telaDoLinkDireto,
   SEXOS, ESTADOS_CIVIS, FORMACOES, ROTULO, TIPOS_DEPENDENTE,
@@ -83,6 +83,16 @@ function Secao({ titulo, children }: { titulo: string; children: React.ReactNode
  * Recadastramento ONLINE — página PÚBLICA, acessada pelo filiado com o link
  * de 24h. Três estados: confirmação de identidade → formulário → recibo.
  */
+/**
+ * O endereço do portal como a pessoa vai digitar depois — com o host, porque
+ * ela vai fechar esta página e abrir de novo mais tarde, talvez em outro
+ * aparelho. Só "/filiado" não ajuda quem já saiu do site.
+ */
+function enderecoDoPortal(): string {
+  if (typeof window === 'undefined') return '/filiado';
+  return `${window.location.host}/filiado`;
+}
+
 export default function RecadastroPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
 
@@ -106,6 +116,8 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
   const [travadoOriginal, setTravadoOriginal] = useState<Record<string, unknown>>({});
   const [salvando, setSalvando] = useState(false);
   const [concluido, setConcluido] = useState(false);
+  /* A senha do portal, quando o recadastramento acabou de criar o acesso. */
+  const [portal, setPortal] = useState<PrimeiroAcessoAoPortal | null>(null);
 
   // Foto
   const [foto, setFoto] = useState<Blob | null>(null);
@@ -283,7 +295,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
       // A foto vai primeiro: o envio abaixo queima o link.
       if (foto) await enviarFotoRecadastro(token, foto, confirmacao);
 
-      await enviarRecadastro(token, {
+      const resposta = await enviarRecadastro(token, {
         cpfConfirmacao: confirmacao.cpf,
         dataNascimentoConfirmacao: confirmacao.dataNascimento,
         corenConfirmacao: confirmacao.coren,
@@ -332,6 +344,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
             ordem: i + 1,
           })),
       });
+      setPortal(resposta?.portal ?? null);
       setConcluido(true);
     } catch (e) {
       toast.error((e as Error).message);
@@ -368,13 +381,47 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
   if (concluido) {
     return (
       <Moldura>
-        <div className="flex flex-col items-center gap-3 py-12 text-center">
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
           <CheckCircle2 className="h-12 w-12 text-brand-600" />
           <h1 className="text-lg font-bold">Cadastro atualizado!</h1>
           <p className="max-w-sm text-sm text-muted-foreground">
             Obrigado, {link?.primeiroNome}. Seus dados foram enviados ao {tenant.sigla} e serão
             conferidos pela equipe.
           </p>
+
+          {/*
+            A SENHA DO PORTAL NASCE AQUI, e esta é a ÚNICA vez que ela aparece:
+            o sistema guarda só o embaralhado. A caixa vem depois do "obrigado"
+            de propósito — a pessoa já entendeu que deu certo, e agora ganha uma
+            coisa a mais, em vez de um bloco de senha logo na cara.
+          */}
+          {portal && (
+            <div className="mt-2 w-full max-w-sm rounded-2xl border border-brand-200 bg-brand-50/70 p-4 text-left dark:border-brand-900/70 dark:bg-brand-900/20">
+              <p className="flex items-center gap-1.5 text-sm font-bold text-brand-900 dark:text-brand-200">
+                <KeyRound className="h-4 w-4" /> Seu acesso ao portal
+              </p>
+              <p className="mt-1 text-xs leading-snug text-brand-900/80 dark:text-brand-200/80">
+                Agora você pode ver sua carteirinha, seus processos e seu cadastro pelo celular.
+              </p>
+
+              <p className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-brand-800 dark:text-brand-300">
+                Senha provisória
+              </p>
+              {/* Monoespaçada e grande: ela vai ser copiada à mão para o teclado. */}
+              <p className="select-all font-mono text-xl font-bold tracking-wide">
+                {portal.senhaProvisoria}
+              </p>
+
+              <p className="mt-2 text-xs leading-snug text-brand-900/80 dark:text-brand-200/80">
+                <strong>Anote agora</strong> — ela não aparece de novo. Entre em{' '}
+                <a href="/filiado" className="font-semibold underline">
+                  {enderecoDoPortal()}
+                </a>{' '}
+                com {portal.entraPor.join(' ou ')} e troque a senha no primeiro acesso.
+              </p>
+            </div>
+          )}
+
           <p className="max-w-sm text-xs text-muted-foreground">
             Este link já foi utilizado e não pode ser aberto novamente.
           </p>
