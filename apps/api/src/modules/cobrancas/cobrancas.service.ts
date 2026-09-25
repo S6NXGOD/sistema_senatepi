@@ -1,4 +1,4 @@
-import { gerarPixCopiaECola } from '@core/infra';
+import { gerarPixCopiaECola, StorageService } from '@core/infra';
 import {
   BadRequestException,
   Injectable,
@@ -32,6 +32,8 @@ export class CobrancasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    // Para assinar a URL do comprovante que o filiado manda pelo portal.
+    private readonly storage: StorageService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -166,13 +168,43 @@ export class CobrancasService {
             valor: true,
             status: true,
             dataPagamento: true,
+            comprovanteKey: true,
+            comprovanteNome: true,
+            comprovanteEnviadoEm: true,
           },
         },
       },
     });
 
     const resumo = this.resumoFinanceiro(cobrancas.flatMap((c) => c.parcelas), diaDeCalendarioBR());
-    return { filiado, cobrancas, resumo };
+
+    /*
+      O COMPROVANTE QUE O FILIADO MANDOU PELO PORTAL, com URL assinada na
+      leitura. A chave do storage não sai daqui: ela é opaca e o link expira em
+      uma hora — guardar um link permanente seria publicar o comprovante de
+      pagamento de alguém para quem descobrisse a URL.
+    */
+    const comCompovante = await Promise.all(
+      cobrancas.map(async (c) => ({
+        ...c,
+        parcelas: await Promise.all(
+          c.parcelas.map(async ({ comprovanteKey, comprovanteNome, comprovanteEnviadoEm, ...p }) => ({
+            ...p,
+            comprovante: comprovanteKey
+              ? {
+                  nome: comprovanteNome,
+                  enviadoEm: comprovanteEnviadoEm,
+                  url: await this.storage
+                    .getSignedUrl(comprovanteKey, 3600, comprovanteNome ?? undefined)
+                    .catch(() => null),
+                }
+              : null,
+          })),
+        ),
+      })),
+    );
+
+    return { filiado, cobrancas: comCompovante, resumo };
   }
 
   /**
@@ -305,6 +337,11 @@ export class CobrancasService {
         dataVencimento: true,
         status: true,
         dataPagamento: true,
+        // O comprovante que o PRÓPRIO filiado mandou pelo portal — é o que a
+        // secretaria procura antes de dar a baixa.
+        comprovanteKey: true,
+        comprovanteNome: true,
+        comprovanteEnviadoEm: true,
         cobrancaId: true,
         cobranca: {
           select: {
@@ -320,18 +357,35 @@ export class CobrancasService {
       },
     });
 
-    return parcelas.map((p) => ({
-      id: p.id,
-      numero: p.numero,
-      valor: p.valor,
-      dataCompetencia: p.dataCompetencia,
-      dataVencimento: p.dataVencimento,
-      status: p.status,
-      dataPagamento: p.dataPagamento,
-      cobrancaId: p.cobrancaId,
-      tipo: p.cobranca.tipo,
-      filiado: p.cobranca.filiado,
-    }));
+    /*
+      A URL DO COMPROVANTE É ASSINADA NA LEITURA, e é por isso que ela não mora
+      no banco: a chave do storage é opaca e o link expira em uma hora. Guardar
+      um link permanente seria publicar o comprovante de pagamento de alguém
+      para quem descobrisse a URL.
+    */
+    return Promise.all(
+      parcelas.map(async (p) => ({
+        id: p.id,
+        numero: p.numero,
+        valor: p.valor,
+        dataCompetencia: p.dataCompetencia,
+        dataVencimento: p.dataVencimento,
+        status: p.status,
+        dataPagamento: p.dataPagamento,
+        cobrancaId: p.cobrancaId,
+        tipo: p.cobranca.tipo,
+        filiado: p.cobranca.filiado,
+        comprovante: p.comprovanteKey
+          ? {
+              nome: p.comprovanteNome,
+              enviadoEm: p.comprovanteEnviadoEm,
+              url: await this.storage
+                .getSignedUrl(p.comprovanteKey, 3600, p.comprovanteNome ?? undefined)
+                .catch(() => null),
+            }
+          : null,
+      })),
+    );
   }
 
   // -------------------------------------------------------------------------

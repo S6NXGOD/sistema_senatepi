@@ -1,5 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { StorageService } from '@core/infra';
 import { AcaoAuditoria, Prisma, StatusParcela } from '@prisma/client';
+import { CobrancasService } from '../cobrancas/cobrancas.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CarteirinhasService } from '../carteirinhas/carteirinhas.module';
@@ -51,12 +54,32 @@ const SITUACAO_DO_PROCESSO: Record<string, string> = {
 /** Quantas movimentações do tribunal a ficha carrega. */
 const MOVIMENTACOES_NA_FICHA = 30;
 
+/**
+ * O que serve de comprovante: foto do app do banco ou PDF.
+ *
+ * A lista é MENOR que a dos anexos (sem DOC/DOCX) porque comprovante de
+ * pagamento não vem em Word — e cada formato aceito é um a mais para a
+ * secretaria conseguir abrir do celular dela.
+ */
+const MIME_DO_COMPROVANTE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'application/pdf': 'pdf',
+};
+
+/** 10 MB: uma foto de celular passa longe disso, e um PDF de banco também. */
+const COMPROVANTE_TAMANHO_MAX = 10 * 1024 * 1024;
+
 @Injectable()
 export class PortalFiliadoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly carteirinhas: CarteirinhasService,
+    private readonly storage: StorageService,
+    // O PIX é o MESMO que o carnê imprime: uma segunda implementação geraria
+    // dois códigos para a mesma parcela, e o banco aceitaria os dois.
+    private readonly cobrancasDaCasa: CobrancasService,
   ) {}
 
   // =========================================================================
@@ -429,6 +452,8 @@ export class PortalFiliadoService {
             valor: true,
             status: true,
             dataPagamento: true,
+            comprovanteNome: true,
+            comprovanteEnviadoEm: true,
           },
         },
       },
@@ -437,8 +462,109 @@ export class PortalFiliadoService {
     return cobrancas.map((c) => ({
       ...c,
       valorTotal: Number(c.valorTotal),
-      parcelas: c.parcelas.map((p) => ({ ...p, valor: Number(p.valor) })),
+      parcelas: c.parcelas.map(({ comprovanteNome, comprovanteEnviadoEm, ...p }) => ({
+        ...p,
+        valor: Number(p.valor),
+        /*
+          O ESTADO "MANDEI O COMPROVANTE" É DERIVADO, e não um status novo no
+          enum — ver o comentário da migração: um valor de enum desconhecido
+          derruba o Prisma do contêiner antigo na janela de troca do deploy.
+        */
+        comprovante: comprovanteEnviadoEm
+          ? { nome: comprovanteNome, enviadoEm: comprovanteEnviadoEm }
+          : null,
+      })),
     }));
+  }
+
+  /**
+   * O PIX DE UMA PARCELA — o mesmo que o carnê imprime.
+   *
+   * Sob demanda, e não junto da lista: o QR é um data URL de alguns KB, e um
+   * carnê de doze parcelas faria a primeira tela do celular baixar meio mega de
+   * imagem que ninguém pediu.
+   */
+  async pixDaParcela(filiadoId: string, parcelaId: string) {
+    this.exigirModuloDeCobrancas();
+    await this.minhaParcela(filiadoId, parcelaId);
+    return this.cobrancasDaCasa.gerarPixParcela(parcelaId);
+  }
+
+  /**
+   * O COMPROVANTE QUE O PRÓPRIO FILIADO ENVIA.
+   *
+   * "o filiado pode consultar débitos em aberto… e pagar, além de anexar
+   * comprovante" — o dono, 25/09/2026.
+   *
+   * O ENVIO NÃO DÁ BAIXA, e não deve dar: quem confirma que o dinheiro entrou é
+   * a secretaria, olhando o extrato. O que muda aqui é que ela passa a ter o
+   * comprovante ANTES de procurar — e o filiado para de mandar foto por
+   * WhatsApp para um número que ninguém lê no fim de semana.
+   */
+  async enviarComprovante(
+    filiadoId: string,
+    parcelaId: string,
+    arquivo: Express.Multer.File,
+    ctx: Ctx,
+  ) {
+    this.exigirModuloDeCobrancas();
+    if (!arquivo) throw new BadRequestException('Envie o arquivo do comprovante.');
+
+    const ext = MIME_DO_COMPROVANTE[arquivo.mimetype];
+    if (!ext) {
+      throw new BadRequestException('Envie uma foto (JPG ou PNG) ou um PDF.');
+    }
+    if (arquivo.size > COMPROVANTE_TAMANHO_MAX) {
+      throw new BadRequestException('O arquivo passa de 10 MB. Tire uma foto menor ou envie o PDF.');
+    }
+
+    const parcela = await this.minhaParcela(filiadoId, parcelaId);
+    if (parcela.status === StatusParcela.PAGO) {
+      throw new BadRequestException('Esta parcela já consta como paga — não precisa de comprovante.');
+    }
+
+    // Chave opaca (LGPD): o caminho no storage nunca leva o nome original.
+    const storageKey = `cobrancas/${parcela.cobrancaId}/comprovantes/${randomUUID()}.${ext}`;
+    await this.storage.upload(storageKey, arquivo.buffer, arquivo.mimetype);
+
+    const nome = (arquivo.originalname || `comprovante.${ext}`)
+      .replace(/[^\w.\- ]+/g, '')
+      .slice(0, 120);
+
+    const atualizada = await this.prisma.parcelaCobranca.update({
+      where: { id: parcelaId },
+      data: { comprovanteKey: storageKey, comprovanteNome: nome, comprovanteEnviadoEm: new Date() },
+      select: { comprovanteNome: true, comprovanteEnviadoEm: true },
+    });
+
+    await this.audit.registrar({
+      userId: null,
+      acao: AcaoAuditoria.UPDATE,
+      entidade: 'ParcelaCobranca',
+      entidadeId: parcelaId,
+      descricao: `Comprovante de pagamento enviado pelo filiado no portal (parcela ${parcela.numero}).`,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      metadata: { cobrancaId: parcela.cobrancaId, arquivo: nome },
+    });
+
+    return { nome: atualizada.comprovanteNome, enviadoEm: atualizada.comprovanteEnviadoEm };
+  }
+
+  /**
+   * A parcela É DESTA PESSOA — ou não existe para ela.
+   *
+   * O id vem da URL, então esta é a única coisa entre o portal e a conta de
+   * outro filiado. 404 e não 403: quem tenta não descobre nem que a parcela
+   * existe.
+   */
+  private async minhaParcela(filiadoId: string, parcelaId: string) {
+    const parcela = await this.prisma.parcelaCobranca.findFirst({
+      where: { id: parcelaId, cobranca: { filiadoId } },
+      select: { id: true, numero: true, status: true, cobrancaId: true },
+    });
+    if (!parcela) throw new NotFoundException('Parcela não encontrada.');
+    return parcela;
   }
 
   // =========================================================================

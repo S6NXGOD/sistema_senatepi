@@ -1,5 +1,19 @@
-import { Body, Controller, Get, Header, Param, Patch, Req, Res, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Param,
+  Patch,
+  Post,
+  Req,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { conteudoDisposto } from '@core/infra';
 import { Public } from '../../common/decorators/public.decorator';
@@ -87,5 +101,29 @@ export class PortalFiliadoController {
   @ApiOperation({ summary: 'Recusa com 403 onde o cliente não usa cobrança pelo sistema' })
   cobrancas(@FiliadoAtual('id') id: string) {
     return this.service.cobrancas(id);
+  }
+
+  /** O PIX sob demanda: o QR é pesado e ninguém paga doze parcelas de uma vez. */
+  @Get('cobrancas/parcelas/:parcelaId/pix')
+  pix(@FiliadoAtual('id') id: string, @Param('parcelaId') parcelaId: string) {
+    return this.service.pixDaParcela(id, parcelaId);
+  }
+
+  /**
+   * O comprovante enviado pelo próprio filiado.
+   *
+   * NÃO dá baixa — quem confirma que o dinheiro entrou é a secretaria, olhando
+   * o extrato. O que muda é que ela passa a ter o comprovante antes de procurar.
+   */
+  @Post('cobrancas/parcelas/:parcelaId/comprovante')
+  @UseInterceptors(FileInterceptor('arquivo', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  comprovante(
+    @FiliadoAtual('id') id: string,
+    @Param('parcelaId') parcelaId: string,
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Req() req: Request,
+  ) {
+    return this.service.enviarComprovante(id, parcelaId, arquivo, this.ctx(req));
   }
 }

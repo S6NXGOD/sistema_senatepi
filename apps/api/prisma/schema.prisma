@@ -1778,6 +1778,18 @@ model ParcelaCobranca {
   valorPago       Decimal?      @map("valor_pago") @db.Decimal(10, 2) // valor efetivamente recebido (juros/desconto)
   // Rastreio financeiro: movimentação de ENTRADA gerada na baixa desta parcela.
   movimentacaoId  String?       @unique @map("movimentacao_id")
+
+  /// COMPROVANTE ENVIADO PELO PRÓPRIO FILIADO, pelo portal.
+  ///
+  /// Não virou valor novo no enum de propósito: na janela de troca do deploy o
+  /// contêiner ANTIGO lê este mesmo banco, e o Prisma ESTOURA ao encontrar um
+  /// valor de enum que o client dele não conhece — derrubando a listagem
+  /// inteira de cobranças, não só a linha. "Tem comprovante e ainda não está
+  /// PAGO" é estado DERIVADO, que a tela calcula.
+  comprovanteKey       String?   @map("comprovante_key")
+  comprovanteNome      String?   @map("comprovante_nome")
+  comprovanteEnviadoEm DateTime? @map("comprovante_enviado_em")
+
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
 

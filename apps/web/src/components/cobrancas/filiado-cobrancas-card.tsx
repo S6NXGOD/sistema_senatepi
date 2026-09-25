@@ -8,8 +8,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { podeExcluir } from '@/lib/permissoes';
 import {
-  ChevronDown, ChevronRight, User, Plus, CalendarClock, Trash2, Printer,
-} from 'lucide-react';
+  ChevronDown, ChevronRight, User, Plus, CalendarClock, Trash2, Printer, Paperclip } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
@@ -177,6 +176,26 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium tabular-nums">{formatBRL(p.valor)}</p>
                             <p className="text-xs text-muted-foreground">Vence {formatDataPura(p.dataVencimento)}</p>
+                            {/*
+                              O COMPROVANTE APARECE NA LINHA DA PARCELA, e não
+                              numa aba à parte: a pergunta da secretaria é "esta
+                              parcela pode receber baixa?", e a resposta tem de
+                              estar ao lado do botão que dá a baixa.
+
+                              Só em quem NÃO está paga — depois da baixa o
+                              comprovante já cumpriu o papel e vira ruído.
+                            */}
+                            {p.comprovante && p.status !== 'PAGO' && (
+                              <a
+                                href={p.comprovante.url ?? '#'}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400"
+                              >
+                                <Paperclip className="h-3 w-3" />
+                                Comprovante de {formatDataPura(p.comprovante.enviadoEm)}
+                              </a>
+                            )}
                           </div>
                           <Badge className={`${STATUS_COR[st]} shrink-0`}>{STATUS_LABEL[st]}</Badge>
                           <ParcelaAcoes

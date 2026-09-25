@@ -244,25 +244,81 @@ export async function buscarMeuProcesso(id: string): Promise<MeuProcessoDetalhe>
   return chamar<MeuProcessoDetalhe>(`/portal-filiado/eu/processos/${id}`, { comToken: true });
 }
 
+export interface MinhaParcela {
+  id: string;
+  numero: number;
+  dataCompetencia: string;
+  dataVencimento: string;
+  valor: number;
+  status: string;
+  dataPagamento: string | null;
+  /** `null` até a pessoa mandar. Não é status: é estado derivado — ver a API. */
+  comprovante: { nome: string | null; enviadoEm: string } | null;
+}
+
 export interface MinhaCobranca {
   id: string;
   tipo: string;
   descricao: string | null;
   valorTotal: number;
   createdAt: string;
-  parcelas: Array<{
-    id: string;
-    numero: number;
-    dataCompetencia: string;
-    dataVencimento: string;
-    valor: number;
-    status: string;
-    dataPagamento: string | null;
-  }>;
+  parcelas: MinhaParcela[];
 }
 
 export async function buscarMinhasCobrancas(): Promise<MinhaCobranca[]> {
   return chamar<MinhaCobranca[]>('/portal-filiado/eu/cobrancas', { comToken: true });
+}
+
+export interface PixDaParcela {
+  parcelaId: string;
+  numero: number;
+  valor: number;
+  identificador: string;
+  copiaECola: string;
+  qrDataUrl: string;
+}
+
+/**
+ * O PIX de UMA parcela, sob demanda.
+ *
+ * Não vem na listagem porque o QR é um data URL de alguns KB: um carnê de doze
+ * faria a primeira tela do celular baixar meio mega de imagem que ninguém pediu.
+ */
+export async function buscarPixDaParcela(parcelaId: string): Promise<PixDaParcela> {
+  return chamar<PixDaParcela>(`/portal-filiado/eu/cobrancas/parcelas/${parcelaId}/pix`, {
+    comToken: true,
+  });
+}
+
+/**
+ * Envia o comprovante de pagamento.
+ *
+ * `FormData` sem `Content-Type` à mão: o navegador precisa pôr o `boundary`
+ * junto, e cravar o cabeçalho é o erro clássico que faz o servidor receber um
+ * corpo vazio. Por isso esta não passa por `chamar`.
+ */
+export async function enviarComprovante(
+  parcelaId: string,
+  arquivo: File,
+): Promise<{ nome: string | null; enviadoEm: string }> {
+  const corpo = new FormData();
+  corpo.append('arquivo', arquivo);
+  const token = lerToken();
+  const r = await fetch(`${BASE}/portal-filiado/eu/cobrancas/parcelas/${parcelaId}/comprovante`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: corpo,
+  });
+  const texto = await r.text();
+  const dado = texto ? JSON.parse(texto) : null;
+  if (!r.ok) {
+    const m = dado?.message;
+    throw new ErroPortal(
+      Array.isArray(m) ? m[0] : (m ?? 'Não foi possível enviar o comprovante.'),
+      r.status,
+    );
+  }
+  return dado;
 }
 
 // ---------------------------------------------------------------------------

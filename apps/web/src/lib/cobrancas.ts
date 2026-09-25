@@ -81,6 +81,14 @@ export interface CobrancaHistorico {
     valor: Dinheiro;
     status: StatusParcela;
     dataPagamento: string | null;
+    /**
+     * O comprovante que o PRÓPRIO filiado mandou pelo portal.
+     *
+     * Não é um status: a baixa continua sendo da secretaria, olhando o extrato.
+     * O que muda é que ela tem o papel na mão ANTES de procurar. A `url` é
+     * assinada na leitura e expira em uma hora.
+     */
+    comprovante: { nome: string | null; enviadoEm: string; url: string | null } | null;
   }[];
 }
 

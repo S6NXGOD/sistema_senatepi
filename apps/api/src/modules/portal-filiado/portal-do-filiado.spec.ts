@@ -309,6 +309,95 @@ describe('o recadastramento cria o acesso só quando ainda não existe', () => {
 });
 
 /**
+ * PAGAR E MANDAR O COMPROVANTE — o pedido de 25/09/2026.
+ *
+ * "O portal o filiado pode consultar débitos em aberto nas cobranças que estão
+ * no nome dele e pagar, além de anexar comprovante." — o dono.
+ *
+ * O ENVIO NÃO DÁ BAIXA, e é a decisão mais importante deste bloco: quem
+ * confirma que o dinheiro entrou é a secretaria, olhando o extrato. O portal
+ * encurta o caminho do PAPEL, não o da conferência — o contrário seria deixar
+ * uma foto qualquer quitar mensalidade.
+ */
+describe('o comprovante que o filiado envia', () => {
+  const servico = semComentario('./portal-filiado.service.ts');
+
+  /**
+   * A PARCELA É DESTA PESSOA — ou não existe para ela. O id vem da URL, então
+   * esta é a única coisa entre o portal e a conta de outro filiado.
+   */
+  it('só aceita parcela do próprio filiado', () => {
+    expect(servico).toContain('where: { id: parcelaId, cobranca: { filiadoId } },');
+    for (const rota of ['pixDaParcela', 'enviarComprovante']) {
+      const trecho = servico.slice(servico.indexOf(`async ${rota}(`), servico.length);
+      // Os 900 primeiros caracteres cobrem o corpo do metodo com folga.
+      expect(trecho.slice(0, 900)).toContain('this.minhaParcela(');
+    }
+  });
+
+  /** E o 404 não conta nem que a parcela existe. */
+  it('parcela de outro dá 404, não 403', () => {
+    expect(servico).toContain("throw new NotFoundException('Parcela não encontrada.');");
+  });
+
+  /** Enviar comprovante NÃO muda o status: a baixa continua sendo da secretaria. */
+  it('não dá baixa', () => {
+    const trecho = servico.slice(servico.indexOf('async enviarComprovante('));
+    const corpo = trecho.slice(0, trecho.indexOf('private async minhaParcela'));
+    expect(corpo).toContain('comprovanteEnviadoEm: new Date()');
+    expect(corpo).not.toContain('status:');
+    expect(corpo).not.toContain('dataPagamento');
+  });
+
+  /** Parcela já paga não precisa de comprovante — e pedir de novo confunde. */
+  it('recusa comprovante de parcela paga', () => {
+    expect(servico).toContain('if (parcela.status === StatusParcela.PAGO)');
+  });
+
+  /**
+   * FOTO OU PDF, e nada mais. A lista é MENOR que a dos anexos (sem DOC/DOCX):
+   * comprovante de banco não vem em Word, e cada formato a mais é um a mais
+   * para a secretaria não conseguir abrir do celular dela.
+   */
+  it('aceita só foto e PDF', () => {
+    expect(servico).toContain("'image/jpeg': 'jpg',");
+    expect(servico).toContain("'application/pdf': 'pdf',");
+    expect(servico).not.toContain('officedocument');
+  });
+
+  /** A chave do storage é opaca — o nome que a pessoa subiu vai na coluna. */
+  it('o caminho no storage não leva o nome original (LGPD)', () => {
+    expect(servico).toContain('/comprovantes/${randomUUID()}.${ext}`');
+  });
+
+  /**
+   * E O PIX É O MESMO DO CARNÊ. Uma segunda implementação geraria dois códigos
+   * para a mesma parcela, e o banco aceitaria os dois — com identificadores
+   * diferentes, que é justamente o que a conciliação usa para casar.
+   */
+  it('o PIX vem do serviço de cobranças, não de uma segunda cópia', () => {
+    expect(servico).toContain('this.cobrancasDaCasa.gerarPixParcela(parcelaId)');
+    expect(servico).not.toContain('gerarPixCopiaECola');
+  });
+});
+
+/**
+ * E NENHUM VALOR NOVO NO ENUM — a trava que protege a janela de troca.
+ *
+ * `AGUARDANDO_CONFIRMACAO` seria o caminho óbvio e derrubaria o contêiner
+ * ANTIGO: o Prisma estoura ao LER um valor de enum que o client dele não
+ * conhece, e a listagem de cobranças inteira cairia — não só a linha.
+ */
+describe('o comprovante não inventa status', () => {
+  it('StatusParcela continua com os valores que o contêiner antigo conhece', () => {
+    const schema = readFileSync(join(__dirname, '../../../prisma/schema.prisma'), 'utf8');
+    const bloco = schema.slice(schema.indexOf('enum StatusParcela'));
+    const valores = bloco.slice(0, bloco.indexOf('}'));
+    expect(valores).not.toMatch(/AGUARDANDO|COMPROVANTE|CONFERIR/i);
+  });
+});
+
+/**
  * DESFILIADO PERDE O PORTAL NA HORA.
  *
  * A desfiliação tem porta própria desde 27/08 e nenhuma delas mexe na senha.
