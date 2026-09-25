@@ -30,18 +30,35 @@ export function ehCotaEstourada(err: unknown): boolean {
   const e = err as {
     status?: unknown;
     statusCode?: unknown;
+    statusUpstream?: unknown;
     response?: { status?: unknown };
     message?: unknown;
   };
+
+  /*
+    `statusUpstream` PRIMEIRO, E ELE QUASE FICOU DE FORA (25/09/2026).
+
+    `DatajudIndisponivelError` estende `ServiceUnavailableException`: o `.status`
+    dele é **503**, o nosso; o do CNJ mora em `statusUpstream`. Enquanto a
+    mensagem carregava a palavra "429", o reconhecimento funcionava POR TEXTO e
+    ninguém notou que o campo estrutural nunca era lido.
+
+    Ao reescrever a mensagem para dizer o que a pessoa precisa saber — sem
+    código de protocolo, que não é recado para gente — o texto deixou de conter
+    "429" e a repescagem noturna do cron pararia de reconhecer a cota **em
+    silêncio**: o processo viraria falha comum e perderia o dia. Ler o campo
+    resolve de vez, e não depende mais de como a frase estiver escrita.
+  */
+  if (Number(e.statusUpstream) === 429) return true;
 
   const status = Number(e.response?.status ?? e.status ?? e.statusCode);
   if (status === 429) return true;
 
   const msg = typeof e.message === 'string' ? e.message : '';
   /*
-    "HTTP 429" é o que o nosso cliente escreve no log; "Too Many Requests" é o
-    que o CNJ devolve; "limite de consultas" é como a mensagem traduzida chega
-    à tela. Os três são a mesma coisa.
+    "HTTP 429" é o que o nosso cliente escrevia no log; "Too Many Requests" é o
+    que o CNJ devolve; "limite de consultas" e "excesso de consultas" são como a
+    mensagem traduzida chega à tela. Todas são a mesma coisa.
   */
-  return /\b429\b|too many requests|limite de consultas/i.test(msg);
+  return /\b429\b|too many requests|limite de consultas|excesso de consultas/i.test(msg);
 }

@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { NpuUtils } from './utils/npu.util';
-import { CNJ_REQ_POR_MINUTO, CotaPorMinuto, type PrioridadeCnj } from './utils/cota-cnj.util';
+import { CNJ_JANELA_MS, CNJ_REQ_POR_MINUTO, CotaPorMinuto, type PrioridadeCnj } from './utils/cota-cnj.util';
 
 /**
  * DatajudService — cliente da API Pública do DATAJUD (CNJ).
@@ -32,9 +32,51 @@ export class DatajudIndisponivelError extends ServiceUnavailableException {
   constructor(
     mensagem: string,
     readonly statusUpstream: number,
+    /**
+     * SEGUNDOS ATÉ VALER A PENA TENTAR DE NOVO — só no 429, nulo no resto.
+     *
+     * Sem este número a tela só sabia dizer "em instantes", e quem clicou não
+     * tem como distinguir "espere um minuto" de "está quebrado". Vem do
+     * cabeçalho `Retry-After` quando o CNJ manda; senão, da janela de cota.
+     */
+    readonly segundosParaTentar: number | null = null,
   ) {
-    super(mensagem);
+    super(
+      segundosParaTentar
+        ? { message: mensagem, statusCode: 503, segundosParaTentar }
+        : mensagem,
+    );
   }
+}
+
+/**
+ * QUANTO ESPERAR, SEGUNDO O PRÓPRIO CNJ.
+ *
+ * `Retry-After` vem em segundos ou como data HTTP (as duas formas são válidas
+ * pela RFC, e servidores atrás de CDN usam as duas). Ler o que o servidor diz é
+ * melhor que arbitrar um minuto: um castigo maior que o necessário atrasa a
+ * fila da casa inteira, e um menor faz a próxima chamada tomar a mesma recusa.
+ *
+ * Devolve nulo quando não há cabeçalho ou ele não faz sentido — aí quem chama
+ * usa a janela de cota, que é o palpite honesto que já tínhamos.
+ */
+export function esperaDoRetryAfter(valor: string | null | undefined, agora = Date.now()): number | null {
+  if (!valor) return null;
+  const texto = valor.trim();
+  if (!texto) return null;
+
+  if (/^\d+$/.test(texto)) {
+    const segundos = Number(texto);
+    // Teto de 5 min: cabeçalho absurdo não pode prender a fila da casa.
+    if (segundos <= 0 || segundos > 300) return null;
+    return segundos * 1_000;
+  }
+
+  const quando = Date.parse(texto);
+  if (Number.isNaN(quando)) return null;
+  const ms = quando - agora;
+  if (ms <= 0 || ms > 300_000) return null;
+  return ms;
 }
 
 /** Complemento tabelado do CNJ: detalha o ato (tipo de documento, de petição…). */
@@ -166,7 +208,25 @@ export class DatajudService {
   private readonly cota = new CotaPorMinuto(CNJ_REQ_POR_MINUTO, (ms) =>
     this.logger.log(`[DATAJUD] Cota de ${CNJ_REQ_POR_MINUTO}/min atingida — pausando ${Math.ceil(ms / 1000)}s.`),
   );
-  private readonly baseUrl = 'https://api-publica.datajud.cnj.jus.br';
+  /**
+   * O ENDEREÇO DE SAÍDA É A CAUSA DOS 429 — e agora é configurável.
+   *
+   * A cota do CNJ é **por IP**, e o IP de saída do Railway é COMPARTILHADO com
+   * outros clientes da plataforma. Medido em 25/09/2026: uma pessoa clicou em
+   * "Sincronizar" às 13h30 e levou 429 sendo aquela a nossa ÚNICA chamada da
+   * hora — a varredura tinha terminado às 06h35, com 164 consultas. Nenhum
+   * ajuste de ritmo nosso resolve isso: o vizinho gasta a mesma cota.
+   *
+   * O DJEN já não tem esse problema desde 03/09/2026, quando passou a sair por
+   * um repassador numa VPS brasileira (`DJEN_BASE_URL`) — ali o IP é nosso.
+   * Este endereço era CRAVADO no código, então a mesma saída não estava
+   * disponível para o DataJud nem mudando variável de ambiente.
+   *
+   * O PADRÃO NÃO MUDA NADA: sem `DATAJUD_BASE_URL`, continua indo direto ao
+   * CNJ, como sempre foi. Apontar para a ponte é decisão de infraestrutura, não
+   * de código, e fica com quem cuida do servidor.
+   */
+  private readonly baseUrl: string;
   private readonly apiKey: string;
   /**
    * A API Pública do CNJ é LENTA: medições reais no TJPI deram 10s, 17s e 24s
@@ -186,6 +246,12 @@ export class DatajudService {
   private readonly multiInstancia: boolean;
 
   constructor(private readonly config: ConfigService) {
+    // Sem barra no fim: a URL é montada com `/${alias}/_search`, e duas barras
+    // viram 404 num proxy que normaliza caminho.
+    this.baseUrl = (
+      this.config.get<string>('DATAJUD_BASE_URL') || 'https://api-publica.datajud.cnj.jus.br'
+    ).replace(/\/+$/, '');
+
     // Header exata da API Pública do DATAJUD (configurável por ambiente).
     this.apiKey = this.config.get<string>(
       'DATAJUD_API_KEY',
@@ -339,9 +405,34 @@ export class DatajudService {
           CINCO 429 seguidos em 11/09/2026. O castigo vale para todos os
           chamadores, porque a cota é do IP e não de quem chamou.
         */
-        if (res.status === 429) this.cota.penalizar();
+        if (res.status === 429) {
+          /*
+            E A COTA NÃO FOI NOSSA (medido em 25/09/2026).
+
+            Uma pessoa clicou em "Sincronizar" às 13h30 e levou 429. Naquela
+            hora a nossa ÚNICA chamada ao DataJud foi essa: a varredura tinha
+            terminado às 06h35, com 164 consultas. O IP de saída do Railway é
+            compartilhado, e o vizinho gastou a cota do minuto.
+
+            Não há o que otimizar do nosso lado — o que havia para consertar era
+            a mensagem, que dizia "tente novamente em instantes" sem dizer nem o
+            porquê nem o quando. A pessoa clica de novo, toma a mesma recusa e
+            conclui que o sistema está quebrado.
+          */
+          const ms = esperaDoRetryAfter(res.headers.get('retry-after')) ?? CNJ_JANELA_MS;
+          this.cota.penalizar(ms);
+          const segundos = Math.max(1, Math.ceil(this.cota.msDeCastigo / 1000));
+          throw new DatajudIndisponivelError(
+            'O CNJ recusou por excesso de consultas neste minuto — o limite é do endereço de ' +
+              `saída, que dividimos com outros sistemas, e não deste processo. Tente de novo em ${segundos}s; ` +
+              'a varredura da madrugada lê este processo de qualquer forma.',
+            res.status,
+            segundos,
+          );
+        }
         throw new DatajudIndisponivelError(
-          `O DATAJUD retornou HTTP ${res.status}. Tente novamente em instantes.`,
+          `O CNJ não respondeu à consulta (erro ${res.status}). Nada foi perdido — ` +
+            'a varredura da madrugada tenta de novo.',
           res.status,
         );
       }

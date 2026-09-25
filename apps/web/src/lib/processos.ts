@@ -701,6 +701,32 @@ export async function sincronizarProcesso(id: string): Promise<ProcessoDetalhe> 
   return (await api.patch(`/processos/${id}/sincronizar`, undefined, { timeout: TIMEOUT_LONGO })).data;
 }
 
+/**
+ * QUANTOS SEGUNDOS ESPERAR ANTES DE TENTAR SINCRONIZAR DE NOVO.
+ *
+ * 25/09/2026. Uma pessoa clicou em "Sincronizar" e levou *"O DATAJUD retornou
+ * HTTP 429. Tente novamente em instantes."*. Medido na produção: naquela hora a
+ * nossa ÚNICA chamada ao DataJud foi essa — a varredura tinha terminado às
+ * 06h35. **A cota não foi nossa**: o endereço de saída do Railway é
+ * compartilhado e o vizinho gastou o minuto.
+ *
+ * Do nosso lado não havia consumo para cortar. O que havia era uma mensagem que
+ * não dizia nem o porquê nem o quando, e um botão que continuava clicável — a
+ * receita exata do NPU que acumulou **35 sincronizações manuais** antes de
+ * alguém desistir. Hoje a API manda `segundosParaTentar` no corpo do 503 e o
+ * botão espera esse tempo sozinho.
+ *
+ * Zero quando o erro é outro: aí não há espera a impor, e travar o botão
+ * esconderia um problema de verdade atrás de um relógio.
+ */
+export function segundosParaTentarDeNovo(erro: unknown): number {
+  const corpo = (erro as { response?: { data?: { segundosParaTentar?: unknown } } })?.response?.data;
+  const n = Number(corpo?.segundosParaTentar);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  // Teto de 5 min: nenhum botão desta casa fica trancado mais que isso.
+  return Math.min(Math.ceil(n), 300);
+}
+
 /** Advogado habilitado a atuar num processo (perfil ADVOGADO). */
 export interface AdvogadoDisponivel {
   id: string;

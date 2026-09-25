@@ -31,7 +31,8 @@ import { AnexosSection } from '@/components/anexos/anexos-section';
 import { RecadoAoFiliado } from '@/components/processos/recado-ao-filiado';
 import { RegistrarMovimentacaoForm } from './registrar-movimentacao-form';
 import {
-  sincronizarProcesso, excluirProcesso, atualizarProcesso, formatNPU, formatData, formatDataHora,
+  sincronizarProcesso, segundosParaTentarDeNovo,
+  excluirProcesso, atualizarProcesso, formatNPU, formatData, formatDataHora,
   formatMoeda, STATUS_PROCESSO_COR, STATUS_PROCESSO_LABEL, ehPreProcessual,} from '@/lib/processos';
 import { registrarMovimentacao } from '@/lib/movimentacoes';
 import { corDesfecho, rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL } from '@/lib/agenda';
@@ -485,6 +486,24 @@ export function ProcessoDetalheSheet({
     onChanged?.();
   };
 
+  /*
+    A COTA DO CNJ FECHOU: O BOTÃO ESPERA SOZINHO (25/09/2026).
+
+    O erro era `429` e a mensagem, "tente novamente em instantes" — sem dizer
+    quando, e com o botão clicável. Quem clica de novo toma a mesma recusa; um
+    único NPU acumulou 35 sincronizações manuais assim. A API agora manda
+    `segundosParaTentar`, e o botão conta o tempo em vez de deixar a pessoa
+    adivinhar. Ver `segundosParaTentarDeNovo`.
+  */
+  const [esperarAte, setEsperarAte] = useState(0);
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    if (esperarAte <= agora) return;
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [esperarAte, agora]);
+  const esperaEmSegundos = Math.max(0, Math.ceil((esperarAte - agora) / 1000));
+
   const sincronizar = useMutation({
     mutationFn: () => sincronizarProcesso(processoId as string),
     onSuccess: (resp: any) => {
@@ -492,7 +511,32 @@ export function ProcessoDetalheSheet({
       toast.success(n > 0 ? `${n} nova(s) movimentação(ões) encontrada(s).` : 'Processo já estava atualizado.');
       recarregar();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível sincronizar com o DATAJUD.'),
+    onError: (e: any) => {
+      const s = segundosParaTentarDeNovo(e);
+      if (s) {
+        /*
+          OS DOIS RELÓGIOS ANDAM JUNTOS. `agora` só é atualizado pelo intervalo,
+          que ainda não existe neste instante — sem esta linha ele guarda a hora
+          em que a ficha ABRIU, e a conta (fim − agora) devolveria os segundos de
+          espera MAIS o tempo que a gaveta estava aberta. Ficha aberta há três
+          minutos mostraria "238s" para uma espera de 58.
+        */
+        setAgora(Date.now());
+        setEsperarAte(Date.now() + s * 1000);
+      }
+      /*
+        COTA CHEIA NÃO É VERMELHO.
+
+        Vermelho, nesta casa, é do Excluir — e o resto do alarme se gasta quando
+        a tela grita por algo que não quebrou. A cota fechou: nada se perdeu,
+        nada está errado com este processo, e a varredura da madrugada lê de
+        qualquer forma. Isso PEDE VOCÊ daqui a alguns segundos, e pedir é âmbar.
+        O erro de verdade — CNJ fora do ar, rede caída — continua vermelho.
+      */
+      const aviso = e?.response?.data?.message ?? 'Não foi possível sincronizar com o CNJ.';
+      if (s) toast.warning(aviso);
+      else toast.error(aviso);
+    },
   });
 
   /**
@@ -954,14 +998,31 @@ export function ProcessoDetalheSheet({
                 <Button
                   variant="outline" size="sm"
                   onClick={() => sincronizar.mutate()}
-                  disabled={sincronizar.isPending}
-                  title="Buscar novas movimentações no DATAJUD"
+                  disabled={sincronizar.isPending || esperaEmSegundos > 0}
+                  title={
+                    esperaEmSegundos > 0
+                      ? `O CNJ recusou por excesso de consultas no minuto. Liberado em ${esperaEmSegundos}s.`
+                      : 'Buscar novas movimentações no CNJ'
+                  }
                   /* Quadrado no celular: com o rótulo escondido, o `px` do botão
-                     deixava um retângulo vazio de 60px em volta de um ícone. */
-                  className="h-9 w-9 p-0 sm:h-auto sm:w-auto sm:px-3"
+                     deixava um retângulo vazio de 60px em volta de um ícone.
+                     Na contagem ele abre, porque "45s" não cabe em 36px. */
+                  className={cn(
+                    'h-9 p-0 sm:h-auto sm:px-3',
+                    esperaEmSegundos > 0 ? 'w-auto px-2' : 'w-9 sm:w-auto',
+                  )}
                 >
                   {sincronizar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  <span className="hidden sm:inline">Sincronizar</span>
+                  {/*
+                    O SEGUNDO APARECE TAMBÉM NO CELULAR, onde o rótulo
+                    "Sincronizar" fica escondido: um botão cinza sem explicação
+                    é o que faz a pessoa achar que a tela travou.
+                  */}
+                  {esperaEmSegundos > 0 ? (
+                    <span className="text-xs tabular-nums">{esperaEmSegundos}s</span>
+                  ) : (
+                    <span className="hidden sm:inline">Sincronizar</span>
+                  )}
                 </Button>
               )}
               {/* ABRIR NO TRIBUNAL.

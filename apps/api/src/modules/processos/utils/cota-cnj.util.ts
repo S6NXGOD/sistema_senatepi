@@ -134,6 +134,20 @@ export class CotaPorMinuto {
     this.deCastigoAte = Math.max(this.deCastigoAte, Date.now() + ms);
   }
 
+  /**
+   * QUANTO FALTA DE CASTIGO — em milissegundos, zero se não há.
+   *
+   * Serve a quem está na TELA. O robô não precisa: ele dorme dentro da fila e
+   * ninguém está olhando. Quem clicou precisa de um número, porque a
+   * alternativa é o que aconteceu em 25/09/2026 — a mensagem dizia "tente
+   * novamente em instantes", a pessoa clicava de novo, tomava a mesma recusa, e
+   * o log de um único NPU acumulou **35 sincronizações manuais** antes de
+   * alguém desistir.
+   */
+  get msDeCastigo(): number {
+    return Math.max(0, this.deCastigoAte - Date.now());
+  }
+
   /** Quantos pedidos esperam vez, por faixa — para o log dizer o porquê da espera. */
   get naFila(): { pessoa: number; robo: number } {
     return { pessoa: this.aguardando.PESSOA.length, robo: this.aguardando.ROBO.length };

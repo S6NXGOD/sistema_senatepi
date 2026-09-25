@@ -34,8 +34,14 @@ describe('o cadastro de processo não pode esperar atrás do robô', () => {
     expect(SERVICO).toContain("origem === OrigemSincronizacao.CRON ? 'ROBO' : 'PESSOA'");
   });
 
-  it('e o 429 para a fila inteira em vez de queimá-la em erros', () => {
-    expect(DATAJUD).toContain('if (res.status === 429) this.cota.penalizar();');
+  /**
+   * O castigo passou a durar o que o CNJ manda (25/09/2026): `Retry-After`
+   * quando vem, a janela de cota quando não vem. Um minuto fixo ou atrasa a
+   * casa inteira à toa, ou libera cedo e a próxima chamada toma a mesma recusa.
+   */
+  it('e o 429 para a fila inteira, pelo tempo que o próprio CNJ pedir', () => {
+    expect(DATAJUD).toContain("esperaDoRetryAfter(res.headers.get('retry-after')) ?? CNJ_JANELA_MS");
+    expect(DATAJUD).toContain('this.cota.penalizar(ms);');
   });
 });
 
