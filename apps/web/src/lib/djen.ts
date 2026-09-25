@@ -170,6 +170,21 @@ export async function statusDjen(): Promise<StatusDjen> {
 }
 
 /**
+ * Processos vivos em que o Diário nunca trouxe nada — ver `vivosSemAtoNoDiario`
+ * na API. Não é falha: a via está aberta e por ela nunca passou ato nenhum.
+ */
+export interface SemAtoNoDiario {
+  total: number;
+  exemplos: { processoId: string; numeroCNJ: string | null; movimentacoes: number }[];
+}
+
+export async function semAtoNoDiario(): Promise<SemAtoNoDiario> {
+  const { data } = await api.get<SemAtoNoDiario>('/djen/sem-ato');
+  return data;
+}
+
+
+/**
  * UMA PUBLICAÇÃO, COM O TEOR — para ler onde a pessoa já está.
  *
  * O painel listava "Analisar intimação · sem tarefa" e, ao clicar, levava para a

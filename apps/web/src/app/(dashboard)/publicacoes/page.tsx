@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Newspaper, Search, Loader2, Inbox, ChevronLeft, ChevronRight, Bot, Gavel, X,
-  SlidersHorizontal, ChevronDown,
+  SlidersHorizontal, ChevronDown, Info,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Carregando, Esqueleto, EsqueletoLinhas } from '@/components/ui/esqueleto';
@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { AbasDoAcervo } from '@/components/processos/abas-do-acervo';
 import {
-  buscarPublicacoes, facetasPublicacoes, statusDjen,
+  buscarPublicacoes, facetasPublicacoes, statusDjen, semAtoNoDiario, type SemAtoNoDiario as SemAto,
   PROVIDENCIA_LABEL, PROVIDENCIA_COR, PROVIDENCIA_COR_PADRAO, type FiltroPublicacoes,
 } from '@/lib/djen';
 import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
@@ -68,6 +68,95 @@ const inputCls =
  * Suspense — sem ele o build do Next falha ao pré-renderizar a rota. Mesmo
  * padrão da lista de processos.
  */
+/**
+ * OS PROCESSOS EM QUE O DIÁRIO NUNCA TROUXE NADA (25/09/2026).
+ *
+ * "Será se o DJEN está deixando alguém de fora?" — a pergunta do dono. Medido
+ * contra a produção, a resposta é sim, mas não onde se procurava:
+ *
+ *  · POR OAB não deixa ninguém de fora. Dos 157 processos vivos, ZERO estão
+ *    sem advogado com OAB consultável na equipe.
+ *  · POR PROCESSO deixa 8. Três com história longa — um com 319 movimentações
+ *    desde 2016 e nenhuma publicação. O histórico deles no Diário foi lido e
+ *    voltou vazio.
+ *
+ * NÃO É ALARME, e por isso não é âmbar: não há defeito a consertar. Nem todo
+ * tribunal manda tudo para o DJEN. É ESTADO — o recado é "para estes, não
+ * confie só nesta tela", e ele vale igual amanhã e no mês que vem.
+ *
+ * ZERO NÃO VIRA LINHA. Bloco vazio dizendo "nenhum" é ruído todo dia para
+ * avisar de nada; quando some, a ausência já é a resposta.
+ */
+function SemAtoNoDiario({ dados }: { dados?: SemAto }) {
+  const [aberto, setAberto] = useState(false);
+  if (!dados?.total) return null;
+  const { total, exemplos } = dados;
+
+  return (
+    <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+      >
+        <span className="flex min-w-0 items-start gap-2.5">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
+          <span className="min-w-0">
+            <strong className="text-foreground">
+              {total === 1
+                ? '1 processo em acompanhamento nunca recebeu ato pelo Diário'
+                : `${total} processos em acompanhamento nunca receberam ato pelo Diário`}
+            </strong>
+            . O histórico {total === 1 ? 'dele' : 'deles'} já foi lido e voltou vazio — nem
+            todo tribunal publica tudo no DJEN. Nesses casos, confira o portal antes de
+            confiar só nesta tela.
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 pt-0.5 text-xs font-semibold opacity-80">
+          {aberto ? 'Ocultar' : 'Ver quais'}
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
+        </span>
+      </button>
+
+      {aberto && (
+        <ul className="border-t border-input">
+          {exemplos.map((e) => (
+            <li key={e.processoId}>
+              <Link
+                href={`/processos?processo=${e.processoId}`}
+                className="flex flex-col gap-0.5 border-t border-input/60 px-4 py-2.5 first:border-t-0 transition hover:bg-muted sm:flex-row sm:items-center sm:gap-3"
+              >
+                {/*
+                  O NÚMERO INTEIRO, inclusive em 400px: é o que alguém copia
+                  para conferir no portal do tribunal. Lado a lado com a
+                  contagem ele truncava em "0856490-91.2026.8.18.0…".
+                */}
+                <span className="min-w-0 flex-1 font-mono text-xs font-semibold text-foreground">
+                  {e.numeroCNJ ? formatNPU(e.numeroCNJ) : 'Sem número'}
+                </span>
+                {/*
+                  A CONTAGEM DE ANDAMENTOS É O QUE SEPARA OS DOIS CASOS: zero
+                  publicações num processo cadastrado ontem é normal; num com
+                  319 andamentos, o Diário simplesmente não é a via dele.
+                */}
+                <span className="shrink-0 text-xs opacity-80">
+                  {e.movimentacoes} {e.movimentacoes === 1 ? 'andamento' : 'andamentos'} no DataJud
+                </span>
+              </Link>
+            </li>
+          ))}
+          {total > exemplos.length && (
+            <li className="border-t border-input/60 px-4 py-2 text-xs opacity-70">
+              e mais {total - exemplos.length} — os com mais andamento vêm primeiro.
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function PublicacoesPage() {
   return (
     <Suspense
@@ -185,6 +274,18 @@ function Publicacoes() {
     queryKey: ['djen-facetas'],
     queryFn: facetasPublicacoes,
     enabled: ligado,
+  });
+
+  /*
+    ONDE O DIÁRIO NUNCA TROUXE NADA. Meia hora de cache: é um retrato do
+    acervo, muda quando uma publicação nova casa com um processo — de noite.
+  */
+  const { data: semAto } = useQuery({
+    queryKey: ['djen-sem-ato'],
+    queryFn: semAtoNoDiario,
+    enabled: ligado,
+    staleTime: 30 * 60_000,
+    retry: false,
   });
 
   const filtro: FiltroPublicacoes = useMemo(
@@ -594,6 +695,16 @@ function Publicacoes() {
           </span>
         </div>
       </Card>
+
+      {/*
+        COLADA À CONTAGEM, E NÃO NO TOPO DA TELA.
+
+        A pergunta que ela responde é "esta lista é tudo?", e essa pergunta
+        nasce ao lado do "14 publicações" — não antes de a pessoa ver o que
+        veio. No topo ela empurrava o trabalho para fora da dobra do celular
+        para dar um recado que é contexto, não tarefa.
+      */}
+      <SemAtoNoDiario dados={semAto} />
 
       {isError ? (
         <Card className="p-2">

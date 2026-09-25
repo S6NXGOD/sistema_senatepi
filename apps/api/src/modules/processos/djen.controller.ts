@@ -280,6 +280,28 @@ export class DjenController {
   }
 
   /**
+   * ONDE O DIÁRIO NUNCA TROUXE NADA — a resposta agregada (25/09/2026).
+   *
+   * A ficha responde isso para UM processo, e ninguém abre 157 fichas. Este é
+   * o número que responde "o Diário está deixando alguém de fora?" sem
+   * depender de alguém desconfiar primeiro. Ver `vivosSemAtoNoDiario`.
+   *
+   * ROTA PRÓPRIA, E NÃO UM CAMPO EM `/status`: aquele é consultado por TODA
+   * página de quem tem o módulo Processos, a cada cinco minutos, só para saber
+   * se o menu do Diário aparece. Pendurar duas consultas ali faria o acervo
+   * inteiro pagar por um dado que uma tela só mostra.
+   *
+   * DECLARADA ANTES das rotas com parâmetro, como as outras literais deste
+   * controller — memória das rotas que colidem, e o spec confere.
+   */
+  @Get('sem-ato')
+  @UseGuards(DjenAtivoGuard)
+  @ApiOperation({ summary: 'Processos vivos cujo histórico já foi lido e que nunca receberam ato do Diário.' })
+  semAtoNoDiario() {
+    return this.sync.vivosSemAtoNoDiario();
+  }
+
+  /**
    * DE ONDE VÊM AS INTIMAÇÕES DESTE PROCESSO — a linha de estado da aba
    * Publicações (14/09/2026).
    *

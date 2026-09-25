@@ -364,3 +364,57 @@ describe('o tipo de documento chega à tela', () => {
     expect(CARTAO).toContain("documento.toLowerCase() !== (pub.tipoComunicacao ?? '').trim().toLowerCase()");
   });
 });
+
+/**
+ * "SERÁ SE O DJEN ESTÁ DEIXANDO ALGUÉM DE FORA?" — 25/09/2026.
+ *
+ * Medido contra a produção: por OAB não deixa (ZERO dos 157 processos vivos
+ * estão sem advogado com OAB na equipe), mas **8 deles nunca receberam um único
+ * ato**, com o histórico já lido. Três têm história longa — um com 319
+ * andamentos desde 2016 e nenhuma publicação.
+ *
+ * A ficha de cada um já passou a dizer isso, mas ninguém abre 157 fichas: este
+ * é o número que responde a pergunta sem depender de alguém desconfiar antes.
+ * Detalhe do cálculo em `sem-ato-no-diario.spec.ts`, na API.
+ */
+describe('onde o Diário nunca trouxe nada', () => {
+  it('a tela pergunta pela rota própria, e não engorda o /status de todo mundo', () => {
+    expect(PAGINA).toContain("queryKey: ['djen-sem-ato']");
+    expect(PAGINA).toContain('queryFn: semAtoNoDiario');
+    // `/djen/status` é consultado por TODA página de quem tem Processos.
+    expect(PAGINA).not.toContain('status?.semAto');
+  });
+
+  /** Bloco vazio dizendo "nenhum" é ruído diário para avisar de nada. */
+  it('zero não vira faixa', () => {
+    expect(PAGINA).toContain('if (!dados?.total) return null;');
+  });
+
+  /**
+   * NÃO É ALARME: não há defeito a consertar, e nem todo tribunal manda tudo
+   * para o DJEN. É estado — vale igual amanhã e no mês que vem.
+   */
+  it('é estado, não alerta: nada de âmbar nem de vermelho', () => {
+    const i = PAGINA.indexOf('function SemAtoNoDiario');
+    const bloco = PAGINA.slice(i, PAGINA.indexOf('export default function', i));
+    expect(bloco).toContain('border-input bg-muted/40');
+    expect(bloco).not.toContain('amber');
+    expect(bloco).not.toContain('destructive');
+  });
+
+  /**
+   * A CONTAGEM DE ANDAMENTOS É O QUE SEPARA OS DOIS CASOS: zero publicações num
+   * processo cadastrado ontem é normal; num com 319 andamentos, o Diário não é
+   * a via dele. Sem esse número a lista seria oito NPUs iguais entre si.
+   */
+  it('cada linha mostra quantos andamentos o processo tem no DataJud', () => {
+    expect(PAGINA).toContain("{e.movimentacoes === 1 ? 'andamento' : 'andamentos'} no DataJud");
+    expect(PAGINA).toContain('href={`/processos?processo=${e.processoId}`}');
+  });
+
+  /** Corte silencioso é o que escondeu 2 dos 3 atrasados em 24/09. */
+  it('quando a lista é cortada, a faixa diz quantos ficaram de fora', () => {
+    expect(PAGINA).toContain('{total > exemplos.length && (');
+    expect(PAGINA).toContain('e mais {total - exemplos.length}');
+  });
+});

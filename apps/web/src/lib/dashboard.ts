@@ -799,6 +799,70 @@ export function diasEsperando(desde: string | Date): number {
   return Math.max(0, Math.floor((Date.now() - new Date(desde).getTime()) / 86_400_000));
 }
 
+/**
+ * QUANDO O ROBÔ TENTOU PELA ÚLTIMA VEZ — "hoje às 05h47", "ontem", "12/09".
+ *
+ * Isto substitui o contador que estava na tela ("consultado 272× desde
+ * 24/08/2026"), e a troca não é de estilo.
+ *
+ * MEDIDO NA PRODUÇÃO EM 25/09/2026, no NPU campeão: das 272 consultas, **260
+ * são anteriores a 12/09** — dias de 14, 39, 41 e até 52 consultas ao MESMO
+ * número, de um defeito de ritmo que foi corrigido. De 12/09 para cá foram
+ * 12 consultas em 13 noites: **exatamente uma por noite**, igual a todo o
+ * resto do acervo (medido: 1,0× por NPU por dia, todos os dias).
+ *
+ * Ou seja: o 272 era verdade como HISTÓRIA e mentira como descrição do
+ * presente. Quem lia via desperdício onde já não há nenhum — e a conta nunca
+ * mais desce, porque conta linha de log que ninguém apaga.
+ *
+ * O que decide alguma coisa é outra dupla: **há quanto tempo** o número é
+ * recusado (isso sim cresce sozinho até virar problema) e **se o robô ainda
+ * está tentando** — que é o que tranquiliza sem inventar número.
+ */
+export function ultimaTentativaDoCnj(iso: string | Date, agora = new Date()): string {
+  const d = new Date(iso);
+  const dia = (x: Date) => x.toLocaleDateString('pt-BR');
+  const hora = () => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const ontem = new Date(agora.getTime() - 86_400_000);
+  if (dia(d) === dia(agora)) return `hoje às ${hora()}`;
+  if (dia(d) === dia(ontem)) return `ontem às ${hora()}`;
+  return dia(d);
+}
+
+/**
+ * OS QUE PASSARAM DA ESPERA, SEPARADOS DOS QUE AINDA ESTÃO NELA.
+ *
+ * A faixa decidia o tom com `itens.every(esperaAindaRazoavel)` — "BASTA UM
+ * FORA DO PRAZO", escrevi na época, e para uma lista de um ou dois itens
+ * estava certo. Em 25/09/2026 a lista tem SETE: um cadastrado há 32 dias (esse
+ * merece suspeita) e quatro do TRT22 cadastrados há 11 (o índice do CNJ leva
+ * mesmo esse tempo). O `every` fazia a tela mandar "conferir se o número está
+ * digitado certo" para os SEIS que não têm nada de errado.
+ *
+ * É o mesmo defeito que já custou caro duas vezes aqui: acusar em bloco quem
+ * não estava devendo ensina a equipe a ignorar a faixa inteira — e aí o único
+ * que precisava de gente passa junto.
+ *
+ * A correção não é um segundo bloco (ver o painel em quatro zonas): é UMA
+ * faixa, com os suspeitos NA FRENTE e marcados, e uma frase que diz quantos
+ * são de cada tipo.
+ */
+export function separarDesconhecidos(itens: ProcessoDesconhecidoNoCnj[]): {
+  passaramDoPrazo: ProcessoDesconhecidoNoCnj[];
+  aindaNoPrazo: ProcessoDesconhecidoNoCnj[];
+  ordenados: ProcessoDesconhecidoNoCnj[];
+} {
+  const passaramDoPrazo: ProcessoDesconhecidoNoCnj[] = [];
+  const aindaNoPrazo: ProcessoDesconhecidoNoCnj[] = [];
+  for (const i of itens) (esperaAindaRazoavel(i.desde) ? aindaNoPrazo : passaramDoPrazo).push(i);
+  // O mais antigo primeiro dentro de cada grupo: é ele que mais pede alguém.
+  const porIdade = (a: ProcessoDesconhecidoNoCnj, b: ProcessoDesconhecidoNoCnj) =>
+    new Date(a.desde).getTime() - new Date(b.desde).getTime();
+  passaramDoPrazo.sort(porIdade);
+  aindaNoPrazo.sort(porIdade);
+  return { passaramDoPrazo, aindaNoPrazo, ordenados: [...passaramDoPrazo, ...aindaNoPrazo] };
+}
+
 // ---------------------------------------------------------------------------
 // Números que levam ao mesmo recorte (C11)
 // ---------------------------------------------------------------------------

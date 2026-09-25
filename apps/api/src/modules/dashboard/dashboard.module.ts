@@ -206,8 +206,18 @@ interface ProcessoDesconhecidoNoCnj {
   numeroCNJ: string;
   tribunal: string | null;
   filiado: string | null;
+  /**
+   * Consultas recusadas DENTRO DA JANELA de 30 dias — nunca o total da vida.
+   *
+   * O acumulado de toda a história é a métrica que a faixa mostrava e que
+   * mentia: 260 das 272 consultas do NPU campeão são de antes de 12/09, de um
+   * defeito de ritmo já corrigido. A tela não usa mais este número; ele fica
+   * para quem for investigar pelo payload.
+   */
   tentativas: number;
+  /** A PRIMEIRA recusa de todas, sem teto de janela — ver a consulta. */
   desde: Date;
+  /** A última tentativa. É o que diz, na tela, que o robô não desistiu. */
   ultima: Date;
 }
 
@@ -2148,10 +2158,40 @@ export class DashboardService {
    */
   private processosDesconhecidosNoCnj(desde: Date) {
     return this.prisma.$queryRaw<ProcessoDesconhecidoNoCnj[]>`
-      WITH nao_achados AS (
+      /*
+        A IDADE É A DE VERDADE, E NÃO O CHÃO DA JANELA (25/09/2026).
+
+        O "desde" saía de um min(created_at) calculado DENTRO do filtro de 30
+        dias, então ele nunca podia ser mais velho que 30 dias. E
+        DIAS_ESPERA_RAZOAVEL_CNJ, que decide o tom da faixa, é exatamente 30.
+        As duas constantes se anulavam: a voz franca da faixa — a que manda
+        conferir o número — era INALCANÇÁVEL.
+
+        Medido na produção: o 0856490-91.2026.8.18.0140 é recusado desde 24/08,
+        e a faixa anunciava "cadastrado há 30 dias, o sistema continua tentando
+        todo dia, não é preciso fazer nada". Quanto mais velho o problema, mais
+        tranquilizadora ficava a frase, e ela travava em 30 para sempre.
+
+        A JANELA CONTINUA DECIDINDO QUEM ENTRA: é ela que faz o NPU sumir daqui
+        quando o tribunal enfim publica, e é ela que mantém a consulta barata.
+        O que ela não pode fazer é datar o problema.
+
+        "recusas" varre a tabela UMA vez e dá a primeira recusa de cada número;
+        uma subconsulta correlacionada faria uma varredura por linha do
+        resultado, e não há índice por numero_cnj.
+      */
+      WITH recusas AS (
+        SELECT l.numero_cnj, min(l.created_at) AS primeira
+          FROM logs_sincronizacao_datajud l
+         WHERE l.fonte = 'DATAJUD'
+           AND l.sucesso = true
+           AND l.mensagem_erro ILIKE '%localizado no índice%'
+         GROUP BY l.numero_cnj
+      ),
+      nao_achados AS (
         SELECT l.processo_id, l.numero_cnj, max(l.tribunal) AS tribunal,
                count(*)::int AS tentativas,
-               min(l.created_at) AS desde, max(l.created_at) AS ultima
+               max(l.created_at) AS ultima
           FROM logs_sincronizacao_datajud l
          WHERE l.fonte = 'DATAJUD'
            AND l.sucesso = true
@@ -2164,9 +2204,10 @@ export class DashboardService {
              n.tribunal,
              f.nome_completo AS "filiado",
              n.tentativas,
-             n.desde,
+             r.primeira AS "desde",
              n.ultima
         FROM nao_achados n
+        JOIN recusas r ON r.numero_cnj = n.numero_cnj
         LEFT JOIN processos p ON p.id = n.processo_id
         LEFT JOIN filiados  f ON f.id = p.filiado_id
        /*
@@ -2174,8 +2215,15 @@ export class DashboardService {
          índice, e avisar sobre ele seria acusar o tribunal de um atraso que é
          normal. Depois de três dias insistindo, a hipótese muda de lado.
        */
-       WHERE n.desde <= now() - interval '3 days'
-       ORDER BY n.tentativas DESC
+       WHERE r.primeira <= now() - interval '3 days'
+       /*
+         O MAIS VELHO PRIMEIRO, e não o mais consultado. A contagem de
+         tentativas ordenava por um número que a tela não mostra mais e que
+         mede o RITMO DE ONTEM: 260 das 272 consultas do NPU campeão são de um
+         defeito já corrigido. Idade é o que cresce sozinho até virar problema,
+         e é por ela que o corte de 10 tem de escolher quem fica.
+       */
+       ORDER BY r.primeira ASC
        LIMIT 10
     `;
   }

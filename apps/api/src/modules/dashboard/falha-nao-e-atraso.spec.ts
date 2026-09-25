@@ -107,9 +107,40 @@ describe('os NPUs que o CNJ não encontra', () => {
     expect(DASH).toContain("l.mensagem_erro ILIKE '%localizado no índice%'");
   });
 
-  it('contam as tentativas, que é o que revela a insistência', () => {
+  /**
+   * A IDADE NÃO PODE VIR DE DENTRO DA JANELA (25/09/2026).
+   *
+   * O "desde" era um min(created_at) calculado sob o filtro de 30 dias, então
+   * nunca podia passar de 30. E DIAS_ESPERA_RAZOAVEL_CNJ, que decide o tom da
+   * faixa, é exatamente 30 — as duas constantes se anulavam e a voz franca da
+   * faixa ("vale conferir se o número está digitado certo") era INALCANÇÁVEL.
+   *
+   * Medido na produção: o 0856490-91.2026.8.18.0140 é recusado desde 24/08, e a
+   * faixa anunciava "cadastrado há 30 dias… não é preciso fazer nada". Quanto
+   * mais velho o problema, mais tranquilizadora a frase — travada em 30 para
+   * sempre. Com o CTE `recusas`, a mesma consulta devolve 31 dias e ele passa
+   * para a voz que pede alguém.
+   */
+  it('a primeira recusa vem de fora da janela, sem teto', () => {
+    expect(DASH).toContain('WITH recusas AS (');
+    expect(DASH).toContain('min(l.created_at) AS primeira');
+    expect(DASH).toContain('JOIN recusas r ON r.numero_cnj = n.numero_cnj');
+    expect(DASH).toContain('r.primeira AS "desde"');
+  });
+
+  /**
+   * UMA VARREDURA, NÃO UMA POR LINHA. Não há índice por `numero_cnj`, então
+   * uma subconsulta correlacionada varreria a tabela inteira por resultado. O
+   * CTE agrega uma vez: medido na produção (4.842 linhas), 2,3 ms de banco.
+   */
+  it('a primeira recusa sai de um CTE, não de subconsulta correlacionada', () => {
+    const i = DASH.indexOf('private processosDesconhecidosNoCnj');
+    const bloco = DASH.slice(i, DASH.indexOf('\n  }\n', i));
+    expect(bloco).not.toContain('WHERE t.numero_cnj = l.numero_cnj');
+  });
+
+  it('continua contando as tentativas da janela', () => {
     expect(DASH).toContain('count(*)::int AS tentativas');
-    expect(DASH).toContain('min(l.created_at) AS desde');
   });
 
   /**
@@ -118,7 +149,20 @@ describe('os NPUs que o CNJ não encontra', () => {
    * insistindo, a hipótese muda de lado.
    */
   it('só depois de três dias insistindo', () => {
-    expect(DASH).toContain("WHERE n.desde <= now() - interval '3 days'");
+    expect(DASH).toContain("WHERE r.primeira <= now() - interval '3 days'");
+  });
+
+  /**
+   * O CORTE DE 10 ESCOLHE PELO QUE PEDE ALGUÉM.
+   *
+   * A ordem era `tentativas DESC` — um número que a tela não mostra mais e que
+   * mede o RITMO DE ONTEM: 260 das 272 consultas do NPU campeão vêm de um
+   * defeito de ritmo já corrigido. Ordenar por ele é o mesmo erro que, em
+   * 24/09, escondeu 2 dos 3 atrasados atrás de um corte por recência.
+   */
+  it('o mais velho é o primeiro, e é ele que sobrevive ao corte', () => {
+    expect(DASH).toContain('ORDER BY r.primeira ASC');
+    expect(DASH).not.toContain('ORDER BY n.tentativas DESC');
   });
 
   /** Lista própria: não é falha do robô, é conferência de cadastro. */

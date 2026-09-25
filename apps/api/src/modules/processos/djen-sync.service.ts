@@ -373,8 +373,20 @@ export class DjenSyncService {
       ausência de alerta parece calma.
 
       Medido em 07/09/2026: a Dra. Lara Cortez é ADVOGADA ativa, tem 2 processos
-      vinculados e está sem OAB. Dois processos cujo prazo não é anunciado. A
-      regra de quem conta e a de OAB vazia estão em `advogadosSemOab`.
+      vinculados e está sem OAB. Eu escrevi aqui "dois processos cujo prazo não
+      é anunciado", e **isso estava errado**.
+
+      REMEDIDO EM 25/09/2026, contra a produção: ela não é a principal em
+      nenhum dos dois, e nos dois há outros quatro advogados COM OAB na equipe.
+      Nenhum prazo depende dela, e o único processo vivo dos dois já recebeu
+      ato pelo Diário. Dos 157 processos vivos do acervo, **ZERO estão sem
+      nenhum advogado com OAB consultável** — a cobertura por OAB está inteira.
+
+      A lista continua existindo porque a condição é real e volta a doer no dia
+      em que alguém sem OAB for a ÚNICA da equipe de um processo. O que ela não
+      é, hoje, é emergência: por isso vive na tela de Usuários, ao lado da
+      pessoa que pode corrigir, e não numa faixa no painel de todo mundo.
+      Alarme para condição que não custa nada é o que ensina a ignorar alarme.
     */
     const semOab = await this.advogadosSemOab();
     if (semOab.length) {
@@ -798,6 +810,62 @@ export class DjenSyncService {
       .map((u) => ({ id: u.id, nome: u.nomeExibicao || u.nome, falta: faltaNaOab(u.oab, u.oabUf) ?? 'OAB' }));
   }
 
+  /**
+   * OS PROCESSOS VIVOS EM QUE O DIÁRIO NUNCA TROUXE NADA (25/09/2026).
+   *
+   * A pergunta foi "será se o DJEN está deixando alguém de fora?", e a resposta
+   * medida contra a produção tem duas metades opostas:
+   *
+   *  · POR OAB não deixa ninguém de fora. Dos 157 processos vivos, **ZERO**
+   *    estão sem um advogado com OAB consultável na equipe. A Dra. Lara Cortez
+   *    está sem OAB, mas não é a principal de nenhum dos dois processos dela e
+   *    os dois têm outros quatro advogados com OAB.
+   *  · POR PROCESSO deixa. **8 dos 157 nunca receberam um único ato**, e três
+   *    deles têm história longa: 0001077-39.2016.5.22.0004 tem 319
+   *    movimentações desde 2016, 0801494-24.2022.8.18.0031 tem 132,
+   *    0800249-51.2022.8.18.0039 tem 47. O histórico dos oito no Diário foi
+   *    lido em 15/09 e voltou vazio.
+   *
+   * ISSO NÃO É FALHA, E POR ISSO ERA INVISÍVEL — o mesmo mecanismo do NPU que o
+   * CNJ não conhece. A consulta funciona, a OAB é válida, o número é lido toda
+   * noite, e o Diário simplesmente não tem ato daquele processo. Nem todo
+   * tribunal manda tudo para o DJEN, e há intimação que corre por portal ou por
+   * carga. Quem confia o prazo só a esta via precisa saber em quais casos ela
+   * nunca entregou nada.
+   *
+   * MOVIMENTAÇÃO É O QUE SEPARA O CASO NOVO DO CASO SURDO: processo cadastrado
+   * ontem ainda não recebeu ato porque não houve ato. Um com 319 andamentos e
+   * zero publicações é outra conversa, e por isso a contagem vai junto e a
+   * ordem é por ela.
+   */
+  async vivosSemAtoNoDiario(limite = 8): Promise<{
+    total: number;
+    exemplos: { processoId: string; numeroCNJ: string | null; movimentacoes: number }[];
+  }> {
+    const onde: Prisma.ProcessoWhereInput = {
+      statusInterno: { in: STATUS_VIVOS },
+      comunicacoes: { none: {} },
+      /*
+        SÓ DEPOIS DE PERGUNTAR. Sem o histórico lido, "nada chegou" quer dizer
+        "ainda não procuramos" — e listar isso seria acusar a própria fila do
+        robô. Mesmo critério da frase na ficha.
+      */
+      djenHistoricoLidoEm: { not: null },
+    };
+    const [total, candidatos] = await Promise.all([
+      this.prisma.processo.count({ where: onde }),
+      this.prisma.processo.findMany({
+        where: onde,
+        select: { id: true, numeroCNJ: true, _count: { select: { movimentacoes: true } } },
+      }),
+    ]);
+    const exemplos = candidatos
+      .map((p) => ({ processoId: p.id, numeroCNJ: p.numeroCNJ, movimentacoes: p._count.movimentacoes }))
+      .sort((a, b) => b.movimentacoes - a.movimentacoes)
+      .slice(0, limite);
+    return { total, exemplos };
+  }
+
   /** A linha de cobertura da aba Publicações — ver `coberturaDoDiario`. */
   async coberturaDoProcesso(processoId: string): Promise<CoberturaDoDiario | null> {
     const p = await this.prisma.processo.findUnique({
@@ -816,6 +884,11 @@ export class DjenSyncService {
             },
           },
         },
+        /*
+          QUANTOS ATOS JÁ CHEGARAM — o que separa "a via está aberta" de "a via
+          está aberta e nunca passou nada por ela". Ver `atosRecebidos`.
+        */
+        _count: { select: { comunicacoes: true } },
       },
     });
     if (!p) return null;
@@ -826,6 +899,7 @@ export class DjenSyncService {
       equipe: p.advogados.map((v) => ({ ...v.advogado, principal: v.principal })),
       ultimaConsultaDjen: p.ultimaConsultaDjen,
       djenHistoricoLidoEm: p.djenHistoricoLidoEm,
+      atosRecebidos: p._count.comunicacoes,
       agora: new Date(),
     });
   }

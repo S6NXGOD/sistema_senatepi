@@ -33,6 +33,7 @@ import { CANAIS, CANAL_LABEL } from '@/lib/atendimentos';
 import {
   getResumoDashboard, saudacao, dataPorExtenso, tempoRelativo, horaCurta,
   primeiroNome, motivoFalhaDatajud, esperaAindaRazoavel, diasEsperando, diasSemAcesso,
+  separarDesconhecidos, ultimaTentativaDoCnj,
   linkDaAgenda, linkDosPrazosDaSemana, seloDasAudienciasDaSemana,
   textoDoLinkDeRecadastro, mensagemDeAniversario, DIAS_PARA_PARADO,
   barraDoAtendimento, cartaoDosAtendimentos, explicacaoDaPublicacaoSemTarefa, kpiDoBalcao, kpiDosAtendimentos,
@@ -1483,13 +1484,18 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
  */
 function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
   const [aberto, setAberto] = useState(false);
-  const n = itens.length;
   /*
-    BASTA UM FORA DO PRAZO para o aviso mudar de tom. Se há dez esperando e um
-    já passou de um mês, dizer "não é preciso fazer nada" esconderia o único
-    que precisa de gente — e é sempre esse que importa.
+    UM FORA DO PRAZO NÃO ACUSA OS OUTROS SEIS (25/09/2026).
+
+    Antes o tom da faixa inteira saía de `itens.every(esperaAindaRazoavel)`:
+    bastava um item velho para os recentes receberem "vale conferir se o número
+    está digitado certo". Medido na produção: eram 7 itens, UM de 32 dias e
+    quatro do TRT22 com 11 — e a tela mandava conferir os de onze dias também.
+    Ver `separarDesconhecidos`.
   */
-  const esperando = itens.every((i) => esperaAindaRazoavel(i.desde));
+  const { passaramDoPrazo, aindaNoPrazo, ordenados } = separarDesconhecidos(itens);
+  const nVelhos = passaramDoPrazo.length;
+  const nNovos = aindaNoPrazo.length;
 
   return (
     <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
@@ -1497,74 +1503,85 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
         type="button"
         onClick={() => setAberto((v) => !v)}
         aria-expanded={aberto}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition hover:brightness-[0.98]"
       >
-        <span className="flex items-center gap-2.5">
-          <Info className="h-4 w-4 shrink-0 opacity-70" />
+        <span className="flex min-w-0 items-start gap-2.5">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
           {/*
             A CONSEQUÊNCIA, E NÃO A CONTAGEM.
 
             Eu tinha escrito "o robô já perguntou 252 vezes" no título — que é eu
             mostrando serviço. Ninguém decide nada com esse número; ele importa a
-            quem for investigar, e por isso desceu para o detalhe.
-
-            O que a pessoa precisa saber é o que está deixando de acontecer:
-            **este processo não recebe andamento nenhum**. E, quando é UM só, o
-            número cabe na frase — saber qual é vale mais que saber quantos são.
+            quem for investigar, e por isso desceu para o detalhe. Em 25/09 ele
+            saiu também do detalhe, porque lá ele estava mentindo: ver
+            `ultimaTentativaDoCnj`.
           */}
-          <span>
-            {esperando ? (
+          <span className="min-w-0">
+            {nVelhos > 0 && (
               <>
-                {n === 1 ? (
+                <strong className="text-foreground">
+                  {nVelhos === 1 ? (
+                    <>
+                      1 processo não recebe andamentos há{' '}
+                      {diasEsperando(passaramDoPrazo[0].desde)} dias
+                    </>
+                  ) : (
+                    <>{nVelhos} processos não recebem andamentos há mais de um mês</>
+                  )}
+                </strong>
+                : o CNJ não reconhece{' '}
+                {nVelhos === 1 ? (
+                  <span className="font-mono text-foreground">
+                    {formatNPU(passaramDoPrazo[0].numeroCNJ)}
+                  </span>
+                ) : (
+                  <>os números cadastrados</>
+                )}
+                . Já passou do tempo que o índice costuma levar — vale conferir se o
+                número está digitado certo.
+              </>
+            )}
+            {/*
+              OS RECENTES NA MESMA FRASE, DEPOIS, E SEM ACUSAÇÃO. Um bloco só:
+              destaque de subconjunto se faz com ordem e cor, nunca com uma
+              segunda caixa repetindo o mesmo assunto.
+            */}
+            {nNovos > 0 && (
+              <>
+                {nVelhos > 0 && ' '}
+                {nVelhos > 0 ? (
+                  <>
+                    Outros {nNovos === 1 ? 'aguardam' : nNovos + ' aguardam'} publicação há
+                    poucos dias, o que é normal.
+                  </>
+                ) : nNovos === 1 ? (
                   <>
                     <strong className="text-foreground">
                       O CNJ ainda não publicou 1 processo
                     </strong>{' '}
                     —{' '}
                     <span className="font-mono text-foreground">
-                      {formatNPU(itens[0].numeroCNJ)}
+                      {formatNPU(aindaNoPrazo[0].numeroCNJ)}
                     </span>
-                    , cadastrado há {diasEsperando(itens[0].desde)} dias.
+                    , cadastrado há {diasEsperando(aindaNoPrazo[0].desde)} dias. O índice
+                    público demora a receber processo recém-distribuído. O sistema
+                    continua tentando todo dia — não é preciso fazer nada.
                   </>
                 ) : (
                   <>
                     <strong className="text-foreground">
-                      O CNJ ainda não publicou {n} processos
+                      O CNJ ainda não publicou {nNovos} processos
                     </strong>{' '}
-                    cadastrados recentemente.
+                    cadastrados recentemente. O índice público demora a receber processo
+                    recém-distribuído. O sistema continua tentando todo dia — não é
+                    preciso fazer nada.
                   </>
-                )}{' '}
-                O índice público demora a receber processo recém-distribuído. O
-                sistema continua tentando todo dia — não é preciso fazer nada.
-              </>
-            ) : (
-              <>
-                {n === 1 ? (
-                  <>
-                    <strong className="text-foreground">
-                      1 processo não recebe andamentos há {diasEsperando(itens[0].desde)} dias
-                    </strong>
-                    : o CNJ não reconhece o número{' '}
-                    <span className="font-mono text-foreground">
-                      {formatNPU(itens[0].numeroCNJ)}
-                    </span>
-                    .
-                  </>
-                ) : (
-                  <>
-                    <strong className="text-foreground">
-                      {n} processos não recebem andamentos
-                    </strong>
-                    : o CNJ não reconhece os números cadastrados.
-                  </>
-                )}{' '}
-                Já passou do tempo que o índice costuma levar — vale conferir se o
-                número está digitado certo.
+                )}
               </>
             )}
           </span>
         </span>
-        <span className="flex shrink-0 items-center gap-0.5 text-xs font-semibold opacity-80">
+        <span className="flex shrink-0 items-center gap-0.5 pt-0.5 text-xs font-semibold opacity-80">
           {aberto ? 'Ocultar' : 'Ver quais'}
           <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', aberto && 'rotate-180')} />
         </span>
@@ -1572,11 +1589,12 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
 
       {aberto && (
         <ul className="border-t border-input">
-          {itens.map((i) => {
+          {ordenados.map((i) => {
+            const passou = !esperaAindaRazoavel(i.desde);
             const conteudo = (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-xs font-semibold text-foreground">
+                  <span className="block font-mono text-xs font-semibold text-foreground">
                     {formatNPU(i.numeroCNJ)}
                   </span>
                   <span className="block truncate text-xs opacity-80">
@@ -1584,14 +1602,45 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
                     {i.tribunal ? ` · ${i.tribunal}` : ''}
                   </span>
                 </span>
-                <span className="shrink-0 text-xs">
-                  consultado {i.tentativas}× desde{' '}
-                  {new Date(i.desde).toLocaleDateString('pt-BR')}
+                {/*
+                  A IDADE E O RITMO, NO LUGAR DO TOTAL ACUMULADO.
+
+                  "consultado 272× desde 24/08/2026" fazia o leitor ver o robô
+                  batendo no CNJ centenas de vezes. Ele bate UMA por noite; 260
+                  daquelas 272 são de antes de 12/09, de um defeito de ritmo já
+                  corrigido, e o contador não sabe disso porque conta linha de
+                  log. "Sem resposta há N dias" diz o problema; a última
+                  tentativa diz que o sistema não desistiu.
+                */}
+                {/*
+                  NO CELULAR AS DUAS COLUNAS NÃO CABEM. Lado a lado em 400px, o
+                  tempo espremia o NPU até "0856490-91.2026.8.18.0…" — e o
+                  número é a identidade da linha, a única coisa que alguém vai
+                  copiar para conferir no tribunal. Empilha no telefone,
+                  alinhado à esquerda; volta para a direita a partir de `sm`.
+                */}
+                <span className="shrink-0 text-xs leading-tight sm:text-right">
+                  <span className={cn('block', passou && 'font-semibold text-foreground')}>
+                    sem resposta há {diasEsperando(i.desde)} dias
+                  </span>
+                  <span className="block opacity-70">
+                    última tentativa {ultimaTentativaDoCnj(i.ultima)}
+                  </span>
                 </span>
               </>
             );
-            const classe =
-              'flex items-center gap-3 border-t border-input/60 px-4 py-2.5 first:border-t-0 transition hover:bg-muted';
+            const classe = cn(
+              'flex flex-col gap-1 border-t border-input/60 px-4 py-2.5 first:border-t-0 transition hover:bg-muted',
+              'sm:flex-row sm:items-center sm:gap-3',
+              /*
+                COR SÓ EM QUEM PEDE ALGUÉM — e a barra da esquerda faz o
+                trabalho que o fundo sozinho não fazia em tela clara: a 7% de
+                âmbar a linha suspeita era indistinguível das outras seis.
+              */
+              passou
+                ? 'border-l-2 border-l-amber-500 bg-amber-500/[0.06] dark:bg-amber-400/[0.08]'
+                : 'border-l-2 border-l-transparent',
+            );
             return (
               <li key={i.numeroCNJ}>
                 {i.processoId ? (

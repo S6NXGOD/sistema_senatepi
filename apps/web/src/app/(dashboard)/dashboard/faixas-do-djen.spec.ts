@@ -149,16 +149,33 @@ describe('a faixa fala de consequência e oferece saída', () => {
 describe('a faixa do NPU desconhecido', () => {
   it('lidera pela consequência', () => {
     expect(TELA).toContain('não recebe andamentos');
-    expect(TELA).toContain('o CNJ não reconhece o número');
+    expect(TELA).toContain('o CNJ não reconhece');
   });
 
   /** Sendo um só, o número cabe na frase — vale mais que a contagem. */
   it('nomeia o processo quando é um só', () => {
-    expect(TELA).toContain('formatNPU(itens[0].numeroCNJ)');
+    expect(TELA).toContain('formatNPU(passaramDoPrazo[0].numeroCNJ)');
+    expect(TELA).toContain('formatNPU(aindaNoPrazo[0].numeroCNJ)');
   });
 
-  it('e a contagem desce para a linha do detalhe', () => {
-    expect(TELA).toContain('consultado {i.tentativas}');
+  /**
+   * A CONTAGEM ACUMULADA SAIU DA TELA INTEIRA (25/09/2026).
+   *
+   * Ela tinha descido do título para o detalhe em 07/09, e no detalhe estava
+   * mentindo. Medido na produção: das 272 consultas do NPU campeão, **260 são
+   * anteriores a 12/09** — dias de 14, 39, 41 e 52 consultas ao mesmo número,
+   * de um defeito de ritmo já corrigido. De 12/09 para cá: 12 consultas em 13
+   * noites, uma por noite, igual ao acervo inteiro.
+   *
+   * Verdade como história, mentira como descrição do presente — e o número
+   * nunca desce, porque conta linha de log. No lugar dele vão a IDADE (que
+   * cresce sozinha até virar problema) e a ÚLTIMA TENTATIVA (que é o que
+   * tranquiliza sem inventar número).
+   */
+  it('a contagem acumulada não aparece; idade e última tentativa, sim', () => {
+    expect(TELA).not.toContain('consultado {i.tentativas}');
+    expect(TELA).toContain('sem resposta h');
+    expect(TELA).toContain('ltima tentativa {ultimaTentativaDoCnj(i.ultima)}');
   });
 });
 

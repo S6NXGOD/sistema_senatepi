@@ -166,12 +166,36 @@ describe('a barra dos NPUs desconhecidos', () => {
     expect(TELA).toContain('esperaAindaRazoavel');
   });
 
-  /** Tom neutro — misturar com alerta ensina a ignorar o alerta. */
-  it('não usa âmbar', () => {
+  /**
+   * A CAIXA É NEUTRA; A COR MORA NA LINHA QUE PEDE ALGUÉM (25/09/2026).
+   *
+   * A regra antiga era "nada de âmbar aqui", e o motivo continua valendo para a
+   * CAIXA: na maioria das vezes não há nada a fazer, e pintar a faixa inteira de
+   * alerta ensina a ignorá-la. Mas com sete itens na produção — um de 32 dias e
+   * quatro de 11 —, deixar tudo cinza escondia justamente o que pede conferência.
+   *
+   * Então a moldura segue neutra e o âmbar entra só nas LINHAS fora do prazo,
+   * junto com a ordem: destaque de subconjunto se faz com ordem e cor, nunca com
+   * uma segunda caixa dizendo a mesma coisa.
+   */
+  it('a moldura é neutra', () => {
     const i = TELA.indexOf('function DesconhecidosNoCnj');
-    const bloco = TELA.slice(i, i + 1500);
-    expect(bloco).not.toContain('amber');
-    expect(bloco).toContain('border-input bg-muted/40');
+    const cabecalho = TELA.slice(i, TELA.indexOf('{aberto && (', i));
+    expect(cabecalho).not.toContain('amber');
+    expect(cabecalho).toContain('border-input bg-muted/40');
+  });
+
+  it('e o âmbar só aparece na linha que passou do prazo', () => {
+    const i = TELA.indexOf('function DesconhecidosNoCnj');
+    const bloco = TELA.slice(i, TELA.indexOf('\nfunction ', i + 10));
+    expect(bloco).toContain('const passou = !esperaAindaRazoavel(i.desde);');
+    /*
+      O âmbar é RAMO de `passou`, e o outro ramo não tem cor nenhuma. Além do
+      fundo, uma barra na lateral: a 7% de âmbar, em tela clara, a linha
+      suspeita era indistinguível das outras seis.
+    */
+    expect(bloco).toContain("? 'border-l-2 border-l-amber-500 bg-amber-500");
+    expect(bloco).toContain(": 'border-l-2 border-l-transparent',");
   });
 });
 

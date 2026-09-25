@@ -282,6 +282,25 @@ export interface CoberturaDoDiario {
   frequenciaDoNumero: 'TODA_NOITE' | 'SEMANAL' | null;
   /** As frases da linha de estado, na ordem, prontas para a tela. */
   linhas: string[];
+  /**
+   * QUANTOS ATOS DESTE PROCESSO JÁ CHEGARAM PELO DIÁRIO.
+   *
+   * Medido em 25/09/2026: **8 dos 157 processos vivos nunca receberam um único
+   * ato**, e três deles têm história de sobra — o 0001077-39.2016.5.22.0004 tem
+   * 319 movimentações desde 2016. Não é atraso: o histórico deles no Diário já
+   * foi lido, e voltou vazio.
+   *
+   * Sem este número a linha de cobertura tranquilizava sem base: dizia
+   * "acompanhado pela OAB de Fulano e pelo número" num processo em que nada
+   * nunca chegou. A cobertura existe — o que não existe é ato para ela trazer,
+   * e quem lê precisa saber a diferença antes de confiar só no Diário.
+   *
+   * NULO É "NÃO CONTAMOS", e não zero. Quem chama sem informar não pode
+   * receber a frase de vazio: afirmar "nada chegou" porque um campo faltou é
+   * inventar um fato — o mesmo erro do alarme que deduzia a decisão do robô da
+   * ausência de registro.
+   */
+  atosRecebidos: number | null;
 }
 
 /** "A", "A e B", "A, B e C". */
@@ -312,6 +331,8 @@ export function coberturaDoDiario(entrada: {
   equipe: MembroDaEquipe[];
   ultimaConsultaDjen: Date | null;
   djenHistoricoLidoEm: Date | null;
+  /** Atos deste processo já recebidos do Diário. Ver `atosRecebidos` na saída. */
+  atosRecebidos?: number;
   agora: Date;
 }): CoberturaDoDiario {
   const porOab = entrada.equipe
@@ -322,12 +343,15 @@ export function coberturaDoDiario(entrada: {
   const ultimaConsultaNumero = entrada.ultimaConsultaDjen?.toISOString() ?? null;
   const historicoLidoEm = entrada.djenHistoricoLidoEm?.toISOString() ?? null;
 
+  const atosRecebidos = entrada.atosRecebidos ?? null;
+
   if (!entrada.numeroCNJ) {
     return {
       porOab,
       ultimaConsultaNumero,
       historicoLidoEm,
       frequenciaDoNumero: null,
+      atosRecebidos,
       linhas: [
         'Sem número do processo: o Diário só pode ser consultado depois da distribuição.',
       ],
@@ -367,5 +391,26 @@ export function coberturaDoDiario(entrada: {
     );
   }
 
-  return { porOab, ultimaConsultaNumero, historicoLidoEm, frequenciaDoNumero, linhas };
+  /*
+    O HISTÓRICO FOI LIDO E VOLTOU VAZIO — e isso precisa ser dito.
+
+    As duas primeiras linhas descrevem o CANAL ("acompanhado pela OAB de
+    Fulano e pelo número, consultado em 25/09"), e um canal em ordem lido
+    sozinho vira garantia: dá a entender que, se houvesse intimação, ela teria
+    chegado. Em 8 processos vivos do acervo isso não se sustenta — o Diário
+    nunca teve ato nenhum deles, e em três há anos de andamento no DataJud.
+
+    A frase só entra depois de o histórico ter sido lido: antes disso "nada
+    chegou" significa apenas "ainda não perguntamos", e a linha de cima já
+    avisa. Ela também não acusa defeito: o Diário só publica o que o tribunal
+    manda, e há intimação que corre por portal ou por carga.
+  */
+  if (entrada.djenHistoricoLidoEm && entrada.atosRecebidos === 0) {
+    linhas.push(
+      'Nenhum ato deste processo foi encontrado no Diário até hoje — o histórico já foi lido e voltou vazio. ' +
+        'Nem todo tribunal publica tudo no DJEN; confira o portal antes de confiar só nesta via.',
+    );
+  }
+
+  return { porOab, ultimaConsultaNumero, historicoLidoEm, frequenciaDoNumero, atosRecebidos, linhas };
 }

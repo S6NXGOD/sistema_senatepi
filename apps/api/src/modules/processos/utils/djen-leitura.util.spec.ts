@@ -202,6 +202,8 @@ describe('coberturaDoDiario — a linha de estado da aba Publicações', () => {
     equipe: [] as MembroDaEquipe[],
     ultimaConsultaDjen: new Date('2026-09-12T08:07:00Z'),
     djenHistoricoLidoEm: new Date('2026-09-10T08:30:00Z'),
+    // O processo comum já recebeu ato: 149 dos 157 vivos estão assim (25/09/2026).
+    atosRecebidos: 4,
     agora: AGORA,
   };
 
@@ -277,5 +279,84 @@ describe('coberturaDoDiario — a linha de estado da aba Publicações', () => {
     const c = coberturaDoDiario({ ...base, numeroCNJ: null, statusInterno: StatusProcesso.PRE_PROCESSUAL });
     expect(c.frequenciaDoNumero).toBeNull();
     expect(c.linhas).toEqual(['Sem número do processo: o Diário só pode ser consultado depois da distribuição.']);
+  });
+});
+
+/**
+ * A VIA ESTÁ ABERTA E NUNCA PASSOU NADA POR ELA (25/09/2026).
+ *
+ * A pergunta do dono foi "será se o DJEN está deixando alguém de fora?". Medido
+ * contra a produção, a resposta tem duas metades:
+ *
+ *  · POR OAB, não deixa: dos 157 processos vivos, ZERO estão sem nenhum
+ *    advogado com OAB consultável na equipe. A cobertura está inteira.
+ *  · POR PROCESSO, deixa: **8 dos 157 nunca receberam um único ato**, e três
+ *    deles têm história de sobra — 0001077-39.2016.5.22.0004 tem 319
+ *    movimentações desde 2016, e nenhuma publicação. O histórico deles no
+ *    Diário foi lido em 15/09 e voltou vazio.
+ *
+ * E a ficha desses oito dizia exatamente o mesmo que a dos outros 149:
+ * "Acompanhado no Diário pela OAB de Fulano e pelo número do processo.
+ * Consultado no Diário pelo número em 25/09." Duas frases sobre o CANAL, lidas
+ * como garantia de que nada escapou. Nem todo tribunal manda tudo para o DJEN,
+ * e quem vai confiar o prazo a essa via precisa saber que por ela nunca veio
+ * nada.
+ */
+describe('coberturaDoDiario — o processo em que o Diário nunca trouxe nada', () => {
+  const AGORA = new Date('2026-09-25T13:00:00Z');
+  const base = {
+    numeroCNJ: '00010773920165220004',
+    statusInterno: StatusProcesso.ATIVO,
+    temInstanciaViva: true,
+    equipe: [] as MembroDaEquipe[],
+    ultimaConsultaDjen: new Date('2026-09-25T08:12:00Z'),
+    djenHistoricoLidoEm: new Date('2026-09-15T08:11:00Z'),
+    agora: AGORA,
+  };
+  const VAZIO =
+    'Nenhum ato deste processo foi encontrado no Diário até hoje — o histórico já foi lido e voltou vazio. ' +
+    'Nem todo tribunal publica tudo no DJEN; confira o portal antes de confiar só nesta via.';
+
+  it('histórico lido e nenhum ato: a ficha diz isso, em vez de só descrever o canal', () => {
+    const c = coberturaDoDiario({ ...base, atosRecebidos: 0 });
+    expect(c.atosRecebidos).toBe(0);
+    expect(c.linhas).toContain(VAZIO);
+  });
+
+  /** Um ato que seja já responde a pergunta: a via funciona, e a frase sai. */
+  it('com ato recebido, a frase não aparece', () => {
+    expect(coberturaDoDiario({ ...base, atosRecebidos: 1 }).linhas).not.toContain(VAZIO);
+  });
+
+  /**
+   * ANTES DE LER O HISTÓRICO, "NADA CHEGOU" SÓ QUER DIZER "AINDA NÃO
+   * PERGUNTAMOS" — e a linha de cima já avisa disso. Afirmar vazio aqui seria
+   * assustar com a própria fila de trabalho do robô.
+   */
+  it('sem histórico lido, não afirma vazio — só avisa que ainda vai ler', () => {
+    const c = coberturaDoDiario({ ...base, djenHistoricoLidoEm: null, atosRecebidos: 0 });
+    expect(c.linhas).not.toContain(VAZIO);
+    expect(c.linhas.some((l) => l.includes('ainda não foi lido'))).toBe(true);
+  });
+
+  /** Sem número não há o que ler; a ficha já diz a única coisa que cabe. */
+  it('pré-processual não ganha a frase', () => {
+    const c = coberturaDoDiario({ ...base, numeroCNJ: null, atosRecebidos: 0 });
+    expect(c.linhas).toHaveLength(1);
+    expect(c.atosRecebidos).toBe(0);
+  });
+
+  /**
+   * CAMPO QUE FALTA É "NÃO CONTAMOS", NUNCA ZERO.
+   *
+   * Se o padrão fosse 0, bastaria um chamador esquecer o campo para a ficha
+   * afirmar que nada chegou num processo cheio de publicações. É o mesmo erro
+   * do alarme que deduzia a decisão do robô da ausência de registro: ausência
+   * de dado não é dado.
+   */
+  it('quem não informa a contagem não recebe a frase, e a saída diz nulo', () => {
+    const c = coberturaDoDiario(base);
+    expect(c.atosRecebidos).toBeNull();
+    expect(c.linhas).not.toContain(VAZIO);
   });
 });
