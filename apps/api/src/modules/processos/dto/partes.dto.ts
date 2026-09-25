@@ -31,12 +31,6 @@ export class CriarParteExternaDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) cidade?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2) uf?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(2000) observacoes?: string;
-}
-
-export class AtualizarParteExternaDto extends PartialType(CriarParteExternaDto) {
-  @ApiPropertyOptional({ description: 'Desativar preserva o histórico e some dos seletores.' })
-  @IsOptional() @IsBoolean()
-  ativo?: boolean;
 
   /**
    * O ENTE PÚBLICO que responde pelo orçamento desta organização — escolhido à
@@ -51,10 +45,31 @@ export class AtualizarParteExternaDto extends PartialType(CriarParteExternaDto) 
    * Gravar por aqui carimba `enteOrigem = MANUAL`, e a partir daí NENHUMA
    * varredura encosta. `null` desfaz a escolha e devolve a organização para a
    * fila do robô.
+   *
+   * ESTAVA SÓ NO DTO DO PATCH, E ISSO DERRUBOU O CADASTRO INTEIRO (25/09/2026).
+   *
+   * A tela monta UM objeto e manda para as DUAS rotas — `POST` quando é nova,
+   * `PATCH` quando é edição. Com `forbidNonWhitelisted: true`, o campo que só o
+   * PATCH conhecia fazia o POST responder **400 "property enteCodigo should not
+   * exist"**. E o corpo leva `enteCodigo: null` mesmo quando ninguém escolhe
+   * ente, então **nenhuma organização podia ser cadastrada** — não só as com
+   * ente.
+   *
+   * MEDIDO: a última organização criada na produção é de **11/09/2026 22:52**,
+   * e o campo entrou na tela em 10/09. Quinze dias de cadastro morto, sem um
+   * único chamado — porque a mensagem de erro fala de uma propriedade que
+   * ninguém da secretaria sabe o que é.
    */
   @ApiPropertyOptional({ description: 'Código do ente no catálogo (IBGE/SICONFI). null desfaz.' })
   @IsOptional() @IsInt()
   enteCodigo?: number | null;
+}
+
+export class AtualizarParteExternaDto extends PartialType(CriarParteExternaDto) {
+  @ApiPropertyOptional({ description: 'Desativar preserva o histórico e some dos seletores.' })
+  @IsOptional() @IsBoolean()
+  ativo?: boolean;
+
 }
 
 export class ListParteExternaQueryDto {

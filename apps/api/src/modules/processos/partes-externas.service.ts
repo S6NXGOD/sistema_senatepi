@@ -1022,12 +1022,27 @@ export class PartesExternasService {
         cidade: dto.cidade?.trim() || null,
         uf: dto.uf?.trim().toUpperCase() || null,
         observacoes: dto.observacoes?.trim() || null,
+        /*
+          O ENTE ESCOLHIDO NA CRIAÇÃO TAMBÉM VALE — e não valia.
+
+          Mesmo depois de o DTO parar de recusar o campo, `criar` não o copiava:
+          a pessoa escolheria "PREFEITURA DE JOSÉ DE FREITAS", salvaria, e a
+          organização nasceria sem ente — direto para a fila do robô, que é
+          justamente o que a escolha à mão existe para evitar.
+
+          Mesma semântica do `atualizar`: escolha de gente carimba MANUAL, e a
+          partir daí nenhuma varredura encosta.
+        */
+        ...(dto.enteCodigo
+          ? { enteCodigo: dto.enteCodigo, enteOrigem: OrigemDaLigacao.MANUAL }
+          : {}),
       },
       select: SELECT,
     });
 
     await this.auditar(AcaoAuditoria.CREATE, parte.id, ctx,
-      `Parte "${parte.nome}" cadastrada (${this.rotuloTipo(parte.tipo)})`);
+      `Parte "${parte.nome}" cadastrada (${this.rotuloTipo(parte.tipo)})` +
+        (dto.enteCodigo ? ` — ente ${dto.enteCodigo} escolhido à mão` : ''));
     return parte;
   }
 

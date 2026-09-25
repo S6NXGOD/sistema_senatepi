@@ -2,6 +2,7 @@ import { StorageService, conteudoDisposto, modoPorExtensao } from '@core/infra';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { erroDeValidacao } from './common/erro-de-validacao';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -183,6 +184,20 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      /*
+        SEPARA O QUE A PESSOA PODE CORRIGIR DO QUE SÓ NÓS PODEMOS.
+
+        "property enteCodigo should not exist" apareceu na tela de uma
+        secretária em 25/09/2026. Ela não sabe o que é `enteCodigo`, não digitou
+        aquilo, e não havia nada que pudesse fazer: o campo faltava no DTO do
+        POST e NENHUMA organização podia ser cadastrada havia quinze dias — sem
+        um único chamado, porque a mensagem fazia parecer erro dela.
+
+        Ver `erro-de-validacao`: o que foi escrito para a pessoa passa inteiro;
+        o que o `class-validator` gera sozinho vai para o LOG e a tela recebe
+        uma frase honesta.
+      */
+      exceptionFactory: erroDeValidacao,
     }),
   );
 
