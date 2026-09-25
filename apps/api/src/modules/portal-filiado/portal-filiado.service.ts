@@ -111,6 +111,16 @@ export class PortalFiliadoService {
   // =========================================================================
 
   async carteirinha(filiadoId: string) {
+    /*
+      A CARTEIRINHA NASCE AQUI SE PRECISAR, e é o que torna esta aba honesta.
+
+      Antes ela dizia "ainda não foi emitida — peça na secretaria" para os 168
+      ativos sem cartão. Hoje a emissão é automática ao pedir o documento, então
+      mandar a pessoa pedir seria mandá-la esperar por um clique que ninguém
+      precisa dar. Falha (não-ATIVO) cai no `catch` e a aba explica.
+    */
+    await this.carteirinhas.garantirCarteirinha(filiadoId).catch(() => null);
+
     const filiado = await this.prisma.filiado.findUnique({
       where: { id: filiadoId },
       select: {

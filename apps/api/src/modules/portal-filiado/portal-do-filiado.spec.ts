@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { separarIdentificacao } from './portal-filiado-auth.service';
+import { apenasDigitosDoCpf } from './portal-filiado-auth.service';
 import {
   TAMANHO_MINIMO_SENHA,
   TOTAL_DE_PALAVRAS,
@@ -15,42 +15,53 @@ const semComentario = (rel: string) =>
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 /**
- * "UM PORTAL DO FILIADO COM O LOGIN SENDO O CPF E UMA SENHA PROVISÓRIA GERADA
- * PELO SISTEMA" — o dono, 24/09/2026.
+ * "QUERO INSISTIR, O PORTAL SÓ LOGA COM CPF, QUEM NÃO TEM CPF CADASTRADO VAI
+ * TER QUE SE RECADASTRAR NA SECRETARIA." — o dono, 25/09/2026.
  *
- * O CPF SOZINHO NÃO SERVE, e quem decidiu foi a medição (5.810 ATIVOS):
+ * Eu tinha aberto para CPF **ou** matrícula por causa da medição (5.810
+ * ATIVOS): matrícula 5.810 (100%), CPF 2.293 (39%). Ele insistiu, com o
+ * encaminhamento explícito, e é decisão dele.
  *
- *   matrícula ..... 5.810 (100%), todas distintas
- *   CPF ........... 2.293 (39%)
- *   nascimento ....... 545 (9%)
- *   e-mail ........... 302 (5%)
- *
- * CPF sozinho trancaria 3.517 pessoas para fora no dia 1. Os dois já são ÚNICOS
- * no banco: o CPF é o que a pessoa lembra, a matrícula é o que ela tem impressa
- * na carteirinha.
+ * O QUE O CÓDIGO TEM DE GARANTIR, então, é que **ninguém receba uma senha que
+ * não vai funcionar**: a emissão recusa cadastro sem CPF, a ficha avisa a
+ * secretaria antes do clique, e o recadastramento só cria o acesso de quem
+ * informou CPF. Sem essas três, a decisão viraria ligação para a secretaria.
  */
-describe('a identificação aceita CPF e matrícula', () => {
-  it('tira a máscara do CPF, que chega formatado do celular', () => {
-    expect(separarIdentificacao('123.456.789-00').cpf).toBe('12345678900');
-    expect(separarIdentificacao(' 123 456 789 00 ').cpf).toBe('12345678900');
-  });
-
-  it('e a matrícula sobe para caixa alta, porque é assim que está gravada', () => {
-    expect(separarIdentificacao('sen-2026-000075').matricula).toBe('SEN-2026-000075');
-  });
-
-  /** O mesmo texto serve às duas buscas — é uma consulta só, com `OR`. */
-  it('a matrícula não perde os traços na limpeza do CPF', () => {
-    const { cpf, matricula } = separarIdentificacao('SEN-2026-000075');
-    expect(matricula).toBe('SEN-2026-000075');
-    // Os dígitos sobrando nunca casam com um CPF real (11 dígitos), então a
-    // busca por CPF simplesmente não acha nada.
-    expect(cpf).not.toHaveLength(11);
+describe('a porta do portal é o CPF, e só ele', () => {
+  it('tira a máscara, que é como o CPF chega do celular', () => {
+    expect(apenasDigitosDoCpf('123.456.789-00')).toBe('12345678900');
+    expect(apenasDigitosDoCpf(' 123 456 789 00 ')).toBe('12345678900');
   });
 
   it('não quebra com vazio', () => {
-    expect(separarIdentificacao('')).toEqual({ cpf: '', matricula: '' });
-    expect(separarIdentificacao('   ')).toEqual({ cpf: '', matricula: '' });
+    expect(apenasDigitosDoCpf('')).toBe('');
+    expect(apenasDigitosDoCpf('   ')).toBe('');
+  });
+
+  /** A matrícula não abre mais porta nenhuma: a consulta é por CPF. */
+  it('o login procura por CPF, e não por matrícula', () => {
+    const auth = semComentario('./portal-filiado-auth.service.ts');
+    expect(auth).toContain('prisma.filiado.findUnique(');
+    expect(auth).toContain('where: { cpf },');
+    // O `OR` de duas chaves era a busca por matrícula; não pode voltar.
+    expect(auth).not.toContain('OR: [');
+  });
+
+  /**
+   * SEM CPF A EMISSÃO RECUSA — com uma frase que diz o que fazer. É o que
+   * impede a pior combinação: secretaria dita a senha, pessoa tenta, leva
+   * "CPF ou senha inválidos", e ninguém descobre que faltava um campo.
+   */
+  it('não emite senha para cadastro sem CPF', () => {
+    const auth = semComentario('./portal-filiado-auth.service.ts');
+    expect(auth).toContain("if (!filiado.cpf?.trim()) {");
+    expect(auth).toContain('Atualize o cadastro (ou peça o recadastramento)');
+  });
+
+  /** E a ficha mostra isso ANTES do clique. */
+  it('a ficha diz se a pessoa consegue entrar', () => {
+    const admin = semComentario('./portal-filiado-admin.controller.ts');
+    expect(admin).toContain('temCpf: !!f.cpf?.trim(),');
   });
 });
 
@@ -254,7 +265,7 @@ describe('a senha provisória não vaza pelo log', () => {
 
   /** Uma mensagem só para todos os motivos de recusa. */
   it('a recusa não diz qual foi o motivo', () => {
-    expect(auth).toContain("'CPF/matrícula ou senha inválidos.'");
+    expect(auth).toContain("'CPF ou senha inválidos.'");
   });
 });
 
@@ -273,6 +284,14 @@ describe('o recadastramento cria o acesso só quando ainda não existe', () => {
 
   it('só emite quando não há hash', () => {
     expect(link).toContain('if (!f || f.portalSenhaHash) return null;');
+  });
+
+  /**
+   * E SÓ COM CPF. A leitura é DEPOIS do update de propósito: quem chegou sem
+   * CPF e informou um agora ganhou a porta do portal nesta mesma tela.
+   */
+  it('e só para quem tem CPF — lido depois de gravar o recadastramento', () => {
+    expect(link).toContain("if (!f.cpf?.trim()) return null;");
   });
 
   /** E a emissão NUNCA derruba o recadastramento, que já foi gravado. */

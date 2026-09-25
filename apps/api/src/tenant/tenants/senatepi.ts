@@ -1,13 +1,21 @@
 import { TenantConfig } from '../tenant.types';
 
-/** SENATEPI — Sindicato dos Enfermeiros do Piauí. Cliente nº 1, em produção. */
+/** SENATEPI — Sindicato da Enfermagem do Piauí. Cliente nº 1, em produção. */
 export const senatepi: TenantConfig = {
   id: 'senatepi',
   sigla: 'SENATEPI',
   /** Verde escuro institucional — o tom 800 da paleta (`tenant/tenants/senatepi.ts` do web). */
   corInstitucional: '#1B7F0A',
   nome: 'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ',
-  nomeCurto: 'Sindicato dos Enfermeiros do Piauí',
+  /*
+    "O SINDICATO É DA ENFERMAGEM E NÃO DOS ENFERMEIROS." — o dono, 25/09/2026.
+
+    O nome curto dizia "Sindicato dos Enfermeiros do Piauí", e isso deixava de
+    fora auxiliares e técnicos — que são duas das TRÊS categorias do nome
+    completo e a maior parte da base. Num cartão que a pessoa mostra no
+    trabalho, chamá-la de algo que ela não é não é detalhe.
+  */
+  nomeCurto: 'Sindicato da Enfermagem do Piauí',
   cnpj: '11.378.331/0001-86',
   registroSindical: {
     processo: '46214.0005793/2018-86',

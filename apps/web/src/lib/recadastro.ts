@@ -170,8 +170,6 @@ export const validarDesafio = (
  */
 export interface PrimeiroAcessoAoPortal {
   senhaProvisoria: string;
-  /** "CPF" e/ou "matrícula" — medido, só 39% dos ativos têm CPF. */
-  entraPor: string[];
 }
 
 /** Grava o recadastramento (o link é queimado no servidor). */

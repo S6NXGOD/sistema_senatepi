@@ -53,11 +53,12 @@ export class PortalFiliadoAdminController {
       senhaDefinidaEm: f.portalSenhaDefinidaEm,
       ultimoAcessoEm: f.portalUltimoAcessoEm,
       /*
-        A ficha mostra POR ONDE a pessoa vai entrar. Medido: só 39% dos ativos
-        têm CPF — sem este aviso a secretaria dita "entre com seu CPF" para
-        alguém que não tem CPF no cadastro, e a ligação volta.
+        SE ESTA PESSOA CONSEGUE ENTRAR. O portal é só por CPF, e 61% dos ativos
+        não têm CPF no cadastro — sem este aviso a secretaria libera o acesso,
+        dita a senha e a pessoa leva "CPF ou senha inválidos" sem ninguém
+        entender por quê.
       */
-      entraPor: f.cpf ? ['CPF', 'matrícula'] : ['matrícula'],
+      temCpf: !!f.cpf?.trim(),
       matricula: f.matricula,
     };
   }

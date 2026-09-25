@@ -417,7 +417,7 @@ export default function RecadastroPage({ params }: { params: Promise<{ token: st
                 <a href="/filiado" className="font-semibold underline">
                   {enderecoDoPortal()}
                 </a>{' '}
-                com {portal.entraPor.join(' ou ')} e troque a senha no primeiro acesso.
+                com o seu CPF e troque a senha no primeiro acesso.
               </p>
             </div>
           )}

@@ -6,12 +6,11 @@ export class LoginFiliadoDto {
   @ApiProperty({
     example: '123.456.789-00',
     description:
-      'CPF (com ou sem máscara) OU matrícula sindical. Medido: só 39% dos ' +
-      'ativos têm CPF e 100% têm matrícula — aceitar os dois é o que faz o ' +
-      'portal existir para todo mundo.',
+      'CPF, com ou sem máscara. É a única porta do portal (decisão do dono, ' +
+      '25/09/2026): quem não tem CPF no cadastro se recadastra na secretaria.',
   })
   @IsString()
-  identificacao: string;
+  cpf: string;
 
   @ApiProperty()
   @IsString()

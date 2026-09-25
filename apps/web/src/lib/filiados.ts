@@ -456,71 +456,19 @@ export async function conferirRecadastramento(id: string): Promise<Recadastramen
 }
 
 /**
- * A CARTEIRINHA EM UM CLIQUE — emite se faltar, e entrega.
+ * A CARTEIRINHA EM UM CLIQUE — e sem passo de emissão.
  *
- * 24/09/2026: *"Clico em carteirinha qr e não acontece nada. Emitir carteirinha
- * também não acontece nada."*
+ * Esta função existia para contornar o "emitir antes de baixar": ela sondava o
+ * PDF, reconhecia o 404 de "não emitida", chamava `POST /emitir` e baixava de
+ * novo — três requisições e uma regra de permissão para resolver um passo que
+ * não precisava existir.
  *
- * Eram TRÊS defeitos empilhados:
- *
- *  1. emitir devolvia **500** — o número saía de `count() + 1` e colidia (ver
- *     `carteirinhas.module`, corrigido);
- *  2. baixar um PDF de carteirinha não emitida devolve 404 com a mensagem
- *     certa, e `baixarPdf` engolia (corrigido em `lib/pdf`);
- *  3. e, mesmo com os dois consertados, sobrava um beco: "Carteirinha não
- *     emitida" é um aviso que não leva a lugar nenhum. Dos 5.827 filiados,
- *     **173 ativos não têm carteirinha** — é o caso comum, não a exceção.
- *
- * Emitir não é decisão de ninguém: o número é uma sequência e a validade é um
- * ano. Então quem clica em "Carteirinha" quer a carteirinha — se ela não
- * existe, o sistema a cria e entrega, sem pedir um segundo clique.
- *
- * A PERMISSÃO É RESPEITADA, e por isso `podeEmitir` vem de fora: a rota de
- * emitir carrega `@Roles(ADMINISTRADOR, COORDENACAO)` além da matriz, e quem
- * não tem esse perfil recebe a explicação em vez de um 403 mudo.
+ * "ISSO NÃO É UM RETRABALHO PARA A SECRETARIA?" — o dono, 25/09/2026. Era. Hoje
+ * o servidor cria a carteirinha na hora em que o PDF é pedido, então sobrou o
+ * download. O parâmetro `podeEmitir` saiu junto: não há mais o que permitir.
  */
-export async function baixarCarteirinha(
-  filiadoId: string,
-  opcoes: { podeEmitir: boolean; ativo: boolean },
-): Promise<void> {
-  const pdf = `/filiados/${filiadoId}/carteirinha/pdf`;
-  try {
-    await api.get(pdf, { responseType: 'blob' });
-    await baixarPdf(pdf);
-    return;
-  } catch (e) {
-    if (!(await ehCarteirinhaNaoEmitida(e))) {
-      await baixarPdf(pdf); // deixa o aviso padrão falar
-      return;
-    }
-  }
-  if (!opcoes.ativo) {
-    toast.error('A carteirinha só pode ser emitida para filiado ATIVO.');
-    return;
-  }
-  if (!opcoes.podeEmitir) {
-    toast.error('A carteirinha ainda não foi emitida. Peça à coordenação ou à administração.');
-    return;
-  }
-  try {
-    await api.post(`/filiados/${filiadoId}/carteirinha/emitir`);
-    toast.success('Carteirinha emitida.');
-    await baixarPdf(pdf);
-  } catch (e: any) {
-    toast.error(e?.response?.data?.message ?? 'Não foi possível emitir a carteirinha.');
-  }
-}
-
-/** O 404 específico de "ainda não emitida" — o corpo vem como Blob. */
-async function ehCarteirinhaNaoEmitida(e: unknown): Promise<boolean> {
-  const res = (e as { response?: { status?: number; data?: unknown } })?.response;
-  if (res?.status !== 404) return false;
-  if (!(res.data instanceof Blob)) return true;
-  try {
-    return /não emitida/i.test(await res.data.text());
-  } catch {
-    return true;
-  }
+export async function baixarCarteirinha(filiadoId: string): Promise<void> {
+  await baixarPdf(`/filiados/${filiadoId}/carteirinha/pdf`);
 }
 
 // ---------------------------------------------------------------------------
@@ -534,12 +482,11 @@ export interface AcessoAoPortal {
   senhaDefinidaEm: string | null;
   ultimoAcessoEm: string | null;
   /**
-   * Por onde a pessoa consegue entrar.
-   *
-   * Medido: só 39% dos ativos têm CPF. Sem este aviso, a secretaria dita "entre
-   * com seu CPF" para quem não tem CPF no cadastro — e a ligação volta.
+   * Se esta pessoa CONSEGUE entrar. O portal é só por CPF e 61% dos ativos não
+   * têm CPF no cadastro — sem este aviso a secretaria libera o acesso, dita a
+   * senha e a pessoa leva "CPF ou senha inválidos" sem ninguém entender por quê.
    */
-  entraPor: string[];
+  temCpf: boolean;
   matricula: string;
 }
 

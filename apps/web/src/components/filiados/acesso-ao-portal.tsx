@@ -90,6 +90,25 @@ export function AcessoAoPortal({
           <p className="text-sm text-muted-foreground">
             Quem foi desfiliado não tem portal. Reative a filiação para liberar o acesso.
           </p>
+        ) : !data?.temCpf ? (
+          /*
+            SEM CPF NÃO HÁ PORTAL, e a ficha diz isso ANTES do clique.
+
+            O portal entra só pelo CPF, e 61% dos ativos não têm CPF no
+            cadastro. Sem este bloco, a secretaria liberaria o acesso, ditaria a
+            senha e a pessoa levaria "CPF ou senha inválidos" — os dois lados
+            achando que o sistema falhou, quando falta um campo do cadastro.
+          */
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/70 dark:bg-amber-900/20">
+            <p className="font-semibold text-amber-900 dark:text-amber-200">
+              Este cadastro não tem CPF.
+            </p>
+            <p className="mt-1 text-xs leading-snug text-amber-900/80 dark:text-amber-200/80">
+              O portal entra pelo CPF. Preencha o CPF na ficha — ou envie o link de
+              recadastramento, que pede o dado ao próprio {V.filiado} — e o botão de liberar
+              aparece aqui.
+            </p>
+          </div>
         ) : (
           <>
             {/* ---- A senha recém-gerada, enquanto a tela está aberta ---- */}
@@ -116,10 +135,7 @@ export function AcessoAoPortal({
                   <strong>Anote ou envie agora.</strong> Ela não aparece de novo — o sistema guarda
                   só o embaralhado, e nem o administrador consegue lê-la. Se perder, gere outra.
                   {' '}
-                  {V.Filiado} entra por{' '}
-                  <strong>{(data?.entraPor ?? ['matrícula']).join(' ou ')}</strong>
-                  {data?.matricula && ` (matrícula ${data.matricula})`} e troca a senha no primeiro
-                  acesso.
+                  {V.Filiado} entra com o <strong>CPF</strong> e troca a senha no primeiro acesso.
                 </p>
               </div>
             ) : (

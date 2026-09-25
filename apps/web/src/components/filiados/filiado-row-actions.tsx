@@ -113,10 +113,7 @@ export function FiliadoRowActions({
             */}
             <MenuItem
               icon={<IdCard className="h-4 w-4" />}
-              onClick={() => run(() => baixarCarteirinha(filiado.id, {
-                podeEmitir: user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO',
-                ativo: filiado.situacao === 'ATIVO',
-              }))}
+              onClick={() => run(() => baixarCarteirinha(filiado.id))}
             >
               Carteirinha
             </MenuItem>

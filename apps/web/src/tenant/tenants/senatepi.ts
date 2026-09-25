@@ -21,12 +21,16 @@ const PALETA_SENATEPI: PaletaMarca = {
   50: '#F1F8E9',
 };
 
-/** SENATEPI — Sindicato dos Enfermeiros do Piauí. Cliente nº 1, em produção. */
+/** SENATEPI — Sindicato da Enfermagem do Piauí. Cliente nº 1, em produção. */
 export const senatepi: TenantConfigWeb = {
   id: 'senatepi',
   sigla: 'SENATEPI',
   nome: 'SINDICATO DOS ENFERMEIROS, AUXILIARES E TÉCNICOS EM ENFERMAGEM DO ESTADO DO PIAUÍ',
-  descricao: 'Sindicato dos Enfermeiros do Piauí',
+  /*
+    "O sindicato é da enfermagem e não dos enfermeiros" — o dono, 25/09/2026.
+    Auxiliares e técnicos são duas das três categorias do nome completo.
+  */
+  descricao: 'Sindicato da Enfermagem do Piauí',
   paleta: PALETA_SENATEPI,
   vocabulario: {
     filiado: 'filiado',

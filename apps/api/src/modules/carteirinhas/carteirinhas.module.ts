@@ -75,23 +75,74 @@ export class CarteirinhasService {
     private readonly storage: StorageService,
   ) {}
 
-  /** Emite (ou retorna) a carteirinha após aprovação da filiação. */
-  async emitir(filiadoId: string) {
-    const filiado = await this.prisma.filiado.findUnique({ where: { id: filiadoId } });
+  /**
+   * A CARTEIRINHA EXISTE QUANDO ALGUÉM PRECISA DELA — não quando alguém clica.
+   *
+   * "O QUE É ESSE 'EMITIR CARTEIRINHA'? ISSO NÃO É UM RETRABALHO PARA A
+   * SECRETARIA DO SINDICATO?" — o dono, 25/09/2026. É, e a medição dá a ele:
+   *
+   *   ativos ...................... 5.810
+   *   já tinham carteirinha ....... 5.642  (todas na carga de 03/07/2026)
+   *   sem carteirinha ................ 168  (2,9%)
+   *   emitidas depois da carga ......... 1
+   *
+   * Um passo manual que servia a 2,9% das pessoas e, para elas, TRAVAVA o
+   * documento até alguém lembrar de clicar. E o clique não decide nada: o
+   * cartão não carrega um único dado que o cadastro já não tenha — "emitir" só
+   * criava o número e a validade, que o sistema sabe gerar sozinho.
+   *
+   * Agora a carteirinha nasce na hora em que o PDF é pedido, pela secretaria ou
+   * pelo próprio filiado no portal. E RENOVA sozinha quando vence: um cartão
+   * vencido na mão de quem está em dia é defeito nosso, não dela.
+   *
+   * O NÚMERO NUNCA MUDA na renovação. Ele é a identidade do cartão no histórico
+   * e na conferência; trocá-lo faria a carteirinha de dezembro não ser a mesma
+   * de janeiro para ninguém que tivesse anotado.
+   */
+  async garantirCarteirinha(filiadoId: string) {
+    const filiado = await this.prisma.filiado.findUnique({
+      where: { id: filiadoId },
+      select: { id: true, situacao: true },
+    });
     if (!filiado) throw new NotFoundException('Filiado não encontrado');
+
+    const existente = await this.prisma.carteirinha.findUnique({ where: { filiadoId } });
+
+    if (existente) {
+      const vencida = !!existente.validaAte && existente.validaAte < new Date();
+      /*
+        RENOVA SÓ PARA QUEM ESTÁ ATIVO. Um cartão vencido de quem saiu do quadro
+        continua vencido — e é o que ele deve dizer.
+      */
+      if (!vencida || filiado.situacao !== SituacaoFiliado.ATIVO) return existente;
+
+      const renovada = await this.prisma.carteirinha.update({
+        where: { filiadoId },
+        data: { validaAte: daquiAUmAnoBR(), status: StatusCarteirinha.ATIVA },
+      });
+      await this.prisma.filiadoHistorico.create({
+        data: {
+          filiadoId,
+          tipo: TipoHistoricoFiliado.GERACAO_CARTEIRINHA,
+          descricao: `Carteirinha ${renovada.numero} renovada automaticamente (estava vencida).`,
+        },
+      });
+      return renovada;
+    }
+
     if (filiado.situacao !== SituacaoFiliado.ATIVO)
       throw new BadRequestException('Carteirinha só pode ser emitida para filiado ATIVO');
 
-    const existente = await this.prisma.carteirinha.findUnique({ where: { filiadoId } });
-    if (existente) return existente;
-
     /* Um ano pelo calendário DAQUI — `setFullYear` lê o relógio do contêiner,
        que às 21h de 31/12 já virou o ano. Ver `daquiAUmAnoBR`. */
-    const validaAte = daquiAUmAnoBR();
-
     const carteirinha = await this.comNumeroLivre((numero) =>
       this.prisma.carteirinha.create({
-        data: { filiadoId, numero, validaAte, status: StatusCarteirinha.ATIVA },
+        data: {
+          filiadoId,
+          numero,
+          validaAte: daquiAUmAnoBR(),
+          status: StatusCarteirinha.ATIVA,
+        },
       }),
     );
 
@@ -103,6 +154,18 @@ export class CarteirinhasService {
       },
     });
     return carteirinha;
+  }
+
+  /**
+   * O NOME ANTIGO, mantido de propósito.
+   *
+   * A rota `POST /emitir` continua existindo porque, durante a janela de troca
+   * do deploy, o contêiner ANTIGO do web ainda a chama — e receber 404 ali faria
+   * a carteirinha falhar justamente para quem tentasse baixá-la nesse minuto.
+   * Hoje ela é idempotente e não é mais chamada por tela nenhuma.
+   */
+  async emitir(filiadoId: string) {
+    return this.garantirCarteirinha(filiadoId);
   }
 
   /**
@@ -179,8 +242,11 @@ export class CarteirinhasService {
       where: { id: filiadoId },
       include: { carteirinha: true },
     });
-    if (!filiado || !filiado.carteirinha)
-      throw new NotFoundException('Carteirinha não emitida');
+    if (!filiado) throw new NotFoundException('Filiado não encontrado');
+    if (!filiado.carteirinha)
+      throw new NotFoundException(
+        'Este filiado ainda não tem carteirinha — ela nasce ao baixar o PDF.',
+      );
 
     const payload = this.qr.montarPayload(filiado.id, TipoPessoa.FILIADO, filiado.qrToken);
     const fotoUrl = filiado.fotoKey
@@ -210,14 +276,14 @@ export class CarteirinhasService {
    * o filiado para desenhar o cartão é quem sabe como ele se chama.
    */
   async gerarPdf(filiadoId: string): Promise<DocumentoGerado> {
-    const filiado = await this.prisma.filiado.findUnique({
-      where: { id: filiadoId },
-      include: { carteirinha: true },
-    });
-    if (!filiado || !filiado.carteirinha)
-      throw new NotFoundException('Carteirinha não emitida');
-
-    const carteirinha = filiado.carteirinha;
+    /*
+      NASCE AQUI SE PRECISAR. Antes, pedir o PDF de quem não tinha carteirinha
+      devolvia 404 "Carteirinha não emitida" — uma parede para 168 pessoas, com
+      a saída escondida atrás de outro botão, noutro canto da ficha.
+    */
+    const carteirinha = await this.garantirCarteirinha(filiadoId);
+    const filiado = await this.prisma.filiado.findUnique({ where: { id: filiadoId } });
+    if (!filiado) throw new NotFoundException('Filiado não encontrado');
     const payload = this.qr.montarPayload(filiado.id, TipoPessoa.FILIADO, filiado.qrToken);
     const qrImagem = await this.qr.gerarImagemDataUrl(payload);
     const fotoBuffer = filiado.fotoKey ? await this.storage.getBuffer(filiado.fotoKey) : null;

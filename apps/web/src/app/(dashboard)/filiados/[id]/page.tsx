@@ -111,10 +111,6 @@ export default function PerfilFiliadoPage() {
   // Recadastrar, Editar, situação, carteirinha e anexo gravam no cadastro: a API
   // exige filiados EDITAR. Quem só visualiza não vê o botão que levaria 403.
   const podeEditarFiliado = podeEditar(user?.role, user?.permissoes, 'filiados');
-  // A rota de emitir ainda carrega @Roles(ADMINISTRADOR, COORDENACAO) além da
-  // matriz: a tela espelha as duas travas para não oferecer o 403.
-  const podeEmitirCarteirinha =
-    podeEditarFiliado && (user?.role === 'ADMINISTRADOR' || user?.role === 'COORDENACAO');
   const [recadastrarAberto, setRecadastrarAberto] = useState(false);
   const [dossieAberto, setDossieAberto] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -130,12 +126,6 @@ export default function PerfilFiliadoPage() {
     mutationFn: async (situacao: string) => api.patch(`/filiados/${id}/situacao`, { situacao }),
     onSuccess: () => { toast.success('Situação atualizada'); invalidar(); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Erro ao alterar situação'),
-  });
-
-  const emitirCarteirinha = useMutation({
-    mutationFn: async () => api.post(`/filiados/${id}/carteirinha/emitir`),
-    onSuccess: () => { toast.success('Carteirinha emitida'); invalidar(); },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Erro ao emitir'),
   });
 
   const uploadDoc = useMutation({
@@ -235,14 +225,8 @@ export default function PerfilFiliadoPage() {
             abrir o arquivo baixado.
           */}
           <Button variant="outline" onClick={() => baixarPdf(`/filiados/${f.id}/termo/pdf`)}><FileText className="h-4 w-4" /> Baixar Termo</Button>
-          {/* Um clique: emite se faltar e entrega. Ver `baixarCarteirinha`. */}
-          <Button
-            variant="secondary"
-            onClick={() => baixarCarteirinha(f.id, {
-              podeEmitir: podeEmitirCarteirinha,
-              ativo: f.situacao === 'ATIVO',
-            })}
-          >
+          {/* Um clique: o servidor cria a carteirinha se faltar, e entrega. */}
+          <Button variant="secondary" onClick={() => baixarCarteirinha(f.id)}>
             <IdCard className="h-4 w-4" /> Carteirinha
           </Button>
           {/* Abre a escolha: presencial (equipe) ou link de 24h para o filiado */}
@@ -543,29 +527,37 @@ export default function PerfilFiliadoPage() {
                   <Info label="Número" valor={f.carteirinha.numero} />
                   <Info label="Emitida em" valor={formatarData(f.carteirinha.emitidaEm)} />
                   <Info label="Válida até" valor={formatarData(f.carteirinha.validaAte)} />
-                  {/*
-                    Dois botões, porque são duas intenções. "Ver" abre na aba e
-                    o arquivo não tem nome — serve para conferir a foto antes de
-                    imprimir. "Baixar" entrega com o nome do filiado.
-                  */}
-                  <div className="flex w-full gap-2">
-                    <Button variant="outline" className="flex-1" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}>Ver</Button>
-                    <Button className="flex-1" onClick={() => baixarPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Baixar</Button>
-                  </div>
                 </>
+              ) : f.situacao === 'ATIVO' ? (
+                /*
+                  "ISSO NÃO É UM RETRABALHO PARA A SECRETARIA?" — o dono,
+                  25/09/2026, sobre o botão "Emitir carteirinha". Era: servia a
+                  168 pessoas de 5.810 e, para elas, TRAVAVA o documento até
+                  alguém lembrar de clicar. O clique não decidia nada — o cartão
+                  não tem um dado que o cadastro já não tenha.
+
+                  Agora ela nasce ao baixar, e o botão sumiu.
+                */
+                <p className="text-sm text-muted-foreground">
+                  A carteirinha é criada na hora em que você baixar — o número e a validade saem
+                  sozinhos.
+                </p>
               ) : (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    {f.situacao === 'ATIVO'
-                      ? 'Carteirinha ainda não emitida.'
-                      : 'A carteirinha só pode ser emitida para filiado ATIVO.'}
-                  </p>
-                  {podeEmitirCarteirinha && (
-                    <Button className="w-full" disabled={f.situacao !== 'ATIVO' || emitirCarteirinha.isPending} onClick={() => emitirCarteirinha.mutate()}>
-                      {emitirCarteirinha.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />} Emitir carteirinha
-                    </Button>
-                  )}
-                </>
+                <p className="text-sm text-muted-foreground">
+                  A carteirinha só vale para filiado ATIVO.
+                </p>
+              )}
+
+              {(f.carteirinha || f.situacao === 'ATIVO') && (
+                /*
+                  Dois botões, porque são duas intenções. "Ver" abre na aba e o
+                  arquivo não tem nome — serve para conferir antes de imprimir.
+                  "Baixar" entrega com o nome do filiado.
+                */
+                <div className="flex w-full gap-2">
+                  <Button variant="outline" className="flex-1" onClick={() => abrirPdf(`/filiados/${f.id}/carteirinha/pdf`)}>Ver</Button>
+                  <Button className="flex-1" onClick={() => baixarPdf(`/filiados/${f.id}/carteirinha/pdf`)}><IdCard className="h-4 w-4" /> Baixar</Button>
+                </div>
               )}
             </CardContent>
           </Card>

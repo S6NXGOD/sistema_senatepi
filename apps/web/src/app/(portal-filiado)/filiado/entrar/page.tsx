@@ -8,21 +8,22 @@ import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ErroPortal, loginFiliado } from '@/lib/portal-filiado';
+import { mascaraCpf } from '@/lib/colonia';
 import { ROTA_INICIO, ROTA_SENHA, usePortalFiliado } from '@/components/portal-filiado/portal-guard';
 import { V } from '@/lib/vocabulario';
 
 export default function EntrarNoPortalPage() {
   const router = useRouter();
   const { atualizar } = usePortalFiliado();
-  const [identificacao, setIdentificacao] = useState('');
+  const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
   const [verSenha, setVerSenha] = useState(false);
   const [entrando, setEntrando] = useState(false);
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();
-    if (!identificacao.trim()) {
-      toast.error('Informe seu CPF ou sua matrícula.');
+    if (cpf.replace(/\D/g, '').length !== 11) {
+      toast.error('Informe o CPF completo, com 11 dígitos.');
       return;
     }
     if (!senha) {
@@ -32,7 +33,7 @@ export default function EntrarNoPortalPage() {
 
     setEntrando(true);
     try {
-      const filiado = await loginFiliado(identificacao, senha);
+      const filiado = await loginFiliado(cpf, senha);
       atualizar(filiado);
       const primeiroNome = filiado.nomeCompleto.trim().split(/\s+/)[0];
       toast.success(`Bem-vindo(a), ${primeiroNome}.`);
@@ -69,26 +70,27 @@ export default function EntrarNoPortalPage() {
 
         <form onSubmit={entrar} className="space-y-4 rounded-2xl border bg-card p-6 shadow-sm">
           <div className="space-y-1.5">
-            <label htmlFor="identificacao" className="text-sm font-medium">
-              CPF ou matrícula
+            <label htmlFor="cpf" className="text-sm font-medium">
+              CPF
             </label>
             <Input
-              id="identificacao"
+              id="cpf"
               autoFocus
+              inputMode="numeric"
               autoComplete="username"
-              placeholder="000.000.000-00 ou sua matrícula"
-              value={identificacao}
-              onChange={(e) => setIdentificacao(e.target.value)}
+              placeholder="000.000.000-00"
+              value={cpf}
+              onChange={(e) => setCpf(mascaraCpf(e.target.value))}
             />
             {/*
-              A DICA DA MATRÍCULA NÃO É DECORAÇÃO. Medido: só 39% dos ativos têm
-              CPF no cadastro. Quem não tem tentaria o CPF, levaria "inválidos" e
-              concluiria que não tem acesso — quando tem, pela matrícula, que
-              está impressa na carteirinha dele.
+              A DICA NÃO É DECORAÇÃO. Medido: 61% dos ativos não têm CPF no
+              cadastro. Quem está nesse grupo tentaria, levaria "inválidos" e
+              concluiria que o portal está quebrado — quando o que falta é um
+              campo no cadastro, que só a secretaria preenche.
             */}
             <p className="text-[11px] leading-snug text-muted-foreground">
-              A matrícula está na sua carteirinha. Se o sindicato ainda não tem seu CPF, entre
-              por ela.
+              É o CPF que o sindicato tem no seu cadastro. Se ele não tiver, procure a
+              secretaria para atualizar — é o que libera seu acesso.
             </p>
           </div>
 

@@ -100,16 +100,16 @@ export function encerrarSessao() {
 // ---------------------------------------------------------------------------
 
 /**
- * Login por CPF **ou** matrícula.
+ * Login por CPF — a única porta do portal (decisão do dono, 25/09/2026).
  *
- * O texto vai como foi digitado: quem separa os dois é o servidor, numa
- * consulta só. Limpar aqui exigiria adivinhar de qual dos dois se trata — e
- * "6114" é matrícula legítima no SENATEPI.
+ * A máscara é tirada AQUI porque o campo da tela a coloca; o servidor também
+ * limpa, e ter os dois lados limpando é de propósito: o dia em que alguém colar
+ * o CPF de outro jeito, nenhum dos dois quebra.
  */
-export async function loginFiliado(identificacao: string, senha: string): Promise<FiliadoSessao> {
+export async function loginFiliado(cpf: string, senha: string): Promise<FiliadoSessao> {
   const r = await chamar<RespostaAuth>('/portal-filiado/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ identificacao: identificacao.trim(), senha }),
+    body: JSON.stringify({ cpf: cpf.replace(/\D/g, ''), senha }),
   });
   salvarSessao(r);
   return r.filiado;

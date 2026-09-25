@@ -637,13 +637,19 @@ export class LinkRecadastramentoService {
   private async senhaDoPortalSeForPrimeiraVez(
     filiadoId: string,
     ip?: string,
-  ): Promise<{ senhaProvisoria: string; entraPor: string[] } | null> {
+  ): Promise<{ senhaProvisoria: string } | null> {
     try {
       const f = await this.prisma.filiado.findUnique({
         where: { id: filiadoId },
         select: { portalSenhaHash: true, cpf: true },
       });
       if (!f || f.portalSenhaHash) return null;
+      /*
+        SÓ COM CPF, e a leitura é DEPOIS do update de propósito: quem chegou sem
+        CPF e informou um agora acabou de ganhar a porta do portal, nesta mesma
+        tela. Quem não informou continua sem — e o portal entra só pelo CPF.
+      */
+      if (!f.cpf?.trim()) return null;
 
       const { senhaProvisoria } = await this.portal.emitirSenhaProvisoria(
         filiadoId,
@@ -651,13 +657,7 @@ export class LinkRecadastramentoService {
         { id: null, nome: 'recadastramento online' },
         { ip },
       );
-      /*
-        POR ONDE ELA VAI ENTRAR. Medido: só 39% dos ativos têm CPF. Quem acabou
-        de INFORMAR o CPF no recadastramento passa a ter os dois caminhos — e a
-        tela precisa dizer qual, senão a pessoa tenta o CPF que o sindicato não
-        tem e conclui que não recebeu acesso.
-      */
-      return { senhaProvisoria, entraPor: f.cpf ? ['CPF', 'matrícula'] : ['matrícula'] };
+      return { senhaProvisoria };
     } catch {
       return null;
     }

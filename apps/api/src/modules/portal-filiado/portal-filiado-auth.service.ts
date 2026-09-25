@@ -27,25 +27,23 @@ interface Ctx {
 }
 
 /**
- * A IDENTIFICAÇÃO ACEITA CPF **OU** MATRÍCULA.
+ * O LOGIN É SÓ PELO CPF — decisão do dono, 25/09/2026.
  *
- * O dono pediu CPF. A medição (5.810 ATIVOS) disse que CPF sozinho tranca
- * 3.517 pessoas para fora:
+ * Eu havia aberto para CPF **ou** matrícula por causa da medição (5.810
+ * ATIVOS): matrícula 5.810 (100%), CPF 2.293 (39%). Ele insistiu no CPF, com o
+ * encaminhamento explícito: *"quem não tem CPF cadastrado vai ter que se
+ * recadastrar na secretaria"*.
  *
- *   matrícula ..... 5.810 (100%), todas distintas
- *   CPF ........... 2.293 (39%)
- *
- * Os dois já são ÚNICOS no banco. O CPF é o que a pessoa lembra; a matrícula é
- * o que ela tem IMPRESSA na carteirinha. Uma consulta só, com `OR`, resolve os
- * dois sem dar duas respostas de tempo diferente.
+ * É defensável, e o sistema sustenta: o CPF é o único identificador que a
+ * pessoa sabe de cabeça, e o link de recadastramento já grava o CPF que ela
+ * informa — quem entra sem CPF sai com CPF e com o acesso criado na mesma tela.
+ * O que o código tem de garantir é que ninguém receba senha que não vai
+ * funcionar: `emitirSenhaProvisoria` RECUSA cadastro sem CPF, e a ficha diz
+ * isso à secretaria antes do clique.
  */
-export function separarIdentificacao(bruta: string): { cpf: string; matricula: string } {
-  const limpa = (bruta ?? '').trim();
-  return {
-    // CPF chega mascarado do celular ("123.456.789-00") e cru do teclado.
-    cpf: limpa.replace(/[^0-9]/g, ''),
-    matricula: limpa.toUpperCase(),
-  };
+export function apenasDigitosDoCpf(bruto: string): string {
+  // Chega mascarado do celular ("123.456.789-00") e cru do teclado.
+  return (bruto ?? '').trim().replace(/[^0-9]/g, '');
 }
 
 @Injectable()
@@ -64,41 +62,36 @@ export class PortalFiliadoAuthService {
   // =========================================================================
 
   async login(dto: LoginFiliadoDto, ctx: Ctx) {
-    const { cpf, matricula } = separarIdentificacao(dto.identificacao);
+    const cpf = apenasDigitosDoCpf(dto.cpf);
 
     /*
-      UMA ÚNICA MENSAGEM para todos os motivos de recusa (identificação vazia,
-      inexistente, sem acesso liberado, desfiliado ou senha errada). Detalhar
-      aqui entregaria a um atacante quais CPFs pertencem a filiados — e a base é
-      de profissionais de saúde de um estado inteiro.
+      UMA ÚNICA MENSAGEM para todos os motivos de recusa (CPF vazio, inexistente,
+      sem acesso liberado, desfiliado ou senha errada). Detalhar aqui entregaria
+      a um atacante quais CPFs pertencem a filiados — e a base é de profissionais
+      de saúde de um estado inteiro.
     */
-    const recusar = () => new UnauthorizedException('CPF/matrícula ou senha inválidos.');
+    const recusar = () => new UnauthorizedException('CPF ou senha inválidos.');
 
-    const filiado =
-      cpf || matricula
-        ? await this.prisma.filiado.findFirst({
-            where: {
-              OR: [...(cpf ? [{ cpf }] : []), ...(matricula ? [{ matricula }] : [])],
-            },
-            select: {
-              id: true,
-              nomeCompleto: true,
-              matricula: true,
-              situacao: true,
-              portalSenhaHash: true,
-              portalPrimeiroAcesso: true,
-            },
-          })
-        : null;
+    const filiado = cpf
+      ? await this.prisma.filiado.findUnique({
+          where: { cpf },
+          select: {
+            id: true,
+            nomeCompleto: true,
+            matricula: true,
+            situacao: true,
+            portalSenhaHash: true,
+            portalPrimeiroAcesso: true,
+          },
+        })
+      : null;
 
     const confere = await bcrypt.compare(dto.senha, filiado?.portalSenhaHash ?? HASH_FALSO);
     const semAcesso = !filiado?.portalSenhaHash;
     const encerrado = filiado?.situacao === SituacaoFiliado.DESFILIADO;
 
     if (semAcesso || encerrado || !confere) {
-      this.logger.warn(
-        `[PORTAL-FILIADO] Login recusado para "${dto.identificacao?.slice(0, 20) ?? ''}"`,
-      );
+      this.logger.warn(`[PORTAL-FILIADO] Login recusado (CPF de ${cpf.length} dígitos)`);
       /*
         A TENTATIVA FALHA TAMBÉM VAI PARA A AUDITORIA quando sabemos de quem é.
         É o que permite ver "esta pessoa tentou seis vezes ontem" — quase sempre
@@ -249,6 +242,22 @@ export class PortalFiliadoAuthService {
         'Quem foi desfiliado não tem portal. Reative a filiação antes de liberar o acesso.',
       );
     }
+    /*
+      SEM CPF, SEM PORTAL — e a recusa é aqui, não na tela de login.
+
+      O portal entra só pelo CPF (decisão do dono). Gerar uma senha para quem
+      não tem CPF no cadastro produziria a pior combinação possível: a
+      secretaria dita a senha, a pessoa tenta entrar, leva "CPF ou senha
+      inválidos" e liga de volta — e ninguém dos dois lados descobre que o
+      problema era um campo vazio no cadastro. Recusar aqui transforma isso numa
+      frase que diz o que fazer.
+    */
+    if (!filiado.cpf?.trim()) {
+      throw new BadRequestException(
+        'Este cadastro não tem CPF, e o portal entra pelo CPF. ' +
+          'Atualize o cadastro (ou peça o recadastramento) antes de liberar o acesso.',
+      );
+    }
 
     const senhaProvisoria = gerarSenhaProvisoria();
     await this.prisma.filiado.update({
@@ -270,7 +279,7 @@ export class PortalFiliadoAuthService {
       descricao: `Senha provisória do portal emitida por ${porQuem.nome}: ${filiado.nomeCompleto}`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { matricula: filiado.matricula, temCpf: !!filiado.cpf },
+      metadata: { matricula: filiado.matricula },
     });
 
     return {
