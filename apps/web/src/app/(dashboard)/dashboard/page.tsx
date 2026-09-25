@@ -1375,7 +1375,7 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
   if (!robo) return null;
   const {
     situacao, processosMonitorados, ultimaSincronizacao, falhasProcessos,
-    horasAteAtraso, desconhecidosNoCnj,
+    horasAteAtraso, desconhecidosNoCnj, desconhecidosTotal,
   } = robo;
   const desde = ultimaSincronizacao
     ? idadeDoDado(new Date(ultimaSincronizacao).getTime())
@@ -1391,7 +1391,7 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
     />
   );
   const desconhecidosBar = !resumido && !!desconhecidosNoCnj?.length && (
-    <DesconhecidosNoCnj itens={desconhecidosNoCnj} />
+    <DesconhecidosNoCnj itens={desconhecidosNoCnj} total={desconhecidosTotal} />
   );
 
   /*
@@ -1482,7 +1482,17 @@ function AvisoRobo({ robo, resumido }: { robo: ResumoDashboard['robo']; resumido
  * ainda não está no índice, e cobrar isso seria acusar o tribunal de um atraso
  * que é normal.
  */
-function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
+function DesconhecidosNoCnj({
+  itens,
+  total,
+}: {
+  itens: ProcessoDesconhecidoNoCnj[];
+  /**
+   * Quantos existem de verdade. A API corta em 10; ausente (janela de troca) é
+   * "não sei", e aí a faixa não anuncia corte nenhum em vez de inventar um.
+   */
+  total?: number;
+}) {
   const [aberto, setAberto] = useState(false);
   /*
     UM FORA DO PRAZO NÃO ACUSA OS OUTROS SEIS (25/09/2026).
@@ -1495,7 +1505,17 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
   */
   const { passaramDoPrazo, aindaNoPrazo, ordenados } = separarDesconhecidos(itens);
   const nVelhos = passaramDoPrazo.length;
-  const nNovos = aindaNoPrazo.length;
+  /*
+    OS QUE O CORTE COMEU SÃO, NECESSARIAMENTE, OS MAIS NOVOS.
+
+    A API ordena por idade e corta em 10. Então tudo que ficou de fora é mais
+    recente que o último da lista — e, como o último já está dentro do prazo
+    sempre que houve corte, o que sobrou também está. Somar a diferença aqui é
+    exato, não estimativa: a frase diz "outros 14" quando são 14, em vez de
+    contar só o que coube na lista.
+  */
+  const escondidos = Math.max(0, (total ?? itens.length) - itens.length);
+  const nNovos = aindaNoPrazo.length + escondidos;
 
   return (
     <div className="rounded-xl border border-input bg-muted/40 text-sm text-muted-foreground">
@@ -1653,6 +1673,18 @@ function DesconhecidosNoCnj({ itens }: { itens: ProcessoDesconhecidoNoCnj[] }) {
               </li>
             );
           })}
+          {/*
+            O CORTE NUNCA É SILENCIOSO. A API devolve no máximo 10, e corte
+            calado já escondeu 2 dos 3 atrasados nesta mesma tela em 24/09.
+            Só aparece quando corta — e some quando o total é desconhecido, que
+            é o caso da API antiga na janela de troca.
+          */}
+          {escondidos > 0 && (
+            <li className="border-t border-input/60 px-4 py-2 text-xs opacity-70">
+              e mais {escondidos}, {escondidos === 1 ? 'mais recente' : 'mais recentes'} — os
+              mais antigos vêm primeiro.
+            </li>
+          )}
         </ul>
       )}
     </div>

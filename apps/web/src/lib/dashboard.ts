@@ -463,6 +463,13 @@ export interface ResumoDashboard {
     falhasMostradas?: number;
     /** NPUs que o CNJ não encontra — conferência de cadastro, não falha. */
     desconhecidosNoCnj?: ProcessoDesconhecidoNoCnj[];
+    /**
+     * Quantos NPUs desconhecidos existem, antes do corte de 10 da API.
+     *
+     * Ausente na janela de troca (API antiga): a tela trata como "não sei" e
+     * não anuncia corte nenhum, em vez de afirmar que a lista é tudo.
+     */
+    desconhecidosTotal?: number;
   } | null;
   /**
    * Carga da equipe — quem está sobrecarregado e quem está atrasado.

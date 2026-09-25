@@ -165,6 +165,20 @@ describe('os NPUs que o CNJ não encontra', () => {
     expect(DASH).not.toContain('ORDER BY n.tentativas DESC');
   });
 
+  /**
+   * E O CORTE DIZ QUE CORTOU.
+   *
+   * São no máximo 10, e corte calado já escondeu 2 dos 3 atrasados nesta mesma
+   * tela em 24/09/2026. Hoje são 7 na produção; numa semana ruim de cadastro a
+   * faixa diria "outros 9" havendo 14. `count(*) OVER ()` conta depois do WHERE
+   * e antes do LIMIT, sem uma segunda consulta.
+   */
+  it('devolve quantos são de verdade, antes do LIMIT', () => {
+    expect(DASH).toContain('count(*) OVER ()::int AS total');
+    expect(DASH).toContain('desconhecidosTotal: situacao');
+    expect(DASH).toContain('desconhecidos[0]?.total ?? 0');
+  });
+
   /** Lista própria: não é falha do robô, é conferência de cadastro. */
   it('vão numa lista separada das falhas', () => {
     expect(DASH).toContain('desconhecidosNoCnj: situacao === \'SEM_OBJETO\' ? [] : desconhecidos');

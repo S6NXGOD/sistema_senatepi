@@ -219,6 +219,15 @@ interface ProcessoDesconhecidoNoCnj {
   desde: Date;
   /** A última tentativa. É o que diz, na tela, que o robô não desistiu. */
   ultima: Date;
+  /**
+   * QUANTOS SÃO NO TOTAL, antes do LIMIT — repetido em toda linha, como
+   * `count(*) OVER ()` devolve.
+   *
+   * O corte de 10 era silencioso, e corte silencioso já escondeu 2 dos 3
+   * atrasados nesta mesma tela em 24/09. Com 7 na lista hoje ninguém percebe;
+   * numa semana ruim de cadastro a faixa diria "outros 9" havendo 14.
+   */
+  total: number;
 }
 
 /** Campos mínimos de um compromisso para os cards da home (LGPD: só o essencial). */
@@ -2037,6 +2046,12 @@ export class DashboardService {
        * (gravado como sucesso) enquanto o robô perguntava 151 vezes em 7 dias.
        */
       desconhecidosNoCnj: situacao === 'SEM_OBJETO' ? [] : desconhecidos,
+      /**
+       * Quantos existem de verdade. Quando é maior que `desconhecidosNoCnj`, o
+       * corte de 10 agiu — e a faixa tem de dizer isso em vez de contar só o
+       * que coube, como `falhasMostradas` já faz para as falhas.
+       */
+      desconhecidosTotal: situacao === 'SEM_OBJETO' ? 0 : (desconhecidos[0]?.total ?? 0),
     };
   }
 
@@ -2205,7 +2220,9 @@ export class DashboardService {
              f.nome_completo AS "filiado",
              n.tentativas,
              r.primeira AS "desde",
-             n.ultima
+             n.ultima,
+             /* Conta depois do WHERE e antes do LIMIT; ver "total" no tipo. */
+             count(*) OVER ()::int AS total
         FROM nao_achados n
         JOIN recusas r ON r.numero_cnj = n.numero_cnj
         LEFT JOIN processos p ON p.id = n.processo_id

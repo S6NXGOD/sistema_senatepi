@@ -207,3 +207,35 @@ describe('os motivos de falha, em português', () => {
     expect(motivoFalhaDatajud({ httpStatus: 400 } as never).passageiro).toBe(false);
   });
 });
+
+/**
+ * O CORTE DE 10 DA API NÃO PODE SER CALADO.
+ *
+ * A consulta devolve no máximo 10 NPUs desconhecidos. Com 7 na produção hoje
+ * ninguém nota; numa semana ruim de cadastro a faixa contaria só o que coube na
+ * lista e diria "outros 9" havendo 14 — que é exatamente como o corte por
+ * recência escondeu 2 dos 3 atrasados em 24/09/2026.
+ *
+ * E o que o corte come é, necessariamente, o MAIS NOVO: a API ordena por idade.
+ * Então somar a diferença ao grupo "ainda no prazo" é exato, e não estimativa.
+ */
+describe('o que ficou de fora do corte continua contado', () => {
+  it('a faixa soma os escondidos ao grupo que ainda está no prazo', () => {
+    expect(TELA).toContain('const escondidos = Math.max(0, (total ?? itens.length) - itens.length);');
+    expect(TELA).toContain('const nNovos = aindaNoPrazo.length + escondidos;');
+  });
+
+  /** E a lista diz que não mostrou tudo. */
+  it('a lista anuncia quantos não couberam', () => {
+    expect(TELA).toContain('{escondidos > 0 && (');
+    expect(TELA).toContain('e mais {escondidos},');
+  });
+
+  /**
+   * SEM O TOTAL, NÃO INVENTA CORTE. A API antiga da janela de troca não manda o
+   * campo; aí `escondidos` é 0 e a faixa conta o que tem, como antes.
+   */
+  it('total ausente é "não sei", e não "cortou zero"', () => {
+    expect(TELA).toContain('total ?? itens.length');
+  });
+});
