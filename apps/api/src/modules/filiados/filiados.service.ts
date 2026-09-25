@@ -37,7 +37,7 @@ import { diferencaDeCampos, fraseDaAlteracao } from '../../common/audit/audit.di
 import type { CtxAuditoria } from '../../common/audit/audit.contexto-http';
 import { marcarNadaMudou } from '../../common/audit/audit.contexto';
 
-import { lerLogoDaMarca } from '../../common/assets.util';
+import { lerLogoColorido, lerLogoDaMarca } from '../../common/assets.util';
 
 import {
   calcularIdade,
@@ -54,7 +54,13 @@ import {
   ListFiliadosQueryDto,
   UpdateFiliadoDto,
 } from './dto/filiado.dto';
-import { tenant, enderecoEmLinha, contaEmLinha, rodapeInstitucional } from '../../tenant/tenant.config';
+import {
+  campoVisivel,
+  contaEmLinha,
+  enderecoEmLinha,
+  rodapeInstitucional,
+  tenant,
+} from '../../tenant/tenant.config';
 import { carimbarRodape } from '../../common/pdf-rodape.util';
 import { nomeDeArquivo, dataParaNome, type DocumentoGerado } from '@core/infra';
 import { formatarDataBR, formatarDataExtensoBR } from '../../modules/processos/utils/data-br.util';
@@ -1133,29 +1139,54 @@ export class FiliadosService {
   }
 
   // ---- Termo de Consentimento e Filiação (PDF) ----
-  async gerarTermoPdf(id: string, autor?: string): Promise<DocumentoGerado> {
+  /**
+   * A FICHA DE FILIAÇÃO — igual ao formulário oficial do sindicato.
+   *
+   * "Esse é o modelo da ficha de filiação do SENATEPI. Na hora de gerar o
+   * termo, o PDF tem que ser igual da ficha." — o dono, 25/09/2026, com o
+   * formulário em mãos.
+   *
+   * O que havia era outro documento: texto corrido com linhas pontilhadas,
+   * quatro "SEÇÃO N -" e uma assinatura só. O oficial é uma GRADE — logo
+   * grande, faixas de seção, células com rótulo em cima e valor embaixo, as
+   * caixas de FILIAÇÃO/RECADASTRAMENTO no topo e DUAS assinaturas no pé.
+   *
+   * TRÊS DIFERENÇAS QUE NÃO SÃO DE LAYOUT:
+   *
+   * 1. A CONTRIBUIÇÃO SINDICAL É OPT-IN. O documento antigo enfiava "Solicito
+   *    que a Contribuição Sindical… sejam repassadas" DENTRO do parágrafo da
+   *    mensalidade, como se fosse a mesma autorização. Não é: desde a reforma
+   *    de 2017 o imposto sindical exige manifestação expressa, e o formulário
+   *    oficial reflete isso com uma CAIXA separada, que a pessoa marca ou não.
+   *    O sistema não guarda essa escolha, então a caixa sai VAZIA — para ser
+   *    marcada à mão, que é o que a ficha em papel faz.
+   * 2. O REGISTRO LEGAL VEM DO CLIENTE. CNPJ, código sindical, registro no MTb,
+   *    data de fundação e base territorial estavam escritos à mão neste
+   *    arquivo: a ficha do SINDSERM sairia com o registro do SENATEPI.
+   * 3. DUAS ASSINATURAS. O oficial tem a do profissional E a da diretoria. Uma
+   *    autorização de desconto em folha com uma assinatura só é meia via.
+   *
+   * O SELO CIRCULAR de marca d'água do formulário não está aqui: não existe o
+   * arquivo da imagem nos assets, e desenhar um parecido seria inventar um selo
+   * de registro sindical. Basta soltar o PNG em `assets/` para ele entrar.
+   */
+  async gerarTermoPdf(
+    id: string,
+    autor?: string,
+    tipo: 'FILIACAO' | 'RECADASTRAMENTO' = 'FILIACAO',
+  ): Promise<DocumentoGerado> {
     const f = await this.findOne(id);
+    const reg = tenant.registro;
 
-    // Textos legais fixos (inseridos exatamente como definidos pela diretoria).
-    const TEXTO_DESCONTO =
-      'O Enfermeiro, Auxiliar em enfermagem e Técnico em enfermagem, abaixo assinado, autoriza as ' +
-      'instituições públicas da administração direta, indireta, funcional e privada, ao qual tenha vínculo ' +
-      'como Servidor Público, Empregado Público e Empregado, respectivamente, a descontar em folha de ' +
-      `pagamento / contracheque, em favor do ${tenant.sigla}, na ${contaEmLinha()}. A ` +
-      'contribuição associativa mensal no valor de 1% sobre o maior vencimento básico ao qual esteja ' +
-      `vinculado, em conformidade com os ${tenant.contribuicao?.artigoEstatuto ?? ''} do estatuto do ${tenant.sigla} e Art.: 584, alínea b, da ` +
-      'CLT. Solicito que a Contribuição Sindical (Imposto Sindical) de que trata o Art.: 579 da CLT sejam ' +
-      'repassadas ao sindicato supra na referida conta da Entidade Sindical Representativa da Categoria ' +
-      'Base Territorial do Estado do Piauí Fundado em 30/11/2009 - Registro no Mtb/ sob nº ' +
-      '46214.0005793/2018-86; Código da Entidade Sindical nº 19020-7 - CNPJ 11.378.331/0001-86.';
-    const TEXTO_LGPD =
-      'Em observância à Lei nº. 13.709/18 - Lei Geral de Proteção de Dados Pessoais (Fonte: Diário Oficial ' +
-      'da União) e demais normativas aplicáveis sobre proteção de Dados Pessoais, manifesto-me de forma, ' +
-      `livre, expressa e consciente, no sentido de autorizar o ${tenant.sigla} a realizar o tratamento de meus ` +
-      'dados pessoais SEMPRE QUE FOR SOLICITADO. Consinto, ainda, com a utilização destes dados para as ' +
-      'finalidades de representação sindical, emissão de carteirinha, controle de eventos e acesso a benefícios.';
-    const RODAPE =
-      rodapeInstitucional();
+    /*
+      NUMA FICHA, CAMPO VAZIO É LINHA PARA ESCREVER.
+
+      `formatarDataBR(null)` devolve "—", que é a resposta certa num relatório
+      ("não sabemos") e errada num formulário: o travessão ocupa justamente o
+      espaço onde a pessoa ia escrever a data à mão, e ainda parece que o
+      sistema imprimiu alguma coisa ali.
+    */
+    const dataOuVazio = (v: Date | null | undefined) => (v ? formatarDataBR(v) : '');
 
     const SEXO_LABEL: Record<string, string> = {
       MASCULINO: 'Masculino', FEMININO: 'Feminino', OUTRO: 'Outro',
@@ -1169,8 +1200,45 @@ export class FiliadosService {
       AUXILIAR_ENFERMAGEM: 'Auxiliar de Enfermagem', OUTRO: 'Outro',
     };
 
+    /*
+      O PARÁGRAFO DO DESCONTO, montado com o registro do CLIENTE.
+
+      Sem `registro` ou sem `bancario` ele não sai — e a ficha fica sem o bloco
+      de autorização, o que é visível. Imprimir uma autorização de desconto em
+      folha sem dizer para qual conta, ou com o registro de outra entidade, é
+      pior do que imprimir sem ela.
+    */
+    const conta = tenant.bancario ? contaEmLinha() : null;
+    const TEXTO_DESCONTO =
+      reg && conta
+        ? `${reg.quemAssina ?? 'O(A) abaixo assinado(a)'}, abaixo assinado, autoriza as ` +
+          'instituições públicas da administração direta, indireta, funcional e privada, ao qual ' +
+          'tenha vínculo como Servidor Público, Empregado Público e Empregado, respectivamente, a ' +
+          `descontar em folha de pagamento / contracheque, em favor do ${tenant.sigla}, na ` +
+          `${conta}. A contribuição associativa mensal no valor de 1% sobre o maior vencimento ` +
+          'básico ao qual esteja vinculado, em conformidade com os ' +
+          `${reg.sindical ? tenant.contribuicao?.artigoEstatuto ?? '' : ''} do estatuto do ` +
+          `${tenant.sigla} e Art.: 584, alínea b, da CLT.`
+        : null;
+
+    const TEXTO_LGPD =
+      'Em observância à Lei nº 13.709/18 – Lei Geral de Proteção de Dados Pessoais e demais ' +
+      'normativas aplicáveis sobre proteção de Dados Pessoais, manifesto-me de forma, livre, ' +
+      `expressa e consciente, no sentido de autorizar o ${tenant.sigla} a realizar o tratamento ` +
+      'de meus dados pessoais SEMPRE QUE FOR SOLICITADO.';
+
+    const TEXTO_IMPOSTO = reg
+      ? 'AUTORIZO que a Contribuição Sindical (Imposto Sindical) de que trata o Art.: 579 da CLT ' +
+        'sejam repassadas ao sindicato supra na referida conta da Entidade Sindical ' +
+        `Representativa da Categoria${reg.baseTerritorial ? ` – ${reg.baseTerritorial}` : ''}` +
+        `${reg.fundadoEm ? ` – Fundado em ${reg.fundadoEm}` : ''}` +
+        `${reg.mtb ? ` – Registro no Mtb/ sob nº ${reg.mtb}` : ''}` +
+        `${reg.sindical ? `; Código da Entidade Sindical nº ${reg.sindical}` : ''}` +
+        ` - CNPJ ${reg.cnpj}.`
+      : null;
+
     const pdf = await new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
+      const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -1178,124 +1246,322 @@ export class FiliadosService {
 
       const X = doc.page.margins.left;
       const W = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-      const LINHA_VAZIA = '______________________';
+      // A cor dos rótulos é a do CLIENTE — no SINDSERM a ficha sai azul.
+      const COR = tenant.corInstitucional;
 
-      // Campo vazio (null/undefined) vira linha para preenchimento manual impresso.
-      const ou = (v?: string | null) => {
-        const s = v == null ? '' : String(v).trim();
-        return s ? s : LINHA_VAZIA;
+      // ====================== Cabeçalho ======================
+      let y = 34;
+      const logo = lerLogoColorido();
+      if (logo) {
+        try {
+          // `fit` centrado à mão: o `align` do PDFKit não centra imagem.
+          doc.image(logo, X + (W - 190) / 2, y, { fit: [190, 46], align: 'center' });
+          y += 52;
+        } catch {
+          y += 4;
+        }
+      }
+      doc.font('Times-Bold').fontSize(9.5).fillColor('#111827');
+      doc.text(tenant.nome.toUpperCase(), X, y, { width: W, align: 'center' });
+      y = doc.y + 1;
+      const identidade = [
+        reg?.cnpj ? `CNPJ: ${reg.cnpj}` : '',
+        reg?.sindical ? `REGISTRO SINDICAL: ${reg.sindical}` : '',
+      ]
+        .filter(Boolean)
+        .join('  |  ');
+      if (identidade) {
+        doc.fontSize(8.5).text(identidade, X, y, { width: W, align: 'center' });
+        y = doc.y;
+      }
+      y += 10;
+
+      // ====================== A grade ======================
+      /*
+        A GRADE É O DOCUMENTO. O formulário oficial é uma tabela com bordas, e é
+        isso que faz a pessoa saber onde escrever quando imprime em branco — e o
+        que faz a versão preenchida ser reconhecida como "a mesma ficha".
+      */
+      const LINHA = '#6B7280';
+      const ALT = 20; // altura da linha de campo
+      const ALT_FAIXA = 15;
+
+      const moldura = (altura: number) => {
+        doc.rect(X, y, W, altura).lineWidth(0.7).strokeColor(LINHA).stroke();
       };
-      const fmt = (d?: Date | null) => (d ? formatarDataBR(d) : null);
 
-      // Linha com um ou mais pares Rótulo (negrito) + valor (normal).
-      const par = (pares: Array<[string, string]>) => {
-        doc.fontSize(10.5);
-        pares.forEach(([label, value], i) => {
-          const last = i === pares.length - 1;
-          doc.font('Times-Bold').fillColor('#111827').text(`${label}: `, { continued: true });
-          doc.font('Times-Roman').fillColor('#1f2937').text(value, { continued: !last });
-          if (!last) doc.font('Times-Roman').text('     ', { continued: true });
+      /** Faixa de seção: fundo claro, texto em caixa alta. */
+      const faixa = (titulo: string) => {
+        doc.rect(X, y, W, ALT_FAIXA).fillAndStroke('#E9EDF2', LINHA);
+        doc
+          .font('Times-Bold')
+          .fontSize(8.5)
+          .fillColor('#111827')
+          .text(titulo, X, y + 4, { width: W, align: 'center' });
+        y += ALT_FAIXA;
+      };
+
+      /** Uma linha com N células; `larguras` soma 1. */
+      const linha = (
+        celulas: Array<{ rotulo: string; valor?: string; bruto?: (x: number, l: number) => void }>,
+        larguras?: number[],
+      ) => {
+        moldura(ALT);
+        const pesos = larguras ?? celulas.map(() => 1 / celulas.length);
+        let cx = X;
+        celulas.forEach((c, i) => {
+          const largura = W * pesos[i];
+          if (i > 0) {
+            doc.moveTo(cx, y).lineTo(cx, y + ALT).lineWidth(0.7).strokeColor(LINHA).stroke();
+          }
+          doc
+            .font('Times-Bold')
+            .fontSize(7)
+            .fillColor(COR)
+            .text(c.rotulo, cx + 4, y + 3, { width: largura - 8, height: 8, ellipsis: true });
+          if (c.bruto) c.bruto(cx + 4, largura - 8);
+          else
+            doc
+              .font('Times-Roman')
+              .fontSize(9)
+              .fillColor('#111827')
+              .text(c.valor || '', cx + 4, y + 10, {
+                width: largura - 8,
+                height: 10,
+                ellipsis: true,
+              });
+          cx += largura;
         });
-        doc.moveDown(0.5);
+        y += ALT;
       };
 
-      // Título de seção com fundo cinza (aspecto de contrato).
-      const secao = (titulo: string) => {
-        doc.moveDown(0.7);
-        if (doc.y > doc.page.height - 140) doc.addPage();
-        const y = doc.y;
-        doc.save().rect(X, y, W, 20).fill('#e5e7eb').restore();
-        doc.fillColor('#111827').font('Times-Bold').fontSize(11).text(titulo, X + 8, y + 5.5, { width: W - 16 });
-        doc.x = X;
-        doc.y = y + 26;
-        doc.font('Times-Roman').fillColor('#1f2937');
+      /** Quadradinho para marcar à mão — o mesmo do formulário impresso. */
+      const caixa = (cx: number, cy: number, marcada = false) => {
+        doc.rect(cx, cy, 7.5, 7.5).lineWidth(0.7).strokeColor('#111827').stroke();
+        if (marcada) {
+          doc
+            .font('Times-Bold')
+            .fontSize(8)
+            .fillColor('#111827')
+            .text('X', cx + 1.6, cy + 0.4, { lineBreak: false });
+        }
       };
 
-      const subBloco = (titulo: string) => {
-        doc.moveDown(0.15);
-        doc.font('Times-Bold').fontSize(10).fillColor('#374151').text(titulo, X, doc.y);
-        doc.moveDown(0.15);
-        doc.fillColor('#1f2937');
-      };
+      // --- Título e o que esta ficha é ---
+      doc.rect(X, y, W, ALT_FAIXA).fillAndStroke('#E9EDF2', LINHA);
+      doc
+        .font('Times-Bold')
+        .fontSize(9)
+        .fillColor('#111827')
+        .text('FICHA DE FILIAÇÃO', X, y + 3.5, { width: W, align: 'center' });
+      y += ALT_FAIXA;
 
-      const paragrafo = (texto: string) => {
-        doc.font('Times-Roman').fontSize(10).fillColor('#1f2937')
-          .text(texto, X, doc.y, { align: 'justify', width: W, lineGap: 1.5 });
-        doc.moveDown(0.5);
-      };
+      moldura(ALT_FAIXA + 3);
+      {
+        const cy = y + 4.5;
+        const meio = X + W / 2;
+        caixa(meio - 120, cy, tipo === 'FILIACAO');
+        doc
+          .font('Times-Bold')
+          .fontSize(8.5)
+          .fillColor('#111827')
+          .text('FILIAÇÃO', meio - 109, cy + 0.2, { lineBreak: false });
+        caixa(meio + 10, cy, tipo === 'RECADASTRAMENTO');
+        doc.text('RECADASTRAMENTO', meio + 21, cy + 0.2, { lineBreak: false });
+      }
+      y += ALT_FAIXA + 3;
 
-      // ---- Cabeçalho oficial (centralizado) ----
-      doc.font('Times-Bold').fontSize(9.5).fillColor('#111827').text(
-        `${tenant.sigla} - ${tenant.nome} | CNPJ: ${tenant.cnpj}`,
-        X, doc.page.margins.top, { align: 'center', width: W },
+      // --- Informações pessoais ---
+      faixa('INFORMAÇÕES PESSOAIS');
+      linha([{ rotulo: 'Nome:', valor: f.nomeCompleto }]);
+      linha(
+        [
+          { rotulo: 'Data de Nascimento:', valor: dataOuVazio(f.dataNascimento) },
+          {
+            rotulo: 'Sexo:',
+            bruto: (cx) => {
+              /*
+                AS CAIXAS DE SEXO SÃO DO FORMULÁRIO, não uma escolha minha — e
+                por isso ficam mesmo quando o cadastro já sabe a resposta: a
+                ficha impressa em branco precisa delas, e a preenchida mostra
+                qual foi marcada.
+              */
+              const cy = y + 9;
+              const opcoes: Array<[string, string]> = [
+                ['M', 'MASCULINO'],
+                ['F', 'FEMININO'],
+                ['Outros', 'OUTRO'],
+              ];
+              let ox = cx;
+              for (const [rotulo, valor] of opcoes) {
+                caixa(ox, cy, f.sexo === valor);
+                doc
+                  .font('Times-Roman')
+                  .fontSize(8)
+                  .fillColor('#111827')
+                  .text(rotulo, ox + 9.5, cy + 0.4, { lineBreak: false });
+                ox += 9.5 + doc.widthOfString(rotulo) + 7;
+              }
+            },
+          },
+          { rotulo: 'Estado Civil:', valor: f.estadoCivil ? EC_LABEL[f.estadoCivil] : '' },
+          { rotulo: 'Naturalidade – UF:', valor: f.naturalidade ?? '' },
+        ],
+        [0.24, 0.26, 0.22, 0.28],
       );
-      doc.moveDown(0.5);
-      doc.font('Times-Bold').fontSize(14).fillColor(VERDE_ESCURO)
-        .text('FICHA DE FILIAÇÃO E TERMO DE CONSENTIMENTO', { align: 'center', width: W });
-      doc.moveDown(0.2);
-      doc.font('Times-Roman').fontSize(8.5).fillColor('#6b7280')
-        .text(`Matrícula sindical: ${f.matricula}`, { align: 'center', width: W });
-      doc.moveDown(0.35);
-      const yh = doc.y;
-      doc.moveTo(X, yh).lineTo(X + W, yh).strokeColor(VERDE_ESCURO).lineWidth(1).stroke();
-      doc.moveDown(0.3);
+      linha(
+        [
+          { rotulo: 'RG:', valor: f.rg ?? '' },
+          { rotulo: 'UF:', valor: f.ufRg ?? '' },
+          { rotulo: 'CPF:', valor: f.cpf ? mascararCpf(f.cpf) : '' },
+        ],
+        [0.4, 0.14, 0.46],
+      );
 
-      // ---- SEÇÃO 1 — Informações pessoais e de contato ----
-      secao('SEÇÃO 1 - INFORMAÇÕES PESSOAIS E DE CONTATO');
-      par([['Nome', ou(f.nomeCompleto)]]);
-      par([
-        ['CPF', ou(f.cpf ? mascararCpf(f.cpf) : null)],
-        ['RG', ou(f.rg ? `${f.rg}${f.ufRg ? ' / ' + f.ufRg : ''}` : null)],
-        ['Data de Nascimento', ou(fmt(f.dataNascimento))],
+      // --- Endereço e contato ---
+      faixa('ENDEREÇO / CONTATO');
+      linha(
+        [
+          {
+            rotulo: 'End. Residencial:',
+            valor: [f.endereco, f.numero, f.complemento].filter(Boolean).join(', '),
+          },
+          { rotulo: 'Bairro / Setor:', valor: f.bairro ?? '' },
+        ],
+        [0.66, 0.34],
+      );
+      linha([
+        {
+          rotulo: 'Telefones:',
+          valor: [f.telefonePrincipal, f.telefoneSecundario].filter(Boolean).join('  /  '),
+        },
+        { rotulo: 'E-mail:', valor: f.email ?? '' },
       ]);
-      par([
-        ['Sexo', ou(f.sexo ? SEXO_LABEL[f.sexo] ?? f.sexo : null)],
-        ['Estado Civil', ou(f.estadoCivil ? EC_LABEL[f.estadoCivil] ?? f.estadoCivil : null)],
-        ['Naturalidade/UF', ou(f.naturalidade)],
-      ]);
-      par([['Endereço', ou(f.endereco)], ['Nº', ou(f.numero)], ['Complemento', ou(f.complemento)]]);
-      par([['Bairro', ou(f.bairro)], ['Cidade', ou(f.cidade)], ['UF', ou(f.estado)], ['CEP', ou(f.cep)]]);
-      par([['Telefone', ou(f.telefonePrincipal)], ['Telefone 2', ou(f.telefoneSecundario)]]);
-      par([['E-mail', ou(f.email)]]);
+      linha(
+        [
+          { rotulo: 'CEP:', valor: f.cep ?? '' },
+          {
+            rotulo: 'Cidade:',
+            valor: [f.cidade, f.estado].filter(Boolean).join(' / '),
+          },
+        ],
+        [0.3, 0.7],
+      );
 
-      // ---- SEÇÃO 2 — Informações profissionais ----
-      secao('SEÇÃO 2 - INFORMAÇÕES PROFISSIONAIS');
-      const formacaoTexto =
-        f.formacao === 'OUTRO'
-          ? f.formacaoOutro || 'Outro'
-          : f.formacao ? FORM_LABEL[f.formacao] ?? f.formacao : null;
-      par([['Formação Profissional', ou(formacaoTexto)], ['Nº COREN', ou(f.numeroCoren)]]);
+      // --- Informações profissionais ---
+      faixa('INFORMAÇÕES PROFISSIONAIS');
+      const profissionais: Array<{ rotulo: string; valor?: string }> = [];
+      if (campoVisivel('formacao')) {
+        profissionais.push({
+          rotulo: 'Formação Profissional:',
+          valor:
+            f.formacao === 'OUTRO' && f.formacaoOutro
+              ? f.formacaoOutro
+              : f.formacao
+                ? FORM_LABEL[f.formacao]
+                : '',
+        });
+      }
+      profissionais.push({ rotulo: 'Data de Admissão:', valor: dataOuVazio(f.dataAdmissao) });
+      if (campoVisivel('numeroCoren')) {
+        profissionais.push({ rotulo: 'Nº COREN:', valor: f.numeroCoren ?? '' });
+      }
+      linha(profissionais);
 
-      const v1 = f.vinculos?.[0];
-      const v2 = f.vinculos?.[1];
-      subBloco('Instituição 1');
-      par([['Instituição', ou(v1?.empresa)], ['Cargo', ou(v1?.cargo)]]);
-      par([['Matrícula', ou(v1?.matricula)], ['Data de Admissão', ou(fmt(f.dataAdmissao))]]);
-      subBloco('Instituição 2');
-      par([['Instituição', ou(v2?.empresa)], ['Cargo', ou(v2?.cargo)]]);
-      par([['Matrícula', ou(v2?.matricula)], ['Data de Admissão', ou(null)]]);
+      /*
+        DUAS INSTITUIÇÕES, porque o formulário tem duas — é comum na enfermagem
+        ter dois vínculos, e a contribuição incide sobre o MAIOR vencimento. A
+        segunda linha sai em branco quando só há um, para ser preenchida à mão.
+      */
+      const vinculos = (f.vinculos ?? []) as Array<{
+        empresa?: string | null;
+        cargo?: string | null;
+        matricula?: string | null;
+      }>;
+      for (const [i, ordinal] of ['1ª', '2ª'].entries()) {
+        const v = vinculos[i];
+        linha(
+          [
+            { rotulo: `${ordinal} Instituição / Empresa:`, valor: v?.empresa ?? '' },
+            { rotulo: 'Cargo:', valor: v?.cargo ?? '' },
+            { rotulo: 'Matrícula:', valor: v?.matricula ?? '' },
+          ],
+          [0.5, 0.28, 0.22],
+        );
+      }
 
-      // ---- SEÇÃO 3 — Autorização de desconto sindical ----
-      secao('SEÇÃO 3 - AUTORIZAÇÃO DE DESCONTO SINDICAL');
-      paragrafo(TEXTO_DESCONTO);
+      // ====================== Os textos ======================
+      doc.y = y + 10;
+      const paragrafo = (texto: string) => {
+        doc
+          .font('Times-Roman')
+          .fontSize(8)
+          .fillColor('#111827')
+          .text(texto, X, doc.y, { width: W, align: 'justify', lineGap: 1.2 });
+        doc.moveDown(0.5);
+      };
 
-      // ---- SEÇÃO 4 — Consentimento e tratamento de dados (LGPD) ----
-      secao('SEÇÃO 4 - CONSENTIMENTO E TRATAMENTO DE DADOS (LGPD)');
+      if (TEXTO_DESCONTO) paragrafo(TEXTO_DESCONTO);
       paragrafo(TEXTO_LGPD);
 
-      // ---- Data + assinatura ----
-      doc.moveDown(1.4);
-      const dataFmt = formatarDataExtensoBR(new Date());
-      doc.font('Times-Roman').fontSize(10.5).fillColor('#1f2937')
-        .text(`${pracaDaAssinatura()}, ${dataFmt}.`, X, doc.y, { width: W });
-      doc.moveDown(2.4);
-      const ys = doc.y;
-      doc.moveTo(X + 110, ys).lineTo(X + W - 110, ys).strokeColor('#374151').lineWidth(0.8).stroke();
-      doc.font('Times-Roman').fontSize(10).fillColor('#111827')
-        .text('Assinatura do(a) Filiado(a)', X, ys + 6, { align: 'center', width: W });
+      /*
+        A CAIXA DA CONTRIBUIÇÃO SINDICAL FICA VAZIA, e isso é a regra e não um
+        esquecimento: desde a reforma de 2017 o imposto sindical exige
+        manifestação EXPRESSA, e o sistema não guarda essa escolha. Imprimi-la
+        marcada seria o sistema declarando, no lugar da pessoa, que ela
+        autorizou um desconto.
+      */
+      if (TEXTO_IMPOSTO) {
+        const yc = doc.y + 1;
+        caixa(X, yc);
+        doc
+          .font('Times-Roman')
+          .fontSize(8)
+          .fillColor('#111827')
+          .text(TEXTO_IMPOSTO, X + 13, yc - 1, { width: W - 13, align: 'justify', lineGap: 1.2 });
+        doc.moveDown(0.6);
+      }
+
+      /*
+        ====================== Data e assinaturas ======================
+
+        ANCORADAS NO PÉ DA FOLHA, e não no fim do texto. O formulário oficial
+        usa a página inteira; deixando fluir, a assinatura parava no meio e
+        sobravam 20 cm de branco — que numa via para assinar parece documento
+        cortado. O `max` garante que, se o texto crescer (um cliente com
+        registro mais longo), a assinatura desce em vez de ser sobrescrita.
+      */
+      const RODAPE_FOLHA = doc.page.height - 150;
+      const yData = Math.max(doc.y + 24, RODAPE_FOLHA);
+      doc
+        .font('Times-Roman')
+        .fontSize(9.5)
+        .fillColor('#111827')
+        .text(`${pracaDaAssinatura()}  ______ / ______ / __________`, X, yData, {
+          width: W,
+          align: 'center',
+        });
+
+      const ys = yData + 62;
+      const metade = W / 2;
+      const desenharAssinatura = (cx: number, rotulo: string) => {
+        doc
+          .moveTo(cx + 18, ys)
+          .lineTo(cx + metade - 18, ys)
+          .lineWidth(0.8)
+          .strokeColor('#374151')
+          .stroke();
+        doc
+          .font('Times-Bold')
+          .fontSize(8)
+          .fillColor('#111827')
+          .text(rotulo, cx, ys + 5, { width: metade, align: 'center' });
+      };
+      desenharAssinatura(X, reg?.rotuloAssinatura ?? `ASSINATURA DO(A) ${tenant.vocabulario.filiado.toUpperCase()}`);
+      desenharAssinatura(X + metade, `DIRETORIA ${tenant.sigla}`);
 
       // ---- Rodapé fixo (repetido em todas as páginas) ----
-      carimbarRodape(doc, RODAPE, { fonte: 'Times-Roman', corpo: 7 });
+      carimbarRodape(doc, rodapeInstitucional(), { fonte: 'Times-Roman', corpo: 7 });
 
       doc.end();
     });
@@ -1303,12 +1569,17 @@ export class FiliadosService {
     await this.registrarHistorico(
       id,
       TipoHistoricoFiliado.GERACAO_TERMO,
-      'Termo de Consentimento e Filiação gerado.',
+      tipo === 'RECADASTRAMENTO'
+        ? 'Ficha de recadastramento gerada.'
+        : 'Ficha de Filiação e Termo de Consentimento gerada.',
       autor,
     );
     return {
       pdf,
-      nomeArquivo: nomeDeArquivo(['Termo de Filiação', f.nomeCompleto], 'pdf'),
+      nomeArquivo: nomeDeArquivo(
+        [tipo === 'RECADASTRAMENTO' ? 'Ficha de Recadastramento' : 'Ficha de Filiação', f.nomeCompleto],
+        'pdf',
+      ),
     };
   }
 

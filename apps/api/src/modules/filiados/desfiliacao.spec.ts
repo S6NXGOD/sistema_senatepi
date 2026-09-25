@@ -239,7 +239,14 @@ describe('praça da assinatura no PDF', () => {
      * reprovaria o código certo por causa da explicação dele.
      */
     const impressoes = [...SERVICE.matchAll(/\.text\(`([^`]*)`/g)].map((m) => m[1]);
-    expect(impressoes.length).toBeGreaterThan(3);
+    /*
+      O PISO CAIU DE 3 PARA 1 em 25/09/2026, e não é afrouxamento: a ficha de
+      filiação virou uma GRADE de células, então quase todo texto dela passa por
+      um helper (`linha`, `faixa`) em vez de um `.text` com template. O que este
+      teste protege continua sendo o mesmo — nenhuma praça escrita à mão — e
+      isso é o que as duas linhas abaixo dizem.
+    */
+    expect(impressoes.length).toBeGreaterThan(0);
     expect(impressoes.filter((t) => /Teresina/.test(t))).toEqual([]);
     expect(impressoes.filter((t) => t.includes('pracaDaAssinatura()'))).toHaveLength(2);
   });

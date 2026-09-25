@@ -173,6 +173,37 @@ export interface TenantConfig {
   /** Artigo do estatuto que fundamenta a contribuição (sai no termo). */
   contribuicao?: { artigoEstatuto?: string; descricao?: string };
   /**
+   * O REGISTRO LEGAL DA ENTIDADE — o que vai impresso na ficha de filiação.
+   *
+   * Estava tudo escrito à mão dentro de `gerarTermoPdf`: CNPJ 11.378.331/0001-86,
+   * registro no MTb, código sindical 19020-7, "Fundado em 30/11/2009", "Base
+   * Territorial do Estado do Piauí" e até "O Enfermeiro, Auxiliar em enfermagem
+   * e Técnico em enfermagem". A ficha do SINDSERM sairia com o REGISTRO LEGAL DO
+   * SENATEPI — num documento que autoriza desconto em folha de pagamento.
+   *
+   * OPCIONAL de propósito: um cliente que ainda não informou os dados imprime a
+   * ficha SEM o bloco de autorização de desconto, e isso é visível. Inventar um
+   * número de registro seria pior do que faltar.
+   */
+  registro?: {
+    cnpj: string;
+    /** Código da Entidade Sindical (ex.: "19020-7"). */
+    sindical?: string;
+    /** Registro no MTb (ex.: "46214.0005793/2018-86"). */
+    mtb?: string;
+    /** "30/11/2009" — como a própria ficha escreve. */
+    fundadoEm?: string;
+    /** "Base Territorial do Estado do Piauí". */
+    baseTerritorial?: string;
+    /**
+     * Quem assina, no texto da autorização: "O Enfermeiro, Auxiliar em
+     * enfermagem e Técnico em enfermagem". É a categoria, e muda com o cliente.
+     */
+    quemAssina?: string;
+    /** O rótulo da linha de assinatura: "PROFISSIONAL DE ENFERMAGEM". */
+    rotuloAssinatura?: string;
+  };
+  /**
    * Campos do cadastro que ESTA instalação não usa.
    *
    * O caso que motivou: `formacao` é a escala de enfermagem (enfermeiro,

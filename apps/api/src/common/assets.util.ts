@@ -38,3 +38,16 @@ export function lerAsset(nome: string): Buffer | null {
 export function lerLogoDaMarca(): Buffer | null {
   return lerAsset(`${tenant.id}-horizontal-branco.png`);
 }
+
+/**
+ * O LOGO EM COR, para documento com FUNDO BRANCO.
+ *
+ * A versão branca existe porque quase todo PDF da casa pinta uma faixa com a
+ * cor da marca. A ficha de filiação não tem faixa — é papel branco, para
+ * imprimir e assinar —, e ali o logo branco some por completo. Mesma convenção
+ * de nome, mesma regra: sem o arquivo, o documento sai sem logo, e nunca com a
+ * marca de outro sindicato.
+ */
+export function lerLogoColorido(): Buffer | null {
+  return lerAsset(`${tenant.id}-horizontal-cor.png`);
+}

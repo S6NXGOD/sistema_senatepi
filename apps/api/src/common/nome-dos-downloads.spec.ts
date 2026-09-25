@@ -75,7 +75,9 @@ describe('nome dos arquivos baixados', () => {
   it.each([
     ['carteirinha', 'src/modules/carteirinhas/carteirinhas.module.ts', 'Carteirinha'],
     ['crachá', 'src/modules/colaboradores/colaboradores.service.ts', 'Crachá'],
-    ['termo de filiação', 'src/modules/filiados/filiados.service.ts', 'Termo de Filiação'],
+    // Renomeado em 25/09/2026: o documento passou a ser a FICHA oficial do
+    // sindicato, e o arquivo baixado diz o que ele é.
+    ['ficha de filiação', 'src/modules/filiados/filiados.service.ts', 'Ficha de Filiação'],
     ['termo de desfiliação', 'src/modules/filiados/filiados.service.ts', 'Termo de Desfiliação'],
     ['dossiê de evento', 'src/modules/eventos/dossie-evento.service.ts', 'Dossiê'],
     ['certificado', 'src/modules/eventos/certificado.service.ts', 'Certificado'],

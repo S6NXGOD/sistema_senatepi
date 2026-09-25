@@ -213,14 +213,27 @@ export class FiliadosController {
     return this.service.removeDocumento(id, documentoId);
   }
 
+  /**
+   * A FICHA DE FILIAÇÃO — o mesmo formulário oficial, já preenchido.
+   *
+   * `?tipo=recadastramento` marca a outra caixa do topo. Quem decide é a
+   * secretaria, porque o sistema não sabe: a mesma ficha serve para quem está
+   * entrando e para quem está atualizando o cadastro, e é a caixa marcada que
+   * diz qual das duas coisas aquele papel assinado significa.
+   */
   @Get(':id/termo/pdf')
   @Header('Content-Type', 'application/pdf')
   async termo(
     @Param('id') id: string,
     @CurrentUser('nome') autor: string,
     @Res() res: Response,
+    @Query('tipo') tipo?: string,
   ) {
-    const { pdf, nomeArquivo } = await this.service.gerarTermoPdf(id, autor);
+    const { pdf, nomeArquivo } = await this.service.gerarTermoPdf(
+      id,
+      autor,
+      tipo?.toUpperCase() === 'RECADASTRAMENTO' ? 'RECADASTRAMENTO' : 'FILIACAO',
+    );
     res.setHeader('Content-Disposition', conteudoDisposto(nomeArquivo));
     res.send(pdf);
   }

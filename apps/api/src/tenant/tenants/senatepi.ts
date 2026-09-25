@@ -38,6 +38,28 @@ export const senatepi: TenantConfig = {
     email: 'senatepienfermagem@outlook.com',
   },
   bancario: { banco: 'CEF', agencia: '2004', operacao: '003', conta: '1341-4' },
+  /*
+    OS NÚMEROS SAÍRAM DO CÓDIGO E VIERAM PARA CÁ (25/09/2026).
+
+    Estavam escritos à mão dentro de `gerarTermoPdf`, e a ficha do SINDSERM
+    sairia com o registro legal do SENATEPI — num documento que autoriza
+    desconto em folha de pagamento.
+
+    Conferidos contra a ficha oficial que o dono enviou. UMA divergência ficou
+    em aberto e está anotada em `bancario`, acima: a ficha oficial traz
+    "OP: 1292; C/C 0005775418889-8" e o sistema guarda "OP: 003; C/C 1341-4".
+    Não troquei por conta própria — conta de recebimento não se muda por
+    leitura de imagem.
+  */
+  registro: {
+    cnpj: '11.378.331/0001-86',
+    sindical: '19020-7',
+    mtb: '46214.0005793/2018-86',
+    fundadoEm: '30/11/2009',
+    baseTerritorial: 'Base Territorial do Estado do Piauí',
+    quemAssina: 'O Enfermeiro, Auxiliar em enfermagem e Técnico em enfermagem',
+    rotuloAssinatura: 'PROFISSIONAL DE ENFERMAGEM',
+  },
   vocabulario: {
     filiado: 'filiado',
     filiados: 'filiados',
