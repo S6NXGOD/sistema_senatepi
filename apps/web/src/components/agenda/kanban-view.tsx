@@ -9,6 +9,7 @@ import {
   Compromisso, StatusCompromisso, STATUS_ORDEM, STATUS_LABEL, oArrastoPodeSoltar,
   estaFechado,
   ehMinha,
+  quandoTerminou,
 } from '@/lib/agenda';
 
 const COL_DOT: Record<StatusCompromisso, string> = {
@@ -46,19 +47,33 @@ const TETO_TERMINAL = 10;
  * O comentário acima dizia "cheias, mostram as mais recentes", e o código
  * cortava as 10 PRIMEIRAS de uma lista que chega em ordem crescente: em Todas,
  * "Concluído" mostrava as de meados de julho e escondia as de ontem atrás de
- * "Ver as outras 27" (achado em 14/09/2026). Agora as terminais ordenam pelo
- * início decrescente ANTES de cortar — e continuam assim quando a pessoa abre
- * o resto, para as dez que ela já viu não trocarem de lugar. As colunas
- * abertas mantêm a ordem que a página decidiu (o que ficou para trás sobe).
+ * "Ver as outras 27" (achado em 14/09/2026). As terminais passaram a ordenar
+ * decrescente ANTES de cortar — e continuam assim quando a pessoa abre o resto,
+ * para as dez que ela já viu não trocarem de lugar. As colunas abertas mantêm
+ * a ordem que a página decidiu (o que ficou para trás sobe).
+ *
+ * MAS "MAIS RECENTE" ERA MEDIDO PELO DIA MARCADO (corrigido em 28/09/2026).
+ *
+ * A coluna se chama "Concluído" e a pergunta dela é "o que fechamos
+ * ultimamente" — só que a ordem saía de `inicio`, o dia PARA o qual a
+ * atividade estava marcada. São coisas diferentes: das 86 concluídas na
+ * produção, 31 foram fechadas em outro dia (21 depois, 10 antes).
+ *
+ * O efeito medido era grotesco: no topo de "o que fechamos ultimamente" estava
+ * uma **reunião marcada para 30/01/2027 e concluída em 02/09/2026** — fechada
+ * havia quase um mês, liderando a lista por causa de uma data futura. E o corte
+ * de 10 empurrava para fora uma atividade realmente recente.
+ *
+ * Hoje a ordem é pelo instante em que a atividade TERMINOU, com `inicio` de
+ * reserva para as linhas antigas que não têm carimbo.
  */
-export function visiveisDaColuna<T extends { id: string; inicio: string }>(
-  itens: readonly T[],
-  status: StatusCompromisso,
-  aberta: boolean,
-): T[] {
+export function visiveisDaColuna<
+  T extends { id: string; inicio: string; concluidoEm?: string | null; canceladoEm?: string | null },
+>(itens: readonly T[], status: StatusCompromisso, aberta: boolean): T[] {
   if (!TERMINAIS.includes(status)) return [...itens];
+  const fim = (c: T) => new Date(quandoTerminou(c) ?? c.inicio).getTime();
   const recentes = [...itens].sort((a, b) => {
-    const d = new Date(b.inicio).getTime() - new Date(a.inicio).getTime();
+    const d = fim(b) - fim(a);
     if (d !== 0) return d;
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });

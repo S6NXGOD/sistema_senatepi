@@ -25,6 +25,7 @@ import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL, diaBRDe, acaoPrincipalDoCartao,
+  quandoTerminou, diferencaDoDiaMarcado,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAuth } from '@/lib/auth';
@@ -180,6 +181,8 @@ export function CompromissoDrawer({
 
   const filiado = c?.filiado;
   const atrasado = c ? estaAtrasado(c) : false;
+  /* Fechada em outro dia — nulo quando é o mesmo. Ver `diferencaDoDiaMarcado`. */
+  const desvio = c ? diferencaDoDiaMarcado(c.inicio, quandoTerminou(c)) : null;
 
   /** Só vira botão o link que passa pela mesma regra do servidor. */
   const linkAvaliado = c?.linkReuniao ? normalizarLinkReuniao(c.linkReuniao) : null;
@@ -318,6 +321,17 @@ export function CompromissoDrawer({
                 )}
                 {c.concluidoEm && (
                   <span className="text-xs text-muted-foreground">· {formatDataHora(c.concluidoEm)}</span>
+                )}
+                {/*
+                  A CONTA JÁ FEITA. O cabeçalho da gaveta diz "29/09 · 09:00" e
+                  esta linha diz "28/09, 17:14": os dois fatos estavam aqui, mas
+                  a subtração ficava com quem lê — e ninguém a faz. Uma palavra
+                  responde "foi no prazo?" sem comparar datas de cabeça.
+                */}
+                {desvio && (
+                  <span className="rounded-full bg-background/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {desvio.texto}
+                  </span>
                 )}
               </p>
               {/*

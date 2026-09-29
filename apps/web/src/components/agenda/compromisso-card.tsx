@@ -14,6 +14,7 @@ import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, ehReserva,
   formatData, formatHora, estaAtrasado, estaFechado, acaoPrincipalDoCartao,
+  quandoTerminou, diferencaDoDiaMarcado,
   duracaoEntre, estadoDoPrazo, horaBRDe, diaBRDe, rotuloCurtoDoDia,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
@@ -136,6 +137,11 @@ export function CompromissoCard({
   const principal = acaoPrincipalDoCartao(c);
   // A API devolve a equipe com o responsável primeiro; aqui interessa o resto.
   const participantes = (c.equipe ?? []).filter((e) => !e.principal);
+  /*
+    FECHADA EM OUTRO DIA — nulo quando é o mesmo, que é a maioria (64%).
+    Serve às duas colunas terminais: concluída e cancelada.
+  */
+  const desvio = diferencaDoDiaMarcado(c.inicio, quandoTerminou(c));
 
   /*
     O ANEL NÃO SERVE DE NADA FORA DA TELA.
@@ -388,11 +394,45 @@ export function CompromissoCard({
               className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
               title="Tempo entre clicar em Iniciar e clicar em Concluir."
             >
+              {/*
+                "LEVOU 2H15", E NÃO "CONCLUÍDA EM 2H15" (28/09/2026).
+
+                Quando a atividade também fechou em outro dia, o cartão passava
+                a ter duas linhas abrindo com a MESMA palavra e querendo dizer
+                coisas diferentes: "Concluída em 2h15" (quanto durou) e
+                "Concluída em 28/09/2026" (que dia). Ler as duas juntas obriga a
+                reparar no tipo do valor para saber do que se fala — o defeito
+                que já custou caro em `ultimaMovimentacao.data`.
+
+                "Levou" não pode ser confundido com data.
+              */}
               <Timer className="h-3 w-3 shrink-0" />
-              Concluída em {duracaoEntre(c.iniciadoEm, c.concluidoEm)}
+              Levou {duracaoEntre(c.iniciadoEm, c.concluidoEm)}
             </span>
           )}
           </div>
+          {/*
+            EM QUE DIA FOI FEITA — quando não é o dia do compromisso.
+
+            O cartão mostrava UMA data, a do compromisso, debaixo de uma coluna
+            chamada "Concluído": quem lê entende aquela data como a da
+            conclusão. Medido em 28/09/2026, das 86 concluídas na produção, 31
+            (36%) foram fechadas em OUTRO dia — 21 depois e 10 antes.
+
+            O cartão NÃO muda de dia, e isso é decisão: a agenda é calendário de
+            compromissos, e mover o cartão apagaria a única coisa que um prazo
+            tem a dizer — se foi cumprido a tempo. Ver `diferencaDoDiaMarcado`.
+
+            Sem cor. Fechar antes é boa notícia e fechar depois já aconteceu:
+            nenhum dos dois pede alguém, e âmbar aqui gastaria o alarme à toa.
+          */}
+          {desvio && (
+            <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+              <CheckCircle2 className="h-3 w-3 shrink-0 opacity-70" />
+              Concluída em {formatData(c.concluidoEm)}
+              <span className="opacity-80">· {desvio.texto}</span>
+            </p>
+          )}
           {c.desfechoObs && (
             <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{c.desfechoObs}</p>
           )}
@@ -415,6 +455,17 @@ export function CompromissoCard({
             )}
             {c.canceladoCategoria && c.canceladoMotivo ? ' · ' : ''}
             {c.canceladoMotivo}
+            {/*
+              O DIA DO CANCELAMENTO, pelo mesmo motivo do da conclusão: o cartão
+              fica no dia do compromisso, e sem esta linha a data visível é lida
+              como a do cancelamento. "Cancelada 3 dias antes" e "cancelada no
+              dia" são histórias diferentes para quem confere depois.
+            */}
+            {desvio && c.canceladoEm && (
+              <span className="block opacity-80">
+                Cancelada em {formatData(c.canceladoEm)} · {desvio.texto}
+              </span>
+            )}
           </span>
         </p>
       )}

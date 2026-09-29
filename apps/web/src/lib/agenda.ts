@@ -657,6 +657,67 @@ export function diaBRDe(instante: string | number | Date): string {
   return diaBR(t);
 }
 
+/**
+ * QUANDO A ATIVIDADE DE FATO TERMINOU — e por que isso não é `inicio`.
+ *
+ * `inicio` é o dia PARA o qual a atividade foi marcada; `concluidoEm` e
+ * `canceladoEm` são o instante em que alguém fechou. São coisas diferentes, e
+ * medido na produção em 28/09/2026 elas divergem muito:
+ *
+ *   86 atividades concluídas
+ *   55 (64%) fechadas no mesmo dia para o qual estavam marcadas
+ *   21 fechadas DEPOIS do dia marcado
+ *   10 fechadas ANTES — alguém adiantou o trabalho
+ *
+ * Nulo quando a atividade ainda está aberta: aí não terminou nada.
+ */
+export function quandoTerminou(c: {
+  concluidoEm?: string | null;
+  canceladoEm?: string | null;
+}): string | null {
+  return c.concluidoEm ?? c.canceladoEm ?? null;
+}
+
+/**
+ * "CONCLUÍDA EM 28/09 · 1 DIA ANTES" — a frase que faltava no cartão fechado.
+ *
+ * A pergunta do dono, em 28/09/2026, olhando uma manifestação protocolada às
+ * 17h14 do dia 28 e listada no dia 29: *"o certo não seria ela ficar concluída
+ * no dia 28?"*.
+ *
+ * O CARTÃO NÃO MUDA DE DIA — e isso é decisão, não omissão. A agenda é um
+ * calendário de COMPROMISSOS: o dia do cartão é o dia para o qual a atividade
+ * existia. Mover o cartão para o dia em que foi fechada apagaria a única
+ * informação que um prazo tem: se foi cumprido a tempo. Das 86 concluídas, 21
+ * foram fechadas DEPOIS do dia marcado — um prazo de 09/09 fechado em 15/09
+ * apareceria no 15/09 e pareceria pontual. E o dia 29 ficaria vazio, como se
+ * nunca tivesse havido compromisso ali.
+ *
+ * O QUE FALTAVA ERA O CARTÃO DIZER QUANDO FOI FEITO. Ele mostrava uma data só —
+ * a do compromisso — debaixo de uma coluna chamada "Concluído", e quem lê
+ * entende aquela data como a da conclusão. Em 36% dos casos ela não é.
+ *
+ * Nulo quando fecha no mesmo dia (a maioria): repetir a data ali seria ruído.
+ */
+export function diferencaDoDiaMarcado(
+  inicio: string | null | undefined,
+  termino: string | null | undefined,
+): { dias: number; texto: string } | null {
+  if (!inicio || !termino) return null;
+  const diaMarcado = diaBRDe(inicio);
+  const diaFeito = diaBRDe(termino);
+  if (diaMarcado === diaFeito) return null;
+
+  // Dias de CALENDÁRIO de Teresina, não horas corridas: 23h59 do dia 28 para
+  // 00h01 do dia 29 é "um dia depois", e não "zero".
+  const ms = new Date(`${diaFeito}T00:00:00-03:00`).getTime()
+    - new Date(`${diaMarcado}T00:00:00-03:00`).getTime();
+  const dias = Math.round(ms / 86_400_000);
+  const n = Math.abs(dias);
+  const quantos = `${n} ${n === 1 ? 'dia' : 'dias'}`;
+  return { dias, texto: dias < 0 ? `${quantos} antes` : `${quantos} depois` };
+}
+
 /** Milissegundos do início (00:00 de Teresina) do dia em que `agora` cai. */
 export function inicioDoDiaBRMs(agora: number = Date.now()): number {
   return new Date(`${diaBR(agora)}T00:00:00-03:00`).getTime();
