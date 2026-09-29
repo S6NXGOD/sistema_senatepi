@@ -654,7 +654,22 @@ export class AgendaService {
     const range: Prisma.DateTimeFilter = {};
     if (q.dataInicio) range.gte = new Date(q.dataInicio);
     if (q.dataFim) range.lte = new Date(q.dataFim);
-    if (range.gte || range.lte) and.push({ inicio: range });
+    if (range.gte || range.lte) {
+      /*
+        O PERÍODO PEGA O QUE FOI MARCADO NELE — E, SE PEDIREM, O QUE FECHOU NELE.
+
+        `inicio` é o dia PARA o qual a atividade existia; `concluidoEm` e
+        `canceladoEm` são quando ela de fato terminou. Uma devida em 22/08 e
+        concluída em 15/09 aconteceu em setembro, e sem o segundo ramo ela nem
+        chega ao navegador quando alguém abre o mês. Ver
+        `incluirFechadasNoPeriodo` no DTO.
+      */
+      and.push(
+        q.incluirFechadasNoPeriodo === '1' || q.incluirFechadasNoPeriodo === 'true'
+          ? { OR: [{ inicio: range }, { concluidoEm: range }, { canceladoEm: range }] }
+          : { inicio: range },
+      );
+    }
     return and;
   }
 

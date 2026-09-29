@@ -432,4 +432,26 @@ export class ListCompromissosQueryDto {
   @IsOptional() @IsString() dataInicio?: string;
   @ApiPropertyOptional({ description: 'Fim do período (ISO/data).' })
   @IsOptional() @IsString() dataFim?: string;
+
+  /**
+   * A JANELA PEGA TAMBÉM O QUE FECHOU DENTRO DELA — o calendário pede isto.
+   *
+   * Por padrão o período filtra só por `inicio`, que é o dia PARA o qual a
+   * atividade foi marcada. O calendário precisa de mais: uma atividade devida
+   * em 22/08 e concluída em 15/09 **aconteceu** em setembro, e sem esta opção
+   * ela nem chega ao navegador quando alguém abre o mês de setembro.
+   *
+   * Medido em 28/09/2026: em 14 dos últimos 60 dias havia atividade fechada
+   * naquele dia que a célula do calendário não mostrava — no dia 02/09 foram
+   * OITO. E na mesma tela a aba "Hoje" contava 12 enquanto a célula de hoje
+   * mostrava 6, porque a aba já usa a regra certa desde 18/09.
+   *
+   * Fica opcional, e não vira o padrão, porque `dataInicio/dataFim` significam
+   * "marcadas no período" para quem já usa — mudar isso por baixo mudaria
+   * relatório alheio sem ninguém pedir.
+   */
+  @ApiPropertyOptional({
+    description: '"1" para o período pegar também o que foi concluído/cancelado dentro dele.',
+  })
+  @IsOptional() @IsIn(['1', 'true', '0', 'false']) incluirFechadasNoPeriodo?: string;
 }

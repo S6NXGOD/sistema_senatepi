@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { diferencaDoDiaMarcado, quandoTerminou } from '@/lib/agenda';
+import { diferencaDoDiaMarcado, doDiaDeTeresina, quandoTerminou } from '@/lib/agenda';
 import { visiveisDaColuna } from '@/components/agenda/kanban-view';
 
 const semComentarios = (rel: string) =>
@@ -232,5 +232,88 @@ describe('duração e data não se confundem no cartão', () => {
   it('só há uma "Concluída em", e é a do dia', () => {
     expect(CARD.match(/Concluída em/g)).toHaveLength(1);
     expect(CARD).toContain('Concluída em {formatData(c.concluidoEm)}');
+  });
+});
+
+/**
+ * O DIA DO CALENDÁRIO MOSTRA O QUE FECHOU NELE — a outra metade da pergunta.
+ *
+ * "E se um advogado concluir uma atividade atrasada? Ela fica concluída no dia
+ * ou se conclui na data atrasada?" — o dono, 28/09/2026.
+ *
+ * O registro guarda o instante real e o cartão fica no dia marcado (acima). Mas
+ * as duas maneiras de olhar um DIA discordavam na mesma tela: a aba "Hoje"
+ * conta pelo carimbo desde 18/09; a célula do calendário, não.
+ *
+ *   aba "Hoje" ....................... 12
+ *   célula de hoje ................... 6
+ *   dias dos últimos 60 com diferença . 14 — no 02/09, OITO atividades
+ */
+describe('doDiaDeTeresina — o dia são as marcadas nele e as que fecharam nele', () => {
+  const ATIVIDADE = {
+    id: 'prazo',
+    inicio: '2026-09-22T12:00:00Z', // 22/09 em Teresina
+    concluidoEm: '2026-09-28T13:24:00Z', // 28/09 em Teresina
+    canceladoEm: null,
+  };
+
+  it('aparece no dia para o qual foi marcada', () => {
+    expect(doDiaDeTeresina([ATIVIDADE], '2026-09-22')).toHaveLength(1);
+  });
+
+  /** E no dia em que saiu — dois fatos verdadeiros, e o cartão diz qual é qual. */
+  it('e no dia em que foi concluída', () => {
+    expect(doDiaDeTeresina([ATIVIDADE], '2026-09-28')).toHaveLength(1);
+  });
+
+  it('e em nenhum outro', () => {
+    expect(doDiaDeTeresina([ATIVIDADE], '2026-09-25')).toEqual([]);
+  });
+
+  /** Cancelar é um desfecho: o dia do cancelamento conta igual. */
+  it('o cancelamento conta como fim', () => {
+    const cancelada = { id: 'c', inicio: '2026-09-10T12:00:00Z', concluidoEm: null, canceladoEm: '2026-09-26T13:00:00Z' };
+    expect(doDiaDeTeresina([cancelada], '2026-09-26')).toHaveLength(1);
+    expect(doDiaDeTeresina([cancelada], '2026-09-10')).toHaveLength(1);
+  });
+
+  /** Aberta continua só no dia dela. */
+  it('atividade aberta não aparece em dia nenhum além do seu', () => {
+    const aberta = { id: 'a', inicio: '2026-09-22T12:00:00Z', concluidoEm: null, canceladoEm: null };
+    expect(doDiaDeTeresina([aberta], '2026-09-22')).toHaveLength(1);
+    expect(doDiaDeTeresina([aberta], '2026-09-28')).toEqual([]);
+  });
+
+  /** Fechada no mesmo dia entra UMA vez — a lista não pode duplicar o cartão. */
+  it('fechada no mesmo dia não duplica', () => {
+    const mesmoDia = { id: 'm', inicio: '2026-09-28T12:00:00Z', concluidoEm: '2026-09-28T14:07:00Z', canceladoEm: null };
+    expect(doDiaDeTeresina([mesmoDia], '2026-09-28')).toHaveLength(1);
+  });
+
+  /**
+   * O DIA É O DE TERESINA. 23h30 do dia 27 em Teresina é 02h30 do dia 28 em
+   * UTC: contar no fuso errado poria a atividade na célula seguinte.
+   */
+  it('a virada do dia é a de Teresina', () => {
+    const noite = { id: 'n', inicio: '2026-09-10T12:00:00Z', concluidoEm: '2026-09-28T02:30:00Z', canceladoEm: null };
+    expect(doDiaDeTeresina([noite], '2026-09-27')).toHaveLength(1);
+    expect(doDiaDeTeresina([noite], '2026-09-28')).toEqual([]);
+  });
+});
+
+/**
+ * E A CONSULTA DO MÊS PRECISA TRAZER ESSAS ATIVIDADES.
+ *
+ * Filtrar o dia na tela não adianta se o navegador nunca recebeu a atividade:
+ * a consulta do mês vai por `inicio`, então uma devida em 22/08 e concluída em
+ * 15/09 não chega quando alguém abre setembro.
+ */
+describe('a grade do mês pede o que fechou no mês', () => {
+  const PAGINA = readFileSync(join(__dirname, '../../app/(dashboard)/agenda/page.tsx'), 'utf8')
+    .replace(/\r\n/g, '\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('a janela do calendário manda a opção', () => {
+    expect(PAGINA).toContain("incluirFechadasNoPeriodo: '1'");
   });
 });

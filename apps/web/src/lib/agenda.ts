@@ -1021,6 +1021,17 @@ export interface FiltroCompromissos {
   busca?: string;
   dataInicio?: string;
   dataFim?: string;
+  /**
+   * "1" para o período pegar também o que foi CONCLUÍDO ou CANCELADO dentro
+   * dele, e não só o que estava marcado para ele. É o que o calendário pede:
+   * uma atividade devida em 22/08 e concluída em 15/09 aconteceu em setembro.
+   *
+   * DECLARADO AQUI DE PROPÓSITO. `paraParams` repassa qualquer chave verdadeira
+   * do objeto, então o campo funcionaria sem estar no tipo — e sumiria no dia
+   * em que alguém fizesse o construtor escolher chaves conhecidas, sem nenhum
+   * teste reprovar.
+   */
+  incluirFechadasNoPeriodo?: string;
   /** Recorte calculado no SERVIDOR (mesma regra dos contadores e do painel). */
   recorte?: RecorteAgenda;
   /** Régua `daPessoa`: responde ou foi posta ali por gente (reserva fora). */
@@ -1587,9 +1598,36 @@ export function celulaDoDiaBR(instante: string | number | Date): Date {
   return new Date(a, m - 1, d);
 }
 
-/** As atividades cujo dia de Teresina é o `ymd` — o filtro do dia escolhido e da célula. */
-export function doDiaDeTeresina<T extends { inicio: string }>(itens: readonly T[], ymd: string): T[] {
-  return itens.filter((c) => diaBRDe(c.inicio) === ymd);
+/**
+ * AS ATIVIDADES DAQUELE DIA — as marcadas para ele E as que fecharam nele.
+ *
+ * Filtrava só por `inicio`, e por isso a mesma tela dava duas respostas para o
+ * mesmo dia: a aba "Hoje" (regra do servidor, `recorteHoje`) já conta o que foi
+ * fechado hoje desde 18/09; a célula do calendário, não.
+ *
+ * MEDIDO EM 28/09/2026, na produção:
+ *
+ *   aba "Hoje" ........................ 12
+ *   célula de hoje .................... 6
+ *   fechadas hoje e devidas noutro dia . 1 (só na aba)
+ *   dias dos últimos 60 com diferença .. 14 — no 02/09 foram OITO
+ *
+ * Duas definições do mesmo dia, discordando na mesma tela: o defeito que já
+ * custou caro em "atrasada em três estados".
+ *
+ * UMA ATIVIDADE PODE APARECER EM DOIS DIAS, e isso é correto — são dois fatos
+ * verdadeiros. O prazo devido em 22/09 pertence ao 22 (era o compromisso dele) e
+ * pertence ao 28 (foi quando saiu). Desde 28/09 o cartão diz qual é qual:
+ * "Concluída em 28/09/2026 · 6 dias depois".
+ */
+export function doDiaDeTeresina<
+  T extends { inicio: string; concluidoEm?: string | null; canceladoEm?: string | null },
+>(itens: readonly T[], ymd: string): T[] {
+  return itens.filter((c) => {
+    if (diaBRDe(c.inicio) === ymd) return true;
+    const fim = quandoTerminou(c);
+    return !!fim && diaBRDe(fim) === ymd;
+  });
 }
 
 const MESES = [

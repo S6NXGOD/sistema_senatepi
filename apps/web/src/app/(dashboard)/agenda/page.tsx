@@ -69,7 +69,12 @@ function gradeDoMes(mes: Date) {
   ini.setDate(1 - primeiro.getDay());
   const fim = new Date(ini);
   fim.setDate(ini.getDate() + 42);
-  return { dataInicio: ini.toISOString(), dataFim: fim.toISOString() };
+  /*
+    O MÊS PEGA TAMBÉM O QUE FECHOU NELE. Sem isto, uma atividade devida em 22/08
+    e concluída em 15/09 não chega ao navegador quando alguém abre setembro — e
+    a célula do dia 15 não tem como mostrá-la. Ver `incluirFechadasNoPeriodo`.
+  */
+  return { dataInicio: ini.toISOString(), dataFim: fim.toISOString(), incluirFechadasNoPeriodo: '1' };
 }
 
 /** Escolheu o Quadro nesta sessão? Só aí Todas continua no quadro (ver `visaoDaAgenda`). */
