@@ -211,7 +211,9 @@ export interface Compromisso {
      *
      * A consulta da EDILENE tinha zero anexos próprios e dezessete no
      * atendimento que a originou. O advogado abria sem saber que existiam.
-     * Opcional: só o detalhe manda, e a API da janela de troca não manda.
+     * Opcional: a API da janela de troca não manda. Desde 02/10/2026 vem
+     * também no CARTÃO — antes era só no detalhe, e por isso o clipe do cartão
+     * continuava mudo para a consulta que trazia tudo na triagem.
      */
     _count?: { anexos: number };
   } | null;
@@ -716,6 +718,74 @@ export function diferencaDoDiaMarcado(
   const n = Math.abs(dias);
   const quantos = `${n} ${n === 1 ? 'dia' : 'dias'}`;
   return { dias, texto: dias < 0 ? `${quantos} antes` : `${quantos} depois` };
+}
+
+/**
+ * O CLIPE DO CARTÃO: QUANTOS ARQUIVOS, E DE ONDE.
+ *
+ * Terceira vez que o dono pergunta a mesma coisa, e as duas correções
+ * anteriores pararam no meio:
+ *
+ *   21/09 — o clipe nasceu, contando os anexos da PRÓPRIA atividade;
+ *   24/09 — "a atividade tinha 17 anexos, mas não tá avisando no card" → a
+ *           contagem da triagem entrou só na GAVETA;
+ *   02/10 — "houve anexos na triagem. Como o advogado vai saber sem precisar
+ *           clicar no card?"
+ *
+ * Medido na produção em 02/10/2026: a Consulta Jurídica da VIVIAN NUNES COSTA,
+ * marcada para 08/10, tem ZERO anexos próprios e CINCO no atendimento que a
+ * originou — e zero não desenha clipe. Das 30 atividades nascidas de triagem,
+ * 3 têm documento no atendimento e 2 mostravam nada no cartão.
+ *
+ * ONDE ESTÁ IMPORTA. "5 anexos" num cartão cujo bloco de documentos abre vazio
+ * é pior que silêncio: manda o advogado procurar o que não está ali. Por isso
+ * o texto separa os dois lugares, e o da triagem diz que é da triagem.
+ */
+export function resumoDeAnexos(c: {
+  _count?: { anexos: number } | null;
+  atendimento?: { _count?: { anexos: number } } | null;
+}): {
+  total: number;
+  daAtividade: number;
+  daTriagem: number;
+  /** Curto, para o clipe do cartão: "5 anexos na triagem". */
+  texto: string;
+  /** Inteiro, para a faixa do topo da gaveta: "5 documentos na triagem". */
+  frase: string;
+  /** O que o `title` explica, sem abreviar. */
+  titulo: string;
+} | null {
+  const daAtividade = c._count?.anexos ?? 0;
+  const daTriagem = c.atendimento?._count?.anexos ?? 0;
+  const total = daAtividade + daTriagem;
+  if (!total) return null;
+
+  const arquivos = (n: number) => `${n} ${n === 1 ? 'arquivo' : 'arquivos'}`;
+  const docs = (n: number) => `${n} ${n === 1 ? 'documento' : 'documentos'}`;
+  const anexos = (n: number) => `${n} ${n === 1 ? 'anexo' : 'anexos'}`;
+
+  if (!daTriagem) {
+    return {
+      total, daAtividade, daTriagem,
+      texto: anexos(daAtividade),
+      frase: `${docs(daAtividade)} ${daAtividade === 1 ? 'anexado' : 'anexados'}`,
+      titulo: `${arquivos(daAtividade)} nesta atividade.`,
+    };
+  }
+  if (!daAtividade) {
+    return {
+      total, daAtividade, daTriagem,
+      texto: `${anexos(daTriagem)} na triagem`,
+      frase: `${docs(daTriagem)} na triagem`,
+      titulo: `${arquivos(daTriagem)} que a triagem juntou. Abra a atividade para ver.`,
+    };
+  }
+  return {
+    total, daAtividade, daTriagem,
+    texto: `${anexos(daAtividade)} · ${daTriagem} na triagem`,
+    frase: `${docs(daAtividade)} ${daAtividade === 1 ? 'anexado' : 'anexados'} · ${daTriagem} na triagem`,
+    titulo: `${arquivos(daAtividade)} nesta atividade e ${arquivos(daTriagem)} na triagem de origem.`,
+  };
 }
 
 /** Milissegundos do início (00:00 de Teresina) do dia em que `agora` cai. */

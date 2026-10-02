@@ -14,7 +14,7 @@ import { SeloUrgente } from '@/components/ui/selo-urgente';
 import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, ehReserva,
   formatData, formatHora, estaAtrasado, estaFechado, acaoPrincipalDoCartao,
-  quandoTerminou, diferencaDoDiaMarcado,
+  quandoTerminou, diferencaDoDiaMarcado, resumoDeAnexos,
   duracaoEntre, estadoDoPrazo, horaBRDe, diaBRDe, rotuloCurtoDoDia,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL,
@@ -142,6 +142,8 @@ export function CompromissoCard({
     Serve às duas colunas terminais: concluída e cancelada.
   */
   const desvio = diferencaDoDiaMarcado(c.inicio, quandoTerminou(c));
+  /* Arquivos desta atividade E os que a triagem juntou — ver `resumoDeAnexos`. */
+  const anexos = resumoDeAnexos(c);
 
   /*
     O ANEL NÃO SERVE DE NADA FORA DA TELA.
@@ -510,14 +512,19 @@ export function CompromissoCard({
           e rolar — e é justamente a informação que muda o que a pessoa faz a
           seguir (baixar a peça antes de começar). Não é botão: abrir a gaveta
           já é o caminho, e um segundo alvo de toque aqui competiria com ele.
+
+          E CONTA OS DA TRIAGEM TAMBÉM (02/10/2026). Ele contava só os da
+          própria atividade, e a consulta que nasce da triagem costuma ter ZERO
+          próprios: a da VIVIAN tem cinco documentos no atendimento e nenhum
+          nela. Ver `resumoDeAnexos`.
         */}
-        {!!c._count?.anexos && (
+        {anexos && (
           <span
             className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
-            title={c._count.anexos === 1 ? '1 arquivo anexado' : `${c._count.anexos} arquivos anexados`}
+            title={anexos.titulo}
           >
             <Paperclip className="h-3 w-3" />
-            {c._count.anexos} {c._count.anexos === 1 ? 'anexo' : 'anexos'}
+            {anexos.texto}
           </span>
         )}
       </div>

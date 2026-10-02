@@ -25,7 +25,7 @@ import {
   Compromisso, StatusCompromisso, rotuloTipo, corDeTipo, STATUS_LABEL, STATUS_COR,
   DESFECHO_LABEL, corDesfecho,
   rotuloDesfecho, CATEGORIA_CANCELAMENTO_LABEL, diaBRDe, acaoPrincipalDoCartao,
-  quandoTerminou, diferencaDoDiaMarcado,
+  quandoTerminou, diferencaDoDiaMarcado, resumoDeAnexos,
 } from '@/lib/agenda';
 import { useTiposEvento } from '@/lib/use-tipos-evento';
 import { useAuth } from '@/lib/auth';
@@ -183,6 +183,8 @@ export function CompromissoDrawer({
   const atrasado = c ? estaAtrasado(c) : false;
   /* Fechada em outro dia — nulo quando é o mesmo. Ver `diferencaDoDiaMarcado`. */
   const desvio = c ? diferencaDoDiaMarcado(c.inicio, quandoTerminou(c)) : null;
+  /* Arquivos desta atividade E os da triagem de origem — ver `resumoDeAnexos`. */
+  const anexos = c ? resumoDeAnexos(c) : null;
 
   /** Só vira botão o link que passa pela mesma regra do servidor. */
   const linkAvaliado = c?.linkReuniao ? normalizarLinkReuniao(c.linkReuniao) : null;
@@ -420,8 +422,14 @@ export function CompromissoDrawer({
             hora da chamada, ninguém rola. Esta linha diz QUANTOS e leva até
             lá; a lista continua onde estava, porque é lá que se baixa e se
             envia. Um número só, sem lista duplicada.
+
+            E ELA CONTAVA SÓ OS PRÓPRIOS (corrigido em 02/10/2026). Em 24/09 a
+            contagem da triagem entrou no payload do detalhe e foi parar apenas
+            no bloco herdado, lá embaixo — esta faixa, que existe justamente
+            para responder "tem anexo?" sem rolar, continuou muda na consulta
+            que traz tudo na triagem. A da VIVIAN: zero próprios, cinco lá.
           */}
-          {!!c._count?.anexos && (
+          {anexos && (
             <button
               type="button"
               onClick={() =>
@@ -429,14 +437,11 @@ export function CompromissoDrawer({
                   .getElementById(`anexos-${c.id}`)
                   ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }
+              title={anexos.titulo}
               className="flex w-full items-center gap-2 rounded-lg border border-brand-200 bg-brand-50/60 px-3 py-2.5 text-left transition hover:bg-brand-100/60 dark:border-brand-900/50 dark:bg-brand-950/20 dark:hover:bg-brand-950/40"
             >
               <Paperclip className="h-4 w-4 shrink-0 text-brand-800 dark:text-brand-300" />
-              <span className="min-w-0 flex-1 text-sm font-medium">
-                {c._count.anexos === 1
-                  ? '1 documento anexado'
-                  : `${c._count.anexos} documentos anexados`}
-              </span>
+              <span className="min-w-0 flex-1 text-sm font-medium">{anexos.frase}</span>
               <span className="shrink-0 text-xs font-medium text-brand-800 dark:text-brand-300">
                 ver
               </span>
@@ -518,15 +523,19 @@ export function CompromissoDrawer({
 
                   Fica junto do botão que leva até eles, porque contar sem dizer
                   onde pegar é o aviso que obriga a procurar.
+
+                  O NÚMERO SAIU DAQUI EM 02/10/2026, e não porque deixou de
+                  importar: a faixa do topo passou a contar os arquivos da
+                  triagem também, e as duas linhas ficavam na MESMA dobra
+                  dizendo o mesmo ("6 documentos na triagem" e "6 arquivos
+                  vieram com a triagem"). Repetir o mesmo fato na mesma tela é o
+                  que faz a pessoa parar de ler — já aconteceu com "ficaram para
+                  trás", que aparecia três vezes.
+
+                  O que fica aqui é o DESTINO, que é outro: a faixa do topo rola
+                  até os documentos da atividade; este botão abre a triagem
+                  inteira, com o que foi escrito no balcão.
                 */}
-                {!!c.atendimento?._count?.anexos && (
-                  <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-foreground/80">
-                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                    {c.atendimento._count.anexos === 1
-                      ? '1 arquivo veio com a triagem'
-                      : `${c.atendimento._count.anexos} arquivos vieram com a triagem`}
-                  </p>
-                )}
                 {onVerTriagem && (
                   <button type="button" onClick={() => onVerTriagem(c.atendimento!.id)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline dark:text-brand-400">
                     <FileSearch className="h-3.5 w-3.5" />

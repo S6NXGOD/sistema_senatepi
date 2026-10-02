@@ -228,7 +228,37 @@ const cardSelect = {
    * continua onde estava.
    */
   atendimento: {
-    select: { id: true, numero: true, descricao: true, assunto: true, assuntoOutro: true },
+    select: {
+      id: true, numero: true, descricao: true, assunto: true, assuntoOutro: true,
+      /*
+        OS ARQUIVOS DA TRIAGEM, CONTADOS TAMBÉM NO CARTÃO (02/10/2026).
+
+        Esta é a TERCEIRA vez que o dono pergunta a mesma coisa, e as duas
+        primeiras correções pararam no meio do caminho:
+
+          21/09 — "existe alguma maneira de sinalizar que a atividade tem anexo
+                   ao advogado?" → o clipe nasceu, contando `_count.anexos` da
+                   PRÓPRIA atividade.
+          24/09 — "a atividade tinha 17 anexos, mas não tá avisando no card" →
+                   a contagem da triagem entrou... só em `detalhe()`, a GAVETA.
+                   O cartão continuou o de 21/09.
+          02/10 — "existe esse atendimento que foi criado através da triagem e
+                   nele houve anexos. Como o advogado vai saber sem precisar
+                   clicar no card?"
+
+        Medido na produção em 02/10/2026: a Consulta Jurídica da VIVIAN NUNES
+        COSTA, marcada para 08/10, tem **ZERO anexos próprios e CINCO no
+        atendimento** que a originou. O cartão não dizia nada — `_count.anexos`
+        era 0, e 0 não desenha clipe.
+
+        SÓ A TRIAGEM, E NÃO O PROCESSO. A gaveta herda de um ou de outro, mas
+        um processo carrega o acervo inteiro: "47 anexos" num cartão de
+        audiência não ajuda ninguém a decidir o que fazer agora. Os documentos
+        da triagem são outra coisa — é o que a filiada trouxe PARA esta
+        consulta.
+      */
+      _count: { select: { anexos: true } },
+    },
   },
 } as const;
 
