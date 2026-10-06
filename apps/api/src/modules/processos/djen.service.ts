@@ -155,6 +155,37 @@ const MAX_PAGINAS = 20;
  * (`DJEN_HISTORICO_MAX_PAGINAS`, padrão 10).
  */
 export const PAGINAS_DO_NUMERO_NA_JANELA = 3;
+/**
+ * O QUE EXATAMENTE FALHOU NA REDE — e por que a frase genérica custou 4 dias.
+ *
+ * 06/10/2026. A varredura por OAB falhou nas quatro noites seguidas, 192 de 192
+ * consultas, e tudo que ficou gravado foi "falha de rede". O nome do erro do
+ * Node — o que separa "o endereço não resolve" de "a conexão foi cortada no
+ * meio" — ia só para o stdout do Railway, que ninguém guarda.
+ *
+ * As três causas levam a investigações OPOSTAS:
+ *
+ *   ENOTFOUND / EAI_AGAIN ...... o endereço de `DJEN_BASE_URL` não resolve
+ *   ECONNREFUSED ............... a máquina responde e a porta está fechada
+ *   ECONNRESET / socket ........ conectou e a conexão caiu NO MEIO — tipicamente
+ *                                a resposta grande (a busca por OAB traz 200 a
+ *                                550 KB; a por número, 20 KB, e essa funcionava)
+ *   EPROTO / cert .............. a variável aponta para https num servidor que
+ *                                só atende http
+ *
+ * Sem o código, as quatro viram a mesma linha no banco e a pessoa que abre o
+ * painel não tem como escolher por onde começar.
+ */
+export function causaDeRede(err: unknown): string {
+  const e = err as { code?: unknown; message?: unknown; cause?: { code?: unknown; message?: unknown } };
+  const codigo = String(e?.cause?.code ?? e?.code ?? '').trim();
+  if (codigo) return `falha de rede: ${codigo}`;
+  const msg = String(e?.cause?.message ?? e?.message ?? '').trim();
+  // Sem código, a primeira linha da mensagem — truncada, porque isto vai para
+  // uma coluna que a tela mostra inteira.
+  return msg ? `falha de rede: ${msg.split('\n')[0].slice(0, 90)}` : 'falha de rede';
+}
+
 const ITENS_POR_PAGINA = 100;
 
 /**
@@ -639,6 +670,7 @@ export class DjenService {
     } catch (err) {
       if (err instanceof HttpException) throw err;
       const isTimeout = (err as Error)?.name === 'AbortError';
+      const causa = causaDeRede(err);
       this.logger.error(
         `[DJEN] Falha na consulta: ${isTimeout ? 'timeout' : (err as Error).message}`,
       );
@@ -647,7 +679,7 @@ export class DjenService {
       throw new ServiceUnavailableException(
         isTimeout
           ? `O DJEN não respondeu em ${Math.round(this.timeoutMs / 1000)}s. Tente de novo em instantes.`
-          : 'Não foi possível alcançar o DJEN (falha de rede). Tente de novo em instantes.',
+          : `Não foi possível alcançar o DJEN (${causa}). Tente de novo em instantes.`,
       );
     } finally {
       clearTimeout(timer);

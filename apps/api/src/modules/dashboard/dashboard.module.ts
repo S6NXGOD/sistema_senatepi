@@ -2388,6 +2388,8 @@ export class DashboardService {
         ultima_falha: Date | null;
         ultimo_erro: string | null;
         ultima_rodada_ok: Date | null;
+        /** Última RODADA do DJEN que deu certo — ver a consulta. Nulo nas outras fontes. */
+        ultima_varredura_ok: Date | null;
       }[]
     >`
       SELECT fonte,
@@ -2405,7 +2407,32 @@ export class DashboardService {
                   AND r.numero_cnj IS NULL
                   AND r.sucesso
                   AND r.mensagem_erro LIKE ${`${PREFIXO_RODADA_SEM_ALVO}%`}
-             ) END                                      AS ultima_rodada_ok
+             ) END                                      AS ultima_rodada_ok,
+             /*
+               A VARREDURA DO DJEN TEM SAÚDE PRÓPRIA — e não tinha (06/10/2026).
+
+               o ultimo_sucesso é o max de QUALQUER linha que deu certo, e para o
+               DJEN isso inclui a consulta por NÚMERO que acontece quando alguém
+               abre a aba Publicações de um processo. Uma dessas zera o atraso.
+
+               MEDIDO NA PRODUÇÃO EM 06/10/2026: a varredura por OAB falhou nas
+               QUATRO noites seguidas (03, 04, 05 e 06/10 — 192 de 192 consultas
+               em cada uma, "falha de rede"), nenhuma publicação entrou desde
+               02/10 — e o painel estava VERDE, porque às 11h22 três consultas
+               por número deram certo.
+
+               Uma ficha aberta por alguém não prova que a varredura funciona.
+               O que prova é a linha de RESUMO da rodada, que existe uma por
+               noite. A régua do atraso do DJEN passa a ser ela.
+             */
+             CASE WHEN fonte = 'DJEN' THEN (
+               SELECT max(r.created_at)
+                 FROM logs_sincronizacao_datajud r
+                WHERE r.fonte = 'DJEN'
+                  AND r.processo_id IS NULL
+                  AND r.numero_cnj IS NULL
+                  AND r.sucesso
+             ) END                                      AS ultima_varredura_ok
         FROM logs_sincronizacao_datajud
        WHERE ${SO_CHAMADAS_AO_TRIBUNAL}
        GROUP BY fonte
@@ -2440,9 +2467,18 @@ export class DashboardService {
 
         Dois dias ÚTEIS é outra coisa: aí há uma edição inteira que não entrou.
       */
-      const diasUteisSemSucesso = l.ultimo_sucesso
-        ? diasUteisEntre(l.ultimo_sucesso, agora)
-        : null;
+      /*
+        PARA O DJEN, O QUE CONTA É A RODADA — ver a consulta acima.
+
+        Qualquer sucesso servia, e a consulta por número que roda ao abrir a aba
+        Publicações de um processo zerava o atraso de uma varredura que não
+        funcionava havia quatro noites. A base do atraso do DJEN é a última
+        rodada que terminou bem; `ultimo_sucesso` fica de reserva para as linhas
+        antigas, de antes de a rodada ser registrada.
+      */
+      const baseDoAtraso =
+        l.fonte === 'DJEN' ? (l.ultima_varredura_ok ?? l.ultimo_sucesso) : l.ultimo_sucesso;
+      const diasUteisSemSucesso = baseDoAtraso ? diasUteisEntre(baseDoAtraso, agora) : null;
       const atrasado = diasUteisSemSucesso === null || diasUteisSemSucesso >= 2;
 
       /*
@@ -2484,6 +2520,13 @@ export class DashboardService {
         ok24,
         falhas24,
         ultimoSucesso: l.ultimo_sucesso,
+        /**
+         * A DATA QUE DECIDE O ATRASO — para o DJEN é a última VARREDURA que
+         * terminou bem, e não qualquer consulta. Sem isto a tela mostrava um
+         * "último sucesso" de minutos atrás ao lado de "PARADA", e as duas
+         * coisas eram verdade sobre fatos diferentes.
+         */
+        ultimaVarreduraOk: l.ultima_varredura_ok,
         /** Dias ÚTEIS desde a última chamada que voltou — o critério do atraso. */
         diasUteisSemSucesso,
         ultimaFalha: l.ultima_falha,
