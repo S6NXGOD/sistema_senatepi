@@ -71,6 +71,14 @@ export class SiconfiIndisponivelError extends ServiceUnavailableException {
   constructor(
     mensagem: string,
     readonly statusUpstream?: number,
+    /**
+     * O `Retry-After` que o Tesouro mandou, cru — só no 429.
+     *
+     * Em 06/10/2026 a rodada levou 42 respostas 429 em 16 segundos e seguiu no
+     * mesmo ritmo, porque o recuo não existia e o cabeçalho era descartado aqui.
+     * Quem sabe quanto esperar é quem recusou; o recuo tabelado é só a reserva.
+     */
+    readonly retryAfter?: string | null,
   ) {
     super(mensagem);
   }
@@ -236,6 +244,7 @@ export class SiconfiService {
         throw new SiconfiIndisponivelError(
           `O Tesouro Nacional respondeu ${resposta.status} à consulta do SICONFI.`,
           resposta.status,
+          resposta.headers.get('retry-after'),
         );
       }
       const corpo = (await resposta.json()) as RespostaSiconfi;

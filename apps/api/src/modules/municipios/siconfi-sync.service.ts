@@ -5,6 +5,7 @@ import { SincronizacaoLogService } from '../processos/sincronizacao-log.service'
 import { SiconfiService, SiconfiIndisponivelError } from './siconfi.service';
 import { ondeAtuamos, presencaPorEnte } from './presenca.util';
 import { tenant } from '../../tenant/tenant.config';
+import { esperaDoRetryAfter } from '../../common/retry-after.util';
 
 /** A coluna `fonte` do log é TEXTO justamente para caber uma fonte nova sem migração. */
 export const FONTE_SICONFI = 'SICONFI';
@@ -57,6 +58,53 @@ export class SiconfiSyncService {
   private static readonly POR_RODADA = 60;
   /** Respiro entre municípios — a API é pública e gratuita; não se abusa. */
   private static readonly PAUSA_MS = 250;
+  /**
+   * O RECUO DEPOIS DE UM 429 — e por que 250 ms não bastavam.
+   *
+   * 06/10/2026, primeira vez na história: o Tesouro devolveu **429 em 42 dos 60
+   * municípios da rodada, em 16 segundos**. Os 18 primeiros passaram; a partir
+   * dali a resposta foi "pedidos demais" — e o laço seguiu no mesmo ritmo,
+   * levando 42 recusas sem desacelerar um milissegundo.
+   *
+   * A API estava ÓTIMA: testada minutos depois, 200 em três tentativas
+   * seguidas. Quem passou do limite fomos nós. É o mesmo mal-entendido do 429
+   * do CNJ, que a faixa do painel lia como "o CNJ recusou" quando era a nossa
+   * varredura passando do teto.
+   *
+   * Então o 429 deixa de ser "mais uma falha" e passa a ser o que ele é: um
+   * pedido de calma. O município volta para a fila depois da espera que o
+   * próprio servidor pedir (`Retry-After`) ou, sem ela, de um recuo que dobra.
+   */
+  private static readonly RECUO_429_MS = [5_000, 15_000, 45_000];
+
+  /**
+   * Repete a leitura de UM município enquanto o Tesouro pedir calma.
+   *
+   * Só no 429. Qualquer outro erro sobe na hora: insistir num 500 ou num ente
+   * que não publicou é gastar a madrugada repetindo o que não vai mudar.
+   *
+   * A espera é a que o servidor mandar (`Retry-After`); sem ela, o recuo
+   * tabelado. Esgotadas as tentativas, o erro sobe e o município entra no
+   * resumo como falha — a rodada não morre por causa de um.
+   */
+  private async comRecuoNo429<T>(codigo: number, ler: () => Promise<T>): Promise<T> {
+    for (let i = 0; ; i++) {
+      try {
+        return await ler();
+      } catch (e) {
+        const erro = e as { statusUpstream?: number; retryAfter?: string | null };
+        const ultima = i >= SiconfiSyncService.RECUO_429_MS.length;
+        if (erro?.statusUpstream !== 429 || ultima) throw e;
+        const espera =
+          esperaDoRetryAfter(erro.retryAfter) ?? SiconfiSyncService.RECUO_429_MS[i];
+        this.logger.warn(
+          `[SICONFI] 429 no município ${codigo} — recuando ${Math.round(espera / 1000)}s ` +
+            `(tentativa ${i + 1} de ${SiconfiSyncService.RECUO_429_MS.length}).`,
+        );
+        await new Promise((ok) => setTimeout(ok, espera));
+      }
+    }
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -214,10 +262,17 @@ export class SiconfiSyncService {
 
     for (const codigo of alvo) {
       try {
-        const [pessoal, saude] = await Promise.all([
-          this.siconfi.pessoal(codigo, agora),
-          this.siconfi.saude(codigo, agora),
-        ]);
+        /*
+          "PEDIDOS DEMAIS" NÃO É FALHA DESTE MUNICÍPIO — é a casa indo rápido.
+
+          Sem este laço, o 429 contava como município perdido e o seguinte saía
+          250 ms depois, para levar a mesma recusa: em 06/10/2026 foram 42
+          seguidas em 16 segundos. Agora o município volta para a fila depois da
+          espera que o próprio Tesouro pedir. Ver `RECUO_429_MS`.
+        */
+        const [pessoal, saude] = await this.comRecuoNo429(codigo, () =>
+          Promise.all([this.siconfi.pessoal(codigo, agora), this.siconfi.saude(codigo, agora)]),
+        );
 
         if (pessoal) {
           r.comPessoal += 1;

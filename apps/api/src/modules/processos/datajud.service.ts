@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { NpuUtils } from './utils/npu.util';
 import { CNJ_JANELA_MS, CNJ_REQ_POR_MINUTO, CotaPorMinuto, type PrioridadeCnj } from './utils/cota-cnj.util';
+import { esperaDoRetryAfter } from '../../common/retry-after.util';
 
 /**
  * DatajudService — cliente da API Pública do DATAJUD (CNJ).
@@ -49,35 +50,15 @@ export class DatajudIndisponivelError extends ServiceUnavailableException {
   }
 }
 
-/**
- * QUANTO ESPERAR, SEGUNDO O PRÓPRIO CNJ.
- *
- * `Retry-After` vem em segundos ou como data HTTP (as duas formas são válidas
- * pela RFC, e servidores atrás de CDN usam as duas). Ler o que o servidor diz é
- * melhor que arbitrar um minuto: um castigo maior que o necessário atrasa a
- * fila da casa inteira, e um menor faz a próxima chamada tomar a mesma recusa.
- *
- * Devolve nulo quando não há cabeçalho ou ele não faz sentido — aí quem chama
- * usa a janela de cota, que é o palpite honesto que já tínhamos.
- */
-export function esperaDoRetryAfter(valor: string | null | undefined, agora = Date.now()): number | null {
-  if (!valor) return null;
-  const texto = valor.trim();
-  if (!texto) return null;
+/*
+  A CONTA DO `Retry-After` MUDOU DE CASA (06/10/2026).
 
-  if (/^\d+$/.test(texto)) {
-    const segundos = Number(texto);
-    // Teto de 5 min: cabeçalho absurdo não pode prender a fila da casa.
-    if (segundos <= 0 || segundos > 300) return null;
-    return segundos * 1_000;
-  }
-
-  const quando = Date.parse(texto);
-  if (Number.isNaN(quando)) return null;
-  const ms = quando - agora;
-  if (ms <= 0 || ms > 300_000) return null;
-  return ms;
-}
+  Nasceu aqui e passou a servir também ao Tesouro (SICONFI), que levou 42
+  respostas 429 numa rodada só. Importar este serviço a partir do módulo de
+  municípios fecharia ciclo de importação — e isso só o dev pega. O re-export
+  fica para quem já lia daqui.
+*/
+export { esperaDoRetryAfter } from '../../common/retry-after.util';
 
 /** Complemento tabelado do CNJ: detalha o ato (tipo de documento, de petição…). */
 export interface ComplementoDatajud {
