@@ -173,6 +173,20 @@ export class BuscaPublicacoesDto {
  */
 const TTL_DA_VARREDURA_MANUAL_MIN = 180;
 
+/**
+ * QUANTO A VARREDURA COMPLETA DEMORA — para a tela dizer um número verdadeiro.
+ *
+ * A cota do CNJ obriga 14 consultas por minuto e a varredura faz ~192: o piso
+ * é 13,7 minutos, e medido na produção em 06/10/2026 foram 15min24s e 12min13s.
+ * A tela prometia "cerca de um minuto" desde a época em que a rodada tinha uma
+ * dúzia de chamadas — e foi essa promessa que fez o cliente abortar em 10 min
+ * e mostrar erro numa busca que deu certo.
+ *
+ * Arredondado para cima: prometer menos do que leva é criar o mesmo problema
+ * de novo.
+ */
+export const MINUTOS_DA_VARREDURA_COMPLETA = 20;
+
 /** A frase do 409: o que está acontecendo, o que fazer e quando destrava sozinho. */
 export const VARREDURA_DO_DIARIO_OCUPADA =
   'A varredura do Diário já está rodando (a do robô das 5h ou uma pedida por outra pessoa). ' +
@@ -615,7 +629,30 @@ export class DjenController {
       do Diário", e a primeira ficava órfã na agenda de alguém (auditoria dos
       robôs, 13/09/2026). Agora quem chega depois recebe 409 e uma frase.
     */
-    const rodada = await comTravaDeJob(
+    /*
+      A ROTA NÃO ESPERA A VARREDURA TERMINAR — e esperar era o defeito (06/10/2026).
+
+      "Mesmo clicando em buscar com DJEN dá erro." Medido no mesmo dia: as duas
+      varreduras manuais levaram **15min24s e 12min13s**, e **as duas deram
+      certo**. O erro era do NAVEGADOR desistindo: o cliente aborta em 10 min
+      (`timeout: 600_000`) e mostra "Não foi possível buscar no Diário agora"
+      enquanto o servidor segue trabalhando e termina bem.
+
+      E não era azar: a cota do CNJ é de 14 consultas por minuto e a varredura
+      faz 192. **O piso é 13,7 minutos** — nunca cabe em dez, e piora à medida
+      que o acervo cresce. Aumentar o tempo do cliente só adiaria o mesmo erro,
+      e segurar uma requisição por um quarto de hora atravessa proxy, aba
+      fechada e rede de celular.
+
+      Então a rota passa a responder na hora: toma a trava, começa e devolve.
+      Quem vê o resultado é o PAINEL, que já lê a linha de resumo da rodada.
+
+      A CORRIDA DE 2 SEGUNDOS existe para o 409 continuar honesto: conflito de
+      trava resolve sem tocar na rede, em milissegundos. Se a promessa voltar
+      nesse tempo dizendo que não executou, é porque já havia uma varredura
+      rodando — e aí a resposta é a de sempre.
+    */
+    const emAndamento = comTravaDeJob(
       this.prisma,
       JOB_DJEN_SYNC,
       this.logger,
@@ -632,8 +669,35 @@ export class DjenController {
       */
       () => this.sync.varrer(undefined, OrigemSincronizacao.MANUAL, q.dias),
     );
-    if (!rodada.executou) throw new ConflictException(VARREDURA_DO_DIARIO_OCUPADA);
-    return rodada.resultado;
+
+    /*
+      O `catch` é obrigatório, e não é zelo: uma promessa rejeitada sem dono
+      derruba o processo Node inteiro. A varredura já grava a própria linha de
+      resumo com o que deu errado — aqui basta não deixar o erro solto.
+    */
+    emAndamento.catch((e) =>
+      this.logger.error(`[DJEN] Varredura manual terminou em erro: ${(e as Error)?.message}`),
+    );
+
+    const ocupada = await Promise.race([
+      emAndamento.then((r) => !r.executou),
+      /*
+        `unref` para o timer não segurar o processo nem o jest: ele é só o teto
+        da corrida, e quando a trava está livre ninguém espera por ele.
+      */
+      new Promise<false>((ok) => setTimeout(() => ok(false), 2_000).unref?.()),
+    ]);
+    if (ocupada) throw new ConflictException(VARREDURA_DO_DIARIO_OCUPADA);
+
+    /*
+      O MINUTO É CALCULADO, não chutado: 192 consultas a 14 por minuto. A tela
+      dizia "cerca de um minuto" desde que a varredura tinha uma dúzia de
+      chamadas, e o número envelheceu junto com o acervo.
+    */
+    return {
+      iniciada: true,
+      minutosEstimados: MINUTOS_DA_VARREDURA_COMPLETA,
+    };
   }
 }
 

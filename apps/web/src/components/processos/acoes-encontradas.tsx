@@ -237,10 +237,18 @@ export function AcoesEncontradas({
   const historico = useMutation({
     mutationFn: () => varrerDjenAgora(DIAS_DE_HISTORICO),
     onSuccess: (r) => {
+      /*
+        A COLHEITA NÃO CABE NUMA REQUISIÇÃO — e a de três dias também não.
+
+        Esta passada lê MESES de Diário para as oito OABs. A rota passou a
+        começar e responder na hora (06/10/2026), depois de o cliente abortar
+        aos 10 minutos e mostrar erro numa varredura que levou 15min24s e deu
+        certo. Então aqui não há mais contagem para anunciar: a fila abaixo é
+        que se enche quando a colheita termina.
+      */
       toast.success(
-        r.sugeridas > 0
-          ? `${r.sugeridas} ação(ões) do sindicato encontrada(s) sem cadastro.`
-          : 'Nenhuma ação nossa sem cadastro nos últimos meses.',
+        `Colheita do histórico iniciada — leva cerca de ${r.minutosEstimados} minutos. ` +
+          'As ações encontradas aparecem nesta fila quando terminar.',
       );
       qc.invalidateQueries({ queryKey: ['processos', 'sugestoes'] });
       qc.invalidateQueries({ queryKey: ['minhas-pendencias'] });

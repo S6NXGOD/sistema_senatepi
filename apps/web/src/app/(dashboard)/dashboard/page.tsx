@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  criarTarefaDaPublicacao, previaDaTarefa, umaPublicacao, varrerDjenAgora, resultadoDaVarredura,
+  criarTarefaDaPublicacao, previaDaTarefa, umaPublicacao, varrerDjenAgora,
 } from '@/lib/djen';
 import { atrasoEscalonado } from '@/lib/movimento';
 import { useAnimacaoDeGrafico } from '@/lib/grafico';
@@ -2626,18 +2626,22 @@ function SaudeDasIntegracoes({
     mutationFn: () => varrerDjenAgora(),
     onSuccess: (r) => {
       /*
-        A BUSCA PODE TERMINAR SEM TER BUSCADO NADA — ver `resultadoDaVarredura`.
+        A VARREDURA NÃO CABE NUMA REQUISIÇÃO — e fingir que cabia dava erro numa
+        busca que deu certo (06/10/2026).
 
-        "Aqui deu 'busca concluída e nada novo no diário' mas a barra amarela
-        persiste. Realmente a busca foi um sucesso?" Não era: o log da produção
-        naquele minuto dizia "Varredura sem resposta: as 165 consulta(s)
-        falharam". A tela olhava só `ingeridas === 0` e usava a MESMA frase para
-        "o Diário não tinha nada" e para "o Diário não respondeu nada".
+        Medido: as duas varreduras manuais daquele dia levaram 15min24s e
+        12min13s, as duas bem-sucedidas, e o cliente abortava aos 10 minutos
+        mostrando "Não foi possível buscar no Diário agora". O piso é 13,7 min
+        (192 consultas a 14 por minuto) e cresce com o acervo.
+
+        Agora a API começa e responde na hora, e aqui só se diz o que é
+        verdade: começou, demora, e o painel conta o resto. O resultado não
+        volta por aqui — volta pela faixa, que lê a rodada.
       */
-      const { tom, texto } = resultadoDaVarredura(r);
-      if (tom === 'erro') toast.error(texto);
-      else if (tom === 'aviso') toast.warning(texto);
-      else toast.success(texto);
+      toast.success(
+        `Busca iniciada no Diário — leva cerca de ${r.minutosEstimados} minutos. ` +
+          'Esta tela se atualiza quando terminar; pode fechar e voltar depois.',
+      );
       qc.invalidateQueries({ queryKey: ['dashboard-resumo'] });
     },
     onError: (e: any) =>

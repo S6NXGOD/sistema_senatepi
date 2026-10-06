@@ -76,24 +76,38 @@ describe('o que dizer depois de buscar no Diário', () => {
  * verdes e o aviso na tela continuou dizendo "nada novo no Diário". Quem pegou
  * foi a conferência no navegador.
  */
-describe('o painel usa a função, e não uma frase própria', () => {
+/**
+ * O PAINEL DEIXOU DE ANUNCIAR O RESULTADO — porque não o recebe mais.
+ *
+ * Até 06/10/2026 a rota devolvia os números da rodada e o painel os traduzia
+ * aqui. Só que a rodada leva de 12 a 15 minutos (192 consultas a 14 por
+ * minuto) e o cliente abortava aos 10, mostrando "Não foi possível buscar no
+ * Diário agora" numa busca que tinha dado certo.
+ *
+ * Agora a API começa e responde na hora, e o resultado chega pela FAIXA, que
+ * lê a linha de resumo da rodada — a mesma que distingue "o Diário não tinha
+ * nada" de "o Diário não respondeu nada", que era a razão de esta função
+ * existir. Ela fica exportada e testada acima: a conta continua certa e volta
+ * a servir no dia em que uma tela mostrar o desfecho da rodada.
+ */
+describe('o clique só promete o que pode cumprir', () => {
   const PAGINA = readFileSync(
     join(__dirname, '../app/(dashboard)/dashboard/page.tsx'),
     'utf8',
   );
 
-  it('o resultado da busca vem de `resultadoDaVarredura`', () => {
-    expect(PAGINA).toContain('const { tom, texto } = resultadoDaVarredura(r);');
+  it('avisa que começou e quanto demora, sem inventar contagem', () => {
+    expect(PAGINA).toContain('Busca iniciada no Diário — leva cerca de ${r.minutosEstimados} minutos.');
+    expect(PAGINA).toContain('Esta tela se atualiza quando terminar');
   });
 
-  /** O tom decide a cor do aviso: erro não pode sair em verde. */
-  it('o tom escolhe entre erro, aviso e sucesso', () => {
-    expect(PAGINA).toContain("if (tom === 'erro') toast.error(texto);");
-    expect(PAGINA).toContain("else if (tom === 'aviso') toast.warning(texto);");
+  /** E não finge mais saber o desfecho na hora do clique. */
+  it('o painel não traduz mais o resultado da rodada', () => {
+    expect(PAGINA).not.toContain('const { tom, texto } = resultadoDaVarredura(r);');
   });
 
   /** A frase antiga não pode voltar por um atalho. */
-  it('o painel não escreve mais a frase de sucesso à mão', () => {
+  it('o painel não escreve a frase de sucesso à mão', () => {
     expect(PAGINA).not.toContain("'Busca concluída — nada novo no Diário.'");
   });
 });

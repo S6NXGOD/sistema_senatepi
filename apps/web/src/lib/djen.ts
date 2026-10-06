@@ -339,6 +339,24 @@ export async function sincronizarPublicacoes(
  * CNJ dezenas de vezes, respeitando a cota. Pode levar minutos — por isso o
  * timeout longo.
  */
+/**
+ * DISPARA A VARREDURA E VOLTA NA HORA — ela não cabe numa requisição.
+ *
+ * 06/10/2026: "mesmo clicando em buscar com DJEN dá erro". As duas varreduras
+ * manuais daquele dia levaram **15min24s e 12min13s** e **as duas deram
+ * certo** — o erro era este cliente desistindo aos 10 minutos (`timeout:
+ * 600_000`) e mostrando "Não foi possível buscar no Diário agora".
+ *
+ * E não cabia por construção: a cota do CNJ é de 14 consultas por minuto e a
+ * varredura faz ~192, então o PISO é 13,7 minutos — e cresce com o acervo.
+ * Aumentar o tempo do cliente adiaria o mesmo erro e ainda dependeria de a aba
+ * ficar aberta um quarto de hora.
+ *
+ * Hoje a API toma a trava, começa e responde. Quem conta o resultado é o
+ * painel, que lê a linha de resumo da rodada. Resposta de uma API antiga
+ * (janela de troca) vem sem `iniciada` e é tratada como início mesmo assim —
+ * ela de fato começou, só não sabia dizer.
+ */
 export async function varrerDjenAgora(
   /**
    * DIAS DE HISTÓRICO — só na colheita inicial.
@@ -349,23 +367,14 @@ export async function varrerDjenAgora(
    * que aparece exclusivamente pela busca por OAB.
    */
   dias?: number,
-): Promise<{
-  advogadosConsultados: number;
-  processosConsultados: number;
-  recebidas: number;
-  ingeridas: number;
-  descartadas: number;
-  /** Das descartadas, quantas eram ações NOSSAS ainda sem cadastro. */
-  sugeridas: number;
-  falhas: number;
-  /** Por que falharam, do motivo mais frequente para o menos. */
-  motivosDeFalha?: Record<string, number>;
-}> {
+): Promise<{ iniciada: boolean; minutosEstimados: number }> {
   const { data } = await api.post('/djen/sincronizar', undefined, {
-    timeout: 600_000,
     ...(dias ? { params: { dias } } : {}),
   });
-  return data;
+  return {
+    iniciada: data?.iniciada !== false,
+    minutosEstimados: Number(data?.minutosEstimados) || 20,
+  };
 }
 
 /**

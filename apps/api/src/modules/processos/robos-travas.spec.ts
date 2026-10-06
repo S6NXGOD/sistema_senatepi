@@ -159,11 +159,21 @@ describe('a varredura manual do DJEN respeita a trava do robô', () => {
     expect(sync.varrer).not.toHaveBeenCalled();
   });
 
-  it('livre: varre como MANUAL, com a janela pedida, e solta a trava', async () => {
+  /**
+   * A ROTA RESPONDE NA HORA (06/10/2026) — ela não espera mais a varredura.
+   *
+   * O retorno era o resultado da rodada, e por isso a requisição ficava aberta
+   * 12 a 15 minutos; o cliente abortava aos 10 e mostrava erro numa busca que
+   * deu certo. Hoje responde `iniciada`, e a trava só se solta quando o
+   * trabalho de verdade termina.
+   */
+  it('livre: começa como MANUAL, com a janela pedida, e responde na hora', async () => {
     const { banco, sync, ctrl } = montar();
-    await expect(ctrl.varrer({ dias: 90 })).resolves.toEqual({ ingeridas: 3 });
+    await expect(ctrl.varrer({ dias: 90 })).resolves.toMatchObject({ iniciada: true });
     expect(sync.varrer).toHaveBeenCalledWith(undefined, OrigemSincronizacao.MANUAL, 90);
     expect(banco.consultas[0]).toBe(`tomar:${JOB_DJEN_SYNC}`);
+    // A trava se solta quando a varredura de fato acaba (aqui, no tique seguinte).
+    await new Promise((ok) => setImmediate(ok));
     expect(banco.travas.size).toBe(0);
   });
 
