@@ -84,6 +84,15 @@ export interface FiliadoLista {
 export interface Atendente {
   id: string;
   nome: string;
+  /**
+   * O NOME CURTO E A FOTO — para a lista poder dizer QUEM registrou a triagem.
+   *
+   * Vinham só `id` e `nome`: a API mandava, a tela não desenhava, e a pergunta
+   * "quem fez essa triagem?" não tinha resposta na listagem. Opcionais porque
+   * a API da janela de troca ainda manda o par antigo.
+   */
+  nomeExibicao?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface AtendimentoLista {

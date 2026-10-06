@@ -118,7 +118,7 @@ export class AtendimentosService {
         descricao: dto.descricao.trim(),
         ...urgencia,
       },
-      include: { filiado: filiadoLista, atendente: { select: { id: true, nome: true } } },
+      include: { filiado: filiadoLista, atendente: RESPONSAVEL_COM_FOTO },
     });
 
     await this.auditar(AcaoAuditoria.CREATE, atendimento.id, ctx,
@@ -1108,7 +1108,19 @@ export class AtendimentosService {
       urgenteMotivo: true,
       conclusaoOrigem: true, conclusaoConsultaId: true,
       filiado: filiadoLista,
-      atendente: { select: { id: true, nome: true } },
+      /*
+        QUEM REGISTROU A TRIAGEM, COM NOME CURTO E FOTO (07/10/2026).
+
+        "Como sei que horas foi feita a triagem nessa listagem e até mesmo quem
+        foi que realizou?" O campo vinha só com `nome`, e a lista não desenhava
+        nada — o dado chegava ao navegador e morria ali.
+
+        Medido na produção: 35 triagens, DUAS pessoas as registram (Julian
+        Helton 30, Ivo Ramos 5) e NENHUMA está sem atendente. Com dois nomes, a
+        foto distingue a linha num relance, e o nome curto é o mesmo
+        vocabulário do resto da casa.
+      */
+      atendente: RESPONSAVEL_COM_FOTO,
       /*
         OS ARQUIVOS, CONTADOS NA LISTA (24/09/2026).
 
@@ -1176,7 +1188,7 @@ export class AtendimentosService {
     const lido = await this.prisma.atendimento.findUnique({
       where: { id },
       include: {
-        atendente: { select: { id: true, nome: true } },
+        atendente: RESPONSAVEL_COM_FOTO,
         processo: processoSel,
         // Quem fechou, como PESSOA: a ficha diz "por Julian Helton", não um id.
         concluidoPorUsuario: { select: { id: true, nome: true, nomeExibicao: true } },

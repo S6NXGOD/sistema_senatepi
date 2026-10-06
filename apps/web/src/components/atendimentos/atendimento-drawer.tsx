@@ -44,6 +44,7 @@ import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
 import { formatNPU } from '@/lib/processos';
 import { mascararCpf } from '@/lib/utils';
 import { V } from '@/lib/vocabulario';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
 
 const inputCls = 'h-12 w-full rounded-md border border-input bg-background px-3 text-base md:h-10 md:text-sm';
 
@@ -214,7 +215,25 @@ export function AtendimentoDrawer({
                   ? <Badge className={DESFECHO_COR[at.desfecho]}>{DESFECHO_LABEL[at.desfecho]}</Badge>
                   : <span className="text-sm italic text-muted-foreground">Sem desfecho</span>}
                 <Badge className={corDoStatus(at)}>{rotuloDoStatus(at)}</Badge>
+                {/*
+                  QUANDO E POR QUEM, JUNTOS (07/10/2026).
+
+                  "Como sei que horas foi feita a triagem (...) e até mesmo quem
+                  foi que realizou? Não tenho essa informação nem mesmo no
+                  detalhamento." A gaveta TINHA as duas coisas — e nas pontas
+                  opostas: o horário aqui em cima e "Registrado por" lá no
+                  rodapé, depois do desfecho e das consultas, em cinza de 12px.
+                  Duas metades do mesmo fato a três rolagens de distância não
+                  são uma resposta.
+                */}
                 <span className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3.5 w-3.5" aria-hidden="true" /> {formatDataHora(at.createdAt)}</span>
+                <span
+                  className="flex items-center gap-1 text-xs text-muted-foreground"
+                  title={`Triagem registrada por ${at.atendente.nome}.`}
+                >
+                  <AvatarPessoa nome={at.atendente.nomeExibicao || at.atendente.nome} url={at.atendente.avatarUrl} tamanho="xs" />
+                  {at.atendente.nomeExibicao || at.atendente.nome}
+                </span>
               </div>
 
               <BlocoDoFechamento at={at} />
@@ -310,7 +329,6 @@ export function AtendimentoDrawer({
                   )}
                 </section>
               )}
-              <p className="text-xs text-muted-foreground">Registrado por <strong>{at.atendente.nome}</strong></p>
             </div>
 
             {/* Ações da demanda — só para quem grava em atendimentos. */}

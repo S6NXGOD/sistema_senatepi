@@ -34,7 +34,9 @@ import {
   type FilaDoAtendimento, type ValorDoSeletorDeStatus,
 } from '@/lib/atendimentos';
 import { ASSUNTO_LABEL, ASSUNTOS } from '@/lib/relatorios';
-import { diasDeAtraso, formatData } from '@/lib/agenda';
+import { diasDeAtraso, formatData, formatHora } from '@/lib/agenda';
+import { AvatarPessoa } from '@/components/ui/avatar-pessoa';
+import { soOPrimeiroNome } from '@/lib/dashboard';
 import { V } from '@/lib/vocabulario';
 
 const PAGE_SIZE = 20;
@@ -278,14 +280,49 @@ function ListaAtendimentos() {
     );
   };
 
+  /*
+    A HORA ENTROU NA LINHA (07/10/2026).
+
+    "Como sei que horas foi feita a triagem nessa listagem?" Ela estava só no
+    `title` — invisível no celular, onde não há mouse, e invisível também para
+    quem só passa os olhos. E não é detalhe: medido na produção, **8 dias têm
+    mais de uma triagem**, e todas acontecem entre 8h e 13h. Sem a hora, duas
+    linhas do mesmo dia são indistinguíveis e a ordem da fila some.
+  */
   const DataDaTriagemCel = ({ a }: { a: AtendimentoLista }) => (
     <span
       className="tabular-nums text-xs text-muted-foreground"
       title={`Triagem registrada em ${formatDataHora(a.createdAt)}.`}
     >
-      {formatData(a.createdAt)}
+      {formatData(a.createdAt)} {formatHora(a.createdAt)}
     </span>
   );
+
+  /**
+   * QUEM REGISTROU A TRIAGEM — a outra metade da pergunta.
+   *
+   * "...e até mesmo quem foi que realizou? Não tenho essa informação nem mesmo
+   * no detalhamento." A gaveta TEM, no rodapé, em cinza de 12px, a três telas
+   * de distância do horário que fica no topo — duas metades do mesmo fato nas
+   * pontas opostas. A listagem não tinha nada, embora a API já mandasse.
+   *
+   * Medido: 35 triagens, DUAS pessoas (Julian Helton 30, Ivo Ramos 5), nenhuma
+   * sem atendente. Com dois nomes, a foto resolve num relance e o primeiro
+   * nome cabe na fileira de pastilhas do celular.
+   */
+  const QuemTriouCel = ({ a }: { a: AtendimentoLista }) => {
+    if (!a.atendente) return null;
+    const nome = a.atendente.nomeExibicao || a.atendente.nome;
+    return (
+      <span
+        className="inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+        title={`Triagem registrada por ${a.atendente.nome} em ${formatDataHora(a.createdAt)}.`}
+      >
+        <AvatarPessoa nome={nome} url={a.atendente.avatarUrl} tamanho="xs" />
+        <span className="truncate">{soOPrimeiroNome(nome)}</span>
+      </span>
+    );
+  };
 
   /**
    * A COLUNA DO TEMPO — e de quem é a espera (21/09/2026, correção de rota).
@@ -495,6 +532,7 @@ function ListaAtendimentos() {
                   */}
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <DataDaTriagemCel a={a} />
+                    <QuemTriouCel a={a} />
                     <AnexosCel a={a} />
                     <ResultadoCel a={a} />
                     {oSeloDeSituacaoAcrescenta(a) && (
@@ -593,6 +631,7 @@ function ListaAtendimentos() {
                         <td className="whitespace-nowrap px-4 py-3">
                           <div className="flex flex-col items-start gap-1">
                             <DataDaTriagemCel a={a} />
+                            <QuemTriouCel a={a} />
                             <EsperaCel a={a} />
                           </div>
                         </td>
