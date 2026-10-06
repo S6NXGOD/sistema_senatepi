@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  MoreVertical, CheckCircle2, Printer, Trash2, Loader2,
+  MoreVertical, CheckCircle2, Printer, Trash2, Loader2, ReceiptText,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { WhatsAppIcon } from '@/components/whatsapp-icon';
@@ -16,8 +16,12 @@ import {
 } from '@/lib/cobrancas';
 import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
 import { RegistrarPagamentoModal } from '@/components/cobrancas/registrar-pagamento-modal';
+import { EmitirReciboModal } from '@/components/recibos/emitir-recibo-modal';
+import { ReciboPrintModal } from '@/components/recibos/recibo-print-modal';
+import type { PagamentoParaRecibo } from '@/lib/recibos';
 import { useAuth } from '@/lib/auth';
-import { podeExcluir as ehAdministrador } from '@/lib/permissoes';
+import { podeExcluir as ehAdministrador, nivelEfetivo } from '@/lib/permissoes';
+import { moduloAtivo } from '@/tenant.config';
 import { V } from '@/lib/vocabulario';
 
 export interface ParcelaAcao {
@@ -29,6 +33,11 @@ export interface ParcelaAcao {
   status: StatusParcela;
   tipo: TipoCobranca;
   cobrancaId: string;
+  dataPagamento?: string | null;
+  /** O que entrou de fato — é o número que vai para o recibo. */
+  valorPago?: Dinheiro | null;
+  /** O recibo já emitido, quando existe. Cancelado libera reemissão. */
+  recibo?: { id: string; numero: number; exercicio: number; canceladoEm: string | null } | null;
   filiado: { nomeCompleto: string; matricula: string; telefonePrincipal?: string | null; telefoneSecundario?: string | null };
 }
 
@@ -38,6 +47,8 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   const [pagarAberto, setPagarAberto] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState(false);
   const [carneAberto, setCarneAberto] = useState(false);
+  const [emitirRecibo, setEmitirRecibo] = useState<PagamentoParaRecibo | null>(null);
+  const [verRecibo, setVerRecibo] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<null | 'whatsapp'>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [montado, setMontado] = useState(false);
@@ -87,6 +98,40 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   const podePagar = st !== 'PAGO' && st !== 'CANCELADO';
   const podeCobrar = st !== 'PAGO' && st !== 'CANCELADO';
   const podeImprimir = st !== 'CANCELADO';
+
+  /*
+    O RECIBO NO MENU DA PARCELA — onde o dinheiro está.
+
+    A tela de Recibos tem a fila de pendentes e resolve o esquecimento; aqui
+    resolve-se o imediato: a pessoa pagou no balcão, a baixa foi dada e ela
+    está esperando o papel. Mandá-la para outra tela nesse momento é a
+    friccão que faz o recibo não sair.
+
+    `recibos` é módulo PRÓPRIO: quem tem `cobrancas: EDITAR` pode não ter
+    recibo, e vice-versa. As duas perguntas são feitas separadas.
+  */
+  const temModuloRecibos = moduloAtivo('recibos');
+  const podeMexerEmRecibo =
+    temModuloRecibos && nivelEfetivo(user?.role, user?.permissoes, 'recibos') === 'EDITAR';
+  const reciboVivo = parcela.recibo && !parcela.recibo.canceladoEm ? parcela.recibo : null;
+  const podeEmitirRecibo = podeMexerEmRecibo && st === 'PAGO' && !reciboVivo;
+
+  /** O pagamento desta parcela, do jeito que o formulário de recibo espera. */
+  const pagamentoDaParcela = (): PagamentoParaRecibo => ({
+    parcelaId: parcela.id,
+    movimentacaoId: null,
+    valor: Number(parcela.valorPago ?? parcela.valor),
+    data: parcela.dataPagamento ?? new Date().toISOString(),
+    conta: null,
+    pagadorNome: parcela.filiado.nomeCompleto,
+    pagadorDocumento: null,
+    filiadoId: null,
+    empresaId: null,
+    /* Vazio de propósito: o servidor monta a frase a partir da parcela
+       (competência e posição no carnê), que é a informação que ele tem e a
+       tela não. Mandar texto daqui seria uma segunda redação da mesma frase. */
+    referenteSugerido: '',
+  });
   // Regra normal: PAGO/CANCELADO não exclui. Administrador pode forçar em PAGO.
   const forcarPaga = st === 'PAGO' && ehAdmin;
   const podeExcluir = (st !== 'PAGO' && st !== 'CANCELADO') || forcarPaga;
@@ -184,6 +229,23 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
               <Printer className="h-4 w-4 text-muted-foreground" /> Imprimir esta parcela
             </button>
           )}
+          {/*
+            UM ITEM SÓ, e o rótulo diz qual dos dois é: com recibo vivo,
+            "imprimir"; sem, "emitir". Oferecer "emitir" quando já
+            existe levaria à recusa da API — botão que dá erro é pior que
+            botão ausente.
+          */}
+          {reciboVivo && temModuloRecibos && (
+            <button className={item} onClick={() => { setAberto(false); setVerRecibo(reciboVivo.id); }}>
+              <ReceiptText className="h-4 w-4 text-muted-foreground" />
+              Imprimir recibo {String(reciboVivo.numero).padStart(3, '0')}/{reciboVivo.exercicio}
+            </button>
+          )}
+          {podeEmitirRecibo && (
+            <button className={item} onClick={() => { setAberto(false); setEmitirRecibo(pagamentoDaParcela()); }}>
+              <ReceiptText className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Emitir recibo
+            </button>
+          )}
           {podeCobrar && (
             <button className={item} onClick={cobrarWhatsApp}>
               <WhatsAppIcon className="h-4 w-4 text-[#25D366]" /> Cobrar via WhatsApp
@@ -197,7 +259,7 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
               <Trash2 className="h-4 w-4" /> Excluir
             </button>
           )}
-          {!podePagar && !podeImprimir && !podeCobrar && !podeExcluir && (
+          {!podePagar && !podeImprimir && !podeCobrar && !podeExcluir && !reciboVivo && !podeEmitirRecibo && (
             <p className="px-4 py-2.5 text-sm text-muted-foreground">Sem ações disponíveis.</p>
           )}
         </div>,
@@ -209,6 +271,8 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
           parcela={{ id: parcela.id, numero: parcela.numero, valor: parcela.valor, filiado: { nomeCompleto: parcela.filiado.nomeCompleto } }}
           onClose={() => setPagarAberto(false)}
           onConcluido={onMudou}
+          /* Dar a baixa e emitir o recibo é UM atendimento, não dois. */
+          onRecibo={podeMexerEmRecibo ? (pg) => setEmitirRecibo(pg) : undefined}
         />
       )}
 
@@ -242,6 +306,17 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
           parcelaId={parcela.id}
           onClose={() => setCarneAberto(false)}
         />
+      )}
+
+      {emitirRecibo && (
+        <EmitirReciboModal
+          origem={{ tipo: 'PAGAMENTO', pagamento: emitirRecibo }}
+          onClose={() => setEmitirRecibo(null)}
+          onEmitido={(id) => { setEmitirRecibo(null); setVerRecibo(id); onMudou?.(); }}
+        />
+      )}
+      {verRecibo && (
+        <ReciboPrintModal reciboId={verRecibo} onClose={() => setVerRecibo(null)} />
       )}
     </div>
   );

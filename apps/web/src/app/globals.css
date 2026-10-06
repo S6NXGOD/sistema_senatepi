@@ -55,13 +55,15 @@
     background: #fff !important;
   }
   /* Esconde toda a aplicação, exibindo somente o carnê (portal no body). */
-  body > *:not(#carne-print-root) {
+  body > *:not(#carne-print-root):not(#recibo-print-root) {
     display: none !important;
   }
-  #carne-print-root {
+  #carne-print-root,
+  #recibo-print-root {
     position: static !important;
   }
-  #carne-print-root .no-print {
+  #carne-print-root .no-print,
+  #recibo-print-root .no-print {
     display: none !important;
   }
   /*
@@ -106,6 +108,31 @@
   * {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  /*
+    O RECIBO TEM BLOCO PRÓPRIO, e a duplicação é deliberada.
+
+    As regras são as mesmas do carnê (fundo branco de ELEMENTO, folha
+    centralizada, sem sombra), mas escritas separadas em vez de agrupadas por
+    vírgula: `carne-impresso.spec.ts` guarda o bloco do carnê por regex, e
+    juntar os seletores desarmaria aquele teste sem ninguém notar. Dois blocos
+    de cinco linhas custam menos que um teste que deixa de proteger.
+  */
+  #recibo-print-root .recibo-overlay {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    min-height: 100vh;
+    padding: 0 !important;
+  }
+  #recibo-print-root .recibo-paper {
+    max-width: 186mm !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
   }
   /*
     `size: auto` E NÃO `size: A4` — o dono pediu "adaptado tanto para A4 em pé

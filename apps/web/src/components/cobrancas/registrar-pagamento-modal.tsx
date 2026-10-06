@@ -9,6 +9,7 @@ import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Input } from '@/components/ui/input';
 import { baixarParcela, formatBRL, Dinheiro } from '@/lib/cobrancas';
 import { listarContas, criarConta } from '@/lib/financeiro';
+import type { PagamentoParaRecibo } from '@/lib/recibos';
 
 interface ParcelaBaixa {
   id: string;
@@ -19,8 +20,20 @@ interface ParcelaBaixa {
 
 /** Modal de baixa realista: valor esperado × valor real pago + conta de destino. */
 export function RegistrarPagamentoModal({
-  parcela, onClose, onConcluido,
-}: { parcela: ParcelaBaixa; onClose: () => void; onConcluido?: () => void }) {
+  parcela, onClose, onConcluido, onRecibo,
+}: {
+  parcela: ParcelaBaixa;
+  onClose: () => void;
+  onConcluido?: () => void;
+  /**
+   * CHAMADO DEPOIS DA BAIXA, quando quem está logado pode emitir recibo.
+   *
+   * É o momento em que o recibo é pedido: a pessoa pagou, a baixa saiu e ela
+   * está na frente do balcão esperando o papel. Quem passa este callback é
+   * `parcela-actions`, e só quando o módulo existe e a matriz permite.
+   */
+  onRecibo?: (pagamento: PagamentoParaRecibo) => void;
+}) {
   const qc = useQueryClient();
   const [valorPago, setValorPago] = useState(Number(parcela.valor).toFixed(2));
   const [contaId, setContaId] = useState('');
@@ -49,10 +62,26 @@ export function RegistrarPagamentoModal({
 
   const baixar = useMutation({
     mutationFn: () => baixarParcela(parcela.id, { valorPago: Number(valorPago), contaBancariaId: contaId }),
-    onSuccess: () => {
+    onSuccess: (atualizada: any) => {
       toast.success(`Pagamento registrado (parcela ${parcela.numero}).`);
       onConcluido?.();
       onClose();
+      /*
+        O VALOR VEM DA RESPOSTA, não do formulário: a API é quem decide o que
+        ficou gravado, e o recibo tem de dizer o mesmo que o caixa.
+      */
+      onRecibo?.({
+        parcelaId: parcela.id,
+        movimentacaoId: null,
+        valor: Number(atualizada?.valorPago ?? valorPago),
+        data: atualizada?.dataPagamento ?? new Date().toISOString(),
+        conta: contas.find((c) => c.id === contaId)?.nome ?? null,
+        pagadorNome: parcela.filiado.nomeCompleto,
+        pagadorDocumento: null,
+        filiadoId: null,
+        empresaId: null,
+        referenteSugerido: '',
+      });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Não foi possível registrar o pagamento.'),
   });

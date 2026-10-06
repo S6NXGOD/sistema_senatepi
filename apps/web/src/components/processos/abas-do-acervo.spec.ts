@@ -38,7 +38,8 @@ describe('o menu não carrega as vistas do acervo', () => {
     expect(titulos).not.toContain('Patronal');
     expect(titulos).toContain('Financeiro');
     const financeiro = NAV_SECOES.find((s) => s.titulo === 'Financeiro')!;
-    expect(financeiro.itens.map((i) => i.href)).toEqual(['/empresas', '/cobrancas']);
+    /* 06/10/2026: Recibos entrou aqui — o papel do dinheiro que entra. */
+    expect(financeiro.itens.map((i) => i.href)).toEqual(['/empresas', '/cobrancas', '/recibos']);
   });
 
   /**
@@ -86,6 +87,20 @@ describe('o menu não carrega as vistas do acervo', () => {
    */
   const ALTURA = { item: 36, gapItem: 2, titulo: 16, gapSecao: 12, padding: 24 };
 
+  /**
+   * QUANTO O ADMINISTRADOR PODE ROLAR — e por que o número subiu em 06/10/2026.
+   *
+   * Era 120, e Recibos (módulo novo) levou a 127. O que esta trava protege não
+   * é o número: é a lista não voltar a ESCONDER CINCO LINHAS, que foi o
+   * defeito original — cinco itens a 38px dão 190px. 132 deixa a rolagem em
+   * três itens e meio e continua bem longe disso.
+   *
+   * Com módulo novo, subir aqui é a decisão certa e tem preço: o menu do
+   * administrador cresce. Com SEIS módulos novos seguidos não seria — e é
+   * justamente isso que o teto obriga a reconhecer, uma linha de cada vez.
+   */
+  const TETO_DA_ROLAGEM = 132;
+
   const alturaDaLista = (secoes: ReturnType<typeof filtrarNav>) => {
     const itens = secoes.reduce((n, s) => n + s.itens.length, 0);
     return (
@@ -117,7 +132,7 @@ describe('o menu não carrega as vistas do acervo', () => {
    */
   it('e para o administrador a rolagem fica curta', () => {
     const altura = alturaDaLista(filtrarNav('ADMINISTRADOR', null));
-    expect(altura - 699).toBeLessThanOrEqual(120);
+    expect(altura - 699).toBeLessThanOrEqual(TETO_DA_ROLAGEM);
   });
 
   /**

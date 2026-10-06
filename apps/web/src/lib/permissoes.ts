@@ -20,7 +20,7 @@ export const NIVEL_LABEL: Record<NivelPermissao, string> = {
 
 export type ModuloKey =
   | 'dashboard' | 'atendimentos' | 'processos' | 'agenda' | 'filiados' | 'colaboradores'
-  | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'empresas' | 'organizacoes' | 'municipios'
+  | 'escalas' | 'eventos' | 'colonia' | 'acessos' | 'cobrancas' | 'recibos' | 'empresas' | 'organizacoes' | 'municipios'
   | 'relatorios' | 'auditoria' | 'usuarios' | 'duplicados';
 
 export interface ModuloInfo {
@@ -43,6 +43,14 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
+  // MÓDULO PRÓPRIO, e não uma aba de Cobranças: quem recebe no balcão é a
+  // Triagem, cujo preset tem `cobrancas: SEM_ACESSO`. Ver o espelho da API.
+  {
+    key: 'recibos',
+    label: 'Recibos',
+    grupo: 'Operacional',
+    ajuda: 'Emitir e reimprimir o recibo de valores recebidos. Com edição, a pessoa também cancela um recibo — o número fica queimado, com o motivo e o nome dela.',
+  },
   { key: 'empresas', label: 'Empresas contribuintes (Patronal)', grupo: 'Operacional' },
   // A TELA de órgãos/organizações. O DADO é de `processos` — os mesmos
   // endpoints servem o seletor de partes e o combobox de empregador, e por
@@ -98,7 +106,7 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     // `organizacoes` espelha `processos` em todos os perfis: é a mesma tabela
     // por outra porta. Divergir daria o absurdo de quem edita a parte dentro
     // do processo não poder corrigir o nome dela no cadastro.
-    acessos: 'EDITAR', cobrancas: 'EDITAR', empresas: 'EDITAR', organizacoes: 'EDITAR',
+    acessos: 'EDITAR', cobrancas: 'EDITAR', recibos: 'EDITAR', empresas: 'EDITAR', organizacoes: 'EDITAR',
     municipios: 'EDITAR',
     relatorios: 'VISUALIZAR', auditoria: 'VISUALIZAR', usuarios: 'SEM_ACESSO',
     // Consolidar apaga cadastro: nenhum perfil nasce com a fila. O Administrador libera.
@@ -107,7 +115,8 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
   ADVOGADO: {
     dashboard: 'VISUALIZAR', atendimentos: 'VISUALIZAR', processos: 'EDITAR', agenda: 'EDITAR',
     filiados: 'VISUALIZAR', colaboradores: 'SEM_ACESSO', escalas: 'VISUALIZAR', eventos: 'SEM_ACESSO', colonia: 'SEM_ACESSO',
-    acessos: 'SEM_ACESSO', cobrancas: 'SEM_ACESSO', empresas: 'SEM_ACESSO', organizacoes: 'EDITAR',
+    // O advogado não recebe dinheiro do filiado — e recibo é ato de caixa.
+    acessos: 'SEM_ACESSO', cobrancas: 'SEM_ACESSO', recibos: 'SEM_ACESSO', empresas: 'SEM_ACESSO', organizacoes: 'EDITAR',
     municipios: 'VISUALIZAR',
     // Vê relatórios, mas só com os NÚMEROS DELE — o recorte é no serviço.
     relatorios: 'VISUALIZAR', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
@@ -121,7 +130,9 @@ export const PRESETS_PERFIL: Record<PerfilUsuario, Record<ModuloKey, NivelPermis
     acessos: 'EDITAR',
     // A secretaria (Triagem) cadastra a empresa e define a senha provisória.
     // `organizacoes` acompanha `processos`, que a Triagem não vê.
-    cobrancas: 'SEM_ACESSO', empresas: 'EDITAR', organizacoes: 'SEM_ACESSO',
+    // `recibos: EDITAR` é o PONTO do módulo existir: o balcão recebe a taxa
+    // de 2ª via, a diária da colônia e a inscrição do evento.
+    cobrancas: 'SEM_ACESSO', recibos: 'EDITAR', empresas: 'EDITAR', organizacoes: 'SEM_ACESSO',
     municipios: 'VISUALIZAR',
     relatorios: 'SEM_ACESSO', auditoria: 'SEM_ACESSO', usuarios: 'SEM_ACESSO',
     duplicados: 'SEM_ACESSO',

@@ -81,6 +81,17 @@ export interface CobrancaHistorico {
     valor: Dinheiro;
     status: StatusParcela;
     dataPagamento: string | null;
+    /** O que ENTROU de fato (juros ou desconto); o recibo diz este número. */
+    valorPago: Dinheiro | null;
+    /**
+     * O RECIBO JÁ EMITIDO desta parcela, quando existe.
+     *
+     * Serve para o menu dizer "imprimir recibo 007/2026" em vez de oferecer
+     * emitir outro e levar a recusa da API. `canceladoEm` vem porque recibo
+     * cancelado LIBERA a reemissão — o número velho fica queimado, e o novo
+     * pagamento ganha um número novo.
+     */
+    recibo: { id: string; numero: number; exercicio: number; canceladoEm: string | null } | null;
     /**
      * O comprovante que o PRÓPRIO filiado mandou pelo portal.
      *

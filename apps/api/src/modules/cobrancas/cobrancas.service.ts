@@ -168,6 +168,19 @@ export class CobrancasService {
             valor: true,
             status: true,
             dataPagamento: true,
+            /* O valor que ENTROU (com juros ou desconto) — é o que o recibo diz. */
+            valorPago: true,
+            /*
+              O RECIBO DA PARCELA, quando já foi emitido — para o menu dizer
+              "imprimir recibo 007/2026" em vez de oferecer emitir outro e
+              levar a recusa. `canceladoEm` vem porque recibo cancelado LIBERA
+              a reemissão.
+            */
+            recibos: {
+              where: { canceladoEm: null },
+              select: { id: true, numero: true, exercicio: true },
+              take: 1,
+            },
             comprovanteKey: true,
             comprovanteNome: true,
             comprovanteEnviadoEm: true,
@@ -188,8 +201,10 @@ export class CobrancasService {
       cobrancas.map(async (c) => ({
         ...c,
         parcelas: await Promise.all(
-          c.parcelas.map(async ({ comprovanteKey, comprovanteNome, comprovanteEnviadoEm, ...p }) => ({
+          c.parcelas.map(async ({ comprovanteKey, comprovanteNome, comprovanteEnviadoEm, recibos, ...p }) => ({
             ...p,
+            /* A consulta traz no máximo um (o vivo); a tela quer um ou nenhum. */
+            recibo: recibos[0] ?? null,
             comprovante: comprovanteKey
               ? {
                   nome: comprovanteNome,
@@ -337,6 +352,12 @@ export class CobrancasService {
         dataVencimento: true,
         status: true,
         dataPagamento: true,
+        valorPago: true,
+        recibos: {
+          where: { canceladoEm: null },
+          select: { id: true, numero: true, exercicio: true },
+          take: 1,
+        },
         // O comprovante que o PRÓPRIO filiado mandou pelo portal — é o que a
         // secretaria procura antes de dar a baixa.
         comprovanteKey: true,
@@ -372,6 +393,8 @@ export class CobrancasService {
         dataVencimento: p.dataVencimento,
         status: p.status,
         dataPagamento: p.dataPagamento,
+        valorPago: p.valorPago,
+        recibo: p.recibos[0] ?? null,
         cobrancaId: p.cobrancaId,
         tipo: p.cobranca.tipo,
         filiado: p.cobranca.filiado,

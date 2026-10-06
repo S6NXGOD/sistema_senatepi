@@ -527,6 +527,7 @@ model Filiado {
   vinculos             VinculoProfissional[]
   dependentes          Dependente[]
   cobrancas            Cobranca[]
+  recibos              Recibo[]
   atendimentos         Atendimento[]
   compromissos         Compromisso[]
   processos            Processo[]
@@ -1598,6 +1599,7 @@ model Empresa {
 
   colaboradores Colaborador[]
   contribuicoes ContribuicaoPatronal[]
+  recibos       Recibo[]
 
   @@index([razaoSocial])
   @@map("empresas")
@@ -1794,6 +1796,7 @@ model ParcelaCobranca {
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
   cobranca     Cobranca      @relation(fields: [cobrancaId], references: [id], onDelete: Cascade)
+  recibos      Recibo[]
   movimentacao Movimentacao? @relation(fields: [movimentacaoId], references: [id], onDelete: SetNull)
 
   @@index([cobrancaId])
@@ -1838,6 +1841,7 @@ model Movimentacao {
 
   conta                ContaBancaria         @relation(fields: [contaBancariaId], references: [id], onDelete: Restrict)
   parcela              ParcelaCobranca? // preenchida quando a movimentação nasce da baixa de uma parcela
+  recibos              Recibo[]         // o papel entregue por esta entrada (vivo + cancelados)
   contribuicaoPatronal ContribuicaoPatronal? // preenchida quando nasce da homologação patronal
 
   @@index([contaBancariaId])
@@ -3741,4 +3745,98 @@ model IndicadorSaudeEnte {
   @@unique([enteCodigo, exercicio, bimestre])
   @@index([enteCodigo])
   @@map("indicadores_saude_ente")
+}
+
+// ===========================================================================
+// RECIBOS — o papel que o sindicato entrega quando recebe dinheiro
+// ===========================================================================
+
+/// RECIBO DE VALOR RECEBIDO.
+///
+/// O QUE ESTE MODELO RESOLVE, e por que ele existe em vez de um PDF montado na
+/// hora: um recibo é um FATO DATADO, não uma consulta formatada.
+///
+///  1. **Número que não se repete.** Sequência por exercício, gravada. Gerar o
+///     número na hora de imprimir faria a 2ª via sair com outro número — e duas
+///     vias com números diferentes para o mesmo pagamento é o começo de uma
+///     confusão que ninguém desfaz depois.
+///  2. **Os dados ficam CONGELADOS.** Nome e documento de quem pagou são
+///     copiados para cá na emissão. Se a filiada corrigir o nome amanhã, o
+///     recibo entregue continua dizendo o que dizia — documento não se
+///     reescreve. É a mesma regra de `senatepi-derivado-desfaz-decisao`, agora
+///     a favor: aqui o derivado SERIA o erro.
+///  3. **Cancelar não apaga.** O número fica queimado, com motivo, autor e
+///     data. Recibo que some do histórico é recibo que alguém pode alegar que
+///     nunca existiu.
+///  4. **Todo recibo tem lastro no caixa.** `movimentacaoId` liga ao lançamento
+///     de ENTRADA. Emitir recibo de dinheiro que não entrou no livro é como o
+///     papel e a contabilidade começam a divergir — e o avulso cria a entrada
+///     junto, na mesma transação.
+model Recibo {
+  id String @id @default(uuid())
+
+  /// Ano do recibo. A numeração recomeça a cada exercício, como manda a praxe
+  /// contábil — "nº 7/2026" é o que o conselho fiscal procura.
+  exercicio Int
+  /// Sequencial dentro do exercício, começando em 1.
+  numero    Int
+
+  valor  Decimal @db.Decimal(12, 2)
+  /// A que se refere, em uma linha. É o que a pessoa lê para saber por que pagou.
+  referente String
+  /// Dinheiro, PIX, transferência, cartão… TEXTO e não enum de propósito: as
+  /// formas mudam (hoje PIX, ontem boleto) e acrescentar valor a enum existente
+  /// derruba o contêiner antigo na janela de troca.
+  formaPagamento String @map("forma_pagamento")
+  /// Quando o dinheiro entrou — pode ser anterior à emissão do papel.
+  recebidoEm DateTime @map("recebido_em")
+
+  // --- Quem pagou, CONGELADO no ato (ver o item 2 acima) ---
+  pagadorNome      String  @map("pagador_nome")
+  /// CPF ou CNPJ, só dígitos. Nulo quando o pagador não quis ou não tinha.
+  pagadorDocumento String? @map("pagador_documento")
+
+  // --- Ligações, todas opcionais: o recibo sobrevive à exclusão delas ---
+  /// O lançamento de ENTRADA no caixa. É o lastro.
+  ///
+  /// NÃO É `@unique`, e a diferença custou um 500 em conferência: cancelar um
+  /// recibo tem de LIBERAR a reemissão do mesmo dinheiro (é a razão número um
+  /// de cancelar), e um índice único simples não sabe o que é um recibo
+  /// cancelado. Quem garante "no máximo UM recibo VIVO por lançamento" é um
+  /// índice PARCIAL, criado na migração: `WHERE cancelado_em IS NULL`. O
+  /// Prisma não sabe declarar índice parcial, então ele mora só no SQL — como
+  /// o de `numero_coren`.
+  movimentacaoId String? @map("movimentacao_id")
+  /// A parcela do carnê, quando o recibo nasceu da baixa de uma. Mesma regra
+  /// do campo acima: um recibo vivo por parcela, garantido por índice parcial.
+  parcelaId      String? @map("parcela_id")
+  /// O filiado, quando o pagador é um. Só para a ficha dele listar os recibos.
+  filiadoId      String? @map("filiado_id")
+  /// A empresa, quando o pagamento é patronal.
+  empresaId      String? @map("empresa_id")
+
+  // --- Trilha ---
+  emitidoPor String   @map("emitido_por")
+  emitidoEm  DateTime @default(now()) @map("emitido_em")
+
+  /// Cancelado: o número NÃO é reaproveitado e a linha não some.
+  canceladoEm     DateTime? @map("cancelado_em")
+  canceladoPor    String?   @map("cancelado_por")
+  canceladoMotivo String?   @map("cancelado_motivo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  movimentacao Movimentacao?    @relation(fields: [movimentacaoId], references: [id], onDelete: SetNull)
+  parcela      ParcelaCobranca? @relation(fields: [parcelaId], references: [id], onDelete: SetNull)
+  filiado      Filiado?         @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
+  empresa      Empresa?         @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+
+  @@unique([exercicio, numero])
+  @@index([emitidoEm])
+  @@index([movimentacaoId])
+  @@index([parcelaId])
+  @@index([filiadoId])
+  @@index([empresaId])
+  @@map("recibos")
 }

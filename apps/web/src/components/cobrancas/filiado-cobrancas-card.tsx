@@ -203,6 +203,9 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                               id: p.id, numero: p.numero, valor: p.valor,
                               dataCompetencia: p.dataCompetencia, dataVencimento: p.dataVencimento,
                               status: p.status, tipo: c.tipo, cobrancaId: c.id,
+                              // O recibo da parcela paga, para o menu oferecer a 2ª via
+                              // em vez de um segundo recibo do mesmo dinheiro.
+                              dataPagamento: p.dataPagamento, valorPago: p.valorPago, recibo: p.recibo,
                               filiado: {
                                 nomeCompleto: resumo.nomeCompleto,
                                 matricula: resumo.matricula,

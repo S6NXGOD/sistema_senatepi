@@ -34,6 +34,7 @@ export type ModuloKey =
   | 'colonia'
   | 'acessos'
   | 'cobrancas'
+  | 'recibos'
   | 'empresas'
   | 'organizacoes'
   | 'municipios'
@@ -61,6 +62,17 @@ export const MODULOS: ModuloInfo[] = [
   { key: 'colonia', label: 'Colônia de Férias', grupo: 'Operacional' },
   { key: 'acessos', label: 'Portaria / Acesso ao Clube', grupo: 'Operacional' },
   { key: 'cobrancas', label: 'Cobranças', grupo: 'Operacional' },
+  /**
+   * MÓDULO PRÓPRIO, e não uma aba de `cobrancas` — a decisão que mais importa
+   * neste cadastro.
+   *
+   * Quem pega o dinheiro no balcão é a TRIAGEM, e o preset dela tem
+   * `cobrancas: SEM_ACESSO`. Pendurar o recibo ali daria o absurdo de a
+   * pessoa que recebe não poder entregar o papel. Separado, o sindicato
+   * decide os dois independentemente: quem monta carnê e quem dá recibo não
+   * são, necessariamente, as mesmas pessoas.
+   */
+  { key: 'recibos', label: 'Recibos', grupo: 'Operacional' },
   { key: 'empresas', label: 'Empresas contribuintes (Patronal)', grupo: 'Operacional' },
   /**
    * A TELA de cadastro de órgãos/organizações (`partes_externas`).
@@ -142,6 +154,7 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     // A portaria é operação de balcão: coordenação e triagem validam entrada.
     acessos: 'EDITAR',
     cobrancas: 'EDITAR',
+    recibos: 'EDITAR',
     empresas: 'EDITAR',
     // Espelha `processos` em todos os perfis: é a mesma tabela, vista por
     // outra porta. Divergir daria o absurdo de quem edita a parte dentro do
@@ -169,6 +182,8 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     colonia: 'SEM_ACESSO',
     acessos: 'SEM_ACESSO',
     cobrancas: 'SEM_ACESSO',
+    // O advogado não recebe dinheiro do filiado — e recibo é ato de caixa.
+    recibos: 'SEM_ACESSO',
     empresas: 'SEM_ACESSO',
     // O advogado edita partes dentro do processo; corrigir o cadastro delas
     // é a mesma atribuição.
@@ -217,6 +232,14 @@ export const PRESETS_PERFIL: Record<UserRole, MatrizPermissoes> = {
     // Quem fica no balcão é quem valida a entrada no clube.
     acessos: 'EDITAR',
     cobrancas: 'SEM_ACESSO',
+    /**
+     * EDITAR, e é o PONTO deste módulo existir.
+     *
+     * O balcão é quem recebe a taxa de 2ª via, a diária da colônia e a
+     * inscrição do evento — e quem a pessoa olha quando pede "me dá um
+     * recibo". Sem isto, a função nasceria inútil para quem mais a usa.
+     */
+    recibos: 'EDITAR',
     // A secretaria (Triagem) é quem cadastra a empresa e define a senha provisória.
     empresas: 'EDITAR',
     // Acompanha `processos`, que a Triagem não vê.

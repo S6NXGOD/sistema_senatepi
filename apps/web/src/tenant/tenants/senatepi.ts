@@ -53,6 +53,11 @@ export const senatepi: TenantConfigWeb = {
     // A fila de cadastros duplicados acompanha `filiados` (15/09/2026).
     'duplicados',
     'colaboradores', 'escalas', 'eventos', 'colonia', 'cobrancas',
+    // O recibo do valor recebido — ligado SÓ aqui por ora. No SINDSERM a
+    // contribuição vem por desconto em folha da Prefeitura e não há caixa
+    // (nem `cobrancas`): uma tela de recibo lá seria uma tela sem dinheiro
+    // para receber. O código é compartilhado; ligar é acrescentar esta linha.
+    'recibos',
     'empresas', 'organizacoes', 'municipios',
     'relatorios', 'auditoria', 'usuarios',
   ],

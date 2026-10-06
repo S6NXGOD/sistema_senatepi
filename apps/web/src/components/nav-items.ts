@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, Contact, CalendarDays, Umbrella, ScanLine,
   ShieldCheck, Receipt, Headset, CalendarClock, Gavel, UserCog, CalendarRange,
-  Building2, Landmark, HandCoins, BarChart3, type LucideIcon,
+  Building2, Landmark, HandCoins, BarChart3, ReceiptText, type LucideIcon,
 } from 'lucide-react';
 import { podeVer, type ModuloKey } from '@/lib/permissoes';
 import { moduloAtivo } from '@/tenant.config';
@@ -95,6 +95,11 @@ export const NAV_SECOES: NavSecao[] = [
       // se corrige; aqui ela só é EXIBIDA, lida de lá.
       { href: '/empresas', label: 'Empresas contribuintes', icon: Building2, modulo: 'empresas' },
       { href: '/cobrancas', label: 'Cobranças', icon: Receipt, modulo: 'cobrancas' },
+      // ÍCONE DIFERENTE de Cobranças, e de propósito: `Receipt` é o cupom (o
+      // que se cobra), `ReceiptText` é o papel escrito (o que se entrega).
+      // Dois itens vizinhos com o mesmo ícone foi metade do motivo pelo qual
+      // Organizações e Empresas eram lidas como a mesma tela.
+      { href: '/recibos', label: 'Recibos', icon: ReceiptText, modulo: 'recibos' },
     ],
   },
   {

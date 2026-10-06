@@ -18,6 +18,7 @@ import { ImportacaoModule } from './modules/importacao/importacao.module';
 import { ColoniaModule } from './modules/colonia/colonia.module';
 import { CobrancasModule } from './modules/cobrancas/cobrancas.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
+import { RecibosModule } from './modules/recibos/recibos.module';
 import { AtendimentosModule } from './modules/atendimentos/atendimentos.module';
 import { AgendaModule } from './modules/agenda/agenda.module';
 import { ProcessosModule } from './modules/processos/processos.module';
@@ -65,6 +66,7 @@ import { IdentidadeVisualModule } from './modules/identidade-visual/identidade-v
     ColoniaModule,
     CobrancasModule,
     FinanceiroModule,
+    RecibosModule,
     AtendimentosModule,
     AgendaModule,
     ProcessosModule,
