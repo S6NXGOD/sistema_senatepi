@@ -19,14 +19,21 @@ const falha = (p: Partial<FalhaDatajud>): FalhaDatajud =>
  * As oito falhas da produção em 05/09/2026 duraram exatos 45.000ms — o teto de
  * espera do NOSSO lado. O CNJ não estava fora do ar; estava lento demais para a
  * janela que damos a ele. Quem lê "sem resposta" vai procurar defeito no
- * processo; quem lê "demorou mais de 45s" sabe o que aconteceu.
+ * processo; quem lê "não respondeu a tempo" sabe o que aconteceu.
+ *
+ * O NÚMERO SAIU DA FRASE EM 10/10/2026, e a razão é a de sempre: o teto virou
+ * 90s (a mediana do CNJ subiu de 0,9s em agosto para 31s em outubro) e a frase
+ * "mais de 45s" passaria a mentir sem que nada reprovasse. Teto é configuração
+ * (`DATAJUD_TIMEOUT_MS`), não recado para gente.
  */
 describe('o motivo da falha', () => {
-  it('chama timeout de timeout', () => {
+  it('chama timeout de timeout, sem cravar o número do teto', () => {
     expect(motivoFalhaDatajud(falha({ duracaoMs: 45001 }))).toEqual({
-      texto: 'o CNJ demorou demais para responder (mais de 45s)',
+      texto: 'o CNJ não respondeu a tempo',
       passageiro: true,
     });
+    // O mesmo recado com o teto novo — a frase não depende do relógio.
+    expect(motivoFalhaDatajud(falha({ duracaoMs: 90001 })).texto).toBe('o CNJ não respondeu a tempo');
   });
 
   /** Erro de rede de verdade é rápido — e aí o CNJ simplesmente não respondeu. */
@@ -123,13 +130,45 @@ describe('a faixa da varredura', () => {
   });
 
   /**
-   * Cada linha responde à própria acusação. Sem isso o item aparece como
-   * problema e nada na tela diz que o processo foi lido com sucesso ontem —
-   * foi essa dúvida que trouxe o usuário até aqui.
+   * Cada linha diz há quanto tempo o processo está SEM LEITURA — que é a
+   * gravidade dele, e o único número que varia de uma linha para a outra.
+   *
+   * Era "lido há 4d 17h" (10/10/2026). A frase nasceu quando a lista misturava
+   * processos em dia e precisava se defender; hoje a lista é só de quem perdeu
+   * dois ciclos, e "lido há" obriga a fazer a conta de cabeça para descobrir
+   * que aquilo é ruim.
    */
-  it('cada linha diz quando o processo foi lido com sucesso', () => {
-    expect(TELA).toContain('lido ${tempoRelativo(f.ultimoSucesso)}');
+  it('cada linha diz há quanto tempo o processo está sem leitura', () => {
+    expect(TELA).toContain('sem leitura há ${tempoRelativo(f.ultimoSucesso)');
     expect(TELA).toContain('nunca lido com sucesso');
+  });
+
+  /**
+   * O MOTIVO REPETIDO SAIU DAS LINHAS — "achei esse aviso muito poluído" (o
+   * dono, 10/10/2026). Aberta, a lista mostrava dez vezes a mesma pastilha de
+   * 45 caracteres, e o que diferenciava as linhas ficava espremido.
+   *
+   * Agora o motivo comum sobe UMA VEZ para a frase do cabeçalho, e a pastilha
+   * só aparece onde o motivo é OUTRO.
+   */
+  it('o motivo que se repete sobe para o cabeçalho', () => {
+    expect(TELA).toContain('const [motivoDominante, quantosDominam]');
+    expect(TELA).toContain('{temMotivoComum && <> — {motivoDominante}</>}');
+    expect(TELA).toContain('{(!temMotivoComum || motivo.texto !== motivoDominante) && (');
+  });
+
+  /** Com dois motivos empatados em um, nenhum é "o comum": o cabeçalho cala. */
+  it('não existe motivo dominante quando cada um falhou por uma razão', () => {
+    expect(TELA).toContain('const temMotivoComum = quantosDominam >= 2;');
+  });
+
+  /**
+   * A HORA DA TENTATIVA SAIU. A varredura é uma por noite: "há 17h 42m"
+   * aparecia idêntico em todas as linhas e nunca ajudou a escolher entre elas.
+   */
+  it('a hora da tentativa não se repete linha a linha', () => {
+    const lista = TELA.slice(TELA.indexOf('{pedemAtencao.map((f) => {'));
+    expect(lista).not.toContain('tempoRelativo(f.createdAt)');
   });
 });
 

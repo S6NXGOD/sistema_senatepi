@@ -62,3 +62,57 @@ export function ehCotaEstourada(err: unknown): boolean {
   */
   return /\b429\b|too many requests|limite de consultas|excesso de consultas/i.test(msg);
 }
+
+/**
+ * "O CNJ DEMOROU DEMAIS" — e por que isso também merece uma segunda chance.
+ *
+ * 10/10/2026. A faixa do painel acusava 10 processos sem leitura há 64–114h, e
+ * a pergunta do dono foi se havia problema nas leituras. Havia, e não era dos
+ * processos. Medido na produção:
+ *
+ *   mediana de uma consulta ao DataJud, de madrugada, pelo Railway
+ *     semana de 24/08 ...... 0,9 s
+ *     semana de 14/09 ...... 4,7 s
+ *     semana de 28/09 ..... 27,6 s
+ *     semana de 05/10 ..... 30,5 s      ← 30× mais lenta em seis semanas
+ *
+ *   falhas da varredura, por motivo (12 dias)
+ *     estouro do NOSSO teto de 45s .... 103
+ *     429 (cota do IP compartilhado) ... 94
+ *     dois estouros no mesmo processo .. 12
+ *
+ *   a rodada inteira
+ *     28/09 ....... 18 minutos, 0 falhas
+ *     10/10 ..... 2h03min, 25 falhas de 167
+ *
+ * O timeout virou o motivo de falha MAIS COMUM — e ele é nosso, não do CNJ.
+ *
+ * E A REPESCAGEM JÁ EXISTIA, só que só para o 429. Medido no fim de cada
+ * rodada, onde ela acontece: **17 de 19, 13 de 16, 18 de 20, 28 de 28** deram
+ * certo na segunda tentativa. Quem estourou o teto ficava de fora dessa fila e
+ * perdia a noite inteira — até cruzar as 48h e virar alarme na tela.
+ *
+ * RECONHECIMENTO ESTRUTURAL, e não por texto: `statusUpstream = 408`, gravado
+ * por `datajud.service` no momento do `AbortError`. A lição é a do 429 logo
+ * acima — enquanto o reconhecimento morava na frase, reescrever a frase
+ * quebrava a repescagem em silêncio.
+ */
+export function ehDemoraDoCnj(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { statusUpstream?: unknown; name?: unknown; code?: unknown };
+  if (Number(e.statusUpstream) === 408) return true;
+  // O aborto cru, caso algum caminho novo não passe pelo erro tipado.
+  return e.name === 'AbortError' || e.name === 'TimeoutError';
+}
+
+/**
+ * Vale uma segunda tentativa no fim da rodada?
+ *
+ * As duas causas têm a mesma natureza — "agora não dá, daqui a pouco dá" — e
+ * nenhuma delas é defeito do processo. O que NÃO entra aqui é o erro que a
+ * segunda tentativa repetiria igual: NPU que o índice não conhece, tribunal
+ * sem alias, processo apagado.
+ */
+export function valeTentarDeNovo(err: unknown): boolean {
+  return ehCotaEstourada(err) || ehDemoraDoCnj(err);
+}

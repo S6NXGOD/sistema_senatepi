@@ -210,10 +210,28 @@ export class DatajudService {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   /**
-   * A API Pública do CNJ é LENTA: medições reais no TJPI deram 10s, 17s e 24s
-   * para o MESMO processo. Com o timeout antigo (15s) boa parte das
-   * sincronizações morria por engano e era registrada como falha. 45s dá folga
-   * sem prender o robô indefinidamente. Ajustável por ambiente.
+   * O TETO DE ESPERA — 45s virou 90s em 10/10/2026, e a razão está medida.
+   *
+   * A API Pública do CNJ sempre foi lenta (10s, 17s e 24s para o mesmo
+   * processo no TJPI), e 45s era folga de sobra quando a mediana da varredura
+   * era de UM segundo. Não é mais: medido na produção, a mediana de uma
+   * consulta de madrugada foi de 0,9s na semana de 24/08 para **31s** na de
+   * 05/10, e o p90 bateu exatamente nos 45s.
+   *
+   * Com o teto a 1,45× a mediana, ele deixou de ser rede de segurança e virou
+   * o motivo de falha mais comum: **103 das 210 falhas em 12 dias** eram o
+   * nosso próprio relógio desistindo aos 45,0s. Não há como saber se aquelas
+   * chamadas responderiam aos 50s — o que se sabe é que o teto está no meio da
+   * distribuição, e teto no meio da distribuição corta resposta boa.
+   *
+   * 90s é ~3× a mediana de hoje. O custo do pior caso é dobrar o desperdício
+   * de uma chamada que nunca responderia; o ganho é parar de matar as que
+   * responderiam. `DATAJUD_TIMEOUT_MS` baixa de volta sem deploy.
+   *
+   * O CONSERTO DE VERDADE NÃO É ESTE. Medido no mesmo dia, de uma máquina no
+   * Brasil, os mesmos processos que falham pelo Railway respondem em 8–17s.
+   * A lentidão está no caminho, e `DATAJUD_BASE_URL` (a ponte brasileira que o
+   * DJEN já usa) existe justamente para isso — é decisão de infraestrutura.
    */
   private readonly timeoutMs: number;
 
@@ -238,7 +256,7 @@ export class DatajudService {
       'DATAJUD_API_KEY',
       'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==',
     );
-    this.timeoutMs = Number(this.config.get('DATAJUD_TIMEOUT_MS')) || 45_000;
+    this.timeoutMs = Number(this.config.get('DATAJUD_TIMEOUT_MS')) || 90_000;
     this.multiInstancia = flagLigada(this.config.get<string>('DATAJUD_MULTI_INSTANCIA'));
   }
 
@@ -471,6 +489,28 @@ export class DatajudService {
       this.logger.error(
         `[DATAJUD] Falha ao consultar ${alias} (NPU ${numero}): ${isTimeout ? 'timeout' : (err as Error).message}`,
       );
+      /*
+        O TIMEOUT SAI TIPADO, e isso deixou de ser detalhe em 10/10/2026.
+
+        Ele caía num `ServiceUnavailableException` cru, com a mesma frase de
+        qualquer outra indisponibilidade — a informação "foi o NOSSO relógio
+        que desistiu" morria aqui. Resultado: a repescagem do fim da rodada,
+        que existe desde 24/09 e recupera 17 de 19, só reconhecia o 429 e
+        deixava o timeout de fora. Com a mediana do CNJ em 31s contra um teto
+        de 45s, o timeout virou o motivo de falha mais comum (103 de 210 em 12
+        dias) — e o único que ninguém tentava de novo.
+
+        `408` é o código de "tempo esgotado" e é lido por `ehDemoraDoCnj`,
+        estruturalmente. Ver a nota do 429 em `cota-do-cnj.util`: enquanto o
+        reconhecimento depender da frase, reescrever a frase quebra a
+        repescagem em silêncio.
+      */
+      if (isTimeout) {
+        throw new DatajudIndisponivelError(
+          `O CNJ não respondeu em ${Math.round(this.timeoutMs / 1000)}s. A próxima varredura tenta de novo.`,
+          408,
+        );
+      }
       throw new ServiceUnavailableException('Não foi possível consultar o DATAJUD (CNJ) no momento.');
     } finally {
       clearTimeout(timer);

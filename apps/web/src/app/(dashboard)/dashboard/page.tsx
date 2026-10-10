@@ -1787,6 +1787,28 @@ function FalhasCNJ({
   */
   const persistentes = pedemAtencao.filter(ehPersistente).length;
 
+  /*
+    O MOTIVO É O MESMO PARA QUASE TODOS — e repeti-lo linha a linha foi o que
+    deixou a faixa ilegível (10/10/2026: "achei esse aviso muito poluído").
+
+    Aberta, a lista mostrava dez vezes a mesma pastilha de 45 caracteres ("o
+    CNJ demorou demais para responder"), e o que distinguia uma linha da outra
+    — o número e o tempo sem leitura — ficava espremido do lado esquerdo. Dez
+    repetições da mesma informação não são dez informações.
+
+    Agora o motivo comum sobe UMA VEZ para a frase do cabeçalho, e a pastilha
+    só aparece na linha cujo motivo é OUTRO — que é a única em que ela informa
+    alguma coisa. É a mesma regra do destaque por ORDEM e COR em vez de um
+    segundo bloco: o que se repete vira contexto, o que difere vira marca.
+  */
+  const motivos = pedemAtencao.map((f) => motivoFalhaDatajud(f).texto);
+  const contagem = new Map<string, number>();
+  motivos.forEach((m) => contagem.set(m, (contagem.get(m) ?? 0) + 1));
+  const [motivoDominante, quantosDominam] = [...contagem.entries()]
+    .sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+  /* Com dois motivos empatados em um, nenhum é "o comum": o cabeçalho cala. */
+  const temMotivoComum = quantosDominam >= 2;
+
   return (
     <div
       className={cn(
@@ -1842,7 +1864,8 @@ function FalhasCNJ({
               <>
                 <strong>{atrasados}</strong>{' '}
                 {atrasados === 1 ? 'processo perdeu' : 'processos perderam'} as duas
-                últimas leituras do CNJ.{' '}
+                últimas leituras do CNJ
+                {temMotivoComum && <> — {motivoDominante}</>}.{' '}
                 {persistentes === 0 ? (
                   <>A próxima varredura tenta de novo; se insistir, alguém precisa olhar.</>
                 ) : (
@@ -1890,8 +1913,16 @@ function FalhasCNJ({
                       foi lido com sucesso ontem. Foi exatamente essa dúvida que
                       trouxe o usuário até aqui.
                     */}
+                    {/*
+                      "SEM LEITURA HÁ", e não "lido há". A frase antiga nasceu
+                      quando a lista misturava processos EM DIA e precisava
+                      dizer "este aqui foi lido ontem". Hoje a lista é só de
+                      quem perdeu dois ciclos: aqui o que importa é o BURACO,
+                      e "lido há 4d" obriga a pessoa a fazer a conta de cabeça
+                      para descobrir que isso é ruim.
+                    */}
                     {f.ultimoSucesso
-                      ? ` · lido ${tempoRelativo(f.ultimoSucesso)}`
+                      ? ` · sem leitura há ${tempoRelativo(f.ultimoSucesso).replace(/^há /, '')}`
                       : f.ultimoSucesso === null
                         ? ' · nunca lido com sucesso'
                         : ''}
@@ -1909,20 +1940,34 @@ function FalhasCNJ({
                   motivo inteiro tem o `title`; quem precisa saber de qual
                   processo se trata — que é todo mundo — lê o NPU sempre.
                 */}
-                <span className="flex w-full min-w-0 shrink items-center gap-2 text-xs sm:w-auto sm:shrink-0">
-                  <span
-                    className={cn(
-                      'truncate rounded-full px-2 py-0.5 font-medium',
-                      motivo.passageiro
-                        ? 'bg-amber-200/70 dark:bg-amber-900/50'
-                        : 'bg-rose-200/80 text-rose-900 dark:bg-rose-900/50 dark:text-rose-200',
-                    )}
-                    // A mensagem técnica do CNJ, para quem for investigar.
-                    title={f.mensagemErro ?? undefined}
-                  >
-                    {motivo.texto}
-                  </span>
-                  <span className="hidden opacity-70 sm:inline">{tempoRelativo(f.createdAt)}</span>
+                <span className="flex w-full min-w-0 shrink items-center justify-end gap-2 text-xs sm:w-auto sm:shrink-0">
+                  {/*
+                    A PASTILHA SÓ APARECE QUANDO ELA DIZ ALGO NOVO — ver a nota
+                    do motivo dominante, acima. Quando todos falharam pelo mesmo
+                    motivo, ele já está na frase do cabeçalho, e repeti-lo aqui
+                    dez vezes é o ruído que o dono apontou.
+                  */}
+                  {(!temMotivoComum || motivo.texto !== motivoDominante) && (
+                    <span
+                      className={cn(
+                        'truncate rounded-full px-2 py-0.5 font-medium',
+                        motivo.passageiro
+                          ? 'bg-amber-200/70 dark:bg-amber-900/50'
+                          : 'bg-rose-200/80 text-rose-900 dark:bg-rose-900/50 dark:text-rose-200',
+                      )}
+                      // A mensagem técnica do CNJ, para quem for investigar.
+                      title={f.mensagemErro ?? undefined}
+                    >
+                      {motivo.texto}
+                    </span>
+                  )}
+                  {/*
+                    A HORA DA TENTATIVA SAIU. Era "há 17h 42m" em TODAS as
+                    linhas — a varredura é uma só por noite, então o número é o
+                    mesmo para o grupo inteiro e nunca ajudou a escolher entre
+                    eles. O tempo que importa (e que varia) é o de sem leitura,
+                    que agora fica junto do número do processo.
+                  */}
                   {f.processoId && <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-70" />}
                 </span>
               </>

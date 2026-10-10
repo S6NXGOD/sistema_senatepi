@@ -1,5 +1,5 @@
 import { JOB_DATAJUD_SYNC, comTravaDeJob } from '@core/infra';
-import { ehCotaEstourada } from './utils/cota-do-cnj.util';
+import { valeTentarDeNovo } from './utils/cota-do-cnj.util';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { OrigemSincronizacao } from '@prisma/client';
@@ -127,6 +127,19 @@ export class ProcessosCronService {
    */
   private readonly PAUSA_APOS_COTA = 60_000;
   /**
+   * QUANTOS PROCESSOS A REPESCAGEM ACEITA, e por que existe um teto.
+   *
+   * Enquanto só o 429 entrava, a fila era de ~10 por noite e um teto
+   * seria enfeite. Com o timeout dentro dela, uma noite ruim do CNJ pode
+   * mandar 50 ou 100 — e a rodada, que já leva 2h com o CNJ a 31s por
+   * consulta, encostaria no cron do DJEN das 05h.
+   *
+   * 40 cobre com folga a pior noite medida (34 falhas em 04/10) e põe um
+   * fim conhecido no pior caso. O que não couber volta na noite seguinte,
+   * e o painel continua dizendo quem ficou para trás.
+   */
+  private readonly TETO_DA_REPESCAGEM = 40;
+  /**
    * Validade da trava. A varredura leva ~5s por processo (2–3s de espera + a
    * consulta, que o CNJ responde em 10–25s nos casos ruins); 3h dão folga larga
    * sobre o acervo atual sem chegar perto do intervalo de 24h entre execuções.
@@ -245,7 +258,22 @@ export class ProcessosCronService {
             // Isola a falha (rate limit, CNJ fora do ar, tribunal desconhecido).
             // O motivo detalhado já foi para `logs_sincronizacao_datajud`.
             this.logger.warn(`[DATAJUD-SYNC] Falha no processo ${id}: ${(err as Error).message}`);
-            if (ehCotaEstourada(err)) paraTentarDeNovo.push(id);
+            /*
+              A REPESCAGEM DEIXOU DE SER SÓ DO 429 (10/10/2026).
+
+              Ela nasceu para a cota, que é "a vez foi de outro". O timeout
+              é a mesma natureza — "agora não dá" — e, com a mediana do CNJ
+              em 31s contra um teto de 45s, virou o motivo de falha MAIS
+              COMUM: 103 das 210 falhas em 12 dias. Esses ficavam de fora da
+              fila e perdiam a noite inteira, até cruzar as 48h e virar
+              alarme na tela — foram 10 processos assim em 10/10.
+
+              E a segunda tentativa FUNCIONA: medido no fim das últimas
+              rodadas, 17 de 19, 13 de 16, 18 de 20 e 28 de 28 deram certo.
+            */
+            if (valeTentarDeNovo(err) && paraTentarDeNovo.length < this.TETO_DA_REPESCAGEM) {
+              paraTentarDeNovo.push(id);
+            }
           }
           if (i < lote.length - 1) await this.aguardar();
         }
@@ -282,11 +310,16 @@ export class ProcessosCronService {
 
         Uma vez só, de propósito: se a cota ainda estiver estourada na segunda
         tentativa, insistir vira parte do problema.
+
+        10/10/2026: A FILA DEIXOU DE SER SÓ DO 429. O timeout entrou, e com ele
+        a maior parte da clientela — a mediana do CNJ subiu de 0,9s (agosto)
+        para 31s, e o nosso teto de 45s passou a cortar resposta boa. Ver
+        `ehDemoraDoCnj` em `cota-do-cnj.util`, onde a medição está escrita.
       */
       if (paraTentarDeNovo.length) {
         this.logger.log(
-          `[DATAJUD-SYNC] ${paraTentarDeNovo.length} processo(s) levaram 429 (cota do CNJ); ` +
-            'tentando de novo uma vez, no fim da rodada.',
+          `[DATAJUD-SYNC] ${paraTentarDeNovo.length} processo(s) ficaram sem resposta do CNJ ` +
+            '(cota ou demora); tentando de novo uma vez, no fim da rodada.',
         );
         await new Promise((r) => setTimeout(r, this.PAUSA_APOS_COTA));
         for (let i = 0; i < paraTentarDeNovo.length; i++) {

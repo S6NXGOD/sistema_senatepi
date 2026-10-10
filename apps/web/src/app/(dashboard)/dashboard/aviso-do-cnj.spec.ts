@@ -195,10 +195,19 @@ describe('os motivos de falha, em português', () => {
     expect(motivoFalhaDatajud({ httpStatus: 403 } as never).texto).toContain('é configuração nossa');
   });
 
-  it('o timeout diz quanto esperou, e não "sem resposta"', () => {
-    const m = motivoFalhaDatajud({ duracaoMs: 45_000 } as never);
-    expect(m.texto).toContain('demorou demais');
-    expect(m.passageiro).toBe(true);
+  /**
+   * O timeout é NOSSO relógio desistindo, e a frase tem de dizer isso sem
+   * cravar o número — o teto virou 90s em 10/10/2026 e a frase que dizia
+   * "mais de 45s" passaria a mentir calada. Ver `faixa-do-cnj.spec`.
+   */
+  it('o timeout diz que não houve resposta A TEMPO, e não "sem resposta"', () => {
+    for (const duracaoMs of [45_000, 90_001]) {
+      const m = motivoFalhaDatajud({ duracaoMs } as never);
+      expect(m.texto).toBe('o CNJ não respondeu a tempo');
+      expect(m.passageiro).toBe(true);
+    }
+    // E continua diferente do erro de rede rápido, que é outra conversa.
+    expect(motivoFalhaDatajud({ duracaoMs: 120 } as never).texto).toBe('o CNJ não respondeu');
   });
 
   /** O que falha de novo amanhã não pode ser prometido como "a próxima resolve". */

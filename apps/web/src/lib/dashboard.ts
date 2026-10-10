@@ -773,8 +773,15 @@ export function motivoFalhaDatajud(f: FalhaDatajud): { texto: string; passageiro
     janela que damos a ele. Quem lê "demorou mais de 45s" sabe o que aconteceu;
     quem lê "sem resposta" vai procurar defeito no processo.
   */
+  /*
+    O NÚMERO SAIU DA FRASE (10/10/2026). Ela dizia "mais de 45s" porque 45s era
+    o nosso teto — e no dia em que o teto virou 90s a frase passaria a mentir,
+    sem que nada reprovasse. O teto é configuração (`DATAJUD_TIMEOUT_MS`), não
+    recado para gente: o que a pessoa precisa saber é que o CNJ não respondeu
+    a tempo, e que isso é passageiro.
+  */
   if (f.duracaoMs != null && f.duracaoMs >= 40_000) {
-    return { texto: 'o CNJ demorou demais para responder (mais de 45s)', passageiro: true };
+    return { texto: 'o CNJ não respondeu a tempo', passageiro: true };
   }
   return {
     texto: s ? `o CNJ respondeu com erro ${s}` : 'o CNJ não respondeu',
