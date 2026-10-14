@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ReceiptText, Plus, Search, Printer, Ban, ChevronLeft, ChevronRight, Loader2,
-  ArrowDownLeft, ArrowUpRight,
+  ArrowDownLeft, ArrowUpRight, SlidersHorizontal, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +54,20 @@ export default function RecibosPage() {
   const [de, setDe] = useState('');
   const [ate, setAte] = useState('');
   const [page, setPage] = useState(1);
+  /*
+    OS FILTROS DE SEGUNDA LINHA FICAM FECHADOS (13/10/2026).
+
+    "Não ficaria muito poluído?" — e ficava: a 400px eram SEIS fileiras de
+    controle (busca, ano, situação, lado, período, totais) antes do primeiro
+    recibo, numa tela cujo trabalho principal é PROCURAR um recibo para
+    reimprimir. A busca responde a isso sozinha.
+
+    O resto — ano, situação, lado, período — é de quem fecha prestação de
+    contas, não do balcão, e some atrás de um botão. NUNCA EM SILÊNCIO: com
+    qualquer filtro ligado o botão fica aceso e diz quantos são, porque lista
+    recortada que se apresenta como inteira é pior que lista nenhuma.
+  */
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
 
   const [emitindo, setEmitindo] = useState<OrigemDaEmissao | null>(null);
   const [imprimindo, setImprimindo] = useState<string | null>(null);
@@ -85,6 +99,25 @@ export default function RecibosPage() {
   });
 
   const trocarFiltro = (fn: () => void) => { fn(); setPage(1); };
+
+  /** Quantos filtros estão fora do padrão — é o que o botão mostra. */
+  const filtrosLigados =
+    (situacao !== 'VALIDOS' ? 1 : 0) + (lado ? 1 : 0) + (exercicio !== '' ? 1 : 0) + (de ? 1 : 0) + (ate ? 1 : 0);
+  const limparFiltros = () =>
+    trocarFiltro(() => {
+      setSituacao('VALIDOS');
+      setLado(undefined);
+      setExercicio('');
+      setDe('');
+      setAte('');
+    });
+
+  /*
+    SEM ACERVO, SEM BARRA. Com zero recibos emitidos, uma barra de busca e seis
+    filtros acima de "nenhum recibo emitido ainda" é ferramenta para mexer em
+    coisa que não existe — foi exatamente o que a tela mostrava no print.
+  */
+  const acervoVazio = !!data && data.total === 0 && !busca.trim() && filtrosLigados === 0;
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
@@ -130,148 +163,206 @@ export default function RecibosPage() {
 
       {/* ZONA 2 — o acervo */}
       <div className="rounded-2xl border bg-card">
-        <div className="space-y-3 border-b p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[200px] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={busca}
-                onChange={(e) => trocarFiltro(() => setBusca(e.target.value))}
-                placeholder="Nome de quem pagou, CPF ou o número do recibo"
-                className="pl-9"
-                aria-label="Procurar recibo"
-              />
+        {!acervoVazio && (
+          <div className="space-y-3 border-b p-4">
+            {/*
+              A BUSCA É A FERRAMENTA PRINCIPAL e fica sozinha na primeira
+              linha: o pedido mais comum do balcão é "me dá a 2ª via do recibo
+              da fulana", e nome, CPF ou número resolvem os três.
+            */}
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={busca}
+                  onChange={(e) => trocarFiltro(() => setBusca(e.target.value))}
+                  placeholder="Nome, CPF ou número do recibo"
+                  className="pl-9"
+                  aria-label="Procurar recibo"
+                />
+              </div>
+              <Button
+                variant={filtrosLigados ? 'default' : 'outline'}
+                onClick={() => setFiltrosAbertos((v) => !v)}
+                aria-expanded={filtrosAbertos}
+                /*
+                  O NOME ACESSÍVEL VAI SEMPRE. A palavra some abaixo de `sm` e
+                  sobra o ícone — sem isto o botão fica SEM NOME nenhum no
+                  celular, que é justamente onde ele mais importa. Mesmo
+                  descuido que a conferência pegou nos botões de imprimir e
+                  cancelar desta tela, em 06/10.
+                */
+                aria-label={filtrosLigados ? `Filtrar (${filtrosLigados} ativo${filtrosLigados > 1 ? 's' : ''})` : 'Filtrar'}
+                title="Ano, situação, lado e período"
+                className="shrink-0"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span className="hidden sm:inline">Filtrar</span>
+                {filtrosLigados > 0 && (
+                  <span className="rounded-full bg-white/25 px-1.5 text-xs font-bold tabular-nums">
+                    {filtrosLigados}
+                  </span>
+                )}
+              </Button>
             </div>
-            <select
-              value={exercicio}
-              onChange={(e) => trocarFiltro(() => setExercicio(e.target.value ? Number(e.target.value) : ''))}
-              aria-label="Exercício"
-              className="h-10 rounded-lg border bg-background px-3 text-sm"
-            >
-              <option value="">Todos os anos</option>
-              {(data?.exercicios ?? []).map((ex) => (
-                <option key={ex} value={ex}>{ex}</option>
-              ))}
-            </select>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Situação: pastilhas, e não um select — são três e a escolhida tem de se ver. */}
-            <div className="flex rounded-lg border p-0.5">
-              {SITUACOES.map((s) => (
-                <button
-                  key={s.valor}
-                  type="button"
-                  onClick={() => trocarFiltro(() => setSituacao(s.valor))}
-                  aria-pressed={situacao === s.valor}
-                  className={cn(
-                    'rounded-md px-3 py-1.5 text-xs font-medium transition',
-                    situacao === s.valor
-                      ? 'bg-brand-800 text-white'
-                      : 'text-muted-foreground hover:bg-muted',
+            {filtrosAbertos && (
+              <div className="space-y-2 rounded-xl bg-muted/40 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex rounded-lg border bg-background p-0.5">
+                    {SITUACOES.map((s) => (
+                      <button
+                        key={s.valor}
+                        type="button"
+                        onClick={() => trocarFiltro(() => setSituacao(s.valor))}
+                        aria-pressed={situacao === s.valor}
+                        className={cn(
+                          'rounded-md px-3 py-1.5 text-xs font-medium transition',
+                          situacao === s.valor
+                            ? 'bg-brand-800 text-white'
+                            : 'text-muted-foreground hover:bg-muted',
+                        )}
+                      >
+                        {s.rotulo}
+                      </button>
+                    ))}
+                  </div>
+                  {/* O lado: os dois juntos é o padrão, e é o acervo inteiro. */}
+                  <div className="flex rounded-lg border bg-background p-0.5">
+                    {([undefined, 'ENTRADA', 'SAIDA'] as const).map((op) => (
+                      <button
+                        key={op ?? 'todos'}
+                        type="button"
+                        onClick={() => trocarFiltro(() => setLado(op))}
+                        aria-pressed={lado === op}
+                        className={cn(
+                          'rounded-md px-3 py-1.5 text-xs font-medium transition',
+                          lado === op ? 'bg-brand-800 text-white' : 'text-muted-foreground hover:bg-muted',
+                        )}
+                      >
+                        {op === undefined ? 'Os dois' : op === 'ENTRADA' ? 'Recebidos' : 'Pagos'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <select
+                    value={exercicio}
+                    onChange={(e) => trocarFiltro(() => setExercicio(e.target.value ? Number(e.target.value) : ''))}
+                    aria-label="Exercício"
+                    className="h-9 rounded-lg border bg-background px-2 text-xs"
+                  >
+                    <option value="">Todos os anos</option>
+                    {(data?.exercicios ?? []).map((ex) => (
+                      <option key={ex} value={ex}>{ex}</option>
+                    ))}
+                  </select>
+                  <span className="hidden sm:inline">Recebido de</span>
+                  <input
+                    type="date"
+                    value={de}
+                    onChange={(e) => trocarFiltro(() => setDe(e.target.value))}
+                    aria-label="Recebido a partir de"
+                    className="h-9 rounded-lg border bg-background px-2 text-xs"
+                  />
+                  <span>até</span>
+                  <input
+                    type="date"
+                    value={ate}
+                    onChange={(e) => trocarFiltro(() => setAte(e.target.value))}
+                    aria-label="Recebido até"
+                    className="h-9 rounded-lg border bg-background px-2 text-xs"
+                  />
+                  {filtrosLigados > 0 && (
+                    <button
+                      type="button"
+                      onClick={limparFiltros}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 font-medium text-foreground underline underline-offset-2"
+                    >
+                      <X className="h-3.5 w-3.5" /> Limpar
+                    </button>
                   )}
-                >
-                  {s.rotulo}
-                </button>
-              ))}
-            </div>
-            {/* O lado: os dois juntos é o padrão, e é o acervo inteiro. */}
-            <div className="flex rounded-lg border p-0.5">
-              {([undefined, 'ENTRADA', 'SAIDA'] as const).map((op) => (
-                <button
-                  key={op ?? 'todos'}
-                  type="button"
-                  onClick={() => trocarFiltro(() => setLado(op))}
-                  aria-pressed={lado === op}
-                  className={cn(
-                    'rounded-md px-3 py-1.5 text-xs font-medium transition',
-                    lado === op ? 'bg-brand-800 text-white' : 'text-muted-foreground hover:bg-muted',
-                  )}
-                >
-                  {op === undefined ? 'Os dois' : op === 'ENTRADA' ? 'Recebidos' : 'Pagos'}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="hidden sm:inline">Recebido de</span>
-              <input
-                type="date"
-                value={de}
-                onChange={(e) => trocarFiltro(() => setDe(e.target.value))}
-                aria-label="Recebido a partir de"
-                className="h-9 rounded-lg border bg-background px-2 text-xs"
-              />
-              <span>até</span>
-              <input
-                type="date"
-                value={ate}
-                onChange={(e) => trocarFiltro(() => setAte(e.target.value))}
-                aria-label="Recebido até"
-                className="h-9 rounded-lg border bg-background px-2 text-xs"
-              />
-            </div>
-          </div>
+                </div>
+              </div>
+            )}
 
-          {/*
-            O NÚMERO É DO MESMO RECORTE DA LISTA (`senatepi-link-leva-o-recorte`).
-            Somar tudo e listar uma página seria mostrar um total que as linhas
-            abaixo não explicam.
-          */}
-          {/*
-            OS DOIS LADOS SÃO SOMADOS SEPARADOS, e nunca um no outro. Juntar o
-            que entrou com o que saiu num total só não é número nenhum, e
-            subtrair também não: isto é um acervo de DOCUMENTOS, não o saldo do
-            caixa — quem quer saldo olha o financeiro.
-          */}
-          {data && (
-            <p className="text-sm">
-              <span className="inline-flex items-center gap-1">
-                <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                <strong className="tabular-nums">{data.resumo.recebido.quantidade}</strong>{' '}
-                recebido{data.resumo.recebido.quantidade === 1 ? '' : 's'}
-                {' · '}
-                <strong className="tabular-nums">{formatBRL(data.resumo.recebido.valor)}</strong>
-              </span>
-              <span className="mx-2 text-muted-foreground">|</span>
-              <span className="inline-flex items-center gap-1">
-                <ArrowUpRight className="h-3.5 w-3.5 text-sky-700 dark:text-sky-400" />
-                <strong className="tabular-nums">{data.resumo.pago.quantidade}</strong>{' '}
-                pago{data.resumo.pago.quantidade === 1 ? '' : 's'}
-                {' · '}
-                <strong className="tabular-nums">{formatBRL(data.resumo.pago.valor)}</strong>
-              </span>
-              {/*
-                O NÚMERO LEVA AO RECORTE (`senatepi-link-leva-o-recorte`): clicar
-                em "2 cancelados" abre JUSTAMENTE esses dois, com o mesmo
-                período e a mesma busca. Número sem destino obriga a procurar.
-              */}
-              {data.resumo.cancelados > 0 && (
-                <>
+            {/*
+              OS DOIS LADOS SÃO SOMADOS SEPARADOS, e nunca um no outro. Juntar o
+              que entrou com o que saiu num total só não é número nenhum, e
+              subtrair também não: isto é um acervo de DOCUMENTOS, não o saldo
+              do caixa — quem quer saldo olha o financeiro.
+            */}
+            {data && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <span className="inline-flex items-center gap-1">
+                  <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <strong className="tabular-nums">{data.resumo.recebido.quantidade}</strong>{' '}
+                  recebido{data.resumo.recebido.quantidade === 1 ? '' : 's'}
                   {' · '}
+                  <strong className="tabular-nums">{formatBRL(data.resumo.recebido.valor)}</strong>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <ArrowUpRight className="h-3.5 w-3.5 text-sky-700 dark:text-sky-400" />
+                  <strong className="tabular-nums">{data.resumo.pago.quantidade}</strong>{' '}
+                  pago{data.resumo.pago.quantidade === 1 ? '' : 's'}
+                  {' · '}
+                  <strong className="tabular-nums">{formatBRL(data.resumo.pago.valor)}</strong>
+                </span>
+                {/*
+                  O NÚMERO LEVA AO RECORTE (`senatepi-link-leva-o-recorte`):
+                  clicar em "2 cancelados" abre JUSTAMENTE esses dois, com o
+                  mesmo período e a mesma busca — e abre o painel de filtros,
+                  para a pessoa ver de onde veio o recorte.
+                */}
+                {data.resumo.cancelados > 0 && (
                   <button
                     type="button"
-                    onClick={() => trocarFiltro(() => setSituacao('CANCELADOS'))}
+                    onClick={() => { trocarFiltro(() => setSituacao('CANCELADOS')); setFiltrosAbertos(true); }}
                     className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
                     {data.resumo.cancelados} cancelado{data.resumo.cancelados > 1 ? 's' : ''}
                   </button>
-                  <span className="text-muted-foreground"> (fora do total)</span>
-                </>
-              )}
-            </p>
-          )}
-        </div>
+                )}
+              </p>
+            )}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-brand-800" />
           </div>
         ) : !data?.itens.length ? (
-          <p className="px-4 py-16 text-center text-sm text-muted-foreground">
-            {busca || de || ate || exercicio
-              ? 'Nenhum recibo neste recorte.'
-              : 'Nenhum recibo emitido ainda.'}
-          </p>
+          /*
+            DUAS MENSAGENS DIFERENTES, porque são duas situações diferentes:
+            "não achei no recorte" pede para afrouxar o filtro; "ainda não há
+            nenhum" pede para emitir o primeiro — e aí a tela diz COMO.
+          */
+          <div className="px-4 py-16 text-center">
+            {acervoVazio ? (
+              <>
+                <ReceiptText className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                <p className="mt-3 text-sm font-medium">Nenhum recibo emitido ainda.</p>
+                <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                  Todo valor que entra ou sai do caixa pode virar um recibo numerado.
+                  Comece pelos pagamentos que já estão lançados, ali em cima, ou emita um avulso.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">Nenhum recibo neste recorte.</p>
+                {filtrosLigados > 0 && (
+                  <button
+                    type="button"
+                    onClick={limparFiltros}
+                    className="mt-2 text-sm font-medium underline underline-offset-2"
+                  >
+                    Limpar os filtros
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         ) : (
           <>
             {/* CELULAR — cartões. A tabela de 7 colunas não cabe em 400px. */}

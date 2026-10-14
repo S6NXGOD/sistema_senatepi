@@ -244,22 +244,14 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
             </button>
           )}
           {/*
-            UM ITEM SÓ, e o rótulo diz qual dos dois é: com recibo vivo,
-            "imprimir"; sem, "emitir". Oferecer "emitir" quando já
-            existe levaria à recusa da API — botão que dá erro é pior que
-            botão ausente.
+            O RECIBO SAIU DAQUI (13/10/2026) e foi para a LINHA da parcela.
+
+            Ele morava neste menu desde 06/10 e o dono não o achou — "não há um
+            botão rápido para gerar o recibo?". Ação dentro de menu de três
+            pontinhos não tem peso na hora da escolha
+            (`senatepi-peso-nao-lugar`), e manter nos dois lugares faria a mesma
+            ação aparecer duas vezes na mesma linha.
           */}
-          {reciboVivo && temModuloRecibos && (
-            <button className={item} onClick={() => { setAberto(false); setVerRecibo(reciboVivo.id); }}>
-              <ReceiptText className="h-4 w-4 text-muted-foreground" />
-              Imprimir recibo {String(reciboVivo.numero).padStart(3, '0')}/{reciboVivo.exercicio}
-            </button>
-          )}
-          {podeEmitirRecibo && (
-            <button className={item} onClick={() => { setAberto(false); setEmitirRecibo(pagamentoDaParcela()); }}>
-              <ReceiptText className="h-4 w-4 text-brand-700 dark:text-brand-400" /> Emitir recibo
-            </button>
-          )}
           {podeCobrar && (
             <button className={item} onClick={cobrarWhatsApp}>
               <WhatsAppIcon className="h-4 w-4 text-[#25D366]" /> Cobrar via WhatsApp

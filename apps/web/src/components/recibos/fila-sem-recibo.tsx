@@ -102,7 +102,13 @@ export function FilaSemRecibo({
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            {/*
+              NO CELULAR O VALOR E O BOTÃO DESCEM, e o nome fica com a linha
+              inteira. Lado a lado a 400px sobravam ~190px para o nome, e
+              "MARA BIANCA AMORIM CAMPOS" virava "MARA BIANCA AM…" — o nome é
+              QUEM o item é, e cortá-lo transforma a fila numa adivinha.
+            */}
+            <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
               <span className="whitespace-nowrap text-sm font-semibold tabular-nums">
                 {formatBRL(p.valor)}
               </span>

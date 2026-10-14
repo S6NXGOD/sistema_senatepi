@@ -18,6 +18,7 @@ const EMITIR = semComentarios(join(__dirname, 'emitir-recibo-modal.tsx'));
 const CANCELAR = semComentarios(join(__dirname, 'cancelar-recibo-modal.tsx'));
 const CSS = readFileSync(join(__dirname, '../../app/globals.css'), 'utf8').replace(/\r/g, '');
 const ACOES_PARCELA = semComentarios(join(__dirname, '../cobrancas/parcela-actions.tsx'));
+const CARD_COBRANCAS = semComentarios(join(__dirname, '../cobrancas/filiado-cobrancas-card.tsx'));
 
 /**
  * A TELA DE RECIBOS — e o que ela promete além de "gerar um PDF".
@@ -37,7 +38,7 @@ describe('a tela tem o trabalho antes do número', () => {
     const fila = PAGINA.indexOf('<FilaSemRecibo');
     // A busca é a primeira coisa do acervo; se ela vier antes da fila, a
     // ordem das zonas inverteu.
-    const buscaDoAcervo = PAGINA.indexOf('Nome de quem pagou, CPF ou o número do recibo');
+    const buscaDoAcervo = PAGINA.indexOf('Nome, CPF ou número do recibo');
     expect(fila).toBeGreaterThan(0);
     expect(buscaDoAcervo).toBeGreaterThan(fila);
   });
@@ -208,17 +209,47 @@ describe('o recibo onde o dinheiro está', () => {
     expect(ACOES_PARCELA).toContain('<EmitirReciboModal');
   });
 
-  /** Com recibo vivo, o menu oferece a 2ª via — e não um segundo recibo. */
-  it('o menu troca de rótulo conforme já exista recibo', () => {
-    expect(ACOES_PARCELA).toContain('const reciboVivo = parcela.recibo && !parcela.recibo.canceladoEm');
-    expect(ACOES_PARCELA).toContain('Imprimir recibo {String(reciboVivo.numero).padStart(3, ');
-    expect(ACOES_PARCELA).toContain('const podeEmitirRecibo = podeMexerEmRecibo && st === \'PAGO\' && !reciboVivo;');
+  /**
+   * O RECIBO SAIU DO MENU DE TRÊS PONTINHOS (13/10/2026).
+   *
+   * "Lá na parte de cobranças, não há um botão rápido para gerar o recibo?" —
+   * havia, no menu, desde 06/10, e o dono não o achou. Terceira vez que o
+   * mesmo defeito aparece: a ação existia, estava no lugar certo e não tinha
+   * PESO na hora da escolha (`senatepi-peso-nao-lugar`).
+   *
+   * Agora ele é um link na LINHA da parcela, ao lado do valor — o mesmo
+   * tratamento que o comprovante enviado pelo filiado já tinha, e pela mesma
+   * razão: a resposta fica junto da pergunta.
+   */
+  it('o recibo é um link na linha da parcela paga, não um item de menu', () => {
+    expect(CARD_COBRANCAS).toContain("{p.status === 'PAGO' && temModuloRecibos && (");
+    expect(CARD_COBRANCAS).toContain('Emitir recibo');
+    expect(CARD_COBRANCAS).toContain('Recibo {String(p.recibo.numero).padStart(3, ');
+    // E não ficou nos dois lugares: a mesma ação duas vezes na mesma linha.
+    expect(ACOES_PARCELA).not.toContain('Imprimir recibo {');
+    expect(ACOES_PARCELA).not.toContain('Emitir recibo');
+  });
+
+  /** Com recibo vivo, a linha oferece a 2ª via — e não um segundo recibo. */
+  it('o rótulo diz qual dos dois caminhos é', () => {
+    expect(CARD_COBRANCAS).toContain('p.recibo && !p.recibo.canceladoEm ?');
   });
 
   /** As duas perguntas são separadas: ter cobranças não dá recibo. */
   it('a permissão lida é a de recibos, não a de cobranças', () => {
-    expect(ACOES_PARCELA).toContain("nivelEfetivo(user?.role, user?.permissoes, 'recibos') === 'EDITAR'");
-    expect(ACOES_PARCELA).toContain("moduloAtivo('recibos')");
+    expect(CARD_COBRANCAS).toContain("nivelEfetivo(user?.role, user?.permissoes, 'recibos') === 'EDITAR'");
+    expect(CARD_COBRANCAS).toContain("moduloAtivo('recibos')");
+  });
+
+  /**
+   * QUEM SÓ VISUALIZA VÊ A 2ª VIA, mas não emite. Esconder também a reimpressão
+   * tiraria de quem atende o balcão a única coisa que ele podia fazer ali.
+   */
+  it('só visualizar imprime a 2ª via, mas não emite a primeira', () => {
+    const i = CARD_COBRANCAS.indexOf("p.recibo && !p.recibo.canceladoEm ?");
+    const trecho = CARD_COBRANCAS.slice(i, i + 1400);
+    expect(trecho).toContain('setVerRecibo(p.recibo!.id)');
+    expect(trecho).toContain('podeMexerEmRecibo ?');
   });
 });
 
@@ -337,5 +368,51 @@ describe('o formulário conhece os dois lados', () => {
   /** O papel só vale assinado — e o diálogo lembra disso antes de gravar. */
   it('avisa que a assinatura é o documento', () => {
     expect(EMITIR).toContain('Imprima e peça a assinatura de quem recebeu');
+  });
+});
+
+/**
+ * A TELA ENXUGOU — "essa parte de gerar recibo, não ficaria muito poluído?"
+ * (o dono, 13/10/2026).
+ *
+ * Ficava: a 400px eram SEIS fileiras de controle (busca, ano, situação, lado,
+ * período, totais) antes do primeiro recibo, numa tela cujo trabalho principal
+ * é PROCURAR um recibo para reimprimir — e a busca resolve isso sozinha.
+ */
+describe('a tela não pede mais atenção do que precisa', () => {
+  /** A busca fica; o resto vai para trás de um botão. */
+  it('só a busca fica sempre visível', () => {
+    expect(PAGINA).toContain('const [filtrosAbertos, setFiltrosAbertos] = useState(false);');
+    expect(PAGINA).toContain('{filtrosAbertos && (');
+  });
+
+  /**
+   * NUNCA EM SILÊNCIO. Lista recortada que se apresenta como inteira é pior
+   * que lista nenhuma — com filtro ligado o botão acende e diz quantos são.
+   */
+  it('filtro escondido, mas nunca invisível', () => {
+    expect(PAGINA).toContain('const filtrosLigados =');
+    expect(PAGINA).toContain("variant={filtrosLigados ? 'default' : 'outline'}");
+    expect(PAGINA).toContain('{filtrosLigados}');
+  });
+
+  it('e dá para limpar de uma vez', () => {
+    expect(PAGINA).toContain('const limparFiltros = () =>');
+    expect(PAGINA).toContain('Limpar os filtros');
+  });
+
+  /**
+   * SEM ACERVO, SEM BARRA. Busca e seis filtros acima de "nenhum recibo
+   * emitido ainda" é ferramenta para mexer em coisa que não existe.
+   */
+  it('com zero recibos a barra de filtros nem aparece', () => {
+    expect(PAGINA).toContain('const acervoVazio =');
+    expect(PAGINA).toContain('{!acervoVazio && (');
+  });
+
+  /** E o vazio total convida, em vez de só informar. */
+  it('o vazio diz o que fazer', () => {
+    expect(PAGINA).toContain('Nenhum recibo emitido ainda.');
+    expect(PAGINA).toContain('Comece pelos pagamentos que já estão lançados');
   });
 });

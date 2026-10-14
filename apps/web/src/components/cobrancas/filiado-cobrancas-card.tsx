@@ -6,14 +6,19 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
-import { podeExcluir } from '@/lib/permissoes';
+import { podeExcluir, nivelEfetivo } from '@/lib/permissoes';
+import { moduloAtivo } from '@/tenant.config';
 import {
-  ChevronDown, ChevronRight, User, Plus, CalendarClock, Trash2, Printer, Paperclip } from 'lucide-react';
+  ChevronDown, ChevronRight, User, Plus, CalendarClock, Trash2, Printer, Paperclip,
+  ReceiptText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Carregando, Esqueleto } from '@/components/ui/esqueleto';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ParcelaAcoes } from '@/components/cobrancas/parcela-actions';
+import { EmitirReciboModal } from '@/components/recibos/emitir-recibo-modal';
+import { ReciboPrintModal } from '@/components/recibos/recibo-print-modal';
+import type { PagamentoParaRecibo } from '@/lib/recibos';
 import { CarnePrintModal } from '@/components/cobrancas/carne-print-modal';
 import {
   FiliadoResumoFin, historicoFiliado, excluirCobranca,
@@ -25,6 +30,25 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
   const qc = useQueryClient();
   const { user } = useAuth();
   const ehAdmin = podeExcluir(user?.role);
+  /*
+    O RECIBO SAI DA LINHA DA PARCELA, e não de dentro do menu (13/10/2026).
+
+    "Lá na parte de cobranças, não há um botão rápido para gerar o recibo?" —
+    havia, no menu de três pontinhos, e o dono não achou. É a terceira vez que
+    o mesmo defeito aparece nesta base: a ação existia, estava no lugar certo e
+    não tinha PESO na hora da escolha (`senatepi-peso-nao-lugar`).
+
+    O precedente está neste mesmo arquivo, logo abaixo: o comprovante enviado
+    pelo filiado aparece INLINE na linha, "porque a pergunta da secretaria é
+    'esta parcela pode receber baixa?' e a resposta tem de estar ao lado do
+    botão que dá a baixa". Aqui a pergunta é "já dei o recibo desta?", e a
+    resposta é a mesma coisa: na linha.
+  */
+  const [emitirRecibo, setEmitirRecibo] = useState<PagamentoParaRecibo | null>(null);
+  const [verRecibo, setVerRecibo] = useState<string | null>(null);
+  const temModuloRecibos = moduloAtivo('recibos');
+  const podeMexerEmRecibo =
+    temModuloRecibos && nivelEfetivo(user?.role, user?.permissoes, 'recibos') === 'EDITAR';
   const [aberto, setAberto] = useState(false);
   const [confirmar, setConfirmar] = useState<{
     id: string;
@@ -185,6 +209,49 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
                               Só em quem NÃO está paga — depois da baixa o
                               comprovante já cumpriu o papel e vira ruído.
                             */}
+                            {/*
+                              O RECIBO DA PARCELA PAGA — um só rótulo, e ele
+                              diz qual dos dois caminhos é. Com recibo vivo,
+                              "Recibo 007/2026" abre a 2ª via (mesmo número);
+                              sem, "Emitir recibo" cria o primeiro. Oferecer
+                              "emitir" onde já existe levaria à recusa da API,
+                              e botão que dá erro é pior que botão ausente.
+                            */}
+                            {p.status === 'PAGO' && temModuloRecibos && (
+                              p.recibo && !p.recibo.canceladoEm ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setVerRecibo(p.recibo!.id)}
+                                  className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400"
+                                >
+                                  <ReceiptText className="h-3 w-3" />
+                                  Recibo {String(p.recibo.numero).padStart(3, '0')}/{p.recibo.exercicio}
+                                </button>
+                              ) : podeMexerEmRecibo ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEmitirRecibo({
+                                      tipo: 'ENTRADA',
+                                      parcelaId: p.id,
+                                      movimentacaoId: null,
+                                      valor: Number(p.valorPago ?? p.valor),
+                                      data: p.dataPagamento ?? new Date().toISOString(),
+                                      conta: null,
+                                      contraparteNome: resumo.nomeCompleto,
+                                      contraparteDocumento: null,
+                                      filiadoId: null,
+                                      empresaId: null,
+                                      referenteSugerido: '',
+                                    })
+                                  }
+                                  className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-400"
+                                >
+                                  <ReceiptText className="h-3 w-3" />
+                                  Emitir recibo
+                                </button>
+                              ) : null
+                            )}
                             {p.comprovante && p.status !== 'PAGO' && (
                               <a
                                 href={p.comprovante.url ?? '#'}
@@ -229,6 +296,15 @@ export function FiliadoCobrancasCard({ resumo, onMudou }: { resumo: FiliadoResum
       {carneInteiro && (
         <CarnePrintModal cobrancaId={carneInteiro} onClose={() => setCarneInteiro(null)} />
       )}
+
+      {emitirRecibo && (
+        <EmitirReciboModal
+          origem={{ tipo: 'PAGAMENTO', pagamento: emitirRecibo }}
+          onClose={() => setEmitirRecibo(null)}
+          onEmitido={(id) => { setEmitirRecibo(null); setVerRecibo(id); invalidar(); }}
+        />
+      )}
+      {verRecibo && <ReciboPrintModal reciboId={verRecibo} onClose={() => setVerRecibo(null)} />}
 
       <ConfirmDialog
         open={!!confirmar}
