@@ -17,6 +17,10 @@ const MIGRACAO = readFileSync(
   join(__dirname, '../../../prisma/migrations/20261006120000_recibos/migration.sql'),
   'utf8',
 ).replace(/\r/g, '');
+const MIGRACAO_SAIDA = readFileSync(
+  join(__dirname, '../../../prisma/migrations/20261013120000_recibo_de_pagamento/migration.sql'),
+  'utf8',
+).replace(/\r/g, '');
 
 /**
  * QUEM PODE EMITIR UM RECIBO — a decisão de permissão deste módulo, por escrito.
@@ -172,12 +176,35 @@ describe('o banco do recibo', () => {
   });
 
   /**
-   * O NÚMERO NÃO SE REPETE DENTRO DO EXERCÍCIO, e quem garante é o BANCO. A
-   * trava de transação no serviço evita a colisão; este índice é o que impede
-   * que duas vias com números diferentes circulem se a trava falhar.
+   * O NÚMERO NÃO SE REPETE DENTRO DA SÉRIE, e quem garante é o BANCO. A trava
+   * de transação no serviço evita a colisão; este índice é o que impede que
+   * duas vias com números diferentes circulem se a trava falhar.
+   *
+   * SÉRIE, e não exercício: desde 13/10/2026 são duas numerações — o que o
+   * sindicato recebeu e o que ele pagou. "Recibo nº 7/2026" sem dizer o lado
+   * não responde à pergunta do conselho fiscal, e numa série só um buraco de
+   * uma direção ficaria tapado pela outra.
    */
-  it('o par exercício+número é único no banco', () => {
-    expect(SCHEMA).toContain('@@unique([exercicio, numero])');
+  it('o trio exercício+tipo+número é único no banco', () => {
+    expect(SCHEMA).toContain('@@unique([exercicio, tipo, numero])');
+    expect(MIGRACAO_SAIDA).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "recibos_exercicio_tipo_numero_key"');
+  });
+
+  /**
+   * A MIGRAÇÃO DO LADO NOVO TAMBÉM É SEGURA NA JANELA DE TROCA. Enum NOVO (e
+   * não um valor a mais num existente, que é o que derruba o Prisma antigo),
+   * coluna com DEFAULT (senão o INSERT do contêiner antigo quebra) e a única
+   * remoção é de um ÍNDICE — que afrouxa a regra, e índice ninguém lê.
+   */
+  it('o tipo entra sem derrubar o contêiner antigo', () => {
+    expect(MIGRACAO_SAIDA).toContain('CREATE TYPE "TipoRecibo" AS ENUM');
+    expect(MIGRACAO_SAIDA).toContain(`ADD COLUMN IF NOT EXISTS "tipo" "TipoRecibo" NOT NULL DEFAULT 'ENTRADA'`);
+    expect(MIGRACAO_SAIDA).not.toContain('ALTER TYPE');
+    expect(MIGRACAO_SAIDA).not.toContain('DROP COLUMN');
+    expect(MIGRACAO_SAIDA).not.toContain('DROP TABLE');
+    // A nova unicidade existe ANTES de a antiga sair.
+    expect(MIGRACAO_SAIDA.indexOf('recibos_exercicio_tipo_numero_key'))
+      .toBeLessThan(MIGRACAO_SAIDA.indexOf('DROP INDEX'));
   });
 
   /**

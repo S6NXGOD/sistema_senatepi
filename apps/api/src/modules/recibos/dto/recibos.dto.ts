@@ -12,6 +12,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { TipoRecibo } from '@prisma/client';
 
 /**
  * AS TRÊS PORTAS DE EMISSÃO, num DTO só — e a razão de não serem três rotas.
@@ -27,6 +28,17 @@ import { Type } from 'class-transformer';
  * recusa diz o que faltou, em português, porque ela vai para a tela.
  */
 export class EmitirReciboDto {
+  /**
+   * DE QUE LADO O DINHEIRO ANDOU — e o padrão é ENTRADA, de propósito.
+   *
+   * Quem não disser nada continua emitindo o recibo de sempre ("Recebemos
+   * de…"), que é o caso comum e o único que existia até 13/10/2026. A saída
+   * precisa ser pedida: é o papel que o PRESTADOR assina.
+   */
+  @ApiPropertyOptional({ enum: TipoRecibo, default: TipoRecibo.ENTRADA })
+  @IsOptional() @IsIn([TipoRecibo.ENTRADA, TipoRecibo.SAIDA])
+  tipo?: TipoRecibo;
+
   @ApiPropertyOptional({ description: 'Emitir a partir da baixa de uma parcela do carnê.' })
   @IsOptional() @IsString()
   parcelaId?: string;
@@ -56,13 +68,16 @@ export class EmitirReciboDto {
   @IsOptional() @IsISO8601()
   recebidoEm?: string;
 
-  @ApiPropertyOptional({ description: 'Obrigatório quando não dá para deduzir do pagamento.' })
+  @ApiPropertyOptional({
+    description:
+      'Quem pagou (entrada) ou quem recebeu (saída). Obrigatório quando não dá para deduzir do lançamento.',
+  })
   @IsOptional() @IsString() @MaxLength(120)
-  pagadorNome?: string;
+  contraparteNome?: string;
 
   @ApiPropertyOptional({ description: 'CPF ou CNPJ. Só dígitos ou com máscara — é limpo aqui.' })
   @IsOptional() @IsString() @MaxLength(20)
-  pagadorDocumento?: string;
+  contraparteDocumento?: string;
 
   @ApiPropertyOptional({ description: 'Liga o recibo à ficha do filiado.' })
   @IsOptional() @IsString()
@@ -109,6 +124,10 @@ export class ListarRecibosQueryDto {
   @ApiPropertyOptional({ example: 2026 })
   @IsOptional() @IsInt() @Type(() => Number)
   exercicio?: number;
+
+  @ApiPropertyOptional({ enum: TipoRecibo, description: 'Só os recebidos ou só os pagos.' })
+  @IsOptional() @IsIn([TipoRecibo.ENTRADA, TipoRecibo.SAIDA])
+  tipo?: TipoRecibo;
 
   @ApiPropertyOptional({ enum: ['VALIDOS', 'CANCELADOS', 'TODOS'], default: 'VALIDOS' })
   @IsOptional() @IsIn(['VALIDOS', 'CANCELADOS', 'TODOS'])

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ReceiptText, Plus, Search, Printer, Ban, ChevronLeft, ChevronRight, Loader2,
+  ArrowDownLeft, ArrowUpRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,7 @@ import { useAuth } from '@/lib/auth';
 import { nivelEfetivo } from '@/lib/permissoes';
 import { cn } from '@/lib/utils';
 import {
-  listarRecibos, type FiltroRecibos, type ReciboResumo,
+  listarRecibos, type FiltroRecibos, type ReciboResumo, type TipoRecibo,
   formatBRL, formatData, formatDocumento,
 } from '@/lib/recibos';
 import { FilaSemRecibo } from '@/components/recibos/fila-sem-recibo';
@@ -47,6 +48,8 @@ export default function RecibosPage() {
 
   const [busca, setBusca] = useState('');
   const [situacao, setSituacao] = useState<FiltroRecibos['situacao']>('VALIDOS');
+  /** `undefined` é "os dois lados" — o padrão, porque o acervo é um só. */
+  const [lado, setLado] = useState<TipoRecibo | undefined>(undefined);
   const [exercicio, setExercicio] = useState<number | ''>('');
   const [de, setDe] = useState('');
   const [ate, setAte] = useState('');
@@ -66,13 +69,14 @@ export default function RecibosPage() {
     () => ({
       busca: busca.trim() || undefined,
       situacao,
+      tipo: lado,
       exercicio: exercicio === '' ? undefined : exercicio,
       de: de || undefined,
       ate: ate || undefined,
       page,
       pageSize: 20,
     }),
-    [busca, situacao, exercicio, de, ate, page],
+    [busca, situacao, lado, exercicio, de, ate, page],
   );
 
   const { data, isLoading } = useQuery({
@@ -94,14 +98,27 @@ export default function RecibosPage() {
           <div>
             <h2 className="text-2xl font-bold">Recibos</h2>
             <p className="text-sm text-muted-foreground">
-              O comprovante de quem pagou — numerado, guardado e reimprimível.
+              O papel do dinheiro que entra e do que sai — numerado, guardado e
+              reimprimível.
             </p>
           </div>
         </div>
+        {/*
+          DOIS BOTÕES, e não um com escolha escondida dentro. São dois
+          documentos diferentes — quem vai dar baixa numa taxa e quem acabou de
+          pagar o eletricista chegam na tela com intenções distintas, e o
+          caminho de cada um tem de estar visível antes do clique. O diálogo
+          ainda deixa trocar, para quem clicar no errado.
+        */}
         {podeEmitir && (
-          <Button onClick={() => setEmitindo({ tipo: 'AVULSO' })}>
-            <Plus className="h-4 w-4" /> Emitir recibo
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setEmitindo({ tipo: 'AVULSO', lado: 'ENTRADA' })}>
+              <Plus className="h-4 w-4" /> Recebemos
+            </Button>
+            <Button variant="outline" onClick={() => setEmitindo({ tipo: 'AVULSO', lado: 'SAIDA' })}>
+              <ArrowUpRight className="h-4 w-4" /> Pagamos alguém
+            </Button>
+          </div>
         )}
       </div>
 
@@ -158,6 +175,23 @@ export default function RecibosPage() {
                 </button>
               ))}
             </div>
+            {/* O lado: os dois juntos é o padrão, e é o acervo inteiro. */}
+            <div className="flex rounded-lg border p-0.5">
+              {([undefined, 'ENTRADA', 'SAIDA'] as const).map((op) => (
+                <button
+                  key={op ?? 'todos'}
+                  type="button"
+                  onClick={() => trocarFiltro(() => setLado(op))}
+                  aria-pressed={lado === op}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 text-xs font-medium transition',
+                    lado === op ? 'bg-brand-800 text-white' : 'text-muted-foreground hover:bg-muted',
+                  )}
+                >
+                  {op === undefined ? 'Os dois' : op === 'ENTRADA' ? 'Recebidos' : 'Pagos'}
+                </button>
+              ))}
+            </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="hidden sm:inline">Recebido de</span>
               <input
@@ -183,12 +217,29 @@ export default function RecibosPage() {
             Somar tudo e listar uma página seria mostrar um total que as linhas
             abaixo não explicam.
           */}
+          {/*
+            OS DOIS LADOS SÃO SOMADOS SEPARADOS, e nunca um no outro. Juntar o
+            que entrou com o que saiu num total só não é número nenhum, e
+            subtrair também não: isto é um acervo de DOCUMENTOS, não o saldo do
+            caixa — quem quer saldo olha o financeiro.
+          */}
           {data && (
             <p className="text-sm">
-              <strong className="tabular-nums">{data.resumo.quantidadeValida}</strong>{' '}
-              {data.resumo.quantidadeValida === 1 ? 'recibo válido' : 'recibos válidos'}
-              {' · '}
-              <strong className="tabular-nums">{formatBRL(data.resumo.valorValido)}</strong>
+              <span className="inline-flex items-center gap-1">
+                <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                <strong className="tabular-nums">{data.resumo.recebido.quantidade}</strong>{' '}
+                recebido{data.resumo.recebido.quantidade === 1 ? '' : 's'}
+                {' · '}
+                <strong className="tabular-nums">{formatBRL(data.resumo.recebido.valor)}</strong>
+              </span>
+              <span className="mx-2 text-muted-foreground">|</span>
+              <span className="inline-flex items-center gap-1">
+                <ArrowUpRight className="h-3.5 w-3.5 text-sky-700 dark:text-sky-400" />
+                <strong className="tabular-nums">{data.resumo.pago.quantidade}</strong>{' '}
+                pago{data.resumo.pago.quantidade === 1 ? '' : 's'}
+                {' · '}
+                <strong className="tabular-nums">{formatBRL(data.resumo.pago.valor)}</strong>
+              </span>
               {/*
                 O NÚMERO LEVA AO RECORTE (`senatepi-link-leva-o-recorte`): clicar
                 em "2 cancelados" abre JUSTAMENTE esses dois, com o mesmo
@@ -243,8 +294,15 @@ export default function RecibosPage() {
                 <thead className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2 font-medium">Nº</th>
+                    <th className="px-4 py-2 font-medium" />
                     <th className="px-4 py-2 font-medium">Recebido</th>
-                    <th className="px-4 py-2 font-medium">Quem pagou</th>
+                    {/*
+                      O CABEÇALHO É NEUTRO porque a coluna é das duas
+                      direções: "Quem pagou" acima da linha do
+                      eletricista diria que foi ele quem pagou. A seta
+                      da coluna anterior resolve qual é qual.
+                    */}
+                    <th className="px-4 py-2 font-medium">Pagou / recebeu</th>
                     <th className="px-4 py-2 font-medium">Referente a</th>
                     <th className="px-4 py-2 font-medium">Forma</th>
                     <th className="px-4 py-2 text-right font-medium">Valor</th>
@@ -258,16 +316,17 @@ export default function RecibosPage() {
                         {r.codigo}
                         {r.cancelado && <SeloCancelado />}
                       </td>
+                      <td className="px-2 py-3"><SetaDoLado tipo={r.tipo} /></td>
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums text-muted-foreground">
                         {formatData(r.recebidoEm)}
                       </td>
                       <td className="px-4 py-3">
                         <p className={cn('font-medium', r.cancelado && 'line-through opacity-60')}>
-                          {r.pagadorNome}
+                          {r.contraparteNome}
                         </p>
-                        {r.pagadorDocumento && (
+                        {r.contraparteDocumento && (
                           <p className="text-xs tabular-nums text-muted-foreground">
-                            {formatDocumento(r.pagadorDocumento)}
+                            {formatDocumento(r.contraparteDocumento)}
                           </p>
                         )}
                       </td>
@@ -338,6 +397,33 @@ export default function RecibosPage() {
 }
 
 /**
+ * DE QUE LADO — uma seta, e não uma palavra.
+ *
+ * A direção precisa ser lida de relance numa lista onde tudo o mais é texto, e
+ * "Recebido"/"Pago" escrito em toda linha empata com o nome de quem pagou pela
+ * atenção. A seta carrega o sentido; o `title` e o `aria-label` carregam a
+ * palavra para quem usa leitor de tela (`senatepi-cor-e-o-que-pede-alguem`: o
+ * ícone vem antes da cor, e cor nenhuma sozinha diz coisa alguma).
+ */
+function SetaDoLado({ tipo }: { tipo: TipoRecibo }) {
+  const entrou = tipo === 'ENTRADA';
+  const Icone = entrou ? ArrowDownLeft : ArrowUpRight;
+  const texto = entrou ? 'Recebido pelo sindicato' : 'Pago pelo sindicato';
+  return (
+    <Icone
+      className={cn(
+        'h-4 w-4 shrink-0',
+        entrou ? 'text-emerald-600 dark:text-emerald-400' : 'text-sky-700 dark:text-sky-400',
+      )}
+      aria-label={texto}
+      role="img"
+    >
+      <title>{texto}</title>
+    </Icone>
+  );
+}
+
+/**
  * O SELO DE CANCELADO — ícone antes da cor (`senatepi-cor-e-o-que-pede-alguem`).
  * Vermelho sozinho seria lido como erro do sistema; a palavra e a tarja dizem
  * que foi alguém que cancelou.
@@ -364,12 +450,13 @@ function LinhaDeRecibo({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex flex-wrap items-center gap-x-2 text-xs font-semibold tabular-nums text-muted-foreground">
+            <SetaDoLado tipo={r.tipo} />
             {r.codigo}
             <span className="font-normal">· {formatData(r.recebidoEm)}</span>
             {r.cancelado && <SeloCancelado />}
           </p>
           <p className={cn('truncate font-medium', r.cancelado && 'line-through opacity-60')}>
-            {r.pagadorNome}
+            {r.contraparteNome}
           </p>
         </div>
         <p className={cn(

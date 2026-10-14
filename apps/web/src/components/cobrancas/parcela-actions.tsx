@@ -116,15 +116,29 @@ export function ParcelaAcoes({ parcela, onMudou }: { parcela: ParcelaAcao; onMud
   const reciboVivo = parcela.recibo && !parcela.recibo.canceladoEm ? parcela.recibo : null;
   const podeEmitirRecibo = podeMexerEmRecibo && st === 'PAGO' && !reciboVivo;
 
-  /** O pagamento desta parcela, do jeito que o formulário de recibo espera. */
+  /**
+   * O pagamento desta parcela, do jeito que o formulário de recibo espera.
+   *
+   * `tipo: ENTRADA` sempre: parcela de carnê é dinheiro entrando, e a API
+   * recusa o contrário.
+   *
+   * O COMENTÁRIO FICA AQUI FORA, e não na primeira linha do objeto. Uma chave
+   * de abertura seguida logo de um bloco de comentário casa com a varredura
+   * que `telas-robustez.spec` usa para tirar comentário de JSX — ela comeu
+   * 4.285 caracteres do arquivo e derrubou uma asserção sobre o WhatsApp, que
+   * nada tem a ver com recibo. Comentário que quebra teste de outro assunto é
+   * comentário no lugar errado. (A primeira versão DESTA nota repetia o
+   * defeito, porque citava o padrão literalmente.)
+   */
   const pagamentoDaParcela = (): PagamentoParaRecibo => ({
+    tipo: 'ENTRADA',
     parcelaId: parcela.id,
     movimentacaoId: null,
     valor: Number(parcela.valorPago ?? parcela.valor),
     data: parcela.dataPagamento ?? new Date().toISOString(),
     conta: null,
-    pagadorNome: parcela.filiado.nomeCompleto,
-    pagadorDocumento: null,
+    contraparteNome: parcela.filiado.nomeCompleto,
+    contraparteDocumento: null,
     filiadoId: null,
     empresaId: null,
     /* Vazio de propósito: o servidor monta a frase a partir da parcela

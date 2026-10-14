@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AcaoAuditoria, Prisma, StatusParcela, TipoMovimentacao } from '@prisma/client';
+import { AcaoAuditoria, Prisma, StatusParcela, TipoMovimentacao, TipoRecibo } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { valorPorExtenso } from '../../common/valor-por-extenso.util';
@@ -34,6 +34,27 @@ const soDigitos = (v?: string | null) => (v ?? '').replace(/[^0-9]/g, '') || nul
 /** "007/2026" — é assim que o recibo é citado em ofício e em prestação de contas. */
 export const codigoDoRecibo = (numero: number, exercicio: number) =>
   `${String(numero).padStart(3, '0')}/${exercicio}`;
+
+/**
+ * O NOME DO DOCUMENTO, que não é o mesmo nos dois sentidos.
+ *
+ * "Recibo" basta quando o sindicato recebe — é o que todo mundo chama assim.
+ * Quando é o sindicato que paga, o papel é um RECIBO DE PAGAMENTO e quem
+ * assina é o outro lado; dizer isso no título evita que as duas vias virem a
+ * mesma coisa na pasta do conselho fiscal.
+ */
+export const nomeDoDocumento = (tipo: TipoRecibo) =>
+  tipo === TipoRecibo.SAIDA ? 'Recibo de pagamento' : 'Recibo';
+
+/**
+ * A TRAVA DA NUMERAÇÃO É POR SÉRIE, e as séries são duas.
+ *
+ * `pg_advisory_xact_lock` aceita dois inteiros; o segundo precisa distinguir
+ * (2026, ENTRADA) de (2026, SAÍDA), senão as duas séries disputam a mesma
+ * trava e uma espera a outra sem precisar.
+ */
+const chaveDaSerie = (exercicio: number, tipo: TipoRecibo) =>
+  exercicio * 10 + (tipo === TipoRecibo.SAIDA ? 1 : 0);
 
 /**
  * "08/2026" a partir de `dataCompetencia` — e NÃO passa por `diaBR`.
@@ -98,7 +119,7 @@ export class RecibosService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
 
-    const [itens, total, validos, cancelados, exercicios] = await Promise.all([
+    const [itens, total, validos, cancelados, exercicios, porTipo] = await Promise.all([
       this.prisma.recibo.findMany({
         where,
         orderBy: [{ exercicio: 'desc' }, { numero: 'desc' }],
@@ -118,7 +139,22 @@ export class RecibosService {
       }),
       this.prisma.recibo.count({ where: { AND: [recorte, { NOT: { canceladoEm: null } }] } }),
       this.prisma.recibo.groupBy({ by: ['exercicio'], orderBy: { exercicio: 'desc' } }),
+      /*
+        OS DOIS LADOS SÃO SOMADOS SEPARADOS, e nunca um no outro.
+
+        "R$ 10.500" juntando o que entrou com o que saiu não é número nenhum —
+        e subtrair também não seria: isto é um acervo de documentos, não o
+        saldo do caixa. A tela mostra os dois, lado a lado, com o nome de cada
+        um. Quem quiser saldo olha o financeiro, que é de quem é essa conta.
+      */
+      this.prisma.recibo.groupBy({
+        by: ['tipo'],
+        where: { AND: [recorte, { canceladoEm: null }] },
+        _sum: { valor: true },
+        _count: true,
+      }),
     ]);
+    const porLado = (t: TipoRecibo) => porTipo.find((x) => x.tipo === t);
 
     return {
       itens: itens.map((r) => this.resumo(r)),
@@ -129,6 +165,14 @@ export class RecibosService {
         quantidadeValida: validos._count,
         valorValido: Number(validos._sum.valor ?? 0),
         cancelados,
+        recebido: {
+          quantidade: porLado(TipoRecibo.ENTRADA)?._count ?? 0,
+          valor: Number(porLado(TipoRecibo.ENTRADA)?._sum.valor ?? 0),
+        },
+        pago: {
+          quantidade: porLado(TipoRecibo.SAIDA)?._count ?? 0,
+          valor: Number(porLado(TipoRecibo.SAIDA)?._sum.valor ?? 0),
+        },
       },
       exercicios: exercicios.map((e) => e.exercicio),
     };
@@ -141,6 +185,7 @@ export class RecibosService {
     const and: Prisma.ReciboWhereInput[] = [];
 
     if (q.exercicio) and.push({ exercicio: q.exercicio });
+    if (q.tipo) and.push({ tipo: q.tipo });
     if (q.filiadoId) and.push({ filiadoId: q.filiadoId });
 
     /*
@@ -168,9 +213,9 @@ export class RecibosService {
       const numero = /^\d{1,6}$/.test(busca) ? Number(busca) : null;
       and.push({
         OR: [
-          { pagadorNome: { contains: busca, mode: 'insensitive' } },
+          { contraparteNome: { contains: busca, mode: 'insensitive' } },
           { referente: { contains: busca, mode: 'insensitive' } },
-          ...(digitos ? [{ pagadorDocumento: { contains: digitos } }] : []),
+          ...(digitos ? [{ contraparteDocumento: { contains: digitos } }] : []),
           // Procurar "7" acha o recibo nº 7 — é assim que se procura no balcão.
           ...(numero !== null ? [{ numero }] : []),
         ],
@@ -265,14 +310,15 @@ export class RecibosService {
 
   private resumo(r: {
     id: string;
+    tipo: TipoRecibo;
     exercicio: number;
     numero: number;
     valor: Prisma.Decimal;
     referente: string;
     formaPagamento: string;
     recebidoEm: Date;
-    pagadorNome: string;
-    pagadorDocumento: string | null;
+    contraparteNome: string;
+    contraparteDocumento: string | null;
     emitidoEm: Date;
     canceladoEm: Date | null;
     canceladoMotivo: string | null;
@@ -285,6 +331,9 @@ export class RecibosService {
   }) {
     return {
       id: r.id,
+      tipo: r.tipo,
+      /** "Recibo" ou "Recibo de pagamento" — o título do papel e da linha. */
+      documento: nomeDoDocumento(r.tipo),
       exercicio: r.exercicio,
       numero: r.numero,
       codigo: codigoDoRecibo(r.numero, r.exercicio),
@@ -292,8 +341,16 @@ export class RecibosService {
       referente: r.referente,
       formaPagamento: r.formaPagamento,
       recebidoEm: r.recebidoEm,
-      pagadorNome: r.pagadorNome,
-      pagadorDocumento: r.pagadorDocumento,
+      contraparteNome: r.contraparteNome,
+      contraparteDocumento: r.contraparteDocumento,
+      /*
+        ALIAS MANTIDO POR UMA VERSÃO. O web e a API sobem em deploys separados:
+        por um minuto um web antigo lê `pagadorNome` de uma API nova, e sem
+        isto a tela mostraria nomes em branco — justo numa lista de documentos.
+        Sai no próximo release.
+      */
+      pagadorNome: r.contraparteNome,
+      pagadorDocumento: r.contraparteDocumento,
       emitidoEm: r.emitidoEm,
       cancelado: r.canceladoEm !== null,
       canceladoEm: r.canceladoEm,
@@ -324,7 +381,16 @@ export class RecibosService {
    */
   async pendentes() {
     const where: Prisma.MovimentacaoWhereInput = {
-      tipo: TipoMovimentacao.ENTRADA,
+      /*
+        OS DOIS LADOS NA MESMA FILA (13/10/2026).
+
+        Era só ENTRADA. Dinheiro que SAI sem recibo assinado é um buraco maior
+        na prestação de contas do que dinheiro que entra sem papel: no segundo
+        caso o sindicato tem o extrato; no primeiro, ele tem um valor saindo e
+        nenhuma assinatura de quem recebeu. A fila cobra os dois, e cada linha
+        diz de que lado é.
+      */
+      tipo: { in: [TipoMovimentacao.ENTRADA, TipoMovimentacao.SAIDA] },
       /*
         SEM RECIBO **VIVO** — e não "sem recibo". Um lançamento cujo único
         recibo foi cancelado VOLTA para a fila: o dinheiro entrou e continua
@@ -340,6 +406,7 @@ export class RecibosService {
         take: 100,
         select: {
           id: true,
+          tipo: true,
           valor: true,
           descricao: true,
           data: true,
@@ -375,6 +442,9 @@ export class RecibosService {
 
     return {
       total,
+      /** Quantos de cada lado — a fila diz "3 recebidos e 1 pago", não "4". */
+      recebidos: movs.filter((m) => m.tipo === TipoMovimentacao.ENTRADA).length,
+      pagos: movs.filter((m) => m.tipo === TipoMovimentacao.SAIDA).length,
       /** A lista é cortada em 100; o contador acima é o número de verdade. */
       truncada: total > movs.length,
       itens: movs.map((m) => {
@@ -382,6 +452,8 @@ export class RecibosService {
         const e = m.contribuicaoPatronal?.empresa;
         return {
           movimentacaoId: m.id,
+          /** O lado do recibo que falta: ENTRADA recebe, SAIDA paga. */
+          tipo: m.tipo === TipoMovimentacao.SAIDA ? TipoRecibo.SAIDA : TipoRecibo.ENTRADA,
           parcelaId: m.parcela?.id ?? null,
           valor: Number(m.valor),
           data: m.data,
@@ -389,8 +461,8 @@ export class RecibosService {
           origem: m.origem,
           conta: m.conta.nome,
           /* Quem pagou, já deduzido — a tela não adivinha nem pergunta de novo. */
-          pagadorNome: f?.nomeCompleto ?? e?.razaoSocial ?? null,
-          pagadorDocumento: f?.cpf ?? e?.cnpj ?? null,
+          contraparteNome: f?.nomeCompleto ?? e?.razaoSocial ?? null,
+          contraparteDocumento: f?.cpf ?? e?.cnpj ?? null,
           filiadoId: f?.id ?? null,
           empresaId: e?.id ?? null,
           referenteSugerido: this.referenteSugerido(m),
@@ -429,19 +501,30 @@ export class RecibosService {
    * EMITIR — as três portas, e o que cada uma exige.
    *
    * Tudo dentro de UMA transação, com a trava da numeração tomada antes de ler
-   * o último número. O recibo avulso cria a ENTRADA no caixa aqui dentro: ou
-   * nascem os dois, ou não nasce nenhum. Papel sem lastro no livro é como a
-   * contabilidade e a gaveta começam a divergir.
+   * o último número. O recibo avulso cria o LANÇAMENTO no caixa aqui dentro:
+   * ou nascem os dois, ou não nasce nenhum. Papel sem lastro no livro é como a
+   * contabilidade e a gaveta começam a divergir — e vale nos dois sentidos.
    */
   async emitir(dto: EmitirReciboDto, ctx: Ctx) {
     if (dto.parcelaId && dto.movimentacaoId)
       throw new BadRequestException('Escolha uma origem só: a parcela OU o lançamento do caixa.');
 
+    const tipo = dto.tipo === TipoRecibo.SAIDA ? TipoRecibo.SAIDA : TipoRecibo.ENTRADA;
+    /*
+      PARCELA É SEMPRE DINHEIRO QUE ENTRA. A baixa de um carnê não tem como ser
+      um pagamento do sindicato, e deixar passar criaria um recibo de saída
+      pendurado na mensalidade de alguém.
+    */
+    if (tipo === TipoRecibo.SAIDA && dto.parcelaId)
+      throw new BadRequestException(
+        'Parcela de carnê é dinheiro que ENTRA — não dá para emitir recibo de pagamento a partir dela.',
+      );
+
     const base = dto.parcelaId
       ? await this.daParcela(dto)
       : dto.movimentacaoId
-        ? await this.daMovimentacao(dto)
-        : await this.doAvulso(dto);
+        ? await this.daMovimentacao(dto, tipo)
+        : await this.doAvulso(dto, tipo);
 
     /*
       O EXERCÍCIO É O ANO EM TERESINA, e não o do relógio do contêiner (UTC).
@@ -461,24 +544,25 @@ export class RecibosService {
         passava porque conferia o TEXTO do SQL
         (`senatepi-teste-que-afirma-a-chamada`). Quem pegou foi rodar.
       */
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRAVA_DA_NUMERACAO}::int, ${exercicio}::int)`;
+      // A trava é da SÉRIE (exercício + tipo): as duas numerações andam soltas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRAVA_DA_NUMERACAO}::int, ${chaveDaSerie(exercicio, tipo)}::int)`;
 
       const ultimo = await tx.recibo.findFirst({
-        where: { exercicio },
+        where: { exercicio, tipo },
         orderBy: { numero: 'desc' },
         select: { numero: true },
       });
       const numero = (ultimo?.numero ?? 0) + 1;
 
-      // O avulso precisa de lastro: a entrada nasce junto, na mesma transação.
+      // O avulso precisa de lastro: o lançamento nasce junto, na mesma transação.
       let movimentacaoId = base.movimentacaoId;
       if (!movimentacaoId && base.contaBancariaId) {
         const mov = await tx.movimentacao.create({
           data: {
             contaBancariaId: base.contaBancariaId,
-            tipo: TipoMovimentacao.ENTRADA,
+            tipo: tipo === TipoRecibo.SAIDA ? TipoMovimentacao.SAIDA : TipoMovimentacao.ENTRADA,
             valor: base.valor,
-            descricao: `Recibo ${codigoDoRecibo(numero, exercicio)} — ${base.referente}`,
+            descricao: `${nomeDoDocumento(tipo)} ${codigoDoRecibo(numero, exercicio)} — ${base.referente}`,
             data: base.recebidoEm,
             origem: 'RECIBO',
             criadaPor: ctx.userId,
@@ -490,13 +574,14 @@ export class RecibosService {
       return tx.recibo.create({
         data: {
           exercicio,
+          tipo,
           numero,
           valor: base.valor,
           referente: base.referente,
           formaPagamento: base.formaPagamento,
           recebidoEm: base.recebidoEm,
-          pagadorNome: base.pagadorNome,
-          pagadorDocumento: base.pagadorDocumento,
+          contraparteNome: base.contraparteNome,
+          contraparteDocumento: base.contraparteDocumento,
           movimentacaoId,
           parcelaId: base.parcelaId,
           filiadoId: base.filiadoId,
@@ -511,7 +596,10 @@ export class RecibosService {
       acao: AcaoAuditoria.CREATE,
       entidade: 'Recibo',
       entidadeId: criado.id,
-      descricao: `Emitiu o recibo ${codigoDoRecibo(criado.numero, criado.exercicio)} de R$ ${Number(criado.valor).toFixed(2)} para ${criado.pagadorNome}`,
+      descricao:
+        `Emitiu o ${nomeDoDocumento(criado.tipo).toLowerCase()} ` +
+        `${codigoDoRecibo(criado.numero, criado.exercicio)} de R$ ${Number(criado.valor).toFixed(2)} ` +
+        `${criado.tipo === TipoRecibo.SAIDA ? 'a' : 'para'} ${criado.contraparteNome}`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       metadata: {
@@ -559,8 +647,8 @@ export class RecibosService {
         `${rotulo} — parcela ${p.numero}/${p.cobranca._count.parcelas}, competência ${competenciaDaDataPura(p.dataCompetencia)}`,
       formaPagamento: dto.formaPagamento,
       recebidoEm: instanteEscolhido(dto.recebidoEm) ?? p.dataPagamento ?? new Date(),
-      pagadorNome: dto.pagadorNome?.trim() || f.nomeCompleto,
-      pagadorDocumento: soDigitos(dto.pagadorDocumento ?? f.cpf),
+      contraparteNome: dto.contraparteNome?.trim() || f.nomeCompleto,
+      contraparteDocumento: soDigitos(dto.contraparteDocumento ?? f.cpf),
       movimentacaoId: p.movimentacaoId,
       parcelaId: p.id,
       filiadoId: f.id,
@@ -569,8 +657,8 @@ export class RecibosService {
     };
   }
 
-  /** Uma entrada que já está no caixa (repasse patronal, lançamento à mão). */
-  private async daMovimentacao(dto: EmitirReciboDto) {
+  /** Um lançamento que já está no caixa — entrada (repasse patronal) ou saída. */
+  private async daMovimentacao(dto: EmitirReciboDto, tipo: TipoRecibo) {
     const m = await this.prisma.movimentacao.findUnique({
       where: { id: dto.movimentacaoId },
       include: {
@@ -589,8 +677,19 @@ export class RecibosService {
       },
     });
     if (!m) throw new NotFoundException('Lançamento não encontrado.');
-    if (m.tipo !== TipoMovimentacao.ENTRADA)
-      throw new BadRequestException('Recibo é de dinheiro que ENTROU; este lançamento é uma saída.');
+    /*
+      O LADO DO PAPEL TEM DE BATER COM O LADO DO DINHEIRO. Um recibo de
+      pagamento pendurado numa entrada diria que o sindicato pagou um valor que
+      ele recebeu — e o papel sairia assinado por quem não recebeu nada.
+    */
+    const esperado =
+      tipo === TipoRecibo.SAIDA ? TipoMovimentacao.SAIDA : TipoMovimentacao.ENTRADA;
+    if (m.tipo !== esperado)
+      throw new BadRequestException(
+        tipo === TipoRecibo.SAIDA
+          ? 'Recibo de pagamento é de dinheiro que SAIU; este lançamento é uma entrada.'
+          : 'Recibo é de dinheiro que ENTROU; este lançamento é uma saída.',
+      );
     const vivo = m.recibos[0];
     if (vivo)
       throw new BadRequestException(
@@ -599,17 +698,21 @@ export class RecibosService {
 
     const f = m.parcela?.cobranca.filiado;
     const e = m.contribuicaoPatronal?.empresa;
-    const nome = dto.pagadorNome?.trim() || f?.nomeCompleto || e?.razaoSocial;
+    const nome = dto.contraparteNome?.trim() || f?.nomeCompleto || e?.razaoSocial;
     if (!nome)
-      throw new BadRequestException('Diga quem pagou: este lançamento não aponta para ninguém.');
+      throw new BadRequestException(
+        tipo === TipoRecibo.SAIDA
+          ? 'Diga quem recebeu: este lançamento não aponta para ninguém.'
+          : 'Diga quem pagou: este lançamento não aponta para ninguém.',
+      );
 
     return {
       valor: Number(m.valor),
       referente: dto.referente?.trim() || m.descricao,
       formaPagamento: dto.formaPagamento,
       recebidoEm: instanteEscolhido(dto.recebidoEm) ?? m.data,
-      pagadorNome: nome,
-      pagadorDocumento: soDigitos(dto.pagadorDocumento ?? f?.cpf ?? e?.cnpj),
+      contraparteNome: nome,
+      contraparteDocumento: soDigitos(dto.contraparteDocumento ?? f?.cpf ?? e?.cnpj),
       movimentacaoId: m.id,
       parcelaId: m.parcela?.id ?? null,
       filiadoId: dto.filiadoId ?? f?.id ?? null,
@@ -619,15 +722,29 @@ export class RecibosService {
   }
 
   /**
-   * O AVULSO — dinheiro que entrou sem carnê e sem repasse: a 2ª via da
-   * carteirinha, a diária da colônia, a inscrição do evento, o acordo pago no
-   * balcão. É o caso que hoje sai em papel timbrado preenchido à mão.
+   * O AVULSO — dinheiro que andou sem carnê e sem repasse.
+   *
+   * ENTRANDO: a 2ª via da carteirinha, a diária da colônia, a inscrição do
+   * evento, o acordo pago no balcão.
+   *
+   * SAINDO: o eletricista que consertou a fiação, a gráfica que imprimiu o
+   * informativo, o serviço avulso. Medido em 13/10/2026, a produção tinha
+   * ZERO saídas no caixa — e nenhuma tela que registrasse uma. Este é o
+   * primeiro caminho pelo qual dinheiro saindo passa a ficar escrito, com a
+   * assinatura de quem recebeu guardada junto.
    */
-  private async doAvulso(dto: EmitirReciboDto) {
-    if (!dto.valor) throw new BadRequestException('Informe o valor recebido.');
+  private async doAvulso(dto: EmitirReciboDto, tipo: TipoRecibo) {
+    const saida = tipo === TipoRecibo.SAIDA;
+    if (!dto.valor)
+      throw new BadRequestException(saida ? 'Informe o valor pago.' : 'Informe o valor recebido.');
     if (!dto.referente?.trim())
-      throw new BadRequestException('Diga a que se refere — é o que a pessoa lê no papel.');
-    if (!dto.pagadorNome?.trim()) throw new BadRequestException('Informe quem pagou.');
+      throw new BadRequestException(
+        saida
+          ? 'Diga pelo que o sindicato pagou — é o que descreve o serviço no papel.'
+          : 'Diga a que se refere — é o que a pessoa lê no papel.',
+      );
+    if (!dto.contraparteNome?.trim())
+      throw new BadRequestException(saida ? 'Informe quem recebeu.' : 'Informe quem pagou.');
 
     const conta = await this.contaDoAvulso(dto.contaBancariaId);
     return {
@@ -635,8 +752,8 @@ export class RecibosService {
       referente: dto.referente.trim(),
       formaPagamento: dto.formaPagamento,
       recebidoEm: instanteEscolhido(dto.recebidoEm) ?? new Date(),
-      pagadorNome: dto.pagadorNome.trim(),
-      pagadorDocumento: soDigitos(dto.pagadorDocumento),
+      contraparteNome: dto.contraparteNome.trim(),
+      contraparteDocumento: soDigitos(dto.contraparteDocumento),
       movimentacaoId: null as string | null,
       parcelaId: null as string | null,
       filiadoId: dto.filiadoId ?? null,
@@ -711,7 +828,7 @@ export class RecibosService {
       descricao: `Cancelou o recibo ${codigoDoRecibo(r.numero, r.exercicio)}: ${dto.motivo.trim()}`,
       ip: ctx.ip,
       userAgent: ctx.userAgent,
-      metadata: { valor: Number(r.valor), pagador: r.pagadorNome },
+      metadata: { valor: Number(r.valor), contraparte: r.contraparteNome },
     });
 
     return this.obter(id);

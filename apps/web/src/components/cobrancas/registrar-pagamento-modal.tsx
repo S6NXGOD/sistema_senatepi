@@ -71,13 +71,14 @@ export function RegistrarPagamentoModal({
         ficou gravado, e o recibo tem de dizer o mesmo que o caixa.
       */
       onRecibo?.({
+        tipo: 'ENTRADA',
         parcelaId: parcela.id,
         movimentacaoId: null,
         valor: Number(atualizada?.valorPago ?? valorPago),
         data: atualizada?.dataPagamento ?? new Date().toISOString(),
         conta: contas.find((c) => c.id === contaId)?.nome ?? null,
-        pagadorNome: parcela.filiado.nomeCompleto,
-        pagadorDocumento: null,
+        contraparteNome: parcela.filiado.nomeCompleto,
+        contraparteDocumento: null,
         filiadoId: null,
         empresaId: null,
         referenteSugerido: '',

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CircleCheck, HandCoins, Plus } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, CircleCheck, HandCoins, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   pendentesDeRecibo, formatBRL, formatData, type PagamentoSemRecibo,
@@ -51,11 +51,20 @@ export function FilaSemRecibo({
   return (
     <section className="rounded-2xl border border-amber-300 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4">
+        {/*
+          A FRASE DIZ DE QUE LADO SÃO. "4 pagamentos sem recibo" esconde que um
+          deles é dinheiro que SAIU — e saída sem recibo assinado é o buraco
+          mais caro de explicar numa prestação de contas.
+        */}
         <h3 className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-200">
           <HandCoins className="h-4 w-4 shrink-0" />
-          {data.total === 1
-            ? '1 pagamento ainda sem recibo'
-            : `${data.total} pagamentos ainda sem recibo`}
+          {data.total === 1 ? '1 lançamento ainda sem recibo' : `${data.total} lançamentos ainda sem recibo`}
+          {data.pagos > 0 && data.recebidos > 0 && (
+            <span className="font-normal">
+              ({data.recebidos} recebido{data.recebidos === 1 ? '' : 's'}, {data.pagos}{' '}
+              pago{data.pagos === 1 ? '' : 's'})
+            </span>
+          )}
         </h3>
         {data.truncada && (
           <span className="text-xs text-amber-800 dark:text-amber-300">
@@ -70,13 +79,28 @@ export function FilaSemRecibo({
             key={p.movimentacaoId}
             className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3"
           >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {p.pagadorNome ?? p.descricao}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {formatData(p.data)} · {p.referenteSugerido}
-              </p>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {p.tipo === 'ENTRADA' ? (
+                <ArrowDownLeft
+                  className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                  role="img"
+                  aria-label="Recebido pelo sindicato"
+                />
+              ) : (
+                <ArrowUpRight
+                  className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-400"
+                  role="img"
+                  aria-label="Pago pelo sindicato"
+                />
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {p.contraparteNome ?? p.descricao}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {formatData(p.data)} · {p.referenteSugerido}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="whitespace-nowrap text-sm font-semibold tabular-nums">

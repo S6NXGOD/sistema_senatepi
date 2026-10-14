@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Loader2, ReceiptText, UserRound, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Loader2, ReceiptText, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { BuscaSelect, type ItemBusca } from '@/components/ui/busca-select';
@@ -13,7 +13,7 @@ import { buscarFiliados } from '@/lib/colonia';
 import { comoDistinguir, nomeComparavel, nomesRepetidos } from '@/lib/distinguir-filiado';
 import {
   emitirRecibo, formatBRL, formatData, hojeEmTeresina,
-  FORMAS_DE_PAGAMENTO, type PagamentoParaRecibo,
+  FORMAS_DE_PAGAMENTO, DOCUMENTO, LADO, type PagamentoParaRecibo, type TipoRecibo,
 } from '@/lib/recibos';
 import { V } from '@/lib/vocabulario';
 
@@ -27,7 +27,8 @@ import { V } from '@/lib/vocabulario';
  *    lançamento de ENTRADA nasce junto com o recibo, na mesma transação.
  */
 export type OrigemDaEmissao =
-  | { tipo: 'AVULSO' }
+  /** Avulso: nada lançado ainda. `lado` é o que a tela abre marcado. */
+  | { tipo: 'AVULSO'; lado?: TipoRecibo }
   | { tipo: 'PAGAMENTO'; pagamento: PagamentoParaRecibo };
 
 export function EmitirReciboModal({
@@ -49,9 +50,18 @@ export function EmitirReciboModal({
   const [recebidoEm, setRecebidoEm] = useState(
     doCaixa ? doCaixa.data.slice(0, 10) : hojeEmTeresina(),
   );
-  const [pagador, setPagador] = useState(doCaixa?.pagadorNome ?? '');
-  const [documento, setDocumento] = useState(doCaixa?.pagadorDocumento ?? '');
+  const [pagador, setPagador] = useState(doCaixa?.contraparteNome ?? '');
+  const [documento, setDocumento] = useState(doCaixa?.contraparteDocumento ?? '');
   const [filiadoId, setFiliadoId] = useState<string | null>(doCaixa?.filiadoId ?? null);
+  /*
+    O LADO DO DOCUMENTO. Vindo de um lançamento já no caixa ele é FATO — o
+    dinheiro já andou, e deixar escolher aqui só criaria o papel que contradiz
+    o livro. No avulso é escolha, e o padrão é o caso comum (receber).
+  */
+  const [lado, setLado] = useState<TipoRecibo>(
+    doCaixa ? doCaixa.tipo : origem.tipo === 'AVULSO' ? (origem.lado ?? 'ENTRADA') : 'ENTRADA',
+  );
+  const saida = lado === 'SAIDA';
   /* O CPF real de cada candidato da busca — ver `onEscolher`. */
   const [cpfPorId] = useState(() => new Map<string, string | null>());
 
@@ -60,6 +70,7 @@ export function EmitirReciboModal({
   const emitir = useMutation({
     mutationFn: () =>
       emitirRecibo({
+        tipo: lado,
         // Pela PARCELA quando existe: é a ligação mais específica, e é ela que
         // impede o segundo recibo da mesma mensalidade.
         parcelaId: doCaixa?.parcelaId ?? undefined,
@@ -68,8 +79,8 @@ export function EmitirReciboModal({
         referente: referente.trim() || undefined,
         formaPagamento: forma.trim(),
         recebidoEm: doCaixa ? undefined : recebidoEm,
-        pagadorNome: pagador.trim() || undefined,
-        pagadorDocumento: documento.trim() || undefined,
+        contraparteNome: pagador.trim() || undefined,
+        contraparteDocumento: documento.trim() || undefined,
         filiadoId: filiadoId ?? undefined,
         empresaId: doCaixa?.empresaId ?? undefined,
       }),
@@ -95,9 +106,14 @@ export function EmitirReciboModal({
   function confirmar() {
     if (!forma.trim()) return toast.error('Diga como o valor foi recebido.');
     if (!doCaixa) {
-      if (!(Number(valor) > 0)) return toast.error('Informe o valor recebido.');
-      if (!referente.trim()) return toast.error('Diga a que o recibo se refere.');
-      if (!pagador.trim()) return toast.error('Informe quem pagou.');
+      if (!(Number(valor) > 0))
+        return toast.error(saida ? 'Informe o valor pago.' : 'Informe o valor recebido.');
+      if (!referente.trim())
+        return toast.error(
+          saida ? 'Diga pelo que o sindicato pagou.' : 'Diga a que o recibo se refere.',
+        );
+      if (!pagador.trim())
+        return toast.error(saida ? 'Informe quem recebeu.' : 'Informe quem pagou.');
     }
     emitir.mutate();
   }
@@ -117,11 +133,13 @@ export function EmitirReciboModal({
               <ReceiptText className="h-6 w-6 text-brand-700 dark:text-brand-400" />
             </div>
             <div>
-              <h3 className="font-semibold leading-tight">Emitir recibo</h3>
+              <h3 className="font-semibold leading-tight">Emitir {DOCUMENTO[lado].toLowerCase()}</h3>
               <p className="text-xs text-muted-foreground">
                 {doCaixa
                   ? 'O número sai na hora de gravar e nunca muda.'
-                  : 'A entrada no caixa é lançada junto com o recibo.'}
+                  : saida
+                    ? 'A saída do caixa é lançada junto, e quem recebeu assina o papel.'
+                    : 'A entrada no caixa é lançada junto com o recibo.'}
               </p>
             </div>
           </div>
@@ -142,10 +160,57 @@ export function EmitirReciboModal({
             reescrevê-los aqui abriria caminho para o papel dizer um número e o
             livro outro. O que se edita é a FRASE do recibo e a forma.
           */}
+          {/*
+            A ESCOLHA DO LADO VEM PRIMEIRO, e muda tudo o que vem depois: os
+            rótulos, o texto do papel e quem assina. Duas pastilhas e não um
+            select — são duas, e a marcada precisa se ver sem abrir nada.
+
+            Só aparece no AVULSO: quando o lançamento já existe no caixa, o
+            lado é fato, e oferecer a troca seria oferecer um papel que
+            contradiz o livro.
+          */}
+          {!doCaixa && (
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                O dinheiro
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                {(['ENTRADA', 'SAIDA'] as const).map((op) => (
+                  <button
+                    key={op}
+                    type="button"
+                    onClick={() => setLado(op)}
+                    aria-pressed={lado === op}
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 text-left transition',
+                      lado === op
+                        ? 'border-brand-800 bg-brand-50 dark:bg-brand-900/30'
+                        : 'hover:bg-muted',
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5 text-sm font-semibold">
+                      {op === 'ENTRADA' ? (
+                        <ArrowDownLeft className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <ArrowUpRight className="h-4 w-4 text-sky-700 dark:text-sky-400" />
+                      )}
+                      {op === 'ENTRADA' ? 'Entrou' : 'Saiu'}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {op === 'ENTRADA'
+                        ? 'O sindicato recebeu'
+                        : 'O sindicato pagou alguém'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           {doCaixa ? (
             <div className="rounded-xl border bg-muted/40 p-3">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                Pagamento já lançado no caixa
+                {saida ? 'Pagamento já lançado no caixa (saída)' : 'Pagamento já lançado no caixa'}
               </p>
               <p className="mt-0.5 text-lg font-bold tabular-nums">{formatBRL(doCaixa.valor)}</p>
               <p className="text-xs text-muted-foreground">
@@ -155,7 +220,7 @@ export function EmitirReciboModal({
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <Campo rotulo="Valor recebido *">
+              <Campo rotulo={saida ? 'Valor pago *' : 'Valor recebido *'}>
                 <Input
                   type="number" inputMode="decimal" step="0.01" min="0"
                   value={valor}
@@ -164,7 +229,7 @@ export function EmitirReciboModal({
                   autoFocus
                 />
               </Campo>
-              <Campo rotulo="Data do recebimento *">
+              <Campo rotulo={saida ? 'Data do pagamento *' : 'Data do recebimento *'}>
                 <Input
                   type="date"
                   value={recebidoEm}
@@ -188,7 +253,9 @@ export function EmitirReciboModal({
               placeholder={
                 doCaixa
                   ? 'Em branco, usa a descrição do pagamento'
-                  : 'Ex.: 2ª via da carteirinha'
+                  : saida
+                    ? 'Ex.: conserto da fiação elétrica da sede'
+                    : 'Ex.: 2ª via da carteirinha'
               }
               maxLength={180}
             />
@@ -200,7 +267,7 @@ export function EmitirReciboModal({
             */}
           </Campo>
 
-          <Campo rotulo="Como foi pago *">
+          <Campo rotulo={saida ? 'Como o sindicato pagou *' : 'Como foi pago *'}>
             <div className="flex flex-wrap gap-1.5">
               {FORMAS_DE_PAGAMENTO.map((f) => (
                 <button
@@ -239,7 +306,7 @@ export function EmitirReciboModal({
 
           <div className="space-y-3 rounded-xl border p-3">
             <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <UserRound className="h-3.5 w-3.5" /> Quem pagou
+              <UserRound className="h-3.5 w-3.5" /> {LADO[lado].contraparte}
             </p>
 
             {/*
@@ -247,7 +314,13 @@ export function EmitirReciboModal({
               ser filiado — o acompanhante no evento, a empresa, o terceiro que
               quitou o acordo. O nome digitado vale sozinho.
             */}
-            {!doCaixa && (
+            {/*
+              A BUSCA NO CADASTRO SÓ APARECE NO RECEBIMENTO. Quem o sindicato
+              paga — eletricista, gráfica — quase nunca é filiado, e um campo
+              que devolve "nenhum resultado" em todas as buscas ensina a
+              ignorá-lo. O nome digitado sempre valeu sozinho.
+            */}
+            {!doCaixa && !saida && (
               <BuscaSelect
                 placeholder={`Procurar no cadastro de ${V.filiados.toLowerCase()}`}
                 minimo={2}
@@ -286,7 +359,9 @@ export function EmitirReciboModal({
               <Input
                 value={pagador}
                 onChange={(e) => { setPagador(e.target.value); setFiliadoId(null); }}
-                placeholder="Nome de quem entregou o valor"
+                placeholder={
+                  saida ? 'Nome de quem prestou o serviço' : 'Nome de quem entregou o valor'
+                }
                 maxLength={120}
               />
             </Campo>
@@ -310,6 +385,13 @@ export function EmitirReciboModal({
             O número é gravado na hora e não se repete. Se sair errado, o recibo
             pode ser cancelado — mas o número fica queimado, com o motivo e o
             seu nome.
+            {saida && (
+              <>
+                {' '}
+                <strong>Imprima e peça a assinatura de quem recebeu</strong> — é
+                ela que o sindicato guarda na prestação de contas.
+              </>
+            )}
           </p>
         </div>
 

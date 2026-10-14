@@ -141,8 +141,8 @@ describe('emitir a partir de uma parcela paga', () => {
     const { service, chamadas } = bancoFalso({ parcela: PARCELA_PAGA });
     await service.emitir({ formaPagamento: 'PIX', parcelaId: 'parcela-1' }, { userId: 'u1' });
     const criar = chamadas.find((c) => c.chave === 'recibo.create')!;
-    expect(criar.args.data.pagadorNome).toBe('LUCIANA DA SILVA TORRES CARVALHO');
-    expect(criar.args.data.pagadorDocumento).toBe('12345678901');
+    expect(criar.args.data.contraparteNome).toBe('LUCIANA DA SILVA TORRES CARVALHO');
+    expect(criar.args.data.contraparteDocumento).toBe('12345678901');
     expect(criar.args.data.filiadoId).toBe('fil-1');
     // Nada de `connect` na ficha para LER o nome na hora de imprimir.
     expect(criar.args.data).not.toHaveProperty('filiado');
@@ -240,7 +240,12 @@ describe('a numeração', () => {
     */
     expect(chamadas[trava].args.sql.match(/::int/g)).toHaveLength(2);
     // A trava é POR EXERCÍCIO: 2027 não espera a fila de 2026.
-    expect(chamadas[trava].args.valores[1]).toBe(2026);
+    /*
+      A CHAVE É DA SÉRIE, não do exercício: `exercicio * 10 + lado`. As duas
+      numerações (recebido e pago) andam soltas, e travar as duas na mesma
+      chave faria uma esperar a outra sem necessidade.
+    */
+    expect(chamadas[trava].args.valores[1]).toBe(20260);
   });
 
   /**
@@ -265,8 +270,8 @@ describe('o recibo avulso', () => {
     valor: 50,
     referente: '2ª via da carteirinha',
     formaPagamento: 'Dinheiro',
-    pagadorNome: 'Maria do Socorro',
-    pagadorDocumento: '123.456.789-01',
+    contraparteNome: 'Maria do Socorro',
+    contraparteDocumento: '123.456.789-01',
   };
 
   /** Papel sem lastro no livro é como a gaveta e a contabilidade divergem. */
@@ -290,7 +295,7 @@ describe('o recibo avulso', () => {
     const { service, chamadas } = bancoFalso({});
     await service.emitir(AVULSO, { userId: 'u1' });
     const rec = chamadas.find((c) => c.chave === 'recibo.create')!;
-    expect(rec.args.data.pagadorDocumento).toBe('12345678901');
+    expect(rec.args.data.contraparteDocumento).toBe('12345678901');
   });
 
   /**
@@ -319,7 +324,7 @@ describe('o recibo avulso', () => {
   it.each([
     [{ ...AVULSO, valor: undefined }, 'Informe o valor recebido.'],
     [{ ...AVULSO, referente: '' }, 'Diga a que se refere'],
-    [{ ...AVULSO, pagadorNome: '  ' }, 'Informe quem pagou.'],
+    [{ ...AVULSO, contraparteNome: '  ' }, 'Informe quem pagou.'],
   ])('recusa o que falta, dizendo o quê (%#)', async (dto, frase) => {
     const { service } = bancoFalso({});
     await expect(service.emitir(dto as any, {})).rejects.toThrow(frase);
@@ -343,8 +348,8 @@ describe('cancelar', () => {
     referente: 'Mensalidade',
     formaPagamento: 'PIX',
     recebidoEm: new Date('2026-08-19T17:30:00Z'),
-    pagadorNome: 'LUCIANA',
-    pagadorDocumento: '12345678901',
+    contraparteNome: 'LUCIANA',
+    contraparteDocumento: '12345678901',
     emitidoPor: 'u1',
     emitidoEm: new Date('2026-08-19T18:00:00Z'),
     canceladoEm: null,
@@ -487,7 +492,7 @@ describe('a data digitada no formulário', () => {
     const { service, chamadas } = bancoFalso({});
     await service.emitir(
       {
-        valor: 10, referente: 'taxa', formaPagamento: 'Dinheiro', pagadorNome: 'Fulano',
+        valor: 10, referente: 'taxa', formaPagamento: 'Dinheiro', contraparteNome: 'Fulano',
         recebidoEm: '2026-10-06',
       },
       { userId: 'u1' },
@@ -505,7 +510,7 @@ describe('a data digitada no formulário', () => {
     const { service, chamadas } = bancoFalso({});
     await service.emitir(
       {
-        valor: 10, referente: 'taxa', formaPagamento: 'PIX', pagadorNome: 'Fulano',
+        valor: 10, referente: 'taxa', formaPagamento: 'PIX', contraparteNome: 'Fulano',
         recebidoEm: '2026-10-06T17:45:00.000Z',
       },
       {},
@@ -518,9 +523,156 @@ describe('a data digitada no formulário', () => {
   it('o último dia do ano não escorrega para o exercício seguinte', async () => {
     const { service, chamadas } = bancoFalso({});
     await service.emitir(
-      { valor: 10, referente: 'taxa', formaPagamento: 'PIX', pagadorNome: 'F', recebidoEm: '2026-12-31' },
+      { valor: 10, referente: 'taxa', formaPagamento: 'PIX', contraparteNome: 'F', recebidoEm: '2026-12-31' },
       {},
     );
     expect(chamadas.find((c) => c.chave === 'recibo.create')!.args.data.exercicio).toBe(2026);
+  });
+});
+
+/**
+ * O RECIBO DE PAGAMENTO — quando e o sindicato que paga.
+ *
+ * "Tipo, foi um eletricista e consertou uma fiacao, ai o sistema gera o recibo
+ * para o eletricista assinar e dizer que o sindicato transferiu o valor."
+ * — o dono, 13/10/2026.
+ *
+ * E o MESMO documento com os papeis trocados, e por isso mora no mesmo modelo:
+ * quem declara deixa de ser o sindicato e passa a ser o prestador, e quem
+ * assina muda junto. O que NAO pode trocar e o lado do dinheiro — papel de
+ * saida tem de nascer de lancamento de saida.
+ */
+describe('o recibo de pagamento (saida)', () => {
+  const ELETRICISTA = {
+    tipo: 'SAIDA' as never,
+    valor: 450,
+    referente: 'Conserto da fiacao eletrica da sede',
+    formaPagamento: 'Transferencia',
+    contraparteNome: 'Jose da Silva',
+    contraparteDocumento: '529.982.247-25',
+  };
+
+  /** O lancamento no caixa nasce como SAIDA — senao o papel diz uma coisa e o livro outra. */
+  it('o avulso de saida lanca uma SAIDA no caixa, na mesma transacao', async () => {
+    const { service, chamadas } = bancoFalso({});
+    const r = await service.emitir(ELETRICISTA, { userId: 'u1' });
+    const mov = chamadas.find((c) => c.chave === 'movimentacao.create')!;
+    expect(mov.args.data.tipo).toBe('SAIDA');
+    expect(mov.args.data.valor).toBe(450);
+    expect(mov.naTransacao).toBe(true);
+    // E a descricao do extrato diz que documento e esse.
+    expect(mov.args.data.descricao).toContain('Recibo de pagamento 001/');
+    expect(r.tipo).toBe('SAIDA');
+    expect(r.documento).toBe('Recibo de pagamento');
+  });
+
+  /** O valor por extenso e o mesmo calculo — o papel nao muda de regua. */
+  it('o extenso vale para os dois lados', async () => {
+    const { service } = bancoFalso({});
+    const r = await service.emitir(ELETRICISTA, { userId: 'u1' });
+    expect(r.valorPorExtenso).toBe('quatrocentos e cinquenta reais');
+  });
+
+  /**
+   * DUAS SERIES, E ELAS NAO SE MISTURAM. Com sete recibos de recebimento no
+   * ano, o primeiro pagamento ainda e o 001 — e e isso que deixa cada serie
+   * ser auditada por continuidade.
+   */
+  it('a numeracao do pagamento e independente da do recebimento', async () => {
+    const { service, chamadas } = bancoFalso({ ultimoNumero: null });
+    const r = await service.emitir(ELETRICISTA, {});
+    expect(r.numero).toBe(1);
+    const busca = chamadas.find((c) => c.chave === 'recibo.findFirst')!;
+    expect(busca.args.where).toEqual({ exercicio: 2026, tipo: 'SAIDA' });
+    const trava = chamadas.find((c) => c.chave === '$executeRaw')!;
+    expect(trava.args.valores[1]).toBe(20261);
+  });
+
+  /** Parcela de carne e sempre dinheiro entrando. */
+  it('nao da para emitir pagamento a partir de uma parcela', async () => {
+    const { service } = bancoFalso({ parcela: PARCELA_PAGA });
+    await expect(
+      service.emitir({ ...ELETRICISTA, parcelaId: 'parcela-1' }, {}),
+    ).rejects.toThrow('dinheiro que ENTRA');
+  });
+
+  /**
+   * O LADO DO PAPEL BATE COM O LADO DO DINHEIRO. Um recibo de pagamento
+   * pendurado numa entrada diria que o sindicato pagou um valor que recebeu —
+   * e sairia assinado por quem nao recebeu nada.
+   */
+  it('recusa pendurar um pagamento numa entrada do caixa', async () => {
+    const { service } = bancoFalso({
+      movimentacao: { id: 'mov-1', tipo: 'ENTRADA', valor: 100, descricao: 'x', data: new Date(), recibos: [] },
+    });
+    await expect(
+      service.emitir({ ...ELETRICISTA, movimentacaoId: 'mov-1', valor: undefined }, {}),
+    ).rejects.toThrow('dinheiro que SAIU; este lançamento é uma entrada');
+  });
+
+  it('e recusa o contrario: recebimento numa saida', async () => {
+    const { service } = bancoFalso({
+      movimentacao: { id: 'mov-1', tipo: 'SAIDA', valor: 100, descricao: 'x', data: new Date(), recibos: [] },
+    });
+    await expect(
+      service.emitir({ formaPagamento: 'PIX', movimentacaoId: 'mov-1', contraparteNome: 'F' }, {}),
+    ).rejects.toThrow('dinheiro que ENTROU; este lançamento é uma saída');
+  });
+
+  /** Emitir a partir de uma saida ja lancada aproveita o lastro que existe. */
+  it('a partir de uma saida do caixa, aproveita o lancamento', async () => {
+    const { service, chamadas } = bancoFalso({
+      movimentacao: {
+        id: 'mov-saida', tipo: 'SAIDA', valor: 450, descricao: 'Conserto eletrico',
+        data: new Date('2026-10-13T15:00:00Z'), recibos: [],
+      },
+    });
+    const r = await service.emitir(
+      { tipo: 'SAIDA' as never, movimentacaoId: 'mov-saida', formaPagamento: 'PIX', contraparteNome: 'Jose da Silva' },
+      { userId: 'u1' },
+    );
+    expect(r.valor).toBe(450);
+    expect(chamadas.some((c) => c.chave === 'movimentacao.create')).toBe(false);
+    expect(chamadas.find((c) => c.chave === 'recibo.create')!.args.data.movimentacaoId).toBe('mov-saida');
+  });
+
+  /** As recusas falam a lingua do lado certo. */
+  it.each([
+    [{ ...ELETRICISTA, valor: undefined }, 'Informe o valor pago.'],
+    [{ ...ELETRICISTA, referente: '' }, 'Diga pelo que o sindicato pagou'],
+    [{ ...ELETRICISTA, contraparteNome: ' ' }, 'Informe quem recebeu.'],
+  ])('a recusa fala de pagamento, nao de recebimento (%#)', async (dto, frase) => {
+    const { service } = bancoFalso({});
+    await expect(service.emitir(dto as never, {})).rejects.toThrow(frase as string);
+  });
+
+  /** A auditoria diz o que foi, e para quem. */
+  it('a auditoria distingue pagar de receber', async () => {
+    const { service, audit } = bancoFalso({});
+    await service.emitir(ELETRICISTA, { userId: 'u1' });
+    expect(audit.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descricao: 'Emitiu o recibo de pagamento 001/2026 de R$ 450.00 a Jose da Silva',
+      }),
+    );
+  });
+});
+
+/**
+ * A FILA DE PENDENTES COBRA OS DOIS LADOS.
+ *
+ * Dinheiro que SAI sem recibo assinado e um buraco maior do que dinheiro que
+ * entra sem papel: no segundo caso o sindicato tem o extrato; no primeiro, ele
+ * tem um valor saindo e nenhuma assinatura de quem recebeu.
+ */
+describe('a fila de pendentes', () => {
+  it('varre entradas E saidas, e diz de que lado e cada uma', async () => {
+    const { service, chamadas } = bancoFalso({});
+    await service.pendentes();
+    const busca = chamadas.find((c) => c.chave === 'movimentacao.findMany')!;
+    expect(busca.args.where.tipo).toEqual({ in: ['ENTRADA', 'SAIDA'] });
+    // So o que nao tem recibo VIVO — o cancelado devolve o lancamento a fila.
+    expect(busca.args.where.recibos).toEqual({ none: { canceladoEm: null } });
+    expect(busca.args.select.tipo).toBe(true);
   });
 });

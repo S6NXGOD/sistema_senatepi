@@ -3772,13 +3772,45 @@ model IndicadorSaudeEnte {
 ///     de ENTRADA. Emitir recibo de dinheiro que não entrou no livro é como o
 ///     papel e a contabilidade começam a divergir — e o avulso cria a entrada
 ///     junto, na mesma transação.
+/// DE QUE LADO O DINHEIRO ANDOU.
+///
+/// São dois documentos diferentes com a mesma estrutura, e o que muda é QUEM
+/// assina. No recibo de ENTRADA quem declara é o sindicato ("Recebemos de
+/// Fulano"); no de SAÍDA quem declara é o prestador ("Recebi do SENATEPI"), e
+/// é ELE que assina — o papel existe justamente para o sindicato guardar a
+/// assinatura de quem recebeu.
+///
+/// ENUM NOVO, e não um valor a mais num enum existente: a regra da janela de
+/// troca proíbe o segundo (o contêiner antigo estoura ao ler um valor que o
+/// client dele não conhece), não o primeiro — coluna nova com DEFAULT o antigo
+/// simplesmente não seleciona. E este conjunto é fechado: dinheiro entra ou
+/// sai, não há terceira direção.
+enum TipoRecibo {
+  /// O sindicato RECEBEU. Mensalidade, repasse patronal, taxa no balcão.
+  ENTRADA
+  /// O sindicato PAGOU. Eletricista, gráfica, serviço avulso.
+  SAIDA
+}
+
 model Recibo {
   id String @id @default(uuid())
+
+  /// Entrada (recebemos) ou saída (pagamos) — ver `TipoRecibo`.
+  ///
+  /// COM DEFAULT, porque a coluna nasceu depois dos primeiros recibos: na
+  /// janela de troca o contêiner antigo insere sem ela, e sem default o INSERT
+  /// dele quebraria.
+  tipo TipoRecibo @default(ENTRADA)
 
   /// Ano do recibo. A numeração recomeça a cada exercício, como manda a praxe
   /// contábil — "nº 7/2026" é o que o conselho fiscal procura.
   exercicio Int
-  /// Sequencial dentro do exercício, começando em 1.
+  /// Sequencial dentro do exercício **e do tipo**, começando em 1.
+  ///
+  /// DUAS SÉRIES, e não uma. "Recibo nº 7/2026" sem dizer o lado não responde
+  /// a pergunta que o conselho fiscal faz — entrou ou saiu? Separadas, cada
+  /// série é CONTÍNUA, e numeração contínua é o que deixa auditar ("cadê o
+  /// 4?"). Juntas, um buraco numa delas ficaria escondido pela outra.
   numero    Int
 
   valor  Decimal @db.Decimal(12, 2)
@@ -3791,13 +3823,23 @@ model Recibo {
   /// Quando o dinheiro entrou — pode ser anterior à emissão do papel.
   recebidoEm DateTime @map("recebido_em")
 
-  // --- Quem pagou, CONGELADO no ato (ver o item 2 acima) ---
-  pagadorNome      String  @map("pagador_nome")
-  /// CPF ou CNPJ, só dígitos. Nulo quando o pagador não quis ou não tinha.
-  pagadorDocumento String? @map("pagador_documento")
+  // --- A OUTRA PARTE, CONGELADA no ato (ver o item 2 acima) ---
+  //
+  // "CONTRAPARTE" E NÃO "PAGADOR", desde que o recibo passou a ter dois
+  // sentidos: numa ENTRADA é quem pagou ao sindicato, numa SAÍDA é quem o
+  // sindicato pagou. Chamar o eletricista de "pagador" seria o tipo de nome
+  // que engana quem lê o código seis meses depois.
+  //
+  // A COLUNA CONTINUA `pagador_nome`, de propósito. Renomear coluna é
+  // exatamente o que a janela de troca proíbe — o contêiner antigo faz
+  // `SELECT pagador_nome` e cai. O `@map` dá o nome certo ao código sem tocar
+  // no banco, que é para isso que ele existe.
+  contraparteNome      String  @map("pagador_nome")
+  /// CPF ou CNPJ, só dígitos. Nulo quando a pessoa não quis ou não tinha.
+  contraparteDocumento String? @map("pagador_documento")
 
   // --- Ligações, todas opcionais: o recibo sobrevive à exclusão delas ---
-  /// O lançamento de ENTRADA no caixa. É o lastro.
+  /// O lançamento no caixa — ENTRADA ou SAÍDA, conforme `tipo`. É o lastro.
   ///
   /// NÃO É `@unique`, e a diferença custou um 500 em conferência: cancelar um
   /// recibo tem de LIBERAR a reemissão do mesmo dinheiro (é a razão número um
@@ -3832,7 +3874,7 @@ model Recibo {
   filiado      Filiado?         @relation(fields: [filiadoId], references: [id], onDelete: SetNull)
   empresa      Empresa?         @relation(fields: [empresaId], references: [id], onDelete: SetNull)
 
-  @@unique([exercicio, numero])
+  @@unique([exercicio, tipo, numero])
   @@index([emitidoEm])
   @@index([movimentacaoId])
   @@index([parcelaId])

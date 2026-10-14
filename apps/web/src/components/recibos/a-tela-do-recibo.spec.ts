@@ -92,10 +92,14 @@ describe('o acervo', () => {
 });
 
 describe('o papel', () => {
-  /** Duas vias na mesma folha: uma vai, uma fica. É como o balcão usa. */
-  it('sai em duas vias com o picote no meio', () => {
-    expect(PAPEL).toContain('via="Via de quem pagou"');
-    expect(PAPEL).toContain('via="Via do sindicato"');
+  /**
+   * Duas vias na mesma folha: uma vai, uma fica. E qual é a de cima TROCA com
+   * o lado — no pagamento, quem precisa guardar o papel assinado é o
+   * sindicato, não o prestador.
+   */
+  it('sai em duas vias, e a de cima é de quem fica com o papel', () => {
+    expect(PAPEL).toContain("data.tipo === 'SAIDA' ? 'Via do sindicato' : 'Via de quem pagou'");
+    expect(PAPEL).toContain("data.tipo === 'SAIDA' ? 'Via de quem recebeu' : 'Via do sindicato'");
     expect(PAPEL).toContain('function Picote()');
   });
 
@@ -239,5 +243,99 @@ describe('o menu e o tenant', () => {
     expect(senatepi.modulos).toContain('recibos');
     expect(sindserm.modulos).not.toContain('recibos');
     expect(sindserm.modulos).not.toContain('cobrancas');
+  });
+});
+
+/**
+ * O RECIBO DE PAGAMENTO NA TELA — "foi um eletricista e consertou uma fiação,
+ * aí o sistema gera o recibo para o eletricista assinar" (o dono, 13/10/2026).
+ *
+ * O que muda no papel é QUEM DECLARA e QUEM ASSINA. Trocar só o título e
+ * manter "Recebemos de" faria o eletricista assinar uma frase que diz o
+ * contrário do que aconteceu — e é essa assinatura que o sindicato guarda.
+ */
+describe('o papel do pagamento', () => {
+  it('quem declara é o prestador, e ele cita o sindicato', () => {
+    expect(PAPEL).toContain('Recebi de <strong className="uppercase">{e.nomeCurto}</strong>');
+    expect(PAPEL).toContain('{r.valorPorExtenso}');
+  });
+
+  /** A linha de assinatura é de quem declara — senão o sindicato assina por si. */
+  it('a linha de assinatura é de quem recebeu', () => {
+    expect(PAPEL).toContain('{saida ? r.contraparteNome : e.nomeCurto}');
+    expect(PAPEL).toContain("assinatura de quem recebeu");
+  });
+
+  /** A quitação é dada por quem recebeu, e a frase muda junto. */
+  it('o fecho é de quitação dada, não de quitação dando', () => {
+    expect(PAPEL).toContain('dando plena e geral quitação pelo valor acima');
+  });
+
+  /** O título do documento vem do servidor — a tela não inventa o nome. */
+  it('o título sai do servidor', () => {
+    expect(PAPEL).toContain('{r.documento} nº');
+    expect(PAGINA).not.toContain("'Recibo de pagamento'");
+  });
+});
+
+describe('a tela conhece os dois lados', () => {
+  /**
+   * DOIS BOTÕES, e não um com a escolha escondida. Quem vai dar baixa numa
+   * taxa e quem acabou de pagar o eletricista chegam com intenções distintas.
+   */
+  it('o cabeçalho oferece os dois caminhos', () => {
+    expect(PAGINA).toContain("setEmitindo({ tipo: 'AVULSO', lado: 'ENTRADA' })");
+    expect(PAGINA).toContain("setEmitindo({ tipo: 'AVULSO', lado: 'SAIDA' })");
+  });
+
+  /** A seta carrega o sentido; a palavra vai no nome acessível. */
+  it('cada linha mostra de que lado é, com nome acessível', () => {
+    expect(PAGINA).toContain('function SetaDoLado(');
+    expect(PAGINA).toContain("aria-label={texto}");
+    expect(PAGINA).toContain("'Recebido pelo sindicato' : 'Pago pelo sindicato'");
+  });
+
+  /**
+   * OS DOIS TOTAIS SÃO SEPARADOS. Somar o que entrou com o que saiu não dá
+   * número nenhum, e subtrair daria um saldo que esta tela não tem como
+   * afirmar — ela lista documentos, não o caixa.
+   */
+  it('o resumo não soma entrada com saída', () => {
+    expect(PAGINA).toContain('data.resumo.recebido.valor');
+    expect(PAGINA).toContain('data.resumo.pago.valor');
+  });
+
+  it('dá para recortar por lado, e o padrão são os dois', () => {
+    expect(PAGINA).toContain("useState<TipoRecibo | undefined>(undefined)");
+    expect(PAGINA).toContain("op === undefined ? 'Os dois'");
+  });
+});
+
+describe('o formulário conhece os dois lados', () => {
+  /** Vindo do caixa o lado é FATO: deixar escolher criaria papel que contradiz o livro. */
+  it('o lado só se escolhe no avulso', () => {
+    expect(EMITIR).toContain('{!doCaixa && (');
+    expect(EMITIR).toContain('const saida = lado === \'SAIDA\';');
+    expect(EMITIR).toContain('tipo: lado,');
+  });
+
+  /** Os rótulos trocam — "valor recebido" num pagamento é a pergunta errada. */
+  it('os rótulos falam a língua do lado', () => {
+    expect(EMITIR).toContain("saida ? 'Valor pago *' : 'Valor recebido *'");
+    expect(EMITIR).toContain('{LADO[lado].contraparte}');
+  });
+
+  /**
+   * A BUSCA NO CADASTRO SOME NO PAGAMENTO. Quem o sindicato paga quase nunca é
+   * filiado, e um campo que devolve "nenhum resultado" sempre ensina a ser
+   * ignorado.
+   */
+  it('não oferece procurar filiado para pagar um prestador', () => {
+    expect(EMITIR).toContain('{!doCaixa && !saida && (');
+  });
+
+  /** O papel só vale assinado — e o diálogo lembra disso antes de gravar. */
+  it('avisa que a assinatura é o documento', () => {
+    expect(EMITIR).toContain('Imprima e peça a assinatura de quem recebeu');
   });
 });

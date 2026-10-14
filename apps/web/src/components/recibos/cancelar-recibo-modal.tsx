@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Ban } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { cancelarRecibo, formatBRL, type ReciboResumo } from '@/lib/recibos';
+import { cancelarRecibo, formatBRL, DOCUMENTO, type ReciboResumo } from '@/lib/recibos';
 
 /** Abaixo disto não é motivo, é um caractere para escapar do campo. */
 const MINIMO = 5;
@@ -50,8 +50,8 @@ export function CancelarReciboModal({
       open
       variant="destructive"
       icon={<Ban className="h-6 w-6" />}
-      title={`Cancelar o recibo ${recibo.codigo}?`}
-      confirmLabel="Cancelar o recibo"
+      title={`Cancelar o ${DOCUMENTO[recibo.tipo].toLowerCase()} ${recibo.codigo}?`}
+      confirmLabel={`Cancelar o ${DOCUMENTO[recibo.tipo].toLowerCase()}`}
       cancelLabel="Voltar"
       loading={cancelar.isPending}
       confirmDisabled={motivo.trim().length < MINIMO}
@@ -60,14 +60,15 @@ export function CancelarReciboModal({
       description={
         <div className="space-y-3">
           <p>
-            {recibo.pagadorNome} · <strong>{formatBRL(recibo.valor)}</strong>
+            {recibo.contraparteNome} · <strong>{formatBRL(recibo.valor)}</strong>
             <br />
             <span className="text-muted-foreground">{recibo.referente}</span>
           </p>
           <p className="text-sm">
-            O recibo <strong>não é apagado</strong>: ele continua no acervo com a
-            tarja de cancelado, e o número <strong>{recibo.codigo}</strong> não é
-            reaproveitado. O lançamento no caixa também fica — o dinheiro entrou.
+            O documento <strong>não é apagado</strong>: ele continua no acervo com
+            a tarja de cancelado, e o número <strong>{recibo.codigo}</strong> não é
+            reaproveitado. O lançamento no caixa também fica — o dinheiro{' '}
+            {recibo.tipo === 'SAIDA' ? 'saiu' : 'entrou'}.
           </p>
           <label className="block space-y-1.5 text-left">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

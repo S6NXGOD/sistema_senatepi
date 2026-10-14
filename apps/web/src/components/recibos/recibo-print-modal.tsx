@@ -59,10 +59,12 @@ export function ReciboPrintModal({
         <div className="no-print mx-auto mb-4 flex w-full max-w-[210mm] items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-semibold text-white">
-              {data ? `Recibo ${data.codigo}` : 'Recibo'}
+              {data ? `${data.documento} ${data.codigo}` : 'Recibo'}
             </p>
             <p className="text-xs text-white/80">
-              Sai em duas vias na mesma folha — uma para quem pagou, uma para o sindicato.
+              {data?.tipo === 'SAIDA'
+                ? 'Duas vias na mesma folha — peça a assinatura de quem recebeu e guarde a do sindicato.'
+                : 'Sai em duas vias na mesma folha — uma para quem pagou, uma para o sindicato.'}
             </p>
           </div>
           <div className="flex shrink-0 gap-2">
@@ -100,9 +102,24 @@ export function ReciboPrintModal({
             </p>
           ) : (
             <div className="space-y-0">
-              <ViaDoRecibo r={data} logo={logo} via="Via de quem pagou" />
+              {/*
+                A VIA DE CIMA É SEMPRE DE QUEM FICA COM O PAPEL, e isso troca
+                com o lado. No recibo de entrada quem leva é quem pagou; no de
+                pagamento quem leva é o sindicato — a assinatura do prestador é
+                justamente o que ele precisa guardar. A segunda via é a cópia
+                do outro.
+              */}
+              <ViaDoRecibo
+                r={data}
+                logo={logo}
+                via={data.tipo === 'SAIDA' ? 'Via do sindicato' : 'Via de quem pagou'}
+              />
               <Picote />
-              <ViaDoRecibo r={data} logo={logo} via="Via do sindicato" />
+              <ViaDoRecibo
+                r={data}
+                logo={logo}
+                via={data.tipo === 'SAIDA' ? 'Via de quem recebeu' : 'Via do sindicato'}
+              />
             </div>
           )}
         </div>
@@ -134,6 +151,7 @@ function ViaDoRecibo({
 }) {
   const e = r.emitente;
   const cidade = e.cidade ? `${e.cidade}` : '';
+  const saida = r.tipo === 'SAIDA';
 
   return (
     <section className="relative break-inside-avoid rounded-md border border-gray-400 p-4 text-[11px] leading-snug">
@@ -175,7 +193,7 @@ function ViaDoRecibo({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[9px] uppercase tracking-wide text-gray-500">Recibo nº</p>
+          <p className="text-[9px] uppercase tracking-wide text-gray-500">{r.documento} nº</p>
           <p className="text-lg font-bold tabular-nums leading-none">{r.codigo}</p>
           <p className="mt-1 text-[9px] uppercase tracking-wide text-gray-500">{via}</p>
         </div>
@@ -188,38 +206,68 @@ function ViaDoRecibo({
       </div>
 
       {/* O corpo: quem pagou, por quê, como e quando */}
-      <dl className="mt-2 space-y-1.5">
-        <Linha rotulo="Recebemos de">
-          <span className="font-semibold uppercase">{r.pagadorNome}</span>
-          {r.pagadorDocumento && (
-            <span className="text-gray-700"> — CPF/CNPJ {formatDocumento(r.pagadorDocumento)}</span>
-          )}
-          {r.filiadoMatricula && (
-            <span className="text-gray-700"> — matrícula {r.filiadoMatricula}</span>
-          )}
-        </Linha>
-        <Linha rotulo="Referente a">{r.referente}</Linha>
-        <Linha rotulo="Forma de pagamento">
-          {r.formaPagamento}
-          <span className="text-gray-700"> · recebido em {formatData(r.recebidoEm)}</span>
-        </Linha>
-      </dl>
+      {/*
+        QUEM DECLARA TROCA DE LADO, e é a única diferença que importa no papel.
+
+        Na ENTRADA é o sindicato quem afirma ("Recebemos de Fulano") e quem
+        assina. Na SAÍDA é o prestador: ele afirma ter recebido do sindicato, e
+        a assinatura DELE é o documento — é para guardar essa linha que o papel
+        existe. Trocar só o cabeçalho e manter "Recebemos de" faria o
+        eletricista assinar uma frase que diz o contrário do que aconteceu.
+      */}
+      {saida ? (
+        <p className="mt-3 text-[11px] leading-relaxed">
+          Recebi de <strong className="uppercase">{e.nomeCurto}</strong>
+          {e.cnpj && <>, inscrito no CNPJ sob o nº {e.cnpj},</>} a importância de{' '}
+          <strong>{formatBRL(r.valor)}</strong> ({r.valorPorExtenso}), referente a{' '}
+          <strong>{r.referente}</strong>, paga por {r.formaPagamento.toLowerCase()} em{' '}
+          {formatData(r.recebidoEm)}.
+        </p>
+      ) : (
+        <dl className="mt-2 space-y-1.5">
+          <Linha rotulo="Recebemos de">
+            <span className="font-semibold uppercase">{r.contraparteNome}</span>
+            {r.contraparteDocumento && (
+              <span className="text-gray-700"> — CPF/CNPJ {formatDocumento(r.contraparteDocumento)}</span>
+            )}
+            {r.filiadoMatricula && (
+              <span className="text-gray-700"> — matrícula {r.filiadoMatricula}</span>
+            )}
+          </Linha>
+          <Linha rotulo="Referente a">{r.referente}</Linha>
+          <Linha rotulo="Forma de pagamento">
+            {r.formaPagamento}
+            <span className="text-gray-700"> · recebido em {formatData(r.recebidoEm)}</span>
+          </Linha>
+        </dl>
+      )}
 
       {/* Fecho e assinatura */}
       <div className="mt-3 border-t border-gray-300 pt-2">
         <p className="text-[10px] text-gray-700">
-          Para clareza e como prova de quitação do valor acima, firmamos o presente recibo.
+          {saida
+            ? 'Para clareza firmo o presente recibo, dando plena e geral quitação pelo valor acima.'
+            : 'Para clareza e como prova de quitação do valor acima, firmamos o presente recibo.'}
         </p>
         <p className="mt-1 text-[10px]">
           {cidade && <>{cidade}, </>}
           {formatDataExtenso(r.recebidoEm)}.
         </p>
+        {/*
+          A LINHA DE ASSINATURA É DE QUEM DECLARA. No pagamento, quem assina é
+          o prestador — assinar com o nome do sindicato embaixo de "Recebi do
+          SENATEPI" seria o sindicato declarando ter recebido de si mesmo.
+        */}
         <div className="mt-6 text-center">
           <p className="mx-auto w-[70%] border-t border-gray-500 pt-1 text-[10px] font-semibold uppercase">
-            {e.nomeCurto}
+            {saida ? r.contraparteNome : e.nomeCurto}
           </p>
           <p className="text-[9px] text-gray-600">
-            {e.cnpj ? `CNPJ ${e.cnpj}` : e.sigla} — assinatura e carimbo
+            {saida
+              ? r.contraparteDocumento
+                ? `CPF/CNPJ ${formatDocumento(r.contraparteDocumento)} — assinatura`
+                : 'assinatura de quem recebeu'
+              : `${e.cnpj ? `CNPJ ${e.cnpj}` : e.sigla} — assinatura e carimbo`}
           </p>
         </div>
       </div>
@@ -228,7 +276,7 @@ function ViaDoRecibo({
       <footer className="mt-2 border-t border-gray-200 pt-1.5 text-[8px] leading-tight text-gray-500">
         <p>
           Emitido por {r.emitidoPorNome ?? 'sistema'} em {formatDataHora(r.emitidoEm)} ·
-          recibo {r.codigo} · exercício {r.exercicio}
+          {r.documento.toLowerCase()} {r.codigo} · exercício {r.exercicio}
           {r.cancelado && (
             <span className="font-semibold text-rose-700">
               {' '}· CANCELADO
