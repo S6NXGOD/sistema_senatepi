@@ -3,10 +3,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { Request } from 'express';
 import { AudienciasService } from './audiencias.service';
+import { AudienciasDoDiarioService } from './audiencias-do-diario.service';
 import {
   AgendarAudienciaDto,
   DispensarAudienciaDto,
   ListAudienciasQueryDto,
+  RelerPautasQueryDto,
 } from './dto/audiencias.dto';
 import { AuthUser, CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Modulo } from '../../common/permissions/modulo.decorator';
@@ -24,7 +26,10 @@ import { RANK_NIVEL, nivelEfetivo } from '../../common/permissions/permissoes.co
 @Modulo('processos')
 @Controller('audiencias-a-agendar')
 export class AudienciasController {
-  constructor(private readonly service: AudienciasService) {}
+  constructor(
+    private readonly service: AudienciasService,
+    private readonly doDiario: AudienciasDoDiarioService,
+  ) {}
 
   private ctx(req: Request, userId?: string) {
     return { ip: req.ip, userAgent: req.headers['user-agent'], userId };
@@ -78,6 +83,44 @@ export class AudienciasController {
       throw new ForbiddenException('Você não tem permissão para criar eventos na Agenda.');
     }
     return this.service.agendar(id, dto, this.ctx(req, user.id));
+  }
+
+  /**
+   * RELER O DIÁRIO ATRÁS DE PAUTA — a mesma varredura da noite, sob demanda.
+   *
+   * Existe porque o leitor melhora: toda vez que um tribunal escreve a data de
+   * um jeito novo e a regra passa a entender, o histórico inteiro precisa ser
+   * relido. Sem este botão, só o que chegasse DEPOIS do deploy seria lido.
+   *
+   * NÃO leva a marca de operação de sistema. Ela é para o que só o
+   * Administrador dispara, e são exatamente três rotas — um teste as CONTA no
+   * texto dos arquivos, então nem citar o nome do decorador aqui dá: escrever
+   * a palavra com os parênteses fazia a conta dar quatro e o teste reprovar.
+   * Ler o Diário e agendar audiência é trabalho de quem cuida do processo, e
+   * a matriz já responde isso: POST em controller de `processos` exige
+   * `processos: EDITAR`. Como a rota GRAVA NA AGENDA, exige `agenda: EDITAR`
+   * também — a mesma dupla trava do botão "agendar" aqui ao lado, porque o
+   * `@Modulo` do controller cobre um módulo só.
+   */
+  @Post('ler-pautas-do-diario')
+  @ApiOperation({ summary: 'Relê as publicações do DJEN e agenda as audiências designadas.' })
+  lerPautasDoDiario(
+    @Query() query: RelerPautasQueryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (RANK_NIVEL[nivelEfetivo(user.role, user.permissoes, 'agenda')] < RANK_NIVEL.EDITAR) {
+      throw new ForbiddenException('Você não tem permissão para criar eventos na Agenda.');
+    }
+    return this.doDiario.varrer({
+      /*
+        Reprocessar NÃO ressuscita pauta vencida. `tudo=true` faz o leitor
+        reexaminar o que já carimbou — para medir e corrigir a leitura —, mas
+        audiência que já aconteceu continua fora da agenda: compromisso que
+        nasce vencido é ruído, e 96 das 101 do acervo estão no passado.
+      */
+      reexaminar: query.tudo === true,
+      limite: query.limite,
+    });
   }
 
   /**

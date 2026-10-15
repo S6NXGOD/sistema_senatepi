@@ -73,12 +73,13 @@ export class AudienciasService {
   // -------------------------------------------------------------------------
 
   /**
-   * Filtro do alerta (as três regras que sustentam o radar):
+   * Filtro do alerta (as quatro regras que sustentam o radar):
    *  1. é designação de audiência (classificador TPU + texto);
    *  2. ainda está em aberto — sem evento na agenda e sem dispensa;
    *  3. está VIGENTE: a audiência é de hoje em diante OU a movimentação chegou
    *     nos últimos 30 dias. Isso é o que descarta publicação velha (2025) que
-   *     antes poluía o painel.
+   *     antes poluía o painel;
+   *  4. o PROCESSO não tem pauta futura em aberto na agenda — ver abaixo.
    */
   private where(advogadoId?: string): Prisma.MovimentacaoProcessualWhereInput {
     const hoje = inicioDoDiaBR();
@@ -91,6 +92,31 @@ export class AudienciasService {
       processo: {
         statusInterno: StatusProcesso.ATIVO,
         ...(advogadoId ? { advogadoId } : {}),
+        /*
+          NÃO PEÇA O QUE JÁ ESTÁ FEITO (15/10/2026).
+
+          O radar nasceu quando ninguém agendava audiência sozinho. Agora o
+          leitor do Diário agenda, e a movimentação do DataJud que descreve o
+          MESMO ato chega depois (mediana de 62 dias) — sem data nenhuma, que
+          é por isso que ela não se liga à pauta pelo `compromissoId`.
+
+          Sem esta regra o radar continuaria pedindo "agende esta audiência"
+          com a audiência já na agenda. Medido no dia em que isto foi escrito:
+          o radar mostrava UM item, e era exatamente o processo cuja pauta o
+          leitor do Diário acabara de descobrir — 1 de 1.
+
+          O corte é por PROCESSO e por FUTURO, não pelo vínculo: o ato do
+          DataJud não traz data, então não há como casar dia com dia. Se a
+          pauta for cancelada, o compromisso sai de PENDENTE e o alerta
+          reaparece sozinho.
+        */
+        compromissos: {
+          none: {
+            tipo: { in: TIPOS_PAUTA },
+            status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+            inicio: { gte: hoje },
+          },
+        },
       },
       OR: [
         { audienciaData: { gte: hoje } },

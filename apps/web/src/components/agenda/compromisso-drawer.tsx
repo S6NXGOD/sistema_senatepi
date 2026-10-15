@@ -45,6 +45,9 @@ import { agruparPublicacoes } from '@/lib/publicacoes-irmas';
 import { PublicacaoDjenCard } from '@/components/processos/publicacao-djen-card';
 import { V } from '@/lib/vocabulario';
 
+/** Audiência e perícia: o cartão já diz o que é, quando e onde. */
+const ehPauta = (tipo: string) => tipo === 'AUDIENCIA' || tipo === 'PERICIA';
+
 function Avatar({ nome, url }: { nome: string; url?: string | null }) {
   return url ? (
     // eslint-disable-next-line @next/next/no-img-element
@@ -410,7 +413,18 @@ export function CompromissoDrawer({
 
             Agora: o que se espera, qual é o processo, e SÓ ENTÃO o teor.
           */}
-          {c.origemAutomatica && (
+          {/*
+            NA PAUTA, ESTE BLOCO MENTE DUAS VEZES — e por isso ela fica de fora.
+
+            Desde 15/10/2026 o robô lê a audiência no teor do Diário e carimba
+            a publicação como PREPARAR_AUDIENCIA. Num cartão que já se chama
+            "Audiência una", às 11h45, com a sala do Zoom no botão verde, este
+            bloco aparecia dizendo "1. Preparar a audiência" e "o prazo é o que
+            o tribunal escreveu". Audiência não tem prazo: tem hora. E o
+            preparo existe como atividade PRÓPRIA, dois dias úteis antes —
+            repeti-lo aqui é o mesmo aviso duas vezes, na mesma dobra.
+          */}
+          {c.origemAutomatica && !ehPauta(c.tipo) && (
             <PassosDaTarefa providencia={c.origemComunicacoes?.[0]?.providencia ?? null} />
           )}
 

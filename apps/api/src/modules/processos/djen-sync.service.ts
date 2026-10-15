@@ -17,6 +17,7 @@ import { nossoPoloNoAto, type PoloDetectado } from './utils/acao-nossa.util';
 import { chaveOab, separarAdvogadosDoAto } from './utils/advogados-do-ato.util';
 import { VinculoDeAdvogadoService } from './vinculo-de-advogado.service';
 import { PartesDoDiarioService } from './partes-do-diario.service';
+import { AudienciasDoDiarioService } from './audiencias-do-diario.service';
 import {
   DIAS_RECHECAGEM_DORMENTE,
   DORMENTES,
@@ -135,6 +136,15 @@ export interface ResumoVarreduraDjen {
    */
   processosParadosPorTempo: number;
   /**
+   * Audiências que o leitor do Diário colocou na agenda nesta rodada.
+   *
+   * Fica no resumo pelo mesmo motivo de `sugeridas`: é o único lugar onde o
+   * número aparece. A máquina de pauta existia desde agosto e produziu ZERO
+   * audiências até 15/10/2026 — sem um contador na linha de resumo, ninguém
+   * teria como saber que ela estava faminta.
+   */
+  pautasAgendadas: number;
+  /**
    * Etapas finais que quebraram e foram puladas, com o motivo curto.
    *
    * As seis etapas depois da ingestão rodavam em fila, sem proteção entre
@@ -226,6 +236,7 @@ export class DjenSyncService {
     private readonly caixa: CaixaDePropostasService,
     private readonly vinculoDeAdvogado: VinculoDeAdvogadoService,
     private readonly partesDoDiario: PartesDoDiarioService,
+    private readonly audienciasDoDiario: AudienciasDoDiarioService,
   ) {
     this.maxProcessosPorRodada =
       Number(this.config.get('DJEN_MAX_PROCESSOS_POR_RODADA')) || 300;
@@ -318,6 +329,7 @@ export class DjenSyncService {
       maiorRecebidaPorConsulta: 0,
       historicosLidos: 0,
       processosParadosPorTempo: 0,
+      pautasAgendadas: 0,
       etapasComFalha: [],
     };
     let quebrou: string | null = null;
@@ -506,6 +518,31 @@ export class DjenSyncService {
     }
 
     // ---- 3) Etapas finais: cada uma falha sozinha ----
+    /*
+      A PAUTA SAI DO TEOR, E VEM ANTES DA CORRELAÇÃO — a ordem não é estética.
+
+      A correlação classifica a publicação, cria a atividade e CARIMBA
+      `comunicacoes_djen.compromisso_id`; o filtro dela é "ainda não
+      classificada e sem atividade". Se ela passasse primeiro, o despacho que
+      designa audiência viraria "Preparar audiência" genérica, com prazo
+      contado a partir da PUBLICAÇÃO — e a audiência de verdade, com data,
+      hora e sala, nunca entraria na agenda.
+
+      Lendo a pauta primeiro, o ato produz o que tem de produzir: o
+      compromisso no dia certo e o preparo dois dias úteis antes dele. A
+      publicação sai carimbada como PREPARAR_AUDIENCIA, e a correlação a pula
+      pela trava que ela já tinha. O que o leitor NÃO conseguir ler continua
+      intacto e segue o caminho de sempre — medido na produção: das 160
+      publicações que falam de audiência e não viram pauta, ZERO ficam sem
+      tratamento (115 dispensadas como notícia velha, 6 viraram proposta, 4
+      viraram tarefa).
+
+      Não consulta nada externo: lê o texto que a ingestão já gravou.
+    */
+    await this.etapa(resumo, 'audiência no teor', async () => {
+      const r = await this.audienciasDoDiario.varrer();
+      resumo.pautasAgendadas = r.agendadas;
+    });
     await this.etapa(resumo, 'correlação', async () => {
       await this.correlacionarPendentes();
     });
@@ -1744,7 +1781,17 @@ export class DjenSyncService {
                 // de terceiro não é persistida, então sem esta frase ninguém saberia
                 // se a detecção achou algo. Só aparece quando achou.
                 (resumo.sugeridas > 0
-                  ? `, ${resumo.sugeridas} ação(ões) nossa(s) sem cadastro.`
+                  ? `, ${resumo.sugeridas} ação(ões) nossa(s) sem cadastro`
+                  : '') +
+                /*
+                  A AUDIÊNCIA AGENDADA É TRABALHO FEITO, e aparece só quando
+                  houve. Fica aqui pelo mesmo motivo de `sugeridas`: é o
+                  único lugar do BANCO onde o número existe. Esta máquina
+                  passou dois meses produzindo zero sem que ninguém pudesse
+                  perceber — contar é o que impede isso de voltar.
+                */
+                (resumo.pautasAgendadas > 0
+                  ? `, ${resumo.pautasAgendadas} audiência(s) agendada(s) pelo teor.`
                   : '.')),
     });
   }

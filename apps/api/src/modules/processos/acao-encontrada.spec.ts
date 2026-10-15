@@ -105,7 +105,9 @@ describe('a detecção na ingestão', () => {
    */
   it('o resumo da varredura conta as encontradas', () => {
     expect(SYNC).toContain('resumo.sugeridas += r.sugeridas;');
-    expect(SYNC).toContain("ação(ões) nossa(s) sem cadastro.");
+    // Sem o ponto final: em 15/10/2026 a contagem de audiências passou a vir
+    // depois desta frase, e o ponto saiu daqui para o fim da linha inteira.
+    expect(SYNC).toContain('ação(ões) nossa(s) sem cadastro');
   });
 });
 

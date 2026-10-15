@@ -1935,7 +1935,7 @@ export function ProcessoDetalheSheet({
                               {c.origemAutomatica && (
                                 <span
                                   className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
-                                  title="Gerado a partir de uma movimentação do DataJud"
+                                  title="Criado pelo robô a partir de um ato do tribunal"
                                 >
                                   <Bot className="h-3 w-3" /> Criado pelo Sistema
                                 </span>

@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StatusCompromisso, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NpuUtils } from './utils/npu.util';
+import { nomeDoCaso, type ParteParaNome } from './utils/nome-do-caso.util';
+import { normalizarLinkReuniao } from '../../common/link-reuniao.util';
 import { AgendaService } from '../agenda/agenda.service';
 import { classificarMovimentacao, type GatilhoMovimentacao } from './utils/audiencia.util';
 import { montarUrgencia } from '../agenda/equipe.util';
@@ -210,6 +212,12 @@ type ProcessoAlvo = {
   advogadoId: string | null;
   filiadoId: string | null;
   filiado: { nomeCompleto: string } | null;
+  /**
+   * As partes, quando quem chamou as carregou — é delas que sai o nome do
+   * caso no título. Opcional porque `filiado` já bastava para o caminho
+   * antigo; ver `nome-do-caso.util` para o porquê de não bastar.
+   */
+  partes?: ParteParaNome[] | null;
 };
 
 /**
@@ -769,40 +777,144 @@ export class AutomacaoPrazosService {
     const nomeFiliado = processo.filiado?.nomeCompleto ?? 'filiado';
     const tipo = ehPericia ? TIPO_PERICIA : TIPO_AUDIENCIA;
 
-    const jaAgendada = await this.pautaDoDia(processo.id, tipo, inicio);
-    if (jaAgendada) {
-      // Carimba a movimentação na pauta que já existe: sem isso ela voltaria a
-      // ser candidata em toda varredura e continuaria pendente para o radar.
+    const resultado = await this.agendarPauta({
+      processo,
+      tipo: ehPericia ? 'PERICIA' : 'AUDIENCIA',
+      inicio,
+      origem: `conforme andamento do DataJud: ${mov.descricao}`,
+      responsavelId,
+      secretariaId,
+    });
+
+    // Vincula à movimentação — tanto à pauta nova quanto à que já existia. Sem
+    // isso ela voltaria a ser candidata em toda varredura e continuaria
+    // pendente para o radar (cuja fila é "ehAudiencia e sem compromisso").
+    if (resultado.compromissoId) {
       await this.prisma.movimentacaoProcessual.update({
         where: { id: mov.id },
-        data: { compromissoId: jaAgendada },
+        data: { compromissoId: resultado.compromissoId },
       });
-      return { compromisso: false, tarefa: false };
     }
+    return { compromisso: resultado.criou, tarefa: resultado.avisoAoFiliado };
+  }
+
+  /**
+   * AGENDAR UMA PAUTA, venha ela de onde vier.
+   *
+   * Nasceu dentro de `criarPauta`, amarrada à movimentação do DataJud, e saiu
+   * em 15/10/2026 para servir também ao DIÁRIO — que é, de fato, a única fonte
+   * que traz a data. Medido naquele dia: das 265 movimentações do DataJud
+   * marcadas como audiência, **zero** tinham data em qualquer campo, e por isso
+   * esta máquina inteira (pauta + aviso ao filiado + preparo) nunca havia
+   * criado um único compromisso. O Diário traz 98.
+   *
+   * Tudo o que era regra continua aqui e vale para as duas fontes: não
+   * duplicar no mesmo dia, avisar o filiado dois dias úteis antes, preparar
+   * dois dias úteis antes, nunca nascer vencida.
+   */
+  async agendarPauta(entrada: {
+    processo: ProcessoAlvo;
+    tipo: 'AUDIENCIA' | 'PERICIA';
+    inicio: Date;
+    /** Frase que explica de onde veio, para a descrição do compromisso. */
+    origem: string;
+    /** "inicial", "de conciliação" — entra no título quando o ato diz. */
+    qualificador?: string | null;
+    /**
+     * QUANDO O ATO FOI PUBLICADO — a lápide que impede a ressurreição.
+     *
+     * Sem isto, reprocessar o histórico RESSUSCITA audiência cancelada: o
+     * criador só olha pauta PENDENTE para não duplicar, e a cancelada não
+     * bloqueia nada. Reprocessei o acervo local e as duas pautas que o juízo
+     * tinha acabado de derrubar voltaram para a agenda, lado a lado com o
+     * cancelamento que as derrubou.
+     *
+     * Com a data, a regra fica certa nos dois sentidos: um ato ANTERIOR ao
+     * cancelamento não recria (é o mesmo ato velho sendo relido), e um ato
+     * POSTERIOR recria (o juízo remarcou para o mesmo dia, e aí é notícia
+     * nova). Vale também para o cancelamento feito por uma PESSOA na Agenda —
+     * o robô não desfaz decisão de gente.
+     */
+    atoPublicadoEm?: Date | null;
+    /**
+     * O ato NÃO disse a hora e assumimos o início do expediente.
+     *
+     * Vai para a descrição, em letras de forma. Hoje isto é zero em 100
+     * leituras da produção — todo ato diz a hora —, mas um compromisso com
+     * hora inventada e sem aviso é a diferença entre chegar atrasado e saber
+     * que precisa conferir.
+     */
+    horaPresumida?: boolean;
+    local?: string | null;
+    link?: string | null;
+    responsavelId: string;
+    secretariaId: string | null;
+  }): Promise<{ compromissoId: string | null; criou: boolean; avisoAoFiliado: boolean }> {
+    const { processo, inicio, responsavelId, secretariaId } = entrada;
+    const ehPericia = entrada.tipo === 'PERICIA';
+    const rotulo = ehPericia ? 'Perícia' : 'Audiência';
+    const nomeFiliado = nomeDoCaso(processo);
+    const tipo = ehPericia ? TIPO_PERICIA : TIPO_AUDIENCIA;
+
+    const jaAgendada = await this.pautaDoDia(processo.id, tipo, inicio);
+    if (jaAgendada) return { compromissoId: jaAgendada, criou: false, avisoAoFiliado: false };
+
+    if (entrada.atoPublicadoEm && (await this.derrubadaDepoisDoAto(processo.id, inicio, entrada.atoPublicadoEm))) {
+      return { compromissoId: null, criou: false, avisoAoFiliado: false };
+    }
+
+    /*
+      O QUALIFICADOR ENTRA NO TÍTULO quando o ato o diz — "Audiência inicial",
+      "Audiência de conciliação". Quem olha a agenda sabe o que vai acontecer
+      sem abrir o processo, e isso muda o preparo: conciliação se prepara
+      diferente de instrução.
+    */
+    const comQualificador = entrada.qualificador?.trim()
+      ? `${rotulo} ${entrada.qualificador.trim()}`
+      : rotulo;
+
+    /*
+      O LINK PASSA PELA MESMA PORTA QUE O DIGITADO À MÃO.
+
+      O botão "Entrar na chamada" da Agenda só abre o que
+      `normalizarLinkReuniao` aprova — https, sem usuário e senha no endereço,
+      até 500 caracteres. Gravar no campo um link que aquela regra recusa
+      produz um BOTÃO MORTO: ele aparece no cartão e o clique não faz nada,
+      que é pior do que não ter botão.
+
+      Mas recusar não pode virar PERDER. Dois tribunais publicam a sala em
+      `http://` — 25 das 87 salas lidas do acervo —, e esse endereço é a
+      informação mais útil do ato. Ele vai para a DESCRIÇÃO, por escrito, em
+      vez de virar um clique que não funciona.
+    */
+    const sala = normalizarLinkReuniao(entrada.link);
+    const linkClicavel = sala?.ok ? sala.url : null;
+    const salaSoEscrita = !sala?.ok && entrada.link?.trim() ? entrada.link.trim() : null;
 
     const compromisso = await this.prisma.compromisso.create({
       data: {
-        titulo: `${rotulo} — ${nomeFiliado}`,
+        titulo: `${comQualificador} — ${nomeFiliado}`,
         tipo,
         status: StatusCompromisso.PENDENTE,
         inicio,
         fim: new Date(inicio.getTime() + 3_600_000),
+        local: entrada.local ?? null,
+        linkReuniao: linkClicavel,
         descricao:
-          `${rotulo} designada conforme andamento do DataJud: ${mov.descricao}.\n` +
-          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}.`,
+          `${comQualificador} designada ${entrada.origem}.\n` +
+          `Processo ${NpuUtils.formatar(processo.numeroCNJ) || '(rascunho)'}.` +
+          (entrada.horaPresumida
+            ? '\nATENÇÃO: o ato não informou o horário. 9h é suposição do sistema — confirme no processo.'
+            : '') +
+          (salaSoEscrita
+            ? `\nSala indicada no ato: ${salaSoEscrita} — copie e cole no navegador (o sistema só abre endereços https).`
+            : ''),
         responsavelId,
         processoId: processo.id,
         filiadoId: processo.filiadoId,
         origemAutomatica: true,
       },
       select: { id: true },
-    });
-
-    // Vincula à movimentação: além de evitar duplicata, isso RESOLVE o alerta do
-    // radar de audiências (a fila dele é "ehAudiencia e sem compromisso").
-    await this.prisma.movimentacaoProcessual.update({
-      where: { id: mov.id },
-      data: { compromissoId: compromisso.id },
     });
 
     // Tarefa para a secretaria avisar o filiado — só faz sentido se há a quem
@@ -874,7 +986,7 @@ export class AutomacaoPrazosService {
     }
 
     await this.criarPreparoDaPauta(processo, rotulo, nomeFiliado, inicio, responsavelId);
-    return { compromisso: true, tarefa };
+    return { compromissoId: compromisso.id, criou: true, avisoAoFiliado: tarefa };
   }
 
   /**
@@ -995,17 +1107,7 @@ export class AutomacaoPrazosService {
     mov: MovimentacaoParaAutomacao,
     motivo: string,
   ): Promise<number> {
-    const abertos = await this.prisma.compromisso.findMany({
-      where: {
-        processoId: processo.id,
-        tipo: { in: [TIPO_AUDIENCIA, TIPO_PERICIA] },
-        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
-        // Só o que ainda não aconteceu: uma audiência passada que ninguém fechou
-        // é pendência de registro, não pauta a derrubar.
-        inicio: { gte: mov.dataMovimento },
-      },
-      select: { id: true },
-    });
+    const abertos = await this.pautasAbertasDesde(processo.id, mov.dataMovimento);
 
     let n = 0;
     for (const c of abertos) {
@@ -1037,6 +1139,106 @@ export class AutomacaoPrazosService {
             'derrubadas pela mesma movimentação — verifique duplicidade na agenda.',
         );
       }
+    }
+    return n;
+  }
+
+  /**
+   * A MESMA escada de responsável, aberta para quem agenda pauta de outra
+   * fonte.
+   *
+   * O leitor do Diário precisa cair exatamente no mesmo lugar do robô do
+   * DataJud — advogado ativo, senão o Administrador mais antigo. Duas escadas
+   * dariam duas respostas para o mesmo processo, e a pauta apareceria na
+   * agenda de pessoas diferentes conforme a fonte que a trouxe.
+   */
+  async responsavelParaPauta(advogadoId: string | null): Promise<string | null> {
+    return this.responsavelDoProcesso(advogadoId);
+  }
+
+  /** Quem recebe a tarefa de avisar o filiado — mesma regra das duas fontes. */
+  async secretariaParaAviso(): Promise<string | null> {
+    return this.usuarioSecretaria();
+  }
+
+  /**
+   * JÁ DERRUBARAM ESTA PAUTA DEPOIS DESTE ATO?
+   *
+   * Pergunta feita ANTES de criar: existe, no mesmo processo e no mesmo dia,
+   * uma pauta cancelada cujo cancelamento é mais novo que o ato que estou
+   * lendo? Se existe, o ato é notícia velha e recriar desfaria uma decisão
+   * posterior — do juízo ou de uma pessoa.
+   */
+  private async derrubadaDepoisDoAto(
+    processoId: string,
+    quando: Date,
+    atoPublicadoEm: Date,
+  ): Promise<boolean> {
+    const dia = diaBR(quando);
+    const inicioDia = new Date(`${dia}T00:00:00.000-03:00`);
+    const achada = await this.prisma.compromisso.findFirst({
+      where: {
+        processoId,
+        tipo: { in: [TIPO_AUDIENCIA, TIPO_PERICIA] },
+        status: StatusCompromisso.CANCELADO,
+        inicio: { gte: inicioDia, lt: new Date(inicioDia.getTime() + 24 * 3_600_000) },
+        canceladoEm: { gte: atoPublicadoEm },
+      },
+      select: { id: true },
+    });
+    return !!achada;
+  }
+
+  /**
+   * As pautas em aberto do processo que ainda não aconteceram.
+   *
+   * Audiência passada que ninguém fechou é pendência de REGISTRO, não pauta a
+   * derrubar — por isso o corte é por data, e não só por status.
+   */
+  private pautasAbertasDesde(processoId: string, desde: Date) {
+    return this.prisma.compromisso.findMany({
+      where: {
+        processoId,
+        tipo: { in: [TIPO_AUDIENCIA, TIPO_PERICIA] },
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        inicio: { gte: desde },
+      },
+      select: { id: true, inicio: true },
+    });
+  }
+
+  /**
+   * DERRUBAR A PAUTA QUE NÃO VAI ACONTECER — a outra metade da automação.
+   *
+   * Agendar sem saber desmarcar é pior do que não agendar: o advogado passa a
+   * confiar numa agenda que promete uma audiência cancelada. O lado DataJud já
+   * tinha isto (`cancelarPauta`); o Diário não tinha, e é ele quem traz a
+   * notícia primeiro — ele chega em D+0 e o DataJud, na mediana, 62 dias
+   * depois.
+   *
+   * Dois casos, e o segundo é o comum:
+   *
+   *  · CANCELAMENTO — "fica cancelada a audiência". Derruba tudo que estava
+   *    marcado dali para a frente;
+   *  · REMARCAÇÃO — "anteriormente designada para 03/06, redesignada para
+   *    28/05". Aqui a pauta nova é criada pelo leitor e a VELHA tem de sair,
+   *    senão o processo fica com duas audiências abertas. `exceto` protege o
+   *    dia da nova: sem ele, a mesma rodada criaria e cancelaria a própria
+   *    pauta que acabou de marcar.
+   *
+   * Não apaga nada: `cancelarPorSistema` muda o status e grava o motivo, e o
+   * histórico do compromisso continua lá para quem for conferir.
+   */
+  async derrubarPautasAbertas(
+    processoId: string,
+    opcoes: { desde: Date; motivo: string; exceto?: Date | null },
+  ): Promise<number> {
+    const diaProtegido = opcoes.exceto ? diaBR(opcoes.exceto) : null;
+    const abertas = await this.pautasAbertasDesde(processoId, opcoes.desde);
+    let n = 0;
+    for (const c of abertas) {
+      if (diaProtegido && diaBR(c.inicio) === diaProtegido) continue;
+      if (await this.agenda.cancelarPorSistema(c.id, opcoes.motivo)) n++;
     }
     return n;
   }

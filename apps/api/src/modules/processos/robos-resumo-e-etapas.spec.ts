@@ -212,7 +212,7 @@ describe('a varredura do DataJud grava a linha em toda saída', () => {
  * ninguém respondeu (auditoria dos robôs, 13/09/2026).
  */
 describe('as etapas finais da varredura do DJEN', () => {
-  const montar = (quebra: Partial<Record<'correlacao' | 'advogados' | 'partes', Error>> = {}) => {
+  const montar = (quebra: Partial<Record<'correlacao' | 'advogados' | 'partes' | 'pauta', Error>> = {}) => {
     const prisma = {
       user: {
         // Um advogado com OAB (a varredura tem alvo) e ninguém sem OAB. A lista
@@ -251,19 +251,69 @@ describe('as etapas finais da varredura do DJEN', () => {
         if (quebra.partes) throw quebra.partes;
       }),
     };
+    const pauta = {
+      varrer: jest.fn(async () => {
+        if (quebra.pauta) throw quebra.pauta;
+        return { examinadas: 0, agendadas: 0, jaExistiam: 0, noPassado: 0, semPauta: 0, semProcesso: 0, porMotivo: {} };
+      }),
+    };
+    const correlacaoFn = jest.fn(async (id: string) => {
+      void id;
+      return { criadas: 0, enriquecidas: 0 };
+    });
     const svc = new DjenSyncService(
       prisma as never,
       { get: () => undefined } as never,
       djen as never,
       logSync as never,
-      { aplicarAposDjen: jest.fn() } as never,
+      { aplicarAposDjen: correlacaoFn } as never,
       {} as never,
       caixa as never,
       vinculo as never,
       partes as never,
+      pauta as never,
     );
-    return { svc, prisma, logSync, caixa, vinculo, partes };
+    return { svc, prisma, logSync, caixa, vinculo, partes, pauta };
   };
+
+  /**
+   * A ORDEM ENTRE A PAUTA E A CORRELAÇÃO É UMA DECISÃO, E ELA SE DESFAZ SOZINHA.
+   *
+   * A correlação carimba `comunicacoes_djen.compromisso_id` quando cria a
+   * atividade, e o filtro dela é "sem providência E sem atividade". Se ela
+   * passasse antes, o despacho que designa audiência viraria "Preparar
+   * audiência" genérica e a audiência com data, hora e sala nunca entraria na
+   * agenda — o robô teria lido o ato certo e produzido a coisa errada.
+   *
+   * Nada no código impede trocar as duas linhas de lugar. Este teste é o que
+   * impede: ele falha no minuto em que alguém troca.
+   */
+  it('a pauta é lida ANTES da correlação — senão a audiência nunca entra na agenda', async () => {
+    const { svc, pauta, prisma } = montar();
+    await svc.varrer();
+    expect(pauta.varrer).toHaveBeenCalledTimes(1);
+    // `processo.findMany` roda mais de uma vez na rodada; a da correlação é a
+    // única que pergunta por publicação sem providência.
+    const iCorrelacao = prisma.processo.findMany.mock.calls.findIndex(
+      ([args]: [{ where: { comunicacoes?: { some?: Record<string, unknown> } } }]) =>
+        !!args.where.comunicacoes?.some && 'providencia' in args.where.comunicacoes.some,
+    );
+    expect(iCorrelacao).toBeGreaterThanOrEqual(0);
+    expect(pauta.varrer.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.processo.findMany.mock.invocationCallOrder[iCorrelacao],
+    );
+  });
+
+  /** A leitura da pauta falha sozinha, como toda etapa final. */
+  it('leitor de pauta quebrado: as demais etapas rodam e a falha vai para a linha', async () => {
+    const { svc, caixa, vinculo, partes } = montar({ pauta: new Error('texto gigante') });
+    const resumo = await svc.varrer();
+    expect(caixa.cobrarEsquecidas).toHaveBeenCalledTimes(1);
+    expect(vinculo.aplicarNosProcessos).toHaveBeenCalledTimes(1);
+    expect(partes.reconciliarTodos).toHaveBeenCalledTimes(1);
+    expect(resumo.etapasComFalha).toEqual(['audiência no teor (texto gigante)']);
+    expect(resumo.pautasAgendadas).toBe(0);
+  });
 
   it('a rede de prazo roda logo depois da correlação, antes das outras', async () => {
     const { svc, caixa, vinculo, partes } = montar();

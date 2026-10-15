@@ -3216,6 +3216,29 @@ model ComunicacaoDjen {
   /// as duas fontes de gerarem duas atividades para um ato só.
   movimentacaoId     String?   @map("movimentacao_id")
 
+  /// O ROBÔ DE PAUTA OLHOU ESTA PUBLICAÇÃO — e o que ele decidiu (15/10/2026).
+  ///
+  /// Colunas PRÓPRIAS, separadas de `tarefaDispensadaEm`, que é a dispensa de
+  /// uma PESSOA. As duas têm efeito oposto na tela: a da pessoa cala o aviso;
+  /// a do robô é justamente o que torna o aviso possível. Carimbo de robô em
+  /// coluna de gente já apagou trabalho nosso antes — não se repete.
+  ///
+  /// Serve também de marcador de fila: a varredura pega "sem compromisso E sem
+  /// carimbo", então nenhuma publicação é reexaminada à toa.
+  audienciaAvaliadaEm     DateTime? @map("audiencia_avaliada_em")
+  /// POR QUE não virou pauta. Vocabulário de `audiencia-do-diario.util`
+  /// (NAO_FALA_DE_PAUTA, SEM_DESIGNACAO, SEM_DATA, CANCELAMENTO,
+  /// SESSAO_DE_JULGAMENTO, DATA_NO_PASSADO) mais os do serviço
+  /// (SEM_PROCESSO_CADASTRADO, SEM_RESPONSAVEL, JA_ACONTECEU). TEXTO e não
+  /// enum: motivo novo não pede migração, e a tradução é NA LEITURA.
+  audienciaAvaliadaMotivo String?   @map("audiencia_avaliada_motivo")
+  /// Quando a audiência foi marcada, lida do TEXTO da publicação.
+  ///
+  /// Fica gravada ainda que a pauta já tenha passado ou que não tenha virado
+  /// compromisso: é o que permite conferir a leitura do robô sem reprocessar,
+  /// e é a coluna que a tela de conferência mostra.
+  audienciaEm             DateTime? @map("audiencia_em")
+
   createdAt DateTime @default(now()) @map("created_at")
 
   processo     Processo?               @relation(fields: [processoId], references: [id], onDelete: Cascade)
@@ -3231,6 +3254,8 @@ model ComunicacaoDjen {
   @@index([numeroProcesso])
   @@index([compromissoId])
   @@index([movimentacaoId])
+  /// A fila do robô de pauta: sem compromisso e sem carimbo.
+  @@index([audienciaAvaliadaEm, compromissoId])
   @@map("comunicacoes_djen")
 }
 

@@ -26,6 +26,22 @@ export class ListAudienciasQueryDto {
   limite?: number;
 }
 
+/** Relê o Diário atrás de audiência designada — ver a rota no controller. */
+export class RelerPautasQueryDto {
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Reexamina também as publicações que o robô já olhou. Use depois de ' +
+      'melhorar a leitura; audiência no passado continua sem virar agenda.',
+  })
+  @IsOptional() @Transform(paraBooleano) @IsBoolean()
+  tudo?: boolean;
+
+  @ApiPropertyOptional({ default: 300, description: 'Teto de publicações por chamada.' })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  limite?: number;
+}
+
 export class DispensarAudienciaDto {
   @ApiPropertyOptional({ description: 'Por que o alerta não se aplica (fica na auditoria).' })
   @IsOptional() @IsString() @MaxLength(300)

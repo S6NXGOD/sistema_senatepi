@@ -6,6 +6,9 @@ import { DjenBloqueadoError, DjenService, type LeituraDjen } from './djen.servic
 import { STATUS_VIVOS } from './utils/varredura.util';
 import { DjenSyncService } from './djen-sync.service';
 
+/** A rodada nao agendou pauta nenhuma — o que estes testes medem e outra coisa. */
+const SEM_PAUTA = { examinadas: 0, agendadas: 0, jaExistiam: 0, noPassado: 0, semPauta: 0, semProcesso: 0, porMotivo: {} };
+
 beforeAll(() => {
   for (const nivel of ['log', 'warn', 'error', 'debug'] as const) {
     jest.spyOn(Logger.prototype, nivel).mockImplementation(() => undefined);
@@ -266,6 +269,7 @@ function montar(opcoes: {
     { cobrarEsquecidas: jest.fn(async () => 0) } as never,
     vinculo as never,
     { reconciliarTodos: jest.fn(async () => undefined) } as never,
+    { varrer: jest.fn(async () => SEM_PAUTA) } as never,
   );
   const linha = () => logSync.registrar.mock.calls.at(-1)?.[0] as { sucesso: boolean; mensagemErro: string };
   return { svc, prisma, djen, logSync, correlacao, vinculo, linha };
@@ -865,6 +869,7 @@ describe('o histórico antigo nunca vira trabalho', () => {
       caixa,
       { aplicarNosProcessos: jest.fn(async () => undefined), aplicarNoProcesso: jest.fn(async () => undefined) } as never,
       { reconciliarTodos: jest.fn(async () => undefined) } as never,
+      { varrer: jest.fn(async () => SEM_PAUTA) } as never,
     );
     const pub = (hash: string) => banco.comunicacoes.find((c) => c.hash === hash)!;
     return { ...banco, svc, caixa, pub, origem };

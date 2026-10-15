@@ -102,7 +102,14 @@ function criadoresDe(arquivo: string): Criador[] {
  */
 const CENSO: { arquivo: string; titulo: string }[] = [
   { arquivo: 'modules/processos/automacao-prazos.service.ts', titulo: 'TITULO_CONFIRMAR_AUDIENCIA' },
-  { arquivo: 'modules/processos/automacao-prazos.service.ts', titulo: '`${rotulo} — ${nomeFiliado}`' },
+  /*
+    A PAUTA. O título ganhou o qualificador em 15/10/2026 — "Audiência
+    inicial", "Audiência de conciliação" —, porque o Diário diz qual é e
+    quem olha a agenda prepara conciliação diferente de instrução.
+    Continua sendo UM criador: o método saiu de dentro de `criarPauta`
+    para `agendarPauta`, público, e agora atende também ao Diário.
+  */
+  { arquivo: 'modules/processos/automacao-prazos.service.ts', titulo: '`${comQualificador} — ${nomeFiliado}`' },
   { arquivo: 'modules/processos/automacao-prazos.service.ts', titulo: 'tituloAviso' },
   { arquivo: 'modules/processos/automacao-prazos.service.ts', titulo: 'titulo' },
   { arquivo: 'modules/processos/correlacao.service.ts', titulo: 'plano.titulo' },
