@@ -125,3 +125,45 @@ describe('auditoria do recadastro', () => {
     expect(rotuloDaEntidade('Recadastramento')).toBe('Recadastramento');
   });
 });
+
+/**
+ * A TELA NÃO OFERECE O QUE A API VAI RECUSAR — anexos, 15/10/2026.
+ *
+ * Uma advogada com `atendimentos: VISUALIZAR` abria um atendimento, via "puxe
+ * os que servirem", escolhia o documento e só então levava 403. O anexo herda
+ * o módulo de quem o segura, e escrever ali exige EDITAR nesse módulo; a tela
+ * não perguntava nada.
+ *
+ * A LEITURA CONTINUA INTEIRA: quem só visualiza vê a lista e baixa os
+ * documentos. O que some é a promessa que terminaria em erro.
+ */
+describe('a seção de anexos esconde o que a pessoa não pode fazer', () => {
+  const src = codigo('components/anexos/anexos-section.tsx');
+
+  it('sabe de que módulo é o registro que segura o anexo', () => {
+    expect(src).toContain('const moduloDoAlvo: ModuloKey | null = atendimentoId');
+    expect(src).toContain("? 'atendimentos'");
+    expect(src).toContain("? 'processos'");
+    expect(src).toContain("? 'agenda'");
+  });
+
+  /** Sem alvo não há onde gravar — e `else` de ternário não vira fato. */
+  it('sem registro-pai, não assume um módulo qualquer', () => {
+    expect(src).toContain('!!moduloDoAlvo &&');
+    expect(src).not.toContain(": 'agenda';");
+  });
+
+  it('e exige EDITAR nele para oferecer envio ou puxar', () => {
+    expect(src).toContain(
+      "nivelEfetivo(user?.role, user?.permissoes, moduloDoAlvo) === 'EDITAR'",
+    );
+    expect(src).toContain('{aPuxar > 0 && podeGravar && (');
+    expect(src).toContain('{podeGravar && (');
+  });
+
+  /** A lista e o download não dependem de `podeGravar` — leitura é leitura. */
+  it('mas a lista de documentos continua para quem só visualiza', () => {
+    const lista = src.slice(src.indexOf('anexos.map('));
+    expect(lista).not.toContain('podeGravar');
+  });
+});

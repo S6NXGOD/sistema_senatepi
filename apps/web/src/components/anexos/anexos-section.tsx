@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
-import { podeExcluir } from '@/lib/permissoes';
+import { podeExcluir, nivelEfetivo, type ModuloKey } from '@/lib/permissoes';
 import {
   Paperclip, UploadCloud, FileText, Image as ImageIcon, Download, Trash2, Loader2,
   ShieldCheck, FolderInput, Link2, ArrowRight, CalendarClock,
@@ -79,6 +79,33 @@ export function AnexosSection({
     : processoId
       ? { processoId }
       : { compromissoId };
+
+  /*
+    QUEM NÃO PODE GRAVAR AQUI NÃO VÊ A OFERTA (15/10/2026).
+
+    O anexo herda o módulo de QUEM O SEGURA: num atendimento o dono é
+    `atendimentos`, num processo é `processos`, numa atividade é `agenda`.
+    Escrever ali exige EDITAR nesse módulo — e a API cobra isso de verdade.
+
+    A tela não cobrava nada: oferecia "puxe os que servirem" e a área de
+    arrastar para QUALQUER um que abrisse o registro. Uma advogada com
+    `atendimentos: VISUALIZAR` clicava, escolhia o documento e só então levava
+    403 — foi o caminho do chamado de 15/10. Botão que devolve 403 é pior que
+    botão ausente: ele promete, gasta o tempo da pessoa e termina em erro.
+
+    A LEITURA CONTINUA INTEIRA. Quem só visualiza vê a lista, abre e baixa os
+    documentos; o que some é o que ele não teria como concluir.
+  */
+  const moduloDoAlvo: ModuloKey | null = atendimentoId
+    ? 'atendimentos'
+    : processoId
+      ? 'processos'
+      : compromissoId
+        ? 'agenda'
+        : /* sem alvo não há onde gravar — e `else` de ternário não vira fato
+             (`senatepi-nao-chute-o-lado`) */ null;
+  const podeGravar =
+    !!moduloDoAlvo && nivelEfetivo(user?.role, user?.permissoes, moduloDoAlvo) === 'EDITAR';
   const chave = ['anexos', atendimentoId ?? processoId ?? compromissoId];
   const habilitado = !!(atendimentoId || processoId || compromissoId);
 
@@ -182,7 +209,12 @@ export function AnexosSection({
         </h4>
       </div>
 
-      {/* Dropzone */}
+      {/*
+        A ÁREA DE ENVIO SÓ PARA QUEM GRAVA — ver a nota de `podeGravar` acima.
+        Quem só visualiza continua vendo e baixando a lista inteira; o que some
+        é a promessa que terminaria em 403.
+      */}
+      {podeGravar && (
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
@@ -228,6 +260,7 @@ export function AnexosSection({
           </>
         )}
       </button>
+      )}
 
       {/*
         O ACERVO FALA NO MOMENTO DA ESCOLHA (24/09/2026).
@@ -251,7 +284,7 @@ export function AnexosSection({
         O substantivo vem do vocabulário do cliente: "filiado" no SENATEPI,
         "servidor" no SINDSERM.
       */}
-      {aPuxar > 0 && (
+      {aPuxar > 0 && podeGravar && (
         <button
           type="button"
           onClick={() => setPuxarAberto(true)}

@@ -125,7 +125,7 @@ describe('o visor de imagens', () => {
 describe('o acervo avisa antes da cópia repetida', () => {
   it('o botão mostra quantos há para puxar', () => {
     expect(SECAO).toContain("const aPuxar = acervo.filter((i) => !i.jaVinculado).length;");
-    expect(SECAO).toContain('{aPuxar > 0 && (');
+    expect(SECAO).toContain('{aPuxar > 0 && podeGravar && (');
   });
 
   /** Zero para puxar e o número seria ruído: some. */

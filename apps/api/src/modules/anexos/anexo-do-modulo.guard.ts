@@ -1,13 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
 import { Request } from 'express';
 import { AuthUser } from '../../common/decorators/current-user.decorator';
-import {
-  ModuloKey,
-  NivelPermissao,
-  RANK_NIVEL,
-  nivelEfetivo,
-} from '../../common/permissions/permissoes.constants';
+import { exigenciasDoAnexo, faltaParaOAnexo, fraseDaRecusa } from './anexo-do-modulo.regras';
 
 /**
  * O ANEXO HERDA A PERMISSÃO DE QUEM O SEGURA.
@@ -23,53 +17,39 @@ import {
  * painel, onde o dado do processo viajava para quem não podia vê-lo, e a mesma
  * regra vale: o corte é no backend, não na tela.
  *
- * A REGRA É A DO PAI. Anexo de processo exige o módulo `processos`; de
- * atividade, `agenda`; de atendimento, `atendimentos`. Ler exige VISUALIZAR,
- * gravar exige EDITAR — a mesma escala do `PermissionsGuard`.
+ * A REGRA É A DO PAI, e mora em `anexo-do-modulo.regras` — pura, testável sem
+ * HTTP, e compartilhada com o handler de upload. Dois motivos para ela ter
+ * saído daqui:
+ *
+ *  1. ORIGEM NÃO É DESTINO. `filiadoId` só diz de quem é o acervo LIDO; exigir
+ *     EDITAR nele num POST bloqueava todo advogado de puxar documento
+ *     (chamado real de 15/10/2026).
+ *  2. O UPLOAD É MULTIPART, E ESTE GUARDA NÃO O ENXERGA. Guarda roda ANTES do
+ *     interceptor, e é o `FileInterceptor` que analisa o `multipart/form-data`:
+ *     na hora em que este código corre, `req.body` está VAZIO e o `processoId`
+ *     do formulário simplesmente não existe. Medido em 15/10/2026: um usuário
+ *     de TRIAGEM, com `processos: SEM_ACESSO`, subiu um anexo PARA DENTRO de
+ *     um processo e recebeu 201. Por isso a rota de upload chama a regra ela
+ *     mesma, depois do interceptor — ver `AnexosController.upload`.
  *
  * DELETE não passa por aqui porque já é mais restrito: só o Administrador
- * apaga, regra global do `PermissionsGuard`.
+ * apaga, regra global do `PermissionsGuard` (conferido: 403 para Triagem e
+ * para Advogada).
  */
 @Injectable()
 export class AnexoDoModuloGuard implements CanActivate {
-  private readonly leitura = new Set(['GET', 'HEAD', 'OPTIONS']);
-
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
     const user = req.user;
     if (!user) return true; // O JwtAuthGuard já barra antes daqui.
-    if (user.role === UserRole.ADMINISTRADOR) return true;
 
     const fonte = { ...(req.query ?? {}), ...(req.body ?? {}) } as Record<string, unknown>;
-    const modulos = modulosEnvolvidos(fonte);
-    if (!modulos.length) return true; // Sem pai identificado, o DTO recusa depois.
+    const exigencias = exigenciasDoAnexo(req.method, fonte);
+    // Sem pai identificado, o DTO recusa depois — e no upload a própria rota confere.
+    if (!exigencias.length) return true;
 
-    const exigido: NivelPermissao = this.leitura.has(req.method) ? 'VISUALIZAR' : 'EDITAR';
-    for (const modulo of modulos) {
-      if (RANK_NIVEL[nivelEfetivo(user.role, user.permissoes, modulo)] < RANK_NIVEL[exigido]) {
-        throw new ForbiddenException(
-          'Você não tem permissão para acessar os documentos deste registro.',
-        );
-      }
-    }
+    const falta = faltaParaOAnexo(user, exigencias);
+    if (falta) throw new ForbiddenException(fraseDaRecusa(user, falta));
     return true;
   }
-}
-
-/**
- * Todos os módulos que a requisição toca.
- *
- * É plural porque "puxar do acervo" cita a origem E o destino na mesma chamada:
- * copiar um documento do processo para a atividade exige poder nos dois lados.
- * Exigir só um deixaria a cópia virar a porta que a leitura direta fechou.
- */
-function modulosEnvolvidos(fonte: Record<string, unknown>): ModuloKey[] {
-  const modulos: ModuloKey[] = [];
-  if (fonte.processoId) modulos.push('processos');
-  if (fonte.compromissoId) modulos.push('agenda');
-  if (fonte.atendimentoId) modulos.push('atendimentos');
-  // `filiadoId` do acervo: quem monta a lista de documentos de um filiado
-  // precisa poder ver o filiado.
-  if (fonte.filiadoId) modulos.push('filiados');
-  return modulos;
 }

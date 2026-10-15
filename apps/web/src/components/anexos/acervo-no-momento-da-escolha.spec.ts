@@ -47,7 +47,7 @@ describe('o acervo se oferece no momento da escolha', () => {
    */
   it('a oferta parada é uma só, e a outra chamada é a saída do repetido', () => {
     expect(fonte.match(/setPuxarAberto\(true\)/g) ?? []).toHaveLength(2);
-    const oferta = fonte.indexOf('{aPuxar > 0 && (');
+    const oferta = fonte.indexOf('{aPuxar > 0 && podeGravar && (');
     const repetido = fonte.indexOf('setRepetido(null);');
     expect(fonte.indexOf('setPuxarAberto(true)')).toBeGreaterThan(oferta);
     expect(fonte.lastIndexOf('setPuxarAberto(true)')).toBeGreaterThan(repetido);
@@ -71,7 +71,7 @@ describe('o acervo se oferece no momento da escolha', () => {
 
   /** Sem nada para puxar, NADA aparece: botão que abre lista vazia é beco. */
   it('a oferta só existe quando há o que puxar', () => {
-    expect(fonte).toContain('{aPuxar > 0 && (');
+    expect(fonte).toContain('{aPuxar > 0 && podeGravar && (');
   });
 
   /**
@@ -81,7 +81,7 @@ describe('o acervo se oferece no momento da escolha', () => {
    */
   it('fica entre o dropzone e a lista de arquivos', () => {
     const dropzone = fonte.indexOf('MIME_ACEITOS');
-    const oferta = fonte.indexOf('{aPuxar > 0 && (');
+    const oferta = fonte.indexOf('{aPuxar > 0 && podeGravar && (');
     const lista = fonte.indexOf('anexos.map(');
     expect(dropzone).toBeGreaterThan(-1);
     expect(oferta).toBeGreaterThan(dropzone);
