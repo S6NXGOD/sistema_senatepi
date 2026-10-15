@@ -662,6 +662,33 @@ export class AutomacaoPrazosService {
     mov: MovimentacaoParaAutomacao,
     responsavelId: string,
   ): Promise<boolean> {
+    /*
+      NÃO MANDE PROCURAR O QUE O SISTEMA JÁ ACHOU (15/10/2026).
+
+      Esta tarefa existe por uma razão só, escrita na descrição dela: "a base
+      pública do CNJ não publica a data da sessão — abra o processo no
+      tribunal, veja a data e agende". Desde que o leitor do Diário entrou no
+      ar, em boa parte dos casos o sistema JÁ SABE a data: ela está na agenda,
+      com hora e sala.
+
+      Pedir a alguém que vá descobrir uma data que já está na própria agenda é
+      o pior tipo de tarefa — a pessoa faz o trabalho, não encontra novidade
+      nenhuma e aprende a ignorar o lembrete seguinte.
+
+      Então: com pauta futura em aberto no processo, não nasce — e a que
+      estiver aberta é encerrada. O lembrete continua existindo para o caso que
+      ele sempre serviu, que é a audiência que o Diário não trouxe.
+    */
+    const jaSabemos = await this.pautasAbertasDesde(processo.id, new Date());
+    if (jaSabemos.length) {
+      await this.fecharConfirmacaoDeData(
+        processo.id,
+        `A audiência já está na agenda em ${formatarDataHoraBR(jaSabemos[0].inicio)} — ` +
+          'lida no teor do Diário.',
+      );
+      return false;
+    }
+
     const existente = await this.prisma.compromisso.findFirst({
       where: {
         processoId: processo.id,
@@ -1085,7 +1112,27 @@ export class AutomacaoPrazosService {
       where: {
         processoId,
         tipo,
-        origemAutomatica: true,
+        /*
+          A PAUTA MARCADA POR UMA PESSOA TAMBÉM CONTA (15/10/2026).
+
+          A trava filtrava `origemAutomatica: true` — "não duplicar o que EU
+          criei". Com o leitor do Diário no ar isso vira duplicata garantida:
+          no acervo, o Dr. Tiago já tinha marcado à mão
+
+            "Audiência inicial - SENATEPI x CTR PICOS"  26/10/2026 10:10
+
+          e o leitor encontrou no teor do Diário a MESMA audiência, no mesmo
+          processo, no mesmo dia e **no mesmo minuto**. O robô teria posto um
+          segundo cartão idêntico na agenda do mesmo advogado.
+
+          (Esse encontro também é a melhor prova que o leitor tem: a data e a
+          hora que ele extraiu do texto batem com as que um advogado digitou
+          olhando o processo.)
+
+          Uma audiência é uma audiência, não importa quem a marcou. Sem o
+          filtro de origem, o robô respeita a agenda de quem chegou primeiro —
+          e é assim que ele deixa de competir com a equipe.
+        */
         status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
         inicio: { gte: inicioDia, lt: new Date(inicioDia.getTime() + 24 * 3_600_000) },
       },

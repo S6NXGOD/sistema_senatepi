@@ -161,9 +161,39 @@ describe('a seção de anexos esconde o que a pessoa não pode fazer', () => {
     expect(src).toContain('{podeGravar && (');
   });
 
-  /** A lista e o download não dependem de `podeGravar` — leitura é leitura. */
+  /**
+   * A LISTA E O DOWNLOAD NÃO DEPENDEM DE `podeGravar` — leitura é leitura.
+   *
+   * A asserção mira a LISTA, e não "tudo que vem depois dela". A primeira
+   * versão cortava de `anexos.map(` até o fim do arquivo, e passou a reprovar
+   * em 15/10/2026 por um motivo legítimo: o RECADO do vazio passou a dizer à
+   * pessoa que só visualiza por que não há botão de enviar. Isso é mensagem,
+   * não lista — e um teste que não distingue as duas coisas impede o conserto
+   * em vez de proteger o comportamento.
+   */
   it('mas a lista de documentos continua para quem só visualiza', () => {
-    const lista = src.slice(src.indexOf('anexos.map('));
+    const i = src.indexOf('anexos.map(');
+    const lista = src.slice(i, src.indexOf('</ul>', i));
+    expect(lista).toContain('<AnexoItem');
     expect(lista).not.toContain('podeGravar');
+  });
+
+  /**
+   * O VAZIO EXPLICA A AUSÊNCIA DO BOTÃO (15/10/2026).
+   *
+   * Uma advogada abriu um atendimento e viu só "Histórico: nenhum" e "Anexos:
+   * nenhum", sem área de envio — e o chamado chegou como "está bugando". O
+   * dado estava certo; o que faltava era a tela dizer que a ausência do botão
+   * é a permissão dela, e não uma falha.
+   */
+  it('e o vazio diz por que não há onde enviar', () => {
+    expect(src).toContain('Nenhum documento aqui.');
+    expect(src).toContain("!podeGravar && ' Seu perfil vê e baixa documentos deste registro, mas não envia.'");
+  });
+
+  /** Quem só lê também precisa saber que o documento existe em outro lugar. */
+  it('e aponta o acervo do filiado para quem não pode puxar', () => {
+    expect(src).toContain('{aPuxar > 0 && !podeGravar && filiadoId && (');
+    expect(src).toContain('abra a ficha para ver.');
   });
 });

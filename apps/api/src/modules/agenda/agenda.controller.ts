@@ -135,6 +135,31 @@ export class AgendaController {
     return this.service.marcarAvisoDeAtrasadasVisto(user);
   }
 
+  /**
+   * A AUDIÊNCIA QUE ESTÁ COMEÇANDO — o único aviso que interrompe.
+   *
+   * "Mostrar no dia da audiência um pop-up na tela do advogado responsável
+   * para lembrá-lo de entrar, com um botão rápido." — o dono.
+   *
+   * A faixa de avisos, de propósito, NÃO fala do dia de hoje: aviso que
+   * aparece todo dia vira cabeçalho e ninguém lê. Audiência é a exceção que
+   * justifica interromper — faltar é revelia —, e por isso ela tem porta
+   * própria, com uma janela estreita.
+   *
+   * A JANELA É CONTADA NO SERVIDOR. O contêiner roda em UTC e o cliente, no
+   * fuso de quem estiver olhando; deixar "é hoje em Teresina?" para o
+   * navegador é a família de defeito que já fez 26 de 28 formatações
+   * mostrarem o dia errado nesta base.
+   *
+   * ANTES DE `@Get(':id')`, como `conflitos` e `recortes` — declarada depois,
+   * o Nest casaria o caminho como um id e a rota sumiria sem erro.
+   */
+  @Get('pauta-de-agora')
+  @ApiOperation({ summary: 'A audiência do usuário que está prestes a começar (ou nada).' })
+  pautaDeAgora(@CurrentUser() user: AuthUser) {
+    return this.service.pautaDeAgora(user);
+  }
+
   @Get()
   listar(@Query() query: ListCompromissosQueryDto, @CurrentUser() user: AuthUser) {
     return this.service.listar(query, user);

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { FaixaDeAtraso } from '@/components/faixa-de-atraso';
+import { LembreteDaPauta } from '@/components/agenda/lembrete-da-pauta';
 import { LembreteDeAtrasadas } from '@/components/agenda/lembrete-de-atrasadas';
 import { Loader2 } from 'lucide-react';
 
@@ -36,6 +37,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           não some ao descer a página. Prazo vencido não é rodapé.
         */}
         <FaixaDeAtraso />
+        {/*
+          No shell, e não numa tela: a audiência começa onde a pessoa
+          estiver. Ele só existe na janela em volta do horário — fora
+          dela a rota devolve nada e nada é renderizado.
+        */}
+        <LembreteDaPauta />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
         {/*
           O LEMBRETE SEMANAL DAS ATRASADAS — na casca, e não no painel, porque

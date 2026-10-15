@@ -6,6 +6,7 @@ import { PermissionsGuard } from '../../common/permissions/permissions.guard';
 import { PRESETS_PERFIL } from '../../common/permissions/permissoes.constants';
 import { AudienciasController } from './audiencias.controller';
 import { AudienciasDoDiarioService } from './audiencias-do-diario.service';
+import { AutomacaoPrazosService } from './automacao-prazos.service';
 
 /**
  * A AUDIÊNCIA SAI DO DIÁRIO — o fim de uma máquina que nunca produziu nada.
@@ -236,6 +237,80 @@ describe('o leitor de pauta do Diário', () => {
  * `@Modulo` do controller cobre um módulo só, então a segunda é explícita —
  * a mesma dupla do botão "agendar" ao lado.
  */
+/**
+ * O ROBÔ NÃO COMPETE COM A EQUIPE.
+ *
+ * Exercita o criador de verdade (`AutomacaoPrazosService.agendarPauta`) com um
+ * prisma de mentira, porque a trava que importa é uma consulta: "já existe
+ * pauta deste processo neste dia?". Ela filtrava `origemAutomatica: true` —
+ * quer dizer, só enxergava o que o PRÓPRIO robô tinha criado.
+ *
+ * No acervo da produção isso era duplicata garantida no primeiro dia: o Dr.
+ * Tiago já tinha marcado "Audiência inicial - SENATEPI x CTR PICOS" para
+ * 26/10/2026 10:10, e o leitor encontrou no Diário a MESMA audiência, no mesmo
+ * minuto. Dois cartões idênticos na agenda do mesmo advogado.
+ */
+describe('a pauta que uma pessoa já marcou', () => {
+  const PROCESSO = {
+    id: 'p1', numeroCNJ: '00008959520265220103', advogadoId: 'adv', filiadoId: null,
+    filiado: null, partes: [{ nome: 'CTR PICOS', polo: 'PASSIVO' as const }],
+  };
+  const QUANDO = new Date('2026-10-26T13:10:00.000Z');
+
+  function criador(existentes: { id: string; origemAutomatica: boolean; inicio: Date }[]) {
+    const vistos: Record<string, unknown>[] = [];
+    const prisma = {
+      compromisso: {
+        findFirst: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+          vistos.push(where);
+          const dia = (d: Date) => d.toISOString().slice(0, 10);
+          const achado = existentes.find((e) => dia(e.inicio) === dia(QUANDO));
+          return achado ? { id: achado.id } : null;
+        }),
+        create: jest.fn(async () => ({ id: 'novo' })),
+        findMany: jest.fn(async () => []),
+      },
+      user: { findFirst: jest.fn(async () => ({ id: 'adv' })) },
+    };
+    const agenda = { cancelarPorSistema: jest.fn(async () => null) };
+    const svc = new AutomacaoPrazosService(prisma as never, agenda as never);
+    return { svc, prisma, vistos };
+  }
+
+  it('não cria uma segunda quando a audiência já está na agenda, mesmo feita à mão', async () => {
+    const { svc, prisma } = criador([{ id: 'da-mao', origemAutomatica: false, inicio: QUANDO }]);
+    const r = await svc.agendarPauta({
+      processo: PROCESSO, tipo: 'AUDIENCIA', inicio: QUANDO,
+      origem: 'na publicação do Diário', responsavelId: 'adv', secretariaId: null,
+    });
+    expect(r.criou).toBe(false);
+    expect(r.compromissoId).toBe('da-mao');
+    expect(prisma.compromisso.create).not.toHaveBeenCalled();
+  });
+
+  /** A consulta não pode voltar a perguntar "foi você que criou?". */
+  it('a trava procura QUALQUER pauta do dia, e não só a do robô', async () => {
+    const { svc, vistos } = criador([]);
+    await svc.agendarPauta({
+      processo: PROCESSO, tipo: 'AUDIENCIA', inicio: QUANDO,
+      origem: 'na publicação do Diário', responsavelId: 'adv', secretariaId: null,
+    });
+    const daTrava = vistos[0];
+    expect(daTrava).toMatchObject({ processoId: 'p1', tipo: 'AUDIENCIA' });
+    expect(daTrava).not.toHaveProperty('origemAutomatica');
+  });
+
+  it('sem nada marcado, cria normalmente', async () => {
+    const { svc, prisma } = criador([]);
+    const r = await svc.agendarPauta({
+      processo: PROCESSO, tipo: 'AUDIENCIA', inicio: QUANDO,
+      origem: 'na publicação do Diário', responsavelId: 'adv', secretariaId: null,
+    });
+    expect(r.criou).toBe(true);
+    expect(prisma.compromisso.create).toHaveBeenCalled();
+  });
+});
+
 /**
  * AGENDAR SEM SABER DESMARCAR É PIOR DO QUE NÃO AGENDAR.
  *

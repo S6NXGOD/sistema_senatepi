@@ -412,8 +412,20 @@ export function AtendimentoDrawer({
             {/* Histórico do filiado */}
             <div>
               <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><History className="h-4 w-4" aria-hidden="true" /> Histórico do {V.filiado}</p>
+              {/*
+                O FATO, E NAO A AUSENCIA (15/10/2026).
+
+                "Nenhum atendimento anterior." descreve um buraco; "Primeiro
+                atendimento deste filiado" descreve a pessoa — e é o que o
+                advogado precisa saber antes de atender. A frase é a mesma
+                verdade com o sinal trocado, e numa dobra que já tinha duas
+                linhas cinzas seguidas isso muda a leitura inteira: é a razão
+                de o chamado ter chegado como "está bugando".
+              */}
               {data.historico.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhum atendimento anterior.</p>
+                <p className="text-sm text-muted-foreground">
+                  Primeiro atendimento deste {V.filiado}.
+                </p>
               ) : (
                 <ul className="space-y-2">
                   {data.historico.map((h) => (

@@ -323,6 +323,19 @@ const tipoAndamento = (tipoAtividade: string, alerta?: boolean): string =>
   alerta ? 'URGENTE' : (TIPO_ANDAMENTO[tipoAtividade] ?? 'ATUALIZACAO');
 
 
+/** Slugs de pauta — os mesmos de `automacao-prazos`, que é quem as cria. */
+const TIPO_AUDIENCIA = 'AUDIENCIA';
+const TIPO_PERICIA = 'PERICIA';
+
+/**
+ * Quanto antes o lembrete da audiência aparece: 30 minutos.
+ *
+ * Tempo de achar o processo, abrir a peça e entrar na sala sem correr. Mais
+ * cedo que isso o aviso chega quando a pessoa ainda está em outra coisa, e o
+ * que ela aprende é a fechar sem ler.
+ */
+const ANTECEDENCIA_DO_LEMBRETE_MS = 30 * 60_000;
+
 @Injectable()
 export class AgendaService {
   private readonly logger = new Logger(AgendaService.name);
@@ -2210,6 +2223,61 @@ export class AgendaService {
    * na agenda, não o prazo processual — "ficou para trás" é o que o dado diz, e
    * é a mesma palavra que o resto do sistema usa.
    */
+  /**
+   * A AUDIÊNCIA QUE ESTÁ COMEÇANDO AGORA — para o lembrete que interrompe.
+   *
+   * Devolve NO MÁXIMO uma, e só dentro de uma janela estreita em volta do
+   * horário. Fora dela, nada: um lembrete que aparece às 7h para uma sessão
+   * das 16h é ruído, e ruído ensina a fechar sem ler.
+   *
+   *   30 minutos ANTES  — dá tempo de achar o processo e entrar na sala;
+   *   até o FIM do ato  — depois disso, quem não entrou não entra mais por
+   *                       causa de um aviso, e lembrar só constrange.
+   *
+   * O corte é do SERVIDOR porque o relógio é dele. O contêiner roda em UTC e o
+   * navegador, no fuso de quem estiver olhando — perguntar ao cliente "é
+   * agora?" é a família de defeito que já fez 26 de 28 formatações desta base
+   * mostrarem o dia errado.
+   *
+   * É DO RESPONSÁVEL, e de mais ninguém. O ato intima a equipe inteira, mas
+   * quem precisa estar na sala é quem responde pela pauta; interromper os
+   * outros nove é o caminho mais curto para a próxima pessoa ignorar o aviso.
+   */
+  async pautaDeAgora(user: AuthUser) {
+    if (nivelEfetivo(user.role, user.permissoes, 'agenda') === 'SEM_ACESSO') return { pauta: null };
+
+    const agora = new Date();
+    const pauta = await this.prisma.compromisso.findFirst({
+      where: {
+        responsavelId: user.id,
+        tipo: { in: [TIPO_AUDIENCIA, TIPO_PERICIA] },
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        inicio: { lte: new Date(agora.getTime() + ANTECEDENCIA_DO_LEMBRETE_MS) },
+        /*
+          O FIM É O LIMITE DE BAIXO, e não o início: uma audiência das 10h que
+          dura uma hora ainda vale lembrar às 10h20 — pode ser atraso de
+          quem está do outro lado. `fim` é sempre preenchido pelo criador.
+        */
+        fim: { gte: agora },
+      },
+      orderBy: { inicio: 'asc' },
+      select: {
+        id: true, titulo: true, inicio: true, fim: true, local: true, linkReuniao: true,
+        processo: { select: { id: true, numeroCNJ: true } },
+      },
+    });
+    if (!pauta) return { pauta: null };
+
+    return {
+      pauta: {
+        ...pauta,
+        /** Minutos até começar; negativo quando já começou. */
+        faltamMinutos: Math.round((pauta.inicio.getTime() - agora.getTime()) / 60_000),
+        quando: formatarDataHoraBR(pauta.inicio),
+      },
+    };
+  }
+
   async avisoDeAtrasadas(user: AuthUser) {
     const vazio = { mostrar: false, total: 0, itens: [] as unknown[] };
     if (nivelEfetivo(user.role, user.permissoes, 'agenda') === 'SEM_ACESSO') return vazio;

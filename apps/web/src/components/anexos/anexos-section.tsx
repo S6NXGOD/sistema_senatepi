@@ -284,6 +284,35 @@ export function AnexosSection({
         O substantivo vem do vocabulário do cliente: "filiado" no SENATEPI,
         "servidor" no SINDSERM.
       */}
+      {/*
+        QUEM SÓ LÊ TAMBÉM PRECISA SABER QUE O DOCUMENTO EXISTE (15/10/2026).
+
+        A advogada abriu um atendimento e viu "Nenhum anexo enviado." e nada
+        mais — sem área de envio (o perfil dela não grava aqui) e sem notícia
+        de que a pessoa já tinha entregado documentos ao sindicato. Duas
+        linhas cinzas e um beco; foi assim que o chamado chegou como "está
+        bugando".
+
+        Para quem grava, a frase é um BOTÃO que puxa. Para quem só lê, é um
+        LINK para a ficha, onde os documentos estão. A informação é a mesma;
+        muda o que dá para fazer com ela.
+      */}
+      {aPuxar > 0 && !podeGravar && filiadoId && (
+        <NextLink
+          href={`/filiados/${filiadoId}`}
+          className="mt-2 flex w-full items-center gap-2.5 rounded-xl border bg-muted/40 px-3 py-2.5 text-left transition-colors hover:bg-muted"
+        >
+          <FolderInput className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 text-xs leading-snug">
+            <span className="font-semibold">
+              Este {V.filiado} tem {aPuxar} documento{aPuxar > 1 ? 's' : ''} no cadastro
+            </span>
+            <span className="text-muted-foreground"> — abra a ficha para ver.</span>
+          </span>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </NextLink>
+      )}
+
       {aPuxar > 0 && podeGravar && (
         <button
           type="button"
@@ -323,18 +352,34 @@ export function AnexosSection({
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-sm text-muted-foreground">Nenhum anexo enviado.</p>
+        /*
+          VAZIO QUE EXPLICA. "Nenhum anexo enviado." sozinho, num bloco sem
+          área de envio, parece defeito — e foi lido como defeito. Quem grava
+          vê o vazio com o dropzone logo acima, e a frase basta; quem só lê
+          precisa saber que a ausência do botão é a permissão dele, e não uma
+          tela quebrada.
+        */
+        <p className="mt-3 text-sm text-muted-foreground">
+          Nenhum documento aqui.
+          {!podeGravar && ' Seu perfil vê e baixa documentos deste registro, mas não envia.'}
+        </p>
       )}
 
       {/* Herdados do registro de origem — só leitura */}
       {heranca && <AnexosHerdados heranca={heranca} />}
 
-      {/* Aviso LGPD */}
+      {/*
+        O AVISO DE LGPD ACOMPANHA O ARQUIVO, não a seção vazia. Ele fala de
+        arquivos que TRAFEGAM; num bloco sem nada e sem como enviar, é a
+        terceira linha cinza seguida de uma dobra que já parecia quebrada.
+      */}
+      {(podeGravar || anexos.length > 0) && (
       <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         Arquivos (laudos, documentos pessoais) trafegam de forma segura, conforme o princípio da
         segurança da LGPD (Lei nº 13.709/2018).
       </p>
+      )}
 
       {filiadoId && (
         <PuxarDocumentosModal
