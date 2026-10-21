@@ -680,6 +680,8 @@ const MOTIVO_SEM_TAREFA: Record<string, string> = {
     'O robô não abriu tarefa: o tribunal informou este ato depois de qualquer prazo ordinário.',
   TEOR_NO_DIARIO:
     'O robô não abriu tarefa por aqui: o teor deste mesmo ato chegou pelo Diário, e é lá que a providência foi decidida.',
+  PAUTA_CAIU_SEM_ALVO:
+    'O tribunal avisou que uma audiência caiu, e não havia o que desmarcar: ou ela nunca esteve na agenda, ou a que está lá foi designada depois deste aviso.',
 };
 
 /**

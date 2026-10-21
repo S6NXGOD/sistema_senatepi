@@ -154,6 +154,19 @@ export const MOTIVOS_DO_ROBO = {
    * (`DIAS_CASAMENTO_PUBLICACAO_ANTES` / `..._DEPOIS`, em `janela-do-robo.util`).
    */
   TEOR_NO_DIARIO: 'TEOR_NO_DIARIO',
+
+  /**
+   * O TRIBUNAL AVISOU QUE UMA PAUTA CAIU, E NÃO HAVIA O QUE DERRUBAR.
+   *
+   * Dois casos, e os dois terminam sem ação: ou nunca houve audiência marcada
+   * aqui, ou a que existe foi designada DEPOIS deste cancelamento — e um ato
+   * velho não derruba pauta nova.
+   *
+   * Carimbar é o que impede este ato de parecer esquecido na ficha. Ele
+   * continua sendo reavaliado toda noite (o carimbo não tira da fila, de
+   * propósito): se amanhã aparecer uma pauta anterior a ele, ele a derruba.
+   */
+  PAUTA_CAIU_SEM_ALVO: 'PAUTA_CAIU_SEM_ALVO',
 } as const;
 
 export type MotivoDoRobo = (typeof MOTIVOS_DO_ROBO)[keyof typeof MOTIVOS_DO_ROBO];
@@ -325,6 +338,20 @@ export class AutomacaoPrazosService {
         if (gatilho.tipo === 'PAUTA_CAIU') {
           const n = await this.cancelarPauta(processo, mov, 'A pauta foi cancelada pelo juízo/órgão.');
           resumo.canceladas += n;
+          /*
+            NÃO DERRUBOU NADA TAMBÉM É UMA DECISÃO, e ela precisa aparecer.
+
+            O ato de "pauta caiu" só é carimbado com `compromissoId` quando
+            encontra uma pauta para derrubar. Sem isso ele fica para sempre sem
+            explicação na ficha e volta em toda varredura — havia 15 assim na
+            produção, o mais antigo de fevereiro.
+
+            O carimbo NÃO o tira da fila (ver `carimbarAvaliacao`): ele segue
+            sendo reavaliado, e é isso que queremos — se amanhã aparecer uma
+            pauta anterior a ele, ele a derruba. O que o carimbo dá é a frase
+            na tela, no lugar do silêncio.
+          */
+          if (!n) await this.carimbarAvaliacao(mov.id, MOTIVOS_DO_ROBO.PAUTA_CAIU_SEM_ALVO);
           continue;
         }
 
@@ -1154,7 +1181,7 @@ export class AutomacaoPrazosService {
     mov: MovimentacaoParaAutomacao,
     motivo: string,
   ): Promise<number> {
-    const abertos = await this.pautasAbertasDesde(processo.id, mov.dataMovimento);
+    const abertos = await this.pautasQueOAtoPodeDerrubar(processo.id, mov.dataMovimento);
 
     let n = 0;
     for (const c of abertos) {
@@ -1255,6 +1282,78 @@ export class AutomacaoPrazosService {
   }
 
   /**
+   * UM CANCELAMENTO VELHO NÃO DERRUBA UMA PAUTA DESIGNADA DEPOIS DELE.
+   *
+   * Este método existe por causa de um caso real, e ele é o oposto exato da
+   * lápide que impede a ressurreição. Processo 0001411-03.2026.5.22.0108:
+   *
+   *   29/09  o juízo DESIGNA audiência de instrução      (DataJud: designada)
+   *   01/10  o juízo CANCELA essa audiência              (DataJud: cancelada)
+   *   13/10  o juízo designa uma audiência UNA p/ 25/11  (Diário, com hora e sala)
+   *   16/10  o leitor cria a pauta de 25/11                       ✔
+   *   17/10  o robô do DataJud processa o ato de 01/10 e DERRUBA a de 25/11  ✘
+   *
+   * A trava antiga comparava a data da AUDIÊNCIA com a data do ato
+   * (`25/11 >= 01/10`, logo cai). Mas quem manda não é quando a audiência
+   * acontece, e sim QUANDO FOI DITO: um cancelamento de 1º de outubro não tem
+   * poder sobre uma pauta que o juízo designou doze dias depois.
+   *
+   * E não era um caso isolado esperando acontecer — era um caso isolado JÁ
+   * ACONTECIDO com 15 réplicas armadas: o robô não carimba a movimentação de
+   * cancelamento quando não há pauta para derrubar, então ela volta em toda
+   * varredura. Havia atos de "pauta caiu" de fevereiro ainda à espera, e cada
+   * audiência que o leitor do Diário criasse nesses processos morreria em até
+   * 24 horas.
+   *
+   * A DATA DE ORIGEM é a do ato que criou a pauta: a publicação do Diário, a
+   * movimentação do DataJud, ou — quando foi uma PESSOA que marcou — a criação
+   * do compromisso. Quem marcou depois do cancelamento sabia mais do que o
+   * robô.
+   */
+  private async pautasQueOAtoPodeDerrubar(processoId: string, atoEm: Date) {
+    const agora = new Date();
+    const pautas = await this.prisma.compromisso.findMany({
+      where: {
+        processoId,
+        tipo: { in: [TIPO_AUDIENCIA, TIPO_PERICIA] },
+        status: { in: [StatusCompromisso.PENDENTE, StatusCompromisso.EM_ANDAMENTO] },
+        // Nunca reescreve o passado: audiência que já aconteceu e ninguém
+        // fechou é pendência de registro.
+        inicio: { gte: agora },
+      },
+      select: {
+        id: true,
+        inicio: true,
+        createdAt: true,
+        origemComunicacoes: {
+          select: { dataDisponibilizacao: true },
+          orderBy: { dataDisponibilizacao: 'desc' },
+          take: 1,
+        },
+        origemMovimentacoes: {
+          select: { dataMovimento: true },
+          orderBy: { dataMovimento: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    return pautas.filter((c) => {
+      const origem =
+        c.origemComunicacoes[0]?.dataDisponibilizacao ??
+        c.origemMovimentacoes[0]?.dataMovimento ??
+        c.createdAt;
+      /*
+        DIA, e não instante. A publicação do Diário é coluna `@db.Date` (chega
+        como meia-noite UTC) e a movimentação é instante; comparar os dois
+        crus faria um ato do MESMO dia parecer mais novo ou mais velho só pela
+        hora que cada fonte carrega.
+      */
+      return diaBR(origem) <= diaBR(atoEm);
+    });
+  }
+
+  /**
    * DERRUBAR A PAUTA QUE NÃO VAI ACONTECER — a outra metade da automação.
    *
    * Agendar sem saber desmarcar é pior do que não agendar: o advogado passa a
@@ -1281,7 +1380,7 @@ export class AutomacaoPrazosService {
     opcoes: { desde: Date; motivo: string; exceto?: Date | null },
   ): Promise<number> {
     const diaProtegido = opcoes.exceto ? diaBR(opcoes.exceto) : null;
-    const abertas = await this.pautasAbertasDesde(processoId, opcoes.desde);
+    const abertas = await this.pautasQueOAtoPodeDerrubar(processoId, opcoes.desde);
     let n = 0;
     for (const c of abertas) {
       if (diaProtegido && diaBR(c.inicio) === diaProtegido) continue;

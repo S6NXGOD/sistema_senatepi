@@ -312,6 +312,100 @@ describe('a pauta que uma pessoa já marcou', () => {
 });
 
 /**
+ * UM CANCELAMENTO VELHO NÃO DERRUBA UMA PAUTA DESIGNADA DEPOIS DELE.
+ *
+ * O caso real, em produção, no processo 0001411-03.2026.5.22.0108:
+ *
+ *   29/09  o juízo DESIGNA audiência de instrução      (DataJud: designada)
+ *   01/10  o juízo CANCELA essa audiência              (DataJud: cancelada)
+ *   13/10  o juízo designa audiência UNA para 25/11    (Diário, com hora e sala)
+ *   16/10  o leitor cria a pauta de 25/11                        ✔
+ *   17/10  o robô processa o ato de 01/10 e DERRUBA a de 25/11   ✘
+ *
+ * A trava comparava a data da AUDIÊNCIA com a do ato (`25/11 >= 01/10`, logo
+ * cai). Quem manda é QUANDO FOI DITO. E não era um caso só: o robô não
+ * carimba o ato de cancelamento quando não há pauta para derrubar, então ele
+ * volta toda noite — havia 15 atos assim armados, o mais antigo de fevereiro,
+ * cada um esperando a primeira audiência que o leitor criasse naquele
+ * processo.
+ */
+describe('o cancelamento e a idade do ato', () => {
+  const PROCESSO = {
+    id: 'p1', numeroCNJ: '00014110320265220108', advogadoId: 'adv',
+    filiadoId: null, filiado: null, partes: [],
+  };
+  const PAUTA_NOVA = new Date('2026-11-25T14:45:00.000Z');
+
+  /** Uma pauta na agenda, com a data do ATO que a criou. */
+  function comPauta(origemDoAto: Date | null, criadaEm: Date) {
+    const cancelados: string[] = [];
+    const prisma = {
+      compromisso: {
+        findMany: jest.fn(async () => [{
+          id: 'k1',
+          inicio: PAUTA_NOVA,
+          createdAt: criadaEm,
+          origemComunicacoes: origemDoAto ? [{ dataDisponibilizacao: origemDoAto }] : [],
+          origemMovimentacoes: [],
+        }]),
+        findFirst: jest.fn(async () => null),
+        create: jest.fn(async () => ({ id: 'novo' })),
+      },
+      movimentacaoProcessual: { update: jest.fn(async () => ({})), updateMany: jest.fn(async () => ({ count: 1 })) },
+      user: { findFirst: jest.fn(async () => ({ id: 'adv' })) },
+    };
+    const agenda = {
+      cancelarPorSistema: jest.fn(async (id: string) => { cancelados.push(id); return id; }),
+    };
+    const svc = new AutomacaoPrazosService(prisma as never, agenda as never);
+    return { svc, cancelados, prisma };
+  }
+
+  it('o ato de 01/10 NÃO derruba a pauta que um ato de 13/10 designou', async () => {
+    const { svc, cancelados } = comPauta(new Date('2026-10-13'), new Date('2026-10-16'));
+    const n = await svc.derrubarPautasAbertas(PROCESSO.id, {
+      desde: new Date('2026-10-01T00:00:00.000Z'),
+      motivo: 'Pauta cancelada pelo juízo',
+    });
+    expect(n).toBe(0);
+    expect(cancelados).toEqual([]);
+  });
+
+  it('mas derruba a que um ato de 20/09 designou — essa é mais velha que ele', async () => {
+    const { svc, cancelados } = comPauta(new Date('2026-09-20'), new Date('2026-09-21'));
+    const n = await svc.derrubarPautasAbertas(PROCESSO.id, {
+      desde: new Date('2026-10-01T00:00:00.000Z'),
+      motivo: 'Pauta cancelada pelo juízo',
+    });
+    expect(n).toBe(1);
+    expect(cancelados).toEqual(['k1']);
+  });
+
+  /** Mesmo DIA conta como "não é mais nova": o ato e a pauta vieram juntos. */
+  it('ato e designação no mesmo dia: derruba', async () => {
+    const { svc, cancelados } = comPauta(new Date('2026-10-01'), new Date('2026-10-01'));
+    await svc.derrubarPautasAbertas(PROCESSO.id, {
+      desde: new Date('2026-10-01T23:00:00.000Z'),
+      motivo: 'Pauta cancelada pelo juízo',
+    });
+    expect(cancelados).toEqual(['k1']);
+  });
+
+  /**
+   * SEM ORIGEM CONHECIDA é pauta feita por GENTE: vale a data em que ela foi
+   * criada. Quem marcou depois do cancelamento sabia mais que o robô.
+   */
+  it('pauta feita à mão depois do cancelamento também é poupada', async () => {
+    const { svc, cancelados } = comPauta(null, new Date('2026-10-14'));
+    await svc.derrubarPautasAbertas(PROCESSO.id, {
+      desde: new Date('2026-10-01T00:00:00.000Z'),
+      motivo: 'Pauta cancelada pelo juízo',
+    });
+    expect(cancelados).toEqual([]);
+  });
+});
+
+/**
  * AGENDAR SEM SABER DESMARCAR É PIOR DO QUE NÃO AGENDAR.
  *
  * O advogado passa a confiar na agenda; uma pauta que não vai acontecer e
