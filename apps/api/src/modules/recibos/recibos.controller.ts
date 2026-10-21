@@ -47,6 +47,25 @@ export class RecibosController {
     return this.service.pendentes();
   }
 
+  /**
+   * HÁ ASSINATURA DA PRESIDÊNCIA CONFIGURADA? — e por que a tela pergunta.
+   *
+   * A caixa "assinar pela presidência" não pode existir sem imagem por trás:
+   * a pessoa marcaria, emitiria, e o papel sairia igual ao de sempre. Botão
+   * que promete e não cumpre é pior que botão ausente — a mesma régua que
+   * tirou a área de envio dos anexos de quem não grava.
+   *
+   * A imagem mora na configuração de COBRANÇAS, e quem imprime recibo pode não
+   * ter esse módulo: a pergunta é respondida aqui, sem expor a configuração.
+   *
+   * ESTÁTICA ANTES DE `:id`, como `pendentes` — senão o Nest a trata como um
+   * id e a rota some sem erro nenhum.
+   */
+  @Get('assinatura-da-presidencia')
+  assinaturaDaPresidencia() {
+    return this.service.temAssinaturaDaPresidencia();
+  }
+
   @Get()
   listar(@Query() q: ListarRecibosQueryDto) {
     return this.service.listar(q);

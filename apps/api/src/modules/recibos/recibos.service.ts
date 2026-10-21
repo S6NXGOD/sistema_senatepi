@@ -266,6 +266,15 @@ export class RecibosService {
         ficha de filiação, que tinha os números escritos à mão no gerador.
       */
       emitente: this.emitente(),
+      /*
+        A URL VAI JUNTO COM O PAPEL, e só quando ele saiu assinado.
+
+        Poderia ser uma segunda consulta na tela, mas o recibo é impresso por
+        quem tem `recibos` — e a configuração mora em `cobrancas`. Mandar a
+        imagem junto evita exigir das pessoas uma permissão que elas não
+        precisam ter para imprimir um recibo.
+      */
+      assinaturaUrl: r.assinaturaPresidencia ? await this.assinaturaConfigurada() : null,
       emitidoPorNome: emitente,
       canceladoPorNome: cancelador,
       filiado: r.filiado,
@@ -282,6 +291,26 @@ export class RecibosService {
   }
 
   /** Os dados institucionais que todo recibo carrega no alto. */
+  /**
+   * A imagem da assinatura da presidência, se o Administrador configurou uma.
+   *
+   * Mesma configuração do carnê (desde 09/2026) e da carteirinha (10/2026):
+   * `configuracoes_cobranca.assinatura_presidente_url`. Um lugar só para
+   * trocar quando a diretoria muda.
+   */
+  private async assinaturaConfigurada(): Promise<string | null> {
+    const cfg = await this.prisma.configuracaoSindicato.findFirst({
+      select: { assinaturaPresidenteUrl: true },
+    });
+    const url = cfg?.assinaturaPresidenteUrl?.trim();
+    return url || null;
+  }
+
+  /** Há assinatura configurada? É o que decide se a tela oferece a opção. */
+  async temAssinaturaDaPresidencia(): Promise<{ disponivel: boolean }> {
+    return { disponivel: !!(await this.assinaturaConfigurada()) };
+  }
+
   private emitente() {
     const e = tenant.endereco;
     return {
@@ -533,6 +562,9 @@ export class RecibosService {
     */
     const exercicio = Number(diaBR(base.recebidoEm).slice(0, 4));
 
+    // A imagem é a MESMA do carnê e da carteirinha — uma configuração só.
+    const assinaturaUrl = dto.assinaturaPresidencia ? await this.assinaturaConfigurada() : null;
+
     const criado = await this.prisma.$transaction(async (tx) => {
       /*
         `::int` NOS DOIS, e não é enfeite.
@@ -587,6 +619,17 @@ export class RecibosService {
           filiadoId: base.filiadoId,
           empresaId: base.empresaId,
           emitidoPor: ctx.userId ?? 'sistema',
+          /*
+            A ASSINATURA SÓ ENTRA NO RECIBO DE ENTRADA, e só se houver imagem.
+
+            No de saída a linha é do PRESTADOR ("Recebi do SENATEPI") —
+            imprimir ali a assinatura do presidente seria o sindicato assinando
+            a declaração de outra pessoa. E pedir a assinatura sem ela estar
+            configurada gravaria um "saiu assinado" que o papel desmente; a
+            decisão que fica guardada tem de ser a que o documento mostra.
+          */
+          assinaturaPresidencia:
+            tipo === TipoRecibo.ENTRADA && !!dto.assinaturaPresidencia && !!assinaturaUrl,
         },
       });
     });

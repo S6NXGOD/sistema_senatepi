@@ -3886,6 +3886,20 @@ model Recibo {
   emitidoPor String   @map("emitido_por")
   emitidoEm  DateTime @default(now()) @map("emitido_em")
 
+  /// O RECIBO SAIU COM A ASSINATURA DA PRESIDÊNCIA IMPRESSA (20/10/2026).
+  ///
+  /// É uma DECISÃO DE QUEM EMITIU, gravada no documento — como o número e o
+  /// pagador. Guardar só na configuração faria a reimpressão de um recibo de
+  /// 2026 sair diferente do papel que foi assinado e arquivado.
+  ///
+  /// A imagem continua vindo da configuração (`assinatura_presidente_url`, a
+  /// mesma do carnê e da carteirinha); aqui mora o "este saiu assinado".
+  ///
+  /// SÓ EM RECIBO DE ENTRADA. No de saída quem declara é o prestador — "Recebi
+  /// do SENATEPI" com a assinatura do presidente embaixo seria o sindicato
+  /// assinando a declaração de outra pessoa. O serviço força `false` lá.
+  assinaturaPresidencia Boolean @default(false) @map("assinatura_presidencia")
+
   /// Cancelado: o número NÃO é reaproveitado e a linha não some.
   canceladoEm     DateTime? @map("cancelado_em")
   canceladoPor    String?   @map("cancelado_por")

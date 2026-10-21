@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -28,6 +29,20 @@ import { TipoRecibo } from '@prisma/client';
  * recusa diz o que faltou, em português, porque ela vai para a tela.
  */
 export class EmitirReciboDto {
+  /**
+   * SAI COM A ASSINATURA DA PRESIDÊNCIA IMPRESSA.
+   *
+   * Opcional e falso por omissão: o recibo de hoje sai com a linha em branco
+   * para assinar à mão, e quem não pedir continua recebendo exatamente isso.
+   *
+   * Vale só no recibo de ENTRADA — no de saída quem declara é o prestador, e
+   * o serviço ignora o pedido. Também não adianta pedir sem a imagem estar
+   * configurada; aí o papel sai como sempre saiu.
+   */
+  @ApiPropertyOptional({ default: false })
+  @IsOptional() @IsBoolean()
+  assinaturaPresidencia?: boolean;
+
   /**
    * DE QUE LADO O DINHEIRO ANDOU — e o padrão é ENTRADA, de propósito.
    *

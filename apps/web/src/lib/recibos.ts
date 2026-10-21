@@ -84,6 +84,11 @@ export interface EmitenteDoRecibo {
 export interface ReciboCompleto extends ReciboResumo {
   valorPorExtenso: string;
   emitente: EmitenteDoRecibo;
+  /**
+   * A imagem da assinatura da presidência — só vem quando o recibo saiu
+   * assinado. Opcional pela janela de troca: a API antiga não manda o campo.
+   */
+  assinaturaUrl?: string | null;
   emitidoPorNome: string | null;
   canceladoPorNome: string | null;
   filiado: { id: string; nomeCompleto: string; matricula: string; cpf: string | null } | null;
@@ -179,6 +184,8 @@ export interface EmitirRecibo {
   filiadoId?: string;
   empresaId?: string;
   contaBancariaId?: string;
+  /** Sai com a assinatura da presidência impressa. Só vale no recebimento. */
+  assinaturaPresidencia?: boolean;
 }
 
 export async function listarRecibos(f: FiltroRecibos): Promise<ListaDeRecibos> {
@@ -194,6 +201,14 @@ export async function pendentesDeRecibo(): Promise<FilaDePendentes> {
 export async function obterRecibo(id: string): Promise<ReciboCompleto> {
   const { data } = await api.get(`/recibos/${id}`);
   return data;
+}
+
+/**
+ * Existe imagem de assinatura configurada? É o que decide se a emissão
+ * oferece a caixa — oferecer sem imagem é prometer o que o papel não cumpre.
+ */
+export async function temAssinaturaDaPresidencia(): Promise<{ disponivel: boolean }> {
+  return (await api.get('/recibos/assinatura-da-presidencia')).data;
 }
 
 export async function emitirRecibo(body: EmitirRecibo): Promise<ReciboCompleto> {

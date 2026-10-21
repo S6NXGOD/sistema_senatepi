@@ -1181,7 +1181,7 @@ export class AutomacaoPrazosService {
     mov: MovimentacaoParaAutomacao,
     motivo: string,
   ): Promise<number> {
-    const abertos = await this.pautasQueOAtoPodeDerrubar(processo.id, mov.dataMovimento);
+    const abertos = await this.pautasQueOAtoPodeDerrubar(processo.id, mov.dataMovimento, mov.id);
 
     let n = 0;
     for (const c of abertos) {
@@ -1310,7 +1310,19 @@ export class AutomacaoPrazosService {
    * do compromisso. Quem marcou depois do cancelamento sabia mais do que o
    * robô.
    */
-  private async pautasQueOAtoPodeDerrubar(processoId: string, atoEm: Date) {
+  private async pautasQueOAtoPodeDerrubar(
+    processoId: string,
+    atoEm: Date,
+    /**
+     * A movimentação que está cancelando, quando o chamador é o lado DataJud.
+     *
+     * ELA PRECISA FICAR DE FORA DA CONTA DA ORIGEM. `cancelarPauta` carimba
+     * `movimentacao.compromissoId` apontando para a pauta que derrubou — ou
+     * seja, o ato de cancelamento passa a constar entre as "origens" dela. Sem
+     * excluí-lo, a pauta pareceria ter nascido no dia do próprio cancelamento.
+     */
+    movQueCancela?: string,
+  ) {
     const agora = new Date();
     const pautas = await this.prisma.compromisso.findMany({
       where: {
@@ -1325,14 +1337,21 @@ export class AutomacaoPrazosService {
         id: true,
         inicio: true,
         createdAt: true,
+        /*
+          O MAIS ANTIGO, e não o mais novo: a pergunta é "quando esta pauta foi
+          decidida", e quem responde é o ato que a designou. Os vínculos
+          posteriores são enriquecimento (o teor que chegou depois) ou, pior, o
+          próprio cancelamento.
+        */
         origemComunicacoes: {
           select: { dataDisponibilizacao: true },
-          orderBy: { dataDisponibilizacao: 'desc' },
+          orderBy: { dataDisponibilizacao: 'asc' },
           take: 1,
         },
         origemMovimentacoes: {
+          where: movQueCancela ? { id: { not: movQueCancela } } : undefined,
           select: { dataMovimento: true },
-          orderBy: { dataMovimento: 'desc' },
+          orderBy: { dataMovimento: 'asc' },
           take: 1,
         },
       },

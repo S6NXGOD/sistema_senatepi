@@ -35,6 +35,8 @@ function bancoFalso(opcoes: {
   recibo?: any;
   ultimoNumero?: number | null;
   contas?: { id: string; ativo: boolean }[];
+  /** `null` = o Administrador não configurou assinatura nenhuma. */
+  assinaturaUrl?: string | null;
 } = {}) {
   const chamadas: Chamada[] = [];
   let naTransacao = false;
@@ -85,6 +87,13 @@ function bancoFalso(opcoes: {
     },
     user: {
       findUnique: anotar('user.findUnique', () => ({ nome: 'Ivo Ramos', nomeExibicao: 'Ivo' })),
+    },
+    configuracaoSindicato: {
+      findFirst: anotar('configuracao.findFirst', () =>
+        opcoes.assinaturaUrl === undefined
+          ? { assinaturaPresidenteUrl: 'https://exemplo.org/assinatura.png' }
+          : { assinaturaPresidenteUrl: opcoes.assinaturaUrl },
+      ),
     },
     $executeRaw: jest.fn(async (strings: TemplateStringsArray, ...valores: unknown[]) => {
       chamadas.push({ chave: '$executeRaw', args: { sql: strings.join('?'), valores }, naTransacao });
@@ -674,5 +683,64 @@ describe('a fila de pendentes', () => {
     // So o que nao tem recibo VIVO — o cancelado devolve o lancamento a fila.
     expect(busca.args.where.recibos).toEqual({ none: { canceladoEm: null } });
     expect(busca.args.select.tipo).toBe(true);
+  });
+});
+
+/**
+ * A ASSINATURA DA PRESIDÊNCIA NO RECIBO — opcional, e gravada no documento.
+ *
+ * "Acho interessante ter a opção de colocar a assinatura do presidente. Como
+ * opcional." — o dono, em 20/10/2026.
+ *
+ * A imagem já existia: é a mesma do carnê e da carteirinha, numa configuração
+ * só. O que este bloco prende são as três regras que decidem quando ela entra
+ * — e as três protegem o PAPEL, não a tela.
+ */
+describe('a assinatura da presidência', () => {
+  const AVULSO = {
+    formaPagamento: 'PIX',
+    valor: 150,
+    referente: 'Doação',
+    recebidoEm: '2026-10-20',
+    contraparteNome: 'FULANO DE TAL',
+    contaBancariaId: 'conta-1',
+  };
+
+  it('entra no recibo de ENTRADA quando pedida', async () => {
+    const { service, criado } = bancoFalso({});
+    await service.emitir({ ...AVULSO, assinaturaPresidencia: true } as never, { userId: 'u1' });
+    expect(criado().assinaturaPresidencia).toBe(true);
+  });
+
+  it('não entra quando ninguém pediu — o padrão é a linha em branco', async () => {
+    const { service, criado } = bancoFalso({});
+    await service.emitir(AVULSO as never, { userId: 'u1' });
+    expect(criado().assinaturaPresidencia).toBe(false);
+  });
+
+  /**
+   * NO RECIBO DE SAÍDA A LINHA É DO PRESTADOR — "Recebi do SENATEPI". A
+   * assinatura do presidente ali seria o sindicato assinando a declaração de
+   * outra pessoa. O servidor recusa mesmo que a tela peça.
+   */
+  it('NUNCA entra no recibo de pagamento, nem se for pedida', async () => {
+    const { service, criado } = bancoFalso({});
+    await service.emitir(
+      { ...AVULSO, tipo: 'SAIDA', assinaturaPresidencia: true } as never,
+      { userId: 'u1' },
+    );
+    expect(criado().tipo).toBe('SAIDA');
+    expect(criado().assinaturaPresidencia).toBe(false);
+  });
+
+  /**
+   * PEDIR SEM IMAGEM GRAVARIA UMA MENTIRA. O recibo diria "saiu assinado" e o
+   * papel sairia com a linha em branco; reimprimir depois, com a imagem já
+   * configurada, produziria um documento diferente do que foi arquivado.
+   */
+  it('sem imagem configurada, o pedido não vira fato', async () => {
+    const { service, criado } = bancoFalso({ assinaturaUrl: null });
+    await service.emitir({ ...AVULSO, assinaturaPresidencia: true } as never, { userId: 'u1' });
+    expect(criado().assinaturaPresidencia).toBe(false);
   });
 });

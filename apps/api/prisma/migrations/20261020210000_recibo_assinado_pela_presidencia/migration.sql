@@ -1,0 +1,24 @@
+-- A ASSINATURA DA PRESIDÊNCIA NO RECIBO — opcional, e gravada no documento.
+--
+-- "Acho interessante ter a opção de colocar a assinatura do presidente. Como
+-- opcional, tanto quando for pra emitir o recibo de alguém quanto for pra
+-- emitir um recibo avulso, ou até mesmo na ação rápida." — o dono.
+--
+-- A imagem já existia: `configuracoes_cobranca.assinatura_presidente_url`
+-- alimenta o carnê desde setembro e a carteirinha desde outubro, e o
+-- tratamento que tira o papel de trás do traço já está escrito. O que faltava
+-- era o recibo poder usá-la.
+--
+-- POR QUE UMA COLUNA, e não só ler a configuração na hora de imprimir: o
+-- recibo CONGELA o que ele diz. O número é gravado por exercício, o pagador é
+-- congelado no ato — e "este saiu assinado pela presidência" é da mesma
+-- natureza. Sem a coluna, reimprimir um recibo de 2026 depois de alguém
+-- desligar a assinatura produziria um papel diferente do que foi assinado e
+-- arquivado.
+--
+-- ADITIVA E IDEMPOTENTE: uma coluna booleana COM DEFAULT. O contêiner antigo,
+-- que não a conhece, continua inserindo recibo normalmente durante a janela de
+-- troca — e o que ele inserir nasce `false`, que é exatamente o comportamento
+-- de hoje.
+ALTER TABLE "recibos"
+  ADD COLUMN IF NOT EXISTS "assinatura_presidencia" BOOLEAN NOT NULL DEFAULT false;

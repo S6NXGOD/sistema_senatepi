@@ -150,6 +150,15 @@ function ViaDoRecibo({
   via: string;
 }) {
   const e = r.emitente;
+  /*
+    SÓ DESENHA SE O RECIBO SAIU ASSINADO **E** A IMAGEM VEIO.
+
+    `assinaturaUrl` é opcional no tipo por causa da janela de troca: durante
+    alguns minutos a tela nova conversa com a API antiga, que não manda o
+    campo. Nesse intervalo o recibo sai como sempre saiu — que é a degradação
+    certa para um documento.
+  */
+  const assinaturaImpressa = !!r.assinaturaUrl;
   const cidade = e.cidade ? `${e.cidade}` : '';
   const saida = r.tipo === 'SAIDA';
 
@@ -259,6 +268,30 @@ function ViaDoRecibo({
           SENATEPI" seria o sindicato declarando ter recebido de si mesmo.
         */}
         <div className="mt-6 text-center">
+          {/*
+            A ASSINATURA IMPRESSA, quando o recibo saiu assinado (20/10/2026).
+
+            Ela fica ACIMA da linha e com altura fixa, encostada nela: é onde
+            uma assinatura à caneta cairia, e é o que deixa o carimbo ainda
+            caber por cima. A altura reservada não muda o recibo que saiu sem
+            assinatura — sem imagem, nada é desenhado e o papel é o de sempre.
+
+            O FILTRO É O MESMO DO CARNÊ, e o número saiu de medir os pixels
+            reais: a imagem guardada é a FOTO de uma assinatura em papel, com
+            o papel dentro (100% dos pixels opacos, fundo puxando para o
+            verde). `brightness(.78) contrast(7)` leva o fundo a branco puro e
+            engrossa o traço; o `contrast(3)` mais suave comia a assinatura.
+
+            `-mb-2` faz o traço tocar a linha em vez de flutuar acima dela.
+          */}
+          {assinaturaImpressa && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={r.assinaturaUrl as string}
+              alt=""
+              className="mx-auto -mb-2 h-10 object-contain [filter:grayscale(1)_brightness(0.78)_contrast(7)]"
+            />
+          )}
           <p className="mx-auto w-[70%] border-t border-gray-500 pt-1 text-[10px] font-semibold uppercase">
             {saida ? r.contraparteNome : e.nomeCurto}
           </p>

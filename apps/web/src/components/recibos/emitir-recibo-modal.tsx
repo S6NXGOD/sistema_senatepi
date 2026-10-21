@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownLeft, ArrowUpRight, Loader2, ReceiptText, UserRound, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Loader2, PenLine, ReceiptText, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { BuscaSelect, type ItemBusca } from '@/components/ui/busca-select';
@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { buscarFiliados } from '@/lib/colonia';
 import { comoDistinguir, nomeComparavel, nomesRepetidos } from '@/lib/distinguir-filiado';
 import {
-  emitirRecibo, formatBRL, formatData, hojeEmTeresina,
+  emitirRecibo, formatBRL, formatData, hojeEmTeresina, temAssinaturaDaPresidencia,
   FORMAS_DE_PAGAMENTO, DOCUMENTO, LADO, type PagamentoParaRecibo, type TipoRecibo,
 } from '@/lib/recibos';
 import { V } from '@/lib/vocabulario';
@@ -62,6 +62,28 @@ export function EmitirReciboModal({
     doCaixa ? doCaixa.tipo : origem.tipo === 'AVULSO' ? (origem.lado ?? 'ENTRADA') : 'ENTRADA',
   );
   const saida = lado === 'SAIDA';
+
+  /*
+    A CAIXA SÓ EXISTE SE HOUVER IMAGEM. Sem assinatura configurada, marcar não
+    mudaria nada no papel — e caixa que promete o que o documento não cumpre é
+    a mesma coisa que o botão de enviar anexo que terminava em 403.
+
+    A imagem é a MESMA do carnê e da carteirinha; quem a troca é o
+    Administrador, na configuração de Cobranças, uma vez por mandato.
+  */
+  const { data: assinatura } = useQuery({
+    queryKey: ['assinatura-da-presidencia'],
+    queryFn: temAssinaturaDaPresidencia,
+    staleTime: 5 * 60_000,
+  });
+  const [assinar, setAssinar] = useState(false);
+  /*
+    SÓ NO RECIBO DE ENTRADA. No de saída a linha é do PRESTADOR ("Recebi do
+    SENATEPI") — a assinatura do presidente ali seria o sindicato assinando a
+    declaração de outra pessoa. O servidor recusa do mesmo jeito; a tela nem
+    oferece, que é melhor do que oferecer e ignorar.
+  */
+  const podeAssinar = !saida && !!assinatura?.disponivel;
   /* O CPF real de cada candidato da busca — ver `onEscolher`. */
   const [cpfPorId] = useState(() => new Map<string, string | null>());
 
@@ -83,6 +105,7 @@ export function EmitirReciboModal({
         contraparteDocumento: documento.trim() || undefined,
         filiadoId: filiadoId ?? undefined,
         empresaId: doCaixa?.empresaId ?? undefined,
+        assinaturaPresidencia: podeAssinar && assinar ? true : undefined,
       }),
     onSuccess: async (r) => {
       toast.success(`Recibo ${r.codigo} emitido.`);
@@ -375,6 +398,37 @@ export function EmitirReciboModal({
               />
             </Campo>
           </div>
+
+          {/*
+            ASSINAR PELA PRESIDÊNCIA — opcional, e desmarcado por padrão.
+
+            O recibo sempre saiu com a linha em branco para assinar à mão, e
+            continuar assim tem de ser o caminho de quem não decidiu nada.
+            Marcar é uma escolha consciente: a assinatura entra IMPRESSA, e
+            isso fica gravado no documento — reimprimir anos depois mostra o
+            mesmo papel que foi arquivado.
+          */}
+          {podeAssinar && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors hover:bg-muted/40">
+              <input
+                type="checkbox"
+                checked={assinar}
+                onChange={(e) => setAssinar(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-brand-700"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <PenLine className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  Sair com a assinatura da presidência
+                </span>
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                  {assinar
+                    ? 'A assinatura vem impressa nas duas vias — ainda cabe carimbo por cima.'
+                    : 'Sem marcar, o recibo sai com a linha em branco para assinar à mão.'}
+                </span>
+              </span>
+            </label>
+          )}
 
           {/*
             O AVISO DO QUE NÃO TEM VOLTA. Emitir grava um número que não se
