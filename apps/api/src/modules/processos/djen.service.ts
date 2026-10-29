@@ -289,6 +289,14 @@ const RECUO_APOS_RECUSA_MS = [5_000, 15_000, 45_000];
 const JANELA_DE_SUCESSO_RECENTE_MS = 5 * 60_000;
 
 const BLOQUEIOS_PARA_ABRIR = 3;
+/**
+ * Quantas falhas de REDE seguidas provam que a ponte caiu.
+ *
+ * Oito: um blip de um ou dois segundos não derruba a noite, e oito
+ * timeouts de conexão seguidos são mais de um minuto e meio de recusa
+ * consistente. Nas três noites de 24 a 26/10/2026 foram 168 de 168.
+ */
+const FALHAS_DE_REDE_PARA_ABRIR = 8;
 /** Quanto tempo o serviço para de tentar depois de confirmar o bloqueio. */
 const PAUSA_APOS_BLOQUEIO_MS = 60 * 60_000;
 
@@ -326,6 +334,26 @@ export class DjenService {
    */
   private bloqueiosSeguidos = 0;
   private bloqueadoAte = 0;
+  /**
+   * A PONTE CAIU — e o robô gastou 36 MINUTOS descobrindo isso, três noites.
+   *
+   * Em 24, 25 e 26/10/2026 a varredura registrou, cada noite, "as 168
+   * consulta(s) falharam. Motivo: Não foi possível alcançar o DJEN
+   * (UND_ERR_CONNECT_TIMEOUT)" — e levou **2.190 segundos** para chegar a essa
+   * conclusão. Cada consulta esperava o timeout de conexão inteiro contra um
+   * endereço que não atende; 168 vezes.
+   *
+   * O disjuntor que já existia só dispara no 403 (bloqueio de origem pelo
+   * CDN). Falha de REDE é outra coisa e é ainda mais conclusiva: um endereço
+   * que recusou oito conexões seguidas vai recusar a nona. Não há o que
+   * ganhar insistindo — há três dias de publicação a perder enquanto ninguém
+   * olha, que foi exatamente o que aconteceu.
+   *
+   * Oito e não três: um blip de rede de um ou dois segundos não pode derrubar
+   * a noite. Oito timeouts de conexão seguidos são mais de um minuto e meio de
+   * recusa consistente.
+   */
+  private falhasDeRedeSeguidas = 0;
   /**
    * QUANDO O CNJ NOS RESPONDEU PELA ÚLTIMA VEZ — o desempate do 403.
    *
@@ -660,6 +688,8 @@ export class DjenService {
       }
 
       this.bloqueiosSeguidos = 0;
+      // Uma resposta prova que o caminho existe: a contagem de rede recomeça.
+      this.falhasDeRedeSeguidas = 0;
       // O carimbo do 200 é o que distingue "cota" de "origem" no próximo 403.
       this.ultimoSucessoEm = Date.now();
       const json = (await res.json()) as { items?: unknown };
@@ -674,6 +704,25 @@ export class DjenService {
       this.logger.error(
         `[DJEN] Falha na consulta: ${isTimeout ? 'timeout' : (err as Error).message}`,
       );
+
+      /*
+        FALHA DE REDE SEGUIDA É PONTE FORA — ver `falhasDeRedeSeguidas`.
+
+        Só conta a falha de ALCANÇAR o endereço. O timeout de RESPOSTA
+        (`AbortError`) é outra coisa: ali a conexão abriu e o CNJ demorou, o
+        que acontece numa noite pesada e não significa que a ponte morreu.
+      */
+      if (!isTimeout) {
+        this.falhasDeRedeSeguidas++;
+        if (this.falhasDeRedeSeguidas >= FALHAS_DE_REDE_PARA_ABRIR) {
+          this.bloqueadoAte = Date.now() + PAUSA_APOS_BLOQUEIO_MS;
+          this.logger.error(
+            `[DJEN] Ponte fora do ar (${this.falhasDeRedeSeguidas} falhas de rede seguidas: ${causa}) — ` +
+              `suspendendo consultas por ${PAUSA_APOS_BLOQUEIO_MS / 60_000} min. ` +
+              'A rodada termina agora em vez de esperar o timeout de cada processo.',
+          );
+        }
+      }
       // A mensagem diz O QUE aconteceu: "não foi possível" sozinho não permite
       // nem decidir se vale tentar de novo.
       throw new ServiceUnavailableException(

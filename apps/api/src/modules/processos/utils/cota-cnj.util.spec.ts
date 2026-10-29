@@ -163,3 +163,53 @@ describe('a cota atende gente antes de robô', () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
   });
 });
+
+/**
+ * A PONTE CAÍDA DEIXA DE CUSTAR 36 MINUTOS POR NOITE.
+ *
+ * Em 24, 25 e 26/10/2026 a varredura do DJEN registrou, cada noite, "as 168
+ * consulta(s) falharam — UND_ERR_CONNECT_TIMEOUT" e levou **2.190 segundos**
+ * para concluir isso: cada consulta esperava o timeout de conexão inteiro
+ * contra um endereço que não atendia, 168 vezes.
+ *
+ * O disjuntor que existia só dispara no 403 (bloqueio de origem pelo CDN).
+ * Falha de REDE é mais conclusiva ainda — um endereço que recusou oito
+ * conexões seguidas vai recusar a nona.
+ */
+describe('o disjuntor da ponte fora do ar', () => {
+  const SRC = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '../djen.service.ts'), 'utf8',
+  ) as string;
+  const codigo = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('conta falhas de rede seguidas e abre em oito', () => {
+    expect(codigo).toContain('const FALHAS_DE_REDE_PARA_ABRIR = 8;');
+    expect(codigo).toContain('this.falhasDeRedeSeguidas++;');
+    expect(codigo).toContain('if (this.falhasDeRedeSeguidas >= FALHAS_DE_REDE_PARA_ABRIR)');
+  });
+
+  /**
+   * O TIMEOUT DE RESPOSTA NÃO CONTA. Ali a conexão abriu e o CNJ demorou —
+   * acontece em noite pesada e não significa ponte morta. Contá-lo faria uma
+   * noite lenta derrubar a varredura inteira.
+   */
+  it('o timeout de resposta (AbortError) NÃO alimenta o disjuntor', () => {
+    const i = codigo.indexOf('this.falhasDeRedeSeguidas++');
+    const antes = codigo.slice(Math.max(0, i - 200), i);
+    expect(antes).toContain('if (!isTimeout)');
+  });
+
+  /** Uma resposta prova que o caminho existe: a contagem recomeça. */
+  it('zera a contagem no primeiro sucesso', () => {
+    expect(codigo).toContain('this.falhasDeRedeSeguidas = 0;');
+    const iZera = codigo.indexOf('this.falhasDeRedeSeguidas = 0;');
+    const iSucesso = codigo.indexOf('this.ultimoSucessoEm = Date.now();');
+    expect(Math.abs(iZera - iSucesso)).toBeLessThan(200);
+  });
+
+  /** Aberto, as consultas seguintes caem na hora — é o que corta os 36 min. */
+  it('reusa a mesma trava que o bloqueio de origem já usava', () => {
+    expect(codigo).toContain('this.bloqueadoAte = Date.now() + PAUSA_APOS_BLOQUEIO_MS;');
+    expect(codigo).toContain('if (Date.now() < this.bloqueadoAte) throw new DjenBloqueadoError();');
+  });
+});
