@@ -379,14 +379,59 @@ export function prazoPendurado(frase: string): boolean {
   return RE_GATILHO_FUTURO.test(frase);
 }
 
-export function quemFoiIntimado(frase: string): 'ATIVO' | 'PASSIVO' | null {
+/**
+ * OS DOIS PAPÉIS LIGADOS POR "E" — aí a ordem é dos dois mesmo.
+ *
+ * "INTIME-SE AS PARTES EMBARGADAS (RECLAMANTE E RECLAMADA) PARA MANIFESTAR-SE":
+ * aqui os dois são destinatários. O que separa este caso do outro é o que vem
+ * ENTRE os dois papéis — uma conjunção e nada mais.
+ */
+const RE_LIGADOS_POR_E = /^[\s,)(]*E\s+(?:A|O|AS|OS)?\s*$/;
+
+/**
+ * QUEM FOI INTIMADO — e por que o mais PERTO do verbo ganha o empate.
+ *
+ * A versão anterior desistia quando os dois papéis apareciam na janela
+ * (`ativo === passivo` devolvia null), e a desistência tinha consequência: o
+ * fluxo caía na regra "a frase obriga os dois lados" e o prazo virava NOSSO.
+ *
+ * Medido na produção em 29/10/2026 — 717 ordens no acervo, 11 com os dois
+ * papéis na janela — e a leitura das 11 dá a regra:
+ *
+ *   "NOTIFIQUE-SE **O RECLAMADO** PARA APRESENTAR OS DOCUMENTOS INDICADOS
+ *    PELO SINDICATO AUTOR, NO PRAZO DE 5 DIAS, SOB PENA DE MULTA"
+ *
+ * O destinatário é o reclamado; o "sindicato autor" é quem PEDIU os
+ * documentos. A ordem é da outra parte, e o sistema abriu tarefa para nós —
+ * "Juntar documentos", na agenda do Dr. Carlos. Dos três casos desse molde no
+ * acervo, os três eram da parte contrária.
+ *
+ * A regra, então: dentro da mesma frase, **o papel mais próximo do verbo é o
+ * destinatário**; o que vem depois é o objeto da ação ("apresentar os
+ * documentos pedidos pelo autor", "comprovar o pagamento devido ao autor").
+ *
+ * A EXCEÇÃO É A CONJUNÇÃO. "(RECLAMANTE E RECLAMADA)" são os dois, e aí a
+ * resposta é AMBOS — que para quem pergunta vale como "nossa também".
+ *
+ * A frase já chega cortada por `.`/`;` de quem chama, então a janela não
+ * atravessa para a ordem seguinte.
+ */
+export function quemFoiIntimado(frase: string): 'ATIVO' | 'PASSIVO' | 'AMBOS' | null {
   const m = RE_VERBO_DE_ORDEM.exec(frase);
   if (!m) return null;
-  const janela = frase.slice(m.index + m[0].length, m.index + m[0].length + JANELA_DO_DESTINATARIO);
-  const ativo = PAPEL_ATIVO.test(janela);
-  const passivo = PAPEL_PASSIVO.test(janela);
-  if (ativo === passivo) return null; // os dois, ou nenhum: não decide
-  return ativo ? 'ATIVO' : 'PASSIVO';
+  const fim = m.index + m[0].length;
+  const janela = frase.slice(fim, fim + JANELA_DO_DESTINATARIO);
+  const ativo = PAPEL_ATIVO.exec(janela);
+  const passivo = PAPEL_PASSIVO.exec(janela);
+  if (!ativo && !passivo) return null;
+  if (ativo && !passivo) return 'ATIVO';
+  if (passivo && !ativo) return 'PASSIVO';
+
+  const primeiro = ativo!.index < passivo!.index ? ativo! : passivo!;
+  const segundo = ativo!.index < passivo!.index ? passivo! : ativo!;
+  const entre = janela.slice(primeiro.index + primeiro[0].length, segundo.index);
+  if (RE_LIGADOS_POR_E.test(entre)) return 'AMBOS';
+  return ativo!.index < passivo!.index ? 'ATIVO' : 'PASSIVO';
 }
 
 export function deQuemEOPrazo(
@@ -426,6 +471,11 @@ export function deQuemEOPrazo(
       devolve null e tudo segue como antes.
     */
     const intimado = quemFoiIntimado(frase);
+    if (intimado === 'AMBOS') {
+      // Os dois foram intimados: um deles somos nós.
+      lados.push(nosso());
+      continue;
+    }
     if (intimado && nossoPolo) {
       lados.push(intimado === nossoPolo ? nosso() : 'DA_OUTRA_PARTE');
       continue;

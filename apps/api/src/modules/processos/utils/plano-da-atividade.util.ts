@@ -4,6 +4,7 @@ import {
   proximoHorarioUtilDoDiaDeCalendario, somarDiasUteisEmCalendario,
 } from './data-br.util';
 import { PROVIDENCIAS, diasParaLembrete, type Providencia } from './providencia.util';
+import { trechoDaOrdem } from './trecho-da-ordem.util';
 
 /**
  * O QUE A PUBLICAÇÃO VAI VIRAR — calculado uma vez, lido por dois.
@@ -169,9 +170,36 @@ export function planejarAtividade(
         'reservado para fazer, com folga — a contagem do prazo processual é do advogado.'
       : '';
 
+  /*
+    O QUE O JUÍZO MANDOU — a linha que faltava (29/10/2026).
+
+    "Achei muito genérica essa 'Comunicar filiado' e 'Juntar documentos',
+    faltou detalhamento e explicação." — o dono, e ele estava certo. A
+    descrição dizia o processo, o órgão e o aviso de atraso; o que o ato PEDE
+    não aparecia em lugar nenhum da tarefa. "Comunicar filiado" sobre o quê?
+
+    O TEOR INTEIRO CONTINUA FORA, e isso não é contradição com a decisão de
+    13/09: o que foi tirado dali eram os 2.476 caracteres médios do ato, que
+    apareciam TRÊS vezes na gaveta (uma na descrição e uma por publicação
+    irmã). Aqui entra o TRECHO DA ORDEM — uma frase, no máximo 170
+    caracteres, que `trecho-da-ordem.util` já extrai e já testa desde a caixa
+    de propostas.
+
+    E a assimetria que isso corrige é a parte mais estranha do sistema de
+    hoje: a PROPOSTA — onde o robô NÃO tinha certeza — mostrava a frase da
+    ordem para o advogado decidir; a TAREFA — onde ele teve certeza — não
+    mostrava nada. Quanto mais o sistema sabia, menos ele contava.
+
+    Sem padrão reconhecido, `trechoDaOrdem` devolve null e a descrição fica
+    como era: uma frase inventada seria pior que o silêncio.
+  */
+  const ordem = c.texto ? trechoDaOrdem(c.texto) : null;
+  const linhaDaOrdem = ordem ? `\n\nO que o juízo determinou:\n"${ordem}"` : '';
+
   const descricao =
     `Processo ${NpuUtils.formatar(numeroCNJ) || '(rascunho)'}` +
     `${c.nomeOrgao ? ` — ${c.nomeOrgao}` : ''}.` +
+    linhaDaOrdem +
     linhaDoPrazo +
     (atrasado
       ? `\n⚠ Publicação de ${idadeDias} dia(s) atrás — o prazo calculado já venceu. ` +

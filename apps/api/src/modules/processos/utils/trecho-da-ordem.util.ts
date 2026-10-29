@@ -99,15 +99,74 @@ function dispositivoDoJulgado(texto: string): string | null {
   return fim.length > MINIMO_UTIL ? fim.slice(0, MAX_DA_PREVIA) : null;
 }
 
+/**
+ * O FECHO DO ANÚNCIO — a prévia acaba numa frase, não no meio de uma palavra.
+ *
+ * O recorte era o pedaço cru da regex, cortado no caractere 170. Na produção
+ * de 29/10/2026 isso saía assim:
+ *
+ *   "...sob pena de multa no valor de R$ 5.000,00. TERESINA/PI, 23 de"
+ *
+ * Duas coisas erradas numa linha só: a ASSINATURA do juízo entrou na prévia
+ * (cidade e data não dizem nada sobre a ordem) e a frase termina em "23 de".
+ *
+ * Três cortes, nesta ordem:
+ *  1. a assinatura — "TERESINA/PI, 23 de outubro de 2026" e variantes;
+ *  2. a última frase inteira, quando sobra prévia suficiente depois dela;
+ *  3. a última palavra inteira, com reticências, quando não houve frase.
+ */
+const RE_ASSINATURA_DO_JUIZO =
+  /\s*[A-ZÀ-Ú][A-ZÀ-ÚÀ-Ü .]{2,28}\s?[-/]\s?[A-Z]{2},\s*\d{1,2}\s+de\s+\p{L}+.*$/iu;
+
+/** Abreviações que terminam em ponto e NÃO fecham a frase num despacho. */
+const RE_ABREVIACAO = /\b(art|arts|inc|incs|al|par|§|n|no|nº|fl|fls|id|cf|cc|clt|cpc|cpp|ltda|me|epp|dr|dra|sr|sra|v|exmo|proc)\.$/i;
+
+/** O último ponto que realmente fecha uma frase, ou -1. */
+function acharFimDeFrase(t: string): number {
+  for (let i = t.lastIndexOf('. '); i > 0; i = t.lastIndexOf('. ', i - 1)) {
+    if (!RE_ABREVIACAO.test(t.slice(0, i + 1))) return i;
+  }
+  return -1;
+}
+
+export function fecharTrecho(bruto: string): string {
+  let t = bruto.replace(RE_ASSINATURA_DO_JUIZO, '').trim();
+
+  /*
+    A ÚLTIMA FRASE INTEIRA — mas só se o que sobrar ainda informar. Cortar
+    "Intime-se o reclamado para apresentar os documentos, no prazo de 5 dias"
+    no primeiro ponto deixaria duas palavras, e duas palavras não ajudam
+    ninguém: por isso o corte só vale acima de 60% do que havia.
+
+    E NEM TODO PONTO FECHA FRASE. "apresentem quesitos complementares (art.
+    465, § 1º" foi cortado em "(art." na primeira versão — o ponto da
+    abreviação parecia fim de frase. A lista cobre as que o despacho usa.
+  */
+  const ponto = acharFimDeFrase(t);
+  if (ponto > 0 && ponto >= t.length * 0.6) t = t.slice(0, ponto + 1);
+
+  // Cortado no meio de uma palavra? Volta até o espaço e assume as reticências.
+  if (!/[.!?]$/.test(t)) {
+    const espaco = t.lastIndexOf(' ');
+    if (espaco > MINIMO_UTIL) t = `${t.slice(0, espaco).replace(/[,;:\s]+$/, '')}…`;
+  }
+  return t.trim();
+}
+
 export function trechoDaOrdem(texto: string): string | null {
+  /*
+    O DISPOSITIVO TAMBÉM PASSA PELO FECHO. Ele saía cru — e terminava em
+    "deverá o MUNICÍPIO DE JOAQUIM PIRES/PI " no caso real de 29/10/2026,
+    com espaço no fim e sem reticência nenhuma dizendo que havia mais.
+  */
   const dispositivo = dispositivoDoJulgado(texto || '');
-  if (dispositivo) return dispositivo;
+  if (dispositivo) return fecharTrecho(dispositivo);
 
   const t = (texto || '').replace(/\s+/g, ' ');
   for (const re of PADROES_DE_ORDEM) {
     const m = re.exec(t);
     if (!m) continue;
-    const trecho = m[0].trim();
+    const trecho = fecharTrecho(m[0].trim());
     if (trecho.length > MINIMO_UTIL) return trecho;
   }
   return null;

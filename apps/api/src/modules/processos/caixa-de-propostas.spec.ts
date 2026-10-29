@@ -226,3 +226,61 @@ describe('o escopo ampliado', () => {
     expect(CAIXA).toContain(': { tarefaPropostaPara: usuarioId }),');
   });
 });
+
+/**
+ * O FECHO DA PRÉVIA — a frase acaba onde uma frase acaba.
+ *
+ * Até 29/10/2026 o trecho era o recorte cru da regex, cortado no caractere
+ * 170. Na produção isso saía assim, numa tarefa real do Dr. Carlos:
+ *
+ *   "...sob pena de multa no valor de R$ 5.000,00. TERESINA/PI, 23 de"
+ *
+ * A assinatura do juízo entrou na prévia (cidade e data não dizem nada sobre
+ * a ordem) e a frase terminou em "23 de". Isso passou a importar muito mais
+ * quando a MESMA função virou a explicação da tarefa, e não só a prévia da
+ * caixa de propostas.
+ */
+describe('o fecho do trecho da ordem', () => {
+  it('corta a assinatura do juízo e termina na frase', () => {
+    const t = trechoDaOrdem(
+      'DESPACHO Para fins de liquidação do julgado, notifique-se o reclamado para ' +
+        'apresentar os documentos indicados pelo sindicato autor (id 384efda), no prazo ' +
+        'de 5 dias, sob pena de multa no valor de R$ 5.000,00. TERESINA/PI, 23 de outubro ' +
+        'de 2026. ALBA CRISTINA DA SILVA Juíza Titular de Vara do Trabalho',
+    );
+    expect(t).toContain('notifique-se o reclamado');
+    expect(t).not.toContain('TERESINA');
+    expect(t!.endsWith('.')).toBe(true);
+  });
+
+  /**
+   * NEM TODO PONTO FECHA FRASE. "(art. 465, § 1º" fazia o corte acontecer em
+   * "(art." — a prévia morria no meio da citação legal.
+   */
+  it('não confunde a abreviação de artigo com fim de frase', () => {
+    const t = trechoDaOrdem(
+      'Intimem-se as partes para que, no prazo comum de 15 (quinze) dias, indiquem ' +
+        'assistentes técnicos e apresentem quesitos complementares (art. 465, § 1º, ' +
+        'incisos II e III, do CPC), devendo o perito observar o prazo fixado',
+    );
+    expect(t).toContain('art. 465');
+    expect(t).not.toMatch(/\(art\.$/);
+  });
+
+  /** Cortado no meio de uma palavra, volta ao espaço e assume as reticências. */
+  it('nunca termina no meio de uma palavra', () => {
+    const t = trechoDaOrdem(
+      'Intime-se a parte reclamante, por seu advogado, para fazer a juntada da ' +
+        'documentação e, também, para apresentação dos cálculos de liquidação, no prazo ' +
+        'de 8 (oito) dias, em virtude da alta demanda no Setor de Cálculos desta Vara',
+    );
+    expect(t).toBeTruthy();
+    expect(t!.endsWith('…') || /[.!?]$/.test(t!)).toBe(true);
+    expect(t).not.toMatch(/\s$/);
+  });
+
+  /** Sem padrão reconhecido continua devolvendo null — inventar seria pior. */
+  it('sem ordem reconhecível, não inventa', () => {
+    expect(trechoDaOrdem('PODER JUDICIARIO TRIBUNAL REGIONAL DO TRABALHO DA 22a REGIAO')).toBeNull();
+  });
+});

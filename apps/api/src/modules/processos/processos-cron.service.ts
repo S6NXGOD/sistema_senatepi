@@ -26,6 +26,11 @@ export type RodadaDatajud =
       comNovas: number;
       novas: number;
       falhas: number;
+      /**
+       * Processos que ficaram sem consulta porque a rodada passou do
+       * orçamento de tempo. Entram primeiro na noite seguinte.
+       */
+      paradosPorTempo?: number;
       /** Mensagem do erro que interrompeu a rodada, ou null. */
       quebrou: string | null;
     };
@@ -85,13 +90,22 @@ export function linhaDeResumoDatajud(r: RodadaDatajud): {
     };
   }
   const novidades = `${r.comNovas} com novidade (${r.novas} movimentação(ões) nova(s))`;
+  /*
+    QUEM FICOU PARA A PRÓXIMA NOITE APARECE NA LINHA — e não só no stdout do
+    Railway, que tem retenção própria. Sem esta frase, uma rodada cortada pelo
+    tempo seria indistinguível de uma rodada curta, e o número que explica a
+    fila atrasada viveria só no log do contêiner.
+  */
+  const ficaram = r.paradosPorTempo
+    ? `, ${r.paradosPorTempo} ficaram para a próxima noite (a rodada passou do tempo)`
+    : '';
   return {
     sucesso: true,
     novasMovimentacoes: r.novas,
     mensagemErro:
       r.falhas > 0
-        ? `Rodada concluída com ${r.falhas} de ${tentativas} consulta(s) em falha; ${r.ok} processo(s) consultado(s), ${novidades}.`
-        : `Rodada concluída: ${r.ok} processo(s) consultado(s), ${novidades}.`,
+        ? `Rodada concluída com ${r.falhas} de ${tentativas} consulta(s) em falha; ${r.ok} processo(s) consultado(s), ${novidades}${ficaram}.`
+        : `Rodada concluída: ${r.ok} processo(s) consultado(s), ${novidades}${ficaram}.`,
   };
 }
 
@@ -139,6 +153,40 @@ export class ProcessosCronService {
    * e o painel continua dizendo quem ficou para trás.
    */
   private readonly TETO_DA_REPESCAGEM = 40;
+  /**
+   * O ORÇAMENTO DE TEMPO DA RODADA, em minutos (29/10/2026).
+   *
+   * A rodada do DataJud começa às 02h de Teresina; a do DJEN, às 05h. Não
+   * havia nada impedindo a primeira de passar da segunda — e passou:
+   *
+   *   22/10  05:00 → 05:46 ( 46 min)   0% de falha
+   *   25/10  05:00 → 06:23 ( 83 min)   4%
+   *   27/10  05:00 → 06:58 (118 min)   7%
+   *   23/10  05:00 → 08:27 (207 min)  38%   ← invadiu o DJEN
+   *   28/10  05:00 → 08:17 (197 min)  28%, e 63% DEPOIS das 08h
+   *   29/10  05:00 → 08:28 (208 min)  37%
+   *
+   * (horários em UTC; 08:00 UTC = 05:00 em Teresina)
+   *
+   * Os três dias em que ela passou das 05h são os três com mais falha. A cota
+   * do CNJ é por endereço de saída e os dois robôs saem pelo mesmo: quando
+   * correm juntos, disputam entre si o que já é escasso — e o 429 de um é
+   * pago pelo outro.
+   *
+   * 150 minutos é a mesma régua do DJEN, e termina 04h30, com meia hora de
+   * folga antes dele. O que não couber NÃO SE PERDE: `idsParaSincronizar`
+   * ordena pela leitura mais antiga, então quem ficou de fora entra primeiro
+   * na noite seguinte — exatamente como a passada 3 do DJEN já faz.
+   *
+   * ISTO NÃO CONSERTA A LENTIDÃO, e é importante dizer: a consulta leva ~58s
+   * pelo Railway contra 9–20s medidos do Brasil, com a MESMA chave e o MESMO
+   * processo. A causa é a rota, e o conserto dela é `DATAJUD_BASE_URL`
+   * apontando para a ponte brasileira que o DJEN já usa. O orçamento impede
+   * que a lentidão de um robô vire falha no outro.
+   */
+  private readonly ORCAMENTO_DA_RODADA_MIN = Number(
+    process.env.DATAJUD_ORCAMENTO_DA_RODADA_MIN,
+  ) || 150;
   /**
    * Validade da trava. A varredura leva ~5s por processo (2–3s de espera + a
    * consulta, que o CNJ responde em 10–25s nos casos ruins); 3h dão folga larga
@@ -218,13 +266,16 @@ export class ProcessosCronService {
     // Fora do `try`: a linha de resumo do `finally` precisa do que já foi
     // contado mesmo quando a rodada quebra no meio.
     const rodada = {
-      elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0,
+      elegiveis: 0, ok: 0, comNovas: 0, novas: 0, falhas: 0, paradosPorTempo: 0,
       /** Quantos voltaram na segunda tentativa depois de um 429. */
       recuperados: 0,
       quebrou: null as string | null,
     };
     /** Os que levaram 429: a cota era de outro, e eles merecem uma segunda vez. */
     const paraTentarDeNovo: string[] = [];
+    /** Quantos ficaram sem consulta porque a rodada passou do orçamento. */
+    const estourouOTempo = () =>
+      Date.now() - inicio > this.ORCAMENTO_DA_RODADA_MIN * 60_000;
 
     try {
       // Ativos E pendentes: um processo recém-cadastrado (PENDENTE) também
@@ -238,6 +289,20 @@ export class ProcessosCronService {
       );
 
       for (let inicioLote = 0; inicioLote < ids.length; inicioLote += this.TAMANHO_LOTE) {
+        /*
+          A PARADA É ENTRE LOTES, e não no meio de um. Cortar no meio deixaria
+          o lote pela metade sem que o log dissesse onde parou; entre lotes o
+          corte é limpo e custa, no pior caso, os dez do lote em curso.
+        */
+        if (estourouOTempo()) {
+          rodada.paradosPorTempo = ids.length - inicioLote;
+          this.logger.warn(
+            `[DATAJUD-SYNC] Rodada parada por tempo (${this.ORCAMENTO_DA_RODADA_MIN} minutos): ` +
+              `${rodada.paradosPorTempo} processo(s) ficaram para a próxima noite — ` +
+              'eles entram primeiro, porque a fila ordena pela leitura mais antiga.',
+          );
+          break;
+        }
         const lote = ids.slice(inicioLote, inicioLote + this.TAMANHO_LOTE);
         const numeroLote = Math.floor(inicioLote / this.TAMANHO_LOTE) + 1;
 
@@ -323,6 +388,20 @@ export class ProcessosCronService {
         );
         await new Promise((r) => setTimeout(r, this.PAUSA_APOS_COTA));
         for (let i = 0; i < paraTentarDeNovo.length; i++) {
+          /*
+            A REPESCAGEM TAMBÉM TEM HORA PARA ACABAR. Ela aceita até 40
+            processos a ~58s cada — sozinha, quase 40 minutos. Sem o corte, o
+            orçamento do laço principal seria contornado justamente na parte
+            da rodada que roda mais tarde.
+          */
+          if (estourouOTempo()) {
+            rodada.paradosPorTempo += paraTentarDeNovo.length - i;
+            this.logger.warn(
+              `[DATAJUD-SYNC] Repescagem parada por tempo: ${paraTentarDeNovo.length - i} ` +
+                'processo(s) ficaram para a próxima noite.',
+            );
+            break;
+          }
           const id = paraTentarDeNovo[i];
           try {
             const { novas } = await this.processos.ressincronizarSilencioso(id);

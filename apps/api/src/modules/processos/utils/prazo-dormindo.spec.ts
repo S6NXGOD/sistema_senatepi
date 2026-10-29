@@ -67,9 +67,55 @@ describe('quem foi intimado × quem foi citado', () => {
     expect(quemFoiIntimado('FICA A EXECUTADA ADVERTIDA DE QUE O SILENCIO ACARRETARA MULTA')).toBeNull();
   });
 
-  /** Os dois papéis DENTRO da janela: aí a frase obriga mesmo os dois. */
-  it('com os dois papéis logo após o verbo, não opina', () => {
-    expect(quemFoiIntimado('INTIMEM-SE O AUTOR E A RECLAMADA PARA, NO PRAZO DE 5 DIAS')).toBeNull();
+  /**
+   * OS DOIS LIGADOS POR "E" SÃO OS DOIS — e agora a função DIZ isso.
+   *
+   * Até 29/10/2026 ela devolvia `null` aqui, e o comentário deste teste já
+   * explicava a intenção ("aí a frase obriga mesmo os dois"). Desistir
+   * funcionava por acidente: o fluxo caía na regra seguinte, que empurrava
+   * para `nosso()`. Funcionava — para este caso.
+   */
+  it('com os dois papéis ligados por "e", diz que são AMBOS', () => {
+    expect(quemFoiIntimado('INTIMEM-SE O AUTOR E A RECLAMADA PARA, NO PRAZO DE 5 DIAS'))
+      .toBe('AMBOS');
+  });
+
+  /**
+   * O CASO EM QUE DESISTIR CUSTAVA CARO — medido na produção em 29/10/2026.
+   *
+   * "NOTIFIQUE-SE O RECLAMADO PARA APRESENTAR OS DOCUMENTOS INDICADOS PELO
+   *  SINDICATO AUTOR, NO PRAZO DE 5 DIAS, SOB PENA DE MULTA"
+   *
+   * O destinatário é o RECLAMADO; o "sindicato autor" é quem pediu os
+   * documentos. Com os dois papéis na janela a função devolvia `null`, o
+   * fluxo caía em "a frase obriga os dois lados" e o prazo virava NOSSO —
+   * nasceu "Juntar documentos" na agenda do advogado, para um dever da parte
+   * contrária. Dos três atos desse molde no acervo, os três eram dela.
+   *
+   * A régua: dentro da frase, o papel mais PERTO do verbo é o destinatário.
+   */
+  it('o papel mais perto do verbo é o destinatário, e o outro é só mencionado', () => {
+    expect(
+      quemFoiIntimado(
+        'NOTIFIQUE-SE O RECLAMADO PARA APRESENTAR OS DOCUMENTOS INDICADOS PELO ' +
+          'SINDICATO AUTOR (ID 384EFDA), NO PRAZO DE 5 DIAS, SOB PENA DE MULTA',
+      ),
+    ).toBe('PASSIVO');
+
+    expect(
+      quemFoiIntimado(
+        'INTIME-SE O RECLAMADO PARA COMPROVAR O PAGAMENTO DO VALOR DEVIDO AO ' +
+          'SINDICATO AUTOR, NO PRAZO DE 15 DIAS',
+      ),
+    ).toBe('PASSIVO');
+
+    // E o espelho: quando quem vem primeiro somos nós, a ordem é nossa.
+    expect(
+      quemFoiIntimado(
+        'INTIME-SE A PARTE AUTORA PARA SE MANIFESTAR SOBRE A DEFESA DO RECLAMADO, ' +
+          'NO PRAZO DE 15 DIAS',
+      ),
+    ).toBe('ATIVO');
   });
 });
 
