@@ -249,3 +249,41 @@ describe('selecionar em bloco', () => {
     expect(FILA).toContain('!!minhas.length && minhas.length < itens.length');
   });
 });
+
+/**
+ * A CITAÇÃO DO CABEÇALHO NÃO PÕE O SINDICATO NOS DOIS POLOS.
+ *
+ * "Os lados podem ser invertidos e o SENATEPI pode estar em qualquer um
+ * deles" — o dono, 31/10/2026. Somos réu em 9 dos 188 processos. O risco desta
+ * tela é o polo que o Diário informa num RECURSO ser a posição recursal: os
+ * destinatários nos põem de um lado, o cabeçalho do outro, e a citação
+ * ofereceria o sindicato para o polo "vazio".
+ */
+describe('a citação do cabeçalho do ato', () => {
+  const DIALOGO = lerCodigo('importar-processo-dialog.tsx');
+
+  it('não oferece o sindicato quando ele já está em algum polo', () => {
+    expect(DIALOGO).toContain('const jaSomosDeAlgumLado =');
+    expect(DIALOGO).toContain('if (jaSomosDeAlgumLado && ehOSindicato(nome, tenant.sigla)) continue;');
+  });
+
+  /*
+    E A DEPENDÊNCIA DO MEMO TEM DE INCLUIR OS DOIS POLOS. Esta casa já pagou
+    por `useMemo` com lista de dependências escrita à mão e incompleta: sem
+    `poloAtivo` e `reus` ali, a trava congelaria no estado da primeira
+    renderização e voltaria a oferecer o sindicato depois que ele entrasse.
+  */
+  it('o memo recalcula quando os polos mudam', () => {
+    const inicio = DIALOGO.indexOf('const citacao = useMemo(');
+    expect(inicio).toBeGreaterThan(0);
+    // A lista de dependências é o `}, [...]);` que fecha o memo.
+    const memo = DIALOGO.slice(inicio, DIALOGO.indexOf(']);', inicio) + 3);
+    expect(memo).toContain('}, [cabecalhoDoAto, poloAtivo, reus]);');
+  });
+
+  /** O nome citado nunca é gravado sozinho: entra só quando alguém clica. */
+  it('a citação é texto do tribunal, não cadastro automático', () => {
+    expect(DIALOGO).toContain('Usar este texto');
+    expect(DIALOGO).toContain("detalhe: 'Citado no cabeçalho do ato'");
+  });
+});

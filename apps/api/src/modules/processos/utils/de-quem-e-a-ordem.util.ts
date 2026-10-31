@@ -76,13 +76,35 @@ const RE_ORDEM =
  * AUTOR é o RECORRIDO. Mapeá-los pelo polo diria "da outra parte" para um prazo
  * NOSSO — e perder prazo é o erro caro, que é a assimetria que desenha este
  * arquivo inteiro.
+ *
+ * EMBARGANTE/EMBARGADO E AGRAVANTE/AGRAVADO SAÍRAM EM 31/10/2026, pela mesma
+ * razão — e tinham ficado aqui por descuido, contrariando o parágrafo acima.
+ *
+ * O dono avisou: "os lados podem ser invertidos e o SENATEPI pode estar em
+ * qualquer um deles". Está, e o acervo tem a prova (0800201-67.2023.8.18.0036):
+ *
+ *   AUTOR: SINDICATO (...) SENATEPI    RÉU: MUNICÍPIO DE NOVO SANTO ANTÔNIO
+ *   "INTIMO A PARTE EMBARGADA A APRESENTAR CONTRARRAZÕES NO PRAZO LEGAL."
+ *
+ * Quem embargou foi o município; a parte EMBARGADA somos nós, e a contrarrazão
+ * é nossa. A régua leu "EMBARGADA" como polo passivo, concluiu "da outra
+ * parte" e DISPENSOU a tarefa — está gravado `ORDEM_DA_OUTRA_PARTE` nessa
+ * publicação. Outras 12 do acervo têm o mesmo molde e só não doeram porque já
+ * tinham caído antes por notícia velha.
+ *
+ * Quem embarga ou agrava é a parte INCONFORMADA, seja ela autora ou ré. O
+ * papel diz quem recorreu, nunca de que lado a ação nasceu. Sem eles a frase
+ * cai em INDEFINIDO — que cria tarefa, o lado barato do erro.
+ *
+ * SUSCITANTE/SUSCITADO E IMPETRANTE/IMPETRADO FICAM: dissídio coletivo e
+ * mandado de segurança são ações próprias, e ali o papel é o polo mesmo.
  */
 const PAPEL_ATIVO =
-  /\b(AUTOR|AUTORA|RECLAMANTE|EXEQUENTE|REQUERENTE|IMPETRANTE|EMBARGANTE|AGRAVANTE|SUSCITANTE|CREDOR|CREDORA)\b/;
+  /\b(AUTOR|AUTORA|RECLAMANTE|EXEQUENTE|REQUERENTE|IMPETRANTE|SUSCITANTE|CREDOR|CREDORA)\b/;
 
 /** Papeis de contra quem a acao foi proposta -- com a devedora da execucao. */
 const PAPEL_PASSIVO =
-  /\b(REU|RE|RECLAMAD[AO]|EXECUTAD[AO]|REQUERID[AO]|IMPETRAD[AO]|EMBARGAD[AO]|AGRAVAD[AO]|SUSCITAD[AO]|DEVEDOR|DEVEDORA)\b/;
+  /\b(REU|RE|RECLAMAD[AO]|EXECUTAD[AO]|REQUERID[AO]|IMPETRAD[AO]|SUSCITAD[AO]|DEVEDOR|DEVEDORA)\b/;
 
 /**
  * "TODAS AS PARTES" é ordem nossa também — e é comum no fim de despacho.

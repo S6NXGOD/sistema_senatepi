@@ -247,6 +247,7 @@ export class DjenBuscaService {
       select: {
         processoId: true,
         polo: true,
+        filiadoId: true,
         parteExterna: { select: { institucional: true } },
       },
     });

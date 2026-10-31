@@ -1233,9 +1233,13 @@ export class CorrelacaoService {
         filiadoId: true,
         // O polo do sindicato sai do VÍNCULO com o cadastro institucional, não
         // do nome: as 96 partes que são o sindicato estão todas ligadas a ele.
-        // O recorte "só as institucionais" é de `nossoPoloPelasPartes`, não daqui.
+        // Quem é "nós" é de `nossoPoloPelasPartes`, não daqui — e pode ser o filiado.
         partes: {
-          select: { polo: true, parteExterna: { select: { institucional: true } } },
+          select: {
+            polo: true,
+            filiadoId: true,
+            parteExterna: { select: { institucional: true } },
+          },
         },
       },
     });
@@ -1303,6 +1307,8 @@ export interface ParteParaPolo {
   polo: string | null;
   /** O vínculo com o cadastro do sindicato — é por ele que nos reconhecemos. */
   parteExterna?: { institucional: boolean } | null;
+  /** O vínculo com um filiado: quando o sindicato não é parte, o lado é o dele. */
+  filiadoId?: string | null;
 }
 
 /**
@@ -1331,7 +1337,27 @@ export interface ParteParaPolo {
  * junto; esquecer o `where` não muda resposta nenhuma.
  */
 export function nossoPoloPelasPartes(partes: ParteParaPolo[]): 'ATIVO' | 'PASSIVO' | null {
-  const nossas = partes.filter((x) => x.parteExterna?.institucional === true);
+  /*
+    QUANDO O SINDICATO NÃO É PARTE, O LADO É O DO FILIADO (31/10/2026).
+
+    Em 32 dos 188 processos do acervo — 17% — a ação é do próprio filiado e o
+    sindicato não figura: somos os ADVOGADOS dele. O polo ficava `null` ali, e
+    `null` cala a atribuição de dever: toda ordem do ato virava indefinida, a
+    da parte contrária inclusive. São 122 publicações em que a régua estava
+    cega, e hoje elas quase não produzem tarefa só porque esses processos ainda
+    andam pouco.
+
+    Medido: 6 publicações mudam de veredito — 5 passam a ser reconhecidas como
+    NOSSAS e 1 vira "da outra parte" corretamente ("intime-se a parte RÉ para
+    indicar as provas", sendo o filiado o autor). Nenhum erro novo.
+
+    O SINDICATO TEM PRECEDÊNCIA quando é parte: ele é o cliente institucional, e
+    um processo em que o sindicato litiga contra um filiado (raro, mas possível)
+    não pode trocar de lado por causa do segundo vínculo.
+  */
+  const institucionais = partes.filter((x) => x.parteExterna?.institucional === true);
+  const nossas = institucionais.length ? institucionais : partes.filter((x) => x.filiadoId);
+
   const noAtivo = nossas.some((x) => x.polo === 'ATIVO');
   const noPassivo = nossas.some((x) => x.polo === 'PASSIVO');
   return noAtivo && !noPassivo ? 'ATIVO' : noPassivo && !noAtivo ? 'PASSIVO' : null;

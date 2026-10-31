@@ -91,11 +91,20 @@ describe('de quem é a ordem do ato', () => {
     expect(deQuemEAOrdem(teor, 'PASSIVO', SIGLA)).toBe('NOSSA');
   });
 
-  /** Trechos reais das 59 barradas na conferência contra a produção. */
+  /*
+    Trechos reais das 59 barradas na conferência contra a produção.
+
+    A LINHA DA "PARTE EMBARGADA" SAIU EM 31/10/2026, e ela é o motivo de este
+    comentário existir: o teste afirmava o BUG. Com o sindicato no polo ativo,
+    "intime-se a parte embargada" foi lido como ordem alheia — mas quem embarga
+    é a parte inconformada, e no 0800201-67.2023.8.18.0036 quem embargou foi o
+    município: a parte embargada éramos NÓS, e a contrarrazão era nossa. O
+    robô dispensou a tarefa. Ver o describe "o papel recursal não diz de que
+    lado a ação nasceu", logo abaixo.
+  */
   it.each([
     ['INTIME-SE A PARTE RECLAMADA PARA IMPUGNACAO FUNDAMENTADA DOS CALCULOS.', 'ATIVO'],
     ['INTIME-SE A PARTE EXECUTADA PARA, QUERENDO, APRESENTAR IMPUGNACAO.', 'ATIVO'],
-    ['INTIME-SE A PARTE EMBARGADA PARA, QUERENDO, APRESENTAR MANIFESTACAO.', 'ATIVO'],
     ['CITE-SE A RECLAMADA PARA, NO PRAZO LEGAL, APRESENTAR CONTESTACAO.', 'ATIVO'],
   ] as const)('bloqueia: %s', (teor, polo) => {
     expect(deQuemEAOrdem(teor, polo, SIGLA)).toBe('DA_OUTRA_PARTE');
@@ -542,5 +551,92 @@ describe('o despacho que nomeia outro sindicato', () => {
     expect(outraEntidadeNomeada('O SINDICATO AUTOR', 'SENATEPI')).toBe(false);
     expect(outraEntidadeNomeada('O SINDEACS-PI', 'SENATEPI')).toBe(true);
     expect(outraEntidadeNomeada('O SENATEPI E O SINDEACS-PI', 'SENATEPI')).toBe(false);
+  });
+});
+
+/**
+ * OS LADOS PODEM ESTAR INVERTIDOS — o dono, em 31/10/2026.
+ *
+ * "Tem que ter atenção em relação a reclamada e reclamante, pois os lados
+ * podem ser invertidos e o SENATEPI pode estar em qualquer um deles." Está:
+ * somos RÉU em 9 dos 188 processos do acervo.
+ */
+describe('o papel recursal não diz de que lado a ação nasceu', () => {
+  const SIGLA = 'SENATEPI';
+
+  /**
+   * Caso real: 0800201-67.2023.8.18.0036. O sindicato é AUTOR, o município
+   * EMBARGOU, e por isso a parte EMBARGADA somos nós. A contrarrazão é nossa —
+   * e o robô dispensou a tarefa com `ORDEM_DA_OUTRA_PARTE`.
+   */
+  const CONTRARRAZOES =
+    'ATO ORDINATÓRIO. INTIMO A PARTE EMBARGADA A APRESENTAR CONTRARRAZÕES NO PRAZO LEGAL.';
+
+  it('"parte embargada" não é a parte passiva da ação', () => {
+    expect(deQuemEAOrdem(CONTRARRAZOES, 'ATIVO', SIGLA)).not.toBe('DA_OUTRA_PARTE');
+    expect(deQuemEAOrdem(CONTRARRAZOES, 'PASSIVO', SIGLA)).not.toBe('DA_OUTRA_PARTE');
+  });
+
+  it('nem a agravada — quem agrava é quem se inconformou, de qualquer lado', () => {
+    const agravo =
+      'FICAM AS PARTES AGRAVADAS INTIMADAS PARA, QUERENDO, MANIFESTAR-SE NO PRAZO DE 8 DIAS.';
+    expect(deQuemEAOrdem(agravo, 'ATIVO', SIGLA)).not.toBe('DA_OUTRA_PARTE');
+    expect(deQuemEOPrazo(agravo, 'ATIVO', SIGLA)).not.toBe('DA_OUTRA_PARTE');
+  });
+
+  /*
+    E O POLO DA AÇÃO CONTINUA DECIDINDO, nos dois sentidos. Este é o par que
+    prova que a régua não assume que somos sempre o autor.
+  */
+  it('a mesma ordem troca de dono quando trocamos de lado', () => {
+    const aoReclamado = 'NOTIFIQUE-SE O RECLAMADO PARA RECOLHER AS CUSTAS NO PRAZO DE 15 DIAS.';
+    expect(deQuemEAOrdem(aoReclamado, 'ATIVO', SIGLA)).toBe('DA_OUTRA_PARTE');
+    expect(deQuemEAOrdem(aoReclamado, 'PASSIVO', SIGLA)).toBe('NOSSA');
+
+    const aoAutor = 'INTIME-SE O AUTOR PARA EMENDAR A INICIAL NO PRAZO DE 15 DIAS.';
+    expect(deQuemEAOrdem(aoAutor, 'ATIVO', SIGLA)).toBe('NOSSA');
+    expect(deQuemEAOrdem(aoAutor, 'PASSIVO', SIGLA)).toBe('DA_OUTRA_PARTE');
+  });
+
+  /** Dissídio e mandado de segurança são ações próprias: ali o papel É o polo. */
+  it('suscitado e impetrado continuam valendo como polo passivo', () => {
+    const dissidio = 'INTIME-SE O SUSCITADO PARA MANIFESTAR-SE NO PRAZO DE 5 DIAS.';
+    expect(deQuemEAOrdem(dissidio, 'PASSIVO', SIGLA)).toBe('NOSSA');
+    expect(deQuemEAOrdem(dissidio, 'ATIVO', SIGLA)).toBe('DA_OUTRA_PARTE');
+
+    const ms = 'NOTIFIQUE-SE A AUTORIDADE IMPETRADA PARA PRESTAR INFORMAÇÕES EM 10 DIAS.';
+    expect(deQuemEAOrdem(ms, 'ATIVO', SIGLA)).toBe('DA_OUTRA_PARTE');
+  });
+});
+
+describe('quando o sindicato não é parte, o lado é o do filiado', () => {
+  const comFiliado = (polo: string) => [{ polo, filiadoId: 'f-1' }];
+
+  it('a ação do filiado dá o polo dele', () => {
+    expect(nossoPoloPelasPartes([...comFiliado('ATIVO'), { polo: 'PASSIVO' }])).toBe('ATIVO');
+    expect(nossoPoloPelasPartes([...comFiliado('PASSIVO'), { polo: 'ATIVO' }])).toBe('PASSIVO');
+  });
+
+  /*
+    O SINDICATO TEM PRECEDÊNCIA. Um processo em que o sindicato litiga contra
+    um filiado é raro, mas não pode trocar de lado por causa do segundo vínculo.
+  */
+  it('mas o sindicato manda quando ele é parte', () => {
+    expect(
+      nossoPoloPelasPartes([
+        { polo: 'PASSIVO', parteExterna: { institucional: true } },
+        { polo: 'ATIVO', filiadoId: 'f-1' },
+      ]),
+    ).toBe('PASSIVO');
+  });
+
+  it('filiados dos dois lados continuam indefinidos', () => {
+    expect(
+      nossoPoloPelasPartes([{ polo: 'ATIVO', filiadoId: 'f-1' }, { polo: 'PASSIVO', filiadoId: 'f-2' }]),
+    ).toBeNull();
+  });
+
+  it('sem sindicato e sem filiado, continua indefinido', () => {
+    expect(nossoPoloPelasPartes([{ polo: 'ATIVO' }, { polo: 'PASSIVO' }])).toBeNull();
   });
 });

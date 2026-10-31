@@ -697,15 +697,36 @@ export function ImportarProcessoDialog({
    * o nome, não para discutir com o que a pessoa acabou de escolher.
    */
   const citacao = useMemo(() => {
+    /*
+      O SINDICATO NUNCA É OFERECIDO PARA O LADO OPOSTO AO QUE JÁ OCUPA.
+
+      "Os lados podem ser invertidos e o SENATEPI pode estar em qualquer um
+      deles" — o dono, em 31/10/2026, e ele tem razão: somos réu em 9 dos 188
+      processos do acervo. O risco específico desta tela é o polo que o Diário
+      informa num RECURSO ser a posição recursal, não a da ação: aí os
+      destinatários nos colocam de um lado, o cabeçalho do outro, e a citação
+      ofereceria o sindicato para o polo "vazio" — montando um processo em que
+      o SENATEPI é autor e réu de si mesmo.
+
+      Hoje isso não acontece em nenhuma das 125 publicações do acervo em que o
+      cabeçalho completa um polo (as 14 que nos nomeiam são casos legítimos, em
+      que o sindicato não estava naquela cópia). Mas a trava custa cinco linhas
+      e o engano custaria um cadastro errado que ninguém desconfia — a mesma
+      razão pela qual a faixa `nosDoisPolos`, logo acima, existe.
+    */
+    const jaSomosDeAlgumLado =
+      poloAtivo.some((x) => x.tipo === 'INSTITUCIONAL') || reus.some((x) => x.tipo === 'INSTITUCIONAL');
+
     const porPolo = new Map<'A' | 'P', { nome: string; rotulo: string | null }>();
     for (const x of cabecalhoDoAto ?? []) {
       const polo = String(x?.polo ?? '').trim().toUpperCase();
       const nome = String(x?.nome ?? '').trim();
       if ((polo !== 'A' && polo !== 'P') || !nome || porPolo.has(polo)) continue;
+      if (jaSomosDeAlgumLado && ehOSindicato(nome, tenant.sigla)) continue;
       porPolo.set(polo, { nome, rotulo: x?.rotulo ? String(x.rotulo) : null });
     }
     return porPolo;
-  }, [cabecalhoDoAto]);
+  }, [cabecalhoDoAto, poloAtivo, reus]);
 
   /**
    * O texto citado vira parte do mesmo jeito que o nome do Diário vira.

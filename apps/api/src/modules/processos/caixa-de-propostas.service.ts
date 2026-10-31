@@ -530,9 +530,13 @@ export class CaixaDePropostasService {
         link: true,
         processo: {
           select: {
-            // O recorte institucional é de `nossoPoloPelasPartes`, não daqui.
+            // Quem é "nós" é de `nossoPoloPelasPartes` — e pode ser o filiado.
             partes: {
-              select: { polo: true, parteExterna: { select: { institucional: true } } },
+              select: {
+                polo: true,
+                filiadoId: true,
+                parteExterna: { select: { institucional: true } },
+              },
             },
           },
         },
